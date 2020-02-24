@@ -9,10 +9,9 @@ use serde::{Deserialize, Serialize};
 use near_network::types::{AccountOrPeerIdOrHash, KnownProducer};
 use near_network::PeerInfo;
 use near_primitives::hash::CryptoHash;
-use near_primitives::rpc::BlockQueryInfo;
 use near_primitives::sharding::ChunkHash;
 use near_primitives::types::{
-    AccountId, BlockHeight, MaybeBlockId, ShardId, StateChanges, StateChangesRequest,
+    AccountId, BlockHeight, BlockId, MaybeBlockId, ShardId, StateChanges, StateChangesRequest,
 };
 use near_primitives::utils::generate_random_string;
 use near_primitives::views::{
@@ -143,7 +142,10 @@ impl SyncStatus {
 }
 
 /// Actor message requesting block by id or hash.
-pub struct GetBlock(pub BlockQueryInfo);
+pub enum GetBlock {
+    BlockId(BlockId),
+    Finality(Finality),
+}
 
 impl Message for GetBlock {
     type Result = Result<BlockView, String>;

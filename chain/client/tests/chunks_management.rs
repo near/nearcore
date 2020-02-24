@@ -218,7 +218,7 @@ fn chunks_produced_and_distributed_common(
         *connectors.write().unwrap() = conn;
 
         let view_client = connectors.write().unwrap()[0].1.clone();
-        actix::spawn(view_client.send(GetBlock(BlockQueryInfo::Finality(Finality::None))).then(move |res| {
+        actix::spawn(view_client.send(GetBlock::Finality(Finality::None)).then(move |res| {
             let header: BlockHeader = res.unwrap().unwrap().header.into();
             let block_hash = header.hash;
             let connectors_ = connectors.write().unwrap();

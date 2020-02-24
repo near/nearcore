@@ -34,7 +34,6 @@ use near_store::Store;
 
 use crate::types::{Error, GetBlock, GetGasPrice, Query, TxStatus};
 use crate::{sync, GetChunk, GetKeyValueChanges, GetNextLightClientBlock, GetValidatorInfo};
-use near_primitives::rpc::BlockQueryInfo;
 
 /// Max number of queries that we keep.
 const QUERY_REQUEST_LIMIT: usize = 500;
@@ -338,18 +337,16 @@ impl Handler<GetBlock> for ViewClientActor {
     type Result = Result<BlockView, String>;
 
     fn handle(&mut self, msg: GetBlock, _: &mut Context<Self>) -> Self::Result {
-        match msg.0 {
-            BlockQueryInfo::Finality(finality) => {
+        match msg {
+            GetBlock::Finality(finality) => {
                 let block_hash =
                     self.get_block_hash_by_finality(&finality).map_err(|e| e.to_string())?;
                 self.chain.get_block(&block_hash).map(Clone::clone)
             }
-            BlockQueryInfo::BlockId(BlockId::Height(height)) => {
+            GetBlock::BlockId(BlockId::Height(height)) => {
                 self.chain.get_block_by_height(height).map(Clone::clone)
             }
-            BlockQueryInfo::BlockId(BlockId::Hash(hash)) => {
-                self.chain.get_block(&hash).map(Clone::clone)
-            }
+            GetBlock::BlockId(BlockId::Hash(hash)) => self.chain.get_block(&hash).map(Clone::clone),
         }
         .and_then(|block| {
             self.runtime_adapter

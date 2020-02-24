@@ -22,6 +22,7 @@ use near_primitives::views::{
 };
 
 use crate::user::User;
+use near_primitives::rpc::BlockQueryInfo;
 
 pub struct RpcUser {
     account_id: AccountId,
@@ -113,7 +114,8 @@ impl User for RpcUser {
     }
 
     fn get_block(&self, height: BlockHeight) -> Option<BlockView> {
-        self.actix(move |mut client| client.block(BlockId::Height(height))).ok()
+        self.actix(move |mut client| client.block(BlockQueryInfo::BlockId(BlockId::Height(height))))
+            .ok()
     }
 
     fn get_transaction_result(&self, _hash: &CryptoHash) -> ExecutionOutcomeView {

@@ -15,7 +15,6 @@ use near_crypto::{InMemorySigner, KeyType};
 use near_network::test_utils::{convert_boot_nodes, open_port, WaitOrTimeout};
 use near_network::NetworkClientMessages;
 use near_primitives::hash::CryptoHash;
-use near_primitives::rpc::BlockQueryInfo;
 use near_primitives::test_utils::{heavy_test, init_integration_logger};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockHeightDelta, NumSeats};
@@ -446,10 +445,8 @@ fn test_inflation() {
             Box::new(move |_ctx| {
                 let (done1_copy2, done2_copy2) = (done1_copy1.clone(), done2_copy1.clone());
                 actix::spawn(
-                    test_nodes[0]
-                        .view_client
-                        .send(GetBlock(BlockQueryInfo::Finality(Finality::None)))
-                        .then(move |res| {
+                    test_nodes[0].view_client.send(GetBlock::Finality(Finality::None)).then(
+                        move |res| {
                             let header_view = res.unwrap().unwrap().header;
                             if header_view.height >= 2 && header_view.height <= epoch_length {
                                 if header_view.total_supply == initial_total_supply {
@@ -457,13 +454,12 @@ fn test_inflation() {
                                 }
                             }
                             future::ready(())
-                        }),
+                        },
+                    ),
                 );
                 actix::spawn(
-                    test_nodes[0]
-                        .view_client
-                        .send(GetBlock(BlockQueryInfo::Finality(Finality::None)))
-                        .then(move |res| {
+                    test_nodes[0].view_client.send(GetBlock::Finality(Finality::None)).then(
+                        move |res| {
                             let header_view = res.unwrap().unwrap().header;
                             if header_view.height > epoch_length
                                 && header_view.height < epoch_length * 2
@@ -477,7 +473,8 @@ fn test_inflation() {
                                 }
                             }
                             future::ready(())
-                        }),
+                        },
+                    ),
                 );
                 if done1_copy1.load(Ordering::SeqCst) && done2_copy1.load(Ordering::SeqCst) {
                     System::current().stop();

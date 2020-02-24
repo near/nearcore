@@ -20,7 +20,6 @@ use near_primitives::block::{Approval, BlockHeader};
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::merklize;
-use near_primitives::rpc::BlockQueryInfo;
 use near_primitives::sharding::EncodedShardChunk;
 use near_primitives::test_utils::init_test_logger;
 use near_primitives::transaction::{SignedTransaction, Transaction};
@@ -108,16 +107,13 @@ fn produce_blocks_with_tx() {
             }),
         );
         near_network::test_utils::wait_or_panic(5000);
-        actix::spawn(view_client.send(GetBlock(BlockQueryInfo::Finality(Finality::None))).then(
-            move |res| {
-                let header: BlockHeader = res.unwrap().unwrap().header.into();
-                let block_hash = header.hash;
-                client.do_send(NetworkClientMessages::Transaction(SignedTransaction::empty(
-                    block_hash,
-                )));
-                future::ready(())
-            },
-        ))
+        actix::spawn(view_client.send(GetBlock::Finality(Finality::None)).then(move |res| {
+            let header: BlockHeader = res.unwrap().unwrap().header.into();
+            let block_hash = header.hash;
+            client
+                .do_send(NetworkClientMessages::Transaction(SignedTransaction::empty(block_hash)));
+            future::ready(())
+        }))
     })
     .unwrap();
 }
@@ -148,37 +144,35 @@ fn receive_network_block() {
                 NetworkResponses::NoResponse
             }),
         );
-        actix::spawn(view_client.send(GetBlock(BlockQueryInfo::Finality(Finality::None))).then(
-            move |res| {
-                let last_block = res.unwrap().unwrap();
-                let signer = InMemoryValidatorSigner::from_seed("test1", KeyType::ED25519, "test1");
-                let block = Block::produce(
-                    &last_block.header.clone().into(),
-                    last_block.header.height + 1,
-                    last_block.chunks.into_iter().map(Into::into).collect(),
-                    EpochId::default(),
-                    if last_block.header.prev_hash == CryptoHash::default() {
-                        EpochId(last_block.header.hash)
-                    } else {
-                        EpochId(last_block.header.next_epoch_id.clone())
-                    },
-                    vec![],
-                    0,
-                    0,
-                    None,
-                    vec![],
-                    vec![],
-                    &signer,
-                    0.into(),
-                    CryptoHash::default(),
-                    CryptoHash::default(),
-                    CryptoHash::default(),
-                    last_block.header.next_bp_hash,
-                );
-                client.do_send(NetworkClientMessages::Block(block, PeerInfo::random().id, false));
-                future::ready(())
-            },
-        ));
+        actix::spawn(view_client.send(GetBlock::Finality(Finality::None)).then(move |res| {
+            let last_block = res.unwrap().unwrap();
+            let signer = InMemoryValidatorSigner::from_seed("test1", KeyType::ED25519, "test1");
+            let block = Block::produce(
+                &last_block.header.clone().into(),
+                last_block.header.height + 1,
+                last_block.chunks.into_iter().map(Into::into).collect(),
+                EpochId::default(),
+                if last_block.header.prev_hash == CryptoHash::default() {
+                    EpochId(last_block.header.hash)
+                } else {
+                    EpochId(last_block.header.next_epoch_id.clone())
+                },
+                vec![],
+                0,
+                0,
+                None,
+                vec![],
+                vec![],
+                &signer,
+                0.into(),
+                CryptoHash::default(),
+                CryptoHash::default(),
+                CryptoHash::default(),
+                last_block.header.next_bp_hash,
+            );
+            client.do_send(NetworkClientMessages::Block(block, PeerInfo::random().id, false));
+            future::ready(())
+        }));
         near_network::test_utils::wait_or_panic(5000);
     })
     .unwrap();
@@ -214,42 +208,40 @@ fn receive_network_block_header() {
                 _ => NetworkResponses::NoResponse,
             }),
         );
-        actix::spawn(view_client.send(GetBlock(BlockQueryInfo::Finality(Finality::None))).then(
-            move |res| {
-                let last_block = res.unwrap().unwrap();
-                let signer = InMemoryValidatorSigner::from_seed("test", KeyType::ED25519, "test");
-                let block = Block::produce(
-                    &last_block.header.clone().into(),
-                    last_block.header.height + 1,
-                    last_block.chunks.into_iter().map(Into::into).collect(),
-                    EpochId::default(),
-                    if last_block.header.prev_hash == CryptoHash::default() {
-                        EpochId(last_block.header.hash)
-                    } else {
-                        EpochId(last_block.header.next_epoch_id.clone())
-                    },
-                    vec![],
-                    0,
-                    0,
-                    None,
-                    vec![],
-                    vec![],
-                    &signer,
-                    0.into(),
-                    CryptoHash::default(),
-                    CryptoHash::default(),
-                    CryptoHash::default(),
-                    last_block.header.next_bp_hash,
-                );
-                client.do_send(NetworkClientMessages::Block(
-                    block.clone(),
-                    PeerInfo::random().id,
-                    false,
-                ));
-                *block_holder.write().unwrap() = Some(block);
-                future::ready(())
-            },
-        ));
+        actix::spawn(view_client.send(GetBlock::Finality(Finality::None)).then(move |res| {
+            let last_block = res.unwrap().unwrap();
+            let signer = InMemoryValidatorSigner::from_seed("test", KeyType::ED25519, "test");
+            let block = Block::produce(
+                &last_block.header.clone().into(),
+                last_block.header.height + 1,
+                last_block.chunks.into_iter().map(Into::into).collect(),
+                EpochId::default(),
+                if last_block.header.prev_hash == CryptoHash::default() {
+                    EpochId(last_block.header.hash)
+                } else {
+                    EpochId(last_block.header.next_epoch_id.clone())
+                },
+                vec![],
+                0,
+                0,
+                None,
+                vec![],
+                vec![],
+                &signer,
+                0.into(),
+                CryptoHash::default(),
+                CryptoHash::default(),
+                CryptoHash::default(),
+                last_block.header.next_bp_hash,
+            );
+            client.do_send(NetworkClientMessages::Block(
+                block.clone(),
+                PeerInfo::random().id,
+                false,
+            ));
+            *block_holder.write().unwrap() = Some(block);
+            future::ready(())
+        }));
         near_network::test_utils::wait_or_panic(5000);
     })
     .unwrap();
@@ -301,59 +293,54 @@ fn produce_block_with_approvals() {
                 NetworkResponses::NoResponse
             }),
         );
-        actix::spawn(view_client.send(GetBlock(BlockQueryInfo::Finality(Finality::None))).then(
-            move |res| {
-                let last_block = res.unwrap().unwrap();
-                let signer1 =
-                    InMemoryValidatorSigner::from_seed("test2", KeyType::ED25519, "test2");
-                let block = Block::produce(
-                    &last_block.header.clone().into(),
-                    last_block.header.height + 1,
-                    last_block.chunks.into_iter().map(Into::into).collect(),
-                    EpochId::default(),
-                    if last_block.header.prev_hash == CryptoHash::default() {
-                        EpochId(last_block.header.hash)
-                    } else {
-                        EpochId(last_block.header.next_epoch_id.clone())
-                    },
-                    vec![],
-                    0,
-                    0,
-                    Some(0),
-                    vec![],
-                    vec![],
-                    &signer1,
-                    0.into(),
-                    CryptoHash::default(),
-                    CryptoHash::default(),
-                    CryptoHash::default(),
-                    last_block.header.next_bp_hash,
-                );
-                client.do_send(NetworkClientMessages::Block(
-                    block.clone(),
-                    PeerInfo::random().id,
+        actix::spawn(view_client.send(GetBlock::Finality(Finality::None)).then(move |res| {
+            let last_block = res.unwrap().unwrap();
+            let signer1 = InMemoryValidatorSigner::from_seed("test2", KeyType::ED25519, "test2");
+            let block = Block::produce(
+                &last_block.header.clone().into(),
+                last_block.header.height + 1,
+                last_block.chunks.into_iter().map(Into::into).collect(),
+                EpochId::default(),
+                if last_block.header.prev_hash == CryptoHash::default() {
+                    EpochId(last_block.header.hash)
+                } else {
+                    EpochId(last_block.header.next_epoch_id.clone())
+                },
+                vec![],
+                0,
+                0,
+                Some(0),
+                vec![],
+                vec![],
+                &signer1,
+                0.into(),
+                CryptoHash::default(),
+                CryptoHash::default(),
+                CryptoHash::default(),
+                last_block.header.next_bp_hash,
+            );
+            client.do_send(NetworkClientMessages::Block(
+                block.clone(),
+                PeerInfo::random().id,
+                false,
+            ));
+
+            for i in 3..11 {
+                let s = if i > 10 { "test1".to_string() } else { format!("test{}", i) };
+                let signer = InMemoryValidatorSigner::from_seed(&s, KeyType::ED25519, &s);
+                let approval = Approval::new(
+                    block.hash(),
+                    Some(block.hash()),
+                    10, // the height at which "test1" is producing
                     false,
-                ));
+                    &signer,
+                );
+                client
+                    .do_send(NetworkClientMessages::BlockApproval(approval, PeerInfo::random().id));
+            }
 
-                for i in 3..11 {
-                    let s = if i > 10 { "test1".to_string() } else { format!("test{}", i) };
-                    let signer = InMemoryValidatorSigner::from_seed(&s, KeyType::ED25519, &s);
-                    let approval = Approval::new(
-                        block.hash(),
-                        Some(block.hash()),
-                        10, // the height at which "test1" is producing
-                        false,
-                        &signer,
-                    );
-                    client.do_send(NetworkClientMessages::BlockApproval(
-                        approval,
-                        PeerInfo::random().id,
-                    ));
-                }
-
-                future::ready(())
-            },
-        ));
+            future::ready(())
+        }));
         near_network::test_utils::wait_or_panic(5000);
     })
     .unwrap();
@@ -384,69 +371,67 @@ fn invalid_blocks() {
                 NetworkResponses::NoResponse
             }),
         );
-        actix::spawn(view_client.send(GetBlock(BlockQueryInfo::Finality(Finality::None))).then(
-            move |res| {
-                let last_block = res.unwrap().unwrap();
-                let signer = InMemoryValidatorSigner::from_seed("test", KeyType::ED25519, "test");
-                // Send block with invalid chunk mask
-                let mut block = Block::produce(
-                    &last_block.header.clone().into(),
-                    last_block.header.height + 1,
-                    last_block.chunks.iter().cloned().map(Into::into).collect(),
-                    EpochId::default(),
-                    if last_block.header.prev_hash == CryptoHash::default() {
-                        EpochId(last_block.header.hash)
-                    } else {
-                        EpochId(last_block.header.next_epoch_id.clone())
-                    },
-                    vec![],
-                    0,
-                    0,
-                    Some(0),
-                    vec![],
-                    vec![],
-                    &signer,
-                    0.into(),
-                    CryptoHash::default(),
-                    CryptoHash::default(),
-                    CryptoHash::default(),
-                    last_block.header.next_bp_hash,
-                );
-                block.header.inner_rest.chunk_mask = vec![];
-                client.do_send(NetworkClientMessages::Block(
-                    block.clone(),
-                    PeerInfo::random().id,
-                    false,
-                ));
+        actix::spawn(view_client.send(GetBlock::Finality(Finality::None)).then(move |res| {
+            let last_block = res.unwrap().unwrap();
+            let signer = InMemoryValidatorSigner::from_seed("test", KeyType::ED25519, "test");
+            // Send block with invalid chunk mask
+            let mut block = Block::produce(
+                &last_block.header.clone().into(),
+                last_block.header.height + 1,
+                last_block.chunks.iter().cloned().map(Into::into).collect(),
+                EpochId::default(),
+                if last_block.header.prev_hash == CryptoHash::default() {
+                    EpochId(last_block.header.hash)
+                } else {
+                    EpochId(last_block.header.next_epoch_id.clone())
+                },
+                vec![],
+                0,
+                0,
+                Some(0),
+                vec![],
+                vec![],
+                &signer,
+                0.into(),
+                CryptoHash::default(),
+                CryptoHash::default(),
+                CryptoHash::default(),
+                last_block.header.next_bp_hash,
+            );
+            block.header.inner_rest.chunk_mask = vec![];
+            client.do_send(NetworkClientMessages::Block(
+                block.clone(),
+                PeerInfo::random().id,
+                false,
+            ));
 
-                // Send proper block.
-                let block2 = Block::produce(
-                    &last_block.header.clone().into(),
-                    last_block.header.height + 1,
-                    last_block.chunks.into_iter().map(Into::into).collect(),
-                    EpochId::default(),
-                    if last_block.header.prev_hash == CryptoHash::default() {
-                        EpochId(last_block.header.hash)
-                    } else {
-                        EpochId(last_block.header.next_epoch_id.clone())
-                    },
-                    vec![],
-                    0,
-                    0,
-                    Some(0),
-                    vec![],
-                    vec![],
-                    &signer,
-                    0.into(),
-                    CryptoHash::default(),
-                    CryptoHash::default(),
-                    CryptoHash::default(),
-                    last_block.header.next_bp_hash,
-                );
-                client.do_send(NetworkClientMessages::Block(block2, PeerInfo::random().id, false));
-                future::ready(())
-            },
-        ));
+            // Send proper block.
+            let block2 = Block::produce(
+                &last_block.header.clone().into(),
+                last_block.header.height + 1,
+                last_block.chunks.into_iter().map(Into::into).collect(),
+                EpochId::default(),
+                if last_block.header.prev_hash == CryptoHash::default() {
+                    EpochId(last_block.header.hash)
+                } else {
+                    EpochId(last_block.header.next_epoch_id.clone())
+                },
+                vec![],
+                0,
+                0,
+                Some(0),
+                vec![],
+                vec![],
+                &signer,
+                0.into(),
+                CryptoHash::default(),
+                CryptoHash::default(),
+                CryptoHash::default(),
+                last_block.header.next_bp_hash,
+            );
+            client.do_send(NetworkClientMessages::Block(block2, PeerInfo::random().id, false));
+            future::ready(())
+        }));
         near_network::test_utils::wait_or_panic(5000);
     })
     .unwrap();

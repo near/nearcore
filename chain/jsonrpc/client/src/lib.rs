@@ -200,7 +200,7 @@ impl JsonRpcClient {
     }
 
     pub fn block_by_id(&mut self, block_id: BlockId) -> RpcRequest<BlockView> {
-        call_method(&self.client, &self.server_addr, "block", BlockQueryInfo::BlockId(block_id))
+        call_method(&self.client, &self.server_addr, "block", [block_id])
     }
 
     pub fn block(&mut self, request: BlockQueryInfo) -> RpcRequest<BlockView> {
