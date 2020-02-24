@@ -444,28 +444,38 @@ fn test_inflation() {
         WaitOrTimeout::new(
             Box::new(move |_ctx| {
                 let (done1_copy2, done2_copy2) = (done1_copy1.clone(), done2_copy1.clone());
-                actix::spawn(test_nodes[0].view_client.send(GetBlock::Best).then(move |res| {
-                    let header_view = res.unwrap().unwrap().header;
-                    if header_view.height >= 2 && header_view.height <= epoch_length {
-                        if header_view.total_supply == initial_total_supply {
-                            done1_copy2.store(true, Ordering::SeqCst);
-                        }
-                    }
-                    future::ready(())
-                }));
-                actix::spawn(test_nodes[0].view_client.send(GetBlock::Best).then(move |res| {
-                    let header_view = res.unwrap().unwrap().header;
-                    if header_view.height > epoch_length && header_view.height < epoch_length * 2 {
-                        let inflation = initial_total_supply
-                            * max_inflation_rate as u128
-                            * epoch_length as u128
-                            / (100 * num_blocks_per_year as u128);
-                        if header_view.total_supply == initial_total_supply + inflation {
-                            done2_copy2.store(true, Ordering::SeqCst);
-                        }
-                    }
-                    future::ready(())
-                }));
+                actix::spawn(
+                    test_nodes[0].view_client.send(GetBlock::Finality(Finality::None)).then(
+                        move |res| {
+                            let header_view = res.unwrap().unwrap().header;
+                            if header_view.height >= 2 && header_view.height <= epoch_length {
+                                if header_view.total_supply == initial_total_supply {
+                                    done1_copy2.store(true, Ordering::SeqCst);
+                                }
+                            }
+                            future::ready(())
+                        },
+                    ),
+                );
+                actix::spawn(
+                    test_nodes[0].view_client.send(GetBlock::Finality(Finality::None)).then(
+                        move |res| {
+                            let header_view = res.unwrap().unwrap().header;
+                            if header_view.height > epoch_length
+                                && header_view.height < epoch_length * 2
+                            {
+                                let inflation = initial_total_supply
+                                    * max_inflation_rate as u128
+                                    * epoch_length as u128
+                                    / (100 * num_blocks_per_year as u128);
+                                if header_view.total_supply == initial_total_supply + inflation {
+                                    done2_copy2.store(true, Ordering::SeqCst);
+                                }
+                            }
+                            future::ready(())
+                        },
+                    ),
+                );
                 if done1_copy1.load(Ordering::SeqCst) && done2_copy1.load(Ordering::SeqCst) {
                     System::current().stop();
                 }

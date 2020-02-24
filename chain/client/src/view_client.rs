@@ -118,6 +118,15 @@ impl ViewClientActor {
         need_request
     }
 
+    fn get_block_hash_by_finality(&mut self, finality: &Finality) -> Result<CryptoHash, Error> {
+        let head_header = self.chain.head_header()?;
+        match finality {
+            Finality::None => Ok(head_header.hash),
+            Finality::DoomSlug => Ok(head_header.inner_rest.last_ds_final_block),
+            Finality::NFG => Ok(head_header.inner_rest.last_quorum_pre_commit),
+        }
+    }
+
     fn handle_query(&mut self, msg: Query) -> Result<Option<QueryResponse>, String> {
         if let Some(response) = self.query_responses.cache_remove(&msg.query_id) {
             self.query_requests.cache_remove(&msg.query_id);
@@ -128,21 +137,9 @@ impl ViewClientActor {
             Some(BlockId::Height(block_height)) => self.chain.get_header_by_height(block_height),
             Some(BlockId::Hash(block_hash)) => self.chain.get_block_header(&block_hash),
             None => {
-                let head_header = match self.chain.head_header() {
-                    Ok(h) => h,
-                    Err(e) => return Err(e.to_string()),
-                };
-                match msg.finality {
-                    Finality::None => Ok(head_header),
-                    Finality::DoomSlug => {
-                        let last_ds_final_block_hash = head_header.inner_rest.last_ds_final_block;
-                        self.chain.get_block_header(&last_ds_final_block_hash)
-                    }
-                    Finality::NFG => {
-                        let last_final_block_hash = head_header.inner_rest.last_quorum_pre_commit;
-                        self.chain.get_block_header(&last_final_block_hash)
-                    }
-                }
+                let block_hash =
+                    self.get_block_hash_by_finality(&msg.finality).map_err(|e| e.to_string())?;
+                self.chain.get_block_header(&block_hash)
             }
         };
         let header = header.map_err(|e| e.to_string())?.clone();
@@ -341,12 +338,15 @@ impl Handler<GetBlock> for ViewClientActor {
 
     fn handle(&mut self, msg: GetBlock, _: &mut Context<Self>) -> Self::Result {
         match msg {
-            GetBlock::Best => match self.chain.head() {
-                Ok(head) => self.chain.get_block(&head.last_block_hash).map(Clone::clone),
-                Err(err) => Err(err),
-            },
-            GetBlock::Height(height) => self.chain.get_block_by_height(height).map(Clone::clone),
-            GetBlock::Hash(hash) => self.chain.get_block(&hash).map(Clone::clone),
+            GetBlock::Finality(finality) => {
+                let block_hash =
+                    self.get_block_hash_by_finality(&finality).map_err(|e| e.to_string())?;
+                self.chain.get_block(&block_hash).map(Clone::clone)
+            }
+            GetBlock::BlockId(BlockId::Height(height)) => {
+                self.chain.get_block_by_height(height).map(Clone::clone)
+            }
+            GetBlock::BlockId(BlockId::Hash(hash)) => self.chain.get_block(&hash).map(Clone::clone),
         }
         .and_then(|block| {
             self.runtime_adapter
