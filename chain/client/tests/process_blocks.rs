@@ -26,6 +26,7 @@ use near_primitives::transaction::{SignedTransaction, Transaction};
 use near_primitives::types::{EpochId, MerkleHash};
 use near_primitives::utils::to_timestamp;
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
+use near_primitives::views::Finality;
 use near_store::test_utils::create_test_store;
 
 /// Runs block producing client and stops after network mock received two blocks.
@@ -106,7 +107,7 @@ fn produce_blocks_with_tx() {
             }),
         );
         near_network::test_utils::wait_or_panic(5000);
-        actix::spawn(view_client.send(GetBlock::Best).then(move |res| {
+        actix::spawn(view_client.send(GetBlock::Finality(Finality::None)).then(move |res| {
             let header: BlockHeader = res.unwrap().unwrap().header.into();
             let block_hash = header.hash;
             client
@@ -143,7 +144,7 @@ fn receive_network_block() {
                 NetworkResponses::NoResponse
             }),
         );
-        actix::spawn(view_client.send(GetBlock::Best).then(move |res| {
+        actix::spawn(view_client.send(GetBlock::Finality(Finality::None)).then(move |res| {
             let last_block = res.unwrap().unwrap();
             let signer = InMemoryValidatorSigner::from_seed("test1", KeyType::ED25519, "test1");
             let block = Block::produce(
@@ -207,7 +208,7 @@ fn receive_network_block_header() {
                 _ => NetworkResponses::NoResponse,
             }),
         );
-        actix::spawn(view_client.send(GetBlock::Best).then(move |res| {
+        actix::spawn(view_client.send(GetBlock::Finality(Finality::None)).then(move |res| {
             let last_block = res.unwrap().unwrap();
             let signer = InMemoryValidatorSigner::from_seed("test", KeyType::ED25519, "test");
             let block = Block::produce(
@@ -292,7 +293,7 @@ fn produce_block_with_approvals() {
                 NetworkResponses::NoResponse
             }),
         );
-        actix::spawn(view_client.send(GetBlock::Best).then(move |res| {
+        actix::spawn(view_client.send(GetBlock::Finality(Finality::None)).then(move |res| {
             let last_block = res.unwrap().unwrap();
             let signer1 = InMemoryValidatorSigner::from_seed("test2", KeyType::ED25519, "test2");
             let block = Block::produce(
@@ -370,7 +371,7 @@ fn invalid_blocks() {
                 NetworkResponses::NoResponse
             }),
         );
-        actix::spawn(view_client.send(GetBlock::Best).then(move |res| {
+        actix::spawn(view_client.send(GetBlock::Finality(Finality::None)).then(move |res| {
             let last_block = res.unwrap().unwrap();
             let signer = InMemoryValidatorSigner::from_seed("test", KeyType::ED25519, "test");
             // Send block with invalid chunk mask

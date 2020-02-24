@@ -10,6 +10,7 @@ use near_chain_configs::GenesisConfig;
 use near_client::GetBlock;
 use near_network::test_utils::{convert_boot_nodes, open_port, WaitOrTimeout};
 use near_primitives::test_utils::{heavy_test, init_integration_logger};
+use near_primitives::views::Finality;
 
 /// One client is in front, another must sync to it using state (fast) sync.
 #[test]
@@ -36,47 +37,52 @@ fn sync_state_nodes() {
                     let view_client2_holder2 = view_client2_holder.clone();
                     let genesis_config2 = genesis_config.clone();
 
-                    actix::spawn(view_client1.send(GetBlock::Best).then(move |res| {
-                        match &res {
-                            Ok(Ok(b)) if b.header.height >= 101 => {
-                                let mut view_client2_holder2 =
-                                    view_client2_holder2.write().unwrap();
+                    actix::spawn(view_client1.send(GetBlock::Finality(Finality::None)).then(
+                        move |res| {
+                            match &res {
+                                Ok(Ok(b)) if b.header.height >= 101 => {
+                                    let mut view_client2_holder2 =
+                                        view_client2_holder2.write().unwrap();
 
-                                if view_client2_holder2.is_none() {
-                                    let mut near2 =
-                                        load_test_config("test2", port2, &genesis_config2);
-                                    near2.client_config.skip_sync_wait = false;
-                                    near2.client_config.min_num_peers = 1;
-                                    near2.network_config.boot_nodes =
-                                        convert_boot_nodes(vec![("test1", port1)]);
+                                    if view_client2_holder2.is_none() {
+                                        let mut near2 =
+                                            load_test_config("test2", port2, &genesis_config2);
+                                        near2.client_config.skip_sync_wait = false;
+                                        near2.client_config.min_num_peers = 1;
+                                        near2.network_config.boot_nodes =
+                                            convert_boot_nodes(vec![("test1", port1)]);
 
-                                    let dir2 = TempDir::new("sync_nodes_2").unwrap();
-                                    let (_, view_client2) = start_with_config(dir2.path(), near2);
-                                    *view_client2_holder2 = Some(view_client2);
+                                        let dir2 = TempDir::new("sync_nodes_2").unwrap();
+                                        let (_, view_client2) =
+                                            start_with_config(dir2.path(), near2);
+                                        *view_client2_holder2 = Some(view_client2);
+                                    }
                                 }
-                            }
-                            Ok(Ok(b)) if b.header.height < 101 => {
-                                println!("FIRST STAGE {}", b.header.height)
-                            }
-                            Err(_) => return future::ready(()),
-                            _ => {}
-                        };
-                        future::ready(())
-                    }));
+                                Ok(Ok(b)) if b.header.height < 101 => {
+                                    println!("FIRST STAGE {}", b.header.height)
+                                }
+                                Err(_) => return future::ready(()),
+                                _ => {}
+                            };
+                            future::ready(())
+                        },
+                    ));
                 }
 
                 if let Some(view_client2) = &*view_client2_holder.write().unwrap() {
-                    actix::spawn(view_client2.send(GetBlock::Best).then(|res| {
-                        match &res {
-                            Ok(Ok(b)) if b.header.height >= 101 => System::current().stop(),
-                            Ok(Ok(b)) if b.header.height < 101 => {
-                                println!("SECOND STAGE {}", b.header.height)
-                            }
-                            Err(_) => return future::ready(()),
-                            _ => {}
-                        };
-                        future::ready(())
-                    }));
+                    actix::spawn(view_client2.send(GetBlock::Finality(Finality::None)).then(
+                        |res| {
+                            match &res {
+                                Ok(Ok(b)) if b.header.height >= 101 => System::current().stop(),
+                                Ok(Ok(b)) if b.header.height < 101 => {
+                                    println!("SECOND STAGE {}", b.header.height)
+                                }
+                                Err(_) => return future::ready(()),
+                                _ => {}
+                            };
+                            future::ready(())
+                        },
+                    ));
                 } else {
                 }
             }),
@@ -148,63 +154,68 @@ fn sync_state_nodes_multishard() {
                     let view_client2_holder2 = view_client2_holder.clone();
                     let genesis_config2 = genesis_config.clone();
 
-                    actix::spawn(view_client1.send(GetBlock::Best).then(move |res| {
-                        match &res {
-                            Ok(Ok(b)) if b.header.height >= 101 => {
-                                let mut view_client2_holder2 =
-                                    view_client2_holder2.write().unwrap();
+                    actix::spawn(view_client1.send(GetBlock::Finality(Finality::None)).then(
+                        move |res| {
+                            match &res {
+                                Ok(Ok(b)) if b.header.height >= 101 => {
+                                    let mut view_client2_holder2 =
+                                        view_client2_holder2.write().unwrap();
 
-                                if view_client2_holder2.is_none() {
-                                    let mut near2 =
-                                        load_test_config("test2", port2, &genesis_config2);
-                                    near2.client_config.skip_sync_wait = false;
-                                    near2.client_config.min_num_peers = 3;
-                                    near2.client_config.min_block_production_delay =
-                                        Duration::from_millis(200);
-                                    near2.client_config.max_block_production_delay =
-                                        Duration::from_millis(400);
-                                    near2.network_config.boot_nodes = convert_boot_nodes(vec![
-                                        ("test1", port1),
-                                        ("test3", port3),
-                                        ("test4", port4),
-                                    ]);
+                                    if view_client2_holder2.is_none() {
+                                        let mut near2 =
+                                            load_test_config("test2", port2, &genesis_config2);
+                                        near2.client_config.skip_sync_wait = false;
+                                        near2.client_config.min_num_peers = 3;
+                                        near2.client_config.min_block_production_delay =
+                                            Duration::from_millis(200);
+                                        near2.client_config.max_block_production_delay =
+                                            Duration::from_millis(400);
+                                        near2.network_config.boot_nodes = convert_boot_nodes(vec![
+                                            ("test1", port1),
+                                            ("test3", port3),
+                                            ("test4", port4),
+                                        ]);
 
-                                    let dir2 = TempDir::new("sync_nodes_2").unwrap();
-                                    let (_, view_client2) = start_with_config(dir2.path(), near2);
-                                    *view_client2_holder2 = Some(view_client2);
+                                        let dir2 = TempDir::new("sync_nodes_2").unwrap();
+                                        let (_, view_client2) =
+                                            start_with_config(dir2.path(), near2);
+                                        *view_client2_holder2 = Some(view_client2);
+                                    }
                                 }
-                            }
-                            Ok(Ok(b)) if b.header.height < 101 => {
-                                println!("FIRST STAGE {}", b.header.height)
-                            }
-                            Err(_) => return future::ready(()),
-                            _ => {}
-                        };
-                        future::ready(())
-                    }));
+                                Ok(Ok(b)) if b.header.height < 101 => {
+                                    println!("FIRST STAGE {}", b.header.height)
+                                }
+                                Err(_) => return future::ready(()),
+                                _ => {}
+                            };
+                            future::ready(())
+                        },
+                    ));
                 }
 
                 if let Some(view_client2) = &*view_client2_holder.write().unwrap() {
-                    actix::spawn(view_client2.send(GetBlock::Best).then(|res| {
-                        match &res {
-                            Ok(Ok(b)) if b.header.height >= 101 => System::current().stop(),
-                            Ok(Ok(b)) if b.header.height < 101 => {
-                                println!("SECOND STAGE {}", b.header.height)
-                            }
-                            Ok(Err(e)) => {
-                                println!("SECOND STAGE ERROR1: {:?}", e);
-                                return future::ready(());
-                            }
-                            Err(e) => {
-                                println!("SECOND STAGE ERROR2: {:?}", e);
-                                return future::ready(());
-                            }
-                            _ => {
-                                assert!(false);
-                            }
-                        };
-                        future::ready(())
-                    }));
+                    actix::spawn(view_client2.send(GetBlock::Finality(Finality::None)).then(
+                        |res| {
+                            match &res {
+                                Ok(Ok(b)) if b.header.height >= 101 => System::current().stop(),
+                                Ok(Ok(b)) if b.header.height < 101 => {
+                                    println!("SECOND STAGE {}", b.header.height)
+                                }
+                                Ok(Err(e)) => {
+                                    println!("SECOND STAGE ERROR1: {:?}", e);
+                                    return future::ready(());
+                                }
+                                Err(e) => {
+                                    println!("SECOND STAGE ERROR2: {:?}", e);
+                                    return future::ready(());
+                                }
+                                _ => {
+                                    assert!(false);
+                                }
+                            };
+                            future::ready(())
+                        },
+                    ));
                 }
             }),
             100,
@@ -252,63 +263,70 @@ fn sync_empty_state() {
                     let genesis_config2 = genesis_config.clone();
                     let dir2 = dir2.clone();
 
-                    actix::spawn(view_client1.send(GetBlock::Best).then(move |res| {
-                        match &res {
-                            Ok(Ok(b)) if b.header.height >= state_sync_horizon + 1 => {
-                                let mut view_client2_holder2 =
-                                    view_client2_holder2.write().unwrap();
+                    actix::spawn(view_client1.send(GetBlock::Finality(Finality::None)).then(
+                        move |res| {
+                            match &res {
+                                Ok(Ok(b)) if b.header.height >= state_sync_horizon + 1 => {
+                                    let mut view_client2_holder2 =
+                                        view_client2_holder2.write().unwrap();
 
-                                if view_client2_holder2.is_none() {
-                                    let mut near2 =
-                                        load_test_config("test2", port2, &genesis_config2);
-                                    near2.network_config.boot_nodes =
-                                        convert_boot_nodes(vec![("test1", port1)]);
-                                    near2.client_config.min_num_peers = 1;
-                                    near2.client_config.min_block_production_delay =
-                                        Duration::from_millis(200);
-                                    near2.client_config.max_block_production_delay =
-                                        Duration::from_millis(400);
-                                    near2.client_config.state_fetch_horizon = state_sync_horizon;
-                                    near2.client_config.block_header_fetch_horizon =
-                                        block_header_fetch_horizon;
-                                    near2.client_config.block_fetch_horizon = block_fetch_horizon;
-                                    near2.client_config.tracked_shards = vec![0, 1, 2, 3];
+                                    if view_client2_holder2.is_none() {
+                                        let mut near2 =
+                                            load_test_config("test2", port2, &genesis_config2);
+                                        near2.network_config.boot_nodes =
+                                            convert_boot_nodes(vec![("test1", port1)]);
+                                        near2.client_config.min_num_peers = 1;
+                                        near2.client_config.min_block_production_delay =
+                                            Duration::from_millis(200);
+                                        near2.client_config.max_block_production_delay =
+                                            Duration::from_millis(400);
+                                        near2.client_config.state_fetch_horizon =
+                                            state_sync_horizon;
+                                        near2.client_config.block_header_fetch_horizon =
+                                            block_header_fetch_horizon;
+                                        near2.client_config.block_fetch_horizon =
+                                            block_fetch_horizon;
+                                        near2.client_config.tracked_shards = vec![0, 1, 2, 3];
 
-                                    let (_, view_client2) = start_with_config(dir2.path(), near2);
-                                    *view_client2_holder2 = Some(view_client2);
+                                        let (_, view_client2) =
+                                            start_with_config(dir2.path(), near2);
+                                        *view_client2_holder2 = Some(view_client2);
+                                    }
                                 }
-                            }
-                            Ok(Ok(b)) if b.header.height <= state_sync_horizon => {
-                                println!("FIRST STAGE {}", b.header.height)
-                            }
-                            Err(_) => return future::ready(()),
-                            _ => {}
-                        };
-                        future::ready(())
-                    }));
+                                Ok(Ok(b)) if b.header.height <= state_sync_horizon => {
+                                    println!("FIRST STAGE {}", b.header.height)
+                                }
+                                Err(_) => return future::ready(()),
+                                _ => {}
+                            };
+                            future::ready(())
+                        },
+                    ));
                 }
 
                 if let Some(view_client2) = &*view_client2_holder.write().unwrap() {
-                    actix::spawn(view_client2.send(GetBlock::Best).then(|res| {
-                        match &res {
-                            Ok(Ok(b)) if b.header.height >= 40 => System::current().stop(),
-                            Ok(Ok(b)) if b.header.height < 40 => {
-                                println!("SECOND STAGE {}", b.header.height)
-                            }
-                            Ok(Err(e)) => {
-                                println!("SECOND STAGE ERROR1: {:?}", e);
-                                return future::ready(());
-                            }
-                            Err(e) => {
-                                println!("SECOND STAGE ERROR2: {:?}", e);
-                                return future::ready(());
-                            }
-                            _ => {
-                                assert!(false);
-                            }
-                        };
-                        future::ready(())
-                    }));
+                    actix::spawn(view_client2.send(GetBlock::Finality(Finality::None)).then(
+                        |res| {
+                            match &res {
+                                Ok(Ok(b)) if b.header.height >= 40 => System::current().stop(),
+                                Ok(Ok(b)) if b.header.height < 40 => {
+                                    println!("SECOND STAGE {}", b.header.height)
+                                }
+                                Ok(Err(e)) => {
+                                    println!("SECOND STAGE ERROR1: {:?}", e);
+                                    return future::ready(());
+                                }
+                                Err(e) => {
+                                    println!("SECOND STAGE ERROR2: {:?}", e);
+                                    return future::ready(());
+                                }
+                                _ => {
+                                    assert!(false);
+                                }
+                            };
+                            future::ready(())
+                        },
+                    ));
                 }
             }),
             100,
