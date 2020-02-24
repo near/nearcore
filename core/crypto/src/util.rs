@@ -1,3 +1,4 @@
+use arrayref::{array_refs, mut_array_refs};
 use curve25519_dalek::ristretto::CompressedRistretto;
 use curve25519_dalek::traits::VartimeMultiscalarMul;
 

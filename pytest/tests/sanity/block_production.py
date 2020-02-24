@@ -63,3 +63,9 @@ while max_height < BLOCKS:
 
 assert min_common() + 2 >= BLOCKS, heights_report()
 
+doomslug_final_block = nodes[0].json_rpc('block', {'finality': 'near-final'})
+assert(doomslug_final_block['result']['header']['height'] >= BLOCKS - 10)
+
+nfg_final_block = nodes[0].json_rpc('block', {'finality': 'final'})
+assert(nfg_final_block['result']['header']['height'] >= BLOCKS - 10)
+
