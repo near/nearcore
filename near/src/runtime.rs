@@ -1333,7 +1333,7 @@ mod test {
                 .add_validator_proposals(
                     CryptoHash::default(),
                     genesis_hash,
-                    CryptoHash::default(),
+                    [0; 32].as_ref().try_into().unwrap(),
                     0,
                     0,
                     vec![],
@@ -1401,7 +1401,7 @@ mod test {
                 .add_validator_proposals(
                     self.head.last_block_hash,
                     new_hash,
-                    self.head.last_block_hash,
+                    [0; 32].as_ref().try_into().unwrap(),
                     self.head.height + 1,
                     self.head.height.saturating_sub(1),
                     self.last_proposals.clone(),
@@ -1810,7 +1810,7 @@ mod test {
                 .add_validator_proposals(
                     prev_hash,
                     cur_hash,
-                    prev_hash,
+                    [0; 32].as_ref().try_into().unwrap(),
                     i,
                     i.saturating_sub(2),
                     new_env.last_proposals.clone(),
