@@ -90,3 +90,6 @@ expensive_tests = []
 regression_tests = []
 old_tests = []
 adversarial = ["near/adversarial", "near-jsonrpc/adversarial"]
+
+[patch.crates-io]
+actix-rt = { git = 'https://github.com/ailisp/actix-net' }
