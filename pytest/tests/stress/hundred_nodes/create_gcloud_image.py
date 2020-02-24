@@ -20,6 +20,8 @@ except:
 
 machine_name = f'{image_name}-image-builder'
 
+print("Creating machine:", machine_name)
+
 m = gcloud.create(
     name=machine_name,
     machine_type='n1-standard-64',
@@ -31,7 +33,7 @@ m = gcloud.create(
     min_cpu_platform='Intel Skylake'
 )
 
-print('machine created')
+print('machine created:', image_name)
 
 p = m.run('bash', input=f'''
 for i in `seq 1 3`; do

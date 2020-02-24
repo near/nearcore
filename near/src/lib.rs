@@ -5,6 +5,7 @@ use std::sync::Arc;
 use actix::{Actor, Addr};
 use log::info;
 
+use tracing::{trace};
 use near_chain::ChainGenesis;
 use near_client::{ClientActor, ViewClientActor};
 use near_jsonrpc::start_http;
@@ -109,6 +110,8 @@ pub fn start_with_config(
     .start();
 
     network_adapter.set_recipient(network_actor.recipient());
+
+    trace!(target: "diagnostic", key="log", "Starting NEAR node with diagnostic activated");
 
     (client_actor, view_client)
 }
