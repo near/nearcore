@@ -1,5 +1,5 @@
 use std::collections::btree_map::Entry;
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::iter;
 
 use near_primitives::types::{AccountId, Balance, NumSeats, ValidatorId, ValidatorStake};
@@ -119,15 +119,6 @@ pub fn proposals_to_epoch_info(
         }
     }
 
-    let (final_proposals, validator_to_index) = final_proposals.into_iter().enumerate().fold(
-        (vec![], HashMap::new()),
-        |(mut proposals, mut validator_to_index), (i, p)| {
-            validator_to_index.insert(p.account_id.clone(), i as u64);
-            proposals.push(p);
-            (proposals, validator_to_index)
-        },
-    );
-
     // Duplicate each proposal for number of seats it has.
     let mut dup_proposals = final_proposals
         .iter()
@@ -149,8 +140,42 @@ pub fn proposals_to_epoch_info(
     }
 
     // Block producers are first `num_block_producer_seats` proposals.
-    let block_producers_settlement =
+    let mut block_producers_settlement =
         dup_proposals[..epoch_config.num_block_producer_seats as usize].to_vec();
+    // remove proposals that are not selected
+    let mut indices_to_remove = (0..final_proposals.len()).collect::<BTreeSet<_>>();
+    for index in block_producers_settlement.iter() {
+        indices_to_remove.remove(&(*index as usize));
+    }
+    let (final_proposals, proposals_to_remove, validator_to_index) =
+        final_proposals.into_iter().enumerate().fold(
+            (vec![], vec![], HashMap::new()),
+            |(mut proposals, mut to_remove, mut indices), (i, p)| {
+                if indices_to_remove.contains(&i) {
+                    to_remove.push(p);
+                } else {
+                    indices.insert(p.account_id.clone(), proposals.len() as ValidatorId);
+                    proposals.push(p);
+                }
+                (proposals, to_remove, indices)
+            },
+        );
+    for p in proposals_to_remove {
+        if p.stake >= epoch_config.fishermen_threshold {
+            fishermen_to_index.insert(p.account_id.clone(), fishermen.len() as ValidatorId);
+            fishermen.push(p);
+        } else {
+            stake_change.insert(p.account_id.clone(), (0, p.stake));
+            if epoch_info.validator_to_index.contains_key(&p.account_id) {
+                validator_kickout.insert(p.account_id);
+            }
+        }
+    }
+
+    // reset indices
+    for index in block_producers_settlement.iter_mut() {
+        *index -= indices_to_remove.range(..(*index as usize)).count() as u64;
+    }
 
     // Collect proposals into block producer assignments.
     let mut chunk_producers_settlement: Vec<Vec<ValidatorId>> = vec![];
@@ -158,8 +183,8 @@ pub fn proposals_to_epoch_info(
     for num_seats_in_shard in epoch_config.num_block_producer_seats_per_shard.iter() {
         let mut shard_settlement: Vec<ValidatorId> = vec![];
         for i in 0..*num_seats_in_shard {
-            let proposal_index =
-                dup_proposals[((i + last_index) % epoch_config.num_block_producer_seats) as usize];
+            let proposal_index = block_producers_settlement
+                [((i + last_index) % epoch_config.num_block_producer_seats) as usize];
             shard_settlement.push(proposal_index);
         }
         chunk_producers_settlement.push(shard_settlement);
