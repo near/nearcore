@@ -8,6 +8,7 @@ use near_client::{GetBlock, GetChunk};
 use near_network::test_utils::WaitOrTimeout;
 use near_primitives::hash::CryptoHash;
 use near_primitives::test_utils::{heavy_test, init_integration_logger};
+use near_primitives::views::Finality;
 use testlib::start_nodes;
 
 #[test]
@@ -39,17 +40,19 @@ fn track_shards() {
                     ));
                 } else {
                     let last_block_hash1 = last_block_hash.clone();
-                    actix::spawn(view_client.send(GetBlock::Best).then(move |res| {
-                        match &res {
-                            Ok(Ok(b)) if b.header.height > 10 => {
-                                *last_block_hash1.write().unwrap() =
-                                    Some(b.header.hash.clone().into());
-                            }
-                            Err(_) => return future::ready(()),
-                            _ => {}
-                        };
-                        future::ready(())
-                    }));
+                    actix::spawn(view_client.send(GetBlock::Finality(Finality::None)).then(
+                        move |res| {
+                            match &res {
+                                Ok(Ok(b)) if b.header.height > 10 => {
+                                    *last_block_hash1.write().unwrap() =
+                                        Some(b.header.hash.clone().into());
+                                }
+                                Err(_) => return future::ready(()),
+                                _ => {}
+                            };
+                            future::ready(())
+                        },
+                    ));
                 }
             }),
             100,
