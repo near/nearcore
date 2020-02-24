@@ -5,13 +5,13 @@ use std::sync::Arc;
 use actix::{Actor, Addr};
 use log::info;
 
-use tracing::{trace};
 use near_chain::ChainGenesis;
 use near_client::{ClientActor, ViewClientActor};
 use near_jsonrpc::start_http;
 use near_network::{NetworkRecipient, PeerManagerActor};
 use near_store::create_store;
 use near_telemetry::TelemetryActor;
+use tracing::trace;
 
 pub use crate::config::{init_configs, load_config, load_test_config, NearConfig, NEAR_BASE};
 pub use crate::runtime::NightshadeRuntime;
