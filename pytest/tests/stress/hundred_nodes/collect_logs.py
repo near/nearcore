@@ -19,7 +19,6 @@ run(['mkdir', '-p', collected_place])
 def collect_file(node):
     print(f'Download file from {node.name}')
     node.download('/tmp/python-rc.log', f'{collected_place}/{node.name}.txt')
-    # node.download(f'/home/{node.username}/nearcore/{log_file}', f'{collected_place}/{node.name}.txt')
     print(f'Download file from {node.name} finished')
 
 
