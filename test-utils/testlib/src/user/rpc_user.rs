@@ -13,6 +13,7 @@ use near_jsonrpc::client::{new_client, JsonRpcClient};
 use near_jsonrpc::ServerError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
+use near_primitives::rpc::BlockQueryInfo;
 use near_primitives::serialize::{to_base, to_base64};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockHeight, BlockId, MaybeBlockId};
@@ -22,7 +23,6 @@ use near_primitives::views::{
 };
 
 use crate::user::User;
-use near_primitives::rpc::BlockQueryInfo;
 
 pub struct RpcUser {
     account_id: AccountId,

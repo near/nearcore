@@ -1,8 +1,8 @@
 use serde::{Deserialize, Serialize};
 
-use super::types::MaybeBlockId;
-use super::views::{Finality, QueryRequest};
 use crate::types::BlockId;
+use crate::types::MaybeBlockId;
+use crate::views::{Finality, QueryRequest};
 
 #[derive(Serialize, Deserialize)]
 pub struct RpcQueryRequest {
