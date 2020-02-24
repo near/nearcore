@@ -10,9 +10,8 @@ tornado = "*"
 requests = "*"
 ed25519 = "*"
 base58 = "*"
-google-api-python-client = "*"
-six = "*" # requires by gcloud.py
-python-rc = "==0.1.6"
+python-rc = "==0.1.7"
+tqdm = "*"
 deepdiff = "*"
 
 [dev-packages]
