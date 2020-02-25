@@ -1439,7 +1439,7 @@ impl<'a> VMLogic<'a> {
         let method_names =
             self.get_vec_from_memory_or_register(method_names_ptr, method_names_len)?;
         // Use `,` separator to split `method_names` into a vector of method names.
-        let method_names =  if method_names.is_empty() {
+        let method_names = if method_names.is_empty() {
             vec![]
         } else {
             method_names
@@ -1453,7 +1453,7 @@ impl<'a> VMLogic<'a> {
                 })
                 .collect::<Result<Vec<_>>>()?
         };
-            
+
         let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
 
         // +1 is to account for null-terminating characters.

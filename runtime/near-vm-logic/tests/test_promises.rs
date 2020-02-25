@@ -385,7 +385,8 @@ fn test_promise_batch_action_add_key_with_function_call_empty_method_name() {
         allowance,
         receiver_id,
         method_names,
-    ).expect("should add an access key with allowance to call any method on receiver");
+    )
+    .expect("should add an access key with allowance to call any method on receiver");
 
     let expected = serde_json::json!(
     [
