@@ -67,7 +67,7 @@ macro_rules! common_conversions_fixed {
 
             fn try_from(value: &[u8]) -> Result<Self, ()> {
                 match value.len() {
-                    $l => Self::try_from(array_ref!(value, 0, $l)).or(Err(())),
+                    $l => Self::try_from(::arrayref::array_ref!(value, 0, $l)).or(Err(())),
                     _ => Err(()),
                 }
             }
@@ -147,6 +147,22 @@ macro_rules! value_type {
         impl From<&[u8; $l]> for $ty {
             fn from(value: &[u8; $l]) -> Self {
                 Self(*value)
+            }
+        }
+
+        impl borsh::BorshSerialize for $ty {
+            #[inline]
+            fn serialize<W: std::io::Write>(&self, writer: &mut W) -> Result<(), std::io::Error> {
+                writer.write_all(&self.0)
+            }
+        }
+
+        impl borsh::BorshDeserialize for $ty {
+            #[inline]
+            fn deserialize<R: std::io::Read>(reader: &mut R) -> Result<Self, std::io::Error> {
+                let mut data = [0u8; $l];
+                reader.read_exact(&mut data)?;
+                Ok($ty(data))
             }
         }
 

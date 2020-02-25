@@ -7,6 +7,7 @@ use crate::types::{
     AccountId, Balance, Gas, IteratorIndex, PromiseIndex, PromiseResult, ReceiptIndex, ReturnData,
     StorageUsage,
 };
+use crate::utils::split_method_names;
 use crate::{ExtCosts, HostError, VMLogicError, ValuePtr};
 use byteorder::ByteOrder;
 use near_runtime_fees::RuntimeFeesConfig;
@@ -1436,20 +1437,9 @@ impl<'a> VMLogic<'a> {
         let allowance = self.memory_get_u128(allowance_ptr)?;
         let allowance = if allowance > 0 { Some(allowance) } else { None };
         let receiver_id = self.read_and_parse_account_id(receiver_id_ptr, receiver_id_len)?;
-        let method_names =
+        let raw_method_names =
             self.get_vec_from_memory_or_register(method_names_ptr, method_names_len)?;
-        // Use `,` separator to split `method_names` into a vector of method names.
-        let method_names =
-            method_names
-                .split(|c| *c == b',')
-                .map(|v| {
-                    if v.is_empty() {
-                        Err(HostError::EmptyMethodName.into())
-                    } else {
-                        Ok(v.to_vec())
-                    }
-                })
-                .collect::<Result<Vec<_>>>()?;
+        let method_names = split_method_names(&raw_method_names)?;
 
         let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
 

@@ -20,6 +20,7 @@ use near_primitives::test_utils::{heavy_test, init_integration_logger};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{BlockHeightDelta, EpochId, ValidatorStake};
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
+use near_primitives::views::Finality;
 use testlib::genesis_block;
 
 // This assumes that there is no height skipped. Otherwise epoch hash calculation will be wrong.
@@ -114,7 +115,7 @@ fn sync_nodes() {
 
         WaitOrTimeout::new(
             Box::new(move |_ctx| {
-                actix::spawn(view_client2.send(GetBlock::Best).then(|res| {
+                actix::spawn(view_client2.send(GetBlock::Finality(Finality::None)).then(|res| {
                     match &res {
                         Ok(Ok(b)) if b.header.height == 13 => System::current().stop(),
                         Err(_) => return future::ready(()),
@@ -175,20 +176,23 @@ fn sync_after_sync_nodes() {
                 let client11 = client1.clone();
                 let signer1 = signer.clone();
                 let next_step1 = next_step.clone();
-                actix::spawn(view_client2.send(GetBlock::Best).then(move |res| {
-                    match &res {
-                        Ok(Ok(b)) if b.header.height == 13 => {
-                            if !next_step1.load(Ordering::Relaxed) {
-                                let _ = add_blocks(blocks1, client11, 10, epoch_length, &signer1);
-                                next_step1.store(true, Ordering::Relaxed);
+                actix::spawn(view_client2.send(GetBlock::Finality(Finality::None)).then(
+                    move |res| {
+                        match &res {
+                            Ok(Ok(b)) if b.header.height == 13 => {
+                                if !next_step1.load(Ordering::Relaxed) {
+                                    let _ =
+                                        add_blocks(blocks1, client11, 10, epoch_length, &signer1);
+                                    next_step1.store(true, Ordering::Relaxed);
+                                }
                             }
-                        }
-                        Ok(Ok(b)) if b.header.height > 20 => System::current().stop(),
-                        Err(_) => return future::ready(()),
-                        _ => {}
-                    };
-                    future::ready(())
-                }));
+                            Ok(Ok(b)) if b.header.height > 20 => System::current().stop(),
+                            Err(_) => return future::ready(()),
+                            _ => {}
+                        };
+                        future::ready(())
+                    },
+                ));
             }),
             100,
             60000,
@@ -248,30 +252,36 @@ fn sync_state_stake_change() {
                 let started_copy = started.clone();
                 let near2_copy = near2.clone();
                 let dir2_path_copy = dir2_path.clone();
-                actix::spawn(view_client1.send(GetBlock::Best).then(move |res| {
-                    let latest_height = res.unwrap().unwrap().header.height;
-                    if !started_copy.load(Ordering::SeqCst) && latest_height > 10 {
-                        started_copy.store(true, Ordering::SeqCst);
-                        let (_, view_client2) = start_with_config(&dir2_path_copy, near2_copy);
+                actix::spawn(view_client1.send(GetBlock::Finality(Finality::None)).then(
+                    move |res| {
+                        let latest_height = res.unwrap().unwrap().header.height;
+                        if !started_copy.load(Ordering::SeqCst) && latest_height > 10 {
+                            started_copy.store(true, Ordering::SeqCst);
+                            let (_, view_client2) = start_with_config(&dir2_path_copy, near2_copy);
 
-                        WaitOrTimeout::new(
-                            Box::new(move |_ctx| {
-                                actix::spawn(view_client2.send(GetBlock::Best).then(move |res| {
-                                    if let Ok(block) = res.unwrap() {
-                                        if block.header.height > latest_height + 1 {
-                                            System::current().stop()
-                                        }
-                                    }
-                                    future::ready(())
-                                }));
-                            }),
-                            100,
-                            30000,
-                        )
-                        .start();
-                    }
-                    future::ready(())
-                }));
+                            WaitOrTimeout::new(
+                                Box::new(move |_ctx| {
+                                    actix::spawn(
+                                        view_client2.send(GetBlock::Finality(Finality::None)).then(
+                                            move |res| {
+                                                if let Ok(block) = res.unwrap() {
+                                                    if block.header.height > latest_height + 1 {
+                                                        System::current().stop()
+                                                    }
+                                                }
+                                                future::ready(())
+                                            },
+                                        ),
+                                    );
+                                }),
+                                100,
+                                30000,
+                            )
+                            .start();
+                        }
+                        future::ready(())
+                    },
+                ));
             }),
             100,
             35000,

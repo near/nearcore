@@ -351,7 +351,7 @@ impl Client {
 
         let account_id_to_stake = self
             .runtime_adapter
-            .get_epoch_block_producers_ordered(&prev_epoch_id, &prev_hash)?
+            .get_epoch_block_producers_ordered(&epoch_id, &prev_hash)?
             .iter()
             .map(|x| (x.0.account_id.clone(), x.0.stake))
             .collect();
@@ -980,16 +980,17 @@ impl Client {
             signature,
         } = approval;
 
-        let head = match self.chain.head() {
-            Ok(head) => head,
-            Err(_) => return,
-        };
+        let next_epoch_id =
+            match self.runtime_adapter.get_epoch_id_from_prev_block(&approval.parent_hash) {
+                Err(_) => return,
+                Ok(next_epoch_id) => next_epoch_id,
+            };
 
         if !is_ours {
             // Check signature is correct for given validator.
             match self.runtime_adapter.verify_validator_signature(
-                &head.epoch_id,
-                &head.last_block_hash,
+                &next_epoch_id,
+                &parent_hash,
                 account_id,
                 Approval::get_data_for_sig(
                     parent_hash,
@@ -1011,16 +1012,11 @@ impl Client {
         }
 
         let is_block_producer =
-            match self.runtime_adapter.get_epoch_id_from_prev_block(&approval.parent_hash) {
+            match self.runtime_adapter.get_block_producer(&next_epoch_id, *target_height) {
                 Err(_) => false,
-                Ok(next_epoch_id) => {
-                    match self.runtime_adapter.get_block_producer(&next_epoch_id, *target_height) {
-                        Err(_) => false,
-                        Ok(target_block_producer) => {
-                            Some(&target_block_producer)
-                                == self.validator_signer.as_ref().map(|x| x.validator_id())
-                        }
-                    }
+                Ok(target_block_producer) => {
+                    Some(&target_block_producer)
+                        == self.validator_signer.as_ref().map(|x| x.validator_id())
                 }
             };
 
@@ -1050,7 +1046,7 @@ impl Client {
 
         let block_producer_stakes = match self
             .runtime_adapter
-            .get_epoch_block_producers_ordered(&head.epoch_id, &parent_hash)
+            .get_epoch_block_producers_ordered(&next_epoch_id, &parent_hash)
         {
             Ok(block_producer_stakes) => block_producer_stakes,
             Err(err) => {

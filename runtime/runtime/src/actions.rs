@@ -26,6 +26,8 @@ use near_vm_logic::VMContext;
 use crate::config::{safe_add_gas, RuntimeConfig};
 use crate::ext::RuntimeExt;
 use crate::{ActionResult, ApplyState};
+use near_crypto::key_conversion::convert_public_key;
+use near_crypto::PublicKey;
 use near_primitives::errors::{ActionError, ActionErrorKind, RuntimeError};
 use near_vm_errors::{CompilationError, FunctionCallError};
 use near_vm_runner::VMError;
@@ -230,6 +232,26 @@ pub(crate) fn action_stake(
     stake: &StakeAction,
 ) {
     let increment = stake.stake.saturating_sub(account.locked);
+
+    // Make sure the key is ED25519, and can be converted to ristretto
+    match stake.public_key {
+        PublicKey::ED25519(key) => {
+            if convert_public_key(&key).is_none() {
+                result.result = Err(ActionErrorKind::UnsuitableStakingKey {
+                    public_key: stake.public_key.clone(),
+                }
+                .into());
+                return;
+            }
+        }
+        PublicKey::SECP256K1(_) => {
+            result.result =
+                Err(ActionErrorKind::UnsuitableStakingKey { public_key: stake.public_key.clone() }
+                    .into());
+            return;
+        }
+    };
+
     if account.amount >= increment {
         if account.locked == 0 && stake.stake == 0 {
             // if the account hasn't staked, it cannot unstake

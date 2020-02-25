@@ -303,6 +303,7 @@ impl Chain {
                     runtime_adapter.add_validator_proposals(
                         CryptoHash::default(),
                         genesis.hash(),
+                        genesis.header.inner_rest.random_value,
                         genesis.header.inner_lite.height,
                         0,
                         vec![],
@@ -709,6 +710,7 @@ impl Chain {
                 self.runtime_adapter.add_validator_proposals(
                     header.prev_hash,
                     header.hash(),
+                    header.inner_rest.random_value,
                     header.inner_lite.height,
                     self.store.get_block_height(&header.inner_rest.last_quorum_pre_commit)?,
                     header.inner_rest.validator_proposals.clone(),
@@ -2524,6 +2526,7 @@ impl<'a> ChainUpdate<'a> {
         let prev_prev_hash = prev.prev_hash;
         let prev_gas_price = prev.inner_rest.gas_price;
         let prev_epoch_id = prev.inner_lite.epoch_id.clone();
+        let prev_random_value = prev.inner_rest.random_value;
 
         // Block is an orphan if we do not know about the previous full block.
         if !is_next && !self.chain_store_update.block_exists(&prev_hash)? {
@@ -2557,6 +2560,18 @@ impl<'a> ChainUpdate<'a> {
 
         for approval in block.header.inner_rest.approvals.iter() {
             FinalityGadget::process_approval(me, approval, &mut self.chain_store_update)?;
+        }
+
+        self.runtime_adapter.verify_block_vrf(
+            &block.header.inner_lite.epoch_id,
+            block.header.inner_lite.height,
+            &prev_random_value,
+            block.vrf_value,
+            block.vrf_proof,
+        )?;
+
+        if block.header.inner_rest.random_value != hash(block.vrf_value.0.as_ref()) {
+            return Err(ErrorKind::InvalidRandomnessBeaconOutput.into());
         }
 
         // We need to know the last approval on the previous block to later compute the reference
@@ -2635,6 +2650,7 @@ impl<'a> ChainUpdate<'a> {
         self.runtime_adapter.add_validator_proposals(
             block.header.prev_hash,
             block.hash(),
+            block.header.inner_rest.random_value,
             block.header.inner_lite.height,
             last_finalized_height,
             block.header.inner_rest.validator_proposals.clone(),
@@ -2830,7 +2846,7 @@ impl<'a> ChainUpdate<'a> {
         if *provenance != Provenance::PRODUCED {
             // first verify aggregated signature
             if !self.runtime_adapter.verify_approval_signature(
-                &prev_header.inner_lite.epoch_id,
+                &header.inner_lite.epoch_id,
                 &prev_header.hash,
                 &header.inner_rest.approvals,
             )? {
@@ -2856,10 +2872,7 @@ impl<'a> ChainUpdate<'a> {
             };
             let account_id_to_stake = self
                 .runtime_adapter
-                .get_epoch_block_producers_ordered(
-                    &prev_header.inner_lite.epoch_id,
-                    &header.prev_hash,
-                )?
+                .get_epoch_block_producers_ordered(&header.inner_lite.epoch_id, &header.prev_hash)?
                 .iter()
                 .map(|x| (x.0.account_id.clone(), x.0.stake))
                 .collect();

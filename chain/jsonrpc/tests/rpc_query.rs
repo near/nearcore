@@ -10,7 +10,7 @@ use near_jsonrpc_client::ChunkId;
 use near_network::test_utils::WaitOrTimeout;
 use near_primitives::account::{AccessKey, AccessKeyPermission};
 use near_primitives::hash::CryptoHash;
-use near_primitives::rpc::RpcQueryRequest;
+use near_primitives::rpc::{BlockQueryInfo, RpcQueryRequest};
 use near_primitives::test_utils::init_test_logger;
 use near_primitives::types::{BlockId, ShardId};
 use near_primitives::views::{Finality, QueryRequest, QueryResponseKind};
@@ -35,9 +35,9 @@ macro_rules! test_with_client {
 
 /// Retrieve blocks via json rpc
 #[test]
-fn test_block() {
+fn test_block_by_id_height() {
     test_with_client!(client, async move {
-        let block = client.block(BlockId::Height(0)).await.unwrap();
+        let block = client.block_by_id(BlockId::Height(0)).await.unwrap();
         assert_eq!(block.author, "test1");
         assert_eq!(block.header.height, 0);
         assert_eq!(block.header.epoch_id.0.as_ref(), &[0; 32]);
@@ -54,12 +54,42 @@ fn test_block() {
 
 /// Retrieve blocks via json rpc
 #[test]
-fn test_block_by_hash() {
+fn test_block_by_id_hash() {
     test_with_client!(client, async move {
-        let block = client.block(BlockId::Height(0)).await.unwrap();
-        let same_block = client.block(BlockId::Hash(block.header.hash)).await.unwrap();
+        let block = client.block_by_id(BlockId::Height(0)).await.unwrap();
+        let same_block = client.block_by_id(BlockId::Hash(block.header.hash)).await.unwrap();
         assert_eq!(block.header.height, 0);
         assert_eq!(same_block.header.height, 0);
+    });
+}
+
+/// Retrieve blocks via json rpc
+#[test]
+fn test_block_query() {
+    test_with_client!(client, async move {
+        let block_response1 =
+            client.block(BlockQueryInfo::BlockId(BlockId::Height(0))).await.unwrap();
+        let block_response2 = client
+            .block(BlockQueryInfo::BlockId(BlockId::Hash(block_response1.header.hash)))
+            .await
+            .unwrap();
+        let block_response3 = client.block(BlockQueryInfo::Finality(Finality::None)).await.unwrap();
+        for block in [block_response1, block_response2, block_response3].into_iter() {
+            assert_eq!(block.author, "test1");
+            assert_eq!(block.header.height, 0);
+            assert_eq!(block.header.epoch_id.0.as_ref(), &[0; 32]);
+            assert_eq!(block.header.hash.0.as_ref().len(), 32);
+            assert_eq!(block.header.prev_hash.0.as_ref(), &[0; 32]);
+            assert_eq!(
+                block.header.prev_state_root,
+                CryptoHash::try_from("7tkzFg8RHBmMw1ncRJZCCZAizgq4rwCftTKYLce8RU8t").unwrap()
+            );
+            assert!(block.header.timestamp > 0);
+            assert_eq!(block.header.validator_proposals.len(), 0);
+        }
+        // no doomslug final or nfg final block
+        assert!(client.block(BlockQueryInfo::Finality(Finality::DoomSlug)).await.is_err());
+        assert!(client.block(BlockQueryInfo::Finality(Finality::NFG)).await.is_err());
     });
 }
 
@@ -456,7 +486,7 @@ fn test_gas_price_by_height() {
 #[test]
 fn test_gas_price_by_hash() {
     test_with_client!(client, async move {
-        let block = client.block(BlockId::Height(0)).await.unwrap();
+        let block = client.block(BlockQueryInfo::BlockId(BlockId::Height(0))).await.unwrap();
         let gas_price = client.gas_price(Some(BlockId::Hash(block.header.hash))).await.unwrap();
         assert!(gas_price.gas_price > 0);
     });
