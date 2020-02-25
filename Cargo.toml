@@ -92,4 +92,4 @@ old_tests = []
 adversarial = ["near/adversarial", "near-jsonrpc/adversarial"]
 
 [patch.crates-io]
-actix-rt = { git = 'https://github.com/ailisp/actix-net' }
+actix-rt = { git = "https://github.com/actix/actix-net", rev="602db1779eb51d60e0fe5a33d725d1d7fdf540fd" }
