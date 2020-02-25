@@ -1,8 +1,6 @@
 use std::collections::HashMap;
 use std::iter::Peekable;
 
-use kvdb::DBValue;
-
 use borsh::BorshDeserialize;
 use near_crypto::PublicKey;
 use near_primitives::account::{AccessKey, AccessKeyPermission, FunctionCallPermission};
@@ -15,8 +13,9 @@ use near_primitives::transaction::{
 };
 use near_primitives::types::{AccountId, Balance};
 use near_primitives::utils::{create_nonce_with_nonce, prefix_for_data};
-use near_store::{TrieUpdate, TrieUpdateIterator};
-use near_vm_logic::{External, HostError, HostErrorOrStorageError};
+use near_store::{TrieUpdate, TrieUpdateIterator, TrieUpdateValuePtr};
+use near_vm_logic::{External, HostError, VMLogicError, ValuePtr};
+use sha3::{Keccak256, Keccak512};
 
 pub struct RuntimeExt<'a> {
     trie_update: &'a mut TrieUpdate,
@@ -29,6 +28,18 @@ pub struct RuntimeExt<'a> {
     gas_price: Balance,
     base_data_id: &'a CryptoHash,
     data_count: u64,
+}
+
+pub struct RuntimeExtValuePtr<'a>(TrieUpdateValuePtr<'a>);
+
+impl<'a> ValuePtr for RuntimeExtValuePtr<'a> {
+    fn len(&self) -> u32 {
+        self.0.len()
+    }
+
+    fn deref(&self) -> ExtResult<Vec<u8>> {
+        self.0.deref_value().map_err(wrap_error)
+    }
 }
 
 impl<'a> RuntimeExt<'a> {
@@ -88,38 +99,39 @@ impl<'a> RuntimeExt<'a> {
     }
 }
 
-fn wrap_error(error: StorageError) -> HostErrorOrStorageError {
-    HostErrorOrStorageError::StorageError(
+fn wrap_error(error: StorageError) -> VMLogicError {
+    // TODO(#2010): Wrap StorageError into ExternalError.
+    VMLogicError::ExternalError(
         borsh::BorshSerialize::try_to_vec(&error).expect("Borsh serialize cannot fail"),
     )
 }
 
-type ExtResult<T> = ::std::result::Result<T, HostErrorOrStorageError>;
+type ExtResult<T> = ::std::result::Result<T, VMLogicError>;
 
 impl<'a> External for RuntimeExt<'a> {
-    fn storage_set(&mut self, key: &[u8], value: &[u8]) -> ExtResult<Option<Vec<u8>>> {
+    fn storage_set(&mut self, key: &[u8], value: &[u8]) -> ExtResult<()> {
         let storage_key = self.create_storage_key(key);
-        let evicted =
-            self.trie_update.get(&storage_key).map_err(wrap_error)?.map(DBValue::into_vec);
-        self.trie_update.set(storage_key, DBValue::from_slice(value));
-        Ok(evicted)
+        self.trie_update.set(storage_key, Vec::from(value));
+        Ok(())
     }
 
-    fn storage_get(&self, key: &[u8]) -> ExtResult<Option<Vec<u8>>> {
+    fn storage_get<'b>(&'b self, key: &[u8]) -> ExtResult<Option<Box<dyn ValuePtr + 'b>>> {
         let storage_key = self.create_storage_key(key);
-        self.trie_update.get(&storage_key).map_err(wrap_error).map(|opt| opt.map(DBValue::into_vec))
+        self.trie_update
+            .get_ref(&storage_key)
+            .map_err(wrap_error)
+            .map(|option| option.map(|ptr| Box::new(RuntimeExtValuePtr(ptr)) as Box<_>))
     }
 
-    fn storage_remove(&mut self, key: &[u8]) -> ExtResult<Option<Vec<u8>>> {
+    fn storage_remove(&mut self, key: &[u8]) -> ExtResult<()> {
         let storage_key = self.create_storage_key(key);
-        let evicted =
-            self.trie_update.get(&storage_key).map_err(wrap_error)?.map(DBValue::into_vec);
         self.trie_update.remove(&storage_key);
-        Ok(evicted)
+        Ok(())
     }
 
     fn storage_has_key(&mut self, key: &[u8]) -> ExtResult<bool> {
-        Ok(self.storage_get(key)?.is_some())
+        let storage_key = self.create_storage_key(key);
+        self.trie_update.get_ref(&storage_key).map(|x| x.is_some()).map_err(wrap_error)
     }
 
     fn storage_iter(&mut self, prefix: &[u8]) -> ExtResult<u64> {
@@ -150,24 +162,32 @@ impl<'a> External for RuntimeExt<'a> {
         Ok(self.last_iter_id - 1)
     }
 
-    fn storage_iter_next(&mut self, iterator_idx: u64) -> ExtResult<Option<(Vec<u8>, Vec<u8>)>> {
+    fn storage_iter_next<'b>(
+        &'b mut self,
+        iterator_idx: u64,
+    ) -> ExtResult<Option<(Vec<u8>, Box<dyn ValuePtr + 'b>)>> {
         let result = match self.iters.get_mut(&iterator_idx) {
             Some(iter) => iter.next(),
-            None => return Err(HostError::InvalidIteratorIndex.into()),
+            None => {
+                return Err(HostError::InvalidIteratorIndex { iterator_index: iterator_idx }.into())
+            }
         };
-        if result.is_none() {
-            self.iters.remove(&iterator_idx);
-        }
-        Ok(result.map(|key| {
-            (
-                key[self.storage_prefix.len()..].to_vec(),
-                self.trie_update
-                    .get(&key)
+        match result {
+            None => {
+                self.iters.remove(&iterator_idx);
+                Ok(None)
+            }
+            Some(key) => {
+                let key = key.map_err(wrap_error)?;
+                let ptr = self
+                    .trie_update
+                    .get_ref(&key)
                     .expect("error cannot happen")
-                    .expect("key is guaranteed to be there")
-                    .into_vec(),
-            )
-        }))
+                    .expect("key is guaranteed to be there");
+                let result = Box::new(RuntimeExtValuePtr(ptr)) as Box<_>;
+                Ok(Some((key[self.storage_prefix.len()..].to_vec(), result)))
+            }
+        }
     }
 
     fn storage_iter_drop(&mut self, iterator_idx: u64) -> ExtResult<()> {
@@ -181,7 +201,7 @@ impl<'a> External for RuntimeExt<'a> {
             let data_id = self.new_data_id();
             self.action_receipts
                 .get_mut(receipt_index as usize)
-                .expect("receipt index should be present")
+                .ok_or_else(|| HostError::InvalidReceiptIndex { receipt_index })?
                 .1
                 .output_data_receivers
                 .push(DataReceiver { data_id, receiver_id: receiver_id.clone() });
@@ -336,7 +356,37 @@ impl<'a> External for RuntimeExt<'a> {
     }
 
     fn sha256(&self, data: &[u8]) -> ExtResult<Vec<u8>> {
-        let value_hash = sodiumoxide::crypto::hash::sha256::hash(data);
+        use sha2::Digest;
+
+        let value_hash = sha2::Sha256::digest(data);
         Ok(value_hash.as_ref().to_vec())
+    }
+
+    fn keccak256(&self, data: &[u8]) -> ExtResult<Vec<u8>> {
+        use sha3::Digest;
+
+        let mut hasher = Keccak256::default();
+        hasher.input(&data);
+        let mut res = [0u8; 32];
+        res.copy_from_slice(hasher.result().as_slice());
+        Ok(res.to_vec())
+    }
+
+    fn keccak512(&self, data: &[u8]) -> ExtResult<Vec<u8>> {
+        use sha3::Digest;
+
+        let mut hasher = Keccak512::default();
+        hasher.input(&data);
+        let mut res = [0u8; 64];
+        res.copy_from_slice(hasher.result().as_slice());
+        Ok(res.to_vec())
+    }
+
+    fn get_touched_nodes_count(&self) -> u64 {
+        self.trie_update.trie.counter.get()
+    }
+
+    fn reset_touched_nodes_counter(&mut self) {
+        self.trie_update.trie.counter.reset()
     }
 }

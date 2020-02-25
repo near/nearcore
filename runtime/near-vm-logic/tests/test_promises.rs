@@ -1,27 +1,23 @@
 mod fixtures;
 mod helpers;
+mod vm_logic_builder;
 
-use crate::fixtures::get_context;
-use crate::helpers::*;
-use near_vm_logic::mocks::mock_external::MockedExternal;
-use near_vm_logic::mocks::mock_memory::MockedMemory;
+use fixtures::get_context;
+use helpers::*;
 use near_vm_logic::types::PromiseResult;
-use near_vm_logic::{Config, VMLogic};
 use serde_json;
+use vm_logic_builder::VMLogicBuilder;
 
 #[test]
 fn test_promise_results() {
-    let mut ext = MockedExternal::default();
-    let context = get_context(vec![], false);
-    let config = Config::default();
-
     let mut promise_results = vec![];
     promise_results.push(PromiseResult::Successful(b"test".to_vec()));
     promise_results.push(PromiseResult::Failed);
     promise_results.push(PromiseResult::NotReady);
 
-    let mut memory = MockedMemory::default();
-    let mut logic = VMLogic::new(&mut ext, context, &config, &promise_results, &mut memory);
+    let mut logic_builder = VMLogicBuilder::default();
+    logic_builder.promise_results = promise_results;
+    let mut logic = logic_builder.build(get_context(vec![], false));
 
     assert_eq!(logic.promise_results_count(), Ok(3), "Total count of registers must be 3");
     assert_eq!(logic.promise_result(0, 0), Ok(1), "Must return code 1 on success");
@@ -35,12 +31,8 @@ fn test_promise_results() {
 
 #[test]
 fn test_promise_batch_action_function_call() {
-    let mut ext = MockedExternal::default();
-    let context = get_context(vec![], false);
-    let config = Config::default();
-    let promise_results = vec![];
-    let mut memory = MockedMemory::default();
-    let mut logic = VMLogic::new(&mut ext, context, &config, &promise_results, &mut memory);
+    let mut logic_builder = VMLogicBuilder::default();
+    let mut logic = logic_builder.build(get_context(vec![], false));
     let index = promise_create(&mut logic, b"rick.test", 0, 0).expect("should create a promise");
 
     promise_batch_action_function_call(&mut logic, 123, 0, 0)
@@ -68,19 +60,15 @@ fn test_promise_batch_action_function_call() {
         ]
     }]);
     assert_eq!(
-        &serde_json::to_string(ext.get_receipt_create_calls()).unwrap(),
+        &serde_json::to_string(logic_builder.ext.get_receipt_create_calls()).unwrap(),
         &expected.to_string()
     );
 }
 
 #[test]
 fn test_promise_batch_action_create_account() {
-    let mut ext = MockedExternal::default();
-    let context = get_context(vec![], false);
-    let config = Config::default();
-    let promise_results = vec![];
-    let mut memory = MockedMemory::default();
-    let mut logic = VMLogic::new(&mut ext, context, &config, &promise_results, &mut memory);
+    let mut logic_builder = VMLogicBuilder::default();
+    let mut logic = logic_builder.build(get_context(vec![], false));
     let index = promise_create(&mut logic, b"rick.test", 0, 0).expect("should create a promise");
 
     logic
@@ -95,7 +83,7 @@ fn test_promise_batch_action_create_account() {
     logic
         .promise_batch_action_create_account(index)
         .expect("should add an action to create account");
-    assert_eq!(logic.used_gas().unwrap(), 430);
+    assert_eq!(logic.used_gas().unwrap(), 4592116214587);
     let expected = serde_json::json!([
         {
             "receipt_indices": [],
@@ -114,19 +102,15 @@ fn test_promise_batch_action_create_account() {
         }
     ]);
     assert_eq!(
-        &serde_json::to_string(ext.get_receipt_create_calls()).unwrap(),
+        &serde_json::to_string(logic_builder.ext.get_receipt_create_calls()).unwrap(),
         &expected.to_string()
     );
 }
 
 #[test]
 fn test_promise_batch_action_deploy_contract() {
-    let mut ext = MockedExternal::default();
-    let context = get_context(vec![], false);
-    let config = Config::default();
-    let promise_results = vec![];
-    let mut memory = MockedMemory::default();
-    let mut logic = VMLogic::new(&mut ext, context, &config, &promise_results, &mut memory);
+    let mut logic_builder = VMLogicBuilder::default();
+    let mut logic = logic_builder.build(get_context(vec![], false));
     let index = promise_create(&mut logic, b"rick.test", 0, 0).expect("should create a promise");
     let code = b"sample";
 
@@ -143,7 +127,7 @@ fn test_promise_batch_action_deploy_contract() {
     logic
         .promise_batch_action_deploy_contract(index, code.len() as u64, code.as_ptr() as _)
         .expect("should add an action to deploy contract");
-    assert_eq!(logic.used_gas().unwrap(), 550);
+    assert_eq!(logic.used_gas().unwrap(), 5624049826802);
     let expected = serde_json::json!(
       [
         {
@@ -169,21 +153,18 @@ fn test_promise_batch_action_deploy_contract() {
       }
     ]);
     assert_eq!(
-        &serde_json::to_string(ext.get_receipt_create_calls()).unwrap(),
+        &serde_json::to_string(logic_builder.ext.get_receipt_create_calls()).unwrap(),
         &expected.to_string()
     );
 }
 
 #[test]
 fn test_promise_batch_action_transfer() {
-    let mut ext = MockedExternal::default();
     let mut context = get_context(vec![], false);
     context.account_balance = 100;
     context.attached_deposit = 10;
-    let config = Config::default();
-    let promise_results = vec![];
-    let mut memory = MockedMemory::default();
-    let mut logic = VMLogic::new(&mut ext, context, &config, &promise_results, &mut memory);
+    let mut logic_builder = VMLogicBuilder::default();
+    let mut logic = logic_builder.build(context);
     let index = promise_create(&mut logic, b"rick.test", 0, 0).expect("should create a promise");
 
     logic
@@ -202,7 +183,7 @@ fn test_promise_batch_action_transfer() {
     logic
         .promise_batch_action_transfer(index, 1u128.to_le_bytes().as_ptr() as _)
         .expect_err("not enough money");
-    assert_eq!(logic.used_gas().unwrap(), 450);
+    assert_eq!(logic.used_gas().unwrap(), 4650867841341);
     let expected = serde_json::json!(
     [
         {
@@ -226,20 +207,18 @@ fn test_promise_batch_action_transfer() {
         }
     ]);
     assert_eq!(
-        &serde_json::to_string(ext.get_receipt_create_calls()).unwrap(),
+        &serde_json::to_string(logic_builder.ext.get_receipt_create_calls()).unwrap(),
         &expected.to_string()
     );
 }
 
 #[test]
 fn test_promise_batch_action_stake() {
-    let mut ext = MockedExternal::default();
     let mut context = get_context(vec![], false);
+    // And there are 10N in attached balance to the transaction.
     context.account_balance = 100;
-    let config = Config::default();
-    let promise_results = vec![];
-    let mut memory = MockedMemory::default();
-    let mut logic = VMLogic::new(&mut ext, context, &config, &promise_results, &mut memory);
+    let mut logic_builder = VMLogicBuilder::default();
+    let mut logic = logic_builder.build(context);
     let index = promise_create(&mut logic, b"rick.test", 0, 0).expect("should create a promise");
     let key = b"ed25519:5do5nkAEVhL8iteDvXNgxi4pWK78Y7DDadX11ArFNyrf";
 
@@ -271,15 +250,7 @@ fn test_promise_batch_action_stake() {
             key.as_ptr() as _,
         )
         .expect("should add an action to stake");
-    logic
-        .promise_batch_action_stake(
-            index,
-            1u128.to_le_bytes().as_ptr() as _,
-            key.len() as u64,
-            key.as_ptr() as _,
-        )
-        .expect_err("not enough money to stake");
-    assert_eq!(logic.used_gas().unwrap(), 450);
+    assert_eq!(logic.used_gas().unwrap(), 4601917690513);
     let expected = serde_json::json!([
         {
             "receipt_indices": [],
@@ -303,20 +274,18 @@ fn test_promise_batch_action_stake() {
         }
     ]);
     assert_eq!(
-        &serde_json::to_string(ext.get_receipt_create_calls()).unwrap(),
+        &serde_json::to_string(logic_builder.ext.get_receipt_create_calls()).unwrap(),
         &expected.to_string()
     );
 }
 
 #[test]
 fn test_promise_batch_action_add_key_with_function_call() {
-    let mut ext = MockedExternal::default();
     let mut context = get_context(vec![], false);
     context.account_balance = 100;
-    let config = Config::default();
-    let promise_results = vec![];
-    let mut memory = MockedMemory::default();
-    let mut logic = VMLogic::new(&mut ext, context, &config, &promise_results, &mut memory);
+
+    let mut logic_builder = VMLogicBuilder::default();
+    let mut logic = logic_builder.build(context);
     let index = promise_create(&mut logic, b"rick.test", 0, 0).expect("should create a promise");
     let key = b"ed25519:5do5nkAEVhL8iteDvXNgxi4pWK78Y7DDadX11ArFNyrf";
     let nonce = 1;
@@ -358,7 +327,7 @@ fn test_promise_batch_action_add_key_with_function_call() {
         method_names,
     )
     .expect("should add allowance");
-    assert_eq!(logic.used_gas().unwrap(), 590);
+    assert_eq!(logic.used_gas().unwrap(), 4612303559991);
     let expected = serde_json::json!(
     [
         {
@@ -389,20 +358,17 @@ fn test_promise_batch_action_add_key_with_function_call() {
         }
     ]);
     assert_eq!(
-        &serde_json::to_string(ext.get_receipt_create_calls()).unwrap(),
+        &serde_json::to_string(logic_builder.ext.get_receipt_create_calls()).unwrap(),
         &expected.to_string()
     );
 }
 
 #[test]
 fn test_promise_batch_then() {
-    let mut ext = MockedExternal::default();
     let mut context = get_context(vec![], false);
     context.account_balance = 100;
-    let config = Config::default();
-    let promise_results = vec![];
-    let mut memory = MockedMemory::default();
-    let mut logic = VMLogic::new(&mut ext, context, &config, &promise_results, &mut memory);
+    let mut logic_builder = VMLogicBuilder::default();
+    let mut logic = logic_builder.build(context);
 
     let account_id = b"rick.test";
     let index = promise_create(&mut logic, account_id, 0, 0).expect("should create a promise");
@@ -420,7 +386,7 @@ fn test_promise_batch_then() {
     logic
         .promise_batch_then(index, account_id.len() as u64, account_id.as_ptr() as _)
         .expect("promise batch should run ok");
-    assert_eq!(logic.used_gas().unwrap(), 490);
+    assert_eq!(logic.used_gas().unwrap(), 10453064405758);
     let expected = serde_json::json!([
         {
             "receipt_indices": [],
@@ -452,7 +418,7 @@ fn test_promise_batch_then() {
         }
     ]);
     assert_eq!(
-        &serde_json::to_string(ext.get_receipt_create_calls()).unwrap(),
+        &serde_json::to_string(logic_builder.ext.get_receipt_create_calls()).unwrap(),
         &expected.to_string()
     );
 }

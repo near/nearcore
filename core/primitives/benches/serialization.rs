@@ -1,18 +1,17 @@
 #[macro_use]
 extern crate bencher;
 
-use std::collections::HashMap;
-
 use bencher::Bencher;
 use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::Utc;
 
-use near_crypto::{InMemorySigner, KeyType, PublicKey, Signature};
+use near_crypto::{KeyType, PublicKey, Signature};
 use near_primitives::account::Account;
 use near_primitives::block::{genesis_chunks, Block};
 use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::{Action, SignedTransaction, Transaction, TransferAction};
 use near_primitives::types::{EpochId, StateRoot};
+use near_primitives::validator_signer::InMemoryValidatorSigner;
 
 fn create_transaction() -> SignedTransaction {
     let mut actions = vec![];
@@ -33,28 +32,33 @@ fn create_transaction() -> SignedTransaction {
 }
 
 fn create_block() -> Block {
-    let genesis_chunks = genesis_chunks(
-        vec![StateRoot { hash: CryptoHash::default(), num_parts: 1 /* TODO MOO */ }],
-        1,
-        1_000,
-    );
+    let genesis_chunks = genesis_chunks(vec![StateRoot::default()], 1, 1_000);
     let genesis = Block::genesis(
         genesis_chunks.into_iter().map(|chunk| chunk.header).collect(),
         Utc::now(),
         1_000,
         1_000,
-        1_000,
+        CryptoHash::default(),
     );
-    let signer = InMemorySigner::from_random("".to_string(), KeyType::ED25519);
+    let signer = InMemoryValidatorSigner::from_random("".to_string(), KeyType::ED25519);
     Block::produce(
         &genesis.header,
         10,
         vec![genesis.chunks[0].clone()],
         EpochId::default(),
-        HashMap::default(),
+        EpochId::default(),
+        vec![],
+        0,
         0,
         Some(0),
+        vec![],
+        vec![],
         &signer,
+        0.into(),
+        CryptoHash::default(),
+        CryptoHash::default(),
+        CryptoHash::default(),
+        CryptoHash::default(),
     )
 }
 

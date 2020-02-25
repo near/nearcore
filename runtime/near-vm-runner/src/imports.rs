@@ -1,10 +1,13 @@
 use std::ffi::c_void;
 
-use near_vm_logic::{HostErrorOrStorageError, VMLogic};
+use near_vm_logic::{VMLogic, VMLogicError};
 use wasmer_runtime::memory::Memory;
 use wasmer_runtime::{func, imports, Ctx, ImportObject};
 
-type Result<T> = ::std::result::Result<T, HostErrorOrStorageError>;
+type Result<T> = ::std::result::Result<T, VMLogicError>;
+struct ImportReference(*mut c_void);
+unsafe impl Send for ImportReference {}
+unsafe impl Sync for ImportReference {}
 
 macro_rules! wrapped_imports {
         ( $( $func:ident < [ $( $arg_name:ident : $arg_type:ident ),* ] -> [ $( $returns:ident ),* ] >, )* ) => {
@@ -15,10 +18,14 @@ macro_rules! wrapped_imports {
                 }
             )*
 
-            pub(crate) fn build(memory: Memory, raw_ptr: *mut c_void) -> ImportObject {
-                let dtor = (|_: *mut c_void| {}) as fn(*mut c_void);
+            pub(crate) fn build(memory: Memory, logic: &mut VMLogic) -> ImportObject {
+                let raw_ptr = logic as *mut _ as *mut c_void;
+                let import_reference = ImportReference(raw_ptr);
                 imports! {
-                    move || { (raw_ptr, dtor) },
+                    move || {
+                        let dtor = (|_: *mut c_void| {}) as fn(*mut c_void);
+                        (import_reference.0, dtor)
+                    },
                     "env" => {
                         "memory" => memory,
                         $(
@@ -36,6 +43,7 @@ wrapped_imports! {
     // #############
     read_register<[register_id: u64, ptr: u64] -> []>,
     register_len<[register_id: u64] -> [u64]>,
+    write_register<[register_id: u64, data_len: u64, data_ptr: u64] -> []>,
     // ###############
     // # Context API #
     // ###############
@@ -44,6 +52,7 @@ wrapped_imports! {
     signer_account_pk<[register_id: u64] -> []>,
     predecessor_account_id<[register_id: u64] -> []>,
     input<[register_id: u64] -> []>,
+    // TODO #1903 rename to `block_height`
     block_index<[] -> [u64]>,
     block_timestamp<[] -> [u64]>,
     storage_usage<[] -> [u64]>,
@@ -51,6 +60,7 @@ wrapped_imports! {
     // # Economics API #
     // #################
     account_balance<[balance_ptr: u64] -> []>,
+    account_locked_balance<[balance_ptr: u64] -> []>,
     attached_deposit<[balance_ptr: u64] -> []>,
     prepaid_gas<[] -> [u64]>,
     used_gas<[] -> [u64]>,
@@ -59,6 +69,8 @@ wrapped_imports! {
     // ############
     random_seed<[register_id: u64] -> []>,
     sha256<[value_len: u64, value_ptr: u64, register_id: u64] -> []>,
+    keccak256<[value_len: u64, value_ptr: u64, register_id: u64] -> []>,
+    keccak512<[value_len: u64, value_ptr: u64, register_id: u64] -> []>,
     // #####################
     // # Miscellaneous API #
     // #####################

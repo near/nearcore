@@ -2,19 +2,23 @@
 extern crate lazy_static;
 
 pub use chain::{collect_receipts, Chain, ChainGenesis, MAX_ORPHAN_SIZE};
+pub use doomslug::{Doomslug, DoomslugBlockProductionReadiness, DoomslugThresholdMode};
 pub use error::{Error, ErrorKind};
-pub use store::{ChainStore, ChainStoreAccess};
-pub use types::{
-    Block, BlockApproval, BlockHeader, BlockStatus, Provenance, ReceiptResult, RuntimeAdapter, Tip,
-    ValidTransaction, Weight,
-};
+pub use finality::{FinalityGadget, FinalityGadgetQuorums};
+pub use lightclient::create_light_client_block_view;
+pub use store::{ChainStore, ChainStoreAccess, ChainStoreUpdate};
+pub use types::{Block, BlockHeader, BlockStatus, Provenance, ReceiptResult, RuntimeAdapter, Tip};
 
-mod chain;
+pub mod chain;
+mod doomslug;
 mod error;
+mod finality;
+mod lightclient;
 mod metrics;
 mod store;
 pub mod test_utils;
 pub mod types;
+pub mod validate;
 
 #[cfg(feature = "byzantine_asserts")]
 #[macro_export]

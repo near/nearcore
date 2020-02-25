@@ -4,7 +4,9 @@ use std::io;
 use chrono::{DateTime, Utc};
 use failure::{Backtrace, Context, Fail};
 
+use near_primitives::challenge::{ChunkProofs, ChunkState};
 use near_primitives::sharding::{ChunkHash, ShardChunkHeader};
+use near_primitives::types::ShardId;
 
 #[derive(Debug)]
 pub struct Error {
@@ -24,9 +26,6 @@ pub enum ErrorKind {
     /// Chunks missing with header info.
     #[fail(display = "Chunks Missing: {:?}", _0)]
     ChunksMissing(Vec<(ShardChunkHeader)>),
-    /// Peer abusively sending us an old block we already have
-    #[fail(display = "Old Block")]
-    OldBlock,
     /// Block time is before parent block time.
     #[fail(display = "Invalid Block Time: block time {} before previous {}", _1, _0)]
     InvalidBlockPastTime(DateTime<Utc>, DateTime<Utc>),
@@ -42,9 +41,9 @@ pub enum ErrorKind {
     /// Invalid block confirmation signature.
     #[fail(display = "Invalid Block Confirmation Signature")]
     InvalidBlockConfirmation,
-    /// Invalid block weight.
-    #[fail(display = "Invalid Block Weight")]
-    InvalidBlockWeight,
+    /// Invalid block score.
+    #[fail(display = "Invalid Block Score")]
+    InvalidBlockScore,
     /// Invalid state root hash.
     #[fail(display = "Invalid State Root Hash")]
     InvalidStateRoot,
@@ -63,21 +62,54 @@ pub enum ErrorKind {
     /// Invalid receipts proof.
     #[fail(display = "Invalid Receipts Proof")]
     InvalidReceiptsProof,
+    /// Invalid outcomes proof.
+    #[fail(display = "Invalid Outcomes Proof")]
+    InvalidOutcomesProof,
     /// Invalid state payload on state sync.
     #[fail(display = "Invalid State Payload")]
     InvalidStatePayload,
     /// Invalid transactions in the block.
     #[fail(display = "Invalid Transactions")]
     InvalidTransactions,
+    /// Invalid challenge (wrong signature or format).
+    #[fail(display = "Invalid Challenge")]
+    InvalidChallenge,
+    /// Incorrect (malicious) challenge (slash the sender).
+    #[fail(display = "Malicious Challenge")]
+    MaliciousChallenge,
     /// Incorrect number of chunk headers
     #[fail(display = "Incorrect Number of Chunk Headers")]
     IncorrectNumberOfChunkHeaders,
     /// Invalid chunk.
     #[fail(display = "Invalid Chunk")]
     InvalidChunk,
+    /// One of the chunks has invalid proofs
+    #[fail(display = "Invalid Chunk Proofs")]
+    InvalidChunkProofs(ChunkProofs),
+    /// Invalid chunk state.
+    #[fail(display = "Invalid Chunk State")]
+    InvalidChunkState(ChunkState),
+    /// Invalid chunk mask
+    #[fail(display = "Invalid Chunk Mask")]
+    InvalidChunkMask,
+    /// The chunk height is outside of the horizon
+    #[fail(display = "Invalid Chunk Height")]
+    InvalidChunkHeight,
     /// Invalid epoch hash
     #[fail(display = "Invalid Epoch Hash")]
     InvalidEpochHash,
+    /// `next_bps_hash` doens't correspond to the actual next block producers set
+    #[fail(display = "Invalid Next BP Hash")]
+    InvalidNextBPHash,
+    /// Invalid quorum_pre_vote or quorum_pre_commit
+    #[fail(display = "Invalid Finality Info")]
+    InvalidFinalityInfo,
+    /// The block doesn't have approvals from 50% of the block producers
+    #[fail(display = "Not enough approvals")]
+    NotEnoughApprovals,
+    /// The information about the last doomslug final block is incorrect
+    #[fail(display = "Invalid doomslug finality info")]
+    InvalidDoomslugFinalityInfo,
     /// Invalid validator proposals in the block.
     #[fail(display = "Invalid Validator Proposals")]
     InvalidValidatorProposals,
@@ -87,8 +119,38 @@ pub enum ErrorKind {
     /// Invalid Approvals
     #[fail(display = "Invalid Approvals")]
     InvalidApprovals,
+    /// Invalid Gas Limit
+    #[fail(display = "Invalid Gas Limit")]
+    InvalidGasLimit,
+    /// Invalid Gas Limit
+    #[fail(display = "Invalid Gas Price")]
+    InvalidGasPrice,
+    /// Invalid Gas Used
+    #[fail(display = "Invalid Gas Used")]
+    InvalidGasUsed,
+    /// Invalid Rent Paid
+    #[fail(display = "Invalid Rent Paid")]
+    InvalidRent,
+    /// Invalid Validator Reward
+    #[fail(display = "Invalid Validator Reward")]
+    InvalidReward,
+    /// Invalid Balance Burnt
+    #[fail(display = "Invalid Balance Burnt")]
+    InvalidBalanceBurnt,
+    /// Invalid shard id
+    #[fail(display = "Shard id {} does not exist", _0)]
+    InvalidShardId(ShardId),
+    /// Invalid shard id
+    #[fail(display = "Invalid state request: {}", _0)]
+    InvalidStateRequest(String),
+    /// Invalid VRF proof, or incorrect random_output in the header
+    #[fail(display = "Invalid Randomness Beacon Output")]
+    InvalidRandomnessBeaconOutput,
+    /// Someone is not a validator. Usually happens in signature verification
+    #[fail(display = "Not A Validator")]
+    NotAValidator,
     /// Validator error.
-    #[fail(display = "Validator Error")]
+    #[fail(display = "Validator Error: {}", _0)]
     ValidatorError(String),
     /// Epoch out of bounds. Usually if received block is too far in the future or alternative fork.
     #[fail(display = "Epoch Out Of Bounds")]
@@ -102,6 +164,9 @@ pub enum ErrorKind {
     /// Not found record in the DB.
     #[fail(display = "DB Not Found Error: {}", _0)]
     DBNotFoundErr(String),
+    /// Storage error. Used for internal passing the error.
+    #[fail(display = "Storage Error")]
+    StorageError,
     /// Anything else
     #[fail(display = "Other Error: {}", _0)]
     Other(String),
@@ -141,34 +206,55 @@ impl Error {
             | ErrorKind::Orphan
             | ErrorKind::ChunkMissing(_)
             | ErrorKind::ChunksMissing(_)
+            | ErrorKind::InvalidChunkHeight
             | ErrorKind::IOErr(_)
             | ErrorKind::Other(_)
             | ErrorKind::ValidatorError(_)
             // TODO: can be either way?
             | ErrorKind::EpochOutOfBounds
             | ErrorKind::ChallengedBlockOnChain
+            | ErrorKind::StorageError
             | ErrorKind::DBNotFoundErr(_) => false,
             ErrorKind::InvalidBlockPastTime(_, _)
             | ErrorKind::InvalidBlockFutureTime(_)
             | ErrorKind::InvalidBlockHeight
-            | ErrorKind::OldBlock
             | ErrorKind::InvalidBlockProposer
             | ErrorKind::InvalidBlockConfirmation
-            | ErrorKind::InvalidBlockWeight
+            | ErrorKind::InvalidBlockScore
             | ErrorKind::InvalidChunk
+            | ErrorKind::InvalidChunkProofs(_)
+            | ErrorKind::InvalidChunkState(_)
+            | ErrorKind::InvalidChunkMask
             | ErrorKind::InvalidStateRoot
             | ErrorKind::InvalidTxRoot
             | ErrorKind::InvalidChunkReceiptsRoot
+            | ErrorKind::InvalidOutcomesProof
             | ErrorKind::InvalidChunkHeadersRoot
             | ErrorKind::InvalidChunkTxRoot
             | ErrorKind::InvalidReceiptsProof
             | ErrorKind::InvalidStatePayload
             | ErrorKind::InvalidTransactions
+            | ErrorKind::InvalidChallenge
+            | ErrorKind::MaliciousChallenge
             | ErrorKind::IncorrectNumberOfChunkHeaders
             | ErrorKind::InvalidEpochHash
+            | ErrorKind::InvalidNextBPHash
+            | ErrorKind::InvalidFinalityInfo
+            | ErrorKind::NotEnoughApprovals
+            | ErrorKind::InvalidDoomslugFinalityInfo
             | ErrorKind::InvalidValidatorProposals
             | ErrorKind::InvalidSignature
-            | ErrorKind::InvalidApprovals => true,
+            | ErrorKind::InvalidApprovals
+            | ErrorKind::InvalidGasLimit
+            | ErrorKind::InvalidGasPrice
+            | ErrorKind::InvalidGasUsed
+            | ErrorKind::InvalidReward
+            | ErrorKind::InvalidBalanceBurnt
+            | ErrorKind::InvalidRent
+            | ErrorKind::InvalidShardId(_)
+            | ErrorKind::InvalidStateRequest(_)
+            | ErrorKind::InvalidRandomnessBeaconOutput
+            | ErrorKind::NotAValidator => true,
         }
     }
 
@@ -199,6 +285,3 @@ impl From<String> for Error {
 }
 
 impl std::error::Error for Error {}
-
-unsafe impl Send for Error {}
-unsafe impl Sync for Error {}

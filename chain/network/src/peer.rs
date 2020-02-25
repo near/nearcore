@@ -8,28 +8,30 @@ use actix::{
     Actor, ActorContext, ActorFuture, Addr, AsyncContext, Context, ContextFutureSpawner, Handler,
     Recipient, Running, StreamHandler, WrapFuture,
 };
-use log::{debug, error, info, warn};
-use tokio::io::WriteHalf;
-use tokio::net::TcpStream;
+use tracing::{debug, error, info, trace, warn};
 
+use near_chain_configs::PROTOCOL_VERSION;
 use near_metrics;
+use near_primitives::block::GenesisId;
 use near_primitives::hash::CryptoHash;
+use near_primitives::network::PeerId;
 use near_primitives::unwrap_option_or_return;
-use near_primitives::utils::DisplayOption;
+use near_primitives::utils::{ser, DisplayOption};
 
 use crate::codec::{bytes_to_peer_message, peer_message_to_bytes, Codec};
-use crate::metrics;
 use crate::rate_counter::RateCounter;
 use crate::routing::{Edge, EdgeInfo};
 use crate::types::{
     Ban, Consolidate, ConsolidateResponse, Handshake, HandshakeFailureReason,
-    NetworkClientMessages, NetworkClientResponses, NetworkRequests, PeerChainInfo, PeerId,
-    PeerInfo, PeerManagerRequest, PeerMessage, PeerRequest, PeerResponse, PeerStatsResult,
-    PeerStatus, PeerType, PeersRequest, PeersResponse, QueryPeerStats, ReasonForBan,
-    RoutedMessageBody, RoutedMessageFrom, SendMessage, Unregister, PROTOCOL_VERSION,
+    NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkViewClientMessages,
+    NetworkViewClientResponses, PeerChainInfo, PeerInfo, PeerManagerRequest, PeerMessage,
+    PeerRequest, PeerResponse, PeerStatsResult, PeerStatus, PeerType, PeersRequest, PeersResponse,
+    QueryPeerStats, ReasonForBan, RoutedMessageBody, RoutedMessageFrom, SendMessage, Unregister,
 };
-
 use crate::PeerManagerActor;
+use crate::{metrics, NetworkResponses};
+
+type WriteHalf = tokio::io::WriteHalf<tokio::net::TcpStream>;
 
 /// Maximum number of requests and responses to track.
 const MAX_TRACK_SIZE: usize = 30;
@@ -37,6 +39,39 @@ const MAX_TRACK_SIZE: usize = 30;
 /// Maximum number of messages per minute from single peer.
 // TODO: current limit is way to high due to us sending lots of messages during sync.
 const MAX_PEER_MSG_PER_MIN: u64 = std::u64::MAX;
+
+/// Internal structure to keep a circular queue within a tracker with unique hashes.
+struct CircularUniqueQueue {
+    v: Vec<CryptoHash>,
+    index: usize,
+    limit: usize,
+}
+
+impl CircularUniqueQueue {
+    pub fn new(limit: usize) -> Self {
+        assert!(limit > 0);
+        Self { v: Vec::with_capacity(limit), index: 0, limit }
+    }
+
+    pub fn contains(&self, hash: &CryptoHash) -> bool {
+        self.v.contains(hash)
+    }
+
+    /// Pushes an element if it's not in the queue already. The queue will pop the oldest element.
+    pub fn push(&mut self, hash: CryptoHash) {
+        if !self.contains(&hash) {
+            if self.v.len() < self.limit {
+                self.v.push(hash);
+            } else {
+                self.v[self.index] = hash;
+                self.index += 1;
+                if self.index == self.limit {
+                    self.index = 0;
+                }
+            }
+        }
+    }
+}
 
 /// Keeps track of requests and received hashes of transactions and blocks.
 /// Also keeps track of number of bytes sent and received from this peer to prevent abuse.
@@ -46,9 +81,9 @@ pub struct Tracker {
     /// Bytes we've received.
     received_bytes: RateCounter,
     /// Sent requests.
-    requested: Vec<CryptoHash>,
+    requested: CircularUniqueQueue,
     /// Received elements.
-    received: Vec<CryptoHash>,
+    received: CircularUniqueQueue,
 }
 
 impl Default for Tracker {
@@ -56,8 +91,8 @@ impl Default for Tracker {
         Tracker {
             sent_bytes: RateCounter::new(),
             received_bytes: RateCounter::new(),
-            requested: Default::default(),
-            received: Default::default(),
+            requested: CircularUniqueQueue::new(MAX_TRACK_SIZE),
+            received: CircularUniqueQueue::new(MAX_TRACK_SIZE),
         }
     }
 }
@@ -76,12 +111,7 @@ impl Tracker {
     }
 
     fn push_received(&mut self, hash: CryptoHash) {
-        if self.received.len() > MAX_TRACK_SIZE {
-            self.received.truncate(MAX_TRACK_SIZE)
-        }
-        if !self.received.contains(&hash) {
-            self.received.insert(0, hash);
-        }
+        self.received.push(hash);
     }
 
     fn has_request(&self, hash: CryptoHash) -> bool {
@@ -89,12 +119,7 @@ impl Tracker {
     }
 
     fn push_request(&mut self, hash: CryptoHash) {
-        if self.requested.len() > MAX_TRACK_SIZE {
-            self.requested.truncate(MAX_TRACK_SIZE);
-        }
-        if !self.requested.contains(&hash) {
-            self.requested.insert(0, hash);
-        }
+        self.requested.push(hash);
     }
 }
 
@@ -110,17 +135,19 @@ pub struct Peer {
     /// Peer status.
     pub peer_status: PeerStatus,
     /// Framed wrapper to send messages through the TCP connection.
-    framed: FramedWrite<WriteHalf<TcpStream>, Codec>,
+    framed: FramedWrite<WriteHalf, Codec>,
     /// Handshake timeout.
     handshake_timeout: Duration,
     /// Peer manager recipient to break the dependency loop.
     peer_manager_addr: Addr<PeerManagerActor>,
     /// Addr for client to send messages related to the chain.
     client_addr: Recipient<NetworkClientMessages>,
+    /// Addr for view client to send messages related to the chain.
+    view_client_addr: Recipient<NetworkViewClientMessages>,
     /// Tracker for requests and responses.
     tracker: Tracker,
-    /// This node genesis hash.
-    genesis: CryptoHash,
+    /// This node genesis id.
+    genesis_id: GenesisId,
     /// Latest chain info from the peer.
     chain_info: PeerChainInfo,
     /// Edge information needed to build the real edge. This is relevant for handshake.
@@ -133,10 +160,11 @@ impl Peer {
         peer_addr: SocketAddr,
         peer_info: Option<PeerInfo>,
         peer_type: PeerType,
-        framed: FramedWrite<WriteHalf<TcpStream>, Codec>,
+        framed: FramedWrite<WriteHalf, Codec>,
         handshake_timeout: Duration,
         peer_manager_addr: Addr<PeerManagerActor>,
         client_addr: Recipient<NetworkClientMessages>,
+        view_client_addr: Recipient<NetworkViewClientMessages>,
         edge_info: Option<EdgeInfo>,
     ) -> Self {
         Peer {
@@ -149,8 +177,9 @@ impl Peer {
             handshake_timeout,
             peer_manager_addr,
             client_addr,
+            view_client_addr,
             tracker: Default::default(),
-            genesis: Default::default(),
+            genesis_id: Default::default(),
             chain_info: Default::default(),
             edge_info,
         }
@@ -167,10 +196,12 @@ impl Peer {
         // Record block requests in tracker.
         match &msg {
             PeerMessage::Block(b) if self.tracker.has_received(b.hash()) => return,
-            PeerMessage::BlockHeaderAnnounce(h) if self.tracker.has_received(h.hash()) => return,
             PeerMessage::BlockRequest(h) => self.tracker.push_request(*h),
             _ => (),
         };
+
+        trace!(target: "diagnostic", key="tx", msg=%ser(&msg));
+
         match peer_message_to_bytes(msg) {
             Ok(bytes) => {
                 self.tracker.increment_sent(bytes.len() as u64);
@@ -181,46 +212,55 @@ impl Peer {
     }
 
     fn fetch_client_chain_info(&mut self, ctx: &mut Context<Peer>) {
-        ctx.wait(self.client_addr.send(NetworkClientMessages::GetChainInfo).into_actor(self).then(
-            move |res, act, _ctx| match res {
-                Ok(NetworkClientResponses::ChainInfo { genesis, .. }) => {
-                    act.genesis = genesis;
-                    actix::fut::ok(())
-                }
-                Err(err) => {
-                    error!(target: "network", "Failed sending GetChain to client: {}", err);
-                    actix::fut::err(())
-                }
-                _ => actix::fut::err(()),
-            },
-        ));
+        ctx.wait(
+            self.view_client_addr
+                .send(NetworkViewClientMessages::GetChainInfo)
+                .into_actor(self)
+                .then(move |res, act, _ctx| match res {
+                    Ok(NetworkViewClientResponses::ChainInfo { genesis_id, .. }) => {
+                        act.genesis_id = genesis_id;
+                        actix::fut::ready(())
+                    }
+                    Err(err) => {
+                        error!(target: "network", "Failed sending GetChain to client: {}", err);
+                        actix::fut::ready(())
+                    }
+                    _ => actix::fut::ready(()),
+                }),
+        );
     }
 
     fn send_handshake(&mut self, ctx: &mut Context<Peer>) {
-        self.client_addr
-            .send(NetworkClientMessages::GetChainInfo)
+        self.view_client_addr
+            .send(NetworkViewClientMessages::GetChainInfo)
             .into_actor(self)
             .then(move |res, act, _ctx| match res {
-                Ok(NetworkClientResponses::ChainInfo { genesis, height, total_weight }) => {
+                Ok(NetworkViewClientResponses::ChainInfo {
+                    genesis_id,
+                    height,
+                    score,
+                    tracked_shards,
+                }) => {
                     let handshake = Handshake::new(
                         act.node_info.id.clone(),
                         act.node_info.addr_port(),
-                        PeerChainInfo { genesis, height, total_weight },
+                        PeerChainInfo { genesis_id, height, score, tracked_shards },
                         act.edge_info.as_ref().unwrap().clone(),
                     );
                     act.send_message(PeerMessage::Handshake(handshake));
-                    actix::fut::ok(())
+                    actix::fut::ready(())
                 }
                 Err(err) => {
                     error!(target: "network", "Failed sending GetChain to client: {}", err);
-                    actix::fut::err(())
+                    actix::fut::ready(())
                 }
-                _ => actix::fut::err(()),
+                _ => actix::fut::ready(()),
             })
             .spawn(ctx);
     }
 
     fn ban_peer(&mut self, ctx: &mut Context<Peer>, ban_reason: ReasonForBan) {
+        info!(target: "network", "Banning peer {} for {:?}", self.peer_info, ban_reason);
         self.peer_status = PeerStatus::Banned(ban_reason);
         ctx.stop();
     }
@@ -229,9 +269,113 @@ impl Peer {
         self.peer_info.as_ref().as_ref().map(|peer_info| peer_info.id.clone())
     }
 
+    fn receive_message(&mut self, ctx: &mut Context<Peer>, msg: PeerMessage) {
+        if msg.is_view_client_message() {
+            self.receive_view_client_message(ctx, msg);
+        } else if msg.is_client_message() {
+            self.receive_client_message(ctx, msg);
+        }
+    }
+
+    fn receive_view_client_message(&mut self, ctx: &mut Context<Peer>, msg: PeerMessage) {
+        let mut msg_hash = None;
+        let view_client_message = match msg {
+            PeerMessage::Routed(message) => {
+                msg_hash = Some(message.hash());
+                match message.body {
+                    RoutedMessageBody::QueryRequest { query_id, block_id, request, finality } => {
+                        NetworkViewClientMessages::Query { query_id, block_id, request, finality }
+                    }
+                    RoutedMessageBody::QueryResponse { query_id, response } => {
+                        NetworkViewClientMessages::QueryResponse { query_id, response }
+                    }
+                    RoutedMessageBody::TxStatusRequest(account_id, tx_hash) => {
+                        NetworkViewClientMessages::TxStatus {
+                            tx_hash,
+                            signer_account_id: account_id,
+                        }
+                    }
+                    RoutedMessageBody::TxStatusResponse(tx_result) => {
+                        NetworkViewClientMessages::TxStatusResponse(tx_result)
+                    }
+                    RoutedMessageBody::ReceiptOutcomeRequest(receipt_id) => {
+                        NetworkViewClientMessages::ReceiptOutcomeRequest(receipt_id)
+                    }
+                    RoutedMessageBody::ReceiptOutComeResponse(response) => {
+                        NetworkViewClientMessages::ReceiptOutcomeResponse(response)
+                    }
+                    RoutedMessageBody::StateRequestHeader(shard_id, sync_hash) => {
+                        NetworkViewClientMessages::StateRequestHeader { shard_id, sync_hash }
+                    }
+                    RoutedMessageBody::StateRequestPart(shard_id, sync_hash, part_id) => {
+                        NetworkViewClientMessages::StateRequestPart { shard_id, sync_hash, part_id }
+                    }
+                    body => {
+                        error!(target: "network", "Peer receive_view_client_message received unexpected type: {:?}", body);
+                        return;
+                    }
+                }
+            }
+            PeerMessage::BlockRequest(hash) => NetworkViewClientMessages::BlockRequest(hash),
+            PeerMessage::BlockHeadersRequest(hashes) => {
+                NetworkViewClientMessages::BlockHeadersRequest(hashes)
+            }
+            peer_message => {
+                error!(target: "network", "Peer receive_view_client_message received unexpected type: {:?}", peer_message);
+                return;
+            }
+        };
+
+        self.view_client_addr
+            .send(view_client_message)
+            .into_actor(self)
+            .then(move |res, act, _ctx| {
+                // Ban peer if client thinks received data is bad.
+                match res {
+                    Ok(NetworkViewClientResponses::TxStatus(tx_result)) => {
+                        let body = RoutedMessageBody::TxStatusResponse(tx_result);
+                        act.peer_manager_addr
+                            .do_send(PeerRequest::RouteBack(body, msg_hash.unwrap()));
+                    }
+                    Ok(NetworkViewClientResponses::QueryResponse { query_id, response }) => {
+                        let body = RoutedMessageBody::QueryResponse { query_id, response };
+                        act.peer_manager_addr
+                            .do_send(PeerRequest::RouteBack(body, msg_hash.unwrap()));
+                    }
+                    Ok(NetworkViewClientResponses::ReceiptOutcomeResponse(response)) => {
+                        let body = RoutedMessageBody::ReceiptOutComeResponse(response);
+                        act.peer_manager_addr
+                            .do_send(PeerRequest::RouteBack(body, msg_hash.unwrap()));
+                    }
+                    Ok(NetworkViewClientResponses::StateResponse(state_response)) => {
+                        let body = RoutedMessageBody::StateResponse(state_response);
+                        act.peer_manager_addr
+                            .do_send(PeerRequest::RouteBack(body, msg_hash.unwrap()));
+                    }
+                    Ok(NetworkViewClientResponses::Block(block)) => {
+                        act.send_message(PeerMessage::Block(block))
+                    }
+                    Ok(NetworkViewClientResponses::BlockHeaders(headers)) => {
+                        act.send_message(PeerMessage::BlockHeaders(headers))
+                    }
+                    Err(err) => {
+                        error!(
+                            target: "network",
+                            "Received error sending message to view client: {} for {}",
+                            err, act.peer_info
+                        );
+                        return actix::fut::ready(());
+                    }
+                    _ => {}
+                };
+                actix::fut::ready(())
+            })
+            .spawn(ctx);
+    }
+
     /// Process non handshake/peer related messages.
     fn receive_client_message(&mut self, ctx: &mut Context<Peer>, msg: PeerMessage) {
-        near_metrics::inc_counter(&metrics::PEER_MESSAGE_RECEIVED_TOTAL);
+        near_metrics::inc_counter(&metrics::PEER_CLIENT_MESSAGE_RECEIVED_TOTAL);
         let peer_id = unwrap_option_or_return!(self.peer_id());
 
         // Wrap peer message into what client expects.
@@ -240,73 +384,67 @@ impl Peer {
                 near_metrics::inc_counter(&metrics::PEER_BLOCK_RECEIVED_TOTAL);
                 let block_hash = block.hash();
                 self.tracker.push_received(block_hash);
-                self.chain_info.height = max(self.chain_info.height, block.header.inner.height);
-                self.chain_info.total_weight =
-                    max(self.chain_info.total_weight, block.header.inner.total_weight);
+                self.chain_info.height =
+                    max(self.chain_info.height, block.header.inner_lite.height);
+                self.chain_info.score = max(self.chain_info.score, block.header.inner_rest.score);
                 NetworkClientMessages::Block(block, peer_id, self.tracker.has_request(block_hash))
-            }
-            PeerMessage::BlockHeaderAnnounce(header) => {
-                let block_hash = header.hash();
-                self.tracker.push_received(block_hash);
-                self.chain_info.height = max(self.chain_info.height, header.inner.height);
-                self.chain_info.total_weight =
-                    max(self.chain_info.total_weight, header.inner.total_weight);
-                NetworkClientMessages::BlockHeader(header, peer_id)
             }
             PeerMessage::Transaction(transaction) => {
                 near_metrics::inc_counter(&metrics::PEER_TRANSACTION_RECEIVED_TOTAL);
                 NetworkClientMessages::Transaction(transaction)
             }
-            PeerMessage::BlockRequest(hash) => NetworkClientMessages::BlockRequest(hash),
-            PeerMessage::BlockHeadersRequest(hashes) => {
-                NetworkClientMessages::BlockHeadersRequest(hashes)
-            }
             PeerMessage::BlockHeaders(headers) => {
                 NetworkClientMessages::BlockHeaders(headers, peer_id)
             }
-            PeerMessage::StateRequest(shard_id, hash, need_header, parts_ranges) => {
-                NetworkClientMessages::StateRequest(shard_id, hash, need_header, parts_ranges)
-            }
-            PeerMessage::StateResponse(info) => NetworkClientMessages::StateResponse(info),
             // All Routed messages received at this point are for us.
-            PeerMessage::Routed(routed_message) => match routed_message.body {
-                RoutedMessageBody::BlockApproval(account_id, hash, signature) => {
-                    NetworkClientMessages::BlockApproval(account_id, hash, signature, peer_id)
+            PeerMessage::Routed(routed_message) => {
+                let msg_hash = routed_message.hash();
+
+                match routed_message.body {
+                    RoutedMessageBody::BlockApproval(approval) => {
+                        NetworkClientMessages::BlockApproval(approval, peer_id)
+                    }
+                    RoutedMessageBody::ForwardTx(transaction) => {
+                        NetworkClientMessages::Transaction(transaction)
+                    }
+
+                    RoutedMessageBody::StateResponse(info) => {
+                        NetworkClientMessages::StateResponse(info)
+                    }
+                    RoutedMessageBody::PartialEncodedChunkRequest(request) => {
+                        NetworkClientMessages::PartialEncodedChunkRequest(request, msg_hash)
+                    }
+                    RoutedMessageBody::PartialEncodedChunk(partial_encoded_chunk) => {
+                        NetworkClientMessages::PartialEncodedChunk(partial_encoded_chunk)
+                    }
+                    RoutedMessageBody::Ping(_)
+                    | RoutedMessageBody::Pong(_)
+                    | RoutedMessageBody::TxStatusRequest(_, _)
+                    | RoutedMessageBody::TxStatusResponse(_)
+                    | RoutedMessageBody::QueryRequest { .. }
+                    | RoutedMessageBody::QueryResponse { .. }
+                    | RoutedMessageBody::ReceiptOutcomeRequest(_)
+                    | RoutedMessageBody::ReceiptOutComeResponse(_)
+                    | RoutedMessageBody::StateRequestHeader(_, _)
+                    | RoutedMessageBody::StateRequestPart(_, _, _) => {
+                        error!(target: "network", "Peer receive_client_message received unexpected type: {:?}", routed_message);
+                        return;
+                    }
                 }
-                RoutedMessageBody::ForwardTx(transaction) => {
-                    NetworkClientMessages::Transaction(transaction)
-                }
-                RoutedMessageBody::StateRequest(shard_id, hash, need_header, parts_ranges) => {
-                    NetworkClientMessages::StateRequest(shard_id, hash, need_header, parts_ranges)
-                }
-                RoutedMessageBody::ChunkPartRequest(request) => {
-                    NetworkClientMessages::ChunkPartRequest(request, peer_id)
-                }
-                RoutedMessageBody::ChunkOnePartRequest(request) => {
-                    NetworkClientMessages::ChunkOnePartRequest(request, peer_id)
-                }
-                RoutedMessageBody::ChunkOnePart(part) => NetworkClientMessages::ChunkOnePart(part),
-                RoutedMessageBody::Ping(_) | RoutedMessageBody::Pong(_) => {
-                    error!(target: "network", "Peer receive_client_message received unexpected type");
-                    return;
-                }
-            },
-            PeerMessage::ChunkPartRequest(request) => {
-                NetworkClientMessages::ChunkPartRequest(request, peer_id)
             }
-            PeerMessage::ChunkOnePartRequest(request) => {
-                NetworkClientMessages::ChunkOnePartRequest(request, peer_id)
-            }
-            PeerMessage::ChunkPart(part) => NetworkClientMessages::ChunkPart(part),
-            PeerMessage::ChunkOnePart(one_part) => NetworkClientMessages::ChunkOnePart(one_part),
+            PeerMessage::Challenge(challenge) => NetworkClientMessages::Challenge(challenge),
             PeerMessage::Handshake(_)
             | PeerMessage::HandshakeFailure(_, _)
             | PeerMessage::PeersRequest
             | PeerMessage::PeersResponse(_)
             | PeerMessage::Sync(_)
             | PeerMessage::LastEdge(_)
-            | PeerMessage::Disconnect => {
-                error!(target: "network", "Peer receive_client_message received unexpected type");
+            | PeerMessage::Disconnect
+            | PeerMessage::RequestUpdateNonce(_)
+            | PeerMessage::ResponseUpdateNonce(_)
+            | PeerMessage::BlockRequest(_)
+            | PeerMessage::BlockHeadersRequest(_) => {
+                error!(target: "network", "Peer receive_client_message received unexpected type: {:?}", msg);
                 return;
             }
         };
@@ -314,24 +452,15 @@ impl Peer {
         self.client_addr
             .send(network_client_msg)
             .into_actor(self)
-            .then(|res, act, ctx| {
+            .then(move |res, act, ctx| {
                 // Ban peer if client thinks received data is bad.
                 match res {
                     Ok(NetworkClientResponses::InvalidTx(err)) => {
                         warn!(target: "network", "Received invalid tx from peer {}: {}", act.peer_info, err);
-                        // TODO: count as malicious behaviour?
+                        // TODO: count as malicious behavior?
                     }
                     Ok(NetworkClientResponses::Ban { ban_reason }) => {
                         act.ban_peer(ctx, ban_reason);
-                    }
-                    Ok(NetworkClientResponses::Block(block)) => {
-                        act.send_message(PeerMessage::Block(block))
-                    }
-                    Ok(NetworkClientResponses::BlockHeaders(headers)) => {
-                        act.send_message(PeerMessage::BlockHeaders(headers))
-                    }
-                    Ok(NetworkClientResponses::StateResponse(info)) => {
-                        act.send_message(PeerMessage::StateResponse(info))
                     }
                     Err(err) => {
                         error!(
@@ -339,11 +468,11 @@ impl Peer {
                             "Received error sending message to client: {} for {}",
                             err, act.peer_info
                         );
-                        return actix::fut::err(());
+                        return actix::fut::ready(());
                     }
                     _ => {}
                 };
-                actix::fut::ok(())
+                actix::fut::ready(())
             })
             .spawn(ctx);
     }
@@ -388,9 +517,10 @@ impl Actor for Peer {
 
 impl WriteHandler<io::Error> for Peer {}
 
-impl StreamHandler<Vec<u8>, io::Error> for Peer {
+impl StreamHandler<Vec<u8>> for Peer {
     fn handle(&mut self, msg: Vec<u8>, ctx: &mut Self::Context) {
         near_metrics::inc_counter_by(&metrics::PEER_DATA_RECEIVED_BYTES, msg.len() as i64);
+        near_metrics::inc_counter(&metrics::PEER_MESSAGE_RECEIVED_TOTAL);
 
         self.tracker.increment_received(msg.len() as u64);
         let peer_msg = match bytes_to_peer_message(&msg) {
@@ -400,11 +530,16 @@ impl StreamHandler<Vec<u8>, io::Error> for Peer {
                 return;
             }
         };
+
+        trace!(target: "diagnostic", key="rx", length=msg.len(), msg=%ser(&peer_msg));
+
+        peer_msg.record(msg.len());
+
         match (self.peer_type, self.peer_status, peer_msg) {
             (_, PeerStatus::Connecting, PeerMessage::HandshakeFailure(peer_info, reason)) => {
                 match reason {
                     HandshakeFailureReason::GenesisMismatch(genesis) => {
-                        error!(target: "network", "Attempting to connect to a node ({}) with a different genesis block. Our genesis: {}, their genesis: {}", peer_info, self.genesis, genesis);
+                        error!(target: "network", "Attempting to connect to a node ({}) with a different genesis block. Our genesis: {:?}, their genesis: {:?}", peer_info, self.genesis_id, genesis);
                     }
                     HandshakeFailureReason::ProtocolVersionMismatch(version) => {
                         error!(target: "network", "Unable to connect to a node ({}) due to a network protocol version mismatch. Our version: {}, their: {}", peer_info, PROTOCOL_VERSION, version);
@@ -415,12 +550,12 @@ impl StreamHandler<Vec<u8>, io::Error> for Peer {
             (_, PeerStatus::Connecting, PeerMessage::Handshake(handshake)) => {
                 debug!(target: "network", "{:?}: Received handshake {:?}", self.node_info.id, handshake);
 
-                if handshake.chain_info.genesis != self.genesis {
+                if handshake.chain_info.genesis_id != self.genesis_id {
                     info!(target: "network", "Received connection from node with different genesis.");
                     ctx.address().do_send(SendMessage {
                         message: PeerMessage::HandshakeFailure(
                             self.node_info.clone(),
-                            HandshakeFailureReason::GenesisMismatch(self.genesis),
+                            HandshakeFailureReason::GenesisMismatch(self.genesis_id.clone()),
                         ),
                     });
                     return;
@@ -474,13 +609,13 @@ impl StreamHandler<Vec<u8>, io::Error> for Peer {
                         .map(|port| SocketAddr::new(self.peer_addr.ip(), port)),
                     account_id: None,
                 };
-                self.chain_info = handshake.chain_info;
+                self.chain_info = handshake.chain_info.clone();
                 self.peer_manager_addr
                     .send(Consolidate {
                         actor: ctx.address(),
                         peer_info: peer_info.clone(),
                         peer_type: self.peer_type,
-                        chain_info: handshake.chain_info,
+                        chain_info: handshake.chain_info.clone(),
                         this_edge_info: self.edge_info.clone(),
                         other_edge_info: handshake.edge_info.clone(),
                     })
@@ -488,7 +623,6 @@ impl StreamHandler<Vec<u8>, io::Error> for Peer {
                     .then(move |res, act, ctx| {
                         match res {
                             Ok(ConsolidateResponse::Accept(edge_info)) => {
-                                debug!(target: "network", "{:?}: Peer {:?} successfully consolidated", act.node_info.id.clone(), act.peer_addr);
                                 act.peer_info = Some(peer_info).into();
                                 act.peer_status = PeerStatus::Ready;
                                 // Respond to handshake if it's inbound and connection was consolidated.
@@ -496,17 +630,17 @@ impl StreamHandler<Vec<u8>, io::Error> for Peer {
                                     act.edge_info = edge_info;
                                     act.send_handshake(ctx);
                                 }
-                                actix::fut::ok(())
+                                actix::fut::ready(())
                             },
                             Ok(ConsolidateResponse::InvalidNonce(edge)) => {
                                 debug!(target: "network", "{:?}: Received invalid nonce from peer {:?} sending evidence.", act.node_info.id.clone(), act.peer_addr);
                                 act.send_message(PeerMessage::LastEdge(edge));
-                                actix::fut::ok(())
+                                actix::fut::ready(())
                             }
                             _ => {
                                 info!(target: "network", "{:?}: Peer with handshake {:?} wasn't consolidated, disconnecting.", act.node_info.id.clone(), handshake);
                                 ctx.stop();
-                                actix::fut::err(())
+                                actix::fut::ready(())
                             }
                         }
                     })
@@ -538,7 +672,7 @@ impl StreamHandler<Vec<u8>, io::Error> for Peer {
                             }
                             _ => {}
                         }
-                        actix::fut::ok(())
+                        actix::fut::ready(())
                     })
                     .spawn(ctx);
             }
@@ -556,18 +690,47 @@ impl StreamHandler<Vec<u8>, io::Error> for Peer {
                         debug!(target: "network", "Peers request from {}: sending {} peers.", act.peer_info, peers.peers.len());
                         act.send_message(PeerMessage::PeersResponse(peers.peers));
                     }
-                    actix::fut::ok(())
+                    actix::fut::ready(())
                 }).spawn(ctx);
             }
             (_, PeerStatus::Ready, PeerMessage::PeersResponse(peers)) => {
                 debug!(target: "network", "Received peers from {}: {} peers.", self.peer_info, peers.len());
                 self.peer_manager_addr.do_send(PeersResponse { peers });
             }
+            (_, PeerStatus::Ready, PeerMessage::RequestUpdateNonce(edge_info)) => self
+                .peer_manager_addr
+                .send(NetworkRequests::RequestUpdateNonce(self.peer_id().unwrap(), edge_info))
+                .into_actor(self)
+                .then(|res, act, ctx| {
+                    match res {
+                        Ok(NetworkResponses::EdgeUpdate(edge)) => {
+                            act.send_message(PeerMessage::ResponseUpdateNonce(edge));
+                        }
+                        Ok(NetworkResponses::BanPeer(reason_for_ban)) => {
+                            act.ban_peer(ctx, reason_for_ban);
+                        }
+                        _ => {}
+                    }
+                    actix::fut::ready(())
+                })
+                .spawn(ctx),
+            (_, PeerStatus::Ready, PeerMessage::ResponseUpdateNonce(edge)) => self
+                .peer_manager_addr
+                .send(NetworkRequests::ResponseUpdateNonce(edge))
+                .into_actor(self)
+                .then(|res, act, ctx| {
+                    match res {
+                        Ok(NetworkResponses::BanPeer(reason_for_ban)) => {
+                            act.ban_peer(ctx, reason_for_ban);
+                        }
+                        _ => {}
+                    }
+                    actix::fut::ready(())
+                })
+                .spawn(ctx),
             (_, PeerStatus::Ready, PeerMessage::Sync(sync_data)) => {
-                self.peer_manager_addr.do_send(NetworkRequests::Sync {
-                    peer_id: self.peer_info.as_ref().as_ref().unwrap().id.clone(),
-                    sync_data,
-                });
+                self.peer_manager_addr
+                    .do_send(NetworkRequests::Sync { peer_id: self.peer_id().unwrap(), sync_data });
             }
             (_, PeerStatus::Ready, PeerMessage::Routed(routed_message)) => {
                 debug!(target: "network", "Received routed message from {} to {:?}.", self.peer_info, routed_message.target);
@@ -579,23 +742,20 @@ impl StreamHandler<Vec<u8>, io::Error> for Peer {
                     self.peer_manager_addr
                         .send(RoutedMessageFrom {
                             msg: routed_message.clone(),
-                            from: self.peer_info.as_ref().as_ref().unwrap().id.clone(),
+                            from: self.peer_id().unwrap(),
                         })
                         .into_actor(self)
                         .then(move |res, act, ctx| {
                             if res.unwrap_or(false) {
-                                act.receive_client_message(
-                                    ctx,
-                                    PeerMessage::Routed(routed_message),
-                                );
+                                act.receive_message(ctx, PeerMessage::Routed(routed_message));
                             }
-                            actix::fut::ok(())
+                            actix::fut::ready(())
                         })
                         .spawn(ctx);
                 }
             }
             (_, PeerStatus::Ready, msg) => {
-                self.receive_client_message(ctx, msg);
+                self.receive_message(ctx, msg);
             }
             (_, _, msg) => {
                 warn!(target: "network", "Received {} while {:?} from {:?} connection.", msg, self.peer_status, self.peer_type);
@@ -617,7 +777,7 @@ impl Handler<QueryPeerStats> for Peer {
 
     fn handle(&mut self, _: QueryPeerStats, _: &mut Self::Context) -> Self::Result {
         PeerStatsResult {
-            chain_info: self.chain_info,
+            chain_info: self.chain_info.clone(),
             received_bytes_per_sec: self.tracker.received_bytes.bytes_per_min() / 60,
             sent_bytes_per_sec: self.tracker.sent_bytes.bytes_per_min() / 60,
             is_abusive: self.is_abusive(),
@@ -637,6 +797,85 @@ impl Handler<PeerManagerRequest> for Peer {
             PeerManagerRequest::BanPeer(ban_reason) => {
                 self.ban_peer(ctx, ban_reason);
             }
+            PeerManagerRequest::UnregisterPeer => {
+                ctx.stop();
+            }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use near_primitives::hash::hash;
+
+    use super::*;
+
+    #[test]
+    #[should_panic]
+    fn test_circular_queue_zero_capacity() {
+        let _ = CircularUniqueQueue::new(0);
+    }
+
+    #[test]
+    fn test_circular_queue_empty_queue() {
+        let q = CircularUniqueQueue::new(5);
+
+        assert!(!q.contains(&hash(&[0])));
+    }
+
+    #[test]
+    fn test_circular_queue_partially_full_queue() {
+        let mut q = CircularUniqueQueue::new(5);
+        for i in 1..=3 {
+            q.push(hash(&[i]));
+        }
+
+        for i in 1..=3 {
+            assert!(q.contains(&hash(&[i])));
+        }
+    }
+
+    #[test]
+    fn test_circular_queue_full_queue() {
+        let mut q = CircularUniqueQueue::new(5);
+        for i in 1..=5 {
+            q.push(hash(&[i]));
+        }
+
+        for i in 1..=5 {
+            assert!(q.contains(&hash(&[i])));
+        }
+    }
+
+    #[test]
+    fn test_circular_queue_over_full_queue() {
+        let mut q = CircularUniqueQueue::new(5);
+        for i in 1..=7 {
+            q.push(hash(&[i]));
+        }
+
+        for i in 1..=2 {
+            assert!(!q.contains(&hash(&[i])));
+        }
+        for i in 3..=7 {
+            assert!(q.contains(&hash(&[i])));
+        }
+    }
+
+    #[test]
+    fn test_circular_queue_similar_inputs() {
+        let mut q = CircularUniqueQueue::new(5);
+        q.push(hash(&[5]));
+        for _ in 0..3 {
+            for i in 1..=3 {
+                for _ in 0..5 {
+                    q.push(hash(&[i]));
+                }
+            }
+        }
+        for i in 1..=3 {
+            assert!(q.contains(&hash(&[i])));
+        }
+        assert!(q.contains(&hash(&[5])));
     }
 }

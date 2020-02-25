@@ -5,7 +5,11 @@ use std::path::Path;
 
 use actix::System;
 use clap::{crate_version, App, AppSettings, Arg, SubCommand};
-use log::{info, LevelFilter};
+#[cfg(feature = "adversarial")]
+use log::error;
+use log::info;
+use tracing_subscriber::filter::LevelFilter;
+use tracing_subscriber::EnvFilter;
 
 use git_version::git_version;
 use near::config::init_testnet_configs;
@@ -13,33 +17,32 @@ use near::{get_default_home, get_store_path, init_configs, load_config, start_wi
 use near_primitives::types::Version;
 
 fn init_logging(verbose: Option<&str>) {
-    let mut builder = env_logger::Builder::new();
+    let mut env_filter = EnvFilter::new("tokio_reactor=info,near=info,stats=info");
+
     if let Some(module) = verbose {
-        builder
-            .filter_module("tokio_reactor", LevelFilter::Info)
-            .filter_module("cranelift_codegen", LevelFilter::Warn)
-            .filter_module("cranelift_wasm", LevelFilter::Warn)
-            .filter_module("h2", LevelFilter::Warn)
-            .filter_module("trust_dns_resolver", LevelFilter::Warn)
-            .filter_module("trust_dns_proto", LevelFilter::Warn)
-            .filter(Some("near"), LevelFilter::Info)
-            .filter(Some("info"), LevelFilter::Info);
+        env_filter = env_filter
+            .add_directive("cranelift_codegen=warn".parse().unwrap())
+            .add_directive("cranelift_codegen=warn".parse().unwrap())
+            .add_directive("h2=warn".parse().unwrap())
+            .add_directive("trust_dns_resolver=warn".parse().unwrap())
+            .add_directive("trust_dns_proto=warn".parse().unwrap());
+
         if module.is_empty() {
-            builder.filter(None, LevelFilter::Debug);
+            env_filter = env_filter.add_directive(LevelFilter::DEBUG.into());
         } else {
-            builder.filter_module(&module, LevelFilter::Debug);
+            env_filter = env_filter.add_directive(format!("{}=debug", module).parse().unwrap());
         }
     } else {
-        builder
-            .filter_module("tokio_reactor", LevelFilter::Info)
-            .filter(Some("near"), LevelFilter::Info)
-            .filter(Some("info"), LevelFilter::Info)
-            .filter(None, LevelFilter::Warn);
+        env_filter = env_filter.add_directive(LevelFilter::WARN.into());
     }
-    if env::var("RUST_LOG").is_ok() {
-        builder.parse_filters(&env::var("RUST_LOG").unwrap());
+
+    if let Ok(rust_log) = env::var("RUST_LOG") {
+        if let Ok(directive) = rust_log.parse() {
+            env_filter = env_filter.add_directive(directive);
+        }
     }
-    builder.init();
+
+    tracing_subscriber::fmt::Subscriber::builder().with_env_filter(env_filter).init();
 }
 
 fn main() {
@@ -77,12 +80,24 @@ fn main() {
             .arg(Arg::with_name("network-addr").long("network-addr").help("Customize network listening address (useful for running multiple nodes on the same machine)").takes_value(true))
             .arg(Arg::with_name("rpc-addr").long("rpc-addr").help("Customize RPC listening address (useful for running multiple nodes on the same machine)").takes_value(true))
             .arg(Arg::with_name("telemetry-url").long("telemetry-url").help("Customize telemetry url").takes_value(true))
+            .arg(Arg::with_name("archive").long("archive").help("Keep old blocks in the storage (default false)").takes_value(false))
         )
         .subcommand(SubCommand::with_name("unsafe_reset_data").about("(unsafe) Remove all the data, effectively resetting node to genesis state (keeps genesis and config)"))
         .subcommand(SubCommand::with_name("unsafe_reset_all").about("(unsafe) Remove all the config, keys, data and effectively removing all information about the network"))
         .get_matches();
 
     init_logging(matches.value_of("verbose"));
+
+    #[cfg(feature = "adversarial")]
+    {
+        error!("THIS IS A NODE COMPILED WITH ADVERSARIAL BEHAVIORS. DO NOT USE IN PRODUCTION.");
+
+        if env::var("ADVERSARY_CONSENT").unwrap_or_else(|_| "".to_string()) != "1" {
+            error!("To run a node with adversarial behavior enabled give your consent by setting variable:");
+            error!("ADVERSARY_CONSENT=1");
+            std::process::exit(1);
+        }
+    }
 
     let home_dir = matches.value_of("home").map(|dir| Path::new(dir)).unwrap();
 
@@ -93,7 +108,7 @@ fn main() {
             let account_id = args.value_of("account-id");
             let test_seed = args.value_of("test-seed");
             let num_shards = args
-                .value_of("num_shards")
+                .value_of("num-shards")
                 .map(|s| s.parse().expect("Number of shards must be a number"))
                 .unwrap_or(1);
             let fast = args.is_present("fast");
@@ -113,7 +128,14 @@ fn main() {
                 .map(|x| x.parse().expect("Failed to parse number of shards"))
                 .unwrap_or(1);
             let prefix = args.value_of("prefix").unwrap_or("node");
-            init_testnet_configs(home_dir, num_shards, num_validators, num_non_validators, prefix);
+            init_testnet_configs(
+                home_dir,
+                num_shards,
+                num_validators,
+                num_non_validators,
+                prefix,
+                false,
+            );
         }
         ("run", Some(args)) => {
             // Load configs from home.
@@ -153,6 +175,9 @@ fn main() {
             }
             if let Some(telemetry_url) = args.value_of("telemetry-url") {
                 near_config.telemetry_config.endpoints.push(telemetry_url.to_string());
+            }
+            if args.is_present("archive") {
+                near_config.client_config.archive = true;
             }
 
             let system = System::new("NEAR");

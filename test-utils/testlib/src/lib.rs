@@ -3,14 +3,15 @@ use std::sync::Arc;
 use actix::Addr;
 use tempdir::TempDir;
 
-use near::{load_test_config, start_with_config, GenesisConfig, NightshadeRuntime};
-use near_chain::{Chain, ChainGenesis};
+use near::{config::GenesisConfigExt, load_test_config, start_with_config, NightshadeRuntime};
+use near_chain::{Chain, ChainGenesis, DoomslugThresholdMode};
+use near_chain_configs::GenesisConfig;
 use near_client::{ClientActor, ViewClientActor};
 use near_network::test_utils::{convert_boot_nodes, open_port};
 use near_primitives::block::{Block, BlockHeader};
 use near_primitives::hash::CryptoHash;
 use near_primitives::test_utils::init_integration_logger;
-use near_primitives::types::{BlockIndex, ShardId};
+use near_primitives::types::{BlockHeightDelta, NumSeats, NumShards, ShardId};
 use near_store::test_utils::create_test_store;
 
 pub mod actix_utils;
@@ -41,13 +42,15 @@ pub fn genesis_header(genesis_config: &GenesisConfig) -> BlockHeader {
     let chain_genesis = ChainGenesis::new(
         genesis_time,
         genesis_config.gas_limit,
-        genesis_config.gas_price,
+        genesis_config.min_gas_price,
         genesis_config.total_supply,
         genesis_config.max_inflation_rate,
         genesis_config.gas_price_adjustment_rate,
         genesis_config.transaction_validity_period,
+        genesis_config.epoch_length,
     );
-    let chain = Chain::new(store, runtime, &chain_genesis).unwrap();
+    let chain =
+        Chain::new(store, runtime, &chain_genesis, DoomslugThresholdMode::HalfStake).unwrap();
     chain.genesis().clone()
 }
 
@@ -62,16 +65,18 @@ pub fn genesis_block(genesis_config: GenesisConfig) -> Block {
         vec![],
         vec![],
     ));
-    let mut chain = Chain::new(store, runtime, &genesis_config.into()).unwrap();
+    let mut chain =
+        Chain::new(store, runtime, &genesis_config.into(), DoomslugThresholdMode::HalfStake)
+            .unwrap();
     chain.get_block(&chain.genesis().hash()).unwrap().clone()
 }
 
 pub fn start_nodes(
-    num_shards: usize,
+    num_shards: NumShards,
     dirs: &[TempDir],
-    num_validators: usize,
+    num_validator_seats: NumSeats,
     num_lightclient: usize,
-    epoch_length: BlockIndex,
+    epoch_length: BlockHeightDelta,
 ) -> (GenesisConfig, Vec<String>, Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>) {
     init_integration_logger();
 
@@ -80,18 +85,18 @@ pub fn start_nodes(
     let seeds = (0..num_nodes).map(|i| format!("near.{}", i)).collect::<Vec<_>>();
     let mut genesis_config = GenesisConfig::test_sharded(
         seeds.iter().map(|s| s.as_str()).collect(),
-        num_validators,
-        (0..num_shards).map(|_| num_validators).collect(),
+        num_validator_seats,
+        (0..num_shards).map(|_| num_validator_seats).collect(),
     );
     genesis_config.epoch_length = epoch_length;
 
-    let validators = (0..num_validators).map(|i| format!("near.{}", i)).collect::<Vec<_>>();
+    let validators = (0..num_validator_seats).map(|i| format!("near.{}", i)).collect::<Vec<_>>();
     let mut near_configs = vec![];
     let first_node = open_port();
     let mut rpc_addrs = vec![];
     for i in 0..num_nodes {
         let mut near_config = load_test_config(
-            if i < num_validators { &validators[i] } else { "" },
+            if i < num_validator_seats as usize { &validators[i] } else { "" },
             if i == 0 { first_node } else { open_port() },
             &genesis_config,
         );
@@ -102,11 +107,12 @@ pub fn start_nodes(
                 convert_boot_nodes(vec![("near.0", first_node)]);
         }
         // if non validator, add some shards to track.
-        if i >= num_validators && i < num_tracking_nodes {
-            let shards_per_node = num_shards / (num_tracking_nodes - num_validators);
+        if i >= (num_validator_seats as usize) && i < num_tracking_nodes {
+            let shards_per_node =
+                num_shards as usize / (num_tracking_nodes - num_validator_seats as usize);
             let (from, to) = (
-                ((i - num_validators) * shards_per_node) as ShardId,
-                ((i - num_validators + 1) * shards_per_node) as ShardId,
+                ((i - num_validator_seats as usize) * shards_per_node) as ShardId,
+                ((i - (num_validator_seats as usize) + 1) * shards_per_node) as ShardId,
             );
             near_config.client_config.tracked_shards.extend(&(from..to).collect::<Vec<_>>());
         }

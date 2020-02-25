@@ -1,5 +1,5 @@
 use near_vm_errors::VMError;
-use near_vm_logic::{Config, MemoryLike};
+use near_vm_logic::MemoryLike;
 use wasmer_runtime::units::{Bytes, Pages};
 use wasmer_runtime::wasm::MemoryDescriptor;
 use wasmer_runtime::Memory;
@@ -7,13 +7,16 @@ use wasmer_runtime::Memory;
 pub struct WasmerMemory(Memory);
 
 impl WasmerMemory {
-    pub fn new(config: &Config) -> Result<Self, VMError> {
+    pub fn new(initial_memory_pages: u32, max_memory_pages: u32) -> Result<Self, VMError> {
         Ok(WasmerMemory(
-            Memory::new(MemoryDescriptor {
-                minimum: Pages(config.initial_memory_pages),
-                maximum: Some(Pages(config.max_memory_pages)),
-                shared: false,
-            })
+            Memory::new(
+                MemoryDescriptor::new(
+                    Pages(initial_memory_pages),
+                    Some(Pages(max_memory_pages)),
+                    false,
+                )
+                .unwrap(),
+            )
             .expect("TODO creating memory cannot fail"),
         ))
     }

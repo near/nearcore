@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use borsh::BorshSerialize;
+use log::debug;
 
 use near_primitives::account::Account;
 use near_primitives::contract::ContractCode;
@@ -10,7 +11,7 @@ use near_primitives::transaction::{
     Action, AddKeyAction, DeleteAccountAction, DeleteKeyAction, DeployContractAction,
     FunctionCallAction, StakeAction, TransferAction,
 };
-use near_primitives::types::{AccountId, Balance, BlockIndex, ValidatorStake};
+use near_primitives::types::{AccountId, Balance, BlockHeight, BlockHeightDelta, ValidatorStake};
 use near_primitives::utils::{
     is_valid_sub_account_id, is_valid_top_level_account_id, key_for_access_key,
 };
@@ -22,15 +23,17 @@ use near_store::{
 use near_vm_logic::types::PromiseResult;
 use near_vm_logic::VMContext;
 
-use crate::config::RuntimeConfig;
+use crate::config::{safe_add_gas, RuntimeConfig};
 use crate::ext::RuntimeExt;
 use crate::{ActionResult, ApplyState};
-use near_primitives::errors::ActionError;
+use near_crypto::key_conversion::convert_public_key;
+use near_crypto::PublicKey;
+use near_primitives::errors::{ActionError, ActionErrorKind, RuntimeError};
 use near_vm_errors::{CompilationError, FunctionCallError};
 use near_vm_runner::VMError;
 
 /// Number of epochs it takes to unstake.
-const NUM_UNSTAKING_EPOCHS: BlockIndex = 3;
+const NUM_UNSTAKING_EPOCHS: u64 = 3;
 
 fn cost_per_block(
     account_id: &AccountId,
@@ -58,7 +61,7 @@ pub(crate) fn check_rent(
     account_id: &AccountId,
     account: &Account,
     runtime_config: &RuntimeConfig,
-    epoch_length: BlockIndex,
+    epoch_length: BlockHeightDelta,
 ) -> Result<(), u128> {
     let buffer_length = if account.locked > 0 {
         epoch_length * (NUM_UNSTAKING_EPOCHS + 1)
@@ -78,15 +81,20 @@ pub(crate) fn check_rent(
 pub(crate) fn apply_rent(
     account_id: &AccountId,
     account: &mut Account,
-    block_index: BlockIndex,
+    block_height: BlockHeight,
     runtime_config: &RuntimeConfig,
-) -> Balance {
-    let charge = u128::from(block_index - account.storage_paid_at)
-        * cost_per_block(account_id, account, runtime_config);
+) -> Result<Balance, StorageError> {
+    let block_difference = block_height.checked_sub(account.storage_paid_at).ok_or_else(|| {
+        StorageError::StorageInconsistentState(format!(
+            "storage_paid_at {} for account {} is larger than current block height {}",
+            account.storage_paid_at, account_id, block_height
+        ))
+    })?;
+    let charge = u128::from(block_difference) * cost_per_block(account_id, account, runtime_config);
     let actual_charge = std::cmp::min(account.amount, charge);
     account.amount -= actual_charge;
-    account.storage_paid_at = block_index;
-    actual_charge
+    account.storage_paid_at = block_height;
+    Ok(actual_charge)
 }
 
 pub(crate) fn get_code_with_cache(
@@ -97,13 +105,13 @@ pub(crate) fn get_code_with_cache(
     debug!(target:"runtime", "Calling the contract at account {}", account_id);
     let code_hash = account.code_hash;
     let code = || get_code(state_update, account_id);
-    crate::cache::get_code_with_cache(code_hash, code)
+    crate::cache::get_code(code_hash, code)
 }
 
 pub(crate) fn action_function_call(
     state_update: &mut TrieUpdate,
     apply_state: &ApplyState,
-    account: &mut Option<Account>,
+    account: &mut Account,
     receipt: &Receipt,
     action_receipt: &ActionReceipt,
     promise_results: &[PromiseResult],
@@ -113,21 +121,28 @@ pub(crate) fn action_function_call(
     action_hash: &CryptoHash,
     config: &RuntimeConfig,
     is_last_action: bool,
-) -> Result<(), StorageError> {
-    let account = account.as_mut().unwrap();
+) -> Result<(), RuntimeError> {
     let code = match get_code_with_cache(state_update, account_id, &account) {
         Ok(Some(code)) => code,
         Ok(None) => {
-            let error = FunctionCallError::CompilationError(CompilationError::CodeDoesNotExist(
-                account_id.clone(),
-            ));
-            result.result = Err(ActionError::FunctionCallError(error.to_string()));
+            let error = FunctionCallError::CompilationError(CompilationError::CodeDoesNotExist {
+                account_id: account_id.clone(),
+            });
+            result.result = Err(ActionErrorKind::FunctionCallError(error).into());
             return Ok(());
         }
         Err(e) => {
-            return Err(e);
+            return Err(e.into());
         }
     };
+
+    if account.amount.checked_add(function_call.deposit).is_none() {
+        return Err(StorageError::StorageInconsistentState(
+            "Account balance integer overflow during function call deposit".to_string(),
+        )
+        .into());
+    }
+
     let mut runtime_ext = RuntimeExt::new(
         state_update,
         account_id,
@@ -154,6 +169,7 @@ pub(crate) fn action_function_call(
         block_index: apply_state.block_index,
         block_timestamp: apply_state.block_timestamp,
         account_balance: account.amount,
+        account_locked_balance: account.locked,
         storage_usage: account.storage_usage,
         attached_deposit: function_call.deposit,
         prepaid_gas: function_call.gas,
@@ -169,71 +185,113 @@ pub(crate) fn action_function_call(
         &mut runtime_ext,
         context,
         &config.wasm_config,
+        &config.transaction_costs,
         promise_results,
     );
-    if let Some(err) = err {
-        if let VMError::StorageError(storage) = err {
+    let execution_succeeded = match err {
+        Some(VMError::FunctionCallError(err)) => {
+            result.result = Err(ActionErrorKind::FunctionCallError(err).into());
+            false
+        }
+        Some(VMError::ExternalError(storage)) => {
             let err: StorageError =
                 borsh::BorshDeserialize::try_from_slice(&storage).expect("Borsh cannot fail");
-            return Err(err);
+            return Err(err.into());
         }
-        result.result = Err(ActionError::FunctionCallError(err.to_string()));
-        // TODO
-        if let Some(outcome) = outcome {
-            result.gas_burnt += outcome.burnt_gas;
-            result.logs.extend(outcome.logs.into_iter());
+        Some(VMError::InconsistentStateError(err)) => {
+            return Err(StorageError::StorageInconsistentState(err.to_string()).into());
         }
-        return Ok(());
+        None => true,
+    };
+    if let Some(outcome) = outcome {
+        result.gas_burnt = safe_add_gas(result.gas_burnt, outcome.burnt_gas)?;
+        result.gas_burnt_for_function_call =
+            safe_add_gas(result.gas_burnt_for_function_call, outcome.burnt_gas)?;
+        // Runtime in `generate_refund_receipts` takes care of using proper value for refunds.
+        // It uses `gas_used` for success and `gas_burnt` for failures. So it's not an issue to
+        // return a real `gas_used` instead of the `gas_burnt` into `ActionResult` even for
+        // `FunctionCall`s error.
+        result.gas_used = safe_add_gas(result.gas_used, outcome.used_gas)?;
+        result.logs.extend(outcome.logs.into_iter());
+        if execution_succeeded {
+            account.amount = outcome.balance;
+            account.storage_usage = outcome.storage_usage;
+            result.result = Ok(outcome.return_data);
+            result.new_receipts.extend(runtime_ext.into_receipts(account_id));
+        }
+    } else {
+        assert!(!execution_succeeded, "Outcome should always be available if execution succeeded")
     }
-    let outcome = outcome.unwrap();
-    result.logs.extend(outcome.logs.into_iter());
-    account.amount = outcome.balance;
-    account.storage_usage = outcome.storage_usage;
-    result.gas_burnt += outcome.burnt_gas;
-    result.gas_used += outcome.used_gas;
-    result.result = Ok(outcome.return_data);
-    result.new_receipts.append(&mut runtime_ext.into_receipts(account_id));
     Ok(())
 }
 
 pub(crate) fn action_stake(
-    account: &mut Option<Account>,
+    account: &mut Account,
     result: &mut ActionResult,
     account_id: &AccountId,
     stake: &StakeAction,
 ) {
-    let mut account = account.as_mut().unwrap();
     let increment = stake.stake.saturating_sub(account.locked);
+
+    // Make sure the key is ED25519, and can be converted to ristretto
+    match stake.public_key {
+        PublicKey::ED25519(key) => {
+            if convert_public_key(&key).is_none() {
+                result.result = Err(ActionErrorKind::UnsuitableStakingKey {
+                    public_key: stake.public_key.clone(),
+                }
+                .into());
+                return;
+            }
+        }
+        PublicKey::SECP256K1(_) => {
+            result.result =
+                Err(ActionErrorKind::UnsuitableStakingKey { public_key: stake.public_key.clone() }
+                    .into());
+            return;
+        }
+    };
+
     if account.amount >= increment {
         if account.locked == 0 && stake.stake == 0 {
             // if the account hasn't staked, it cannot unstake
-            result.result = Err(ActionError::TriesToUnstake(account_id.clone()));
+            result.result =
+                Err(ActionErrorKind::TriesToUnstake { account_id: account_id.clone() }.into());
             return;
         }
         result.validator_proposals.push(ValidatorStake {
             account_id: account_id.clone(),
             public_key: stake.public_key.clone(),
-            amount: stake.stake,
+            stake: stake.stake,
         });
         if stake.stake > account.locked {
+            // We've checked above `account.amount >= increment`
             account.amount -= increment;
             account.locked = stake.stake;
         }
     } else {
-        result.result = Err(ActionError::TriesToStake(
-            account_id.clone(),
-            stake.stake,
-            account.locked,
-            account.amount,
-        ));
+        result.result = Err(ActionErrorKind::TriesToStake {
+            account_id: account_id.clone(),
+            stake: stake.stake,
+            locked: account.locked,
+            balance: account.amount,
+        }
+        .into());
     }
 }
 
-pub(crate) fn action_transfer(account: &mut Option<Account>, transfer: &TransferAction) {
-    account.as_mut().unwrap().amount += transfer.deposit;
+pub(crate) fn action_transfer(
+    account: &mut Account,
+    transfer: &TransferAction,
+) -> Result<(), StorageError> {
+    account.amount = account.amount.checked_add(transfer.deposit).ok_or_else(|| {
+        StorageError::StorageInconsistentState("Account balance integer overflow".to_string())
+    })?;
+    Ok(())
 }
 
 pub(crate) fn action_create_account(
+    fee_config: &RuntimeFeesConfig,
     apply_state: &ApplyState,
     account: &mut Option<Account>,
     actor_id: &mut AccountId,
@@ -244,31 +302,46 @@ pub(crate) fn action_create_account(
     if !is_valid_top_level_account_id(account_id)
         && !is_valid_sub_account_id(&receipt.predecessor_id, account_id)
     {
-        result.result = Err(ActionError::CreateAccountNotAllowed(
-            account_id.clone(),
-            receipt.predecessor_id.clone(),
-        ));
+        result.result = Err(ActionErrorKind::CreateAccountNotAllowed {
+            account_id: account_id.clone(),
+            predecessor_id: receipt.predecessor_id.clone(),
+        }
+        .into());
         return;
     }
     *actor_id = receipt.receiver_id.clone();
-    let storage_config = RuntimeFeesConfig::default().storage_usage_config;
-    *account = Some(Account::new(0, CryptoHash::default(), apply_state.block_index));
-    account.as_mut().unwrap().storage_usage = storage_config.account_cost;
+    *account = Some(Account {
+        amount: 0,
+        locked: 0,
+        code_hash: CryptoHash::default(),
+        storage_usage: fee_config.storage_usage_config.num_bytes_account,
+        storage_paid_at: apply_state.block_index,
+    });
 }
 
 pub(crate) fn action_deploy_contract(
     state_update: &mut TrieUpdate,
-    account: &mut Option<Account>,
+    account: &mut Account,
     account_id: &AccountId,
     deploy_contract: &DeployContractAction,
 ) -> Result<(), StorageError> {
-    let account = account.as_mut().unwrap();
     let code = ContractCode::new(deploy_contract.code.clone());
     let prev_code = get_code(state_update, account_id)?;
     let prev_code_length = prev_code.map(|code| code.code.len() as u64).unwrap_or_default();
-    let storage_config = RuntimeFeesConfig::default().storage_usage_config;
-    account.storage_usage -= prev_code_length * storage_config.code_cost_per_byte;
-    account.storage_usage += (code.code.len() as u64) * storage_config.code_cost_per_byte;
+    account.storage_usage =
+        account.storage_usage.checked_sub(prev_code_length).ok_or_else(|| {
+            StorageError::StorageInconsistentState(format!(
+                "Storage usage integer underflow for account {}",
+                account_id
+            ))
+        })?;
+    account.storage_usage =
+        account.storage_usage.checked_add(code.code.len() as u64).ok_or_else(|| {
+            StorageError::StorageInconsistentState(format!(
+                "Storage usage integer overflow for account {}",
+                account_id
+            ))
+        })?;
     account.code_hash = code.get_hash();
     set_code(state_update, &account_id, &code);
     Ok(())
@@ -298,59 +371,79 @@ pub(crate) fn action_delete_account(
 }
 
 pub(crate) fn action_delete_key(
+    fee_config: &RuntimeFeesConfig,
     state_update: &mut TrieUpdate,
-    account: &mut Option<Account>,
+    account: &mut Account,
     result: &mut ActionResult,
     account_id: &AccountId,
     delete_key: &DeleteKeyAction,
 ) -> Result<(), StorageError> {
-    let account = account.as_mut().unwrap();
     let access_key = get_access_key(state_update, account_id, &delete_key.public_key)?;
     if access_key.is_none() {
-        result.result = Err(ActionError::DeleteKeyDoesNotExist(account_id.clone()));
+        result.result = Err(ActionErrorKind::DeleteKeyDoesNotExist {
+            public_key: delete_key.public_key.clone(),
+            account_id: account_id.clone(),
+        }
+        .into());
         return Ok(());
     }
     // Remove access key
     state_update.remove(&key_for_access_key(account_id, &delete_key.public_key));
-    let storage_config = RuntimeFeesConfig::default().storage_usage_config;
-    account.storage_usage -= (delete_key.public_key.try_to_vec().ok().unwrap_or_default().len()
-        as u64)
-        * storage_config.key_cost_per_byte;
-    account.storage_usage -= (access_key.unwrap().try_to_vec().ok().unwrap_or_default().len()
-        as u64)
-        * storage_config.value_cost_per_byte;
-    account.storage_usage -= storage_config.data_record_cost;
+    let storage_usage_config = &fee_config.storage_usage_config;
+    account.storage_usage = account
+        .storage_usage
+        .checked_sub(
+            delete_key.public_key.try_to_vec().unwrap().len() as u64
+                + access_key.try_to_vec().unwrap().len() as u64
+                + storage_usage_config.num_extra_bytes_record,
+        )
+        .ok_or_else(|| {
+            StorageError::StorageInconsistentState(format!(
+                "Storage usage integer underflow for account {}",
+                account_id
+            ))
+        })?;
     Ok(())
 }
 
 pub(crate) fn action_add_key(
+    fees_config: &RuntimeFeesConfig,
     state_update: &mut TrieUpdate,
-    account: &mut Option<Account>,
+    account: &mut Account,
     result: &mut ActionResult,
     account_id: &AccountId,
     add_key: &AddKeyAction,
 ) -> Result<(), StorageError> {
-    let account = account.as_mut().unwrap();
     if get_access_key(state_update, account_id, &add_key.public_key)?.is_some() {
-        result.result = Err(ActionError::AddKeyAlreadyExists(add_key.public_key.clone()));
+        result.result = Err(ActionErrorKind::AddKeyAlreadyExists {
+            account_id: account_id.to_owned(),
+            public_key: add_key.public_key.clone(),
+        }
+        .into());
         return Ok(());
     }
     set_access_key(state_update, account_id, &add_key.public_key, &add_key.access_key);
-    let storage_config = RuntimeFeesConfig::default().storage_usage_config;
-    account.storage_usage += (add_key.public_key.try_to_vec().ok().unwrap_or_default().len()
-        as u64)
-        * storage_config.key_cost_per_byte;
-    account.storage_usage += (add_key.access_key.try_to_vec().ok().unwrap_or_default().len()
-        as u64)
-        * storage_config.value_cost_per_byte;
-    account.storage_usage += storage_config.data_record_cost;
+    let storage_config = &fees_config.storage_usage_config;
+    account.storage_usage = account
+        .storage_usage
+        .checked_add(
+            add_key.public_key.try_to_vec().unwrap().len() as u64
+                + add_key.access_key.try_to_vec().unwrap().len() as u64
+                + storage_config.num_extra_bytes_record,
+        )
+        .ok_or_else(|| {
+            StorageError::StorageInconsistentState(format!(
+                "Storage usage integer overflow for account {}",
+                account_id
+            ))
+        })?;
     Ok(())
 }
 
 pub(crate) fn check_actor_permissions(
     action: &Action,
     apply_state: &ApplyState,
-    account: &mut Option<Account>,
+    account: &Option<Account>,
     actor_id: &AccountId,
     account_id: &AccountId,
     config: &RuntimeConfig,
@@ -358,48 +451,34 @@ pub(crate) fn check_actor_permissions(
     match action {
         Action::DeployContract(_) | Action::Stake(_) | Action::AddKey(_) | Action::DeleteKey(_) => {
             if actor_id != account_id {
-                return Err(ActionError::ActorNoPermission(
-                    actor_id.clone(),
-                    account_id.clone(),
-                    action_type_as_string(action).to_owned(),
-                ));
+                return Err(ActionErrorKind::ActorNoPermission {
+                    account_id: actor_id.clone(),
+                    actor_id: account_id.clone(),
+                }
+                .into());
             }
         }
         Action::DeleteAccount(_) => {
-            if account.as_ref().unwrap().locked != 0 {
-                return Err(ActionError::DeleteAccountStaking(account_id.clone()));
+            let account = account.as_ref().unwrap();
+            if account.locked != 0 {
+                return Err(ActionErrorKind::DeleteAccountStaking {
+                    account_id: account_id.clone(),
+                }
+                .into());
             }
             if actor_id != account_id
-                && check_rent(
-                    account_id,
-                    account.as_mut().unwrap(),
-                    config,
-                    apply_state.epoch_length,
-                )
-                .is_ok()
+                && check_rent(account_id, account, config, apply_state.epoch_length).is_ok()
             {
-                return Err(ActionError::DeleteAccountHasRent(
-                    account_id.clone(),
-                    account.as_ref().unwrap().amount,
-                ));
+                return Err(ActionErrorKind::DeleteAccountHasRent {
+                    account_id: account_id.clone(),
+                    balance: account.amount,
+                }
+                .into());
             }
         }
         Action::CreateAccount(_) | Action::FunctionCall(_) | Action::Transfer(_) => (),
     };
     Ok(())
-}
-
-fn action_type_as_string(action: &Action) -> &'static str {
-    match action {
-        Action::CreateAccount(_) => "CreateAccount",
-        Action::DeployContract(_) => "DeployContract",
-        Action::FunctionCall(_) => "FunctionCall",
-        Action::Transfer(_) => "Transfer",
-        Action::Stake(_) => "Stake",
-        Action::AddKey(_) => "AddKey",
-        Action::DeleteKey(_) => "DeleteKey",
-        Action::DeleteAccount(_) => "DeleteAccount",
-    }
 }
 
 pub(crate) fn check_account_existence(
@@ -410,7 +489,10 @@ pub(crate) fn check_account_existence(
     match action {
         Action::CreateAccount(_) => {
             if account.is_some() {
-                return Err(ActionError::AccountAlreadyExists(account_id.clone()));
+                return Err(ActionErrorKind::AccountAlreadyExists {
+                    account_id: account_id.clone().into(),
+                }
+                .into());
             }
         }
         Action::DeployContract(_)
@@ -421,12 +503,11 @@ pub(crate) fn check_account_existence(
         | Action::DeleteKey(_)
         | Action::DeleteAccount(_) => {
             if account.is_none() {
-                return Err(ActionError::AccountDoesNotExist(
-                    action_type_as_string(action).to_owned(),
-                    account_id.clone(),
-                ));
+                return Err(ActionErrorKind::AccountDoesNotExist {
+                    account_id: account_id.clone(),
+                }
+                .into());
             }
-            //
         }
     };
     Ok(())

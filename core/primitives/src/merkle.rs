@@ -3,7 +3,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use crate::hash::hash;
 use crate::types::MerkleHash;
 
-#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, Serialize, Deserialize)]
 pub struct MerklePathItem {
     pub hash: MerkleHash,
     pub direction: Direction,
@@ -11,13 +11,13 @@ pub struct MerklePathItem {
 
 pub type MerklePath = Vec<MerklePathItem>;
 
-#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, Serialize, Deserialize)]
 pub enum Direction {
     Left,
     Right,
 }
 
-fn combine_hash(hash1: MerkleHash, hash2: MerkleHash) -> MerkleHash {
+pub fn combine_hash(hash1: MerkleHash, hash2: MerkleHash) -> MerkleHash {
     let mut combined: Vec<u8> = hash1.into();
     combined.append(&mut hash2.into());
     hash(&combined)
@@ -132,5 +132,14 @@ mod tests {
         for i in 0..items.len() {
             assert!(!verify_path(root, &paths[(i + 1) % 3], &items[i]))
         }
+    }
+
+    #[test]
+    fn test_elements_order() {
+        let items = vec![1, 2];
+        let (root, _) = merklize(&items);
+        let items2 = vec![2, 1];
+        let (root2, _) = merklize(&items2);
+        assert_ne!(root, root2);
     }
 }

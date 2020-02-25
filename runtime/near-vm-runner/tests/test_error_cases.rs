@@ -35,7 +35,7 @@ fn test_infinite_initializer() {
     assert_eq!(
         make_simple_contract_call(&infinite_initializer_contract(), b"hello"),
         (
-            Some(vm_outcome_with_gas(1000000)),
+            Some(vm_outcome_with_gas(100000000000000)),
             Some(VMError::FunctionCallError(FunctionCallError::HostError(HostError::GasExceeded)))
         )
     );
@@ -47,7 +47,7 @@ fn test_infinite_initializer_export_not_found() {
         make_simple_contract_call(&infinite_initializer_contract(), b"hello2"),
         (
             None,
-            Some(VMError::FunctionCallError(FunctionCallError::ResolveError(
+            Some(VMError::FunctionCallError(FunctionCallError::MethodResolveError(
                 MethodResolveError::MethodNotFound
             )))
         )
@@ -80,7 +80,7 @@ fn test_export_not_found() {
         make_simple_contract_call(&simple_contract(), b"hello2"),
         (
             None,
-            Some(VMError::FunctionCallError(FunctionCallError::ResolveError(
+            Some(VMError::FunctionCallError(FunctionCallError::MethodResolveError(
                 MethodResolveError::MethodNotFound
             )))
         )
@@ -93,7 +93,7 @@ fn test_empty_method() {
         make_simple_contract_call(&simple_contract(), b""),
         (
             None,
-            Some(VMError::FunctionCallError(FunctionCallError::ResolveError(
+            Some(VMError::FunctionCallError(FunctionCallError::MethodResolveError(
                 MethodResolveError::MethodEmptyName
             )))
         )
@@ -106,7 +106,7 @@ fn test_invalid_utf8() {
         make_simple_contract_call(&simple_contract(), &[255u8]),
         (
             None,
-            Some(VMError::FunctionCallError(FunctionCallError::ResolveError(
+            Some(VMError::FunctionCallError(FunctionCallError::MethodResolveError(
                 MethodResolveError::MethodUTF8Error
             )))
         )
@@ -130,8 +130,10 @@ fn test_trap_contract() {
     assert_eq!(
         make_simple_contract_call(&trap_contract(), b"hello"),
         (
-            Some(vm_outcome_with_gas(1)),
-            Some(VMError::FunctionCallError(FunctionCallError::WasmTrap("unknown".to_string())))
+            Some(vm_outcome_with_gas(3856371)),
+            Some(VMError::FunctionCallError(FunctionCallError::WasmTrap {
+                msg: "unknown".to_string()
+            }))
         )
     );
 }
@@ -154,8 +156,10 @@ fn test_trap_initializer() {
     assert_eq!(
         make_simple_contract_call(&trap_initializer(), b"hello"),
         (
-            Some(vm_outcome_with_gas(1)),
-            Some(VMError::FunctionCallError(FunctionCallError::WasmTrap("unknown".to_string())))
+            Some(vm_outcome_with_gas(3856371)),
+            Some(VMError::FunctionCallError(FunctionCallError::WasmTrap {
+                msg: "unknown".to_string()
+            }))
         )
     );
 }
@@ -178,7 +182,7 @@ fn test_wrong_signature_contract() {
         make_simple_contract_call(&wrong_signature_contract(), b"hello"),
         (
             None,
-            Some(VMError::FunctionCallError(FunctionCallError::ResolveError(
+            Some(VMError::FunctionCallError(FunctionCallError::MethodResolveError(
                 MethodResolveError::MethodInvalidSignature
             )))
         )
@@ -202,7 +206,7 @@ fn test_export_wrong_type() {
         make_simple_contract_call(&export_wrong_type(), b"hello"),
         (
             None,
-            Some(VMError::FunctionCallError(FunctionCallError::ResolveError(
+            Some(VMError::FunctionCallError(FunctionCallError::MethodResolveError(
                 MethodResolveError::MethodNotFound
             )))
         )
@@ -227,10 +231,10 @@ fn test_guest_panic() {
     assert_eq!(
         make_simple_contract_call(&guest_panic(), b"hello"),
         (
-            Some(vm_outcome_with_gas(1)),
-            Some(VMError::FunctionCallError(FunctionCallError::HostError(HostError::GuestPanic(
-                "explicit guest panic".to_string()
-            ))))
+            Some(vm_outcome_with_gas(130080593)),
+            Some(VMError::FunctionCallError(FunctionCallError::HostError(HostError::GuestPanic {
+                panic_msg: "explicit guest panic".to_string()
+            })))
         )
     );
 }
@@ -252,8 +256,10 @@ fn test_stack_overflow() {
     assert_eq!(
         make_simple_contract_call(&stack_overflow(), b"hello"),
         (
-            Some(vm_outcome_with_gas(32768)),
-            Some(VMError::FunctionCallError(FunctionCallError::WasmTrap("unknown".to_string())))
+            Some(vm_outcome_with_gas(63182782464)),
+            Some(VMError::FunctionCallError(FunctionCallError::WasmTrap {
+                msg: "unknown".to_string()
+            }))
         )
     );
 }
@@ -282,7 +288,7 @@ fn test_memory_grow() {
     assert_eq!(
         make_simple_contract_call(&memory_grow(), b"hello"),
         (
-            Some(vm_outcome_with_gas(1000000)),
+            Some(vm_outcome_with_gas(100000000000000)),
             Some(VMError::FunctionCallError(FunctionCallError::HostError(HostError::GasExceeded)))
         )
     );
@@ -351,9 +357,9 @@ fn test_bad_import_3() {
         make_simple_contract_call(&bad_import_global("env"), b"hello"),
         (
             Some(vm_outcome_with_gas(0)),
-            Some(VMError::FunctionCallError(FunctionCallError::LinkError(
-                "link error: Incorrect import type, namespace: env, name: input, expected type: global, found type: function".to_string()
-            )))
+            Some(VMError::FunctionCallError(FunctionCallError::LinkError{
+                msg: "link error: Incorrect import type, namespace: env, name: input, expected type: global, found type: function".to_string()
+            }))
         )
     );
 }
@@ -364,9 +370,9 @@ fn test_bad_import_4() {
         make_simple_contract_call(&bad_import_func("env"), b"hello"),
         (
             Some(vm_outcome_with_gas(0)),
-            Some(VMError::FunctionCallError(FunctionCallError::LinkError(
-                "link error: Import not found, namespace: env, name: wtf".to_string()
-            )))
+            Some(VMError::FunctionCallError(FunctionCallError::LinkError {
+                msg: "link error: Import not found, namespace: env, name: wtf".to_string()
+            }))
         )
     );
 }
@@ -421,7 +427,7 @@ fn bad_many_imports() -> Vec<u8> {
 fn test_bad_many_imports() {
     let result = make_simple_contract_call(&bad_many_imports(), b"hello");
     assert_eq!(result.0, Some(vm_outcome_with_gas(0)));
-    if let Some(VMError::FunctionCallError(FunctionCallError::LinkError(msg))) = result.1 {
+    if let Some(VMError::FunctionCallError(FunctionCallError::LinkError { msg })) = result.1 {
         eprintln!("{}", msg);
         assert!(msg.len() < 1000, format!("Huge error message: {}", msg.len()));
     } else {

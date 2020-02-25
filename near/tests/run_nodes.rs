@@ -1,19 +1,20 @@
 use actix::{Actor, System};
-use futures::future::Future;
+use futures::{future, FutureExt};
 use tempdir::TempDir;
 
 use near_client::GetBlock;
 use near_network::test_utils::WaitOrTimeout;
 use near_primitives::test_utils::heavy_test;
-use near_primitives::types::BlockIndex;
+use near_primitives::types::{BlockHeightDelta, NumSeats, NumShards};
+use near_primitives::views::Finality;
 use testlib::start_nodes;
 
 fn run_nodes(
-    num_shards: usize,
-    num_nodes: usize,
-    num_validators: usize,
-    epoch_length: BlockIndex,
-    num_blocks: BlockIndex,
+    num_shards: NumShards,
+    num_nodes: NumSeats,
+    num_validators: NumSeats,
+    epoch_length: BlockHeightDelta,
+    num_blocks: BlockHeightDelta,
 ) {
     let system = System::new("NEAR");
     let dirs = (0..num_nodes)
@@ -25,22 +26,17 @@ fn run_nodes(
     let view_client = clients[clients.len() - 1].1.clone();
     WaitOrTimeout::new(
         Box::new(move |_ctx| {
-            actix::spawn(view_client.send(GetBlock::Best).then(move |res| {
+            actix::spawn(view_client.send(GetBlock::Finality(Finality::None)).then(move |res| {
                 match &res {
-                    Ok(Ok(b))
-                        if b.header.height > num_blocks
-                            && b.header.total_weight > num_blocks as u128 =>
-                    {
-                        System::current().stop()
-                    }
-                    Err(_) => return futures::future::err(()),
+                    Ok(Ok(b)) if b.header.height > num_blocks => System::current().stop(),
+                    Err(_) => return future::ready(()),
                     _ => {}
                 };
-                futures::future::ok(())
+                future::ready(())
             }));
         }),
         100,
-        20000,
+        40000,
     )
     .start();
 

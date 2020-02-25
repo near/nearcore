@@ -1,14 +1,18 @@
-use near_primitives::errors::ActionError;
+use near_primitives::errors::{ActionError, ActionErrorKind};
 use near_primitives::serialize::to_base64;
-use near_primitives::types::Gas;
 use near_primitives::views::FinalExecutionStatus;
+use near_vm_errors::{FunctionCallError, HostError};
 use std::mem::size_of;
 use testlib::node::{Node, RuntimeNode};
 
 #[cfg(test)]
 use assert_matches::assert_matches;
 
-const FUNCTION_CALL_GAS_AMOUNT: Gas = 1_000_000_000;
+/// Initial balance used in tests.
+pub const TESTING_INIT_BALANCE: u128 = 1_000_000_000 * NEAR_BASE;
+
+/// One NEAR, divisible by 10^24.
+pub const NEAR_BASE: u128 = 1_000_000_000_000_000_000_000_000;
 
 fn setup_test_contract(wasm_binary: &[u8]) -> RuntimeNode {
     let node = RuntimeNode::new(&"alice.near".to_string());
@@ -19,16 +23,16 @@ fn setup_test_contract(wasm_binary: &[u8]) -> RuntimeNode {
             account_id.clone(),
             "test_contract".to_string(),
             node.signer().public_key(),
-            10u128.pow(14),
+            TESTING_INIT_BALANCE / 2,
         )
         .unwrap();
     assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(to_base64(&[])));
-    assert_eq!(transaction_result.receipts.len(), 1);
+    assert_eq!(transaction_result.receipts_outcome.len(), 1);
 
     let transaction_result =
         node_user.deploy_contract("test_contract".to_string(), wasm_binary.to_vec()).unwrap();
     assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(to_base64(&[])));
-    assert_eq!(transaction_result.receipts.len(), 1);
+    assert_eq!(transaction_result.receipts_outcome.len(), 1);
 
     node
 }
@@ -51,10 +55,11 @@ fn test_evil_deep_trie() {
                 "test_contract".to_string(),
                 "insert_strings",
                 input_data.to_vec(),
-                FUNCTION_CALL_GAS_AMOUNT,
+                10u64.pow(16),
                 0,
             )
             .unwrap();
+        println!("Gas burnt: {}", res.receipts_outcome[0].outcome.gas_burnt);
         assert_eq!(res.status, FinalExecutionStatus::SuccessValue(to_base64(&[])), "{:?}", res);
     });
     (0..50).rev().for_each(|i| {
@@ -71,10 +76,11 @@ fn test_evil_deep_trie() {
                 "test_contract".to_string(),
                 "delete_strings",
                 input_data.to_vec(),
-                FUNCTION_CALL_GAS_AMOUNT,
+                10u64.pow(16),
                 0,
             )
             .unwrap();
+        println!("Gas burnt: {}", res.receipts_outcome[0].outcome.gas_burnt);
         assert_eq!(res.status, FinalExecutionStatus::SuccessValue(to_base64(&[])), "{:?}", res);
     });
 }
@@ -94,11 +100,11 @@ fn test_evil_deep_recursion() {
                 "test_contract".to_string(),
                 "recurse",
                 n_bytes.clone(),
-                FUNCTION_CALL_GAS_AMOUNT,
+                10u64.pow(16),
                 0,
             )
             .unwrap();
-        if n <= 10000 {
+        if n <= 1000 {
             assert_eq!(
                 res.status,
                 FinalExecutionStatus::SuccessValue(to_base64(&n_bytes)),
@@ -122,15 +128,20 @@ fn test_evil_abort() {
             "test_contract".to_string(),
             "abort_with_zero",
             vec![],
-            FUNCTION_CALL_GAS_AMOUNT,
+            10u64.pow(16),
             0,
         )
         .unwrap();
     assert_eq!(
         res.status,
         FinalExecutionStatus::Failure(
-            ActionError::FunctionCallError("String encoding is bad UTF-16 sequence.".to_string())
-                .into()
+            ActionError {
+                index: Some(0),
+                kind: ActionErrorKind::FunctionCallError(FunctionCallError::HostError(
+                    HostError::BadUTF16
+                ))
+            }
+            .into()
         ),
         "{:?}",
         res

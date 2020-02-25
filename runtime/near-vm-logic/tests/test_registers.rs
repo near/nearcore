@@ -1,21 +1,16 @@
-pub mod fixtures;
+mod fixtures;
+mod vm_logic_builder;
 
-use crate::fixtures::get_context;
-use near_vm_logic::mocks::mock_external::MockedExternal;
-use near_vm_logic::mocks::mock_memory::MockedMemory;
-use near_vm_logic::{Config, HostError, HostErrorOrStorageError, VMLogic};
-use std::mem::size_of;
+use fixtures::get_context;
+use near_vm_logic::{HostError, VMConfig, VMLogicError};
+use vm_logic_builder::VMLogicBuilder;
 
 #[test]
 fn test_one_register() {
-    let mut ext = MockedExternal::default();
-    let context = get_context(vec![], false);
-    let config = Config::default();
-    let promise_results = vec![];
-    let mut memory = MockedMemory::default();
-    let mut logic = VMLogic::new(&mut ext, context, &config, &promise_results, &mut memory);
+    let mut logic_builder = VMLogicBuilder::default();
+    let mut logic = logic_builder.build(get_context(vec![], false));
 
-    logic.write_register(0, &vec![0, 1, 2]).unwrap();
+    logic.wrapped_internal_write_register(0, &vec![0, 1, 2]).unwrap();
     assert_eq!(logic.register_len(0).unwrap(), 3u64);
     let buffer = [0u8; 3];
     logic.read_register(0, buffer.as_ptr() as u64).unwrap();
@@ -24,90 +19,77 @@ fn test_one_register() {
 
 #[test]
 fn test_non_existent_register() {
-    let mut ext = MockedExternal::default();
-    let context = get_context(vec![], false);
-    let config = Config::default();
-    let promise_results = vec![];
-    let mut memory = MockedMemory::default();
-    let mut logic = VMLogic::new(&mut ext, context, &config, &promise_results, &mut memory);
+    let mut logic_builder = VMLogicBuilder::default();
+    let mut logic = logic_builder.build(get_context(vec![], false));
 
-    assert_eq!(logic.register_len(0), Ok(std::u64::MAX) as Result<u64, HostErrorOrStorageError>);
+    assert_eq!(logic.register_len(0), Ok(std::u64::MAX) as Result<u64, VMLogicError>);
     let buffer = [0u8; 3];
     assert_eq!(
         logic.read_register(0, buffer.as_ptr() as u64),
-        Err(HostError::InvalidRegisterId.into())
+        Err(HostError::InvalidRegisterId { register_id: 0 }.into())
     );
 }
 
 #[test]
 fn test_many_registers() {
-    let mut ext = MockedExternal::default();
-    let context = get_context(vec![], false);
-    let config = Config::default();
-    let promise_results = vec![];
-    let mut memory = MockedMemory::default();
-    let mut logic = VMLogic::new(&mut ext, context, &config, &promise_results, &mut memory);
+    let mut logic_builder = VMLogicBuilder::default();
+    let max_registers = logic_builder.config.limit_config.max_number_registers;
+    let mut logic = logic_builder.build(get_context(vec![], false));
 
-    let max_registers = config.max_number_registers;
     for i in 0..max_registers {
         let value = (i * 10).to_le_bytes();
-        logic.write_register(i, &value).unwrap();
+        logic.wrapped_internal_write_register(i, &value).unwrap();
 
-        let buffer = [0u8; size_of::<u64>()];
+        let buffer = [0u8; std::mem::size_of::<u64>()];
         logic.read_register(i, buffer.as_ptr() as u64).unwrap();
         assert_eq!(i * 10, u64::from_le_bytes(buffer));
     }
 
     // One more register hits the boundary check.
     assert_eq!(
-        logic.write_register(max_registers, &[]),
+        logic.wrapped_internal_write_register(max_registers, &[]),
         Err(HostError::MemoryAccessViolation.into())
     )
 }
 
 #[test]
 fn test_max_register_size() {
-    let mut ext = MockedExternal::default();
-    let context = get_context(vec![], false);
-    let config = Config::default();
-    let promise_results = vec![];
-    let mut memory = MockedMemory::default();
-    let mut logic = VMLogic::new(&mut ext, context, &config, &promise_results, &mut memory);
+    let mut logic_builder = VMLogicBuilder::default();
+    let max_register_size = logic_builder.config.limit_config.max_register_size;
+    let mut logic = logic_builder.build(get_context(vec![], false));
 
-    let value = vec![0u8; (config.max_register_size + 1) as usize];
+    let value = vec![0u8; (max_register_size + 1) as usize];
 
-    assert_eq!(logic.write_register(0, &value), Err(HostError::MemoryAccessViolation.into()));
+    assert_eq!(
+        logic.wrapped_internal_write_register(0, &value),
+        Err(HostError::MemoryAccessViolation.into())
+    );
 }
 
 #[test]
 fn test_max_register_memory_limit() {
-    let mut ext = MockedExternal::default();
-    let context = get_context(vec![], false);
-    let config = Config::free();
-    let promise_results = vec![];
-    let mut memory = MockedMemory::default();
-    let mut logic = VMLogic::new(&mut ext, context, &config, &promise_results, &mut memory);
+    let mut logic_builder = VMLogicBuilder::free();
+    let config = VMConfig::free();
+    logic_builder.config = config.clone();
+    let mut logic = logic_builder.build(get_context(vec![], false));
 
-    let max_registers = config.registers_memory_limit / config.max_register_size;
+    let max_registers =
+        config.limit_config.registers_memory_limit / config.limit_config.max_register_size;
 
     for i in 0..max_registers {
-        let value = vec![1u8; config.max_register_size as usize];
-        logic.write_register(i, &value).expect("should be written successfully");
+        let value = vec![1u8; config.limit_config.max_register_size as usize];
+        logic.wrapped_internal_write_register(i, &value).expect("should be written successfully");
     }
-    let last = vec![1u8; config.max_register_size as usize];
+    let last = vec![1u8; config.limit_config.max_register_size as usize];
     assert_eq!(
-        logic.write_register(max_registers, &last),
+        logic.wrapped_internal_write_register(max_registers, &last),
         Err(HostError::MemoryAccessViolation.into())
     );
 }
 
 #[test]
 fn test_register_is_not_used() {
-    let mut ext = MockedExternal::default();
-    let context = get_context(vec![], false);
-    let config = Config::default();
-    let promise_results = vec![];
-    let mut memory = MockedMemory::default();
-    let mut logic = VMLogic::new(&mut ext, context, &config, &promise_results, &mut memory);
+    let mut logic_builder = VMLogicBuilder::default();
+    let mut logic = logic_builder.build(get_context(vec![], false));
     assert_eq!(logic.register_len(0), Ok(std::u64::MAX));
 }

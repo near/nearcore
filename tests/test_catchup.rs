@@ -32,7 +32,7 @@ fn test_catchup() {
         // Wait for the blocks to be produced.
         wait(
             || {
-                if let Some(ind) = nodes[0].read().unwrap().user().get_best_block_index() {
+                if let Some(ind) = nodes[0].read().unwrap().user().get_best_height() {
                     ind > (num_blocks_to_wait as u64)
                 } else {
                     false
@@ -45,11 +45,11 @@ fn test_catchup() {
         // Start the late node.
         late_node.write().unwrap().start();
 
-        // Wait for it to have the same block index as other nodes.
+        // Wait for it to have the same block height as other nodes.
         wait(
             || {
-                if let ind @ Some(_) = nodes[0].read().unwrap().user().get_best_block_index() {
-                    late_node.read().unwrap().user().get_best_block_index() == ind
+                if let ind @ Some(_) = nodes[0].read().unwrap().user().get_best_height() {
+                    late_node.read().unwrap().user().get_best_height() == ind
                 } else {
                     false
                 }
@@ -60,6 +60,7 @@ fn test_catchup() {
     }
 
     heavy_test(|| {
-        run_multiple_nodes(4, 20, Duration::from_secs(120), Duration::from_secs(60), "4_20")
+        // `num_min_peers` defaults to 3, and since the last node is not initially up and running, we need 5 peers total (4 to have 3 peers each launching initially + 1 launching later)
+        run_multiple_nodes(5, 20, Duration::from_secs(120), Duration::from_secs(60), "4_20")
     });
 }

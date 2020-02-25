@@ -10,20 +10,21 @@ use borsh::BorshSerialize;
 use indicatif::{ProgressBar, ProgressStyle};
 use tempdir::TempDir;
 
-use near::{get_store_path, GenesisConfig, NightshadeRuntime};
-use near_chain::{Block, ChainStore, RuntimeAdapter, Tip};
+use near::{get_store_path, NightshadeRuntime};
+use near_chain::{Block, Chain, ChainStore, RuntimeAdapter, Tip};
+use near_chain_configs::GenesisConfig;
 use near_crypto::{InMemorySigner, KeyType};
 use near_primitives::account::AccessKey;
 use near_primitives::block::genesis_chunks;
 use near_primitives::contract::ContractCode;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::serialize::to_base64;
-use near_primitives::types::{AccountId, Balance, ChunkExtra, ShardId, StateRoot};
+use near_primitives::state_record::StateRecord;
+use near_primitives::types::{AccountId, Balance, ChunkExtra, EpochId, ShardId, StateRoot};
 use near_primitives::views::AccountView;
 use near_store::{
-    create_store, get_account, set_access_key, set_account, set_code, Store, TrieUpdate, COL_STATE,
+    create_store, get_account, set_access_key, set_account, set_code, ColState, Store, TrieUpdate,
 };
-use node_runtime::StateRecord;
 
 fn get_account_id(account_index: u64) -> String {
     format!("near_{}_{}", account_index, account_index)
@@ -116,7 +117,7 @@ impl GenesisBuilder {
             .roots
             .iter()
             .map(|(shard_idx, root)| {
-                (*shard_idx, TrieUpdate::new(self.runtime.trie.clone(), root.hash))
+                (*shard_idx, TrieUpdate::new(self.runtime.trie.clone(), *root))
             })
             .collect();
         self.unflushed_records =
@@ -145,7 +146,7 @@ impl GenesisBuilder {
     pub fn dump_state(self) -> Result<Self> {
         let mut dump_path = self.home_dir.clone();
         dump_path.push("state_dump");
-        self.store.save_to_file(COL_STATE, dump_path.as_path())?;
+        self.store.save_to_file(ColState, dump_path.as_path())?;
         {
             let mut roots_files = self.home_dir.clone();
             roots_files.push("genesis_roots");
@@ -176,7 +177,7 @@ impl GenesisBuilder {
         let (store_update, root) = state_update.finalize()?.into(trie)?;
         store_update.commit()?;
 
-        self.roots.insert(shard_idx, StateRoot { hash: root, num_parts: 9 /* TODO MOO */ });
+        self.roots.insert(shard_idx, root.clone());
         self.state_updates.insert(shard_idx, TrieUpdate::new(self.runtime.trie.clone(), root));
         Ok(())
     }
@@ -190,9 +191,9 @@ impl GenesisBuilder {
         let genesis = Block::genesis(
             genesis_chunks.into_iter().map(|chunk| chunk.header).collect(),
             self.config.genesis_time,
-            self.config.gas_limit,
-            self.config.gas_price,
+            self.config.min_gas_price,
             self.config.total_supply,
+            Chain::compute_bp_hash(&self.runtime, EpochId::default(), &CryptoHash::default())?,
         );
 
         let mut store = ChainStore::new(self.store.clone());
@@ -202,11 +203,12 @@ impl GenesisBuilder {
             .add_validator_proposals(
                 CryptoHash::default(),
                 genesis.hash(),
-                genesis.header.inner.height,
-                vec![],
-                vec![],
-                vec![],
+                genesis.header.inner_rest.random_value,
+                genesis.header.inner_lite.height,
                 0,
+                vec![],
+                vec![],
+                vec![],
                 0,
                 0,
                 self.config.total_supply.clone(),
@@ -219,7 +221,16 @@ impl GenesisBuilder {
             store_update.save_chunk_extra(
                 &genesis.hash(),
                 chunk_header.inner.shard_id,
-                ChunkExtra::new(state_root, vec![], 0, self.config.gas_limit.clone(), 0, 0, 0),
+                ChunkExtra::new(
+                    state_root,
+                    CryptoHash::default(),
+                    vec![],
+                    0,
+                    self.config.gas_limit.clone(),
+                    0,
+                    0,
+                    0,
+                ),
             );
         }
 
@@ -243,7 +254,7 @@ impl GenesisBuilder {
         let account = AccountView {
             amount: testing_init_balance,
             locked: testing_init_stake,
-            code_hash: self.additional_accounts_code_hash.clone().into(),
+            code_hash: self.additional_accounts_code_hash.clone(),
             storage_usage: 0,
             storage_paid_at: 0,
         };
@@ -252,7 +263,7 @@ impl GenesisBuilder {
         records.push(account_record);
         let access_key_record = StateRecord::AccessKey {
             account_id: account_id.clone(),
-            public_key: signer.public_key.clone().into(),
+            public_key: signer.public_key.clone(),
             access_key: AccessKey::full_access().into(),
         };
         set_access_key(
@@ -267,10 +278,8 @@ impl GenesisBuilder {
         {
             let code = ContractCode::new(wasm_binary.to_vec());
             set_code(&mut state_update, &account_id, &code);
-            let contract_record = StateRecord::Contract {
-                account_id: account_id.clone(),
-                code: wasm_binary_base64.clone(),
-            };
+            let contract_record =
+                StateRecord::Contract { account_id, code: wasm_binary_base64.clone() };
             records.push(contract_record);
         }
 

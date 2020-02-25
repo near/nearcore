@@ -64,8 +64,8 @@ def doit(seq = []):
     global nodes, all_stakes, sequence
     sequence = seq
 
-    config = {'local': True, 'near_root': '../target/debug/'}
-    nodes = start_cluster(2, 1, 1, config, [["epoch_length", EPOCH_LENGTH], ["validator_kickout_threshold", 40]], {2: {"tracked_shards": [0]}})
+    config = None
+    nodes = start_cluster(2, 1, 1, config, [["epoch_length", EPOCH_LENGTH], ["block_producer_kickout_threshold", 40]], {2: {"tracked_shards": [0]}})
 
     started = time.time()
     last_iter = started
@@ -99,6 +99,7 @@ def doit(seq = []):
                 expected_stakes = get_expected_stakes()
                 print("Expect  stakes: %s" % expected_stakes)
                 for (cur, expected) in zip(cur_stakes, expected_stakes):
+                    print(f'cur: {cur}, expected: {expected}')
                     if cur % 1000000 == 0:
                         assert cur == expected
                     else:

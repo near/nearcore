@@ -1,5 +1,6 @@
 stages:
     - test
+    - release
 
 variables:
     CACHE_ROOT: "/opt/nearcore"
@@ -17,8 +18,9 @@ test_cargo:
     - *setup_cache
     script:
     - rustc --version && cargo --version
+    - cargo fmt --all -- --check
     - cargo check --all --tests --benches --all-features
-    - cargo test --all --verbose
+    - bash -c 'timeout 60m python3 scripts/parallel_run_tests.py'
 
 # Regression tests.
 test_regression:
@@ -58,3 +60,47 @@ test_nearlib:
     - *setup_cache
     script:
     - ./scripts/test_nearlib.sh
+
+coverage:
+    stage: test
+    tags:
+    - shell
+    before_script:
+    - *setup_cache
+    script:
+    - ./scripts/build_wasm.sh
+    - bash -c 'timeout 60m python3 scripts/parallel_coverage.py'
+    - (curl -s https://codecov.io/bash | bash) || true
+    only:
+    - staging
+    - master
+
+test_nearlib_release:
+    stage: test
+    tags:
+    - shell
+    before_script:
+    - *setup_cache
+    script:
+    - export NEARLIB_RELEASE=true
+    - ./scripts/test_nearlib.sh
+    only:
+    - schedules
+    # TODO: "only: branch" doesn't work, gitlab bot sync PR as branch, lost info of which branch
+    # the PR is going to merge with. Before fix in bot, keep different version of .gitlab-ci.yml 
+    # in staging and master.
+    # - master 
+
+release_build:
+    stage: release
+    tags:
+    - shell
+    before_script:
+    - *setup_cache
+    script:
+    - cargo build -p near
+    - cargo build --release -p near
+    - ./scripts/upload_release.sh
+    only:
+    - staging
+    - master

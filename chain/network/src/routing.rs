@@ -1,23 +1,44 @@
 use std::collections::{HashMap, HashSet};
+use std::ops::Sub;
+use std::sync::Arc;
+use std::time::{Duration, Instant};
+
+use serde::Serialize;
 
 use borsh::{BorshDeserialize, BorshSerialize};
+use byteorder::LittleEndian;
 use byteorder::WriteBytesExt;
-use bytes::LittleEndian;
 use cached::{Cached, SizedCache};
-use log::debug;
+use log::warn;
+use log::{debug, trace};
 
 use near_crypto::{SecretKey, Signature};
+use near_metrics;
 use near_primitives::hash::{hash, CryptoHash};
+use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::types::AccountId;
+use near_primitives::utils::index_to_bytes;
+use near_store::{
+    ColAccountAnnouncements, ColComponentEdges, ColPeerComponent, LastComponentNonce, Store,
+    StoreUpdate,
+};
 
-use crate::types::{AnnounceAccount, PeerId, PeerIdOrHash, Ping, Pong};
-use crate::utils::CloneNone;
+use crate::metrics;
+use crate::types::{PeerIdOrHash, Ping, Pong};
 
-const ROUTE_BACK_CACHE_SIZE: usize = 10000;
+const ANNOUNCE_ACCOUNT_CACHE_SIZE: usize = 10_000;
+const ROUTE_BACK_CACHE_SIZE: usize = 10_000;
+const ROUND_ROBIN_MAX_NONCE_DIFFERENCE_ALLOWED: usize = 10;
+const ROUND_ROBIN_NONCE_CACHE_SIZE: usize = 10_000;
+/// Routing table will clean edges if there is at least one node that is not reachable
+/// since `SAVE_PEERS_MAX_TIME` seconds. All peers disconnected since `SAVE_PEERS_AFTER_TIME`
+/// seconds will be removed from cache and persisted in disk.
+pub const SAVE_PEERS_MAX_TIME: u64 = 7_200;
+pub const SAVE_PEERS_AFTER_TIME: u64 = 3_600;
 
 /// Information that will be ultimately used to create a new edge.
 /// It contains nonce proposed for the edge with signature from peer.
-#[derive(Clone, BorshSerialize, BorshDeserialize, PartialEq, Eq, Debug, Default)]
+#[derive(Clone, BorshSerialize, BorshDeserialize, Serialize, PartialEq, Eq, Debug, Default)]
 pub struct EdgeInfo {
     pub nonce: u64,
     pub signature: Signature,
@@ -33,22 +54,19 @@ impl EdgeInfo {
 }
 
 /// Status of the edge
-#[derive(BorshSerialize, BorshDeserialize, Clone, PartialEq, Eq, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Clone, PartialEq, Eq, Debug, Hash)]
 pub enum EdgeType {
     Added,
     Removed,
 }
 
-// TODO(MarX): If two connected peers find an known edge between them with higher nonce in the network
-//  they should update its nonce so that further edges are accepted among other members in the network.
-//  This event can happen if both nodes get offline and loose persisted information.
 /// Edge object. Contains information relative to a new edge that is being added or removed
 /// from the network. This is the information that is required
-#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Clone, Debug, PartialEq, Eq)]
 pub struct Edge {
     /// Since edges are not directed `peer0 < peer1` should hold.
-    peer0: PeerId,
-    peer1: PeerId,
+    pub peer0: PeerId,
+    pub peer1: PeerId,
     /// Nonce to keep tracking of the last update on this edge.
     /// It must be even
     pub nonce: u64,
@@ -79,8 +97,25 @@ impl Edge {
         Self { peer0, peer1, nonce, signature0, signature1, removal_info: None }
     }
 
+    /// Build a new edge with given information from the other party.
+    pub fn build_with_secret_key(
+        peer0: PeerId,
+        peer1: PeerId,
+        nonce: u64,
+        secret_key: &SecretKey,
+        signature1: Signature,
+    ) -> Self {
+        let hash = if peer0 < peer1 {
+            Edge::build_hash(&peer0, &peer1, nonce)
+        } else {
+            Edge::build_hash(&peer1, &peer0, nonce)
+        };
+        let signature0 = secret_key.sign(hash.as_ref());
+        Edge::new(peer0, peer1, nonce, signature0, signature1)
+    }
+
     /// Create the remove edge change from an added edge change.
-    pub fn remove_edge(&self, me: PeerId, sk: SecretKey) -> Self {
+    pub fn remove_edge(&self, me: PeerId, sk: &SecretKey) -> Self {
         assert_eq!(self.edge_type(), EdgeType::Added);
         let mut edge = self.clone();
         edge.nonce += 1;
@@ -91,6 +126,8 @@ impl Edge {
         edge
     }
 
+    /// Build the hash of the edge given its content.
+    /// It is important that peer0 < peer1 at this point.
     fn build_hash(peer0: &PeerId, peer1: &PeerId, nonce: u64) -> CryptoHash {
         let mut buffer = Vec::<u8>::new();
         let peer0: Vec<u8> = peer0.clone().into();
@@ -170,7 +207,7 @@ impl Edge {
 
     /// It will be considered as a new edge if the nonce is odd, otherwise it is canceling the
     /// previous edge.
-    fn edge_type(&self) -> EdgeType {
+    pub fn edge_type(&self) -> EdgeType {
         if self.nonce % 2 == 1 {
             EdgeType::Added
         } else {
@@ -186,26 +223,50 @@ impl Edge {
             self.nonce + 1
         }
     }
+
+    pub fn contains_peer(&self, peer_id: &PeerId) -> bool {
+        self.peer0 == *peer_id || self.peer1 == *peer_id
+    }
+
+    /// Find a peer id in this edge different from `me`.
+    pub fn other(&self, me: &PeerId) -> Option<PeerId> {
+        if self.peer0 == *me {
+            Some(self.peer1.clone())
+        } else if self.peer1 == *me {
+            Some(self.peer0.clone())
+        } else {
+            None
+        }
+    }
 }
 
-#[derive(Clone)]
 pub struct RoutingTable {
-    // TODO(MarX, #1363): Use cache and file storing to keep this information.
-    // TODO(MarX): Add proof that this account belongs to this peer.
     /// PeerId associated for every known account id.
-    pub account_peers: HashMap<AccountId, AnnounceAccount>,
+    account_peers: SizedCache<AccountId, AnnounceAccount>,
     /// Active PeerId that are part of the shortest path to each PeerId.
     pub peer_forwarding: HashMap<PeerId, HashSet<PeerId>>,
     /// Store last update for known edges.
     pub edges_info: HashMap<(PeerId, PeerId), Edge>,
     /// Hash of messages that requires routing back to respective previous hop.
-    pub route_back: CloneNone<SizedCache<CryptoHash, PeerId>>,
+    pub route_back: SizedCache<CryptoHash, PeerId>,
+    /// Last time a peer with reachable through active edges.
+    pub peer_last_time_reachable: HashMap<PeerId, Instant>,
+    /// Access to store on disk
+    store: Arc<Store>,
     /// Current view of the network. Nodes are Peers and edges are active connections.
     raw_graph: Graph,
+    /// Number of times each active connection was used to route a message.
+    /// If there are several options use route with minimum nonce.
+    /// New routes are added with minimum nonce.
+    route_nonce: SizedCache<PeerId, usize>,
+    /// Flag to know if there is state recalculation pending.
+    recalculation_scheduled: Option<Instant>,
     /// Ping received by nonce. Used for testing only.
     ping_info: Option<HashMap<usize, Ping>>,
     /// Ping received by nonce. Used for testing only.
     pong_info: Option<HashMap<usize, Pong>>,
+    /// Last nonce used to store edges on disk.
+    pub component_nonce: u64,
 }
 
 #[derive(Debug)]
@@ -217,28 +278,74 @@ pub enum FindRouteError {
 }
 
 impl RoutingTable {
-    pub fn new(peer_id: PeerId) -> Self {
+    pub fn new(peer_id: PeerId, store: Arc<Store>) -> Self {
+        // Find greater nonce on disk and set `component_nonce` to this value.
+        let component_nonce = store
+            .get_ser::<u64>(LastComponentNonce, &[])
+            .unwrap_or(None)
+            .map_or(0, |nonce| nonce + 1);
+
         Self {
-            account_peers: HashMap::new(),
+            account_peers: SizedCache::with_size(ANNOUNCE_ACCOUNT_CACHE_SIZE),
             peer_forwarding: HashMap::new(),
             edges_info: HashMap::new(),
-            route_back: CloneNone::new(SizedCache::with_size(ROUTE_BACK_CACHE_SIZE)),
+            route_back: SizedCache::with_size(ROUTE_BACK_CACHE_SIZE),
+            peer_last_time_reachable: HashMap::new(),
+            store,
             raw_graph: Graph::new(peer_id),
+            route_nonce: SizedCache::with_size(ROUND_ROBIN_NONCE_CACHE_SIZE),
+            recalculation_scheduled: None,
             ping_info: None,
             pong_info: None,
+            component_nonce,
         }
+    }
+
+    fn peer_id(&self) -> &PeerId {
+        &self.raw_graph.source
     }
 
     /// Find peer that is connected to `source` and belong to the shortest path
     /// from `source` to `peer_id`.
-    pub fn find_route_from_peer_id(&self, peer_id: &PeerId) -> Result<PeerId, FindRouteError> {
-        if let Some(routes) = self.peer_forwarding.get(&peer_id) {
-            if routes.is_empty() {
-                Err(FindRouteError::Disconnected)
-            } else {
-                // TODO(MarX, #1363): Do Round Robin
-                Ok(routes.iter().next().unwrap().clone())
-            }
+    pub fn find_route_from_peer_id(&mut self, peer_id: &PeerId) -> Result<PeerId, FindRouteError> {
+        if let Some(routes) = self.peer_forwarding.get(&peer_id).cloned() {
+            // Strategy similar to Round Robin. Select node with least nonce and send it. Increase its
+            // nonce by one. Additionally if the difference between the highest nonce and the lowest
+            // nonce is greater than some threshold increase the lowest nonce to be at least
+            // max nonce - threshold.
+
+            let (min_v, max_v) = routes.iter().fold((None, None), |(min_v, max_v), peer_id| {
+                let nonce = self.route_nonce.cache_get(&peer_id).cloned().unwrap_or(0usize);
+                let current = (nonce, peer_id.clone());
+                if min_v.is_none() || current < *min_v.as_ref().unwrap() {
+                    (Some(current), max_v)
+                } else if max_v.is_none() || *max_v.as_ref().unwrap() < current {
+                    (max_v, Some(current))
+                } else {
+                    (min_v, max_v)
+                }
+            });
+
+            let next_hop = match (min_v, max_v) {
+                (None, _) => {
+                    return Err(FindRouteError::Disconnected);
+                }
+                (Some(min_v), None) => min_v.1,
+                (Some(min_v), Some(max_v)) => {
+                    if min_v.0 + ROUND_ROBIN_MAX_NONCE_DIFFERENCE_ALLOWED < max_v.0 {
+                        self.route_nonce.cache_set(
+                            min_v.1.clone(),
+                            max_v.0 - ROUND_ROBIN_MAX_NONCE_DIFFERENCE_ALLOWED,
+                        );
+                    }
+                    min_v.1
+                }
+            };
+
+            let nonce = self.route_nonce.cache_get(&next_hop).cloned();
+            self.route_nonce.cache_set(next_hop.clone(), nonce.map_or(1, |nonce| nonce + 1));
+
+            Ok(next_hop)
         } else {
             Err(FindRouteError::PeerNotFound)
         }
@@ -254,27 +361,121 @@ impl RoutingTable {
     }
 
     /// Find peer that owns this AccountId.
-    pub fn account_owner(&self, account_id: &AccountId) -> Result<PeerId, FindRouteError> {
-        self.account_peers
-            .get(account_id)
+    pub fn account_owner(&mut self, account_id: &AccountId) -> Result<PeerId, FindRouteError> {
+        self.get_announce(account_id)
             .map(|announce_account| announce_account.peer_id.clone())
             .ok_or_else(|| FindRouteError::AccountNotFound)
     }
 
     /// Add (account id, peer id) to routing table.
-    /// Returns a bool indicating whether this is a new entry or not.
     /// Note: There is at most on peer id per account id.
-    pub fn add_account(&mut self, announce_account: AnnounceAccount) -> bool {
+    pub fn add_account(&mut self, announce_account: AnnounceAccount) {
         let account_id = announce_account.account_id.clone();
-        self.account_peers
-            .insert(account_id, announce_account.clone())
-            .map_or(true, |old_announce_account| old_announce_account == announce_account)
+        self.account_peers.cache_set(account_id.clone(), announce_account.clone());
+
+        // Add account to store
+        let mut update = self.store.store_update();
+        if let Err(e) = update
+            .set_ser(ColAccountAnnouncements, account_id.as_bytes(), &announce_account)
+            .and_then(|_| update.commit())
+        {
+            warn!(target: "network", "Error saving announce account to store: {:?}", e);
+        }
     }
 
-    pub fn contains_account(&self, announce_account: AnnounceAccount) -> bool {
-        self.account_peers
-            .get(&announce_account.account_id)
-            .map_or(false, |cur_announce_account| *cur_announce_account == announce_account)
+    // TODO(MarX, #1694): Allow one account id to be routed to several peer id.
+    pub fn contains_account(&mut self, announce_account: &AnnounceAccount) -> bool {
+        self.get_announce(&announce_account.account_id).map_or(false, |current_announce_account| {
+            current_announce_account.epoch_id == announce_account.epoch_id
+        })
+    }
+
+    /// Get the nonce of the component where the peer was stored
+    fn component_nonce_from_peer(&mut self, peer_id: PeerId) -> Result<u64, ()> {
+        match self.store.get_ser::<u64>(ColPeerComponent, Vec::from(peer_id).as_ref()) {
+            Ok(Some(nonce)) => Ok(nonce),
+            _ => Err(()),
+        }
+    }
+
+    /// Get all edges in the component with `nonce`
+    /// Remove those edges from the store.
+    fn get_component_edges(
+        &mut self,
+        nonce: u64,
+        update: &mut StoreUpdate,
+    ) -> Result<Vec<Edge>, ()> {
+        let enc_nonce = index_to_bytes(nonce);
+
+        let result = match self.store.get_ser::<Vec<Edge>>(ColComponentEdges, enc_nonce.as_ref()) {
+            Ok(Some(edges)) => Ok(edges),
+            _ => Err(()),
+        };
+
+        update.delete(ColComponentEdges, enc_nonce.as_ref());
+
+        result
+    }
+
+    /// If peer_id is not on memory check if it is on disk in bring it back on memory.
+    fn touch(&mut self, peer_id: &PeerId) {
+        if peer_id == self.peer_id() || self.peer_last_time_reachable.contains_key(peer_id) {
+            return;
+        }
+
+        let me = self.peer_id().clone();
+
+        if let Ok(nonce) = self.component_nonce_from_peer(peer_id.clone()) {
+            let mut update = self.store.store_update();
+
+            if let Ok(edges) = self.get_component_edges(nonce, &mut update) {
+                for edge in edges {
+                    for &peer_id in vec![&edge.peer0, &edge.peer1].iter() {
+                        if peer_id == &me || self.peer_last_time_reachable.contains_key(peer_id) {
+                            continue;
+                        }
+
+                        if let Ok(cur_nonce) = self.component_nonce_from_peer(peer_id.clone()) {
+                            if cur_nonce == nonce {
+                                self.peer_last_time_reachable.insert(
+                                    peer_id.clone(),
+                                    Instant::now().sub(Duration::from_secs(SAVE_PEERS_MAX_TIME)),
+                                );
+                                update
+                                    .delete(ColPeerComponent, Vec::from(peer_id.clone()).as_ref());
+                            }
+                        }
+                    }
+                    self.add_edge(edge);
+                }
+            }
+
+            if let Err(e) = update.commit() {
+                warn!(target: "network", "Error removing network component from store. {:?}", e);
+            }
+        } else {
+            self.peer_last_time_reachable.insert(peer_id.clone(), Instant::now());
+        }
+    }
+
+    fn add_edge(&mut self, edge: Edge) -> bool {
+        let key = edge.get_pair();
+
+        if self.find_nonce(&key) >= edge.nonce {
+            // We already have a newer information about this edge. Discard this information.
+            false
+        } else {
+            match edge.edge_type() {
+                EdgeType::Added => {
+                    self.raw_graph.add_edge(key.0.clone(), key.1.clone());
+                }
+                EdgeType::Removed => {
+                    self.raw_graph.remove_edge(&key.0, &key.1);
+                }
+            }
+            self.edges_info.insert(key, edge);
+            true
+        }
     }
 
     /// Add this edge to the current view of the network.
@@ -282,28 +483,40 @@ impl RoutingTable {
     /// Edge contains about being added or removed (this can trigger both types of events).
     /// Return true if the edge contains new information about the network. Old if this information
     /// is outdated.
-    pub fn process_edge(&mut self, edge: Edge) -> bool {
+    pub fn process_edge(&mut self, edge: Edge) -> ProcessEdgeResult {
         let key = edge.get_pair();
 
-        if self.find_nonce(&key) >= edge.nonce {
-            // We already have a newer information about this edge. Discard this information.
-            debug!(target:"network", "Received outdated edge: {:?}", edge);
-            return false;
+        self.touch(&key.0);
+        self.touch(&key.1);
+
+        if !self.add_edge(edge) {
+            debug!(target:"network", "Received outdated edge.");
+            return ProcessEdgeResult { new_edge: false, schedule_computation: None };
         }
 
-        match edge.edge_type() {
-            EdgeType::Added => {
-                self.raw_graph.add_edge(key.0.clone(), key.1.clone());
-            }
-            EdgeType::Removed => {
-                self.raw_graph.remove_edge(&key.0, &key.1);
-            }
+        // Minimum between known routes and 1000
+        let known_routes = std::cmp::min(self.peer_forwarding.len() as u64, 1000);
+
+        let new_schedule = self.recalculation_scheduled.map_or_else(
+            move || Some(Duration::from_millis(known_routes)),
+            |target| {
+                if Instant::now() > target {
+                    Some(Duration::from_millis(known_routes))
+                } else {
+                    None
+                }
+            },
+        );
+
+        if let Some(duration) = new_schedule {
+            self.recalculation_scheduled = Some(Instant::now() + duration);
         }
 
-        self.edges_info.insert(key, edge);
-        // TODO(MarX, #1363): Don't recalculate all the time
-        self.peer_forwarding = self.raw_graph.calculate_distance();
-        true
+        // Update metrics after edge update
+        near_metrics::inc_counter_by(&metrics::EDGE_UPDATES, 1);
+        near_metrics::set_gauge(&metrics::EDGE_ACTIVE, self.raw_graph.total_active_edges as i64);
+
+        ProcessEdgeResult { new_edge: true, schedule_computation: new_schedule }
     }
 
     pub fn find_nonce(&self, edge: &(PeerId, PeerId)) -> u64 {
@@ -319,21 +532,17 @@ impl RoutingTable {
         self.edges_info.iter().map(|(_, edge)| edge.clone()).collect()
     }
 
-    pub fn get_accounts(&self) -> Vec<AnnounceAccount> {
-        self.account_peers.iter().map(|(_key, value)| value.clone()).collect()
-    }
-
     pub fn add_route_back(&mut self, hash: CryptoHash, peer_id: PeerId) {
-        self.route_back.value().cache_set(hash, peer_id);
+        self.route_back.cache_set(hash, peer_id);
     }
 
     // Find route back with given hash and removes it from cache.
     fn fetch_route_back(&mut self, hash: CryptoHash) -> Option<PeerId> {
-        self.route_back.value().cache_remove(&hash)
+        self.route_back.cache_remove(&hash)
     }
 
     pub fn compare_route_back(&mut self, hash: CryptoHash, peer_id: &PeerId) -> bool {
-        self.route_back.value().cache_get(&hash).map_or(false, |value| value == peer_id)
+        self.route_back.cache_get(&hash).map_or(false, |value| value == peer_id)
     }
 
     pub fn add_ping(&mut self, ping: Ping) {
@@ -342,7 +551,7 @@ impl RoutingTable {
         }
 
         if let Some(ping_info) = self.ping_info.as_mut() {
-            ping_info.entry(ping.nonce).or_insert(ping);
+            ping_info.entry(ping.nonce as usize).or_insert(ping);
         }
     }
 
@@ -352,7 +561,7 @@ impl RoutingTable {
         }
 
         if let Some(pong_info) = self.pong_info.as_mut() {
-            pong_info.entry(pong.nonce).or_insert(pong);
+            pong_info.entry(pong.nonce as usize).or_insert(pong);
         }
     }
 
@@ -362,18 +571,136 @@ impl RoutingTable {
         (pings, pongs)
     }
 
-    pub fn info(&self) -> RoutingTableInfo {
+    pub fn info(&mut self) -> RoutingTableInfo {
         let account_peers = self
-            .account_peers
-            .iter()
-            .map(|(key, value)| (key.clone(), value.peer_id.clone()))
+            .get_announce_accounts()
+            .into_iter()
+            .map(|announce_account| (announce_account.account_id, announce_account.peer_id))
             .collect();
+        RoutingTableInfo { account_peers, peer_forwarding: self.peer_forwarding.clone() }
+    }
 
-        RoutingTableInfo {
-            account_peers: account_peers,
-            peer_forwarding: self.peer_forwarding.clone(),
+    fn try_save_edges(&mut self) {
+        let now = Instant::now();
+        let mut oldest_time = now;
+        let to_save = self
+            .peer_last_time_reachable
+            .iter()
+            .filter_map(|(peer_id, last_time)| {
+                oldest_time = std::cmp::min(oldest_time, *last_time);
+                if now.duration_since(*last_time).as_secs() >= SAVE_PEERS_AFTER_TIME {
+                    Some(peer_id.clone())
+                } else {
+                    None
+                }
+            })
+            .collect::<HashSet<_>>();
+
+        // Save nodes on disk and remove from memory only if elapsed time from oldest peer
+        // is greater than `SAVE_PEERS_MAX_TIME`
+        if now.duration_since(oldest_time).as_secs() < SAVE_PEERS_MAX_TIME {
+            return;
+        }
+
+        let component_nonce = self.component_nonce;
+        self.component_nonce += 1;
+
+        let mut update = self.store.store_update();
+        let _ = update.set_ser(LastComponentNonce, &[], &component_nonce);
+
+        for peer_id in to_save.iter() {
+            let _ = update.set_ser(
+                ColPeerComponent,
+                Vec::from(peer_id.clone()).as_ref(),
+                &component_nonce,
+            );
+
+            self.peer_last_time_reachable.remove(peer_id);
+        }
+
+        let component_nonce = index_to_bytes(component_nonce);
+        let mut edges_in_component = vec![];
+
+        self.edges_info.retain(|(peer0, peer1), edge| {
+            if to_save.contains(peer0) || to_save.contains(peer1) {
+                edges_in_component.push(edge.clone());
+                false
+            } else {
+                true
+            }
+        });
+
+        let _ = update.set_ser(ColComponentEdges, component_nonce.as_ref(), &edges_in_component);
+
+        if let Err(e) = update.commit() {
+            warn!(target: "network", "Error storing network component to store. {:?}", e);
         }
     }
+
+    /// Recalculate routing table.
+    pub fn update(&mut self) {
+        trace!(target: "network", "Update routing table.");
+        self.recalculation_scheduled = None;
+
+        let start = Instant::now();
+
+        self.peer_forwarding = self.raw_graph.calculate_distance();
+
+        let now = Instant::now();
+        for peer in self.peer_forwarding.keys() {
+            self.peer_last_time_reachable.insert(peer.clone(), now);
+        }
+
+        self.try_save_edges();
+
+        let duration = Instant::now().duration_since(start).as_millis();
+
+        near_metrics::inc_counter_by(&metrics::ROUTING_TABLE_RECALCULATIONS, 1);
+        near_metrics::set_gauge(
+            &metrics::ROUTING_TABLE_RECALCULATION_MILLISECONDS,
+            duration as i64,
+        );
+        near_metrics::set_gauge(&metrics::PEER_REACHABLE, self.peer_forwarding.len() as i64);
+    }
+
+    /// Public interface for `account_peers`
+    ///
+    /// Get keys currently on cache.
+    pub fn get_accounts_keys(&mut self) -> Vec<AccountId> {
+        self.account_peers.key_order().cloned().collect()
+    }
+
+    /// Get announce accounts on cache.
+    pub fn get_announce_accounts(&mut self) -> Vec<AnnounceAccount> {
+        self.account_peers.value_order().cloned().collect()
+    }
+
+    /// Get account announce from
+    pub fn get_announce(&mut self, account_id: &AccountId) -> Option<AnnounceAccount> {
+        if let Some(announce_account) = self.account_peers.cache_get(&account_id) {
+            Some(announce_account.clone())
+        } else {
+            self.store
+                .get_ser(ColAccountAnnouncements, account_id.as_bytes())
+                .and_then(|res: Option<AnnounceAccount>| {
+                    if let Some(announce_account) = res {
+                        self.add_account(announce_account.clone());
+                        Ok(Some(announce_account))
+                    } else {
+                        Ok(None)
+                    }
+                })
+                .unwrap_or_else(|e| {
+                    warn!(target: "network", "Error loading announce account from store: {:?}", e);
+                    None
+                })
+        }
+    }
+}
+
+pub struct ProcessEdgeResult {
+    pub new_edge: bool,
+    pub schedule_computation: Option<Duration>,
 }
 
 #[derive(Debug)]
@@ -386,11 +713,12 @@ pub struct RoutingTableInfo {
 pub struct Graph {
     pub source: PeerId,
     adjacency: HashMap<PeerId, HashSet<PeerId>>,
+    total_active_edges: u64,
 }
 
 impl Graph {
     pub fn new(source: PeerId) -> Self {
-        Self { source, adjacency: HashMap::new() }
+        Self { source, adjacency: HashMap::new(), total_active_edges: 0 }
     }
 
     fn contains_edge(&mut self, peer0: &PeerId, peer1: &PeerId) -> bool {
@@ -415,6 +743,7 @@ impl Graph {
         if !self.contains_edge(&peer0, &peer1) {
             self.add_directed_edge(peer0.clone(), peer1.clone());
             self.add_directed_edge(peer1, peer0);
+            self.total_active_edges += 1;
         }
     }
 
@@ -422,6 +751,7 @@ impl Graph {
         if self.contains_edge(&peer0, &peer1) {
             self.remove_directed_edge(&peer0, &peer1);
             self.remove_directed_edge(&peer1, &peer0);
+            self.total_active_edges -= 1;
         }
     }
 

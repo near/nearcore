@@ -1,14 +1,21 @@
-use std::net::TcpListener;
-use std::time::{Duration, Instant};
-
-use actix::{Actor, AsyncContext, Context, System};
-use futures::future::Future;
-use tokio::timer::Delay;
-
-use crate::types::{NetworkConfig, PeerId, PeerInfo};
-use futures::future;
-use near_crypto::{KeyType, SecretKey};
 use std::collections::{HashMap, HashSet};
+use std::net::TcpListener;
+use std::time::Duration;
+
+use actix::{Actor, ActorContext, AsyncContext, Context, Handler, Message};
+use futures::{future, FutureExt};
+use log::debug;
+use rand::{thread_rng, RngCore};
+use tokio::time::delay_for;
+
+use near_crypto::{KeyType, SecretKey};
+use near_primitives::hash::hash;
+use near_primitives::network::PeerId;
+use near_primitives::types::EpochId;
+use near_primitives::utils::index_to_bytes;
+
+use crate::types::{NetworkConfig, NetworkInfo, PeerInfo, ROUTED_MESSAGE_TTL};
+use crate::PeerManagerActor;
 
 /// Returns available port.
 pub fn open_port() -> u16 {
@@ -33,13 +40,18 @@ impl NetworkConfig {
             handshake_timeout: Duration::from_secs(60),
             reconnect_delay: Duration::from_secs(60),
             bootstrap_peers_period: Duration::from_millis(100),
-            peer_max_count: 10,
+            max_peer: 10,
             ban_window: Duration::from_secs(1),
             peer_expiration_duration: Duration::from_secs(60 * 60),
             max_send_peers: 512,
             peer_stats_period: Duration::from_secs(5),
             ttl_account_id_router: Duration::from_secs(60 * 60),
+            routed_message_ttl: ROUTED_MESSAGE_TTL,
             max_routes_to_store: 1,
+            highest_peer_horizon: 5,
+            push_info_period: Duration::from_millis(100),
+            blacklist: HashMap::new(),
+            outbound_disabled: false,
         }
     }
 }
@@ -53,12 +65,6 @@ pub fn convert_boot_nodes(boot_nodes: Vec<(&str, u16)>) -> Vec<PeerInfo> {
     result
 }
 
-impl PeerId {
-    pub fn random() -> Self {
-        SecretKey::from_random(KeyType::ED25519).public_key().into()
-    }
-}
-
 impl PeerInfo {
     /// Creates random peer info.
     pub fn random() -> Self {
@@ -70,10 +76,9 @@ impl PeerInfo {
 /// Useful in tests to prevent them from running forever.
 #[allow(unreachable_code)]
 pub fn wait_or_panic(max_wait_ms: u64) {
-    actix::spawn(Delay::new(Instant::now() + Duration::from_millis(max_wait_ms)).then(|_| {
-        System::current().stop();
+    actix::spawn(delay_for(Duration::from_millis(max_wait_ms)).then(|_| {
         panic!("Timeout exceeded.");
-        future::result(Ok(()))
+        future::ready(())
     }));
 }
 
@@ -145,6 +150,10 @@ pub fn random_peer_id() -> PeerId {
     sk.public_key().into()
 }
 
+pub fn random_epoch_id() -> EpochId {
+    EpochId(hash(index_to_bytes(thread_rng().next_u64()).as_ref()))
+}
+
 pub fn expected_routing_tables(
     current: HashMap<PeerId, HashSet<PeerId>>,
     expected: Vec<(PeerId, Vec<PeerId>)>,
@@ -170,4 +179,48 @@ pub fn expected_routing_tables(
     }
 
     true
+}
+
+pub struct GetInfo {}
+
+impl Message for GetInfo {
+    type Result = NetworkInfo;
+}
+
+impl Handler<GetInfo> for PeerManagerActor {
+    type Result = NetworkInfo;
+
+    fn handle(&mut self, _msg: GetInfo, _ctx: &mut Context<Self>) -> Self::Result {
+        self.get_network_info()
+    }
+}
+
+#[derive(Message)]
+#[rtype(result = "()")]
+pub struct StopSignal {
+    pub should_panic: bool,
+}
+
+impl StopSignal {
+    pub fn new() -> Self {
+        Self { should_panic: false }
+    }
+
+    pub fn should_panic() -> Self {
+        Self { should_panic: true }
+    }
+}
+
+impl Handler<StopSignal> for PeerManagerActor {
+    type Result = ();
+
+    fn handle(&mut self, msg: StopSignal, ctx: &mut Self::Context) -> Self::Result {
+        debug!(target: "network", "Receive Stop Signal.");
+
+        if msg.should_panic {
+            panic!("Node crashed");
+        } else {
+            ctx.stop();
+        }
+    }
 }

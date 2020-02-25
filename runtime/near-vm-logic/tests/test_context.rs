@@ -1,7 +1,8 @@
 mod fixtures;
-use near_vm_logic::mocks::mock_external::MockedExternal;
-use near_vm_logic::mocks::mock_memory::MockedMemory;
-use near_vm_logic::{Config, VMContext, VMLogic};
+mod vm_logic_builder;
+use vm_logic_builder::VMLogicBuilder;
+
+use near_vm_logic::VMContext;
 
 pub fn create_context() -> VMContext {
     VMContext {
@@ -13,9 +14,10 @@ pub fn create_context() -> VMContext {
         block_index: 10,
         block_timestamp: 42,
         account_balance: 2u128,
+        account_locked_balance: 1u128,
         storage_usage: 12,
         attached_deposit: 2u128,
-        prepaid_gas: 10_u64.pow(9),
+        prepaid_gas: 10_u64.pow(14),
         random_seed: vec![0, 1, 2],
         is_view: false,
         output_data_receivers: vec![],
@@ -26,15 +28,11 @@ macro_rules! decl_test_bytes {
     ($testname:ident, $method:ident, $input:expr) => {
         #[test]
         fn $testname() {
-            let mut ext = MockedExternal::default();
-            let context = create_context();
-            let config = Config::default();
-            let promise_results = vec![];
-            let mut memory = MockedMemory::default();
-            let mut logic = VMLogic::new(&mut ext, context, &config, &promise_results, &mut memory);
+            let mut logic_builder = VMLogicBuilder::default();
+            let mut logic = logic_builder.build(create_context());
             let res = vec![0u8; $input.len()];
             logic.$method(0).expect("read bytes into register from context should be ok");
-            logic.read_register(0, res.as_ptr() as _).expect("read register should be ok");;
+            logic.read_register(0, res.as_ptr() as _).expect("read register should be ok");
             assert_eq!(res, $input);
         }
     };
@@ -44,12 +42,8 @@ macro_rules! decl_test_u64 {
     ($testname:ident, $method:ident, $input:expr) => {
         #[test]
         fn $testname() {
-            let mut ext = MockedExternal::default();
-            let context = create_context();
-            let config = Config::default();
-            let promise_results = vec![];
-            let mut memory = MockedMemory::default();
-            let mut logic = VMLogic::new(&mut ext, context, &config, &promise_results, &mut memory);
+            let mut logic_builder = VMLogicBuilder::default();
+            let mut logic = logic_builder.build(create_context());
             let res = logic.$method().expect("read from context should be ok");
             assert_eq!(res, $input);
         }
@@ -60,12 +54,8 @@ macro_rules! decl_test_u128 {
     ($testname:ident, $method:ident, $input:expr) => {
         #[test]
         fn $testname() {
-            let mut ext = MockedExternal::default();
-            let context = create_context();
-            let config = Config::default();
-            let promise_results = vec![];
-            let mut memory = MockedMemory::default();
-            let mut logic = VMLogic::new(&mut ext, context, &config, &promise_results, &mut memory);
+            let mut logic_builder = VMLogicBuilder::default();
+            let mut logic = logic_builder.build(create_context());
             let buf = [0u8; std::mem::size_of::<u128>()];
 
             logic.$method(buf.as_ptr() as _).expect("read from context should be ok");
@@ -109,5 +99,10 @@ decl_test_u128!(
     test_account_balance,
     account_balance,
     create_context().account_balance + create_context().attached_deposit
+);
+decl_test_u128!(
+    test_account_locked_balance,
+    account_locked_balance,
+    create_context().account_locked_balance
 );
 decl_test_u128!(test_attached_deposit, attached_deposit, create_context().attached_deposit);

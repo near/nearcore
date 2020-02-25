@@ -4,10 +4,18 @@ use std::hash::{Hash, Hasher};
 use std::io::Read;
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
-use sodiumoxide::crypto::hash::sha256::Digest;
 
 use crate::logging::pretty_hash;
 use crate::serialize::{from_base, to_base, BaseDecode};
+
+#[derive(Copy, Clone, PartialOrd, PartialEq, Eq, Ord)]
+pub struct Digest(pub [u8; 32]);
+
+impl AsRef<[u8]> for Digest {
+    fn as_ref(&self) -> &[u8] {
+        &self.0
+    }
+}
 
 #[derive(Copy, Clone, PartialOrd, Ord)]
 pub struct CryptoHash(pub Digest);
@@ -40,7 +48,7 @@ impl BaseDecode for CryptoHash {}
 
 impl borsh::BorshSerialize for CryptoHash {
     fn serialize<W: std::io::Write>(&self, writer: &mut W) -> Result<(), std::io::Error> {
-        writer.write(&(self.0).0)?;
+        writer.write_all(&(self.0).0)?;
         Ok(())
     }
 }
@@ -48,7 +56,7 @@ impl borsh::BorshSerialize for CryptoHash {
 impl borsh::BorshDeserialize for CryptoHash {
     fn deserialize<R: Read>(reader: &mut R) -> Result<Self, std::io::Error> {
         let mut bytes = [0; 32];
-        reader.read(&mut bytes)?;
+        reader.read_exact(&mut bytes)?;
         Ok(CryptoHash(Digest(bytes)))
     }
 }
@@ -69,7 +77,7 @@ impl<'de> Deserialize<'de> for CryptoHash {
     {
         let s = String::deserialize(deserializer)?;
         from_base(&s)
-            .and_then(|bytes| CryptoHash::try_from(bytes))
+            .and_then(CryptoHash::try_from)
             .map_err(|err| serde::de::Error::custom(err.to_string()))
     }
 }
@@ -161,7 +169,8 @@ impl Eq for CryptoHash {}
 /// let hash = near_primitives::hash::hash(&data);
 /// ```
 pub fn hash(data: &[u8]) -> CryptoHash {
-    CryptoHash(sodiumoxide::crypto::hash::sha256::hash(data))
+    use sha2::Digest;
+    CryptoHash(Digest(sha2::Sha256::digest(data).into()))
 }
 
 #[cfg(test)]

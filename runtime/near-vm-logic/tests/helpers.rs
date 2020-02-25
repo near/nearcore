@@ -1,9 +1,12 @@
-use near_vm_errors::HostErrorOrStorageError;
+use near_vm_errors::VMLogicError;
 use near_vm_logic::types::Gas;
-use near_vm_logic::VMLogic;
+use near_vm_logic::{ExtCosts, VMLogic, EXT_COSTS_COUNTER};
+use std::collections::HashMap;
 
-type Result<T> = ::std::result::Result<T, HostErrorOrStorageError>;
+#[allow(dead_code)]
+type Result<T> = ::std::result::Result<T, VMLogicError>;
 
+#[allow(dead_code)]
 pub fn promise_create(
     logic: &mut VMLogic,
     account_id: &[u8],
@@ -24,6 +27,7 @@ pub fn promise_create(
     )
 }
 
+#[allow(dead_code)]
 pub fn promise_batch_action_function_call(
     logic: &mut VMLogic,
     promise_index: u64,
@@ -44,6 +48,7 @@ pub fn promise_batch_action_function_call(
     )
 }
 
+#[allow(dead_code)]
 pub fn promise_batch_action_add_key_with_function_call(
     logic: &mut VMLogic,
     promise_index: u64,
@@ -64,4 +69,37 @@ pub fn promise_batch_action_add_key_with_function_call(
         method_names.len() as _,
         method_names.as_ptr() as _,
     )
+}
+
+#[macro_export]
+macro_rules! map(
+    { $($key:path: $value:expr,)+ } => {
+        {
+            let mut m = ::std::collections::HashMap::new();
+            $(
+                m.insert($key, $value);
+            )+
+            m
+        }
+     };
+);
+
+#[allow(dead_code)]
+pub fn print_costs() {
+    EXT_COSTS_COUNTER.with(|f| {
+        println!("{:#?}", f.borrow().iter().collect::<std::collections::BTreeMap<_, _>>())
+    });
+    reset_costs_counter();
+}
+
+pub fn reset_costs_counter() {
+    EXT_COSTS_COUNTER.with(|f| f.borrow_mut().clear());
+}
+
+#[allow(dead_code)]
+pub fn assert_costs(expected: HashMap<ExtCosts, u64>) {
+    EXT_COSTS_COUNTER.with(|f| {
+        assert_eq!(f.borrow().clone(), expected);
+    });
+    reset_costs_counter();
 }

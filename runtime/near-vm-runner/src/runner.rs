@@ -1,11 +1,10 @@
-use std::ffi::c_void;
-
 use crate::errors::IntoVMError;
 use crate::memory::WasmerMemory;
 use crate::{cache, imports};
+use near_runtime_fees::RuntimeFeesConfig;
 use near_vm_errors::{FunctionCallError, MethodResolveError, VMError};
 use near_vm_logic::types::PromiseResult;
-use near_vm_logic::{Config, External, VMContext, VMLogic, VMOutcome};
+use near_vm_logic::{External, VMConfig, VMContext, VMLogic, VMOutcome};
 use wasmer_runtime::Module;
 
 fn check_method(module: &Module, method_name: &str) -> Result<(), VMError> {
@@ -17,56 +16,77 @@ fn check_method(module: &Module, method_name: &str) -> Result<(), VMError> {
         if sig.params().is_empty() && sig.returns().is_empty() {
             Ok(())
         } else {
-            Err(VMError::FunctionCallError(FunctionCallError::ResolveError(
+            Err(VMError::FunctionCallError(FunctionCallError::MethodResolveError(
                 MethodResolveError::MethodInvalidSignature,
             )))
         }
     } else {
-        Err(VMError::FunctionCallError(FunctionCallError::ResolveError(
+        Err(VMError::FunctionCallError(FunctionCallError::MethodResolveError(
             MethodResolveError::MethodNotFound,
         )))
     }
 }
 
+/// `run` does the following:
+/// - deserializes and validate the `code` binary (see `prepare::prepare_contract`)
+/// - injects gas counting into
+/// - instantiates (links) `VMLogic` externs with the imports of the binary
+/// - calls the `method_name` with `context.input`
+///   - updates `ext` with new receipts, created during the execution
+///   - counts burnt and used gas
+///   - counts how accounts storage usage increased by the call
+///   - collects logs
+///   - sets the return data
+///  returns result as `VMOutcome`
 pub fn run<'a>(
     code_hash: Vec<u8>,
     code: &[u8],
     method_name: &[u8],
     ext: &mut dyn External,
     context: VMContext,
-    config: &'a Config,
+    wasm_config: &'a VMConfig,
+    fees_config: &'a RuntimeFeesConfig,
     promise_results: &'a [PromiseResult],
 ) -> (Option<VMOutcome>, Option<VMError>) {
+    if !cfg!(target_arch = "x86") && !cfg!(target_arch = "x86_64") {
+        // TODO(#1940): Remove once NaN is standardized by the VM.
+        panic!(
+            "Execution of smart contracts is only supported for x86 and x86_64 CPU architectures."
+        );
+    }
     if method_name.is_empty() {
         return (
             None,
-            Some(VMError::FunctionCallError(FunctionCallError::ResolveError(
+            Some(VMError::FunctionCallError(FunctionCallError::MethodResolveError(
                 MethodResolveError::MethodEmptyName,
             ))),
         );
     }
 
-    let module = match cache::compile_cached_module(code_hash, code, config) {
+    let module = match cache::compile_module(code_hash, code, wasm_config) {
         Ok(x) => x,
         Err(err) => return (None, Some(err)),
     };
-    let mut memory = match WasmerMemory::new(config) {
+    let mut memory = match WasmerMemory::new(
+        wasm_config.limit_config.initial_memory_pages,
+        wasm_config.limit_config.max_memory_pages,
+    ) {
         Ok(x) => x,
         Err(_err) => panic!("Cannot create memory for a contract call"),
     };
     let memory_copy = memory.clone();
 
-    let mut logic = VMLogic::new(ext, context, config, promise_results, &mut memory);
+    let mut logic =
+        VMLogic::new(ext, context, wasm_config, fees_config, promise_results, &mut memory);
 
-    let raw_ptr = &mut logic as *mut _ as *mut c_void;
-    let import_object = imports::build(memory_copy, raw_ptr);
+    let import_object = imports::build(memory_copy, &mut logic);
 
     let method_name = match std::str::from_utf8(method_name) {
         Ok(x) => x,
         Err(_) => {
             return (
                 None,
-                Some(VMError::FunctionCallError(FunctionCallError::ResolveError(
+                Some(VMError::FunctionCallError(FunctionCallError::MethodResolveError(
                     MethodResolveError::MethodUTF8Error,
                 ))),
             )

@@ -6,15 +6,16 @@ use parity_wasm::elements::{self, External, MemorySection, Type};
 use pwasm_utils::{self, rules};
 
 use near_vm_errors::PrepareError;
-use near_vm_logic::Config;
+use near_vm_logic::VMConfig;
 
 struct ContractModule<'a> {
     module: elements::Module,
-    config: &'a Config,
+    config: &'a VMConfig,
 }
 
 impl<'a> ContractModule<'a> {
-    fn init(original_code: &[u8], config: &'a Config) -> Result<Self, PrepareError> {
+    fn init(original_code: &[u8], config: &'a VMConfig) -> Result<Self, PrepareError> {
+        wasmparser::validate(original_code, None).map_err(|_| PrepareError::Deserialization)?;
         let module = elements::deserialize_buffer(original_code)
             .map_err(|_| PrepareError::Deserialization)?;
         Ok(ContractModule { module, config })
@@ -27,8 +28,10 @@ impl<'a> ContractModule<'a> {
 
         module.memory_section_mut().unwrap_or_else(|| &mut tmp).entries_mut().pop();
 
-        let entry =
-            elements::MemoryType::new(config.initial_memory_pages, Some(config.max_memory_pages));
+        let entry = elements::MemoryType::new(
+            config.limit_config.initial_memory_pages,
+            Some(config.limit_config.max_memory_pages),
+        );
 
         let mut builder = builder::from_module(module);
         builder.push_import(elements::ImportEntry::new(
@@ -55,9 +58,7 @@ impl<'a> ContractModule<'a> {
 
     fn inject_gas_metering(self) -> Result<Self, PrepareError> {
         let Self { module, config } = self;
-        let gas_rules = rules::Set::new(config.regular_op_cost, Default::default())
-            .with_forbidden_floats()
-            .with_grow_cost(config.grow_mem_cost);
+        let gas_rules = rules::Set::new(1, Default::default()).with_grow_cost(config.grow_mem_cost);
         let module = pwasm_utils::inject_gas_counter(module, &gas_rules)
             .map_err(|_| PrepareError::GasInstrumentation)?;
         Ok(Self { module, config })
@@ -65,8 +66,9 @@ impl<'a> ContractModule<'a> {
 
     fn inject_stack_height_metering(self) -> Result<Self, PrepareError> {
         let Self { module, config } = self;
-        let module = pwasm_utils::stack_height::inject_limiter(module, config.max_stack_height)
-            .map_err(|_| PrepareError::StackHeightInstrumentation)?;
+        let module =
+            pwasm_utils::stack_height::inject_limiter(module, config.limit_config.max_stack_height)
+                .map_err(|_| PrepareError::StackHeightInstrumentation)?;
         Ok(Self { module, config })
     }
 
@@ -120,8 +122,8 @@ impl<'a> ContractModule<'a> {
         if let Some(memory_type) = imported_mem_type {
             // Inspect the module to extract the initial and maximum page count.
             let limits = memory_type.limits();
-            if limits.initial() != config.initial_memory_pages
-                || limits.maximum() != Some(config.max_memory_pages)
+            if limits.initial() != config.limit_config.initial_memory_pages
+                || limits.maximum() != Some(config.limit_config.max_memory_pages)
             {
                 return Err(PrepareError::Memory);
             }
@@ -146,7 +148,7 @@ impl<'a> ContractModule<'a> {
 /// - all imported functions from the external environment matches defined by `env` module,
 ///
 /// The preprocessing includes injecting code for gas metering and metering the height of stack.
-pub fn prepare_contract(original_code: &[u8], config: &Config) -> Result<Vec<u8>, PrepareError> {
+pub fn prepare_contract(original_code: &[u8], config: &VMConfig) -> Result<Vec<u8>, PrepareError> {
     ContractModule::init(original_code, config)?
         .standardize_mem()
         .ensure_no_internal_memory()?
@@ -165,7 +167,7 @@ mod tests {
 
     fn parse_and_prepare_wat(wat: &str) -> Result<Vec<u8>, PrepareError> {
         let wasm = wabt::Wat2Wasm::new().validate(false).convert(wat).unwrap();
-        let config = Config::default();
+        let config = VMConfig::default();
         prepare_contract(wasm.as_ref(), &config)
     }
 
@@ -178,7 +180,7 @@ mod tests {
     #[test]
     fn memory() {
         // This test assumes that maximum page number is configured to a certain number.
-        assert_eq!(Config::default().max_memory_pages, 2048);
+        assert_eq!(VMConfig::default().limit_config.max_memory_pages, 2048);
 
         let r = parse_and_prepare_wat(r#"(module (import "env" "memory" (memory 1 1)))"#);
         assert_matches!(r, Ok(_));
@@ -189,7 +191,7 @@ mod tests {
 
         // initial exceed maximum
         let r = parse_and_prepare_wat(r#"(module (import "env" "memory" (memory 17 1)))"#);
-        assert_matches!(r, Ok(_));
+        assert_matches!(r, Err(PrepareError::Deserialization));
 
         // no maximum
         let r = parse_and_prepare_wat(r#"(module (import "env" "memory" (memory 1)))"#);

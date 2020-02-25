@@ -3,15 +3,13 @@
 use crate::remote_node::{try_wait, wait, RemoteNode};
 use crate::stats::Stats;
 use crate::transactions_generator::{Generator, TransactionType};
-use futures::future::Future;
-use futures::sink::Sink;
-use futures::stream::Stream;
+use futures::{future, FutureExt, StreamExt, TryFutureExt};
+use log::{debug, info, warn};
 use std::sync::{Arc, RwLock};
 use std::thread;
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
-use tokio::timer::Interval;
-use tokio::util::FutureExt;
+use tokio::time::interval;
 
 pub struct Executor {
     /// Nodes that can be used to generate nonces
@@ -28,7 +26,9 @@ impl Executor {
             let mut hashes = vec![];
             // Submit deploy contract transactions.
             for tx in transactions {
-                hashes.push(wait(|| n.write().unwrap().add_transaction(tx.clone())));
+                let hash = wait(|| n.write().unwrap().add_transaction(tx.clone()));
+                debug!("txn to deploy contract submitted: {}", &hash);
+                hashes.push(hash);
             }
             // Wait for them to propagate.
             wait(|| {
@@ -48,11 +48,13 @@ impl Executor {
     ) -> JoinHandle<()> {
         // Deploy the testing contract, if needed.
         if let TransactionType::Set | TransactionType::HeavyStorageBlock = transaction_type {
-            //            Executor::deploy_contract(&nodes);
+            info!("start deploying contracts");
+            Executor::deploy_contract(&nodes);
+            info!("finish deploying contracts");
         }
         let stats = Arc::new(RwLock::new(Stats::new()));
         thread::spawn(move || {
-            tokio::run(futures::lazy(move || {
+            tokio::spawn(future::lazy(move |_| {
                 // Channels into which we can signal to send a transaction.
                 let mut signal_tx = vec![];
                 let all_account_ids: Vec<_> = nodes
@@ -78,65 +80,57 @@ impl Executor {
                         // Spawn a task that sends transactions only from the given account making
                         // sure the nonces are correct.
                         tokio::spawn(
-                            rx.map_err(|_| ())
-                                .for_each(move |_| {
-                                    let stats = stats.clone();
-                                    let t = match transaction_type {
-                                        TransactionType::SendMoney => Generator::send_money(
-                                            &node,
-                                            signer_ind,
-                                            &all_account_ids,
-                                        ),
-                                        TransactionType::Set => {
-                                            Generator::call_set(&node, signer_ind)
-                                        }
-                                        TransactionType::HeavyStorageBlock => {
-                                            Generator::call_heavy_storage_blocks(&node, signer_ind)
-                                        }
-                                    };
-                                    let f = { node.write().unwrap().add_transaction_async(t) };
-                                    f.map_err(|_| ())
-                                        .timeout(Duration::from_secs(1))
-                                        .map(move |_| {
-                                            stats.read().unwrap().inc_out_tx();
-                                        })
-                                        .or_else(|_| Ok(())) // Ignore errors.
-                                        .map_err(|_: ()| ())
-                                })
-                                .map(|_| ())
-                                .map_err(|_| ()),
+                            rx.for_each(move |_| {
+                                let stats = stats.clone();
+                                let t = match transaction_type {
+                                    TransactionType::SendMoney => {
+                                        Generator::send_money(&node, signer_ind, &all_account_ids)
+                                    }
+                                    TransactionType::Set => Generator::call_set(&node, signer_ind),
+                                    TransactionType::HeavyStorageBlock => {
+                                        Generator::call_heavy_storage_blocks(&node, signer_ind)
+                                    }
+                                };
+                                node.write().unwrap().add_transaction_committed(t.clone()).unwrap();
+                                let f = { node.write().unwrap().add_transaction_async(t) };
+                                let f = f
+                                    .map_ok(|r| debug!("txn submitted: {}", r))
+                                    .map_err(|e| warn!("error submitting txn: {}", e));
+                                tokio::time::timeout(Duration::from_secs(1), f)
+                                    .map_ok(move |_| {
+                                        stats.read().unwrap().inc_out_tx();
+                                    })
+                                    .map(|_| ()) // Ignore errors.
+                            })
+                            .map(|_| ()),
                         );
                     }
                 }
 
                 // Spawn the task that sets the tps.
-                let interval =
-                    Duration::from_nanos((Duration::from_secs(1).as_nanos() as u64) / tps);
+                let period = Duration::from_nanos((Duration::from_secs(1).as_nanos() as u64) / tps);
                 let timeout = timeout.map(|t| Instant::now() + t);
-                let task = Interval::new_interval(interval)
+                let task = interval(period)
                     .take_while(move |_| {
                         if let Some(t_limit) = timeout {
                             if t_limit <= Instant::now() {
                                 // We hit timeout.
-                                return Ok(false);
+                                return future::ready(false);
                             }
                         }
-                        Ok(true)
+                        future::ready(true)
                     })
-                    .map_err(|_| ())
                     .for_each(move |_| {
                         let ind = rand::random::<usize>() % signal_tx.len();
-                        let tx = signal_tx[ind].clone();
-                        tx.send(()).map(|_| ()).map_err(|_| ())
-                    })
-                    .map(|_| ())
-                    .map_err(|_| ());
+                        let mut tx = signal_tx[ind].clone();
+                        async move { tx.send(()).await }.map(drop)
+                    });
 
                 let node = nodes[0].clone();
                 stats.write().unwrap().measure_from(&*node.write().unwrap());
                 tokio::spawn(
                     task.then(move |_| {
-                        futures::future::lazy(move || {
+                        future::lazy(move |_| {
                             let mut stats = stats.write().unwrap();
                             stats.measure_to(&*node.write().unwrap());
                             stats.collect_transactions(&*node.write().unwrap());
@@ -146,7 +140,6 @@ impl Executor {
                     })
                     .map_err(|_: ()| ()),
                 );
-                Ok(())
             }));
         })
     }

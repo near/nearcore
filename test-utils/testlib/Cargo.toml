@@ -8,27 +8,26 @@ name = "run-nodes"
 path = "src/run_nodes.rs"
 
 [dependencies]
-actix = "0.8.2"
+actix = "0.9.0"
 clap = "2.32"
 log = "0.4"
-rand = "0.6"
-rand_xorshift = "0.1"
+rand = "0.7"
 serde = "1.0"
 serde_json = "1.0.0"
-tokio = "0.1"
-futures = "0.1.25"
+futures = "0.3"
 lazy_static = "1.4"
 byteorder = "1.2"
 tempdir = "0.3"
-tokio-signal = "0.2"
 assert_matches = "1.3.0"
 
-borsh = "0.2.7"
+borsh = "0.2.10"
 
+near-chain-configs = { path = "../../core/chain-configs" }
 near-crypto = { path = "../../core/crypto" }
 near-primitives = { path = "../../core/primitives" }
 near-store = { path = "../../core/store" }
 node-runtime = { path = "../../runtime/runtime" }
+near-vm-errors = { path = "../../runtime/near-vm-errors" }
 near-chain = { path = "../../chain/chain" }
 near-client = { path = "../../chain/client" }
 near-jsonrpc = { path = "../../chain/jsonrpc" }
@@ -37,7 +36,5 @@ near-jsonrpc-client = { path = "../../chain/jsonrpc/client" }
 near = { path = "../../near" }
 near-runtime-fees = { path = "../../runtime/near-runtime-fees" }
 
-[dependencies.reqwest]
-version = "0.9"
-features = ["rustls-tls", "trust-dns"]
+reqwest = { version = "0.10", features = ["rustls-tls", "blocking", "json"] }
 

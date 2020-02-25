@@ -1,11 +1,11 @@
 use std::cmp::Ordering;
 use std::convert::{TryFrom, TryInto};
 use std::fmt::{Debug, Display, Formatter};
+use std::hash::{Hash, Hasher};
 use std::io::{Error, ErrorKind, Read, Write};
 
 use borsh::{BorshDeserialize, BorshSerialize};
-use rand::rngs::{OsRng, StdRng};
-use rand::SeedableRng;
+use rand_core::OsRng;
 use serde_derive::{Deserialize, Serialize};
 
 use lazy_static::lazy_static;
@@ -96,19 +96,48 @@ impl Ord for Secp256K1PublicKey {
     }
 }
 
+#[derive(Copy, Clone)]
+pub struct ED25519PublicKey(pub [u8; ed25519_dalek::PUBLIC_KEY_LENGTH]);
+
+impl std::fmt::Debug for ED25519PublicKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
+        write!(f, "{}", bs58::encode(&self.0.to_vec()).into_string())
+    }
+}
+
+impl PartialEq for ED25519PublicKey {
+    fn eq(&self, other: &Self) -> bool {
+        self.0[..] == other.0[..]
+    }
+}
+
+impl PartialOrd for ED25519PublicKey {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        self.0[..].partial_cmp(&other.0[..])
+    }
+}
+
+impl Eq for ED25519PublicKey {}
+
+impl Ord for ED25519PublicKey {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.0[..].cmp(&other.0[..])
+    }
+}
+
 /// Public key container supporting different curves.
-#[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, PartialEq, PartialOrd, Ord, Eq)]
 pub enum PublicKey {
-    ED25519(sodiumoxide::crypto::sign::ed25519::PublicKey),
+    ED25519(ED25519PublicKey),
     SECP256K1(Secp256K1PublicKey),
 }
 
 impl PublicKey {
     pub fn empty(key_type: KeyType) -> Self {
         match key_type {
-            KeyType::ED25519 => PublicKey::ED25519(sodiumoxide::crypto::sign::ed25519::PublicKey(
-                [0u8; sodiumoxide::crypto::sign::PUBLICKEYBYTES],
-            )),
+            KeyType::ED25519 => {
+                PublicKey::ED25519(ED25519PublicKey([0u8; ed25519_dalek::PUBLIC_KEY_LENGTH]))
+            }
             KeyType::SECP256K1 => PublicKey::SECP256K1(Secp256K1PublicKey([0u8; 64])),
         }
     }
@@ -117,6 +146,28 @@ impl PublicKey {
         match self {
             PublicKey::ED25519(_) => KeyType::ED25519,
             PublicKey::SECP256K1(_) => KeyType::SECP256K1,
+        }
+    }
+
+    pub fn unwrap_as_ed25519(&self) -> &ED25519PublicKey {
+        match self {
+            PublicKey::ED25519(key) => &key,
+            PublicKey::SECP256K1(_) => panic!(),
+        }
+    }
+}
+
+impl Hash for PublicKey {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        match self {
+            PublicKey::ED25519(public_key) => {
+                state.write_u8(0u8);
+                state.write(&public_key.0);
+            }
+            PublicKey::SECP256K1(public_key) => {
+                state.write_u8(1u8);
+                state.write(&public_key.0);
+            }
         }
     }
 }
@@ -133,37 +184,35 @@ impl Debug for PublicKey {
     }
 }
 
-#[allow(clippy::unused_io_amount)]
 impl BorshSerialize for PublicKey {
     fn serialize<W: Write>(&self, writer: &mut W) -> Result<(), Error> {
         match self {
             PublicKey::ED25519(public_key) => {
                 0u8.serialize(writer)?;
-                writer.write(&public_key.0)?;
+                writer.write_all(&public_key.0)?;
             }
             PublicKey::SECP256K1(public_key) => {
                 1u8.serialize(writer)?;
-                writer.write(&public_key.0)?;
+                writer.write_all(&public_key.0)?;
             }
         }
         Ok(())
     }
 }
 
-#[allow(clippy::unused_io_amount)]
 impl BorshDeserialize for PublicKey {
     fn deserialize<R: Read>(reader: &mut R) -> Result<Self, Error> {
         let key_type = KeyType::try_from(u8::deserialize(reader)?)
             .map_err(|err| Error::new(ErrorKind::InvalidData, err.to_string()))?;
         match key_type {
             KeyType::ED25519 => {
-                let mut array = [0; sodiumoxide::crypto::sign::ed25519::PUBLICKEYBYTES];
-                reader.read(&mut array)?;
-                Ok(PublicKey::ED25519(sodiumoxide::crypto::sign::ed25519::PublicKey(array)))
+                let mut array = [0; ed25519_dalek::PUBLIC_KEY_LENGTH];
+                reader.read_exact(&mut array)?;
+                Ok(PublicKey::ED25519(ED25519PublicKey(array)))
             }
             KeyType::SECP256K1 => {
                 let mut array = [0; 64];
-                reader.read(&mut array)?;
+                reader.read_exact(&mut array)?;
                 Ok(PublicKey::SECP256K1(Secp256K1PublicKey(array)))
             }
         }
@@ -192,6 +241,7 @@ impl<'de> serde::Deserialize<'de> for PublicKey {
             .map_err(|err: Box<dyn std::error::Error>| serde::de::Error::custom(err.to_string()))
     }
 }
+
 impl From<&PublicKey> for String {
     fn from(public_key: &PublicKey) -> Self {
         match public_key {
@@ -222,12 +272,12 @@ impl TryFrom<&str> for PublicKey {
         let (key_type, key_data) = split_key_type_data(&value)?;
         match key_type {
             KeyType::ED25519 => {
-                let mut array = [0; sodiumoxide::crypto::sign::ed25519::PUBLICKEYBYTES];
+                let mut array = [0; ed25519_dalek::PUBLIC_KEY_LENGTH];
                 let length = bs58::decode(key_data).into(&mut array)?;
-                if length != sodiumoxide::crypto::sign::ed25519::PUBLICKEYBYTES {
+                if length != ed25519_dalek::PUBLIC_KEY_LENGTH {
                     return Err(format!("Invalid length {} of ED25519 public key", length).into());
                 }
-                Ok(PublicKey::ED25519(sodiumoxide::crypto::sign::ed25519::PublicKey(array)))
+                Ok(PublicKey::ED25519(ED25519PublicKey(array)))
             }
             KeyType::SECP256K1 => {
                 let mut array = [0; 64];
@@ -241,10 +291,34 @@ impl TryFrom<&str> for PublicKey {
     }
 }
 
+#[derive(Clone)]
+// This is actually a keypair, because ed25519_dalek api only has keypair.sign
+// From ed25519_dalek doc: The first SECRET_KEY_LENGTH of bytes is the SecretKey
+// The last PUBLIC_KEY_LENGTH of bytes is the public key, in total it's KEYPAIR_LENGTH
+pub struct ED25519SecretKey(pub [u8; ed25519_dalek::KEYPAIR_LENGTH]);
+
+impl PartialEq for ED25519SecretKey {
+    fn eq(&self, other: &Self) -> bool {
+        self.0[..ed25519_dalek::SECRET_KEY_LENGTH] == other.0[..ed25519_dalek::SECRET_KEY_LENGTH]
+    }
+}
+
+impl std::fmt::Debug for ED25519SecretKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
+        write!(
+            f,
+            "{}",
+            bs58::encode(&self.0[..ed25519_dalek::SECRET_KEY_LENGTH].to_vec()).into_string()
+        )
+    }
+}
+
+impl Eq for ED25519SecretKey {}
+
 /// Secret key container supporting different curves.
 #[derive(Clone, Eq, PartialEq, Debug)]
 pub enum SecretKey {
-    ED25519(sodiumoxide::crypto::sign::ed25519::SecretKey),
+    ED25519(ED25519SecretKey),
     SECP256K1(secp256k1::key::SecretKey),
 }
 
@@ -259,21 +333,22 @@ impl SecretKey {
     pub fn from_random(key_type: KeyType) -> SecretKey {
         match key_type {
             KeyType::ED25519 => {
-                let (_, secret_key) = sodiumoxide::crypto::sign::ed25519::gen_keypair();
-                SecretKey::ED25519(secret_key)
+                let keypair = ed25519_dalek::Keypair::generate(&mut OsRng);
+                SecretKey::ED25519(ED25519SecretKey(keypair.to_bytes()))
             }
             KeyType::SECP256K1 => {
-                let mut rng = StdRng::from_rng(OsRng::new().unwrap()).unwrap();
-                SecretKey::SECP256K1(secp256k1::key::SecretKey::new(&SECP256K1, &mut rng))
+                SecretKey::SECP256K1(secp256k1::key::SecretKey::new(&SECP256K1, &mut OsRng))
             }
         }
     }
 
     pub fn sign(&self, data: &[u8]) -> Signature {
         match &self {
-            SecretKey::ED25519(secret_key) => Signature::ED25519(
-                sodiumoxide::crypto::sign::ed25519::sign_detached(data, &secret_key),
-            ),
+            SecretKey::ED25519(secret_key) => {
+                let keypair = ed25519_dalek::Keypair::from_bytes(&secret_key.0).unwrap();
+                Signature::ED25519(keypair.sign(data))
+            }
+
             SecretKey::SECP256K1(secret_key) => {
                 let signature = SECP256K1
                     .sign_recoverable(
@@ -285,23 +360,16 @@ impl SecretKey {
                 let mut buf = [0; 65];
                 buf[0..64].copy_from_slice(&data[0..64]);
                 buf[64] = rec_id.to_i32() as u8;
-                Signature::SECP256K1(Secp2561KSignature(buf))
+                Signature::SECP256K1(Secp256K1Signature(buf))
             }
         }
     }
 
     pub fn public_key(&self) -> PublicKey {
         match &self {
-            SecretKey::ED25519(secret_key) => {
-                let mut seed = [0u8; sodiumoxide::crypto::sign::ed25519::SEEDBYTES];
-                seed.copy_from_slice(
-                    &secret_key.0[..sodiumoxide::crypto::sign::ed25519::SEEDBYTES],
-                );
-                let (public_key, _) = sodiumoxide::crypto::sign::ed25519::keypair_from_seed(
-                    &sodiumoxide::crypto::sign::ed25519::Seed(seed),
-                );
-                PublicKey::ED25519(public_key)
-            }
+            SecretKey::ED25519(secret_key) => PublicKey::ED25519(ED25519PublicKey(
+                secret_key.0[ed25519_dalek::SECRET_KEY_LENGTH..].try_into().unwrap(),
+            )),
             SecretKey::SECP256K1(secret_key) => {
                 let pk =
                     secp256k1::key::PublicKey::from_secret_key(&SECP256K1, secret_key).unwrap();
@@ -311,6 +379,23 @@ impl SecretKey {
                 PublicKey::SECP256K1(public_key)
             }
         }
+    }
+
+    pub fn unwrap_as_ed25519(&self) -> &ED25519SecretKey {
+        match self {
+            SecretKey::ED25519(key) => &key,
+            SecretKey::SECP256K1(_) => panic!(),
+        }
+    }
+}
+
+impl std::fmt::Display for SecretKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
+        let data = match self {
+            SecretKey::ED25519(secret_key) => bs58::encode(&secret_key.0[..]).into_string(),
+            SecretKey::SECP256K1(secret_key) => bs58::encode(&secret_key[..]).into_string(),
+        };
+        write!(f, "{}:{}", self.key_type(), data)
     }
 }
 
@@ -340,17 +425,17 @@ impl<'de> serde::Deserialize<'de> for SecretKey {
             split_key_type_data(&s).map_err(|err| serde::de::Error::custom(err.to_string()))?;
         match key_type {
             KeyType::ED25519 => {
-                let mut array = [0; sodiumoxide::crypto::sign::ed25519::SECRETKEYBYTES];
+                let mut array = [0; ed25519_dalek::KEYPAIR_LENGTH];
                 let length = bs58::decode(key_data)
                     .into(&mut array[..])
                     .map_err(|err| serde::de::Error::custom(err.to_string()))?;
-                if length != sodiumoxide::crypto::sign::ed25519::SIGNATUREBYTES {
+                if length != ed25519_dalek::KEYPAIR_LENGTH {
                     return Err(serde::de::Error::custom(format!(
                         "Invalid length {} of ED25519 secret key",
                         length
                     )));
                 }
-                Ok(SecretKey::ED25519(sodiumoxide::crypto::sign::ed25519::SecretKey(array)))
+                Ok(SecretKey::ED25519(ED25519SecretKey(array)))
             }
             _ => {
                 let mut array = [0; secp256k1::constants::SECRET_KEY_SIZE];
@@ -373,17 +458,17 @@ impl<'de> serde::Deserialize<'de> for SecretKey {
 }
 
 #[derive(Clone)]
-pub struct Secp2561KSignature([u8; 65]);
+pub struct Secp256K1Signature([u8; 65]);
 
-impl Eq for Secp2561KSignature {}
+impl Eq for Secp256K1Signature {}
 
-impl PartialEq for Secp2561KSignature {
+impl PartialEq for Secp256K1Signature {
     fn eq(&self, other: &Self) -> bool {
         self.0[..].eq(&other.0[..])
     }
 }
 
-impl Debug for Secp2561KSignature {
+impl Debug for Secp256K1Signature {
     fn fmt(&self, f: &mut Formatter) -> Result<(), std::fmt::Error> {
         write!(f, "{}", bs58::encode(&self.0.to_vec()).into_string())
     }
@@ -392,8 +477,8 @@ impl Debug for Secp2561KSignature {
 /// Signature container supporting different curves.
 #[derive(Clone, PartialEq, Eq)]
 pub enum Signature {
-    ED25519(sodiumoxide::crypto::sign::ed25519::Signature),
-    SECP256K1(Secp2561KSignature),
+    ED25519(ed25519_dalek::Signature),
+    SECP256K1(Secp256K1Signature),
 }
 
 impl Signature {
@@ -402,7 +487,10 @@ impl Signature {
     pub fn verify(&self, data: &[u8], public_key: &PublicKey) -> bool {
         match (&self, public_key) {
             (Signature::ED25519(signature), PublicKey::ED25519(public_key)) => {
-                sodiumoxide::crypto::sign::ed25519::verify_detached(signature, data, &public_key)
+                match ed25519_dalek::PublicKey::from_bytes(&public_key.0) {
+                    Err(_) => false,
+                    Ok(public_key) => public_key.verify(data, signature).is_ok(),
+                }
             }
             (Signature::SECP256K1(signature), PublicKey::SECP256K1(public_key)) => {
                 let rsig = secp256k1::RecoverableSignature::from_compact(
@@ -444,38 +532,39 @@ impl Default for Signature {
     }
 }
 
-#[allow(clippy::unused_io_amount)]
 impl BorshSerialize for Signature {
     fn serialize<W: Write>(&self, writer: &mut W) -> Result<(), Error> {
         match self {
             Signature::ED25519(signature) => {
                 0u8.serialize(writer)?;
-                writer.write(&signature.0)?;
+                writer.write_all(&signature.to_bytes())?;
             }
             Signature::SECP256K1(signature) => {
                 1u8.serialize(writer)?;
-                writer.write(&signature.0)?;
+                writer.write_all(&signature.0)?;
             }
         }
         Ok(())
     }
 }
 
-#[allow(clippy::unused_io_amount)]
 impl BorshDeserialize for Signature {
     fn deserialize<R: Read>(reader: &mut R) -> Result<Self, Error> {
         let key_type = KeyType::try_from(u8::deserialize(reader)?)
             .map_err(|err| Error::new(ErrorKind::InvalidData, err.to_string()))?;
         match key_type {
             KeyType::ED25519 => {
-                let mut array = [0; sodiumoxide::crypto::sign::ed25519::SIGNATUREBYTES];
-                reader.read(&mut array)?;
-                Ok(Signature::ED25519(sodiumoxide::crypto::sign::ed25519::Signature(array)))
+                let mut array = [0; ed25519_dalek::SIGNATURE_LENGTH];
+                reader.read_exact(&mut array)?;
+                Ok(Signature::ED25519(
+                    ed25519_dalek::Signature::from_bytes(&array)
+                        .map_err(|e| Error::new(ErrorKind::InvalidData, e.to_string()))?,
+                ))
             }
             KeyType::SECP256K1 => {
                 let mut array = [0; 65];
-                reader.read(&mut array)?;
-                Ok(Signature::SECP256K1(Secp2561KSignature(array)))
+                reader.read_exact(&mut array)?;
+                Ok(Signature::SECP256K1(Secp256K1Signature(array)))
             }
         }
     }
@@ -484,7 +573,9 @@ impl BorshDeserialize for Signature {
 impl Display for Signature {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
         let data = match self {
-            Signature::ED25519(signature) => bs58::encode(&signature.0[..]).into_string(),
+            Signature::ED25519(signature) => {
+                bs58::encode(&signature.to_bytes().to_vec()).into_string()
+            }
             Signature::SECP256K1(signature) => bs58::encode(&signature.0[..]).into_string(),
         };
         write!(f, "{}", format!("{}:{}", self.key_type(), data))
@@ -519,17 +610,24 @@ impl<'de> serde::Deserialize<'de> for Signature {
             split_key_type_data(&s).map_err(|err| serde::de::Error::custom(err.to_string()))?;
         match key_type {
             KeyType::ED25519 => {
-                let mut array = [0; sodiumoxide::crypto::sign::ed25519::SIGNATUREBYTES];
+                let mut array = [0; ed25519_dalek::SIGNATURE_LENGTH];
                 let length = bs58::decode(key_data)
                     .into(&mut array[..])
                     .map_err(|err| serde::de::Error::custom(err.to_string()))?;
-                if length != sodiumoxide::crypto::sign::ed25519::SIGNATUREBYTES {
+                if length != ed25519_dalek::SIGNATURE_LENGTH {
                     return Err(serde::de::Error::custom(format!(
                         "Invalid length {} of ED25519 signature",
                         length,
                     )));
                 }
-                Ok(Signature::ED25519(sodiumoxide::crypto::sign::ed25519::Signature(array)))
+                Ok(Signature::ED25519(ed25519_dalek::Signature::from_bytes(&array).map_err(
+                    |e| {
+                        serde::de::Error::custom(format!(
+                            "Invalid ED25519 signature: {}",
+                            e.to_string(),
+                        ))
+                    },
+                )?))
             }
             _ => {
                 let mut array = [0; 65];
@@ -542,7 +640,7 @@ impl<'de> serde::Deserialize<'de> for Signature {
                         length
                     )));
                 }
-                Ok(Signature::SECP256K1(Secp2561KSignature(array)))
+                Ok(Signature::SECP256K1(Secp256K1Signature(array)))
             }
         }
     }
@@ -557,7 +655,8 @@ mod tests {
         for key_type in vec![KeyType::ED25519, KeyType::SECP256K1] {
             let secret_key = SecretKey::from_random(key_type);
             let public_key = secret_key.public_key();
-            let data = sodiumoxide::crypto::hash::sha256::hash(b"123").0.to_vec();
+            use sha2::Digest;
+            let data = sha2::Sha256::digest(b"123").to_vec();
             let signature = secret_key.sign(&data);
             assert!(signature.verify(&data, &public_key));
         }
@@ -587,27 +686,29 @@ mod tests {
 
     #[test]
     fn test_json_serialize_secp256k1() {
-        let data = sodiumoxide::crypto::hash::sha256::hash(b"123").0.to_vec();
+        use sha2::Digest;
+        let data = sha2::Sha256::digest(b"123").to_vec();
 
         let sk = SecretKey::from_seed(KeyType::SECP256K1, "test");
         let pk = sk.public_key();
-        let expected = "\"secp256k1:2xVqteU8PWhadHTv99TGh3bSffGb32cFokopSg8xPAiFVjv5UvRUYfNPzmZctBuXryhQosc9dfY1TKKrV4YiyiZH\"";
+        let expected = "\"secp256k1:BtJtBjukUQbcipnS78adSwUKE38sdHnk7pTNZH7miGXfodzUunaAcvY43y37nm7AKbcTQycvdgUzFNWsd7dgPZZ\"";
         assert_eq!(serde_json::to_string(&pk).unwrap(), expected);
         assert_eq!(pk, serde_json::from_str(expected).unwrap());
 
-        let expected = "\"secp256k1:9ZAJB311CURTStj66tvL69fyu6UqWUDNHzdH5Tuixh1Y\"";
+        let expected = "\"secp256k1:9ZNzLxNff6ohoFFGkbfMBAFpZgD7EPoWeiuTpPAeeMRV\"";
         assert_eq!(serde_json::to_string(&sk).unwrap(), expected);
         assert_eq!(sk, serde_json::from_str(expected).unwrap());
 
         let signature = sk.sign(&data);
-        let expected = "\"secp256k1:Ng9nnxbC1BBWJ8NZ8XyExB7kUMtWNn8xCdxRtVC1m7ghH8EpwcupZU3BAxk6ehamaB89aSzhC6UeME4QgZtfkhtwi\"";
+        let expected = "\"secp256k1:7iA75xRmHw17MbUkSpHxBHFVTuJW6jngzbuJPJutwb3EAwVw21wrjpMHU7fFTAqH7D3YEma8utCdvdtsqcAWqnC7r\"";
         assert_eq!(serde_json::to_string(&signature).unwrap(), expected);
         assert_eq!(signature, serde_json::from_str(expected).unwrap());
     }
 
     #[test]
     fn test_borsh_serialization() {
-        let data = sodiumoxide::crypto::hash::sha256::hash(b"123").0.to_vec();
+        use sha2::Digest;
+        let data = sha2::Sha256::digest(b"123").to_vec();
         for key_type in vec![KeyType::ED25519, KeyType::SECP256K1] {
             let sk = SecretKey::from_seed(key_type, "test");
             let pk = sk.public_key();
@@ -617,6 +718,9 @@ mod tests {
             let signature = sk.sign(&data);
             let bytes = signature.try_to_vec().unwrap();
             assert_eq!(Signature::try_from_slice(&bytes).unwrap(), signature);
+
+            assert!(PublicKey::try_from_slice(&[0]).is_err());
+            assert!(Signature::try_from_slice(&[0]).is_err());
         }
     }
 

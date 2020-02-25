@@ -2,7 +2,7 @@
 # Stakes for the non-validators, ensures it becomes a validator
 # Unstakes for them, makes sure they stop being a validator
 
-import sys, time, base58, random
+import sys, time, base58, random, datetime
 
 sys.path.append('lib')
 
@@ -11,8 +11,8 @@ from transaction import sign_staking_tx
 
 TIMEOUT = 150
 
-config = {'local': True, 'near_root': '../target/debug/'}
-nodes = start_cluster(2, 1, 1, config, [["epoch_length", 5], ["validator_kickout_threshold", 40]], {2: {"tracked_shards": [0]}})
+config = None
+nodes = start_cluster(2, 1, 1, config, [["epoch_length", 10], ["block_producer_kickout_threshold", 40]], {2: {"tracked_shards": [0]}})
 
 started = time.time()
 
@@ -40,7 +40,7 @@ while True:
 
     if 'test2' in get_validators():
         print("Normalin, normalin")
-        assert 10 <= height <= 13
+        assert 20 <= height <= 25
         break
 
     if height > max_height:
@@ -60,7 +60,7 @@ while True:
 
     if 'test2' not in get_validators():
         print("DONE")
-        assert 20 <= height <= 23
+        assert 40 <= height <= 45
         break
 
     if height > max_height:
