@@ -1,0 +1,8 @@
+tasks:
+  - init: cargo build && cargo test 
+image:
+  file: .gitpod.Dockerfile
+github:
+  prebuilds:
+    addCheck: true
+    addComment: true
