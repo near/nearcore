@@ -1,6 +1,6 @@
 [package]
 name = "near-vm-logic"
-version = "0.4.4"
+version = "0.4.5"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2018"
 license = "Apache-2.0"
@@ -16,8 +16,8 @@ This crate implements the specification of the interface that Near blockchain ex
 byteorder = "1.2"
 bs58 = "0.3"
 serde = { version = "1.0", features = ["derive"] }
-near-runtime-fees = { path = "../near-runtime-fees", version = "0.4.4" }
-near-vm-errors = { path = "../near-vm-errors", version = "0.4.4" }
+near-runtime-fees = { path = "../near-runtime-fees", version = "0.4.5" }
+near-vm-errors = { path = "../near-vm-errors", version = "0.4.5" }
 
 [dev-dependencies]
 serde_json = {version= "1.0", features= ["preserve_order"]}
