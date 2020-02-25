@@ -62,9 +62,13 @@ impl VestingContract {
         vesting_start_timestamp: u64,
         vesting_cliff_timestamp: u64,
         vesting_end_timestamp: u64,
-        public_keys: Vec<PublicKey>,
-        foundation_keys: Vec<PublicKey>,
+        owner_public_keys: Vec<PublicKey>,
+        foundation_public_keys: Vec<PublicKey>,
     ) -> Self {
+        assert!(
+            near_bindgen::env::state_read::<VestingContract>().is_none(),
+            "The contract is already initialized"
+        );
         let res = Self {
             lockup_amount,
             lockup_timestamp,
@@ -74,7 +78,7 @@ impl VestingContract {
             permanently_unstaked: false,
         };
         // It is okay for vesting start and vesting cliff to be in the past, but it does not
-        // makes sense to have lockup or vesting end in the future.
+        // makes sense to have lockup or vesting end to be in the past.
         Self::check_timestamps_future(&[lockup_timestamp, vesting_end_timestamp]);
         // The cliff should be between start and end of the vesting, potentially inclusive.
         Self::check_timestamp_ordering(&[
@@ -85,15 +89,15 @@ impl VestingContract {
         // The lockup should be after start of the vesting, potentially inclusive.
         Self::check_timestamp_ordering(&[vesting_start_timestamp, lockup_timestamp]);
         let account_id = env::current_account_id();
-        for public_key in public_keys {
+        for public_key in owner_public_keys {
             Promise::new(account_id.clone()).add_access_key(
                 public_key,
                 0,
                 account_id.clone(),
-                KeyType::Regular.allowed_methods(),
+                KeyType::Owner.allowed_methods(),
             );
         }
-        for public_key in foundation_keys {
+        for public_key in foundation_public_keys {
             Promise::new(account_id.clone()).add_access_key(
                 public_key,
                 0,

@@ -70,6 +70,27 @@ pub fn get_transferrable_amount(lockup: u128, lockup_timestamp: u64) -> u128 {
     if lockup_timestamp >= env::block_timestamp() {
         // E
         balance + locked
+    } else if locked + balance <= lockup {
+        // lockup_timestamp < env::block_timestamp()
+        // A, D
+        0
+    } else if locked < lockup {
+        // lockup_timestamp < env::block_timestamp()
+        // locked + balance > lockup
+        // B
+        locked + balance - lockup
+    } else {
+        // lockup_timestamp < env::block_timestamp()
+        // locked + balance > lockup
+        // locked >= lockup
+        // C
+        balance
+    }
+}
+/*
+if lockup_timestamp >= env::block_timestamp() {
+        // E
+        balance + locked
     } else if locked + balance > lockup && locked < lockup {
         // B
         locked + balance - lockup
@@ -82,4 +103,4 @@ pub fn get_transferrable_amount(lockup: u128, lockup_timestamp: u64) -> u128 {
     } else {
         unreachable!()
     }
-}
+    */

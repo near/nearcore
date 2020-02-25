@@ -3,8 +3,6 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_bindgen::{env, near_bindgen, Promise};
 
-mod lockup_transfer_rules;
-
 #[global_allocator]
 static ALLOC: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;
 
@@ -30,8 +28,11 @@ impl LockupContract {
     /// Check that all timestamps are strictly in the future.
     fn check_timestamps_future(timestamps: &[u64]) {
         let block_timestamp = env::block_timestamp();
-        for stamp in timestamps {
-            assert!(*stamp > block_timestamp, "All timestamps should be strictly in the future.");
+        for timestamp in timestamps {
+            assert!(
+                *timestamp > block_timestamp,
+                "All timestamps should be strictly in the future."
+            );
         }
     }
 
@@ -43,6 +44,10 @@ impl LockupContract {
     /// expires), and the keys that it needs to add
     #[init]
     pub fn new(lockup_amount: u128, lockup_timestamp: u64, public_keys: Vec<PublicKey>) -> Self {
+        assert!(
+            near_bindgen::env::state_read::<LockupContract>().is_none(),
+            "The contract is already initialized"
+        );
         let res = Self { lockup_amount, lockup_timestamp };
         // It does not make sense to have a lockup contract if the unlocking is in the past.
         Self::check_timestamps_future(&[lockup_timestamp]);
@@ -70,7 +75,14 @@ impl LockupContract {
 
     /// Get the amount of tokens that can be transferred.
     pub fn get_transferrable(&self) -> u128 {
-        lockup_transfer_rules::get_transferrable_amount(self.lockup_amount, self.lockup_timestamp)
+        let total_balance = env::account_balance() + env::account_locked_balance();
+        if self.lockup_timestamp >= env::block_timestamp() {
+            // entire balance is unlocked
+            total_balance
+        } else {
+            // some balance is still locked
+            total_balance.saturating_sub(self.lockup_amount)
+        }
     }
 
     /// Transfer amount to another account.
