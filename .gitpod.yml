@@ -1,5 +1,5 @@
 tasks:
-  - init: cp -R /nearcore/target ./target && cargo build && cargo test 
+  - init: cp -R /home/gitpod/nearcore/target ./target && cargo build && cargo test 
 image:
   file: .gitpod.Dockerfile
 github:
