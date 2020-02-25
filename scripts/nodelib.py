@@ -4,6 +4,7 @@ import argparse
 import json
 import os
 import subprocess
+import urllib
 
 try:
     input = raw_input
@@ -28,6 +29,7 @@ def docker_init(image, home_dir, init_flags):
     subprocess.check_output(['mkdir', '-p', home_dir])
     subprocess.check_output(['docker', 'run', '-u', USER,
         '-v', '%s:/srv/near' % home_dir,
+        '-v', os.path.abspath('near/res') + ':/near/res',
         image, 'near', '--home=/srv/near', 'init'] + init_flags)
 
 
@@ -89,6 +91,17 @@ def check_and_setup(nodocker, is_release, image, home_dir, init_flags, no_gas_pr
           prompt += ": "
         account_id = input(prompt)
         init_flags.append('--account-id=%s' % account_id)
+
+    if chain_id == 'testnet':
+        testnet_genesis_hash = open('near/res/testnet_genesis_hash').read()
+        testnet_genesis_records = 'near/res/testnet_genesis_records_%s.json' % testnet_genesis_hash
+        if not os.path.exists(testnet_genesis_records):
+            print('Downloading testnet genesis records')
+            url = 'https://s3-us-west-1.amazonaws.com/testnet.nearprotocol.com/testnet_genesis_records_%s.json' % testnet_genesis_hash
+            urllib.urlretrieve(url, testnet_genesis_records)
+        init_flags.extend(['--genesis-config', 'near/res/testnet_genesis_config.json', '--genesis-records', testnet_genesis_records,
+                           '--genesis-hash', testnet_genesis_hash])
+
     if nodocker:
         nodocker_init(home_dir, is_release, init_flags)
     else:

@@ -1,4 +1,6 @@
 use std::fs;
+use std::fs::File;
+use std::io::Read;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -12,7 +14,8 @@ use near_store::create_store;
 use near_telemetry::TelemetryActor;
 
 pub use crate::config::{
-    init_configs, load_config, load_test_config, GenesisConfig, NearConfig, NEAR_BASE,
+    init_configs, load_config, load_test_config, GenesisConfig, NearConfig, GENESIS_HASH_FILE,
+    NEAR_BASE,
 };
 pub use crate::runtime::NightshadeRuntime;
 use near_chain::ChainGenesis;
@@ -48,6 +51,18 @@ pub fn get_default_home() -> String {
     }
 }
 
+fn get_expected_genesis_hash(home_dir: &Path) -> Option<String> {
+    let path = home_dir.join(GENESIS_HASH_FILE);
+
+    if path.exists() {
+        let mut file = File::open(path).expect("Could not open genesis hash file.");
+        let mut genesis_hash = String::new();
+        file.read_to_string(&mut genesis_hash).expect("Could not read from genesis hash file.");
+        return Some(genesis_hash);
+    }
+    None
+}
+
 pub fn start_with_config(
     home_dir: &Path,
     config: NearConfig,
@@ -81,6 +96,7 @@ pub fn start_with_config(
         &chain_genesis,
         runtime.clone(),
         network_adapter.clone(),
+        get_expected_genesis_hash(home_dir),
     )
     .unwrap()
     .start();

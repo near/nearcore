@@ -63,6 +63,9 @@ fn main() {
             .arg(Arg::with_name("test-seed").long("test-seed").takes_value(true).help("Specify private key generated from seed (TESTING ONLY)"))
             .arg(Arg::with_name("num-shards").long("num-shards").takes_value(true).help("Number of shards to initialize the chain with"))
             .arg(Arg::with_name("fast").long("fast").takes_value(false).help("Makes block production fast (TESTING ONLY)"))
+            .arg(Arg::with_name("genesis-records").long("genesis-records").takes_value(true).help("Genesis records file to use when initialize testnet"))
+            .arg(Arg::with_name("genesis-config").long("genesis-config").takes_value(true).help("Genesis config file to use when initialize testnet"))
+            .arg(Arg::with_name("genesis-hash").long("genesis-hash").takes_value(true).help("Genesis hash when initialize testnet"))
         )
         .subcommand(SubCommand::with_name("testnet").about("Setups testnet configuration with all necessary files (validator key, node key, genesis and config)")
             .arg(Arg::with_name("v").long("v").takes_value(true).help("Number of validators to initialize the testnet with (default 4)"))
@@ -92,12 +95,25 @@ fn main() {
             let chain_id = args.value_of("chain-id");
             let account_id = args.value_of("account-id");
             let test_seed = args.value_of("test-seed");
+            let genesis_records = args.value_of("genesis-records");
+            let genesis_config = args.value_of("genesis-config");
+            let genesis_hash = args.value_of("genesis-hash");
             let num_shards = args
                 .value_of("num-shards")
                 .map(|s| s.parse().expect("Number of shards must be a number"))
                 .unwrap_or(1);
             let fast = args.is_present("fast");
-            init_configs(home_dir, chain_id, account_id, test_seed, num_shards, fast);
+            init_configs(
+                home_dir,
+                chain_id,
+                account_id,
+                test_seed,
+                num_shards,
+                fast,
+                genesis_records,
+                genesis_config,
+                genesis_hash,
+            );
         }
         ("testnet", Some(args)) => {
             let num_validators = args
