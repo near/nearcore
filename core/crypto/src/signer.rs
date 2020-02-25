@@ -1,6 +1,7 @@
 use std::path::Path;
 use std::sync::Arc;
 
+use crate::key_conversion::convert_secret_key;
 use crate::key_file::KeyFile;
 use crate::{KeyType, PublicKey, SecretKey, Signature};
 
@@ -12,6 +13,8 @@ pub trait Signer: Sync + Send {
     fn verify(&self, data: &[u8], signature: &Signature) -> bool {
         signature.verify(data, &self.public_key())
     }
+
+    fn compute_vrf_with_proof(&self, _data: &[u8]) -> (crate::vrf::Value, crate::vrf::Proof);
 
     /// Used by test infrastructure, only implement if make sense for testing otherwise raise `unimplemented`.
     fn write_to_file(&self, _path: &Path) {
@@ -29,6 +32,10 @@ impl Signer for EmptySigner {
 
     fn sign(&self, _data: &[u8]) -> Signature {
         Signature::empty(KeyType::ED25519)
+    }
+
+    fn compute_vrf_with_proof(&self, _data: &[u8]) -> (crate::vrf::Value, crate::vrf::Proof) {
+        unimplemented!()
     }
 }
 
@@ -62,6 +69,11 @@ impl Signer for InMemorySigner {
 
     fn sign(&self, data: &[u8]) -> Signature {
         self.secret_key.sign(data)
+    }
+
+    fn compute_vrf_with_proof(&self, data: &[u8]) -> (crate::vrf::Value, crate::vrf::Proof) {
+        let secret_key = convert_secret_key(self.secret_key.unwrap_as_ed25519());
+        secret_key.compute_vrf_with_proof(&data)
     }
 
     fn write_to_file(&self, path: &Path) {

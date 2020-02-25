@@ -11,6 +11,7 @@ use near_jsonrpc::start_http;
 use near_network::{NetworkRecipient, PeerManagerActor};
 use near_store::create_store;
 use near_telemetry::TelemetryActor;
+use tracing::trace;
 
 pub use crate::config::{init_configs, load_config, load_test_config, NearConfig, NEAR_BASE};
 pub use crate::runtime::NightshadeRuntime;
@@ -109,6 +110,8 @@ pub fn start_with_config(
     .start();
 
     network_adapter.set_recipient(network_actor.recipient());
+
+    trace!(target: "diagnostic", key="log", "Starting NEAR node with diagnostic activated");
 
     (client_actor, view_client)
 }
