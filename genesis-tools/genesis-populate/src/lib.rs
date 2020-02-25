@@ -203,6 +203,7 @@ impl GenesisBuilder {
             .add_validator_proposals(
                 CryptoHash::default(),
                 genesis.hash(),
+                genesis.header.inner_rest.random_value,
                 genesis.header.inner_lite.height,
                 0,
                 vec![],

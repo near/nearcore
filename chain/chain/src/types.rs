@@ -118,6 +118,14 @@ pub trait RuntimeAdapter: Send + Sync {
 
     /// Verify block producer validity
     fn verify_block_signature(&self, header: &BlockHeader) -> Result<(), Error>;
+    fn verify_block_vrf(
+        &self,
+        epoch_id: &EpochId,
+        block_height: BlockHeight,
+        prev_random_value: &CryptoHash,
+        vrf_value: near_crypto::vrf::Value,
+        vrf_proof: near_crypto::vrf::Proof,
+    ) -> Result<(), Error>;
 
     /// Validates a given signed transaction on top of the given state root.
     /// Returns an option of `InvalidTxError`, it contains `Some(InvalidTxError)` if there is
@@ -300,6 +308,7 @@ pub trait RuntimeAdapter: Send + Sync {
         &self,
         parent_hash: CryptoHash,
         current_hash: CryptoHash,
+        rng_seed: CryptoHash,
         height: BlockHeight,
         last_finalized_height: BlockHeight,
         proposals: Vec<ValidatorStake>,

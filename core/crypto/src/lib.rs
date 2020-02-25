@@ -9,7 +9,7 @@ mod traits;
 #[macro_use]
 mod util;
 
-mod key_conversion;
+pub mod key_conversion;
 mod key_file;
 pub mod randomness;
 mod signature;
