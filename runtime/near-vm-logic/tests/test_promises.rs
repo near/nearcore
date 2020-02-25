@@ -364,6 +364,63 @@ fn test_promise_batch_action_add_key_with_function_call() {
 }
 
 #[test]
+fn test_promise_batch_action_add_key_with_function_call_empty_method_name() {
+    let mut context = get_context(vec![], false);
+    context.account_balance = 100;
+
+    let mut logic_builder = VMLogicBuilder::default();
+    let mut logic = logic_builder.build(context);
+    let index = promise_create(&mut logic, b"rick.test", 0, 0).expect("should create a promise");
+    let key = b"ed25519:5do5nkAEVhL8iteDvXNgxi4pWK78Y7DDadX11ArFNyrf";
+    let nonce = 1;
+    let allowance = 999u128;
+    let receiver_id = b"sam";
+    let method_names = b"";
+
+    promise_batch_action_add_key_with_function_call(
+        &mut logic,
+        index,
+        key,
+        nonce,
+        allowance,
+        receiver_id,
+        method_names,
+    ).expect("should add an access key with allowance to call any method on receiver");
+
+    let expected = serde_json::json!(
+    [
+        {
+            "receipt_indices": [],
+            "receiver_id": "rick.test",
+            "actions": [
+                {
+                    "FunctionCall": {
+                        "method_name": "promise_create",
+                        "args": "args",
+                        "gas": 0,
+                        "deposit": 0
+                    }
+                },
+                {
+                    "AddKeyWithFunctionCall": {
+                        "public_key": "RLb4qQXoZPAFqzZhiLFAcGFPFC7JWcDd8xKvQHHEqLUgDXuQkr2ehKAN28MNGQN9vUZ1qGZ",
+                        "nonce": 1,
+                        "allowance": 999,
+                        "receiver_id": "sam",
+                        "method_names": [
+                        ]
+                    }
+                }
+            ]
+        }
+    ]);
+    assert_eq!(
+        &serde_json::to_string(logic_builder.ext.get_receipt_create_calls()).unwrap(),
+        &expected.to_string()
+    );
+}
+
+#[test]
 fn test_promise_batch_then() {
     let mut context = get_context(vec![], false);
     context.account_balance = 100;
