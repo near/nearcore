@@ -2,9 +2,12 @@ from transaction import sign_payment_tx
 import random, base58
 from retry import retry
 from cluster import LocalNode, GCloudNode
-from rc import run
+import sys
+from rc import run, gcloud
 import os
 import tempfile
+from pprint import pprint
+
 class TxContext:
     def __init__(self, act_to_val, nodes):
         self.next_nonce = 2
@@ -84,13 +87,13 @@ with open('/tmp/python-rc.log') as f:
                 self.offset = f.tell()
             return ret
         elif type(self.node) is GCloudNode:
-            ret, offset = node.machine.run("python3", input=f'''
+            ret, offset = map(int, node.machine.run("python3", input=f'''
 pattern={pattern}
 with open('/tmp/python-rc.log') as f:
     f.seek({self.offset})
     print(s in f.read())
     print(f.tell())
-''').stdout.strip().split('\n')
+''').stdout.strip().split('\n'))
             self.offset = int(offset)
             return ret == "True"
         else:
@@ -120,6 +123,45 @@ with open('/tmp/python-rc.log') as f:
         else:
             raise NotImplementedError()
 
+
+
+def chain_query(node, block_handler, *, block_hash=None, max_blocks=-1):
+    """
+    Query chain block approvals and chunks preceding of block of block_hash.
+    If block_hash is None, it query latest block hash
+    It query at most max_blocks, or if it's -1, all blocks back to genesis
+    """
+    if block_hash is None:
+        status = node.get_status()
+        block_hash = status['sync_info']['latest_block_hash']
+
+    initial_validators = node.validators()
+
+    if max_blocks == -1:
+        while True:
+            validators = node.validators()
+            if validators != initial_validators:
+                print(f'Fatal: validator set of node {node} changes, from {initial_validators} to {validators}')
+                sys.exit(1)
+            block = node.get_block(block_hash)['result']
+            block_handler(block)     
+            block_hash = block['header']['prev_hash']
+            block_height = block['header']['height']
+            if block_height == 0:
+                break
+    else:
+        for _ in range(max_blocks):
+            validators = node.validators()
+            if validators != initial_validators:
+                print(f'Fatal: validator set of node {node} changes, from {initial_validators} to {validators}')
+                sys.exit(1)
+            block = node.get_block(block_hash)['result']
+            block_handler(block)
+            block_hash = block['header']['prev_hash']
+            block_height = block['header']['height']
+            if block_height == 0:
+                break
+
 def load_binary_file(filepath):
     with open(filepath, "rb") as binaryfile:
         return bytearray(binaryfile.read())
@@ -142,3 +184,10 @@ cd {tmp_contract}
     if p.returncode != 0:
         raise Exception(p.stderr)
     return f'{tmp_contract}/target/release/empty_contract_rs.wasm'
+
+
+def user_name():
+    username = os.getlogin()
+    if username == 'root':  # digitalocean
+        username = gcloud.list()[0].username.replace('_nearprotocol_com', '')
+    return username
