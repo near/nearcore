@@ -53,6 +53,8 @@ pub enum RuntimeError {
     StorageError(StorageError),
     /// An error happens if `check_balance` fails, which is likely an indication of an invalid state.
     BalanceMismatchError(BalanceMismatchError),
+    /// The incoming receipt didn't pass the validation, it's likely a malicious behaviour.
+    ReceiptValidationError(ReceiptValidationError),
 }
 
 /// Internal
