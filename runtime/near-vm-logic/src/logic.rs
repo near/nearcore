@@ -7,6 +7,7 @@ use crate::types::{
     AccountId, Balance, Gas, IteratorIndex, PromiseIndex, PromiseResult, ReceiptIndex, ReturnData,
     StorageUsage,
 };
+use crate::utils::split_method_names;
 use crate::{ExtCosts, HostError, VMLogicError, ValuePtr};
 use byteorder::ByteOrder;
 use near_runtime_fees::RuntimeFeesConfig;
@@ -1436,20 +1437,9 @@ impl<'a> VMLogic<'a> {
         let allowance = self.memory_get_u128(allowance_ptr)?;
         let allowance = if allowance > 0 { Some(allowance) } else { None };
         let receiver_id = self.read_and_parse_account_id(receiver_id_ptr, receiver_id_len)?;
-        let method_names =
+        let raw_method_names =
             self.get_vec_from_memory_or_register(method_names_ptr, method_names_len)?;
-        // Use `,` separator to split `method_names` into a vector of method names.
-        let method_names =
-            method_names
-                .split(|c| *c == b',')
-                .map(|v| {
-                    if v.is_empty() {
-                        Err(HostError::EmptyMethodName.into())
-                    } else {
-                        Ok(v.to_vec())
-                    }
-                })
-                .collect::<Result<Vec<_>>>()?;
+        let method_names = split_method_names(&raw_method_names)?;
 
         let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
 
@@ -1913,12 +1903,12 @@ impl<'a> VMLogic<'a> {
                 // Inner value can't overflow, because the value length is limited.
                 self.current_storage_usage = self
                     .current_storage_usage
-                    .checked_sub((old_value.len() as u64) * storage_config.value_cost_per_byte)
+                    .checked_sub(old_value.len() as u64)
                     .ok_or(InconsistentStateError::IntegerOverflow)?;
                 // Inner value can't overflow, because the value length is limited.
                 self.current_storage_usage = self
                     .current_storage_usage
-                    .checked_add(value.len() as u64 * storage_config.value_cost_per_byte)
+                    .checked_add(value.len() as u64)
                     .ok_or(InconsistentStateError::IntegerOverflow)?;
                 self.internal_write_register(register_id, old_value)?;
                 Ok(1)
@@ -1928,9 +1918,9 @@ impl<'a> VMLogic<'a> {
                 self.current_storage_usage = self
                     .current_storage_usage
                     .checked_add(
-                        value.len() as u64 * storage_config.value_cost_per_byte
-                            + key.len() as u64 * storage_config.key_cost_per_byte
-                            + storage_config.data_record_cost,
+                        value.len() as u64
+                            + key.len() as u64
+                            + storage_config.num_extra_bytes_record,
                     )
                     .ok_or(InconsistentStateError::IntegerOverflow)?;
                 Ok(0)
@@ -2045,9 +2035,9 @@ impl<'a> VMLogic<'a> {
                 self.current_storage_usage = self
                     .current_storage_usage
                     .checked_sub(
-                        value.len() as u64 * storage_config.value_cost_per_byte
-                            + key.len() as u64 * storage_config.key_cost_per_byte
-                            + storage_config.data_record_cost,
+                        value.len() as u64
+                            + key.len() as u64
+                            + storage_config.num_extra_bytes_record,
                     )
                     .ok_or(InconsistentStateError::IntegerOverflow)?;
                 self.internal_write_register(register_id, value)?;

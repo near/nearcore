@@ -275,6 +275,7 @@ pub struct BlockHeaderView {
     pub chunks_included: u64,
     pub challenges_root: CryptoHash,
     pub timestamp: u64,
+    pub random_value: CryptoHash,
     pub score: u64,
     pub validator_proposals: Vec<ValidatorStakeView>,
     pub chunk_mask: Vec<bool>,
@@ -311,6 +312,7 @@ impl From<BlockHeader> for BlockHeaderView {
             challenges_root: header.inner_rest.challenges_root,
             outcome_root: header.inner_lite.outcome_root,
             timestamp: header.inner_lite.timestamp,
+            random_value: header.inner_rest.random_value,
             score: header.inner_rest.score.to_num(),
             validator_proposals: header
                 .inner_rest
@@ -367,6 +369,7 @@ impl From<BlockHeaderView> for BlockHeader {
                 chunk_tx_root: view.chunk_tx_root,
                 chunks_included: view.chunks_included,
                 challenges_root: view.challenges_root,
+                random_value: view.random_value,
                 score: view.score.into(),
                 validator_proposals: view
                     .validator_proposals

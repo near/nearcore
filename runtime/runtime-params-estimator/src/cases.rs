@@ -19,8 +19,8 @@ use crate::testbed::RuntimeTestbed;
 use crate::testbed_runners::{get_account_id, measure_actions, measure_transactions, Config};
 use crate::wasmer_estimator::nanosec_per_op;
 use near_runtime_fees::{
-    AccessKeyCreationConfig, ActionCreationConfig, DataReceiptCreationConfig, Fee, Fraction,
-    RuntimeFeesConfig, StorageUsageConfig,
+    AccessKeyCreationConfig, ActionCreationConfig, DataReceiptCreationConfig, Fee,
+    RuntimeFeesConfig,
 };
 use near_vm_logic::{ExtCosts, ExtCostsConfig, VMConfig, VMLimitConfig};
 use node_runtime::config::RuntimeConfig;
@@ -541,14 +541,7 @@ fn get_runtime_fees_config(measurement: &Measurements) -> RuntimeFeesConfig {
             delete_key_cost: f64_to_fee(pure[&ActionDeleteKey]),
             delete_account_cost: f64_to_fee(pure[&ActionDeleteAccount]),
         },
-        storage_usage_config: StorageUsageConfig {
-            account_cost: 0,
-            data_record_cost: 0,
-            key_cost_per_byte: 0,
-            value_cost_per_byte: 0,
-            code_cost_per_byte: 0,
-        },
-        burnt_gas_reward: Fraction { numerator: 1, denominator: 3 },
+        ..Default::default()
     }
 }
 

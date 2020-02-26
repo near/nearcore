@@ -58,6 +58,11 @@ pub trait ValidatorSigner: Sync + Send {
         epoch_id: &EpochId,
     ) -> Signature;
 
+    fn compute_vrf_with_proof(
+        &self,
+        data: &[u8],
+    ) -> (near_crypto::vrf::Value, near_crypto::vrf::Proof);
+
     /// Used by test infrastructure, only implement if make sense for testing otherwise raise `unimplemented`.
     fn write_to_file(&self, path: &Path);
 }
@@ -122,6 +127,13 @@ impl ValidatorSigner for EmptyValidatorSigner {
         _epoch_id: &EpochId,
     ) -> Signature {
         Signature::default()
+    }
+
+    fn compute_vrf_with_proof(
+        &self,
+        _data: &[u8],
+    ) -> (near_crypto::vrf::Value, near_crypto::vrf::Proof) {
+        unimplemented!()
     }
 
     fn write_to_file(&self, _path: &Path) {
@@ -225,6 +237,13 @@ impl ValidatorSigner for InMemoryValidatorSigner {
     ) -> Signature {
         let hash = AnnounceAccount::build_header_hash(&account_id, &peer_id, epoch_id);
         self.signer.sign(hash.as_ref())
+    }
+
+    fn compute_vrf_with_proof(
+        &self,
+        data: &[u8],
+    ) -> (near_crypto::vrf::Value, near_crypto::vrf::Proof) {
+        self.signer.compute_vrf_with_proof(data)
     }
 
     fn write_to_file(&self, path: &Path) {
