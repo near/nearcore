@@ -4,12 +4,13 @@ use std::fmt;
 use borsh::{BorshDeserialize, BorshSerialize};
 use serde::Serialize;
 
+use crate::EpochManager;
 use near_primitives::challenge::SlashedValidator;
 use near_primitives::hash::CryptoHash;
 use near_primitives::serialize::to_base;
 use near_primitives::types::{
     AccountId, Balance, BlockChunkValidatorStats, BlockHeight, BlockHeightDelta, EpochId, NumSeats,
-    NumShards, ValidatorId, ValidatorStake, ValidatorStats,
+    NumShards, ShardId, ValidatorId, ValidatorStake, ValidatorStats,
 };
 
 pub type RngSeed = [u8; 32];
@@ -85,8 +86,14 @@ pub struct BlockInfo {
     pub total_supply: Balance,
     /// Map from validator index to (num_blocks_produced, num_blocks_expected) so far in the given epoch.
     pub block_tracker: HashMap<ValidatorId, ValidatorStats>,
-    /// All proposals in this epoch up to this block
+    /// For each shard, a map of validator id to (num_chunks_produced, num_chunks_expected) so far in the given epoch.
+    pub shard_tracker: HashMap<ShardId, HashMap<ValidatorId, ValidatorStats>>,
+    /// All proposals in this epoch up to this block.
     pub all_proposals: Vec<ValidatorStake>,
+    /// Total rent paid so far in this epoch.
+    pub total_rent_paid: Balance,
+    /// Total validator reward so far in this epoch.
+    pub total_validator_reward: Balance,
 }
 
 impl BlockInfo {
@@ -122,7 +129,10 @@ impl BlockInfo {
             epoch_first_block: CryptoHash::default(),
             epoch_id: EpochId::default(),
             block_tracker: HashMap::default(),
+            shard_tracker: HashMap::default(),
             all_proposals: vec![],
+            total_rent_paid: 0,
+            total_validator_reward: 0,
         }
     }
 
@@ -154,6 +164,28 @@ impl BlockInfo {
                 .or_insert(ValidatorStats { produced: 0, expected: 1 });
         }
         self.block_tracker = prev_block_tracker;
+    }
+
+    pub fn update_shard_tracker(
+        &mut self,
+        epoch_info: &EpochInfo,
+        mut prev_shard_tracker: HashMap<ShardId, HashMap<ValidatorId, ValidatorStats>>,
+    ) {
+        for (i, mask) in self.chunk_mask.iter().enumerate() {
+            let chunk_validator_id =
+                EpochManager::chunk_producer_from_info(epoch_info, self.height, i as ShardId);
+            let tracker = prev_shard_tracker.entry(i as ShardId).or_insert_with(HashMap::new);
+            tracker
+                .entry(chunk_validator_id)
+                .and_modify(|stats| {
+                    if *mask {
+                        stats.produced += 1;
+                    }
+                    stats.expected += 1;
+                })
+                .or_insert(ValidatorStats { produced: u64::from(*mask), expected: 1 });
+        }
+        self.shard_tracker = prev_shard_tracker;
     }
 }
 
@@ -228,7 +260,7 @@ impl From<EpochError> for near_chain::Error {
 }
 
 pub struct EpochSummary {
-    pub last_block_hash: CryptoHash,
+    pub prev_epoch_last_block_hash: CryptoHash,
     pub all_proposals: Vec<ValidatorStake>,
     pub validator_kickout: HashSet<AccountId>,
     pub validator_block_chunk_stats: HashMap<AccountId, BlockChunkValidatorStats>,
