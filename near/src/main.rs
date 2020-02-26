@@ -1,6 +1,7 @@
 use std::convert::TryInto;
 use std::env;
 use std::fs;
+use std::io;
 use std::path::Path;
 
 use actix::System;
@@ -42,7 +43,10 @@ fn init_logging(verbose: Option<&str>) {
         }
     }
 
-    tracing_subscriber::fmt::Subscriber::builder().with_env_filter(env_filter).init();
+    tracing_subscriber::fmt::Subscriber::builder()
+        .with_env_filter(env_filter)
+        .with_writer(io::stderr)
+        .init();
 }
 
 fn main() {
