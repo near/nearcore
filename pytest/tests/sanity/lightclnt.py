@@ -14,15 +14,20 @@ config = load_config()
 client_config_changes = {}
 if not config['local']:
     client_config_changes = {
-      "min_block_production_delay": {
-        "secs": 4,
-      },
-    "max_block_production_delay": {
-        "secs": 8,
-      },
-    "max_block_wait_delay": {
-        "secs": 24,
-      },
+      "consensus": {
+        "min_block_production_delay": {
+          "secs": 4,
+          "nanos": 0,
+        },
+      "max_block_production_delay": {
+          "secs": 8,
+          "nanos": 0,
+        },
+      "max_block_wait_delay": {
+          "secs": 24,
+          "nanos": 0,
+        },
+      }
     }
     TIMEOUT = 600
 nodes = start_cluster(4, 0, 4, None, [["epoch_length", 6], ["block_producer_kickout_threshold", 80]], client_config_changes)

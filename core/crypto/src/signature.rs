@@ -148,6 +148,13 @@ impl PublicKey {
             PublicKey::SECP256K1(_) => KeyType::SECP256K1,
         }
     }
+
+    pub fn unwrap_as_ed25519(&self) -> &ED25519PublicKey {
+        match self {
+            PublicKey::ED25519(key) => &key,
+            PublicKey::SECP256K1(_) => panic!(),
+        }
+    }
 }
 
 impl Hash for PublicKey {
@@ -371,6 +378,13 @@ impl SecretKey {
                 public_key.0.copy_from_slice(&serialized[1..65]);
                 PublicKey::SECP256K1(public_key)
             }
+        }
+    }
+
+    pub fn unwrap_as_ed25519(&self) -> &ED25519SecretKey {
+        match self {
+            SecretKey::ED25519(key) => &key,
+            SecretKey::SECP256K1(_) => panic!(),
         }
     }
 }

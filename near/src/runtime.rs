@@ -402,6 +402,27 @@ impl RuntimeAdapter for NightshadeRuntime {
         Ok(())
     }
 
+    fn verify_block_vrf(
+        &self,
+        epoch_id: &EpochId,
+        block_height: BlockHeight,
+        prev_random_value: &CryptoHash,
+        vrf_value: near_crypto::vrf::Value,
+        vrf_proof: near_crypto::vrf::Proof,
+    ) -> Result<(), Error> {
+        let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
+        let validator = epoch_manager.get_block_producer_info(&epoch_id, block_height)?;
+        let public_key = near_crypto::key_conversion::convert_public_key(
+            validator.public_key.unwrap_as_ed25519(),
+        )
+        .unwrap();
+
+        if !public_key.is_vrf_valid(&prev_random_value.as_ref(), &vrf_value, &vrf_proof) {
+            return Err(ErrorKind::InvalidRandomnessBeaconOutput.into());
+        }
+        Ok(())
+    }
+
     fn validate_tx(
         &self,
         block_height: BlockHeight,
@@ -787,6 +808,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         &self,
         parent_hash: CryptoHash,
         current_hash: CryptoHash,
+        rng_seed: CryptoHash,
         height: BlockHeight,
         last_finalized_height: BlockHeight,
         proposals: Vec<ValidatorStake>,
@@ -812,8 +834,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             validator_reward,
             total_supply,
         );
-        // TODO: add randomness here
-        let rng_seed = [0; 32];
+        let rng_seed = (rng_seed.0).0;
         // TODO: don't commit here, instead contribute to upstream store update.
         epoch_manager
             .record_block_info(&current_hash, block_info, rng_seed)?
@@ -1315,6 +1336,7 @@ mod test {
                 .add_validator_proposals(
                     CryptoHash::default(),
                     genesis_hash,
+                    [0; 32].as_ref().try_into().unwrap(),
                     0,
                     0,
                     vec![],
@@ -1382,6 +1404,7 @@ mod test {
                 .add_validator_proposals(
                     self.head.last_block_hash,
                     new_hash,
+                    [0; 32].as_ref().try_into().unwrap(),
                     self.head.height + 1,
                     self.head.height.saturating_sub(1),
                     self.last_proposals.clone(),
@@ -1504,8 +1527,10 @@ mod test {
                 .unwrap()
                 .iter()
                 .map(|x| (x.0.account_id.clone(), x.1))
-                .collect::<Vec<_>>(),
+                .collect::<HashMap<_, _>>(),
             vec![("test3".to_string(), false), ("test1".to_string(), false)]
+                .into_iter()
+                .collect::<HashMap<_, _>>()
         );
 
         let test1_acc = env.view_account("test1");
@@ -1788,6 +1813,7 @@ mod test {
                 .add_validator_proposals(
                     prev_hash,
                     cur_hash,
+                    [0; 32].as_ref().try_into().unwrap(),
                     i,
                     i.saturating_sub(2),
                     new_env.last_proposals.clone(),

@@ -5,7 +5,6 @@ requests
 retry
 ed25519
 base58
-google-api-python-client
-six
-python-rc==0.1.6
+python-rc==0.1.7
+tqdm
 deepdiff

@@ -6,7 +6,7 @@ use serde::Deserialize;
 use serde::Serialize;
 
 use near_primitives::hash::CryptoHash;
-use near_primitives::rpc::RpcQueryRequest;
+use near_primitives::rpc::{BlockQueryInfo, RpcQueryRequest};
 use near_primitives::types::{BlockId, MaybeBlockId, ShardId};
 use near_primitives::views::{
     BlockView, ChunkView, EpochValidatorInfo, FinalExecutionOutcomeView, GasPriceView,
@@ -182,7 +182,6 @@ jsonrpc_client!(pub struct JsonRpcClient {
     pub fn status(&mut self) -> RpcRequest<StatusResponse>;
     pub fn health(&mut self) -> RpcRequest<()>;
     pub fn tx(&mut self, hash: String, account_id: String) -> RpcRequest<FinalExecutionOutcomeView>;
-    pub fn block(&mut self, id: BlockId) -> RpcRequest<BlockView>;
     pub fn chunk(&mut self, id: ChunkId) -> RpcRequest<ChunkView>;
     pub fn changes(&mut self, block_hash: CryptoHash, key_prefix: Vec<u8>) -> RpcRequest<StateChangesView>;
     pub fn validators(&mut self, block_id: MaybeBlockId) -> RpcRequest<EpochValidatorInfo>;
@@ -198,6 +197,14 @@ impl JsonRpcClient {
 
     pub fn query(&mut self, request: RpcQueryRequest) -> RpcRequest<QueryResponse> {
         call_method(&self.client, &self.server_addr, "query", request)
+    }
+
+    pub fn block_by_id(&mut self, block_id: BlockId) -> RpcRequest<BlockView> {
+        call_method(&self.client, &self.server_addr, "block", [block_id])
+    }
+
+    pub fn block(&mut self, request: BlockQueryInfo) -> RpcRequest<BlockView> {
+        call_method(&self.client, &self.server_addr, "block", request)
     }
 }
 

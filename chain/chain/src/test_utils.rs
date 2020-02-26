@@ -265,6 +265,17 @@ impl RuntimeAdapter for KeyValueRuntime {
         Ok(())
     }
 
+    fn verify_block_vrf(
+        &self,
+        _epoch_id: &EpochId,
+        _block_height: BlockHeight,
+        _prev_random_value: &CryptoHash,
+        _vrf_value: near_crypto::vrf::Value,
+        _vrf_proof: near_crypto::vrf::Proof,
+    ) -> Result<(), Error> {
+        Ok(())
+    }
+
     fn verify_validator_signature(
         &self,
         _epoch_id: &EpochId,
@@ -454,6 +465,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         &self,
         _parent_hash: CryptoHash,
         _current_hash: CryptoHash,
+        _rng_seed: CryptoHash,
         _height: BlockHeight,
         _last_finalized_height: BlockHeight,
         _proposals: Vec<ValidatorStake>,

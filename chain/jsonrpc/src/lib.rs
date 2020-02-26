@@ -35,7 +35,7 @@ use near_network::types::NetworkViewClientMessages;
 use near_network::{NetworkClientMessages, NetworkClientResponses};
 use near_primitives::errors::{InvalidTxError, TxExecutionError};
 use near_primitives::hash::CryptoHash;
-use near_primitives::rpc::RpcQueryRequest;
+use near_primitives::rpc::{BlockQueryInfo, RpcQueryRequest};
 use near_primitives::serialize::{from_base, from_base64, BaseEncode};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockId, MaybeBlockId, StateChangesRequest};
@@ -440,12 +440,16 @@ impl JsonRpcHandler {
     }
 
     async fn block(&self, params: Option<Value>) -> Result<Value, RpcError> {
-        let (block_id,) = parse_params::<(BlockId,)>(params)?;
+        let block_query = if let Ok((block_id,)) = parse_params::<(BlockId,)>(params.clone()) {
+            BlockQueryInfo::BlockId(block_id)
+        } else {
+            parse_params::<BlockQueryInfo>(params)?
+        };
         jsonify(
             self.view_client_addr
-                .send(match block_id {
-                    BlockId::Height(height) => GetBlock::Height(height),
-                    BlockId::Hash(hash) => GetBlock::Hash(hash.into()),
+                .send(match block_query {
+                    BlockQueryInfo::BlockId(block_id) => GetBlock::BlockId(block_id),
+                    BlockQueryInfo::Finality(finality) => GetBlock::Finality(finality),
                 })
                 .await,
         )

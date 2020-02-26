@@ -238,6 +238,7 @@ fn replay_chain(
                 .add_validator_proposals(
                     header.prev_hash,
                     header.hash(),
+                    header.inner_rest.random_value,
                     header.inner_lite.height,
                     chain_store
                         .get_block_height(&header.inner_rest.last_quorum_pre_commit)
