@@ -372,7 +372,7 @@ def init_cluster(num_nodes, num_observers, num_shards, config, genesis_config_ch
     assert 0 == process.returncode, err
 
     node_dirs = [line.split()[-1]
-                 for line in out.decode('utf8').split('\n') if '/test' in line]
+                 for line in err.decode('utf8').split('\n') if '/test' in line]
     assert len(node_dirs) == num_nodes + num_observers, "node dirs: %s num_nodes: %s num_observers: %s" % (len(node_dirs), num_nodes, num_observers)
 
     # apply config changes
