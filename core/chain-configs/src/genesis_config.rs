@@ -19,6 +19,7 @@ use near_primitives::types::{
 use near_runtime_configs::RuntimeConfig;
 
 use crate::PROTOCOL_VERSION;
+use std::mem::swap;
 
 pub const CONFIG_VERSION: u32 = 1;
 
@@ -88,26 +89,56 @@ impl GenesisConfig {
     }
 
     /// Reads GenesisConfig from a file.
-    pub fn from_file(path: &PathBuf) -> Self {
+    pub fn from_file(path: &PathBuf, records_path: Option<PathBuf>) -> Self {
         let mut file = File::open(path).expect("Could not open genesis config file.");
         let mut content = String::new();
         file.read_to_string(&mut content).expect("Could not read from genesis config file.");
-        GenesisConfig::from(content.as_str())
+        let records_str = records_path.map(|path| {
+            let mut content = String::new();
+            let mut file = File::open(&path).expect("Could not open genesis records file.");
+            file.read_to_string(&mut content).expect("Could not read from genesis records file.");
+            content
+        });
+        GenesisConfig::from(content.as_str(), records_str)
     }
 
     /// Writes GenesisConfig to the file.
     pub fn write_to_file(&self, path: &Path) {
         let mut file = File::create(path).expect("Failed to create / write a genesis config file.");
-        let str =
-            serde_json::to_string_pretty(self).expect("Error serializing the genesis config.");
-        if let Err(err) = file.write_all(str.as_bytes()) {
+        let mut buf =
+            serde_json::to_vec_pretty(self).expect("Error serializing the genesis config.");
+        if let Err(err) = file.write_all(&mut buf) {
             panic!("Failed to write a genesis config file {}", err);
         }
     }
-}
 
-impl From<&str> for GenesisConfig {
-    fn from(config: &str) -> Self {
+    /// Writes GenesisConfig to the 2 files.
+    /// All fields but records into `config_path` file and records into a `records_path` file.
+    /// Requires `&mut self` to avoid cloning records.
+    pub fn write_to_config_and_records_files(&mut self, config_path: &Path, records_path: &Path) {
+        // Writing records
+        let mut file =
+            File::create(records_path).expect("Failed to create / write a genesis records file.");
+        let mut buf = serde_json::to_vec_pretty(&self.records)
+            .expect("Error serializing the genesis records.");
+        if let Err(err) = file.write_all(&mut buf) {
+            panic!("Failed to write a genesis records file {}", err);
+        }
+
+        // Writing config
+        let mut file =
+            File::create(config_path).expect("Failed to create / write a genesis config file.");
+        let mut tmp_records = vec![];
+        swap(&mut tmp_records, &mut self.records);
+        let mut buf =
+            serde_json::to_vec_pretty(self).expect("Error serializing the genesis config.");
+        swap(&mut tmp_records, &mut self.records);
+        if let Err(err) = file.write_all(&mut buf) {
+            panic!("Failed to write a genesis config file {}", err);
+        }
+    }
+
+    pub fn from(config: &str, records_str: Option<String>) -> Self {
         let mut config: GenesisConfig =
             serde_json::from_str(config).expect("Failed to deserialize the genesis config.");
         if config.protocol_version != PROTOCOL_VERSION {
@@ -115,6 +146,11 @@ impl From<&str> for GenesisConfig {
                 "Incorrect version of genesis config {} expected {}",
                 config.protocol_version, PROTOCOL_VERSION
             ));
+        }
+        if let Some(records_str) = records_str {
+            let mut records: Vec<StateRecord> = serde_json::from_str(&records_str)
+                .expect("Failed to deserialize the genesis config.");
+            config.records.append(&mut records);
         }
         config.init();
         config
