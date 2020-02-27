@@ -84,7 +84,7 @@ def validate_light_client_block(last_known_block, new_block, block_producers_map
 
     for qv_approval, qc_approval, stake in zip(new_block['qv_approvals'], new_block['qc_approvals'], block_producers):
         if qv_approval is not None:
-            qv_stake += int(stake['amount'])
+            qv_stake += int(stake['stake'])
             if qv_approval['parent_hash'] not in qv_blocks and qv_approval['parent_hash'] != new_block_hash.decode('ascii'):
                 if panic: assert False
                 return False
@@ -96,7 +96,7 @@ def validate_light_client_block(last_known_block, new_block, block_producers_map
             #    return False
 
         if qc_approval is not None:
-            qc_stake += int(stake['amount'])
+            qc_stake += int(stake['stake'])
             if qc_approval['parent_hash'] not in qc_blocks:
                 if panic: assert False
                 return False
@@ -106,7 +106,7 @@ def validate_light_client_block(last_known_block, new_block, block_producers_map
             #if not validate_signature(qc_approval.signature, hash(qc_approval), stake.public_key):
             #    return false
 
-        total_stake += int(stake['amount'])
+        total_stake += int(stake['stake'])
 
     threshold = total_stake * 2 // 3
     if qv_stake <= threshold:

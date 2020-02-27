@@ -32,7 +32,7 @@ pytest --timeout=2000 stress/stress.py 3 3 3 0 staking transactions local_networ
 pytest --timeout=2000 stress/stress.py 3 3 3 0 staking transactions node_restart
 pytest --timeout=2000 stress/stress.py 3 2 4 0 staking transactions node_set
 
-pytest stress/network_stress.py
+# pytest stress/network_stress.py
 
 # python adversarial tests
 pytest adversarial/wrong_sync_info.py
