@@ -14,19 +14,15 @@ class TxContext:
         self.num_nodes = len(nodes)
         self.nodes = nodes
         self.act_to_val = act_to_val
-        print(f'get_balances')
         self.expected_balances = self.get_balances()
-        print(f'get_balances done')
         assert len(act_to_val) == self.num_nodes
         assert self.num_nodes >= 2
 
     @retry(tries=10, backoff=1.2)
     def get_balance(self, whose):
-        print(f'get_balance {whose}')
         r = self.nodes[self.act_to_val[whose]].get_account("test%s" % whose)
         assert 'result' in r, r
         return int(r['result']['amount']) + int(r['result']['locked'])
-        print(f'get_balance {whose} done')
 
     def get_balances(self):
         return [
