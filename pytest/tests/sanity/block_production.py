@@ -60,7 +60,7 @@ while max_height < BLOCKS:
                 last_common[j][i] = height
 
         # during the time it took to start the test some blocks could have been produced, so the first observed height
-        # could be higher than 2, at which poitn for the nodes for which we haven't queried the height yet the
+        # could be higher than 2, at which point for the nodes for which we haven't queried the height yet the
         # `min_common` is zero. Once we queried each node at least once, we expect the difference between the last
         # queried heights to never differ by more than two.
         if min_common() > 0:
@@ -73,4 +73,3 @@ assert(doomslug_final_block['result']['header']['height'] >= BLOCKS - 10)
 
 nfg_final_block = nodes[0].json_rpc('block', {'finality': 'final'})
 assert(nfg_final_block['result']['header']['height'] >= BLOCKS - 10)
-
