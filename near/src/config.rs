@@ -135,6 +135,7 @@ pub const CONFIG_FILENAME: &str = "config.json";
 pub const GENESIS_CONFIG_FILENAME: &str = "genesis.json";
 pub const NODE_KEY_FILE: &str = "node_key.json";
 pub const VALIDATOR_KEY_FILE: &str = "validator_key.json";
+pub const GENESIS_HASH_FILE: &str = "genesis_hash";
 
 pub const DEFAULT_TELEMETRY_URL: &str = "https://explorer.nearprotocol.com/api/nodes";
 
@@ -236,6 +237,7 @@ impl Default for Consensus {
 #[serde(default)]
 pub struct Config {
     pub genesis_file: String,
+    pub genesis_records_file: Option<String>,
     pub validator_key_file: String,
     pub node_key_file: String,
     pub rpc: RpcConfig,
@@ -251,6 +253,7 @@ impl Default for Config {
     fn default() -> Self {
         Config {
             genesis_file: GENESIS_CONFIG_FILENAME.to_string(),
+            genesis_records_file: None,
             validator_key_file: VALIDATOR_KEY_FILE.to_string(),
             node_key_file: NODE_KEY_FILE.to_string(),
             rpc: RpcConfig::default(),
@@ -533,10 +536,20 @@ fn state_records_account_with_key(
 }
 
 /// Official TestNet configuration.
-pub fn testnet_genesis() -> GenesisConfig {
-    let genesis_config_bytes = include_bytes!("../res/testnet.json");
+pub fn testnet_genesis(genesis_records: &str, genesis_config: &str) -> GenesisConfig {
+    let mut f = File::open(genesis_records).expect("Failed to open genesis records");
+    let mut genesis_records_bytes = Vec::new();
+    f.read_to_end(&mut genesis_records_bytes).expect("Failed to read genesis records");
+    let mut f = File::open(genesis_config).expect("Failed to open genesis config");
+    let mut genesis_config_bytes = Vec::new();
+    f.read_to_end(&mut genesis_config_bytes).expect("Failed to read genesis config");
     GenesisConfig::from(
-        str::from_utf8(genesis_config_bytes).expect("Failed to read testnet configuration"),
+        str::from_utf8(&genesis_config_bytes).expect("Failed to read testnet configuration"),
+        Some(
+            str::from_utf8(&genesis_records_bytes)
+                .expect("Failed to read testnet records")
+                .to_string(),
+        ),
     )
 }
 
@@ -548,12 +561,18 @@ pub fn init_configs(
     test_seed: Option<&str>,
     num_shards: ShardId,
     fast: bool,
+    genesis_records: Option<&str>,
+    genesis_config: Option<&str>,
+    genesis_hash: Option<&str>,
 ) {
     fs::create_dir_all(dir).expect("Failed to create directory");
     // Check if config already exists in home dir.
     if dir.join(CONFIG_FILENAME).exists() {
         let config = Config::from_file(&dir.join(CONFIG_FILENAME));
-        let genesis_config = GenesisConfig::from_file(&dir.join(config.genesis_file));
+        let genesis_config = GenesisConfig::from_file(
+            &dir.join(config.genesis_file),
+            config.genesis_records_file.map(|s| dir.join(s.clone())),
+        );
         panic!("Found existing config in {} with chain-id = {}. Use unsafe_reset_all to clear the folder.", dir.to_str().unwrap(), genesis_config.chain_id);
     }
     let chain_id = chain_id
@@ -585,7 +604,15 @@ pub fn init_configs(
             let network_signer = InMemorySigner::from_random("".to_string(), KeyType::ED25519);
             network_signer.write_to_file(&dir.join(config.node_key_file));
 
-            let mut genesis_config = testnet_genesis();
+            let mut file = File::create(dir.join(GENESIS_HASH_FILE))
+                .expect("Failed to create a genesis hash file.");
+            file.write_all(genesis_hash.expect("Genesis hash is required for testnet.").as_bytes())
+                .expect("Failed to write a genesis hash file.");
+
+            let mut genesis_config = testnet_genesis(
+                genesis_records.expect("Genesis records file is required for testnet."),
+                genesis_config.expect("Genesis config file is required for testnet."),
+            );
             genesis_config.chain_id = chain_id;
 
             genesis_config.write_to_file(&dir.join(config.genesis_file));
@@ -765,7 +792,10 @@ pub fn init_testnet_configs(
 
 pub fn load_config(dir: &Path) -> NearConfig {
     let config = Config::from_file(&dir.join(CONFIG_FILENAME));
-    let genesis_config = GenesisConfig::from_file(&dir.join(config.genesis_file.clone()));
+    let genesis_config = GenesisConfig::from_file(
+        &dir.join(config.genesis_file.clone()),
+        config.genesis_records_file.clone().map(|s| dir.join(s)),
+    );
     let validator_signer = if dir.join(config.validator_key_file.clone()).exists() {
         let signer = Arc::new(InMemoryValidatorSigner::from_file(
             &dir.join(config.validator_key_file.clone()),
@@ -806,9 +836,13 @@ mod test {
     /// make sure testnet genesis can be deserialized
     #[test]
     fn test_deserialize_state() {
-        let genesis_config = testnet_genesis();
+        let genesis_config_bytes = include_bytes!("../res/testnet_genesis_config.json");
+        let genesis_config = GenesisConfig::from(
+            str::from_utf8(genesis_config_bytes.as_ref())
+                .expect("Failed to read testnet configuration"),
+            None,
+        );
         assert_eq!(genesis_config.protocol_version, PROTOCOL_VERSION);
         assert_eq!(genesis_config.config_version, GENESIS_CONFIG_VERSION);
-        assert!(genesis_config.total_supply > 0);
     }
 }

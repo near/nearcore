@@ -34,7 +34,7 @@ Develop and deploy contracts without any setup required using [NEAR Studio](http
 
 ## Status
 
-This project is currently under heavy development. Please see Issues and Milestones to checkout the current progress and working items.
+This project is currently under heavy development. Please see [Issues](https://github.com/nearprotocol/nearcore/issues) and [Milestones](https://github.com/nearprotocol/nearcore/milestones) to checkout the current progress and working items.
 
 High level milestones:
 
