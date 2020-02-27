@@ -51,9 +51,9 @@ expensive near-client catching_up tests::test_catchup_random_single_part_sync_se
 expensive near-client catching_up tests::test_catchup_random_single_part_sync_non_zero_amounts
 expensive near-client catching_up tests::test_catchup_random_single_part_sync_height_6
 expensive near-client catching_up tests::test_catchup_sanity_blocks_produced
-expensive near-client catching_up tests::test_all_chunks_accepted_1000
-expensive near-client catching_up tests::test_all_chunks_accepted_1000_slow
-expensive near-client catching_up tests::test_all_chunks_accepted_1000_rare_epoch_changing
+expensive --timeout=3600 near-client catching_up tests::test_all_chunks_accepted_1000
+# expensive --timeout=7200 near-client catching_up tests::test_all_chunks_accepted_1000_slow
+expensive --timeout=1800 near-client catching_up tests::test_all_chunks_accepted_1000_rare_epoch_changing
 expensive near-client catching_up tests::test_catchup_sanity_blocks_produced_doomslug
 
 expensive nearcore test_catchup test_catchup
@@ -66,8 +66,8 @@ expensive --timeout=3600 near-client cross_shard_tx tests::test_cross_shard_tx_w
 
 # doomslug / finality gadget safety and light client fuzzy tests
 expensive --timeout=900 near-chain doomslug tests::test_fuzzy_doomslug_liveness_and_safety
-expensive --timeout=900 near-epoch-manager finality tests::test_fuzzy_safety
-expensive --timeout=900 near-epoch-manager finality tests::test_fuzzy_light_client
+expensive --timeout=2400 near-epoch-manager finality tests::test_fuzzy_safety
+expensive --timeout=1200 near-epoch-manager finality tests::test_fuzzy_light_client
 
 # state sync tests
 expensive near sync_state_nodes sync_state_nodes_multishard

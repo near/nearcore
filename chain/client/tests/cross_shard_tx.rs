@@ -421,7 +421,7 @@ mod tests {
                 !test_doomslug,
                 20,
                 test_doomslug,
-                false,
+                true,
                 Arc::new(RwLock::new(move |_account_id: String, _msg: &NetworkRequests| {
                     (NetworkResponses::NoResponse, true)
                 })),

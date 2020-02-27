@@ -647,7 +647,7 @@ mod tests {
                 key_pairs.clone(),
                 validator_groups,
                 true,
-                400,
+                600,
                 false,
                 false,
                 5,
