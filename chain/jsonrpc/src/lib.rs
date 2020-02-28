@@ -1,8 +1,8 @@
-extern crate prometheus;
-
+use std::borrow::Cow;
 use std::convert::TryFrom;
 use std::fmt::Display;
 use std::string::FromUtf8Error;
+use std::sync::Arc;
 use std::time::Duration;
 
 use actix::{Addr, MailboxError};
@@ -11,20 +11,22 @@ use actix_web::{http, middleware, web, App, Error as HttpError, HttpResponse, Ht
 use borsh::BorshDeserialize;
 use futures::Future;
 use futures::{FutureExt, TryFutureExt};
+use prometheus;
 use serde::de::DeserializeOwned;
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tokio::time::{delay_for, timeout};
+use validator::Validate;
 
-use message::Message;
-use message::{Request, RpcError};
+use near_chain_configs::Genesis;
 use near_client::{
     ClientActor, GetBlock, GetChunk, GetGasPrice, GetKeyValueChanges, GetNetworkInfo,
     GetNextLightClientBlock, GetValidatorInfo, Query, Status, TxStatus, ViewClientActor,
 };
 use near_crypto::PublicKey;
 pub use near_jsonrpc_client as client;
-use near_jsonrpc_client::{message, ChunkId};
+use near_jsonrpc_client::message::{Message, Request, RpcError};
+use near_jsonrpc_client::ChunkId;
 use near_metrics::{Encoder, TextEncoder};
 #[cfg(feature = "adversarial")]
 use near_network::types::NetworkAdversarialMessage::{
@@ -35,15 +37,14 @@ use near_network::types::NetworkViewClientMessages;
 use near_network::{NetworkClientMessages, NetworkClientResponses};
 use near_primitives::errors::{InvalidTxError, TxExecutionError};
 use near_primitives::hash::CryptoHash;
-use near_primitives::rpc::{BlockQueryInfo, RpcQueryRequest};
+use near_primitives::rpc::{BlockQueryInfo, RpcGenesisRecordsRequest, RpcQueryRequest};
 use near_primitives::serialize::{from_base, from_base64, BaseEncode};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockId, MaybeBlockId, StateChangesRequest};
 use near_primitives::utils::is_valid_account_id;
-use near_primitives::views::{FinalExecutionStatus, Finality, QueryRequest};
+use near_primitives::views::{FinalExecutionStatus, Finality, GenesisRecordsView, QueryRequest};
 
 mod metrics;
-pub mod test_utils;
 
 /// Maximum byte size of the json payload.
 const JSON_PAYLOAD_MAX_SIZE: usize = 2 * 1024 * 1024;
@@ -98,9 +99,9 @@ fn from_base64_or_parse_err(encoded: String) -> Result<Vec<u8>, RpcError> {
 fn parse_params<T: DeserializeOwned>(value: Option<Value>) -> Result<T, RpcError> {
     if let Some(value) = value {
         serde_json::from_value(value)
-            .map_err(|err| RpcError::invalid_params(Some(format!("Failed parsing args: {}", err))))
+            .map_err(|err| RpcError::invalid_params(format!("Failed parsing args: {}", err)))
     } else {
-        Err(RpcError::invalid_params(Some("Require at least one parameter".to_owned())))
+        Err(RpcError::invalid_params("Require at least one parameter".to_owned()))
     }
 }
 
@@ -119,7 +120,7 @@ fn parse_tx(params: Option<Value>) -> Result<SignedTransaction, RpcError> {
     let (encoded,) = parse_params::<(String,)>(params)?;
     let bytes = from_base64_or_parse_err(encoded)?;
     SignedTransaction::try_from_slice(&bytes)
-        .map_err(|e| RpcError::invalid_params(Some(format!("Failed to decode transaction: {}", e))))
+        .map_err(|e| RpcError::invalid_params(format!("Failed to decode transaction: {}", e)))
 }
 
 /// A general Server Error
@@ -169,6 +170,7 @@ struct JsonRpcHandler {
     client_addr: Addr<ClientActor>,
     view_client_addr: Addr<ViewClientActor>,
     polling_config: RpcPollingConfig,
+    genesis: Arc<Genesis>,
 }
 
 impl JsonRpcHandler {
@@ -208,6 +210,8 @@ impl JsonRpcHandler {
             "query" => self.query(request.params).await,
             "health" => self.health().await,
             "status" => self.status().await,
+            "EXPERIMENTAL_genesis_config" => self.genesis_config().await,
+            "EXPERIMENTAL_genesis_records" => self.genesis_records(request.params).await,
             "tx" => self.tx_status(request.params).await,
             "block" => self.block(request.params).await,
             "chunk" => self.chunk(request.params).await,
@@ -328,7 +332,7 @@ impl JsonRpcHandler {
         match self.client_addr.send(Status { is_health_check: true }).await {
             Ok(Ok(_)) => Ok(Value::Null),
             Ok(Err(err)) => Err(RpcError::new(-32_001, err, None)),
-            Err(_) => Err(RpcError::server_error::<String>(None)),
+            Err(_) => Err(RpcError::server_error::<()>(None)),
         }
     }
 
@@ -336,8 +340,35 @@ impl JsonRpcHandler {
         match self.client_addr.send(Status { is_health_check: false }).await {
             Ok(Ok(result)) => jsonify(Ok(Ok(result))),
             Ok(Err(err)) => Err(RpcError::new(-32_001, err, None)),
-            Err(_) => Err(RpcError::server_error::<String>(None)),
+            Err(_) => Err(RpcError::server_error::<()>(None)),
         }
+    }
+
+    /// Expose Genesis Config (with internal Runtime Config) without state records to keep the
+    /// output at a reasonable size.
+    ///
+    /// See also `genesis_records` API.
+    pub async fn genesis_config(&self) -> Result<Value, RpcError> {
+        jsonify(Ok(Ok(&self.genesis.config)))
+    }
+
+    /// Expose Genesis State Records with pagination.
+    ///
+    /// See also `genesis_config` API.
+    async fn genesis_records(&self, params: Option<Value>) -> Result<Value, RpcError> {
+        let params: RpcGenesisRecordsRequest = parse_params(params)?;
+        params.validate().map_err(RpcError::invalid_params)?;
+        let RpcGenesisRecordsRequest { pagination } = params;
+        let mut records = &self.genesis.records.as_ref()[..];
+        if records.len() < pagination.offset {
+            records = &[];
+        } else {
+            records = &records[pagination.offset..];
+            if records.len() > pagination.limit {
+                records = &records[..pagination.limit];
+            }
+        }
+        jsonify(Ok(Ok(GenesisRecordsView { pagination, records: Cow::Borrowed(records) })))
     }
 
     async fn query(&self, params: Option<Value>) -> Result<Value, RpcError> {
@@ -427,10 +458,7 @@ impl JsonRpcHandler {
     async fn tx_status(&self, params: Option<Value>) -> Result<Value, RpcError> {
         let (hash, account_id) = parse_params::<(String, String)>(params)?;
         if !is_valid_account_id(&account_id) {
-            return Err(RpcError::invalid_params(Some(format!(
-                "Invalid account id: {}",
-                account_id
-            ))));
+            return Err(RpcError::invalid_params(format!("Invalid account id: {}", account_id)));
         }
         let tx_hash = from_base_or_parse_err(hash).and_then(|bytes| {
             CryptoHash::try_from(bytes).map_err(|err| RpcError::parse_error(err.to_string()))
@@ -602,6 +630,7 @@ fn get_cors(cors_allowed_origins: &[String]) -> CorsFactory {
 
 pub fn start_http(
     config: RpcConfig,
+    genesis: Arc<Genesis>,
     client_addr: Addr<ClientActor>,
     view_client_addr: Addr<ViewClientActor>,
 ) {
@@ -613,6 +642,7 @@ pub fn start_http(
                 client_addr: client_addr.clone(),
                 view_client_addr: view_client_addr.clone(),
                 polling_config,
+                genesis: Arc::clone(&genesis),
             })
             .app_data(web::JsonConfig::default().limit(JSON_PAYLOAD_MAX_SIZE))
             .wrap(middleware::Logger::default())

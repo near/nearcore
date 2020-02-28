@@ -1,5 +1,6 @@
 //! Types for telemetry reporting. Can be received by any telemetry dashboard to display
 //! node count and their status across the network.
+use serde::{Deserialize, Serialize};
 
 use crate::types::BlockHeight;
 

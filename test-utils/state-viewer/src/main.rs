@@ -1,15 +1,15 @@
+use std::collections::HashMap;
 use std::convert::TryFrom;
-use std::fs::File;
-use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use ansi_term::Color::Red;
 use borsh::BorshDeserialize;
 use clap::{App, Arg, SubCommand};
 
-use ansi_term::Color::Red;
 use near::{get_default_home, get_store_path, load_config, NearConfig, NightshadeRuntime};
 use near_chain::{ChainStore, ChainStoreAccess, DoomslugThresholdMode, RuntimeAdapter};
+use near_chain_configs::Genesis;
 use near_crypto::PublicKey;
 use near_network::peer_store::PeerStore;
 use near_primitives::account::{AccessKey, Account};
@@ -22,7 +22,6 @@ use near_primitives::types::{BlockHeight, StateRoot};
 use near_primitives::utils::{col, ACCOUNT_DATA_SEPARATOR};
 use near_store::test_utils::create_test_store;
 use near_store::{create_store, Store, TrieIterator};
-use std::collections::HashMap;
 
 fn to_printable(blob: &[u8]) -> String {
     if blob.len() > 60 {
@@ -132,7 +131,7 @@ fn load_trie(
     let runtime = NightshadeRuntime::new(
         &home_dir,
         store,
-        near_config.genesis_config.clone(),
+        Arc::clone(&near_config.genesis),
         near_config.client_config.tracked_accounts.clone(),
         near_config.client_config.tracked_shards.clone(),
     );
@@ -160,7 +159,7 @@ fn print_chain(
     let runtime = NightshadeRuntime::new(
         &home_dir,
         store,
-        near_config.genesis_config.clone(),
+        Arc::clone(&near_config.genesis),
         near_config.client_config.tracked_accounts.clone(),
         near_config.client_config.tracked_shards.clone(),
     );
@@ -229,7 +228,7 @@ fn replay_chain(
     let runtime = NightshadeRuntime::new(
         &home_dir,
         new_store,
-        near_config.genesis_config.clone(),
+        Arc::clone(&near_config.genesis),
         near_config.client_config.tracked_accounts.clone(),
         near_config.client_config.tracked_shards.clone(),
     );
@@ -311,7 +310,7 @@ fn main() {
         .get_matches();
 
     let home_dir = matches.value_of("home").map(|dir| Path::new(dir)).unwrap();
-    let mut near_config = load_config(home_dir);
+    let near_config = load_config(home_dir);
 
     let store = create_store(&get_store_path(&home_dir));
 
@@ -339,39 +338,33 @@ fn main() {
 
             println!("Generating genesis from state data");
 
-            near_config.genesis_config.records = vec![];
-            for state_root in state_roots.clone() {
+            let mut records = vec![];
+            for state_root in &state_roots {
                 let trie = TrieIterator::new(&runtime.trie, &state_root).unwrap();
                 for item in trie {
                     let (key, value) = item.unwrap();
                     if let Some(sr) = kv_to_state_record(key, value) {
-                        near_config.genesis_config.records.push(sr);
+                        records.push(sr);
                     }
                 }
             }
+            let genesis =
+                Arc::new(Genesis::new(near_config.genesis.config.clone(), records.into()));
 
             println!("Calculating new genesis hash");
             let store = near_store::test_utils::create_test_store();
             let runtime = Arc::new(NightshadeRuntime::new(
                 &home_dir,
-                store.clone(),
-                near_config.genesis_config.clone(),
+                Arc::clone(&store),
+                Arc::clone(&genesis),
                 near_config.client_config.tracked_accounts.clone(),
                 near_config.client_config.tracked_shards.clone(),
             ));
-            let chain_genesis = near_chain::ChainGenesis::new(
-                near_config.genesis_config.genesis_time,
-                near_config.genesis_config.gas_limit,
-                near_config.genesis_config.min_gas_price,
-                near_config.genesis_config.total_supply,
-                near_config.genesis_config.max_inflation_rate,
-                near_config.genesis_config.gas_price_adjustment_rate,
-                near_config.genesis_config.transaction_validity_period,
-                near_config.genesis_config.epoch_length,
-            );
+            let chain_genesis = near_chain::ChainGenesis::from(&genesis);
+
             let mut chain = near_chain::Chain::new(
                 store,
-                runtime.clone(),
+                Arc::clone(&runtime) as Arc<dyn RuntimeAdapter>,
                 &chain_genesis,
                 DoomslugThresholdMode::HalfStake,
             )
@@ -390,13 +383,9 @@ fn main() {
                 output_path.display(),
                 records_path.display(),
             );
-            near_config
-                .genesis_config
-                .write_to_config_and_records_files(&output_path, &records_path);
-            File::create(&genesis_hash_path)
-                .unwrap()
-                .write_all(format!("{}", genesis_hash).as_bytes())
-                .unwrap();
+            genesis.config.to_file(&output_path);
+            genesis.records.to_file(&records_path);
+            std::fs::write(&genesis_hash_path, &genesis_hash).unwrap();
         }
         ("chain", Some(args)) => {
             let start_index =

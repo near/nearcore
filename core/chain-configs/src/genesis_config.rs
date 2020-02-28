@@ -3,15 +3,15 @@
 //! NOTE: chain-configs is not the best place for `GenesisConfig` since it
 //! contains `RuntimeConfig`, but we keep it here for now until we figure
 //! out the better place.
-use std::fs::File;
-use std::io::{Read, Write};
-use std::path::{Path, PathBuf};
+use std::marker::PhantomData;
+use std::path::Path;
+use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use smart_default::SmartDefault;
 
-use near_primitives::serialize::u128_dec_format;
+use near_primitives::serialize::{u128_dec_format, u128_dec_format_compatible};
 use near_primitives::state_record::StateRecord;
 use near_primitives::types::{
     AccountId, AccountInfo, Balance, BlockHeightDelta, Gas, NumBlocks, NumSeats,
@@ -19,7 +19,6 @@ use near_primitives::types::{
 use near_runtime_configs::RuntimeConfig;
 
 use crate::PROTOCOL_VERSION;
-use std::mem::swap;
 
 pub const CONFIG_VERSION: u32 = 1;
 
@@ -50,6 +49,7 @@ pub struct GenesisConfig {
     /// Initial gas limit.
     pub gas_limit: Gas,
     /// Minimum gas price. It is also the initial gas price.
+    #[serde(with = "u128_dec_format_compatible")]
     pub min_gas_price: Balance,
     /// Criterion for kicking out block producers (this is a number between 0 and 100)
     pub block_producer_kickout_threshold: u8,
@@ -61,8 +61,6 @@ pub struct GenesisConfig {
     pub runtime_config: RuntimeConfig,
     /// List of initial validators.
     pub validators: Vec<AccountInfo>,
-    /// Records in storage at genesis (get split into shards at genesis creation).
-    pub records: Vec<StateRecord>,
     /// Number of blocks for which a given transaction is valid
     pub transaction_validity_period: NumBlocks,
     /// Developer reward percentage (this is a number between 0 and 100)
@@ -72,9 +70,10 @@ pub struct GenesisConfig {
     /// Maximum inflation on the total supply every epoch (this is a number between 0 and 100)
     pub max_inflation_rate: u8,
     /// Total supply of tokens at genesis.
-    pub total_supply: u128,
+    #[serde(with = "u128_dec_format", skip_deserializing)]
+    pub total_supply: Balance,
     /// Expected number of blocks per year
-    pub num_blocks_per_year: u64,
+    pub num_blocks_per_year: NumBlocks,
     /// Protocol treasury account
     pub protocol_treasury_account: AccountId,
     /// Fishermen stake threshold.
@@ -82,78 +81,134 @@ pub struct GenesisConfig {
     pub fishermen_threshold: Balance,
 }
 
+/// Records in storage at genesis (get split into shards at genesis creation).
+#[derive(
+    Debug,
+    Clone,
+    SmartDefault,
+    derive_more::AsRef,
+    derive_more::AsMut,
+    derive_more::From,
+    Serialize,
+    Deserialize,
+)]
+pub struct GenesisRecords(Vec<StateRecord>);
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct Genesis {
+    #[serde(flatten)]
+    pub config: GenesisConfig,
+    pub records: GenesisRecords,
+    /// Using zero-size PhantomData is a Rust pattern preventing a structure being constructed
+    /// without calling `new` method, which has some initialization routine.
+    phantom: PhantomData<()>,
+}
+
+impl AsRef<GenesisConfig> for Arc<Genesis> {
+    fn as_ref(&self) -> &GenesisConfig {
+        &self.config
+    }
+}
+
 impl GenesisConfig {
-    /// Init the computed values from the rest of the config.
-    pub fn init(&mut self) {
-        self.total_supply = get_initial_supply(&self.records);
+    /// Parses GenesisConfig from a JSON string.
+    ///
+    /// It panics if the contents cannot be parsed from JSON to the GenesisConfig structure.
+    pub fn from_json(value: &str) -> Self {
+        let config: Self =
+            serde_json::from_str(value).expect("Failed to deserialize the genesis config.");
+        if config.protocol_version != PROTOCOL_VERSION {
+            panic!(
+                "Incorrect version of genesis config {} expected {}",
+                config.protocol_version, PROTOCOL_VERSION
+            );
+        }
+        config
     }
 
-    /// Reads GenesisConfig from a file.
-    pub fn from_file(path: &PathBuf, records_path: Option<PathBuf>) -> Self {
-        let mut file = File::open(path).expect("Could not open genesis config file.");
-        let mut content = String::new();
-        file.read_to_string(&mut content).expect("Could not read from genesis config file.");
-        let records_str = records_path.map(|path| {
-            let mut content = String::new();
-            let mut file = File::open(&path).expect("Could not open genesis records file.");
-            file.read_to_string(&mut content).expect("Could not read from genesis records file.");
-            content
-        });
-        GenesisConfig::from(content.as_str(), records_str)
+    /// Reads GenesisConfig from a JSON file.
+    ///
+    /// It panics if file cannot be open or read, or the contents cannot be parsed from JSON to the
+    /// GenesisConfig structure.
+    pub fn from_file<P: AsRef<Path>>(path: P) -> Self {
+        Self::from_json(
+            &std::fs::read_to_string(path).expect("Could not read genesis config file."),
+        )
     }
 
     /// Writes GenesisConfig to the file.
-    pub fn write_to_file(&self, path: &Path) {
-        let mut file = File::create(path).expect("Failed to create / write a genesis config file.");
-        let mut buf =
-            serde_json::to_vec_pretty(self).expect("Error serializing the genesis config.");
-        if let Err(err) = file.write_all(&mut buf) {
-            panic!("Failed to write a genesis config file {}", err);
-        }
+    pub fn to_file<P: AsRef<Path>>(&self, path: P) {
+        std::fs::write(
+            path,
+            serde_json::to_vec_pretty(self).expect("Error serializing the genesis config."),
+        )
+        .expect("Failed to create / write a genesis config file.");
+    }
+}
+
+impl GenesisRecords {
+    /// Parses GenesisRecords from a JSON string.
+    ///
+    /// It panics if the contents cannot be parsed from JSON to the GenesisConfig structure.
+    pub fn from_json(value: &str) -> Self {
+        serde_json::from_str(value).expect("Failed to deserialize the genesis records.")
     }
 
-    /// Writes GenesisConfig to the 2 files.
-    /// All fields but records into `config_path` file and records into a `records_path` file.
-    /// Requires `&mut self` to avoid cloning records.
-    pub fn write_to_config_and_records_files(&mut self, config_path: &Path, records_path: &Path) {
-        // Writing records
-        let mut file =
-            File::create(records_path).expect("Failed to create / write a genesis records file.");
-        let mut buf = serde_json::to_vec_pretty(&self.records)
-            .expect("Error serializing the genesis records.");
-        if let Err(err) = file.write_all(&mut buf) {
-            panic!("Failed to write a genesis records file {}", err);
-        }
-
-        // Writing config
-        let mut file =
-            File::create(config_path).expect("Failed to create / write a genesis config file.");
-        let mut tmp_records = vec![];
-        swap(&mut tmp_records, &mut self.records);
-        let mut buf =
-            serde_json::to_vec_pretty(self).expect("Error serializing the genesis config.");
-        swap(&mut tmp_records, &mut self.records);
-        if let Err(err) = file.write_all(&mut buf) {
-            panic!("Failed to write a genesis config file {}", err);
-        }
+    /// Reads GenesisRecords from a JSON file.
+    ///
+    /// It panics if file cannot be open or read, or the contents cannot be parsed from JSON to the
+    /// GenesisConfig structure.
+    pub fn from_file<P: AsRef<Path>>(path: P) -> Self {
+        Self::from_json(
+            &std::fs::read_to_string(path).expect("Could not read genesis records file."),
+        )
     }
 
-    pub fn from(config: &str, records_str: Option<String>) -> Self {
-        let mut config: GenesisConfig =
-            serde_json::from_str(config).expect("Failed to deserialize the genesis config.");
-        if config.protocol_version != PROTOCOL_VERSION {
-            panic!(format!(
-                "Incorrect version of genesis config {} expected {}",
-                config.protocol_version, PROTOCOL_VERSION
-            ));
-        }
-        if let Some(records_str) = records_str {
-            let mut records: Vec<StateRecord> = serde_json::from_str(&records_str)
-                .expect("Failed to deserialize the genesis config.");
-            config.records.append(&mut records);
-        }
-        config.init();
-        config
+    /// Writes GenesisRecords to the file.
+    pub fn to_file<P: AsRef<Path>>(&self, path: P) {
+        std::fs::write(
+            path,
+            serde_json::to_vec_pretty(self).expect("Error serializing the genesis records."),
+        )
+        .expect("Failed to create / write a genesis records file.");
+    }
+}
+
+impl Genesis {
+    pub fn new(config: GenesisConfig, records: GenesisRecords) -> Self {
+        let mut genesis = Self { config, records, phantom: PhantomData };
+        genesis.config.total_supply = get_initial_supply(&genesis.records.as_ref());
+        genesis
+    }
+
+    /// Reads Genesis from a single file.
+    pub fn from_file<P: AsRef<Path>>(path: P) -> Self {
+        let mut genesis: Self = serde_json::from_str(
+            &std::fs::read_to_string(path).expect("Could not read genesis file."),
+        )
+        .expect("Failed to deserialize the genesis records.");
+        genesis.config.total_supply = get_initial_supply(&genesis.records.as_ref());
+        genesis
+    }
+
+    /// Reads Genesis from config and records files.
+    pub fn from_files<P1, P2>(config_path: P1, records_path: P2) -> Self
+    where
+        P1: AsRef<Path>,
+        P2: AsRef<Path>,
+    {
+        let config = GenesisConfig::from_file(config_path);
+        let records = GenesisRecords::from_file(records_path);
+        Self::new(config, records)
+    }
+
+    /// Writes Genesis to the file.
+    pub fn to_file<P: AsRef<Path>>(&self, path: P) {
+        std::fs::write(
+            path,
+            serde_json::to_vec_pretty(self).expect("Error serializing the genesis config."),
+        )
+        .expect("Failed to create / write a genesis config file.");
     }
 }
 

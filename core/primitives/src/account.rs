@@ -1,4 +1,5 @@
 use borsh::{BorshDeserialize, BorshSerialize};
+use serde::Serialize;
 
 use crate::hash::CryptoHash;
 use crate::types::{AccountId, Balance, BlockHeight, Nonce, StorageUsage};

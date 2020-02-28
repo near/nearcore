@@ -70,23 +70,14 @@ pub fn start_with_config(
     near_primitives::test_utils::init_stop_on_panic();
     let runtime = Arc::new(NightshadeRuntime::new(
         home_dir,
-        store.clone(),
-        config.genesis_config.clone(),
+        Arc::clone(&store),
+        Arc::clone(&config.genesis),
         config.client_config.tracked_accounts.clone(),
         config.client_config.tracked_shards.clone(),
     ));
 
     let telemetry = TelemetryActor::new(config.telemetry_config.clone()).start();
-    let chain_genesis = ChainGenesis::new(
-        config.genesis_config.genesis_time,
-        config.genesis_config.gas_limit,
-        config.genesis_config.min_gas_price,
-        config.genesis_config.total_supply,
-        config.genesis_config.max_inflation_rate,
-        config.genesis_config.gas_price_adjustment_rate,
-        config.genesis_config.transaction_validity_period,
-        config.genesis_config.epoch_length,
-    );
+    let chain_genesis = ChainGenesis::from(&config.genesis);
 
     let node_id = config.network_config.public_key.clone().into();
     let network_adapter = Arc::new(NetworkRecipient::new());
@@ -114,7 +105,12 @@ pub fn start_with_config(
     )
     .unwrap()
     .start();
-    start_http(config.rpc_config, client_actor.clone(), view_client.clone());
+    start_http(
+        config.rpc_config,
+        Arc::clone(&config.genesis),
+        client_actor.clone(),
+        view_client.clone(),
+    );
 
     let network_actor = PeerManagerActor::new(
         store.clone(),

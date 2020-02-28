@@ -8,7 +8,7 @@ use near::config::{
     NUM_BLOCKS_PER_YEAR, NUM_BLOCK_PRODUCER_SEATS, PROTOCOL_PERCENT, TRANSACTION_VALIDITY_PERIOD,
 };
 use near::NEAR_BASE;
-use near_chain_configs::{GenesisConfig, GENESIS_CONFIG_VERSION, PROTOCOL_VERSION};
+use near_chain_configs::{Genesis, GenesisConfig, GENESIS_CONFIG_VERSION, PROTOCOL_VERSION};
 use near_primitives::types::{Balance, NumShards, ShardId};
 use near_primitives::utils::get_num_seats_per_shard;
 
@@ -53,7 +53,7 @@ pub fn csv_to_json_configs(home: &Path, chain_id: String, tracked_shards: Vec<Sh
         .expect("Error parsing accounts file.");
     config.network.boot_nodes =
         peer_info.into_iter().map(|x| x.to_string()).collect::<Vec<_>>().join(",");
-    let mut genesis_config = GenesisConfig {
+    let genesis_config = GenesisConfig {
         protocol_version: PROTOCOL_VERSION,
         config_version: GENESIS_CONFIG_VERSION,
         genesis_time,
@@ -71,7 +71,6 @@ pub fn csv_to_json_configs(home: &Path, chain_id: String, tracked_shards: Vec<Sh
         block_producer_kickout_threshold: BLOCK_PRODUCER_KICKOUT_THRESHOLD,
         validators,
         transaction_validity_period: TRANSACTION_VALIDITY_PERIOD,
-        records,
         developer_reward_percentage: DEVELOPER_PERCENT,
         protocol_reward_percentage: PROTOCOL_PERCENT,
         max_inflation_rate: MAX_INFLATION_RATE,
@@ -82,10 +81,10 @@ pub fn csv_to_json_configs(home: &Path, chain_id: String, tracked_shards: Vec<Sh
         fishermen_threshold: FISHERMEN_THRESHOLD,
         ..Default::default()
     };
-    genesis_config.init();
-    verify_total_supply(genesis_config.total_supply, &chain_id);
+    let genesis = Genesis::new(genesis_config, records.into());
+    verify_total_supply(genesis.config.total_supply, &chain_id);
 
     // Write all configs to files.
     config.write_to_file(&home.join(CONFIG_FILENAME));
-    genesis_config.write_to_file(&home.join(GENESIS_CONFIG_FILENAME));
+    genesis.to_file(&home.join(GENESIS_CONFIG_FILENAME));
 }

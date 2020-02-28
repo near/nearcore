@@ -1,5 +1,6 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use reed_solomon_erasure::galois_8::ReedSolomon;
+use serde::Serialize;
 
 use near_crypto::Signature;
 

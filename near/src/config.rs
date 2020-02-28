@@ -3,7 +3,6 @@ use std::fs;
 use std::fs::File;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-use std::str;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -11,8 +10,9 @@ use chrono::Utc;
 use log::info;
 use serde_derive::{Deserialize, Serialize};
 
-use near_chain_configs::ClientConfig;
-use near_chain_configs::{GenesisConfig, GENESIS_CONFIG_VERSION, PROTOCOL_VERSION};
+use near_chain_configs::{
+    ClientConfig, Genesis, GenesisConfig, GENESIS_CONFIG_VERSION, PROTOCOL_VERSION,
+};
 use near_crypto::{InMemorySigner, KeyFile, KeyType, PublicKey, Signer};
 use near_jsonrpc::RpcConfig;
 use near_network::test_utils::open_port;
@@ -290,8 +290,8 @@ impl From<&str> for Config {
     }
 }
 
-#[easy_ext::ext(GenesisConfigExt)]
-impl GenesisConfig {
+#[easy_ext::ext(GenesisExt)]
+impl Genesis {
     pub fn test_with_seeds(
         seeds: Vec<&str>,
         num_validator_seats: NumSeats,
@@ -322,7 +322,7 @@ impl GenesisConfig {
             );
         }
         add_protocol_account(&mut records);
-        let mut config = GenesisConfig {
+        let config = GenesisConfig {
             protocol_version: PROTOCOL_VERSION,
             config_version: GENESIS_CONFIG_VERSION,
             genesis_time: Utc::now(),
@@ -336,7 +336,6 @@ impl GenesisConfig {
             gas_price_adjustment_rate: GAS_PRICE_ADJUSTMENT_RATE,
             block_producer_kickout_threshold: BLOCK_PRODUCER_KICKOUT_THRESHOLD,
             validators,
-            records,
             developer_reward_percentage: DEVELOPER_PERCENT,
             protocol_reward_percentage: PROTOCOL_PERCENT,
             max_inflation_rate: MAX_INFLATION_RATE,
@@ -348,8 +347,7 @@ impl GenesisConfig {
             min_gas_price: MIN_GAS_PRICE,
             ..Default::default()
         };
-        config.init();
-        config
+        Genesis::new(config, records.into())
     }
 
     pub fn test(seeds: Vec<&str>, num_validator_seats: NumSeats) -> Self {
@@ -357,10 +355,10 @@ impl GenesisConfig {
     }
 
     pub fn test_free(seeds: Vec<&str>, num_validator_seats: NumSeats) -> Self {
-        let mut config =
+        let mut genesis =
             Self::test_with_seeds(seeds, num_validator_seats, vec![num_validator_seats]);
-        config.runtime_config = RuntimeConfig::free();
-        config
+        genesis.config.runtime_config = RuntimeConfig::free();
+        genesis
     }
 
     pub fn test_sharded(
@@ -379,14 +377,14 @@ pub struct NearConfig {
     pub network_config: NetworkConfig,
     pub rpc_config: RpcConfig,
     pub telemetry_config: TelemetryConfig,
+    pub genesis: Arc<Genesis>,
     pub validator_signer: Option<Arc<dyn ValidatorSigner>>,
-    pub genesis_config: GenesisConfig,
 }
 
 impl NearConfig {
     pub fn new(
         config: Config,
-        genesis_config: &GenesisConfig,
+        genesis: Arc<Genesis>,
         network_key_pair: KeyFile,
         validator_signer: Option<Arc<dyn ValidatorSigner>>,
     ) -> Self {
@@ -394,7 +392,7 @@ impl NearConfig {
             config: config.clone(),
             client_config: ClientConfig {
                 version: Default::default(),
-                chain_id: genesis_config.chain_id.clone(),
+                chain_id: genesis.config.chain_id.clone(),
                 rpc_addr: config.rpc.addr.clone(),
                 block_production_tracking_delay: config.consensus.block_production_tracking_delay,
                 min_block_production_delay: config.consensus.min_block_production_delay,
@@ -413,9 +411,9 @@ impl NearConfig {
                 min_num_peers: config.consensus.min_num_peers,
                 log_summary_period: Duration::from_secs(10),
                 produce_empty_blocks: config.consensus.produce_empty_blocks,
-                epoch_length: genesis_config.epoch_length,
-                num_block_producer_seats: genesis_config.num_block_producer_seats,
-                announce_account_horizon: genesis_config.epoch_length / 2,
+                epoch_length: genesis.config.epoch_length,
+                num_block_producer_seats: genesis.config.num_block_producer_seats,
+                announce_account_horizon: genesis.config.epoch_length / 2,
                 ttl_account_id_router: Duration::from_secs(TTL_ACCOUNT_ID_ROUTER),
                 // TODO(1047): this should be adjusted depending on the speed of sync of state.
                 block_fetch_horizon: config.consensus.block_fetch_horizon,
@@ -464,7 +462,7 @@ impl NearConfig {
             },
             telemetry_config: config.telemetry,
             rpc_config: config.rpc,
-            genesis_config: genesis_config.clone(),
+            genesis,
             validator_signer,
         }
     }
@@ -479,14 +477,14 @@ impl NearConfig {
         self.config.write_to_file(&dir.join(CONFIG_FILENAME));
 
         if let Some(validator_signer) = &self.validator_signer {
-            validator_signer.write_to_file(&dir.join(self.config.validator_key_file.clone()));
+            validator_signer.write_to_file(&dir.join(&self.config.validator_key_file));
         }
 
         let network_signer =
             InMemorySigner::from_secret_key("".to_string(), self.network_config.secret_key.clone());
-        network_signer.write_to_file(&dir.join(self.config.node_key_file.clone()));
+        network_signer.write_to_file(&dir.join(&self.config.node_key_file));
 
-        self.genesis_config.write_to_file(&dir.join(self.config.genesis_file.clone()));
+        self.genesis.to_file(&dir.join(&self.config.genesis_file));
     }
 }
 
@@ -535,24 +533,6 @@ fn state_records_account_with_key(
     ]
 }
 
-/// Official TestNet configuration.
-pub fn testnet_genesis(genesis_records: &str, genesis_config: &str) -> GenesisConfig {
-    let mut f = File::open(genesis_records).expect("Failed to open genesis records");
-    let mut genesis_records_bytes = Vec::new();
-    f.read_to_end(&mut genesis_records_bytes).expect("Failed to read genesis records");
-    let mut f = File::open(genesis_config).expect("Failed to open genesis config");
-    let mut genesis_config_bytes = Vec::new();
-    f.read_to_end(&mut genesis_config_bytes).expect("Failed to read genesis config");
-    GenesisConfig::from(
-        str::from_utf8(&genesis_config_bytes).expect("Failed to read testnet configuration"),
-        Some(
-            str::from_utf8(&genesis_records_bytes)
-                .expect("Failed to read testnet records")
-                .to_string(),
-        ),
-    )
-}
-
 /// Initializes genesis and client configs and stores in the given folder
 pub fn init_configs(
     dir: &Path,
@@ -569,10 +549,7 @@ pub fn init_configs(
     // Check if config already exists in home dir.
     if dir.join(CONFIG_FILENAME).exists() {
         let config = Config::from_file(&dir.join(CONFIG_FILENAME));
-        let genesis_config = GenesisConfig::from_file(
-            &dir.join(config.genesis_file),
-            config.genesis_records_file.map(|s| dir.join(s.clone())),
-        );
+        let genesis_config = GenesisConfig::from_file(&dir.join(config.genesis_file));
         panic!("Found existing config in {} with chain-id = {}. Use unsafe_reset_all to clear the folder.", dir.to_str().unwrap(), genesis_config.chain_id);
     }
     let chain_id = chain_id
@@ -604,18 +581,19 @@ pub fn init_configs(
             let network_signer = InMemorySigner::from_random("".to_string(), KeyType::ED25519);
             network_signer.write_to_file(&dir.join(config.node_key_file));
 
-            let mut file = File::create(dir.join(GENESIS_HASH_FILE))
-                .expect("Failed to create a genesis hash file.");
-            file.write_all(genesis_hash.expect("Genesis hash is required for testnet.").as_bytes())
-                .expect("Failed to write a genesis hash file.");
+            std::fs::write(
+                &dir.join(GENESIS_HASH_FILE),
+                genesis_hash.expect("Genesis hash is required for testnet."),
+            )
+            .expect("Failed to write a genesis hash file.");
 
-            let mut genesis_config = testnet_genesis(
-                genesis_records.expect("Genesis records file is required for testnet."),
+            let mut genesis = Genesis::from_files(
                 genesis_config.expect("Genesis config file is required for testnet."),
+                genesis_records.expect("Genesis records file is required for testnet."),
             );
-            genesis_config.chain_id = chain_id;
+            genesis.config.chain_id = chain_id;
 
-            genesis_config.write_to_file(&dir.join(config.genesis_file));
+            genesis.to_file(&dir.join(config.genesis_file));
             info!(target: "near", "Generated node key and genesis file in {}", dir.to_str().unwrap());
         }
         _ => {
@@ -653,7 +631,7 @@ pub fn init_configs(
             );
             add_protocol_account(&mut records);
 
-            let mut genesis_config = GenesisConfig {
+            let genesis_config = GenesisConfig {
                 protocol_version: PROTOCOL_VERSION,
                 config_version: GENESIS_CONFIG_VERSION,
                 genesis_time: Utc::now(),
@@ -676,7 +654,6 @@ pub fn init_configs(
                     amount: TESTING_INIT_STAKE,
                 }],
                 transaction_validity_period: TRANSACTION_VALIDITY_PERIOD,
-                records,
                 developer_reward_percentage: DEVELOPER_PERCENT,
                 protocol_reward_percentage: PROTOCOL_PERCENT,
                 max_inflation_rate: MAX_INFLATION_RATE,
@@ -687,8 +664,8 @@ pub fn init_configs(
                 fishermen_threshold: FISHERMEN_THRESHOLD,
                 min_gas_price: MIN_GAS_PRICE,
             };
-            genesis_config.init();
-            genesis_config.write_to_file(&dir.join(config.genesis_file));
+            let genesis = Genesis::new(genesis_config, records.into());
+            genesis.to_file(&dir.join(config.genesis_file));
             info!(target: "near", "Generated node key, validator key, genesis file in {}", dir.to_str().unwrap());
         }
     }
@@ -700,7 +677,7 @@ pub fn create_testnet_configs_from_seeds(
     num_non_validator_seats: NumSeats,
     local_ports: bool,
     archive: bool,
-) -> (Vec<Config>, Vec<InMemoryValidatorSigner>, Vec<InMemorySigner>, GenesisConfig) {
+) -> (Vec<Config>, Vec<InMemoryValidatorSigner>, Vec<InMemorySigner>, Genesis) {
     let num_validator_seats = (seeds.len() - num_non_validator_seats as usize) as NumSeats;
     let validator_signers = seeds
         .iter()
@@ -710,7 +687,7 @@ pub fn create_testnet_configs_from_seeds(
         .iter()
         .map(|seed| InMemorySigner::from_seed("", KeyType::ED25519, seed))
         .collect::<Vec<_>>();
-    let genesis_config = GenesisConfig::test_sharded(
+    let genesis = Genesis::test_sharded(
         seeds.iter().map(|s| s.as_str()).collect(),
         num_validator_seats,
         get_num_seats_per_shard(num_shards, num_validator_seats),
@@ -737,7 +714,7 @@ pub fn create_testnet_configs_from_seeds(
             std::cmp::min(num_validator_seats as usize - 1, config.consensus.min_num_peers);
         configs.push(config);
     }
-    (configs, validator_signers, network_signers, genesis_config)
+    (configs, validator_signers, network_signers, genesis)
 }
 
 /// Create testnet configuration. If `local_ports` is true,
@@ -749,7 +726,7 @@ pub fn create_testnet_configs(
     prefix: &str,
     local_ports: bool,
     archive: bool,
-) -> (Vec<Config>, Vec<InMemoryValidatorSigner>, Vec<InMemorySigner>, GenesisConfig) {
+) -> (Vec<Config>, Vec<InMemoryValidatorSigner>, Vec<InMemorySigner>, Genesis) {
     create_testnet_configs_from_seeds(
         (0..(num_validator_seats + num_non_validator_seats))
             .map(|i| format!("{}{}", prefix, i))
@@ -769,7 +746,7 @@ pub fn init_testnet_configs(
     prefix: &str,
     archive: bool,
 ) {
-    let (configs, validator_signers, network_signers, genesis_config) = create_testnet_configs(
+    let (configs, validator_signers, network_signers, genesis) = create_testnet_configs(
         num_shards,
         num_validator_seats,
         num_non_validator_seats,
@@ -781,34 +758,35 @@ pub fn init_testnet_configs(
         let node_dir = dir.join(format!("{}{}", prefix, i));
         fs::create_dir_all(node_dir.clone()).expect("Failed to create directory");
 
-        validator_signers[i].write_to_file(&node_dir.join(configs[i].validator_key_file.clone()));
-        network_signers[i].write_to_file(&node_dir.join(configs[i].node_key_file.clone()));
+        validator_signers[i].write_to_file(&node_dir.join(&configs[i].validator_key_file));
+        network_signers[i].write_to_file(&node_dir.join(&configs[i].node_key_file));
 
-        genesis_config.write_to_file(&node_dir.join(configs[i].genesis_file.clone()));
+        genesis.to_file(&node_dir.join(&configs[i].genesis_file));
         configs[i].write_to_file(&node_dir.join(CONFIG_FILENAME));
-        info!(target: "near", "Generated node key, validator key, genesis file in {}", node_dir.to_str().unwrap());
+        info!(target: "near", "Generated node key, validator key, genesis file in {}", node_dir.display());
     }
 }
 
 pub fn load_config(dir: &Path) -> NearConfig {
     let config = Config::from_file(&dir.join(CONFIG_FILENAME));
-    let genesis_config = GenesisConfig::from_file(
-        &dir.join(config.genesis_file.clone()),
-        config.genesis_records_file.clone().map(|s| dir.join(s)),
-    );
-    let validator_signer = if dir.join(config.validator_key_file.clone()).exists() {
-        let signer = Arc::new(InMemoryValidatorSigner::from_file(
-            &dir.join(config.validator_key_file.clone()),
-        )) as Arc<dyn ValidatorSigner>;
+    let genesis = if let Some(ref genesis_records_file) = config.genesis_records_file {
+        Genesis::from_files(&dir.join(&config.genesis_file), &dir.join(genesis_records_file))
+    } else {
+        Genesis::from_file(&dir.join(&config.genesis_file))
+    };
+    let validator_signer = if dir.join(&config.validator_key_file).exists() {
+        let signer =
+            Arc::new(InMemoryValidatorSigner::from_file(&dir.join(&config.validator_key_file)))
+                as Arc<dyn ValidatorSigner>;
         Some(signer)
     } else {
         None
     };
-    let network_signer = InMemorySigner::from_file(&dir.join(config.node_key_file.clone()));
-    NearConfig::new(config, &genesis_config, (&network_signer).into(), validator_signer)
+    let network_signer = InMemorySigner::from_file(&dir.join(&config.node_key_file));
+    NearConfig::new(config, Arc::new(genesis), (&network_signer).into(), validator_signer)
 }
 
-pub fn load_test_config(seed: &str, port: u16, genesis_config: &GenesisConfig) -> NearConfig {
+pub fn load_test_config(seed: &str, port: u16, genesis: Arc<Genesis>) -> NearConfig {
     let mut config = Config::default();
     config.network.addr = format!("0.0.0.0:{}", port);
     config.rpc.addr = format!("0.0.0.0:{}", open_port());
@@ -826,7 +804,7 @@ pub fn load_test_config(seed: &str, port: u16, genesis_config: &GenesisConfig) -
                 as Arc<dyn ValidatorSigner>;
         (signer, Some(validator_signer))
     };
-    NearConfig::new(config, &genesis_config, signer.into(), validator_signer)
+    NearConfig::new(config, genesis, signer.into(), validator_signer)
 }
 
 #[cfg(test)]
@@ -836,12 +814,8 @@ mod test {
     /// make sure testnet genesis can be deserialized
     #[test]
     fn test_deserialize_state() {
-        let genesis_config_bytes = include_bytes!("../res/testnet_genesis_config.json");
-        let genesis_config = GenesisConfig::from(
-            str::from_utf8(genesis_config_bytes.as_ref())
-                .expect("Failed to read testnet configuration"),
-            None,
-        );
+        let genesis_config_str = include_str!("../res/testnet_genesis_config.json");
+        let genesis_config = GenesisConfig::from_json(&genesis_config_str);
         assert_eq!(genesis_config.protocol_version, PROTOCOL_VERSION);
         assert_eq!(genesis_config.config_version, GENESIS_CONFIG_VERSION);
     }

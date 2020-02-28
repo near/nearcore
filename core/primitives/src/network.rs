@@ -3,7 +3,7 @@ use std::fmt;
 use std::hash::{Hash, Hasher};
 
 use borsh::{BorshDeserialize, BorshSerialize};
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 
 use near_crypto::{KeyType, PublicKey, SecretKey, Signature};
 
