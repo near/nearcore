@@ -549,11 +549,8 @@ pub fn init_configs(
     // Check if config already exists in home dir.
     if dir.join(CONFIG_FILENAME).exists() {
         let config = Config::from_file(&dir.join(CONFIG_FILENAME));
-        let genesis = Genesis::from_files(
-            &dir.join(config.genesis_file),
-            config.genesis_records_file.map(|s| dir.join(s.clone())).as_ref(),
-        );
-        panic!("Found existing config in {} with chain-id = {}. Use unsafe_reset_all to clear the folder.", dir.to_str().unwrap(), genesis.config.chain_id);
+        let genesis_config = GenesisConfig::from_file(&dir.join(config.genesis_file));
+        panic!("Found existing config in {} with chain-id = {}. Use unsafe_reset_all to clear the folder.", dir.to_str().unwrap(), genesis_config.chain_id);
     }
     let chain_id = chain_id
         .and_then(|c| if c.is_empty() { None } else { Some(c.to_string()) })
@@ -591,8 +588,8 @@ pub fn init_configs(
             .expect("Failed to write a genesis hash file.");
 
             let mut genesis = Genesis::from_files(
+                genesis_config.expect("Genesis config file is required for testnet."),
                 genesis_records.expect("Genesis records file is required for testnet."),
-                genesis_config,
             );
             genesis.config.chain_id = chain_id;
 
@@ -772,10 +769,11 @@ pub fn init_testnet_configs(
 
 pub fn load_config(dir: &Path) -> NearConfig {
     let config = Config::from_file(&dir.join(CONFIG_FILENAME));
-    let genesis = Genesis::from_files(
-        &dir.join(&config.genesis_file),
-        config.genesis_records_file.as_ref().map(|s| dir.join(s)),
-    );
+    let genesis = if let Some(ref genesis_records_file) = config.genesis_records_file {
+        Genesis::from_files(&dir.join(&config.genesis_file), &dir.join(genesis_records_file))
+    } else {
+        Genesis::from_file(&dir.join(&config.genesis_file))
+    };
     let validator_signer = if dir.join(&config.validator_key_file).exists() {
         let signer =
             Arc::new(InMemoryValidatorSigner::from_file(&dir.join(&config.validator_key_file)))

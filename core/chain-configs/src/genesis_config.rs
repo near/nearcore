@@ -179,14 +179,24 @@ impl Genesis {
         genesis
     }
 
+    /// Reads Genesis from a single file.
+    pub fn from_file<P: AsRef<Path>>(path: P) -> Self {
+        let mut genesis: Self = serde_json::from_str(
+            &std::fs::read_to_string(path).expect("Could not read genesis file."),
+        )
+        .expect("Failed to deserialize the genesis records.");
+        genesis.config.total_supply = get_initial_supply(&genesis.records.as_ref());
+        genesis
+    }
+
     /// Reads Genesis from config and records files.
-    pub fn from_files<P1, P2>(config_path: P1, records_path: Option<P2>) -> Self
+    pub fn from_files<P1, P2>(config_path: P1, records_path: P2) -> Self
     where
         P1: AsRef<Path>,
         P2: AsRef<Path>,
     {
         let config = GenesisConfig::from_file(config_path);
-        let records = records_path.map(GenesisRecords::from_file).unwrap_or_else(Default::default);
+        let records = GenesisRecords::from_file(records_path);
         Self::new(config, records)
     }
 
