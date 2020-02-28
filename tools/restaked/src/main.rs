@@ -70,9 +70,9 @@ fn main() {
         .unwrap();
 
     let config = Config::from_file(&home_dir.join(CONFIG_FILENAME));
-    let key_file = KeyFile::from_file(&home_dir.join(config.validator_key_file.clone()));
+    let key_file = KeyFile::from_file(&home_dir.join(&config.validator_key_file));
     // Support configuring if there is another key.
-    let signer = InMemorySigner::from_file(&home_dir.join(config.validator_key_file.clone()));
+    let signer = InMemorySigner::from_file(&home_dir.join(&config.validator_key_file));
     let account_id = signer.account_id.clone();
     let mut last_stake_amount = stake_amount;
 

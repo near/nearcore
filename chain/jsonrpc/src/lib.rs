@@ -18,7 +18,7 @@ use serde_json::{json, Value};
 use tokio::time::{delay_for, timeout};
 use validator::Validate;
 
-use near_chain_configs::GenesisConfig;
+use near_chain_configs::Genesis;
 use near_client::{
     ClientActor, GetBlock, GetChunk, GetGasPrice, GetKeyValueChanges, GetNetworkInfo,
     GetNextLightClientBlock, GetValidatorInfo, Query, Status, TxStatus, ViewClientActor,
@@ -170,7 +170,7 @@ struct JsonRpcHandler {
     client_addr: Addr<ClientActor>,
     view_client_addr: Addr<ViewClientActor>,
     polling_config: RpcPollingConfig,
-    genesis_config: Arc<GenesisConfig>,
+    genesis: Arc<Genesis>,
 }
 
 impl JsonRpcHandler {
@@ -349,19 +349,7 @@ impl JsonRpcHandler {
     ///
     /// See also `genesis_records` API.
     pub async fn genesis_config(&self) -> Result<Value, RpcError> {
-        // We cannot skip `records` field GenesisConfig with serde, as it will break `dump_state`
-        // util. Thus, we make a copy of GenesisConfig with empty `records`, and then remove
-        // `records` from the serialized json representation.
-        let mut json_genesis_config_response = jsonify(Ok(Ok(GenesisConfig {
-            records: vec![],
-            ..Clone::clone(&self.genesis_config)
-        })));
-        if let Ok(ref mut json_genesis_config) = json_genesis_config_response {
-            if let Some(json_genesis_config_object) = json_genesis_config.as_object_mut() {
-                json_genesis_config_object.remove("records");
-            }
-        }
-        json_genesis_config_response
+        jsonify(Ok(Ok(&self.genesis.config)))
     }
 
     /// Expose Genesis State Records with pagination.
@@ -371,7 +359,7 @@ impl JsonRpcHandler {
         let params: RpcGenesisRecordsRequest = parse_params(params)?;
         params.validate().map_err(RpcError::invalid_params)?;
         let RpcGenesisRecordsRequest { pagination } = params;
-        let mut records = &self.genesis_config.records[..];
+        let mut records = &self.genesis.records.as_ref()[..];
         if records.len() < pagination.offset {
             records = &[];
         } else {
@@ -642,7 +630,7 @@ fn get_cors(cors_allowed_origins: &[String]) -> CorsFactory {
 
 pub fn start_http(
     config: RpcConfig,
-    genesis_config: Arc<GenesisConfig>,
+    genesis: Arc<Genesis>,
     client_addr: Addr<ClientActor>,
     view_client_addr: Addr<ViewClientActor>,
 ) {
@@ -654,7 +642,7 @@ pub fn start_http(
                 client_addr: client_addr.clone(),
                 view_client_addr: view_client_addr.clone(),
                 polling_config,
-                genesis_config: Arc::clone(&genesis_config),
+                genesis: Arc::clone(&genesis),
             })
             .app_data(web::JsonConfig::default().limit(JSON_PAYLOAD_MAX_SIZE))
             .wrap(middleware::Logger::default())

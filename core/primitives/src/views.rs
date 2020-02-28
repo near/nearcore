@@ -1,5 +1,4 @@
 use std::borrow::Cow;
-use std::collections::HashMap;
 use std::convert::{TryFrom, TryInto};
 use std::fmt;
 
@@ -132,9 +131,21 @@ pub struct GenesisRecordsView<'a> {
     pub records: Cow<'a, [StateRecord]>,
 }
 
+/// Set of serialized TrieNodes that are encoded in base64. Represent proof of inclusion of some TrieNode in the MerkleTrie.
+pub type TrieProofPath = Vec<String>;
+
+/// Item of the state, key and value are serialized in base64 and proof for inclusion of given state item.
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
+pub struct StateItem {
+    pub key: String,
+    pub value: String,
+    pub proof: TrieProofPath,
+}
+
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct ViewStateResult {
-    pub values: HashMap<Vec<u8>, Vec<u8>>,
+    pub values: Vec<StateItem>,
+    pub proof: TrieProofPath,
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]

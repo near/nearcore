@@ -175,16 +175,16 @@ fn create_genesis(matches: &clap::ArgMatches) {
     let dir_buf = value_t_or_exit!(matches, "home", PathBuf);
     let dir = dir_buf.as_path();
 
-    let (mut configs, validator_signers, network_signers, genesis_config) =
+    let (mut configs, validator_signers, network_signers, genesis) =
         create_testnet_configs(s, v, n - v, &format!("{}.", prefix), false, false);
     for i in 0..v as usize {
         let node_dir = dir.join(format!("{}.{}", prefix, i));
         fs::create_dir_all(node_dir.clone()).expect("Failed to create directory");
 
-        validator_signers[i].write_to_file(&node_dir.join(configs[i].validator_key_file.clone()));
-        network_signers[i].write_to_file(&node_dir.join(configs[i].node_key_file.clone()));
+        validator_signers[i].write_to_file(&node_dir.join(&configs[i].validator_key_file));
+        network_signers[i].write_to_file(&node_dir.join(&configs[i].node_key_file));
 
-        genesis_config.write_to_file(&node_dir.join(configs[i].genesis_file.clone()));
+        genesis.to_file(&node_dir.join(&configs[i].genesis_file));
         configs[i].consensus.min_num_peers = if v == 1 { 0 } else { 1 };
         configs[i].write_to_file(&node_dir.join(CONFIG_FILENAME));
         info!(target: "loadtester", "Generated node key, validator key, genesis file in {}", node_dir.to_str().unwrap());

@@ -12,7 +12,7 @@ use tempdir::TempDir;
 
 use near::{get_store_path, NightshadeRuntime};
 use near_chain::{Block, Chain, ChainStore, RuntimeAdapter, Tip};
-use near_chain_configs::GenesisConfig;
+use near_chain_configs::Genesis;
 use near_crypto::{InMemorySigner, KeyType};
 use near_primitives::account::AccessKey;
 use near_primitives::block::genesis_chunks;
@@ -37,7 +37,7 @@ pub struct GenesisBuilder {
     // We hold this temporary directory to avoid deletion through deallocation.
     #[allow(dead_code)]
     tmpdir: TempDir,
-    config: Arc<GenesisConfig>,
+    genesis: Arc<Genesis>,
     store: Arc<Store>,
     runtime: NightshadeRuntime,
     unflushed_records: BTreeMap<ShardId, Vec<StateRecord>>,
@@ -56,14 +56,14 @@ pub struct GenesisBuilder {
 impl GenesisBuilder {
     pub fn from_config_and_store(
         home_dir: &Path,
-        config: Arc<GenesisConfig>,
+        genesis: Arc<Genesis>,
         store: Arc<Store>,
     ) -> Self {
         let tmpdir = TempDir::new("storage").unwrap();
         let runtime = NightshadeRuntime::new(
             tmpdir.path(),
             store.clone(),
-            Arc::clone(&config),
+            Arc::clone(&genesis),
             // Since we are not using runtime as an actor
             // there is no reason to track accounts or shards.
             vec![],
@@ -72,7 +72,7 @@ impl GenesisBuilder {
         Self {
             home_dir: home_dir.to_path_buf(),
             tmpdir,
-            config,
+            genesis,
             store,
             runtime,
             unflushed_records: Default::default(),
@@ -86,9 +86,9 @@ impl GenesisBuilder {
         }
     }
 
-    pub fn from_config(home_dir: &Path, config: Arc<GenesisConfig>) -> Self {
+    pub fn from_config(home_dir: &Path, genesis: Arc<Genesis>) -> Self {
         let store = create_store(&get_store_path(home_dir));
-        Self::from_config_and_store(home_dir, config, store)
+        Self::from_config_and_store(home_dir, genesis, store)
     }
 
     pub fn print_progress(mut self) -> Self {
@@ -186,13 +186,13 @@ impl GenesisBuilder {
         let genesis_chunks = genesis_chunks(
             self.roots.values().cloned().collect(),
             self.runtime.num_shards(),
-            self.config.gas_limit,
+            self.genesis.config.gas_limit,
         );
         let genesis = Block::genesis(
             genesis_chunks.into_iter().map(|chunk| chunk.header).collect(),
-            self.config.genesis_time,
-            self.config.min_gas_price,
-            self.config.total_supply,
+            self.genesis.config.genesis_time,
+            self.genesis.config.min_gas_price,
+            self.genesis.config.total_supply,
             Chain::compute_bp_hash(&self.runtime, EpochId::default(), &CryptoHash::default())?,
         );
 
@@ -211,7 +211,7 @@ impl GenesisBuilder {
                 vec![],
                 0,
                 0,
-                self.config.total_supply.clone(),
+                self.genesis.config.total_supply.clone(),
             )
             .unwrap();
         store_update.save_block_header(genesis.header.clone());
@@ -226,7 +226,7 @@ impl GenesisBuilder {
                     CryptoHash::default(),
                     vec![],
                     0,
-                    self.config.gas_limit.clone(),
+                    self.genesis.config.gas_limit.clone(),
                     0,
                     0,
                     0,

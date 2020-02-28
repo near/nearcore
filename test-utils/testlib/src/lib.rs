@@ -3,9 +3,9 @@ use std::sync::Arc;
 use actix::Addr;
 use tempdir::TempDir;
 
-use near::{config::GenesisConfigExt, load_test_config, start_with_config, NightshadeRuntime};
+use near::{config::GenesisExt, load_test_config, start_with_config, NightshadeRuntime};
 use near_chain::{Chain, ChainGenesis, DoomslugThresholdMode};
-use near_chain_configs::GenesisConfig;
+use near_chain_configs::Genesis;
 use near_client::{ClientActor, ViewClientActor};
 use near_network::test_utils::{convert_boot_nodes, open_port};
 use near_primitives::block::{Block, BlockHeader};
@@ -22,30 +22,30 @@ pub mod standard_test_cases;
 pub mod test_helpers;
 pub mod user;
 
-/// Compute genesis hash from genesis config.
-pub fn genesis_hash(genesis_config: Arc<GenesisConfig>) -> CryptoHash {
-    genesis_header(genesis_config).hash
+/// Compute genesis hash from genesis.
+pub fn genesis_hash(genesis: Arc<Genesis>) -> CryptoHash {
+    genesis_header(genesis).hash
 }
 
 /// Utility to generate genesis header from config for testing purposes.
-pub fn genesis_header(genesis_config: Arc<GenesisConfig>) -> BlockHeader {
+pub fn genesis_header(genesis: Arc<Genesis>) -> BlockHeader {
     let dir = TempDir::new("unused").unwrap();
     let store = create_test_store();
-    let chain_genesis = ChainGenesis::from(&genesis_config);
+    let chain_genesis = ChainGenesis::from(&genesis);
     let runtime =
-        Arc::new(NightshadeRuntime::new(dir.path(), store.clone(), genesis_config, vec![], vec![]));
+        Arc::new(NightshadeRuntime::new(dir.path(), store.clone(), genesis, vec![], vec![]));
     let chain =
         Chain::new(store, runtime, &chain_genesis, DoomslugThresholdMode::HalfStake).unwrap();
     chain.genesis().clone()
 }
 
 /// Utility to generate genesis header from config for testing purposes.
-pub fn genesis_block(genesis_config: Arc<GenesisConfig>) -> Block {
+pub fn genesis_block(genesis: Arc<Genesis>) -> Block {
     let dir = TempDir::new("unused").unwrap();
     let store = create_test_store();
-    let chain_genesis = ChainGenesis::from(&genesis_config);
+    let chain_genesis = ChainGenesis::from(&genesis);
     let runtime =
-        Arc::new(NightshadeRuntime::new(dir.path(), store.clone(), genesis_config, vec![], vec![]));
+        Arc::new(NightshadeRuntime::new(dir.path(), store.clone(), genesis, vec![], vec![]));
     let mut chain =
         Chain::new(store, runtime, &chain_genesis, DoomslugThresholdMode::HalfStake).unwrap();
     chain.get_block(&chain.genesis().hash()).unwrap().clone()
@@ -57,19 +57,19 @@ pub fn start_nodes(
     num_validator_seats: NumSeats,
     num_lightclient: usize,
     epoch_length: BlockHeightDelta,
-) -> (Arc<GenesisConfig>, Vec<String>, Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>) {
+) -> (Arc<Genesis>, Vec<String>, Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>) {
     init_integration_logger();
 
     let num_nodes = dirs.len();
     let num_tracking_nodes = dirs.len() - num_lightclient;
     let seeds = (0..num_nodes).map(|i| format!("near.{}", i)).collect::<Vec<_>>();
-    let mut genesis_config = GenesisConfig::test_sharded(
+    let mut genesis = Genesis::test_sharded(
         seeds.iter().map(|s| s.as_str()).collect(),
         num_validator_seats,
         (0..num_shards).map(|_| num_validator_seats).collect(),
     );
-    genesis_config.epoch_length = epoch_length;
-    let genesis_config = Arc::new(genesis_config);
+    genesis.config.epoch_length = epoch_length;
+    let genesis = Arc::new(genesis);
 
     let validators = (0..num_validator_seats).map(|i| format!("near.{}", i)).collect::<Vec<_>>();
     let mut near_configs = vec![];
@@ -79,7 +79,7 @@ pub fn start_nodes(
         let mut near_config = load_test_config(
             if i < num_validator_seats as usize { &validators[i] } else { "" },
             if i == 0 { first_node } else { open_port() },
-            Arc::clone(&genesis_config),
+            Arc::clone(&genesis),
         );
         rpc_addrs.push(near_config.rpc_config.addr.clone());
         near_config.client_config.min_num_peers = num_nodes - 1;
@@ -105,5 +105,5 @@ pub fn start_nodes(
         let (client, view_client) = start_with_config(dirs[i].path(), near_config);
         res.push((client, view_client))
     }
-    (genesis_config, rpc_addrs, res)
+    (genesis, rpc_addrs, res)
 }
