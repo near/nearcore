@@ -584,10 +584,11 @@ pub fn init_configs(
             let network_signer = InMemorySigner::from_random("".to_string(), KeyType::ED25519);
             network_signer.write_to_file(&dir.join(config.node_key_file));
 
-            let mut file = File::create(dir.join(GENESIS_HASH_FILE))
-                .expect("Failed to create a genesis hash file.");
-            file.write_all(genesis_hash.expect("Genesis hash is required for testnet.").as_bytes())
-                .expect("Failed to write a genesis hash file.");
+            std::fs::write(
+                &dir.join(GENESIS_HASH_FILE),
+                genesis_hash.expect("Genesis hash is required for testnet."),
+            )
+            .expect("Failed to write a genesis hash file.");
 
             let mut genesis = Genesis::from_files(
                 genesis_records.expect("Genesis records file is required for testnet."),
