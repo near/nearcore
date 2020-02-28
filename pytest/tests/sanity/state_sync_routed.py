@@ -101,6 +101,7 @@ boot_heights = boot_node.get_all_heights()
 
 assert catch_up_height in boot_heights, "%s not in %s" % (catch_up_height, boot_heights)
 
+tracker.offset = 0 # the transition might have happened before we initialized the tracker
 if catch_up_height >= 100:
     assert tracker4.check("transition to State Sync")
 elif catch_up_height <= 30:
