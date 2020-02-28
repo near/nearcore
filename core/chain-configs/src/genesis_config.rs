@@ -99,6 +99,8 @@ pub struct Genesis {
     #[serde(flatten)]
     pub config: GenesisConfig,
     pub records: GenesisRecords,
+    /// Using zero-size PhantomData is a Rust pattern preventing a structure being constructed
+    /// without calling `new` method, which has some initialization routine.
     phantom: PhantomData<()>,
 }
 
