@@ -2537,7 +2537,7 @@ impl<'a> ChainUpdate<'a> {
             return Err(ErrorKind::Orphan.into());
         }
 
-        if block.header.inner_lite.height > head.height + self.epoch_length {
+        if block.header.inner_lite.height > head.height + self.epoch_length * 2 {
             return Err(ErrorKind::InvalidBlockHeight.into());
         }
 
