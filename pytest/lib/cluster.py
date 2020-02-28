@@ -127,6 +127,9 @@ class BaseNode(object):
 
     def get_block(self, block_hash):
         return self.json_rpc('block', [block_hash])
+
+    def get_changes(self, block_hash, state_changes_request):
+        return self.json_rpc('changes', [block_hash, state_changes_request])
     
     def validators(self):
         return set(map(lambda v: v['account_id'], self.get_status()['validators']))
@@ -142,9 +145,6 @@ class RpcNode(BaseNode):
     def rpc_addr(self):
         return (self.host, self.rpc_port)
 
-
-    def get_changes(self, block_hash, state_changes_request):
-        return self.json_rpc('changes', [block_hash, state_changes_request])
 
 
 class LocalNode(BaseNode):
