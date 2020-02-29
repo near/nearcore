@@ -667,7 +667,7 @@ mod tests {
             );
             *connectors.write().unwrap() = conn;
 
-            near_network::test_utils::wait_or_panic(30000);
+            near_network::test_utils::wait_or_panic(60000);
         })
         .unwrap();
     }
@@ -705,7 +705,7 @@ mod tests {
                 key_pairs.clone(),
                 validator_groups,
                 true,
-                400,
+                600,
                 false,
                 false,
                 5,
@@ -742,7 +742,7 @@ mod tests {
             );
             *connectors.write().unwrap() = conn;
 
-            near_network::test_utils::wait_or_panic(30000);
+            near_network::test_utils::wait_or_panic(60000);
         })
         .unwrap();
     }
@@ -1021,7 +1021,7 @@ mod tests {
                 })),
             );
             *connectors.write().unwrap() = conn;
-            let max_wait_ms = block_prod_time * last_height / 10 * 13 + 10000;
+            let max_wait_ms = block_prod_time * last_height / 10 * 18 + 20000;
 
             near_network::test_utils::wait_or_panic(max_wait_ms);
         })
