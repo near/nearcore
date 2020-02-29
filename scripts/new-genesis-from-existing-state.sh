@@ -9,4 +9,3 @@ echo "Moving result genesis config, records and genesis_hash into near/res"
 mv ${near_home}/output_records_${output_hash}.json near/res/testnet_genesis_records_${output_hash}.json
 mv ${near_home}/output_hash near/res/testnet_genesis_hash
 mv ${near_home}/output_config.json near/res/testnet_genesis_config.json
-
