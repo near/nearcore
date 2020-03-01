@@ -373,6 +373,11 @@ impl Chain {
         })
     }
 
+    #[cfg(feature = "adversarial")]
+    pub fn adv_disable_doomslug(&mut self) {
+        self.doomslug_threshold_mode = DoomslugThresholdMode::NoApprovals
+    }
+
     pub fn process_approval(
         &mut self,
         me: &Option<AccountId>,

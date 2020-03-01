@@ -41,6 +41,8 @@ pytest adversarial/malicious_chain.py
 pytest adversarial/malicious_chain.py valid_blocks_only
 pytest adversarial/start_from_genesis.py
 pytest adversarial/start_from_genesis.py overtake
+pytest adversarial/start_from_genesis.py doomslug_off
+pytest adversarial/start_from_genesis.py overtake doomslug_off
 
 # catchup tests
 expensive near-client catching_up tests::test_catchup_receipts_sync_third_epoch

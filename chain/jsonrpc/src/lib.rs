@@ -29,11 +29,7 @@ use near_jsonrpc_client::message::{Message, Request, RpcError};
 use near_jsonrpc_client::ChunkId;
 use near_metrics::{Encoder, TextEncoder};
 #[cfg(feature = "adversarial")]
-use near_network::types::NetworkAdversarialMessage::{
-    AdvDisableHeaderSync, AdvGetSavedBlocks, AdvProduceBlocks, AdvSetSyncInfo,
-};
-#[cfg(feature = "adversarial")]
-use near_network::types::NetworkViewClientMessages;
+use near_network::types::{NetworkAdversarialMessage, NetworkViewClientMessages};
 use near_network::{NetworkClientMessages, NetworkClientResponses};
 use near_primitives::errors::{InvalidTxError, TxExecutionError};
 use near_primitives::hash::CryptoHash;
@@ -193,6 +189,7 @@ impl JsonRpcHandler {
                 // Adversarial controls
                 "adv_set_weight" => Some(self.adv_set_sync_info(params).await),
                 "adv_disable_header_sync" => Some(self.adv_disable_header_sync(params).await),
+                "adv_disable_doomslug" => Some(self.adv_disable_doomslug(params).await),
                 "adv_produce_blocks" => Some(self.adv_produce_blocks(params).await),
                 "adv_get_saved_blocks" => Some(self.adv_get_saved_blocks(params).await),
                 _ => None,
@@ -228,7 +225,9 @@ impl JsonRpcHandler {
         let (height, score) = parse_params::<(u64, u64)>(params)?;
         actix::spawn(
             self.view_client_addr
-                .send(NetworkViewClientMessages::Adversarial(AdvSetSyncInfo(height, score)))
+                .send(NetworkViewClientMessages::Adversarial(
+                    NetworkAdversarialMessage::AdvSetSyncInfo(height, score),
+                ))
                 .map(|_| ()),
         );
         Ok(Value::String("".to_string()))
@@ -238,12 +237,35 @@ impl JsonRpcHandler {
     async fn adv_disable_header_sync(&self, _params: Option<Value>) -> Result<Value, RpcError> {
         actix::spawn(
             self.client_addr
-                .send(NetworkClientMessages::Adversarial(AdvDisableHeaderSync))
+                .send(NetworkClientMessages::Adversarial(
+                    NetworkAdversarialMessage::AdvDisableHeaderSync,
+                ))
                 .map(|_| ()),
         );
         actix::spawn(
             self.view_client_addr
-                .send(NetworkViewClientMessages::Adversarial(AdvDisableHeaderSync))
+                .send(NetworkViewClientMessages::Adversarial(
+                    NetworkAdversarialMessage::AdvDisableHeaderSync,
+                ))
+                .map(|_| ()),
+        );
+        Ok(Value::String("".to_string()))
+    }
+
+    #[cfg(feature = "adversarial")]
+    async fn adv_disable_doomslug(&self, _params: Option<Value>) -> Result<Value, RpcError> {
+        actix::spawn(
+            self.client_addr
+                .send(NetworkClientMessages::Adversarial(
+                    NetworkAdversarialMessage::AdvDisableDoomslug,
+                ))
+                .map(|_| ()),
+        );
+        actix::spawn(
+            self.view_client_addr
+                .send(NetworkViewClientMessages::Adversarial(
+                    NetworkAdversarialMessage::AdvDisableDoomslug,
+                ))
                 .map(|_| ()),
         );
         Ok(Value::String("".to_string()))
@@ -254,7 +276,9 @@ impl JsonRpcHandler {
         let (num_blocks, only_valid) = parse_params::<(u64, bool)>(params)?;
         actix::spawn(
             self.client_addr
-                .send(NetworkClientMessages::Adversarial(AdvProduceBlocks(num_blocks, only_valid)))
+                .send(NetworkClientMessages::Adversarial(
+                    NetworkAdversarialMessage::AdvProduceBlocks(num_blocks, only_valid),
+                ))
                 .map(|_| ()),
         );
         Ok(Value::String("".to_string()))
@@ -262,7 +286,11 @@ impl JsonRpcHandler {
 
     #[cfg(feature = "adversarial")]
     async fn adv_get_saved_blocks(&self, _params: Option<Value>) -> Result<Value, RpcError> {
-        match self.client_addr.send(NetworkClientMessages::Adversarial(AdvGetSavedBlocks)).await {
+        match self
+            .client_addr
+            .send(NetworkClientMessages::Adversarial(NetworkAdversarialMessage::AdvGetSavedBlocks))
+            .await
+        {
             Ok(result) => match result {
                 NetworkClientResponses::AdvU64(value) => jsonify(Ok(Ok(value))),
                 _ => Err(RpcError::server_error::<String>(None)),
