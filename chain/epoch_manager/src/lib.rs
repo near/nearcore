@@ -159,6 +159,8 @@ impl EpochManager {
         last_block_hash: &CryptoHash,
     ) -> Result<EpochSummary, EpochError> {
         let epoch_info = self.get_epoch_info(&last_block_info.epoch_id)?.clone();
+        let next_epoch_id = self.get_next_epoch_id(&last_block_hash)?;
+        let next_epoch_info = self.get_epoch_info(&next_epoch_id)?.clone();
         let mut proposals = BTreeMap::new();
         let mut validator_kickout = HashSet::new();
         let block_validator_tracker = last_block_info.block_tracker.clone();
@@ -174,7 +176,10 @@ impl EpochManager {
 
         for proposal in last_block_info.all_proposals.iter().rev() {
             if !slashed_validators.contains_key(&proposal.account_id) {
-                if proposal.stake == 0 && !proposals.contains_key(&proposal.account_id) {
+                if proposal.stake == 0
+                    && !proposals.contains_key(&proposal.account_id)
+                    && *next_epoch_info.stake_change.get(&proposal.account_id).unwrap_or(&0) != 0
+                {
                     validator_kickout.insert(proposal.account_id.clone());
                 }
                 // This code relies on the fact that within a block the proposals are ordered
@@ -186,11 +191,9 @@ impl EpochManager {
 
         let all_proposals: Vec<_> = proposals.into_iter().map(|(_, v)| v).collect();
 
-        let last_block_info = self.get_block_info(&last_block_hash)?.clone();
         let prev_epoch_last_block_hash =
             self.get_block_info(&last_block_info.epoch_first_block)?.prev_hash;
-        let next_epoch_id = self.get_next_epoch_id(&last_block_hash)?;
-        let prev_validator_kickout = self.get_epoch_info(&next_epoch_id)?.validator_kickout.clone();
+        let prev_validator_kickout = next_epoch_info.validator_kickout;
 
         // Compute kick outs for validators who are offline.
         let (kickout, validator_block_chunk_stats) = self.compute_kickout_info(
@@ -2518,5 +2521,38 @@ mod tests {
                 0,
             )
         );
+    }
+
+    #[test]
+    fn test_kickout_set() {
+        let stake_amount = 1_000;
+        let validators = vec![("test1", stake_amount), ("test2", 0)];
+        // have two seats to that 500 would be the threshold
+        let mut epoch_manager = setup_default_epoch_manager(validators, 2, 1, 2, 0, 90, 60);
+        let h = hash_range(5);
+        record_block(&mut epoch_manager, CryptoHash::default(), h[0], 0, vec![]);
+        record_block(&mut epoch_manager, h[0], h[1], 1, vec![stake("test2", stake_amount)]);
+        record_block(&mut epoch_manager, h[1], h[2], 2, vec![stake("test2", 0)]);
+        let epoch_info1 = epoch_manager.get_epoch_info(&EpochId(h[2])).unwrap();
+        assert_eq!(
+            epoch_info1.validators.clone().into_iter().map(|r| r.account_id).collect::<Vec<_>>(),
+            vec!["test1".to_string()]
+        );
+        assert!(epoch_info1.validator_kickout.is_empty());
+        record_block(&mut epoch_manager, h[2], h[3], 3, vec![stake("test2", stake_amount)]);
+        record_block(&mut epoch_manager, h[3], h[4], 4, vec![]);
+        assert_eq!(
+            epoch_manager.get_epoch_info(&EpochId(h[4])).unwrap(),
+            &epoch_info(
+                vec![("test1", stake_amount), ("test2", stake_amount)],
+                vec![1, 0],
+                vec![vec![1, 0]],
+                vec![],
+                vec![],
+                change_stake(vec![("test1", stake_amount), ("test2", stake_amount)]),
+                reward(vec![("near", 0), ("test1", 0)]),
+                0,
+            )
+        )
     }
 }
