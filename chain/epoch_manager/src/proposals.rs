@@ -75,7 +75,9 @@ pub fn proposals_to_epoch_info(
     }
 
     for r in epoch_info.fishermen.iter() {
-        if !ordered_proposals.contains_key(&r.account_id) {
+        if !ordered_proposals.contains_key(&r.account_id)
+            && !validator_kickout.contains(&r.account_id)
+        {
             // safe to do this here because fishermen from previous epoch is guaranteed to have no
             // duplicates.
             fishermen_to_index.insert(r.account_id.clone(), fishermen.len() as ValidatorId);
