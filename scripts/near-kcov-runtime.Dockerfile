@@ -1,7 +1,7 @@
 FROM amazonlinux:2 as builder
 
 RUN yum update -y && yum install -y \
-    openssl-devel.x86_64 elfutils-libelf-devel libcurl-devel binutils-devel elfutils-devel zlib-devel git cmake ninja-build python3 \
+    openssl-devel.x86_64 elfutils-libelf-devel libcurl-devel binutils-devel elfutils-devel zlib-devel git cmake3 ninja-build python3 \
     && yum clean all && rm -rf /var/cache/yum
 
 RUN git clone https://github.com/SimonKagstrom/kcov.git
