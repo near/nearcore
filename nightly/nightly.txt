@@ -77,12 +77,13 @@ expensive near sync_state_nodes sync_state_nodes_multishard
 # testnet rpc
 expensive nearcore test_tps_regression test::test_highload
 
-expensive nearcore test_cases_testnet_rpc test::test_smart_contract_simple_testnet
-expensive nearcore test_cases_testnet_rpc test::test_smart_contract_self_call_testnet
-expensive nearcore test_cases_testnet_rpc test::test_smart_contract_bad_method_name_testnet
-expensive nearcore test_cases_testnet_rpc test::test_smart_contract_empty_method_name_with_no_tokens_testnet
-expensive nearcore test_cases_testnet_rpc test::test_smart_contract_empty_method_name_with_tokens_testnet
-expensive nearcore test_cases_testnet_rpc test::test_smart_contract_with_args_testnet
+# The next six tests are disabled due to #2208
+# expensive nearcore test_cases_testnet_rpc test::test_smart_contract_simple_testnet
+# expensive nearcore test_cases_testnet_rpc test::test_smart_contract_self_call_testnet
+# expensive nearcore test_cases_testnet_rpc test::test_smart_contract_bad_method_name_testnet
+# expensive nearcore test_cases_testnet_rpc test::test_smart_contract_empty_method_name_with_no_tokens_testnet
+# expensive nearcore test_cases_testnet_rpc test::test_smart_contract_empty_method_name_with_tokens_testnet
+# expensive nearcore test_cases_testnet_rpc test::test_smart_contract_with_args_testnet
 expensive nearcore test_cases_testnet_rpc test::test_nonce_update_when_deploying_contract_testnet
 expensive nearcore test_cases_testnet_rpc test::test_nonce_updated_when_tx_failed_testnet
 expensive nearcore test_cases_testnet_rpc test::test_upload_contract_testnet
@@ -104,7 +105,8 @@ expensive nearcore test_cases_testnet_rpc test::test_add_key_testnet
 expensive nearcore test_cases_testnet_rpc test::test_delete_access_key_testnet
 expensive nearcore test_cases_testnet_rpc test::test_add_access_key_with_allowance_testnet
 expensive nearcore test_cases_testnet_rpc test::test_delete_access_key_with_allowance_testnet
-expensive nearcore test_cases_testnet_rpc test::test_access_key_smart_contract_testnet
+# The next test is disabled due to #2208
+# expensive nearcore test_cases_testnet_rpc test::test_access_key_smart_contract_testnet
 
 # other tests
 expensive nearcore test_simple test::test_2_10_multiple_nodes
@@ -112,4 +114,5 @@ expensive nearcore test_simple test::test_4_10_multiple_nodes
 expensive nearcore test_simple test::test_7_10_multiple_nodes
 
 expensive nearcore test_rejoin test::test_4_20_kill1
+expensive nearcore test_rejoin test::test_4_20_kill1_two_shards
 expensive nearcore test_rejoin test::test_4_20_kill2

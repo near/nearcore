@@ -480,9 +480,9 @@ mod tests {
             }
 
             near_network::test_utils::wait_or_panic(if rotate_validators {
-                1000 * 60 * 15 * 4
+                1000 * 60 * 80
             } else {
-                1000 * 60 * 15 * 2
+                1000 * 60 * 30
             });
         })
         .unwrap();
@@ -515,11 +515,11 @@ mod tests {
 
     #[test]
     fn test_cross_shard_tx_with_validator_rotation_1() {
-        test_cross_shard_tx_common(16, true, false, false, 150);
+        test_cross_shard_tx_common(8, true, false, false, 200);
     }
 
     #[test]
     fn test_cross_shard_tx_with_validator_rotation_2() {
-        test_cross_shard_tx_common(64, true, false, false, 400);
+        test_cross_shard_tx_common(24, true, false, false, 400);
     }
 }

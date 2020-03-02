@@ -28,7 +28,7 @@ mod test {
             println!("TRIAL #{}", trial);
             let (i, j) = sample_two_nodes(num_nodes);
             let (k, r) = sample_two_nodes(num_nodes);
-            let nonce_i = nodes[k]
+            let nonce_i = nodes[i]
                 .read()
                 .unwrap()
                 .get_access_key_nonce_for_signer(&account_names[i])

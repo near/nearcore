@@ -93,7 +93,7 @@ impl ProcessNode {
     pub fn new(config: NearConfig) -> ProcessNode {
         let mut rng = rand::thread_rng();
         let work_dir = format!(
-            "{}process_node_{}",
+            "{}/process_node_{}",
             env::temp_dir().as_path().to_str().unwrap(),
             rng.gen::<u64>()
         );

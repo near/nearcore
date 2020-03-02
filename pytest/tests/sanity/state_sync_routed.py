@@ -108,7 +108,7 @@ elif catch_up_height <= 30:
     assert not tracker4.check("transition to State Sync")
 
 tracker4.reset()
-assert tracker4.count("Connected to FullPeerInfo") == 2
+assert tracker4.count("Consolidated connection with FullPeerInfo") == 2
 
 if mode == 'manytx':
     while ctx.get_balances() != ctx.expected_balances:

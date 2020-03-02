@@ -52,6 +52,7 @@ impl Node for ThreadNode {
             ThreadNodeState::Stopped => panic!("Node is not running"),
             ThreadNodeState::Running(handle) => {
                 handle.shutdown();
+                self.state = ThreadNodeState::Stopped;
             }
         }
     }
