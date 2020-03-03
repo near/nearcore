@@ -2441,7 +2441,11 @@ mod tests {
     fn test_fishermen_unstake() {
         let stake_amount = 1_000;
         let fishermen_threshold = 100;
-        let validators = vec![("test1", stake_amount), ("test2", fishermen_threshold)];
+        let validators = vec![
+            ("test1", stake_amount),
+            ("test2", fishermen_threshold),
+            ("test3", fishermen_threshold),
+        ];
         let mut em = setup_epoch_manager(
             validators,
             2,
@@ -2457,7 +2461,7 @@ mod tests {
         record_block(&mut em, CryptoHash::default(), h[0], 0, vec![]);
         // fishermen unstake
         record_block(&mut em, h[0], h[1], 1, vec![stake("test2", 0)]);
-        record_block(&mut em, h[1], h[2], 2, vec![]);
+        record_block(&mut em, h[1], h[2], 2, vec![stake("test3", 1)]);
         assert_eq!(
             em.get_epoch_info(&EpochId(h[2])).unwrap(),
             &epoch_info(
@@ -2466,7 +2470,7 @@ mod tests {
                 vec![vec![0]],
                 vec![],
                 vec![],
-                change_stake(vec![("test1", stake_amount), ("test2", 0)]),
+                change_stake(vec![("test1", stake_amount), ("test2", 0), ("test3", 0)]),
                 reward(vec![("test1", 0), ("near", 0)]),
                 0
             )

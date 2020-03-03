@@ -115,7 +115,9 @@ pub fn proposals_to_epoch_info(
                     }
                 })
                 .or_insert((0, p.stake));
-            if epoch_info.validator_to_index.contains_key(&account_id) {
+            if epoch_info.validator_to_index.contains_key(&account_id)
+                || epoch_info.fishermen_to_index.contains_key(&account_id)
+            {
                 validator_kickout.insert(account_id);
             }
         }
