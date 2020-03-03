@@ -1,8 +1,8 @@
-FROM ubuntu:19.04 as builder
+FROM amazonlinux:2 as builder
 
-RUN apt-get update -qq && apt-get install -y \
-    git cmake build-essential ninja-build binutils-dev libcurl4-openssl-dev zlib1g-dev libdw-dev libiberty-dev python3 \
-    && rm -rf /var/lib/apt/lists/*
+RUN yum update -y && yum install -y \
+    openssl-devel.x86_64 elfutils-libelf-devel libcurl-devel binutils-devel elfutils-devel zlib-devel git cmake3 ninja-build python3 \
+    && yum clean all && rm -rf /var/cache/yum
 
 RUN git clone https://github.com/SimonKagstrom/kcov.git
 
@@ -14,17 +14,13 @@ RUN mkdir build && \
     cmake --build . && \
     cmake --build . --target install
 
-FROM ubuntu:19.04
+FROM amazonlinux:2
 
 COPY --from=builder /usr/local/bin/kcov* /usr/local/bin/
 COPY --from=builder /usr/local/share/doc/kcov /usr/local/share/doc/kcov
 
-RUN apt-get update -qq && apt-get install -y \
-    libssl-dev \
-    binutils-dev \
-    libcurl4 \
-    libdw1 \
-    zlib1g \
-    && rm -rf /var/lib/apt/lists/*
+RUN yum update -y && yum install -y \
+    openssl-devel.x86_64 elfutils-libelf-devel libcurl-devel binutils-devel elfutils-devel zlib-devel \
+    && yum clean all && rm -rf /var/cache/yum
 
 CMD ["/usr/local/bin/kcov"]
