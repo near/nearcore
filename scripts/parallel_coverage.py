@@ -88,11 +88,13 @@ if __name__ == "__main__":
     with ThreadPoolExecutor(max_workers=workers()) as executor:
         while True:
             covs = glob.glob(f'{coverage_dir(i)}/*')
+            print('<<<>>>')
+            print(covs)
             if len(covs) == 1:
                 break
             subprocess.check_output(f'mkdir -p {coverage_dir(i+1)}', shell=True)
 
-            cov_to_merge = list(grouper(covs, 2 ))
+            cov_to_merge = list(grouper(covs, 2))
             if cov_to_merge[-1][-1] is None:
                 # ensure the last to merge is not only one cov
                 cov_to_merge[-2] += (cov_to_merge[-1][0],)
