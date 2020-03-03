@@ -49,6 +49,9 @@ def coverage_dir(i):
 def merge_coverage(i, to_merge, j):
     p = subprocess.Popen(['kcov', '--merge', os.path.join(coverage_dir(i+1), str(j)), *to_merge], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     stdout, stderr = p.communicate()
+    print(f'[[[]]] {i} {j}')
+    print(stdout)
+    print(stderr)
     return (p.returncode, stdout, stderr)
 
 
