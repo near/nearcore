@@ -88,8 +88,6 @@ if __name__ == "__main__":
     with ThreadPoolExecutor(max_workers=workers()) as executor:
         while True:
             covs = glob.glob(f'{coverage_dir(i)}/*')
-            print('<<<>>>')
-            print(covs)
             if len(covs) == 1:
                 break
             subprocess.check_output(f'mkdir -p {coverage_dir(i+1)}', shell=True)
@@ -106,10 +104,7 @@ if __name__ == "__main__":
                 futures.append(executor.submit(merge_coverage, i, cov, j))
 
             for f in as_completed(futures):
-                r = f.result()
-                print('[[[]]]')
-                print(r[1])
-                print(r[2])
+                pass
 
             i+=1
 
