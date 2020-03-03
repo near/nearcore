@@ -2,13 +2,17 @@ use std::sync::Arc;
 
 use near::config::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use near_crypto::{InMemorySigner, KeyType};
+use near_jsonrpc::ServerError;
 use near_primitives::account::{AccessKey, AccessKeyPermission, FunctionCallPermission};
-use near_primitives::errors::{ActionError, InvalidAccessKeyError, InvalidTxError};
+use near_primitives::errors::{
+    ActionError, ActionErrorKind, InvalidAccessKeyError, InvalidTxError, TxExecutionError,
+};
 use near_primitives::hash::hash;
 use near_primitives::serialize::to_base64;
 use near_primitives::types::Balance;
 use near_primitives::views::FinalExecutionStatus;
 use near_primitives::views::{AccountView, FinalExecutionOutcomeView};
+use near_vm_errors::{FunctionCallError, HostError, MethodResolveError};
 
 use crate::fees_utils::FeeHelper;
 use crate::node::Node;
@@ -22,8 +26,8 @@ const FUNCTION_CALL_AMOUNT: Balance = TESTING_INIT_BALANCE / 10;
 
 fn fee_helper(node: &impl Node) -> FeeHelper {
     FeeHelper::new(
-        node.genesis_config().runtime_config.transaction_costs.clone(),
-        node.genesis_config().min_gas_price,
+        node.genesis().config.runtime_config.transaction_costs.clone(),
+        node.genesis().config.min_gas_price,
     )
 }
 
@@ -76,7 +80,13 @@ pub fn test_smart_contract_panic(node: impl Node) {
     assert_eq!(
         transaction_result.status,
         FinalExecutionStatus::Failure(
-            ActionError::FunctionCallError("Smart contract panicked: WAT?".to_string()).into()
+            ActionError {
+                index: Some(0),
+                kind: ActionErrorKind::FunctionCallError(FunctionCallError::HostError(
+                    HostError::GuestPanic { panic_msg: "WAT?".to_string() }
+                ))
+            }
+            .into()
         )
     );
     assert_eq!(transaction_result.receipts_outcome.len(), 2);
@@ -108,7 +118,13 @@ pub fn test_smart_contract_bad_method_name(node: impl Node) {
     assert_eq!(
         transaction_result.status,
         FinalExecutionStatus::Failure(
-            ActionError::FunctionCallError("MethodNotFound".to_string()).into()
+            ActionError {
+                index: Some(0),
+                kind: ActionErrorKind::FunctionCallError(FunctionCallError::MethodResolveError(
+                    MethodResolveError::MethodNotFound
+                ))
+            }
+            .into()
         )
     );
     assert_eq!(transaction_result.receipts_outcome.len(), 2);
@@ -126,7 +142,13 @@ pub fn test_smart_contract_empty_method_name_with_no_tokens(node: impl Node) {
     assert_eq!(
         transaction_result.status,
         FinalExecutionStatus::Failure(
-            ActionError::FunctionCallError("MethodEmptyName".to_string()).into()
+            ActionError {
+                index: Some(0),
+                kind: ActionErrorKind::FunctionCallError(FunctionCallError::MethodResolveError(
+                    MethodResolveError::MethodEmptyName
+                ))
+            }
+            .into()
         )
     );
     assert_eq!(transaction_result.receipts_outcome.len(), 2);
@@ -144,7 +166,13 @@ pub fn test_smart_contract_empty_method_name_with_tokens(node: impl Node) {
     assert_eq!(
         transaction_result.status,
         FinalExecutionStatus::Failure(
-            ActionError::FunctionCallError("MethodEmptyName".to_string()).into()
+            ActionError {
+                index: Some(0),
+                kind: ActionErrorKind::FunctionCallError(FunctionCallError::MethodResolveError(
+                    MethodResolveError::MethodEmptyName
+                ))
+            }
+            .into()
         )
     );
     assert_eq!(transaction_result.receipts_outcome.len(), 2);
@@ -345,8 +373,11 @@ pub fn test_refund_on_send_money_to_non_existent_account(node: impl Node) {
     assert_eq!(
         transaction_result.status,
         FinalExecutionStatus::Failure(
-            ActionError::AccountDoesNotExist("Transfer".to_string(), eve_dot_alice_account())
-                .into()
+            ActionError {
+                index: Some(0),
+                kind: ActionErrorKind::AccountDoesNotExist { account_id: eve_dot_alice_account() }
+            }
+            .into()
         )
     );
     assert_eq!(transaction_result.receipts_outcome.len(), 2);
@@ -437,7 +468,11 @@ pub fn test_create_account_again(node: impl Node) {
     assert_eq!(
         transaction_result.status,
         FinalExecutionStatus::Failure(
-            ActionError::AccountAlreadyExists(eve_dot_alice_account()).into()
+            ActionError {
+                index: Some(0),
+                kind: ActionErrorKind::AccountAlreadyExists { account_id: eve_dot_alice_account() }
+            }
+            .into()
         )
     );
     assert_eq!(transaction_result.receipts_outcome.len(), 2);
@@ -477,7 +512,9 @@ pub fn test_create_account_failure_invalid_name(node: impl Node) {
             .unwrap_err();
         assert_eq!(
             transaction_result,
-            format!("{}", InvalidTxError::InvalidReceiver(invalid_account_name.to_string()))
+            ServerError::TxExecutionError(TxExecutionError::InvalidTxError(
+                InvalidTxError::InvalidReceiverId { receiver_id: invalid_account_name.to_string() }
+            ))
         );
     }
 }
@@ -496,7 +533,13 @@ pub fn test_create_account_failure_already_exists(node: impl Node) {
         fee_helper.create_account_transfer_full_key_cost_fail_on_create_account();
     assert_eq!(
         transaction_result.status,
-        FinalExecutionStatus::Failure(ActionError::AccountAlreadyExists(bob_account()).into())
+        FinalExecutionStatus::Failure(
+            ActionError {
+                index: Some(0),
+                kind: ActionErrorKind::AccountAlreadyExists { account_id: bob_account() }
+            }
+            .into()
+        )
     );
     assert_eq!(transaction_result.receipts_outcome.len(), 2);
     let new_root = node_user.get_state_root();
@@ -573,7 +616,14 @@ pub fn test_add_existing_key(node: impl Node) {
     assert_eq!(
         transaction_result.status,
         FinalExecutionStatus::Failure(
-            ActionError::AddKeyAlreadyExists(node.signer().public_key()).into()
+            ActionError {
+                index: Some(0),
+                kind: ActionErrorKind::AddKeyAlreadyExists {
+                    account_id: account_id.clone(),
+                    public_key: node.signer().public_key()
+                }
+            }
+            .into()
         )
     );
     assert_eq!(transaction_result.receipts_outcome.len(), 1);
@@ -618,7 +668,14 @@ pub fn test_delete_key_not_owned(node: impl Node) {
     assert_eq!(
         transaction_result.status,
         FinalExecutionStatus::Failure(
-            ActionError::DeleteKeyDoesNotExist(account_id.clone()).into()
+            ActionError {
+                index: Some(0),
+                kind: ActionErrorKind::DeleteKeyDoesNotExist {
+                    account_id: account_id.clone(),
+                    public_key: signer2.public_key.clone()
+                }
+            }
+            .into()
         )
     );
     assert_eq!(transaction_result.receipts_outcome.len(), 1);
@@ -824,12 +881,11 @@ pub fn test_access_key_smart_contract_reject_method_name(node: impl Node) {
         .unwrap_err();
     assert_eq!(
         transaction_result,
-        format!(
-            "{}",
-            InvalidTxError::InvalidAccessKey(InvalidAccessKeyError::MethodNameMismatch(
-                "run_test".to_string()
-            ))
-        )
+        ServerError::TxExecutionError(TxExecutionError::InvalidTxError(
+            InvalidTxError::InvalidAccessKeyError(InvalidAccessKeyError::MethodNameMismatch {
+                method_name: "run_test".to_string()
+            })
+        ))
     );
 }
 
@@ -860,13 +916,12 @@ pub fn test_access_key_smart_contract_reject_contract_id(node: impl Node) {
         .unwrap_err();
     assert_eq!(
         transaction_result,
-        format!(
-            "{}",
-            InvalidTxError::InvalidAccessKey(InvalidAccessKeyError::ReceiverMismatch(
-                eve_dot_alice_account(),
-                bob_account(),
-            ))
-        )
+        ServerError::TxExecutionError(TxExecutionError::InvalidTxError(
+            InvalidTxError::InvalidAccessKeyError(InvalidAccessKeyError::ReceiverMismatch {
+                tx_receiver: eve_dot_alice_account(),
+                ak_receiver: bob_account()
+            })
+        ))
     );
 }
 
@@ -889,7 +944,9 @@ pub fn test_access_key_reject_non_function_call(node: impl Node) {
         node_user.delete_key(account_id.clone(), node.signer().public_key()).unwrap_err();
     assert_eq!(
         transaction_result,
-        format!("{}", InvalidTxError::InvalidAccessKey(InvalidAccessKeyError::ActionError))
+        ServerError::TxExecutionError(TxExecutionError::InvalidTxError(
+            InvalidTxError::InvalidAccessKeyError(InvalidAccessKeyError::RequiresFullAccess)
+        ))
     );
 }
 
@@ -950,7 +1007,13 @@ pub fn test_unstake_while_not_staked(node: impl Node) {
         node_user.stake(eve_dot_alice_account(), node.block_signer().public_key(), 0).unwrap();
     assert_eq!(
         transaction_result.status,
-        FinalExecutionStatus::Failure(ActionError::TriesToUnstake(eve_dot_alice_account()).into())
+        FinalExecutionStatus::Failure(
+            ActionError {
+                index: Some(0),
+                kind: ActionErrorKind::TriesToUnstake { account_id: eve_dot_alice_account() }
+            }
+            .into()
+        )
     );
     assert_eq!(transaction_result.receipts_outcome.len(), 1);
 }
@@ -983,7 +1046,14 @@ fn test_stake_fail_not_enough_rent_with_balance(node: impl Node, initial_balance
         node_user.stake(new_account_id.clone(), node.block_signer().public_key(), 5).unwrap();
     assert_matches!(
         &transaction_result.status,
-        FinalExecutionStatus::Failure(e) if e.error_type == "ActionError::RentUnpaid"
+        FinalExecutionStatus::Failure(e) => match &e {
+            &TxExecutionError::ActionError(action_err) =>
+                match action_err.kind {
+                    ActionErrorKind::RentUnpaid{..} => {},
+                    _ => panic!("should be RentUnpaid")
+                }
+            _ => panic!("should be Action")
+        }
     );
     assert_eq!(transaction_result.receipts_outcome.len(), 1);
 }
@@ -1025,7 +1095,13 @@ pub fn test_delete_account_fail(node: impl Node) {
     let transaction_result = node_user.delete_account(alice_account(), bob_account()).unwrap();
     assert_eq!(
         transaction_result.status,
-        FinalExecutionStatus::Failure(ActionError::DeleteAccountStaking(bob_account()).into())
+        FinalExecutionStatus::Failure(
+            ActionError {
+                index: Some(0),
+                kind: ActionErrorKind::DeleteAccountStaking { account_id: bob_account() }
+            }
+            .into()
+        )
     );
     assert_eq!(transaction_result.receipts_outcome.len(), 1);
     assert!(node.user().view_account(&bob_account()).is_ok());
@@ -1042,8 +1118,11 @@ pub fn test_delete_account_no_account(node: impl Node) {
     assert_eq!(
         transaction_result.status,
         FinalExecutionStatus::Failure(
-            ActionError::AccountDoesNotExist("DeleteAccount".to_string(), eve_dot_alice_account())
-                .into()
+            ActionError {
+                index: Some(0),
+                kind: ActionErrorKind::AccountDoesNotExist { account_id: eve_dot_alice_account() }
+            }
+            .into()
         )
     );
     assert_eq!(transaction_result.receipts_outcome.len(), 1);
@@ -1070,7 +1149,11 @@ pub fn test_delete_account_while_staking(node: impl Node) {
     assert_eq!(
         transaction_result.status,
         FinalExecutionStatus::Failure(
-            ActionError::DeleteAccountStaking(eve_dot_alice_account()).into()
+            ActionError {
+                index: Some(0),
+                kind: ActionErrorKind::DeleteAccountStaking { account_id: eve_dot_alice_account() }
+            }
+            .into()
         )
     );
     assert_eq!(transaction_result.receipts_outcome.len(), 1);

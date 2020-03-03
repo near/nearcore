@@ -1,7 +1,6 @@
 #[macro_use]
 extern crate clap;
 
-use log::info;
 use std::fs;
 use std::net::SocketAddr;
 use std::path::PathBuf;
@@ -10,12 +9,14 @@ use std::time::Duration;
 
 use clap::{crate_version, App, Arg, SubCommand};
 use env_logger::Builder;
+use log::info;
 
 use git_version::git_version;
 use near::config::create_testnet_configs;
 use near::{get_default_home, get_store_path};
 use near_crypto::Signer;
 use near_primitives::types::{NumSeats, NumShards, Version};
+use near_primitives::validator_signer::ValidatorSigner;
 use near_store::{create_store, ColState};
 use remote_node::RemoteNode;
 
@@ -174,16 +175,16 @@ fn create_genesis(matches: &clap::ArgMatches) {
     let dir_buf = value_t_or_exit!(matches, "home", PathBuf);
     let dir = dir_buf.as_path();
 
-    let (mut configs, signers, network_signers, genesis_config) =
-        create_testnet_configs(s, v, n - v, &format!("{}.", prefix), false);
+    let (mut configs, validator_signers, network_signers, genesis) =
+        create_testnet_configs(s, v, n - v, &format!("{}.", prefix), false, false);
     for i in 0..v as usize {
         let node_dir = dir.join(format!("{}.{}", prefix, i));
         fs::create_dir_all(node_dir.clone()).expect("Failed to create directory");
 
-        signers[i].write_to_file(&node_dir.join(configs[i].validator_key_file.clone()));
-        network_signers[i].write_to_file(&node_dir.join(configs[i].node_key_file.clone()));
+        validator_signers[i].write_to_file(&node_dir.join(&configs[i].validator_key_file));
+        network_signers[i].write_to_file(&node_dir.join(&configs[i].node_key_file));
 
-        genesis_config.write_to_file(&node_dir.join(configs[i].genesis_file.clone()));
+        genesis.to_file(&node_dir.join(&configs[i].genesis_file));
         configs[i].consensus.min_num_peers = if v == 1 { 0 } else { 1 };
         configs[i].write_to_file(&node_dir.join(CONFIG_FILENAME));
         info!(target: "loadtester", "Generated node key, validator key, genesis file in {}", node_dir.to_str().unwrap());

@@ -10,20 +10,21 @@ use borsh::BorshSerialize;
 use indicatif::{ProgressBar, ProgressStyle};
 use tempdir::TempDir;
 
-use near::{get_store_path, GenesisConfig, NightshadeRuntime};
+use near::{get_store_path, NightshadeRuntime};
 use near_chain::{Block, Chain, ChainStore, RuntimeAdapter, Tip};
+use near_chain_configs::Genesis;
 use near_crypto::{InMemorySigner, KeyType};
 use near_primitives::account::AccessKey;
 use near_primitives::block::genesis_chunks;
 use near_primitives::contract::ContractCode;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::serialize::to_base64;
+use near_primitives::state_record::StateRecord;
 use near_primitives::types::{AccountId, Balance, ChunkExtra, EpochId, ShardId, StateRoot};
 use near_primitives::views::AccountView;
 use near_store::{
     create_store, get_account, set_access_key, set_account, set_code, ColState, Store, TrieUpdate,
 };
-use node_runtime::StateRecord;
 
 fn get_account_id(account_index: u64) -> String {
     format!("near_{}_{}", account_index, account_index)
@@ -36,7 +37,7 @@ pub struct GenesisBuilder {
     // We hold this temporary directory to avoid deletion through deallocation.
     #[allow(dead_code)]
     tmpdir: TempDir,
-    config: GenesisConfig,
+    genesis: Arc<Genesis>,
     store: Arc<Store>,
     runtime: NightshadeRuntime,
     unflushed_records: BTreeMap<ShardId, Vec<StateRecord>>,
@@ -55,14 +56,14 @@ pub struct GenesisBuilder {
 impl GenesisBuilder {
     pub fn from_config_and_store(
         home_dir: &Path,
-        config: GenesisConfig,
+        genesis: Arc<Genesis>,
         store: Arc<Store>,
     ) -> Self {
         let tmpdir = TempDir::new("storage").unwrap();
         let runtime = NightshadeRuntime::new(
             tmpdir.path(),
             store.clone(),
-            config.clone(),
+            Arc::clone(&genesis),
             // Since we are not using runtime as an actor
             // there is no reason to track accounts or shards.
             vec![],
@@ -71,7 +72,7 @@ impl GenesisBuilder {
         Self {
             home_dir: home_dir.to_path_buf(),
             tmpdir,
-            config,
+            genesis,
             store,
             runtime,
             unflushed_records: Default::default(),
@@ -85,14 +86,14 @@ impl GenesisBuilder {
         }
     }
 
+    pub fn from_config(home_dir: &Path, genesis: Arc<Genesis>) -> Self {
+        let store = create_store(&get_store_path(home_dir));
+        Self::from_config_and_store(home_dir, genesis, store)
+    }
+
     pub fn print_progress(mut self) -> Self {
         self.print_progress = true;
         self
-    }
-
-    pub fn from_config(home_dir: &Path, config: GenesisConfig) -> Self {
-        let store = create_store(&get_store_path(home_dir));
-        Self::from_config_and_store(home_dir, config, store)
     }
 
     pub fn add_additional_accounts(mut self, num: u64) -> Self {
@@ -185,13 +186,13 @@ impl GenesisBuilder {
         let genesis_chunks = genesis_chunks(
             self.roots.values().cloned().collect(),
             self.runtime.num_shards(),
-            self.config.gas_limit,
+            self.genesis.config.gas_limit,
         );
         let genesis = Block::genesis(
             genesis_chunks.into_iter().map(|chunk| chunk.header).collect(),
-            self.config.genesis_time,
-            self.config.min_gas_price,
-            self.config.total_supply,
+            self.genesis.config.genesis_time,
+            self.genesis.config.min_gas_price,
+            self.genesis.config.total_supply,
             Chain::compute_bp_hash(&self.runtime, EpochId::default(), &CryptoHash::default())?,
         );
 
@@ -202,6 +203,7 @@ impl GenesisBuilder {
             .add_validator_proposals(
                 CryptoHash::default(),
                 genesis.hash(),
+                genesis.header.inner_rest.random_value,
                 genesis.header.inner_lite.height,
                 0,
                 vec![],
@@ -209,7 +211,7 @@ impl GenesisBuilder {
                 vec![],
                 0,
                 0,
-                self.config.total_supply.clone(),
+                self.genesis.config.total_supply.clone(),
             )
             .unwrap();
         store_update.save_block_header(genesis.header.clone());
@@ -224,7 +226,7 @@ impl GenesisBuilder {
                     CryptoHash::default(),
                     vec![],
                     0,
-                    self.config.gas_limit.clone(),
+                    self.genesis.config.gas_limit.clone(),
                     0,
                     0,
                     0,
@@ -232,10 +234,7 @@ impl GenesisBuilder {
             );
         }
 
-        let head = Tip::from_header_and_prev_timestamp(
-            &genesis.header,
-            genesis.header.inner_lite.timestamp,
-        );
+        let head = Tip::from_header(&genesis.header);
         store_update.save_head(&head).unwrap();
         store_update.save_sync_head(&head);
         store_update.commit().unwrap();

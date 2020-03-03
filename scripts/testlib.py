@@ -57,8 +57,8 @@ def run_test(test_binary, isolate=True):
         cmd = ['docker', 'run', '--rm',
                '-u', f'{os.getuid()}:{os.getgid()}',
                '-v', f'{test_binary}:{test_binary}',
-               'ailisp/near-test-runtime',
-               'bash', '-c', f'chmod +x {test_binary} && RUST_BACKTRACE=1 {test_binary}']
+               'nearprotocol/near-test-runtime',
+               'bash', '-c', f'RUST_BACKTRACE=1 {test_binary}']
     else:
         cmd = [test_binary]
     print(f'========= run test {test_binary}')

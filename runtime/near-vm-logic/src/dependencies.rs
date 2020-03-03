@@ -1,7 +1,7 @@
 //! External dependencies of the near-vm-logic.
 
 use crate::types::{AccountId, Balance, Gas, IteratorIndex, PublicKey, ReceiptIndex};
-use near_vm_errors::HostErrorOrStorageError;
+use near_vm_errors::VMLogicError;
 
 /// An abstraction over the memory of the smart contract.
 pub trait MemoryLike {
@@ -30,7 +30,7 @@ pub trait MemoryLike {
     fn write_memory(&mut self, offset: u64, buffer: &[u8]);
 }
 
-pub type Result<T> = ::std::result::Result<T, HostErrorOrStorageError>;
+pub type Result<T> = ::std::result::Result<T, VMLogicError>;
 
 /// Logical pointer to a value in storage.
 /// Allows getting value length before getting the value itself. This is needed so that runtime
@@ -545,6 +545,50 @@ pub trait External {
     ///
     /// ```
     fn sha256(&self, data: &[u8]) -> Result<Vec<u8>>;
+
+    /// Computes keccak256 hash
+    ///
+    /// # Arguments
+    ///
+    /// * `data` - data to hash
+    ///
+    /// # Example
+    /// ```
+    /// # use near_vm_logic::mocks::mock_external::MockedExternal;
+    /// # use near_vm_logic::External;
+    ///
+    /// # let mut external = MockedExternal::new();
+    /// let result = external.keccak256(b"tesdsst").unwrap();
+    /// assert_eq!(&result, &[
+    ///         174, 42, 184, 134, 113, 104, 230, 180, 244, 77, 240, 72, 199, 42, 110, 178, 6, 168,
+    ///         121, 77, 27, 183, 153, 108, 197, 171, 78, 61, 186, 133, 193, 182
+    /// ]);
+    ///
+    /// ```
+    fn keccak256(&self, data: &[u8]) -> Result<Vec<u8>>;
+
+    /// Computes keccak512 hash
+    ///
+    /// # Arguments
+    ///
+    /// * `data` - data to hash
+    ///
+    /// # Example
+    /// ```
+    /// # use near_vm_logic::mocks::mock_external::MockedExternal;
+    /// # use near_vm_logic::External;
+    ///
+    /// # let mut external = MockedExternal::new();
+    /// let result = external.keccak512(b"tesdsst").unwrap();
+    /// assert_eq!(&result, &[
+    ///         133, 196, 48, 30, 203, 238, 194, 158, 186, 246, 118, 238, 42, 158, 212, 27, 178, 72,
+    ///         90, 229, 98, 108, 195, 221, 222, 161, 96, 219, 252, 99, 2, 48, 224, 15, 95, 220, 35,
+    ///         209, 27, 250, 43, 168, 250, 10, 21, 25, 97, 135, 235, 61, 5, 142, 182, 85, 36, 179,
+    ///         23, 126, 161, 14, 21, 118, 180, 231
+    /// ].to_vec());
+    ///
+    /// ```
+    fn keccak512(&self, data: &[u8]) -> Result<Vec<u8>>;
 
     /// Returns amount of touched trie nodes by storage operations
     fn get_touched_nodes_count(&self) -> u64;

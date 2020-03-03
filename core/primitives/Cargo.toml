@@ -13,9 +13,11 @@ byteorder = "1.2"
 chrono = { version = "0.4.4", features = ["serde"] }
 sha2 = "0.8"
 lazy_static = "1.4"
-serde = "1.0"
-serde_derive = "1.0"
+serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+smart-default = "0.6"
+validator = "0.10"
+validator_derive = "0.10"
 rand = "0.7"
 env_logger = "0.7"
 log = "0.4"
@@ -26,9 +28,12 @@ actix = "0.9.0"
 borsh = "0.2.10"
 
 near-crypto = { path = "../crypto" }
+near-vm-errors = { path = "../../runtime/near-vm-errors" }
+near-rpc-error-macro = { path = "../../tools/rpctypegen/macro" }
 
 [features]
 default = ["jemallocator"]
+dump_errors_schema = ["near-rpc-error-macro/dump_errors_schema"]
 
 [dev-dependencies]
 bencher = "0.1.5"

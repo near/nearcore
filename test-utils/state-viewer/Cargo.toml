@@ -10,6 +10,7 @@ hex = "0.4"
 ansi_term = "0.12.0"
 borsh = "0.2.10"
 
+near-chain-configs = { path = "../../core/chain-configs" }
 near-crypto = { path = "../../core/crypto" }
 near-primitives = { path = "../../core/primitives" }
 near-store = { path = "../../core/store" }

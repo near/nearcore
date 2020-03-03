@@ -41,9 +41,9 @@ pub enum ErrorKind {
     /// Invalid block confirmation signature.
     #[fail(display = "Invalid Block Confirmation Signature")]
     InvalidBlockConfirmation,
-    /// Invalid block weight or score.
-    #[fail(display = "Invalid Block Weight Or Score")]
-    InvalidBlockWeightOrScore,
+    /// Invalid block score.
+    #[fail(display = "Invalid Block Score")]
+    InvalidBlockScore,
     /// Invalid state root hash.
     #[fail(display = "Invalid State Root Hash")]
     InvalidStateRoot,
@@ -104,6 +104,12 @@ pub enum ErrorKind {
     /// Invalid quorum_pre_vote or quorum_pre_commit
     #[fail(display = "Invalid Finality Info")]
     InvalidFinalityInfo,
+    /// The block doesn't have approvals from 50% of the block producers
+    #[fail(display = "Not enough approvals")]
+    NotEnoughApprovals,
+    /// The information about the last doomslug final block is incorrect
+    #[fail(display = "Invalid doomslug finality info")]
+    InvalidDoomslugFinalityInfo,
     /// Invalid validator proposals in the block.
     #[fail(display = "Invalid Validator Proposals")]
     InvalidValidatorProposals,
@@ -134,6 +140,12 @@ pub enum ErrorKind {
     /// Invalid shard id
     #[fail(display = "Shard id {} does not exist", _0)]
     InvalidShardId(ShardId),
+    /// Invalid shard id
+    #[fail(display = "Invalid state request: {}", _0)]
+    InvalidStateRequest(String),
+    /// Invalid VRF proof, or incorrect random_output in the header
+    #[fail(display = "Invalid Randomness Beacon Output")]
+    InvalidRandomnessBeaconOutput,
     /// Someone is not a validator. Usually happens in signature verification
     #[fail(display = "Not A Validator")]
     NotAValidator,
@@ -208,7 +220,7 @@ impl Error {
             | ErrorKind::InvalidBlockHeight
             | ErrorKind::InvalidBlockProposer
             | ErrorKind::InvalidBlockConfirmation
-            | ErrorKind::InvalidBlockWeightOrScore
+            | ErrorKind::InvalidBlockScore
             | ErrorKind::InvalidChunk
             | ErrorKind::InvalidChunkProofs(_)
             | ErrorKind::InvalidChunkState(_)
@@ -228,6 +240,8 @@ impl Error {
             | ErrorKind::InvalidEpochHash
             | ErrorKind::InvalidNextBPHash
             | ErrorKind::InvalidFinalityInfo
+            | ErrorKind::NotEnoughApprovals
+            | ErrorKind::InvalidDoomslugFinalityInfo
             | ErrorKind::InvalidValidatorProposals
             | ErrorKind::InvalidSignature
             | ErrorKind::InvalidApprovals
@@ -238,6 +252,8 @@ impl Error {
             | ErrorKind::InvalidBalanceBurnt
             | ErrorKind::InvalidRent
             | ErrorKind::InvalidShardId(_)
+            | ErrorKind::InvalidStateRequest(_)
+            | ErrorKind::InvalidRandomnessBeaconOutput
             | ErrorKind::NotAValidator => true,
         }
     }

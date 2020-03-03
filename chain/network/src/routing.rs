@@ -15,6 +15,7 @@ use log::{debug, trace};
 use near_crypto::{SecretKey, Signature};
 use near_metrics;
 use near_primitives::hash::{hash, CryptoHash};
+use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::types::AccountId;
 use near_primitives::utils::index_to_bytes;
 use near_store::{
@@ -23,7 +24,7 @@ use near_store::{
 };
 
 use crate::metrics;
-use crate::types::{AnnounceAccount, PeerId, PeerIdOrHash, Ping, Pong};
+use crate::types::{PeerIdOrHash, Ping, Pong};
 
 const ANNOUNCE_ACCOUNT_CACHE_SIZE: usize = 10_000;
 const ROUTE_BACK_CACHE_SIZE: usize = 10_000;

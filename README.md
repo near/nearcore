@@ -24,9 +24,9 @@ finally makes using a blockchain protocol easy for both developers and consumers
 
 ## Quick start
 
-[Check out quick start documentation](https://docs.nearprotocol.com/docs/quick-start/blockchain-prerequisite), specifically:
-  - [Working with Smart Contracts in NEAR Studio](https://docs.nearprotocol.com/docs/quick-start/development-overview)
-  
+[Check out our documentation](http://docs.nearprotocol.com), specifically:
+ - [Working with Smart Contracts in NEAR Studio](https://docs.nearprotocol.com/docs/quick-start/development-overview)
+
 Develop and deploy contracts without any setup required using [NEAR Studio](https://studio.nearprotocol.com):
 
 [![NEAR Studio](https://github.com/nearprotocol/NEARStudio/blob/master/demos/guest_book.gif)](https://studio.nearprotocol.com)
@@ -34,7 +34,7 @@ Develop and deploy contracts without any setup required using [NEAR Studio](http
 
 ## Status
 
-This project is currently under heavy development. Please see Issues and Milestones to checkout the current progress and working items.
+This project is currently under heavy development. Please see [Issues](https://github.com/nearprotocol/nearcore/issues) and [Milestones](https://github.com/nearprotocol/nearcore/milestones) to checkout the current progress and working items.
 
 High level milestones:
 
@@ -45,7 +45,7 @@ High level milestones:
  - [ ] TestNet: Added governance module, ready to launch as MainNet
  - [ ] MainNet: Launched full blockchain.
 
-## Running 
+## Running
 
 Checkout the [Running Locally](https://docs.nearprotocol.com/docs/local-setup/running-testnet) and [Running Remotely](https://docs.nearprotocol.com/docs/local-setup/running-testnet#running-official-testnet-on-gcp) sections.
 

@@ -1,17 +1,18 @@
+use std::borrow::Borrow;
 use std::fmt;
 use std::hash::{Hash, Hasher};
 
 use borsh::{BorshDeserialize, BorshSerialize};
+use serde::Serialize;
 
 use near_crypto::{PublicKey, Signature, Signer};
 
 use crate::account::AccessKey;
-use crate::errors::ExecutionError;
+use crate::errors::TxExecutionError;
 use crate::hash::{hash, CryptoHash};
 use crate::logging;
 use crate::merkle::MerklePath;
 use crate::types::{AccountId, Balance, Gas, Nonce};
-use std::borrow::Borrow;
 
 pub type LogEntry = String;
 
@@ -211,7 +212,7 @@ pub enum ExecutionStatus {
     /// The execution is pending or unknown.
     Unknown,
     /// The execution has failed with the given execution error.
-    Failure(ExecutionError),
+    Failure(TxExecutionError),
     /// The final action succeeded and returned some value or an empty vec.
     SuccessValue(Vec<u8>),
     /// The final action of the receipt returned a promise or the signed transaction was converted

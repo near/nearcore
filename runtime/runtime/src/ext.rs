@@ -14,7 +14,8 @@ use near_primitives::transaction::{
 use near_primitives::types::{AccountId, Balance};
 use near_primitives::utils::{create_nonce_with_nonce, prefix_for_data};
 use near_store::{TrieUpdate, TrieUpdateIterator, TrieUpdateValuePtr};
-use near_vm_logic::{External, HostError, HostErrorOrStorageError, ValuePtr};
+use near_vm_logic::{External, HostError, VMLogicError, ValuePtr};
+use sha3::{Keccak256, Keccak512};
 
 pub struct RuntimeExt<'a> {
     trie_update: &'a mut TrieUpdate,
@@ -98,13 +99,14 @@ impl<'a> RuntimeExt<'a> {
     }
 }
 
-fn wrap_error(error: StorageError) -> HostErrorOrStorageError {
-    HostErrorOrStorageError::StorageError(
+fn wrap_error(error: StorageError) -> VMLogicError {
+    // TODO(#2010): Wrap StorageError into ExternalError.
+    VMLogicError::ExternalError(
         borsh::BorshSerialize::try_to_vec(&error).expect("Borsh serialize cannot fail"),
     )
 }
 
-type ExtResult<T> = ::std::result::Result<T, HostErrorOrStorageError>;
+type ExtResult<T> = ::std::result::Result<T, VMLogicError>;
 
 impl<'a> External for RuntimeExt<'a> {
     fn storage_set(&mut self, key: &[u8], value: &[u8]) -> ExtResult<()> {
@@ -166,7 +168,9 @@ impl<'a> External for RuntimeExt<'a> {
     ) -> ExtResult<Option<(Vec<u8>, Box<dyn ValuePtr + 'b>)>> {
         let result = match self.iters.get_mut(&iterator_idx) {
             Some(iter) => iter.next(),
-            None => return Err(HostError::InvalidIteratorIndex(iterator_idx).into()),
+            None => {
+                return Err(HostError::InvalidIteratorIndex { iterator_index: iterator_idx }.into())
+            }
         };
         match result {
             None => {
@@ -197,11 +201,7 @@ impl<'a> External for RuntimeExt<'a> {
             let data_id = self.new_data_id();
             self.action_receipts
                 .get_mut(receipt_index as usize)
-                .ok_or_else(|| {
-                    HostErrorOrStorageError::HostError(
-                        HostError::InvalidReceiptIndex(receipt_index).into(),
-                    )
-                })?
+                .ok_or_else(|| HostError::InvalidReceiptIndex { receipt_index })?
                 .1
                 .output_data_receivers
                 .push(DataReceiver { data_id, receiver_id: receiver_id.clone() });
@@ -357,8 +357,29 @@ impl<'a> External for RuntimeExt<'a> {
 
     fn sha256(&self, data: &[u8]) -> ExtResult<Vec<u8>> {
         use sha2::Digest;
+
         let value_hash = sha2::Sha256::digest(data);
         Ok(value_hash.as_ref().to_vec())
+    }
+
+    fn keccak256(&self, data: &[u8]) -> ExtResult<Vec<u8>> {
+        use sha3::Digest;
+
+        let mut hasher = Keccak256::default();
+        hasher.input(&data);
+        let mut res = [0u8; 32];
+        res.copy_from_slice(hasher.result().as_slice());
+        Ok(res.to_vec())
+    }
+
+    fn keccak512(&self, data: &[u8]) -> ExtResult<Vec<u8>> {
+        use sha3::Digest;
+
+        let mut hasher = Keccak512::default();
+        hasher.input(&data);
+        let mut res = [0u8; 64];
+        res.copy_from_slice(hasher.result().as_slice());
+        Ok(res.to_vec())
     }
 
     fn get_touched_nodes_count(&self) -> u64 {

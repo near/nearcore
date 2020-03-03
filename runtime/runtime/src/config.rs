@@ -1,45 +1,24 @@
 //! Settings of the parameters of the runtime.
 use near_primitives::account::AccessKeyPermission;
 use near_primitives::errors::IntegerOverflowError;
-use near_primitives::serialize::u128_dec_format;
 use near_primitives::transaction::{
     Action, AddKeyAction, DeployContractAction, FunctionCallAction, Transaction,
 };
-use near_primitives::types::{Balance, Gas, NumBlocks};
+use near_primitives::types::{Balance, Gas};
 use near_runtime_fees::RuntimeFeesConfig;
-use near_vm_logic::VMConfig;
 
-/// The structure that holds the parameters of the runtime, mostly economics.
-#[derive(Default, Debug, Serialize, Deserialize, Clone)]
-#[serde(default)]
-pub struct RuntimeConfig {
-    /// The cost to store one byte of storage per block.
-    #[serde(with = "u128_dec_format")]
-    pub storage_cost_byte_per_block: Balance,
-    /// The minimum number of blocks of storage rent an account has to maintain to prevent forced deletion.
-    pub poke_threshold: NumBlocks,
-    /// Costs of different actions that need to be performed when sending and processing transaction
-    /// and receipts.
-    pub transaction_costs: RuntimeFeesConfig,
-    /// Config of wasm operations.
-    pub wasm_config: VMConfig,
-    /// The baseline cost to store account_id of short length per block.
-    /// The original formula in NEP#0006 is `1,000 / (3 ^ (account_id.length - 2))` for cost per year.
-    /// This value represents `1,000` above adjusted to use per block.
-    #[serde(with = "u128_dec_format")]
-    pub account_length_baseline_cost_per_block: Balance,
-}
+// Just re-exporting RuntimeConfig for backwards compatibility.
+pub use near_runtime_configs::RuntimeConfig;
 
-impl RuntimeConfig {
-    pub fn free() -> Self {
-        Self {
-            storage_cost_byte_per_block: 0,
-            poke_threshold: 0,
-            transaction_costs: RuntimeFeesConfig::free(),
-            wasm_config: VMConfig::free(),
-            account_length_baseline_cost_per_block: 0,
-        }
-    }
+/// Describes the cost of converting this transaction into a receipt.
+pub struct TransactionCost {
+    /// Total amount of gas burnt for converting this transaction into a receipt.
+    pub gas_burnt: Gas,
+    /// Total amount of gas used for converting this transaction into a receipt. It includes gas
+    /// that is not yet spent, e.g. prepaid gas for function calls and future execution fees.
+    pub gas_used: Gas,
+    /// Total costs in tokens for this transaction (including all deposits).
+    pub total_cost: Balance,
 }
 
 pub fn safe_gas_to_balance(gas_price: Balance, gas: Gas) -> Result<Balance, IntegerOverflowError> {
@@ -147,14 +126,13 @@ pub fn exec_fee(config: &RuntimeFeesConfig, action: &Action) -> Gas {
         DeleteAccount(_) => cfg.delete_account_cost.exec_fee(),
     }
 }
-/// Returns a total amount of gas which was being burnt and total_cost
-/// which is used during incoming transaction verification
+/// Returns transaction costs for a given transaction.
 pub fn tx_cost(
     config: &RuntimeFeesConfig,
     transaction: &Transaction,
     gas_price: Balance,
     sender_is_receiver: bool,
-) -> Result<(Gas, Gas, Balance), IntegerOverflowError> {
+) -> Result<TransactionCost, IntegerOverflowError> {
     let mut gas_burnt: Gas = config.action_receipt_creation_config.send_fee(sender_is_receiver);
     gas_burnt = safe_add_gas(
         gas_burnt,
@@ -165,7 +143,7 @@ pub fn tx_cost(
     gas_used = safe_add_gas(gas_used, total_prepaid_gas(&transaction.actions)?)?;
     let mut total_cost = safe_gas_to_balance(gas_price, gas_used)?;
     total_cost = safe_add_balance(total_cost, total_deposit(&transaction.actions)?)?;
-    Ok((gas_burnt, gas_used, total_cost))
+    Ok(TransactionCost { gas_burnt, gas_used, total_cost })
 }
 
 /// Total sum of gas that would need to be burnt before we start executing the given actions.

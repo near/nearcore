@@ -3,14 +3,15 @@ use near_primitives::account::AccessKey;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::Receipt;
 use near_primitives::serialize::to_base64;
+use near_primitives::state_record::StateRecord;
 use near_primitives::transaction::{ExecutionOutcomeWithId, SignedTransaction};
 use near_primitives::types::{Balance, MerkleHash};
 use near_primitives::views::AccountView;
 use near_store::test_utils::create_trie;
 use near_store::{Trie, TrieUpdate};
-use node_runtime::{ApplyState, Runtime, StateRecord};
+use node_runtime::{ApplyState, Runtime};
 use random_config::random_config;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread;
 use std::thread::JoinHandle;
@@ -40,7 +41,8 @@ impl StandaloneRuntime {
     }
 
     pub fn new(signer: InMemorySigner, state_records: &[StateRecord], trie: Arc<Trie>) -> Self {
-        let runtime_config = random_config();
+        let mut runtime_config = random_config();
+        runtime_config.wasm_config.limit_config.max_total_prepaid_gas = u64::max_value();
 
         let runtime = Runtime::new(runtime_config);
         let trie_update = TrieUpdate::new(trie.clone(), MerkleHash::default());
@@ -68,15 +70,7 @@ impl StandaloneRuntime {
     ) -> (Vec<Receipt>, Vec<ExecutionOutcomeWithId>) {
         let apply_result = self
             .runtime
-            .apply(
-                self.trie.clone(),
-                self.root,
-                &None,
-                &self.apply_state,
-                receipts,
-                transactions,
-                &HashSet::default(),
-            )
+            .apply(self.trie.clone(), self.root, &None, &self.apply_state, receipts, transactions)
             .unwrap();
 
         let (store_update, root) = apply_result.trie_changes.into(self.trie.clone()).unwrap();
@@ -84,7 +78,7 @@ impl StandaloneRuntime {
         store_update.commit().unwrap();
         self.apply_state.block_index += 1;
 
-        (apply_result.new_receipts, apply_result.outcomes)
+        (apply_result.outgoing_receipts, apply_result.outcomes)
     }
 }
 

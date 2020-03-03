@@ -1,21 +1,23 @@
 use std::fs;
+use std::fs::File;
+use std::io::Read;
 use std::path::Path;
 use std::sync::Arc;
 
 use actix::{Actor, Addr};
 use log::info;
 
+use near_chain::ChainGenesis;
 use near_client::{ClientActor, ViewClientActor};
 use near_jsonrpc::start_http;
 use near_network::{NetworkRecipient, PeerManagerActor};
 use near_store::create_store;
 use near_telemetry::TelemetryActor;
+use tracing::trace;
 
-pub use crate::config::{
-    init_configs, load_config, load_test_config, GenesisConfig, NearConfig, NEAR_BASE,
-};
+use crate::config::GENESIS_HASH_FILE;
+pub use crate::config::{init_configs, load_config, load_test_config, NearConfig, NEAR_BASE};
 pub use crate::runtime::NightshadeRuntime;
-use near_chain::ChainGenesis;
 
 pub mod config;
 mod runtime;
@@ -48,6 +50,18 @@ pub fn get_default_home() -> String {
     }
 }
 
+fn get_expected_genesis_hash(home_dir: &Path) -> Option<String> {
+    let path = home_dir.join(GENESIS_HASH_FILE);
+
+    if path.exists() {
+        let mut file = File::open(path).expect("Could not open genesis hash file.");
+        let mut genesis_hash = String::new();
+        file.read_to_string(&mut genesis_hash).expect("Could not read from genesis hash file.");
+        return Some(genesis_hash);
+    }
+    None
+}
+
 pub fn start_with_config(
     home_dir: &Path,
     config: NearConfig,
@@ -56,23 +70,14 @@ pub fn start_with_config(
     near_primitives::test_utils::init_stop_on_panic();
     let runtime = Arc::new(NightshadeRuntime::new(
         home_dir,
-        store.clone(),
-        config.genesis_config.clone(),
+        Arc::clone(&store),
+        Arc::clone(&config.genesis),
         config.client_config.tracked_accounts.clone(),
         config.client_config.tracked_shards.clone(),
     ));
 
     let telemetry = TelemetryActor::new(config.telemetry_config.clone()).start();
-    let chain_genesis = ChainGenesis::new(
-        config.genesis_config.genesis_time,
-        config.genesis_config.gas_limit,
-        config.genesis_config.min_gas_price,
-        config.genesis_config.total_supply,
-        config.genesis_config.max_inflation_rate,
-        config.genesis_config.gas_price_adjustment_rate,
-        config.genesis_config.transaction_validity_period,
-        config.genesis_config.epoch_length,
-    );
+    let chain_genesis = ChainGenesis::from(&config.genesis);
 
     let node_id = config.network_config.public_key.clone().into();
     let network_adapter = Arc::new(NetworkRecipient::new());
@@ -82,6 +87,7 @@ pub fn start_with_config(
         runtime.clone(),
         network_adapter.clone(),
         config.client_config.clone(),
+        get_expected_genesis_hash(home_dir),
     )
     .unwrap()
     .start();
@@ -93,12 +99,18 @@ pub fn start_with_config(
         runtime,
         node_id,
         network_adapter.clone(),
-        config.block_producer,
+        config.validator_signer,
         telemetry,
+        true,
     )
     .unwrap()
     .start();
-    start_http(config.rpc_config, client_actor.clone(), view_client.clone());
+    start_http(
+        config.rpc_config,
+        Arc::clone(&config.genesis),
+        client_actor.clone(),
+        view_client.clone(),
+    );
 
     let network_actor = PeerManagerActor::new(
         store.clone(),
@@ -110,6 +122,8 @@ pub fn start_with_config(
     .start();
 
     network_adapter.set_recipient(network_actor.recipient());
+
+    trace!(target: "diagnostic", key="log", "Starting NEAR node with diagnostic activated");
 
     (client_actor, view_client)
 }

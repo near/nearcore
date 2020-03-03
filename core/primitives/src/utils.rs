@@ -5,6 +5,8 @@ use std::fmt;
 use borsh::BorshSerialize;
 use byteorder::{LittleEndian, WriteBytesExt};
 use chrono::{DateTime, NaiveDateTime, Utc};
+use rand::distributions::Alphanumeric;
+use rand::{thread_rng, Rng};
 use regex::Regex;
 use serde;
 
@@ -13,8 +15,6 @@ use near_crypto::PublicKey;
 
 use crate::hash::{hash, CryptoHash};
 use crate::types::{AccountId, NumSeats, NumShards};
-use rand::distributions::Alphanumeric;
-use rand::{thread_rng, Rng};
 
 pub const ACCOUNT_DATA_SEPARATOR: &[u8; 1] = b",";
 pub const MIN_ACCOUNT_ID_LEN: usize = 2;
@@ -36,8 +36,9 @@ pub mod col {
 }
 
 fn key_for_column_account_id(column: &[u8], account_key: &AccountId) -> Vec<u8> {
-    let mut key = column.to_vec();
-    key.append(&mut account_key.clone().into_bytes());
+    let mut key = Vec::with_capacity(column.len() + account_key.len());
+    key.extend(column);
+    key.extend(account_key.as_bytes());
     key
 }
 
@@ -54,21 +55,25 @@ pub fn key_for_data(account_id: &AccountId, data: &[u8]) -> Vec<u8> {
 
 pub fn prefix_for_access_key(account_id: &AccountId) -> Vec<u8> {
     let mut key = key_for_column_account_id(col::ACCESS_KEY, account_id);
-    key.extend_from_slice(col::ACCESS_KEY);
+    key.extend(col::ACCESS_KEY);
     key
 }
 
 pub fn prefix_for_data(account_id: &AccountId) -> Vec<u8> {
     let mut prefix = key_for_account(account_id);
-    prefix.append(&mut ACCOUNT_DATA_SEPARATOR.to_vec());
+    prefix.extend(ACCOUNT_DATA_SEPARATOR);
     prefix
 }
 
 pub fn key_for_access_key(account_id: &AccountId, public_key: &PublicKey) -> Vec<u8> {
     let mut key = key_for_column_account_id(col::ACCESS_KEY, account_id);
-    key.extend_from_slice(col::ACCESS_KEY);
-    key.extend_from_slice(&public_key.try_to_vec().expect("Failed to serialize public key"));
+    key.extend(col::ACCESS_KEY);
+    key.extend(&public_key.try_to_vec().expect("Failed to serialize public key"));
     key
+}
+
+pub fn key_for_all_access_keys(account_id: &AccountId) -> Vec<u8> {
+    key_for_column_account_id(col::ACCESS_KEY, account_id)
 }
 
 pub fn key_for_code(account_key: &AccountId) -> Vec<u8> {
@@ -77,41 +82,47 @@ pub fn key_for_code(account_key: &AccountId) -> Vec<u8> {
 
 pub fn key_for_received_data(account_id: &AccountId, data_id: &CryptoHash) -> Vec<u8> {
     let mut key = key_for_column_account_id(col::RECEIVED_DATA, account_id);
-    key.append(&mut ACCOUNT_DATA_SEPARATOR.to_vec());
-    key.extend_from_slice(data_id.as_ref());
+    key.extend(ACCOUNT_DATA_SEPARATOR);
+    key.extend(data_id.as_ref());
     key
 }
 
 pub fn key_for_postponed_receipt_id(account_id: &AccountId, data_id: &CryptoHash) -> Vec<u8> {
     let mut key = key_for_column_account_id(col::POSTPONED_RECEIPT_ID, account_id);
-    key.append(&mut ACCOUNT_DATA_SEPARATOR.to_vec());
-    key.extend_from_slice(data_id.as_ref());
+    key.extend(ACCOUNT_DATA_SEPARATOR);
+    key.extend(data_id.as_ref());
     key
 }
 
 pub fn key_for_pending_data_count(account_id: &AccountId, receipt_id: &CryptoHash) -> Vec<u8> {
     let mut key = key_for_column_account_id(col::PENDING_DATA_COUNT, account_id);
-    key.append(&mut ACCOUNT_DATA_SEPARATOR.to_vec());
-    key.extend_from_slice(receipt_id.as_ref());
+    key.extend(ACCOUNT_DATA_SEPARATOR);
+    key.extend(receipt_id.as_ref());
     key
 }
 
 pub fn key_for_postponed_receipt(account_id: &AccountId, receipt_id: &CryptoHash) -> Vec<u8> {
     let mut key = key_for_column_account_id(col::POSTPONED_RECEIPT, account_id);
-    key.append(&mut ACCOUNT_DATA_SEPARATOR.to_vec());
-    key.extend_from_slice(receipt_id.as_ref());
+    key.extend(ACCOUNT_DATA_SEPARATOR);
+    key.extend(receipt_id.as_ref());
+    key
+}
+
+pub fn key_for_all_postponed_receipts(account_id: &AccountId) -> Vec<u8> {
+    let mut key = key_for_column_account_id(col::POSTPONED_RECEIPT, account_id);
+    key.extend(ACCOUNT_DATA_SEPARATOR);
     key
 }
 
 pub fn key_for_delayed_receipt(index: u64) -> Vec<u8> {
     let mut key = col::DELAYED_RECEIPT.to_vec();
-    key.extend_from_slice(&index.to_le_bytes());
+    key.extend(&index.to_le_bytes());
     key
 }
 
 pub fn create_nonce_with_nonce(base: &CryptoHash, salt: u64) -> CryptoHash {
     let mut nonce: Vec<u8> = base.as_ref().to_owned();
-    nonce.append(&mut index_to_bytes(salt));
+    nonce.extend(index_to_bytes(salt));
     hash(&nonce)
 }
 
@@ -296,9 +307,7 @@ where
 /// it shows its json representation. It is used to display complex
 /// objects using tracing.
 ///
-/// ```
 /// tracing::debug!(target: "diagnostic", value=%ser(&object));
-/// ```
 pub fn ser<'a, T>(object: &'a T) -> Serializable<'a, T>
 where
     T: serde::Serialize,

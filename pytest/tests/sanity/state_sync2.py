@@ -10,7 +10,7 @@ sys.path.append('lib')
 from cluster import start_cluster
 from utils import LogTracker
 
-TIMEOUT = 300
+TIMEOUT = 600
 BLOCKS = 105 # should be enough to trigger state sync for node 1 later, see comments there
 
 nodes = start_cluster(2, 0, 2, None, [["num_block_producer_seats", 199], ["num_block_producer_seats_per_shard", [24, 25, 25, 25, 25, 25, 25, 25]], ["epoch_length", 10], ["block_producer_kickout_threshold", 80]], {})

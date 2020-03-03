@@ -8,11 +8,12 @@ use log::debug;
 use rand::seq::SliceRandom;
 use rand::thread_rng;
 
+use near_primitives::network::PeerId;
 use near_primitives::utils::to_timestamp;
 use near_store::{ColPeers, Store};
 
 use crate::types::{
-    FullPeerInfo, KnownPeerState, KnownPeerStatus, NetworkConfig, PeerId, PeerInfo, ReasonForBan,
+    FullPeerInfo, KnownPeerState, KnownPeerStatus, NetworkConfig, PeerInfo, ReasonForBan,
 };
 
 /// Known peers store, maintaining cache of known peers and connection to storage to save/load them.
@@ -195,10 +196,10 @@ impl PeerStore {
 mod test {
     extern crate tempdir;
 
+    use near_crypto::{KeyType, SecretKey};
     use near_store::create_store;
 
     use super::*;
-    use near_crypto::{KeyType, SecretKey};
 
     fn gen_peer_info() -> PeerInfo {
         PeerInfo {

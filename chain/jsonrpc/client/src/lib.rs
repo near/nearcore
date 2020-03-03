@@ -6,10 +6,11 @@ use serde::Deserialize;
 use serde::Serialize;
 
 use near_primitives::hash::CryptoHash;
+use near_primitives::rpc::{BlockQueryInfo, RpcGenesisRecordsRequest, RpcQueryRequest};
 use near_primitives::types::{BlockId, MaybeBlockId, ShardId};
 use near_primitives::views::{
     BlockView, ChunkView, EpochValidatorInfo, FinalExecutionOutcomeView, GasPriceView,
-    QueryResponse, StatusResponse,
+    GenesisRecordsView, QueryResponse, StateChangesView, StatusResponse,
 };
 
 use crate::message::{from_slice, Message, RpcError};
@@ -178,15 +179,44 @@ macro_rules! jsonrpc_client {
 jsonrpc_client!(pub struct JsonRpcClient {
     pub fn broadcast_tx_async(&mut self, tx: String) -> RpcRequest<String>;
     pub fn broadcast_tx_commit(&mut self, tx: String) -> RpcRequest<FinalExecutionOutcomeView>;
-    pub fn query(&mut self, path: String, data: String) -> RpcRequest<QueryResponse>;
     pub fn status(&mut self) -> RpcRequest<StatusResponse>;
+    #[allow(non_snake_case)]
+    pub fn EXPERIMENTAL_genesis_config(&mut self) -> RpcRequest<serde_json::Value>;
     pub fn health(&mut self) -> RpcRequest<()>;
     pub fn tx(&mut self, hash: String, account_id: String) -> RpcRequest<FinalExecutionOutcomeView>;
-    pub fn block(&mut self, id: BlockId) -> RpcRequest<BlockView>;
     pub fn chunk(&mut self, id: ChunkId) -> RpcRequest<ChunkView>;
+    pub fn changes(&mut self, block_hash: CryptoHash, key_prefix: Vec<u8>) -> RpcRequest<StateChangesView>;
     pub fn validators(&mut self, block_id: MaybeBlockId) -> RpcRequest<EpochValidatorInfo>;
     pub fn gas_price(&mut self, block_id: MaybeBlockId) -> RpcRequest<GasPriceView>;
 });
+
+impl JsonRpcClient {
+    #[allow(non_snake_case)]
+    pub fn EXPERIMENTAL_genesis_records(
+        &mut self,
+        request: RpcGenesisRecordsRequest,
+    ) -> RpcRequest<GenesisRecordsView> {
+        call_method(&self.client, &self.server_addr, "EXPERIMENTAL_genesis_records", request)
+    }
+
+    /// This is a soft-deprecated method to do query RPC request with a path and data positional
+    /// parameters.
+    pub fn query_by_path(&mut self, path: String, data: String) -> RpcRequest<QueryResponse> {
+        call_method(&self.client, &self.server_addr, "query", [path, data])
+    }
+
+    pub fn query(&mut self, request: RpcQueryRequest) -> RpcRequest<QueryResponse> {
+        call_method(&self.client, &self.server_addr, "query", request)
+    }
+
+    pub fn block_by_id(&mut self, block_id: BlockId) -> RpcRequest<BlockView> {
+        call_method(&self.client, &self.server_addr, "block", [block_id])
+    }
+
+    pub fn block(&mut self, request: BlockQueryInfo) -> RpcRequest<BlockView> {
+        call_method(&self.client, &self.server_addr, "block", request)
+    }
+}
 
 fn create_client() -> Client {
     Client::build()

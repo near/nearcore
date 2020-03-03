@@ -13,12 +13,11 @@ use crate::transaction::{
     TransferAction,
 };
 use crate::types::{AccountId, Balance, BlockHeight, EpochId, Nonce};
+use crate::validator_signer::ValidatorSigner;
 
 lazy_static! {
     static ref HEAVY_TESTS_LOCK: Mutex<()> = Mutex::new(());
 }
-
-const TEST_TIME_DELTA: u64 = 20;
 
 pub fn heavy_test<F>(f: F)
 where
@@ -36,6 +35,15 @@ pub fn init_test_logger() {
         .filter(None, LevelFilter::Debug)
         .try_init();
     init_stop_on_panic();
+}
+
+pub fn init_test_logger_allow_panic() {
+    let _ = env_logger::Builder::new()
+        .filter_module("tokio_reactor", LevelFilter::Info)
+        .filter_module("tokio_core", LevelFilter::Info)
+        .filter_module("hyper", LevelFilter::Info)
+        .filter(None, LevelFilter::Debug)
+        .try_init();
 }
 
 pub fn init_test_module_logger(module: &str) {
@@ -65,8 +73,10 @@ pub fn init_stop_on_panic() {
     SET_PANIC_HOOK.call_once(|| {
         let default_hook = std::panic::take_hook();
         std::panic::set_hook(Box::new(move |info| {
-            actix::System::with_current(|sys| sys.stop_with_code(1));
             default_hook(info);
+            if actix::System::is_set() {
+                actix::System::with_current(|sys| sys.stop_with_code(1));
+            }
         }));
     })
 }
@@ -153,7 +163,7 @@ impl Block {
         epoch_id: EpochId,
         next_epoch_id: EpochId,
         next_bp_hash: CryptoHash,
-        signer: &dyn Signer,
+        signer: &dyn ValidatorSigner,
     ) -> Self {
         Self::empty_with_approvals(
             prev,
@@ -163,16 +173,14 @@ impl Block {
             vec![],
             signer,
             next_bp_hash,
-            if prev.header.prev_hash == CryptoHash::default() {
-                0
-            } else {
-                TEST_TIME_DELTA as u128
-            },
-            1,
         )
     }
 
-    pub fn empty_with_height(prev: &Block, height: BlockHeight, signer: &dyn Signer) -> Self {
+    pub fn empty_with_height(
+        prev: &Block,
+        height: BlockHeight,
+        signer: &dyn ValidatorSigner,
+    ) -> Self {
         Self::empty_with_epoch(
             prev,
             height,
@@ -187,7 +195,7 @@ impl Block {
         )
     }
 
-    pub fn empty(prev: &Block, signer: &dyn Signer) -> Self {
+    pub fn empty(prev: &Block, signer: &dyn ValidatorSigner) -> Self {
         Self::empty_with_height(prev, prev.header.inner_lite.height + 1, signer)
     }
 
@@ -199,12 +207,10 @@ impl Block {
         epoch_id: EpochId,
         next_epoch_id: EpochId,
         approvals: Vec<Approval>,
-        signer: &dyn Signer,
+        signer: &dyn ValidatorSigner,
         next_bp_hash: CryptoHash,
-        time_delta: u128,
-        weight_delta: u128,
     ) -> Self {
-        let mut ret = Block::produce(
+        Block::produce(
             &prev.header,
             height,
             prev.chunks.clone(),
@@ -217,19 +223,11 @@ impl Block {
             vec![],
             vec![],
             signer,
-            time_delta,
-            weight_delta,
             0.into(),
             CryptoHash::default(),
             CryptoHash::default(),
+            CryptoHash::default(),
             next_bp_hash,
-        );
-        // Make blocks to be `TEST_TIME_DELTA` apart from each other so that the fork choice rule behaves predictably.
-        // Tests that test the fork choice rule itself (such as `fork_choice.rs`) change the time when
-        // needed on their end.
-        ret.header.inner_lite.timestamp = prev.header.inner_lite.timestamp + TEST_TIME_DELTA;
-        ret.header.init();
-        ret.header.signature = signer.sign(ret.header.hash.as_ref());
-        ret
+        )
     }
 }

@@ -1,26 +1,27 @@
+use std::collections::HashMap;
 use std::convert::TryFrom;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use ansi_term::Color::Red;
 use borsh::BorshDeserialize;
 use clap::{App, Arg, SubCommand};
 
-use ansi_term::Color::Red;
 use near::{get_default_home, get_store_path, load_config, NearConfig, NightshadeRuntime};
-use near_chain::{ChainStore, ChainStoreAccess, RuntimeAdapter};
+use near_chain::{ChainStore, ChainStoreAccess, DoomslugThresholdMode, RuntimeAdapter};
+use near_chain_configs::Genesis;
 use near_crypto::PublicKey;
 use near_network::peer_store::PeerStore;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::{Receipt, ReceivedData};
 use near_primitives::serialize::{from_base64, to_base, to_base64};
+use near_primitives::state_record::StateRecord;
 use near_primitives::test_utils::init_integration_logger;
 use near_primitives::types::{BlockHeight, StateRoot};
 use near_primitives::utils::{col, ACCOUNT_DATA_SEPARATOR};
 use near_store::test_utils::create_test_store;
 use near_store::{create_store, Store, TrieIterator};
-use node_runtime::StateRecord;
-use std::collections::HashMap;
 
 fn to_printable(blob: &[u8]) -> String {
     if blob.len() > 60 {
@@ -130,7 +131,7 @@ fn load_trie(
     let runtime = NightshadeRuntime::new(
         &home_dir,
         store,
-        near_config.genesis_config.clone(),
+        Arc::clone(&near_config.genesis),
         near_config.client_config.tracked_accounts.clone(),
         near_config.client_config.tracked_shards.clone(),
     );
@@ -158,7 +159,7 @@ fn print_chain(
     let runtime = NightshadeRuntime::new(
         &home_dir,
         store,
-        near_config.genesis_config.clone(),
+        Arc::clone(&near_config.genesis),
         near_config.client_config.tracked_accounts.clone(),
         near_config.client_config.tracked_shards.clone(),
     );
@@ -227,7 +228,7 @@ fn replay_chain(
     let runtime = NightshadeRuntime::new(
         &home_dir,
         new_store,
-        near_config.genesis_config.clone(),
+        Arc::clone(&near_config.genesis),
         near_config.client_config.tracked_accounts.clone(),
         near_config.client_config.tracked_shards.clone(),
     );
@@ -238,6 +239,7 @@ fn replay_chain(
                 .add_validator_proposals(
                     header.prev_hash,
                     header.hash(),
+                    header.inner_rest.random_value,
                     header.inner_lite.height,
                     chain_store
                         .get_block_height(&header.inner_rest.last_quorum_pre_commit)
@@ -268,15 +270,7 @@ fn main() {
         )
         .subcommand(SubCommand::with_name("peers"))
         .subcommand(SubCommand::with_name("state"))
-        .subcommand(
-            SubCommand::with_name("dump_state").arg(
-                Arg::with_name("output")
-                    .long("output")
-                    .required(true)
-                    .help("Output path for new genesis given current blockchain state")
-                    .takes_value(true),
-            ),
-        )
+        .subcommand(SubCommand::with_name("dump_state"))
         .subcommand(
             SubCommand::with_name("chain")
                 .arg(
@@ -316,7 +310,7 @@ fn main() {
         .get_matches();
 
     let home_dir = matches.value_of("home").map(|dir| Path::new(dir)).unwrap();
-    let mut near_config = load_config(home_dir);
+    let near_config = load_config(home_dir);
 
     let store = create_store(&get_store_path(&home_dir));
 
@@ -338,26 +332,60 @@ fn main() {
                 }
             }
         }
-        ("dump_state", Some(args)) => {
-            let (runtime, state_roots, height) = load_trie(store, home_dir, &near_config);
-            let output_path = args.value_of("output").map(|path| Path::new(path)).unwrap();
-            println!(
-                "Saving state at {:?} @ {} into {}",
-                state_roots,
-                height,
-                output_path.display()
-            );
-            near_config.genesis_config.records = vec![];
-            for state_root in state_roots {
+        ("dump_state", Some(_args)) => {
+            let (runtime, state_roots, height) = load_trie(store.clone(), home_dir, &near_config);
+            let home_dir = PathBuf::from(&home_dir);
+
+            println!("Generating genesis from state data");
+
+            let mut records = vec![];
+            for state_root in &state_roots {
                 let trie = TrieIterator::new(&runtime.trie, &state_root).unwrap();
                 for item in trie {
                     let (key, value) = item.unwrap();
                     if let Some(sr) = kv_to_state_record(key, value) {
-                        near_config.genesis_config.records.push(sr);
+                        records.push(sr);
                     }
                 }
             }
-            near_config.genesis_config.write_to_file(&output_path);
+            let genesis =
+                Arc::new(Genesis::new(near_config.genesis.config.clone(), records.into()));
+
+            println!("Calculating new genesis hash");
+            let store = near_store::test_utils::create_test_store();
+            let runtime = Arc::new(NightshadeRuntime::new(
+                &home_dir,
+                Arc::clone(&store),
+                Arc::clone(&genesis),
+                near_config.client_config.tracked_accounts.clone(),
+                near_config.client_config.tracked_shards.clone(),
+            ));
+            let chain_genesis = near_chain::ChainGenesis::from(&genesis);
+
+            let mut chain = near_chain::Chain::new(
+                store,
+                Arc::clone(&runtime) as Arc<dyn RuntimeAdapter>,
+                &chain_genesis,
+                DoomslugThresholdMode::HalfStake,
+            )
+            .unwrap();
+            let genesis_hash = chain.get_block_by_height(0).unwrap().hash().to_string();
+
+            let output_path = home_dir.join(Path::new("output_config.json"));
+            let records_path =
+                home_dir.join(Path::new(&format!("output_records_{}.json", &genesis_hash)));
+            let genesis_hash_path = home_dir.join(Path::new("output_hash"));
+
+            println!(
+                "Saving state at {:?} @ {} into {} and records {}",
+                state_roots,
+                height,
+                output_path.display(),
+                records_path.display(),
+            );
+            genesis.config.to_file(&output_path);
+            genesis.records.to_file(&records_path);
+            std::fs::write(&genesis_hash_path, &genesis_hash).unwrap();
         }
         ("chain", Some(args)) => {
             let start_index =

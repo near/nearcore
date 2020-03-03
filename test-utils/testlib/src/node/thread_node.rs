@@ -1,7 +1,8 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use near::{start_with_config, GenesisConfig, NearConfig};
+use near::{start_with_config, NearConfig};
+use near_chain_configs::Genesis;
 use near_crypto::{InMemorySigner, KeyType, Signer};
 use near_primitives::types::AccountId;
 
@@ -29,13 +30,13 @@ fn start_thread(config: NearConfig, path: PathBuf) -> ShutdownableThread {
 }
 
 impl Node for ThreadNode {
-    fn genesis_config(&self) -> &GenesisConfig {
-        &self.config.genesis_config
+    fn genesis(&self) -> &Genesis {
+        &self.config.genesis
     }
 
     fn account_id(&self) -> Option<AccountId> {
-        match &self.config.block_producer {
-            Some(bp) => Some(bp.account_id.clone()),
+        match &self.config.validator_signer {
+            Some(vs) => Some(vs.validator_id().clone()),
             None => None,
         }
     }
@@ -51,6 +52,7 @@ impl Node for ThreadNode {
             ThreadNodeState::Stopped => panic!("Node is not running"),
             ThreadNodeState::Running(handle) => {
                 handle.shutdown();
+                self.state = ThreadNodeState::Stopped;
             }
         }
     }
@@ -84,9 +86,9 @@ impl ThreadNode {
     /// Side effects: create storage, open database, lock database
     pub fn new(config: NearConfig) -> ThreadNode {
         let signer = Arc::new(InMemorySigner::from_seed(
-            &config.block_producer.clone().unwrap().account_id,
+            &config.validator_signer.as_ref().unwrap().validator_id(),
             KeyType::ED25519,
-            &config.block_producer.clone().unwrap().account_id,
+            &config.validator_signer.as_ref().unwrap().validator_id(),
         ));
         ThreadNode {
             config,

@@ -2,29 +2,28 @@ from transaction import sign_payment_tx
 import random, base58
 from retry import retry
 from cluster import LocalNode, GCloudNode
-from rc import run
+import sys
+from rc import run, gcloud
 import os
 import tempfile
 import json
+from pprint import pprint
+
 class TxContext:
     def __init__(self, act_to_val, nodes):
         self.next_nonce = 2
         self.num_nodes = len(nodes)
         self.nodes = nodes
         self.act_to_val = act_to_val
-        print(f'get_balances')
         self.expected_balances = self.get_balances()
-        print(f'get_balances done')
         assert len(act_to_val) == self.num_nodes
         assert self.num_nodes >= 2
 
     @retry(tries=10, backoff=1.2)
     def get_balance(self, whose):
-        print(f'get_balance {whose}')
         r = self.nodes[self.act_to_val[whose]].get_account("test%s" % whose)
         assert 'result' in r, r
         return int(r['result']['amount']) + int(r['result']['locked'])
-        print(f'get_balance {whose} done')
 
     def get_balances(self):
         return [
@@ -85,13 +84,13 @@ with open('/tmp/python-rc.log') as f:
                 self.offset = f.tell()
             return ret
         elif type(self.node) is GCloudNode:
-            ret, offset = node.machine.run("python3", input=f'''
+            ret, offset = map(int, node.machine.run("python3", input=f'''
 pattern={pattern}
 with open('/tmp/python-rc.log') as f:
     f.seek({self.offset})
     print(s in f.read())
     print(f.tell())
-''').stdout.strip().split('\n')
+''').stdout.strip().split('\n'))
             self.offset = int(offset)
             return ret == "True"
         else:
@@ -135,6 +134,45 @@ with open('/tmp/python-rc.log') as f:
         else:
             raise NotImplementedError()
 
+
+
+def chain_query(node, block_handler, *, block_hash=None, max_blocks=-1):
+    """
+    Query chain block approvals and chunks preceding of block of block_hash.
+    If block_hash is None, it query latest block hash
+    It query at most max_blocks, or if it's -1, all blocks back to genesis
+    """
+    if block_hash is None:
+        status = node.get_status()
+        block_hash = status['sync_info']['latest_block_hash']
+
+    initial_validators = node.validators()
+
+    if max_blocks == -1:
+        while True:
+            validators = node.validators()
+            if validators != initial_validators:
+                print(f'Fatal: validator set of node {node} changes, from {initial_validators} to {validators}')
+                sys.exit(1)
+            block = node.get_block(block_hash)['result']
+            block_handler(block)
+            block_hash = block['header']['prev_hash']
+            block_height = block['header']['height']
+            if block_height == 0:
+                break
+    else:
+        for _ in range(max_blocks):
+            validators = node.validators()
+            if validators != initial_validators:
+                print(f'Fatal: validator set of node {node} changes, from {initial_validators} to {validators}')
+                sys.exit(1)
+            block = node.get_block(block_hash)['result']
+            block_handler(block)
+            block_hash = block['header']['prev_hash']
+            block_height = block['header']['height']
+            if block_height == 0:
+                break
+
 def load_binary_file(filepath):
     with open(filepath, "rb") as binaryfile:
         return bytearray(binaryfile.read())
@@ -146,7 +184,7 @@ def compile_rust_contract(content):
     p = run(f'cp -r {empty_contract_rs} {tmp_contract}')
     if p.returncode != 0:
         raise Exception(p.stderr)
-    
+
     with open(f'{tmp_contract}/src/lib.rs', 'a') as f:
         f.write(content)
 
@@ -161,3 +199,11 @@ cd {tmp_contract}
 def contract_fn_args(**kwargs):
     return json.dumps(kwargs).encode()
 
+
+
+
+def user_name():
+    username = os.getlogin()
+    if username == 'root':  # digitalocean
+        username = gcloud.list()[0].username.replace('_nearprotocol_com', '')
+    return username

@@ -14,6 +14,7 @@ log = "0.4"
 rocksdb = "0.13"
 rand = "0.7"
 sha2 = "0.8"
+sha3 = "0.8"
 lazy_static = "1.4"
 
 borsh = "0.2.10"
@@ -23,6 +24,7 @@ near-crypto = { path = "../../core/crypto" }
 near-primitives = { path = "../../core/primitives" }
 near-store = { path = "../../core/store" }
 near-metrics = { path = "../../core/metrics" }
+near-runtime-configs = { path = "../../core/runtime-configs" }
 near-runtime-fees = { path = "../../runtime/near-runtime-fees" }
 near-vm-logic = { path = "../../runtime/near-vm-logic" }
 near-vm-runner = { path = "../../runtime/near-vm-runner" }
@@ -30,6 +32,7 @@ near-vm-errors = { path = "../../runtime/near-vm-errors" }
 
 [features]
 default = []
+dump_errors_schema = ["near-vm-errors/dump_errors_schema"]
 
 # Use this feature to enable counting of fees and costs applied.
 costs_counting = ["near-vm-logic/costs_counting", "near-vm-runner/costs_counting"]
