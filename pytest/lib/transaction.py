@@ -228,7 +228,7 @@ def sign_function_call_tx(signer_key, methodName, args, gas, deposit, nonce, blo
     if contractName is None:
         contractName = signer_key.account_id
     action = create_function_call_action(methodName, args, gas, deposit)
-    return sign_and_serialize_transaction(contractName, nonce, [action], blockHash, contractName, signer_key.decoded_pk(), signer_key.decoded_sk())
+    return sign_and_serialize_transaction(contractName, nonce, [action], blockHash, signer_key.account_id, signer_key.decoded_pk(), signer_key.decoded_sk())
 
 def create_account_tx(signer_key, account_name, initial_balance, nonce, blockHash):
     create_account_action = create_create_account_action()

@@ -61,7 +61,7 @@ class LogTracker:
     def __init__(self, node):
         self.node = node
         if type(node) is LocalNode:
-            self.fname = node.stdout_name
+            self.fname = node.stderr_name
             with open(self.fname) as f:
                 f.seek(0, 2)
                 self.offset = f.tell()
@@ -127,7 +127,7 @@ with open('/tmp/python-rc.log') as f:
                 while True:
                     line = f.readline()
                     if line == "":
-                        raise Exception("LogTracker.getline pattern not found")
+                        raise Exception(f'LogTracker.getline pattern "{pattern}" not found')
                     self.offset = f.tell()
                     if pattern in line:
                         return line

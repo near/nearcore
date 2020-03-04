@@ -7,20 +7,8 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use actix::{Actor, Context, Handler};
-use log::{debug, error, warn};
-
-use near_chain::{Chain, ChainGenesis, ChainStoreAccess, ErrorKind, RuntimeAdapter};
-use near_primitives::types::{AccountId, BlockId, MaybeBlockId};
-use near_primitives::views::{
-    BlockView, ChunkView, EpochValidatorInfo, FinalExecutionOutcomeView, FinalExecutionStatus,
-    GasPriceView, LightClientBlockView, QueryResponse,
-};
-use near_store::Store;
-
-use crate::types::{Error, GetBlock, GetGasPrice, Query, TxStatus};
-use crate::{sync, ClientConfig, GetChunk, GetNextLightClientBlock, GetValidatorInfo};
 use cached::{Cached, SizedCache};
-use log::{error, info, warn};
+use log::{debug, error, info, warn};
 
 use near_chain::types::ShardStateSyncResponse;
 use near_chain::{
@@ -174,6 +162,7 @@ impl ViewClientActor {
             QueryRequest::CallFunction { account_id, .. } => account_id,
         };
         let shard_id = self.runtime_adapter.account_id_to_shard_id(account_id);
+        debug!(target: "view_client", "account {} in shard {}", account_id, shard_id);
 
         // If we have state for the shard that we query return query result directly.
         // Otherwise route query to peers.

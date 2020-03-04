@@ -3,6 +3,8 @@
 
 import sys, time
 import base58
+import base64
+import json
 from pprint import pprint
 
 sys.path.append('lib')
@@ -10,7 +12,8 @@ from cluster import start_cluster
 from transaction import sign_deploy_contract_tx, sign_function_call_tx, create_account_tx
 from utils import load_binary_file, compile_rust_contract, contract_fn_args, LogTracker
 
-nodes = start_cluster(4, 0, 4, None, [["epoch_length", 10], ["block_producer_kickout_threshold", 80]], {})
+MAX_GAS = 10000000000000000
+nodes = start_cluster(4, 0, 4, None, [["epoch_length", 1000], ["block_producer_kickout_threshold", 80]], {})
 status = nodes[0].get_status()
 hash_ = status['sync_info']['latest_block_hash']
 block = nodes[0].get_block(hash_)
@@ -141,19 +144,19 @@ impl CrossContract {
     //    }
 
     pub fn simple_call(&mut self, account_id: String, message: String) {
-        ext_status_message::set_status(message, &account_id, 0, 1000000000000000000);
+        ext_status_message::set_status(message, &account_id, 0, 200000000000000);
     }
     pub fn complex_call(&mut self, account_id: String, message: String) -> Promise {
         // 1) call status_message to record a message from the signer.
         // 2) call status_message to retrieve the message of the signer.
         // 3) return that message as its own result.
         // Note, for a contract to simply call another contract (1) is sufficient.
-        ext_status_message::set_status(message, &account_id, 0, 1000000000000000000).then(
+        ext_status_message::set_status(message, &account_id, 0, 200000000000000).then(
             ext_status_message::get_status(
                 env::signer_account_id(),
                 &account_id,
                 0,
-                1000000000000000000,
+                200000000000000,
             ),
         )
     }
@@ -164,15 +167,19 @@ impl CrossContract {
 }
 ''')
 
+def assert_tx_success(res):
+    if 'result' not in res:
+        assert False, res
+    assert 'SuccessValue' in res['result']['status'], f'Transaction failed: {res}'
+
 # Create account cross_contract and deploy contract to it
 nonce = 10
 contract_name = 'cross_contract'
 status = nodes[0].get_status()
 hash_ = base58.b58decode(status['sync_info']['latest_block_hash'])
-tx = create_account_tx(nodes[0].signer_key, contract_name, 1050010022916497818510000, nonce, hash_)
-res = nodes[0].send_tx_and_wait(tx, 10)
-print('')
-pprint(res)
+tx = create_account_tx(nodes[0].signer_key, contract_name, 1000 * 10 ** 24, nonce, hash_)
+res = nodes[0].send_tx_and_wait(tx, 20)
+assert_tx_success(res)
 time.sleep(5)
 a = nodes[0].get_account(contract_name)
 line = t.getline('account cross_contract in shard')
@@ -181,10 +188,9 @@ shard = int(line.split('shard ')[-1].strip())
 status = nodes[0].get_status()
 hash_ = base58.b58decode(status['sync_info']['latest_block_hash'])
 tx = sign_deploy_contract_tx(nodes[0].signer_key, load_binary_file(wasm_file), nonce+5, hash_, contract_name)
-res = nodes[0].send_tx_and_wait(tx, 10)
-print(f'shard {shard}')
-pprint(res)
-
+res = nodes[0].send_tx_and_wait(tx, 20)
+assert_tx_success(res)
+print(f'contract {contract_name} deployed')
 
 def deploy_status_message_contract():
     global nonce
@@ -192,35 +198,39 @@ def deploy_status_message_contract():
     status = nodes[0].get_status()
     hash_ = base58.b58decode(status['sync_info']['latest_block_hash'])
     contract_name = f'status_message{nonce}'
-    tx = sign_function_call_tx(nodes[0].signer_key, 'deploy_status_message', contract_fn_args(account_id=contract_name, amount=1000000000000000),
-                            100000000000000, 100000000000000, nonce, hash_, 'cross_contract')
-    res = nodes[0].send_tx_and_wait(tx, 10)
-    pprint(res)
+    amount = 100 * 10 ** 24
+    tx = sign_function_call_tx(nodes[0].signer_key, 'deploy_status_message', contract_fn_args(account_id=contract_name, amount=100),
+                               MAX_GAS, amount, nonce, hash_, 'cross_contract')
+    res = nodes[0].send_tx_and_wait(tx, 20)
+    assert_tx_success(res)
 
     time.sleep(5)
     a = nodes[0].get_account(contract_name)
     line = t.getline(f'account {contract_name} in shard')
     shard = int(line.split('shard ')[-1].strip())
-    print(f'shard {shard}')
     return contract_name, shard
 
 
 # Deploy status_message contract by call function in cross_contract contract until it's in different shard
 status_message_contract, status_message_shard = None, None
 while True:
+    time.sleep(3)
     status_message_contract, status_message_shard = deploy_status_message_contract()
     if status_message_shard != shard:
+        print(f'{status_message_contract} deployed on shard {status_message_shard}')
         break
 
 # Simple cross contract call from cross_contract
-time.sleep(3)
+time.sleep(5)
 nonce += 10
 status = nodes[0].get_status()
 hash_ = base58.b58decode(status['sync_info']['latest_block_hash'])
+message = 'bonjour'
 tx = sign_function_call_tx(nodes[0].signer_key, 'simple_call', contract_fn_args(account_id=status_message_contract, message='bonjour'),
-                           10000000000000000000, 10000000000000000000, nonce, hash_, 'cross_contract')
-res = nodes[0].send_tx_and_wait(tx, 10)
-pprint(res)
+                           MAX_GAS, 0, nonce, hash_, 'cross_contract')
+res = nodes[0].send_tx_and_wait(tx, 20)
+assert_tx_success(res)
+print('simple_call finished')
 
 # Verify state change in status_message
 time.sleep(3)
@@ -228,6 +238,8 @@ nonce += 10
 status = nodes[0].get_status()
 hash_ = base58.b58decode(status['sync_info']['latest_block_hash'])
 tx = sign_function_call_tx(nodes[0].signer_key, 'get_status', contract_fn_args(account_id='test0'),
-                           10000000000000000000, 10000000000000000000, nonce, hash_, status_message_contract)
-res = nodes[0].send_tx_and_wait(tx, 480)
-pprint(res)
+                           MAX_GAS, 0, nonce, hash_, status_message_contract)
+res = nodes[0].send_tx_and_wait(tx, 20)
+assert_tx_success(res)
+value = json.loads(base64.b64decode(res['result']['status']['SuccessValue']).decode('utf-8'))
+assert value == message, f'expect {message} but get {value}'
