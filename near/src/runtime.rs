@@ -404,6 +404,10 @@ impl RuntimeAdapter for NightshadeRuntime {
         }
     }
 
+    fn get_trie(&self) -> Arc<Trie> {
+        self.trie.clone()
+    }
+
     fn verify_block_signature(&self, header: &BlockHeader) -> Result<(), Error> {
         let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
         let validator = epoch_manager

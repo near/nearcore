@@ -256,6 +256,10 @@ impl RuntimeAdapter for KeyValueRuntime {
         )
     }
 
+    fn get_trie(&self) -> Arc<Trie> {
+        self.trie.clone()
+    }
+
     fn verify_block_signature(&self, header: &BlockHeader) -> Result<(), Error> {
         let validators = &self.validators
             [self.get_epoch_and_valset(header.prev_hash).map_err(|err| err.to_string())?.1];
