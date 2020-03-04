@@ -1,5 +1,5 @@
 use borsh::{BorshDeserialize, BorshSerialize};
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 
 use near_crypto::PublicKey;
 

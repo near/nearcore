@@ -1,5 +1,5 @@
-# Spins up one validating node. Wait until they reach height 40.
-# Start the second validating node and check that the second node can sync up before
+# Spins up two out of three validating nodes. Waits until they reach height 40.
+# Start the last validating node and check that the second node can sync up before
 # the end of epoch and produce blocks and chunks.
 
 import sys, time
@@ -13,7 +13,7 @@ BLOCK_WAIT = 40
 EPOCH_LENGTH = 80
 
 consensus_config = {"consensus": {"block_fetch_horizon": 10, "block_header_fetch_horizon": 10}}
-nodes = start_cluster(2, 0, 1, None, [["epoch_length", EPOCH_LENGTH], ["block_producer_kickout_threshold", 10], ["chunk_producer_kickout_threshold", 10]], {0: consensus_config, 1: consensus_config})
+nodes = start_cluster(3, 0, 1, None, [["epoch_length", EPOCH_LENGTH], ["block_producer_kickout_threshold", 10], ["chunk_producer_kickout_threshold", 10]], {0: consensus_config, 1: consensus_config})
 time.sleep(2)
 nodes[1].kill()
 

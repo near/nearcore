@@ -6,7 +6,7 @@ use std::sync::Arc;
 use borsh::BorshSerialize;
 use reed_solomon_erasure::galois_8::ReedSolomon;
 
-use near::config::{GenesisConfigExt, FISHERMEN_THRESHOLD};
+use near::config::{GenesisExt, FISHERMEN_THRESHOLD};
 use near::NightshadeRuntime;
 use near_chain::chain::BlockEconomicsConfig;
 use near_chain::validate::validate_challenge;
@@ -14,7 +14,7 @@ use near_chain::{
     Block, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode, Error, ErrorKind, Provenance,
     RuntimeAdapter,
 };
-use near_chain_configs::GenesisConfig;
+use near_chain_configs::Genesis;
 use near_client::test_utils::{MockNetworkAdapter, TestEnv};
 use near_client::Client;
 use near_crypto::{InMemorySigner, KeyType, Signer};
@@ -417,11 +417,11 @@ fn challenge(
 #[test]
 fn test_verify_chunk_invalid_state_challenge() {
     let store1 = create_test_store();
-    let genesis_config = GenesisConfig::test(vec!["test0", "test1"], 1);
+    let genesis = Genesis::test(vec!["test0", "test1"], 1);
     let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![Arc::new(near::NightshadeRuntime::new(
         Path::new("."),
         store1,
-        genesis_config,
+        Arc::new(genesis),
         vec![],
         vec![],
     ))];
@@ -683,13 +683,14 @@ fn test_block_challenge() {
 #[test]
 fn test_fishermen_challenge() {
     init_test_logger();
-    let mut genesis_config = GenesisConfig::test(vec!["test0", "test1", "test2"], 1);
-    genesis_config.epoch_length = 5;
+    let mut genesis = Genesis::test(vec!["test0", "test1", "test2"], 1);
+    genesis.config.epoch_length = 5;
+    let genesis = Arc::new(genesis);
     let create_runtime = || -> Arc<NightshadeRuntime> {
         Arc::new(near::NightshadeRuntime::new(
             Path::new("."),
             create_test_store(),
-            genesis_config.clone(),
+            Arc::clone(&genesis),
             vec![],
             vec![],
         ))
@@ -742,21 +743,22 @@ fn test_fishermen_challenge() {
 #[test]
 fn test_challenge_in_different_epoch() {
     init_test_logger();
-    let mut genesis_config = GenesisConfig::test(vec!["test0", "test1"], 2);
-    genesis_config.epoch_length = 2;
-    //    genesis_config.validator_kickout_threshold = 10;
+    let mut genesis = Genesis::test(vec!["test0", "test1"], 2);
+    genesis.config.epoch_length = 2;
+    let genesis = Arc::new(genesis);
+    //    genesis.config.validator_kickout_threshold = 10;
     let network_adapter = Arc::new(MockNetworkAdapter::default());
     let runtime1 = Arc::new(near::NightshadeRuntime::new(
         Path::new("."),
         create_test_store(),
-        genesis_config.clone(),
+        Arc::clone(&genesis),
         vec![],
         vec![],
     ));
     let runtime2 = Arc::new(near::NightshadeRuntime::new(
         Path::new("."),
         create_test_store(),
-        genesis_config,
+        genesis,
         vec![],
         vec![],
     ));

@@ -39,7 +39,7 @@ use near_telemetry::TelemetryActor;
 
 use crate::client::Client;
 use crate::info::InfoHelper;
-use crate::sync::{highest_height_peer, StateSyncResult};
+use crate::sync::{highest_height_peer, StateSync, StateSyncResult};
 use crate::types::{
     Error, GetNetworkInfo, NetworkInfoResponse, ShardSyncDownload, ShardSyncStatus, Status,
     StatusSyncInfo, SyncStatus,
@@ -864,7 +864,9 @@ impl ClientActor {
         for _ in 0..self.client.config.state_fetch_horizon {
             sync_hash = self.client.chain.get_block_header(&sync_hash)?.prev_hash;
         }
-        Ok(sync_hash)
+        let epoch_start_sync_hash =
+            StateSync::get_epoch_start_sync_hash(&mut self.client.chain, &sync_hash)?;
+        Ok(epoch_start_sync_hash)
     }
 
     /// Runs catchup on repeat, if this client is a validator.

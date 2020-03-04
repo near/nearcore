@@ -3,6 +3,7 @@ use std::cmp::{max, Ordering};
 use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::{DateTime, Utc};
 use reed_solomon_erasure::galois_8::ReedSolomon;
+use serde::Serialize;
 
 use near_crypto::{KeyType, PublicKey, Signature};
 

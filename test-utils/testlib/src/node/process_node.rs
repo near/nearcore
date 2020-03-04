@@ -8,7 +8,7 @@ use log::error;
 use rand::Rng;
 
 use near::config::NearConfig;
-use near_chain_configs::GenesisConfig;
+use near_chain_configs::Genesis;
 use near_crypto::{InMemorySigner, KeyType, Signer};
 use near_primitives::types::AccountId;
 
@@ -29,8 +29,8 @@ pub struct ProcessNode {
 }
 
 impl Node for ProcessNode {
-    fn genesis_config(&self) -> &GenesisConfig {
-        &self.config.genesis_config
+    fn genesis(&self) -> &Genesis {
+        &self.config.genesis
     }
 
     fn account_id(&self) -> Option<AccountId> {
@@ -93,7 +93,7 @@ impl ProcessNode {
     pub fn new(config: NearConfig) -> ProcessNode {
         let mut rng = rand::thread_rng();
         let work_dir = format!(
-            "{}process_node_{}",
+            "{}/process_node_{}",
             env::temp_dir().as_path().to_str().unwrap(),
             rng.gen::<u64>()
         );
