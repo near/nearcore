@@ -7,7 +7,6 @@ use futures::{future, FutureExt, TryFutureExt};
 use near_client::GetBlock;
 use near_crypto::{InMemorySigner, KeyType};
 use near_jsonrpc::client::new_client;
-use near_jsonrpc::test_utils::{start_all, start_all_with_validity_period};
 use near_network::test_utils::{wait_or_panic, WaitOrTimeout};
 use near_primitives::block::BlockHeader;
 use near_primitives::hash::{hash, CryptoHash};
@@ -16,13 +15,15 @@ use near_primitives::test_utils::{init_integration_logger, init_test_logger};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::views::{FinalExecutionStatus, Finality};
 
+mod test_utils;
+
 /// Test sending transaction via json rpc without waiting.
 #[test]
 fn test_send_tx_async() {
     init_test_logger();
 
     System::run(|| {
-        let (view_client, addr) = start_all(true);
+        let (view_client, addr) = test_utils::start_all(true);
 
         let mut client = new_client(&format!("http://{}", addr.clone()));
 
@@ -83,7 +84,7 @@ fn test_send_tx_commit() {
     init_test_logger();
 
     System::run(|| {
-        let (view_client, addr) = start_all(true);
+        let (view_client, addr) = test_utils::start_all(true);
 
         let mut client = new_client(&format!("http://{}", addr));
 
@@ -122,7 +123,7 @@ fn test_send_tx_commit() {
 fn test_expired_tx() {
     init_integration_logger();
     System::run(|| {
-        let (view_client, addr) = start_all_with_validity_period(true, 1, false);
+        let (view_client, addr) = test_utils::start_all_with_validity_period(true, 1, false);
 
         let block_hash = Arc::new(Mutex::new(None));
         let block_height = Arc::new(Mutex::new(None));
@@ -186,7 +187,7 @@ fn test_replay_protection() {
     init_test_logger();
 
     System::run(|| {
-        let (_, addr) = start_all(true);
+        let (_, addr) = test_utils::start_all(true);
 
         let mut client = new_client(&format!("http://{}", addr));
         let signer = InMemorySigner::from_seed("test1", KeyType::ED25519, "test1");
@@ -218,7 +219,7 @@ fn test_tx_status_invalid_account_id() {
     init_test_logger();
 
     System::run(|| {
-        let (_, addr) = start_all(true);
+        let (_, addr) = test_utils::start_all(true);
 
         let mut client = new_client(&format!("http://{}", addr));
         actix::spawn(

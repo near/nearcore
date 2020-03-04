@@ -210,8 +210,12 @@ impl ChainGenesis {
     }
 }
 
-impl From<GenesisConfig> for ChainGenesis {
-    fn from(genesis_config: GenesisConfig) -> Self {
+impl<T> From<T> for ChainGenesis
+where
+    T: AsRef<GenesisConfig>,
+{
+    fn from(genesis_config: T) -> Self {
+        let genesis_config = genesis_config.as_ref();
         ChainGenesis::new(
             genesis_config.genesis_time,
             genesis_config.gas_limit,
@@ -2533,7 +2537,7 @@ impl<'a> ChainUpdate<'a> {
             return Err(ErrorKind::Orphan.into());
         }
 
-        if block.header.inner_lite.height > head.height + self.epoch_length {
+        if block.header.inner_lite.height > head.height + self.epoch_length * 2 {
             return Err(ErrorKind::InvalidBlockHeight.into());
         }
 

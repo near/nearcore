@@ -1,6 +1,6 @@
 [package]
 name = "near-vm-runner"
-version = "0.4.4"
+version = "0.4.5"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2018"
 license = "Apache-2.0"
@@ -16,9 +16,9 @@ This crate implements the specification of the interface that Near blockchain ex
 cached = "0.11.0"
 wasmer-runtime = { version = "0.13.1", features = ["default-backend-singlepass"], default-features = false }
 wasmer-runtime-core = { version = "0.13.1" }
-near-runtime-fees = { path="../near-runtime-fees", version = "0.4.4" }
-near-vm-logic = { path="../near-vm-logic", version = "0.4.4", default-features = false, features = []}
-near-vm-errors = { path = "../near-vm-errors", version = "0.4.4" }
+near-runtime-fees = { path="../near-runtime-fees", version = "0.4.5" }
+near-vm-logic = { path="../near-vm-logic", version = "0.4.5", default-features = false, features = []}
+near-vm-errors = { path = "../near-vm-errors", version = "0.4.5" }
 pwasm-utils = "0.12.0"
 parity-wasm = "0.41.0"
 wasmparser = "0.44"

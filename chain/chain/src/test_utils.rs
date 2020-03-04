@@ -715,7 +715,10 @@ impl RuntimeAdapter for KeyValueRuntime {
                 block_hash: *block_hash,
             }),
             QueryRequest::ViewState { .. } => Ok(QueryResponse {
-                kind: QueryResponseKind::ViewState(ViewStateResult { values: Default::default() }),
+                kind: QueryResponseKind::ViewState(ViewStateResult {
+                    values: Default::default(),
+                    proof: vec![],
+                }),
                 block_height,
                 block_hash: *block_hash,
             }),

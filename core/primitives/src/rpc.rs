@@ -1,8 +1,26 @@
 use serde::{Deserialize, Serialize};
+use smart_default::SmartDefault;
+use validator::Validate;
+use validator_derive::Validate;
 
-use crate::types::BlockId;
-use crate::types::MaybeBlockId;
+use crate::types::{BlockId, MaybeBlockId};
 use crate::views::{Finality, QueryRequest};
+
+#[derive(Debug, SmartDefault, Serialize, Deserialize, Validate)]
+#[serde(default)]
+pub struct RpcPagination {
+    pub offset: usize,
+    #[default(100)]
+    #[validate(range(min = 1, max = 100))]
+    pub limit: usize,
+}
+
+#[derive(Serialize, Deserialize, Validate)]
+pub struct RpcGenesisRecordsRequest {
+    #[serde(default)]
+    #[validate]
+    pub pagination: RpcPagination,
+}
 
 #[derive(Serialize, Deserialize)]
 pub struct RpcQueryRequest {

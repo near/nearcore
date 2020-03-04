@@ -1,4 +1,4 @@
-use std::cmp::{max, Ordering};
+use std::cmp::Ordering;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
 
@@ -8,8 +8,8 @@ use log::{debug, warn};
 
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{
-    AccountId, Balance, BlockChunkValidatorStats, BlockHeight, EpochId, NumShards, ShardId,
-    ValidatorId, ValidatorStake, ValidatorStats,
+    AccountId, Balance, BlockChunkValidatorStats, BlockHeight, EpochId, ShardId, ValidatorId,
+    ValidatorStake, ValidatorStats,
 };
 use near_primitives::views::{
     CurrentEpochValidatorInfo, EpochValidatorInfo, NextEpochValidatorInfo,
@@ -90,8 +90,7 @@ impl EpochManager {
         &self,
         epoch_info: &EpochInfo,
         block_validator_tracker: &HashMap<ValidatorId, ValidatorStats>,
-        chunk_validator_tracker: &HashMap<ShardId, HashMap<ValidatorId, u64>>,
-        num_expected_chunks: &HashMap<ShardId, HashMap<ValidatorId, u64>>,
+        chunk_validator_tracker: &HashMap<ShardId, HashMap<ValidatorId, ValidatorStats>>,
         slashed: &HashMap<AccountId, SlashState>,
         prev_validator_kickout: &HashSet<AccountId>,
     ) -> (HashSet<AccountId>, HashMap<AccountId, BlockChunkValidatorStats>) {
@@ -118,15 +117,10 @@ impl EpochManager {
                 validator_kickout.insert(account_id.clone());
             }
             let mut chunk_stats = ValidatorStats { produced: 0, expected: 0 };
-            for (shard_id, tracker) in num_expected_chunks.iter() {
-                if tracker.contains_key(&(i as u64)) {
-                    let num_expected = *tracker.get(&(i as u64)).unwrap();
-                    let num_produced = *chunk_validator_tracker
-                        .get(shard_id)
-                        .and_then(|t| t.get(&(i as u64)))
-                        .unwrap_or(&0);
-                    chunk_stats.expected += num_expected;
-                    chunk_stats.produced += num_produced;
+            for (_, tracker) in chunk_validator_tracker.iter() {
+                if let Some(stat) = tracker.get(&(i as u64)) {
+                    chunk_stats.expected += stat.expected;
+                    chunk_stats.produced += stat.produced;
                 }
             }
             if chunk_stats.produced * 100
@@ -161,76 +155,40 @@ impl EpochManager {
 
     fn collect_blocks_info(
         &mut self,
-        epoch_id: &EpochId,
+        last_block_info: &BlockInfo,
         last_block_hash: &CryptoHash,
     ) -> Result<EpochSummary, EpochError> {
-        let epoch_info = self.get_epoch_info(epoch_id)?.clone();
+        let epoch_info = self.get_epoch_info(&last_block_info.epoch_id)?.clone();
         let mut proposals = BTreeMap::new();
         let mut validator_kickout = HashSet::new();
-        let mut produced_heights = HashSet::new();
-        let mut block_validator_tracker = HashMap::new();
-        let mut chunk_validator_tracker = HashMap::new();
-        let mut total_storage_rent = 0;
-        let mut total_validator_reward = 0;
+        let block_validator_tracker = last_block_info.block_tracker.clone();
+        let chunk_validator_tracker = last_block_info.shard_tracker.clone();
+        let total_storage_rent = last_block_info.total_rent_paid;
+        let total_validator_reward = last_block_info.total_validator_reward;
 
         // Gather slashed validators and add them to kick out first.
-        let slashed_validators = self.get_slashed_validators(last_block_hash)?.clone();
+        let slashed_validators = last_block_info.slashed.clone();
         for (account_id, _) in slashed_validators.iter() {
             validator_kickout.insert(account_id.clone());
         }
 
-        let mut hash = *last_block_hash;
-        loop {
-            let info = self.get_block_info(&hash)?.clone();
-            if hash == *last_block_hash {
-                block_validator_tracker = info.block_tracker;
-                for proposal in info.all_proposals.into_iter().rev() {
-                    if !slashed_validators.contains_key(&proposal.account_id) {
-                        if proposal.stake == 0 && !proposals.contains_key(&proposal.account_id) {
-                            validator_kickout.insert(proposal.account_id.clone());
-                        }
-                        // This code relies on the fact that within a block the proposals are ordered
-                        // in the order they are added. So we only take the last proposal for any given
-                        // account in this manner.
-                        proposals.entry(proposal.account_id.clone()).or_insert(proposal);
-                    }
+        for proposal in last_block_info.all_proposals.iter().rev() {
+            if !slashed_validators.contains_key(&proposal.account_id) {
+                if proposal.stake == 0 && !proposals.contains_key(&proposal.account_id) {
+                    validator_kickout.insert(proposal.account_id.clone());
                 }
+                // This code relies on the fact that within a block the proposals are ordered
+                // in the order they are added. So we only take the last proposal for any given
+                // account in this manner.
+                proposals.entry(proposal.account_id.clone()).or_insert(proposal.clone());
             }
-            if &info.epoch_id != epoch_id || info.prev_hash == CryptoHash::default() {
-                break;
-            }
-
-            produced_heights.insert(info.height);
-            for (i, mask) in info.chunk_mask.iter().enumerate() {
-                let chunk_validator_id =
-                    Self::chunk_producer_from_info(&epoch_info, info.height, i as ShardId);
-                let tracker =
-                    chunk_validator_tracker.entry(i as ShardId).or_insert_with(HashMap::new);
-                if *mask {
-                    tracker.entry(chunk_validator_id).and_modify(|e| *e += 1).or_insert(1);
-                }
-            }
-
-            total_storage_rent += info.rent_paid;
-            total_validator_reward += info.validator_reward;
-
-            hash = info.prev_hash;
         }
 
         let all_proposals: Vec<_> = proposals.into_iter().map(|(_, v)| v).collect();
 
         let last_block_info = self.get_block_info(&last_block_hash)?.clone();
-        let num_shards = last_block_info.chunk_mask.len() as NumShards;
         let prev_epoch_last_block_hash =
             self.get_block_info(&last_block_info.epoch_first_block)?.prev_hash;
-        let prev_epoch_last_height = self.get_block_info(&prev_epoch_last_block_hash)?.height;
-        let num_expected_chunks = self.get_num_expected_chunks(
-            &epoch_info,
-            num_shards,
-            prev_epoch_last_height,
-            last_block_info.height,
-            &produced_heights,
-        )?;
         let next_epoch_id = self.get_next_epoch_id(&last_block_hash)?;
         let prev_validator_kickout = self.get_epoch_info(&next_epoch_id)?.validator_kickout.clone();
 
@@ -239,18 +197,17 @@ impl EpochManager {
             &epoch_info,
             &block_validator_tracker,
             &chunk_validator_tracker,
-            &num_expected_chunks,
             &slashed_validators,
             &prev_validator_kickout,
         );
         validator_kickout = validator_kickout.union(&kickout).cloned().collect();
         debug!(
-            "All proposals: {:?}, Kickouts: {:?}, Block Tracker: {:?}, Shard Tracker: {:?}, Num expected chunks {:?}",
-            all_proposals, validator_kickout, block_validator_tracker, chunk_validator_tracker, num_expected_chunks
+            "All proposals: {:?}, Kickouts: {:?}, Block Tracker: {:?}, Shard Tracker: {:?}",
+            all_proposals, validator_kickout, block_validator_tracker, chunk_validator_tracker
         );
 
         Ok(EpochSummary {
-            last_block_hash: hash,
+            prev_epoch_last_block_hash,
             all_proposals,
             validator_kickout,
             validator_block_chunk_stats,
@@ -288,13 +245,13 @@ impl EpochManager {
         rng_seed: RngSeed,
     ) -> Result<EpochId, EpochError> {
         let EpochSummary {
-            last_block_hash: last_block_hash_prev_epoch,
+            prev_epoch_last_block_hash,
             all_proposals,
             validator_kickout,
             validator_block_chunk_stats,
             total_storage_rent,
             total_validator_reward,
-        } = self.collect_blocks_info(&block_info.epoch_id, last_block_hash)?;
+        } = self.collect_blocks_info(&block_info, last_block_hash)?;
         let epoch_id = self.get_epoch_id(last_block_hash)?;
         let epoch_info = self.get_epoch_info(&epoch_id)?;
         let validator_stake = epoch_info
@@ -332,7 +289,7 @@ impl EpochManager {
         // where epoch_id of it is the hash of last block in this epoch (T).
         self.save_epoch_info(store_update, &EpochId(*last_block_hash), next_next_epoch_info)?;
         // Return next epoch (T+1) id as hash of last block in previous epoch (T-1).
-        Ok(EpochId(last_block_hash_prev_epoch))
+        Ok(EpochId(prev_epoch_last_block_hash))
     }
 
     pub fn record_block_info(
@@ -407,7 +364,14 @@ impl EpochManager {
                     }
                 }
 
-                let BlockInfo { block_tracker, mut all_proposals, .. } = prev_block_info;
+                let BlockInfo {
+                    block_tracker,
+                    mut all_proposals,
+                    shard_tracker,
+                    total_validator_reward,
+                    total_rent_paid,
+                    ..
+                } = prev_block_info;
 
                 // Update block produced/expected tracker.
                 block_info.update_block_tracker(
@@ -415,8 +379,15 @@ impl EpochManager {
                     prev_block_info.height,
                     if is_epoch_start { HashMap::default() } else { block_tracker },
                 );
+                block_info.update_shard_tracker(
+                    &epoch_info,
+                    if is_epoch_start { HashMap::default() } else { shard_tracker },
+                );
+                // accumulate values
                 if is_epoch_start {
                     block_info.all_proposals = block_info.proposals.clone();
+                    block_info.total_rent_paid = block_info.rent_paid;
+                    block_info.total_validator_reward = block_info.validator_reward;
                     self.save_epoch_start(
                         &mut store_update,
                         &block_info.epoch_id,
@@ -425,6 +396,9 @@ impl EpochManager {
                 } else {
                     all_proposals.extend(block_info.proposals.clone());
                     block_info.all_proposals = all_proposals;
+                    block_info.total_validator_reward +=
+                        total_validator_reward + block_info.validator_reward;
+                    block_info.total_rent_paid += total_rent_paid + block_info.rent_paid;
                 }
 
                 // Save current block info.
@@ -848,43 +822,12 @@ impl EpochManager {
         Ok(false)
     }
 
-    fn get_num_expected_chunks(
-        &mut self,
-        epoch_info: &EpochInfo,
-        num_shards: NumShards,
-        prev_epoch_last_height: BlockHeight,
-        epoch_last_height: BlockHeight,
-        produced_heights: &HashSet<BlockHeight>,
-    ) -> Result<HashMap<ShardId, HashMap<ValidatorId, u64>>, EpochError> {
-        let mut num_expected_chunks = HashMap::default();
-        // We iterate from next height after previous epoch's last block
-        // to the expected end of this epoch or the actual end, whichever is larger.
-        let end_height = max(epoch_last_height, prev_epoch_last_height + self.config.epoch_length);
-        for height in (prev_epoch_last_height + 1)..=end_height {
-            for i in 0..num_shards {
-                // we only count a chunk as expected if the previous block exists. Otherwise
-                // the chunk cannot be produced.
-                let prev_height = height - 1;
-                if produced_heights.contains(&prev_height) || prev_height == prev_epoch_last_height
-                {
-                    num_expected_chunks
-                        .entry(i)
-                        .or_insert_with(HashMap::new)
-                        .entry(Self::chunk_producer_from_info(epoch_info, height, i as ShardId))
-                        .and_modify(|e| *e += 1)
-                        .or_insert(1);
-                }
-            }
-        }
-        Ok(num_expected_chunks)
-    }
-
     fn block_producer_from_info(epoch_info: &EpochInfo, height: BlockHeight) -> ValidatorId {
         epoch_info.block_producers_settlement
             [(height as u64 % (epoch_info.block_producers_settlement.len() as u64)) as usize]
     }
 
-    fn chunk_producer_from_info(
+    pub(crate) fn chunk_producer_from_info(
         epoch_info: &EpochInfo,
         height: BlockHeight,
         shard_id: ShardId,
@@ -1696,7 +1639,10 @@ mod tests {
                     validator_reward: 0,
                     total_supply,
                     block_tracker: Default::default(),
+                    shard_tracker: Default::default(),
                     all_proposals: vec![],
+                    total_rent_paid: 0,
+                    total_validator_reward: 0,
                 },
                 rng_seed,
             )
@@ -1717,7 +1663,10 @@ mod tests {
                     validator_reward: 10,
                     total_supply,
                     block_tracker: Default::default(),
+                    shard_tracker: Default::default(),
                     all_proposals: vec![],
+                    total_rent_paid: 0,
+                    total_validator_reward: 0,
                 },
                 rng_seed,
             )
@@ -1738,7 +1687,10 @@ mod tests {
                     validator_reward: 10,
                     total_supply,
                     block_tracker: Default::default(),
+                    shard_tracker: Default::default(),
                     all_proposals: vec![],
+                    total_rent_paid: 0,
+                    total_validator_reward: 0,
                 },
                 rng_seed,
             )
@@ -1822,7 +1774,10 @@ mod tests {
                     validator_reward: 0,
                     total_supply,
                     block_tracker: Default::default(),
+                    shard_tracker: Default::default(),
                     all_proposals: vec![],
+                    total_rent_paid: 0,
+                    total_validator_reward: 0,
                 },
                 rng_seed,
             )
@@ -1843,7 +1798,10 @@ mod tests {
                     validator_reward: 10,
                     total_supply,
                     block_tracker: Default::default(),
+                    shard_tracker: Default::default(),
                     all_proposals: vec![],
+                    total_rent_paid: 0,
+                    total_validator_reward: 0,
                 },
                 rng_seed,
             )
@@ -1864,7 +1822,10 @@ mod tests {
                     validator_reward: 10,
                     total_supply,
                     block_tracker: Default::default(),
+                    shard_tracker: Default::default(),
                     all_proposals: vec![],
+                    total_rent_paid: 0,
+                    total_validator_reward: 0,
                 },
                 rng_seed,
             )
@@ -1967,7 +1928,10 @@ mod tests {
                     validator_reward: 0,
                     total_supply,
                     block_tracker: Default::default(),
+                    shard_tracker: Default::default(),
                     all_proposals: vec![],
+                    total_rent_paid: 0,
+                    total_validator_reward: 0,
                 },
                 rng_seed,
             )
@@ -1988,7 +1952,10 @@ mod tests {
                     validator_reward: 10,
                     total_supply,
                     block_tracker: Default::default(),
+                    shard_tracker: Default::default(),
                     all_proposals: vec![],
+                    total_rent_paid: 0,
+                    total_validator_reward: 0,
                 },
                 rng_seed,
             )
@@ -2009,7 +1976,10 @@ mod tests {
                     validator_reward: 10,
                     total_supply,
                     block_tracker: Default::default(),
+                    shard_tracker: Default::default(),
                     all_proposals: vec![],
+                    total_rent_paid: 0,
+                    total_validator_reward: 0,
                 },
                 rng_seed,
             )
@@ -2123,7 +2093,10 @@ mod tests {
                     validator_reward: 0,
                     total_supply,
                     block_tracker: Default::default(),
+                    shard_tracker: Default::default(),
                     all_proposals: vec![],
+                    total_rent_paid: 0,
+                    total_validator_reward: 0,
                 },
                 rng_seed,
             )
@@ -2144,7 +2117,10 @@ mod tests {
                     validator_reward: 0,
                     total_supply,
                     block_tracker: Default::default(),
+                    shard_tracker: Default::default(),
                     all_proposals: vec![],
+                    total_rent_paid: 0,
+                    total_validator_reward: 0,
                 },
                 rng_seed,
             )
@@ -2165,7 +2141,10 @@ mod tests {
                     validator_reward: 0,
                     total_supply,
                     block_tracker: Default::default(),
+                    shard_tracker: Default::default(),
                     all_proposals: vec![],
+                    total_rent_paid: 0,
+                    total_validator_reward: 0,
                 },
                 rng_seed,
             )
@@ -2318,7 +2297,10 @@ mod tests {
                 validator_reward: 0,
                 total_supply,
                 block_tracker: Default::default(),
+                shard_tracker: Default::default(),
                 all_proposals: vec![],
+                total_rent_paid: 0,
+                total_validator_reward: 0,
             },
             rng_seed,
         )
@@ -2338,7 +2320,10 @@ mod tests {
                 validator_reward: 0,
                 total_supply,
                 block_tracker: Default::default(),
+                shard_tracker: Default::default(),
                 all_proposals: vec![],
+                total_rent_paid: 0,
+                total_validator_reward: 0,
             },
             rng_seed,
         )
@@ -2358,7 +2343,10 @@ mod tests {
                 validator_reward: 0,
                 total_supply,
                 block_tracker: Default::default(),
+                shard_tracker: Default::default(),
                 all_proposals: vec![],
+                total_rent_paid: 0,
+                total_validator_reward: 0,
             },
             rng_seed,
         )
@@ -2499,6 +2487,34 @@ mod tests {
                     ("test3", stake_amount2)
                 ]),
                 reward(vec![("near", 0)]),
+                0,
+            )
+        );
+    }
+
+    /// Test that when epoch length is larger than the cache size of block info cache, there is
+    /// no unexpected error.
+    #[test]
+    fn test_finalize_epoch_large_epoch_length() {
+        let stake_amount = 1_000;
+        let validators = vec![("test1", stake_amount), ("test2", stake_amount)];
+        let mut epoch_manager =
+            setup_default_epoch_manager(validators, (BLOCK_CACHE_SIZE + 1) as u64, 1, 2, 0, 90, 60);
+        let h = hash_range(BLOCK_CACHE_SIZE + 2);
+        record_block(&mut epoch_manager, CryptoHash::default(), h[0], 0, vec![]);
+        for i in 1..=(BLOCK_CACHE_SIZE + 1) {
+            record_block(&mut epoch_manager, h[i - 1], h[i], i as u64, vec![]);
+        }
+        assert_eq!(
+            epoch_manager.get_epoch_info(&EpochId(h[BLOCK_CACHE_SIZE + 1])).unwrap(),
+            &epoch_info(
+                vec![("test1", stake_amount), ("test2", stake_amount)],
+                vec![1, 0],
+                vec![vec![1, 0]],
+                vec![],
+                vec![],
+                change_stake(vec![("test1", stake_amount), ("test2", stake_amount)]),
+                reward(vec![("near", 0), ("test1", 0), ("test2", 0)]),
                 0,
             )
         );

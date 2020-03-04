@@ -5,22 +5,25 @@ use futures::{future, FutureExt};
 
 use near_crypto::{KeyType, PublicKey, Signature};
 use near_jsonrpc::client::new_client;
-use near_jsonrpc::test_utils::start_all;
 use near_jsonrpc_client::ChunkId;
 use near_network::test_utils::WaitOrTimeout;
 use near_primitives::account::{AccessKey, AccessKeyPermission};
 use near_primitives::hash::CryptoHash;
-use near_primitives::rpc::{BlockQueryInfo, RpcQueryRequest};
+use near_primitives::rpc::{
+    BlockQueryInfo, RpcGenesisRecordsRequest, RpcPagination, RpcQueryRequest,
+};
 use near_primitives::test_utils::init_test_logger;
 use near_primitives::types::{BlockId, ShardId};
 use near_primitives::views::{Finality, QueryRequest, QueryResponseKind};
+
+mod test_utils;
 
 macro_rules! test_with_client {
     ($client:ident, $block:expr) => {
         init_test_logger();
 
         System::run(|| {
-            let (_view_client_addr, addr) = start_all(false);
+            let (_view_client_addr, addr) = test_utils::start_all(false);
 
             let mut $client = new_client(&format!("http://{}", addr));
 
@@ -402,7 +405,7 @@ fn test_status_fail() {
     init_test_logger();
 
     System::run(|| {
-        let (_, addr) = start_all(false);
+        let (_, addr) = test_utils::start_all(false);
 
         let mut client = new_client(&format!("http://{}", addr));
         WaitOrTimeout::new(
@@ -444,7 +447,7 @@ fn test_health_fail_no_blocks() {
     init_test_logger();
 
     System::run(|| {
-        let (_, addr) = start_all(false);
+        let (_, addr) = test_utils::start_all(false);
 
         let mut client = new_client(&format!("http://{}", addr));
         WaitOrTimeout::new(
@@ -470,6 +473,80 @@ fn test_health_ok() {
     test_with_client!(client, async move {
         let health = client.health().await;
         assert!(health.is_ok());
+    });
+}
+
+/// Retrieve genesis config via JSON RPC.
+/// WARNING: Be mindful about changing genesis structure as it is part of the public protocol!
+#[test]
+fn test_genesis_config() {
+    test_with_client!(client, async move {
+        let genesis_config = client.EXPERIMENTAL_genesis_config().await.unwrap();
+        assert_eq!(genesis_config["config_version"].as_u64().unwrap(), 1);
+        assert_eq!(genesis_config["protocol_version"].as_u64().unwrap(), 4);
+        assert!(!genesis_config["chain_id"].as_str().unwrap().is_empty());
+        assert!(!genesis_config.as_object().unwrap().contains_key("records"));
+    });
+}
+
+/// Retrieve genesis records via JSON RPC.
+#[test]
+fn test_genesis_records() {
+    test_with_client!(client, async move {
+        let genesis_records = client
+            .EXPERIMENTAL_genesis_records(RpcGenesisRecordsRequest {
+                pagination: Default::default(),
+            })
+            .await
+            .unwrap();
+        assert_eq!(genesis_records.records.len(), 100);
+        let first100_records = genesis_records.records.to_vec();
+
+        let second_genesis_record = client
+            .EXPERIMENTAL_genesis_records(RpcGenesisRecordsRequest {
+                pagination: RpcPagination { offset: 1, limit: 1 },
+            })
+            .await
+            .unwrap();
+        assert_eq!(second_genesis_record.records.len(), 1);
+
+        assert_eq!(
+            serde_json::to_value(&first100_records[1]).unwrap(),
+            serde_json::to_value(&second_genesis_record.records[0]).unwrap()
+        );
+    });
+}
+
+/// Check invalid arguments to genesis records via JSON RPC.
+#[test]
+fn test_invalid_genesis_records_arguments() {
+    test_with_client!(client, async move {
+        let genesis_records_response = client
+            .EXPERIMENTAL_genesis_records(RpcGenesisRecordsRequest {
+                pagination: RpcPagination { offset: 1, limit: 101 },
+            })
+            .await;
+        let validation_error = genesis_records_response.err().unwrap();
+        assert_eq!(validation_error.code, -32_602);
+        assert_eq!(validation_error.message, "Invalid params");
+        assert_eq!(
+            validation_error.data.unwrap(),
+            serde_json::json!({
+                "pagination": {
+                    "limit": [
+                        {
+                            "code": "range",
+                            "message": null,
+                            "params": {
+                                "max": 100.0,
+                                "value": 101,
+                                "min": 1.0,
+                            }
+                        }
+                    ]
+                }
+            })
+        );
     });
 }
 

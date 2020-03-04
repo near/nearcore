@@ -25,7 +25,7 @@ def get_stakes():
 status = nodes[2].get_status()
 hash_ = status['sync_info']['latest_block_hash']
 
-tx = sign_staking_tx(nodes[2].signer_key, nodes[2].validator_key, 100000000000000000000000000, 2, base58.b58decode(hash_.encode('utf8')))
+tx = sign_staking_tx(nodes[2].signer_key, nodes[2].validator_key, 100000000000000000000000000000000, 2, base58.b58decode(hash_.encode('utf8')))
 nodes[0].send_tx(tx)
 
 max_height = 0

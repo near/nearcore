@@ -124,6 +124,7 @@ pub fn setup(
         runtime.clone(),
         network_adapter.clone(),
         config.clone(),
+        None,
     )
     .unwrap();
 
@@ -280,7 +281,7 @@ pub fn setup_mock_all_validators(
     let num_shards = validators.iter().map(|x| x.len()).min().unwrap() as NumShards;
 
     let last_height_score =
-        Arc::new(RwLock::new(vec![(0, ScoreAndHeight::from_ints(0, 0)); key_pairs.len()]));
+        Arc::new(RwLock::new(vec![ScoreAndHeight::from_ints(0, 0); key_pairs.len()]));
     let largest_endorsed_height = Arc::new(RwLock::new(vec![0u64; key_pairs.len()]));
     let largest_skipped_height = Arc::new(RwLock::new(vec![0u64; key_pairs.len()]));
     let hash_to_score = Arc::new(RwLock::new(HashMap::new()));
@@ -343,8 +344,8 @@ pub fn setup_mock_all_validators(
                                         chain_id: "unittest".to_string(),
                                         hash: Default::default(),
                                     },
-                                    height: last_height_score2[i].0,
-                                    score: last_height_score2[i].1.score,
+                                    height: last_height_score2[i].height,
+                                    score: last_height_score2[i].score,
                                     tracked_shards: vec![],
                                 },
                                 edge_info: EdgeInfo::default(),
@@ -377,10 +378,8 @@ pub fn setup_mock_all_validators(
 
                             let my_height_score = &mut last_height_score1[my_ord];
 
-                            my_height_score.0 =
-                                max(my_height_score.0, block.header.inner_lite.height);
-                            my_height_score.1 =
-                                max(my_height_score.1, block.header.score_and_height());
+                            *my_height_score =
+                                max(*my_height_score, block.header.score_and_height());
 
                             hash_to_score1
                                 .write()

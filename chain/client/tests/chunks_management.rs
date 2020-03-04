@@ -15,7 +15,6 @@ use near_network::types::PartialEncodedChunkRequestMsg;
 use near_network::{NetworkClientMessages, NetworkRequests, NetworkResponses, PeerInfo};
 use near_primitives::block::BlockHeader;
 use near_primitives::hash::{hash, CryptoHash};
-use near_primitives::rpc::BlockQueryInfo;
 use near_primitives::sharding::{PartialEncodedChunk, ShardChunkHeader};
 use near_primitives::test_utils::init_integration_logger;
 use near_primitives::test_utils::{heavy_test, init_test_logger};

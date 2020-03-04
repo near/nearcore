@@ -109,6 +109,8 @@ class BaseNode(object):
 
         while True:
             block = self.get_block(hash_)
+            if 'error' in block and 'data' in block['error'] and 'DB Not Found Error' in block['error']['data']:
+                break
             height = block['result']['header']['height']
             if height == 0:
                 break
@@ -125,6 +127,9 @@ class BaseNode(object):
 
     def get_block(self, block_hash):
         return self.json_rpc('block', [block_hash])
+
+    def get_changes(self, block_hash, state_changes_request):
+        return self.json_rpc('changes', [block_hash, state_changes_request])
     
     def validators(self):
         return set(map(lambda v: v['account_id'], self.get_status()['validators']))
@@ -140,9 +145,6 @@ class RpcNode(BaseNode):
     def rpc_addr(self):
         return (self.host, self.rpc_port)
 
-
-    def get_changes(self, block_hash, state_changes_request):
-        return self.json_rpc('changes', [block_hash, state_changes_request])
 
 
 class LocalNode(BaseNode):
@@ -370,7 +372,7 @@ def init_cluster(num_nodes, num_observers, num_shards, config, genesis_config_ch
     assert 0 == process.returncode, err
 
     node_dirs = [line.split()[-1]
-                 for line in out.decode('utf8').split('\n') if '/test' in line]
+                 for line in err.decode('utf8').split('\n') if '/test' in line]
     assert len(node_dirs) == num_nodes + num_observers, "node dirs: %s num_nodes: %s num_observers: %s" % (len(node_dirs), num_nodes, num_observers)
 
     # apply config changes

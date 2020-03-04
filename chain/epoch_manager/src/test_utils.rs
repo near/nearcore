@@ -19,7 +19,7 @@ pub const DEFAULT_TOTAL_SUPPLY: u128 = 1_000_000_000_000;
 pub fn hash_range(num: usize) -> Vec<CryptoHash> {
     let mut result = vec![];
     for i in 0..num {
-        result.push(hash(&[i as u8]));
+        result.push(hash(i.to_le_bytes().as_ref()));
     }
     result
 }

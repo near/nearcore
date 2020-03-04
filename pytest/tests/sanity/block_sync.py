@@ -10,11 +10,12 @@ sys.path.append('lib')
 from cluster import start_cluster
 
 BLOCKS = 10
-TIMEOUT = 10
+TIMEOUT = 25
 
 consensus_config0 = {"consensus": {"block_fetch_horizon": 30, "block_header_fetch_horizon": 30}}
-consensus_config1 = {"consensus": {"min_block_production_delay": {"secs": 100, "nanos": 0}, "max_block_production_delay": {"secs": 110, "nanos": 0}, "max_block_wait_delay": {"secs": 200, "nanos": 0}}}
-nodes = start_cluster(2, 0, 4, None, [["epoch_length", 100]], {0: consensus_config0, 1: consensus_config1})
+consensus_config1 = {"consensus": {"min_block_production_delay": {"secs": 100, "nanos": 0}, "max_block_production_delay": {"secs": 200, "nanos": 0}, "max_block_wait_delay": {"secs": 1000, "nanos": 0}}}
+# give more stake to the bootnode so that it can produce the blocks alone
+nodes = start_cluster(2, 0, 4, None, [["epoch_length", 100], ["validators", 0, "amount", "60000000000000000000000000000000"], ["records", 0, "Account", "account", "locked", "60000000000000000000000000000000"]], {0: consensus_config0, 1: consensus_config1})
 time.sleep(3)
 
 node0_height = 0

@@ -2,6 +2,8 @@ use std::borrow::Borrow;
 use std::fmt;
 
 use borsh::{BorshDeserialize, BorshSerialize};
+use serde::Serialize;
+
 use near_crypto::{KeyType, PublicKey};
 
 use crate::hash::CryptoHash;

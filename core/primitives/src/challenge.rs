@@ -1,4 +1,5 @@
 use borsh::{BorshDeserialize, BorshSerialize};
+use serde::{Deserialize, Serialize};
 
 use near_crypto::Signature;
 
