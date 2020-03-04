@@ -3,9 +3,15 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use key_management::{KeyType, PublicKey};
 use near_bindgen::{env, near_bindgen, Promise};
+use uint::construct_uint;
+
+construct_uint! {
+    /// 256-bit unsigned integer.
+    pub struct U256(4);
+}
 
 mod key_management;
-mod lockup_vesting_transfer_rules;
+// mod lockup_vesting_transfer_rules;
 
 #[global_allocator]
 static ALLOC: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;
@@ -121,22 +127,29 @@ impl VestingContract {
 
     /// Get the amount of tokens that were vested.
     pub fn get_unvested(&self) -> u128 {
-        lockup_vesting_transfer_rules::get_unvested_amount(
-            self.vesting_start_timestamp,
-            self.vesting_cliff_timestamp,
-            self.vesting_end_timestamp,
-            self.lockup_amount,
-        )
+        let block_timestamp = env::block_timestamp();
+        if block_timestamp < self.vesting_cliff_timestamp {
+            self.lockup_amount
+        } else if block_timestamp >= self.vesting_end_timestamp {
+            0
+        } else {
+            let time_left = U256::from(self.vesting_end_timestamp - block_timestamp);
+            let total_time = U256::from(self.vesting_end_timestamp - self.vesting_start_timestamp);
+            let unvested_u256 = U256::from(self.lockup_amount) * time_left / total_time;
+            unvested_u256.as_u128()
+        }
     }
 
     /// Get the amount of transferrable tokens that this account has. Takes vesting into account.
     pub fn get_transferrable(&self) -> u128 {
-        let unvested = self.get_unvested();
-        lockup_vesting_transfer_rules::get_transferrable_amount(
-            self.lockup_amount,
-            self.lockup_timestamp,
-            unvested,
-        )
+        let total_balance = env::account_balance() + env::account_locked_balance();
+        if self.lockup_timestamp >= env::block_timestamp() {
+            // some balance might be still unvested
+            total_balance.saturating_sub(self.get_unvested())
+        } else {
+            // entire initial balance is locked
+            total_balance.saturating_sub(self.lockup_amount)
+        }
     }
 
     /// Transfer amount to another account.
