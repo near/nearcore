@@ -75,11 +75,14 @@ pub fn proposals_to_epoch_info(
     }
 
     for r in epoch_info.fishermen.iter() {
-        if !ordered_proposals.contains_key(&r.account_id) {
+        if !ordered_proposals.contains_key(&r.account_id)
+            && !validator_kickout.contains(&r.account_id)
+        {
             // safe to do this here because fishermen from previous epoch is guaranteed to have no
             // duplicates.
             fishermen_to_index.insert(r.account_id.clone(), fishermen.len() as ValidatorId);
-            fishermen.push(r.clone())
+            fishermen.push(r.clone());
+            stake_change.insert(r.account_id.clone(), (r.stake, 0));
         }
     }
 
@@ -113,7 +116,9 @@ pub fn proposals_to_epoch_info(
                     }
                 })
                 .or_insert((0, p.stake));
-            if epoch_info.validator_to_index.contains_key(&account_id) {
+            if epoch_info.validator_to_index.contains_key(&account_id)
+                || epoch_info.fishermen_to_index.contains_key(&account_id)
+            {
                 validator_kickout.insert(account_id);
             }
         }
@@ -166,7 +171,9 @@ pub fn proposals_to_epoch_info(
             fishermen.push(p);
         } else {
             stake_change.insert(p.account_id.clone(), (0, p.stake));
-            if epoch_info.validator_to_index.contains_key(&p.account_id) {
+            if epoch_info.validator_to_index.contains_key(&p.account_id)
+                || epoch_info.fishermen_to_index.contains_key(&p.account_id)
+            {
                 validator_kickout.insert(p.account_id);
             }
         }
@@ -296,6 +303,64 @@ mod tests {
                 HashMap::default(),
                 0
             )
+        );
+    }
+
+    #[test]
+    fn test_fishermen_allocation() {
+        // 4 proposals of stake 10, fishermen threshold 10 --> 1 validator and 3 fishermen
+        assert_eq!(
+            proposals_to_epoch_info(
+                &epoch_config(2, 2, 1, 0, 90, 60, 10),
+                [0; 32],
+                &EpochInfo::default(),
+                vec![
+                    stake("test1", 10),
+                    stake("test2", 10),
+                    stake("test3", 10),
+                    stake("test4", 10)
+                ],
+                HashSet::default(),
+                HashMap::default(),
+                0
+            )
+            .unwrap(),
+            epoch_info(
+                vec![("test1", 10)],
+                vec![0],
+                vec![vec![0], vec![0]],
+                vec![],
+                vec![("test2", 10), ("test3", 10), ("test4", 10)],
+                change_stake(vec![("test1", 10), ("test2", 10), ("test3", 10), ("test4", 10)]),
+                HashMap::default(),
+                0
+            )
+        );
+
+        // 4 proposals of stake 9, fishermen threshold 10 --> 1 validator and 0 fishermen
+        let mut epoch_info = epoch_info(
+            vec![("test1", 9)],
+            vec![0],
+            vec![vec![0], vec![0]],
+            vec![],
+            vec![],
+            change_stake(vec![("test1", 9), ("test2", 0), ("test3", 0), ("test4", 0)]),
+            HashMap::default(),
+            0,
+        );
+        epoch_info.validator_kickout = HashSet::default();
+        assert_eq!(
+            proposals_to_epoch_info(
+                &epoch_config(2, 2, 1, 0, 90, 60, 10),
+                [0; 32],
+                &EpochInfo::default(),
+                vec![stake("test1", 9), stake("test2", 9), stake("test3", 9), stake("test4", 9)],
+                HashSet::default(),
+                HashMap::default(),
+                0
+            )
+            .unwrap(),
+            epoch_info
         );
     }
 }
