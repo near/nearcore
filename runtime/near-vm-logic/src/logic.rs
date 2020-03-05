@@ -1850,6 +1850,7 @@ impl<'a> VMLogic<'a> {
     /// * If the length of the key exceeds `max_length_storage_key` returns `KeyLengthExceeded`.
     /// * If the length of the value exceeds `max_length_storage_value` returns
     ///   `ValueLengthExceeded`.
+    /// * If called as view function returns `ProhibitedInView``.
     ///
     /// # Cost
     ///
@@ -1866,6 +1867,11 @@ impl<'a> VMLogic<'a> {
         register_id: u64,
     ) -> Result<u64> {
         self.gas_counter.pay_base(base)?;
+        if self.context.is_view {
+            return Err(
+                HostError::ProhibitedInView { method_name: "storage_write".to_string() }.into()
+            );
+        }
         self.gas_counter.pay_base(storage_write_base)?;
         // All iterators that were valid now become invalid
         for invalidated_iter_idx in self.valid_iterators.drain() {
@@ -1998,6 +2004,7 @@ impl<'a> VMLogic<'a> {
     /// * If returning the preempted value into the registers exceed the memory container it returns
     ///   `MemoryAccessViolation`.
     /// * If the length of the key exceeds `max_length_storage_key` returns `KeyLengthExceeded`.
+    /// * If called as view function returns `ProhibitedInView``.
     ///
     /// # Cost
     ///
@@ -2005,6 +2012,11 @@ impl<'a> VMLogic<'a> {
     /// + cost to read the key + cost to write the value`.
     pub fn storage_remove(&mut self, key_len: u64, key_ptr: u64, register_id: u64) -> Result<u64> {
         self.gas_counter.pay_base(base)?;
+        if self.context.is_view {
+            return Err(
+                HostError::ProhibitedInView { method_name: "storage_remove".to_string() }.into()
+            );
+        }
         self.gas_counter.pay_base(storage_remove_base)?;
         // All iterators that were valid now become invalid
         for invalidated_iter_idx in self.valid_iterators.drain() {
