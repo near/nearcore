@@ -230,13 +230,14 @@ mod tests {
             root,
             1,
             1,
-            &alice_account(),
+            &AccountId::from("test.contract"),
             "run_test_with_storage_change",
             &[],
             &mut logs,
         );
         // run_test tries to change storage, so it should fail
-        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert_eq!(&err.to_string(), "Oh no");
     }
 
     #[test]
