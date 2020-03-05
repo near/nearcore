@@ -177,7 +177,8 @@ impl VestingContract {
         } else if block_timestamp >= self.vesting_end_timestamp {
             0
         } else {
-            let time_left = U256::from(self.vesting_end_timestamp - block_timestamp);
+            // cannot overflow since block_timestamp >= self.vesting_end_timestamp
+            let time_left = U256::from(self.vesting_end_timestamp - block_timestamp); 
             let total_time = U256::from(self.vesting_end_timestamp - self.vesting_start_timestamp);
             let unvested_u256 = U256::from(self.lockup_amount) * time_left / total_time;
             unvested_u256.as_u128()
