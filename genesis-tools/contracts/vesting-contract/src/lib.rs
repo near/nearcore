@@ -167,7 +167,8 @@ impl VestingContract {
         Promise::new(env::current_account_id()).stake(amount, public_key);
     }
 
-    /// Get the amount of tokens that were vested.
+    /// Returns a portion of `self.lockup_amount` which is not yet available to spend due to vesting
+    /// The entire `self.lockup_amount` is locked up to `self.vesting_cliff_timestamp`
     #[result_serializer(borsh)]
     pub fn get_unvested(&self) -> u128 {
         let block_timestamp = env::block_timestamp();
