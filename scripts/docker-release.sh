@@ -9,5 +9,6 @@ make
 # before this script. And nearprotocol/nearcore:latest must be manually tagged from a verified stable.
 docker tag nearcore nearprotocol/nearcore:${branch}-${commit}
 docker tag nearcore nearprotocol/nearcore:${branch}
+set -x
 docker push nearprotocol/nearcore:${branch}-${commit}
 docker push nearprotocol/nearcore:${branch}
