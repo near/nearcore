@@ -18,7 +18,6 @@ pytest --timeout=600 sanity/state_sync_routed.py manytx 100
 pytest --timeout=300 sanity/state_sync_late.py notx
 pytest sanity/rpc_tx_forwarding.py
 pytest --timeout=240 sanity/skip_epoch.py
-pytest --timeout=600 sanity/fork_sync.py
 pytest --timeout=240 sanity/one_val.py
 pytest --timeout=240 sanity/lightclnt.py
 pytest --timeout=240 sanity/rpc_query.py
@@ -35,6 +34,7 @@ pytest --timeout=2000 stress/stress.py 3 2 4 0 staking transactions node_set
 # pytest stress/network_stress.py
 
 # python adversarial tests
+pytest --timeout=600 adversarial/fork_sync.py
 pytest adversarial/wrong_sync_info.py
 pytest adversarial/malicious_chain.py
 pytest adversarial/malicious_chain.py valid_blocks_only
