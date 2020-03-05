@@ -105,24 +105,6 @@ pub fn stake(account_id: &str, amount: Balance) -> ValidatorStake {
     ValidatorStake::new(account_id.to_string(), public_key, amount)
 }
 
-pub fn reward_calculator(
-    max_inflation_rate: u8,
-    num_blocks_per_year: u64,
-    epoch_length: BlockHeightDelta,
-    validator_reward_percentage: u8,
-    protocol_reward_percentage: u8,
-    protocol_treasury_account: AccountId,
-) -> RewardCalculator {
-    RewardCalculator {
-        max_inflation_rate,
-        num_blocks_per_year,
-        epoch_length,
-        validator_reward_percentage,
-        protocol_reward_percentage,
-        protocol_treasury_account,
-    }
-}
-
 /// No-op reward calculator. Will produce no reward
 pub fn default_reward_calculator() -> RewardCalculator {
     RewardCalculator {
