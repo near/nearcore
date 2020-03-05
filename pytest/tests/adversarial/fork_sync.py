@@ -23,9 +23,6 @@ fork1_height = 0
 fork2_height = 0
 
 for i in range(2, 4):
-    # TODO Alex
-    # nodes 2 and 3 will not produce any blocks with doomslug enabled after killing nodes 0 and 1
-    # check if is it expected behavior
     res = nodes[i].json_rpc('adv_disable_doomslug', [])
     assert 'result' in res, res
 
