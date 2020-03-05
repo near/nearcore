@@ -77,6 +77,11 @@ impl EpochManager {
                 validator_reward,
                 0,
             )?;
+            // Dummy block info.
+            // Artificial block we add to simplify implementation: dummy block is the
+            // parent of genesis block that points to itself.
+            // If we view it as block in epoch -1 and height -1, it naturally extends the
+            // EpochId formula using T-2 for T=1, and height field is unused.
             let block_info = BlockInfo::default();
             let mut store_update = epoch_manager.store.store_update();
             epoch_manager.save_epoch_info(&mut store_update, &genesis_epoch_id, epoch_info)?;
@@ -86,6 +91,21 @@ impl EpochManager {
         Ok(epoch_manager)
     }
 
+    /// # Parameters
+    /// epoch_info
+    /// block_validator_tracker
+    /// chunk_validator_tracker
+    ///
+    /// slashed: set of slashed validators
+    /// prev_validator_kickout: previously kicked out
+    ///
+    /// # Returns
+    /// (set of validators to kickout, set of validators to reward with stats)
+    ///
+    /// - Slashed validators are ignored (they are handled separately)
+    /// - A validator is kicked out if he produced too few blocks or chunks
+    /// - If all validators are either previously kicked out or to be kicked out, we choose one not to
+    /// kick out
     fn compute_kickout_info(
         &self,
         epoch_info: &EpochInfo,
@@ -203,7 +223,7 @@ impl EpochManager {
             &slashed_validators,
             &prev_validator_kickout,
         );
-        validator_kickout = validator_kickout.union(&kickout).cloned().collect();
+        validator_kickout.extend(kickout);
         debug!(
             "All proposals: {:?}, Kickouts: {:?}, Block Tracker: {:?}, Shard Tracker: {:?}",
             all_proposals, validator_kickout, block_validator_tracker, chunk_validator_tracker
@@ -938,6 +958,10 @@ impl EpochManager {
         }
     }
 
+    /// Get BlockInfo for a block
+    /// # Errors
+    /// EpochError::Other if storage returned an error
+    /// EpochError::MissingBlock if block is not in storage
     pub fn get_block_info(&mut self, hash: &CryptoHash) -> Result<&BlockInfo, EpochError> {
         if self.blocks_info.cache_get(hash).is_none() {
             let block_info = self
@@ -1404,8 +1428,11 @@ mod tests {
             epoch_manager.get_slashed_validators(&h[2]).unwrap().clone().into_iter().collect();
         let slashed2: Vec<_> =
             epoch_manager.get_slashed_validators(&h[3]).unwrap().clone().into_iter().collect();
+        let slashed3: Vec<_> =
+            epoch_manager.get_slashed_validators(&h[5]).unwrap().clone().into_iter().collect();
         assert_eq!(slashed1, vec![("test1".to_string(), SlashState::Other)]);
         assert_eq!(slashed2, vec![("test1".to_string(), SlashState::AlreadySlashed)]);
+        assert_eq!(slashed3, vec![("test1".to_string(), SlashState::AlreadySlashed)]);
     }
 
     /// Test that double sign interacts with other challenges in the correct way.

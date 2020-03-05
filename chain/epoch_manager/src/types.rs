@@ -77,6 +77,7 @@ pub struct BlockInfo {
     pub epoch_id: EpochId,
     pub proposals: Vec<ValidatorStake>,
     pub chunk_mask: Vec<bool>,
+    /// Validators slashed since the start of epoch or in previous epoch
     pub slashed: HashMap<AccountId, SlashState>,
     /// Total rent paid in this block.
     pub rent_paid: Balance,
@@ -196,8 +197,6 @@ pub enum EpochError {
     ThresholdError(Balance, u64),
     /// Requesting validators for an epoch that wasn't computed yet.
     EpochOutOfBounds,
-    /// Number of selected seats doesn't match requested.
-    SelectedSeatsMismatch(NumSeats, NumSeats),
     /// Missing block hash in the storage (means there is some structural issue).
     MissingBlock(CryptoHash),
     /// Other error.
@@ -215,11 +214,6 @@ impl fmt::Debug for EpochError {
                 stakes_sum, num_seats
             ),
             EpochError::EpochOutOfBounds => write!(f, "Epoch out of bounds"),
-            EpochError::SelectedSeatsMismatch(selected, required) => write!(
-                f,
-                "Number of selected seats {} < total number of seats {}",
-                selected, required
-            ),
             EpochError::MissingBlock(hash) => write!(f, "Missing block {}", hash),
             EpochError::Other(err) => write!(f, "Other: {}", err),
         }
@@ -233,9 +227,6 @@ impl fmt::Display for EpochError {
                 write!(f, "ThresholdError({}, {})", stake, num_seats)
             }
             EpochError::EpochOutOfBounds => write!(f, "EpochOutOfBounds"),
-            EpochError::SelectedSeatsMismatch(selected, required) => {
-                write!(f, "SelectedSeatsMismatch({}, {})", selected, required)
-            }
             EpochError::MissingBlock(hash) => write!(f, "MissingBlock({})", hash),
             EpochError::Other(err) => write!(f, "Other({})", err),
         }
@@ -261,8 +252,11 @@ impl From<EpochError> for near_chain::Error {
 
 pub struct EpochSummary {
     pub prev_epoch_last_block_hash: CryptoHash,
+    // Proposals from the epoch, only the latest one per account
     pub all_proposals: Vec<ValidatorStake>,
+    // Kickout set, includes slashed
     pub validator_kickout: HashSet<AccountId>,
+    // Only for validators who met the threshold and didn't get slashed
     pub validator_block_chunk_stats: HashMap<AccountId, BlockChunkValidatorStats>,
     pub total_storage_rent: Balance,
     pub total_validator_reward: Balance,
