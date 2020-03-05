@@ -92,7 +92,7 @@ if __name__ == "__main__":
                 break
             subprocess.check_output(f'mkdir -p {coverage_dir(i+1)}', shell=True)
 
-            cov_to_merge = list(grouper(covs, 2 ))
+            cov_to_merge = list(grouper(covs, 2))
             if cov_to_merge[-1][-1] is None:
                 # ensure the last to merge is not only one cov
                 cov_to_merge[-2] += (cov_to_merge[-1][0],)
@@ -103,7 +103,7 @@ if __name__ == "__main__":
                 j+=1
                 futures.append(executor.submit(merge_coverage, i, cov, j))
 
-            for _ in as_completed(futures):
+            for f in as_completed(futures):
                 pass
 
             i+=1
