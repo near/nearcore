@@ -1,8 +1,9 @@
 #!/bin/bash
 set -euo pipefail
-
+bash --version
 INSTANCES=("34.94.160.151" "104.196.39.111" "146.148.94.78" "35.228.209.219")
 IMAGE=nearprotocol/nearcore:master
+SSH_KEY=""
 
 function stop_node {
     ssh -o StrictHostKeyChecking=no bo_nearprotocol_com@$1 $SSH_KEY -- <<SSH
