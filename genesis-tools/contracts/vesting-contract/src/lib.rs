@@ -1,7 +1,6 @@
 //! A smart contract that allows tokens vesting and lockup.
 
 use borsh::{BorshDeserialize, BorshSerialize};
-use key_management::{KeyType, PublicKey};
 use near_bindgen::{env, near_bindgen, Promise};
 use uint::construct_uint;
 
@@ -10,8 +9,32 @@ construct_uint! {
     pub struct U256(4);
 }
 
-mod key_management;
-// mod lockup_vesting_transfer_rules;
+/// Key type defines the access for the key owner.
+#[derive(Clone, Copy, Debug, BorshDeserialize, BorshSerialize)]
+pub enum KeyType {
+    /// The key belongs to the owner of the Vesting Contract. The key provides the ability to
+    /// stake and withdraw available funds.
+    Owner,
+    /// The key belongs to the NEAR foundation. The key provides ability to stop vesting in
+    /// case the contract owner's vesting agreement was terminated, e.g. the employee left the
+    /// company before the end of the vesting period.
+    Foundation,
+}
+
+impl KeyType {
+    /// Provides allowed methods name in a comma separated format used by `FunctionCallPermission`
+    /// within an `AccessKey`.
+    pub fn allowed_methods(&self) -> Vec<u8> {
+        match self {
+            KeyType::Owner => b"stake,transfer".to_vec(),
+            KeyType::Foundation => b"permanently_unstake,terminate".to_vec(),
+        }
+    }
+}
+
+/// A key is a sequence of bytes, potentially including the prefix determining the cryptographic type
+/// of the key. For forward compatibility we do not enforce any specific length.
+pub type PublicKey = Vec<u8>;
 
 #[global_allocator]
 static ALLOC: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;
@@ -19,12 +42,22 @@ static ALLOC: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;
 #[near_bindgen]
 #[derive(BorshDeserialize, BorshSerialize)]
 pub struct VestingContract {
+    /// The amount in yacto-NEAR tokens locked for this account.
     lockup_amount: u128,
+    /// The timestamp in nanoseconds when the vested amount of tokens will be available.
     lockup_timestamp: u64,
     /// Whether this account is disallowed to stake anymore.
+    /// In case the vesting contract is terminated, the foundation will issue a unstaking
+    /// transaction and prevent account from staking again. This is needed to be able to withdraw
+    /// the remaining unvested amount.
     permanently_unstaked: bool,
+    /// The timestamp in nanosecond when the vesting starts. E.g. the start date of employment.
     vesting_start_timestamp: u64,
+    /// The timestamp in nanosecond when the first part of lockup tokens becomes vested.
+    /// The remaining tokens will vest continuously until they are fully vested.
+    /// Example: a 1 year of employment at which moment the 1/4 of tokens become vested.
     vesting_cliff_timestamp: u64,
+    /// The timestamp in nanosecond when the vesting ends.
     vesting_end_timestamp: u64,
 }
 
@@ -63,12 +96,19 @@ impl VestingContract {
     /// Same initialization method as above, but with vesting functionality.
     #[init]
     pub fn new(
+        #[serializer(borsh)]
         lockup_amount: u128,
+        #[serializer(borsh)]
         lockup_timestamp: u64,
+        #[serializer(borsh)]
         vesting_start_timestamp: u64,
+        #[serializer(borsh)]
         vesting_cliff_timestamp: u64,
+        #[serializer(borsh)]
         vesting_end_timestamp: u64,
+        #[serializer(borsh)]
         owner_public_keys: Vec<PublicKey>,
+        #[serializer(borsh)]
         foundation_public_keys: Vec<PublicKey>,
     ) -> Self {
         assert!(
@@ -115,7 +155,9 @@ impl VestingContract {
     }
 
     /// Create a staking transaction on behalf of this account.
-    pub fn stake(&self, amount: u128, public_key: PublicKey) {
+    pub fn stake(&mut self,         #[serializer(borsh)]
+    amount: u128,         #[serializer(borsh)]
+    public_key: PublicKey) {
         Self::assert_self();
         assert!(!self.permanently_unstaked, "The account was permanently unstaked.");
         assert!(
@@ -126,6 +168,7 @@ impl VestingContract {
     }
 
     /// Get the amount of tokens that were vested.
+    #[result_serializer(borsh)]
     pub fn get_unvested(&self) -> u128 {
         let block_timestamp = env::block_timestamp();
         if block_timestamp < self.vesting_cliff_timestamp {
@@ -141,9 +184,10 @@ impl VestingContract {
     }
 
     /// Get the amount of transferrable tokens that this account has. Takes vesting into account.
+    #[result_serializer(borsh)]
     pub fn get_transferrable(&self) -> u128 {
         let total_balance = env::account_balance() + env::account_locked_balance();
-        if self.lockup_timestamp >= env::block_timestamp() {
+        if self.lockup_timestamp <= env::block_timestamp() {
             // some balance might be still unvested
             total_balance.saturating_sub(self.get_unvested())
         } else {
@@ -153,27 +197,317 @@ impl VestingContract {
     }
 
     /// Transfer amount to another account.
-    pub fn transfer(&self, amount: u128, account: String) {
+    pub fn transfer(&mut self,  #[serializer(borsh)] amount: u128,  #[serializer(borsh)] receiver_id: String) {
         Self::assert_self();
         assert!(amount <= self.get_transferrable(), "Not enough transferrable tokens to transfer.");
-        Promise::new(account).transfer(amount);
+        Promise::new(receiver_id).transfer(amount);
     }
 
     /// Permanently unstake this account disallowing it to stake. This is usually done
     /// in preparation of terminating this account. Unfortunately, unstaking and termination
     /// cannot be done atomically, because unstaking takes unknown amount of time.
-    pub fn permanently_unstake(&mut self, key: PublicKey) {
+    pub fn permanently_unstake(&mut self, #[serializer(borsh)] key: PublicKey) {
         Self::assert_self();
+        assert!(!self.permanently_unstaked, "The account was permanently unstaked.");
         Promise::new(env::current_account_id()).stake(0, key);
         self.permanently_unstaked = true;
     }
 
     /// Stop vesting and transfer all unvested tokens to a beneficiary.
-    pub fn terminate(&mut self, beneficiary_id: String) {
+    pub fn terminate(&mut self, #[serializer(borsh)] beneficiary_id: String) {
         Self::assert_self();
         let unvested = self.get_unvested();
         self.lockup_amount -= unvested;
         self.vesting_end_timestamp = env::block_timestamp();
         Promise::new(beneficiary_id).transfer(unvested);
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use near_bindgen::MockedBlockchain;
+    use near_bindgen::{testing_env, VMContext};
+
+    type AccountId = String;
+
+    const LOCKUP_NEAR: u128 = 1000;
+    const GENESIS_TIME_IN_DAYS: u64 = 500;
+    const YEAR: u64 = 365;
+    const ALMOST_HALF_YEAR: u64 = YEAR / 2;
+
+
+    fn system_account() -> AccountId {
+        "system".to_string()
+    }
+    fn account_owner() -> AccountId {
+        "account_owner".to_string()
+    }
+    fn non_owner() -> AccountId {
+        "non_owner".to_string()
+    }
+    fn public_key(byte_val: u8) -> Vec<u8> {
+        let mut pk = vec![byte_val; 33];
+        pk[0] = 0;
+        pk
+    }
+
+
+    fn to_yacto(near_balance: u128) -> u128 {
+        near_balance * 10u128.pow(24)
+    }
+
+    fn to_ts(num_days: u64) -> u64 {
+        // 2018-08-01 UTC in nanoseconds
+        1533081600000000000 + num_days * 86400000000000
+    }
+
+    fn assert_almost_eq_with_max_delta(left: u128, right: u128, max_delta: u128) {
+        assert!(std::cmp::max(left, right) - std::cmp::min(left, right) < max_delta, format!("Left {} is not even close to Right {} within delta {}", left, right, max_delta));
+    }
+
+    fn assert_almost_eq(left: u128, right: u128) {
+        assert_almost_eq_with_max_delta(left, right, to_yacto(10));
+    }
+
+    fn get_context(
+        predecessor_account_id: AccountId,
+        account_balance: u128,
+        account_locked_balance: u128,
+        block_timestamp: u64,
+        is_view: bool,
+    ) -> VMContext {
+        VMContext {
+            current_account_id: account_owner(),
+            signer_account_id: predecessor_account_id.clone(),
+            signer_account_pk: vec![0, 1, 2],
+            predecessor_account_id,
+            input: vec![],
+            block_index: 0,
+            block_timestamp,
+            account_balance,
+            account_locked_balance,
+            storage_usage: 10u64.pow(6),
+            attached_deposit: 0,
+            prepaid_gas: 10u64.pow(15),
+            random_seed: vec![0, 1, 2],
+            is_view,
+            output_data_receivers: vec![],
+        }
+    }
+
+    fn basic_setup() -> (VMContext, VestingContract) {
+        let context = get_context(
+            system_account(),
+            to_yacto(LOCKUP_NEAR),
+            0,
+            to_ts(GENESIS_TIME_IN_DAYS),
+            false);
+        testing_env!(context.clone());
+        // Contract Setup:
+        // - Now is genesis time.
+        // - Lockup amount is 1000 near tokens.
+        // - Lockup for 1 year.
+        // - Vesting started half a year ago.
+        // - Vesting cliff is 1 year from the start date.
+        // - Vesting ends in 1 year from the start date.
+        // - Owner has 2 keys
+        // - Foundation has 1 key
+        let contract = VestingContract::new(
+            to_yacto(LOCKUP_NEAR),
+            to_ts(GENESIS_TIME_IN_DAYS + YEAR),
+            to_ts(GENESIS_TIME_IN_DAYS - ALMOST_HALF_YEAR),
+            to_ts(GENESIS_TIME_IN_DAYS - ALMOST_HALF_YEAR + YEAR),
+            to_ts(GENESIS_TIME_IN_DAYS - ALMOST_HALF_YEAR + YEAR * 4),
+            vec![public_key(1), public_key(2)],
+            vec![public_key(3)],
+        );
+        (context, contract)
+    }
+
+    #[test]
+    fn test_basic() {
+        let (mut context, contract) = basic_setup();
+        // Checking initial values at genesis time
+        context.is_view = true;
+        testing_env!(context.clone());
+
+        assert_eq!(contract.get_transferrable(), 0);
+        assert_eq!(contract.get_unvested(), to_yacto(LOCKUP_NEAR));
+
+        // Checking values in 1 day after genesis time
+        context.block_timestamp = to_ts(GENESIS_TIME_IN_DAYS + 1);
+        testing_env!(context.clone());
+
+        assert_eq!(contract.get_transferrable(), 0);
+        assert_eq!(contract.get_unvested(), to_yacto(LOCKUP_NEAR));
+
+        // Checking values next day after cliff but before lockup timestamp
+        context.block_timestamp = to_ts(GENESIS_TIME_IN_DAYS - ALMOST_HALF_YEAR + YEAR + 1);
+        testing_env!(context.clone());
+
+        assert_eq!(contract.get_transferrable(), 0);
+        assert_almost_eq(contract.get_unvested(), to_yacto(750));
+
+        // Checking values next day after lockup timestamp
+        context.block_timestamp = to_ts(GENESIS_TIME_IN_DAYS + YEAR + 1);
+        testing_env!(context.clone());
+
+        assert_almost_eq(contract.get_transferrable(), to_yacto(375));
+        assert_almost_eq(contract.get_unvested(), to_yacto(625));
+
+        // Checking values middle of vesting
+        context.block_timestamp = to_ts(GENESIS_TIME_IN_DAYS - ALMOST_HALF_YEAR + YEAR * 2);
+        testing_env!(context.clone());
+
+        assert_almost_eq(contract.get_transferrable(), to_yacto(500));
+        assert_almost_eq(contract.get_unvested(), to_yacto(500));
+
+
+        // Checking values a day before vesting ends
+        context.block_timestamp = to_ts(GENESIS_TIME_IN_DAYS - ALMOST_HALF_YEAR + YEAR * 4 - 1);
+        testing_env!(context.clone());
+
+        assert_almost_eq(contract.get_transferrable(), to_yacto(1000));
+        assert_almost_eq(contract.get_unvested(), to_yacto(0));
+
+        // Checking values a day after vesting ends
+        context.block_timestamp = to_ts(GENESIS_TIME_IN_DAYS - ALMOST_HALF_YEAR + YEAR * 4 + 1);
+        testing_env!(context.clone());
+
+        assert_almost_eq(contract.get_transferrable(), to_yacto(1000));
+        assert_almost_eq(contract.get_unvested(), to_yacto(0));
+    }
+
+    #[test]
+    fn test_transferrable_with_different_stakes() {
+        let (mut context, contract) = basic_setup();
+
+        // Staking everything at the genesis
+        context.account_locked_balance = to_yacto(999);
+        context.account_balance = to_yacto(1);
+
+        // Checking values in 1 day after genesis time
+        context.is_view = true;
+
+        for stake in &[1, 10, 100, 500, 999, 1001, 1005, 1100, 1500, 1999, 3000] {
+            let stake = *stake;
+            context.account_locked_balance = to_yacto(stake);
+            let balance_near = std::cmp::max(1000u128.saturating_sub(stake), 1);
+            context.account_balance = to_yacto(balance_near);
+            let extra_balance_near = stake + balance_near - 1000;
+
+            context.block_timestamp = to_ts(GENESIS_TIME_IN_DAYS + 1);
+            testing_env!(context.clone());
+
+            assert_eq!(contract.get_transferrable(), to_yacto(extra_balance_near));
+
+            // Checking values next day after cliff but before lockup timestamp
+            context.block_timestamp = to_ts(GENESIS_TIME_IN_DAYS - ALMOST_HALF_YEAR + YEAR + 1);
+            testing_env!(context.clone());
+
+            assert_eq!(contract.get_transferrable(), to_yacto(extra_balance_near));
+
+            // Checking values next day after lockup timestamp
+            context.block_timestamp = to_ts(GENESIS_TIME_IN_DAYS + YEAR + 1);
+            testing_env!(context.clone());
+
+            assert_almost_eq(contract.get_transferrable(), to_yacto(375 + extra_balance_near));
+
+            // Checking values middle of vesting
+            context.block_timestamp = to_ts(GENESIS_TIME_IN_DAYS - ALMOST_HALF_YEAR + YEAR * 2);
+            testing_env!(context.clone());
+
+            assert_almost_eq(contract.get_transferrable(), to_yacto(500 + extra_balance_near));
+
+            // Checking values a day before vesting ends
+            context.block_timestamp = to_ts(GENESIS_TIME_IN_DAYS - ALMOST_HALF_YEAR + YEAR * 4 - 1);
+            testing_env!(context.clone());
+
+            assert_almost_eq(contract.get_transferrable(), to_yacto(1000 + extra_balance_near));
+
+            // Checking values a day after vesting ends
+            context.block_timestamp = to_ts(GENESIS_TIME_IN_DAYS - ALMOST_HALF_YEAR + YEAR * 4 + 1);
+            testing_env!(context.clone());
+
+            assert_almost_eq(contract.get_transferrable(), to_yacto(1000 + extra_balance_near));
+        }
+    }
+
+    #[test]
+    fn test_transfer_call_by_owner() {
+        let (mut context, mut contract) = basic_setup();
+        context.block_timestamp = to_ts(GENESIS_TIME_IN_DAYS + YEAR + 1);
+        context.is_view = true;
+        testing_env!(context.clone());
+        assert_almost_eq(contract.get_transferrable(), to_yacto(375));
+
+        context.predecessor_account_id = account_owner();
+        context.signer_account_id = account_owner();
+        context.signer_account_pk = public_key(1);
+        context.is_view = false;
+        testing_env!(context.clone());
+
+        assert_eq!(env::account_balance(), to_yacto(LOCKUP_NEAR));
+        contract.transfer(to_yacto(100), non_owner());
+        assert_almost_eq(env::account_balance(), to_yacto(LOCKUP_NEAR - 100));
+    }
+
+    #[test]
+    fn test_transfer_by_non_owner() {
+        let (mut context, mut contract) = basic_setup();
+
+        context.predecessor_account_id = non_owner();
+        context.signer_account_id = non_owner();
+        context.signer_account_pk = public_key(5);
+        testing_env!(context.clone());
+
+        std::panic::catch_unwind(move || {
+            contract.transfer(to_yacto(100), non_owner());
+        }).unwrap_err();
+    }
+
+    #[test]
+    fn test_stake_by_non_owner() {
+        let (mut context, mut contract) = basic_setup();
+
+        context.predecessor_account_id = non_owner();
+        context.signer_account_id = non_owner();
+        context.signer_account_pk = public_key(5);
+        testing_env!(context.clone());
+
+        std::panic::catch_unwind(move || {
+            contract.stake(to_yacto(100), public_key(4));
+        }).unwrap_err();
+    }
+
+    #[test]
+    fn test_permanently_unstake_by_non_owner() {
+        let (mut context, mut contract) = basic_setup();
+
+        context.predecessor_account_id = non_owner();
+        context.signer_account_id = non_owner();
+        context.signer_account_pk = public_key(5);
+        testing_env!(context.clone());
+
+        std::panic::catch_unwind(move || {
+            contract.permanently_unstake(public_key(4));
+        }).unwrap_err();
+    }
+
+    #[test]
+    fn test_terminate_by_non_owner() {
+        let (mut context, mut contract) = basic_setup();
+
+        context.predecessor_account_id = non_owner();
+        context.signer_account_id = non_owner();
+        context.signer_account_pk = public_key(5);
+        testing_env!(context.clone());
+
+        std::panic::catch_unwind(move || {
+            contract.terminate(non_owner());
+        }).unwrap_err();
     }
 }

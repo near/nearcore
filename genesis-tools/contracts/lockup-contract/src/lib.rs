@@ -76,7 +76,7 @@ impl LockupContract {
     /// Get the amount of tokens that can be transferred.
     pub fn get_transferrable(&self) -> u128 {
         let total_balance = env::account_balance() + env::account_locked_balance();
-        if self.lockup_timestamp >= env::block_timestamp() {
+        if self.lockup_timestamp <= env::block_timestamp() {
             // entire balance is unlocked
             total_balance
         } else {
