@@ -8,7 +8,7 @@ use actix::{
     Actor, ActorContext, ActorFuture, Addr, AsyncContext, Context, ContextFutureSpawner, Handler,
     Recipient, Running, StreamHandler, WrapFuture,
 };
-use tracing::{debug, error, info, trace, warn};
+use tracing::{debug, error, info, warn};
 
 use near_chain_configs::PROTOCOL_VERSION;
 use near_metrics;
@@ -16,7 +16,7 @@ use near_primitives::block::GenesisId;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
 use near_primitives::unwrap_option_or_return;
-use near_primitives::utils::{ser, DisplayOption};
+use near_primitives::utils::DisplayOption;
 
 use crate::codec::{bytes_to_peer_message, peer_message_to_bytes, Codec};
 use crate::rate_counter::RateCounter;
@@ -29,7 +29,11 @@ use crate::types::{
     QueryPeerStats, ReasonForBan, RoutedMessageBody, RoutedMessageFrom, SendMessage, Unregister,
 };
 use crate::PeerManagerActor;
-use crate::{metrics, NetworkResponses};
+use crate::{
+    metrics,
+    recorder::{PeerMessageMetadata, Status},
+    NetworkResponses,
+};
 
 type WriteHalf = tokio::io::WriteHalf<tokio::net::TcpStream>;
 
@@ -200,10 +204,17 @@ impl Peer {
             _ => (),
         };
 
-        trace!(target: "diagnostic", key="tx", msg=%ser(&msg));
+        let mut metadata = PeerMessageMetadata::into_metadata(&msg)
+            .set_source(self.node_id())
+            .set_status(Status::Sent);
+
+        if let Some(target) = self.peer_id() {
+            metadata = metadata.set_target(target);
+        }
 
         match peer_message_to_bytes(msg) {
             Ok(bytes) => {
+                self.peer_manager_addr.do_send(metadata.set_size(bytes.len()));
                 self.tracker.increment_sent(bytes.len() as u64);
                 self.framed.write(bytes);
             }
@@ -263,6 +274,10 @@ impl Peer {
         info!(target: "network", "Banning peer {} for {:?}", self.peer_info, ban_reason);
         self.peer_status = PeerStatus::Banned(ban_reason);
         ctx.stop();
+    }
+
+    fn node_id(&self) -> PeerId {
+        self.node_info.id.clone()
     }
 
     fn peer_id(&self) -> Option<PeerId> {
@@ -522,6 +537,7 @@ impl StreamHandler<Vec<u8>> for Peer {
         near_metrics::inc_counter_by(&metrics::PEER_DATA_RECEIVED_BYTES, msg.len() as i64);
         near_metrics::inc_counter(&metrics::PEER_MESSAGE_RECEIVED_TOTAL);
 
+        let msg_size = msg.len();
         self.tracker.increment_received(msg.len() as u64);
         let peer_msg = match bytes_to_peer_message(&msg) {
             Ok(peer_msg) => peer_msg,
@@ -531,7 +547,16 @@ impl StreamHandler<Vec<u8>> for Peer {
             }
         };
 
-        trace!(target: "diagnostic", key="rx", length=msg.len(), msg=%ser(&peer_msg));
+        let mut metadata = PeerMessageMetadata::into_metadata(&peer_msg)
+            .set_size(msg_size)
+            .set_target(self.node_id())
+            .set_status(Status::Received);
+
+        if let Some(peer_id) = self.peer_id() {
+            metadata = metadata.set_source(peer_id);
+        }
+
+        self.peer_manager_addr.do_send(metadata);
 
         peer_msg.record(msg.len());
 

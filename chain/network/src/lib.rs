@@ -13,6 +13,7 @@ mod peer;
 mod peer_manager;
 pub mod peer_store;
 mod rate_counter;
+mod recorder;
 pub mod routing;
 pub mod types;
 pub mod utils;

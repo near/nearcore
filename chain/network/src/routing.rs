@@ -696,6 +696,10 @@ impl RoutingTable {
                 })
         }
     }
+
+    pub fn get_raw_graph(&self) -> &HashMap<PeerId, HashSet<PeerId>> {
+        &self.raw_graph.adjacency
+    }
 }
 
 pub struct ProcessEdgeResult {

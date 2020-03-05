@@ -30,6 +30,7 @@ use crate::codec::Codec;
 use crate::metrics;
 use crate::peer::Peer;
 use crate::peer_store::PeerStore;
+use crate::recorder::{MetricRecorder, PeerMessageMetadata};
 use crate::routing::{Edge, EdgeInfo, EdgeType, ProcessEdgeResult, RoutingTable};
 use crate::types::{
     AccountOrPeerIdOrHash, Ban, BlockedPorts, Consolidate, ConsolidateResponse, FullPeerInfo,
@@ -94,6 +95,8 @@ pub struct PeerManagerActor {
     monitor_peers_attempts: u64,
     /// Active peers we have sent new edge update, but we haven't received response so far.
     pending_update_nonce_request: HashMap<PeerId, u64>,
+    /// Store all collected metrics from a node.
+    metric_recorder: MetricRecorder,
 }
 
 impl PeerManagerActor {
@@ -119,6 +122,7 @@ impl PeerManagerActor {
             routing_table: RoutingTable::new(me, store),
             monitor_peers_attempts: 0,
             pending_update_nonce_request: HashMap::new(),
+            metric_recorder: MetricRecorder::default(),
         })
     }
 
@@ -402,7 +406,10 @@ impl PeerManagerActor {
             self.routing_table.process_edge(edge);
 
         if let Some(duration) = schedule_computation {
-            ctx.run_later(duration, |act, _ctx| act.routing_table.update());
+            ctx.run_later(duration, |act, _ctx| {
+                act.routing_table.update();
+                act.metric_recorder.set_graph(act.routing_table.get_raw_graph())
+            });
         }
 
         new_edge
@@ -489,6 +496,8 @@ impl PeerManagerActor {
                 })
                 .spawn(ctx);
         }
+
+        self.metric_recorder.report();
 
         ctx.run_later(self.config.peer_stats_period, move |act, ctx| {
             act.monitor_peer_stats(ctx);
@@ -1377,5 +1386,12 @@ impl Handler<PeerRequest> for PeerManagerActor {
                 PeerResponse::NoResponse
             }
         }
+    }
+}
+
+impl Handler<PeerMessageMetadata> for PeerManagerActor {
+    type Result = ();
+    fn handle(&mut self, msg: PeerMessageMetadata, _ctx: &mut Self::Context) -> Self::Result {
+        self.metric_recorder.handle_peer_message(msg);
     }
 }
