@@ -2337,6 +2337,60 @@ mod test {
         assert!(response.current_fishermen.is_empty());
     }
 
+    /// Test that when fishermen unstake they get their tokens back.
+    #[test]
+    fn test_fishermen_unstake() {
+        init_test_logger();
+        let num_nodes = 2;
+        let validators = (0..num_nodes).map(|i| format!("test{}", i + 1)).collect::<Vec<_>>();
+        let mut env = TestEnv::new(
+            "test_validator_stake_change_multiple_times",
+            vec![validators.clone()],
+            2,
+            vec![],
+            vec![],
+            false,
+        );
+        let block_producers: Vec<_> = validators
+            .iter()
+            .map(|id| InMemoryValidatorSigner::from_seed(id, KeyType::ED25519, id))
+            .collect();
+        let signers: Vec<_> = validators
+            .iter()
+            .map(|id| InMemorySigner::from_seed(id, KeyType::ED25519, id))
+            .collect();
+
+        let staking_transaction = stake(1, &signers[0], &block_producers[0], FISHERMEN_THRESHOLD);
+        env.step_default(vec![staking_transaction]);
+        for _ in 2..9 {
+            env.step_default(vec![]);
+        }
+
+        let account0 = env.view_account(&block_producers[0].validator_id());
+        assert_eq!(account0.locked, FISHERMEN_THRESHOLD);
+        assert_eq!(account0.amount, TESTING_INIT_BALANCE - FISHERMEN_THRESHOLD);
+        let response = env.runtime.get_validator_info(&env.head.last_block_hash).unwrap();
+        assert_eq!(
+            response
+                .current_fishermen
+                .into_iter()
+                .map(|fishermen| fishermen.account_id)
+                .collect::<Vec<_>>(),
+            vec!["test1"]
+        );
+        let staking_transaction = stake(2, &signers[0], &block_producers[0], 0);
+        env.step_default(vec![staking_transaction]);
+        for _ in 10..17 {
+            env.step_default(vec![]);
+        }
+
+        let account0 = env.view_account(&block_producers[0].validator_id());
+        assert_eq!(account0.locked, 0);
+        assert_eq!(account0.amount, TESTING_INIT_BALANCE);
+        let response = env.runtime.get_validator_info(&env.head.last_block_hash).unwrap();
+        assert!(response.current_fishermen.is_empty());
+    }
+
     /// Enable reward and make sure that validators get reward proportional to their stake.
     #[test]
     fn test_validator_reward() {
