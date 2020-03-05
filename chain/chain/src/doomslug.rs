@@ -330,6 +330,11 @@ impl Doomslug {
         }
     }
 
+    #[cfg(feature = "adversarial")]
+    pub fn adv_disable(&mut self) {
+        self.threshold_mode = DoomslugThresholdMode::NoApprovals
+    }
+
     /// Returns the `(hash, height)` of the current tip. Currently is only used by tests.
     pub fn get_tip(&self) -> (CryptoHash, BlockHeight) {
         (self.tip.block_hash, self.tip.height)
