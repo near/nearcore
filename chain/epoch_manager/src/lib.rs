@@ -1726,7 +1726,7 @@ mod tests {
                 vec![vec![0]],
                 vec![],
                 vec![("test1", stake_amount)],
-                change_stake(vec![("test2", stake_amount + test2_reward)]),
+                change_stake(vec![("test1", stake_amount), ("test2", stake_amount + test2_reward)]),
                 reward(vec![("test2", test2_reward), ("near", protocol_reward)]),
                 inflation,
             )
@@ -2566,7 +2566,7 @@ mod tests {
     #[test]
     fn test_kickout_set() {
         let stake_amount = 1_000;
-        let validators = vec![("test1", stake_amount), ("test2", 0)];
+        let validators = vec![("test1", stake_amount), ("test2", 0), ("test3", 10)];
         // have two seats to that 500 would be the threshold
         let mut epoch_manager = setup_default_epoch_manager(validators, 2, 1, 2, 0, 90, 60);
         let h = hash_range(5);
@@ -2578,6 +2578,10 @@ mod tests {
             epoch_info1.validators.clone().into_iter().map(|r| r.account_id).collect::<Vec<_>>(),
             vec!["test1".to_string()]
         );
+        assert_eq!(
+            epoch_info1.stake_change.clone(),
+            change_stake(vec![("test1", stake_amount), ("test2", 0), ("test3", 10)])
+        );
         assert!(epoch_info1.validator_kickout.is_empty());
         record_block(&mut epoch_manager, h[2], h[3], 3, vec![stake("test2", stake_amount)]);
         record_block(&mut epoch_manager, h[3], h[4], 4, vec![]);
@@ -2588,8 +2592,8 @@ mod tests {
                 vec![1, 0],
                 vec![vec![1, 0]],
                 vec![],
-                vec![],
-                change_stake(vec![("test1", stake_amount), ("test2", stake_amount)]),
+                vec![("test3", 10)],
+                change_stake(vec![("test1", stake_amount), ("test2", stake_amount), ("test3", 10)]),
                 reward(vec![("near", 0), ("test1", 0)]),
                 0,
             )
