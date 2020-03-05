@@ -81,7 +81,8 @@ pub fn proposals_to_epoch_info(
             // safe to do this here because fishermen from previous epoch is guaranteed to have no
             // duplicates.
             fishermen_to_index.insert(r.account_id.clone(), fishermen.len() as ValidatorId);
-            fishermen.push(r.clone())
+            fishermen.push(r.clone());
+            stake_change.insert(r.account_id.clone(), (r.stake, 0));
         }
     }
 
