@@ -22,11 +22,19 @@ cur_height = 0
 fork1_height = 0
 fork2_height = 0
 
+for i in range(2, 4):
+    # TODO Alex
+    # nodes 2 and 3 will not produce any blocks with doomslug enabled after killing nodes 0 and 1
+    # check if is it expected behavior
+    res = nodes[i].json_rpc('adv_disable_doomslug', [])
+    assert 'result' in res, res
+
 # step 1, let nodes run for some time
 while cur_height < FIRST_STEP_WAIT:
     status = nodes[0].get_status()
     cur_height = status['sync_info']['latest_block_height']
-    time.sleep(0.1)
+    print(status)
+    time.sleep(0.9)
 
 for i in range(2):
     nodes[i].kill()
@@ -35,7 +43,8 @@ print("killing node 0 and 1")
 while fork1_height < FIRST_STEP_WAIT + SECOND_STEP_WAIT:
     status = nodes[2].get_status()
     fork1_height = status['sync_info']['latest_block_height']
-    time.sleep(0.5)
+    print(status)
+    time.sleep(0.9)
 
 for i in range(2, 4):
     nodes[i].kill()
@@ -44,16 +53,21 @@ print("killing node 2 and 3")
 
 for i in range(2):
     nodes[i].start(nodes[i].node_key.pk, nodes[i].addr())
+    res = nodes[i].json_rpc('adv_disable_doomslug', [])
+    assert 'result' in res, res
 
 time.sleep(1)
 
 while fork2_height < FIRST_STEP_WAIT + SECOND_STEP_WAIT:
     status = nodes[0].get_status()
     fork2_height = status['sync_info']['latest_block_height']
-    time.sleep(0.5)
+    print(status)
+    time.sleep(0.9)
 
 for i in range(2, 4):
     nodes[i].start(nodes[i].node_key.pk, nodes[i].addr())
+    res = nodes[i].json_rpc('adv_disable_doomslug', [])
+    assert 'result' in res, res
 
 time.sleep(1)
 
@@ -77,6 +91,7 @@ while cur_height < TIMEOUT:
             succeed = False
             break
     if statuses[0][1] > FINAL_HEIGHT_THRESHOLD and succeed:
+        print("Epic")
         exit(0)
     time.sleep(0.5)
 
