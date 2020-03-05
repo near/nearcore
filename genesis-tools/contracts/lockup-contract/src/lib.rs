@@ -13,7 +13,9 @@ type PublicKey = Vec<u8>;
 #[near_bindgen]
 #[derive(BorshDeserialize, BorshSerialize)]
 pub struct LockupContract {
+    /// The amount in yacto-NEAR tokens locked for this account.
     lockup_amount: u128,
+    /// The timestamp in nanoseconds when the lockup amount of tokens will be available.
     lockup_timestamp: u64,
 }
 
