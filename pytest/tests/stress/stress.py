@@ -34,11 +34,11 @@ from transaction import sign_payment_tx, sign_staking_tx
 from network import init_network_pillager, stop_network, resume_network
 
 TIMEOUT = 1500 # after how much time to shut down the test
-TIMEOUT_SHUTDOWN = 60 # time to wait after the shutdown was initiated before 
+TIMEOUT_SHUTDOWN = 120 # time to wait after the shutdown was initiated before 
 MAX_STAKE = int(1e26)
 EPOCH_LENGTH = 20
 
-block_timeout = 10 # if two blocks are not produced within that many seconds, the test will fail
+block_timeout = 20 # if two blocks are not produced within that many seconds, the test will fail. The timeout is increased if nodes are restarted or network is being messed up with
 balances_timeout = 15 # how long to tolerate for balances to update after txs are sent
 tx_tolerance = 0.1
 
@@ -111,6 +111,7 @@ def monkey_node_set(stopped, error, nodes, nonces):
                     
 @stress_process
 def monkey_node_restart(stopped, error, nodes, nonces):
+    heights_after_restart = [0 for _ in nodes]
     while stopped.value == 0:
         node_idx = get_the_guy_to_mess_up_with(nodes)
         boot_node_idx = random.randint(0, len(nodes) - 2)
@@ -118,11 +119,22 @@ def monkey_node_restart(stopped, error, nodes, nonces):
             boot_node_idx = random.randint(0, len(nodes) - 2)
         boot_node = nodes[boot_node_idx]
 
-        print("NUKING NODE %s" % node_idx)
         node = nodes[node_idx]
+        # don't kill the same node too frequently, give it time to reboot and produce something
+        while True:
+            _, h = get_recent_hash(node)
+            assert h >= heights_after_restart[node_idx], "%s > %s" % (h, heights_after_restart[node_idx])
+            if h > heights_after_restart[node_idx]:
+                break
+            time.sleep(1)
+
+        print("NUKING NODE %s" % node_idx)
         node.kill()
         node.start(boot_node.node_key.pk, boot_node.addr())
         print("NODE %s IS BACK UP" % node_idx)
+
+        _, heights_after_restart[node_idx] = get_recent_hash(node)
+
         time.sleep(5)
 
 @stress_process
@@ -178,13 +190,24 @@ def monkey_transactions(stopped, error, nodes, nonces):
                     good = 0
                     bad = 0
                     for tx in last_tx_set:
-                        response = nodes[-1].json_rpc('tx', [tx[3], "test%s" % tx[1]])
+                        tx_happened = True
                         try:
-                            rcpts = response['result']['receipts']
+                            response = nodes[-1].json_rpc('tx', [tx[3], "test%s" % tx[1]], timeout=1)
+
+                            # due to #2195 if the tx was dropped, the query today times out.
+                            if 'error' in response and 'data' in response['error'] and response['error']['data'] == 'Timeout':
+                                tx_happened = False
+                            elif 'result' in response and 'receipts_outcome' in response['result']:
+                                tx_happened = len(response['result']['receipts_outcome']) > 0
+                            else:
+                                assert False, response
+                        # This exception handler is also due to #2195
+                        except requests.exceptions.ReadTimeout:
+                            tx_happened = False
                         except:
-                            print(response)
                             raise
-                        if rcpts == []:
+
+                        if not tx_happened:
                             bad += 1
                             expected_balances[tx[1]] += tx[4]
                             expected_balances[tx[2]] -= tx[4]
@@ -220,34 +243,36 @@ def monkey_transactions(stopped, error, nodes, nonces):
             last_iter_switch = time.time()
 
         if mode == 0:
-            from_ = random.randint(0, len(nodes) - 1)
-            while min_balances[from_] < 0:
+            # do not send more than 50 txs, so that at the end of the test we have time to query all of them. When #2195 is fixed, this condition can probably be safely removed
+            if tx_count < 50:
                 from_ = random.randint(0, len(nodes) - 1)
-            to = random.randint(0, len(nodes) - 1)
-            while from_ == to:
+                while min_balances[from_] < 0:
+                    from_ = random.randint(0, len(nodes) - 1)
                 to = random.randint(0, len(nodes) - 1)
-            amt = random.randint(0, min_balances[from_])
-            nonce_val, nonce_lock = nonces[from_]
+                while from_ == to:
+                    to = random.randint(0, len(nodes) - 1)
+                amt = random.randint(0, min_balances[from_])
+                nonce_val, nonce_lock = nonces[from_]
 
-            hash_, _ = get_recent_hash(nodes[-1])
+                hash_, _ = get_recent_hash(nodes[-1])
 
-            with nonce_lock:
-                tx = sign_payment_tx(nodes[from_].signer_key, 'test%s' % to, amt, nonce_val.value, base58.b58decode(hash_.encode('utf8')))
-                for validator_id in validator_ids:
-                    try:
-                        tx_hash = nodes[validator_id].send_tx(tx)['result']
-                    except (requests.exceptions.ReadTimeout, requests.exceptions.ConnectionError):
-                        if not network_issues_expected and not nodes[validator_id].mess_with:
-                            raise
+                with nonce_lock:
+                    tx = sign_payment_tx(nodes[from_].signer_key, 'test%s' % to, amt, nonce_val.value, base58.b58decode(hash_.encode('utf8')))
+                    for validator_id in validator_ids:
+                        try:
+                            tx_hash = nodes[validator_id].send_tx(tx)['result']
+                        except (requests.exceptions.ReadTimeout, requests.exceptions.ConnectionError):
+                            if not network_issues_expected and not nodes[validator_id].mess_with:
+                                raise
 
-                last_tx_set.append((tx, from_, to, tx_hash, amt))
-                nonce_val.value = nonce_val.value + 1
+                    last_tx_set.append((tx, from_, to, tx_hash, amt))
+                    nonce_val.value = nonce_val.value + 1
 
-            expected_balances[from_] -= amt
-            expected_balances[to] += amt
-            min_balances[from_] -= amt
+                expected_balances[from_] -= amt
+                expected_balances[to] += amt
+                min_balances[from_] -= amt
 
-            tx_count += 1
+                tx_count += 1
 
         else:
             if get_balances() == expected_balances:
@@ -400,7 +425,7 @@ def doit(s, n, N, k, monkeys, timeout):
         # make all the observers track all the shards
         local_config_changes[i] = {"tracked_shards": list(range(s))}
 
-    near_root, node_dirs = init_cluster(N, s, k + 1, config, [["gas_price", 0], ["max_inflation_rate", 0], ["epoch_length", EPOCH_LENGTH], ["block_producer_kickout_threshold", 75]], local_config_changes)
+    near_root, node_dirs = init_cluster(N, k + 1, s, config, [["min_gas_price", 0], ["max_inflation_rate", 0], ["epoch_length", EPOCH_LENGTH], ["block_producer_kickout_threshold", 70]], local_config_changes)
 
     started = time.time()
 
@@ -424,12 +449,12 @@ def doit(s, n, N, k, monkeys, timeout):
         if config['local']:
             init_network_pillager()
             expect_network_issues()
-        block_timeout += 10
+        block_timeout += 20
         tx_tolerance += 0.3
     if 'monkey_node_restart' in monkey_names:
         expect_network_issues()
     if 'monkey_node_restart' in monkey_names or 'monkey_node_set' in monkey_names:
-        block_timeout += 10
+        block_timeout += 20
         balances_timeout += 10
         tx_tolerance += 0.4
 
