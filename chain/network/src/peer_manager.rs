@@ -110,7 +110,8 @@ impl PeerManagerActor {
         debug!(target: "network", "Found known peers: {} (boot nodes={})", peer_store.len(), config.boot_nodes.len());
         debug!(target: "network", "Blacklist: {:?}", config.blacklist);
 
-        let me = config.public_key.clone().into();
+        let me: PeerId = config.public_key.clone().into();
+
         Ok(PeerManagerActor {
             peer_id: config.public_key.clone().into(),
             config,
@@ -119,10 +120,10 @@ impl PeerManagerActor {
             peer_store,
             active_peers: HashMap::default(),
             outgoing_peers: HashSet::default(),
-            routing_table: RoutingTable::new(me, store),
+            routing_table: RoutingTable::new(me.clone(), store),
             monitor_peers_attempts: 0,
             pending_update_nonce_request: HashMap::new(),
-            metric_recorder: MetricRecorder::default(),
+            metric_recorder: MetricRecorder::default().set_me(me),
         })
     }
 

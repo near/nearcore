@@ -1,10 +1,9 @@
 use crate::types::PeerMessage;
 use actix::Message;
 use near_primitives::{hash::CryptoHash, network::PeerId};
-use std::{
-    collections::{HashMap, HashSet},
-    fmt::Debug,
-};
+use serde::ser::SerializeMap;
+use serde::Serialize;
+use std::collections::{HashMap, HashSet};
 use tracing::info;
 
 #[derive(Clone, Copy)]
@@ -12,7 +11,7 @@ pub enum Status {
     Sent,
     Received,
 }
-#[derive(Default, Debug)]
+#[derive(Default, Serialize)]
 struct CountSize {
     count: usize,
     bytes: usize,
@@ -25,7 +24,7 @@ impl CountSize {
     }
 }
 
-#[derive(Default, Debug)]
+#[derive(Default, Serialize)]
 struct SentReceived {
     sent: CountSize,
     received: CountSize,
@@ -57,51 +56,33 @@ impl HashAggregator {
     }
 }
 
-impl Debug for HashAggregator {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "HashAggregator {{ total: {}, different: {} }}", self.total, self.different())
+impl Serialize for HashAggregator {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let mut dic = serializer.serialize_map(Some(2))?;
+        dic.serialize_entry("total", &self.total)?;
+        dic.serialize_entry("different", &self.different())?;
+        dic.end()
     }
 }
 
-#[derive(Default, Debug)]
+#[derive(Default, Serialize)]
 pub struct MetricRecorder {
+    me: Option<PeerId>,
     overall: SentReceived,
     per_type: HashMap<String, SentReceived>,
-    per_peer: HashMap<Option<PeerId>, SentReceived>,
+    per_peer: HashMap<PeerId, SentReceived>,
     graph: Vec<(PeerId, PeerId)>,
     challenge_hashes: HashAggregator,
     block_hashes: HashAggregator,
 }
 
 impl MetricRecorder {
-    pub fn handle_peer_message(&mut self, peer_message_metadata: PeerMessageMetadata) {
-        self.overall
-            .get(peer_message_metadata.status.unwrap())
-            .update(peer_message_metadata.size.unwrap());
-
-        self.per_type
-            .entry(peer_message_metadata.message_type.clone())
-            .or_insert(SentReceived::default())
-            .get(peer_message_metadata.status.unwrap())
-            .update(peer_message_metadata.size.unwrap());
-
-        let peer = peer_message_metadata.other_peer();
-
-        self.per_peer
-            .entry(peer)
-            .or_insert(SentReceived::default())
-            .get(peer_message_metadata.status.unwrap())
-            .update(peer_message_metadata.size.unwrap());
-
-        match peer_message_metadata.message_type.as_str() {
-            "Challenge" => self.challenge_hashes.add(peer_message_metadata.hash.unwrap()),
-            "Block" => self.block_hashes.add(peer_message_metadata.hash.unwrap()),
-            _ => {}
-        }
-    }
-
-    pub fn report(&self) {
-        info!(target: "stats", "{:?}", self);
+    pub fn set_me(mut self, me: PeerId) -> Self {
+        self.me = Some(me);
+        self
     }
 
     pub fn set_graph(&mut self, graph: &HashMap<PeerId, HashSet<PeerId>>) {
@@ -113,6 +94,36 @@ impl MetricRecorder {
                 }
             }
         }
+    }
+
+    pub fn handle_peer_message(&mut self, peer_message_metadata: PeerMessageMetadata) {
+        self.overall
+            .get(peer_message_metadata.status.unwrap())
+            .update(peer_message_metadata.size.unwrap());
+
+        self.per_type
+            .entry(peer_message_metadata.message_type.clone())
+            .or_insert(SentReceived::default())
+            .get(peer_message_metadata.status.unwrap())
+            .update(peer_message_metadata.size.unwrap());
+
+        if let Some(peer) = peer_message_metadata.other_peer() {
+            self.per_peer
+                .entry(peer)
+                .or_insert(SentReceived::default())
+                .get(peer_message_metadata.status.unwrap())
+                .update(peer_message_metadata.size.unwrap());
+        }
+
+        match peer_message_metadata.message_type.as_str() {
+            "Challenge" => self.challenge_hashes.add(peer_message_metadata.hash.unwrap()),
+            "Block" => self.block_hashes.add(peer_message_metadata.hash.unwrap()),
+            _ => {}
+        }
+    }
+
+    pub fn report(&self) {
+        info!(target: "stats", "{:?}", serde_json::to_string(&self));
     }
 }
 
