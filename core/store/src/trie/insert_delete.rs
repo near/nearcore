@@ -308,7 +308,7 @@ impl Trie {
     /// Deletes a node from the trie which has key = `partial` given root node.
     /// Returns (new root node or `None` if this was the node to delete, was it updated).
     /// While deleting keeps track of all the removed / updated nodes in `death_row`.
-pub(crate) fn delete(
+    pub(crate) fn delete(
         &self,
         memory: &mut NodesStorage,
         node: StorageHandle,
