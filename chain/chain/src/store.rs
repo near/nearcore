@@ -917,6 +917,12 @@ impl ChainStoreAccess for ChainStore {
             .map_err(|e| e.into())
     }
 
+    /// Retrieve the key-value changes from the store and decode them appropriately.
+    ///
+    /// We store different types of data, so we need to take care of all the types. That is, the
+    /// account data and the access keys are internally-serialized and we have to deserialize those
+    /// values appropriately. Code and data changes are simple blobs of data, so we return them as
+    /// base64-encoded blobs.
     fn get_key_value_changes(
         &self,
         block_hash: &CryptoHash,

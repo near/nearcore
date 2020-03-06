@@ -75,7 +75,7 @@ pub struct AccountInfo {
 
 /// This type is used to mark keys (arrays of bytes) that are queried from store.
 ///
-/// NOTE: Currently, this type is only used in the client_view and RPC to be able to transparently
+/// NOTE: Currently, this type is only used in the view_client and RPC to be able to transparently
 /// pretty-serialize the bytes arrays as base64-encoded strings (see `serialize.rs`).
 #[derive(Debug, Clone, PartialEq, Eq, AsRef, From, BorshSerialize, BorshDeserialize)]
 #[as_ref(forward)]
@@ -83,7 +83,7 @@ pub struct StoreKey(Vec<u8>);
 
 /// This type is used to mark values returned from store (arrays of bytes).
 ///
-/// NOTE: Currently, this type is only used in the client_view and RPC to be able to transparently
+/// NOTE: Currently, this type is only used in the view_client and RPC to be able to transparently
 /// pretty-serialize the bytes arrays as base64-encoded strings (see `serialize.rs`).
 #[derive(Debug, Clone, PartialEq, Eq, AsRef, From, BorshSerialize, BorshDeserialize)]
 #[as_ref(forward)]
@@ -141,11 +141,6 @@ pub enum StateChangesRequest {
     AccountChanges {
         account_id: AccountId,
     },
-    DataChanges {
-        account_id: AccountId,
-        #[serde(rename = "key_prefix_base64", with = "base64_format")]
-        key_prefix: StoreKey,
-    },
     SingleAccessKeyChanges {
         account_id: AccountId,
         access_key_pk: PublicKey,
@@ -155,6 +150,11 @@ pub enum StateChangesRequest {
     },
     CodeChanges {
         account_id: AccountId,
+    },
+    DataChanges {
+        account_id: AccountId,
+        #[serde(rename = "key_prefix_base64", with = "base64_format")]
+        key_prefix: StoreKey,
     },
 }
 
