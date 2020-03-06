@@ -14,7 +14,7 @@ cached = "0.11.0"
 log = "0.4"
 num_cpus = "1.11"
 
-borsh = "0.2.10"
+borsh = "0.5.0"
 
 near-crypto = { path = "../crypto" }
 near-primitives = { path = "../primitives" }
