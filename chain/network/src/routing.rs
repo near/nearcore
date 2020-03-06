@@ -265,6 +265,10 @@ pub struct RoutingTable {
     ping_info: Option<HashMap<usize, Ping>>,
     /// Ping received by nonce. Used for testing only.
     pong_info: Option<HashMap<usize, Pong>>,
+    /// List of pings sent for which we haven't received any pong yet.
+    waiting_pong: HashMap<PeerId, HashMap<usize, Instant>>,
+    /// Last nonce sent to each peer through pings.
+    last_ping_nonce: HashMap<PeerId, usize>,
     /// Last nonce used to store edges on disk.
     pub component_nonce: u64,
 }
@@ -297,12 +301,18 @@ impl RoutingTable {
             recalculation_scheduled: None,
             ping_info: None,
             pong_info: None,
+            waiting_pong: HashMap::default(),
+            last_ping_nonce: HashMap::default(),
             component_nonce,
         }
     }
 
     fn peer_id(&self) -> &PeerId {
         &self.raw_graph.source
+    }
+
+    pub fn reachable_peers(&self) -> Vec<PeerId> {
+        self.peer_forwarding.keys().cloned().collect()
     }
 
     /// Find peer that is connected to `source` and belong to the shortest path
@@ -555,14 +565,39 @@ impl RoutingTable {
         }
     }
 
-    pub fn add_pong(&mut self, pong: Pong) {
+    /// Return time of the round trip of ping + pong
+    pub fn add_pong(&mut self, pong: Pong) -> Option<f64> {
         if self.pong_info.is_none() {
             self.pong_info = Some(HashMap::new());
         }
 
+        let mut res = None;
+
+        if let Some(nonces) = self.waiting_pong.get_mut(&pong.source) {
+            res = nonces
+                .remove(&(pong.nonce as usize))
+                .and_then(|sent| Some(Instant::now().duration_since(sent).as_secs_f64() * 1000f64));
+        }
         if let Some(pong_info) = self.pong_info.as_mut() {
             pong_info.entry(pong.nonce as usize).or_insert(pong);
         }
+
+        res
+    }
+
+    pub fn sending_ping(&mut self, nonce: usize, target: PeerId) {
+        self.waiting_pong.entry(target).or_default().entry(nonce).or_insert_with(|| Instant::now());
+    }
+
+    pub fn get_ping(&mut self, peer_id: PeerId) -> usize {
+        let nonce = self
+            .last_ping_nonce
+            .entry(peer_id)
+            .and_modify(|nonce| {
+                *nonce += 1;
+            })
+            .or_insert(1);
+        *nonce - 1
     }
 
     pub fn fetch_ping_pong(&self) -> (HashMap<usize, Ping>, HashMap<usize, Pong>) {

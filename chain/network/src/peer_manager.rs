@@ -500,6 +500,11 @@ impl PeerManagerActor {
 
         self.metric_recorder.report();
 
+        for peer_id in self.routing_table.reachable_peers() {
+            let nonce = self.routing_table.get_ping(peer_id.clone());
+            self.send_ping(ctx, nonce, peer_id);
+        }
+
         ctx.run_later(self.config.peer_stats_period, move |act, ctx| {
             act.monitor_peer_stats(ctx);
         });
@@ -720,6 +725,7 @@ impl PeerManagerActor {
     fn send_ping(&mut self, ctx: &mut Context<Self>, nonce: usize, target: PeerId) {
         let body =
             RoutedMessageBody::Ping(Ping { nonce: nonce as u64, source: self.peer_id.clone() });
+        self.routing_table.sending_ping(nonce, target.clone());
         let msg = RawRoutedMessage { target: AccountOrPeerIdOrHash::PeerId(target), body };
         self.send_message_to_peer(ctx, msg);
     }
@@ -737,7 +743,10 @@ impl PeerManagerActor {
     }
 
     fn handle_pong(&mut self, _ctx: &mut Context<Self>, pong: Pong) {
-        self.routing_table.add_pong(pong);
+        let source = pong.source.clone();
+        if let Some(latency) = self.routing_table.add_pong(pong) {
+            self.metric_recorder.add_latency(source, latency);
+        }
     }
 
     pub(crate) fn get_network_info(&mut self) -> NetworkInfo {

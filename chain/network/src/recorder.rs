@@ -67,6 +67,42 @@ impl Serialize for HashAggregator {
         dic.end()
     }
 }
+#[derive(Default)]
+struct Latency {
+    received: usize,
+    sum_latency: f64,
+    weighted_latency: f64,
+}
+
+impl Latency {
+    fn add(&mut self, latency: f64) {
+        if self.received == 0 {
+            self.weighted_latency = latency;
+        } else {
+            self.weighted_latency = 0.8f64 * self.weighted_latency + 0.2f64 * latency;
+        }
+
+        self.received += 1;
+        self.sum_latency += latency;
+    }
+
+    fn mean_latency(&self) -> f64 {
+        self.sum_latency / (self.received as f64)
+    }
+}
+
+impl Serialize for Latency {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let mut dic = serializer.serialize_map(Some(3))?;
+        dic.serialize_entry("total", &self.received)?;
+        dic.serialize_entry("mean", &self.mean_latency())?;
+        dic.serialize_entry("weighted_mean", &self.weighted_latency)?;
+        dic.end()
+    }
+}
 
 #[derive(Default, Serialize)]
 pub struct MetricRecorder {
@@ -77,6 +113,7 @@ pub struct MetricRecorder {
     graph: Vec<(PeerId, PeerId)>,
     challenge_hashes: HashAggregator,
     block_hashes: HashAggregator,
+    latencies: HashMap<PeerId, Latency>,
 }
 
 impl MetricRecorder {
@@ -94,6 +131,10 @@ impl MetricRecorder {
                 }
             }
         }
+    }
+
+    pub fn add_latency(&mut self, peer_id: PeerId, latency: f64) {
+        self.latencies.entry(peer_id).or_default().add(latency);
     }
 
     pub fn handle_peer_message(&mut self, peer_message_metadata: PeerMessageMetadata) {
