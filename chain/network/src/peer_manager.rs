@@ -52,6 +52,8 @@ const WAIT_ON_TRY_UPDATE_NONCE: u64 = 6_000;
 /// If we see an edge between us and other peer, but this peer is not a current connection, wait this
 /// timeout and in case it didn't become an active peer, broadcast edge removal update.
 const WAIT_PEER_BEFORE_REMOVE: u64 = 6_000;
+/// Time to wait before sending ping to all reachable peers.
+const WAIT_BEFORE_PING: u64 = 20_000;
 
 macro_rules! unwrap_or_error(($obj: expr, $error: expr) => (match $obj {
     Ok(result) => result,
@@ -469,6 +471,17 @@ impl PeerManagerActor {
         });
     }
 
+    fn ping_all_peers(&mut self, ctx: &mut Context<Self>) {
+        for peer_id in self.routing_table.reachable_peers() {
+            let nonce = self.routing_table.get_ping(peer_id.clone());
+            self.send_ping(ctx, nonce, peer_id);
+        }
+
+        ctx.run_later(Duration::from_millis(WAIT_BEFORE_PING), move |act, ctx| {
+            act.ping_all_peers(ctx);
+        });
+    }
+
     /// Periodically query peer actors for latest weight and traffic info.
     fn monitor_peer_stats(&mut self, ctx: &mut Context<Self>) {
         for (peer_id, active_peer) in self.active_peers.iter() {
@@ -496,13 +509,6 @@ impl PeerManagerActor {
                     });
                 })
                 .spawn(ctx);
-        }
-
-        self.metric_recorder.report();
-
-        for peer_id in self.routing_table.reachable_peers() {
-            let nonce = self.routing_table.get_ping(peer_id.clone());
-            self.send_ping(ctx, nonce, peer_id);
         }
 
         ctx.run_later(self.config.peer_stats_period, move |act, ctx| {
@@ -830,6 +836,9 @@ impl Actor for PeerManagerActor {
 
         // Start active peer stats querying.
         self.monitor_peer_stats(ctx);
+
+        // Periodically ping all peers to determine latencies between pair of peers.
+        self.ping_all_peers(ctx);
     }
 
     /// Try to gracefully disconnect from active peers.
