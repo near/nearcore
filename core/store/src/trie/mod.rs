@@ -11,7 +11,7 @@ use cached::Cached;
 
 use near_primitives::challenge::PartialState;
 use near_primitives::hash::{hash, CryptoHash};
-use near_primitives::types::{StateChangeCause, StateChanges, StateRoot, StateRootNode};
+use near_primitives::types::{RawStateChanges, StateChangeCause, StateRoot, StateRootNode};
 
 use crate::db::DBCol::ColKeyValueChanges;
 use crate::trie::insert_delete::NodesStorage;
@@ -522,7 +522,7 @@ impl TrieChanges {
 pub struct WrappedTrieChanges {
     trie: Arc<Trie>,
     trie_changes: TrieChanges,
-    kv_changes: StateChanges,
+    kv_changes: RawStateChanges,
     block_hash: CryptoHash,
 }
 
@@ -530,7 +530,7 @@ impl WrappedTrieChanges {
     pub fn new(
         trie: Arc<Trie>,
         trie_changes: TrieChanges,
-        kv_changes: StateChanges,
+        kv_changes: RawStateChanges,
         block_hash: CryptoHash,
     ) -> Self {
         WrappedTrieChanges { trie, trie_changes, kv_changes, block_hash }

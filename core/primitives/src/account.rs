@@ -5,7 +5,7 @@ use crate::hash::CryptoHash;
 use crate::types::{AccountId, Balance, BlockHeight, Nonce, StorageUsage};
 
 /// Per account information stored in the state.
-#[derive(BorshSerialize, BorshDeserialize, Serialize, PartialEq, Eq, Debug, Clone)]
+#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Debug, Clone)]
 pub struct Account {
     /// The total not locked tokens.
     pub amount: Balance,

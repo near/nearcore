@@ -25,10 +25,12 @@ use near_primitives::block::{BlockHeader, BlockScore, GenesisId};
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::verify_path;
 use near_primitives::network::AnnounceAccount;
-use near_primitives::types::{AccountId, BlockHeight, BlockId, MaybeBlockId, StateChanges};
+use near_primitives::types::{
+    AccountId, BlockCheckpoint, BlockHeight, BlockId, Finality, MaybeBlockId,
+};
 use near_primitives::views::{
     BlockView, ChunkView, EpochValidatorInfo, FinalExecutionOutcomeView, FinalExecutionStatus,
-    Finality, GasPriceView, LightClientBlockView, QueryRequest, QueryResponse,
+    GasPriceView, LightClientBlockView, QueryRequest, QueryResponse, StateChangesView,
 };
 use near_store::Store;
 
@@ -147,12 +149,16 @@ impl ViewClientActor {
             return response.map(Some);
         }
 
-        let header = match msg.block_id {
-            Some(BlockId::Height(block_height)) => self.chain.get_header_by_height(block_height),
-            Some(BlockId::Hash(block_hash)) => self.chain.get_block_header(&block_hash),
-            None => {
+        let header = match msg.block_checkpoint {
+            BlockCheckpoint::BlockId(BlockId::Height(block_height)) => {
+                self.chain.get_header_by_height(block_height)
+            }
+            BlockCheckpoint::BlockId(BlockId::Hash(block_hash)) => {
+                self.chain.get_block_header(&block_hash)
+            }
+            BlockCheckpoint::Finality(ref finality) => {
                 let block_hash =
-                    self.get_block_hash_by_finality(&msg.finality).map_err(|e| e.to_string())?;
+                    self.get_block_hash_by_finality(&finality).map_err(|e| e.to_string())?;
                 self.chain.get_block_header(&block_hash)
             }
         };
@@ -199,9 +205,8 @@ impl ViewClientActor {
                     self.network_adapter.do_send(NetworkRequests::Query {
                         query_id: msg.query_id.clone(),
                         account_id: validator,
-                        block_id: msg.block_id.clone(),
+                        block_checkpoint: msg.block_checkpoint.clone(),
                         request: msg.request.clone(),
-                        finality: msg.finality.clone(),
                     });
                 }
 
@@ -351,16 +356,18 @@ impl Handler<GetBlock> for ViewClientActor {
     type Result = Result<BlockView, String>;
 
     fn handle(&mut self, msg: GetBlock, _: &mut Context<Self>) -> Self::Result {
-        match msg {
-            GetBlock::Finality(finality) => {
+        match msg.0 {
+            BlockCheckpoint::Finality(finality) => {
                 let block_hash =
                     self.get_block_hash_by_finality(&finality).map_err(|e| e.to_string())?;
                 self.chain.get_block(&block_hash).map(Clone::clone)
             }
-            GetBlock::BlockId(BlockId::Height(height)) => {
+            BlockCheckpoint::BlockId(BlockId::Height(height)) => {
                 self.chain.get_block_by_height(height).map(Clone::clone)
             }
-            GetBlock::BlockId(BlockId::Hash(hash)) => self.chain.get_block(&hash).map(Clone::clone),
+            BlockCheckpoint::BlockId(BlockId::Hash(hash)) => {
+                self.chain.get_block(&hash).map(Clone::clone)
+            }
         }
         .and_then(|block| {
             self.runtime_adapter
@@ -443,12 +450,13 @@ impl Handler<GetValidatorInfo> for ViewClientActor {
 
 /// Returns a list of changes in a store for a given block.
 impl Handler<GetKeyValueChanges> for ViewClientActor {
-    type Result = Result<StateChanges, String>;
+    type Result = Result<StateChangesView, String>;
 
     fn handle(&mut self, msg: GetKeyValueChanges, _: &mut Context<Self>) -> Self::Result {
         self.chain
             .store()
             .get_key_value_changes(&msg.block_hash, &msg.state_changes_request)
+            .map(|state_changes| state_changes.into_iter().map(Into::into).collect())
             .map_err(|e| e.to_string())
     }
 }
@@ -545,8 +553,8 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
                 }
                 NetworkViewClientResponses::NoResponse
             }
-            NetworkViewClientMessages::Query { query_id, block_id, request, finality } => {
-                let query = Query { query_id: query_id.clone(), block_id, request, finality };
+            NetworkViewClientMessages::Query { query_id, block_checkpoint, request } => {
+                let query = Query { query_id: query_id.clone(), block_checkpoint, request };
                 match self.handle_query(query) {
                     Ok(Some(r)) => {
                         NetworkViewClientResponses::QueryResponse { query_id, response: Ok(r) }

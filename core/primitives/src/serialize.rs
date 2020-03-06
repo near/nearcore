@@ -1,41 +1,6 @@
 use std::convert::TryFrom;
-use std::io;
 
-use serde::{de::DeserializeOwned, Deserialize, Deserializer, Serialize, Serializer};
-
-use crate::types::{FunctionArgs, StoreKey};
-
-pub type EncodeResult = Result<Vec<u8>, io::Error>;
-pub type DecodeResult<T> = Result<T, io::Error>;
-
-// encode a type to byte array
-pub trait Encode {
-    fn encode(&self) -> EncodeResult;
-}
-
-// decode from byte array
-pub trait Decode: Sized {
-    fn decode(data: &[u8]) -> DecodeResult<Self>;
-}
-
-impl<T: Serialize> Encode for T {
-    fn encode(&self) -> EncodeResult {
-        bincode::serialize(&self)
-            .map_err(|_| io::Error::new(io::ErrorKind::Other, "Failed to serialize"))
-    }
-}
-
-impl<T> Decode for T
-where
-    T: DeserializeOwned,
-{
-    fn decode(data: &[u8]) -> DecodeResult<Self> {
-        bincode::deserialize(data)
-            .map_err(|_| io::Error::new(io::ErrorKind::Other, "Failed to deserialize"))
-    }
-}
-
-pub fn to_base<T: ?Sized + AsRef<[u8]>>(input: &T) -> String {
+pub fn to_base<T: AsRef<[u8]>>(input: T) -> String {
     bs58::encode(input).into_string()
 }
 
@@ -43,8 +8,8 @@ pub fn from_base(s: &str) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
     bs58::decode(s).into_vec().map_err(|err| err.into())
 }
 
-pub fn to_base64<T: ?Sized + AsRef<[u8]>>(input: &T) -> String {
-    base64::encode(input)
+pub fn to_base64<T: AsRef<[u8]>>(input: T) -> String {
+    base64::encode(&input)
 }
 
 pub fn from_base64(s: &str) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
@@ -77,34 +42,6 @@ pub trait BaseDecode: for<'a> TryFrom<&'a [u8], Error = Box<dyn std::error::Erro
         Self::try_from(&bytes)
     }
 }
-
-macro_rules! pretty_bytes_serialization {
-    ($type:ident) => {
-        impl Serialize for $type {
-            fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-            where
-                S: Serializer,
-            {
-                serializer.serialize_str(&to_base64(self.as_ref()))
-            }
-        }
-
-        impl<'de> Deserialize<'de> for $type {
-            fn deserialize<D>(deserializer: D) -> Result<$type, D::Error>
-            where
-                D: Deserializer<'de>,
-            {
-                let s = String::deserialize(deserializer)?;
-                Ok($type::from(
-                    from_base64(&s).map_err(|err| serde::de::Error::custom(err.to_string()))?,
-                ))
-            }
-        }
-    };
-}
-
-pretty_bytes_serialization!(StoreKey);
-pretty_bytes_serialization!(FunctionArgs);
 
 pub mod base_format {
     use serde::de;
@@ -215,6 +152,30 @@ pub mod vec_base_format {
         D: Deserializer<'de>,
     {
         deserializer.deserialize_seq(VecBaseVisitor(PhantomData))
+    }
+}
+
+pub mod base64_format {
+    use serde::de;
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    use super::{from_base64, to_base64};
+
+    pub fn serialize<S, T>(data: T, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+        T: AsRef<[u8]>,
+    {
+        serializer.serialize_str(&to_base64(data))
+    }
+
+    pub fn deserialize<'de, D, T>(deserializer: D) -> Result<T, D::Error>
+    where
+        D: Deserializer<'de>,
+        T: From<Vec<u8>>,
+    {
+        let s = String::deserialize(deserializer)?;
+        from_base64(&s).map_err(|err| de::Error::custom(err.to_string())).map(Into::into)
     }
 }
 
@@ -348,6 +309,10 @@ pub mod option_u128_dec_format {
 
 #[cfg(test)]
 mod tests {
+    use serde::{Deserialize, Serialize};
+
+    use crate::types::StoreKey;
+
     use super::*;
 
     #[derive(Deserialize, Serialize)]
@@ -358,6 +323,7 @@ mod tests {
 
     #[derive(Deserialize, Serialize)]
     struct StoreKeyStruct {
+        #[serde(with = "base64_format")]
         store_key: StoreKey,
     }
 

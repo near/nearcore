@@ -3,7 +3,7 @@ use std::iter::Peekable;
 use std::sync::Arc;
 
 use near_primitives::hash::CryptoHash;
-use near_primitives::types::{StateChangeCause, StateChanges};
+use near_primitives::types::{RawStateChanges, StateChangeCause};
 
 use crate::trie::TrieChanges;
 use crate::StorageError;
@@ -17,7 +17,7 @@ pub type TrieUpdates = BTreeMap<Vec<u8>, Option<Vec<u8>>>;
 pub struct TrieUpdate {
     pub trie: Arc<Trie>,
     root: CryptoHash,
-    committed: StateChanges,
+    committed: RawStateChanges,
     prospective: TrieUpdates,
 }
 
@@ -50,7 +50,8 @@ impl TrieUpdate {
     pub fn new(trie: Arc<Trie>, root: CryptoHash) -> Self {
         TrieUpdate { trie, root, committed: Default::default(), prospective: Default::default() }
     }
-    pub fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>, StorageError> {
+    pub fn get<K: AsRef<[u8]>>(&self, key: K) -> Result<Option<Vec<u8>>, StorageError> {
+        let key = key.as_ref();
         if let Some(value) = self.prospective.get(key) {
             return Ok(value.as_ref().map(<Vec<u8>>::clone));
         } else if let Some(changes) = self.committed.get(key) {
@@ -62,7 +63,11 @@ impl TrieUpdate {
         self.trie.get(&self.root, key)
     }
 
-    pub fn get_ref(&self, key: &[u8]) -> Result<Option<TrieUpdateValuePtr>, StorageError> {
+    pub fn get_ref<K: AsRef<[u8]>>(
+        &self,
+        key: K,
+    ) -> Result<Option<TrieUpdateValuePtr>, StorageError> {
+        let key = key.as_ref();
         if let Some(value) = self.prospective.get(key) {
             return Ok(value.as_ref().map(TrieUpdateValuePtr::MemoryRef));
         } else if let Some(changes) = self.committed.get(key) {
@@ -101,25 +106,28 @@ impl TrieUpdate {
         Ok(res)
     }
 
-    pub fn committed_updates_per_cause(&self) -> &StateChanges {
+    pub fn committed_updates_per_cause(&self) -> &RawStateChanges {
         &self.committed
     }
 
     pub fn set(&mut self, key: Vec<u8>, value: Vec<u8>) {
         self.prospective.insert(key, Some(value));
     }
-    pub fn remove(&mut self, key: &[u8]) {
-        self.prospective.insert(key.to_vec(), None);
+    pub fn remove<K: Into<Vec<u8>>>(&mut self, key: K) {
+        self.prospective.insert(key.into(), None);
     }
 
-    pub fn remove_starts_with(&mut self, prefix: &[u8]) -> Result<(), StorageError> {
+    pub fn remove_starts_with<K: AsRef<[u8]>>(
+        &mut self,
+        key_prefix: K,
+    ) -> Result<(), StorageError> {
         let mut keys = vec![];
-        for key in self.iter(prefix)? {
+        for key in self.iter(key_prefix.as_ref())? {
             keys.push(key);
         }
         for key in keys {
             let key = key?;
-            self.remove(&key);
+            self.remove(key);
         }
         Ok(())
     }
@@ -163,8 +171,8 @@ impl TrieUpdate {
     }
 
     /// Returns Error if the underlying storage fails
-    pub fn iter(&self, prefix: &[u8]) -> Result<TrieUpdateIterator, StorageError> {
-        TrieUpdateIterator::new(self, prefix, b"", None)
+    pub fn iter<K: AsRef<[u8]>>(&self, prefix: K) -> Result<TrieUpdateIterator, StorageError> {
+        TrieUpdateIterator::new(self, prefix.as_ref(), b"", None)
     }
 
     pub fn range(
@@ -377,7 +385,7 @@ mod tests {
 
         // Delete non-existing element.
         let mut trie_update = TrieUpdate::new(trie.clone(), CryptoHash::default());
-        trie_update.remove(b"dog");
+        trie_update.remove(b"dog".to_vec());
         trie_update
             .commit(StateChangeCause::TransactionProcessing { tx_hash: CryptoHash::default() });
         let (store_update, new_root) = trie_update.finalize().unwrap().into(trie.clone()).unwrap();
@@ -387,7 +395,7 @@ mod tests {
         // Add and right away delete element.
         let mut trie_update = TrieUpdate::new(trie.clone(), CryptoHash::default());
         trie_update.set(b"dog".to_vec(), b"puppy".to_vec());
-        trie_update.remove(b"dog");
+        trie_update.remove(b"dog".to_vec());
         trie_update
             .commit(StateChangeCause::TransactionProcessing { tx_hash: CryptoHash::default() });
         let (store_update, new_root) = trie_update.finalize().unwrap().into(trie.clone()).unwrap();
@@ -403,7 +411,7 @@ mod tests {
         store_update.commit().ok();
         assert_ne!(new_root, CryptoHash::default());
         let mut trie_update = TrieUpdate::new(trie.clone(), new_root);
-        trie_update.remove(b"dog");
+        trie_update.remove(b"dog".to_vec());
         trie_update
             .commit(StateChangeCause::TransactionProcessing { tx_hash: CryptoHash::default() });
         let (store_update, new_root) = trie_update.finalize().unwrap().into(trie.clone()).unwrap();
@@ -435,7 +443,7 @@ mod tests {
         assert_eq!(values.unwrap(), vec![b"dog".to_vec()]);
 
         let mut trie_update = TrieUpdate::new(trie.clone(), new_root);
-        trie_update.remove(b"dog");
+        trie_update.remove(b"dog".to_vec());
 
         let values: Result<Vec<Vec<u8>>, _> = trie_update.iter(b"dog").unwrap().collect();
         assert_eq!(values.unwrap().len(), 0);
@@ -444,7 +452,7 @@ mod tests {
         trie_update.set(b"dog2".to_vec(), b"puppy".to_vec());
         trie_update
             .commit(StateChangeCause::TransactionProcessing { tx_hash: CryptoHash::default() });
-        trie_update.remove(b"dog2");
+        trie_update.remove(b"dog2".to_vec());
 
         let values: Result<Vec<Vec<u8>>, _> = trie_update.iter(b"dog").unwrap().collect();
         assert_eq!(values.unwrap(), vec![b"dog".to_vec()]);

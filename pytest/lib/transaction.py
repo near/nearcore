@@ -151,6 +151,13 @@ def sign_and_serialize_transaction(receiverId, nonce, actions, blockHash, accoun
 
     return BinarySerializer(tx_schema).serialize(signedTx)
 
+def create_create_account_action():
+    createAccount = CreateAccount()
+    action = Action()
+    action.enum = 'createAccount'
+    action.createAccount = createAccount
+    return action
+
 def create_payment_action(amount):
     transfer = Transfer()
     transfer.deposit = amount
@@ -188,6 +195,10 @@ def create_function_call_action(methodName, args, gas, deposit):
     action.enum = 'functionCall'
     action.functionCall = functionCall
     return action
+
+def sign_create_account_tx(key, new_account_id, nonce, blockHash):
+    action = create_create_account_action()
+    return sign_and_serialize_transaction(new_account_id, nonce, [action], blockHash, key.account_id, key.decoded_pk(), key.decoded_sk())
 
 def sign_payment_tx(key, to, amount, nonce, blockHash):
     action = create_payment_action(amount)

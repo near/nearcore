@@ -1,3 +1,8 @@
+//! This module defines "stable" internal API to view internal data using view_client.
+//!
+//! These types should only change when we cannot avoid this. Thus, when the counterpart internal
+//! type gets changed, the view should preserve the old shape and only re-map the necessary bits
+//! from the source structure in the relevant `From<SourceStruct>` impl.
 use std::borrow::Cow;
 use std::convert::{TryFrom, TryInto};
 use std::fmt;
@@ -18,7 +23,8 @@ use crate::merkle::MerklePath;
 use crate::receipt::{ActionReceipt, DataReceipt, DataReceiver, Receipt, ReceiptEnum};
 use crate::rpc::RpcPagination;
 use crate::serialize::{
-    from_base64, option_base64_format, option_u128_dec_format, to_base64, u128_dec_format,
+    base64_format, from_base64, option_base64_format, option_u128_dec_format, to_base64,
+    u128_dec_format,
 };
 use crate::sharding::{ChunkHash, ShardChunk, ShardChunkHeader, ShardChunkHeaderInner};
 use crate::state_record::StateRecord;
@@ -29,7 +35,8 @@ use crate::transaction::{
 };
 use crate::types::{
     AccountId, Balance, BlockHeight, EpochId, FunctionArgs, Gas, Nonce, NumBlocks, ShardId,
-    StateChanges, StateRoot, StorageUsage, StoreKey, ValidatorStake, Version,
+    StateChangeCause, StateChangeValue, StateChangeWithCause, StateRoot, StorageUsage, StoreKey,
+    StoreValue, ValidatorStake, Version,
 };
 
 /// A view of the account
@@ -191,11 +198,27 @@ pub enum QueryResponseKind {
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 #[serde(tag = "request_type", rename_all = "snake_case")]
 pub enum QueryRequest {
-    ViewAccount { account_id: AccountId },
-    ViewState { account_id: AccountId, prefix: StoreKey },
-    ViewAccessKey { account_id: AccountId, public_key: PublicKey },
-    ViewAccessKeyList { account_id: AccountId },
-    CallFunction { account_id: AccountId, method_name: String, args: FunctionArgs },
+    ViewAccount {
+        account_id: AccountId,
+    },
+    ViewState {
+        account_id: AccountId,
+        #[serde(rename = "prefix_base64", with = "base64_format")]
+        prefix: StoreKey,
+    },
+    ViewAccessKey {
+        account_id: AccountId,
+        public_key: PublicKey,
+    },
+    ViewAccessKeyList {
+        account_id: AccountId,
+    },
+    CallFunction {
+        account_id: AccountId,
+        method_name: String,
+        #[serde(rename = "args_base64", with = "base64_format")]
+        args: FunctionArgs,
+    },
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
@@ -847,11 +870,6 @@ impl fmt::Debug for FinalExecutionOutcomeView {
     }
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone)]
-pub struct StateChangesView {
-    pub changes: StateChanges,
-}
-
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, Eq, PartialEq)]
 pub struct ValidatorStakeView {
     pub account_id: AccountId,
@@ -1041,19 +1059,122 @@ pub struct GasPriceView {
     pub gas_price: Balance,
 }
 
-/// Different types of finality.
-#[derive(Serialize, Deserialize, BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq)]
-pub enum Finality {
-    #[serde(rename = "optimistic")]
-    None,
-    #[serde(rename = "near-final")]
-    DoomSlug,
-    #[serde(rename = "final")]
-    NFG,
+/// See crate::types::StateChangeCause for details.
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case", tag = "type")]
+pub enum StateChangeCauseView {
+    NotWritableToDisk,
+    InitialState,
+    TransactionProcessing { tx_hash: CryptoHash },
+    ActionReceiptProcessingStarted { receipt_hash: CryptoHash },
+    ActionReceiptGasReward { receipt_hash: CryptoHash },
+    ReceiptProcessing { receipt_hash: CryptoHash },
+    PostponedReceipt { receipt_hash: CryptoHash },
+    UpdatedDelayedReceipts,
+    ValidatorAccountsUpdate,
 }
 
-impl Default for Finality {
-    fn default() -> Self {
-        Finality::NFG
+impl From<StateChangeCause> for StateChangeCauseView {
+    fn from(state_change_cause: StateChangeCause) -> Self {
+        match state_change_cause {
+            StateChangeCause::NotWritableToDisk => Self::NotWritableToDisk,
+            StateChangeCause::InitialState => Self::InitialState,
+            StateChangeCause::TransactionProcessing { tx_hash } => {
+                Self::TransactionProcessing { tx_hash }
+            }
+            StateChangeCause::ActionReceiptProcessingStarted { receipt_hash } => {
+                Self::ActionReceiptProcessingStarted { receipt_hash }
+            }
+            StateChangeCause::ActionReceiptGasReward { receipt_hash } => {
+                Self::ActionReceiptGasReward { receipt_hash }
+            }
+            StateChangeCause::ReceiptProcessing { receipt_hash } => {
+                Self::ReceiptProcessing { receipt_hash }
+            }
+            StateChangeCause::PostponedReceipt { receipt_hash } => {
+                Self::PostponedReceipt { receipt_hash }
+            }
+            StateChangeCause::UpdatedDelayedReceipts => Self::UpdatedDelayedReceipts,
+            StateChangeCause::ValidatorAccountsUpdate => Self::ValidatorAccountsUpdate,
+        }
     }
 }
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case", tag = "type", content = "change")]
+pub enum StateChangeValueView {
+    AccountUpdate {
+        account_id: AccountId,
+        #[serde(flatten)]
+        account: AccountView,
+    },
+    AccountDeletion {
+        account_id: AccountId,
+    },
+    AccessKeyUpdate {
+        public_key: PublicKey,
+        access_key: AccessKeyView,
+    },
+    AccessKeyDeletion {
+        public_key: PublicKey,
+    },
+    DataUpdate {
+        #[serde(rename = "key_base64", with = "base64_format")]
+        key: StoreKey,
+        #[serde(rename = "value_base64", with = "base64_format")]
+        value: StoreValue,
+    },
+    DataDeletion {
+        #[serde(rename = "key_base64", with = "base64_format")]
+        key: StoreKey,
+    },
+    CodeUpdate {
+        account_id: AccountId,
+        #[serde(rename = "code_base64", with = "base64_format")]
+        code: Vec<u8>,
+    },
+    CodeDeletion {
+        account_id: AccountId,
+    },
+}
+
+impl From<StateChangeValue> for StateChangeValueView {
+    fn from(state_change: StateChangeValue) -> Self {
+        match state_change {
+            StateChangeValue::AccountUpdate { account_id, account } => {
+                Self::AccountUpdate { account_id, account: account.into() }
+            }
+            StateChangeValue::AccountDeletion { account_id } => {
+                Self::AccountDeletion { account_id }
+            }
+            StateChangeValue::AccessKeyUpdate { public_key, access_key } => {
+                Self::AccessKeyUpdate { public_key, access_key: access_key.into() }
+            }
+            StateChangeValue::AccessKeyDeletion { public_key } => {
+                Self::AccessKeyDeletion { public_key }
+            }
+            StateChangeValue::DataUpdate { key, value } => Self::DataUpdate { key, value },
+            StateChangeValue::DataDeletion { key } => Self::DataDeletion { key },
+            StateChangeValue::CodeUpdate { account_id, code } => {
+                Self::CodeUpdate { account_id, code }
+            }
+            StateChangeValue::CodeDeletion { account_id } => Self::CodeDeletion { account_id },
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct StateChangeWithCauseView {
+    pub cause: StateChangeCauseView,
+    #[serde(flatten)]
+    pub value: StateChangeValueView,
+}
+
+impl From<StateChangeWithCause> for StateChangeWithCauseView {
+    fn from(state_change_with_cause: StateChangeWithCause) -> Self {
+        let StateChangeWithCause { cause, value } = state_change_with_cause;
+        Self { cause: cause.into(), value: value.into() }
+    }
+}
+
+pub type StateChangesView = Vec<StateChangeWithCauseView>;

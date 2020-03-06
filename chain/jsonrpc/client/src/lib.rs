@@ -6,11 +6,13 @@ use serde::Deserialize;
 use serde::Serialize;
 
 use near_primitives::hash::CryptoHash;
-use near_primitives::rpc::{BlockQueryInfo, RpcGenesisRecordsRequest, RpcQueryRequest};
-use near_primitives::types::{BlockId, MaybeBlockId, ShardId};
+use near_primitives::rpc::{
+    RpcGenesisRecordsRequest, RpcQueryRequest, RpcStateChangesRequest, RpcStateChangesResponse,
+};
+use near_primitives::types::{BlockCheckpoint, BlockId, MaybeBlockId, ShardId};
 use near_primitives::views::{
     BlockView, ChunkView, EpochValidatorInfo, FinalExecutionOutcomeView, GasPriceView,
-    GenesisRecordsView, QueryResponse, StateChangesView, StatusResponse,
+    GenesisRecordsView, QueryResponse, StatusResponse,
 };
 
 use crate::message::{from_slice, Message, RpcError};
@@ -185,7 +187,6 @@ jsonrpc_client!(pub struct JsonRpcClient {
     pub fn health(&mut self) -> RpcRequest<()>;
     pub fn tx(&mut self, hash: String, account_id: String) -> RpcRequest<FinalExecutionOutcomeView>;
     pub fn chunk(&mut self, id: ChunkId) -> RpcRequest<ChunkView>;
-    pub fn changes(&mut self, block_hash: CryptoHash, key_prefix: Vec<u8>) -> RpcRequest<StateChangesView>;
     pub fn validators(&mut self, block_id: MaybeBlockId) -> RpcRequest<EpochValidatorInfo>;
     pub fn gas_price(&mut self, block_id: MaybeBlockId) -> RpcRequest<GasPriceView>;
 });
@@ -213,8 +214,16 @@ impl JsonRpcClient {
         call_method(&self.client, &self.server_addr, "block", [block_id])
     }
 
-    pub fn block(&mut self, request: BlockQueryInfo) -> RpcRequest<BlockView> {
+    pub fn block(&mut self, request: BlockCheckpoint) -> RpcRequest<BlockView> {
         call_method(&self.client, &self.server_addr, "block", request)
+    }
+
+    #[allow(non_snake_case)]
+    pub fn EXPERIMENTAL_changes(
+        &mut self,
+        request: RpcStateChangesRequest,
+    ) -> RpcRequest<RpcStateChangesResponse> {
+        call_method(&self.client, &self.server_addr, "EXPERIMENTAL_changes", request)
     }
 }
 

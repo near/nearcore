@@ -20,10 +20,10 @@ use near_primitives::transaction::{
     ExecutionOutcomeWithId, ExecutionOutcomeWithIdAndProof, SignedTransaction,
 };
 use near_primitives::types::{
-    AccountId, BlockExtra, BlockHeight, ChunkExtra, EpochId, NumBlocks, ShardId, StateChangeCause,
-    StateChanges, StateChangesRequest,
+    AccountId, BlockExtra, BlockHeight, ChunkExtra, EpochId, NumBlocks, RawStateChangesList,
+    ShardId, StateChangeValue, StateChangeWithCause, StateChanges, StateChangesRequest,
 };
-use near_primitives::utils::{index_to_bytes, to_timestamp};
+use near_primitives::utils::{index_to_bytes, to_timestamp, KeyForAccessKey, KeyForData};
 use near_primitives::views::LightClientBlockView;
 use near_store::{
     read_with_cache, ColBlock, ColBlockExtra, ColBlockHeader, ColBlockHeight, ColBlockMisc,
@@ -923,50 +923,175 @@ impl ChainStoreAccess for ChainStore {
         state_changes_request: &StateChangesRequest,
     ) -> Result<StateChanges, Error> {
         use near_primitives::utils;
+
         let mut storage_key = block_hash.as_ref().to_vec();
-        storage_key.extend(match state_changes_request {
+        let common_storage_key_prefix_len = storage_key.len();
+        let data_key: Vec<u8> = match state_changes_request {
             StateChangesRequest::AccountChanges { account_id } => {
-                utils::key_for_account(account_id)
+                utils::KeyForAccount::new(account_id).into()
             }
             StateChangesRequest::DataChanges { account_id, key_prefix } => {
-                utils::key_for_data(account_id, key_prefix)
+                utils::KeyForData::new(account_id, key_prefix.as_ref()).into()
             }
             StateChangesRequest::SingleAccessKeyChanges { account_id, access_key_pk } => {
-                utils::key_for_access_key(account_id, access_key_pk)
+                utils::KeyForAccessKey::new(account_id, access_key_pk).into()
             }
             StateChangesRequest::AllAccessKeyChanges { account_id } => {
-                utils::key_for_all_access_keys(account_id)
+                utils::KeyForAccessKey::get_prefix(account_id).into()
             }
-            StateChangesRequest::CodeChanges { account_id } => utils::key_for_code(account_id),
-            StateChangesRequest::SinglePostponedReceiptChanges { account_id, data_id } => {
-                utils::key_for_postponed_receipt_id(account_id, data_id)
+            StateChangesRequest::CodeChanges { account_id } => {
+                utils::KeyForCode::new(account_id).into()
             }
-            StateChangesRequest::AllPostponedReceiptChanges { account_id } => {
-                utils::key_for_all_postponed_receipts(account_id)
+        };
+        storage_key.extend(&data_key);
+
+        let mut changes_iter =
+            self.store.iter_prefix_ser::<RawStateChangesList>(ColKeyValueChanges, &storage_key);
+        let mut exact_key_changes_iter;
+        let changes_iter: &mut dyn Iterator<Item = _> = match state_changes_request {
+            // These request types should have the key matching exactly
+            StateChangesRequest::AccountChanges { .. }
+            | StateChangesRequest::SingleAccessKeyChanges { .. }
+            | StateChangesRequest::CodeChanges { .. } => {
+                exact_key_changes_iter = changes_iter.filter_map(|change| {
+                    let (key, state_changes) = match change {
+                        Ok(change) => change,
+                        error => {
+                            return Some(error);
+                        }
+                    };
+                    if key.len() != storage_key.len() {
+                        None
+                    } else {
+                        debug_assert_eq!(key, storage_key.as_ref() as &[u8]);
+                        Some(Ok((key, state_changes)))
+                    }
+                });
+                &mut exact_key_changes_iter
             }
-        });
-        let common_key_prefix_len = block_hash.as_ref().len()
-            + match state_changes_request {
-                StateChangesRequest::AccountChanges { .. }
-                | StateChangesRequest::SingleAccessKeyChanges { .. }
-                | StateChangesRequest::AllAccessKeyChanges { .. }
-                | StateChangesRequest::CodeChanges { .. }
-                | StateChangesRequest::SinglePostponedReceiptChanges { .. }
-                | StateChangesRequest::AllPostponedReceiptChanges { .. } => storage_key.len(),
-                StateChangesRequest::DataChanges { account_id, .. } => {
-                    utils::key_for_data(account_id, b"").len()
+
+            StateChangesRequest::AllAccessKeyChanges { .. }
+            | StateChangesRequest::DataChanges { .. } => &mut changes_iter,
+        };
+
+        match state_changes_request {
+            StateChangesRequest::AccountChanges { account_id, .. } => {
+                let mut changes = StateChanges::new();
+
+                for change in changes_iter {
+                    let (_, state_changes) = change?;
+                    changes.extend(state_changes.into_iter().map(|(cause, state_change)| {
+                        StateChangeWithCause {
+                            cause,
+                            value: if let Some(state_change) = state_change {
+                                StateChangeValue::AccountUpdate {
+                                    account_id: account_id.clone(),
+                                    account: <_>::try_from_slice(&state_change).expect(
+                                        "Failed to parse internally stored account information",
+                                    ),
+                                }
+                            } else {
+                                StateChangeValue::AccountDeletion { account_id: account_id.clone() }
+                            },
+                        }
+                    }));
                 }
-            };
-        let mut changes = StateChanges::new();
-        let changes_iter = self.store.iter_prefix_ser::<Vec<(StateChangeCause, Option<Vec<u8>>)>>(
-            ColKeyValueChanges,
-            &storage_key,
-        );
-        for change in changes_iter {
-            let (key, value) = change?;
-            changes.insert(key[common_key_prefix_len..].to_owned(), value);
+
+                Ok(changes)
+            }
+
+            StateChangesRequest::SingleAccessKeyChanges { account_id, .. }
+            | StateChangesRequest::AllAccessKeyChanges { account_id, .. } => {
+                let mut changes = StateChanges::new();
+
+                for change in changes_iter {
+                    let (key, state_changes) = change?;
+
+                    let access_key_pk = match state_changes_request {
+                        StateChangesRequest::SingleAccessKeyChanges { access_key_pk, .. } => {
+                            access_key_pk.clone()
+                        }
+                        _ => KeyForAccessKey::parse_public_key(
+                            &key[common_storage_key_prefix_len..],
+                            &account_id,
+                        )
+                        .expect("Failed to parse internally stored public key"),
+                    };
+
+                    changes.extend(state_changes.into_iter().map(|(cause, state_change)| {
+                        StateChangeWithCause {
+                            cause,
+                            value: if let Some(state_change) = state_change {
+                                StateChangeValue::AccessKeyUpdate {
+                                    public_key: access_key_pk.clone(),
+                                    access_key: <_>::try_from_slice(&state_change)
+                                        .expect("Failed to parse internally stored access key"),
+                                }
+                            } else {
+                                StateChangeValue::AccessKeyDeletion {
+                                    public_key: access_key_pk.clone(),
+                                }
+                            },
+                        }
+                    }));
+                }
+
+                Ok(changes)
+            }
+
+            StateChangesRequest::CodeChanges { account_id, .. } => {
+                let mut changes = StateChanges::new();
+
+                for change in changes_iter {
+                    let (_, state_changes) = change?;
+                    changes.extend(state_changes.into_iter().map(|(cause, state_change)| {
+                        StateChangeWithCause {
+                            cause,
+                            value: if let Some(state_change) = state_change {
+                                StateChangeValue::CodeUpdate {
+                                    account_id: account_id.clone(),
+                                    code: state_change.into(),
+                                }
+                            } else {
+                                StateChangeValue::CodeDeletion { account_id: account_id.clone() }
+                            },
+                        }
+                    }));
+                }
+
+                Ok(changes)
+            }
+
+            StateChangesRequest::DataChanges { account_id, .. } => {
+                let mut changes = StateChanges::new();
+
+                for change in changes_iter {
+                    let (key, state_changes) = change?;
+
+                    let key = KeyForData::parse_data_key(
+                        &key[common_storage_key_prefix_len..],
+                        &account_id,
+                    )
+                    .expect("Failed to parse internally stored data key");
+
+                    changes.extend(state_changes.into_iter().map(|(cause, state_change)| {
+                        StateChangeWithCause {
+                            cause,
+                            value: if let Some(state_change) = state_change {
+                                StateChangeValue::DataUpdate {
+                                    key: key.to_vec().into(),
+                                    value: state_change.into(),
+                                }
+                            } else {
+                                StateChangeValue::DataDeletion { key: key.to_vec().into() }
+                            },
+                        }
+                    }));
+                }
+
+                Ok(changes)
+            }
         }
-        Ok(changes)
     }
 }
 

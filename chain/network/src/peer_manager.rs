@@ -961,11 +961,11 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                     NetworkResponses::RouteNotFound
                 }
             }
-            NetworkRequests::Query { query_id, account_id, block_id, request, finality } => {
+            NetworkRequests::Query { query_id, account_id, block_checkpoint, request } => {
                 if self.send_message_to_account(
                     ctx,
                     &account_id,
-                    RoutedMessageBody::QueryRequest { query_id, block_id, request, finality },
+                    RoutedMessageBody::QueryRequest { query_id, block_checkpoint, request },
                 ) {
                     NetworkResponses::NoResponse
                 } else {

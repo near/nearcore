@@ -1,11 +1,13 @@
 use borsh::{BorshDeserialize, BorshSerialize};
+use derive_more::{AsRef, From};
 use serde::{Deserialize, Serialize};
 
 use near_crypto::PublicKey;
 
+use crate::account::{AccessKey, Account};
 use crate::challenge::ChallengesResult;
 use crate::hash::CryptoHash;
-use crate::serialize::u128_dec_format;
+use crate::serialize::{base64_format, u128_dec_format};
 
 /// Account identifier. Provides access to user's state.
 pub type AccountId = String;
@@ -45,6 +47,23 @@ pub type PromiseId = Vec<ReceiptIndex>;
 /// Hash used by to store state root.
 pub type StateRoot = CryptoHash;
 
+/// Different types of finality.
+#[derive(Serialize, Deserialize, BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq)]
+pub enum Finality {
+    #[serde(rename = "optimistic")]
+    None,
+    #[serde(rename = "near-final")]
+    DoomSlug,
+    #[serde(rename = "final")]
+    NFG,
+}
+
+impl Default for Finality {
+    fn default() -> Self {
+        Finality::NFG
+    }
+}
+
 /// Account info for validators
 #[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq)]
 pub struct AccountInfo {
@@ -54,38 +73,33 @@ pub struct AccountInfo {
     pub amount: Balance,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+/// This type is used to mark keys (arrays of bytes) that are queried from store.
+///
+/// NOTE: Currently, this type is only used in the client_view and RPC to be able to transparently
+/// pretty-serialize the bytes arrays as base64-encoded strings (see `serialize.rs`).
+#[derive(Debug, Clone, PartialEq, Eq, AsRef, From, BorshSerialize, BorshDeserialize)]
+#[as_ref(forward)]
 pub struct StoreKey(Vec<u8>);
 
-impl AsRef<[u8]> for StoreKey {
-    fn as_ref(&self) -> &[u8] {
-        &self.0
-    }
-}
+/// This type is used to mark values returned from store (arrays of bytes).
+///
+/// NOTE: Currently, this type is only used in the client_view and RPC to be able to transparently
+/// pretty-serialize the bytes arrays as base64-encoded strings (see `serialize.rs`).
+#[derive(Debug, Clone, PartialEq, Eq, AsRef, From, BorshSerialize, BorshDeserialize)]
+#[as_ref(forward)]
+pub struct StoreValue(Vec<u8>);
 
-impl From<Vec<u8>> for StoreKey {
-    fn from(value: Vec<u8>) -> Self {
-        Self(value)
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+/// This type is used to mark function arguments.
+///
+/// NOTE: The main reason for this to exist (except the type-safety) is that the value is
+/// transparently serialized and deserialized as a base64-encoded string when serde is used
+/// (serde_json).  
+#[derive(Debug, Clone, PartialEq, Eq, AsRef, From, BorshSerialize, BorshDeserialize)]
+#[as_ref(forward)]
 pub struct FunctionArgs(Vec<u8>);
 
-impl AsRef<[u8]> for FunctionArgs {
-    fn as_ref(&self) -> &[u8] {
-        &self.0
-    }
-}
-
-impl From<Vec<u8>> for FunctionArgs {
-    fn from(value: Vec<u8>) -> Self {
-        Self(value)
-    }
-}
-
 /// A structure used to index state changes due to transaction/receipt processing and other things.
-#[derive(Serialize, Deserialize, BorshSerialize, BorshDeserialize, Debug, Clone)]
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone)]
 pub enum StateChangeCause {
     /// A type of update that does not get finalized. Used for verification and execution of
     /// immutable smart contract methods. Attempt fo finalize a `TrieUpdate` containing such
@@ -116,21 +130,53 @@ pub enum StateChangeCause {
     ValidatorAccountsUpdate,
 }
 
-/// key that was updated -> list of updates with the corresponding indexing event.
-pub type StateChanges =
-    std::collections::BTreeMap<Vec<u8>, Vec<(StateChangeCause, Option<Vec<u8>>)>>;
+pub type RawStateChangesList = Vec<(StateChangeCause, Option<Vec<u8>>)>;
 
-#[derive(Deserialize)]
+/// key that was updated -> list of updates with the corresponding indexing event.
+pub type RawStateChanges = std::collections::BTreeMap<Vec<u8>, RawStateChangesList>;
+
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(tag = "changes_type", rename_all = "snake_case")]
 pub enum StateChangesRequest {
-    AccountChanges { account_id: AccountId },
-    DataChanges { account_id: AccountId, key_prefix: Vec<u8> },
-    SingleAccessKeyChanges { account_id: AccountId, access_key_pk: PublicKey },
-    AllAccessKeyChanges { account_id: AccountId },
-    CodeChanges { account_id: AccountId },
-    SinglePostponedReceiptChanges { account_id: AccountId, data_id: CryptoHash },
-    AllPostponedReceiptChanges { account_id: AccountId },
+    AccountChanges {
+        account_id: AccountId,
+    },
+    DataChanges {
+        account_id: AccountId,
+        #[serde(rename = "key_prefix_base64", with = "base64_format")]
+        key_prefix: StoreKey,
+    },
+    SingleAccessKeyChanges {
+        account_id: AccountId,
+        access_key_pk: PublicKey,
+    },
+    AllAccessKeyChanges {
+        account_id: AccountId,
+    },
+    CodeChanges {
+        account_id: AccountId,
+    },
 }
+
+#[derive(Debug)]
+pub enum StateChangeValue {
+    AccountUpdate { account_id: AccountId, account: Account },
+    AccountDeletion { account_id: AccountId },
+    AccessKeyUpdate { public_key: PublicKey, access_key: AccessKey },
+    AccessKeyDeletion { public_key: PublicKey },
+    DataUpdate { key: StoreKey, value: StoreValue },
+    DataDeletion { key: StoreKey },
+    CodeUpdate { account_id: AccountId, code: Vec<u8> },
+    CodeDeletion { account_id: AccountId },
+}
+
+#[derive(Debug)]
+pub struct StateChangeWithCause {
+    pub cause: StateChangeCause,
+    pub value: StateChangeValue,
+}
+
+pub type StateChanges = Vec<StateChangeWithCause>;
 
 #[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize, Serialize)]
 pub struct StateRootNode {
@@ -150,24 +196,20 @@ impl StateRootNode {
 /// EpochId of epoch T is the hash of last block in T-2
 /// EpochId of first two epochs is 0
 #[derive(
+    Debug,
+    Clone,
+    Default,
     Hash,
     Eq,
     PartialEq,
-    Clone,
-    Debug,
+    PartialOrd,
+    AsRef,
     BorshSerialize,
     BorshDeserialize,
     Serialize,
-    Default,
-    PartialOrd,
 )]
+#[as_ref(forward)]
 pub struct EpochId(pub CryptoHash);
-
-impl AsRef<[u8]> for EpochId {
-    fn as_ref(&self) -> &[u8] {
-        self.0.as_ref()
-    }
-}
 
 /// Stores validator and its stake.
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, PartialEq, Eq)]
@@ -252,6 +294,19 @@ pub enum BlockId {
 }
 
 pub type MaybeBlockId = Option<BlockId>;
+
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BlockCheckpoint {
+    BlockId(BlockId),
+    Finality(Finality),
+}
+
+impl BlockCheckpoint {
+    pub fn latest() -> Self {
+        Self::Finality(Finality::None)
+    }
+}
 
 #[derive(Default, BorshSerialize, BorshDeserialize, Serialize, Clone, Debug, PartialEq)]
 pub struct ValidatorStats {

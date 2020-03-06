@@ -12,9 +12,7 @@ use near_primitives::receipt::{Receipt, ReceiptEnum};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, Balance};
 use near_primitives::utils::col::DELAYED_RECEIPT_INDICES;
-use near_primitives::utils::{
-    key_for_delayed_receipt, key_for_postponed_receipt_id, system_account,
-};
+use near_primitives::utils::{system_account, KeyForDelayedReceipt, KeyForPostponedReceiptId};
 use near_runtime_fees::RuntimeFeesConfig;
 use near_store::{get, get_account, get_receipt, TrieUpdate};
 use std::collections::HashSet;
@@ -39,7 +37,7 @@ pub(crate) fn check_balance(
     let get_delayed_receipts = |from_index, to_index, state| {
         (from_index..to_index)
             .map(|index| {
-                get(state, &key_for_delayed_receipt(index))?.ok_or_else(|| {
+                get(state, &KeyForDelayedReceipt::new(index))?.ok_or_else(|| {
                     StorageError::StorageInconsistentState(format!(
                         "Delayed receipt #{} should be in the state",
                         index
@@ -147,7 +145,7 @@ pub(crate) fn check_balance(
                 ReceiptEnum::Data(data_receipt) => {
                     if let Some(receipt_id) = get(
                         initial_state,
-                        &key_for_postponed_receipt_id(account_id, &data_receipt.data_id),
+                        &KeyForPostponedReceiptId::new(account_id, &data_receipt.data_id),
                     )? {
                         Ok(Some((account_id.clone(), receipt_id)))
                     } else {
