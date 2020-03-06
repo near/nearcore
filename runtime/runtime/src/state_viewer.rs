@@ -161,10 +161,6 @@ impl TrieViewer {
             let outcome = outcome.unwrap();
             debug!(target: "runtime", "(exec time {}) result of execution: {:#?}", time_str, outcome);
             logs.extend(outcome.logs);
-            let trie_update = state_update.finalize()?;
-            if trie_update.new_root != root {
-                return Err("function call for viewing tried to change storage".into());
-            }
             let mut result = vec![];
             if let ReturnData::Value(buf) = &outcome.return_data {
                 result = buf.clone();
@@ -218,7 +214,11 @@ mod tests {
             &mut logs,
         );
 
-        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(
+            err.to_string().contains(r#"Contract ID "bad!contract" is not valid"#),
+            format!("Got different error that doesn't match: {}", err)
+        );
     }
 
     #[test]
@@ -230,13 +230,16 @@ mod tests {
             root,
             1,
             1,
-            &alice_account(),
+            &AccountId::from("test.contract"),
             "run_test_with_storage_change",
             &[],
             &mut logs,
         );
-        // run_test tries to change storage, so it should fail
-        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(
+            err.to_string().contains(r#"ProhibitedInView { method_name: "storage_write" }"#),
+            format!("Got different error that doesn't match: {}", err)
+        );
     }
 
     #[test]
