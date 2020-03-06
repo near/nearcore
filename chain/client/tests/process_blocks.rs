@@ -10,6 +10,7 @@ use near_client::test_utils::setup_mock_all_validators;
 use near_client::test_utils::{setup_client, setup_mock, MockNetworkAdapter, TestEnv};
 use near_client::{Client, GetBlock};
 use near_crypto::{InMemorySigner, KeyType, Signature, Signer};
+use near_network::recorder::MetricRecorder;
 use near_network::routing::EdgeInfo;
 use near_network::test_utils::wait_or_panic;
 use near_network::types::{NetworkInfo, PeerChainInfo};
@@ -588,6 +589,7 @@ fn client_sync_headers() {
             sent_bytes_per_sec: 0,
             received_bytes_per_sec: 0,
             known_producers: vec![],
+            metric_recorder: MetricRecorder::default(),
         }));
         wait_or_panic(2000);
     })

@@ -2,7 +2,7 @@ use crate::types::PeerMessage;
 use actix::Message;
 use near_primitives::{hash::CryptoHash, network::PeerId};
 use serde::ser::SerializeMap;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use tracing::info;
 
@@ -11,7 +11,7 @@ pub enum Status {
     Sent,
     Received,
 }
-#[derive(Default, Serialize)]
+#[derive(Default, Serialize, Deserialize, Debug, Clone)]
 struct CountSize {
     count: usize,
     bytes: usize,
@@ -24,7 +24,7 @@ impl CountSize {
     }
 }
 
-#[derive(Default, Serialize)]
+#[derive(Default, Serialize, Deserialize, Debug, Clone)]
 struct SentReceived {
     sent: CountSize,
     received: CountSize,
@@ -39,7 +39,8 @@ impl SentReceived {
     }
 }
 
-#[derive(Default)]
+// TODO(MarX): Use more compact debug. Right now it will print all known hashes.
+#[derive(Default, Debug, Deserialize, Clone)]
 struct HashAggregator {
     total: usize,
     all: HashSet<CryptoHash>,
@@ -67,10 +68,10 @@ impl Serialize for HashAggregator {
         dic.end()
     }
 }
-#[derive(Default)]
+#[derive(Default, Debug, Clone, Serialize, Deserialize)]
 struct Latency {
     received: usize,
-    sum_latency: f64,
+    mean_latency: f64,
     weighted_latency: f64,
 }
 
@@ -81,30 +82,13 @@ impl Latency {
         } else {
             self.weighted_latency = 0.8f64 * self.weighted_latency + 0.2f64 * latency;
         }
-
+        self.mean_latency =
+            (self.mean_latency * (self.received as f64) + latency) / ((self.received + 1) as f64);
         self.received += 1;
-        self.sum_latency += latency;
-    }
-
-    fn mean_latency(&self) -> f64 {
-        self.sum_latency / (self.received as f64)
     }
 }
 
-impl Serialize for Latency {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        let mut dic = serializer.serialize_map(Some(3))?;
-        dic.serialize_entry("total", &self.received)?;
-        dic.serialize_entry("mean", &self.mean_latency())?;
-        dic.serialize_entry("weighted_mean", &self.weighted_latency)?;
-        dic.end()
-    }
-}
-
-#[derive(Default, Serialize)]
+#[derive(Default, Serialize, Deserialize, Debug, Clone)]
 pub struct MetricRecorder {
     me: Option<PeerId>,
     overall: SentReceived,
@@ -163,8 +147,13 @@ impl MetricRecorder {
         }
     }
 
+    #[allow(dead_code)]
     pub fn report(&self) {
         info!(target: "stats", "{:?}", serde_json::to_string(&self));
+    }
+
+    pub fn get_report(&self) -> Result<serde_json::Value, serde_json::Error> {
+        serde_json::to_value(&self)
     }
 }
 

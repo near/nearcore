@@ -17,6 +17,7 @@ use near_chain::{
 };
 use near_chain_configs::ClientConfig;
 use near_crypto::Signature;
+use near_network::recorder::MetricRecorder;
 #[cfg(feature = "adversarial")]
 use near_network::types::NetworkAdversarialMessage;
 use near_network::types::{NetworkInfo, ReasonForBan, StateResponseInfo};
@@ -124,6 +125,7 @@ impl ClientActor {
                 received_bytes_per_sec: 0,
                 sent_bytes_per_sec: 0,
                 known_producers: vec![],
+                metric_recorder: MetricRecorder::default(),
             },
             last_validator_announce_height: None,
             last_validator_announce_time: None,
@@ -478,6 +480,7 @@ impl Handler<GetNetworkInfo> for ClientActor {
             sent_bytes_per_sec: self.network_info.sent_bytes_per_sec,
             received_bytes_per_sec: self.network_info.received_bytes_per_sec,
             known_producers: self.network_info.known_producers.clone(),
+            metric_recorder: self.network_info.metric_recorder.clone(),
         })
     }
 }

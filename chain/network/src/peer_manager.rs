@@ -779,6 +779,7 @@ impl PeerManagerActor {
                     addr: None,
                 })
                 .collect(),
+            metric_recorder: self.metric_recorder.clone(),
         }
     }
 
