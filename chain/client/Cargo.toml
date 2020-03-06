@@ -18,7 +18,7 @@ sysinfo = "0.10.5"
 strum = { version = "0.16.0", features = ["derive"] }
 cached = "0.11.0"
 lazy_static = "1.4"
-borsh = "0.2.10"
+borsh = "0.5.0"
 reed-solomon-erasure = "4"
 
 near-crypto = { path = "../../core/crypto" }
