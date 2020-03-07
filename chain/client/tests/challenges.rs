@@ -336,33 +336,6 @@ fn test_verify_chunk_proofs_challenge_transaction_order() {
     assert_eq!(challenge_result.unwrap(), (block.hash(), vec!["test0".to_string()]));
 }
 
-#[test]
-fn test_verify_chunk_proofs_challenge_transaction_validity() {
-    let mut env = TestEnv::new(ChainGenesis::test(), 1, 1);
-    env.produce_block(0, 1);
-
-    let signer = InMemorySigner::from_seed("test0", KeyType::ED25519, "test0");
-
-    let (chunk, _merkle_paths, _receipts, block) = create_chunk_with_transactions(
-        &mut env.clients[0],
-        vec![SignedTransaction::send_money(
-            1,
-            "test0".to_string(),
-            "test1".to_string(),
-            &signer,
-            1000,
-            CryptoHash::default(),
-        )],
-    );
-    let challenge_result = challenge(
-        env,
-        chunk.header.inner.shard_id as usize,
-        MaybeEncodedShardChunk::Encoded(chunk),
-        &block,
-    );
-    assert_eq!(challenge_result.unwrap(), (block.hash(), vec!["test0".to_string()]));
-}
-
 fn challenge(
     env: TestEnv,
     shard_id: usize,
