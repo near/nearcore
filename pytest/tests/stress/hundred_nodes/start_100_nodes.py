@@ -137,8 +137,8 @@ def create_machine(i):
                       image_project='near-core',
                       image=image_name,
                       zone=zones[i % len(zones)],
-                      firewall_allows=['tcp:3030', 'tcp:24567'],
-                      min_cpu_platform='Intel Skylake')
+                      min_cpu_platform='Intel Skylake',
+                      reserve_ip=False)
     pbar.update(1)
     return m
 
