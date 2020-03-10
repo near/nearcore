@@ -11,12 +11,12 @@ use near_network::PeerInfo;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::ChunkHash;
 use near_primitives::types::{
-    AccountId, BlockHeight, BlockId, MaybeBlockId, ShardId, StateChanges, StateChangesRequest,
+    AccountId, BlockHeight, BlockIdOrFinality, MaybeBlockId, ShardId, StateChangesRequest,
 };
 use near_primitives::utils::generate_random_string;
 use near_primitives::views::{
-    BlockView, ChunkView, EpochValidatorInfo, FinalExecutionOutcomeView, Finality, GasPriceView,
-    LightClientBlockView, QueryRequest, QueryResponse,
+    BlockView, ChunkView, EpochValidatorInfo, FinalExecutionOutcomeView, GasPriceView,
+    LightClientBlockView, QueryRequest, QueryResponse, StateChangesView,
 };
 pub use near_primitives::views::{StatusResponse, StatusSyncInfo};
 
@@ -142,9 +142,12 @@ impl SyncStatus {
 }
 
 /// Actor message requesting block by id or hash.
-pub enum GetBlock {
-    BlockId(BlockId),
-    Finality(Finality),
+pub struct GetBlock(pub BlockIdOrFinality);
+
+impl GetBlock {
+    pub fn latest() -> Self {
+        Self(BlockIdOrFinality::latest())
+    }
 }
 
 impl Message for GetBlock {
@@ -166,14 +169,13 @@ impl Message for GetChunk {
 #[derive(Deserialize, Clone)]
 pub struct Query {
     pub query_id: String,
-    pub block_id: MaybeBlockId,
+    pub block_id_or_finality: BlockIdOrFinality,
     pub request: QueryRequest,
-    pub finality: Finality,
 }
 
 impl Query {
-    pub fn new(block_id: MaybeBlockId, request: QueryRequest, finality: Finality) -> Self {
-        Query { query_id: generate_random_string(10), block_id, request, finality }
+    pub fn new(block_id_or_finality: BlockIdOrFinality, request: QueryRequest) -> Self {
+        Query { query_id: generate_random_string(10), block_id_or_finality, request }
     }
 }
 
@@ -246,5 +248,5 @@ pub struct GetKeyValueChanges {
 }
 
 impl Message for GetKeyValueChanges {
-    type Result = Result<StateChanges, String>;
+    type Result = Result<StateChangesView, String>;
 }

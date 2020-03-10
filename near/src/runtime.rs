@@ -31,7 +31,7 @@ use near_primitives::types::{
     StateChangeCause, StateChanges, StateChangesRequest, StateRoot, StateRootNode, ValidatorStake,
     ValidatorStats,
 };
-use near_primitives::utils::{prefix_for_access_key, ACCOUNT_DATA_SEPARATOR};
+use near_primitives::utils::{KeyForAccessKey, ACCOUNT_DATA_SEPARATOR};
 use near_primitives::views::{
     AccessKeyInfoView, CallResult, EpochValidatorInfo, QueryError, QueryRequest, QueryResponse,
     QueryResponseKind, ViewStateResult,
@@ -1180,7 +1180,8 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
         account_id: &AccountId,
     ) -> Result<Vec<(PublicKey, AccessKey)>, Box<dyn std::error::Error>> {
         let state_update = TrieUpdate::new(self.trie.clone(), state_root);
-        let prefix = prefix_for_access_key(account_id);
+        let prefix = KeyForAccessKey::get_prefix(account_id);
+        let prefix: &[u8] = prefix.as_ref();
         let access_keys = match state_update.iter(&prefix) {
             Ok(iter) => iter
                 .map(|key| {

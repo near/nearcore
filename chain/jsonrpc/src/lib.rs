@@ -14,7 +14,7 @@ use futures::{FutureExt, TryFutureExt};
 use prometheus;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::Value;
 use tokio::time::{delay_for, timeout};
 use validator::Validate;
 
@@ -33,12 +33,14 @@ use near_network::types::{NetworkAdversarialMessage, NetworkViewClientMessages};
 use near_network::{NetworkClientMessages, NetworkClientResponses};
 use near_primitives::errors::{InvalidTxError, TxExecutionError};
 use near_primitives::hash::CryptoHash;
-use near_primitives::rpc::{BlockQueryInfo, RpcGenesisRecordsRequest, RpcQueryRequest};
+use near_primitives::rpc::{
+    RpcGenesisRecordsRequest, RpcQueryRequest, RpcStateChangesRequest, RpcStateChangesResponse,
+};
 use near_primitives::serialize::{from_base, from_base64, BaseEncode};
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, BlockId, MaybeBlockId, StateChangesRequest};
+use near_primitives::types::{AccountId, BlockId, BlockIdOrFinality, MaybeBlockId};
 use near_primitives::utils::is_valid_account_id;
-use near_primitives::views::{FinalExecutionStatus, Finality, GenesisRecordsView, QueryRequest};
+use near_primitives::views::{FinalExecutionStatus, GenesisRecordsView, QueryRequest};
 
 mod metrics;
 
@@ -212,7 +214,7 @@ impl JsonRpcHandler {
             "tx" => self.tx_status(request.params).await,
             "block" => self.block(request.params).await,
             "chunk" => self.chunk(request.params).await,
-            "changes" => self.changes(request.params).await,
+            "EXPERIMENTAL_changes" => self.changes(request.params).await,
             "next_light_client_block" => self.next_light_client_block(request.params).await,
             "network_info" => self.network_info().await,
             "gas_price" => self.gas_price(request.params).await,
@@ -459,12 +461,11 @@ impl JsonRpcHandler {
                     }
                 };
                 // Use Finality::None here to make backward compatibility tests work
-                RpcQueryRequest { block_id: None, request, finality: Finality::None }
+                RpcQueryRequest { request, block_id_or_finality: BlockIdOrFinality::latest() }
             } else {
                 parse_params::<RpcQueryRequest>(params)?
             };
-        let query =
-            Query::new(query_request.block_id, query_request.request, query_request.finality);
+        let query = Query::new(query_request.block_id_or_finality, query_request.request);
         timeout(self.polling_config.polling_timeout, async {
             loop {
                 let result = self.view_client_addr.send(query.clone()).await;
@@ -496,19 +497,13 @@ impl JsonRpcHandler {
     }
 
     async fn block(&self, params: Option<Value>) -> Result<Value, RpcError> {
-        let block_query = if let Ok((block_id,)) = parse_params::<(BlockId,)>(params.clone()) {
-            BlockQueryInfo::BlockId(block_id)
-        } else {
-            parse_params::<BlockQueryInfo>(params)?
-        };
-        jsonify(
-            self.view_client_addr
-                .send(match block_query {
-                    BlockQueryInfo::BlockId(block_id) => GetBlock::BlockId(block_id),
-                    BlockQueryInfo::Finality(finality) => GetBlock::Finality(finality),
-                })
-                .await,
-        )
+        let block_id_or_finality =
+            if let Ok((block_id,)) = parse_params::<(BlockId,)>(params.clone()) {
+                BlockIdOrFinality::BlockId(block_id)
+            } else {
+                parse_params::<BlockIdOrFinality>(params)?
+            };
+        jsonify(self.view_client_addr.send(GetBlock(block_id_or_finality)).await)
     }
 
     async fn chunk(&self, params: Option<Value>) -> Result<Value, RpcError> {
@@ -529,32 +524,23 @@ impl JsonRpcHandler {
     }
 
     async fn changes(&self, params: Option<Value>) -> Result<Value, RpcError> {
-        let (block_hash, state_changes_request) =
-            parse_params::<(CryptoHash, StateChangesRequest)>(params)?;
-        let block_hash_copy = block_hash.clone();
+        let RpcStateChangesRequest { block_id_or_finality, state_changes_request } =
+            parse_params(params)?;
+        let block = self
+            .view_client_addr
+            .send(GetBlock(block_id_or_finality))
+            .await
+            .map_err(|err| RpcError::server_error(Some(err.to_string())))?
+            .map_err(|err| RpcError::server_error(Some(err)))?;
+        let block_hash = block.header.hash.clone();
         jsonify(
             self.view_client_addr
                 .send(GetKeyValueChanges { block_hash, state_changes_request })
                 .await
                 .map(|v| {
-                    v.map(|changes| {
-                        json!({
-                            "block_hash": block_hash_copy,
-                            "changes_by_key": changes
-                            .into_iter()
-                            .map(|(key, changes)| {
-                                json!({
-                                    "key": key,
-                                    "changes": changes.into_iter().map(|(cause, value)| {
-                                        json!({
-                                            "cause": cause,
-                                            "value": value
-                                        })
-                                    }).collect::<Vec<_>>()
-                                })
-                            })
-                            .collect::<Vec<_>>()
-                        })
+                    v.map(|changes| RpcStateChangesResponse {
+                        block_hash: block.header.hash,
+                        changes,
                     })
                 }),
         )

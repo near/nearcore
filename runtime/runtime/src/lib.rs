@@ -18,13 +18,13 @@ use near_primitives::transaction::{
     Action, ExecutionOutcome, ExecutionOutcomeWithId, ExecutionStatus, LogEntry, SignedTransaction,
 };
 use near_primitives::types::{
-    AccountId, Balance, BlockHeight, BlockHeightDelta, Gas, Nonce, StateChangeCause, StateChanges,
-    StateRoot, ValidatorStake,
+    AccountId, Balance, BlockHeight, BlockHeightDelta, Gas, Nonce, RawStateChanges,
+    StateChangeCause, StateRoot, ValidatorStake,
 };
 use near_primitives::utils::col::DELAYED_RECEIPT_INDICES;
 use near_primitives::utils::{
-    create_nonce_with_nonce, key_for_delayed_receipt, key_for_pending_data_count,
-    key_for_postponed_receipt, key_for_postponed_receipt_id, key_for_received_data, system_account,
+    create_nonce_with_nonce, system_account, KeyForDelayedReceipt, KeyForPendingDataCount,
+    KeyForPostponedReceipt, KeyForPostponedReceiptId, KeyForReceivedData,
 };
 use near_store::{
     get, get_account, get_receipt, get_received_data, set, set_access_key, set_account, set_code,
@@ -109,7 +109,7 @@ pub struct ApplyResult {
     pub validator_proposals: Vec<ValidatorStake>,
     pub outgoing_receipts: Vec<Receipt>,
     pub outcomes: Vec<ExecutionOutcomeWithId>,
-    pub key_value_changes: StateChanges,
+    pub key_value_changes: RawStateChanges,
     pub stats: ApplyStats,
 }
 
@@ -419,7 +419,7 @@ impl Runtime {
                         "received data should be in the state".to_string(),
                     )
                 })?;
-                state_update.remove(&key_for_received_data(account_id, data_id));
+                state_update.remove(KeyForReceivedData::new(account_id, data_id));
                 match data {
                     Some(value) => Ok(PromiseResult::Successful(value)),
                     None => Ok(PromiseResult::Failed),
@@ -700,26 +700,26 @@ impl Runtime {
                 // If we don't have a postponed receipt yet, we don't need to do anything for now.
                 if let Some(receipt_id) = get(
                     state_update,
-                    &key_for_postponed_receipt_id(account_id, &data_receipt.data_id),
+                    &KeyForPostponedReceiptId::new(account_id, &data_receipt.data_id),
                 )? {
                     // There is already a receipt that is awaiting for the just received data.
                     // Removing this pending data_id for the receipt from the state.
                     state_update
-                        .remove(&key_for_postponed_receipt_id(account_id, &data_receipt.data_id));
+                        .remove(KeyForPostponedReceiptId::new(account_id, &data_receipt.data_id));
                     // Checking how many input data items is pending for the receipt.
                     let pending_data_count: u32 =
-                        get(state_update, &key_for_pending_data_count(account_id, &receipt_id))?
+                        get(state_update, &KeyForPendingDataCount::new(account_id, &receipt_id))?
                             .ok_or_else(|| {
-                                StorageError::StorageInconsistentState(
-                                    "pending data count should be in the state".to_string(),
-                                )
-                            })?;
+                            StorageError::StorageInconsistentState(
+                                "pending data count should be in the state".to_string(),
+                            )
+                        })?;
                     if pending_data_count == 1 {
                         // It was the last input data pending for this receipt. We'll cleanup
                         // some receipt related fields from the state and execute the receipt.
 
                         // Removing pending data count from the state.
-                        state_update.remove(&key_for_pending_data_count(account_id, &receipt_id));
+                        state_update.remove(KeyForPendingDataCount::new(account_id, &receipt_id));
                         // Fetching the receipt itself.
                         let ready_receipt = get_receipt(state_update, account_id, &receipt_id)?
                             .ok_or_else(|| {
@@ -728,7 +728,7 @@ impl Runtime {
                                 )
                             })?;
                         // Removing the receipt from the state.
-                        state_update.remove(&key_for_postponed_receipt(account_id, &receipt_id));
+                        state_update.remove(KeyForPostponedReceipt::new(account_id, &receipt_id));
                         // Executing the receipt. It will read all the input data and clean it up
                         // from the state.
                         return self
@@ -746,7 +746,7 @@ impl Runtime {
                         // pending data count in the state.
                         set(
                             state_update,
-                            key_for_pending_data_count(account_id, &receipt_id),
+                            KeyForPendingDataCount::new(account_id, &receipt_id),
                             &(pending_data_count.checked_sub(1).ok_or_else(|| {
                                 StorageError::StorageInconsistentState(
                                     "pending data count is 0, but there is a new DataReceipt"
@@ -770,7 +770,7 @@ impl Runtime {
                         // receipt_id for the pending data_id into the state.
                         set(
                             state_update,
-                            key_for_postponed_receipt_id(account_id, data_id),
+                            KeyForPostponedReceiptId::new(account_id, data_id),
                             &receipt.receipt_id,
                         )
                     }
@@ -793,7 +793,7 @@ impl Runtime {
                     // Save the counter for the number of pending input data items into the state.
                     set(
                         state_update,
-                        key_for_pending_data_count(account_id, &receipt.receipt_id),
+                        KeyForPendingDataCount::new(account_id, &receipt.receipt_id),
                         &pending_data_count,
                     );
                     // Save the receipt itself into the state.
@@ -1021,7 +1021,7 @@ impl Runtime {
             if total_gas_burnt >= gas_limit {
                 break;
             }
-            let key = key_for_delayed_receipt(delayed_receipts_indices.first_index);
+            let key = KeyForDelayedReceipt::new(delayed_receipts_indices.first_index);
             let receipt: Receipt = get(&state_update, &key)?.ok_or_else(|| {
                 StorageError::StorageInconsistentState(format!(
                     "Delayed receipt #{} should be in the state",
@@ -1037,7 +1037,7 @@ impl Runtime {
                 ))
             })?;
 
-            state_update.remove(&key);
+            state_update.remove(key);
             // Math checked above: first_index is less than next_available_index
             delayed_receipts_indices.first_index += 1;
             process_receipt(&receipt, &mut state_update, &mut total_gas_burnt)?;
@@ -1096,7 +1096,7 @@ impl Runtime {
     ) -> Result<(), StorageError> {
         set(
             state_update,
-            key_for_delayed_receipt(delayed_receipts_indices.next_available_index),
+            KeyForDelayedReceipt::new(delayed_receipts_indices.next_available_index),
             receipt,
         );
         delayed_receipts_indices.next_available_index =
@@ -1217,7 +1217,7 @@ impl Runtime {
                     pending_data_count += 1;
                     set(
                         &mut state_update,
-                        key_for_postponed_receipt_id(account_id, data_id),
+                        KeyForPostponedReceiptId::new(account_id, data_id),
                         &receipt.receipt_id,
                     )
                 }
@@ -1227,7 +1227,7 @@ impl Runtime {
             } else {
                 set(
                     &mut state_update,
-                    key_for_pending_data_count(account_id, &receipt.receipt_id),
+                    KeyForPendingDataCount::new(account_id, &receipt.receipt_id),
                     &pending_data_count,
                 );
                 set_receipt(&mut state_update, &receipt);

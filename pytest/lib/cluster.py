@@ -125,14 +125,21 @@ class BaseNode(object):
     def get_account(self, acc, finality='optimistic'):
         return self.json_rpc('query', {"request_type": "view_account", "account_id": acc, "block_id": None, "finality": finality})
 
-    def get_block(self, block_hash):
-        return self.json_rpc('block', [block_hash])
+    def get_block(self, block_id):
+        return self.json_rpc('block', [block_id])
 
-    def get_changes(self, block_hash, state_changes_request):
-        return self.json_rpc('changes', [block_hash, state_changes_request])
-    
+    def get_chunk(self, chunk_id):
+        return self.json_rpc('chunk', [chunk_id])
+
+    def get_tx(self, tx_hash, tx_recipient_id):
+        return self.json_rpc('tx', [tx_hash, tx_recipient_id])
+
+    def get_changes(self, changes_request):
+        return self.json_rpc('EXPERIMENTAL_changes', changes_request)
+
     def validators(self):
         return set(map(lambda v: v['account_id'], self.get_status()['validators']))
+
 
 
 class RpcNode(BaseNode):
@@ -141,10 +148,9 @@ class RpcNode(BaseNode):
         super(RpcNode, self).__init__()
         self.host = host
         self.rpc_port = rpc_port
-    
+
     def rpc_addr(self):
         return (self.host, self.rpc_port)
-
 
 
 class LocalNode(BaseNode):
