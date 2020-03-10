@@ -18,7 +18,7 @@ use near_primitives::receipt::{Receipt, ReceivedData};
 use near_primitives::serialize::to_base;
 use near_primitives::types::{AccountId, StorageUsage};
 use near_primitives::utils::{
-    key_for_access_key, key_for_account, key_for_code, key_for_postponed_receipt,
+    key_for_access_key, key_for_account, key_for_code, key_for_data, key_for_postponed_receipt,
     key_for_received_data, prefix_for_access_key, prefix_for_data,
 };
 
@@ -314,6 +314,10 @@ pub fn get_access_key_raw(
     key: &[u8],
 ) -> Result<Option<AccessKey>, StorageError> {
     get(state_update, key)
+}
+
+pub fn set_data(state_update: &mut TrieUpdate, account_id: &AccountId, key: &[u8], value: Vec<u8>) {
+    state_update.set(key_for_data(account_id, key), value);
 }
 
 pub fn set_code(state_update: &mut TrieUpdate, account_id: &AccountId, code: &ContractCode) {

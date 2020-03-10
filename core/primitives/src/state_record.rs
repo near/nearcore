@@ -12,8 +12,9 @@ use crate::views::{AccessKeyView, AccountView, ReceiptView};
 pub enum StateRecord {
     /// Account information.
     Account { account_id: AccountId, account: AccountView },
-    /// Data records inside the contract, encoded in base64.
-    Data { key: String, value: String },
+    /// Data record inside the contract for account_id. Key and value are encoded in base64.
+    /// NOTE: Key doesn't contain the data separator.
+    Data { account_id: AccountId, key: String, value: String },
     /// Contract code encoded in base64.
     Contract { account_id: AccountId, code: String },
     /// Access key associated with some account.

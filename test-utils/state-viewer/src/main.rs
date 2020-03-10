@@ -43,8 +43,13 @@ fn kv_to_state_record(key: Vec<u8>, value: Vec<u8>) -> Option<StateRecord> {
     match column {
         col::ACCOUNT => {
             let separator = (1..key.len()).find(|&x| key[x] == ACCOUNT_DATA_SEPARATOR[0]);
-            if separator.is_some() {
-                Some(StateRecord::Data { key: to_base64(&key), value: to_base64(&value) })
+            if let Some(separator) = separator {
+                let account_id = String::from_utf8(key[1..separator].to_vec()).unwrap();
+                Some(StateRecord::Data {
+                    account_id,
+                    key: to_base64(&key[(separator + 1)..]),
+                    value: to_base64(&value),
+                })
             } else {
                 let mut account = Account::try_from_slice(&value).unwrap();
                 // TODO(#1200): When dumping state, all accounts have to pay rent
@@ -88,16 +93,12 @@ fn print_state_entry(key: Vec<u8>, value: Vec<u8>) {
         Some(StateRecord::Account { account_id, account }) => {
             println!("Account {:?}: {:?}", account_id, account)
         }
-        Some(StateRecord::Data { key, value }) => {
-            let key = from_base64(&key).unwrap();
-            let separator = (1..key.len()).find(|&x| key[x] == ACCOUNT_DATA_SEPARATOR[0]).unwrap();
-            let account_id = to_printable(&key[1..separator]);
-            let contract_key = to_printable(&key[(separator + 1)..]);
+        Some(StateRecord::Data { account_id, key, value }) => {
             println!(
                 "Storage {:?},{:?}: {:?}",
                 account_id,
-                contract_key,
-                to_printable(&from_base64(&value).unwrap())
+                to_printable(&from_base64(&key).unwrap()),
+                to_printable(&from_base64(&value).unwrap()),
             );
         }
         Some(StateRecord::Contract { account_id, code: _ }) => {

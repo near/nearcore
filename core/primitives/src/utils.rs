@@ -36,9 +36,10 @@ pub mod col {
 }
 
 fn key_for_column_account_id(column: &[u8], account_key: &AccountId) -> Vec<u8> {
-    let mut key = Vec::with_capacity(column.len() + account_key.len());
+    let account_hash = hash(account_key.as_bytes());
+    let mut key = Vec::with_capacity(column.len() + account_hash.as_ref().len());
     key.extend(column);
-    key.extend(account_key.as_bytes());
+    key.extend_from_slice(account_hash.as_ref());
     key
 }
 

@@ -25,11 +25,11 @@ use near_primitives::utils::col::DELAYED_RECEIPT_INDICES;
 use near_primitives::utils::{
     create_nonce_with_nonce, key_for_delayed_receipt, key_for_pending_data_count,
     key_for_postponed_receipt, key_for_postponed_receipt_id, key_for_received_data, system_account,
-    ACCOUNT_DATA_SEPARATOR,
 };
 use near_store::{
     get, get_account, get_receipt, get_received_data, set, set_access_key, set_account, set_code,
-    set_receipt, set_received_data, StorageError, StoreUpdate, Trie, TrieChanges, TrieUpdate,
+    set_data, set_receipt, set_received_data, StorageError, StoreUpdate, Trie, TrieChanges,
+    TrieUpdate,
 };
 use near_vm_logic::types::PromiseResult;
 use near_vm_logic::ReturnData;
@@ -1119,18 +1119,12 @@ impl Runtime {
                 StateRecord::Account { account_id, .. } => {
                     Some((account_id.clone(), config.num_bytes_account))
                 }
-                StateRecord::Data { key, value } => {
+                StateRecord::Data { account_id, key, value } => {
                     let key = from_base64(key).expect("Failed to decode key");
                     let value = from_base64(value).expect("Failed to decode value");
-                    let separator =
-                        (1..key.len()).find(|&x| key[x] == ACCOUNT_DATA_SEPARATOR[0]).unwrap();
-                    let account_id = &key[1..separator];
-                    let account_id =
-                        String::from_utf8(account_id.to_vec()).expect("Invalid account id");
-                    let data_key = &key[(separator + 1)..];
                     let storage_usage =
-                        config.num_extra_bytes_record + data_key.len() as u64 + value.len() as u64;
-                    Some((account_id, storage_usage))
+                        config.num_extra_bytes_record + key.len() as u64 + value.len() as u64;
+                    Some((account_id.clone(), storage_usage))
                 }
                 StateRecord::Contract { account_id, code } => {
                     let code = from_base64(&code).expect("Failed to decode wasm from base64");
@@ -1167,9 +1161,11 @@ impl Runtime {
                 StateRecord::Account { account_id, account } => {
                     set_account(&mut state_update, &account_id, &account.into());
                 }
-                StateRecord::Data { key, value } => {
-                    state_update.set(
-                        from_base64(&key).expect("Failed to decode key"),
+                StateRecord::Data { account_id, key, value } => {
+                    set_data(
+                        &mut state_update,
+                        &account_id,
+                        &from_base64(&key).expect("Failed to decode key"),
                         from_base64(&value).expect("Failed to decode value"),
                     );
                 }

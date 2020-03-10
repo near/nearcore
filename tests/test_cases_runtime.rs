@@ -4,7 +4,6 @@ mod test {
     use near_chain_configs::Genesis;
     use near_primitives::serialize::to_base64;
     use near_primitives::state_record::StateRecord;
-    use near_primitives::utils::key_for_data;
     use testlib::node::RuntimeNode;
     use testlib::runtime_utils::{add_test_contract, alice_account, bob_account};
     use testlib::standard_test_cases::*;
@@ -30,7 +29,8 @@ mod test {
             }
         }
         genesis.records.as_mut().push(StateRecord::Data {
-            key: to_base64(&key_for_data(&bob_account(), b"test")),
+            account_id: bob_account(),
+            key: to_base64(b"test"),
             value: to_base64(b"123"),
         });
         RuntimeNode::new_from_genesis(&alice_account(), genesis)
@@ -51,7 +51,8 @@ mod test {
             _ => {}
         }
         genesis.records.as_mut().push(StateRecord::Data {
-            key: to_base64(&key_for_data(&bob_account(), b"test")),
+            account_id: bob_account(),
+            key: to_base64(b"test"),
             value: to_base64(b"123"),
         });
         RuntimeNode::new_from_genesis(&alice_account(), genesis)
