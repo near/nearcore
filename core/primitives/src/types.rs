@@ -163,10 +163,10 @@ pub enum StateChangesRequest {
 pub enum StateChangeValue {
     AccountUpdate { account_id: AccountId, account: Account },
     AccountDeletion { account_id: AccountId },
-    AccessKeyUpdate { public_key: PublicKey, access_key: AccessKey },
-    AccessKeyDeletion { public_key: PublicKey },
-    DataUpdate { key: StoreKey, value: StoreValue },
-    DataDeletion { key: StoreKey },
+    AccessKeyUpdate { account_id: AccountId, public_key: PublicKey, access_key: AccessKey },
+    AccessKeyDeletion { account_id: AccountId, public_key: PublicKey },
+    DataUpdate { account_id: AccountId, key: StoreKey, value: StoreValue },
+    DataDeletion { account_id: AccountId, key: StoreKey },
     CodeUpdate { account_id: AccountId, code: Vec<u8> },
     CodeDeletion { account_id: AccountId },
 }
@@ -229,12 +229,16 @@ impl StateChanges {
                     cause,
                     value: if let Some(state_change) = state_change {
                         StateChangeValue::AccessKeyUpdate {
+                            account_id: account_id.clone(),
                             public_key: access_key_pk.clone(),
                             access_key: <_>::try_from_slice(&state_change)
                                 .expect("Failed to parse internally stored access key"),
                         }
                     } else {
-                        StateChangeValue::AccessKeyDeletion { public_key: access_key_pk.clone() }
+                        StateChangeValue::AccessKeyDeletion {
+                            account_id: account_id.clone(),
+                            public_key: access_key_pk.clone(),
+                        }
                     },
                 }
             }));
@@ -286,11 +290,15 @@ impl StateChanges {
                     cause,
                     value: if let Some(state_change) = state_change {
                         StateChangeValue::DataUpdate {
+                            account_id: account_id.clone(),
                             key: key.to_vec().into(),
                             value: state_change.into(),
                         }
                     } else {
-                        StateChangeValue::DataDeletion { key: key.to_vec().into() }
+                        StateChangeValue::DataDeletion {
+                            account_id: account_id.clone(),
+                            key: key.to_vec().into(),
+                        }
                     },
                 }
             }));

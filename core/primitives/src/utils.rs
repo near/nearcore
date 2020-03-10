@@ -241,29 +241,16 @@ impl KeyForPendingDataCount {
 pub struct KeyForPostponedReceipt(Vec<u8>);
 
 impl KeyForPostponedReceipt {
-    pub fn get_prefix_with_capacity(account_id: &AccountId, reserved_capacity: usize) -> Self {
-        Self(
-            KeyForColumnAccountId::with_capacity(
-                col::POSTPONED_RECEIPT,
-                account_id,
-                reserved_capacity,
-            )
-            .into(),
-        )
-    }
-
-    pub fn get_prefix(account_id: &AccountId) -> Self {
-        Self::get_prefix_with_capacity(account_id, 0)
-    }
-
     pub fn new(account_id: &AccountId, receipt_id: &CryptoHash) -> Self {
-        let mut key = Self::get_prefix_with_capacity(
+        let mut key: Vec<u8> = KeyForColumnAccountId::with_capacity(
+            col::POSTPONED_RECEIPT,
             account_id,
             ACCOUNT_DATA_SEPARATOR.len() + receipt_id.as_ref().len(),
-        );
-        key.0.extend(ACCOUNT_DATA_SEPARATOR);
-        key.0.extend(receipt_id.as_ref());
-        key
+        )
+        .into();
+        key.extend(ACCOUNT_DATA_SEPARATOR);
+        key.extend(receipt_id.as_ref());
+        Self(key)
     }
 }
 
@@ -478,7 +465,52 @@ where
 
 #[cfg(test)]
 mod tests {
+    use near_crypto::KeyType;
+
     use super::*;
+
+    #[test]
+    fn test_key_for_account_consistency() {
+        let account_id = AccountId::from("test.account");
+        assert_eq!(
+            (KeyForAccount::new(&account_id).as_ref() as &[u8]).len(),
+            KeyForAccount::estimate_len(&account_id)
+        );
+    }
+
+    #[test]
+    fn test_key_for_access_key_consistency() {
+        let account_id = AccountId::from("test.account");
+        let public_key = PublicKey::empty(KeyType::ED25519);
+        let key_prefix = KeyForAccessKey::get_prefix(&account_id);
+        assert_eq!(
+            (key_prefix.as_ref() as &[u8]).len(),
+            KeyForAccessKey::estimate_prefix_len(&account_id)
+        );
+        let key = KeyForAccessKey::new(&account_id, &public_key);
+        assert_eq!(
+            (key.as_ref() as &[u8]).len(),
+            KeyForAccessKey::estimate_len(&account_id, &public_key)
+        );
+        assert_eq!(
+            KeyForAccessKey::parse_public_key(key.as_ref(), &account_id).unwrap(),
+            public_key
+        );
+    }
+
+    #[test]
+    fn test_key_for_data_consistency() {
+        let account_id = AccountId::from("test.account");
+        let data_key = b"0123456789" as &[u8];
+        let key_prefix = KeyForData::get_prefix(&account_id);
+        assert_eq!(
+            (key_prefix.as_ref() as &[u8]).len(),
+            KeyForData::estimate_len(&account_id, &[])
+        );
+        let key = KeyForData::new(&account_id, &data_key);
+        assert_eq!((key.as_ref() as &[u8]).len(), KeyForData::estimate_len(&account_id, &data_key));
+        assert_eq!(KeyForData::parse_data_key(key.as_ref(), &account_id).unwrap(), data_key);
+    }
 
     #[test]
     fn test_is_valid_account_id() {

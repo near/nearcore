@@ -104,6 +104,7 @@ expected_changes_response = {
             },
             "type": "access_key_update",
             "change": {
+                "account_id": new_key.account_id,
                 "public_key": new_key.pk,
                 "access_key": {"nonce": 0, "permission": "FullAccess"},
             }
@@ -143,6 +144,7 @@ expected_changes_response = {
             },
             "type": "access_key_update",
             "change": {
+                "account_id": new_key.account_id,
                 "public_key": new_key.pk,
                 "access_key": {"nonce": 8, "permission": "FullAccess"},
             }
@@ -154,6 +156,7 @@ expected_changes_response = {
             },
             "type": "access_key_deletion",
             "change": {
+                "account_id": new_key.account_id,
                 "public_key": new_key.pk,
             }
         }
@@ -169,19 +172,50 @@ for node in nodes:
 
 # Plan:
 # 1. Deploy a contract.
-# 2. Send two transactions to be included into the same block setting and overriding the value of
+# 2. Observe the code changes in the block where the transaction outcome "lands".
+# 3. Send two transactions to be included into the same block setting and overriding the value of
 #    the same key (`my_key`).
-# 3. Observe the changes in the block where the transaction outcome "lands".
+# 4. Observe the changes in the block where the transaction outcome "lands".
 
+hello_smart_contract = load_binary_file('../tests/hello.wasm')
 status = nodes[0].get_status()
 latest_block_hash = status['sync_info']['latest_block_hash']
 deploy_contract_tx = transaction.sign_deploy_contract_tx(
     nodes[0].signer_key,
-    load_binary_file('../tests/hello.wasm'),
+    hello_smart_contract,
     10,
     base58.b58decode(latest_block_hash.encode('utf8'))
 )
-nodes[0].send_tx_and_wait(deploy_contract_tx, 10)
+deploy_contract_response = nodes[0].send_tx_and_wait(deploy_contract_tx, 10)
+
+state_changes_request = {
+    "block_id": deploy_contract_response['result']['transaction_outcome']['block_hash'],
+    "changes_type": "code_changes",
+    "account_id": nodes[0].signer_key.account_id,
+}
+
+expected_changes_response = {
+    "block_hash": state_changes_request["block_id"],
+    "changes": [
+        {
+            "cause": {
+                "type": "receipt_processing",
+                "receipt_hash": deploy_contract_response["result"]["receipts_outcome"][0]["id"],
+            },
+            "type": "code_update",
+            "change": {
+                "account_id": nodes[0].signer_key.account_id,
+                "code_base64": base64.b64encode(hello_smart_contract).decode('utf-8'),
+            }
+        },
+    ]
+}
+
+for node in nodes:
+    changes_response = node.get_changes(state_changes_request)['result']
+    assert not deepdiff.DeepDiff(changes_response, expected_changes_response), \
+        "query same changes gives different results (expected VS actual):\n%r\n%r" \
+        % (expected_changes_response, changes_response)
 
 status = nodes[1].get_status()
 latest_block_hash = status['sync_info']['latest_block_hash']
@@ -228,24 +262,26 @@ expected_changes_response = {
     "block_hash": state_changes_request["block_id"],
     "changes": [
         {
-            'cause': {
-                'type': 'receipt_processing',
+            "cause": {
+                "type": "receipt_processing",
             },
-            'type': 'data_update',
-            'change': {
-                'key_base64': base64.b64encode(b"my_key").decode('utf-8'),
-                'value_base64': base64.b64encode(b"my_value_1").decode('utf-8'),
+            "type": "data_update",
+            "change": {
+                "account_id": tx_account_id,
+                "key_base64": base64.b64encode(b"my_key").decode('utf-8'),
+                "value_base64": base64.b64encode(b"my_value_1").decode('utf-8'),
             }
         },
         {
-            'cause': {
-                'type': 'receipt_processing',
-                'receipt_hash': function_call_2_response['result']['receipts_outcome'][0]['id']
+            "cause": {
+                "type": "receipt_processing",
+                "receipt_hash": function_call_2_response["result"]["receipts_outcome"][0]["id"]
             },
-            'type': 'data_update',
-            'change': {
-                'key_base64': base64.b64encode(b"my_key").decode('utf-8'),
-                'value_base64': base64.b64encode(b"my_value_2").decode('utf-8'),
+            "type": "data_update",
+            "change": {
+                "account_id": tx_account_id,
+                "key_base64": base64.b64encode(b"my_key").decode('utf-8'),
+                "value_base64": base64.b64encode(b"my_value_2").decode('utf-8'),
             }
         }
     ]
