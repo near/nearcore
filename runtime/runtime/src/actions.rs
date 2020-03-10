@@ -13,7 +13,7 @@ use near_primitives::transaction::{
 };
 use near_primitives::types::{AccountId, Balance, BlockHeight, BlockHeightDelta, ValidatorStake};
 use near_primitives::utils::{
-    is_valid_sub_account_id, is_valid_top_level_account_id, key_for_access_key,
+    is_valid_sub_account_id, is_valid_top_level_account_id, KeyForAccessKey,
 };
 use near_runtime_fees::RuntimeFeesConfig;
 use near_store::{
@@ -388,7 +388,7 @@ pub(crate) fn action_delete_key(
         return Ok(());
     }
     // Remove access key
-    state_update.remove(&key_for_access_key(account_id, &delete_key.public_key));
+    state_update.remove(KeyForAccessKey::new(account_id, &delete_key.public_key));
     let storage_usage_config = &fee_config.storage_usage_config;
     account.storage_usage = account
         .storage_usage

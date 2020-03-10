@@ -8,7 +8,8 @@ use near_client::test_utils::setup_mock_all_validators;
 use near_client::{ClientActor, Query, ViewClientActor};
 use near_network::{NetworkRequests, NetworkResponses, PeerInfo};
 use near_primitives::test_utils::init_test_logger;
-use near_primitives::views::{Finality, QueryRequest, QueryResponseKind::ViewAccount};
+use near_primitives::types::BlockIdOrFinality;
+use near_primitives::views::{QueryRequest, QueryResponseKind::ViewAccount};
 
 /// Tests that the KeyValueRuntime properly sets balances in genesis and makes them queriable
 #[test]
@@ -51,9 +52,8 @@ fn test_keyvalue_runtime_balances() {
                 connectors_[i]
                     .1
                     .send(Query::new(
-                        None,
+                        BlockIdOrFinality::latest(),
                         QueryRequest::ViewAccount { account_id: flat_validators[i].to_string() },
-                        Finality::None,
                     ))
                     .then(move |res| {
                         let query_response = res.unwrap().unwrap().unwrap();
@@ -93,9 +93,8 @@ mod tests {
     use near_primitives::hash::CryptoHash;
     use near_primitives::test_utils::init_test_logger;
     use near_primitives::transaction::SignedTransaction;
-    use near_primitives::types::AccountId;
-    use near_primitives::views::QueryResponseKind::ViewAccount;
-    use near_primitives::views::{Finality, QueryRequest, QueryResponse};
+    use near_primitives::types::{AccountId, BlockIdOrFinality};
+    use near_primitives::views::{QueryRequest, QueryResponse, QueryResponseKind::ViewAccount};
 
     fn send_tx(
         num_validators: usize,
@@ -192,9 +191,8 @@ mod tests {
                         + (*presumable_epoch.read().unwrap() * 8) % 24]
                         .1
                         .send(Query::new(
-                            None,
+                            BlockIdOrFinality::latest(),
                             QueryRequest::ViewAccount { account_id: account_id.clone() },
-                            Finality::None,
                         ))
                         .then(move |x| {
                             test_cross_shard_tx_callback(
@@ -284,11 +282,10 @@ mod tests {
                                 + (*presumable_epoch.read().unwrap() * 8) % 24]
                                 .1
                                 .send(Query::new(
-                                    None,
+                                    BlockIdOrFinality::latest(),
                                     QueryRequest::ViewAccount {
                                         account_id: validators[i].to_string(),
                                     },
-                                    Finality::None,
                                 ))
                                 .then(move |x| {
                                     test_cross_shard_tx_callback(
@@ -336,9 +333,8 @@ mod tests {
                         + (*presumable_epoch.read().unwrap() * 8) % 24]
                         .1
                         .send(Query::new(
-                            None,
+                            BlockIdOrFinality::latest(),
                             QueryRequest::ViewAccount { account_id: account_id.clone() },
-                            Finality::None,
                         ))
                         .then(move |x| {
                             test_cross_shard_tx_callback(
@@ -452,11 +448,10 @@ mod tests {
                     connectors_[i + *presumable_epoch.read().unwrap() * 8]
                         .1
                         .send(Query::new(
-                            None,
+                            BlockIdOrFinality::latest(),
                             QueryRequest::ViewAccount {
                                 account_id: flat_validators[i].to_string(),
                             },
-                            Finality::None,
                         ))
                         .then(move |x| {
                             test_cross_shard_tx_callback(
