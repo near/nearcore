@@ -386,28 +386,38 @@ impl ChainStore {
         base_block_hash: &CryptoHash,
         validity_period: BlockHeight,
     ) -> Result<(), InvalidTxError> {
+        // if both are on the canonical chain, comparing height is sufficient
+        // we special case this because it is expected that this scenario will happen in most cases.
         let base_height = self
             .get_block_header(base_block_hash)
             .map_err(|_| InvalidTxError::Expired)?
             .inner_lite
             .height;
+        let base_block_hash_by_height =
+            self.get_block_hash_by_height(base_height).map_err(|_| InvalidTxError::InvalidChain)?;
+        let prev_height = prev_block_header.inner_lite.height;
+        if &base_block_hash_by_height == base_block_hash {
+            if let Ok(prev_hash) = self.get_block_hash_by_height(prev_height) {
+                if prev_hash == prev_block_header.hash {
+                    if prev_height <= base_height + validity_period {
+                        return Ok(());
+                    } else {
+                        return Err(InvalidTxError::Expired);
+                    }
+                }
+            }
+        }
 
-        // if the base block height is smaller than last_ds_final_height we only need to check
+        // if the base block height is smaller than `last_final_height` we only need to check
         // whether the base block is the same as the one with that height on the canonical fork.
         // Otherwise we walk back the chain to check whether base block is on the same chain.
-        // It suffices to use doomslug finality here as it guarantees uniqueness of block for each
-        // height unless there someone gets slashed, in which case the chain itself will also reorg
-        // quickly.
-        let last_ds_final_height = self
-            .get_block_height(&prev_block_header.inner_rest.last_ds_final_block)
+        let last_final_height = self
+            .get_block_height(&prev_block_header.inner_rest.last_quorum_pre_commit)
             .map_err(|_| InvalidTxError::InvalidChain)?;
-        let prev_height = prev_block_header.inner_lite.height;
+
         if prev_height > base_height + validity_period {
             Err(InvalidTxError::Expired)
-        } else if last_ds_final_height >= base_height {
-            let base_block_hash_by_height = self
-                .get_block_hash_by_height(base_height)
-                .map_err(|_| InvalidTxError::InvalidChain)?;
+        } else if last_final_height >= base_height {
             if &base_block_hash_by_height == base_block_hash {
                 if prev_height <= base_height + validity_period {
                     Ok(())
