@@ -6,6 +6,7 @@ use std::sync::Arc;
 use borsh::{BorshDeserialize, BorshSerialize};
 use cached::{Cached, SizedCache};
 use chrono::Utc;
+use owning_ref::OwningRef;
 use serde::Serialize;
 
 use near_primitives::block::{Approval, BlockScore};
@@ -21,9 +22,9 @@ use near_primitives::transaction::{
 };
 use near_primitives::types::{
     AccountId, BlockExtra, BlockHeight, ChunkExtra, EpochId, NumBlocks, RawStateChangesList,
-    ShardId, StateChangeValue, StateChangeWithCause, StateChanges, StateChangesRequest,
+    ShardId, StateChanges, StateChangesExt, StateChangesRequest,
 };
-use near_primitives::utils::{index_to_bytes, to_timestamp, KeyForAccessKey, KeyForData};
+use near_primitives::utils::{index_to_bytes, to_timestamp};
 use near_primitives::views::LightClientBlockView;
 use near_store::{
     read_with_cache, ColBlock, ColBlockExtra, ColBlockHeader, ColBlockHeight, ColBlockMisc,
@@ -930,14 +931,33 @@ impl ChainStoreAccess for ChainStore {
     ) -> Result<StateChanges, Error> {
         use near_primitives::utils;
 
+        // We store the trie changes under a compound key: `block_hash + trie_key`, so when we
+        // query the changes, we reverse the process by splitting the key using simple slicing of an
+        // array of bytes, essentially, extracting `trie_key`.
+        //
+        // Example: data changes are stored under a key:
+        //
+        //     block_hash + (col::ACCOUNT + account_id + ACCOUNT_DATA_SEPARATOR + user_specified_key)
+        //
+        // Thus, to query all the changes by a user-specified key prefix, we do the following:
+        // 1. Query RocksDB for
+        //     block_hash + (col::ACCOUNT + account_id + ACCOUNT_DATA_SEPARATOR + user_specified_key_prefix)
+        //
+        // 2. In the simplest case, to extract the full key we need to slice the RocksDB key by a length of
+        //     block_hash + (col::ACCOUNT + account_id + ACCOUNT_DATA_SEPARATOR)
+        //
+        //    In this implementation, however, we decoupled this process into two steps:
+        //
+        //    2.1. Split off the `block_hash` (using `common_storage_key_prefix_len`), thus we are
+        //         left working with a key that was used in the trie.
+        //    2.2. Parse the trie key with a relevant KeyFor* implementation to ensure consistency
+
         let mut storage_key = block_hash.as_ref().to_vec();
         let common_storage_key_prefix_len = storage_key.len();
+
         let data_key: Vec<u8> = match state_changes_request {
             StateChangesRequest::AccountChanges { account_id } => {
                 utils::KeyForAccount::new(account_id).into()
-            }
-            StateChangesRequest::DataChanges { account_id, key_prefix } => {
-                utils::KeyForData::new(account_id, key_prefix.as_ref()).into()
             }
             StateChangesRequest::SingleAccessKeyChanges { account_id, access_key_pk } => {
                 utils::KeyForAccessKey::new(account_id, access_key_pk).into()
@@ -948,156 +968,74 @@ impl ChainStoreAccess for ChainStore {
             StateChangesRequest::CodeChanges { account_id } => {
                 utils::KeyForCode::new(account_id).into()
             }
+            StateChangesRequest::DataChanges { account_id, key_prefix } => {
+                utils::KeyForData::new(account_id, key_prefix.as_ref()).into()
+            }
         };
         storage_key.extend(&data_key);
 
-        let mut changes_iter =
-            self.store.iter_prefix_ser::<RawStateChangesList>(ColKeyValueChanges, &storage_key);
-        let mut exact_key_changes_iter;
-        let changes_iter: &mut dyn Iterator<Item = _> = match state_changes_request {
-            // These request types should have the key matching exactly
+        let mut changes_per_key_prefix = self
+            .store
+            .iter_prefix_ser::<RawStateChangesList>(ColKeyValueChanges, &storage_key)
+            .map(|change| {
+                // Split off the irrelevant part of the key, so only the original trie_key is left.
+                let (key, state_changes) = change?;
+                let key = OwningRef::new(key).map(|key| &key[common_storage_key_prefix_len..]);
+                Ok((key, state_changes))
+            });
+
+        // It is a lifetime workaround. We cannot return `&mut changes_per_key_prefix.filter_map(...`
+        // as that is a temporary object created there with `filter_map`, and you cannot leak a
+        // reference to a temporary object.
+        let mut changes_per_exact_key;
+
+        let changes_per_key: &mut dyn Iterator<Item = _> = match state_changes_request {
+            // These request types are expected to match the key exactly:
             StateChangesRequest::AccountChanges { .. }
             | StateChangesRequest::SingleAccessKeyChanges { .. }
             | StateChangesRequest::CodeChanges { .. } => {
-                exact_key_changes_iter = changes_iter.filter_map(|change| {
+                changes_per_exact_key = changes_per_key_prefix.filter_map(|change| {
                     let (key, state_changes) = match change {
                         Ok(change) => change,
                         error => {
                             return Some(error);
                         }
                     };
-                    if key.len() != storage_key.len() {
+                    if key.len() != data_key.len() {
                         None
                     } else {
-                        debug_assert_eq!(key, storage_key.as_ref() as &[u8]);
+                        debug_assert_eq!(key.as_ref(), data_key.as_ref() as &[u8]);
                         Some(Ok((key, state_changes)))
                     }
                 });
-                &mut exact_key_changes_iter
+                &mut changes_per_exact_key
             }
 
             StateChangesRequest::AllAccessKeyChanges { .. }
-            | StateChangesRequest::DataChanges { .. } => &mut changes_iter,
+            | StateChangesRequest::DataChanges { .. } => &mut changes_per_key_prefix,
         };
 
-        match state_changes_request {
+        Ok(match state_changes_request {
             StateChangesRequest::AccountChanges { account_id, .. } => {
-                let mut changes = StateChanges::new();
-
-                for change in changes_iter {
-                    let (_, state_changes) = change?;
-                    changes.extend(state_changes.into_iter().map(|(cause, state_change)| {
-                        StateChangeWithCause {
-                            cause,
-                            value: if let Some(state_change) = state_change {
-                                StateChangeValue::AccountUpdate {
-                                    account_id: account_id.clone(),
-                                    account: <_>::try_from_slice(&state_change).expect(
-                                        "Failed to parse internally stored account information",
-                                    ),
-                                }
-                            } else {
-                                StateChangeValue::AccountDeletion { account_id: account_id.clone() }
-                            },
-                        }
-                    }));
-                }
-
-                Ok(changes)
+                StateChanges::from_account_changes(changes_per_key, account_id)?
             }
-
             StateChangesRequest::SingleAccessKeyChanges { account_id, .. }
             | StateChangesRequest::AllAccessKeyChanges { account_id, .. } => {
-                let mut changes = StateChanges::new();
-
-                for change in changes_iter {
-                    let (key, state_changes) = change?;
-
-                    let access_key_pk = match state_changes_request {
-                        StateChangesRequest::SingleAccessKeyChanges { access_key_pk, .. } => {
-                            access_key_pk.clone()
-                        }
-                        _ => KeyForAccessKey::parse_public_key(
-                            &key[common_storage_key_prefix_len..],
-                            &account_id,
-                        )
-                        .expect("Failed to parse internally stored public key"),
-                    };
-
-                    changes.extend(state_changes.into_iter().map(|(cause, state_change)| {
-                        StateChangeWithCause {
-                            cause,
-                            value: if let Some(state_change) = state_change {
-                                StateChangeValue::AccessKeyUpdate {
-                                    public_key: access_key_pk.clone(),
-                                    access_key: <_>::try_from_slice(&state_change)
-                                        .expect("Failed to parse internally stored access key"),
-                                }
-                            } else {
-                                StateChangeValue::AccessKeyDeletion {
-                                    public_key: access_key_pk.clone(),
-                                }
-                            },
-                        }
-                    }));
-                }
-
-                Ok(changes)
+                let access_key_pk = match state_changes_request {
+                    StateChangesRequest::SingleAccessKeyChanges { access_key_pk, .. } => {
+                        Some(access_key_pk)
+                    }
+                    _ => None,
+                };
+                StateChanges::from_access_key_changes(changes_per_key, account_id, access_key_pk)?
             }
-
             StateChangesRequest::CodeChanges { account_id, .. } => {
-                let mut changes = StateChanges::new();
-
-                for change in changes_iter {
-                    let (_, state_changes) = change?;
-                    changes.extend(state_changes.into_iter().map(|(cause, state_change)| {
-                        StateChangeWithCause {
-                            cause,
-                            value: if let Some(state_change) = state_change {
-                                StateChangeValue::CodeUpdate {
-                                    account_id: account_id.clone(),
-                                    code: state_change.into(),
-                                }
-                            } else {
-                                StateChangeValue::CodeDeletion { account_id: account_id.clone() }
-                            },
-                        }
-                    }));
-                }
-
-                Ok(changes)
+                StateChanges::from_code_changes(changes_per_key, account_id)?
             }
-
             StateChangesRequest::DataChanges { account_id, .. } => {
-                let mut changes = StateChanges::new();
-
-                for change in changes_iter {
-                    let (key, state_changes) = change?;
-
-                    let key = KeyForData::parse_data_key(
-                        &key[common_storage_key_prefix_len..],
-                        &account_id,
-                    )
-                    .expect("Failed to parse internally stored data key");
-
-                    changes.extend(state_changes.into_iter().map(|(cause, state_change)| {
-                        StateChangeWithCause {
-                            cause,
-                            value: if let Some(state_change) = state_change {
-                                StateChangeValue::DataUpdate {
-                                    key: key.to_vec().into(),
-                                    value: state_change.into(),
-                                }
-                            } else {
-                                StateChangeValue::DataDeletion { key: key.to_vec().into() }
-                            },
-                        }
-                    }));
-                }
-
-                Ok(changes)
+                StateChanges::from_data_changes(changes_per_key, account_id)?
             }
-        }
+        })
     }
 }
 

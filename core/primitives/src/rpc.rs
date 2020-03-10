@@ -8,7 +8,7 @@ use validator::Validate;
 use validator_derive::Validate;
 
 use crate::hash::CryptoHash;
-use crate::types::{BlockCheckpoint, StateChangesRequest};
+use crate::types::{BlockIdOrFinality, StateChangesRequest};
 use crate::views::{QueryRequest, StateChangeWithCauseView};
 
 #[derive(Debug, SmartDefault, Serialize, Deserialize, Validate)]
@@ -30,7 +30,7 @@ pub struct RpcGenesisRecordsRequest {
 #[derive(Serialize, Deserialize)]
 pub struct RpcQueryRequest {
     #[serde(flatten)]
-    pub block_checkpoint: BlockCheckpoint,
+    pub block_checkpoint: BlockIdOrFinality,
     #[serde(flatten)]
     pub request: QueryRequest,
 }
@@ -38,7 +38,7 @@ pub struct RpcQueryRequest {
 #[derive(Serialize, Deserialize)]
 pub struct RpcStateChangesRequest {
     #[serde(flatten)]
-    pub block_checkpoint: BlockCheckpoint,
+    pub block_checkpoint: BlockIdOrFinality,
     #[serde(flatten)]
     pub state_changes_request: StateChangesRequest,
 }

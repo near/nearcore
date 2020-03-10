@@ -38,7 +38,7 @@ use near_primitives::rpc::{
 };
 use near_primitives::serialize::{from_base, from_base64, BaseEncode};
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, BlockCheckpoint, BlockId, MaybeBlockId};
+use near_primitives::types::{AccountId, BlockId, BlockIdOrFinality, MaybeBlockId};
 use near_primitives::utils::is_valid_account_id;
 use near_primitives::views::{FinalExecutionStatus, GenesisRecordsView, QueryRequest};
 
@@ -461,7 +461,7 @@ impl JsonRpcHandler {
                     }
                 };
                 // Use Finality::None here to make backward compatibility tests work
-                RpcQueryRequest { request, block_checkpoint: BlockCheckpoint::latest() }
+                RpcQueryRequest { request, block_checkpoint: BlockIdOrFinality::latest() }
             } else {
                 parse_params::<RpcQueryRequest>(params)?
             };
@@ -498,9 +498,9 @@ impl JsonRpcHandler {
 
     async fn block(&self, params: Option<Value>) -> Result<Value, RpcError> {
         let block_checkpoint = if let Ok((block_id,)) = parse_params::<(BlockId,)>(params.clone()) {
-            BlockCheckpoint::BlockId(block_id)
+            BlockIdOrFinality::BlockId(block_id)
         } else {
-            parse_params::<BlockCheckpoint>(params)?
+            parse_params::<BlockIdOrFinality>(params)?
         };
         jsonify(self.view_client_addr.send(GetBlock(block_checkpoint)).await)
     }

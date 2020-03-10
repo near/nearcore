@@ -11,7 +11,7 @@ use near_network::PeerInfo;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::ChunkHash;
 use near_primitives::types::{
-    AccountId, BlockCheckpoint, BlockHeight, MaybeBlockId, ShardId, StateChangesRequest,
+    AccountId, BlockHeight, BlockIdOrFinality, MaybeBlockId, ShardId, StateChangesRequest,
 };
 use near_primitives::utils::generate_random_string;
 use near_primitives::views::{
@@ -142,11 +142,11 @@ impl SyncStatus {
 }
 
 /// Actor message requesting block by id or hash.
-pub struct GetBlock(pub BlockCheckpoint);
+pub struct GetBlock(pub BlockIdOrFinality);
 
 impl GetBlock {
     pub fn latest() -> Self {
-        Self(BlockCheckpoint::latest())
+        Self(BlockIdOrFinality::latest())
     }
 }
 
@@ -169,12 +169,12 @@ impl Message for GetChunk {
 #[derive(Deserialize, Clone)]
 pub struct Query {
     pub query_id: String,
-    pub block_checkpoint: BlockCheckpoint,
+    pub block_checkpoint: BlockIdOrFinality,
     pub request: QueryRequest,
 }
 
 impl Query {
-    pub fn new(block_checkpoint: BlockCheckpoint, request: QueryRequest) -> Self {
+    pub fn new(block_checkpoint: BlockIdOrFinality, request: QueryRequest) -> Self {
         Query { query_id: generate_random_string(10), block_checkpoint, request }
     }
 }

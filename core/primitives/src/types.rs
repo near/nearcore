@@ -1,5 +1,5 @@
 use borsh::{BorshDeserialize, BorshSerialize};
-use derive_more::{AsRef, From};
+use derive_more::{AsRef as DeriveAsRef, From as DeriveFrom};
 use serde::{Deserialize, Serialize};
 
 use near_crypto::PublicKey;
@@ -8,6 +8,7 @@ use crate::account::{AccessKey, Account};
 use crate::challenge::ChallengesResult;
 use crate::hash::CryptoHash;
 use crate::serialize::{base64_format, u128_dec_format};
+use crate::utils::{KeyForAccessKey, KeyForData};
 
 /// Account identifier. Provides access to user's state.
 pub type AccountId = String;
@@ -77,7 +78,7 @@ pub struct AccountInfo {
 ///
 /// NOTE: Currently, this type is only used in the view_client and RPC to be able to transparently
 /// pretty-serialize the bytes arrays as base64-encoded strings (see `serialize.rs`).
-#[derive(Debug, Clone, PartialEq, Eq, AsRef, From, BorshSerialize, BorshDeserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, DeriveAsRef, DeriveFrom, BorshSerialize, BorshDeserialize)]
 #[as_ref(forward)]
 pub struct StoreKey(Vec<u8>);
 
@@ -85,7 +86,7 @@ pub struct StoreKey(Vec<u8>);
 ///
 /// NOTE: Currently, this type is only used in the view_client and RPC to be able to transparently
 /// pretty-serialize the bytes arrays as base64-encoded strings (see `serialize.rs`).
-#[derive(Debug, Clone, PartialEq, Eq, AsRef, From, BorshSerialize, BorshDeserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, DeriveAsRef, DeriveFrom, BorshSerialize, BorshDeserialize)]
 #[as_ref(forward)]
 pub struct StoreValue(Vec<u8>);
 
@@ -94,7 +95,7 @@ pub struct StoreValue(Vec<u8>);
 /// NOTE: The main reason for this to exist (except the type-safety) is that the value is
 /// transparently serialized and deserialized as a base64-encoded string when serde is used
 /// (serde_json).  
-#[derive(Debug, Clone, PartialEq, Eq, AsRef, From, BorshSerialize, BorshDeserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, DeriveAsRef, DeriveFrom, BorshSerialize, BorshDeserialize)]
 #[as_ref(forward)]
 pub struct FunctionArgs(Vec<u8>);
 
@@ -178,6 +179,127 @@ pub struct StateChangeWithCause {
 
 pub type StateChanges = Vec<StateChangeWithCause>;
 
+#[easy_ext::ext(StateChangesExt)]
+impl StateChanges {
+    pub fn from_account_changes<K: AsRef<[u8]>>(
+        changes_per_key: &mut dyn Iterator<Item = Result<(K, RawStateChangesList), std::io::Error>>,
+        account_id: &AccountId,
+    ) -> Result<StateChanges, std::io::Error> {
+        let mut changes = Self::new();
+
+        for change in changes_per_key {
+            let (_, state_changes) = change?;
+            changes.extend(state_changes.into_iter().map(|(cause, state_change)| {
+                StateChangeWithCause {
+                    cause,
+                    value: if let Some(state_change) = state_change {
+                        StateChangeValue::AccountUpdate {
+                            account_id: account_id.clone(),
+                            account: <_>::try_from_slice(&state_change)
+                                .expect("Failed to parse internally stored account information"),
+                        }
+                    } else {
+                        StateChangeValue::AccountDeletion { account_id: account_id.clone() }
+                    },
+                }
+            }));
+        }
+
+        Ok(changes)
+    }
+
+    pub fn from_access_key_changes<K: AsRef<[u8]>>(
+        changes_per_key: &mut dyn Iterator<Item = Result<(K, RawStateChangesList), std::io::Error>>,
+        account_id: &AccountId,
+        access_key_pk: Option<&PublicKey>,
+    ) -> Result<StateChanges, std::io::Error> {
+        let mut changes = Self::new();
+
+        for change in changes_per_key {
+            let (key, state_changes) = change?;
+
+            let access_key_pk = match access_key_pk {
+                Some(access_key_pk) => access_key_pk.clone(),
+                None => KeyForAccessKey::parse_public_key(key.as_ref(), &account_id)
+                    .expect("Failed to parse internally stored public key"),
+            };
+
+            changes.extend(state_changes.into_iter().map(|(cause, state_change)| {
+                StateChangeWithCause {
+                    cause,
+                    value: if let Some(state_change) = state_change {
+                        StateChangeValue::AccessKeyUpdate {
+                            public_key: access_key_pk.clone(),
+                            access_key: <_>::try_from_slice(&state_change)
+                                .expect("Failed to parse internally stored access key"),
+                        }
+                    } else {
+                        StateChangeValue::AccessKeyDeletion { public_key: access_key_pk.clone() }
+                    },
+                }
+            }));
+        }
+
+        Ok(changes)
+    }
+
+    pub fn from_code_changes<K: AsRef<[u8]>>(
+        changes_per_key: &mut dyn Iterator<Item = Result<(K, RawStateChangesList), std::io::Error>>,
+        account_id: &AccountId,
+    ) -> Result<StateChanges, std::io::Error> {
+        let mut changes = Self::new();
+
+        for change in changes_per_key {
+            let (_, state_changes) = change?;
+            changes.extend(state_changes.into_iter().map(|(cause, state_change)| {
+                StateChangeWithCause {
+                    cause,
+                    value: if let Some(state_change) = state_change {
+                        StateChangeValue::CodeUpdate {
+                            account_id: account_id.clone(),
+                            code: state_change.into(),
+                        }
+                    } else {
+                        StateChangeValue::CodeDeletion { account_id: account_id.clone() }
+                    },
+                }
+            }));
+        }
+
+        Ok(changes)
+    }
+
+    pub fn from_data_changes<K: AsRef<[u8]>>(
+        changes_per_key: &mut dyn Iterator<Item = Result<(K, RawStateChangesList), std::io::Error>>,
+        account_id: &AccountId,
+    ) -> Result<StateChanges, std::io::Error> {
+        let mut changes = Self::new();
+
+        for change in changes_per_key {
+            let (key, state_changes) = change?;
+
+            let key = KeyForData::parse_data_key(key.as_ref(), &account_id)
+                .expect("Failed to parse internally stored data key");
+
+            changes.extend(state_changes.into_iter().map(|(cause, state_change)| {
+                StateChangeWithCause {
+                    cause,
+                    value: if let Some(state_change) = state_change {
+                        StateChangeValue::DataUpdate {
+                            key: key.to_vec().into(),
+                            value: state_change.into(),
+                        }
+                    } else {
+                        StateChangeValue::DataDeletion { key: key.to_vec().into() }
+                    },
+                }
+            }));
+        }
+
+        Ok(changes)
+    }
+}
+
 #[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize, Serialize)]
 pub struct StateRootNode {
     /// in Nightshade, data is the serialized TrieNodeWithSize
@@ -203,7 +325,7 @@ impl StateRootNode {
     Eq,
     PartialEq,
     PartialOrd,
-    AsRef,
+    DeriveAsRef,
     BorshSerialize,
     BorshDeserialize,
     Serialize,
@@ -297,12 +419,12 @@ pub type MaybeBlockId = Option<BlockId>;
 
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum BlockCheckpoint {
+pub enum BlockIdOrFinality {
     BlockId(BlockId),
     Finality(Finality),
 }
 
-impl BlockCheckpoint {
+impl BlockIdOrFinality {
     pub fn latest() -> Self {
         Self::Finality(Finality::None)
     }

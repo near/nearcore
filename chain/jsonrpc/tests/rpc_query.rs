@@ -11,7 +11,7 @@ use near_primitives::account::{AccessKey, AccessKeyPermission};
 use near_primitives::hash::CryptoHash;
 use near_primitives::rpc::{RpcGenesisRecordsRequest, RpcPagination, RpcQueryRequest};
 use near_primitives::test_utils::init_test_logger;
-use near_primitives::types::{BlockCheckpoint, BlockId, Finality, ShardId};
+use near_primitives::types::{BlockId, BlockIdOrFinality, Finality, ShardId};
 use near_primitives::views::{QueryRequest, QueryResponseKind};
 
 mod test_utils;
@@ -69,12 +69,12 @@ fn test_block_by_id_hash() {
 fn test_block_query() {
     test_with_client!(client, async move {
         let block_response1 =
-            client.block(BlockCheckpoint::BlockId(BlockId::Height(0))).await.unwrap();
+            client.block(BlockIdOrFinality::BlockId(BlockId::Height(0))).await.unwrap();
         let block_response2 = client
-            .block(BlockCheckpoint::BlockId(BlockId::Hash(block_response1.header.hash)))
+            .block(BlockIdOrFinality::BlockId(BlockId::Hash(block_response1.header.hash)))
             .await
             .unwrap();
-        let block_response3 = client.block(BlockCheckpoint::latest()).await.unwrap();
+        let block_response3 = client.block(BlockIdOrFinality::latest()).await.unwrap();
         for block in [block_response1, block_response2, block_response3].into_iter() {
             assert_eq!(block.author, "test1");
             assert_eq!(block.header.height, 0);
@@ -89,8 +89,8 @@ fn test_block_query() {
             assert_eq!(block.header.validator_proposals.len(), 0);
         }
         // no doomslug final or nfg final block
-        assert!(client.block(BlockCheckpoint::Finality(Finality::DoomSlug)).await.is_err());
-        assert!(client.block(BlockCheckpoint::Finality(Finality::NFG)).await.is_err());
+        assert!(client.block(BlockIdOrFinality::Finality(Finality::DoomSlug)).await.is_err());
+        assert!(client.block(BlockIdOrFinality::Finality(Finality::NFG)).await.is_err());
     });
 }
 
@@ -171,21 +171,21 @@ fn test_query_account() {
         let block_hash = status.sync_info.latest_block_hash;
         let query_response_1 = client
             .query(RpcQueryRequest {
-                block_checkpoint: BlockCheckpoint::latest(),
+                block_checkpoint: BlockIdOrFinality::latest(),
                 request: QueryRequest::ViewAccount { account_id: "test".to_string() },
             })
             .await
             .unwrap();
         let query_response_2 = client
             .query(RpcQueryRequest {
-                block_checkpoint: BlockCheckpoint::BlockId(BlockId::Height(0)),
+                block_checkpoint: BlockIdOrFinality::BlockId(BlockId::Height(0)),
                 request: QueryRequest::ViewAccount { account_id: "test".to_string() },
             })
             .await
             .unwrap();
         let query_response_3 = client
             .query(RpcQueryRequest {
-                block_checkpoint: BlockCheckpoint::BlockId(BlockId::Hash(block_hash)),
+                block_checkpoint: BlockIdOrFinality::BlockId(BlockId::Hash(block_hash)),
                 request: QueryRequest::ViewAccount { account_id: "test".to_string() },
             })
             .await
@@ -209,13 +209,13 @@ fn test_query_account() {
 
         let non_finalized_query_response_1 = client
             .query(RpcQueryRequest {
-                block_checkpoint: BlockCheckpoint::Finality(Finality::DoomSlug),
+                block_checkpoint: BlockIdOrFinality::Finality(Finality::DoomSlug),
                 request: QueryRequest::ViewAccount { account_id: "test".to_string() },
             })
             .await;
         let non_finalized_query_response_2 = client
             .query(RpcQueryRequest {
-                block_checkpoint: BlockCheckpoint::Finality(Finality::NFG),
+                block_checkpoint: BlockIdOrFinality::Finality(Finality::NFG),
                 request: QueryRequest::ViewAccount { account_id: "test".to_string() },
             })
             .await;
@@ -258,7 +258,7 @@ fn test_query_access_keys() {
     test_with_client!(client, async move {
         let query_response = client
             .query(RpcQueryRequest {
-                block_checkpoint: BlockCheckpoint::latest(),
+                block_checkpoint: BlockIdOrFinality::latest(),
                 request: QueryRequest::ViewAccessKeyList { account_id: "test".to_string() },
             })
             .await
@@ -304,7 +304,7 @@ fn test_query_access_key() {
     test_with_client!(client, async move {
         let query_response = client
             .query(RpcQueryRequest {
-                block_checkpoint: BlockCheckpoint::latest(),
+                block_checkpoint: BlockIdOrFinality::latest(),
                 request: QueryRequest::ViewAccessKey {
                     account_id: "test".to_string(),
                     public_key: PublicKey::try_from(
@@ -332,7 +332,7 @@ fn test_query_state() {
     test_with_client!(client, async move {
         let query_response = client
             .query(RpcQueryRequest {
-                block_checkpoint: BlockCheckpoint::latest(),
+                block_checkpoint: BlockIdOrFinality::latest(),
                 request: QueryRequest::ViewState {
                     account_id: "test".to_string(),
                     prefix: vec![].into(),
@@ -356,7 +356,7 @@ fn test_query_call_function() {
     test_with_client!(client, async move {
         let query_response = client
             .query(RpcQueryRequest {
-                block_checkpoint: BlockCheckpoint::latest(),
+                block_checkpoint: BlockIdOrFinality::latest(),
                 request: QueryRequest::CallFunction {
                     account_id: "test".to_string(),
                     method_name: "method".to_string(),
@@ -554,7 +554,7 @@ fn test_gas_price_by_height() {
 #[test]
 fn test_gas_price_by_hash() {
     test_with_client!(client, async move {
-        let block = client.block(BlockCheckpoint::BlockId(BlockId::Height(0))).await.unwrap();
+        let block = client.block(BlockIdOrFinality::BlockId(BlockId::Height(0))).await.unwrap();
         let gas_price = client.gas_price(Some(BlockId::Hash(block.header.hash))).await.unwrap();
         assert!(gas_price.gas_price > 0);
     });

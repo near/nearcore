@@ -17,7 +17,7 @@ use near_network::NetworkClientMessages;
 use near_primitives::hash::CryptoHash;
 use near_primitives::test_utils::{heavy_test, init_integration_logger};
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, BlockCheckpoint, BlockHeightDelta, NumSeats};
+use near_primitives::types::{AccountId, BlockHeightDelta, BlockIdOrFinality, NumSeats};
 use near_primitives::views::{QueryRequest, QueryResponseKind, ValidatorInfo};
 use testlib::genesis_hash;
 
@@ -215,7 +215,7 @@ fn test_validator_kickout() {
                                     test_node1
                                         .view_client
                                         .send(Query::new(
-                                            BlockCheckpoint::latest(),
+                                            BlockIdOrFinality::latest(),
                                             QueryRequest::ViewAccount {
                                                 account_id: test_nodes[i as usize]
                                                     .account_id
@@ -244,7 +244,7 @@ fn test_validator_kickout() {
                                     test_node1
                                         .view_client
                                         .send(Query::new(
-                                            BlockCheckpoint::latest(),
+                                            BlockIdOrFinality::latest(),
                                             QueryRequest::ViewAccount {
                                                 account_id: test_nodes[i as usize]
                                                     .account_id
@@ -363,7 +363,7 @@ fn test_validator_join() {
                                 test_node1
                                     .view_client
                                     .send(Query::new(
-                                        BlockCheckpoint::latest(),
+                                        BlockIdOrFinality::latest(),
                                         QueryRequest::ViewAccount {
                                             account_id: test_nodes[1].account_id.clone(),
                                         },
@@ -382,7 +382,7 @@ fn test_validator_join() {
                                 test_node1
                                     .view_client
                                     .send(Query::new(
-                                        BlockCheckpoint::latest(),
+                                        BlockIdOrFinality::latest(),
                                         QueryRequest::ViewAccount {
                                             account_id: test_nodes[2].account_id.clone(),
                                         },

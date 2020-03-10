@@ -26,7 +26,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::verify_path;
 use near_primitives::network::AnnounceAccount;
 use near_primitives::types::{
-    AccountId, BlockCheckpoint, BlockHeight, BlockId, Finality, MaybeBlockId,
+    AccountId, BlockHeight, BlockId, BlockIdOrFinality, Finality, MaybeBlockId,
 };
 use near_primitives::views::{
     BlockView, ChunkView, EpochValidatorInfo, FinalExecutionOutcomeView, FinalExecutionStatus,
@@ -150,13 +150,13 @@ impl ViewClientActor {
         }
 
         let header = match msg.block_checkpoint {
-            BlockCheckpoint::BlockId(BlockId::Height(block_height)) => {
+            BlockIdOrFinality::BlockId(BlockId::Height(block_height)) => {
                 self.chain.get_header_by_height(block_height)
             }
-            BlockCheckpoint::BlockId(BlockId::Hash(block_hash)) => {
+            BlockIdOrFinality::BlockId(BlockId::Hash(block_hash)) => {
                 self.chain.get_block_header(&block_hash)
             }
-            BlockCheckpoint::Finality(ref finality) => {
+            BlockIdOrFinality::Finality(ref finality) => {
                 let block_hash =
                     self.get_block_hash_by_finality(&finality).map_err(|e| e.to_string())?;
                 self.chain.get_block_header(&block_hash)
@@ -357,15 +357,15 @@ impl Handler<GetBlock> for ViewClientActor {
 
     fn handle(&mut self, msg: GetBlock, _: &mut Context<Self>) -> Self::Result {
         match msg.0 {
-            BlockCheckpoint::Finality(finality) => {
+            BlockIdOrFinality::Finality(finality) => {
                 let block_hash =
                     self.get_block_hash_by_finality(&finality).map_err(|e| e.to_string())?;
                 self.chain.get_block(&block_hash).map(Clone::clone)
             }
-            BlockCheckpoint::BlockId(BlockId::Height(height)) => {
+            BlockIdOrFinality::BlockId(BlockId::Height(height)) => {
                 self.chain.get_block_by_height(height).map(Clone::clone)
             }
-            BlockCheckpoint::BlockId(BlockId::Hash(hash)) => {
+            BlockIdOrFinality::BlockId(BlockId::Hash(hash)) => {
                 self.chain.get_block(&hash).map(Clone::clone)
             }
         }

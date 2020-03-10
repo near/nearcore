@@ -158,6 +158,35 @@ def create_create_account_action():
     action.createAccount = createAccount
     return action
 
+def create_full_access_key_action(pk):
+    permission = AccessKeyPermission()
+    permission.enum = 'fullAccess'
+    permission.fullAccess = FullAccessPermission()
+    accessKey = AccessKey()
+    accessKey.nonce = 0
+    accessKey.permission = permission
+    publicKey = PublicKey()
+    publicKey.keyType = 0
+    publicKey.data = pk
+    addKey = AddKey()
+    addKey.accessKey = accessKey
+    addKey.publicKey = publicKey
+    action = Action()
+    action.enum = 'addKey'
+    action.addKey = addKey
+    return action
+
+def create_delete_access_key_action(pk):
+    publicKey = PublicKey()
+    publicKey.keyType = 0
+    publicKey.data = pk
+    deleteKey = DeleteKey()
+    deleteKey.publicKey = publicKey
+    action = Action()
+    action.enum = 'deleteKey'
+    action.deleteKey = deleteKey
+    return action
+
 def create_payment_action(amount):
     transfer = Transfer()
     transfer.deposit = amount
@@ -196,9 +225,20 @@ def create_function_call_action(methodName, args, gas, deposit):
     action.functionCall = functionCall
     return action
 
-def sign_create_account_tx(key, new_account_id, nonce, blockHash):
+def sign_create_account_tx(creator_key, new_account_id, nonce, block_hash):
     action = create_create_account_action()
-    return sign_and_serialize_transaction(new_account_id, nonce, [action], blockHash, key.account_id, key.decoded_pk(), key.decoded_sk())
+    return sign_and_serialize_transaction(new_account_id, nonce, [action], block_hash, creator_key.account_id, creator_key.decoded_pk(), creator_key.decoded_sk())
+
+def sign_create_account_with_full_access_key_and_balance_tx(creator_key, new_account_id, new_key, balance, nonce, block_hash):
+    create_account_action = create_create_account_action()
+    full_access_key_action = create_full_access_key_action(new_key.decoded_pk())
+    payment_action = create_payment_action(balance)
+    actions = [create_account_action, full_access_key_action, payment_action]
+    return sign_and_serialize_transaction(new_account_id, nonce, actions, block_hash, creator_key.account_id, creator_key.decoded_pk(), creator_key.decoded_sk())
+
+def sign_delete_access_key_tx(signer_key, target_account_id, key_for_deletion, nonce, block_hash):
+    action = create_delete_access_key_action(key_for_deletion.decoded_pk())
+    return sign_and_serialize_transaction(target_account_id, nonce, [action], block_hash, signer_key.account_id, signer_key.decoded_pk(), signer_key.decoded_sk())
 
 def sign_payment_tx(key, to, amount, nonce, blockHash):
     action = create_payment_action(amount)

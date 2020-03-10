@@ -26,7 +26,7 @@ use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::sharding::{ChunkHash, PartialEncodedChunk};
 use near_primitives::transaction::{ExecutionOutcomeWithIdAndProof, SignedTransaction};
-use near_primitives::types::{AccountId, BlockCheckpoint, BlockHeight, EpochId, ShardId};
+use near_primitives::types::{AccountId, BlockHeight, BlockIdOrFinality, EpochId, ShardId};
 use near_primitives::utils::{from_timestamp, to_timestamp};
 use near_primitives::views::{FinalExecutionOutcomeView, QueryRequest, QueryResponse};
 
@@ -213,7 +213,7 @@ pub enum RoutedMessageBody {
     TxStatusResponse(FinalExecutionOutcomeView),
     QueryRequest {
         query_id: String,
-        block_checkpoint: BlockCheckpoint,
+        block_checkpoint: BlockIdOrFinality,
         request: QueryRequest,
     },
     QueryResponse {
@@ -1005,7 +1005,7 @@ pub enum NetworkRequests {
     Query {
         query_id: String,
         account_id: AccountId,
-        block_checkpoint: BlockCheckpoint,
+        block_checkpoint: BlockIdOrFinality,
         request: QueryRequest,
     },
     /// Request for receipt execution outcome
@@ -1196,7 +1196,7 @@ pub enum NetworkViewClientMessages {
     /// Transaction status response
     TxStatusResponse(FinalExecutionOutcomeView),
     /// General query
-    Query { query_id: String, block_checkpoint: BlockCheckpoint, request: QueryRequest },
+    Query { query_id: String, block_checkpoint: BlockIdOrFinality, request: QueryRequest },
     /// Query response
     QueryResponse { query_id: String, response: Result<QueryResponse, String> },
     /// Request for receipt outcome

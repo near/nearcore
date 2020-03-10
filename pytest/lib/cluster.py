@@ -131,11 +131,15 @@ class BaseNode(object):
     def get_chunk(self, chunk_id):
         return self.json_rpc('chunk', [chunk_id])
 
-    def validators(self):
-        return set(map(lambda v: v['account_id'], self.get_status()['validators']))
+    def get_tx(self, tx_hash, tx_recipient_id):
+        return self.json_rpc('tx', [tx_hash, tx_recipient_id])
 
     def get_changes(self, changes_request):
         return self.json_rpc('EXPERIMENTAL_changes', changes_request)
+
+    def validators(self):
+        return set(map(lambda v: v['account_id'], self.get_status()['validators']))
+
 
 
 class RpcNode(BaseNode):

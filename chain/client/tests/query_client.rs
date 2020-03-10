@@ -4,7 +4,7 @@ use futures::{future, FutureExt};
 use near_client::test_utils::setup_no_network;
 use near_client::Query;
 use near_primitives::test_utils::init_test_logger;
-use near_primitives::types::BlockCheckpoint;
+use near_primitives::types::BlockIdOrFinality;
 use near_primitives::views::{QueryRequest, QueryResponseKind};
 
 /// Query account from view client
@@ -16,7 +16,7 @@ fn query_client() {
         actix::spawn(
             view_client
                 .send(Query::new(
-                    BlockCheckpoint::latest(),
+                    BlockIdOrFinality::latest(),
                     QueryRequest::ViewAccount { account_id: "test".to_owned() },
                 ))
                 .then(|res| {

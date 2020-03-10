@@ -9,7 +9,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::rpc::{
     RpcGenesisRecordsRequest, RpcQueryRequest, RpcStateChangesRequest, RpcStateChangesResponse,
 };
-use near_primitives::types::{BlockCheckpoint, BlockId, MaybeBlockId, ShardId};
+use near_primitives::types::{BlockId, BlockIdOrFinality, MaybeBlockId, ShardId};
 use near_primitives::views::{
     BlockView, ChunkView, EpochValidatorInfo, FinalExecutionOutcomeView, GasPriceView,
     GenesisRecordsView, QueryResponse, StatusResponse,
@@ -214,7 +214,7 @@ impl JsonRpcClient {
         call_method(&self.client, &self.server_addr, "block", [block_id])
     }
 
-    pub fn block(&mut self, request: BlockCheckpoint) -> RpcRequest<BlockView> {
+    pub fn block(&mut self, request: BlockIdOrFinality) -> RpcRequest<BlockView> {
         call_method(&self.client, &self.server_addr, "block", request)
     }
 

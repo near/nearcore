@@ -8,7 +8,7 @@ use near_client::test_utils::setup_mock_all_validators;
 use near_client::{ClientActor, Query, ViewClientActor};
 use near_network::{NetworkRequests, NetworkResponses, PeerInfo};
 use near_primitives::test_utils::init_test_logger;
-use near_primitives::types::BlockCheckpoint;
+use near_primitives::types::BlockIdOrFinality;
 use near_primitives::views::{QueryRequest, QueryResponseKind::ViewAccount};
 
 /// Tests that the KeyValueRuntime properly sets balances in genesis and makes them queriable
@@ -52,7 +52,7 @@ fn test_keyvalue_runtime_balances() {
                 connectors_[i]
                     .1
                     .send(Query::new(
-                        BlockCheckpoint::latest(),
+                        BlockIdOrFinality::latest(),
                         QueryRequest::ViewAccount { account_id: flat_validators[i].to_string() },
                     ))
                     .then(move |res| {
@@ -93,7 +93,7 @@ mod tests {
     use near_primitives::hash::CryptoHash;
     use near_primitives::test_utils::init_test_logger;
     use near_primitives::transaction::SignedTransaction;
-    use near_primitives::types::{AccountId, BlockCheckpoint};
+    use near_primitives::types::{AccountId, BlockIdOrFinality};
     use near_primitives::views::{QueryRequest, QueryResponse, QueryResponseKind::ViewAccount};
 
     fn send_tx(
@@ -191,7 +191,7 @@ mod tests {
                         + (*presumable_epoch.read().unwrap() * 8) % 24]
                         .1
                         .send(Query::new(
-                            BlockCheckpoint::latest(),
+                            BlockIdOrFinality::latest(),
                             QueryRequest::ViewAccount { account_id: account_id.clone() },
                         ))
                         .then(move |x| {
@@ -282,7 +282,7 @@ mod tests {
                                 + (*presumable_epoch.read().unwrap() * 8) % 24]
                                 .1
                                 .send(Query::new(
-                                    BlockCheckpoint::latest(),
+                                    BlockIdOrFinality::latest(),
                                     QueryRequest::ViewAccount {
                                         account_id: validators[i].to_string(),
                                     },
@@ -333,7 +333,7 @@ mod tests {
                         + (*presumable_epoch.read().unwrap() * 8) % 24]
                         .1
                         .send(Query::new(
-                            BlockCheckpoint::latest(),
+                            BlockIdOrFinality::latest(),
                             QueryRequest::ViewAccount { account_id: account_id.clone() },
                         ))
                         .then(move |x| {
@@ -448,7 +448,7 @@ mod tests {
                     connectors_[i + *presumable_epoch.read().unwrap() * 8]
                         .1
                         .send(Query::new(
-                            BlockCheckpoint::latest(),
+                            BlockIdOrFinality::latest(),
                             QueryRequest::ViewAccount {
                                 account_id: flat_validators[i].to_string(),
                             },
