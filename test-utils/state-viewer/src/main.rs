@@ -13,15 +13,15 @@ use near_chain_configs::Genesis;
 use near_crypto::PublicKey;
 use near_network::peer_store::PeerStore;
 use near_primitives::account::{AccessKey, Account};
-use near_primitives::hash::{hash, CryptoHash};
+use near_primitives::hash::{hash, CryptoHash, CRYPTO_HASH_LEN};
 use near_primitives::receipt::{Receipt, ReceivedData};
 use near_primitives::serialize::{from_base64, to_base, to_base64};
 use near_primitives::state_record::StateRecord;
 use near_primitives::test_utils::init_integration_logger;
 use near_primitives::types::{BlockHeight, StateRoot};
-use near_primitives::utils::{col, ACCOUNT_DATA_SEPARATOR};
+use near_primitives::utils::col;
 use near_store::test_utils::create_test_store;
-use near_store::{create_store, Store, TrieIterator};
+use near_store::{create_store, get_account_id_by_hash, Store, TrieIterator, TrieUpdate};
 
 fn to_printable(blob: &[u8]) -> String {
     if blob.len() > 60 {
@@ -38,44 +38,39 @@ fn to_printable(blob: &[u8]) -> String {
     }
 }
 
-fn kv_to_state_record(key: Vec<u8>, value: Vec<u8>) -> Option<StateRecord> {
+fn kv_to_state_record(
+    state_update: &TrieUpdate,
+    key: Vec<u8>,
+    value: Vec<u8>,
+) -> Option<StateRecord> {
     let column = &key[0..1];
+    let prefix_length = CRYPTO_HASH_LEN + 1;
+    let remaining_key = &key[prefix_length..];
+    let account_id =
+        get_account_id_by_hash(state_update, CryptoHash::try_from(&key[1..prefix_length]).unwrap())
+            .unwrap()
+            .unwrap();
     match column {
-        col::ACCOUNT => {
-            let separator = (1..key.len()).find(|&x| key[x] == ACCOUNT_DATA_SEPARATOR[0]);
-            if let Some(separator) = separator {
-                let account_id = String::from_utf8(key[1..separator].to_vec()).unwrap();
-                Some(StateRecord::Data {
-                    account_id,
-                    key: to_base64(&key[(separator + 1)..]),
-                    value: to_base64(&value),
-                })
-            } else {
-                let mut account = Account::try_from_slice(&value).unwrap();
-                // TODO(#1200): When dumping state, all accounts have to pay rent
-                account.storage_paid_at = 0;
-                Some(StateRecord::Account {
-                    account_id: String::from_utf8(key[1..].to_vec()).unwrap(),
-                    account: account.into(),
-                })
-            }
-        }
-        col::CODE => Some(StateRecord::Contract {
-            account_id: String::from_utf8(key[1..].to_vec()).unwrap(),
-            code: to_base64(&value),
+        col::CONTRACT_DATA => Some(StateRecord::Data {
+            account_id,
+            key: to_base64(remaining_key),
+            value: to_base64(&value),
         }),
+        col::ACCOUNT => {
+            let mut account = Account::try_from_slice(&value).unwrap();
+            // TODO(#1200): When dumping state, all accounts have to pay rent
+            account.storage_paid_at = 0;
+            Some(StateRecord::Account { account_id, account: account.into() })
+        }
+        col::CODE => Some(StateRecord::Contract { account_id, code: to_base64(&value) }),
         col::ACCESS_KEY => {
-            let separator = (1..key.len()).find(|&x| key[x] == col::ACCESS_KEY[0]).unwrap();
             let access_key = AccessKey::try_from_slice(&value).unwrap();
-            let account_id = String::from_utf8(key[1..separator].to_vec()).unwrap();
-            let public_key = PublicKey::try_from_slice(&key[(separator + 1)..]).unwrap();
+            let public_key = PublicKey::try_from_slice(remaining_key).unwrap();
             Some(StateRecord::AccessKey { account_id, public_key, access_key: access_key.into() })
         }
         col::RECEIVED_DATA => {
             let data = ReceivedData::try_from_slice(&value).unwrap().data;
-            let separator = (1..key.len()).find(|&x| key[x] == ACCOUNT_DATA_SEPARATOR[0]).unwrap();
-            let account_id = String::from_utf8(key[1..separator].to_vec()).unwrap();
-            let data_id = CryptoHash::try_from(&key[(separator + 1)..]).unwrap();
+            let data_id = CryptoHash::try_from(remaining_key).unwrap();
             Some(StateRecord::ReceivedData { account_id, data_id, data })
         }
         col::POSTPONED_RECEIPT_ID => None,
@@ -88,8 +83,8 @@ fn kv_to_state_record(key: Vec<u8>, value: Vec<u8>) -> Option<StateRecord> {
     }
 }
 
-fn print_state_entry(key: Vec<u8>, value: Vec<u8>) {
-    match kv_to_state_record(key, value) {
+fn print_state_entry(state_update: &TrieUpdate, key: Vec<u8>, value: Vec<u8>) {
+    match kv_to_state_record(state_update, key, value) {
         Some(StateRecord::Account { account_id, account }) => {
             println!("Account {:?}: {:?}", account_id, account)
         }
@@ -326,10 +321,11 @@ fn main() {
             let (runtime, state_roots, height) = load_trie(store, &home_dir, &near_config);
             println!("Storage roots are {:?}, block height is {}", state_roots, height);
             for state_root in state_roots {
+                let state_update = TrieUpdate::new(runtime.trie.clone(), state_root);
                 let trie = TrieIterator::new(&runtime.trie, &state_root).unwrap();
                 for item in trie {
                     let (key, value) = item.unwrap();
-                    print_state_entry(key, value);
+                    print_state_entry(&state_update, key, value);
                 }
             }
         }
@@ -341,10 +337,11 @@ fn main() {
 
             let mut records = vec![];
             for state_root in &state_roots {
+                let state_update = TrieUpdate::new(runtime.trie.clone(), *state_root);
                 let trie = TrieIterator::new(&runtime.trie, &state_root).unwrap();
                 for item in trie {
                     let (key, value) = item.unwrap();
-                    if let Some(sr) = kv_to_state_record(key, value) {
+                    if let Some(sr) = kv_to_state_record(&state_update, key, value) {
                         records.push(sr);
                     }
                 }

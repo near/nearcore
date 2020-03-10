@@ -16,7 +16,6 @@ use near_crypto::PublicKey;
 use crate::hash::{hash, CryptoHash, CRYPTO_HASH_LEN};
 use crate::types::{AccountId, NumSeats, NumShards};
 
-pub const ACCOUNT_DATA_SEPARATOR: &[u8; 1] = b",";
 pub const MIN_ACCOUNT_ID_LEN: usize = 2;
 pub const MAX_ACCOUNT_ID_LEN: usize = 64;
 
@@ -33,6 +32,8 @@ pub mod col {
     pub const POSTPONED_RECEIPT: &[u8] = &[6];
     pub const DELAYED_RECEIPT_INDICES: &[u8] = &[7];
     pub const DELAYED_RECEIPT: &[u8] = &[8];
+    pub const CONTRACT_DATA: &[u8] = &[9];
+    pub const ACCOUNT_ID: &[u8] = &[10];
 }
 
 #[derive(derive_more::AsRef, derive_more::Into)]
@@ -71,6 +72,30 @@ impl KeyForAccount {
 
     pub fn new(account_id: &AccountId) -> Self {
         Self::with_capacity(&account_id, 0)
+    }
+}
+
+#[derive(derive_more::AsRef, derive_more::Into)]
+#[as_ref(forward)]
+pub struct KeyForAccountId(Vec<u8>);
+
+impl KeyForAccountId {
+    #[inline]
+    pub fn estimate_len() -> usize {
+        KeyForColumnAccountId::estimate_len(col::ACCOUNT_ID)
+    }
+
+    pub fn new(account_id: &AccountId) -> Self {
+        let key = KeyForColumnAccountId::with_capacity(col::ACCOUNT_ID, account_id, 0);
+        Self(key.into())
+    }
+
+    pub fn from_hash(account_hash: CryptoHash) -> Self {
+        let mut key = Vec::with_capacity(Self::estimate_len());
+        key.extend(col::ACCOUNT_ID);
+        key.extend(account_hash.as_ref());
+        debug_assert_eq!(key.len(), Self::estimate_len());
+        Self(key)
     }
 }
 
@@ -133,17 +158,14 @@ pub struct KeyForData(Vec<u8>);
 
 impl KeyForData {
     #[inline]
-    pub fn estimate_len(data: &[u8]) -> usize {
-        KeyForAccount::estimate_len() + ACCOUNT_DATA_SEPARATOR.len() + data.len()
+    pub fn estimate_len(key: &[u8]) -> usize {
+        KeyForColumnAccountId::estimate_len(col::CONTRACT_DATA) + key.len()
     }
 
     pub fn get_prefix_with_capacity(account_id: &AccountId, reserved_capacity: usize) -> Self {
-        let mut prefix: Vec<u8> = KeyForAccount::with_capacity(
-            account_id,
-            ACCOUNT_DATA_SEPARATOR.len() + reserved_capacity,
-        )
-        .into();
-        prefix.extend(ACCOUNT_DATA_SEPARATOR);
+        let prefix =
+            KeyForColumnAccountId::with_capacity(col::CONTRACT_DATA, account_id, reserved_capacity)
+                .into();
         Self(prefix)
     }
 
@@ -151,11 +173,11 @@ impl KeyForData {
         Self::get_prefix_with_capacity(account_id, 0)
     }
 
-    pub fn new(account_id: &AccountId, data: &[u8]) -> Self {
-        let mut key = Self::get_prefix_with_capacity(&account_id, data.len());
-        key.0.extend(data);
-        debug_assert_eq!(key.0.len(), Self::estimate_len(&data));
-        key
+    pub fn new(account_id: &AccountId, key: &[u8]) -> Self {
+        let mut bytes = Self::get_prefix_with_capacity(&account_id, key.len());
+        bytes.0.extend(key);
+        debug_assert_eq!(bytes.0.len(), Self::estimate_len(&key));
+        bytes
     }
 
     pub fn parse_data_key(raw_key: &[u8]) -> Result<&[u8], std::io::Error> {
@@ -189,10 +211,9 @@ impl KeyForReceivedData {
         let mut key: Vec<u8> = KeyForColumnAccountId::with_capacity(
             col::RECEIVED_DATA,
             account_id,
-            ACCOUNT_DATA_SEPARATOR.len() + data_id.as_ref().len(),
+            data_id.as_ref().len(),
         )
         .into();
-        key.extend(ACCOUNT_DATA_SEPARATOR);
         key.extend(data_id.as_ref());
         Self(key)
     }
@@ -207,10 +228,9 @@ impl KeyForPostponedReceiptId {
         let mut key: Vec<u8> = KeyForColumnAccountId::with_capacity(
             col::POSTPONED_RECEIPT_ID,
             account_id,
-            ACCOUNT_DATA_SEPARATOR.len() + data_id.as_ref().len(),
+            data_id.as_ref().len(),
         )
         .into();
-        key.extend(ACCOUNT_DATA_SEPARATOR);
         key.extend(data_id.as_ref());
         Self(key)
     }
@@ -225,10 +245,9 @@ impl KeyForPendingDataCount {
         let mut key: Vec<u8> = KeyForColumnAccountId::with_capacity(
             col::PENDING_DATA_COUNT,
             account_id,
-            ACCOUNT_DATA_SEPARATOR.len() + receipt_id.as_ref().len(),
+            receipt_id.as_ref().len(),
         )
         .into();
-        key.extend(ACCOUNT_DATA_SEPARATOR);
         key.extend(receipt_id.as_ref());
         Self(key)
     }
@@ -243,10 +262,9 @@ impl KeyForPostponedReceipt {
         let mut key: Vec<u8> = KeyForColumnAccountId::with_capacity(
             col::POSTPONED_RECEIPT,
             account_id,
-            ACCOUNT_DATA_SEPARATOR.len() + receipt_id.as_ref().len(),
+            receipt_id.as_ref().len(),
         )
         .into();
-        key.extend(ACCOUNT_DATA_SEPARATOR);
         key.extend(receipt_id.as_ref());
         Self(key)
     }

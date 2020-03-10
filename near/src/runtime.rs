@@ -22,7 +22,6 @@ use near_primitives::challenge::{ChallengesResult, SlashedValidator};
 use near_primitives::errors::{InvalidTxError, RuntimeError};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::Receipt;
-use near_primitives::serialize::from_base64;
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::state_record::StateRecord;
 use near_primitives::transaction::SignedTransaction;
@@ -31,7 +30,7 @@ use near_primitives::types::{
     StateChangeCause, StateChanges, StateChangesRequest, StateRoot, StateRootNode, ValidatorStake,
     ValidatorStats,
 };
-use near_primitives::utils::{KeyForAccessKey, ACCOUNT_DATA_SEPARATOR};
+use near_primitives::utils::KeyForAccessKey;
 use near_primitives::views::{
     AccessKeyInfoView, CallResult, EpochValidatorInfo, QueryError, QueryRequest, QueryResponse,
     QueryResponseKind, ViewStateResult,
@@ -357,19 +356,8 @@ pub fn state_record_to_shard_id(state_record: &StateRecord, num_shards: NumShard
         StateRecord::Account { account_id, .. }
         | StateRecord::AccessKey { account_id, .. }
         | StateRecord::Contract { account_id, .. }
-        | StateRecord::ReceivedData { account_id, .. } => {
-            account_id_to_shard_id(account_id, num_shards)
-        }
-        StateRecord::Data { key, .. } => {
-            let key = from_base64(key).unwrap();
-            let separator = (1..key.len())
-                .find(|&x| key[x] == ACCOUNT_DATA_SEPARATOR[0])
-                .expect("Invalid data record");
-            account_id_to_shard_id(
-                &String::from_utf8(key[1..separator].to_vec()).expect("Must be account id"),
-                num_shards,
-            )
-        }
+        | StateRecord::ReceivedData { account_id, .. }
+        | StateRecord::Data { account_id, .. } => account_id_to_shard_id(account_id, num_shards),
         StateRecord::PostponedReceipt(receipt) => {
             account_id_to_shard_id(&receipt.receiver_id, num_shards)
         }

@@ -937,14 +937,14 @@ impl ChainStoreAccess for ChainStore {
         //
         // Example: data changes are stored under a key:
         //
-        //     block_hash + (col::ACCOUNT + account_id + ACCOUNT_DATA_SEPARATOR + user_specified_key)
+        //     block_hash + (col::CONTRACT_DATA + hash(account_id) + user_specified_key)
         //
         // Thus, to query all the changes by a user-specified key prefix, we do the following:
         // 1. Query RocksDB for
-        //     block_hash + (col::ACCOUNT + account_id + ACCOUNT_DATA_SEPARATOR + user_specified_key_prefix)
+        //     block_hash + (col::CONTRACT_DATA + hash(account_id) + user_specified_key_prefix)
         //
         // 2. In the simplest case, to extract the full key we need to slice the RocksDB key by a length of
-        //     block_hash + (col::ACCOUNT + account_id + ACCOUNT_DATA_SEPARATOR)
+        //     block_hash + (col::CONTRACT_DATA + hash(account_id))
         //
         //    In this implementation, however, we decoupled this process into two steps:
         //

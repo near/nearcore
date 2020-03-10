@@ -18,8 +18,8 @@ use near_primitives::receipt::{Receipt, ReceivedData};
 use near_primitives::serialize::to_base;
 use near_primitives::types::{AccountId, StorageUsage};
 use near_primitives::utils::{
-    KeyForAccessKey, KeyForAccount, KeyForCode, KeyForData, KeyForPostponedReceipt,
-    KeyForReceivedData,
+    KeyForAccessKey, KeyForAccount, KeyForAccountId, KeyForCode, KeyForData,
+    KeyForPostponedReceipt, KeyForReceivedData,
 };
 
 use crate::db::{DBOp, DBTransaction, Database, RocksDB};
@@ -252,15 +252,16 @@ pub fn total_account_storage(_account_id: &AccountId, account: &Account) -> Stor
     account.storage_usage
 }
 
-pub fn set_account(state_update: &mut TrieUpdate, key: &AccountId, account: &Account) {
-    set(state_update, KeyForAccount::new(key), account)
+pub fn set_account(state_update: &mut TrieUpdate, account_id: &AccountId, account: &Account) {
+    set(state_update, KeyForAccountId::new(account_id), account_id);
+    set(state_update, KeyForAccount::new(account_id), account)
 }
 
 pub fn get_account(
     state_update: &TrieUpdate,
-    key: &AccountId,
+    account_id: &AccountId,
 ) -> Result<Option<Account>, StorageError> {
-    get(state_update, &KeyForAccount::new(key))
+    get(state_update, &KeyForAccount::new(account_id))
 }
 
 pub fn set_received_data(
@@ -334,11 +335,19 @@ pub fn get_code(
         .map(|opt| opt.map(|code| ContractCode::new(code.to_vec())))
 }
 
+pub fn get_account_id_by_hash(
+    state_update: &TrieUpdate,
+    account_id_hash: CryptoHash,
+) -> Result<Option<AccountId>, StorageError> {
+    get(state_update, KeyForAccountId::from_hash(account_id_hash))
+}
+
 /// Removes account, code and all access keys associated to it.
 pub fn remove_account(
     state_update: &mut TrieUpdate,
     account_id: &AccountId,
 ) -> Result<(), StorageError> {
+    state_update.remove(KeyForAccountId::new(account_id));
     state_update.remove(KeyForAccount::new(account_id));
     state_update.remove(KeyForCode::new(account_id));
     state_update.remove_starts_with(KeyForAccessKey::get_prefix(account_id))?;
