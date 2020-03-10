@@ -30,6 +30,7 @@ use crate::codec::Codec;
 use crate::metrics;
 use crate::peer::Peer;
 use crate::peer_store::PeerStore;
+#[cfg(feature = "metric_recorder")]
 use crate::recorder::{MetricRecorder, PeerMessageMetadata};
 use crate::routing::{Edge, EdgeInfo, EdgeType, ProcessEdgeResult, RoutingTable};
 use crate::types::{
@@ -98,6 +99,7 @@ pub struct PeerManagerActor {
     /// Active peers we have sent new edge update, but we haven't received response so far.
     pending_update_nonce_request: HashMap<PeerId, u64>,
     /// Store all collected metrics from a node.
+    #[cfg(feature = "metric_recorder")]
     metric_recorder: MetricRecorder,
 }
 
@@ -125,6 +127,7 @@ impl PeerManagerActor {
             routing_table: RoutingTable::new(me.clone(), store),
             monitor_peers_attempts: 0,
             pending_update_nonce_request: HashMap::new(),
+            #[cfg(feature = "metric_recorder")]
             metric_recorder: MetricRecorder::default().set_me(me),
         })
     }
@@ -411,6 +414,7 @@ impl PeerManagerActor {
         if let Some(duration) = schedule_computation {
             ctx.run_later(duration, |act, _ctx| {
                 act.routing_table.update();
+                #[cfg(feature = "metric_recorder")]
                 act.metric_recorder.set_graph(act.routing_table.get_raw_graph())
             });
         }
@@ -748,11 +752,18 @@ impl PeerManagerActor {
         self.routing_table.add_ping(ping);
     }
 
+    /// Handle pong messages. Add pong temporary to the routing table, mostly used for testing.
+    /// If `metric_recorder` feature flag is enabled, save how much time passed since we sent ping.
     fn handle_pong(&mut self, _ctx: &mut Context<Self>, pong: Pong) {
+        #[cfg(feature = "metric_recorder")]
         let source = pong.source.clone();
-        if let Some(latency) = self.routing_table.add_pong(pong) {
+        #[allow(unused_variables)]
+        let latency = self.routing_table.add_pong(pong);
+        #[cfg(feature = "metric_recorder")]
+        latency.and_then::<(), _>(|latency| {
             self.metric_recorder.add_latency(source, latency);
-        }
+            None
+        });
     }
 
     pub(crate) fn get_network_info(&mut self) -> NetworkInfo {
@@ -779,6 +790,7 @@ impl PeerManagerActor {
                     addr: None,
                 })
                 .collect(),
+            #[cfg(feature = "metric_recorder")]
             metric_recorder: self.metric_recorder.clone(),
         }
     }
@@ -1409,6 +1421,7 @@ impl Handler<PeerRequest> for PeerManagerActor {
     }
 }
 
+#[cfg(feature = "metric_recorder")]
 impl Handler<PeerMessageMetadata> for PeerManagerActor {
     type Result = ();
     fn handle(&mut self, msg: PeerMessageMetadata, _ctx: &mut Self::Context) -> Self::Result {

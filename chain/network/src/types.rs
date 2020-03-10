@@ -32,10 +32,9 @@ use near_primitives::views::{FinalExecutionOutcomeView, QueryRequest, QueryRespo
 
 use crate::metrics;
 use crate::peer::Peer;
-use crate::{
-    recorder::MetricRecorder,
-    routing::{Edge, EdgeInfo, RoutingTableInfo},
-};
+#[cfg(feature = "metric_recorder")]
+use crate::recorder::MetricRecorder;
+use crate::routing::{Edge, EdgeInfo, RoutingTableInfo};
 
 /// Number of hops a message is allowed to travel before being dropped.
 /// This is used to avoid infinite loop because of inconsistent view of the network
@@ -1068,6 +1067,7 @@ pub struct NetworkInfo {
     pub received_bytes_per_sec: u64,
     /// Accounts of known block and chunk producers from routing table.
     pub known_producers: Vec<KnownProducer>,
+    #[cfg(feature = "metric_recorder")]
     pub metric_recorder: MetricRecorder,
 }
 
