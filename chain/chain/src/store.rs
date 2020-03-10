@@ -393,16 +393,16 @@ impl ChainStore {
             .map_err(|_| InvalidTxError::Expired)?
             .inner_lite
             .height;
-        let base_block_hash_by_height =
-            self.get_block_hash_by_height(base_height).map_err(|_| InvalidTxError::InvalidChain)?;
         let prev_height = prev_block_header.inner_lite.height;
-        if &base_block_hash_by_height == base_block_hash {
-            if let Ok(prev_hash) = self.get_block_hash_by_height(prev_height) {
-                if prev_hash == prev_block_header.hash {
-                    if prev_height <= base_height + validity_period {
-                        return Ok(());
-                    } else {
-                        return Err(InvalidTxError::Expired);
+        if let Ok(base_block_hash_by_height) = self.get_block_hash_by_height(base_height) {
+            if &base_block_hash_by_height == base_block_hash {
+                if let Ok(prev_hash) = self.get_block_hash_by_height(prev_height) {
+                    if prev_hash == prev_block_header.hash {
+                        if prev_height <= base_height + validity_period {
+                            return Ok(());
+                        } else {
+                            return Err(InvalidTxError::Expired);
+                        }
                     }
                 }
             }
@@ -418,6 +418,9 @@ impl ChainStore {
         if prev_height > base_height + validity_period {
             Err(InvalidTxError::Expired)
         } else if last_final_height >= base_height {
+            let base_block_hash_by_height = self
+                .get_block_hash_by_height(base_height)
+                .map_err(|_| InvalidTxError::InvalidChain)?;
             if &base_block_hash_by_height == base_block_hash {
                 if prev_height <= base_height + validity_period {
                     Ok(())
@@ -2185,6 +2188,7 @@ mod tests {
         store_update.commit().unwrap();
         let valid_base_hash = long_fork[1].hash();
         let cur_header = &long_fork.last().unwrap().header;
+        println!("here");
         assert!(chain
             .mut_store()
             .check_transaction_validity_period(
