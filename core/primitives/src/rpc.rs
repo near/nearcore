@@ -30,7 +30,7 @@ pub struct RpcGenesisRecordsRequest {
 #[derive(Serialize, Deserialize)]
 pub struct RpcQueryRequest {
     #[serde(flatten)]
-    pub block_checkpoint: BlockIdOrFinality,
+    pub block_id_or_finality: BlockIdOrFinality,
     #[serde(flatten)]
     pub request: QueryRequest,
 }
@@ -38,7 +38,7 @@ pub struct RpcQueryRequest {
 #[derive(Serialize, Deserialize)]
 pub struct RpcStateChangesRequest {
     #[serde(flatten)]
-    pub block_checkpoint: BlockIdOrFinality,
+    pub block_id_or_finality: BlockIdOrFinality,
     #[serde(flatten)]
     pub state_changes_request: StateChangesRequest,
 }

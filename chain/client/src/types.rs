@@ -169,13 +169,13 @@ impl Message for GetChunk {
 #[derive(Deserialize, Clone)]
 pub struct Query {
     pub query_id: String,
-    pub block_checkpoint: BlockIdOrFinality,
+    pub block_id_or_finality: BlockIdOrFinality,
     pub request: QueryRequest,
 }
 
 impl Query {
-    pub fn new(block_checkpoint: BlockIdOrFinality, request: QueryRequest) -> Self {
-        Query { query_id: generate_random_string(10), block_checkpoint, request }
+    pub fn new(block_id_or_finality: BlockIdOrFinality, request: QueryRequest) -> Self {
+        Query { query_id: generate_random_string(10), block_id_or_finality, request }
     }
 }
 

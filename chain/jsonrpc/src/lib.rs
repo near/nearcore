@@ -461,11 +461,11 @@ impl JsonRpcHandler {
                     }
                 };
                 // Use Finality::None here to make backward compatibility tests work
-                RpcQueryRequest { request, block_checkpoint: BlockIdOrFinality::latest() }
+                RpcQueryRequest { request, block_id_or_finality: BlockIdOrFinality::latest() }
             } else {
                 parse_params::<RpcQueryRequest>(params)?
             };
-        let query = Query::new(query_request.block_checkpoint, query_request.request);
+        let query = Query::new(query_request.block_id_or_finality, query_request.request);
         timeout(self.polling_config.polling_timeout, async {
             loop {
                 let result = self.view_client_addr.send(query.clone()).await;
@@ -497,12 +497,13 @@ impl JsonRpcHandler {
     }
 
     async fn block(&self, params: Option<Value>) -> Result<Value, RpcError> {
-        let block_checkpoint = if let Ok((block_id,)) = parse_params::<(BlockId,)>(params.clone()) {
-            BlockIdOrFinality::BlockId(block_id)
-        } else {
-            parse_params::<BlockIdOrFinality>(params)?
-        };
-        jsonify(self.view_client_addr.send(GetBlock(block_checkpoint)).await)
+        let block_id_or_finality =
+            if let Ok((block_id,)) = parse_params::<(BlockId,)>(params.clone()) {
+                BlockIdOrFinality::BlockId(block_id)
+            } else {
+                parse_params::<BlockIdOrFinality>(params)?
+            };
+        jsonify(self.view_client_addr.send(GetBlock(block_id_or_finality)).await)
     }
 
     async fn chunk(&self, params: Option<Value>) -> Result<Value, RpcError> {
@@ -523,11 +524,11 @@ impl JsonRpcHandler {
     }
 
     async fn changes(&self, params: Option<Value>) -> Result<Value, RpcError> {
-        let RpcStateChangesRequest { block_checkpoint, state_changes_request } =
+        let RpcStateChangesRequest { block_id_or_finality, state_changes_request } =
             parse_params(params)?;
         let block = self
             .view_client_addr
-            .send(GetBlock(block_checkpoint))
+            .send(GetBlock(block_id_or_finality))
             .await
             .map_err(|err| RpcError::server_error(Some(err.to_string())))?
             .map_err(|err| RpcError::server_error(Some(err)))?;

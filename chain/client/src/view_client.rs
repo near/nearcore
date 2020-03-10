@@ -149,7 +149,7 @@ impl ViewClientActor {
             return response.map(Some);
         }
 
-        let header = match msg.block_checkpoint {
+        let header = match msg.block_id_or_finality {
             BlockIdOrFinality::BlockId(BlockId::Height(block_height)) => {
                 self.chain.get_header_by_height(block_height)
             }
@@ -205,7 +205,7 @@ impl ViewClientActor {
                     self.network_adapter.do_send(NetworkRequests::Query {
                         query_id: msg.query_id.clone(),
                         account_id: validator,
-                        block_checkpoint: msg.block_checkpoint.clone(),
+                        block_id_or_finality: msg.block_id_or_finality.clone(),
                         request: msg.request.clone(),
                     });
                 }
@@ -553,8 +553,8 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
                 }
                 NetworkViewClientResponses::NoResponse
             }
-            NetworkViewClientMessages::Query { query_id, block_checkpoint, request } => {
-                let query = Query { query_id: query_id.clone(), block_checkpoint, request };
+            NetworkViewClientMessages::Query { query_id, block_id_or_finality, request } => {
+                let query = Query { query_id: query_id.clone(), block_id_or_finality, request };
                 match self.handle_query(query) {
                     Ok(Some(r)) => {
                         NetworkViewClientResponses::QueryResponse { query_id, response: Ok(r) }

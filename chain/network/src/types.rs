@@ -213,7 +213,7 @@ pub enum RoutedMessageBody {
     TxStatusResponse(FinalExecutionOutcomeView),
     QueryRequest {
         query_id: String,
-        block_checkpoint: BlockIdOrFinality,
+        block_id_or_finality: BlockIdOrFinality,
         request: QueryRequest,
     },
     QueryResponse {
@@ -1005,7 +1005,7 @@ pub enum NetworkRequests {
     Query {
         query_id: String,
         account_id: AccountId,
-        block_checkpoint: BlockIdOrFinality,
+        block_id_or_finality: BlockIdOrFinality,
         request: QueryRequest,
     },
     /// Request for receipt execution outcome
@@ -1196,7 +1196,7 @@ pub enum NetworkViewClientMessages {
     /// Transaction status response
     TxStatusResponse(FinalExecutionOutcomeView),
     /// General query
-    Query { query_id: String, block_checkpoint: BlockIdOrFinality, request: QueryRequest },
+    Query { query_id: String, block_id_or_finality: BlockIdOrFinality, request: QueryRequest },
     /// Query response
     QueryResponse { query_id: String, response: Result<QueryResponse, String> },
     /// Request for receipt outcome

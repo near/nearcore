@@ -171,21 +171,21 @@ fn test_query_account() {
         let block_hash = status.sync_info.latest_block_hash;
         let query_response_1 = client
             .query(RpcQueryRequest {
-                block_checkpoint: BlockIdOrFinality::latest(),
+                block_id_or_finality: BlockIdOrFinality::latest(),
                 request: QueryRequest::ViewAccount { account_id: "test".to_string() },
             })
             .await
             .unwrap();
         let query_response_2 = client
             .query(RpcQueryRequest {
-                block_checkpoint: BlockIdOrFinality::BlockId(BlockId::Height(0)),
+                block_id_or_finality: BlockIdOrFinality::BlockId(BlockId::Height(0)),
                 request: QueryRequest::ViewAccount { account_id: "test".to_string() },
             })
             .await
             .unwrap();
         let query_response_3 = client
             .query(RpcQueryRequest {
-                block_checkpoint: BlockIdOrFinality::BlockId(BlockId::Hash(block_hash)),
+                block_id_or_finality: BlockIdOrFinality::BlockId(BlockId::Hash(block_hash)),
                 request: QueryRequest::ViewAccount { account_id: "test".to_string() },
             })
             .await
@@ -209,13 +209,13 @@ fn test_query_account() {
 
         let non_finalized_query_response_1 = client
             .query(RpcQueryRequest {
-                block_checkpoint: BlockIdOrFinality::Finality(Finality::DoomSlug),
+                block_id_or_finality: BlockIdOrFinality::Finality(Finality::DoomSlug),
                 request: QueryRequest::ViewAccount { account_id: "test".to_string() },
             })
             .await;
         let non_finalized_query_response_2 = client
             .query(RpcQueryRequest {
-                block_checkpoint: BlockIdOrFinality::Finality(Finality::NFG),
+                block_id_or_finality: BlockIdOrFinality::Finality(Finality::NFG),
                 request: QueryRequest::ViewAccount { account_id: "test".to_string() },
             })
             .await;
@@ -258,7 +258,7 @@ fn test_query_access_keys() {
     test_with_client!(client, async move {
         let query_response = client
             .query(RpcQueryRequest {
-                block_checkpoint: BlockIdOrFinality::latest(),
+                block_id_or_finality: BlockIdOrFinality::latest(),
                 request: QueryRequest::ViewAccessKeyList { account_id: "test".to_string() },
             })
             .await
@@ -304,7 +304,7 @@ fn test_query_access_key() {
     test_with_client!(client, async move {
         let query_response = client
             .query(RpcQueryRequest {
-                block_checkpoint: BlockIdOrFinality::latest(),
+                block_id_or_finality: BlockIdOrFinality::latest(),
                 request: QueryRequest::ViewAccessKey {
                     account_id: "test".to_string(),
                     public_key: PublicKey::try_from(
@@ -332,7 +332,7 @@ fn test_query_state() {
     test_with_client!(client, async move {
         let query_response = client
             .query(RpcQueryRequest {
-                block_checkpoint: BlockIdOrFinality::latest(),
+                block_id_or_finality: BlockIdOrFinality::latest(),
                 request: QueryRequest::ViewState {
                     account_id: "test".to_string(),
                     prefix: vec![].into(),
@@ -356,7 +356,7 @@ fn test_query_call_function() {
     test_with_client!(client, async move {
         let query_response = client
             .query(RpcQueryRequest {
-                block_checkpoint: BlockIdOrFinality::latest(),
+                block_id_or_finality: BlockIdOrFinality::latest(),
                 request: QueryRequest::CallFunction {
                     account_id: "test".to_string(),
                     method_name: "method".to_string(),
