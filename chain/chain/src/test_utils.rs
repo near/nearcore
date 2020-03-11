@@ -183,9 +183,9 @@ impl KeyValueRuntime {
         if prev_hash == CryptoHash::default() {
             return Ok((EpochId(prev_hash), 0, EpochId(prev_hash)));
         }
-        let prev_block_header = self.get_block_header(&prev_hash)?.ok_or_else(|| {
-            ErrorKind::Other(format!("Missing block {} when computing the epoch", prev_hash))
-        })?;
+        let prev_block_header = self
+            .get_block_header(&prev_hash)?
+            .ok_or_else(|| ErrorKind::DBNotFoundErr(to_base(&prev_hash)))?;
 
         let mut hash_to_epoch = self.hash_to_epoch.write().unwrap();
         let mut hash_to_next_epoch = self.hash_to_next_epoch.write().unwrap();
