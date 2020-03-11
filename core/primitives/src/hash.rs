@@ -8,16 +8,12 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use crate::logging::pretty_hash;
 use crate::serialize::{from_base, to_base, BaseDecode};
 
-#[derive(Copy, Clone, PartialOrd, PartialEq, Eq, Ord)]
+#[derive(Copy, Clone, PartialOrd, PartialEq, Eq, Ord, derive_more::AsRef)]
+#[as_ref(forward)]
 pub struct Digest(pub [u8; 32]);
 
-impl AsRef<[u8]> for Digest {
-    fn as_ref(&self) -> &[u8] {
-        &self.0
-    }
-}
-
-#[derive(Copy, Clone, PartialOrd, Ord)]
+#[derive(Copy, Clone, PartialOrd, Ord, derive_more::AsRef)]
+#[as_ref(forward)]
 pub struct CryptoHash(pub Digest);
 
 impl<'a> From<&'a CryptoHash> for String {
@@ -29,12 +25,6 @@ impl<'a> From<&'a CryptoHash> for String {
 impl Default for CryptoHash {
     fn default() -> Self {
         CryptoHash(Digest(Default::default()))
-    }
-}
-
-impl AsRef<[u8]> for CryptoHash {
-    fn as_ref(&self) -> &[u8] {
-        self.0.as_ref()
     }
 }
 

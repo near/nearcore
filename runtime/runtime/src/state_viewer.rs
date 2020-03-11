@@ -9,7 +9,7 @@ use near_primitives::account::{AccessKey, Account};
 use near_primitives::hash::CryptoHash;
 use near_primitives::serialize::to_base64;
 use near_primitives::types::{AccountId, BlockHeight};
-use near_primitives::utils::{is_valid_account_id, prefix_for_data};
+use near_primitives::utils::{is_valid_account_id, KeyForData};
 use near_primitives::views::{StateItem, ViewStateResult};
 use near_runtime_fees::RuntimeFeesConfig;
 use near_store::{get_access_key, get_account, TrieUpdate};
@@ -62,14 +62,13 @@ impl TrieViewer {
             return Err(format!("Account ID '{}' is not valid", account_id).into());
         }
         let mut values = vec![];
-        let mut query = prefix_for_data(account_id);
-        let acc_sep_len = query.len();
-        query.extend_from_slice(prefix);
+        let query = KeyForData::new(account_id, prefix);
+        let acc_sep_len = KeyForData::estimate_len(account_id, &[]);
         let mut iter = state_update.trie.iter(&state_update.get_root())?;
         iter.seek(&query)?;
         for item in iter {
             let (key, value) = item?;
-            if !key.starts_with(&query) {
+            if !key.starts_with(&query.as_ref()) {
                 break;
             }
             values.push(StateItem {
@@ -173,7 +172,7 @@ impl TrieViewer {
 #[cfg(test)]
 mod tests {
     use near_primitives::types::StateChangeCause;
-    use near_primitives::utils::key_for_data;
+    use near_primitives::utils::KeyForData;
     use near_primitives::views::StateItem;
     use testlib::runtime_utils::{
         alice_account, encode_int, get_runtime_and_trie, get_test_trie_viewer,
@@ -263,10 +262,10 @@ mod tests {
     fn test_view_state() {
         let (_, trie, root) = get_runtime_and_trie();
         let mut state_update = TrieUpdate::new(trie.clone(), root);
-        state_update.set(key_for_data(&alice_account(), b"test123"), b"123".to_vec());
-        state_update.set(key_for_data(&alice_account(), b"test321"), b"321".to_vec());
-        state_update.set(key_for_data(&"alina".to_string(), b"qqq"), b"321".to_vec());
-        state_update.set(key_for_data(&"alex".to_string(), b"qqq"), b"321".to_vec());
+        state_update.set(KeyForData::new(&alice_account(), b"test123").into(), b"123".to_vec());
+        state_update.set(KeyForData::new(&alice_account(), b"test321").into(), b"321".to_vec());
+        state_update.set(KeyForData::new(&"alina".to_string(), b"qqq").into(), b"321".to_vec());
+        state_update.set(KeyForData::new(&"alex".to_string(), b"qqq").into(), b"321".to_vec());
         state_update.commit(StateChangeCause::InitialState);
         let (db_changes, new_root) = state_update.finalize().unwrap().into(trie.clone()).unwrap();
         db_changes.commit().unwrap();

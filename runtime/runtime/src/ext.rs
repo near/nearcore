@@ -12,7 +12,7 @@ use near_primitives::transaction::{
     DeployContractAction, FunctionCallAction, StakeAction, TransferAction,
 };
 use near_primitives::types::{AccountId, Balance};
-use near_primitives::utils::{create_nonce_with_nonce, prefix_for_data};
+use near_primitives::utils::{create_nonce_with_nonce, KeyForData};
 use near_store::{TrieUpdate, TrieUpdateIterator, TrieUpdateValuePtr};
 use near_vm_logic::{External, HostError, VMLogicError, ValuePtr};
 use sha3::{Keccak256, Keccak512};
@@ -53,7 +53,7 @@ impl<'a> RuntimeExt<'a> {
     ) -> Self {
         RuntimeExt {
             trie_update,
-            storage_prefix: prefix_for_data(account_id),
+            storage_prefix: KeyForData::get_prefix(account_id).into(),
             action_receipts: vec![],
             iters: HashMap::new(),
             last_iter_id: 0,
@@ -125,7 +125,7 @@ impl<'a> External for RuntimeExt<'a> {
 
     fn storage_remove(&mut self, key: &[u8]) -> ExtResult<()> {
         let storage_key = self.create_storage_key(key);
-        self.trie_update.remove(&storage_key);
+        self.trie_update.remove(storage_key);
         Ok(())
     }
 

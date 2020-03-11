@@ -22,8 +22,8 @@ mod tests {
     use near_primitives::sharding::ChunkHash;
     use near_primitives::test_utils::init_integration_logger;
     use near_primitives::transaction::SignedTransaction;
-    use near_primitives::types::{BlockHeight, BlockHeightDelta};
-    use near_primitives::views::{Finality, QueryRequest, QueryResponseKind::ViewAccount};
+    use near_primitives::types::{BlockHeight, BlockHeightDelta, BlockIdOrFinality};
+    use near_primitives::views::{QueryRequest, QueryResponseKind::ViewAccount};
 
     fn get_validators_and_key_pairs() -> (Vec<Vec<&'static str>>, Vec<PeerInfo>) {
         let validators = vec![
@@ -309,11 +309,10 @@ mod tests {
                                                 connectors1.write().unwrap()[i]
                                                     .1
                                                     .send(Query::new(
-                                                        None,
+                                                        BlockIdOrFinality::latest(),
                                                         QueryRequest::ViewAccount {
                                                             account_id: account_to.clone(),
                                                         },
-                                                        Finality::None,
                                                     ))
                                                     .then(move |res| {
                                                         let res_inner = res.unwrap();
@@ -516,12 +515,11 @@ mod tests {
                                                     connectors1.write().unwrap()[i]
                                                         .1
                                                         .send(Query::new(
-                                                            None,
+                                                            BlockIdOrFinality::latest(),
                                                             QueryRequest::ViewAccount {
                                                                 account_id: flat_validators[j]
                                                                     .to_string(),
                                                             },
-                                                            Finality::None,
                                                         ))
                                                         .then(move |res| {
                                                             let res_inner = res.unwrap();
