@@ -260,7 +260,7 @@ pub fn setup_mock_all_validators(
     epoch_length: BlockHeightDelta,
     enable_doomslug: bool,
     archive: bool,
-    network_mock: Arc<RwLock<dyn FnMut(String, &NetworkRequests) -> (NetworkResponses, bool)>>,
+    network_mock: Arc<RwLock<Box<dyn FnMut(String, &NetworkRequests) -> (NetworkResponses, bool)>>>,
 ) -> (Block, Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>) {
     let validators_clone = validators.clone();
     let key_pairs = key_pairs.clone();

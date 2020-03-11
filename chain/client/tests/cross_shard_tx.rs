@@ -35,9 +35,9 @@ fn test_keyvalue_runtime_balances() {
             5,
             false,
             false,
-            Arc::new(RwLock::new(move |_account_id: String, _msg: &NetworkRequests| {
+            Arc::new(RwLock::new(Box::new(move |_account_id: String, _msg: &NetworkRequests| {
                 (NetworkResponses::NoResponse, true)
-            })),
+            }))),
         );
         *connectors.write().unwrap() = conn;
 
@@ -423,9 +423,11 @@ mod tests {
                 20,
                 test_doomslug,
                 true,
-                Arc::new(RwLock::new(move |_account_id: String, _msg: &NetworkRequests| {
-                    (NetworkResponses::NoResponse, true)
-                })),
+                Arc::new(RwLock::new(Box::new(
+                    move |_account_id: String, _msg: &NetworkRequests| {
+                        (NetworkResponses::NoResponse, true)
+                    },
+                ))),
             );
             *connectors.write().unwrap() = conn;
             let block_hash = genesis_block.hash();

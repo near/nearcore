@@ -6,6 +6,7 @@ use futures::{future, FutureExt};
 
 use near_chain::{Block, ChainGenesis, ErrorKind, Provenance};
 use near_chunks::{ChunkStatus, ShardsManager};
+use near_client::test_utils::setup_mock_all_validators;
 use near_client::test_utils::{setup_client, setup_mock, MockNetworkAdapter, TestEnv};
 use near_client::{Client, GetBlock};
 use near_crypto::{InMemorySigner, KeyType, Signature, Signer};
@@ -341,6 +342,80 @@ fn produce_block_with_approvals() {
 
             future::ready(())
         }));
+        near_network::test_utils::wait_or_panic(5000);
+    })
+    .unwrap();
+}
+
+/// When approvals arrive early, they should be properly cached.
+#[test]
+fn produce_block_with_approvals_arrived_early() {
+    init_test_logger();
+    let validators = vec![vec!["test1", "test2", "test3", "test4"]];
+    let key_pairs =
+        vec![PeerInfo::random(), PeerInfo::random(), PeerInfo::random(), PeerInfo::random()];
+    let block_holder: Arc<RwLock<Option<Block>>> = Arc::new(RwLock::new(None));
+    System::run(move || {
+        let mut approval_counter = 0;
+        let network_mock: Arc<
+            RwLock<Box<dyn FnMut(String, &NetworkRequests) -> (NetworkResponses, bool)>>,
+        > = Arc::new(RwLock::new(Box::new(|_: String, _: &NetworkRequests| {
+            (NetworkResponses::NoResponse, true)
+        })));
+        let (_, conns) = setup_mock_all_validators(
+            validators.clone(),
+            key_pairs,
+            1,
+            true,
+            100,
+            false,
+            false,
+            100,
+            true,
+            false,
+            network_mock.clone(),
+        );
+        *network_mock.write().unwrap() =
+            Box::new(move |_: String, msg: &NetworkRequests| -> (NetworkResponses, bool) {
+                match msg {
+                    NetworkRequests::Block { block } => {
+                        if block.header.inner_lite.height == 3 {
+                            for (i, (client, _)) in conns.clone().into_iter().enumerate() {
+                                if i > 0 {
+                                    client.do_send(NetworkClientMessages::Block(
+                                        block.clone(),
+                                        PeerInfo::random().id,
+                                        false,
+                                    ))
+                                }
+                            }
+                            *block_holder.write().unwrap() = Some(block.clone());
+                            return (NetworkResponses::NoResponse, false);
+                        } else if block.header.inner_lite.height == 4 {
+                            System::current().stop();
+                        }
+                        (NetworkResponses::NoResponse, true)
+                    }
+                    NetworkRequests::Approval { approval_message } => {
+                        if approval_message.target == "test1".to_string()
+                            && approval_message.approval.target_height == 4
+                        {
+                            approval_counter += 1;
+                        }
+                        if approval_counter == 3 {
+                            let block = block_holder.read().unwrap().clone().unwrap();
+                            conns[0].0.do_send(NetworkClientMessages::Block(
+                                block,
+                                PeerInfo::random().id,
+                                false,
+                            ));
+                        }
+                        (NetworkResponses::NoResponse, true)
+                    }
+                    _ => (NetworkResponses::NoResponse, true),
+                }
+            });
+
         near_network::test_utils::wait_or_panic(5000);
     })
     .unwrap();

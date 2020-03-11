@@ -121,7 +121,7 @@ fn chunks_produced_and_distributed_common(
             5,
             true,
             false,
-            Arc::new(RwLock::new(move |from_whom: String, msg: &NetworkRequests| {
+            Arc::new(RwLock::new(Box::new(move |from_whom: String, msg: &NetworkRequests| {
                 match msg {
                     NetworkRequests::Block { block } => {
                         check_height(block.hash(), block.header.inner_lite.height);
@@ -212,7 +212,7 @@ fn chunks_produced_and_distributed_common(
                     _ => {}
                 };
                 (NetworkResponses::NoResponse, true)
-            })),
+            }))),
         );
         *connectors.write().unwrap() = conn;
 
