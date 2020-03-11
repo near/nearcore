@@ -1046,15 +1046,6 @@ impl Client {
                 }
                 Err(e) => {
                     process_error(e, approval, &mut self.pending_approvals);
-                    //                    if e.is_bad_data() {
-                    //                        return;
-                    //                    }
-                    //                    let mut entry = self
-                    //                        .pending_approvals
-                    //                        .cache_remove(parent_hash)
-                    //                        .unwrap_or_else(|| HashMap::new());
-                    //                    entry.insert(account_id.clone(), approval.clone());
-                    //                    self.pending_approvals.cache_set(*parent_hash, entry);
                     return;
                 }
             };
