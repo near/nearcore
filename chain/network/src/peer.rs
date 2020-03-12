@@ -283,8 +283,8 @@ impl Peer {
             PeerMessage::Routed(message) => {
                 msg_hash = Some(message.hash());
                 match message.body {
-                    RoutedMessageBody::QueryRequest { query_id, block_id, request, finality } => {
-                        NetworkViewClientMessages::Query { query_id, block_id, request, finality }
+                    RoutedMessageBody::QueryRequest { query_id, block_id_or_finality, request } => {
+                        NetworkViewClientMessages::Query { query_id, block_id_or_finality, request }
                     }
                     RoutedMessageBody::QueryResponse { query_id, response } => {
                         NetworkViewClientMessages::QueryResponse { query_id, response }

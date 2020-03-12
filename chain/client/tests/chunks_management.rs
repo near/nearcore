@@ -20,7 +20,6 @@ use near_primitives::test_utils::init_integration_logger;
 use near_primitives::test_utils::{heavy_test, init_test_logger};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::validator_signer::InMemoryValidatorSigner;
-use near_primitives::views::Finality;
 
 #[test]
 fn chunks_produced_and_distributed_all_in_all_shards() {
@@ -121,7 +120,7 @@ fn chunks_produced_and_distributed_common(
             5,
             true,
             false,
-            Arc::new(RwLock::new(move |from_whom: String, msg: &NetworkRequests| {
+            Arc::new(RwLock::new(Box::new(move |from_whom: String, msg: &NetworkRequests| {
                 match msg {
                     NetworkRequests::Block { block } => {
                         check_height(block.hash(), block.header.inner_lite.height);
@@ -212,12 +211,12 @@ fn chunks_produced_and_distributed_common(
                     _ => {}
                 };
                 (NetworkResponses::NoResponse, true)
-            })),
+            }))),
         );
         *connectors.write().unwrap() = conn;
 
         let view_client = connectors.write().unwrap()[0].1.clone();
-        actix::spawn(view_client.send(GetBlock::Finality(Finality::None)).then(move |res| {
+        actix::spawn(view_client.send(GetBlock::latest()).then(move |res| {
             let header: BlockHeader = res.unwrap().unwrap().header.into();
             let block_hash = header.hash;
             let connectors_ = connectors.write().unwrap();

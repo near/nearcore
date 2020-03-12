@@ -1,7 +1,5 @@
 use std::fmt::Debug;
 
-use serde::Serialize;
-
 use crate::serialize::to_base;
 
 const VECTOR_MAX_LENGTH: usize = 5;
@@ -57,13 +55,6 @@ pub fn pretty_result(result: &Option<Vec<u8>>) -> String {
 pub fn pretty_results(results: &[Option<Vec<u8>>]) -> String {
     let v: Vec<String> = results.iter().map(pretty_result).collect();
     format!("{:?}", pretty_vec(&v))
-}
-
-pub fn pretty_serializable<T: Serialize>(s: &T) -> String {
-    match bincode::serialize(&s) {
-        Ok(buf) => pretty_hash(&to_base(&buf)),
-        Err(e) => format!("[failed to serialize: {}]", e),
-    }
 }
 
 #[cfg(test)]

@@ -6,6 +6,7 @@ use std::sync::Arc;
 use borsh::{BorshDeserialize, BorshSerialize};
 use cached::{Cached, SizedCache};
 use chrono::Utc;
+use owning_ref::OwningRef;
 use serde::Serialize;
 
 use near_primitives::block::{Approval, BlockScore};
@@ -20,8 +21,8 @@ use near_primitives::transaction::{
     ExecutionOutcomeWithId, ExecutionOutcomeWithIdAndProof, SignedTransaction,
 };
 use near_primitives::types::{
-    AccountId, BlockExtra, BlockHeight, ChunkExtra, EpochId, ShardId, StateChangeCause,
-    StateChanges, StateChangesRequest,
+    AccountId, BlockExtra, BlockHeight, ChunkExtra, EpochId, RawStateChangesList, ShardId,
+    StateChanges, StateChangesExt, StateChangesRequest,
 };
 use near_primitives::utils::{index_to_bytes, to_timestamp};
 use near_primitives::views::LightClientBlockView;
@@ -819,56 +820,124 @@ impl ChainStoreAccess for ChainStore {
             .map_err(|e| e.into())
     }
 
+    /// Retrieve the key-value changes from the store and decode them appropriately.
+    ///
+    /// We store different types of data, so we need to take care of all the types. That is, the
+    /// account data and the access keys are internally-serialized and we have to deserialize those
+    /// values appropriately. Code and data changes are simple blobs of data, so we return them as
+    /// base64-encoded blobs.
     fn get_key_value_changes(
         &self,
         block_hash: &CryptoHash,
         state_changes_request: &StateChangesRequest,
     ) -> Result<StateChanges, Error> {
         use near_primitives::utils;
+
+        // We store the trie changes under a compound key: `block_hash + trie_key`, so when we
+        // query the changes, we reverse the process by splitting the key using simple slicing of an
+        // array of bytes, essentially, extracting `trie_key`.
+        //
+        // Example: data changes are stored under a key:
+        //
+        //     block_hash + (col::ACCOUNT + account_id + ACCOUNT_DATA_SEPARATOR + user_specified_key)
+        //
+        // Thus, to query all the changes by a user-specified key prefix, we do the following:
+        // 1. Query RocksDB for
+        //     block_hash + (col::ACCOUNT + account_id + ACCOUNT_DATA_SEPARATOR + user_specified_key_prefix)
+        //
+        // 2. In the simplest case, to extract the full key we need to slice the RocksDB key by a length of
+        //     block_hash + (col::ACCOUNT + account_id + ACCOUNT_DATA_SEPARATOR)
+        //
+        //    In this implementation, however, we decoupled this process into two steps:
+        //
+        //    2.1. Split off the `block_hash` (using `common_storage_key_prefix_len`), thus we are
+        //         left working with a key that was used in the trie.
+        //    2.2. Parse the trie key with a relevant KeyFor* implementation to ensure consistency
+
         let mut storage_key = block_hash.as_ref().to_vec();
-        storage_key.extend(match state_changes_request {
+        let common_storage_key_prefix_len = storage_key.len();
+
+        let data_key: Vec<u8> = match state_changes_request {
             StateChangesRequest::AccountChanges { account_id } => {
-                utils::key_for_account(account_id)
-            }
-            StateChangesRequest::DataChanges { account_id, key_prefix } => {
-                utils::key_for_data(account_id, key_prefix)
+                utils::KeyForAccount::new(account_id).into()
             }
             StateChangesRequest::SingleAccessKeyChanges { account_id, access_key_pk } => {
-                utils::key_for_access_key(account_id, access_key_pk)
+                utils::KeyForAccessKey::new(account_id, access_key_pk).into()
             }
             StateChangesRequest::AllAccessKeyChanges { account_id } => {
-                utils::key_for_all_access_keys(account_id)
+                utils::KeyForAccessKey::get_prefix(account_id).into()
             }
-            StateChangesRequest::CodeChanges { account_id } => utils::key_for_code(account_id),
-            StateChangesRequest::SinglePostponedReceiptChanges { account_id, data_id } => {
-                utils::key_for_postponed_receipt_id(account_id, data_id)
+            StateChangesRequest::CodeChanges { account_id } => {
+                utils::KeyForCode::new(account_id).into()
             }
-            StateChangesRequest::AllPostponedReceiptChanges { account_id } => {
-                utils::key_for_all_postponed_receipts(account_id)
+            StateChangesRequest::DataChanges { account_id, key_prefix } => {
+                utils::KeyForData::new(account_id, key_prefix.as_ref()).into()
             }
-        });
-        let common_key_prefix_len = block_hash.as_ref().len()
-            + match state_changes_request {
-                StateChangesRequest::AccountChanges { .. }
-                | StateChangesRequest::SingleAccessKeyChanges { .. }
-                | StateChangesRequest::AllAccessKeyChanges { .. }
-                | StateChangesRequest::CodeChanges { .. }
-                | StateChangesRequest::SinglePostponedReceiptChanges { .. }
-                | StateChangesRequest::AllPostponedReceiptChanges { .. } => storage_key.len(),
-                StateChangesRequest::DataChanges { account_id, .. } => {
-                    utils::key_for_data(account_id, b"").len()
-                }
-            };
-        let mut changes = StateChanges::new();
-        let changes_iter = self.store.iter_prefix_ser::<Vec<(StateChangeCause, Option<Vec<u8>>)>>(
-            ColKeyValueChanges,
-            &storage_key,
-        );
-        for change in changes_iter {
-            let (key, value) = change?;
-            changes.insert(key[common_key_prefix_len..].to_owned(), value);
-        }
-        Ok(changes)
+        };
+        storage_key.extend(&data_key);
+
+        let mut changes_per_key_prefix = self
+            .store
+            .iter_prefix_ser::<RawStateChangesList>(ColKeyValueChanges, &storage_key)
+            .map(|change| {
+                // Split off the irrelevant part of the key, so only the original trie_key is left.
+                let (key, state_changes) = change?;
+                let key = OwningRef::new(key).map(|key| &key[common_storage_key_prefix_len..]);
+                Ok((key, state_changes))
+            });
+
+        // It is a lifetime workaround. We cannot return `&mut changes_per_key_prefix.filter_map(...`
+        // as that is a temporary object created there with `filter_map`, and you cannot leak a
+        // reference to a temporary object.
+        let mut changes_per_exact_key;
+
+        let changes_per_key: &mut dyn Iterator<Item = _> = match state_changes_request {
+            // These request types are expected to match the key exactly:
+            StateChangesRequest::AccountChanges { .. }
+            | StateChangesRequest::SingleAccessKeyChanges { .. }
+            | StateChangesRequest::CodeChanges { .. } => {
+                changes_per_exact_key = changes_per_key_prefix.filter_map(|change| {
+                    let (key, state_changes) = match change {
+                        Ok(change) => change,
+                        error => {
+                            return Some(error);
+                        }
+                    };
+                    if key.len() != data_key.len() {
+                        None
+                    } else {
+                        debug_assert_eq!(key.as_ref(), data_key.as_ref() as &[u8]);
+                        Some(Ok((key, state_changes)))
+                    }
+                });
+                &mut changes_per_exact_key
+            }
+
+            StateChangesRequest::AllAccessKeyChanges { .. }
+            | StateChangesRequest::DataChanges { .. } => &mut changes_per_key_prefix,
+        };
+
+        Ok(match state_changes_request {
+            StateChangesRequest::AccountChanges { account_id, .. } => {
+                StateChanges::from_account_changes(changes_per_key, account_id)?
+            }
+            StateChangesRequest::SingleAccessKeyChanges { account_id, .. }
+            | StateChangesRequest::AllAccessKeyChanges { account_id, .. } => {
+                let access_key_pk = match state_changes_request {
+                    StateChangesRequest::SingleAccessKeyChanges { access_key_pk, .. } => {
+                        Some(access_key_pk)
+                    }
+                    _ => None,
+                };
+                StateChanges::from_access_key_changes(changes_per_key, account_id, access_key_pk)?
+            }
+            StateChangesRequest::CodeChanges { account_id, .. } => {
+                StateChanges::from_code_changes(changes_per_key, account_id)?
+            }
+            StateChangesRequest::DataChanges { account_id, .. } => {
+                StateChanges::from_data_changes(changes_per_key, account_id)?
+            }
+        })
     }
 }
 
