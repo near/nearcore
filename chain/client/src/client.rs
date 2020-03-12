@@ -14,7 +14,7 @@ use near_chain::chain::TX_ROUTING_HEIGHT_HORIZON;
 use near_chain::test_utils::format_hash;
 use near_chain::types::{AcceptedBlock, LatestKnown, ReceiptResponse};
 use near_chain::{
-    BlockStatus, Chain, ChainGenesis, ChainStoreAccess, Doomslug, DoomslugThresholdMode,
+    BlockStatus, Chain, ChainGenesis, ChainStoreAccess, Doomslug, DoomslugThresholdMode, ErrorKind,
     Provenance, RuntimeAdapter, Tip,
 };
 use near_chain_configs::ClientConfig;
@@ -578,7 +578,7 @@ impl Client {
                     &mut |tx: &SignedTransaction| -> bool {
                         chain
                             .mut_store()
-                            .check_blocks_on_same_chain(
+                            .check_transaction_validity_period(
                                 &prev_block_header,
                                 &tx.transaction.block_hash,
                                 transaction_validity_period,
@@ -980,9 +980,24 @@ impl Client {
             signature,
         } = approval;
 
+        let process_error = |e: near_chain::Error,
+                             approval: &Approval,
+                             pending_approvals: &mut SizedCache<_, _>| {
+            if let ErrorKind::DBNotFoundErr(_) = e.kind() {
+                let mut entry = pending_approvals
+                    .cache_remove(&approval.parent_hash)
+                    .unwrap_or_else(|| HashMap::new());
+                entry.insert(approval.account_id.clone(), approval.clone());
+                pending_approvals.cache_set(approval.parent_hash, entry);
+            }
+        };
+
         let next_epoch_id =
             match self.runtime_adapter.get_epoch_id_from_prev_block(&approval.parent_hash) {
-                Err(_) => return,
+                Err(e) => {
+                    process_error(e, approval, &mut self.pending_approvals);
+                    return;
+                }
                 Ok(next_epoch_id) => next_epoch_id,
             };
 
@@ -1030,15 +1045,7 @@ impl Client {
                     return;
                 }
                 Err(e) => {
-                    if e.is_bad_data() {
-                        return;
-                    }
-                    let mut entry = self
-                        .pending_approvals
-                        .cache_remove(parent_hash)
-                        .unwrap_or_else(|| HashMap::new());
-                    entry.insert(account_id.clone(), approval.clone());
-                    self.pending_approvals.cache_set(*parent_hash, entry);
+                    process_error(e, approval, &mut self.pending_approvals);
                     return;
                 }
             };
@@ -1094,7 +1101,10 @@ impl Client {
         )
         .clone();
         let transaction_validity_period = self.chain.transaction_validity_period;
-        if let Err(e) = self.chain.mut_store().check_blocks_on_same_chain(
+        // here it is fine to use `cur_block_header` as it is a best effort estimate. If the transaction
+        // were to be included, the block that the chunk points to will have height >= height of
+        // `cur_block_header`.
+        if let Err(e) = self.chain.mut_store().check_transaction_validity_period(
             &cur_block_header,
             &tx.transaction.block_hash,
             transaction_validity_period,
@@ -1272,5 +1282,43 @@ impl Client {
             self.challenges.insert(challenge.hash, challenge);
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use crate::test_utils::TestEnv;
+    use cached::Cached;
+    use near::config::GenesisExt;
+    use near_chain::{ChainGenesis, RuntimeAdapter};
+    use near_chain_configs::Genesis;
+    use near_crypto::KeyType;
+    use near_primitives::block::Approval;
+    use near_primitives::hash::hash;
+    use near_primitives::validator_signer::InMemoryValidatorSigner;
+    use near_store::test_utils::create_test_store;
+    use std::collections::HashMap;
+    use std::path::Path;
+    use std::sync::Arc;
+
+    #[test]
+    fn test_pending_approvals() {
+        let store = create_test_store();
+        let genesis = Genesis::test(vec!["test0", "test1"], 1);
+        let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![Arc::new(near::NightshadeRuntime::new(
+            Path::new("."),
+            store,
+            Arc::new(genesis),
+            vec![],
+            vec![],
+        ))];
+        let mut env = TestEnv::new_with_runtime(ChainGenesis::test(), 1, 1, runtimes);
+        let signer = InMemoryValidatorSigner::from_seed("test1", KeyType::ED25519, "test1");
+        let parent_hash = hash(&[1]);
+        let approval = Approval::new(parent_hash, None, 1, true, &signer);
+        env.clients[0].collect_block_approval(&approval, false);
+        let approvals = env.clients[0].pending_approvals.cache_remove(&parent_hash);
+        let expected = vec![("test1".to_string(), approval)].into_iter().collect::<HashMap<_, _>>();
+        assert_eq!(approvals, Some(expected));
     }
 }

@@ -47,7 +47,7 @@ fn repro_1183() {
             5,
             false,
             false,
-            Arc::new(RwLock::new(move |_account_id: String, msg: &NetworkRequests| {
+            Arc::new(RwLock::new(Box::new(move |_account_id: String, msg: &NetworkRequests| {
                 if let NetworkRequests::Block { block } = msg {
                     let mut last_block = last_block.write().unwrap();
                     let mut delayed_one_parts = delayed_one_parts.write().unwrap();
@@ -120,7 +120,7 @@ fn repro_1183() {
                 } else {
                     (NetworkResponses::NoResponse, true)
                 }
-            })),
+            }))),
         );
         *connectors.write().unwrap() = conn;
 
