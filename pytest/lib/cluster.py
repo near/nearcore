@@ -399,6 +399,7 @@ def init_cluster(num_nodes, num_observers, num_shards, config, genesis_config_ch
     print("Creating %s cluster configuration with %s nodes" %
           ("LOCAL" if is_local else "REMOTE", num_nodes + num_observers))
 
+
     process = subprocess.Popen([os.path.join(near_root, "near"), "testnet", "--v", str(num_nodes), "--shards", str(
         num_shards), "--n", str(num_observers), "--prefix", "test"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     out, err = process.communicate()
@@ -408,6 +409,7 @@ def init_cluster(num_nodes, num_observers, num_shards, config, genesis_config_ch
                  for line in err.decode('utf8').split('\n') if '/test' in line]
     assert len(node_dirs) == num_nodes + num_observers, "node dirs: %s num_nodes: %s num_observers: %s" % (len(node_dirs), num_nodes, num_observers)
 
+    print("Search for stdout and stderr in %s" % node_dirs)
     # apply config changes
     for i, node_dir in enumerate(node_dirs):
         apply_genesis_changes(node_dir, genesis_config_changes)
