@@ -341,6 +341,8 @@ pub trait ChainStoreAccess {
 /// All chain-related database operations.
 pub struct ChainStore {
     store: Arc<Store>,
+    /// Genesis block height.
+    genesis_height: BlockHeight,
     /// Latest known.
     latest_known: Option<LatestKnown>,
     /// Cache with headers.
@@ -399,9 +401,10 @@ pub fn option_to_not_found<T>(res: io::Result<Option<T>>, field_name: &str) -> R
 }
 
 impl ChainStore {
-    pub fn new(store: Arc<Store>) -> ChainStore {
+    pub fn new(store: Arc<Store>, genesis_height: BlockHeight) -> ChainStore {
         ChainStore {
             store,
+            genesis_height,
             latest_known: None,
             blocks: SizedCache::with_size(CACHE_SIZE),
             headers: SizedCache::with_size(CACHE_SIZE),
@@ -543,7 +546,7 @@ impl ChainStore {
 
     pub fn get_block_height(&mut self, hash: &CryptoHash) -> Result<BlockHeight, Error> {
         if hash == &CryptoHash::default() {
-            Ok(0)
+            Ok(self.genesis_height)
         } else {
             Ok(self.get_block_header(hash)?.inner_lite.height)
         }
@@ -1577,7 +1580,7 @@ impl<'a> ChainStoreUpdate<'a> {
 
     /// Update header head and height to hash index for this branch.
     pub fn save_header_head_if_not_challenged(&mut self, t: &Tip) -> Result<(), Error> {
-        if t.height > 0 {
+        if t.height > self.chain_store.genesis_height {
             self.update_height_if_not_challenged(t.height, t.prev_block_hash)?;
         }
         self.try_save_latest_known(t.height)?;

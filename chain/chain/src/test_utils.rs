@@ -23,8 +23,8 @@ use near_primitives::transaction::{
     TransferAction,
 };
 use near_primitives::types::{
-    AccountId, Balance, BlockHeight, EpochId, Gas, Nonce, NumBlocks, ShardId, StateChanges,
-    StateChangesRequest, StateRoot, StateRootNode, ValidatorStake, ValidatorStats,
+    AccountId, Balance, BlockHeight, EpochId, Gas, Nonce, NumBlocks, ShardId, StateRoot,
+    StateRootNode, ValidatorStake, ValidatorStats,
 };
 use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_primitives::views::{
@@ -844,14 +844,6 @@ impl RuntimeAdapter for KeyValueRuntime {
         })
     }
 
-    fn get_key_value_changes(
-        &self,
-        _block_hash: &CryptoHash,
-        _state_changes_request: &StateChangesRequest,
-    ) -> Result<StateChanges, Box<dyn std::error::Error>> {
-        Ok(Default::default())
-    }
-
     fn push_final_block_back_if_needed(
         &self,
         _prev_block: CryptoHash,
@@ -916,7 +908,17 @@ pub fn setup_with_tx_validity_period(
     let chain = Chain::new(
         store,
         runtime.clone(),
-        &ChainGenesis::new(Utc::now(), 1_000_000, 100, 1_000_000_000, 0, 0, tx_validity_period, 10),
+        &ChainGenesis::new(
+            Utc::now(),
+            0,
+            1_000_000,
+            100,
+            1_000_000_000,
+            0,
+            0,
+            tx_validity_period,
+            10,
+        ),
         DoomslugThresholdMode::NoApprovals,
     )
     .unwrap();
@@ -948,6 +950,7 @@ pub fn setup_with_validators(
         runtime.clone(),
         &ChainGenesis::new(
             Utc::now(),
+            0,
             1_000_000,
             100,
             1_000_000_000,
@@ -1064,6 +1067,7 @@ impl ChainGenesis {
     pub fn test() -> Self {
         ChainGenesis {
             time: Utc::now(),
+            height: 0,
             gas_limit: 1_000_000,
             min_gas_price: 0,
             total_supply: 1_000_000_000,

@@ -5,7 +5,8 @@ use tempdir::TempDir;
 use near_client::GetBlock;
 use near_network::test_utils::WaitOrTimeout;
 use near_primitives::test_utils::heavy_test;
-use near_primitives::types::{BlockHeightDelta, NumSeats, NumShards};
+use near_primitives::types::{BlockHeight, BlockHeightDelta, NumSeats, NumShards};
+use rand::{thread_rng, Rng};
 use testlib::start_nodes;
 
 fn run_nodes(
@@ -15,13 +16,16 @@ fn run_nodes(
     epoch_length: BlockHeightDelta,
     num_blocks: BlockHeightDelta,
 ) {
+    let mut rng = thread_rng();
+    let genesis_height = rng.gen_range(0, 10000);
     let system = System::new("NEAR");
     let dirs = (0..num_nodes)
         .map(|i| {
             TempDir::new(&format!("run_nodes_{}_{}_{}", num_nodes, num_validators, i)).unwrap()
         })
         .collect::<Vec<_>>();
-    let (_, _, clients) = start_nodes(num_shards, &dirs, num_validators, 0, epoch_length);
+    let (_, _, clients) =
+        start_nodes(num_shards, &dirs, num_validators, 0, epoch_length, genesis_height);
     let view_client = clients[clients.len() - 1].1.clone();
     WaitOrTimeout::new(
         Box::new(move |_ctx| {

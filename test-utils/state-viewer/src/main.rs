@@ -126,7 +126,7 @@ fn load_trie(
     home_dir: &Path,
     near_config: &NearConfig,
 ) -> (NightshadeRuntime, Vec<StateRoot>, BlockHeight) {
-    let mut chain_store = ChainStore::new(store.clone());
+    let mut chain_store = ChainStore::new(store.clone(), near_config.genesis.config.genesis_height);
 
     let runtime = NightshadeRuntime::new(
         &home_dir,
@@ -155,7 +155,7 @@ fn print_chain(
     start_height: BlockHeight,
     end_height: BlockHeight,
 ) {
-    let mut chain_store = ChainStore::new(store.clone());
+    let mut chain_store = ChainStore::new(store.clone(), near_config.genesis.config.genesis_height);
     let runtime = NightshadeRuntime::new(
         &home_dir,
         store,
@@ -223,7 +223,7 @@ fn replay_chain(
     start_height: BlockHeight,
     end_height: BlockHeight,
 ) {
-    let mut chain_store = ChainStore::new(store);
+    let mut chain_store = ChainStore::new(store, near_config.genesis.config.genesis_height);
     let new_store = create_test_store();
     let runtime = NightshadeRuntime::new(
         &home_dir,
@@ -348,8 +348,10 @@ fn main() {
                     }
                 }
             }
-            let genesis =
-                Arc::new(Genesis::new(near_config.genesis.config.clone(), records.into()));
+            let genesis_height = height + 1;
+            let mut genesis_config = near_config.genesis.config.clone();
+            genesis_config.genesis_height = genesis_height;
+            let genesis = Arc::new(Genesis::new(genesis_config, records.into()));
 
             println!("Calculating new genesis hash");
             let store = near_store::test_utils::create_test_store();
@@ -369,7 +371,8 @@ fn main() {
                 DoomslugThresholdMode::HalfStake,
             )
             .unwrap();
-            let genesis_hash = chain.get_block_by_height(0).unwrap().hash().to_string();
+            let genesis_hash =
+                chain.get_block_by_height(genesis_height).unwrap().hash().to_string();
 
             let output_path = home_dir.join(Path::new("output_config.json"));
             let records_path =
