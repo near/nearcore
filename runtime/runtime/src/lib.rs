@@ -1138,6 +1138,7 @@ impl Runtime {
                         + access_key.try_to_vec().unwrap().len() as u64;
                     Some((account_id.clone(), storage_usage))
                 }
+                StateRecord::DelayedReceipt(_) => None,
                 StateRecord::PostponedReceipt(_) => None,
                 StateRecord::ReceivedData { .. } => None,
             };
@@ -1155,6 +1156,7 @@ impl Runtime {
         validators: &[(AccountId, PublicKey, Balance)],
         records: &[StateRecord],
     ) -> (StoreUpdate, StateRoot) {
+        let mut delayed_receipts_indices = DelayedReceiptIndices::default();
         let mut postponed_receipts: Vec<Receipt> = vec![];
         for record in records {
             match record.clone() {
@@ -1180,8 +1182,21 @@ impl Runtime {
                 }
                 StateRecord::PostponedReceipt(receipt) => {
                     // Delaying processing postponed receipts, until we process all data first
-                    postponed_receipts
-                        .push((*receipt).try_into().expect("Failed to convert receipt from view"));
+                    postponed_receipts.push(
+                        (*receipt)
+                            .try_into()
+                            .expect("Failed to convert postponed receipt from view"),
+                    );
+                }
+                StateRecord::DelayedReceipt(receipt) => {
+                    let receipt =
+                        (*receipt).try_into().expect("Failed to convert delayed receipt from view");
+                    Runtime::delay_receipt(
+                        &mut state_update,
+                        &mut delayed_receipts_indices,
+                        &receipt,
+                    )
+                    .expect("Failed to add a delayed receipt");
                 }
                 StateRecord::ReceivedData { account_id, data_id, data } => {
                     set_received_data(
@@ -1192,6 +1207,10 @@ impl Runtime {
                     );
                 }
             }
+        }
+        // Saving delayed receipt indices if we had any delayed receipts in the state.
+        if delayed_receipts_indices != Default::default() {
+            set(&mut state_update, DELAYED_RECEIPT_INDICES.to_vec(), &delayed_receipts_indices);
         }
         for (account_id, storage_usage) in self.compute_storage_usage(records) {
             let mut account = get_account(&state_update, &account_id)

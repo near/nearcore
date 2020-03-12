@@ -44,6 +44,22 @@ fn kv_to_state_record(
     value: Vec<u8>,
 ) -> Option<StateRecord> {
     let column = &key[0..1];
+    match column {
+        col::POSTPONED_RECEIPT_ID => return None,
+        col::PENDING_DATA_COUNT => return None,
+        col::POSTPONED_RECEIPT => {
+            let receipt = Receipt::try_from_slice(&value).unwrap();
+            return Some(StateRecord::PostponedReceipt(Box::new(receipt.into())));
+        }
+        col::DELAYED_RECEIPT_INDICES => return None,
+        col::ACCOUNT_ID => return None,
+        col::DELAYED_RECEIPT => {
+            let receipt = Receipt::try_from_slice(&value).unwrap();
+            return Some(StateRecord::DelayedReceipt(Box::new(receipt.into())));
+        }
+        _ => (),
+    };
+    // Rest of the keys require account_id prefix.
     let prefix_length = CRYPTO_HASH_LEN + 1;
     let remaining_key = &key[prefix_length..];
     let account_id =
@@ -72,12 +88,6 @@ fn kv_to_state_record(
             let data = ReceivedData::try_from_slice(&value).unwrap().data;
             let data_id = CryptoHash::try_from(remaining_key).unwrap();
             Some(StateRecord::ReceivedData { account_id, data_id, data })
-        }
-        col::POSTPONED_RECEIPT_ID => None,
-        col::PENDING_DATA_COUNT => None,
-        col::POSTPONED_RECEIPT => {
-            let receipt = Receipt::try_from_slice(&value).unwrap();
-            Some(StateRecord::PostponedReceipt(Box::new(receipt.into())))
         }
         _ => unreachable!(),
     }
@@ -112,6 +122,9 @@ fn print_state_entry(state_update: &TrieUpdate, key: Vec<u8>, value: Vec<u8>) {
         }
         Some(StateRecord::PostponedReceipt(receipt)) => {
             println!("Postponed receipt {:?}", receipt);
+        }
+        Some(StateRecord::DelayedReceipt(receipt)) => {
+            println!("Delayed receipt {:?}", receipt);
         }
         None => (),
     }

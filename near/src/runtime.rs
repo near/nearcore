@@ -358,7 +358,7 @@ pub fn state_record_to_shard_id(state_record: &StateRecord, num_shards: NumShard
         | StateRecord::Contract { account_id, .. }
         | StateRecord::ReceivedData { account_id, .. }
         | StateRecord::Data { account_id, .. } => account_id_to_shard_id(account_id, num_shards),
-        StateRecord::PostponedReceipt(receipt) => {
+        StateRecord::PostponedReceipt(receipt) | StateRecord::DelayedReceipt(receipt) => {
             account_id_to_shard_id(&receipt.receiver_id, num_shards)
         }
     }

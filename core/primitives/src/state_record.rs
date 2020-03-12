@@ -28,4 +28,6 @@ pub enum StateRecord {
         #[serde(with = "option_base64_format")]
         data: Option<Vec<u8>>,
     },
+    /// Delayed Receipt. A receipt wasn't processed yet. Order of delayed receipts is important.
+    DelayedReceipt(Box<ReceiptView>),
 }
