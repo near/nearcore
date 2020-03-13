@@ -46,12 +46,9 @@ fn kv_to_state_record(key: Vec<u8>, value: Vec<u8>) -> Option<StateRecord> {
             if separator.is_some() {
                 Some(StateRecord::Data { key: to_base64(&key), value: to_base64(&value) })
             } else {
-                let mut account = Account::try_from_slice(&value).unwrap();
-                // TODO(#1200): When dumping state, all accounts have to pay rent
-                account.storage_paid_at = 0;
                 Some(StateRecord::Account {
                     account_id: String::from_utf8(key[1..].to_vec()).unwrap(),
-                    account: account.into(),
+                    account: Account::try_from_slice(&value).unwrap().into(),
                 })
             }
         }
@@ -337,6 +334,7 @@ fn main() {
             let home_dir = PathBuf::from(&home_dir);
 
             println!("Generating genesis from state data");
+            let genesis_height = height + 1;
 
             let mut records = vec![];
             for state_root in &state_roots {
@@ -348,7 +346,7 @@ fn main() {
                     }
                 }
             }
-            let genesis_height = height + 1;
+
             let mut genesis_config = near_config.genesis.config.clone();
             genesis_config.genesis_height = genesis_height;
             let genesis = Arc::new(Genesis::new(genesis_config, records.into()));

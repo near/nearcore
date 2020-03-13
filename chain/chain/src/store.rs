@@ -245,6 +245,8 @@ pub trait ChainStoreAccess {
         block_hash: &CryptoHash,
         state_changes_request: &StateChangesRequest,
     ) -> Result<StateChanges, Error>;
+
+    fn get_genesis_height(&self) -> BlockHeight;
 }
 
 /// All chain-related database operations.
@@ -942,6 +944,10 @@ impl ChainStoreAccess for ChainStore {
             }
         })
     }
+
+    fn get_genesis_height(&self) -> BlockHeight {
+        self.genesis_height
+    }
 }
 
 /// Cache update for ChainStore
@@ -1426,6 +1432,10 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
         state_changes_request: &StateChangesRequest,
     ) -> Result<StateChanges, Error> {
         self.chain_store.get_key_value_changes(block_hash, state_changes_request)
+    }
+
+    fn get_genesis_height(&self) -> BlockHeight {
+        self.chain_store.genesis_height
     }
 }
 

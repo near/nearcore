@@ -5,7 +5,7 @@ use tempdir::TempDir;
 use near_client::GetBlock;
 use near_network::test_utils::WaitOrTimeout;
 use near_primitives::test_utils::heavy_test;
-use near_primitives::types::{BlockHeight, BlockHeightDelta, NumSeats, NumShards};
+use near_primitives::types::{BlockHeightDelta, NumSeats, NumShards};
 use rand::{thread_rng, Rng};
 use testlib::start_nodes;
 
