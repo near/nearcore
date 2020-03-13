@@ -25,6 +25,7 @@ pytest --timeout=240 sanity/block_sync.py
 pytest --timeout=240 sanity/validator_switch.py
 pytest --timeout=240 sanity/restaked.py
 pytest --timeout=240 sanity/rpc_key_value_changes.py
+pytest --timeout=240 sanity/transaction_status.py
 
 # python stress tests
 # pytest --timeout=2000 stress/stress.py 3 3 3 0 staking transactions local_network

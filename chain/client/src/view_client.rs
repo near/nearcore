@@ -29,8 +29,9 @@ use near_primitives::types::{
     AccountId, BlockHeight, BlockId, BlockIdOrFinality, Finality, MaybeBlockId,
 };
 use near_primitives::views::{
-    BlockView, ChunkView, EpochValidatorInfo, FinalExecutionOutcomeView, FinalExecutionStatus,
-    GasPriceView, LightClientBlockView, QueryRequest, QueryResponse, StateChangesView,
+    BlockView, ChunkView, EpochValidatorInfo, ExecutionStatusView, FinalExecutionOutcomeView,
+    FinalExecutionStatus, GasPriceView, LightClientBlockView, QueryRequest, QueryResponse,
+    StateChangesView,
 };
 use near_store::Store;
 
@@ -237,36 +238,48 @@ impl ViewClientActor {
         let head = self.chain.head().map_err(|e| e.to_string())?.clone();
         if has_tx_result {
             let tx_result = self.chain.get_final_transaction_result(&tx_hash)?;
+            let mut has_all_receipt_results = true;
             match tx_result.status {
-                FinalExecutionStatus::NotStarted | FinalExecutionStatus::Started => {
+                FinalExecutionStatus::NotStarted
+                | FinalExecutionStatus::Started
+                | FinalExecutionStatus::SuccessValue(_) => {
                     for receipt_view in tx_result.receipts_outcome.iter() {
-                        let dst_shard_id = *self
-                            .chain
-                            .get_shard_id_for_receipt_id(&receipt_view.id)
-                            .map_err(|e| e.to_string())?;
-                        if self.chain.get_chunk_extra(&head.last_block_hash, dst_shard_id).is_err()
-                        {
-                            if Self::need_request(
-                                receipt_view.id,
-                                &mut self.receipt_outcome_requests,
-                            ) {
-                                let validator = self
-                                    .chain
-                                    .find_validator_for_forwarding(dst_shard_id)
-                                    .map_err(|e| e.to_string())?;
-                                self.network_adapter.do_send(
-                                    NetworkRequests::ReceiptOutComeRequest(
-                                        validator,
-                                        receipt_view.id,
-                                    ),
-                                );
+                        if let ExecutionStatusView::Unknown = receipt_view.outcome.status {
+                            let dst_shard_id = *self
+                                .chain
+                                .get_shard_id_for_receipt_id(&receipt_view.id)
+                                .map_err(|e| e.to_string())?;
+                            if self
+                                .chain
+                                .get_chunk_extra(&head.last_block_hash, dst_shard_id)
+                                .is_err()
+                            {
+                                if Self::need_request(
+                                    receipt_view.id,
+                                    &mut self.receipt_outcome_requests,
+                                ) {
+                                    let validator = self
+                                        .chain
+                                        .find_validator_for_forwarding(dst_shard_id)
+                                        .map_err(|e| e.to_string())?;
+                                    self.network_adapter.do_send(
+                                        NetworkRequests::ReceiptOutComeRequest(
+                                            validator,
+                                            receipt_view.id,
+                                        ),
+                                    );
+                                }
                             }
+                            has_all_receipt_results = false;
                         }
                     }
                 }
-                FinalExecutionStatus::SuccessValue(_) | FinalExecutionStatus::Failure(_) => {}
+                FinalExecutionStatus::Failure(_) => {}
             }
-            return Ok(Some(tx_result));
+            if has_all_receipt_results {
+                return Ok(Some(tx_result));
+            }
+            return Ok(None);
         }
 
         if Self::need_request(tx_hash, &mut self.tx_status_requests) {
