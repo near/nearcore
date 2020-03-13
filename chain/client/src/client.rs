@@ -578,7 +578,7 @@ impl Client {
                     &mut |tx: &SignedTransaction| -> bool {
                         chain
                             .mut_store()
-                            .check_blocks_on_same_chain(
+                            .check_transaction_validity_period(
                                 &prev_block_header,
                                 &tx.transaction.block_hash,
                                 transaction_validity_period,
@@ -1101,7 +1101,10 @@ impl Client {
         )
         .clone();
         let transaction_validity_period = self.chain.transaction_validity_period;
-        if let Err(e) = self.chain.mut_store().check_blocks_on_same_chain(
+        // here it is fine to use `cur_block_header` as it is a best effort estimate. If the transaction
+        // were to be included, the block that the chunk points to will have height >= height of
+        // `cur_block_header`.
+        if let Err(e) = self.chain.mut_store().check_transaction_validity_period(
             &cur_block_header,
             &tx.transaction.block_hash,
             transaction_validity_period,

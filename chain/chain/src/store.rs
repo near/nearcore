@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, HashSet};
 use std::convert::TryFrom;
 use std::io;
 use std::sync::Arc;
@@ -21,8 +21,8 @@ use near_primitives::transaction::{
     ExecutionOutcomeWithId, ExecutionOutcomeWithIdAndProof, SignedTransaction,
 };
 use near_primitives::types::{
-    AccountId, BlockExtra, BlockHeight, ChunkExtra, EpochId, NumBlocks, RawStateChangesList,
-    ShardId, StateChanges, StateChangesExt, StateChangesRequest,
+    AccountId, BlockExtra, BlockHeight, ChunkExtra, EpochId, RawStateChangesList, ShardId,
+    StateChanges, StateChangesExt, StateChangesRequest,
 };
 use near_primitives::utils::{index_to_bytes, to_timestamp};
 use near_primitives::views::LightClientBlockView;
@@ -77,97 +77,6 @@ pub struct StateSyncInfo {
     pub epoch_tail_hash: CryptoHash,
     /// Shards to fetch state
     pub shards: Vec<ShardInfo>,
-}
-
-/// Header cache used for transaction history validation.
-/// The headers stored here should be all on the same fork.
-pub struct HeaderList {
-    queue: VecDeque<CryptoHash>,
-    headers: HashMap<CryptoHash, BlockHeader>,
-}
-
-impl HeaderList {
-    pub fn new() -> Self {
-        HeaderList { queue: VecDeque::default(), headers: HashMap::default() }
-    }
-
-    pub fn len(&self) -> usize {
-        self.queue.len()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.queue.is_empty()
-    }
-
-    pub fn contains(&self, hash: &CryptoHash) -> bool {
-        self.headers.contains_key(hash)
-    }
-
-    pub fn push_back(&mut self, block_header: BlockHeader) {
-        self.queue.push_back(block_header.hash);
-        self.headers.insert(block_header.hash, block_header);
-    }
-
-    pub fn push_front(&mut self, block_header: BlockHeader) {
-        let block_hash = block_header.hash;
-        self.queue.push_front(block_hash);
-        self.headers.insert(block_hash, block_header);
-    }
-
-    pub fn pop_front(&mut self) -> Option<BlockHeader> {
-        let front = if let Some(hash) = self.queue.pop_front() {
-            hash
-        } else {
-            return None;
-        };
-        let header = self.headers.remove(&front).unwrap();
-        Some(header)
-    }
-
-    pub fn pop_back(&mut self) -> Option<BlockHeader> {
-        let back = if let Some(hash) = self.queue.pop_back() {
-            hash
-        } else {
-            return None;
-        };
-        let header = self.headers.remove(&back).unwrap();
-        Some(header)
-    }
-
-    pub fn from_headers(headers: Vec<BlockHeader>) -> Self {
-        let mut res = Self::new();
-        for header in headers {
-            res.push_back(header);
-        }
-        res
-    }
-
-    /// Tries to update the cache. if `hash` is in the cache, remove everything before `hash`
-    /// and replace them with `new_list`. `new_list` must contain contiguous block headers, ordered
-    /// from higher height to lower height.
-    /// Returns true if `hash` is in the cache and false otherwise.
-    fn update(&mut self, hash: &CryptoHash, new_list: &[BlockHeader]) -> bool {
-        if !self.headers.contains_key(hash) {
-            return false;
-        }
-        loop {
-            let front = if let Some(elem) = self.queue.front() {
-                elem.clone()
-            } else {
-                break;
-            };
-            if &front == hash {
-                break;
-            } else {
-                self.queue.pop_front();
-                self.headers.remove(&front);
-            }
-        }
-        for header in new_list.into_iter().rev() {
-            self.push_front(header.clone());
-        }
-        true
-    }
 }
 
 /// Accesses the chain store. Used to create atomic editable views that can be reverted.
@@ -347,8 +256,6 @@ pub struct ChainStore {
     latest_known: Option<LatestKnown>,
     /// Cache with headers.
     headers: SizedCache<Vec<u8>, BlockHeader>,
-    /// Cache with headers for transaction validation.
-    header_history: HeaderList,
     /// Cache with blocks.
     blocks: SizedCache<Vec<u8>, Block>,
     /// Cache with chunks
@@ -408,7 +315,6 @@ impl ChainStore {
             latest_known: None,
             blocks: SizedCache::with_size(CACHE_SIZE),
             headers: SizedCache::with_size(CACHE_SIZE),
-            header_history: HeaderList::new(),
             chunks: SizedCache::with_size(CHUNK_CACHE_SIZE),
             partial_chunks: SizedCache::with_size(CHUNK_CACHE_SIZE),
             block_extras: SizedCache::with_size(CACHE_SIZE),
@@ -476,72 +382,68 @@ impl ChainStore {
         }
     }
 
-    pub fn check_blocks_on_same_chain(
+    /// For a given transaction, it expires if the block that the chunk points to is more than `validity_period`
+    /// ahead of the block that has `base_block_hash`.
+    pub fn check_transaction_validity_period(
         &mut self,
-        cur_header: &BlockHeader,
+        prev_block_header: &BlockHeader,
         base_block_hash: &CryptoHash,
-        max_difference_in_blocks: NumBlocks,
+        validity_period: BlockHeight,
     ) -> Result<(), InvalidTxError> {
-        // first step: update cache head
-        if self.header_history.is_empty() {
-            self.header_history.push_back(cur_header.clone());
+        // if both are on the canonical chain, comparing height is sufficient
+        // we special case this because it is expected that this scenario will happen in most cases.
+        let base_height = self
+            .get_block_header(base_block_hash)
+            .map_err(|_| InvalidTxError::Expired)?
+            .inner_lite
+            .height;
+        let prev_height = prev_block_header.inner_lite.height;
+        if let Ok(base_block_hash_by_height) = self.get_block_hash_by_height(base_height) {
+            if &base_block_hash_by_height == base_block_hash {
+                if let Ok(prev_hash) = self.get_block_hash_by_height(prev_height) {
+                    if prev_hash == prev_block_header.hash {
+                        if prev_height <= base_height + validity_period {
+                            return Ok(());
+                        } else {
+                            return Err(InvalidTxError::Expired);
+                        }
+                    }
+                }
+            }
         }
-        let mut prev_block_hash = cur_header.prev_hash;
 
-        let contains_hash = self.header_history.update(&cur_header.hash, &[]);
-        if !contains_hash {
-            let mut header_list = vec![cur_header.clone()];
-            let mut found_ancestor = false;
-            while !self.header_history.is_empty() {
-                let prev_block_header = if let Ok(header) = self.get_block_header(&prev_block_hash)
-                {
-                    header.clone()
+        // if the base block height is smaller than `last_final_height` we only need to check
+        // whether the base block is the same as the one with that height on the canonical fork.
+        // Otherwise we walk back the chain to check whether base block is on the same chain.
+        let last_final_height = self
+            .get_block_height(&prev_block_header.inner_rest.last_quorum_pre_commit)
+            .map_err(|_| InvalidTxError::InvalidChain)?;
+
+        if prev_height > base_height + validity_period {
+            Err(InvalidTxError::Expired)
+        } else if last_final_height >= base_height {
+            let base_block_hash_by_height = self
+                .get_block_hash_by_height(base_height)
+                .map_err(|_| InvalidTxError::InvalidChain)?;
+            if &base_block_hash_by_height == base_block_hash {
+                if prev_height <= base_height + validity_period {
+                    Ok(())
                 } else {
-                    return Err(InvalidTxError::InvalidChain);
-                };
-                self.header_history.pop_front();
-                if self.header_history.update(&prev_block_header.hash, &header_list) {
-                    found_ancestor = true;
-                    break;
+                    Err(InvalidTxError::Expired)
                 }
-                prev_block_hash = prev_block_header.prev_hash;
-                header_list.push(prev_block_header);
-            }
-            if !found_ancestor {
-                self.header_history = HeaderList::from_headers(header_list);
-            }
-            // It is possible that cur_len is max_difference_in_blocks + 1 after the above update.
-            let cur_len = self.header_history.len() as NumBlocks;
-            if cur_len > max_difference_in_blocks {
-                for _ in 0..cur_len - max_difference_in_blocks {
-                    self.header_history.pop_back();
-                }
-            }
-        }
-
-        // second step: check if `base_block_hash` exists
-        assert!(max_difference_in_blocks >= self.header_history.len() as NumBlocks);
-        if self.header_history.contains(base_block_hash) {
-            return Ok(());
-        }
-        let num_to_fetch = max_difference_in_blocks - self.header_history.len() as NumBlocks;
-        // here the queue cannot be empty so it is safe to unwrap
-        let last_hash = self.header_history.queue.back().unwrap();
-        prev_block_hash = self.header_history.headers.get(last_hash).unwrap().prev_hash;
-        for _ in 0..num_to_fetch {
-            let cur_block_header = if let Ok(header) = self.get_block_header(&prev_block_hash) {
-                header.clone()
             } else {
-                return Err(InvalidTxError::InvalidChain);
-            };
-            prev_block_hash = cur_block_header.prev_hash;
-            let cur_block_hash = cur_block_header.hash;
-            self.header_history.push_back(cur_block_header);
-            if &cur_block_hash == base_block_hash {
-                return Ok(());
+                Err(InvalidTxError::InvalidChain)
+            }
+        } else {
+            let header = self
+                .get_header_on_chain_by_height(&prev_block_header.hash, base_height)
+                .map_err(|_| InvalidTxError::InvalidChain)?;
+            if &header.hash == base_block_hash {
+                Ok(())
+            } else {
+                Err(InvalidTxError::InvalidChain)
             }
         }
-        Err(InvalidTxError::Expired)
     }
 
     pub fn get_block_height(&mut self, hash: &CryptoHash) -> Result<BlockHeight, Error> {
@@ -2326,7 +2228,7 @@ mod tests {
     }
 
     #[test]
-    fn test_header_cache_long_fork() {
+    fn test_tx_validity_long_fork() {
         let transaction_validity_period = 5;
         let mut chain = get_chain();
         let genesis = chain.get_block_by_height(0).unwrap().clone();
@@ -2340,7 +2242,7 @@ mod tests {
         let short_fork_head = short_fork[0].clone().header;
         assert!(chain
             .mut_store()
-            .check_blocks_on_same_chain(
+            .check_transaction_validity_period(
                 &short_fork_head,
                 &genesis.hash(),
                 transaction_validity_period
@@ -2349,7 +2251,7 @@ mod tests {
         let mut long_fork = vec![];
         let mut prev_block = genesis.clone();
         let mut store_update = chain.mut_store().store_update();
-        for i in 1..(transaction_validity_period + 2) {
+        for i in 1..(transaction_validity_period + 3) {
             let block = Block::empty_with_height(&prev_block, i, &*signer.clone());
             prev_block = block.clone();
             store_update.save_block_header(block.header.clone());
@@ -2358,32 +2260,28 @@ mod tests {
         store_update.commit().unwrap();
         let valid_base_hash = long_fork[1].hash();
         let cur_header = &long_fork.last().unwrap().header;
+        println!("here");
         assert!(chain
             .mut_store()
-            .check_blocks_on_same_chain(cur_header, &valid_base_hash, transaction_validity_period)
+            .check_transaction_validity_period(
+                cur_header,
+                &valid_base_hash,
+                transaction_validity_period
+            )
             .is_ok());
         let invalid_base_hash = long_fork[0].hash();
         assert_eq!(
-            chain.mut_store().check_blocks_on_same_chain(
+            chain.mut_store().check_transaction_validity_period(
                 cur_header,
                 &invalid_base_hash,
                 transaction_validity_period
             ),
             Err(InvalidTxError::Expired)
         );
-        assert_eq!(
-            chain.store().header_history.queue.clone().into_iter().collect::<Vec<_>>(),
-            long_fork
-                .iter()
-                .rev()
-                .take(transaction_validity_period as usize)
-                .map(|h| h.hash())
-                .collect::<Vec<_>>()
-        );
     }
 
     #[test]
-    fn test_header_cache_normal_case() {
+    fn test_tx_validity_normal_case() {
         let transaction_validity_period = 5;
         let mut chain = get_chain();
         let genesis = chain.get_block_by_height(0).unwrap().clone();
@@ -2403,19 +2301,22 @@ mod tests {
         let cur_header = &blocks.last().unwrap().header;
         assert!(chain
             .mut_store()
-            .check_blocks_on_same_chain(cur_header, &valid_base_hash, transaction_validity_period)
+            .check_transaction_validity_period(
+                cur_header,
+                &valid_base_hash,
+                transaction_validity_period
+            )
             .is_ok());
-        assert_eq!(chain.store().header_history.len(), transaction_validity_period as usize);
         let new_block = Block::empty_with_height(
             &blocks.last().unwrap(),
-            transaction_validity_period + 2,
+            transaction_validity_period + 3,
             &*signer.clone(),
         );
         let mut store_update = chain.mut_store().store_update();
         store_update.save_block_header(new_block.header.clone());
         store_update.commit().unwrap();
         assert_eq!(
-            chain.mut_store().check_blocks_on_same_chain(
+            chain.mut_store().check_transaction_validity_period(
                 &new_block.header,
                 &valid_base_hash,
                 transaction_validity_period
@@ -2425,7 +2326,7 @@ mod tests {
     }
 
     #[test]
-    fn test_header_cache_off_by_one() {
+    fn test_tx_validity_off_by_one() {
         let transaction_validity_period = 5;
         let mut chain = get_chain();
         let genesis = chain.get_block_by_height(0).unwrap().clone();
@@ -2434,7 +2335,7 @@ mod tests {
         let mut short_fork = vec![];
         let mut prev_block = genesis.clone();
         let mut store_update = chain.mut_store().store_update();
-        for i in 1..(transaction_validity_period + 1) {
+        for i in 1..(transaction_validity_period + 2) {
             let block = Block::empty_with_height(&prev_block, i, &*signer.clone());
             prev_block = block.clone();
             store_update.save_block_header(block.header.clone());
@@ -2444,7 +2345,7 @@ mod tests {
 
         let short_fork_head = short_fork.last().unwrap().clone().header;
         assert_eq!(
-            chain.mut_store().check_blocks_on_same_chain(
+            chain.mut_store().check_transaction_validity_period(
                 &short_fork_head,
                 &genesis.hash(),
                 transaction_validity_period
@@ -2463,7 +2364,7 @@ mod tests {
         store_update.commit().unwrap();
         let long_fork_head = &long_fork.last().unwrap().header;
         assert_eq!(
-            chain.mut_store().check_blocks_on_same_chain(
+            chain.mut_store().check_transaction_validity_period(
                 long_fork_head,
                 &genesis.hash(),
                 transaction_validity_period
