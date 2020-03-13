@@ -44,7 +44,7 @@ res = nodes[0].send_tx_and_wait(tx, timeout=10)
 
 for receipt_outcome in res['result']['receipts_outcome']:
     assert 'SuccessValue' in receipt_outcome['outcome']['status']
-    
+
 # query new account immediately
 res = nodes[0].get_account('new_account')
 assert int(res['result']['amount']) == 100, res

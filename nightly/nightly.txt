@@ -27,6 +27,10 @@ pytest --timeout=240 sanity/restaked.py
 pytest --timeout=240 sanity/rpc_key_value_changes.py
 pytest --timeout=240 sanity/transaction_status.py
 
+# python tests for smart contract deployment and invocation
+pytest contracts/deploy_call_smart_contract.py
+pytest contracts/gibberish.py
+
 # python stress tests
 # pytest --timeout=2000 stress/stress.py 3 3 3 0 staking transactions local_network
 pytest --timeout=2000 stress/stress.py 3 3 3 0 staking transactions node_restart
