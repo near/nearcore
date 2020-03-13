@@ -32,7 +32,6 @@ use near_primitives::views::{
     BlockView, ChunkView, EpochValidatorInfo, FinalExecutionOutcomeView, FinalExecutionStatus,
     GasPriceView, LightClientBlockView, QueryRequest, QueryResponse, StateChangesView,
 };
-use near_store::Store;
 
 use crate::types::{Error, GetBlock, GetGasPrice, Query, TxStatus};
 use crate::{sync, GetChunk, GetKeyValueChanges, GetNextLightClientBlock, GetValidatorInfo};
@@ -69,7 +68,6 @@ pub struct ViewClientActor {
 
 impl ViewClientActor {
     pub fn new(
-        store: Arc<Store>,
         chain_genesis: &ChainGenesis,
         runtime_adapter: Arc<dyn RuntimeAdapter>,
         network_adapter: Arc<dyn NetworkAdapter>,
@@ -77,12 +75,8 @@ impl ViewClientActor {
         expected_genesis_hash: Option<String>,
     ) -> Result<Self, Error> {
         // TODO: should we create shared ChainStore that is passed to both Client and ViewClient?
-        let mut chain = Chain::new(
-            store,
-            runtime_adapter.clone(),
-            chain_genesis,
-            DoomslugThresholdMode::HalfStake,
-        )?;
+        let mut chain =
+            Chain::new(runtime_adapter.clone(), chain_genesis, DoomslugThresholdMode::HalfStake)?;
         if let Some(expected_genesis_hash) = expected_genesis_hash {
             let genesis_hash = chain.get_block_by_height(0).unwrap().hash().to_string();
             if genesis_hash != expected_genesis_hash {
