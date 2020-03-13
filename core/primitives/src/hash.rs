@@ -1,7 +1,6 @@
 use std::convert::TryFrom;
 use std::fmt;
 use std::hash::{Hash, Hasher};
-use std::io::Read;
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
@@ -44,10 +43,8 @@ impl borsh::BorshSerialize for CryptoHash {
 }
 
 impl borsh::BorshDeserialize for CryptoHash {
-    fn deserialize<R: Read>(reader: &mut R) -> Result<Self, std::io::Error> {
-        let mut bytes = [0; 32];
-        reader.read_exact(&mut bytes)?;
-        Ok(CryptoHash(Digest(bytes)))
+    fn deserialize(buf: &mut &[u8]) -> Result<Self, std::io::Error> {
+        Ok(CryptoHash(Digest(borsh::BorshDeserialize::deserialize(buf)?)))
     }
 }
 

@@ -141,7 +141,7 @@ impl NightshadeRuntime {
         }
     }
 
-    fn genesis_state_from_dump(&self) -> (StoreUpdate, Vec<StateRoot>) {
+    fn genesis_state_from_dump(&self) -> (Arc<Store>, StoreUpdate, Vec<StateRoot>) {
         let store_update = self.store.store_update();
         let mut state_file = self.home_dir.clone();
         state_file.push(STATE_DUMP_FILE);
@@ -155,10 +155,10 @@ impl NightshadeRuntime {
         file.read_to_end(&mut data).expect("Failed to read genesis roots file.");
         let state_roots: Vec<StateRoot> =
             BorshDeserialize::try_from_slice(&data).expect("Failed to deserialize genesis roots");
-        (store_update, state_roots)
+        (self.store.clone(), store_update, state_roots)
     }
 
-    fn genesis_state_from_records(&self) -> (StoreUpdate, Vec<StateRoot>) {
+    fn genesis_state_from_records(&self) -> (Arc<Store>, StoreUpdate, Vec<StateRoot>) {
         let mut store_update = self.store.store_update();
         let mut state_roots = vec![];
         let num_shards = self.genesis.config.num_block_producer_seats_per_shard.len() as NumShards;
@@ -201,7 +201,7 @@ impl NightshadeRuntime {
             store_update.merge(shard_store_update);
             state_roots.push(state_root);
         }
-        (store_update, state_roots)
+        (self.store.clone(), store_update, state_roots)
     }
 
     /// Processes state update.
@@ -377,7 +377,7 @@ pub fn state_record_to_shard_id(state_record: &StateRecord, num_shards: NumShard
 }
 
 impl RuntimeAdapter for NightshadeRuntime {
-    fn genesis_state(&self) -> (StoreUpdate, Vec<StateRoot>) {
+    fn genesis_state(&self) -> (Arc<Store>, StoreUpdate, Vec<StateRoot>) {
         let has_records = !self.genesis.records.as_ref().is_empty();
         let has_dump = {
             let mut state_dump = self.home_dir.clone();
@@ -1335,7 +1335,7 @@ mod test {
                 initial_tracked_accounts,
                 initial_tracked_shards,
             );
-            let (store_update, state_roots) = runtime.genesis_state();
+            let (_store, store_update, state_roots) = runtime.genesis_state();
             store_update.commit().unwrap();
             let genesis_hash = hash(&vec![0]);
             runtime

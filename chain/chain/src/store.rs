@@ -2215,13 +2215,7 @@ mod tests {
             1,
             10,
         ));
-        Chain::new(
-            store.clone(),
-            runtime_adapter,
-            &chain_genesis,
-            DoomslugThresholdMode::NoApprovals,
-        )
-        .unwrap()
+        Chain::new(runtime_adapter, &chain_genesis, DoomslugThresholdMode::NoApprovals).unwrap()
     }
 
     #[test]
