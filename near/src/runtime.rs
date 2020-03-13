@@ -11,7 +11,7 @@ use borsh::BorshDeserialize;
 use log::debug;
 
 use near_chain::types::ApplyTransactionResult;
-use near_chain::{BlockHeader, ChainStore, ChainStoreAccess, Error, ErrorKind, RuntimeAdapter};
+use near_chain::{BlockHeader, Error, ErrorKind, RuntimeAdapter};
 use near_chain_configs::Genesis;
 use near_crypto::{PublicKey, Signature};
 use near_epoch_manager::{BlockInfo, EpochConfig, EpochError, EpochManager, RewardCalculator};
@@ -28,8 +28,7 @@ use near_primitives::state_record::StateRecord;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, EpochId, Gas, MerkleHash, NumShards, ShardId,
-    StateChangeCause, StateChanges, StateChangesRequest, StateRoot, StateRootNode, ValidatorStake,
-    ValidatorStats,
+    StateChangeCause, StateRoot, StateRootNode, ValidatorStake, ValidatorStats,
 };
 use near_primitives::utils::{KeyForAccessKey, ACCOUNT_DATA_SEPARATOR};
 use near_primitives::views::{
@@ -1111,15 +1110,6 @@ impl RuntimeAdapter for NightshadeRuntime {
                 Err(_) => false, // Invalid state_root_node
             }
         }
-    }
-
-    fn get_key_value_changes(
-        &self,
-        block_hash: &CryptoHash,
-        state_changes_request: &StateChangesRequest,
-    ) -> Result<StateChanges, Box<dyn std::error::Error>> {
-        let chain_store = ChainStore::new(Arc::clone(&self.store));
-        chain_store.get_key_value_changes(block_hash, state_changes_request).map_err(|e| e.into())
     }
 
     fn compare_epoch_id(

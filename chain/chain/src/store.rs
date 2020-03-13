@@ -22,7 +22,7 @@ use near_primitives::transaction::{
 };
 use near_primitives::types::{
     AccountId, BlockExtra, BlockHeight, ChunkExtra, EpochId, RawStateChangesList, ShardId,
-    StateChanges, StateChangesExt, StateChangesRequest,
+    StateChanges, StateChangesExt, StateChangesKinds, StateChangesKindsExt, StateChangesRequest,
 };
 use near_primitives::utils::{index_to_bytes, to_timestamp};
 use near_primitives::views::LightClientBlockView;
@@ -239,6 +239,11 @@ pub trait ChainStoreAccess {
         &mut self,
         tx_hash: &CryptoHash,
     ) -> Result<Option<&SignedTransaction>, Error>;
+
+    fn get_key_value_changes_in_block(
+        &self,
+        block_hash: &CryptoHash,
+    ) -> Result<StateChangesKinds, Error>;
 
     fn get_key_value_changes(
         &self,
@@ -818,6 +823,44 @@ impl ChainStoreAccess for ChainStore {
     ) -> Result<Option<&SignedTransaction>, Error> {
         read_with_cache(&*self.store, ColTransactions, &mut self.transactions, tx_hash.as_ref())
             .map_err(|e| e.into())
+    }
+
+    /// Retrieve the kinds of state changes occurred in a given block.
+    ///
+    /// We store different types of data, so we prefer to only expose minimal information about the
+    /// changes (i.e. a kind of the change and an account id).
+    fn get_key_value_changes_in_block(
+        &self,
+        block_hash: &CryptoHash,
+    ) -> Result<StateChangesKinds, Error> {
+        // We store the trie changes under a compound key: `block_hash + trie_key`, so when we
+        // query the changes, we reverse the process by splitting the key using simple slicing of an
+        // array of bytes, essentially, extracting `trie_key`.
+        //
+        // Example: data changes are stored under a key:
+        //
+        //     block_hash + (col::ACCOUNT + account_id + ACCOUNT_DATA_SEPARATOR + user_specified_key)
+        //
+        // Thus, to query the list of touched accounts we do the following:
+        // 1. Query RocksDB for `block_hash` prefix.
+        // 2. Split off the `block_hash` out of the keys returned by RocksDB using simple slicing by
+        //    `common_storage_key_prefix_len`
+        // 3. Try extracting `account_id` from the key using KeyFor* implementations
+
+        let storage_key = block_hash.as_ref().to_vec();
+        let common_storage_key_prefix_len = storage_key.len();
+
+        let mut block_changes = self
+            .store
+            .iter_prefix_ser::<RawStateChangesList>(ColKeyValueChanges, &storage_key)
+            .map(|change| {
+                // Split off the irrelevant part of the key, so only the original trie_key is left.
+                let (key, state_changes) = change?;
+                let key = OwningRef::new(key).map(|key| &key[common_storage_key_prefix_len..]);
+                Ok((key, state_changes))
+            });
+
+        Ok(StateChangesKinds::from_changes(&mut block_changes)?)
     }
 
     /// Retrieve the key-value changes from the store and decode them appropriately.
@@ -1415,6 +1458,13 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
         } else {
             self.chain_store.get_transaction(tx_hash)
         }
+    }
+
+    fn get_key_value_changes_in_block(
+        &self,
+        block_hash: &CryptoHash,
+    ) -> Result<StateChangesKinds, Error> {
+        self.chain_store.get_key_value_changes_in_block(block_hash)
     }
 
     fn get_key_value_changes(

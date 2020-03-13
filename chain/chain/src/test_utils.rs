@@ -23,8 +23,8 @@ use near_primitives::transaction::{
     TransferAction,
 };
 use near_primitives::types::{
-    AccountId, Balance, BlockHeight, EpochId, Gas, Nonce, NumBlocks, ShardId, StateChanges,
-    StateChangesRequest, StateRoot, StateRootNode, ValidatorStake, ValidatorStats,
+    AccountId, Balance, BlockHeight, EpochId, Gas, Nonce, NumBlocks, ShardId, StateRoot,
+    StateRootNode, ValidatorStake, ValidatorStats,
 };
 use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_primitives::views::{
@@ -842,14 +842,6 @@ impl RuntimeAdapter for KeyValueRuntime {
             next_fishermen: vec![],
             current_proposals: vec![],
         })
-    }
-
-    fn get_key_value_changes(
-        &self,
-        _block_hash: &CryptoHash,
-        _state_changes_request: &StateChangesRequest,
-    ) -> Result<StateChanges, Box<dyn std::error::Error>> {
-        Ok(Default::default())
     }
 
     fn push_final_block_back_if_needed(
