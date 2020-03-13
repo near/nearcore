@@ -1108,12 +1108,6 @@ impl Client {
             self.runtime_adapter.get_epoch_start_height(&head.last_block_hash)?
                 + self.config.epoch_length;
 
-        // We don't know exactly when the next epoch will start.
-        // The condition is a heuristic and is defined the following way:
-        // 1. Height >= (next_epoch_estimated_height - tx_horizon)
-        // 2. We are not a validator in the next epoch for the next few chunks
-        // Second condition is to protect us from forwarding back and forth in a loop:
-        // a loop can still happen, but requires head to constantly update.
         let epoch_boundary_possible =
             head.height + TX_ROUTING_HEIGHT_HORIZON >= next_epoch_estimated_height;
 
@@ -1133,7 +1127,7 @@ impl Client {
         let head = self.chain.head()?;
         let me = self.validator_signer.as_ref().map(|vs| vs.validator_id());
         let shard_id = self.runtime_adapter.account_id_to_shard_id(&tx.transaction.signer_id);
-        let cur_block_header = self.chain.get_block_header(&head.last_block_hash)?.clone();
+        let cur_block_header = self.chain.head_header()?.clone();
         let transaction_validity_period = self.chain.transaction_validity_period;
         // here it is fine to use `cur_block_header` as it is a best effort estimate. If the transaction
         // were to be included, the block that the chunk points to will have height >= height of
@@ -1151,8 +1145,7 @@ impl Client {
         if self.runtime_adapter.cares_about_shard(me, &head.last_block_hash, shard_id, true)
             || self.runtime_adapter.will_care_about_shard(me, &head.last_block_hash, shard_id, true)
         {
-            let gas_price =
-                self.chain.get_block_header(&head.last_block_hash)?.inner_rest.gas_price;
+            let gas_price = cur_block_header.inner_rest.gas_price;
             let state_root = match self.chain.get_chunk_extra(&head.last_block_hash, shard_id) {
                 Ok(chunk_extra) => chunk_extra.state_root,
                 Err(_) => {
