@@ -14,7 +14,7 @@ use smart_default::SmartDefault;
 use near_primitives::serialize::{u128_dec_format, u128_dec_format_compatible};
 use near_primitives::state_record::StateRecord;
 use near_primitives::types::{
-    AccountId, AccountInfo, Balance, BlockHeightDelta, Gas, NumBlocks, NumSeats,
+    AccountId, AccountInfo, Balance, BlockHeight, BlockHeightDelta, Gas, NumBlocks, NumSeats,
 };
 use near_runtime_configs::RuntimeConfig;
 
@@ -36,6 +36,8 @@ pub struct GenesisConfig {
     /// ID of the blockchain. This must be unique for every blockchain.
     /// If your testnet blockchains do not have unique chain IDs, you will have a bad time.
     pub chain_id: String,
+    /// Height of genesis block.
+    pub genesis_height: BlockHeight,
     /// Number of block producer seats at genesis.
     pub num_block_producer_seats: NumSeats,
     /// Defines number of shards and number of block producer seats per each shard at genesis.
