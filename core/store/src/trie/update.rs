@@ -3,7 +3,7 @@ use std::iter::Peekable;
 use std::sync::Arc;
 
 use near_primitives::hash::CryptoHash;
-use near_primitives::types::{RawStateChanges, StateChangeCause};
+use near_primitives::types::{RawStateChange, RawStateChanges, StateChangeCause};
 
 use crate::trie::TrieChanges;
 use crate::StorageError;
@@ -55,8 +55,8 @@ impl TrieUpdate {
         if let Some(value) = self.prospective.get(key) {
             return Ok(value.as_ref().map(<Vec<u8>>::clone));
         } else if let Some(changes) = self.committed.get(key) {
-            if let Some((_, last_change)) = changes.last() {
-                return Ok(last_change.as_ref().map(<Vec<u8>>::clone));
+            if let Some(RawStateChange { data, .. }) = changes.last() {
+                return Ok(data.as_ref().map(<Vec<u8>>::clone));
             }
         }
 
@@ -71,8 +71,8 @@ impl TrieUpdate {
         if let Some(value) = self.prospective.get(key) {
             return Ok(value.as_ref().map(TrieUpdateValuePtr::MemoryRef));
         } else if let Some(changes) = self.committed.get(key) {
-            if let Some((_, last_change)) = changes.last() {
-                return Ok(last_change.as_ref().map(TrieUpdateValuePtr::MemoryRef));
+            if let Some(RawStateChange { data, .. }) = changes.last() {
+                return Ok(data.as_ref().map(TrieUpdateValuePtr::MemoryRef));
             }
         }
         self.trie.get_ref(&self.root, key).map(|option| {
@@ -95,8 +95,8 @@ impl TrieUpdate {
                 if !key.starts_with(prefix) {
                     break;
                 }
-                if let Some((_, last_change)) = changes.last() {
-                    prefix_key_value_change.insert(key.to_vec(), last_change.clone());
+                if let Some(RawStateChange { data, .. }) = changes.last() {
+                    prefix_key_value_change.insert(key.to_vec(), data.clone());
                 }
             }
             if !prefix_key_value_change.is_empty() {
@@ -146,8 +146,12 @@ impl TrieUpdate {
     }
 
     pub fn commit(&mut self, event: StateChangeCause) {
-        for (key, val) in std::mem::replace(&mut self.prospective, BTreeMap::new()).into_iter() {
-            self.committed.entry(key).or_default().push((event.clone(), val));
+        let prospective = std::mem::replace(&mut self.prospective, BTreeMap::new());
+        for (key, val) in prospective.into_iter() {
+            self.committed
+                .entry(key)
+                .or_default()
+                .push(RawStateChange { cause: event.clone(), data: val });
         }
     }
 
@@ -161,11 +165,11 @@ impl TrieUpdate {
         trie.update(
             &root,
             committed.iter().map(|(k, changes)| {
-                let (_, last_change) = &changes
+                let RawStateChange { data, .. } = &changes
                     .last()
                     .as_ref()
                     .expect("Committed entry should have at least one change");
-                (k.clone(), last_change.clone())
+                (k.clone(), data.clone())
             }),
         )
     }
@@ -253,7 +257,7 @@ impl<'a> TrieUpdateIterator<'a> {
                         .last()
                         .as_ref()
                         .expect("Committed entry should have at least one change.")
-                        .1,
+                        .data,
                 )
             });
         let prospective_iter = state_update.prospective.range(start_offset..);

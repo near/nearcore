@@ -21,7 +21,7 @@ use near_primitives::transaction::{
     ExecutionOutcomeWithId, ExecutionOutcomeWithIdAndProof, SignedTransaction,
 };
 use near_primitives::types::{
-    AccountId, BlockExtra, BlockHeight, ChunkExtra, EpochId, RawStateChangesList, ShardId,
+    AccountId, BlockExtra, BlockHeight, ChunkExtra, EpochId, RawStateChangesWithKind, ShardId,
     StateChanges, StateChangesExt, StateChangesKinds, StateChangesKindsExt, StateChangesRequest,
 };
 use near_primitives::utils::{index_to_bytes, to_timestamp};
@@ -852,7 +852,7 @@ impl ChainStoreAccess for ChainStore {
 
         let mut block_changes = self
             .store
-            .iter_prefix_ser::<RawStateChangesList>(ColKeyValueChanges, &storage_key)
+            .iter_prefix_ser::<RawStateChangesWithKind>(ColKeyValueChanges, &storage_key)
             .map(|change| {
                 // Split off the irrelevant part of the key, so only the original trie_key is left.
                 let (key, state_changes) = change?;
@@ -921,7 +921,7 @@ impl ChainStoreAccess for ChainStore {
 
         let mut changes_per_key_prefix = self
             .store
-            .iter_prefix_ser::<RawStateChangesList>(ColKeyValueChanges, &storage_key)
+            .iter_prefix_ser::<RawStateChangesWithKind>(ColKeyValueChanges, &storage_key)
             .map(|change| {
                 // Split off the irrelevant part of the key, so only the original trie_key is left.
                 let (key, state_changes) = change?;
@@ -2032,12 +2032,12 @@ impl<'a> ChainStoreUpdate<'a> {
         for transaction in self.chain_store_cache_update.transactions.iter() {
             store_update.set_ser(ColTransactions, transaction.get_hash().as_ref(), transaction)?;
         }
-        for trie_changes in self.trie_changes.drain(..) {
+        for mut trie_changes in self.trie_changes.drain(..) {
             trie_changes
                 .insertions_into(&mut store_update)
                 .map_err(|err| ErrorKind::Other(err.to_string()))?;
             trie_changes
-                .key_value_changes_into(&mut store_update)
+                .state_changes_into(&mut store_update)
                 .map_err(|err| ErrorKind::Other(err.to_string()))?;
             // TODO: save deletions separately for garbage collection.
         }

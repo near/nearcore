@@ -1256,7 +1256,7 @@ mod test {
             gas_limit: Gas,
             challenges: &ChallengesResult,
         ) -> (StateRoot, Vec<ValidatorStake>, ReceiptResult) {
-            let result = self
+            let mut result = self
                 .apply_transactions(
                     shard_id,
                     &state_root,
@@ -1274,7 +1274,7 @@ mod test {
                 .unwrap();
             let mut store_update = self.store.store_update();
             result.trie_changes.insertions_into(&mut store_update).unwrap();
-            result.trie_changes.key_value_changes_into(&mut store_update).unwrap();
+            result.trie_changes.state_changes_into(&mut store_update).unwrap();
             store_update.commit().unwrap();
             (result.new_root, result.validator_proposals, result.receipt_result)
         }

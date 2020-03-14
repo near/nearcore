@@ -5,15 +5,18 @@ use std::fmt;
 use std::io::{Cursor, ErrorKind, Read, Write};
 use std::sync::{Arc, Mutex};
 
-use crate::db::{DBOp, DBTransaction};
+use borsh::BorshSerialize;
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use cached::Cached;
 
 use near_primitives::challenge::PartialState;
 use near_primitives::hash::{hash, CryptoHash};
-use near_primitives::types::{RawStateChanges, StateChangeCause, StateRoot, StateRootNode};
+use near_primitives::types::{
+    RawStateChange, RawStateChanges, RawStateChangesWithKind, StateChangeCause, StateChangeKind,
+    StateRoot, StateRootNode,
+};
 
-use crate::db::DBCol::ColKeyValueChanges;
+use crate::db::{DBCol, DBOp, DBTransaction};
 use crate::trie::insert_delete::NodesStorage;
 use crate::trie::iterator::TrieIterator;
 use crate::trie::nibble_slice::NibbleSlice;
@@ -22,7 +25,7 @@ use crate::trie::trie_storage::{
     TrieStorage,
 };
 use crate::{ColState, StorageError, Store, StoreUpdate};
-use borsh::BorshSerialize;
+use near_primitives::utils::{KeyForAccessKey, KeyForAccount, KeyForCode, KeyForData};
 
 mod insert_delete;
 pub mod iterator;
@@ -522,7 +525,7 @@ impl TrieChanges {
 pub struct WrappedTrieChanges {
     trie: Arc<Trie>,
     trie_changes: TrieChanges,
-    kv_changes: RawStateChanges,
+    state_changes: RawStateChanges,
     block_hash: CryptoHash,
 }
 
@@ -533,7 +536,7 @@ impl WrappedTrieChanges {
         kv_changes: RawStateChanges,
         block_hash: CryptoHash,
     ) -> Self {
-        WrappedTrieChanges { trie, trie_changes, kv_changes, block_hash }
+        WrappedTrieChanges { trie, trie_changes, state_changes: kv_changes, block_hash }
     }
 
     pub fn insertions_into(
@@ -550,15 +553,20 @@ impl WrappedTrieChanges {
         self.trie_changes.deletions_into(self.trie.clone(), store_update)
     }
 
-    pub fn key_value_changes_into(
-        &self,
+    /// Save state changes into Store.
+    ///
+    /// NOTE: the changes are drained from `self`.
+    pub fn state_changes_into(
+        &mut self,
         store_update: &mut StoreUpdate,
     ) -> Result<(), Box<dyn std::error::Error>> {
         store_update.trie = Some(self.trie.clone());
-        for (key, changes) in &self.kv_changes {
+        for (key, raw_changes) in
+            std::mem::replace(&mut self.state_changes, Default::default()).into_iter()
+        {
             assert!(
-                !changes.iter().any(|(change_cause, _)| {
-                    if let StateChangeCause::NotWritableToDisk = change_cause {
+                !raw_changes.iter().any(|RawStateChange { cause, .. }| {
+                    if let StateChangeCause::NotWritableToDisk = cause {
                         true
                     } else {
                         false
@@ -566,11 +574,27 @@ impl WrappedTrieChanges {
                 }),
                 "NotWritableToDisk changes must never be finalized."
             );
+            let kind = if let Ok(account_id) = KeyForData::parse_account_id(&key) {
+                StateChangeKind::DataTouched { account_id }
+            } else if let Ok(account_id) = KeyForAccount::parse_account_id(&key) {
+                StateChangeKind::AccountTouched { account_id }
+            } else if let Ok(account_id) = KeyForAccessKey::parse_account_id(&key) {
+                StateChangeKind::AccessKeyTouched { account_id }
+            } else if let Ok(account_id) = KeyForCode::parse_account_id(&key) {
+                StateChangeKind::CodeTouched { account_id }
+            } else {
+                // This is not expected to happen, but we don't want to panic.
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "block state changes include unknown key (please, report an issue; it is a bug!)",
+                )
+                .into());
+            };
             let mut storage_key = Vec::with_capacity(self.block_hash.as_ref().len() + key.len());
             storage_key.extend_from_slice(self.block_hash.as_ref());
-            storage_key.extend_from_slice(key);
-            let value = changes.try_to_vec()?;
-            store_update.set(ColKeyValueChanges, storage_key.as_ref(), &value);
+            storage_key.extend_from_slice(&key);
+            let changes = RawStateChangesWithKind { kind, raw_changes };
+            store_update.set(DBCol::ColKeyValueChanges, &storage_key, &changes.try_to_vec()?);
         }
         Ok(())
     }
