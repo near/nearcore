@@ -134,7 +134,7 @@ pub enum HostError {
     /// The contract size for DeployContract action exceeded the limit.
     ContractSizeExceeded { size: u64, limit: u64 },
     /// The host function was deprecated.
-    Deprecated { method_name: String},
+    Deprecated { method_name: String },
 }
 
 #[derive(Debug, Clone, PartialEq, BorshDeserialize, BorshSerialize, Deserialize, Serialize)]

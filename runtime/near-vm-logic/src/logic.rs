@@ -2107,7 +2107,9 @@ impl<'a> VMLogic<'a> {
     /// `base + storage_iter_create_prefix_base + storage_iter_create_key_byte * num_prefix_bytes
     ///  cost of reading the prefix`.
     pub fn storage_iter_prefix(&mut self, _prefix_len: u64, _prefix_ptr: u64) -> Result<u64> {
-        Err(VMLogicError::HostError(HostError::Deprecated{method_name: "storage_iter_prefix".to_string()}))
+        Err(VMLogicError::HostError(HostError::Deprecated {
+            method_name: "storage_iter_prefix".to_string(),
+        }))
     }
 
     /// Iterates over all key-values such that keys are between `start` and `end`, where `start` is
@@ -2133,7 +2135,9 @@ impl<'a> VMLogic<'a> {
         _end_len: u64,
         _end_ptr: u64,
     ) -> Result<u64> {
-        Err(VMLogicError::HostError(HostError::Deprecated{method_name: "storage_iter_range".to_string()}))
+        Err(VMLogicError::HostError(HostError::Deprecated {
+            method_name: "storage_iter_range".to_string(),
+        }))
     }
 
     /// Advances iterator and saves the next key and value in the register.
@@ -2169,7 +2173,9 @@ impl<'a> VMLogic<'a> {
         _key_register_id: u64,
         _value_register_id: u64,
     ) -> Result<u64> {
-        Err(VMLogicError::HostError(HostError::Deprecated{method_name: "storage_iter_next".to_string()}))
+        Err(VMLogicError::HostError(HostError::Deprecated {
+            method_name: "storage_iter_next".to_string(),
+        }))
     }
 
     /// Computes the outcome of execution.
