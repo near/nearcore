@@ -248,8 +248,9 @@ impl KeyValueRuntime {
 }
 
 impl RuntimeAdapter for KeyValueRuntime {
-    fn genesis_state(&self) -> (StoreUpdate, Vec<StateRoot>) {
+    fn genesis_state(&self) -> (Arc<Store>, StoreUpdate, Vec<StateRoot>) {
         (
+            self.store.clone(),
             self.store.store_update(),
             ((0..self.num_shards()).map(|_| StateRoot::default()).collect()),
         )
@@ -906,7 +907,6 @@ pub fn setup_with_tx_validity_period(
     let store = create_test_store();
     let runtime = Arc::new(KeyValueRuntime::new(store.clone()));
     let chain = Chain::new(
-        store,
         runtime.clone(),
         &ChainGenesis::new(
             Utc::now(),
@@ -946,7 +946,6 @@ pub fn setup_with_validators(
         epoch_length,
     ));
     let chain = Chain::new(
-        store,
         runtime.clone(),
         &ChainGenesis::new(
             Utc::now(),

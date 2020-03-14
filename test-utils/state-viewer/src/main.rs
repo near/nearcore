@@ -363,7 +363,6 @@ fn main() {
             let chain_genesis = near_chain::ChainGenesis::from(&genesis);
 
             let mut chain = near_chain::Chain::new(
-                store,
                 Arc::clone(&runtime) as Arc<dyn RuntimeAdapter>,
                 &chain_genesis,
                 DoomslugThresholdMode::HalfStake,

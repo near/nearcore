@@ -20,9 +20,10 @@ use near_primitives::types::{
     ValidatorStake, ValidatorStats,
 };
 use near_primitives::views::{EpochValidatorInfo, QueryRequest, QueryResponse};
-use near_store::{PartialStorage, StoreUpdate, WrappedTrieChanges};
+use near_store::{PartialStorage, Store, StoreUpdate, WrappedTrieChanges};
 
 use crate::error::Error;
+use std::sync::Arc;
 
 #[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize, Serialize)]
 pub struct ReceiptResponse(pub CryptoHash, pub Vec<Receipt>);
@@ -114,7 +115,7 @@ impl ApplyTransactionResult {
 pub trait RuntimeAdapter: Send + Sync {
     /// Initialize state to genesis state and returns StoreUpdate, state root and initial validators.
     /// StoreUpdate can be discarded if the chain past the genesis.
-    fn genesis_state(&self) -> (StoreUpdate, Vec<StateRoot>);
+    fn genesis_state(&self) -> (Arc<Store>, StoreUpdate, Vec<StateRoot>);
 
     /// Verify block producer validity
     fn verify_block_signature(&self, header: &BlockHeader) -> Result<(), Error>;
