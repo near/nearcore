@@ -16,8 +16,8 @@ use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{ReceiptProof, ShardChunk, ShardChunkHeader};
 use near_primitives::transaction::{ExecutionOutcomeWithId, SignedTransaction};
 use near_primitives::types::{
-    AccountId, Balance, BlockHeight, EpochId, Gas, MerkleHash, ShardId, StateChanges,
-    StateChangesRequest, StateRoot, StateRootNode, ValidatorStake, ValidatorStats,
+    AccountId, Balance, BlockHeight, EpochId, Gas, MerkleHash, ShardId, StateRoot, StateRootNode,
+    ValidatorStake, ValidatorStats,
 };
 use near_primitives::views::{EpochValidatorInfo, QueryRequest, QueryResponse};
 use near_store::{PartialStorage, Store, StoreUpdate, WrappedTrieChanges};
@@ -428,13 +428,6 @@ pub trait RuntimeAdapter: Send + Sync {
         state_root: &StateRoot,
     ) -> bool;
 
-    /// Get a list of changes in a given block by a given key prefix.
-    fn get_key_value_changes(
-        &self,
-        block_hash: &CryptoHash,
-        state_changes_request: &StateChangesRequest,
-    ) -> Result<StateChanges, Box<dyn std::error::Error>>;
-
     fn compare_epoch_id(
         &self,
         epoch_id: &EpochId,
@@ -537,10 +530,11 @@ mod tests {
     #[test]
     fn test_block_produce() {
         let num_shards = 32;
-        let genesis_chunks = genesis_chunks(vec![StateRoot::default()], num_shards, 1_000_000);
+        let genesis_chunks = genesis_chunks(vec![StateRoot::default()], num_shards, 1_000_000, 0);
         let genesis = Block::genesis(
             genesis_chunks.into_iter().map(|chunk| chunk.header).collect(),
             Utc::now(),
+            0,
             100,
             1_000_000_000,
             Chain::compute_bp_hash_inner(&vec![]).unwrap(),

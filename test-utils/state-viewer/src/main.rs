@@ -46,12 +46,9 @@ fn kv_to_state_record(key: Vec<u8>, value: Vec<u8>) -> Option<StateRecord> {
             if separator.is_some() {
                 Some(StateRecord::Data { key: to_base64(&key), value: to_base64(&value) })
             } else {
-                let mut account = Account::try_from_slice(&value).unwrap();
-                // TODO(#1200): When dumping state, all accounts have to pay rent
-                account.storage_paid_at = 0;
                 Some(StateRecord::Account {
                     account_id: String::from_utf8(key[1..].to_vec()).unwrap(),
-                    account: account.into(),
+                    account: Account::try_from_slice(&value).unwrap().into(),
                 })
             }
         }
@@ -126,7 +123,7 @@ fn load_trie(
     home_dir: &Path,
     near_config: &NearConfig,
 ) -> (NightshadeRuntime, Vec<StateRoot>, BlockHeight) {
-    let mut chain_store = ChainStore::new(store.clone());
+    let mut chain_store = ChainStore::new(store.clone(), near_config.genesis.config.genesis_height);
 
     let runtime = NightshadeRuntime::new(
         &home_dir,
@@ -155,7 +152,7 @@ fn print_chain(
     start_height: BlockHeight,
     end_height: BlockHeight,
 ) {
-    let mut chain_store = ChainStore::new(store.clone());
+    let mut chain_store = ChainStore::new(store.clone(), near_config.genesis.config.genesis_height);
     let runtime = NightshadeRuntime::new(
         &home_dir,
         store,
@@ -223,7 +220,7 @@ fn replay_chain(
     start_height: BlockHeight,
     end_height: BlockHeight,
 ) {
-    let mut chain_store = ChainStore::new(store);
+    let mut chain_store = ChainStore::new(store, near_config.genesis.config.genesis_height);
     let new_store = create_test_store();
     let runtime = NightshadeRuntime::new(
         &home_dir,
@@ -337,6 +334,7 @@ fn main() {
             let home_dir = PathBuf::from(&home_dir);
 
             println!("Generating genesis from state data");
+            let genesis_height = height + 1;
 
             let mut records = vec![];
             for state_root in &state_roots {
@@ -348,8 +346,10 @@ fn main() {
                     }
                 }
             }
-            let genesis =
-                Arc::new(Genesis::new(near_config.genesis.config.clone(), records.into()));
+
+            let mut genesis_config = near_config.genesis.config.clone();
+            genesis_config.genesis_height = genesis_height;
+            let genesis = Arc::new(Genesis::new(genesis_config, records.into()));
 
             println!("Calculating new genesis hash");
             let store = near_store::test_utils::create_test_store();
@@ -368,7 +368,8 @@ fn main() {
                 DoomslugThresholdMode::HalfStake,
             )
             .unwrap();
-            let genesis_hash = chain.get_block_by_height(0).unwrap().hash().to_string();
+            let genesis_hash =
+                chain.get_block_by_height(genesis_height).unwrap().hash().to_string();
 
             let output_path = home_dir.join(Path::new("output_config.json"));
             let records_path =
