@@ -583,12 +583,7 @@ impl WrappedTrieChanges {
             } else if let Ok(account_id) = KeyForCode::parse_account_id(&key) {
                 StateChangeKind::CodeTouched { account_id }
             } else {
-                // This is not expected to happen, but we don't want to panic.
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::InvalidData,
-                    "block state changes include unknown key (please, report an issue; it is a bug!)",
-                )
-                .into());
+                continue;
             };
             let mut storage_key = Vec::with_capacity(self.block_hash.as_ref().len() + key.len());
             storage_key.extend_from_slice(self.block_hash.as_ref());

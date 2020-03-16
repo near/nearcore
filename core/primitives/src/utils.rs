@@ -23,15 +23,32 @@ pub const MAX_ACCOUNT_ID_LEN: usize = 64;
 /// Number of nano seconds in a second.
 const NS_IN_SECOND: u64 = 1_000_000_000;
 
+/// Type identifiers used for DB key generation to store values in the key-value storage.
 pub mod col {
+    /// This column id is used when storing `primitives::account::Account` type about a given
+    /// `account_id`.
     pub const ACCOUNT: &[u8] = &[0];
+    /// This column id is used when storing contract blob for a given `account_id`.
     pub const CODE: &[u8] = &[1];
+    /// This column id is used when storing `primitives::account::AccessKey` type for a given
+    /// `account_id`.
     pub const ACCESS_KEY: &[u8] = &[2];
+    /// This column id is used when storing `primitives::receipt::ReceivedData` type (data received
+    /// for a key `data_id`). The required postponed receipt might be still not received or requires
+    /// more pending input data.
     pub const RECEIVED_DATA: &[u8] = &[3];
+    /// This column id is used when storing `primitives::hash::CryptoHash` (ReceiptId) type. The
+    /// ReceivedData is not available and is needed for the postponed receipt to execute.
     pub const POSTPONED_RECEIPT_ID: &[u8] = &[4];
+    /// This column id is used when storing the number of missing data inputs that are still not
+    /// available for a key `receipt_id`.
     pub const PENDING_DATA_COUNT: &[u8] = &[5];
+    /// This column id is used when storing the postponed receipts (`primitives::receipt::Receipt`).
     pub const POSTPONED_RECEIPT: &[u8] = &[6];
+    /// This column id is used when storing the indices of the delayed receipts queue.
+    /// NOTE: It is a singleton per shard.
     pub const DELAYED_RECEIPT_INDICES: &[u8] = &[7];
+    /// This column id is used when storing delayed receipts, because the shard is overwhelmed.
     pub const DELAYED_RECEIPT: &[u8] = &[8];
 }
 
