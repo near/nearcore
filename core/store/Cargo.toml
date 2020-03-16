@@ -10,7 +10,7 @@ elastic-array = "0.11"
 rocksdb = "0.13"
 serde = "1.0"
 serde_derive = "1.0"
-cached = "0.11.0"
+cached = "0.12.0"
 log = "0.4"
 num_cpus = "1.11"
 
