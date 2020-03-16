@@ -2090,6 +2090,7 @@ impl<'a> VMLogic<'a> {
         Ok(res? as u64)
     }
 
+    /// DEPRECATED
     /// Creates an iterator object inside the host. Returns the identifier that uniquely
     /// differentiates the given iterator from other iterators that can be simultaneously created.
     /// * It iterates over the keys that have the provided prefix. The order of iteration is defined
@@ -2112,6 +2113,7 @@ impl<'a> VMLogic<'a> {
         }))
     }
 
+    /// DEPRECATED
     /// Iterates over all key-values such that keys are between `start` and `end`, where `start` is
     /// inclusive and `end` is exclusive. Unless lexicographically `start < end`, it creates an
     /// empty iterator. Note, this definition allows for `start` or `end` keys to not actually exist
