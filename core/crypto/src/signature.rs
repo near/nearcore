@@ -2,7 +2,7 @@ use std::cmp::Ordering;
 use std::convert::{TryFrom, TryInto};
 use std::fmt::{Debug, Display, Formatter};
 use std::hash::{Hash, Hasher};
-use std::io::{Error, ErrorKind, Read, Write};
+use std::io::{Error, ErrorKind, Write};
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use rand_core::OsRng;
@@ -201,19 +201,15 @@ impl BorshSerialize for PublicKey {
 }
 
 impl BorshDeserialize for PublicKey {
-    fn deserialize<R: Read>(reader: &mut R) -> Result<Self, Error> {
-        let key_type = KeyType::try_from(u8::deserialize(reader)?)
+    fn deserialize(buf: &mut &[u8]) -> Result<Self, Error> {
+        let key_type = KeyType::try_from(u8::deserialize(buf)?)
             .map_err(|err| Error::new(ErrorKind::InvalidData, err.to_string()))?;
         match key_type {
             KeyType::ED25519 => {
-                let mut array = [0; ed25519_dalek::PUBLIC_KEY_LENGTH];
-                reader.read_exact(&mut array)?;
-                Ok(PublicKey::ED25519(ED25519PublicKey(array)))
+                Ok(PublicKey::ED25519(ED25519PublicKey(BorshDeserialize::deserialize(buf)?)))
             }
             KeyType::SECP256K1 => {
-                let mut array = [0; 64];
-                reader.read_exact(&mut array)?;
-                Ok(PublicKey::SECP256K1(Secp256K1PublicKey(array)))
+                Ok(PublicKey::SECP256K1(Secp256K1PublicKey(BorshDeserialize::deserialize(buf)?)))
             }
         }
     }
@@ -549,21 +545,20 @@ impl BorshSerialize for Signature {
 }
 
 impl BorshDeserialize for Signature {
-    fn deserialize<R: Read>(reader: &mut R) -> Result<Self, Error> {
-        let key_type = KeyType::try_from(u8::deserialize(reader)?)
+    fn deserialize(buf: &mut &[u8]) -> Result<Self, Error> {
+        let key_type = KeyType::try_from(u8::deserialize(buf)?)
             .map_err(|err| Error::new(ErrorKind::InvalidData, err.to_string()))?;
         match key_type {
             KeyType::ED25519 => {
-                let mut array = [0; ed25519_dalek::SIGNATURE_LENGTH];
-                reader.read_exact(&mut array)?;
+                let array: [u8; ed25519_dalek::SIGNATURE_LENGTH] =
+                    BorshDeserialize::deserialize(buf)?;
                 Ok(Signature::ED25519(
                     ed25519_dalek::Signature::from_bytes(&array)
                         .map_err(|e| Error::new(ErrorKind::InvalidData, e.to_string()))?,
                 ))
             }
             KeyType::SECP256K1 => {
-                let mut array = [0; 65];
-                reader.read_exact(&mut array)?;
+                let array: [u8; 65] = BorshDeserialize::deserialize(buf)?;
                 Ok(Signature::SECP256K1(Secp256K1Signature(array)))
             }
         }

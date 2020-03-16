@@ -421,7 +421,7 @@ impl RcTrieNode {
 }
 
 pub struct Trie {
-    storage: Box<dyn TrieStorage>,
+    pub(crate) storage: Box<dyn TrieStorage>,
     pub counter: TouchedNodesCounter,
 }
 

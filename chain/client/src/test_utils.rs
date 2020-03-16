@@ -90,6 +90,7 @@ pub fn setup(
     ));
     let chain_genesis = ChainGenesis::new(
         genesis_time,
+        0,
         1_000_000,
         100,
         1_000_000_000,
@@ -103,9 +104,7 @@ pub fn setup(
     } else {
         DoomslugThresholdMode::NoApprovals
     };
-    let mut chain =
-        Chain::new(store.clone(), runtime.clone(), &chain_genesis, doomslug_threshold_mode)
-            .unwrap();
+    let mut chain = Chain::new(runtime.clone(), &chain_genesis, doomslug_threshold_mode).unwrap();
     let genesis_block = chain.get_block(&chain.genesis().hash()).unwrap().clone();
 
     let signer =
@@ -119,7 +118,6 @@ pub fn setup(
         archive,
     );
     let view_client = ViewClientActor::new(
-        store.clone(),
         &chain_genesis,
         runtime.clone(),
         network_adapter.clone(),
@@ -130,7 +128,6 @@ pub fn setup(
 
     let client = ClientActor::new(
         config,
-        store,
         chain_genesis,
         runtime,
         PublicKey::empty(KeyType::ED25519).into(),
@@ -784,7 +781,6 @@ pub fn setup_no_network_with_validity_period(
 }
 
 pub fn setup_client_with_runtime(
-    store: Arc<Store>,
     num_validator_seats: NumSeats,
     account_id: Option<&str>,
     enable_doomslug: bool,
@@ -800,7 +796,6 @@ pub fn setup_client_with_runtime(
     config.epoch_length = chain_genesis.epoch_length;
     let mut client = Client::new(
         config,
-        store,
         chain_genesis,
         runtime_adapter,
         network_adapter,
@@ -831,7 +826,6 @@ pub fn setup_client(
         chain_genesis.epoch_length,
     ));
     setup_client_with_runtime(
-        store,
         num_validator_seats,
         account_id,
         enable_doomslug,
@@ -900,9 +894,7 @@ impl TestEnv {
             (0..num_validator_seats).map(|i| format!("test{}", i)).collect();
         let clients = (0..num_clients)
             .map(|i| {
-                let store = create_test_store();
                 setup_client_with_runtime(
-                    store.clone(),
                     num_validator_seats,
                     Some(&format!("test{}", i)),
                     false,
