@@ -46,9 +46,7 @@ fn kv_to_state_record(key: Vec<u8>, value: Vec<u8>) -> Option<StateRecord> {
             if separator.is_some() {
                 Some(StateRecord::Data { key: to_base64(&key), value: to_base64(&value) })
             } else {
-                let mut account = Account::try_from_slice(&value).unwrap();
-                // TODO(#1200): When dumping state, all accounts have to pay rent
-                account.storage_paid_at = 0;
+                let account = Account::try_from_slice(&value).unwrap();
                 Some(StateRecord::Account {
                     account_id: String::from_utf8(key[1..].to_vec()).unwrap(),
                     account: account.into(),
@@ -247,7 +245,6 @@ fn replay_chain(
                     header.inner_rest.validator_proposals,
                     vec![],
                     header.inner_rest.chunk_mask,
-                    header.inner_rest.rent_paid,
                     header.inner_rest.validator_reward,
                     header.inner_rest.total_supply,
                 )

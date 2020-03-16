@@ -48,7 +48,7 @@ pub struct RuntimeFeesConfig {
     pub data_receipt_creation_config: DataReceiptCreationConfig,
     /// Describes the cost of creating a certain action, `Action`. Includes all variants.
     pub action_creation_config: ActionCreationConfig,
-    /// Describes fees for storage rent
+    /// Describes fees for storage.
     pub storage_usage_config: StorageUsageConfig,
 
     /// Fraction of the burnt gas to reward to the contract account for execution.

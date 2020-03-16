@@ -183,17 +183,7 @@ pub fn record_block(
     epoch_manager
         .record_block_info(
             &cur_h,
-            BlockInfo::new(
-                height,
-                0,
-                prev_h,
-                proposals,
-                vec![],
-                vec![],
-                0,
-                0,
-                DEFAULT_TOTAL_SUPPLY,
-            ),
+            BlockInfo::new(height, 0, prev_h, proposals, vec![], vec![], 0, DEFAULT_TOTAL_SUPPLY),
             [0; 32],
         )
         .unwrap()

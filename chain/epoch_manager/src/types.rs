@@ -79,8 +79,6 @@ pub struct BlockInfo {
     pub chunk_mask: Vec<bool>,
     /// Validators slashed since the start of epoch or in previous epoch
     pub slashed: HashMap<AccountId, SlashState>,
-    /// Total rent paid in this block.
-    pub rent_paid: Balance,
     /// Total validator reward in this block.
     pub validator_reward: Balance,
     /// Total supply at this block.
@@ -91,8 +89,6 @@ pub struct BlockInfo {
     pub shard_tracker: HashMap<ShardId, HashMap<ValidatorId, ValidatorStats>>,
     /// All proposals in this epoch up to this block.
     pub all_proposals: Vec<ValidatorStake>,
-    /// Total rent paid so far in this epoch.
-    pub total_rent_paid: Balance,
     /// Total validator reward so far in this epoch.
     pub total_validator_reward: Balance,
 }
@@ -105,7 +101,6 @@ impl BlockInfo {
         proposals: Vec<ValidatorStake>,
         validator_mask: Vec<bool>,
         slashed: Vec<SlashedValidator>,
-        rent_paid: Balance,
         validator_reward: Balance,
         total_supply: Balance,
     ) -> Self {
@@ -123,7 +118,6 @@ impl BlockInfo {
                     (s.account_id, slash_state)
                 })
                 .collect(),
-            rent_paid,
             validator_reward,
             total_supply,
             // These values are not set. This code is suboptimal
@@ -132,7 +126,6 @@ impl BlockInfo {
             block_tracker: HashMap::default(),
             shard_tracker: HashMap::default(),
             all_proposals: vec![],
-            total_rent_paid: 0,
             total_validator_reward: 0,
         }
     }
@@ -258,7 +251,6 @@ pub struct EpochSummary {
     pub validator_kickout: HashSet<AccountId>,
     // Only for validators who met the threshold and didn't get slashed
     pub validator_block_chunk_stats: HashMap<AccountId, BlockChunkValidatorStats>,
-    pub total_storage_rent: Balance,
     pub total_validator_reward: Balance,
 }
 

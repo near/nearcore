@@ -57,8 +57,6 @@ pub struct BlockHeaderInnerRest {
     pub chunk_mask: Vec<bool>,
     /// Gas price. Same for all chunks
     pub gas_price: Balance,
-    /// Sum of all storage rent paid across all chunks.
-    pub rent_paid: Balance,
     /// Sum of all validator reward across all chunks.
     pub validator_reward: Balance,
     /// Total supply of tokens in the system
@@ -115,7 +113,6 @@ impl BlockHeaderInnerRest {
         validator_proposals: Vec<ValidatorStake>,
         chunk_mask: Vec<bool>,
         gas_price: Balance,
-        rent_paid: Balance,
         validator_reward: Balance,
         total_supply: Balance,
         challenges_result: ChallengesResult,
@@ -135,7 +132,6 @@ impl BlockHeaderInnerRest {
             validator_proposals,
             chunk_mask,
             gas_price,
-            rent_paid,
             validator_reward,
             total_supply,
             challenges_result,
@@ -273,7 +269,6 @@ impl BlockHeader {
         epoch_id: EpochId,
         next_epoch_id: EpochId,
         gas_price: Balance,
-        rent_paid: Balance,
         validator_reward: Balance,
         total_supply: Balance,
         challenges_result: ChallengesResult,
@@ -304,7 +299,6 @@ impl BlockHeader {
             validator_proposals,
             chunk_mask,
             gas_price,
-            rent_paid,
             validator_reward,
             total_supply,
             challenges_result,
@@ -349,7 +343,6 @@ impl BlockHeader {
             vec![],
             vec![],
             initial_gas_price,
-            0,
             0,
             initial_total_supply,
             vec![],
@@ -422,7 +415,6 @@ pub fn genesis_chunks(
                 initial_gas_limit,
                 0,
                 0,
-                0,
                 CryptoHash::default(),
                 vec![],
                 vec![],
@@ -492,7 +484,6 @@ impl Block {
         let mut gas_used = 0;
         // This computation of chunk_mask relies on the fact that chunks are ordered by shard_id.
         let mut chunk_mask = vec![];
-        let mut storage_rent = 0;
         let mut validator_reward = 0;
         let mut balance_burnt = 0;
         let mut gas_limit = 0;
@@ -501,7 +492,6 @@ impl Block {
                 validator_proposals.extend_from_slice(&chunk.inner.validator_proposals);
                 gas_used += chunk.inner.gas_used;
                 gas_limit += chunk.inner.gas_limit;
-                storage_rent += chunk.inner.rent_paid;
                 validator_reward += chunk.inner.validator_reward;
                 balance_burnt += chunk.inner.balance_burnt;
                 chunk_mask.push(true);
@@ -547,7 +537,6 @@ impl Block {
                 epoch_id,
                 next_epoch_id,
                 new_gas_price,
-                storage_rent,
                 validator_reward,
                 new_total_supply,
                 challenges_result,

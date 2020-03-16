@@ -48,6 +48,7 @@ pub struct AccountView {
     pub locked: Balance,
     pub code_hash: CryptoHash,
     pub storage_usage: StorageUsage,
+    /// TODO(2271): deprecated.
     pub storage_paid_at: BlockHeight,
 }
 
@@ -58,7 +59,7 @@ impl From<Account> for AccountView {
             locked: account.locked,
             code_hash: account.code_hash,
             storage_usage: account.storage_usage,
-            storage_paid_at: account.storage_paid_at,
+            storage_paid_at: 0,
         }
     }
 }
@@ -70,7 +71,6 @@ impl From<AccountView> for Account {
             locked: view.locked,
             code_hash: view.code_hash,
             storage_usage: view.storage_usage,
-            storage_paid_at: view.storage_paid_at,
         }
     }
 }
@@ -325,6 +325,7 @@ pub struct BlockHeaderView {
     pub chunk_mask: Vec<bool>,
     #[serde(with = "u128_dec_format")]
     pub gas_price: Balance,
+    /// TODO(2271): deprecated.
     #[serde(with = "u128_dec_format")]
     pub rent_paid: Balance,
     #[serde(with = "u128_dec_format")]
@@ -366,7 +367,7 @@ impl From<BlockHeader> for BlockHeaderView {
                 .collect(),
             chunk_mask: header.inner_rest.chunk_mask,
             gas_price: header.inner_rest.gas_price,
-            rent_paid: header.inner_rest.rent_paid,
+            rent_paid: 0,
             validator_reward: header.inner_rest.validator_reward,
             total_supply: header.inner_rest.total_supply,
             challenges_result: header.inner_rest.challenges_result,
@@ -424,7 +425,6 @@ impl From<BlockHeaderView> for BlockHeader {
                 gas_price: view.gas_price,
                 total_supply: view.total_supply,
                 challenges_result: view.challenges_result,
-                rent_paid: view.rent_paid,
                 validator_reward: view.validator_reward,
                 last_quorum_pre_vote: view.last_quorum_pre_vote,
                 last_quorum_pre_commit: view.last_quorum_pre_commit,
@@ -485,6 +485,7 @@ pub struct ChunkHeaderView {
     pub shard_id: ShardId,
     pub gas_used: Gas,
     pub gas_limit: Gas,
+    /// TODO(2271): deprecated.
     #[serde(with = "u128_dec_format")]
     pub rent_paid: Balance,
     #[serde(with = "u128_dec_format")]
@@ -511,7 +512,7 @@ impl From<ShardChunkHeader> for ChunkHeaderView {
             shard_id: chunk.inner.shard_id,
             gas_used: chunk.inner.gas_used,
             gas_limit: chunk.inner.gas_limit,
-            rent_paid: chunk.inner.rent_paid,
+            rent_paid: 0,
             validator_reward: chunk.inner.validator_reward,
             balance_burnt: chunk.inner.balance_burnt,
             outgoing_receipts_root: chunk.inner.outgoing_receipts_root,
@@ -540,7 +541,6 @@ impl From<ChunkHeaderView> for ShardChunkHeader {
                 shard_id: view.shard_id,
                 gas_used: view.gas_used,
                 gas_limit: view.gas_limit,
-                rent_paid: view.rent_paid,
                 validator_reward: view.validator_reward,
                 balance_burnt: view.balance_burnt,
                 outgoing_receipts_root: view.outgoing_receipts_root,

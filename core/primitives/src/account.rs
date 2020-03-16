@@ -2,26 +2,27 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use serde::Serialize;
 
 use crate::hash::CryptoHash;
-use crate::types::{AccountId, Balance, BlockHeight, Nonce, StorageUsage};
+use crate::types::{AccountId, Balance, Nonce, StorageUsage};
 
 /// Per account information stored in the state.
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Debug, Clone)]
 pub struct Account {
     /// The total not locked tokens.
     pub amount: Balance,
-    /// The amount locked due to staking
+    /// The amount locked due to staking.
     pub locked: Balance,
     /// Hash of the code stored in the storage for this account.
     pub code_hash: CryptoHash,
     /// Storage used by the given account.
     pub storage_usage: StorageUsage,
-    /// Last height at which the storage was paid for.
-    pub storage_paid_at: BlockHeight,
 }
 
+/// Size of account struct in bytes.
+const ACCOUNT_SIZE_BYTES: u64 = 16 + 16 + 32 + 8;
+
 impl Account {
-    pub fn new(amount: Balance, code_hash: CryptoHash, storage_paid_at: BlockHeight) -> Self {
-        Account { amount, locked: 0, code_hash, storage_usage: 0, storage_paid_at }
+    pub fn new(amount: Balance, code_hash: CryptoHash) -> Self {
+        Account { amount, locked: 0, code_hash, storage_usage: ACCOUNT_SIZE_BYTES }
     }
 }
 
@@ -97,9 +98,8 @@ mod tests {
             locked: 1_000_000,
             code_hash: CryptoHash::default(),
             storage_usage: 100,
-            storage_paid_at: 1_123_321,
         };
         let bytes = acc.try_to_vec().unwrap();
-        assert_eq!(to_base(&hash(&bytes)), "DzpbYEwBoiKa3DRTgK2L8fBq3QRfGSoUkTXrTYxwBt17");
+        assert_eq!(to_base(&hash(&bytes)), "EVk5UaxBe8LQ8r8iD5EAxVBs6TJcMDKqyH7PBuho6bBJ");
     }
 }

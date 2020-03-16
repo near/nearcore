@@ -145,10 +145,6 @@ pub fn validate_chunk_with_chunk_extra(
         return Err(ErrorKind::InvalidGasUsed.into());
     }
 
-    if prev_chunk_extra.rent_paid != chunk_header.inner.rent_paid {
-        return Err(ErrorKind::InvalidRent.into());
-    }
-
     if prev_chunk_extra.validator_reward != chunk_header.inner.validator_reward {
         return Err(ErrorKind::InvalidReward.into());
     }
@@ -361,7 +357,6 @@ fn validate_chunk_state_challenge(
         || outcome_root != chunk_state.chunk_header.inner.outcome_root
         || result.validator_proposals != chunk_state.chunk_header.inner.validator_proposals
         || result.total_gas_burnt != chunk_state.chunk_header.inner.gas_used
-        || result.total_rent_paid != chunk_state.chunk_header.inner.rent_paid
     {
         Ok((block_header.hash(), vec![chunk_producer]))
     } else {

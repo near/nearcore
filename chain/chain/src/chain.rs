@@ -314,7 +314,6 @@ impl Chain {
                         vec![],
                         vec![],
                         0,
-                        0,
                         chain_genesis.total_supply,
                     )?;
                     store_update.save_block_header(genesis.header.clone());
@@ -335,7 +334,6 @@ impl Chain {
                                 vec![],
                                 0,
                                 chain_genesis.gas_limit,
-                                0,
                                 0,
                                 0,
                             ),
@@ -725,7 +723,6 @@ impl Chain {
                     header.inner_rest.validator_proposals.clone(),
                     vec![],
                     header.inner_rest.chunk_mask.clone(),
-                    header.inner_rest.rent_paid,
                     header.inner_rest.validator_reward,
                     header.inner_rest.total_supply,
                 )?;
@@ -2436,7 +2433,6 @@ impl<'a> ChainUpdate<'a> {
                             apply_result.validator_proposals,
                             apply_result.total_gas_burnt,
                             gas_limit,
-                            apply_result.total_rent_paid,
                             apply_result.total_validator_reward,
                             apply_result.total_balance_burnt,
                         ),
@@ -2665,7 +2661,6 @@ impl<'a> ChainUpdate<'a> {
             block.header.inner_rest.validator_proposals.clone(),
             block.header.inner_rest.challenges_result.clone(),
             block.header.inner_rest.chunk_mask.clone(),
-            block.header.inner_rest.rent_paid,
             block.header.inner_rest.validator_reward,
             block.header.inner_rest.total_supply,
         )?;
@@ -3159,7 +3154,6 @@ impl<'a> ChainUpdate<'a> {
             apply_result.validator_proposals,
             apply_result.total_gas_burnt,
             gas_limit,
-            apply_result.total_rent_paid,
             apply_result.total_validator_reward,
             apply_result.total_balance_burnt,
         );

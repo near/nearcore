@@ -1,4 +1,4 @@
-use crate::actions::{apply_rent, check_rent};
+use crate::actions::check_storage_cost;
 use crate::config::{
     safe_gas_to_balance, total_prepaid_gas, tx_cost, RuntimeConfig, TransactionCost,
 };
@@ -17,7 +17,7 @@ use near_primitives::utils::is_valid_account_id;
 use near_store::{get_access_key, get_account, set_access_key, set_account, TrieUpdate};
 use near_vm_logic::VMLimitConfig;
 
-/// Verifies the signed transaction on top of given state, charges the rent and transaction fees
+/// Verifies the signed transaction on top of given state, charges transaction fees
 /// and balances, and updates the state for the used account and access keys.
 pub fn verify_and_charge_transaction(
     config: &RuntimeConfig,
@@ -76,7 +76,6 @@ pub fn verify_and_charge_transaction(
 
     let sender_is_receiver = &transaction.receiver_id == signer_id;
 
-    let rent_paid = apply_rent(&signer_id, &mut signer, apply_state.block_index, &config)?;
     access_key.nonce = transaction.nonce;
 
     let TransactionCost { gas_burnt, gas_used, total_cost } =
@@ -105,8 +104,11 @@ pub fn verify_and_charge_transaction(
         }
     }
 
-    if let Err(amount) = check_rent(&signer_id, &signer, &config, apply_state.epoch_length) {
-        return Err(InvalidTxError::RentUnpaid { signer_id: signer_id.clone(), amount }.into());
+    if let Err(amount) = check_storage_cost(&signer_id, &signer, &config, apply_state.epoch_length)
+    {
+        return Err(
+            InvalidTxError::LackBalanceForState { signer_id: signer_id.clone(), amount }.into()
+        );
     }
 
     if let AccessKeyPermission::FunctionCall(ref function_call_permission) = access_key.permission {
@@ -159,7 +161,7 @@ pub fn verify_and_charge_transaction(
     let validator_reward = safe_gas_to_balance(apply_state.gas_price, gas_burnt)
         .map_err(|_| InvalidTxError::CostOverflow)?;
 
-    Ok(VerificationResult { gas_burnt, gas_used, rent_paid, validator_reward })
+    Ok(VerificationResult { gas_burnt, gas_used, validator_reward })
 }
 
 /// Validates a given receipt. Checks validity of the predecessor and receiver account IDs and
@@ -370,7 +372,6 @@ mod tests {
     use super::*;
     use near_crypto::{InMemorySigner, KeyType, PublicKey, Signer};
     use near_primitives::account::{AccessKey, Account, FunctionCallPermission};
-    use near_primitives::errors::StorageError;
     use near_primitives::hash::{hash, CryptoHash};
     use near_primitives::receipt::DataReceiver;
     use near_primitives::transaction::{
@@ -401,7 +402,7 @@ mod tests {
             Arc::new(InMemorySigner::from_seed(&account_id, KeyType::ED25519, &account_id));
 
         let mut initial_state = TrieUpdate::new(trie.clone(), root);
-        let mut initial_account = Account::new(initial_balance, hash(&[]), 0);
+        let mut initial_account = Account::new(initial_balance, hash(&[]));
         initial_account.locked = initial_locked;
         set_account(&mut initial_state, &account_id, &initial_account);
         if let Some(access_key) = access_key {
@@ -428,7 +429,7 @@ mod tests {
     fn test_validate_transaction_valid() {
         let mut config = RuntimeConfig::default();
         let account_10_char_base_cost = 123;
-        config.account_length_baseline_cost_per_block = 3u128.pow(8) * account_10_char_base_cost;
+        config.account_length_baseline_cost = 3u128.pow(8) * account_10_char_base_cost;
         let (signer, mut state_update, mut apply_state) =
             setup_common(TESTING_INIT_BALANCE, 0, 10_000_000, Some(AccessKey::full_access()));
         apply_state.block_index = 5;
@@ -459,18 +460,13 @@ mod tests {
         );
 
         let account = get_account(&state_update, &alice_account()).unwrap().unwrap();
-        // Rent is just the 10 char account ID length rent. Storage for this test is 0.
-        let rent = account_10_char_base_cost * Balance::from(apply_state.block_index);
-        // Balance is decreased by the (TX fees + transfer balance + rent).
+        // Balance is decreased by the (TX fees + transfer balance).
         assert_eq!(
             account.amount,
             TESTING_INIT_BALANCE
                 - Balance::from(verification_result.gas_used) * apply_state.gas_price
                 - deposit
-                - rent
         );
-        // Check that the paid rent time was updated.
-        assert_eq!(account.storage_paid_at, apply_state.block_index);
 
         let access_key =
             get_access_key(&state_update, &alice_account(), &signer.public_key()).unwrap().unwrap();
@@ -705,40 +701,6 @@ mod tests {
     }
 
     #[test]
-    fn test_validate_transaction_invalid_state_bad_storage_paid_block() {
-        let config = RuntimeConfig::default();
-        let (signer, mut state_update, apply_state) =
-            setup_common(TESTING_INIT_BALANCE, 0, 10_000_000, Some(AccessKey::full_access()));
-
-        let bad_account = Account::new(TESTING_INIT_BALANCE, hash(&[]), 10000);
-        set_account(&mut state_update, &alice_account(), &bad_account);
-        state_update.commit(StateChangeCause::InitialState);
-
-        assert_eq!(
-            verify_and_charge_transaction(
-                &config,
-                &mut state_update,
-                &apply_state,
-                &SignedTransaction::send_money(
-                    1,
-                    alice_account(),
-                    bob_account(),
-                    &*signer,
-                    10,
-                    CryptoHash::default(),
-                ),
-            )
-            .expect_err("expected an error"),
-            RuntimeError::StorageError(StorageError::StorageInconsistentState(format!(
-                "storage_paid_at {} for account {} is larger than current block height {}",
-                10000,
-                alice_account(),
-                0
-            ))),
-        );
-    }
-
-    #[test]
     fn test_validate_transaction_invalid_not_enough_balance() {
         let config = RuntimeConfig::default();
         let (signer, mut state_update, apply_state) =
@@ -822,17 +784,14 @@ mod tests {
     }
 
     #[test]
-    fn test_validate_transaction_invalid_rent_unpaid() {
+    fn test_validate_transaction_invalid_low_balance() {
         let mut config = RuntimeConfig::free();
-        config.account_length_baseline_cost_per_block = 3u128.pow(8);
-        config.poke_threshold = 3;
+        config.storage_amount_per_byte = 10_000_000;
         let (signer, mut state_update, apply_state) =
-            setup_common(TESTING_INIT_BALANCE, 0, 10_000_000, Some(AccessKey::full_access()));
+            setup_common(1_000_000_000, 0, 10_000_000, Some(AccessKey::full_access()));
 
         // The logic is the following:
-        // Account `alice.near` is 10 characters, so the rent for the account length is 1 per block.
-        // Poke threshold is 3. We're trying to send all but 1 token.
-        // The rent due is 3 versus the remaining balance 1.
+        // Account `alice.near` has 1B yoctoN, account is 180 bytes, requirement per byte is 1M.
         assert_eq!(
             verify_and_charge_transaction(
                 &config,
@@ -843,14 +802,14 @@ mod tests {
                     alice_account(),
                     bob_account(),
                     &*signer,
-                    TESTING_INIT_BALANCE - 1,
+                    950_000_000,
                     CryptoHash::default(),
                 ),
             )
             .expect_err("expected an error"),
-            RuntimeError::InvalidTxError(InvalidTxError::RentUnpaid {
+            RuntimeError::InvalidTxError(InvalidTxError::LackBalanceForState {
                 signer_id: alice_account(),
-                amount: config.poke_threshold as u128
+                amount: 80 * config.storage_amount_per_byte
             })
         );
     }

@@ -20,9 +20,8 @@ mod test {
     fn create_runtime_with_expensive_storage() -> RuntimeNode {
         let mut genesis = Genesis::test(vec![&alice_account(), &bob_account(), "carol.near"], 1);
         add_test_contract(&mut genesis, &bob_account());
-        // Set expensive state rent and add alice more money.
-        genesis.config.runtime_config.storage_cost_byte_per_block = TESTING_INIT_BALANCE / 100000;
-        genesis.config.runtime_config.poke_threshold = 10;
+        // Set expensive state requirements and add alice more money.
+        genesis.config.runtime_config.storage_amount_per_byte = TESTING_INIT_BALANCE / 1000;
         match &mut genesis.records.as_mut()[0] {
             StateRecord::Account { account, .. } => account.amount = TESTING_INIT_BALANCE * 10000,
             _ => {
@@ -38,16 +37,14 @@ mod test {
 
     fn create_runtime_with_expensive_account_length() -> RuntimeNode {
         let mut genesis = Genesis::test(vec![&alice_account(), &bob_account(), "carol.near"], 1);
-        // Set expensive account length rent and add alice more money.
+        // Set expensive account length requirement and add alice more money.
         // `bob.near` has 8 characters. Cost per block is `base / (3^6)`.
-        // Need to have balance as least `10 * base / (3^6)`, so if we put `base` at least 73
+        // Need to have balance as least `base / (3^6)`, so if we put `base` at least 729
         // it would be enough to delete bob's account.
-        genesis.config.runtime_config.account_length_baseline_cost_per_block =
-            73 * TESTING_INIT_BALANCE;
-        genesis.config.runtime_config.storage_cost_byte_per_block = 1;
-        genesis.config.runtime_config.poke_threshold = 10;
+        genesis.config.runtime_config.account_length_baseline_cost = 1_000 * TESTING_INIT_BALANCE;
+        genesis.config.runtime_config.storage_amount_per_byte = 1_000_000;
         match &mut genesis.records.as_mut()[0] {
-            StateRecord::Account { account, .. } => account.amount = TESTING_INIT_BALANCE * 100,
+            StateRecord::Account { account, .. } => account.amount = TESTING_INIT_BALANCE,
             _ => {}
         }
         genesis.records.as_mut().push(StateRecord::Data {
@@ -280,15 +277,9 @@ mod test {
     }
 
     #[test]
-    fn test_fail_not_enough_rent_for_storage_runtime() {
+    fn test_fail_not_enough_balance_for_storage_runtime() {
         let node = create_runtime_with_expensive_storage();
-        test_fail_not_enough_rent(node);
-    }
-
-    #[test]
-    fn test_stake_fail_not_enough_rent_for_storage_runtime() {
-        let node = create_runtime_with_expensive_storage();
-        test_stake_fail_not_enough_rent_for_storage(node);
+        test_fail_not_enough_balance_for_storage(node);
     }
 
     #[test]
@@ -300,13 +291,7 @@ mod test {
     #[test]
     fn test_fail_not_enough_rent_for_account_id_runtime() {
         let node = create_runtime_with_expensive_account_length();
-        test_fail_not_enough_rent(node);
-    }
-
-    #[test]
-    fn test_stake_fail_not_enough_rent_for_account_id_runtime() {
-        let node = create_runtime_with_expensive_account_length();
-        test_stake_fail_not_enough_rent_for_account_id(node);
+        test_fail_not_enough_balance_for_storage(node);
     }
 
     #[test]

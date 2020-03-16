@@ -105,11 +105,11 @@ pub enum InvalidTxError {
         #[serde(with = "u128_dec_format")]
         cost: Balance,
     },
-    /// Signer account rent is unpaid
-    RentUnpaid {
-        /// An account which is required to pay the rent
+    /// Signer account doesn't have enough balance after transaction.
+    LackBalanceForState {
+        /// An account which doesn't have enough balance to cover storage.
         signer_id: AccountId,
-        /// Required balance to cover the state rent
+        /// Required balance to cover the state.
         #[serde(with = "u128_dec_format")]
         amount: Balance,
     },
@@ -304,17 +304,17 @@ pub enum ActionErrorKind {
     AddKeyAlreadyExists { account_id: AccountId, public_key: PublicKey },
     /// Account is staking and can not be deleted
     DeleteAccountStaking { account_id: AccountId },
-    /// Foreign sender (sender=!receiver) can delete an account only if a target account hasn't enough tokens to pay rent
-    DeleteAccountHasRent {
+    /// Foreign sender (sender=!receiver) can delete an account only if a target account hasn't enough tokens.
+    DeleteAccountHasEnoughBalance {
         account_id: AccountId,
         #[serde(with = "u128_dec_format")]
         balance: Balance,
     },
-    /// ActionReceipt can't be completed, because the remaining balance will not be enough to pay rent.
-    RentUnpaid {
-        /// An account which is required to pay the rent
+    /// ActionReceipt can't be completed, because the remaining balance will not be enough to cover storage.
+    LackBalanceForState {
+        /// An account which needs balance
         account_id: AccountId,
-        /// Rent due to pay.
+        /// Balance required to complete an action.
         #[serde(with = "u128_dec_format")]
         amount: Balance,
     },
@@ -371,8 +371,8 @@ impl Display for InvalidTxError {
                 "Sender {:?} does not have enough balance {} for operation costing {}",
                 signer_id, balance, cost
             ),
-            InvalidTxError::RentUnpaid { signer_id, amount } => {
-                write!(f, "Failed to execute, because the account {:?} wouldn't have enough to pay required rent {}", signer_id, amount)
+            InvalidTxError::LackBalanceForState { signer_id, amount } => {
+                write!(f, "Failed to execute, because the account {:?} wouldn't have enough to balance to cover storage, required to have {}", signer_id, amount)
             }
             InvalidTxError::CostOverflow => {
                 write!(f, "Transaction gas or balance cost is too high")
@@ -463,8 +463,6 @@ pub struct BalanceMismatchError {
     #[serde(with = "u128_dec_format")]
     pub final_postponed_receipts_balance: Balance,
     #[serde(with = "u128_dec_format")]
-    pub total_rent_paid: Balance,
-    #[serde(with = "u128_dec_format")]
     pub total_validator_reward: Balance,
     #[serde(with = "u128_dec_format")]
     pub total_balance_burnt: Balance,
@@ -486,7 +484,6 @@ impl Display for BalanceMismatchError {
             .saturating_add(self.outgoing_receipts_balance)
             .saturating_add(self.new_delayed_receipts_balance)
             .saturating_add(self.final_postponed_receipts_balance)
-            .saturating_add(self.total_rent_paid)
             .saturating_add(self.total_validator_reward)
             .saturating_add(self.total_balance_burnt)
             .saturating_add(self.total_balance_slashed);
@@ -504,7 +501,6 @@ impl Display for BalanceMismatchError {
              \tOutgoing receipts balance sum: {}\n\
              \tNew delayed receipts balance sum: {}\n\
              \tFinal postponed receipts balance sum: {}\n\
-             \tTotal rent paid: {}\n\
              \tTotal validators reward: {}\n\
              \tTotal balance burnt: {}\n\
              \tTotal balance slashed: {}",
@@ -519,7 +515,6 @@ impl Display for BalanceMismatchError {
             self.outgoing_receipts_balance,
             self.new_delayed_receipts_balance,
             self.final_postponed_receipts_balance,
-            self.total_rent_paid,
             self.total_validator_reward,
             self.total_balance_burnt,
             self.total_balance_slashed,
@@ -583,9 +578,9 @@ impl Display for ActionErrorKind {
                 "Actor {:?} doesn't have permission to account {:?} to complete the action",
                 actor_id, account_id
             ),
-            ActionErrorKind::RentUnpaid { account_id, amount } => write!(
+            ActionErrorKind::LackBalanceForState { account_id, amount } => write!(
                 f,
-                "The account {} wouldn't have enough balance to pay required rent {}",
+                "The account {} wouldn't have enough balance to cover storage, required to have {}",
                 account_id, amount
             ),
             ActionErrorKind::TriesToUnstake { account_id } => {
@@ -617,9 +612,9 @@ impl Display for ActionErrorKind {
             ActionErrorKind::DeleteAccountStaking { account_id } => {
                 write!(f, "Account {:?} is staking and can not be deleted", account_id)
             }
-            ActionErrorKind::DeleteAccountHasRent { account_id, balance } => write!(
+            ActionErrorKind::DeleteAccountHasEnoughBalance { account_id, balance } => write!(
                 f,
-                "Account {:?} can't be deleted. It has {}, which is enough to cover the rent",
+                "Account {:?} can't be deleted. It has {}, which is enough to cover it's storage",
                 account_id, balance
             ),
             ActionErrorKind::FunctionCallError(s) => write!(f, "{}", s),

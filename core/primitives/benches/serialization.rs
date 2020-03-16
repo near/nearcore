@@ -63,7 +63,7 @@ fn create_block() -> Block {
 }
 
 fn create_account() -> Account {
-    Account::new(0, CryptoHash::default(), 1_000)
+    Account::new(0, CryptoHash::default())
 }
 
 fn serialize_tx(bench: &mut Bencher) {

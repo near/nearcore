@@ -9,8 +9,8 @@ use crate::account::{AccessKey, AccessKeyPermission};
 use crate::block::{Approval, Block};
 use crate::hash::CryptoHash;
 use crate::transaction::{
-    Action, AddKeyAction, CreateAccountAction, SignedTransaction, StakeAction, Transaction,
-    TransferAction,
+    Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, SignedTransaction, StakeAction,
+    Transaction, TransferAction,
 };
 use crate::types::{AccountId, Balance, BlockHeight, EpochId, Nonce};
 use crate::validator_signer::ValidatorSigner;
@@ -147,6 +147,24 @@ impl SignedTransaction {
                 }),
                 Action::Transfer(TransferAction { deposit: amount }),
             ],
+            block_hash,
+        )
+    }
+
+    pub fn delete_account(
+        nonce: Nonce,
+        signer_id: AccountId,
+        receiver_id: AccountId,
+        beneficiary_id: AccountId,
+        signer: &dyn Signer,
+        block_hash: CryptoHash,
+    ) -> Self {
+        Self::from_actions(
+            nonce,
+            signer_id,
+            receiver_id,
+            signer,
+            vec![Action::DeleteAccount(DeleteAccountAction { beneficiary_id })],
             block_hash,
         )
     }

@@ -19,8 +19,6 @@ use crate::node::Node;
 use crate::runtime_utils::{alice_account, bob_account, eve_dot_alice_account};
 use crate::user::User;
 
-use assert_matches::assert_matches;
-
 /// The amount to send with function call.
 const FUNCTION_CALL_AMOUNT: Balance = TESTING_INIT_BALANCE / 10;
 
@@ -1018,52 +1016,13 @@ pub fn test_unstake_while_not_staked(node: impl Node) {
     assert_eq!(transaction_result.receipts_outcome.len(), 1);
 }
 
-/// Account must have enough rent to pay for next `poke_threshold` blocks.
-/// `bob.near` is not wealthy enough.
-pub fn test_fail_not_enough_rent(node: impl Node) {
+/// Account must have enough balance to cover storage of the account.
+pub fn test_fail_not_enough_balance_for_storage(node: impl Node) {
     let mut node_user = node.user();
     let account_id = bob_account();
     let signer = Arc::new(InMemorySigner::from_seed(&account_id, KeyType::ED25519, &account_id));
     node_user.set_signer(signer);
     node_user.send_money(account_id, alice_account(), 10).unwrap_err();
-}
-
-/// Account must have enough rent to pay for next 4 x `epoch_length` blocks (otherwise can not stake).
-fn test_stake_fail_not_enough_rent_with_balance(node: impl Node, initial_balance: Balance) {
-    let node_user = node.user();
-    let new_account_id = "b0b_near".to_string();
-    let transaction_result = node_user
-        .create_account(
-            alice_account(),
-            new_account_id.clone(),
-            node.signer().public_key(),
-            initial_balance,
-        )
-        .unwrap();
-    assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(to_base64(&[])));
-    assert_eq!(transaction_result.receipts_outcome.len(), 1);
-    let transaction_result =
-        node_user.stake(new_account_id.clone(), node.block_signer().public_key(), 5).unwrap();
-    assert_matches!(
-        &transaction_result.status,
-        FinalExecutionStatus::Failure(e) => match &e {
-            &TxExecutionError::ActionError(action_err) =>
-                match action_err.kind {
-                    ActionErrorKind::RentUnpaid{..} => {},
-                    _ => panic!("should be RentUnpaid")
-                }
-            _ => panic!("should be Action")
-        }
-    );
-    assert_eq!(transaction_result.receipts_outcome.len(), 1);
-}
-
-pub fn test_stake_fail_not_enough_rent_for_storage(node: impl Node) {
-    test_stake_fail_not_enough_rent_with_balance(node, TESTING_INIT_BALANCE / 10);
-}
-
-pub fn test_stake_fail_not_enough_rent_for_account_id(node: impl Node) {
-    test_stake_fail_not_enough_rent_with_balance(node, TESTING_INIT_BALANCE * 2);
 }
 
 pub fn test_delete_account_low_balance(node: impl Node) {
