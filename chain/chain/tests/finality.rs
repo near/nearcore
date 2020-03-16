@@ -183,7 +183,7 @@ fn gen_stakes(n: usize) -> Vec<ValidatorStake> {
 #[test]
 fn test_finality_genesis() {
     let store = create_test_store();
-    let mut chain_store = ChainStore::new(store);
+    let mut chain_store = ChainStore::new(store, 0);
 
     let stakes = gen_stakes(10);
 

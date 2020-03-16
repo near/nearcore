@@ -5,7 +5,7 @@ authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2018"
 
 [dependencies]
-borsh = "0.5.0"
+borsh = "0.6.0"
 indicatif = {version = "0.13.0", features = ["with_rayon"]}
 rayon = "1.1"
 tempdir = "0.3.7"

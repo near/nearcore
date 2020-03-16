@@ -26,7 +26,7 @@ fn test_tx_propagation() {
         let dirs = (0..num_nodes)
             .map(|i| TempDir::new(&format!("tx_propagation{}", i)).unwrap())
             .collect::<Vec<_>>();
-        let (genesis_config, rpc_addrs, clients) = start_nodes(4, &dirs, 2, 2, 10);
+        let (genesis_config, rpc_addrs, clients) = start_nodes(4, &dirs, 2, 2, 10, 0);
         let view_client = clients[0].1.clone();
 
         let genesis_hash = genesis_block(genesis_config).hash();
@@ -103,7 +103,7 @@ fn test_tx_propagation_through_rpc() {
         let dirs = (0..num_nodes)
             .map(|i| TempDir::new(&format!("tx_propagation{}", i)).unwrap())
             .collect::<Vec<_>>();
-        let (genesis_config, rpc_addrs, clients) = start_nodes(4, &dirs, 2, 2, 10);
+        let (genesis_config, rpc_addrs, clients) = start_nodes(4, &dirs, 2, 2, 10, 0);
         let view_client = clients[0].1.clone();
 
         let genesis_hash = genesis_block(genesis_config).hash();
@@ -166,7 +166,7 @@ fn test_tx_status_with_light_client() {
         let dirs = (0..num_nodes)
             .map(|i| TempDir::new(&format!("tx_propagation{}", i)).unwrap())
             .collect::<Vec<_>>();
-        let (genesis_config, rpc_addrs, clients) = start_nodes(4, &dirs, 2, 2, 10);
+        let (genesis_config, rpc_addrs, clients) = start_nodes(4, &dirs, 2, 2, 10, 0);
         let view_client = clients[0].1.clone();
 
         let genesis_hash = genesis_block(genesis_config).hash();
@@ -237,7 +237,7 @@ fn test_tx_status_with_light_client1() {
         let dirs = (0..num_nodes)
             .map(|i| TempDir::new(&format!("tx_propagation{}", i)).unwrap())
             .collect::<Vec<_>>();
-        let (genesis_config, rpc_addrs, clients) = start_nodes(4, &dirs, 2, 2, 10);
+        let (genesis_config, rpc_addrs, clients) = start_nodes(4, &dirs, 2, 2, 10, 0);
         let view_client = clients[0].1.clone();
 
         let genesis_hash = genesis_block(genesis_config).hash();
@@ -306,7 +306,7 @@ fn test_rpc_routing() {
         let dirs = (0..num_nodes)
             .map(|i| TempDir::new(&format!("tx_propagation{}", i)).unwrap())
             .collect::<Vec<_>>();
-        let (_, rpc_addrs, clients) = start_nodes(4, &dirs, 2, 2, 10);
+        let (_, rpc_addrs, clients) = start_nodes(4, &dirs, 2, 2, 10, 0);
         let view_client = clients[0].1.clone();
 
         WaitOrTimeout::new(
@@ -353,7 +353,7 @@ fn test_rpc_routing_error() {
         let dirs = (0..num_nodes)
             .map(|i| TempDir::new(&format!("tx_propagation{}", i)).unwrap())
             .collect::<Vec<_>>();
-        let (_, rpc_addrs, clients) = start_nodes(4, &dirs, 2, 2, 10);
+        let (_, rpc_addrs, clients) = start_nodes(4, &dirs, 2, 2, 10, 0);
         let view_client = clients[0].1.clone();
 
         WaitOrTimeout::new(
@@ -394,7 +394,7 @@ fn test_get_validator_info_rpc() {
         let dirs = (0..num_nodes)
             .map(|i| TempDir::new(&format!("tx_propagation{}", i)).unwrap())
             .collect::<Vec<_>>();
-        let (_, rpc_addrs, clients) = start_nodes(1, &dirs, 1, 0, 10);
+        let (_, rpc_addrs, clients) = start_nodes(1, &dirs, 1, 0, 10, 0);
         let view_client = clients[0].1.clone();
 
         WaitOrTimeout::new(
