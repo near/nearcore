@@ -169,23 +169,6 @@ pub struct PeerMessageMetadata {
 }
 
 impl PeerMessageMetadata {
-    pub fn into_metadata(msg: &PeerMessage) -> Self {
-        let hash = match msg {
-            PeerMessage::Challenge(challenge) => Some(challenge.hash),
-            PeerMessage::Block(block) => Some(block.hash()),
-            _ => None,
-        };
-
-        Self {
-            source: None,
-            target: None,
-            status: None,
-            message_type: msg.to_string(),
-            size: None,
-            hash,
-        }
-    }
-
     pub fn set_source(mut self, peer_id: PeerId) -> Self {
         self.source = Some(peer_id);
         self
@@ -211,6 +194,25 @@ impl PeerMessageMetadata {
             Some(Status::Received) => self.source.clone(),
             Some(Status::Sent) => self.target.clone(),
             _ => None,
+        }
+    }
+}
+
+impl From<&PeerMessage> for PeerMessageMetadata {
+    fn from(msg: &PeerMessage) -> Self {
+        let hash = match msg {
+            PeerMessage::Challenge(challenge) => Some(challenge.hash),
+            PeerMessage::Block(block) => Some(block.hash()),
+            _ => None,
+        };
+
+        Self {
+            source: None,
+            target: None,
+            status: None,
+            message_type: msg.to_string(),
+            size: None,
+            hash,
         }
     }
 }

@@ -203,9 +203,8 @@ impl Peer {
         };
         #[cfg(feature = "metric_recorder")]
         let metadata = {
-            let mut metadata = PeerMessageMetadata::into_metadata(&msg)
-                .set_source(self.node_id())
-                .set_status(Status::Sent);
+            let mut metadata: PeerMessageMetadata = (&msg).into();
+            metadata = metadata.set_source(self.node_id()).set_status(Status::Sent);
             if let Some(target) = self.peer_id() {
                 metadata = metadata.set_target(target);
             }
@@ -552,10 +551,9 @@ impl StreamHandler<Vec<u8>> for Peer {
 
         #[cfg(feature = "metric_recorder")]
         {
-            let mut metadata = PeerMessageMetadata::into_metadata(&peer_msg)
-                .set_size(msg_size)
-                .set_target(self.node_id())
-                .set_status(Status::Received);
+            let mut metadata: PeerMessageMetadata = (&peer_msg).into();
+            metadata =
+                metadata.set_size(msg_size).set_target(self.node_id()).set_status(Status::Received);
 
             if let Some(peer_id) = self.peer_id() {
                 metadata = metadata.set_source(peer_id);
