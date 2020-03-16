@@ -315,8 +315,8 @@ impl RoutingTable {
         &self.raw_graph.source
     }
 
-    pub fn reachable_peers(&self) -> Vec<PeerId> {
-        self.peer_forwarding.keys().cloned().collect()
+    pub fn reachable_peers(&self) -> impl Iterator<Item = &PeerId> {
+        self.peer_forwarding.keys()
     }
 
     /// Find peer that is connected to `source` and belong to the shortest path

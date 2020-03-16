@@ -54,6 +54,7 @@ const WAIT_ON_TRY_UPDATE_NONCE: u64 = 6_000;
 /// timeout and in case it didn't become an active peer, broadcast edge removal update.
 const WAIT_PEER_BEFORE_REMOVE: u64 = 6_000;
 /// Time to wait before sending ping to all reachable peers.
+#[cfg(feature = "metric_recorder")]
 const WAIT_BEFORE_PING: u64 = 20_000;
 
 macro_rules! unwrap_or_error(($obj: expr, $error: expr) => (match $obj {
@@ -475,8 +476,9 @@ impl PeerManagerActor {
         });
     }
 
+    #[cfg(feature = "metric_recorder")]
     fn ping_all_peers(&mut self, ctx: &mut Context<Self>) {
-        for peer_id in self.routing_table.reachable_peers() {
+        for peer_id in self.routing_table.reachable_peers().cloned().collect::<Vec<_>>() {
             let nonce = self.routing_table.get_ping(peer_id.clone());
             self.send_ping(ctx, nonce, peer_id);
         }
@@ -851,6 +853,7 @@ impl Actor for PeerManagerActor {
         self.monitor_peer_stats(ctx);
 
         // Periodically ping all peers to determine latencies between pair of peers.
+        #[cfg(feature = "metric_recorder")]
         self.ping_all_peers(ctx);
     }
 
