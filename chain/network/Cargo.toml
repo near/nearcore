@@ -40,6 +40,7 @@ testlib = { path = "../../test-utils/testlib" }
 
 [features]
 adversarial = []
+metric_recorder = []
 
 [[bench]]
 name = "graph"

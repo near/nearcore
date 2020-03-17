@@ -1,3 +1,5 @@
+#[cfg(feature = "metric_recorder")]
+use near_network::recorder::MetricRecorder;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -222,6 +224,8 @@ pub struct NetworkInfoResponse {
     pub received_bytes_per_sec: u64,
     /// Accounts of known block and chunk producers from routing table.
     pub known_producers: Vec<KnownProducer>,
+    #[cfg(feature = "metric_recorder")]
+    pub metric_recorder: MetricRecorder,
 }
 
 /// Status of given transaction including all the subsequent receipts.

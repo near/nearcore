@@ -40,3 +40,4 @@ near = { path = "../../near" }
 byzantine_asserts = ["near-chain/byzantine_asserts"]
 expensive_tests = []
 adversarial = ["near-network/adversarial", "near-chain/adversarial"]
+metric_recorder = []
