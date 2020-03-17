@@ -6,6 +6,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use tracing::info;
 
+const WEIGHTED_LATENCY_DECAY: f64 = 0.8;
+
 #[derive(Clone, Copy)]
 pub enum Status {
     Sent,
@@ -52,7 +54,8 @@ impl HashAggregator {
         self.all.insert(hash);
     }
 
-    fn different(&self) -> usize {
+    /// Number of different hashes added to the aggregator so far.
+    fn different_hashes(&self) -> usize {
         self.all.len()
     }
 }
@@ -64,7 +67,7 @@ impl Serialize for HashAggregator {
     {
         let mut dic = serializer.serialize_map(Some(2))?;
         dic.serialize_entry("total", &self.total)?;
-        dic.serialize_entry("different", &self.different())?;
+        dic.serialize_entry("different", &self.different_hashes())?;
         dic.end()
     }
 }
@@ -80,7 +83,8 @@ impl Latency {
         if self.received == 0 {
             self.weighted_latency = latency;
         } else {
-            self.weighted_latency = 0.8f64 * self.weighted_latency + 0.2f64 * latency;
+            self.weighted_latency = WEIGHTED_LATENCY_DECAY * self.weighted_latency
+                + (1f64 - WEIGHTED_LATENCY_DECAY) * latency;
         }
         self.mean_latency =
             (self.mean_latency * (self.received as f64) + latency) / ((self.received + 1) as f64);
