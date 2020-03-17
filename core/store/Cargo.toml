@@ -6,6 +6,8 @@ edition = "2018"
 
 [dependencies]
 byteorder = "1.2"
+derive_more = "0.99.3"
+owning_ref = "0.4.1"
 elastic-array = "0.11"
 rocksdb = "0.13"
 serde = "1.0"

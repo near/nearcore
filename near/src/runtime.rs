@@ -332,7 +332,7 @@ impl NightshadeRuntime {
             trie_changes: WrappedTrieChanges::new(
                 self.trie.clone(),
                 apply_result.trie_changes,
-                apply_result.key_value_changes,
+                apply_result.state_changes,
                 block_hash.clone(),
             ),
             new_root: apply_result.state_root,

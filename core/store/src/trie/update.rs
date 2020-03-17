@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::BTreeMap;
 use std::iter::Peekable;
 use std::sync::Arc;
 
@@ -42,10 +42,6 @@ impl<'a> TrieUpdateValuePtr<'a> {
     }
 }
 
-/// For each prefix, the value is a <key, value> map that records the changes in the
-/// trie update.
-pub type PrefixKeyValueChanges = HashMap<Vec<u8>, HashMap<Vec<u8>, Option<Vec<u8>>>>;
-
 impl TrieUpdate {
     pub fn new(trie: Arc<Trie>, root: CryptoHash) -> Self {
         TrieUpdate { trie, root, committed: Default::default(), prospective: Default::default() }
@@ -78,32 +74,6 @@ impl TrieUpdate {
         self.trie.get_ref(&self.root, key).map(|option| {
             option.map(|(length, hash)| TrieUpdateValuePtr::HashAndSize(&self.trie, length, hash))
         })
-    }
-
-    /// Get values in trie update for a set of keys.
-    /// Returns: a hash map of prefix -> <key, value> changes in the trie update.
-    /// This function will commit changes. Need to be used with caution
-    pub fn get_prefix_changes(
-        &mut self,
-        prefixes: &HashSet<Vec<u8>>,
-    ) -> Result<PrefixKeyValueChanges, StorageError> {
-        assert!(self.prospective.is_empty(), "Uncommitted changes exist");
-        let mut res = HashMap::new();
-        for prefix in prefixes {
-            let mut prefix_key_value_change = HashMap::new();
-            for (key, changes) in self.committed.range(prefix.to_vec()..) {
-                if !key.starts_with(prefix) {
-                    break;
-                }
-                if let Some(RawStateChange { data, .. }) = changes.last() {
-                    prefix_key_value_change.insert(key.to_vec(), data.clone());
-                }
-            }
-            if !prefix_key_value_change.is_empty() {
-                res.insert(prefix.to_vec(), prefix_key_value_change);
-            }
-        }
-        Ok(res)
     }
 
     pub fn committed_updates_per_cause(&self) -> &RawStateChanges {

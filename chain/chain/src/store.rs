@@ -6,7 +6,6 @@ use std::sync::Arc;
 use borsh::{BorshDeserialize, BorshSerialize};
 use cached::{Cached, SizedCache};
 use chrono::Utc;
-use owning_ref::OwningRef;
 use serde::Serialize;
 
 use near_primitives::block::{Approval, BlockScore};
@@ -21,8 +20,8 @@ use near_primitives::transaction::{
     ExecutionOutcomeWithId, ExecutionOutcomeWithIdAndProof, SignedTransaction,
 };
 use near_primitives::types::{
-    AccountId, BlockExtra, BlockHeight, ChunkExtra, EpochId, RawStateChangesWithKind, ShardId,
-    StateChanges, StateChangesExt, StateChangesKinds, StateChangesKindsExt, StateChangesRequest,
+    AccountId, BlockExtra, BlockHeight, ChunkExtra, EpochId, ShardId, StateChanges,
+    StateChangesExt, StateChangesKinds, StateChangesKindsExt, StateChangesRequest,
 };
 use near_primitives::utils::{index_to_bytes, to_timestamp};
 use near_primitives::views::LightClientBlockView;
@@ -30,10 +29,10 @@ use near_store::{
     read_with_cache, ColBlock, ColBlockExtra, ColBlockHeader, ColBlockHeight, ColBlockMisc,
     ColBlockPerHeight, ColBlocksToCatchup, ColChallengedBlocks, ColChunkExtra,
     ColChunkPerHeightShard, ColChunks, ColEpochLightClientBlocks, ColIncomingReceipts,
-    ColInvalidChunks, ColKeyValueChanges, ColLastApprovalPerAccount, ColLastBlockWithNewChunk,
+    ColInvalidChunks, ColLastApprovalPerAccount, ColLastBlockWithNewChunk,
     ColMyLastApprovalsPerChain, ColNextBlockHashes, ColNextBlockWithNewChunk, ColOutgoingReceipts,
     ColPartialChunks, ColReceiptIdToShardId, ColStateDlInfos, ColTransactionResult,
-    ColTransactions, Store, StoreUpdate, WrappedTrieChanges,
+    ColTransactions, KeyForStateChanges, Store, StoreUpdate, WrappedTrieChanges,
 };
 
 use crate::byzantine_assert;
@@ -240,12 +239,12 @@ pub trait ChainStoreAccess {
         tx_hash: &CryptoHash,
     ) -> Result<Option<&SignedTransaction>, Error>;
 
-    fn get_key_value_changes_in_block(
+    fn get_state_changes_in_block(
         &self,
         block_hash: &CryptoHash,
     ) -> Result<StateChangesKinds, Error>;
 
-    fn get_key_value_changes(
+    fn get_state_changes(
         &self,
         block_hash: &CryptoHash,
         state_changes_request: &StateChangesRequest,
@@ -834,7 +833,7 @@ impl ChainStoreAccess for ChainStore {
     ///
     /// We store different types of data, so we prefer to only expose minimal information about the
     /// changes (i.e. a kind of the change and an account id).
-    fn get_key_value_changes_in_block(
+    fn get_state_changes_in_block(
         &self,
         block_hash: &CryptoHash,
     ) -> Result<StateChangesKinds, Error> {
@@ -848,22 +847,12 @@ impl ChainStoreAccess for ChainStore {
         //
         // Thus, to query the list of touched accounts we do the following:
         // 1. Query RocksDB for `block_hash` prefix.
-        // 2. Split off the `block_hash` out of the keys returned by RocksDB using simple slicing by
-        //    `common_storage_key_prefix_len`
+        // 2. Extract the original Trie key out of the keys returned by RocksDB
         // 3. Try extracting `account_id` from the key using KeyFor* implementations
 
-        let storage_key = block_hash.as_ref().to_vec();
-        let common_storage_key_prefix_len = storage_key.len();
+        let storage_key = KeyForStateChanges::get_prefix(&block_hash);
 
-        let mut block_changes = self
-            .store
-            .iter_prefix_ser::<RawStateChangesWithKind>(ColKeyValueChanges, &storage_key)
-            .map(|change| {
-                // Split off the irrelevant part of the key, so only the original trie_key is left.
-                let (key, state_changes) = change?;
-                let key = OwningRef::new(key).map(|key| &key[common_storage_key_prefix_len..]);
-                Ok((key, state_changes))
-            });
+        let mut block_changes = storage_key.find_iter(&self.store);
 
         Ok(StateChangesKinds::from_changes(&mut block_changes)?)
     }
@@ -874,7 +863,7 @@ impl ChainStoreAccess for ChainStore {
     /// account data and the access keys are internally-serialized and we have to deserialize those
     /// values appropriately. Code and data changes are simple blobs of data, so we return them as
     /// base64-encoded blobs.
-    fn get_key_value_changes(
+    fn get_state_changes(
         &self,
         block_hash: &CryptoHash,
         state_changes_request: &StateChangesRequest,
@@ -902,9 +891,6 @@ impl ChainStoreAccess for ChainStore {
         //         left working with a key that was used in the trie.
         //    2.2. Parse the trie key with a relevant KeyFor* implementation to ensure consistency
 
-        let mut storage_key = block_hash.as_ref().to_vec();
-        let common_storage_key_prefix_len = storage_key.len();
-
         let data_key: Vec<u8> = match state_changes_request {
             StateChangesRequest::AccountChanges { account_id } => {
                 utils::KeyForAccount::new(account_id).into()
@@ -922,17 +908,9 @@ impl ChainStoreAccess for ChainStore {
                 utils::KeyForData::new(account_id, key_prefix.as_ref()).into()
             }
         };
-        storage_key.extend(&data_key);
+        let storage_key = KeyForStateChanges::new(&block_hash, &data_key);
 
-        let mut changes_per_key_prefix = self
-            .store
-            .iter_prefix_ser::<RawStateChangesWithKind>(ColKeyValueChanges, &storage_key)
-            .map(|change| {
-                // Split off the irrelevant part of the key, so only the original trie_key is left.
-                let (key, state_changes) = change?;
-                let key = OwningRef::new(key).map(|key| &key[common_storage_key_prefix_len..]);
-                Ok((key, state_changes))
-            });
+        let mut changes_per_key_prefix = storage_key.find_iter(&self.store);
 
         // It is a lifetime workaround. We cannot return `&mut changes_per_key_prefix.filter_map(...`
         // as that is a temporary object created there with `filter_map`, and you cannot leak a
@@ -1469,19 +1447,19 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
         }
     }
 
-    fn get_key_value_changes_in_block(
+    fn get_state_changes_in_block(
         &self,
         block_hash: &CryptoHash,
     ) -> Result<StateChangesKinds, Error> {
-        self.chain_store.get_key_value_changes_in_block(block_hash)
+        self.chain_store.get_state_changes_in_block(block_hash)
     }
 
-    fn get_key_value_changes(
+    fn get_state_changes(
         &self,
         block_hash: &CryptoHash,
         state_changes_request: &StateChangesRequest,
     ) -> Result<StateChanges, Error> {
-        self.chain_store.get_key_value_changes(block_hash, state_changes_request)
+        self.chain_store.get_state_changes(block_hash, state_changes_request)
     }
 
     fn get_genesis_height(&self) -> BlockHeight {

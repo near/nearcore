@@ -113,11 +113,13 @@ pub type StateChangesKinds = Vec<StateChangeKind>;
 #[easy_ext::ext(StateChangesKindsExt)]
 impl StateChangesKinds {
     pub fn from_changes<K: AsRef<[u8]>>(
-        raw_changes: &mut dyn Iterator<Item = Result<(K, RawStateChangesWithKind), std::io::Error>>,
+        raw_changes: &mut dyn Iterator<
+            Item = Result<(K, RawStateChangesWithMetadata), std::io::Error>,
+        >,
     ) -> Result<StateChangesKinds, std::io::Error> {
         raw_changes
             .map(|raw_change| {
-                let (_, RawStateChangesWithKind { kind, .. }) = raw_change?;
+                let (_, RawStateChangesWithMetadata { kind, .. }) = raw_change?;
                 Ok(kind)
             })
             .collect()
@@ -167,7 +169,7 @@ pub type RawStateChangesList = Vec<RawStateChange>;
 
 /// This represents the data stored into the state changes table.
 #[derive(Debug, Clone, BorshSerialize, BorshDeserialize)]
-pub struct RawStateChangesWithKind {
+pub struct RawStateChangesWithMetadata {
     pub kind: StateChangeKind,
     pub raw_changes: RawStateChangesList,
 }
@@ -221,13 +223,15 @@ pub type StateChanges = Vec<StateChangeWithCause>;
 #[easy_ext::ext(StateChangesExt)]
 impl StateChanges {
     pub fn from_account_changes<K: AsRef<[u8]>>(
-        raw_changes: &mut dyn Iterator<Item = Result<(K, RawStateChangesWithKind), std::io::Error>>,
+        raw_changes: &mut dyn Iterator<
+            Item = Result<(K, RawStateChangesWithMetadata), std::io::Error>,
+        >,
         account_id: &AccountId,
     ) -> Result<StateChanges, std::io::Error> {
         let mut changes = Self::new();
 
         for raw_change in raw_changes {
-            let (_, RawStateChangesWithKind { kind, raw_changes }) = raw_change?;
+            let (_, RawStateChangesWithMetadata { kind, raw_changes }) = raw_change?;
             debug_assert!(if let StateChangeKind::AccountTouched { .. } = kind {
                 true
             } else {
@@ -253,14 +257,16 @@ impl StateChanges {
     }
 
     pub fn from_access_key_changes<K: AsRef<[u8]>>(
-        raw_changes: &mut dyn Iterator<Item = Result<(K, RawStateChangesWithKind), std::io::Error>>,
+        raw_changes: &mut dyn Iterator<
+            Item = Result<(K, RawStateChangesWithMetadata), std::io::Error>,
+        >,
         account_id: &AccountId,
         access_key_pk: Option<&PublicKey>,
     ) -> Result<StateChanges, std::io::Error> {
         let mut changes = Self::new();
 
         for raw_change in raw_changes {
-            let (key, RawStateChangesWithKind { kind, raw_changes }) = raw_change?;
+            let (key, RawStateChangesWithMetadata { kind, raw_changes }) = raw_change?;
             debug_assert!(if let StateChangeKind::AccessKeyTouched { .. } = kind {
                 true
             } else {
@@ -297,13 +303,15 @@ impl StateChanges {
     }
 
     pub fn from_code_changes<K: AsRef<[u8]>>(
-        raw_changes: &mut dyn Iterator<Item = Result<(K, RawStateChangesWithKind), std::io::Error>>,
+        raw_changes: &mut dyn Iterator<
+            Item = Result<(K, RawStateChangesWithMetadata), std::io::Error>,
+        >,
         account_id: &AccountId,
     ) -> Result<StateChanges, std::io::Error> {
         let mut changes = Self::new();
 
         for raw_change in raw_changes {
-            let (_, RawStateChangesWithKind { kind, raw_changes }) = raw_change?;
+            let (_, RawStateChangesWithMetadata { kind, raw_changes }) = raw_change?;
             debug_assert!(if let StateChangeKind::CodeTouched { .. } = kind {
                 true
             } else {
@@ -329,13 +337,15 @@ impl StateChanges {
     }
 
     pub fn from_data_changes<K: AsRef<[u8]>>(
-        raw_changes: &mut dyn Iterator<Item = Result<(K, RawStateChangesWithKind), std::io::Error>>,
+        raw_changes: &mut dyn Iterator<
+            Item = Result<(K, RawStateChangesWithMetadata), std::io::Error>,
+        >,
         account_id: &AccountId,
     ) -> Result<StateChanges, std::io::Error> {
         let mut changes = Self::new();
 
         for raw_change in raw_changes {
-            let (key, RawStateChangesWithKind { kind, raw_changes }) = raw_change?;
+            let (key, RawStateChangesWithMetadata { kind, raw_changes }) = raw_change?;
             debug_assert!(if let StateChangeKind::DataTouched { .. } = kind {
                 true
             } else {
