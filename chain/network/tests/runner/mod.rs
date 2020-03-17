@@ -77,7 +77,6 @@ pub fn setup_network_node(
             runtime.clone(),
             network_adapter.clone(),
             client_config,
-            None,
         )
         .unwrap()
         .start();
