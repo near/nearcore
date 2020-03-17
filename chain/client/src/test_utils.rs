@@ -124,7 +124,6 @@ pub fn setup(
         runtime.clone(),
         network_adapter.clone(),
         config.clone(),
-        None,
     )
     .unwrap();
 
