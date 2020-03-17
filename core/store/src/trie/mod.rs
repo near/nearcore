@@ -637,6 +637,28 @@ impl KeyForStateChanges {
             },
         )
     }
+
+    pub fn find_exact_iter<'a: 'b, 'b>(
+        &'a self,
+        store: &'b Store,
+    ) -> impl Iterator<
+        Item = Result<(OwningRef<Vec<u8>, [u8]>, RawStateChangesWithMetadata), std::io::Error>,
+    > + 'b {
+        self.find_iter(store).filter_map(move |change| {
+            let (key, state_changes) = match change {
+                Ok(change) => change,
+                error => {
+                    return Some(error);
+                }
+            };
+            if key.len() != self.0.len() {
+                None
+            } else {
+                debug_assert_eq!(key.as_ref(), self.0.as_ref() as &[u8]);
+                Some(Ok((key, state_changes)))
+            }
+        })
+    }
 }
 
 impl Trie {

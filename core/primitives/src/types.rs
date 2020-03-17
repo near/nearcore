@@ -181,20 +181,20 @@ pub type RawStateChanges = std::collections::BTreeMap<Vec<u8>, RawStateChangesLi
 #[serde(tag = "changes_type", rename_all = "snake_case")]
 pub enum StateChangesRequest {
     AccountChanges {
-        account_id: AccountId,
+        account_ids: Vec<AccountId>,
     },
     SingleAccessKeyChanges {
-        account_id: AccountId,
+        account_ids: Vec<AccountId>,
         access_key_pk: PublicKey,
     },
     AllAccessKeyChanges {
-        account_id: AccountId,
+        account_ids: Vec<AccountId>,
     },
     CodeChanges {
-        account_id: AccountId,
+        account_ids: Vec<AccountId>,
     },
     DataChanges {
-        account_id: AccountId,
+        account_ids: Vec<AccountId>,
         #[serde(rename = "key_prefix_base64", with = "base64_format")]
         key_prefix: StoreKey,
     },
@@ -223,9 +223,7 @@ pub type StateChanges = Vec<StateChangeWithCause>;
 #[easy_ext::ext(StateChangesExt)]
 impl StateChanges {
     pub fn from_account_changes<K: AsRef<[u8]>>(
-        raw_changes: &mut dyn Iterator<
-            Item = Result<(K, RawStateChangesWithMetadata), std::io::Error>,
-        >,
+        raw_changes: impl Iterator<Item = Result<(K, RawStateChangesWithMetadata), std::io::Error>>,
         account_id: &AccountId,
     ) -> Result<StateChanges, std::io::Error> {
         let mut changes = Self::new();
@@ -257,9 +255,7 @@ impl StateChanges {
     }
 
     pub fn from_access_key_changes<K: AsRef<[u8]>>(
-        raw_changes: &mut dyn Iterator<
-            Item = Result<(K, RawStateChangesWithMetadata), std::io::Error>,
-        >,
+        raw_changes: impl Iterator<Item = Result<(K, RawStateChangesWithMetadata), std::io::Error>>,
         account_id: &AccountId,
         access_key_pk: Option<&PublicKey>,
     ) -> Result<StateChanges, std::io::Error> {
@@ -303,9 +299,7 @@ impl StateChanges {
     }
 
     pub fn from_code_changes<K: AsRef<[u8]>>(
-        raw_changes: &mut dyn Iterator<
-            Item = Result<(K, RawStateChangesWithMetadata), std::io::Error>,
-        >,
+        raw_changes: impl Iterator<Item = Result<(K, RawStateChangesWithMetadata), std::io::Error>>,
         account_id: &AccountId,
     ) -> Result<StateChanges, std::io::Error> {
         let mut changes = Self::new();
@@ -337,9 +331,7 @@ impl StateChanges {
     }
 
     pub fn from_data_changes<K: AsRef<[u8]>>(
-        raw_changes: &mut dyn Iterator<
-            Item = Result<(K, RawStateChangesWithMetadata), std::io::Error>,
-        >,
+        raw_changes: impl Iterator<Item = Result<(K, RawStateChangesWithMetadata), std::io::Error>>,
         account_id: &AccountId,
     ) -> Result<StateChanges, std::io::Error> {
         let mut changes = Self::new();

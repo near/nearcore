@@ -49,7 +49,7 @@ expected_changes_in_block_response = {
 state_changes_request = {
     "block_id": state_changes_in_block_request['block_id'],
     "changes_type": "account_changes",
-    "account_id": new_account_id,
+    "account_ids": [new_account_id],
 }
 
 expected_changes_response = {
@@ -130,7 +130,7 @@ expected_changes_in_block_response = {
 state_changes_request = {
     "block_id": state_changes_in_block_request['block_id'],
     "changes_type": "all_access_key_changes",
-    "account_id": new_key.account_id,
+    "account_ids": [new_key.account_id],
 }
 
 expected_changes_response = {
@@ -194,7 +194,7 @@ expected_changes_in_block_response = {
 state_changes_request = {
     "block_id": state_changes_in_block_request['block_id'],
     "changes_type": "all_access_key_changes",
-    "account_id": new_key.account_id,
+    "account_ids": [new_key.account_id],
 }
 
 expected_changes_response = {
@@ -283,7 +283,7 @@ expected_changes_in_block_response = {
 state_changes_request = {
     "block_id": state_changes_in_block_request['block_id'],
     "changes_type": "code_changes",
-    "account_id": contract_key.account_id,
+    "account_ids": [contract_key.account_id],
 }
 
 expected_changes_response = {
@@ -375,7 +375,7 @@ expected_changes_in_block_response = {
 state_changes_request = {
     "block_id": state_changes_in_block_request['block_id'],
     "changes_type": "data_changes",
-    "account_id": contract_key.account_id,
+    "account_ids": [contract_key.account_id],
     "key_prefix_base64": base64.b64encode(b"my_key").decode('utf-8'),
 }
 
