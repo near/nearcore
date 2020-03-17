@@ -350,7 +350,7 @@ fn main() {
             let mut genesis_config = near_config.genesis.config.clone();
             genesis_config.genesis_height = genesis_height;
             let genesis = Arc::new(Genesis::new(genesis_config, records.into()));
-            
+
             let output_path = home_dir.join(Path::new("output.json"));
             println!(
                 "Saving state at {:?} @ {} into {}",
