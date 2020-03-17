@@ -30,11 +30,15 @@ use near_primitives::types::{
 };
 use near_primitives::views::{
     BlockView, ChunkView, EpochValidatorInfo, FinalExecutionOutcomeView, FinalExecutionStatus,
-    GasPriceView, LightClientBlockView, QueryRequest, QueryResponse, StateChangesView,
+    GasPriceView, LightClientBlockView, QueryRequest, QueryResponse, StateChangesKindsView,
+    StateChangesView,
 };
 
 use crate::types::{Error, GetBlock, GetGasPrice, Query, TxStatus};
-use crate::{sync, GetChunk, GetKeyValueChanges, GetNextLightClientBlock, GetValidatorInfo};
+use crate::{
+    sync, GetChunk, GetNextLightClientBlock, GetStateChanges, GetStateChangesInBlock,
+    GetValidatorInfo,
+};
 
 /// Max number of queries that we keep.
 const QUERY_REQUEST_LIMIT: usize = 500;
@@ -432,14 +436,27 @@ impl Handler<GetValidatorInfo> for ViewClientActor {
     }
 }
 
-/// Returns a list of changes in a store for a given block.
-impl Handler<GetKeyValueChanges> for ViewClientActor {
-    type Result = Result<StateChangesView, String>;
+/// Returns a list of change kinds per account in a store for a given block.
+impl Handler<GetStateChangesInBlock> for ViewClientActor {
+    type Result = Result<StateChangesKindsView, String>;
 
-    fn handle(&mut self, msg: GetKeyValueChanges, _: &mut Context<Self>) -> Self::Result {
+    fn handle(&mut self, msg: GetStateChangesInBlock, _: &mut Context<Self>) -> Self::Result {
         self.chain
             .store()
-            .get_key_value_changes(&msg.block_hash, &msg.state_changes_request)
+            .get_state_changes_in_block(&msg.block_hash)
+            .map(|state_changes_kinds| state_changes_kinds.into_iter().map(Into::into).collect())
+            .map_err(|e| e.to_string())
+    }
+}
+
+/// Returns a list of changes in a store for a given block filtering by the state changes request.
+impl Handler<GetStateChanges> for ViewClientActor {
+    type Result = Result<StateChangesView, String>;
+
+    fn handle(&mut self, msg: GetStateChanges, _: &mut Context<Self>) -> Self::Result {
+        self.chain
+            .store()
+            .get_state_changes(&msg.block_hash, &msg.state_changes_request)
             .map(|state_changes| state_changes.into_iter().map(Into::into).collect())
             .map_err(|e| e.to_string())
     }

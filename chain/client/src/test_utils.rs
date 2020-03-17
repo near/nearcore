@@ -14,6 +14,8 @@ use near_chain::test_utils::KeyValueRuntime;
 use near_chain::{Chain, ChainGenesis, DoomslugThresholdMode, Provenance, RuntimeAdapter};
 use near_chain_configs::ClientConfig;
 use near_crypto::{InMemorySigner, KeyType, PublicKey};
+#[cfg(feature = "metric_recorder")]
+use near_network::recorder::MetricRecorder;
 use near_network::routing::EdgeInfo;
 use near_network::types::{
     AccountOrPeerIdOrHash, NetworkInfo, NetworkViewClientMessages, NetworkViewClientResponses,
@@ -356,6 +358,8 @@ pub fn setup_mock_all_validators(
                             sent_bytes_per_sec: 0,
                             received_bytes_per_sec: 0,
                             known_producers: vec![],
+                            #[cfg(feature = "metric_recorder")]
+                            metric_recorder: MetricRecorder::default(),
                         };
                         client_addr.do_send(NetworkClientMessages::NetworkInfo(info));
                     }

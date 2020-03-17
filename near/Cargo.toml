@@ -46,3 +46,4 @@ testlib = { path = "../test-utils/testlib" }
 
 [features]
 adversarial =  ["near-client/adversarial", "near-network/adversarial"]
+metric_recorder = ["near-network/metric_recorder", "near-client/metric_recorder"]
