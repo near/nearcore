@@ -16,7 +16,7 @@ use near_primitives::types::{
 use near_primitives::utils::generate_random_string;
 use near_primitives::views::{
     BlockView, ChunkView, EpochValidatorInfo, FinalExecutionOutcomeView, GasPriceView,
-    LightClientBlockView, QueryRequest, QueryResponse, StateChangesView,
+    LightClientBlockView, QueryRequest, QueryResponse, StateChangesKindsView, StateChangesView,
 };
 pub use near_primitives::views::{StatusResponse, StatusSyncInfo};
 
@@ -242,11 +242,19 @@ impl Message for GetValidatorInfo {
     type Result = Result<EpochValidatorInfo, String>;
 }
 
-pub struct GetKeyValueChanges {
+pub struct GetStateChanges {
     pub block_hash: CryptoHash,
     pub state_changes_request: StateChangesRequest,
 }
 
-impl Message for GetKeyValueChanges {
+impl Message for GetStateChanges {
     type Result = Result<StateChangesView, String>;
+}
+
+pub struct GetStateChangesInBlock {
+    pub block_hash: CryptoHash,
+}
+
+impl Message for GetStateChangesInBlock {
+    type Result = Result<StateChangesKindsView, String>;
 }

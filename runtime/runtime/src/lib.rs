@@ -108,7 +108,7 @@ pub struct ApplyResult {
     pub validator_proposals: Vec<ValidatorStake>,
     pub outgoing_receipts: Vec<Receipt>,
     pub outcomes: Vec<ExecutionOutcomeWithId>,
-    pub key_value_changes: RawStateChanges,
+    pub state_changes: RawStateChanges,
     pub stats: ApplyStats,
 }
 
@@ -1072,7 +1072,7 @@ impl Runtime {
 
         state_update.commit(StateChangeCause::UpdatedDelayedReceipts);
         // TODO: Avoid cloning.
-        let key_value_changes = state_update.committed_updates_per_cause().clone();
+        let state_changes = state_update.committed_updates_per_cause().clone();
 
         let trie_changes = state_update.finalize()?;
         let state_root = trie_changes.new_root;
@@ -1082,7 +1082,7 @@ impl Runtime {
             validator_proposals,
             outgoing_receipts,
             outcomes,
-            key_value_changes,
+            state_changes,
             stats,
         })
     }

@@ -32,11 +32,26 @@ create_account_tx = transaction.sign_create_account_tx(
 )
 new_account_response = nodes[0].send_tx_and_wait(create_account_tx, 10)
 
-state_changes_request = {
+state_changes_in_block_request = {
     "block_id": new_account_response['result']['receipts_outcome'][0]['block_hash'],
+}
+
+expected_changes_in_block_response = {
+    "block_hash": state_changes_in_block_request['block_id'],
+    "changes": [
+        {
+            "type": "account_touched",
+            "account_id": new_account_id,
+        }
+    ]
+}
+
+state_changes_request = {
+    "block_id": state_changes_in_block_request['block_id'],
     "changes_type": "account_changes",
     "account_id": new_account_id,
 }
+
 expected_changes_response = {
     "block_hash": state_changes_request["block_id"],
     "changes": [
@@ -58,6 +73,11 @@ expected_changes_response = {
 }
 
 for node in nodes:
+    changes_in_block_response = nodes[0].get_changes_in_block(state_changes_in_block_request)['result']
+    assert not deepdiff.DeepDiff(changes_in_block_response, expected_changes_in_block_response), \
+        "query same changes gives different results (expected VS actual):\n%r\n%r" \
+        % (expected_changes_in_block_response, changes_in_block_response)
+
     changes_response = nodes[0].get_changes(state_changes_request)['result']
     del changes_response['changes'][0]['change']['storage_paid_at']
     assert not deepdiff.DeepDiff(changes_response, expected_changes_response), \
@@ -89,11 +109,30 @@ create_account_tx = transaction.sign_create_account_with_full_access_key_and_bal
 )
 new_account_response = nodes[0].send_tx_and_wait(create_account_tx, 10)
 
-state_changes_request = {
+state_changes_in_block_request = {
     "block_id": new_account_response['result']['receipts_outcome'][0]['block_hash'],
+}
+
+expected_changes_in_block_response = {
+    "block_hash": state_changes_in_block_request['block_id'],
+    "changes": [
+        {
+            "type": "account_touched",
+            "account_id": new_key.account_id,
+        },
+        {
+            "type": "access_key_touched",
+            "account_id": new_key.account_id,
+        }
+    ]
+}
+
+state_changes_request = {
+    "block_id": state_changes_in_block_request['block_id'],
     "changes_type": "all_access_key_changes",
     "account_id": new_key.account_id,
 }
+
 expected_changes_response = {
     "block_hash": state_changes_request["block_id"],
     "changes": [
@@ -113,6 +152,11 @@ expected_changes_response = {
 }
 
 for node in nodes:
+    changes_in_block_response = nodes[0].get_changes_in_block(state_changes_in_block_request)['result']
+    assert not deepdiff.DeepDiff(changes_in_block_response, expected_changes_in_block_response), \
+        "query same changes gives different results (expected VS actual):\n%r\n%r" \
+        % (expected_changes_in_block_response, changes_in_block_response)
+
     changes_response = nodes[0].get_changes(state_changes_request)['result']
     assert not deepdiff.DeepDiff(changes_response, expected_changes_response), \
         "query same changes gives different results (expected VS actual):\n%r\n%r" \
@@ -129,11 +173,30 @@ delete_access_key_tx = transaction.sign_delete_access_key_tx(
 )
 delete_access_key_response = nodes[1].send_tx_and_wait(delete_access_key_tx, 10)
 
-state_changes_request = {
+state_changes_in_block_request = {
     "block_id": delete_access_key_response['result']['receipts_outcome'][0]['block_hash'],
+}
+
+expected_changes_in_block_response = {
+    "block_hash": state_changes_in_block_request['block_id'],
+    "changes": [
+        {
+            "type": "account_touched",
+            "account_id": new_key.account_id,
+        },
+        {
+            "type": "access_key_touched",
+            "account_id": new_key.account_id,
+        }
+    ]
+}
+
+state_changes_request = {
+    "block_id": state_changes_in_block_request['block_id'],
     "changes_type": "all_access_key_changes",
     "account_id": new_key.account_id,
 }
+
 expected_changes_response = {
     "block_hash": state_changes_request["block_id"],
     "changes": [
@@ -164,6 +227,11 @@ expected_changes_response = {
 }
 
 for node in nodes:
+    changes_in_block_response = nodes[0].get_changes_in_block(state_changes_in_block_request)['result']
+    assert not deepdiff.DeepDiff(changes_in_block_response, expected_changes_in_block_response), \
+        "query same changes gives different results (expected VS actual):\n%r\n%r" \
+        % (expected_changes_in_block_response, changes_in_block_response)
+
     changes_response = nodes[0].get_changes(state_changes_request)['result']
     assert not deepdiff.DeepDiff(changes_response, expected_changes_response), \
         "query same changes gives different results (expected VS actual):\n%r\n%r" \
@@ -177,21 +245,45 @@ for node in nodes:
 #    the same key (`my_key`).
 # 4. Observe the changes in the block where the transaction outcome "lands".
 
+contract_key = nodes[0].signer_key
 hello_smart_contract = load_binary_file('../tests/hello.wasm')
 status = nodes[0].get_status()
 latest_block_hash = status['sync_info']['latest_block_hash']
 deploy_contract_tx = transaction.sign_deploy_contract_tx(
-    nodes[0].signer_key,
+    contract_key,
     hello_smart_contract,
     10,
     base58.b58decode(latest_block_hash.encode('utf8'))
 )
 deploy_contract_response = nodes[0].send_tx_and_wait(deploy_contract_tx, 10)
 
-state_changes_request = {
+state_changes_in_block_request = {
     "block_id": deploy_contract_response['result']['transaction_outcome']['block_hash'],
+}
+
+expected_changes_in_block_response = {
+    "block_hash": state_changes_in_block_request['block_id'],
+    "changes": [
+        {
+            "type": "account_touched",
+            "account_id": contract_key.account_id,
+        },
+        {
+            "type": "code_touched",
+            "account_id": contract_key.account_id,
+        },
+        {
+            "type": "access_key_touched",
+            "account_id": contract_key.account_id,
+        }
+
+    ]
+}
+
+state_changes_request = {
+    "block_id": state_changes_in_block_request['block_id'],
     "changes_type": "code_changes",
-    "account_id": nodes[0].signer_key.account_id,
+    "account_id": contract_key.account_id,
 }
 
 expected_changes_response = {
@@ -204,7 +296,7 @@ expected_changes_response = {
             },
             "type": "code_update",
             "change": {
-                "account_id": nodes[0].signer_key.account_id,
+                "account_id": contract_key.account_id,
                 "code_base64": base64.b64encode(hello_smart_contract).decode('utf-8'),
             }
         },
@@ -212,6 +304,11 @@ expected_changes_response = {
 }
 
 for node in nodes:
+    changes_in_block_response = nodes[0].get_changes_in_block(state_changes_in_block_request)['result']
+    assert not deepdiff.DeepDiff(changes_in_block_response, expected_changes_in_block_response), \
+        "query same changes gives different results (expected VS actual):\n%r\n%r" \
+        % (expected_changes_in_block_response, changes_in_block_response)
+
     changes_response = node.get_changes(state_changes_request)['result']
     assert not deepdiff.DeepDiff(changes_response, expected_changes_response), \
         "query same changes gives different results (expected VS actual):\n%r\n%r" \
@@ -219,10 +316,12 @@ for node in nodes:
 
 status = nodes[1].get_status()
 latest_block_hash = status['sync_info']['latest_block_hash']
+function_caller_key = nodes[0].signer_key
 
 def set_value_1():
     function_call_1_tx = transaction.sign_function_call_tx(
-        nodes[0].signer_key,
+        function_caller_key,
+        contract_key.account_id,
         'setKeyValue',
         json.dumps({"key": "my_key", "value": "my_value_1"}).encode('utf-8'),
         100000000000,
@@ -235,7 +334,8 @@ function_call_1_thread = threading.Thread(target=set_value_1)
 function_call_1_thread.start()
 
 function_call_2_tx = transaction.sign_function_call_tx(
-    nodes[0].signer_key,
+    function_caller_key,
+    contract_key.account_id,
     'setKeyValue',
     json.dumps({"key": "my_key", "value": "my_value_2"}).encode('utf-8'),
     100000000000,
@@ -249,12 +349,33 @@ assert function_call_2_response['result']['receipts_outcome'][0]['outcome']['sta
 function_call_1_thread.join()
 
 tx_block_hash = function_call_2_response['result']['transaction_outcome']['block_hash']
-tx_account_id = nodes[0].signer_key.account_id
+
+state_changes_in_block_request = {
+    "block_id": tx_block_hash,
+}
+
+expected_changes_in_block_response = {
+    "block_hash": state_changes_in_block_request['block_id'],
+    "changes": [
+        {
+            "type": "account_touched",
+            "account_id": contract_key.account_id,
+        },
+        {
+            "type": "data_touched",
+            "account_id": contract_key.account_id,
+        },
+        {
+            "type": "access_key_touched",
+            "account_id": contract_key.account_id,
+        }
+    ]
+}
 
 state_changes_request = {
-    "block_id": tx_block_hash,
+    "block_id": state_changes_in_block_request['block_id'],
     "changes_type": "data_changes",
-    "account_id": tx_account_id,
+    "account_id": contract_key.account_id,
     "key_prefix_base64": base64.b64encode(b"my_key").decode('utf-8'),
 }
 
@@ -267,7 +388,7 @@ expected_changes_response = {
             },
             "type": "data_update",
             "change": {
-                "account_id": tx_account_id,
+                "account_id": contract_key.account_id,
                 "key_base64": base64.b64encode(b"my_key").decode('utf-8'),
                 "value_base64": base64.b64encode(b"my_value_1").decode('utf-8'),
             }
@@ -279,7 +400,7 @@ expected_changes_response = {
             },
             "type": "data_update",
             "change": {
-                "account_id": tx_account_id,
+                "account_id": contract_key.account_id,
                 "key_base64": base64.b64encode(b"my_key").decode('utf-8'),
                 "value_base64": base64.b64encode(b"my_value_2").decode('utf-8'),
             }
@@ -287,8 +408,12 @@ expected_changes_response = {
     ]
 }
 
-
 for node in nodes:
+    changes_in_block_response = nodes[0].get_changes_in_block(state_changes_in_block_request)['result']
+    assert not deepdiff.DeepDiff(changes_in_block_response, expected_changes_in_block_response), \
+        "query same changes gives different results (expected VS actual):\n%r\n%r" \
+        % (expected_changes_in_block_response, changes_in_block_response)
+
     changes_response = node.get_changes(state_changes_request)['result']
     # We fetch the transaction in a separate thread, so receiving the right receipt hash is a bit
     # involved process, nevermind.
