@@ -55,7 +55,7 @@ impl HashAggregator {
     }
 
     /// Number of different hashes added to the aggregator so far.
-    fn different_hashes(&self) -> usize {
+    fn num_different_hashes(&self) -> usize {
         self.all.len()
     }
 }
@@ -67,7 +67,7 @@ impl Serialize for HashAggregator {
     {
         let mut dic = serializer.serialize_map(Some(2))?;
         dic.serialize_entry("total", &self.total)?;
-        dic.serialize_entry("different", &self.different_hashes())?;
+        dic.serialize_entry("different", &self.num_different_hashes())?;
         dic.end()
     }
 }
