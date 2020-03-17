@@ -11,7 +11,7 @@ use near_network::test_utils::{convert_boot_nodes, open_port};
 use near_primitives::block::{Block, BlockHeader};
 use near_primitives::hash::CryptoHash;
 use near_primitives::test_utils::init_integration_logger;
-use near_primitives::types::{BlockHeightDelta, NumSeats, NumShards, ShardId};
+use near_primitives::types::{BlockHeight, BlockHeightDelta, NumSeats, NumShards, ShardId};
 use near_store::test_utils::create_test_store;
 
 pub mod actix_utils;
@@ -55,6 +55,7 @@ pub fn start_nodes(
     num_validator_seats: NumSeats,
     num_lightclient: usize,
     epoch_length: BlockHeightDelta,
+    genesis_height: BlockHeight,
 ) -> (Arc<Genesis>, Vec<String>, Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>) {
     init_integration_logger();
 
@@ -67,6 +68,7 @@ pub fn start_nodes(
         (0..num_shards).map(|_| num_validator_seats).collect(),
     );
     genesis.config.epoch_length = epoch_length;
+    genesis.config.genesis_height = genesis_height;
     let genesis = Arc::new(genesis);
 
     let validators = (0..num_validator_seats).map(|i| format!("near.{}", i)).collect::<Vec<_>>();

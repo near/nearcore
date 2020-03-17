@@ -78,7 +78,8 @@ impl ViewClientActor {
         let mut chain =
             Chain::new(runtime_adapter.clone(), chain_genesis, DoomslugThresholdMode::HalfStake)?;
         if let Some(expected_genesis_hash) = expected_genesis_hash {
-            let genesis_hash = chain.get_block_by_height(0).unwrap().hash().to_string();
+            let genesis_hash =
+                chain.get_block_by_height(chain_genesis.height).unwrap().hash().to_string();
             if genesis_hash != expected_genesis_hash {
                 panic!(
                     "Expected genesis hash to be {}, actual {}",

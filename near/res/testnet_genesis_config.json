@@ -1,6 +1,7 @@
 {
-  "protocol_version": 4,
+  "protocol_version": 5,
   "config_version": 1,
+  "genesis_height": 0,
   "genesis_time": "2019-06-04T06:13:25Z",
   "chain_id": "testnet",
   "num_block_producer_seats": 50,
