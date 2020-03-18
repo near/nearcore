@@ -41,7 +41,7 @@ members = [
 ]
 
 exclude = [
-    "genesis-tools/contracts/common",
+    "genesis-tools/contracts/utils",
     "genesis-tools/contracts/lockup-contract",
     "genesis-tools/contracts/vesting-contract",
 ]
