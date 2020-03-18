@@ -255,7 +255,7 @@ mod tests {
         pk
     }
 
-    fn to_yacto(near_balance: u128) -> u128 {
+    fn to_yocto(near_balance: u128) -> u128 {
         near_balance * 10u128.pow(24)
     }
 
@@ -275,7 +275,7 @@ mod tests {
     }
 
     fn assert_almost_eq(left: u128, right: u128) {
-        assert_almost_eq_with_max_delta(left, right, to_yacto(10));
+        assert_almost_eq_with_max_delta(left, right, to_yocto(10));
     }
 
     fn get_context(
@@ -307,7 +307,7 @@ mod tests {
     fn basic_setup() -> (VMContext, VestingContract) {
         let context = get_context(
             system_account(),
-            to_yacto(LOCKUP_NEAR),
+            to_yocto(LOCKUP_NEAR),
             0,
             to_ts(GENESIS_TIME_IN_DAYS),
             false,
@@ -323,7 +323,7 @@ mod tests {
         // - Owner has 2 keys
         // - Foundation has 1 key
         let contract = VestingContract::new(
-            to_yacto(LOCKUP_NEAR).into(),
+            to_yocto(LOCKUP_NEAR).into(),
             to_ts(GENESIS_TIME_IN_DAYS + YEAR).into(),
             to_ts(GENESIS_TIME_IN_DAYS - ALMOST_HALF_YEAR).into(),
             to_ts(GENESIS_TIME_IN_DAYS - ALMOST_HALF_YEAR + YEAR).into(),
@@ -342,49 +342,49 @@ mod tests {
         testing_env!(context.clone());
 
         assert_eq!(contract.get_transferrable().0, 0);
-        assert_eq!(contract.get_unvested().0, to_yacto(LOCKUP_NEAR));
+        assert_eq!(contract.get_unvested().0, to_yocto(LOCKUP_NEAR));
 
         // Checking values in 1 day after genesis time
         context.block_timestamp = to_ts(GENESIS_TIME_IN_DAYS + 1);
         testing_env!(context.clone());
 
         assert_eq!(contract.get_transferrable().0, 0);
-        assert_eq!(contract.get_unvested().0, to_yacto(LOCKUP_NEAR));
+        assert_eq!(contract.get_unvested().0, to_yocto(LOCKUP_NEAR));
 
         // Checking values next day after cliff but before lockup timestamp
         context.block_timestamp = to_ts(GENESIS_TIME_IN_DAYS - ALMOST_HALF_YEAR + YEAR + 1);
         testing_env!(context.clone());
 
         assert_eq!(contract.get_transferrable().0, 0);
-        assert_almost_eq(contract.get_unvested().0, to_yacto(750));
+        assert_almost_eq(contract.get_unvested().0, to_yocto(750));
 
         // Checking values next day after lockup timestamp
         context.block_timestamp = to_ts(GENESIS_TIME_IN_DAYS + YEAR + 1);
         testing_env!(context.clone());
 
-        assert_almost_eq(contract.get_transferrable().0, to_yacto(375));
-        assert_almost_eq(contract.get_unvested().0, to_yacto(625));
+        assert_almost_eq(contract.get_transferrable().0, to_yocto(375));
+        assert_almost_eq(contract.get_unvested().0, to_yocto(625));
 
         // Checking values middle of vesting
         context.block_timestamp = to_ts(GENESIS_TIME_IN_DAYS - ALMOST_HALF_YEAR + YEAR * 2);
         testing_env!(context.clone());
 
-        assert_almost_eq(contract.get_transferrable().0, to_yacto(500));
-        assert_almost_eq(contract.get_unvested().0, to_yacto(500));
+        assert_almost_eq(contract.get_transferrable().0, to_yocto(500));
+        assert_almost_eq(contract.get_unvested().0, to_yocto(500));
 
         // Checking values a day before vesting ends
         context.block_timestamp = to_ts(GENESIS_TIME_IN_DAYS - ALMOST_HALF_YEAR + YEAR * 4 - 1);
         testing_env!(context.clone());
 
-        assert_almost_eq(contract.get_transferrable().0, to_yacto(1000));
-        assert_almost_eq(contract.get_unvested().0, to_yacto(0));
+        assert_almost_eq(contract.get_transferrable().0, to_yocto(1000));
+        assert_almost_eq(contract.get_unvested().0, to_yocto(0));
 
         // Checking values a day after vesting ends
         context.block_timestamp = to_ts(GENESIS_TIME_IN_DAYS - ALMOST_HALF_YEAR + YEAR * 4 + 1);
         testing_env!(context.clone());
 
-        assert_almost_eq(contract.get_transferrable().0, to_yacto(1000));
-        assert_almost_eq(contract.get_unvested().0, to_yacto(0));
+        assert_almost_eq(contract.get_transferrable().0, to_yocto(1000));
+        assert_almost_eq(contract.get_unvested().0, to_yocto(0));
     }
 
     #[test]
@@ -392,53 +392,53 @@ mod tests {
         let (mut context, contract) = basic_setup();
 
         // Staking everything at the genesis
-        context.account_locked_balance = to_yacto(999);
-        context.account_balance = to_yacto(1);
+        context.account_locked_balance = to_yocto(999);
+        context.account_balance = to_yocto(1);
 
         // Checking values in 1 day after genesis time
         context.is_view = true;
 
         for stake in &[1, 10, 100, 500, 999, 1001, 1005, 1100, 1500, 1999, 3000] {
             let stake = *stake;
-            context.account_locked_balance = to_yacto(stake);
+            context.account_locked_balance = to_yocto(stake);
             let balance_near = std::cmp::max(1000u128.saturating_sub(stake), 1);
-            context.account_balance = to_yacto(balance_near);
+            context.account_balance = to_yocto(balance_near);
             let extra_balance_near = stake + balance_near - 1000;
 
             context.block_timestamp = to_ts(GENESIS_TIME_IN_DAYS + 1);
             testing_env!(context.clone());
 
-            assert_eq!(contract.get_transferrable().0, to_yacto(extra_balance_near));
+            assert_eq!(contract.get_transferrable().0, to_yocto(extra_balance_near));
 
             // Checking values next day after cliff but before lockup timestamp
             context.block_timestamp = to_ts(GENESIS_TIME_IN_DAYS - ALMOST_HALF_YEAR + YEAR + 1);
             testing_env!(context.clone());
 
-            assert_eq!(contract.get_transferrable().0, to_yacto(extra_balance_near));
+            assert_eq!(contract.get_transferrable().0, to_yocto(extra_balance_near));
 
             // Checking values next day after lockup timestamp
             context.block_timestamp = to_ts(GENESIS_TIME_IN_DAYS + YEAR + 1);
             testing_env!(context.clone());
 
-            assert_almost_eq(contract.get_transferrable().0, to_yacto(375 + extra_balance_near));
+            assert_almost_eq(contract.get_transferrable().0, to_yocto(375 + extra_balance_near));
 
             // Checking values middle of vesting
             context.block_timestamp = to_ts(GENESIS_TIME_IN_DAYS - ALMOST_HALF_YEAR + YEAR * 2);
             testing_env!(context.clone());
 
-            assert_almost_eq(contract.get_transferrable().0, to_yacto(500 + extra_balance_near));
+            assert_almost_eq(contract.get_transferrable().0, to_yocto(500 + extra_balance_near));
 
             // Checking values a day before vesting ends
             context.block_timestamp = to_ts(GENESIS_TIME_IN_DAYS - ALMOST_HALF_YEAR + YEAR * 4 - 1);
             testing_env!(context.clone());
 
-            assert_almost_eq(contract.get_transferrable().0, to_yacto(1000 + extra_balance_near));
+            assert_almost_eq(contract.get_transferrable().0, to_yocto(1000 + extra_balance_near));
 
             // Checking values a day after vesting ends
             context.block_timestamp = to_ts(GENESIS_TIME_IN_DAYS - ALMOST_HALF_YEAR + YEAR * 4 + 1);
             testing_env!(context.clone());
 
-            assert_almost_eq(contract.get_transferrable().0, to_yacto(1000 + extra_balance_near));
+            assert_almost_eq(contract.get_transferrable().0, to_yocto(1000 + extra_balance_near));
         }
     }
 
@@ -448,7 +448,7 @@ mod tests {
         context.block_timestamp = to_ts(GENESIS_TIME_IN_DAYS + YEAR + 1);
         context.is_view = true;
         testing_env!(context.clone());
-        assert_almost_eq(contract.get_transferrable().0, to_yacto(375));
+        assert_almost_eq(contract.get_transferrable().0, to_yocto(375));
 
         context.predecessor_account_id = account_owner();
         context.signer_account_id = account_owner();
@@ -456,9 +456,9 @@ mod tests {
         context.is_view = false;
         testing_env!(context.clone());
 
-        assert_eq!(env::account_balance(), to_yacto(LOCKUP_NEAR));
-        contract.transfer(to_yacto(100).into(), non_owner());
-        assert_almost_eq(env::account_balance(), to_yacto(LOCKUP_NEAR - 100));
+        assert_eq!(env::account_balance(), to_yocto(LOCKUP_NEAR));
+        contract.transfer(to_yocto(100).into(), non_owner());
+        assert_almost_eq(env::account_balance(), to_yocto(LOCKUP_NEAR - 100));
     }
 
     #[test]
@@ -471,7 +471,7 @@ mod tests {
         testing_env!(context.clone());
 
         std::panic::catch_unwind(move || {
-            contract.transfer(to_yacto(100).into(), non_owner());
+            contract.transfer(to_yocto(100).into(), non_owner());
         })
         .unwrap_err();
     }
@@ -486,7 +486,7 @@ mod tests {
         testing_env!(context.clone());
 
         std::panic::catch_unwind(move || {
-            contract.stake(to_yacto(100).into(), public_key(4).try_into().unwrap());
+            contract.stake(to_yocto(100).into(), public_key(4).try_into().unwrap());
         })
         .unwrap_err();
     }
