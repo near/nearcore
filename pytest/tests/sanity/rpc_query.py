@@ -31,6 +31,12 @@ for i in range(4):
 
 time.sleep(2)
 for i in range(4):
-    query_result1 = nodes[-2].get_account("test%s" % i)
-    query_result2 = nodes[-1].get_account("test%s" % i)
+    def fix_result(result):
+        result["result"]["block_hash"] = None
+        result["result"]["block_height"] = None
+        return result
+    query_result1 = fix_result(nodes[-2].get_account("test%s" % i))
+    query_result2 = fix_result(nodes[-1].get_account("test%s" % i))
+    if query_result1 != query_result2:
+        print("query same account suspicious %s, %s", query_result1, query_result2)
     assert query_result1 == query_result2, "query same account gives different result"
