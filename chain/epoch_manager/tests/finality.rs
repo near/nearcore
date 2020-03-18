@@ -302,7 +302,7 @@ mod tests {
                     );
                     let (mut chain, _, signer) = setup();
                     let mut em = setup_default_epoch_manager(
-                        block_producers1.iter().map(|_| ("test", 1000000)).collect(),
+                        block_producers1.iter().map(|name| (name.as_str(), 1000000)).collect(),
                         10,
                         4,
                         7,

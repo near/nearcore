@@ -17,6 +17,8 @@ use near_chain::{
 };
 use near_chain_configs::ClientConfig;
 use near_crypto::Signature;
+#[cfg(feature = "metric_recorder")]
+use near_network::recorder::MetricRecorder;
 #[cfg(feature = "adversarial")]
 use near_network::types::NetworkAdversarialMessage;
 use near_network::types::{NetworkInfo, ReasonForBan, StateResponseInfo};
@@ -32,7 +34,6 @@ use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::views::ValidatorInfo;
 #[cfg(feature = "adversarial")]
 use near_store::ColBlock;
-use near_store::Store;
 use near_telemetry::TelemetryActor;
 
 use crate::client::Client;
@@ -85,7 +86,6 @@ fn wait_until_genesis(genesis_time: &DateTime<Utc>) {
 impl ClientActor {
     pub fn new(
         config: ClientConfig,
-        store: Arc<Store>,
         chain_genesis: ChainGenesis,
         runtime_adapter: Arc<dyn RuntimeAdapter>,
         node_id: PeerId,
@@ -101,7 +101,6 @@ impl ClientActor {
         let info_helper = InfoHelper::new(telemetry_actor, &config, validator_signer.clone());
         let client = Client::new(
             config,
-            store,
             chain_genesis,
             runtime_adapter,
             network_adapter.clone(),
@@ -127,6 +126,8 @@ impl ClientActor {
                 received_bytes_per_sec: 0,
                 sent_bytes_per_sec: 0,
                 known_producers: vec![],
+                #[cfg(feature = "metric_recorder")]
+                metric_recorder: MetricRecorder::default(),
             },
             last_validator_announce_height: None,
             last_validator_announce_time: None,
@@ -481,6 +482,8 @@ impl Handler<GetNetworkInfo> for ClientActor {
             sent_bytes_per_sec: self.network_info.sent_bytes_per_sec,
             received_bytes_per_sec: self.network_info.received_bytes_per_sec,
             known_producers: self.network_info.known_producers.clone(),
+            #[cfg(feature = "metric_recorder")]
+            metric_recorder: self.network_info.metric_recorder.clone(),
         })
     }
 }

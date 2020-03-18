@@ -52,7 +52,7 @@ pub fn setup_network_node(
     ));
     let telemetry_actor = TelemetryActor::new(TelemetryConfig::default()).start();
     let chain_genesis =
-        ChainGenesis::new(genesis_time, 1_000_000, 100, 1_000_000_000, 0, 0, 1000, 5);
+        ChainGenesis::new(genesis_time, 0, 1_000_000, 100, 1_000_000_000, 0, 0, 1000, 5);
 
     let peer_manager = PeerManagerActor::create(move |ctx| {
         let mut client_config = ClientConfig::test(false, 100, 200, num_validators, false);
@@ -62,7 +62,6 @@ pub fn setup_network_node(
         let network_adapter = Arc::new(network_adapter);
         let client_actor = ClientActor::new(
             client_config.clone(),
-            store.clone(),
             chain_genesis.clone(),
             runtime.clone(),
             config.public_key.clone().into(),
@@ -74,12 +73,10 @@ pub fn setup_network_node(
         .unwrap()
         .start();
         let view_client_actor = ViewClientActor::new(
-            store.clone(),
             &chain_genesis,
             runtime.clone(),
             network_adapter.clone(),
             client_config,
-            None,
         )
         .unwrap()
         .start();

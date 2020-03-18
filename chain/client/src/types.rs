@@ -1,3 +1,5 @@
+#[cfg(feature = "metric_recorder")]
+use near_network::recorder::MetricRecorder;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -16,7 +18,7 @@ use near_primitives::types::{
 use near_primitives::utils::generate_random_string;
 use near_primitives::views::{
     BlockView, ChunkView, EpochValidatorInfo, FinalExecutionOutcomeView, GasPriceView,
-    LightClientBlockView, QueryRequest, QueryResponse, StateChangesView,
+    LightClientBlockView, QueryRequest, QueryResponse, StateChangesKindsView, StateChangesView,
 };
 pub use near_primitives::views::{StatusResponse, StatusSyncInfo};
 
@@ -222,6 +224,8 @@ pub struct NetworkInfoResponse {
     pub received_bytes_per_sec: u64,
     /// Accounts of known block and chunk producers from routing table.
     pub known_producers: Vec<KnownProducer>,
+    #[cfg(feature = "metric_recorder")]
+    pub metric_recorder: MetricRecorder,
 }
 
 /// Status of given transaction including all the subsequent receipts.
@@ -242,11 +246,19 @@ impl Message for GetValidatorInfo {
     type Result = Result<EpochValidatorInfo, String>;
 }
 
-pub struct GetKeyValueChanges {
+pub struct GetStateChanges {
     pub block_hash: CryptoHash,
     pub state_changes_request: StateChangesRequest,
 }
 
-impl Message for GetKeyValueChanges {
+impl Message for GetStateChanges {
     type Result = Result<StateChangesView, String>;
+}
+
+pub struct GetStateChangesInBlock {
+    pub block_hash: CryptoHash,
+}
+
+impl Message for GetStateChangesInBlock {
+    type Result = Result<StateChangesKindsView, String>;
 }

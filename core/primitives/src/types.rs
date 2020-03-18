@@ -99,8 +99,35 @@ pub struct StoreValue(Vec<u8>);
 #[as_ref(forward)]
 pub struct FunctionArgs(Vec<u8>);
 
+/// A structure used to indicate the kind of state changes due to transaction/receipt processing, etc.
+#[derive(Debug, Clone, BorshSerialize, BorshDeserialize)]
+pub enum StateChangeKind {
+    AccountTouched { account_id: AccountId },
+    AccessKeyTouched { account_id: AccountId },
+    DataTouched { account_id: AccountId },
+    CodeTouched { account_id: AccountId },
+}
+
+pub type StateChangesKinds = Vec<StateChangeKind>;
+
+#[easy_ext::ext(StateChangesKindsExt)]
+impl StateChangesKinds {
+    pub fn from_changes<K: AsRef<[u8]>>(
+        raw_changes: &mut dyn Iterator<
+            Item = Result<(K, RawStateChangesWithMetadata), std::io::Error>,
+        >,
+    ) -> Result<StateChangesKinds, std::io::Error> {
+        raw_changes
+            .map(|raw_change| {
+                let (_, RawStateChangesWithMetadata { kind, .. }) = raw_change?;
+                Ok(kind)
+            })
+            .collect()
+    }
+}
+
 /// A structure used to index state changes due to transaction/receipt processing and other things.
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone)]
+#[derive(Debug, Clone, BorshSerialize, BorshDeserialize)]
 pub enum StateChangeCause {
     /// A type of update that does not get finalized. Used for verification and execution of
     /// immutable smart contract methods. Attempt fo finalize a `TrieUpdate` containing such
@@ -131,7 +158,21 @@ pub enum StateChangeCause {
     ValidatorAccountsUpdate,
 }
 
-pub type RawStateChangesList = Vec<(StateChangeCause, Option<Vec<u8>>)>;
+/// This represents the prospective and committed changes in the Trie.
+#[derive(Debug, Clone, BorshSerialize, BorshDeserialize)]
+pub struct RawStateChange {
+    pub cause: StateChangeCause,
+    pub data: Option<Vec<u8>>,
+}
+
+pub type RawStateChangesList = Vec<RawStateChange>;
+
+/// This represents the data stored into the state changes table.
+#[derive(Debug, Clone, BorshSerialize, BorshDeserialize)]
+pub struct RawStateChangesWithMetadata {
+    pub kind: StateChangeKind,
+    pub raw_changes: RawStateChangesList,
+}
 
 /// key that was updated -> list of updates with the corresponding indexing event.
 pub type RawStateChanges = std::collections::BTreeMap<Vec<u8>, RawStateChangesList>;
@@ -182,20 +223,27 @@ pub type StateChanges = Vec<StateChangeWithCause>;
 #[easy_ext::ext(StateChangesExt)]
 impl StateChanges {
     pub fn from_account_changes<K: AsRef<[u8]>>(
-        changes_per_key: &mut dyn Iterator<Item = Result<(K, RawStateChangesList), std::io::Error>>,
+        raw_changes: &mut dyn Iterator<
+            Item = Result<(K, RawStateChangesWithMetadata), std::io::Error>,
+        >,
         account_id: &AccountId,
     ) -> Result<StateChanges, std::io::Error> {
         let mut changes = Self::new();
 
-        for change in changes_per_key {
-            let (_, state_changes) = change?;
-            changes.extend(state_changes.into_iter().map(|(cause, state_change)| {
+        for raw_change in raw_changes {
+            let (_, RawStateChangesWithMetadata { kind, raw_changes }) = raw_change?;
+            debug_assert!(if let StateChangeKind::AccountTouched { .. } = kind {
+                true
+            } else {
+                false
+            });
+            changes.extend(raw_changes.into_iter().map(|RawStateChange { cause, data }| {
                 StateChangeWithCause {
                     cause,
-                    value: if let Some(state_change) = state_change {
+                    value: if let Some(change_data) = data {
                         StateChangeValue::AccountUpdate {
                             account_id: account_id.clone(),
-                            account: <_>::try_from_slice(&state_change)
+                            account: <_>::try_from_slice(&change_data)
                                 .expect("Failed to parse internally stored account information"),
                         }
                     } else {
@@ -209,14 +257,21 @@ impl StateChanges {
     }
 
     pub fn from_access_key_changes<K: AsRef<[u8]>>(
-        changes_per_key: &mut dyn Iterator<Item = Result<(K, RawStateChangesList), std::io::Error>>,
+        raw_changes: &mut dyn Iterator<
+            Item = Result<(K, RawStateChangesWithMetadata), std::io::Error>,
+        >,
         account_id: &AccountId,
         access_key_pk: Option<&PublicKey>,
     ) -> Result<StateChanges, std::io::Error> {
         let mut changes = Self::new();
 
-        for change in changes_per_key {
-            let (key, state_changes) = change?;
+        for raw_change in raw_changes {
+            let (key, RawStateChangesWithMetadata { kind, raw_changes }) = raw_change?;
+            debug_assert!(if let StateChangeKind::AccessKeyTouched { .. } = kind {
+                true
+            } else {
+                false
+            });
 
             let access_key_pk = match access_key_pk {
                 Some(access_key_pk) => access_key_pk.clone(),
@@ -224,14 +279,14 @@ impl StateChanges {
                     .expect("Failed to parse internally stored public key"),
             };
 
-            changes.extend(state_changes.into_iter().map(|(cause, state_change)| {
+            changes.extend(raw_changes.into_iter().map(|RawStateChange { cause, data }| {
                 StateChangeWithCause {
                     cause,
-                    value: if let Some(state_change) = state_change {
+                    value: if let Some(change_data) = data {
                         StateChangeValue::AccessKeyUpdate {
                             account_id: account_id.clone(),
                             public_key: access_key_pk.clone(),
-                            access_key: <_>::try_from_slice(&state_change)
+                            access_key: <_>::try_from_slice(&change_data)
                                 .expect("Failed to parse internally stored access key"),
                         }
                     } else {
@@ -248,20 +303,28 @@ impl StateChanges {
     }
 
     pub fn from_code_changes<K: AsRef<[u8]>>(
-        changes_per_key: &mut dyn Iterator<Item = Result<(K, RawStateChangesList), std::io::Error>>,
+        raw_changes: &mut dyn Iterator<
+            Item = Result<(K, RawStateChangesWithMetadata), std::io::Error>,
+        >,
         account_id: &AccountId,
     ) -> Result<StateChanges, std::io::Error> {
         let mut changes = Self::new();
 
-        for change in changes_per_key {
-            let (_, state_changes) = change?;
-            changes.extend(state_changes.into_iter().map(|(cause, state_change)| {
+        for raw_change in raw_changes {
+            let (_, RawStateChangesWithMetadata { kind, raw_changes }) = raw_change?;
+            debug_assert!(if let StateChangeKind::CodeTouched { .. } = kind {
+                true
+            } else {
+                false
+            });
+
+            changes.extend(raw_changes.into_iter().map(|RawStateChange { cause, data }| {
                 StateChangeWithCause {
                     cause,
-                    value: if let Some(state_change) = state_change {
+                    value: if let Some(change_data) = data {
                         StateChangeValue::CodeUpdate {
                             account_id: account_id.clone(),
-                            code: state_change.into(),
+                            code: change_data.into(),
                         }
                     } else {
                         StateChangeValue::CodeDeletion { account_id: account_id.clone() }
@@ -274,30 +337,37 @@ impl StateChanges {
     }
 
     pub fn from_data_changes<K: AsRef<[u8]>>(
-        changes_per_key: &mut dyn Iterator<Item = Result<(K, RawStateChangesList), std::io::Error>>,
+        raw_changes: &mut dyn Iterator<
+            Item = Result<(K, RawStateChangesWithMetadata), std::io::Error>,
+        >,
         account_id: &AccountId,
     ) -> Result<StateChanges, std::io::Error> {
         let mut changes = Self::new();
 
-        for change in changes_per_key {
-            let (key, state_changes) = change?;
+        for raw_change in raw_changes {
+            let (key, RawStateChangesWithMetadata { kind, raw_changes }) = raw_change?;
+            debug_assert!(if let StateChangeKind::DataTouched { .. } = kind {
+                true
+            } else {
+                false
+            });
 
-            let key = KeyForData::parse_data_key(key.as_ref())
+            let data_key = KeyForData::parse_data_key(key.as_ref())
                 .expect("Failed to parse internally stored data key");
 
-            changes.extend(state_changes.into_iter().map(|(cause, state_change)| {
+            changes.extend(raw_changes.into_iter().map(|RawStateChange { cause, data }| {
                 StateChangeWithCause {
                     cause,
-                    value: if let Some(state_change) = state_change {
+                    value: if let Some(change_data) = data {
                         StateChangeValue::DataUpdate {
                             account_id: account_id.clone(),
-                            key: key.to_vec().into(),
-                            value: state_change.into(),
+                            key: data_key.to_vec().into(),
+                            value: change_data.into(),
                         }
                     } else {
                         StateChangeValue::DataDeletion {
                             account_id: account_id.clone(),
-                            key: key.to_vec().into(),
+                            key: data_key.to_vec().into(),
                         }
                     },
                 }

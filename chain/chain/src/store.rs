@@ -6,7 +6,6 @@ use std::sync::Arc;
 use borsh::{BorshDeserialize, BorshSerialize};
 use cached::{Cached, SizedCache};
 use chrono::Utc;
-use owning_ref::OwningRef;
 use serde::Serialize;
 
 use near_primitives::block::{Approval, BlockScore};
@@ -21,8 +20,8 @@ use near_primitives::transaction::{
     ExecutionOutcomeWithId, ExecutionOutcomeWithIdAndProof, SignedTransaction,
 };
 use near_primitives::types::{
-    AccountId, BlockExtra, BlockHeight, ChunkExtra, EpochId, RawStateChangesList, ShardId,
-    StateChanges, StateChangesExt, StateChangesRequest,
+    AccountId, BlockExtra, BlockHeight, ChunkExtra, EpochId, ShardId, StateChanges,
+    StateChangesExt, StateChangesKinds, StateChangesKindsExt, StateChangesRequest,
 };
 use near_primitives::utils::{index_to_bytes, to_timestamp};
 use near_primitives::views::LightClientBlockView;
@@ -30,10 +29,10 @@ use near_store::{
     read_with_cache, ColBlock, ColBlockExtra, ColBlockHeader, ColBlockHeight, ColBlockMisc,
     ColBlockPerHeight, ColBlocksToCatchup, ColChallengedBlocks, ColChunkExtra,
     ColChunkPerHeightShard, ColChunks, ColEpochLightClientBlocks, ColIncomingReceipts,
-    ColInvalidChunks, ColKeyValueChanges, ColLastApprovalPerAccount, ColLastBlockWithNewChunk,
+    ColInvalidChunks, ColLastApprovalPerAccount, ColLastBlockWithNewChunk,
     ColMyLastApprovalsPerChain, ColNextBlockHashes, ColNextBlockWithNewChunk, ColOutgoingReceipts,
     ColPartialChunks, ColReceiptIdToShardId, ColStateDlInfos, ColTransactionResult,
-    ColTransactions, Store, StoreUpdate, WrappedTrieChanges,
+    ColTransactions, KeyForStateChanges, Store, StoreUpdate, WrappedTrieChanges,
 };
 
 use crate::byzantine_assert;
@@ -240,16 +239,25 @@ pub trait ChainStoreAccess {
         tx_hash: &CryptoHash,
     ) -> Result<Option<&SignedTransaction>, Error>;
 
-    fn get_key_value_changes(
+    fn get_state_changes_in_block(
+        &self,
+        block_hash: &CryptoHash,
+    ) -> Result<StateChangesKinds, Error>;
+
+    fn get_state_changes(
         &self,
         block_hash: &CryptoHash,
         state_changes_request: &StateChangesRequest,
     ) -> Result<StateChanges, Error>;
+
+    fn get_genesis_height(&self) -> BlockHeight;
 }
 
 /// All chain-related database operations.
 pub struct ChainStore {
     store: Arc<Store>,
+    /// Genesis block height.
+    genesis_height: BlockHeight,
     /// Latest known.
     latest_known: Option<LatestKnown>,
     /// Cache with headers.
@@ -306,9 +314,10 @@ pub fn option_to_not_found<T>(res: io::Result<Option<T>>, field_name: &str) -> R
 }
 
 impl ChainStore {
-    pub fn new(store: Arc<Store>) -> ChainStore {
+    pub fn new(store: Arc<Store>, genesis_height: BlockHeight) -> ChainStore {
         ChainStore {
             store,
+            genesis_height,
             latest_known: None,
             blocks: SizedCache::with_size(CACHE_SIZE),
             headers: SizedCache::with_size(CACHE_SIZE),
@@ -445,7 +454,7 @@ impl ChainStore {
 
     pub fn get_block_height(&mut self, hash: &CryptoHash) -> Result<BlockHeight, Error> {
         if hash == &CryptoHash::default() {
-            Ok(0)
+            Ok(self.genesis_height)
         } else {
             Ok(self.get_block_header(hash)?.inner_lite.height)
         }
@@ -820,13 +829,41 @@ impl ChainStoreAccess for ChainStore {
             .map_err(|e| e.into())
     }
 
+    /// Retrieve the kinds of state changes occurred in a given block.
+    ///
+    /// We store different types of data, so we prefer to only expose minimal information about the
+    /// changes (i.e. a kind of the change and an account id).
+    fn get_state_changes_in_block(
+        &self,
+        block_hash: &CryptoHash,
+    ) -> Result<StateChangesKinds, Error> {
+        // We store the trie changes under a compound key: `block_hash + trie_key`, so when we
+        // query the changes, we reverse the process by splitting the key using simple slicing of an
+        // array of bytes, essentially, extracting `trie_key`.
+        //
+        // Example: data changes are stored under a key:
+        //
+        //     block_hash + (col::ACCOUNT + account_id + ACCOUNT_DATA_SEPARATOR + user_specified_key)
+        //
+        // Thus, to query the list of touched accounts we do the following:
+        // 1. Query RocksDB for `block_hash` prefix.
+        // 2. Extract the original Trie key out of the keys returned by RocksDB
+        // 3. Try extracting `account_id` from the key using KeyFor* implementations
+
+        let storage_key = KeyForStateChanges::get_prefix(&block_hash);
+
+        let mut block_changes = storage_key.find_iter(&self.store);
+
+        Ok(StateChangesKinds::from_changes(&mut block_changes)?)
+    }
+
     /// Retrieve the key-value changes from the store and decode them appropriately.
     ///
     /// We store different types of data, so we need to take care of all the types. That is, the
     /// account data and the access keys are internally-serialized and we have to deserialize those
     /// values appropriately. Code and data changes are simple blobs of data, so we return them as
     /// base64-encoded blobs.
-    fn get_key_value_changes(
+    fn get_state_changes(
         &self,
         block_hash: &CryptoHash,
         state_changes_request: &StateChangesRequest,
@@ -854,9 +891,6 @@ impl ChainStoreAccess for ChainStore {
         //         left working with a key that was used in the trie.
         //    2.2. Parse the trie key with a relevant KeyFor* implementation to ensure consistency
 
-        let mut storage_key = block_hash.as_ref().to_vec();
-        let common_storage_key_prefix_len = storage_key.len();
-
         let data_key: Vec<u8> = match state_changes_request {
             StateChangesRequest::AccountChanges { account_id } => {
                 utils::KeyForAccount::new(account_id).into()
@@ -874,17 +908,9 @@ impl ChainStoreAccess for ChainStore {
                 utils::KeyForData::new(account_id, key_prefix.as_ref()).into()
             }
         };
-        storage_key.extend(&data_key);
+        let storage_key = KeyForStateChanges::new(&block_hash, &data_key);
 
-        let mut changes_per_key_prefix = self
-            .store
-            .iter_prefix_ser::<RawStateChangesList>(ColKeyValueChanges, &storage_key)
-            .map(|change| {
-                // Split off the irrelevant part of the key, so only the original trie_key is left.
-                let (key, state_changes) = change?;
-                let key = OwningRef::new(key).map(|key| &key[common_storage_key_prefix_len..]);
-                Ok((key, state_changes))
-            });
+        let mut changes_per_key_prefix = storage_key.find_iter(&self.store);
 
         // It is a lifetime workaround. We cannot return `&mut changes_per_key_prefix.filter_map(...`
         // as that is a temporary object created there with `filter_map`, and you cannot leak a
@@ -938,6 +964,10 @@ impl ChainStoreAccess for ChainStore {
                 StateChanges::from_data_changes(changes_per_key, account_id)?
             }
         })
+    }
+
+    fn get_genesis_height(&self) -> BlockHeight {
+        self.genesis_height
     }
 }
 
@@ -1417,12 +1447,23 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
         }
     }
 
-    fn get_key_value_changes(
+    fn get_state_changes_in_block(
+        &self,
+        block_hash: &CryptoHash,
+    ) -> Result<StateChangesKinds, Error> {
+        self.chain_store.get_state_changes_in_block(block_hash)
+    }
+
+    fn get_state_changes(
         &self,
         block_hash: &CryptoHash,
         state_changes_request: &StateChangesRequest,
     ) -> Result<StateChanges, Error> {
-        self.chain_store.get_key_value_changes(block_hash, state_changes_request)
+        self.chain_store.get_state_changes(block_hash, state_changes_request)
+    }
+
+    fn get_genesis_height(&self) -> BlockHeight {
+        self.chain_store.genesis_height
     }
 }
 
@@ -1479,7 +1520,7 @@ impl<'a> ChainStoreUpdate<'a> {
 
     /// Update header head and height to hash index for this branch.
     pub fn save_header_head_if_not_challenged(&mut self, t: &Tip) -> Result<(), Error> {
-        if t.height > 0 {
+        if t.height > self.chain_store.genesis_height {
             self.update_height_if_not_challenged(t.height, t.prev_block_hash)?;
         }
         self.try_save_latest_known(t.height)?;
@@ -1982,12 +2023,12 @@ impl<'a> ChainStoreUpdate<'a> {
         for transaction in self.chain_store_cache_update.transactions.iter() {
             store_update.set_ser(ColTransactions, transaction.get_hash().as_ref(), transaction)?;
         }
-        for trie_changes in self.trie_changes.drain(..) {
+        for mut trie_changes in self.trie_changes.drain(..) {
             trie_changes
                 .insertions_into(&mut store_update)
                 .map_err(|err| ErrorKind::Other(err.to_string()))?;
             trie_changes
-                .key_value_changes_into(&mut store_update)
+                .state_changes_into(&mut store_update)
                 .map_err(|err| ErrorKind::Other(err.to_string()))?;
             // TODO: save deletions separately for garbage collection.
         }
@@ -2215,13 +2256,7 @@ mod tests {
             1,
             10,
         ));
-        Chain::new(
-            store.clone(),
-            runtime_adapter,
-            &chain_genesis,
-            DoomslugThresholdMode::NoApprovals,
-        )
-        .unwrap()
+        Chain::new(runtime_adapter, &chain_genesis, DoomslugThresholdMode::NoApprovals).unwrap()
     }
 
     #[test]

@@ -73,9 +73,7 @@ fn kv_to_state_record(
             value: to_base64(&value),
         }),
         col::ACCOUNT => {
-            let mut account = Account::try_from_slice(&value).unwrap();
-            // TODO(#1200): When dumping state, all accounts have to pay rent
-            account.storage_paid_at = 0;
+            let account = Account::try_from_slice(&value).unwrap();
             Some(StateRecord::Account { account_id, account: account.into() })
         }
         col::CODE => Some(StateRecord::Contract { account_id, code: to_base64(&value) }),
@@ -135,7 +133,7 @@ fn load_trie(
     home_dir: &Path,
     near_config: &NearConfig,
 ) -> (NightshadeRuntime, Vec<StateRoot>, BlockHeight) {
-    let mut chain_store = ChainStore::new(store.clone());
+    let mut chain_store = ChainStore::new(store.clone(), near_config.genesis.config.genesis_height);
 
     let runtime = NightshadeRuntime::new(
         &home_dir,
@@ -164,7 +162,7 @@ fn print_chain(
     start_height: BlockHeight,
     end_height: BlockHeight,
 ) {
-    let mut chain_store = ChainStore::new(store.clone());
+    let mut chain_store = ChainStore::new(store.clone(), near_config.genesis.config.genesis_height);
     let runtime = NightshadeRuntime::new(
         &home_dir,
         store,
@@ -232,7 +230,7 @@ fn replay_chain(
     start_height: BlockHeight,
     end_height: BlockHeight,
 ) {
-    let mut chain_store = ChainStore::new(store);
+    let mut chain_store = ChainStore::new(store, near_config.genesis.config.genesis_height);
     let new_store = create_test_store();
     let runtime = NightshadeRuntime::new(
         &home_dir,
@@ -347,6 +345,7 @@ fn main() {
             let home_dir = PathBuf::from(&home_dir);
 
             println!("Generating genesis from state data");
+            let genesis_height = height + 1;
 
             let mut records = vec![];
             for state_root in &state_roots {
@@ -359,44 +358,19 @@ fn main() {
                     }
                 }
             }
-            let genesis =
-                Arc::new(Genesis::new(near_config.genesis.config.clone(), records.into()));
 
-            println!("Calculating new genesis hash");
-            let store = near_store::test_utils::create_test_store();
-            let runtime = Arc::new(NightshadeRuntime::new(
-                &home_dir,
-                Arc::clone(&store),
-                Arc::clone(&genesis),
-                near_config.client_config.tracked_accounts.clone(),
-                near_config.client_config.tracked_shards.clone(),
-            ));
-            let chain_genesis = near_chain::ChainGenesis::from(&genesis);
+            let mut genesis_config = near_config.genesis.config.clone();
+            genesis_config.genesis_height = genesis_height;
+            let genesis = Arc::new(Genesis::new(genesis_config, records.into()));
 
-            let mut chain = near_chain::Chain::new(
-                store,
-                Arc::clone(&runtime) as Arc<dyn RuntimeAdapter>,
-                &chain_genesis,
-                DoomslugThresholdMode::HalfStake,
-            )
-            .unwrap();
-            let genesis_hash = chain.get_block_by_height(0).unwrap().hash().to_string();
-
-            let output_path = home_dir.join(Path::new("output_config.json"));
-            let records_path =
-                home_dir.join(Path::new(&format!("output_records_{}.json", &genesis_hash)));
-            let genesis_hash_path = home_dir.join(Path::new("output_hash"));
-
+            let output_path = home_dir.join(Path::new("output.json"));
             println!(
-                "Saving state at {:?} @ {} into {} and records {}",
+                "Saving state at {:?} @ {} into {}",
                 state_roots,
                 height,
                 output_path.display(),
-                records_path.display(),
             );
-            genesis.config.to_file(&output_path);
-            genesis.records.to_file(&records_path);
-            std::fs::write(&genesis_hash_path, &genesis_hash).unwrap();
+            genesis.to_file(&output_path);
         }
         ("chain", Some(args)) => {
             let start_index =

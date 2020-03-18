@@ -1,3 +1,23 @@
+/// Serialize `Vec<u8>` as base64 encoding.
+pub mod bytes_as_base64 {
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    pub fn serialize<S>(arr: &Vec<u8>, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(&base64::encode(arr))
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<Vec<u8>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        Ok(base64::decode(&s).expect("Failed to deserialize base64 string"))
+    }
+}
+
 /// Serialize `Vec<u8>` as `String`.
 pub mod bytes_as_str {
     use serde::{Deserialize, Deserializer, Serializer};

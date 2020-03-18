@@ -66,7 +66,7 @@ pub struct ApplyState {
     pub epoch_length: BlockHeightDelta,
     /// Price for the gas.
     pub gas_price: Balance,
-    /// A block timestamp
+    /// The current block timestamp (number of non-leap-nanoseconds since January 1, 1970 0:00:00 UTC).
     pub block_timestamp: u64,
     /// Gas limit for a given chunk.
     /// If None is given, assumes there is no gas limit.
@@ -109,7 +109,7 @@ pub struct ApplyResult {
     pub validator_proposals: Vec<ValidatorStake>,
     pub outgoing_receipts: Vec<Receipt>,
     pub outcomes: Vec<ExecutionOutcomeWithId>,
-    pub key_value_changes: RawStateChanges,
+    pub state_changes: RawStateChanges,
     pub stats: ApplyStats,
 }
 
@@ -1073,7 +1073,7 @@ impl Runtime {
 
         state_update.commit(StateChangeCause::UpdatedDelayedReceipts);
         // TODO: Avoid cloning.
-        let key_value_changes = state_update.committed_updates_per_cause().clone();
+        let state_changes = state_update.committed_updates_per_cause().clone();
 
         let trie_changes = state_update.finalize()?;
         let state_root = trie_changes.new_root;
@@ -1083,7 +1083,7 @@ impl Runtime {
             validator_proposals,
             outgoing_receipts,
             outcomes,
-            key_value_changes,
+            state_changes,
             stats,
         })
     }

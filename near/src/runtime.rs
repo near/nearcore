@@ -11,7 +11,7 @@ use borsh::BorshDeserialize;
 use log::debug;
 
 use near_chain::types::ApplyTransactionResult;
-use near_chain::{BlockHeader, ChainStore, ChainStoreAccess, Error, ErrorKind, RuntimeAdapter};
+use near_chain::{BlockHeader, Error, ErrorKind, RuntimeAdapter};
 use near_chain_configs::Genesis;
 use near_crypto::{PublicKey, Signature};
 use near_epoch_manager::{BlockInfo, EpochConfig, EpochError, EpochManager, RewardCalculator};
@@ -27,8 +27,7 @@ use near_primitives::state_record::StateRecord;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, EpochId, Gas, MerkleHash, NumShards, ShardId,
-    StateChangeCause, StateChanges, StateChangesRequest, StateRoot, StateRootNode, ValidatorStake,
-    ValidatorStats,
+    StateChangeCause, StateRoot, StateRootNode, ValidatorStake, ValidatorStats,
 };
 use near_primitives::utils::KeyForAccessKey;
 use near_primitives::views::{
@@ -140,7 +139,7 @@ impl NightshadeRuntime {
         }
     }
 
-    fn genesis_state_from_dump(&self) -> (StoreUpdate, Vec<StateRoot>) {
+    fn genesis_state_from_dump(&self) -> (Arc<Store>, StoreUpdate, Vec<StateRoot>) {
         let store_update = self.store.store_update();
         let mut state_file = self.home_dir.clone();
         state_file.push(STATE_DUMP_FILE);
@@ -154,10 +153,10 @@ impl NightshadeRuntime {
         file.read_to_end(&mut data).expect("Failed to read genesis roots file.");
         let state_roots: Vec<StateRoot> =
             BorshDeserialize::try_from_slice(&data).expect("Failed to deserialize genesis roots");
-        (store_update, state_roots)
+        (self.store.clone(), store_update, state_roots)
     }
 
-    fn genesis_state_from_records(&self) -> (StoreUpdate, Vec<StateRoot>) {
+    fn genesis_state_from_records(&self) -> (Arc<Store>, StoreUpdate, Vec<StateRoot>) {
         let mut store_update = self.store.store_update();
         let mut state_roots = vec![];
         let num_shards = self.genesis.config.num_block_producer_seats_per_shard.len() as NumShards;
@@ -200,7 +199,7 @@ impl NightshadeRuntime {
             store_update.merge(shard_store_update);
             state_roots.push(state_root);
         }
-        (store_update, state_roots)
+        (self.store.clone(), store_update, state_roots)
     }
 
     /// Processes state update.
@@ -332,7 +331,7 @@ impl NightshadeRuntime {
             trie_changes: WrappedTrieChanges::new(
                 self.trie.clone(),
                 apply_result.trie_changes,
-                apply_result.key_value_changes,
+                apply_result.state_changes,
                 block_hash.clone(),
             ),
             new_root: apply_result.state_root,
@@ -365,7 +364,7 @@ pub fn state_record_to_shard_id(state_record: &StateRecord, num_shards: NumShard
 }
 
 impl RuntimeAdapter for NightshadeRuntime {
-    fn genesis_state(&self) -> (StoreUpdate, Vec<StateRoot>) {
+    fn genesis_state(&self) -> (Arc<Store>, StoreUpdate, Vec<StateRoot>) {
         let has_records = !self.genesis.records.as_ref().is_empty();
         let has_dump = {
             let mut state_dump = self.home_dir.clone();
@@ -1101,15 +1100,6 @@ impl RuntimeAdapter for NightshadeRuntime {
         }
     }
 
-    fn get_key_value_changes(
-        &self,
-        block_hash: &CryptoHash,
-        state_changes_request: &StateChangesRequest,
-    ) -> Result<StateChanges, Box<dyn std::error::Error>> {
-        let chain_store = ChainStore::new(Arc::clone(&self.store));
-        chain_store.get_key_value_changes(block_hash, state_changes_request).map_err(|e| e.into())
-    }
-
     fn compare_epoch_id(
         &self,
         epoch_id: &EpochId,
@@ -1254,7 +1244,7 @@ mod test {
             gas_limit: Gas,
             challenges: &ChallengesResult,
         ) -> (StateRoot, Vec<ValidatorStake>, ReceiptResult) {
-            let result = self
+            let mut result = self
                 .apply_transactions(
                     shard_id,
                     &state_root,
@@ -1272,7 +1262,7 @@ mod test {
                 .unwrap();
             let mut store_update = self.store.store_update();
             result.trie_changes.insertions_into(&mut store_update).unwrap();
-            result.trie_changes.key_value_changes_into(&mut store_update).unwrap();
+            result.trie_changes.state_changes_into(&mut store_update).unwrap();
             store_update.commit().unwrap();
             (result.new_root, result.validator_proposals, result.receipt_result)
         }
@@ -1323,7 +1313,7 @@ mod test {
                 initial_tracked_accounts,
                 initial_tracked_shards,
             );
-            let (store_update, state_roots) = runtime.genesis_state();
+            let (_store, store_update, state_roots) = runtime.genesis_state();
             store_update.commit().unwrap();
             let genesis_hash = hash(&vec![0]);
             runtime
