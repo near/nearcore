@@ -9,7 +9,7 @@ use validator_derive::Validate;
 
 use crate::hash::CryptoHash;
 use crate::types::{BlockIdOrFinality, StateChangesRequest};
-use crate::views::{QueryRequest, StateChangeWithCauseView};
+use crate::views::{QueryRequest, StateChangeWithCauseView, StateChangesKindsView};
 
 #[derive(Debug, SmartDefault, Serialize, Deserialize, Validate)]
 #[serde(default)]
@@ -47,4 +47,16 @@ pub struct RpcStateChangesRequest {
 pub struct RpcStateChangesResponse {
     pub block_hash: CryptoHash,
     pub changes: Vec<StateChangeWithCauseView>,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct RpcStateChangesInBlockRequest {
+    #[serde(flatten)]
+    pub block_id_or_finality: BlockIdOrFinality,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct RpcStateChangesInBlockResponse {
+    pub block_hash: CryptoHash,
+    pub changes: StateChangesKindsView,
 }

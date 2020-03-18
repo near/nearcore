@@ -31,7 +31,6 @@ use near_primitives::types::{AccountId, BlockHeight, ChunkExtra, EpochId, ShardI
 use near_primitives::unwrap_or_return;
 use near_primitives::utils::to_timestamp;
 use near_primitives::validator_signer::ValidatorSigner;
-use near_store::Store;
 
 use crate::metrics;
 use crate::sync::{BlockSync, HeaderSync, StateSync, StateSyncResult};
@@ -79,7 +78,6 @@ pub struct Client {
 impl Client {
     pub fn new(
         config: ClientConfig,
-        store: Arc<Store>,
         chain_genesis: ChainGenesis,
         runtime_adapter: Arc<dyn RuntimeAdapter>,
         network_adapter: Arc<dyn NetworkAdapter>,
@@ -91,12 +89,7 @@ impl Client {
         } else {
             DoomslugThresholdMode::NoApprovals
         };
-        let chain = Chain::new(
-            store.clone(),
-            runtime_adapter.clone(),
-            &chain_genesis,
-            doomslug_threshold_mode,
-        )?;
+        let chain = Chain::new(runtime_adapter.clone(), &chain_genesis, doomslug_threshold_mode)?;
         let shards_mgr = ShardsManager::new(
             validator_signer.as_ref().map(|x| x.validator_id().clone()),
             runtime_adapter.clone(),
@@ -577,7 +570,7 @@ impl Client {
                     &mut |tx: &SignedTransaction| -> bool {
                         chain
                             .mut_store()
-                            .check_blocks_on_same_chain(
+                            .check_transaction_validity_period(
                                 &prev_block_header,
                                 &tx.transaction.block_hash,
                                 transaction_validity_period,
@@ -1100,7 +1093,10 @@ impl Client {
         )
         .clone();
         let transaction_validity_period = self.chain.transaction_validity_period;
-        if let Err(e) = self.chain.mut_store().check_blocks_on_same_chain(
+        // here it is fine to use `cur_block_header` as it is a best effort estimate. If the transaction
+        // were to be included, the block that the chunk points to will have height >= height of
+        // `cur_block_header`.
+        if let Err(e) = self.chain.mut_store().check_transaction_validity_period(
             &cur_block_header,
             &tx.transaction.block_hash,
             transaction_validity_period,

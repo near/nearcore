@@ -1,9 +1,9 @@
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::BTreeMap;
 use std::iter::Peekable;
 use std::sync::Arc;
 
 use near_primitives::hash::CryptoHash;
-use near_primitives::types::{RawStateChanges, StateChangeCause};
+use near_primitives::types::{RawStateChange, RawStateChanges, StateChangeCause};
 
 use crate::trie::TrieChanges;
 use crate::StorageError;
@@ -42,10 +42,6 @@ impl<'a> TrieUpdateValuePtr<'a> {
     }
 }
 
-/// For each prefix, the value is a <key, value> map that records the changes in the
-/// trie update.
-pub type PrefixKeyValueChanges = HashMap<Vec<u8>, HashMap<Vec<u8>, Option<Vec<u8>>>>;
-
 impl TrieUpdate {
     pub fn new(trie: Arc<Trie>, root: CryptoHash) -> Self {
         TrieUpdate { trie, root, committed: Default::default(), prospective: Default::default() }
@@ -55,8 +51,8 @@ impl TrieUpdate {
         if let Some(value) = self.prospective.get(key) {
             return Ok(value.as_ref().map(<Vec<u8>>::clone));
         } else if let Some(changes) = self.committed.get(key) {
-            if let Some((_, last_change)) = changes.last() {
-                return Ok(last_change.as_ref().map(<Vec<u8>>::clone));
+            if let Some(RawStateChange { data, .. }) = changes.last() {
+                return Ok(data.as_ref().map(<Vec<u8>>::clone));
             }
         }
 
@@ -71,39 +67,13 @@ impl TrieUpdate {
         if let Some(value) = self.prospective.get(key) {
             return Ok(value.as_ref().map(TrieUpdateValuePtr::MemoryRef));
         } else if let Some(changes) = self.committed.get(key) {
-            if let Some((_, last_change)) = changes.last() {
-                return Ok(last_change.as_ref().map(TrieUpdateValuePtr::MemoryRef));
+            if let Some(RawStateChange { data, .. }) = changes.last() {
+                return Ok(data.as_ref().map(TrieUpdateValuePtr::MemoryRef));
             }
         }
         self.trie.get_ref(&self.root, key).map(|option| {
             option.map(|(length, hash)| TrieUpdateValuePtr::HashAndSize(&self.trie, length, hash))
         })
-    }
-
-    /// Get values in trie update for a set of keys.
-    /// Returns: a hash map of prefix -> <key, value> changes in the trie update.
-    /// This function will commit changes. Need to be used with caution
-    pub fn get_prefix_changes(
-        &mut self,
-        prefixes: &HashSet<Vec<u8>>,
-    ) -> Result<PrefixKeyValueChanges, StorageError> {
-        assert!(self.prospective.is_empty(), "Uncommitted changes exist");
-        let mut res = HashMap::new();
-        for prefix in prefixes {
-            let mut prefix_key_value_change = HashMap::new();
-            for (key, changes) in self.committed.range(prefix.to_vec()..) {
-                if !key.starts_with(prefix) {
-                    break;
-                }
-                if let Some((_, last_change)) = changes.last() {
-                    prefix_key_value_change.insert(key.to_vec(), last_change.clone());
-                }
-            }
-            if !prefix_key_value_change.is_empty() {
-                res.insert(prefix.to_vec(), prefix_key_value_change);
-            }
-        }
-        Ok(res)
     }
 
     pub fn committed_updates_per_cause(&self) -> &RawStateChanges {
@@ -146,8 +116,12 @@ impl TrieUpdate {
     }
 
     pub fn commit(&mut self, event: StateChangeCause) {
-        for (key, val) in std::mem::replace(&mut self.prospective, BTreeMap::new()).into_iter() {
-            self.committed.entry(key).or_default().push((event.clone(), val));
+        let prospective = std::mem::replace(&mut self.prospective, BTreeMap::new());
+        for (key, val) in prospective.into_iter() {
+            self.committed
+                .entry(key)
+                .or_default()
+                .push(RawStateChange { cause: event.clone(), data: val });
         }
     }
 
@@ -161,11 +135,11 @@ impl TrieUpdate {
         trie.update(
             &root,
             committed.iter().map(|(k, changes)| {
-                let (_, last_change) = &changes
+                let RawStateChange { data, .. } = &changes
                     .last()
                     .as_ref()
                     .expect("Committed entry should have at least one change");
-                (k.clone(), last_change.clone())
+                (k.clone(), data.clone())
             }),
         )
     }
@@ -253,7 +227,7 @@ impl<'a> TrieUpdateIterator<'a> {
                         .last()
                         .as_ref()
                         .expect("Committed entry should have at least one change.")
-                        .1,
+                        .data,
                 )
             });
         let prospective_iter = state_update.prospective.range(start_offset..);

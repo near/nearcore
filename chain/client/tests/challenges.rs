@@ -70,19 +70,11 @@ fn test_verify_block_double_sign_challenge() {
         }),
         &signer,
     );
-    let transaction_validity_period = env.clients[0].chain.transaction_validity_period;
     let runtime_adapter = env.clients[1].chain.runtime_adapter.clone();
     assert_eq!(
-        validate_challenge(
-            env.clients[0].chain.mut_store(),
-            &*runtime_adapter,
-            &epoch_id,
-            &genesis.hash(),
-            &valid_challenge,
-            transaction_validity_period,
-        )
-        .unwrap()
-        .0,
+        validate_challenge(&*runtime_adapter, &epoch_id, &genesis.hash(), &valid_challenge,)
+            .unwrap()
+            .0,
         if b1.hash() > b2.hash() { b1.hash() } else { b2.hash() }
     );
     let invalid_challenge = Challenge::produce(
@@ -92,17 +84,9 @@ fn test_verify_block_double_sign_challenge() {
         }),
         &signer,
     );
-    let transaction_validity_period = env.clients[0].chain.transaction_validity_period;
     let runtime_adapter = env.clients[1].chain.runtime_adapter.clone();
-    assert!(validate_challenge(
-        env.clients[0].chain.mut_store(),
-        &*runtime_adapter,
-        &epoch_id,
-        &genesis.hash(),
-        &invalid_challenge,
-        transaction_validity_period,
-    )
-    .is_err());
+    assert!(validate_challenge(&*runtime_adapter, &epoch_id, &genesis.hash(), &invalid_challenge,)
+        .is_err());
     let b3 = env.clients[0].produce_block(3).unwrap().unwrap();
     let invalid_challenge = Challenge::produce(
         ChallengeBody::BlockDoubleSign(BlockDoubleSign {
@@ -111,17 +95,9 @@ fn test_verify_block_double_sign_challenge() {
         }),
         &signer,
     );
-    let transaction_validity_period = env.clients[0].chain.transaction_validity_period;
     let runtime_adapter = env.clients[1].chain.runtime_adapter.clone();
-    assert!(validate_challenge(
-        env.clients[0].chain.mut_store(),
-        &*runtime_adapter,
-        &epoch_id,
-        &genesis.hash(),
-        &invalid_challenge,
-        transaction_validity_period,
-    )
-    .is_err());
+    assert!(validate_challenge(&*runtime_adapter, &epoch_id, &genesis.hash(), &invalid_challenge,)
+        .is_err());
 
     let (_, result) = env.clients[0].process_block(b2, Provenance::NONE);
     assert!(result.is_ok());
@@ -359,35 +335,8 @@ fn test_verify_chunk_proofs_challenge_transaction_order() {
     assert_eq!(challenge_result.unwrap(), (block.hash(), vec!["test0".to_string()]));
 }
 
-#[test]
-fn test_verify_chunk_proofs_challenge_transaction_validity() {
-    let mut env = TestEnv::new(ChainGenesis::test(), 1, 1);
-    env.produce_block(0, 1);
-
-    let signer = InMemorySigner::from_seed("test0", KeyType::ED25519, "test0");
-
-    let (chunk, _merkle_paths, _receipts, block) = create_chunk_with_transactions(
-        &mut env.clients[0],
-        vec![SignedTransaction::send_money(
-            1,
-            "test0".to_string(),
-            "test1".to_string(),
-            &signer,
-            1000,
-            CryptoHash::default(),
-        )],
-    );
-    let challenge_result = challenge(
-        env,
-        chunk.header.inner.shard_id as usize,
-        MaybeEncodedShardChunk::Encoded(chunk),
-        &block,
-    );
-    assert_eq!(challenge_result.unwrap(), (block.hash(), vec!["test0".to_string()]));
-}
-
 fn challenge(
-    mut env: TestEnv,
+    env: TestEnv,
     shard_id: usize,
     chunk: MaybeEncodedShardChunk,
     block: &Block,
@@ -401,15 +350,12 @@ fn challenge(
         }),
         &*env.clients[0].validator_signer.as_ref().unwrap().clone(),
     );
-    let transaction_validity_period = env.clients[0].chain.transaction_validity_period;
     let runtime_adapter = env.clients[0].chain.runtime_adapter.clone();
     validate_challenge(
-        env.clients[0].chain.mut_store(),
         &*runtime_adapter,
         &block.header.inner_lite.epoch_id,
         &block.header.prev_hash,
         &valid_challenge,
-        transaction_validity_period,
     )
 }
 
@@ -506,7 +452,6 @@ fn test_verify_chunk_invalid_state_challenge() {
         use near_chain::chain::{ChainUpdate, OrphanBlockPool};
         let chain = &mut client.chain;
         let adapter = chain.runtime_adapter.clone();
-        let validity_period = chain.transaction_validity_period;
         let epoch_length = chain.epoch_length;
         let empty_block_pool = OrphanBlockPool::new();
 
@@ -515,7 +460,6 @@ fn test_verify_chunk_invalid_state_challenge() {
             adapter,
             &empty_block_pool,
             &empty_block_pool,
-            validity_period,
             epoch_length,
             &BlockEconomicsConfig { gas_price_adjustment_rate: 0, min_gas_price: 0 },
             DoomslugThresholdMode::NoApprovals,
@@ -550,16 +494,13 @@ fn test_verify_chunk_invalid_state_challenge() {
     }
     let challenge =
         Challenge::produce(ChallengeBody::ChunkState(challenge_body), &validator_signer);
-    let transaction_validity_period = client.chain.transaction_validity_period;
     let runtime_adapter = client.chain.runtime_adapter.clone();
     assert_eq!(
         validate_challenge(
-            client.chain.mut_store(),
             &*runtime_adapter,
             &block.header.inner_lite.epoch_id,
             &block.header.prev_hash,
             &challenge,
-            transaction_validity_period,
         )
         .unwrap(),
         (block.hash(), vec!["test0".to_string()])

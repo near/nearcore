@@ -312,6 +312,7 @@ impl BlockHeader {
     }
 
     pub fn genesis(
+        height: BlockHeight,
         state_root: MerkleHash,
         chunk_receipts_root: MerkleHash,
         chunk_headers_root: MerkleHash,
@@ -324,7 +325,7 @@ impl BlockHeader {
         next_bp_hash: CryptoHash,
     ) -> Self {
         let inner_lite = BlockHeaderInnerLite::new(
-            0,
+            height,
             EpochId::default(),
             EpochId::default(),
             state_root,
@@ -398,6 +399,7 @@ pub fn genesis_chunks(
     state_roots: Vec<StateRoot>,
     num_shards: NumShards,
     initial_gas_limit: Gas,
+    genesis_height: BlockHeight,
 ) -> Vec<ShardChunk> {
     assert!(state_roots.len() == 1 || state_roots.len() == (num_shards as usize));
     let rs = ReedSolomon::new(1, 2).unwrap();
@@ -408,7 +410,7 @@ pub fn genesis_chunks(
                 CryptoHash::default(),
                 state_roots[i as usize % state_roots.len()].clone(),
                 CryptoHash::default(),
-                0,
+                genesis_height,
                 i,
                 &rs,
                 0,
@@ -423,7 +425,9 @@ pub fn genesis_chunks(
                 &EmptyValidatorSigner::default(),
             )
             .expect("Failed to decode genesis chunk");
-            encoded_chunk.decode_chunk(1).expect("Failed to decode genesis chunk")
+            let mut chunk = encoded_chunk.decode_chunk(1).expect("Failed to decode genesis chunk");
+            chunk.header.height_included = genesis_height;
+            chunk
         })
         .collect()
 }
@@ -433,6 +437,7 @@ impl Block {
     pub fn genesis(
         chunks: Vec<ShardChunkHeader>,
         timestamp: DateTime<Utc>,
+        height: BlockHeight,
         initial_gas_price: Balance,
         initial_total_supply: Balance,
         next_bp_hash: CryptoHash,
@@ -440,6 +445,7 @@ impl Block {
         let challenges = vec![];
         Block {
             header: BlockHeader::genesis(
+                height,
                 Block::compute_state_root(&chunks),
                 Block::compute_chunk_receipts_root(&chunks),
                 Block::compute_chunk_headers_root(&chunks).0,

@@ -23,15 +23,32 @@ pub const MAX_ACCOUNT_ID_LEN: usize = 64;
 /// Number of nano seconds in a second.
 const NS_IN_SECOND: u64 = 1_000_000_000;
 
+/// Type identifiers used for DB key generation to store values in the key-value storage.
 pub mod col {
+    /// This column id is used when storing `primitives::account::Account` type about a given
+    /// `account_id`.
     pub const ACCOUNT: &[u8] = &[0];
+    /// This column id is used when storing contract blob for a given `account_id`.
     pub const CODE: &[u8] = &[1];
+    /// This column id is used when storing `primitives::account::AccessKey` type for a given
+    /// `account_id`.
     pub const ACCESS_KEY: &[u8] = &[2];
+    /// This column id is used when storing `primitives::receipt::ReceivedData` type (data received
+    /// for a key `data_id`). The required postponed receipt might be still not received or requires
+    /// more pending input data.
     pub const RECEIVED_DATA: &[u8] = &[3];
+    /// This column id is used when storing `primitives::hash::CryptoHash` (ReceiptId) type. The
+    /// ReceivedData is not available and is needed for the postponed receipt to execute.
     pub const POSTPONED_RECEIPT_ID: &[u8] = &[4];
+    /// This column id is used when storing the number of missing data inputs that are still not
+    /// available for a key `receipt_id`.
     pub const PENDING_DATA_COUNT: &[u8] = &[5];
+    /// This column id is used when storing the postponed receipts (`primitives::receipt::Receipt`).
     pub const POSTPONED_RECEIPT: &[u8] = &[6];
+    /// This column id is used when storing the indices of the delayed receipts queue.
+    /// NOTE: It is a singleton per shard.
     pub const DELAYED_RECEIPT_INDICES: &[u8] = &[7];
+    /// This column id is used when storing delayed receipts, because the shard is overwhelmed.
     pub const DELAYED_RECEIPT: &[u8] = &[8];
 }
 
@@ -50,6 +67,19 @@ impl KeyForColumnAccountId {
         key.extend(account_id.as_bytes());
         debug_assert_eq!(key.len(), Self::estimate_len(&column, &account_id));
         Self(key)
+    }
+
+    pub fn parse_account_id_prefix<'a>(
+        column: &[u8],
+        raw_key: &'a [u8],
+    ) -> Result<&'a [u8], std::io::Error> {
+        if !raw_key.starts_with(column) {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "raw key is does not start with a proper column marker",
+            ));
+        }
+        Ok(&raw_key[column.len()..])
     }
 }
 
@@ -70,6 +100,17 @@ impl KeyForAccount {
 
     pub fn new(account_id: &AccountId) -> Self {
         Self::with_capacity(&account_id, 0)
+    }
+
+    pub fn parse_account_id<K: AsRef<[u8]>>(raw_key: K) -> Result<AccountId, std::io::Error> {
+        let account_id =
+            KeyForColumnAccountId::parse_account_id_prefix(col::ACCOUNT, raw_key.as_ref())?;
+        Ok(AccountId::from(std::str::from_utf8(account_id).map_err(|_| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "raw key does not have a valid AccountId to be KeyForAccount",
+            )
+        })?))
     }
 }
 
@@ -110,6 +151,28 @@ impl KeyForAccessKey {
         key.0.extend(&serialized_public_key);
         debug_assert_eq!(key.0.len(), Self::estimate_len(&account_id, &public_key));
         key
+    }
+
+    pub fn parse_account_id<K: AsRef<[u8]>>(raw_key: K) -> Result<AccountId, std::io::Error> {
+        let account_id_prefix =
+            KeyForColumnAccountId::parse_account_id_prefix(col::ACCESS_KEY, raw_key.as_ref())?;
+        let public_key_position = if let Some(index) =
+            account_id_prefix.iter().enumerate().find(|(_, c)| **c == 2).map(|(index, _)| index)
+        {
+            index
+        } else {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "raw key does not have public key to be KeyForAccessKey",
+            ));
+        };
+        let account_id = &account_id_prefix[..public_key_position];
+        Ok(AccountId::from(std::str::from_utf8(account_id).map_err(|_| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "raw key does not have a valid AccountId to be KeyForAccessKey",
+            )
+        })?))
     }
 
     pub fn parse_public_key(
@@ -157,6 +220,33 @@ impl KeyForData {
         key
     }
 
+    pub fn parse_account_id<K: AsRef<[u8]>>(raw_key: K) -> Result<AccountId, std::io::Error> {
+        let account_id_prefix =
+            KeyForColumnAccountId::parse_account_id_prefix(col::ACCOUNT, raw_key.as_ref())?;
+        // To simplify things, we assume that the data separator is a single byte.
+        debug_assert_eq!(ACCOUNT_DATA_SEPARATOR.len(), 1);
+        let account_data_separator_position = if let Some(index) = account_id_prefix
+            .iter()
+            .enumerate()
+            .find(|(_, c)| **c == ACCOUNT_DATA_SEPARATOR[0])
+            .map(|(index, _)| index)
+        {
+            index
+        } else {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "raw key does not have ACCOUNT_DATA_SEPARATOR to be KeyForData",
+            ));
+        };
+        let account_id_prefix = &account_id_prefix[..account_data_separator_position];
+        Ok(AccountId::from(std::str::from_utf8(account_id_prefix).map_err(|_| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "raw key does not have a valid AccountId to be KeyForData",
+            )
+        })?))
+    }
+
     pub fn parse_data_key<'a>(
         raw_key: &'a [u8],
         account_id: &AccountId,
@@ -179,6 +269,17 @@ pub struct KeyForCode(Vec<u8>);
 impl KeyForCode {
     pub fn new(account_id: &AccountId) -> Self {
         Self(KeyForColumnAccountId::with_capacity(col::CODE, account_id, 0).into())
+    }
+
+    pub fn parse_account_id<K: AsRef<[u8]>>(raw_key: K) -> Result<AccountId, std::io::Error> {
+        let account_id =
+            KeyForColumnAccountId::parse_account_id_prefix(col::CODE, raw_key.as_ref())?;
+        Ok(AccountId::from(std::str::from_utf8(account_id).map_err(|_| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "raw key does not have a valid AccountId to be KeyForCode",
+            )
+        })?))
     }
 }
 
@@ -469,79 +570,95 @@ mod tests {
 
     use super::*;
 
+    const OK_ACCOUNT_IDS: &[&str] = &[
+        "aa",
+        "a-a",
+        "a-aa",
+        "100",
+        "0o",
+        "com",
+        "near",
+        "bowen",
+        "b-o_w_e-n",
+        "b.owen",
+        "bro.wen",
+        "a.ha",
+        "a.b-a.ra",
+        "system",
+        "over.9000",
+        "google.com",
+        "illia.cheapaccounts.near",
+        "0o0ooo00oo00o",
+        "alex-skidanov",
+        "10-4.8-2",
+        "b-o_w_e-n",
+        "no_lols",
+        "0123456789012345678901234567890123456789012345678901234567890123",
+        // Valid, but can't be created
+        "near.a",
+    ];
+
     #[test]
     fn test_key_for_account_consistency() {
-        let account_id = AccountId::from("test.account");
-        assert_eq!(
-            (KeyForAccount::new(&account_id).as_ref() as &[u8]).len(),
-            KeyForAccount::estimate_len(&account_id)
-        );
+        for account_id in OK_ACCOUNT_IDS.iter().map(|x| AccountId::from(*x)) {
+            let key = KeyForAccount::new(&account_id);
+            assert_eq!((key.as_ref() as &[u8]).len(), KeyForAccount::estimate_len(&account_id));
+            assert_eq!(KeyForAccount::parse_account_id(&key).unwrap(), account_id);
+        }
     }
 
     #[test]
     fn test_key_for_access_key_consistency() {
-        let account_id = AccountId::from("test.account");
         let public_key = PublicKey::empty(KeyType::ED25519);
-        let key_prefix = KeyForAccessKey::get_prefix(&account_id);
-        assert_eq!(
-            (key_prefix.as_ref() as &[u8]).len(),
-            KeyForAccessKey::estimate_prefix_len(&account_id)
-        );
-        let key = KeyForAccessKey::new(&account_id, &public_key);
-        assert_eq!(
-            (key.as_ref() as &[u8]).len(),
-            KeyForAccessKey::estimate_len(&account_id, &public_key)
-        );
-        assert_eq!(
-            KeyForAccessKey::parse_public_key(key.as_ref(), &account_id).unwrap(),
-            public_key
-        );
+        for account_id in OK_ACCOUNT_IDS.iter().map(|x| AccountId::from(*x)) {
+            let key_prefix = KeyForAccessKey::get_prefix(&account_id);
+            assert_eq!(
+                (key_prefix.as_ref() as &[u8]).len(),
+                KeyForAccessKey::estimate_prefix_len(&account_id)
+            );
+            let key = KeyForAccessKey::new(&account_id, &public_key);
+            assert_eq!(
+                (key.as_ref() as &[u8]).len(),
+                KeyForAccessKey::estimate_len(&account_id, &public_key)
+            );
+            assert_eq!(KeyForAccessKey::parse_account_id(&key).unwrap(), account_id);
+            assert_eq!(
+                KeyForAccessKey::parse_public_key(key.as_ref(), &account_id).unwrap(),
+                public_key
+            );
+        }
     }
 
     #[test]
     fn test_key_for_data_consistency() {
-        let account_id = AccountId::from("test.account");
         let data_key = b"0123456789" as &[u8];
-        let key_prefix = KeyForData::get_prefix(&account_id);
-        assert_eq!(
-            (key_prefix.as_ref() as &[u8]).len(),
-            KeyForData::estimate_len(&account_id, &[])
-        );
-        let key = KeyForData::new(&account_id, &data_key);
-        assert_eq!((key.as_ref() as &[u8]).len(), KeyForData::estimate_len(&account_id, &data_key));
-        assert_eq!(KeyForData::parse_data_key(key.as_ref(), &account_id).unwrap(), data_key);
+        for account_id in OK_ACCOUNT_IDS.iter().map(|x| AccountId::from(*x)) {
+            let key_prefix = KeyForData::get_prefix(&account_id);
+            assert_eq!(
+                (key_prefix.as_ref() as &[u8]).len(),
+                KeyForData::estimate_len(&account_id, &[])
+            );
+            let key = KeyForData::new(&account_id, &data_key);
+            assert_eq!(
+                (key.as_ref() as &[u8]).len(),
+                KeyForData::estimate_len(&account_id, &data_key)
+            );
+            assert_eq!(KeyForData::parse_account_id(&key).unwrap(), account_id);
+            assert_eq!(KeyForData::parse_data_key(key.as_ref(), &account_id).unwrap(), data_key);
+        }
+    }
+
+    #[test]
+    fn test_key_for_code_consistency() {
+        for account_id in OK_ACCOUNT_IDS.iter().map(|x| AccountId::from(*x)) {
+            let key = KeyForCode::new(&account_id);
+            assert_eq!(KeyForCode::parse_account_id(&key).unwrap(), account_id);
+        }
     }
 
     #[test]
     fn test_is_valid_account_id() {
-        let ok_account_ids = vec![
-            "aa",
-            "a-a",
-            "a-aa",
-            "100",
-            "0o",
-            "com",
-            "near",
-            "bowen",
-            "b-o_w_e-n",
-            "b.owen",
-            "bro.wen",
-            "a.ha",
-            "a.b-a.ra",
-            "system",
-            "over.9000",
-            "google.com",
-            "illia.cheapaccounts.near",
-            "0o0ooo00oo00o",
-            "alex-skidanov",
-            "10-4.8-2",
-            "b-o_w_e-n",
-            "no_lols",
-            "0123456789012345678901234567890123456789012345678901234567890123",
-            // Valid, but can't be created
-            "near.a",
-        ];
-        for account_id in ok_account_ids {
+        for account_id in OK_ACCOUNT_IDS {
             assert!(
                 is_valid_account_id(&account_id.to_string()),
                 "Valid account id {:?} marked invalid",

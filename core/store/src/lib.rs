@@ -24,8 +24,8 @@ use near_primitives::utils::{
 
 use crate::db::{DBOp, DBTransaction, Database, RocksDB};
 pub use crate::trie::{
-    iterator::TrieIterator, update::PrefixKeyValueChanges, update::TrieUpdate,
-    update::TrieUpdateIterator, update::TrieUpdateValuePtr, PartialStorage, Trie, TrieChanges,
+    iterator::TrieIterator, update::TrieUpdate, update::TrieUpdateIterator,
+    update::TrieUpdateValuePtr, KeyForStateChanges, PartialStorage, Trie, TrieChanges,
     WrappedTrieChanges,
 };
 
@@ -161,6 +161,10 @@ impl StoreUpdate {
     pub fn merge(&mut self, other: StoreUpdate) {
         if self.trie.is_none() {
             if let Some(trie) = other.trie {
+                assert_eq!(
+                    trie.storage.as_caching_storage().unwrap().store.storage.as_ref() as *const _,
+                    self.storage.as_ref() as *const _
+                );
                 self.trie = Some(trie);
             }
         }
@@ -179,6 +183,10 @@ impl StoreUpdate {
 
     pub fn commit(self) -> Result<(), io::Error> {
         if let Some(trie) = self.trie {
+            assert_eq!(
+                trie.storage.as_caching_storage().unwrap().store.storage.as_ref() as *const _,
+                self.storage.as_ref() as *const _
+            );
             trie.update_cache(&self.transaction)?;
         }
         self.storage.write(self.transaction).map_err(|e| e.into())
