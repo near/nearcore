@@ -10,3 +10,4 @@ edition = "2018"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0.45"
 bs58 = "0.3"
+near-bindgen = "0.6.0"

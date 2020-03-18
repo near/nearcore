@@ -4,6 +4,9 @@
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::convert::{TryFrom, TryInto};
 
+#[cfg(not(target_arch = "wasm32"))]
+pub mod test_utils;
+
 /// Implements a wrapped integer type that serializes into and deserializes from base10 string.
 macro_rules! impl_str_type {
     ($iden: ident, $ty: tt) => {
