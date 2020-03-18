@@ -575,13 +575,14 @@ impl WrappedTrieChanges {
                 }),
                 "NotWritableToDisk changes must never be finalized."
             );
-            let kind = if let Ok(account_id) = KeyForData::parse_account_id(&key) {
+
+            let kind = if let Ok(account_id) = KeyForData::parse_account_id_hash(&key) {
                 StateChangeKind::DataTouched { account_id }
-            } else if let Ok(account_id) = KeyForAccount::parse_account_id(&key) {
+            } else if let Ok(account_id) = KeyForAccount::parse_account_id_hash(&key) {
                 StateChangeKind::AccountTouched { account_id }
-            } else if let Ok(account_id) = KeyForAccessKey::parse_account_id(&key) {
+            } else if let Ok(account_id) = KeyForAccessKey::parse_account_id_hash(&key) {
                 StateChangeKind::AccessKeyTouched { account_id }
-            } else if let Ok(account_id) = KeyForCode::parse_account_id(&key) {
+            } else if let Ok(account_id) = KeyForCode::parse_account_id_hash(&key) {
                 StateChangeKind::CodeTouched { account_id }
             } else {
                 continue;

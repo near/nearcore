@@ -102,10 +102,10 @@ pub struct FunctionArgs(Vec<u8>);
 /// A structure used to indicate the kind of state changes due to transaction/receipt processing, etc.
 #[derive(Debug, Clone, BorshSerialize, BorshDeserialize)]
 pub enum StateChangeKind {
-    AccountTouched { account_id: AccountId },
-    AccessKeyTouched { account_id: AccountId },
-    DataTouched { account_id: AccountId },
-    CodeTouched { account_id: AccountId },
+    AccountTouched { account_id_hash: CryptoHash },
+    AccessKeyTouched { account_id_hash: CryptoHash },
+    DataTouched { account_id_hash: CryptoHash },
+    CodeTouched { account_id_hash: CryptoHash },
 }
 
 pub type StateChangesKinds = Vec<StateChangeKind>;

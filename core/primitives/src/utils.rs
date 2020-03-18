@@ -103,7 +103,7 @@ impl KeyForAccount {
     pub fn new(account_id: &AccountId) -> Self {
         Self::with_capacity(&account_id, 0)
     }
-
+    /*
     pub fn parse_account_id<K: AsRef<[u8]>>(raw_key: K) -> Result<AccountId, std::io::Error> {
         let account_id =
             KeyForColumnAccountId::parse_account_id_prefix(col::ACCOUNT, raw_key.as_ref())?;
@@ -114,6 +114,7 @@ impl KeyForAccount {
             )
         })?))
     }
+    */
 }
 
 #[derive(derive_more::AsRef, derive_more::Into)]
@@ -180,7 +181,7 @@ impl KeyForAccessKey {
         debug_assert_eq!(key.0.len(), Self::estimate_len(&public_key));
         key
     }
-
+    /*
     pub fn parse_account_id<K: AsRef<[u8]>>(raw_key: K) -> Result<AccountId, std::io::Error> {
         let account_id_prefix =
             KeyForColumnAccountId::parse_account_id_prefix(col::ACCESS_KEY, raw_key.as_ref())?;
@@ -202,6 +203,7 @@ impl KeyForAccessKey {
             )
         })?))
     }
+    */
 
     pub fn parse_public_key(raw_key: &[u8]) -> Result<PublicKey, std::io::Error> {
         let prefix_len = Self::estimate_prefix_len();
@@ -243,6 +245,7 @@ impl KeyForData {
         bytes
     }
 
+    /*
     pub fn parse_account_id<K: AsRef<[u8]>>(raw_key: K) -> Result<AccountId, std::io::Error> {
         let account_id_prefix =
             KeyForColumnAccountId::parse_account_id_prefix(col::ACCOUNT, raw_key.as_ref())?;
@@ -269,6 +272,7 @@ impl KeyForData {
             )
         })?))
     }
+    */
 
     pub fn parse_data_key(raw_key: &[u8]) -> Result<&[u8], std::io::Error> {
         let prefix_len = Self::estimate_len(&[]);
