@@ -2292,7 +2292,6 @@ mod tests {
         store_update.commit().unwrap();
         let valid_base_hash = long_fork[1].hash();
         let cur_header = &long_fork.last().unwrap().header;
-        println!("here");
         assert!(chain
             .mut_store()
             .check_transaction_validity_period(
@@ -2528,18 +2527,11 @@ mod tests {
         assert!(chain.clear_old_data().is_ok());
 
         assert!(chain.get_block(&blocks[0].hash()).is_ok());
+
+        // epoch didn't change so no data is garbage collected.
         for i in 1..15 {
-            println!("height = {:?}", i);
-            if i < 9 {
-                assert!(chain.get_block(&blocks[i].hash()).is_err());
-                assert!(chain
-                    .mut_store()
-                    .get_all_block_hashes_by_height(i as BlockHeight)
-                    .is_err());
-            } else {
-                assert!(chain.get_block(&blocks[i].hash()).is_ok());
-                assert!(chain.mut_store().get_all_block_hashes_by_height(i as BlockHeight).is_ok());
-            }
+            assert!(chain.get_block(&blocks[i].hash()).is_ok());
+            assert!(chain.mut_store().get_all_block_hashes_by_height(i as BlockHeight).is_ok());
             assert!(chain.get_block_header(&blocks[i].hash()).is_ok());
         }
     }

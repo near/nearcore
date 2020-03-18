@@ -1,10 +1,13 @@
+use std::path::Path;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, RwLock};
 
 use actix::System;
 use futures::{future, FutureExt};
 
-use near_chain::{Block, ChainGenesis, ErrorKind, Provenance};
+use near::config::GenesisExt;
+use near_chain::{Block, ChainGenesis, ErrorKind, Provenance, RuntimeAdapter};
+use near_chain_configs::Genesis;
 use near_chunks::{ChunkStatus, ShardsManager};
 use near_client::test_utils::setup_mock_all_validators;
 use near_client::test_utils::{setup_client, setup_mock, MockNetworkAdapter, TestEnv};
@@ -824,4 +827,30 @@ fn test_minimum_gas_price() {
     }
     let block = env.clients[0].chain.get_block_by_height(100).unwrap();
     assert!(block.header.inner_rest.gas_price >= min_gas_price);
+}
+
+#[test]
+fn test_garbage_collection() {
+    let store = create_test_store();
+    let epoch_length = 2;
+    let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
+    genesis.config.epoch_length = epoch_length;
+    let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![Arc::new(near::NightshadeRuntime::new(
+        Path::new("."),
+        store,
+        Arc::new(genesis),
+        vec![],
+        vec![],
+    ))];
+    let mut chain_genesis = ChainGenesis::test();
+    chain_genesis.epoch_length = epoch_length;
+    let mut env = TestEnv::new_with_runtime(chain_genesis, 1, 1, runtimes);
+    let mut blocks = vec![];
+    for i in 1..=12 {
+        let block = env.clients[0].produce_block(i).unwrap().unwrap();
+        env.process_block(0, block.clone(), Provenance::PRODUCED);
+        blocks.push(block);
+    }
+    assert!(env.clients[0].chain.get_block(&blocks[0].hash()).is_err());
+    assert!(env.clients[0].chain.get_block_header(&blocks[0].hash()).is_ok());
 }

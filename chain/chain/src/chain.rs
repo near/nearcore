@@ -51,6 +51,7 @@ use crate::{metrics, DoomslugThresholdMode};
 use rand::rngs::StdRng;
 use rand::seq::SliceRandom;
 use rand::SeedableRng;
+use std::cmp::min;
 
 /// Maximum number of orphans chain can store.
 pub const MAX_ORPHAN_SIZE: usize = 1024;
@@ -540,8 +541,11 @@ impl Chain {
         let mut chain_store_update = self.store.store_update();
         let head = chain_store_update.head()?;
         let height_diff = NUM_EPOCHS_TO_KEEP_STORE_DATA * self.epoch_length;
+        let epoch_start_height =
+            self.runtime_adapter.get_epoch_start_height(&head.last_block_hash)?;
         if head.height >= height_diff {
-            let last_height = head.height - height_diff;
+            // do not garbage collect anything in the current epoch
+            let last_height = min(head.height - height_diff, epoch_start_height);
             for height in last_height.saturating_sub(HEIGHTS_TO_CLEAR)..last_height {
                 match chain_store_update.clear_old_data_on_height(height) {
                     Ok(_) => {}
