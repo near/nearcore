@@ -78,7 +78,7 @@ impl ViewClientActor {
         config: ClientConfig,
     ) -> Result<Self, Error> {
         // TODO: should we create shared ChainStore that is passed to both Client and ViewClient?
-        let mut chain =
+        let chain =
             Chain::new(runtime_adapter.clone(), chain_genesis, DoomslugThresholdMode::HalfStake)?;
         Ok(ViewClientActor {
             #[cfg(feature = "adversarial")]
