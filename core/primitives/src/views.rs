@@ -35,8 +35,8 @@ use crate::transaction::{
 };
 use crate::types::{
     AccountId, Balance, BlockHeight, EpochId, FunctionArgs, Gas, Nonce, NumBlocks, ShardId,
-    StateChangeCause, StateChangeValue, StateChangeWithCause, StateRoot, StorageUsage, StoreKey,
-    StoreValue, ValidatorStake, Version,
+    StateChangeCause, StateChangeKind, StateChangeValue, StateChangeWithCause, StateRoot,
+    StorageUsage, StoreKey, StoreValue, ValidatorStake, Version,
 };
 
 /// A view of the account
@@ -1058,6 +1058,31 @@ pub struct GasPriceView {
     #[serde(with = "u128_dec_format")]
     pub gas_price: Balance,
 }
+
+/// See crate::types::StateChangeKind for details.
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case", tag = "type")]
+pub enum StateChangeKindView {
+    AccountTouched { account_id: AccountId },
+    AccessKeyTouched { account_id: AccountId },
+    DataTouched { account_id: AccountId },
+    CodeTouched { account_id: AccountId },
+}
+
+impl From<StateChangeKind> for StateChangeKindView {
+    fn from(state_change_kind: StateChangeKind) -> Self {
+        match state_change_kind {
+            StateChangeKind::AccountTouched { account_id } => Self::AccountTouched { account_id },
+            StateChangeKind::AccessKeyTouched { account_id } => {
+                Self::AccessKeyTouched { account_id }
+            }
+            StateChangeKind::DataTouched { account_id } => Self::DataTouched { account_id },
+            StateChangeKind::CodeTouched { account_id } => Self::CodeTouched { account_id },
+        }
+    }
+}
+
+pub type StateChangesKindsView = Vec<StateChangeKindView>;
 
 /// See crate::types::StateChangeCause for details.
 #[derive(Debug, Serialize, Deserialize)]

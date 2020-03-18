@@ -516,16 +516,6 @@ fn test_key_length_limit() {
     logic
         .storage_remove(key.len() as _, key.as_ptr() as _, 0)
         .expect("storage_remove: key length is under the limit");
-    logic
-        .storage_iter_prefix(key.len() as _, key.as_ptr() as _)
-        .expect("storage_iter_prefix: prefix length is under the limit");
-    logic
-        .storage_iter_range(key.len() as _, key.as_ptr() as _, b"z".len() as _, b"z".as_ptr() as _)
-        .expect("storage_iter_range: start length are under the limit");
-    logic
-        .storage_iter_range(b"0".len() as _, b"0".as_ptr() as _, key.len() as _, key.as_ptr() as _)
-        .expect("storage_iter_range: end length are under the limit");
-
     // Over the limit. Invalid calls.
     key.push(b'a');
     assert_eq!(
@@ -548,28 +538,6 @@ fn test_key_length_limit() {
     );
     assert_eq!(
         logic.storage_remove(key.len() as _, key.as_ptr() as _, 0),
-        Err(HostError::KeyLengthExceeded { length: key.len() as _, limit }.into())
-    );
-    assert_eq!(
-        logic.storage_iter_prefix(key.len() as _, key.as_ptr() as _),
-        Err(HostError::KeyLengthExceeded { length: key.len() as _, limit }.into())
-    );
-    assert_eq!(
-        logic.storage_iter_range(
-            key.len() as _,
-            key.as_ptr() as _,
-            b"z".len() as _,
-            b"z".as_ptr() as _
-        ),
-        Err(HostError::KeyLengthExceeded { length: key.len() as _, limit }.into())
-    );
-    assert_eq!(
-        logic.storage_iter_range(
-            b"0".len() as _,
-            b"0".as_ptr() as _,
-            key.len() as _,
-            key.as_ptr() as _
-        ),
         Err(HostError::KeyLengthExceeded { length: key.len() as _, limit }.into())
     );
 }
