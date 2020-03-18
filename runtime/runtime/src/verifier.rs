@@ -809,7 +809,7 @@ mod tests {
             .expect_err("expected an error"),
             RuntimeError::InvalidTxError(InvalidTxError::LackBalanceForState {
                 signer_id: alice_account(),
-                amount: 80 * config.storage_amount_per_byte
+                amount: 72 * config.storage_amount_per_byte
             })
         );
     }

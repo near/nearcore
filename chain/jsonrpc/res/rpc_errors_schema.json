@@ -123,7 +123,8 @@
         "NumberPromisesExceeded",
         "NumberInputDataDependenciesExceeded",
         "ReturnedValueLengthExceeded",
-        "ContractSizeExceeded"
+        "ContractSizeExceeded",
+        "Deprecated"
       ],
       "props": {}
     },
@@ -377,10 +378,11 @@
         "DeleteKeyDoesNotExist",
         "AddKeyAlreadyExists",
         "DeleteAccountStaking",
-        "DeleteAccountHasRent",
-        "RentUnpaid",
+        "DeleteAccountHasEnoughBalance",
+        "LackBalanceForState",
         "TriesToUnstake",
         "TriesToStake",
+        "UnsuitableStakingKey",
         "FunctionCallError",
         "NewReceiptValidationError"
       ],
@@ -523,7 +525,7 @@
         "InvalidReceiverId",
         "InvalidSignature",
         "NotEnoughBalance",
-        "RentUnpaid",
+        "LackBalanceForState",
         "CostOverflow",
         "InvalidChain",
         "Expired",
@@ -628,6 +630,37 @@
       "name": "Timeout",
       "subtypes": [],
       "props": {}
+    },
+    "UnsuitableStakingKey": {
+      "name": "UnsuitableStakingKey",
+      "subtypes": [],
+      "props": {
+        "public_key": ""
+      }
+    },
+    "LackBalanceForState": {
+      "name": "LackBalanceForState",
+      "subtypes": [],
+      "props": {
+        "amount": "",
+        "signer_id": "",
+        "account_id": ""
+      }
+    },
+    "DeleteAccountHasEnoughBalance": {
+      "name": "DeleteAccountHasEnoughBalance",
+      "subtypes": [],
+      "props": {
+        "account_id": "",
+        "balance": ""
+      }
+    },
+    "Deprecated": {
+      "name": "Deprecated",
+      "subtypes": [],
+      "props": {
+        "method_name": ""
+      }
     }
   }
 }
