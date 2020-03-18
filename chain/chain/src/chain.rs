@@ -31,7 +31,7 @@ use near_primitives::views::{
     ExecutionOutcomeWithIdView, ExecutionStatusView, FinalExecutionOutcomeView,
     FinalExecutionStatus, LightClientBlockView,
 };
-use near_store::{ColStateHeaders, ColStateParts, Store};
+use near_store::{ColStateHeaders, ColStateParts};
 
 use crate::error::{Error, ErrorKind};
 use crate::finality::{ApprovalVerificationError, FinalityGadget, FinalityGadgetQuorums};
@@ -43,8 +43,8 @@ use crate::types::{
     ShardStateSyncResponseHeader, StateHeaderKey, StatePartKey, Tip,
 };
 use crate::validate::{
-    validate_challenge, validate_chunk_proofs, validate_chunk_transactions,
-    validate_chunk_with_chunk_extra,
+    validate_challenge, validate_chunk_proofs, validate_chunk_with_chunk_extra,
+    validate_transactions_order,
 };
 use crate::{byzantine_assert, create_light_client_block_view, Doomslug};
 use crate::{metrics, DoomslugThresholdMode};
@@ -177,6 +177,7 @@ impl OrphanBlockPool {
 #[derive(Clone)]
 pub struct ChainGenesis {
     pub time: DateTime<Utc>,
+    pub height: BlockHeight,
     pub gas_limit: Gas,
     pub min_gas_price: Balance,
     pub total_supply: Balance,
@@ -189,6 +190,7 @@ pub struct ChainGenesis {
 impl ChainGenesis {
     pub fn new(
         time: DateTime<Utc>,
+        height: BlockHeight,
         gas_limit: Gas,
         min_gas_price: Balance,
         total_supply: Balance,
@@ -199,6 +201,7 @@ impl ChainGenesis {
     ) -> Self {
         Self {
             time,
+            height,
             gas_limit,
             min_gas_price,
             total_supply,
@@ -218,6 +221,7 @@ where
         let genesis_config = genesis_config.as_ref();
         ChainGenesis::new(
             genesis_config.genesis_time,
+            genesis_config.genesis_height,
             genesis_config.gas_limit,
             genesis_config.min_gas_price,
             genesis_config.total_supply,
@@ -246,23 +250,23 @@ pub struct Chain {
 
 impl Chain {
     pub fn new(
-        store: Arc<Store>,
         runtime_adapter: Arc<dyn RuntimeAdapter>,
         chain_genesis: &ChainGenesis,
         doomslug_threshold_mode: DoomslugThresholdMode,
     ) -> Result<Chain, Error> {
-        let mut store = ChainStore::new(store);
-
         // Get runtime initial state and create genesis block out of it.
-        let (state_store_update, state_roots) = runtime_adapter.genesis_state();
+        let (store, state_store_update, state_roots) = runtime_adapter.genesis_state();
+        let mut store = ChainStore::new(store, chain_genesis.height);
         let genesis_chunks = genesis_chunks(
             state_roots.clone(),
             runtime_adapter.num_shards(),
             chain_genesis.gas_limit,
+            chain_genesis.height,
         );
         let genesis = Block::genesis(
             genesis_chunks.iter().map(|chunk| chunk.header.clone()).collect(),
             chain_genesis.time,
+            chain_genesis.height,
             chain_genesis.min_gas_price,
             chain_genesis.total_supply,
             Chain::compute_bp_hash(&*runtime_adapter, EpochId::default(), &CryptoHash::default())?,
@@ -277,7 +281,7 @@ impl Chain {
                 head = h;
 
                 // Check that genesis in the store is the same as genesis given in the config.
-                let genesis_hash = store_update.get_block_hash_by_height(0)?;
+                let genesis_hash = store_update.get_block_hash_by_height(chain_genesis.height)?;
                 if genesis_hash != genesis.hash() {
                     return Err(ErrorKind::Other(format!(
                         "Genesis mismatch between storage and config: {:?} vs {:?}",
@@ -309,7 +313,8 @@ impl Chain {
                         genesis.hash(),
                         genesis.header.inner_rest.random_value,
                         genesis.header.inner_lite.height,
-                        0,
+                        // genesis height is considered final
+                        chain_genesis.height,
                         vec![],
                         vec![],
                         vec![],
@@ -565,7 +570,6 @@ impl Chain {
             self.runtime_adapter.clone(),
             &self.orphans,
             &self.blocks_with_missing_chunks,
-            self.transaction_validity_period,
             self.epoch_length,
             &self.block_economics_config,
             self.doomslug_threshold_mode,
@@ -584,7 +588,6 @@ impl Chain {
             self.runtime_adapter.clone(),
             &self.orphans,
             &self.blocks_with_missing_chunks,
-            self.transaction_validity_period,
             self.epoch_length,
             &self.block_economics_config,
             self.doomslug_threshold_mode,
@@ -646,7 +649,6 @@ impl Chain {
             self.runtime_adapter.clone(),
             &self.orphans,
             &self.blocks_with_missing_chunks,
-            self.transaction_validity_period,
             self.epoch_length,
             &self.block_economics_config,
             self.doomslug_threshold_mode,
@@ -697,7 +699,6 @@ impl Chain {
                     self.runtime_adapter.clone(),
                     &self.orphans,
                     &self.blocks_with_missing_chunks,
-                    self.transaction_validity_period,
                     self.epoch_length,
                     &self.block_economics_config,
                     self.doomslug_threshold_mode,
@@ -737,7 +738,6 @@ impl Chain {
             self.runtime_adapter.clone(),
             &self.orphans,
             &self.blocks_with_missing_chunks,
-            self.transaction_validity_period,
             self.epoch_length,
             &self.block_economics_config,
             self.doomslug_threshold_mode,
@@ -925,7 +925,6 @@ impl Chain {
             self.runtime_adapter.clone(),
             &self.orphans,
             &self.blocks_with_missing_chunks,
-            self.transaction_validity_period,
             self.epoch_length,
             &self.block_economics_config,
             self.doomslug_threshold_mode,
@@ -1621,7 +1620,6 @@ impl Chain {
             self.runtime_adapter.clone(),
             &self.orphans,
             &self.blocks_with_missing_chunks,
-            self.transaction_validity_period,
             self.epoch_length,
             &self.block_economics_config,
             self.doomslug_threshold_mode,
@@ -1638,7 +1636,6 @@ impl Chain {
                 self.runtime_adapter.clone(),
                 &self.orphans,
                 &self.blocks_with_missing_chunks,
-                self.transaction_validity_period,
                 self.epoch_length,
                 &self.block_economics_config,
                 self.doomslug_threshold_mode,
@@ -1695,7 +1692,6 @@ impl Chain {
             self.runtime_adapter.clone(),
             &self.orphans,
             &self.blocks_with_missing_chunks,
-            self.transaction_validity_period,
             self.epoch_length,
             &self.block_economics_config,
             self.doomslug_threshold_mode,
@@ -1727,7 +1723,6 @@ impl Chain {
                     self.runtime_adapter.clone(),
                     &self.orphans,
                     &self.blocks_with_missing_chunks,
-                    self.transaction_validity_period,
                     self.epoch_length,
                     &self.block_economics_config,
                     self.doomslug_threshold_mode,
@@ -2068,7 +2063,6 @@ pub struct ChainUpdate<'a> {
     chain_store_update: ChainStoreUpdate<'a>,
     orphans: &'a OrphanBlockPool,
     blocks_with_missing_chunks: &'a OrphanBlockPool,
-    transaction_validity_period: NumBlocks,
     epoch_length: BlockHeightDelta,
     block_economics_config: &'a BlockEconomicsConfig,
     doomslug_threshold_mode: DoomslugThresholdMode,
@@ -2080,7 +2074,6 @@ impl<'a> ChainUpdate<'a> {
         runtime_adapter: Arc<dyn RuntimeAdapter>,
         orphans: &'a OrphanBlockPool,
         blocks_with_missing_chunks: &'a OrphanBlockPool,
-        transaction_validity_period: NumBlocks,
         epoch_length: BlockHeightDelta,
         block_economics_config: &'a BlockEconomicsConfig,
         doomslug_threshold_mode: DoomslugThresholdMode,
@@ -2091,7 +2084,6 @@ impl<'a> ChainUpdate<'a> {
             chain_store_update,
             orphans,
             blocks_with_missing_chunks,
-            transaction_validity_period,
             epoch_length,
             block_economics_config,
             doomslug_threshold_mode,
@@ -2386,12 +2378,7 @@ impl<'a> ChainUpdate<'a> {
                     let chunk =
                         self.chain_store_update.get_chunk_clone_from_header(&chunk_header)?;
 
-                    if !validate_chunk_transactions(
-                        self.chain_store_update.get_chain_store(),
-                        &chunk.transactions,
-                        &block.header,
-                        self.transaction_validity_period,
-                    ) {
+                    if !validate_transactions_order(&chunk.transactions) {
                         let merkle_paths = Block::compute_chunk_headers_root(&block.chunks).1;
                         let chunk_proof = ChunkProofs {
                             block_header: block.header.try_to_vec().expect("Failed to serialize"),
@@ -2652,7 +2639,7 @@ impl<'a> ChainUpdate<'a> {
         // If block checks out, record validator proposals for given block.
         let last_quorum_pre_commit = &block.header.inner_rest.last_quorum_pre_commit;
         let last_finalized_height = if last_quorum_pre_commit == &CryptoHash::default() {
-            0
+            self.chain_store_update.get_genesis_height()
         } else {
             self.chain_store_update.get_block_header(last_quorum_pre_commit)?.inner_lite.height
         };
@@ -3248,14 +3235,8 @@ impl<'a> ChainUpdate<'a> {
         debug!(target: "chain", "Verifying challenges {:?}", challenges);
         let mut result = vec![];
         for challenge in challenges.iter() {
-            match validate_challenge(
-                self.chain_store_update.get_chain_store(),
-                &*self.runtime_adapter,
-                &epoch_id,
-                &prev_block_hash,
-                challenge,
-                self.transaction_validity_period,
-            ) {
+            match validate_challenge(&*self.runtime_adapter, &epoch_id, &prev_block_hash, challenge)
+            {
                 Ok((hash, account_ids)) => {
                     let is_double_sign = match challenge.body {
                         // If it's double signed block, we don't invalidate blocks just slash.

@@ -1,11 +1,14 @@
 use borsh::{BorshDeserialize, BorshSerialize};
+use derive_more::{AsRef as DeriveAsRef, From as DeriveFrom};
 use serde::{Deserialize, Serialize};
 
 use near_crypto::PublicKey;
 
+use crate::account::{AccessKey, Account};
 use crate::challenge::ChallengesResult;
 use crate::hash::CryptoHash;
-use crate::serialize::u128_dec_format;
+use crate::serialize::{base64_format, u128_dec_format};
+use crate::utils::{KeyForAccessKey, KeyForData};
 
 /// Account identifier. Provides access to user's state.
 pub type AccountId = String;
@@ -45,6 +48,23 @@ pub type PromiseId = Vec<ReceiptIndex>;
 /// Hash used by to store state root.
 pub type StateRoot = CryptoHash;
 
+/// Different types of finality.
+#[derive(Serialize, Deserialize, BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq)]
+pub enum Finality {
+    #[serde(rename = "optimistic")]
+    None,
+    #[serde(rename = "near-final")]
+    DoomSlug,
+    #[serde(rename = "final")]
+    NFG,
+}
+
+impl Default for Finality {
+    fn default() -> Self {
+        Finality::NFG
+    }
+}
+
 /// Account info for validators
 #[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq)]
 pub struct AccountInfo {
@@ -54,38 +74,60 @@ pub struct AccountInfo {
     pub amount: Balance,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+/// This type is used to mark keys (arrays of bytes) that are queried from store.
+///
+/// NOTE: Currently, this type is only used in the view_client and RPC to be able to transparently
+/// pretty-serialize the bytes arrays as base64-encoded strings (see `serialize.rs`).
+#[derive(Debug, Clone, PartialEq, Eq, DeriveAsRef, DeriveFrom, BorshSerialize, BorshDeserialize)]
+#[as_ref(forward)]
 pub struct StoreKey(Vec<u8>);
 
-impl AsRef<[u8]> for StoreKey {
-    fn as_ref(&self) -> &[u8] {
-        &self.0
-    }
-}
+/// This type is used to mark values returned from store (arrays of bytes).
+///
+/// NOTE: Currently, this type is only used in the view_client and RPC to be able to transparently
+/// pretty-serialize the bytes arrays as base64-encoded strings (see `serialize.rs`).
+#[derive(Debug, Clone, PartialEq, Eq, DeriveAsRef, DeriveFrom, BorshSerialize, BorshDeserialize)]
+#[as_ref(forward)]
+pub struct StoreValue(Vec<u8>);
 
-impl From<Vec<u8>> for StoreKey {
-    fn from(value: Vec<u8>) -> Self {
-        Self(value)
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+/// This type is used to mark function arguments.
+///
+/// NOTE: The main reason for this to exist (except the type-safety) is that the value is
+/// transparently serialized and deserialized as a base64-encoded string when serde is used
+/// (serde_json).  
+#[derive(Debug, Clone, PartialEq, Eq, DeriveAsRef, DeriveFrom, BorshSerialize, BorshDeserialize)]
+#[as_ref(forward)]
 pub struct FunctionArgs(Vec<u8>);
 
-impl AsRef<[u8]> for FunctionArgs {
-    fn as_ref(&self) -> &[u8] {
-        &self.0
-    }
+/// A structure used to indicate the kind of state changes due to transaction/receipt processing, etc.
+#[derive(Debug, Clone, BorshSerialize, BorshDeserialize)]
+pub enum StateChangeKind {
+    AccountTouched { account_id: AccountId },
+    AccessKeyTouched { account_id: AccountId },
+    DataTouched { account_id: AccountId },
+    CodeTouched { account_id: AccountId },
 }
 
-impl From<Vec<u8>> for FunctionArgs {
-    fn from(value: Vec<u8>) -> Self {
-        Self(value)
+pub type StateChangesKinds = Vec<StateChangeKind>;
+
+#[easy_ext::ext(StateChangesKindsExt)]
+impl StateChangesKinds {
+    pub fn from_changes<K: AsRef<[u8]>>(
+        raw_changes: &mut dyn Iterator<
+            Item = Result<(K, RawStateChangesWithMetadata), std::io::Error>,
+        >,
+    ) -> Result<StateChangesKinds, std::io::Error> {
+        raw_changes
+            .map(|raw_change| {
+                let (_, RawStateChangesWithMetadata { kind, .. }) = raw_change?;
+                Ok(kind)
+            })
+            .collect()
     }
 }
 
 /// A structure used to index state changes due to transaction/receipt processing and other things.
-#[derive(Serialize, Deserialize, BorshSerialize, BorshDeserialize, Debug, Clone)]
+#[derive(Debug, Clone, BorshSerialize, BorshDeserialize)]
 pub enum StateChangeCause {
     /// A type of update that does not get finalized. Used for verification and execution of
     /// immutable smart contract methods. Attempt fo finalize a `TrieUpdate` containing such
@@ -116,20 +158,224 @@ pub enum StateChangeCause {
     ValidatorAccountsUpdate,
 }
 
-/// key that was updated -> list of updates with the corresponding indexing event.
-pub type StateChanges =
-    std::collections::BTreeMap<Vec<u8>, Vec<(StateChangeCause, Option<Vec<u8>>)>>;
+/// This represents the prospective and committed changes in the Trie.
+#[derive(Debug, Clone, BorshSerialize, BorshDeserialize)]
+pub struct RawStateChange {
+    pub cause: StateChangeCause,
+    pub data: Option<Vec<u8>>,
+}
 
-#[derive(Deserialize)]
+pub type RawStateChangesList = Vec<RawStateChange>;
+
+/// This represents the data stored into the state changes table.
+#[derive(Debug, Clone, BorshSerialize, BorshDeserialize)]
+pub struct RawStateChangesWithMetadata {
+    pub kind: StateChangeKind,
+    pub raw_changes: RawStateChangesList,
+}
+
+/// key that was updated -> list of updates with the corresponding indexing event.
+pub type RawStateChanges = std::collections::BTreeMap<Vec<u8>, RawStateChangesList>;
+
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(tag = "changes_type", rename_all = "snake_case")]
 pub enum StateChangesRequest {
-    AccountChanges { account_id: AccountId },
-    DataChanges { account_id: AccountId, key_prefix: Vec<u8> },
-    SingleAccessKeyChanges { account_id: AccountId, access_key_pk: PublicKey },
-    AllAccessKeyChanges { account_id: AccountId },
-    CodeChanges { account_id: AccountId },
-    SinglePostponedReceiptChanges { account_id: AccountId, data_id: CryptoHash },
-    AllPostponedReceiptChanges { account_id: AccountId },
+    AccountChanges {
+        account_id: AccountId,
+    },
+    SingleAccessKeyChanges {
+        account_id: AccountId,
+        access_key_pk: PublicKey,
+    },
+    AllAccessKeyChanges {
+        account_id: AccountId,
+    },
+    CodeChanges {
+        account_id: AccountId,
+    },
+    DataChanges {
+        account_id: AccountId,
+        #[serde(rename = "key_prefix_base64", with = "base64_format")]
+        key_prefix: StoreKey,
+    },
+}
+
+#[derive(Debug)]
+pub enum StateChangeValue {
+    AccountUpdate { account_id: AccountId, account: Account },
+    AccountDeletion { account_id: AccountId },
+    AccessKeyUpdate { account_id: AccountId, public_key: PublicKey, access_key: AccessKey },
+    AccessKeyDeletion { account_id: AccountId, public_key: PublicKey },
+    DataUpdate { account_id: AccountId, key: StoreKey, value: StoreValue },
+    DataDeletion { account_id: AccountId, key: StoreKey },
+    CodeUpdate { account_id: AccountId, code: Vec<u8> },
+    CodeDeletion { account_id: AccountId },
+}
+
+#[derive(Debug)]
+pub struct StateChangeWithCause {
+    pub cause: StateChangeCause,
+    pub value: StateChangeValue,
+}
+
+pub type StateChanges = Vec<StateChangeWithCause>;
+
+#[easy_ext::ext(StateChangesExt)]
+impl StateChanges {
+    pub fn from_account_changes<K: AsRef<[u8]>>(
+        raw_changes: &mut dyn Iterator<
+            Item = Result<(K, RawStateChangesWithMetadata), std::io::Error>,
+        >,
+        account_id: &AccountId,
+    ) -> Result<StateChanges, std::io::Error> {
+        let mut changes = Self::new();
+
+        for raw_change in raw_changes {
+            let (_, RawStateChangesWithMetadata { kind, raw_changes }) = raw_change?;
+            debug_assert!(if let StateChangeKind::AccountTouched { .. } = kind {
+                true
+            } else {
+                false
+            });
+            changes.extend(raw_changes.into_iter().map(|RawStateChange { cause, data }| {
+                StateChangeWithCause {
+                    cause,
+                    value: if let Some(change_data) = data {
+                        StateChangeValue::AccountUpdate {
+                            account_id: account_id.clone(),
+                            account: <_>::try_from_slice(&change_data)
+                                .expect("Failed to parse internally stored account information"),
+                        }
+                    } else {
+                        StateChangeValue::AccountDeletion { account_id: account_id.clone() }
+                    },
+                }
+            }));
+        }
+
+        Ok(changes)
+    }
+
+    pub fn from_access_key_changes<K: AsRef<[u8]>>(
+        raw_changes: &mut dyn Iterator<
+            Item = Result<(K, RawStateChangesWithMetadata), std::io::Error>,
+        >,
+        account_id: &AccountId,
+        access_key_pk: Option<&PublicKey>,
+    ) -> Result<StateChanges, std::io::Error> {
+        let mut changes = Self::new();
+
+        for raw_change in raw_changes {
+            let (key, RawStateChangesWithMetadata { kind, raw_changes }) = raw_change?;
+            debug_assert!(if let StateChangeKind::AccessKeyTouched { .. } = kind {
+                true
+            } else {
+                false
+            });
+
+            let access_key_pk = match access_key_pk {
+                Some(access_key_pk) => access_key_pk.clone(),
+                None => KeyForAccessKey::parse_public_key(key.as_ref(), &account_id)
+                    .expect("Failed to parse internally stored public key"),
+            };
+
+            changes.extend(raw_changes.into_iter().map(|RawStateChange { cause, data }| {
+                StateChangeWithCause {
+                    cause,
+                    value: if let Some(change_data) = data {
+                        StateChangeValue::AccessKeyUpdate {
+                            account_id: account_id.clone(),
+                            public_key: access_key_pk.clone(),
+                            access_key: <_>::try_from_slice(&change_data)
+                                .expect("Failed to parse internally stored access key"),
+                        }
+                    } else {
+                        StateChangeValue::AccessKeyDeletion {
+                            account_id: account_id.clone(),
+                            public_key: access_key_pk.clone(),
+                        }
+                    },
+                }
+            }));
+        }
+
+        Ok(changes)
+    }
+
+    pub fn from_code_changes<K: AsRef<[u8]>>(
+        raw_changes: &mut dyn Iterator<
+            Item = Result<(K, RawStateChangesWithMetadata), std::io::Error>,
+        >,
+        account_id: &AccountId,
+    ) -> Result<StateChanges, std::io::Error> {
+        let mut changes = Self::new();
+
+        for raw_change in raw_changes {
+            let (_, RawStateChangesWithMetadata { kind, raw_changes }) = raw_change?;
+            debug_assert!(if let StateChangeKind::CodeTouched { .. } = kind {
+                true
+            } else {
+                false
+            });
+
+            changes.extend(raw_changes.into_iter().map(|RawStateChange { cause, data }| {
+                StateChangeWithCause {
+                    cause,
+                    value: if let Some(change_data) = data {
+                        StateChangeValue::CodeUpdate {
+                            account_id: account_id.clone(),
+                            code: change_data.into(),
+                        }
+                    } else {
+                        StateChangeValue::CodeDeletion { account_id: account_id.clone() }
+                    },
+                }
+            }));
+        }
+
+        Ok(changes)
+    }
+
+    pub fn from_data_changes<K: AsRef<[u8]>>(
+        raw_changes: &mut dyn Iterator<
+            Item = Result<(K, RawStateChangesWithMetadata), std::io::Error>,
+        >,
+        account_id: &AccountId,
+    ) -> Result<StateChanges, std::io::Error> {
+        let mut changes = Self::new();
+
+        for raw_change in raw_changes {
+            let (key, RawStateChangesWithMetadata { kind, raw_changes }) = raw_change?;
+            debug_assert!(if let StateChangeKind::DataTouched { .. } = kind {
+                true
+            } else {
+                false
+            });
+
+            let data_key = KeyForData::parse_data_key(key.as_ref(), &account_id)
+                .expect("Failed to parse internally stored data key");
+
+            changes.extend(raw_changes.into_iter().map(|RawStateChange { cause, data }| {
+                StateChangeWithCause {
+                    cause,
+                    value: if let Some(change_data) = data {
+                        StateChangeValue::DataUpdate {
+                            account_id: account_id.clone(),
+                            key: data_key.to_vec().into(),
+                            value: change_data.into(),
+                        }
+                    } else {
+                        StateChangeValue::DataDeletion {
+                            account_id: account_id.clone(),
+                            key: data_key.to_vec().into(),
+                        }
+                    },
+                }
+            }));
+        }
+
+        Ok(changes)
+    }
 }
 
 #[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize, Serialize)]
@@ -147,25 +393,23 @@ impl StateRootNode {
 }
 
 /// Epoch identifier -- wrapped hash, to make it easier to distinguish.
+/// EpochId of epoch T is the hash of last block in T-2
+/// EpochId of first two epochs is 0
 #[derive(
+    Debug,
+    Clone,
+    Default,
     Hash,
     Eq,
     PartialEq,
-    Clone,
-    Debug,
+    PartialOrd,
+    DeriveAsRef,
     BorshSerialize,
     BorshDeserialize,
     Serialize,
-    Default,
-    PartialOrd,
 )]
+#[as_ref(forward)]
 pub struct EpochId(pub CryptoHash);
-
-impl AsRef<[u8]> for EpochId {
-    fn as_ref(&self) -> &[u8] {
-        self.0.as_ref()
-    }
-}
 
 /// Stores validator and its stake.
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, PartialEq, Eq)]
@@ -250,6 +494,19 @@ pub enum BlockId {
 }
 
 pub type MaybeBlockId = Option<BlockId>;
+
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BlockIdOrFinality {
+    BlockId(BlockId),
+    Finality(Finality),
+}
+
+impl BlockIdOrFinality {
+    pub fn latest() -> Self {
+        Self::Finality(Finality::None)
+    }
+}
 
 #[derive(Default, BorshSerialize, BorshDeserialize, Serialize, Clone, Debug, PartialEq)]
 pub struct ValidatorStats {

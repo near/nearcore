@@ -3,6 +3,7 @@ import threading
 import subprocess
 import json
 import os
+import sys
 import signal
 import atexit
 import shutil
@@ -123,16 +124,37 @@ class BaseNode(object):
         return self.json_rpc('validators', [None])
 
     def get_account(self, acc, finality='optimistic'):
-        return self.json_rpc('query', {"request_type": "view_account", "account_id": acc, "block_id": None, "finality": finality})
+        return self.json_rpc('query', {"request_type": "view_account", "account_id": acc, "finality": finality})
 
-    def get_block(self, block_hash):
-        return self.json_rpc('block', [block_hash])
+    def get_access_key_list(self, acc, finality='optimistic'):
+        return self.json_rpc('query', {"request_type": "view_access_key_list", "account_id": acc, "finality": finality})
 
-    def get_changes(self, block_hash, state_changes_request):
-        return self.json_rpc('changes', [block_hash, state_changes_request])
-    
+    def get_nonce_for_pk(self, acc, pk, finality='optimistic'):
+        for access_key in self.get_access_key_list(acc, finality)['result']['keys']:
+            if access_key['public_key'] == pk:
+                return access_key['access_key']['nonce']
+        return None
+
+
+
+    def get_block(self, block_id):
+        return self.json_rpc('block', [block_id])
+
+    def get_chunk(self, chunk_id):
+        return self.json_rpc('chunk', [chunk_id])
+
+    def get_tx(self, tx_hash, tx_recipient_id):
+        return self.json_rpc('tx', [tx_hash, tx_recipient_id])
+
+    def get_changes_in_block(self, changes_in_block_request):
+        return self.json_rpc('EXPERIMENTAL_changes_in_block', changes_in_block_request)
+
+    def get_changes(self, changes_request):
+        return self.json_rpc('EXPERIMENTAL_changes', changes_request)
+
     def validators(self):
         return set(map(lambda v: v['account_id'], self.get_status()['validators']))
+
 
 
 class RpcNode(BaseNode):
@@ -141,10 +163,9 @@ class RpcNode(BaseNode):
         super(RpcNode, self).__init__()
         self.host = host
         self.rpc_port = rpc_port
-    
+
     def rpc_addr(self):
         return (self.host, self.rpc_port)
-
 
 
 class LocalNode(BaseNode):
@@ -356,10 +377,25 @@ def spin_up_node(config, near_root, node_dir, ordinal, boot_key, boot_addr, blac
     return node
 
 
+def connect_to_mocknet(config):
+    if not config:
+        config = load_config()
+
+    if 'local' in config:
+        print("Attempt to launch a mocknet test with a regular config", file=sys.stderr)
+        sys.exit(1)
+
+    return [RpcNode(node['ip'], node['port']) for node in config['nodes']], [Key(account['account_id'], account['pk'], account['sk']) for account in config['accounts']]
+
+
 def init_cluster(num_nodes, num_observers, num_shards, config, genesis_config_changes, client_config_changes):
     """
     Create cluster configuration
     """
+    if 'local' not in config and 'nodes' in config:
+        print("Attempt to launch a regular test with a mocknet config", file=sys.stderr)
+        sys.exit(1)
+
     is_local = config['local']
     near_root = config['near_root']
 
@@ -468,7 +504,7 @@ def load_config():
             with open(config_file) as f:
                 config = json.load(f)
                 print(f"Load config from {config_file}, config {config}")
-        except:
+        except FileNotFoundError:
             print(f"Failed to load config file, use default config {config}")
     else:
         print(f"Use default config {config}")

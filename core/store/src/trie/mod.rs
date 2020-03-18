@@ -5,15 +5,20 @@ use std::fmt;
 use std::io::{Cursor, ErrorKind, Read, Write};
 use std::sync::{Arc, Mutex};
 
-use crate::db::{DBOp, DBTransaction};
+use borsh::BorshSerialize;
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use cached::Cached;
+use owning_ref::OwningRef;
 
 use near_primitives::challenge::PartialState;
 use near_primitives::hash::{hash, CryptoHash};
-use near_primitives::types::{StateChangeCause, StateChanges, StateRoot, StateRootNode};
+use near_primitives::types::{
+    RawStateChange, RawStateChanges, RawStateChangesWithMetadata, StateChangeCause,
+    StateChangeKind, StateRoot, StateRootNode,
+};
+use near_primitives::utils::{KeyForAccessKey, KeyForAccount, KeyForCode, KeyForData};
 
-use crate::db::DBCol::ColKeyValueChanges;
+use crate::db::{DBCol, DBOp, DBTransaction};
 use crate::trie::insert_delete::NodesStorage;
 use crate::trie::iterator::TrieIterator;
 use crate::trie::nibble_slice::NibbleSlice;
@@ -22,7 +27,6 @@ use crate::trie::trie_storage::{
     TrieStorage,
 };
 use crate::{ColState, StorageError, Store, StoreUpdate};
-use borsh::BorshSerialize;
 
 mod insert_delete;
 pub mod iterator;
@@ -418,7 +422,7 @@ impl RcTrieNode {
 }
 
 pub struct Trie {
-    storage: Box<dyn TrieStorage>,
+    pub(crate) storage: Box<dyn TrieStorage>,
     pub counter: TouchedNodesCounter,
 }
 
@@ -522,7 +526,7 @@ impl TrieChanges {
 pub struct WrappedTrieChanges {
     trie: Arc<Trie>,
     trie_changes: TrieChanges,
-    kv_changes: StateChanges,
+    state_changes: RawStateChanges,
     block_hash: CryptoHash,
 }
 
@@ -530,10 +534,10 @@ impl WrappedTrieChanges {
     pub fn new(
         trie: Arc<Trie>,
         trie_changes: TrieChanges,
-        kv_changes: StateChanges,
+        kv_changes: RawStateChanges,
         block_hash: CryptoHash,
     ) -> Self {
-        WrappedTrieChanges { trie, trie_changes, kv_changes, block_hash }
+        WrappedTrieChanges { trie, trie_changes, state_changes: kv_changes, block_hash }
     }
 
     pub fn insertions_into(
@@ -550,15 +554,20 @@ impl WrappedTrieChanges {
         self.trie_changes.deletions_into(self.trie.clone(), store_update)
     }
 
-    pub fn key_value_changes_into(
-        &self,
+    /// Save state changes into Store.
+    ///
+    /// NOTE: the changes are drained from `self`.
+    pub fn state_changes_into(
+        &mut self,
         store_update: &mut StoreUpdate,
     ) -> Result<(), Box<dyn std::error::Error>> {
         store_update.trie = Some(self.trie.clone());
-        for (key, changes) in &self.kv_changes {
+        for (key, raw_changes) in
+            std::mem::replace(&mut self.state_changes, Default::default()).into_iter()
+        {
             assert!(
-                !changes.iter().any(|(change_cause, _)| {
-                    if let StateChangeCause::NotWritableToDisk = change_cause {
+                !raw_changes.iter().any(|RawStateChange { cause, .. }| {
+                    if let StateChangeCause::NotWritableToDisk = cause {
                         true
                     } else {
                         false
@@ -566,13 +575,67 @@ impl WrappedTrieChanges {
                 }),
                 "NotWritableToDisk changes must never be finalized."
             );
-            let mut storage_key = Vec::with_capacity(self.block_hash.as_ref().len() + key.len());
-            storage_key.extend_from_slice(self.block_hash.as_ref());
-            storage_key.extend_from_slice(key);
-            let value = changes.try_to_vec()?;
-            store_update.set(ColKeyValueChanges, storage_key.as_ref(), &value);
+            let kind = if let Ok(account_id) = KeyForData::parse_account_id(&key) {
+                StateChangeKind::DataTouched { account_id }
+            } else if let Ok(account_id) = KeyForAccount::parse_account_id(&key) {
+                StateChangeKind::AccountTouched { account_id }
+            } else if let Ok(account_id) = KeyForAccessKey::parse_account_id(&key) {
+                StateChangeKind::AccessKeyTouched { account_id }
+            } else if let Ok(account_id) = KeyForCode::parse_account_id(&key) {
+                StateChangeKind::CodeTouched { account_id }
+            } else {
+                continue;
+            };
+            let storage_key = KeyForStateChanges::new(&self.block_hash, &key);
+            let changes = RawStateChangesWithMetadata { kind, raw_changes };
+            store_update.set(DBCol::ColStateChanges, storage_key.as_ref(), &changes.try_to_vec()?);
         }
         Ok(())
+    }
+}
+
+#[derive(derive_more::AsRef, derive_more::Into)]
+pub struct KeyForStateChanges(Vec<u8>);
+
+impl KeyForStateChanges {
+    fn estimate_prefix_len() -> usize {
+        std::mem::size_of::<CryptoHash>()
+    }
+
+    fn get_prefix_with_capacity(block_hash: &CryptoHash, reserve_capacity: usize) -> Self {
+        let mut key_prefix = Vec::with_capacity(Self::estimate_prefix_len() + reserve_capacity);
+        key_prefix.extend(block_hash.as_ref());
+        debug_assert_eq!(key_prefix.len(), Self::estimate_prefix_len());
+        Self(key_prefix)
+    }
+
+    pub fn get_prefix(block_hash: &CryptoHash) -> Self {
+        Self::get_prefix_with_capacity(block_hash, 0)
+    }
+
+    pub fn new(block_hash: &CryptoHash, trie_key: &[u8]) -> Self {
+        let mut key = Self::get_prefix_with_capacity(block_hash, trie_key.len());
+        key.0.extend(trie_key);
+        key
+    }
+
+    pub fn find_iter<'a: 'b, 'b>(
+        &'a self,
+        store: &'b Store,
+    ) -> impl Iterator<
+        Item = Result<(OwningRef<Vec<u8>, [u8]>, RawStateChangesWithMetadata), std::io::Error>,
+    > + 'b {
+        let prefix_len = Self::estimate_prefix_len();
+        debug_assert!(self.0.len() >= prefix_len);
+        store.iter_prefix_ser::<RawStateChangesWithMetadata>(DBCol::ColStateChanges, &self.0).map(
+            move |change| {
+                // Split off the irrelevant part of the key, so only the original trie_key is left.
+                let (key, state_changes) = change?;
+                debug_assert!(key.starts_with(&self.0));
+                let key = OwningRef::new(key).map(|key| &key[prefix_len..]);
+                Ok((key, state_changes))
+            },
+        )
     }
 }
 

@@ -1,3 +1,5 @@
+#[cfg(feature = "metric_recorder")]
+use near_network::recorder::MetricRecorder;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -11,12 +13,12 @@ use near_network::PeerInfo;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::ChunkHash;
 use near_primitives::types::{
-    AccountId, BlockHeight, BlockId, MaybeBlockId, ShardId, StateChanges, StateChangesRequest,
+    AccountId, BlockHeight, BlockIdOrFinality, MaybeBlockId, ShardId, StateChangesRequest,
 };
 use near_primitives::utils::generate_random_string;
 use near_primitives::views::{
-    BlockView, ChunkView, EpochValidatorInfo, FinalExecutionOutcomeView, Finality, GasPriceView,
-    LightClientBlockView, QueryRequest, QueryResponse,
+    BlockView, ChunkView, EpochValidatorInfo, FinalExecutionOutcomeView, GasPriceView,
+    LightClientBlockView, QueryRequest, QueryResponse, StateChangesKindsView, StateChangesView,
 };
 pub use near_primitives::views::{StatusResponse, StatusSyncInfo};
 
@@ -142,9 +144,12 @@ impl SyncStatus {
 }
 
 /// Actor message requesting block by id or hash.
-pub enum GetBlock {
-    BlockId(BlockId),
-    Finality(Finality),
+pub struct GetBlock(pub BlockIdOrFinality);
+
+impl GetBlock {
+    pub fn latest() -> Self {
+        Self(BlockIdOrFinality::latest())
+    }
 }
 
 impl Message for GetBlock {
@@ -166,14 +171,13 @@ impl Message for GetChunk {
 #[derive(Deserialize, Clone)]
 pub struct Query {
     pub query_id: String,
-    pub block_id: MaybeBlockId,
+    pub block_id_or_finality: BlockIdOrFinality,
     pub request: QueryRequest,
-    pub finality: Finality,
 }
 
 impl Query {
-    pub fn new(block_id: MaybeBlockId, request: QueryRequest, finality: Finality) -> Self {
-        Query { query_id: generate_random_string(10), block_id, request, finality }
+    pub fn new(block_id_or_finality: BlockIdOrFinality, request: QueryRequest) -> Self {
+        Query { query_id: generate_random_string(10), block_id_or_finality, request }
     }
 }
 
@@ -220,6 +224,8 @@ pub struct NetworkInfoResponse {
     pub received_bytes_per_sec: u64,
     /// Accounts of known block and chunk producers from routing table.
     pub known_producers: Vec<KnownProducer>,
+    #[cfg(feature = "metric_recorder")]
+    pub metric_recorder: MetricRecorder,
 }
 
 /// Status of given transaction including all the subsequent receipts.
@@ -240,11 +246,19 @@ impl Message for GetValidatorInfo {
     type Result = Result<EpochValidatorInfo, String>;
 }
 
-pub struct GetKeyValueChanges {
+pub struct GetStateChanges {
     pub block_hash: CryptoHash,
     pub state_changes_request: StateChangesRequest,
 }
 
-impl Message for GetKeyValueChanges {
-    type Result = Result<StateChanges, String>;
+impl Message for GetStateChanges {
+    type Result = Result<StateChangesView, String>;
+}
+
+pub struct GetStateChangesInBlock {
+    pub block_hash: CryptoHash,
+}
+
+impl Message for GetStateChangesInBlock {
+    type Result = Result<StateChangesKindsView, String>;
 }

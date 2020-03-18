@@ -10,10 +10,10 @@ futures = "0.3"
 rand = "0.7"
 chrono = "0.4.6"
 log = "0.4"
-borsh = "0.2.10"
+borsh = "0.6.0"
 serde = "1.0"
 serde_derive = "1.0"
-cached = "0.11.0"
+cached = "0.12.0"
 reed-solomon-erasure = "4"
 
 near-crypto = { path = "../../core/crypto" }

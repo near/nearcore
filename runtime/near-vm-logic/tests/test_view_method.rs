@@ -40,6 +40,8 @@ fn test_prohibited_view_methods() {
     test_prohibited!(promise_results_count);
     test_prohibited!(promise_result, 0, 0);
     test_prohibited!(promise_return, 0);
+    test_prohibited!(storage_write, 0, 0, 0, 0, 0);
+    test_prohibited!(storage_remove, 0, 0, 0);
 }
 
 #[test]

@@ -272,6 +272,13 @@ pub unsafe fn run_test() {
 }
 
 #[no_mangle]
+pub unsafe fn run_test_with_storage_change() {
+    let key = b"hello";
+    let value = b"world";
+    storage_write(key.len() as _, key.as_ptr() as _, value.len() as _, value.as_ptr() as _, 0);
+}
+
+#[no_mangle]
 pub unsafe fn sum_with_input() {
     input(0);
     if register_len(0) != 2 * size_of::<u64>() as u64 {

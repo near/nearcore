@@ -5,7 +5,6 @@ authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2018"
 
 [dependencies]
-bincode = "1.0.0"
 byteorder = "1.2"
 serde = "1.0"
 serde_derive = "1.0"
@@ -17,8 +16,8 @@ sha2 = "0.8"
 sha3 = "0.8"
 lazy_static = "1.4"
 
-borsh = "0.2.10"
-cached = "0.11.0"
+borsh = "0.6.0"
+cached = "0.12.0"
 
 near-crypto = { path = "../../core/crypto" }
 near-primitives = { path = "../../core/primitives" }

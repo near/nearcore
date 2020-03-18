@@ -6,9 +6,12 @@ use futures::{future, FutureExt};
 
 use near_chain::{Block, ChainGenesis, ErrorKind, Provenance};
 use near_chunks::{ChunkStatus, ShardsManager};
+use near_client::test_utils::setup_mock_all_validators;
 use near_client::test_utils::{setup_client, setup_mock, MockNetworkAdapter, TestEnv};
 use near_client::{Client, GetBlock};
 use near_crypto::{InMemorySigner, KeyType, Signature, Signer};
+#[cfg(feature = "metric_recorder")]
+use near_network::recorder::MetricRecorder;
 use near_network::routing::EdgeInfo;
 use near_network::test_utils::wait_or_panic;
 use near_network::types::{NetworkInfo, PeerChainInfo};
@@ -26,7 +29,6 @@ use near_primitives::transaction::{SignedTransaction, Transaction};
 use near_primitives::types::{EpochId, MerkleHash};
 use near_primitives::utils::to_timestamp;
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
-use near_primitives::views::Finality;
 use near_store::test_utils::create_test_store;
 
 /// Runs block producing client and stops after network mock received two blocks.
@@ -107,7 +109,7 @@ fn produce_blocks_with_tx() {
             }),
         );
         near_network::test_utils::wait_or_panic(5000);
-        actix::spawn(view_client.send(GetBlock::Finality(Finality::None)).then(move |res| {
+        actix::spawn(view_client.send(GetBlock::latest()).then(move |res| {
             let header: BlockHeader = res.unwrap().unwrap().header.into();
             let block_hash = header.hash;
             client
@@ -144,7 +146,7 @@ fn receive_network_block() {
                 NetworkResponses::NoResponse
             }),
         );
-        actix::spawn(view_client.send(GetBlock::Finality(Finality::None)).then(move |res| {
+        actix::spawn(view_client.send(GetBlock::latest()).then(move |res| {
             let last_block = res.unwrap().unwrap();
             let signer = InMemoryValidatorSigner::from_seed("test1", KeyType::ED25519, "test1");
             let block = Block::produce(
@@ -208,7 +210,7 @@ fn receive_network_block_header() {
                 _ => NetworkResponses::NoResponse,
             }),
         );
-        actix::spawn(view_client.send(GetBlock::Finality(Finality::None)).then(move |res| {
+        actix::spawn(view_client.send(GetBlock::latest()).then(move |res| {
             let last_block = res.unwrap().unwrap();
             let signer = InMemoryValidatorSigner::from_seed("test", KeyType::ED25519, "test");
             let block = Block::produce(
@@ -293,7 +295,7 @@ fn produce_block_with_approvals() {
                 NetworkResponses::NoResponse
             }),
         );
-        actix::spawn(view_client.send(GetBlock::Finality(Finality::None)).then(move |res| {
+        actix::spawn(view_client.send(GetBlock::latest()).then(move |res| {
             let last_block = res.unwrap().unwrap();
             let signer1 = InMemoryValidatorSigner::from_seed("test2", KeyType::ED25519, "test2");
             let block = Block::produce(
@@ -346,6 +348,80 @@ fn produce_block_with_approvals() {
     .unwrap();
 }
 
+/// When approvals arrive early, they should be properly cached.
+#[test]
+fn produce_block_with_approvals_arrived_early() {
+    init_test_logger();
+    let validators = vec![vec!["test1", "test2", "test3", "test4"]];
+    let key_pairs =
+        vec![PeerInfo::random(), PeerInfo::random(), PeerInfo::random(), PeerInfo::random()];
+    let block_holder: Arc<RwLock<Option<Block>>> = Arc::new(RwLock::new(None));
+    System::run(move || {
+        let mut approval_counter = 0;
+        let network_mock: Arc<
+            RwLock<Box<dyn FnMut(String, &NetworkRequests) -> (NetworkResponses, bool)>>,
+        > = Arc::new(RwLock::new(Box::new(|_: String, _: &NetworkRequests| {
+            (NetworkResponses::NoResponse, true)
+        })));
+        let (_, conns) = setup_mock_all_validators(
+            validators.clone(),
+            key_pairs,
+            1,
+            true,
+            100,
+            false,
+            false,
+            100,
+            true,
+            false,
+            network_mock.clone(),
+        );
+        *network_mock.write().unwrap() =
+            Box::new(move |_: String, msg: &NetworkRequests| -> (NetworkResponses, bool) {
+                match msg {
+                    NetworkRequests::Block { block } => {
+                        if block.header.inner_lite.height == 3 {
+                            for (i, (client, _)) in conns.clone().into_iter().enumerate() {
+                                if i > 0 {
+                                    client.do_send(NetworkClientMessages::Block(
+                                        block.clone(),
+                                        PeerInfo::random().id,
+                                        false,
+                                    ))
+                                }
+                            }
+                            *block_holder.write().unwrap() = Some(block.clone());
+                            return (NetworkResponses::NoResponse, false);
+                        } else if block.header.inner_lite.height == 4 {
+                            System::current().stop();
+                        }
+                        (NetworkResponses::NoResponse, true)
+                    }
+                    NetworkRequests::Approval { approval_message } => {
+                        if approval_message.target == "test1".to_string()
+                            && approval_message.approval.target_height == 4
+                        {
+                            approval_counter += 1;
+                        }
+                        if approval_counter == 3 {
+                            let block = block_holder.read().unwrap().clone().unwrap();
+                            conns[0].0.do_send(NetworkClientMessages::Block(
+                                block,
+                                PeerInfo::random().id,
+                                false,
+                            ));
+                        }
+                        (NetworkResponses::NoResponse, true)
+                    }
+                    _ => (NetworkResponses::NoResponse, true),
+                }
+            });
+
+        near_network::test_utils::wait_or_panic(5000);
+    })
+    .unwrap();
+}
+
 /// Sends one invalid block followed by one valid block, and checks that client announces only valid block.
 #[test]
 fn invalid_blocks() {
@@ -371,7 +447,7 @@ fn invalid_blocks() {
                 NetworkResponses::NoResponse
             }),
         );
-        actix::spawn(view_client.send(GetBlock::Finality(Finality::None)).then(move |res| {
+        actix::spawn(view_client.send(GetBlock::latest()).then(move |res| {
             let last_block = res.unwrap().unwrap();
             let signer = InMemoryValidatorSigner::from_seed("test", KeyType::ED25519, "test");
             // Send block with invalid chunk mask
@@ -514,6 +590,8 @@ fn client_sync_headers() {
             sent_bytes_per_sec: 0,
             received_bytes_per_sec: 0,
             known_producers: vec![],
+            #[cfg(feature = "metric_recorder")]
+            metric_recorder: MetricRecorder::default(),
         }));
         wait_or_panic(2000);
     })
