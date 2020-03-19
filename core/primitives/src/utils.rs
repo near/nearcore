@@ -52,8 +52,30 @@ pub mod col {
     pub const DELAYED_RECEIPT: &[u8] = &[8];
 }
 
-#[derive(derive_more::AsRef, derive_more::Into)]
+pub trait TrieKey: AsRef<[u8]> {
+    fn into_vec(self) -> Vec<u8>;
+}
+
+macro_rules! impl_trie_key {
+    ($iden:ident) => {
+        impl AsRef<[u8]> for $iden {
+            fn as_ref(&self) -> &[u8] {
+                self.0.as_ref()
+            }
+        }
+
+        impl TrieKey for $iden {
+            fn into_vec(self) -> Vec<u8> {
+                self.0
+            }
+        }
+    };
+}
+
+#[derive(derive_more::Into)]
 struct KeyForColumnAccountId(Vec<u8>);
+
+impl_trie_key!(KeyForColumnAccountId);
 
 impl KeyForColumnAccountId {
     pub fn estimate_len(column: &[u8], account_id: &AccountId) -> usize {
@@ -83,9 +105,10 @@ impl KeyForColumnAccountId {
     }
 }
 
-#[derive(derive_more::AsRef, derive_more::Into)]
-#[as_ref(forward)]
+#[derive(derive_more::Into)]
 pub struct KeyForAccount(Vec<u8>);
+
+impl_trie_key!(KeyForAccount);
 
 impl KeyForAccount {
     pub fn estimate_len(account_id: &AccountId) -> usize {
@@ -114,13 +137,19 @@ impl KeyForAccount {
     }
 }
 
-#[derive(derive_more::AsRef, derive_more::Into)]
-#[as_ref(forward)]
+#[derive(derive_more::Into)]
 pub struct KeyForAccessKey(Vec<u8>);
+
+impl_trie_key!(KeyForAccessKey);
 
 impl KeyForAccessKey {
     fn estimate_prefix_len(account_id: &AccountId) -> usize {
         KeyForColumnAccountId::estimate_len(col::ACCESS_KEY, account_id) + col::ACCESS_KEY.len()
+    }
+
+    /// This is not safe and should only be used internally for iterating over access keys for reading.
+    pub fn from_raw_key(key: &[u8]) -> Self {
+        Self(key.to_vec())
     }
 
     pub fn estimate_len(account_id: &AccountId, public_key: &PublicKey) -> usize {
@@ -190,9 +219,10 @@ impl KeyForAccessKey {
     }
 }
 
-#[derive(derive_more::AsRef, derive_more::Into)]
-#[as_ref(forward)]
+#[derive(derive_more::Into, Clone)]
 pub struct KeyForData(Vec<u8>);
+
+impl_trie_key!(KeyForData);
 
 impl KeyForData {
     pub fn estimate_len(account_id: &AccountId, data: &[u8]) -> usize {
@@ -213,11 +243,23 @@ impl KeyForData {
         Self::get_prefix_with_capacity(account_id, 0)
     }
 
+    pub fn with_suffix(&self, suffix: &[u8]) -> Self {
+        let mut key = self.clone();
+        key.0.extend(suffix);
+        key
+    }
+
     pub fn new(account_id: &AccountId, data: &[u8]) -> Self {
         let mut key = Self::get_prefix_with_capacity(&account_id, data.len());
         key.0.extend(data);
         debug_assert_eq!(key.0.len(), Self::estimate_len(&account_id, &data));
         key
+    }
+
+    /// Not safe, use only for genesis reads.
+    /// TODO(#2215): Remove once AccountId hashing is implemented.
+    pub fn from_raw_key(key: Vec<u8>) -> Self {
+        Self(key)
     }
 
     pub fn parse_account_id<K: AsRef<[u8]>>(raw_key: K) -> Result<AccountId, std::io::Error> {
@@ -262,9 +304,10 @@ impl KeyForData {
     }
 }
 
-#[derive(derive_more::AsRef, derive_more::Into)]
-#[as_ref(forward)]
+#[derive(derive_more::Into)]
 pub struct KeyForCode(Vec<u8>);
+
+impl_trie_key!(KeyForCode);
 
 impl KeyForCode {
     pub fn new(account_id: &AccountId) -> Self {
@@ -283,9 +326,10 @@ impl KeyForCode {
     }
 }
 
-#[derive(derive_more::AsRef, derive_more::Into)]
-#[as_ref(forward)]
+#[derive(derive_more::Into)]
 pub struct KeyForReceivedData(Vec<u8>);
+
+impl_trie_key!(KeyForReceivedData);
 
 impl KeyForReceivedData {
     pub fn new(account_id: &AccountId, data_id: &CryptoHash) -> Self {
@@ -301,9 +345,10 @@ impl KeyForReceivedData {
     }
 }
 
-#[derive(derive_more::AsRef, derive_more::Into)]
-#[as_ref(forward)]
+#[derive(derive_more::Into)]
 pub struct KeyForPostponedReceiptId(Vec<u8>);
+
+impl_trie_key!(KeyForPostponedReceiptId);
 
 impl KeyForPostponedReceiptId {
     pub fn new(account_id: &AccountId, data_id: &CryptoHash) -> Self {
@@ -319,9 +364,10 @@ impl KeyForPostponedReceiptId {
     }
 }
 
-#[derive(derive_more::AsRef, derive_more::Into)]
-#[as_ref(forward)]
+#[derive(derive_more::Into)]
 pub struct KeyForPendingDataCount(Vec<u8>);
+
+impl_trie_key!(KeyForPendingDataCount);
 
 impl KeyForPendingDataCount {
     pub fn new(account_id: &AccountId, receipt_id: &CryptoHash) -> Self {
@@ -337,9 +383,10 @@ impl KeyForPendingDataCount {
     }
 }
 
-#[derive(derive_more::AsRef, derive_more::Into)]
-#[as_ref(forward)]
+#[derive(derive_more::Into)]
 pub struct KeyForPostponedReceipt(Vec<u8>);
+
+impl_trie_key!(KeyForPostponedReceipt);
 
 impl KeyForPostponedReceipt {
     pub fn new(account_id: &AccountId, receipt_id: &CryptoHash) -> Self {
@@ -355,9 +402,10 @@ impl KeyForPostponedReceipt {
     }
 }
 
-#[derive(derive_more::AsRef, derive_more::Into)]
-#[as_ref(forward)]
+#[derive(derive_more::Into)]
 pub struct KeyForDelayedReceipt(Vec<u8>);
+
+impl_trie_key!(KeyForDelayedReceipt);
 
 impl KeyForDelayedReceipt {
     pub fn new(index: u64) -> Self {
@@ -366,6 +414,17 @@ impl KeyForDelayedReceipt {
         key.extend(col::DELAYED_RECEIPT);
         key.extend(&index_bytes);
         Self(key)
+    }
+}
+
+#[derive(derive_more::Into)]
+pub struct KeyForDelayedReceiptIndices(Vec<u8>);
+
+impl_trie_key!(KeyForDelayedReceiptIndices);
+
+impl KeyForDelayedReceiptIndices {
+    pub fn new() -> Self {
+        Self(col::DELAYED_RECEIPT_INDICES.to_vec())
     }
 }
 

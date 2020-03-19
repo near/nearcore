@@ -1171,12 +1171,12 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
     ) -> Result<Vec<(PublicKey, AccessKey)>, Box<dyn std::error::Error>> {
         let state_update = TrieUpdate::new(self.trie.clone(), state_root);
         let prefix = KeyForAccessKey::get_prefix(account_id);
-        let prefix: &[u8] = prefix.as_ref();
+        let raw_prefix: &[u8] = prefix.as_ref();
         let access_keys = match state_update.iter(&prefix) {
             Ok(iter) => iter
                 .map(|key| {
                     let key = key?;
-                    let public_key = &key[prefix.len()..];
+                    let public_key = &key[raw_prefix.len()..];
                     let access_key = get_access_key_raw(&state_update, &key)?
                         .ok_or("Missing key from iterator")?;
                     PublicKey::try_from_slice(public_key)

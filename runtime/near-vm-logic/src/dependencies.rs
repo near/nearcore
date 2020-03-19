@@ -1,6 +1,6 @@
 //! External dependencies of the near-vm-logic.
 
-use crate::types::{AccountId, Balance, Gas, IteratorIndex, PublicKey, ReceiptIndex};
+use crate::types::{AccountId, Balance, Gas, PublicKey, ReceiptIndex};
 use near_vm_errors::VMLogicError;
 
 /// An abstraction over the memory of the smart contract.
@@ -142,6 +142,7 @@ pub trait External {
     /// ```
     fn storage_has_key(&mut self, key: &[u8]) -> Result<bool>;
 
+    /*
     /// Creates iterator in memory for a key prefix and returns its ID to use with `storage_iter_next`
     ///
     /// # Arguments
@@ -222,6 +223,7 @@ pub trait External {
 
     /// Removes iterator index added with `storage_iter` and `storage_iter_range`
     fn storage_iter_drop(&mut self, iterator_idx: IteratorIndex) -> Result<()>;
+    */
 
     /// Creates a receipt which will be executed after `receipt_indices`
     ///
