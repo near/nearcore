@@ -523,6 +523,7 @@ impl Chain {
         }
 
         chain_store_update.save_block(block.clone());
+        chain_store_update.inc_block_refcount(&block.header.prev_hash)?;
 
         chain_store_update.commit()?;
         Ok(())
@@ -2670,6 +2671,7 @@ impl<'a> ChainUpdate<'a> {
 
         // Add validated block to the db, even if it's not the canonical fork.
         self.chain_store_update.save_block(block.clone());
+        self.chain_store_update.inc_block_refcount(&block.header.prev_hash)?;
         for (shard_id, chunk_headers) in block.chunks.iter().enumerate() {
             if chunk_headers.height_included == block.header.inner_lite.height {
                 self.chain_store_update
