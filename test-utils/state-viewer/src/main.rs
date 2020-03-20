@@ -8,7 +8,7 @@ use borsh::BorshDeserialize;
 use clap::{App, Arg, SubCommand};
 
 use near::{get_default_home, get_store_path, load_config, NearConfig, NightshadeRuntime};
-use near_chain::{ChainStore, ChainStoreAccess, DoomslugThresholdMode, RuntimeAdapter};
+use near_chain::{ChainStore, ChainStoreAccess, RuntimeAdapter};
 use near_chain_configs::Genesis;
 use near_crypto::PublicKey;
 use near_network::peer_store::PeerStore;
@@ -351,41 +351,14 @@ fn main() {
             genesis_config.genesis_height = genesis_height;
             let genesis = Arc::new(Genesis::new(genesis_config, records.into()));
 
-            println!("Calculating new genesis hash");
-            let store = near_store::test_utils::create_test_store();
-            let runtime = Arc::new(NightshadeRuntime::new(
-                &home_dir,
-                Arc::clone(&store),
-                Arc::clone(&genesis),
-                near_config.client_config.tracked_accounts.clone(),
-                near_config.client_config.tracked_shards.clone(),
-            ));
-            let chain_genesis = near_chain::ChainGenesis::from(&genesis);
-
-            let mut chain = near_chain::Chain::new(
-                Arc::clone(&runtime) as Arc<dyn RuntimeAdapter>,
-                &chain_genesis,
-                DoomslugThresholdMode::HalfStake,
-            )
-            .unwrap();
-            let genesis_hash =
-                chain.get_block_by_height(genesis_height).unwrap().hash().to_string();
-
-            let output_path = home_dir.join(Path::new("output_config.json"));
-            let records_path =
-                home_dir.join(Path::new(&format!("output_records_{}.json", &genesis_hash)));
-            let genesis_hash_path = home_dir.join(Path::new("output_hash"));
-
+            let output_path = home_dir.join(Path::new("output.json"));
             println!(
-                "Saving state at {:?} @ {} into {} and records {}",
+                "Saving state at {:?} @ {} into {}",
                 state_roots,
                 height,
                 output_path.display(),
-                records_path.display(),
             );
-            genesis.config.to_file(&output_path);
-            genesis.records.to_file(&records_path);
-            std::fs::write(&genesis_hash_path, &genesis_hash).unwrap();
+            genesis.to_file(&output_path);
         }
         ("chain", Some(args)) => {
             let start_index =
