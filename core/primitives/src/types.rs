@@ -7,7 +7,7 @@ use near_crypto::PublicKey;
 use crate::account::{AccessKey, Account};
 use crate::challenge::ChallengesResult;
 use crate::hash::CryptoHash;
-use crate::serialize::{base64_format, u128_dec_format};
+use crate::serialize::u128_dec_format;
 use crate::utils::{KeyForAccessKey, KeyForData};
 
 /// Account identifier. Provides access to user's state.
@@ -65,6 +65,12 @@ impl Default for Finality {
     }
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+pub struct AccountWithPublicKey {
+    pub account_id: AccountId,
+    pub public_key: PublicKey,
+}
+
 /// Account info for validators
 #[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq)]
 pub struct AccountInfo {
@@ -105,7 +111,7 @@ pub enum StateChangeKind {
     AccountTouched { account_id: AccountId },
     AccessKeyTouched { account_id: AccountId },
     DataTouched { account_id: AccountId },
-    CodeTouched { account_id: AccountId },
+    ContractCodeTouched { account_id: AccountId },
 }
 
 pub type StateChangesKinds = Vec<StateChangeKind>;
@@ -177,27 +183,13 @@ pub struct RawStateChangesWithMetadata {
 /// key that was updated -> list of updates with the corresponding indexing event.
 pub type RawStateChanges = std::collections::BTreeMap<Vec<u8>, RawStateChangesList>;
 
-#[derive(Debug, Serialize, Deserialize)]
-#[serde(tag = "changes_type", rename_all = "snake_case")]
+#[derive(Debug)]
 pub enum StateChangesRequest {
-    AccountChanges {
-        account_ids: Vec<AccountId>,
-    },
-    SingleAccessKeyChanges {
-        account_ids: Vec<AccountId>,
-        access_key_pk: PublicKey,
-    },
-    AllAccessKeyChanges {
-        account_ids: Vec<AccountId>,
-    },
-    CodeChanges {
-        account_ids: Vec<AccountId>,
-    },
-    DataChanges {
-        account_ids: Vec<AccountId>,
-        #[serde(rename = "key_prefix_base64", with = "base64_format")]
-        key_prefix: StoreKey,
-    },
+    AccountChanges { account_ids: Vec<AccountId> },
+    SingleAccessKeyChanges { keys: Vec<AccountWithPublicKey> },
+    AllAccessKeyChanges { account_ids: Vec<AccountId> },
+    ContractCodeChanges { account_ids: Vec<AccountId> },
+    DataChanges { account_ids: Vec<AccountId>, key_prefix: StoreKey },
 }
 
 #[derive(Debug)]
@@ -208,8 +200,8 @@ pub enum StateChangeValue {
     AccessKeyDeletion { account_id: AccountId, public_key: PublicKey },
     DataUpdate { account_id: AccountId, key: StoreKey, value: StoreValue },
     DataDeletion { account_id: AccountId, key: StoreKey },
-    CodeUpdate { account_id: AccountId, code: Vec<u8> },
-    CodeDeletion { account_id: AccountId },
+    ContractCodeUpdate { account_id: AccountId, code: Vec<u8> },
+    ContractCodeDeletion { account_id: AccountId },
 }
 
 #[derive(Debug)]
@@ -298,7 +290,7 @@ impl StateChanges {
         Ok(changes)
     }
 
-    pub fn from_code_changes<K: AsRef<[u8]>>(
+    pub fn from_contract_code_changes<K: AsRef<[u8]>>(
         raw_changes: impl Iterator<Item = Result<(K, RawStateChangesWithMetadata), std::io::Error>>,
         account_id: &AccountId,
     ) -> Result<StateChanges, std::io::Error> {
@@ -306,7 +298,7 @@ impl StateChanges {
 
         for raw_change in raw_changes {
             let (_, RawStateChangesWithMetadata { kind, raw_changes }) = raw_change?;
-            debug_assert!(if let StateChangeKind::CodeTouched { .. } = kind {
+            debug_assert!(if let StateChangeKind::ContractCodeTouched { .. } = kind {
                 true
             } else {
                 false
@@ -316,12 +308,12 @@ impl StateChanges {
                 StateChangeWithCause {
                     cause,
                     value: if let Some(change_data) = data {
-                        StateChangeValue::CodeUpdate {
+                        StateChangeValue::ContractCodeUpdate {
                             account_id: account_id.clone(),
                             code: change_data.into(),
                         }
                     } else {
-                        StateChangeValue::CodeDeletion { account_id: account_id.clone() }
+                        StateChangeValue::ContractCodeDeletion { account_id: account_id.clone() }
                     },
                 }
             }));

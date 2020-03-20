@@ -23,7 +23,9 @@ use near_primitives::types::{
     AccountId, BlockExtra, BlockHeight, ChunkExtra, EpochId, ShardId, StateChanges,
     StateChangesExt, StateChangesKinds, StateChangesKindsExt, StateChangesRequest,
 };
-use near_primitives::utils::{index_to_bytes, to_timestamp};
+use near_primitives::utils::{
+    index_to_bytes, to_timestamp, KeyForAccessKey, KeyForAccount, KeyForContractCode, KeyForData,
+};
 use near_primitives::views::LightClientBlockView;
 use near_store::{
     read_with_cache, ColBlock, ColBlockExtra, ColBlockHeader, ColBlockHeight, ColBlockMisc,
@@ -868,8 +870,6 @@ impl ChainStoreAccess for ChainStore {
         block_hash: &CryptoHash,
         state_changes_request: &StateChangesRequest,
     ) -> Result<StateChanges, Error> {
-        use near_primitives::utils;
-
         // We store the trie changes under a compound key: `block_hash + trie_key`, so when we
         // query the changes, we reverse the process by splitting the key using simple slicing of an
         // array of bytes, essentially, extracting `trie_key`.
@@ -895,7 +895,7 @@ impl ChainStoreAccess for ChainStore {
             StateChangesRequest::AccountChanges { account_ids } => {
                 let mut changes = StateChanges::new();
                 for account_id in account_ids {
-                    let data_key = utils::KeyForAccount::new(account_id);
+                    let data_key = KeyForAccount::new(account_id);
                     let storage_key = KeyForStateChanges::new(&block_hash, data_key.as_ref());
                     let changes_per_key = storage_key.find_exact_iter(&self.store);
                     changes
@@ -903,16 +903,16 @@ impl ChainStoreAccess for ChainStore {
                 }
                 changes
             }
-            StateChangesRequest::SingleAccessKeyChanges { account_ids, access_key_pk } => {
+            StateChangesRequest::SingleAccessKeyChanges { keys } => {
                 let mut changes = StateChanges::new();
-                for account_id in account_ids {
-                    let data_key = utils::KeyForAccessKey::new(account_id, access_key_pk);
+                for key in keys {
+                    let data_key = KeyForAccessKey::new(&key.account_id, &key.public_key);
                     let storage_key = KeyForStateChanges::new(&block_hash, data_key.as_ref());
                     let changes_per_key = storage_key.find_exact_iter(&self.store);
                     changes.extend(StateChanges::from_access_key_changes(
                         changes_per_key,
-                        account_id,
-                        Some(access_key_pk),
+                        &key.account_id,
+                        Some(&key.public_key),
                     )?);
                 }
                 changes
@@ -920,36 +920,39 @@ impl ChainStoreAccess for ChainStore {
             StateChangesRequest::AllAccessKeyChanges { account_ids } => {
                 let mut changes = StateChanges::new();
                 for account_id in account_ids {
-                    let data_key = utils::KeyForAccessKey::get_prefix(account_id);
+                    let data_key = KeyForAccessKey::get_prefix(&account_id);
                     let storage_key = KeyForStateChanges::new(&block_hash, data_key.as_ref());
                     let changes_per_key_prefix = storage_key.find_iter(&self.store);
                     changes.extend(StateChanges::from_access_key_changes(
                         changes_per_key_prefix,
-                        account_id,
+                        &account_id,
                         None,
                     )?);
                 }
                 changes
             }
-            StateChangesRequest::CodeChanges { account_ids } => {
+            StateChangesRequest::ContractCodeChanges { account_ids } => {
                 let mut changes = StateChanges::new();
                 for account_id in account_ids {
-                    let data_key = utils::KeyForCode::new(account_id);
+                    let data_key = KeyForContractCode::new(&account_id);
                     let storage_key = KeyForStateChanges::new(&block_hash, data_key.as_ref());
                     let changes_per_key = storage_key.find_exact_iter(&self.store);
-                    changes.extend(StateChanges::from_code_changes(changes_per_key, account_id)?);
+                    changes.extend(StateChanges::from_contract_code_changes(
+                        changes_per_key,
+                        &account_id,
+                    )?);
                 }
                 changes
             }
             StateChangesRequest::DataChanges { account_ids, key_prefix } => {
                 let mut changes = StateChanges::new();
                 for account_id in account_ids {
-                    let data_key = utils::KeyForData::new(account_id, key_prefix.as_ref());
+                    let data_key = KeyForData::new(&account_id, key_prefix.as_ref());
                     let storage_key = KeyForStateChanges::new(&block_hash, data_key.as_ref());
                     let changes_per_key_prefix = storage_key.find_iter(&self.store);
                     changes.extend(StateChanges::from_data_changes(
                         changes_per_key_prefix,
-                        account_id,
+                        &account_id,
                     )?);
                 }
                 changes
