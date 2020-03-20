@@ -559,8 +559,9 @@ impl ShardsManager {
         self.encoded_chunks.get_chunk_headers_for_block(&prev_block_hash)
     }
 
-    pub fn insert_transaction(&mut self, shard_id: ShardId, tx: SignedTransaction) {
-        self.tx_pools.entry(shard_id).or_insert_with(TransactionPool::new).insert_transaction(tx);
+    /// Returns true if transaction is not in the pool before call
+    pub fn insert_transaction(&mut self, shard_id: ShardId, tx: SignedTransaction) -> bool {
+        self.tx_pools.entry(shard_id).or_insert_with(TransactionPool::new).insert_transaction(tx)
     }
 
     pub fn remove_transactions(

@@ -86,7 +86,7 @@ opt-level = 3 # BLS library is too slow to use in debug
 opt-level = 3 # bs58 library is too slow to use in debug
 
 [features]
-expensive_tests = []
+expensive_tests = ["near/expensive_tests"]
 regression_tests = []
 old_tests = []
 adversarial = ["near/adversarial", "near-jsonrpc/adversarial"]
