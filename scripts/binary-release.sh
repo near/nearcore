@@ -8,8 +8,8 @@ os=$(uname)
 make release
 
 function upload_binary {
-    aws s3 cp --acl public-read target/release/near s3://build.nearprotocol.com/nearcore/${os}/${branch}/$1
-    aws s3 cp --acl public-read target/release/near s3://build.nearprotocol.com/nearcore/${os}/${branch}/${commit}/$1
+    aws s3 cp --acl public-read target/release/$1 s3://build.nearprotocol.com/nearcore/${os}/${branch}/$1
+    aws s3 cp --acl public-read target/release/$1 s3://build.nearprotocol.com/nearcore/${os}/${branch}/${commit}/$1
 }
 
 upload_binary near
