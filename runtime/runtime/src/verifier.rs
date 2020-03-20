@@ -104,8 +104,7 @@ pub fn verify_and_charge_transaction(
         }
     }
 
-    if let Err(amount) = check_storage_cost(&signer_id, &signer, &config, apply_state.epoch_length)
-    {
+    if let Err(amount) = check_storage_cost(&signer_id, &signer, &config) {
         return Err(
             InvalidTxError::LackBalanceForState { signer_id: signer_id.clone(), amount }.into()
         );

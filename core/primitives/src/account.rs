@@ -18,7 +18,7 @@ pub struct Account {
 }
 
 /// Size of account struct in bytes.
-const ACCOUNT_SIZE_BYTES: u64 = 16 + 16 + 32 + 8;
+const ACCOUNT_SIZE_BYTES: u64 = std::mem::size_of::<Account>() as u64;
 
 impl Account {
     pub fn new(amount: Balance, code_hash: CryptoHash) -> Self {

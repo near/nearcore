@@ -11,7 +11,7 @@ use near_primitives::transaction::{
     Action, AddKeyAction, DeleteAccountAction, DeleteKeyAction, DeployContractAction,
     FunctionCallAction, StakeAction, TransferAction,
 };
-use near_primitives::types::{AccountId, BlockHeightDelta, ValidatorStake};
+use near_primitives::types::{AccountId, Balance, ValidatorStake};
 use near_primitives::utils::{
     is_valid_sub_account_id, is_valid_top_level_account_id, KeyForAccessKey,
 };
@@ -38,15 +38,14 @@ pub(crate) fn check_storage_cost(
     account_id: &AccountId,
     account: &Account,
     runtime_config: &RuntimeConfig,
-    _epoch_length: BlockHeightDelta,
-) -> Result<(), u128> {
+) -> Result<(), Balance> {
     let account_length_cost_per_block = if account_id.len() > 10 {
         0
     } else {
         runtime_config.account_length_baseline_cost / 3_u128.pow(account_id.len() as u32 - 2)
     };
     let required_amount = account_length_cost_per_block
-        + u128::from(total_account_storage(account_id, account))
+        + Balance::from(total_account_storage(account_id, account))
             * runtime_config.storage_amount_per_byte;
     if account.amount + account.locked >= required_amount {
         Ok(())
@@ -397,7 +396,6 @@ pub(crate) fn action_add_key(
 
 pub(crate) fn check_actor_permissions(
     action: &Action,
-    apply_state: &ApplyState,
     account: &Option<Account>,
     actor_id: &AccountId,
     account_id: &AccountId,
@@ -421,9 +419,7 @@ pub(crate) fn check_actor_permissions(
                 }
                 .into());
             }
-            if actor_id != account_id
-                && check_storage_cost(account_id, account, config, apply_state.epoch_length).is_ok()
-            {
+            if actor_id != account_id && check_storage_cost(account_id, account, config).is_ok() {
                 return Err(ActionErrorKind::DeleteAccountHasEnoughBalance {
                     account_id: account_id.clone(),
                     balance: account.amount,

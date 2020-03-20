@@ -372,7 +372,7 @@ impl Display for InvalidTxError {
                 signer_id, balance, cost
             ),
             InvalidTxError::LackBalanceForState { signer_id, amount } => {
-                write!(f, "Failed to execute, because the account {:?} wouldn't have enough to balance to cover storage, required to have {}", signer_id, amount)
+                write!(f, "Failed to execute, because the account {:?} wouldn't have enough balance to cover storage, required to have {}", signer_id, amount)
             }
             InvalidTxError::CostOverflow => {
                 write!(f, "Transaction gas or balance cost is too high")

@@ -288,14 +288,9 @@ impl Runtime {
             return Ok(result);
         }
         // Permission validation
-        if let Err(e) = check_actor_permissions(
-            action,
-            apply_state,
-            account,
-            &actor_id,
-            account_id,
-            &self.config,
-        ) {
+        if let Err(e) =
+            check_actor_permissions(action, account, &actor_id, account_id, &self.config)
+        {
             result.result = Err(e);
             return Ok(result);
         }
@@ -469,9 +464,7 @@ impl Runtime {
         // Going to check balance covers account's storage.
         if result.result.is_ok() {
             if let Some(ref mut account) = account {
-                if let Err(amount) =
-                    check_storage_cost(account_id, account, &self.config, apply_state.epoch_length)
-                {
+                if let Err(amount) = check_storage_cost(account_id, account, &self.config) {
                     result.merge(ActionResult {
                         result: Err(ActionError {
                             index: None,
