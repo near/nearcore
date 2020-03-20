@@ -64,7 +64,6 @@ fn main() {
             let mut pks = vec![];
             for (i, key) in keys.into_iter().enumerate() {
                 println!("Key#{}", i);
-                println!("SK: {}", key);
                 println!("PK: {}", key.public_key());
                 println!();
                 if generate_config {
@@ -84,7 +83,6 @@ fn main() {
         }
         ("validator-key", Some(_)) => {
             let key = SecretKey::from_random(KeyType::ED25519);
-            println!("SK: {}", key);
             println!("PK: {}", key.public_key());
             if generate_config {
                 let account_id =
@@ -96,7 +94,6 @@ fn main() {
         }
         ("node-key", Some(_args)) => {
             let key = SecretKey::from_random(KeyType::ED25519);
-            println!("SK: {}", key);
             println!("PK: {}", key.public_key());
             if generate_config {
                 let mut path = home_dir.to_path_buf();
