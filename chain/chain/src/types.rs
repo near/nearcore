@@ -295,6 +295,9 @@ pub trait RuntimeAdapter: Send + Sync {
     /// Get epoch start for given block hash.
     fn get_epoch_start_height(&self, block_hash: &CryptoHash) -> Result<BlockHeight, Error>;
 
+    /// Get the block height for which garbage collection should not go over
+    fn get_gc_head_height(&self, block_hash: &CryptoHash) -> Result<BlockHeight, Error>;
+
     /// Get inflation for a certain epoch
     fn get_epoch_inflation(&self, epoch_id: &EpochId) -> Result<Balance, Error>;
 

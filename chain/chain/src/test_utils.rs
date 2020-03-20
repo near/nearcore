@@ -831,6 +831,10 @@ impl RuntimeAdapter for KeyValueRuntime {
         }
     }
 
+    fn get_gc_head_height(&self, _block_hash: &CryptoHash) -> Result<BlockHeight, Error> {
+        Ok(0)
+    }
+
     fn get_epoch_inflation(&self, _epoch_id: &EpochId) -> Result<u128, Error> {
         Ok(0)
     }

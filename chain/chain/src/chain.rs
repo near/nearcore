@@ -51,7 +51,6 @@ use crate::{metrics, DoomslugThresholdMode};
 use rand::rngs::StdRng;
 use rand::seq::SliceRandom;
 use rand::SeedableRng;
-use std::cmp::min;
 
 /// Maximum number of orphans chain can store.
 pub const MAX_ORPHAN_SIZE: usize = 1024;
@@ -69,7 +68,7 @@ pub const TX_ROUTING_HEIGHT_HORIZON: BlockHeightDelta = 4;
 const NEAR_BASE: Balance = 1_000_000_000_000_000_000_000_000;
 
 /// Number of epochs for which we keep store data
-const NUM_EPOCHS_TO_KEEP_STORE_DATA: u64 = 5;
+pub const NUM_EPOCHS_TO_KEEP_STORE_DATA: u64 = 5;
 
 /// Number of heights to clear.
 const HEIGHTS_TO_CLEAR: BlockHeightDelta = 10;
@@ -540,18 +539,12 @@ impl Chain {
     pub fn clear_old_data(&mut self) -> Result<(), Error> {
         let mut chain_store_update = self.store.store_update();
         let head = chain_store_update.head()?;
-        let height_diff = NUM_EPOCHS_TO_KEEP_STORE_DATA * self.epoch_length;
-        let epoch_start_height =
-            self.runtime_adapter.get_epoch_start_height(&head.last_block_hash)?;
-        if head.height >= height_diff {
-            // do not garbage collect anything in the current epoch
-            let last_height = min(head.height - height_diff, epoch_start_height);
-            for height in last_height.saturating_sub(HEIGHTS_TO_CLEAR)..last_height {
-                match chain_store_update.clear_old_data_on_height(height) {
-                    Ok(_) => {}
-                    Err(err) => {
-                        error!(target: "client", "Error clearing old data on height {:?}, {:?}", height, err);
-                    }
+        let gc_head_height = self.runtime_adapter.get_gc_head_height(&head.last_block_hash)?;
+        for height in gc_head_height.saturating_sub(HEIGHTS_TO_CLEAR)..gc_head_height {
+            match chain_store_update.clear_old_data_on_height(height) {
+                Ok(_) => {}
+                Err(err) => {
+                    error!(target: "client", "Error clearing old data on height {:?}, {:?}", height, err);
                 }
             }
         }
