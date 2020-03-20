@@ -264,9 +264,9 @@ impl KeyForData {
 
 #[derive(derive_more::AsRef, derive_more::Into)]
 #[as_ref(forward)]
-pub struct KeyForCode(Vec<u8>);
+pub struct KeyForContractCode(Vec<u8>);
 
-impl KeyForCode {
+impl KeyForContractCode {
     pub fn new(account_id: &AccountId) -> Self {
         Self(KeyForColumnAccountId::with_capacity(col::CODE, account_id, 0).into())
     }
@@ -651,8 +651,8 @@ mod tests {
     #[test]
     fn test_key_for_code_consistency() {
         for account_id in OK_ACCOUNT_IDS.iter().map(|x| AccountId::from(*x)) {
-            let key = KeyForCode::new(&account_id);
-            assert_eq!(KeyForCode::parse_account_id(&key).unwrap(), account_id);
+            let key = KeyForContractCode::new(&account_id);
+            assert_eq!(KeyForContractCode::parse_account_id(&key).unwrap(), account_id);
         }
     }
 
