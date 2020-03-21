@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 
 use near_crypto::{KeyType, PublicKey};
 use near_network::PeerInfo;
+use near_primitives::account::AccessKey;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum};
 use near_primitives::serialize::to_base64;
@@ -233,7 +234,7 @@ fn account_records(row: &Row, gas_price: Balance) -> Vec<StateRecord> {
         res.push(StateRecord::AccessKey {
             account_id: row.account_id.clone(),
             public_key: pk,
-            access_key: AccessKeyView { nonce: 0, permission: AccessKeyPermissionView::FullAccess },
+            access_key: AccessKey::full_access().into(),
         })
     }
 

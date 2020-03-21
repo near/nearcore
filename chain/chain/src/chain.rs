@@ -1817,10 +1817,10 @@ impl Chain {
             .find_map(|outcome_with_id| {
                 if outcome_with_id.id == looking_for_id {
                     match &outcome_with_id.outcome.status {
-                        ExecutionStatusView::Unknown if num_outcomes == 1 => {
+                        ExecutionStatusView::Unknown {} if num_outcomes == 1 => {
                             Some(FinalExecutionStatus::NotStarted)
                         }
-                        ExecutionStatusView::Unknown => Some(FinalExecutionStatus::Started),
+                        ExecutionStatusView::Unknown {} => Some(FinalExecutionStatus::Started),
                         ExecutionStatusView::Failure(e) => {
                             Some(FinalExecutionStatus::Failure(e.clone()))
                         }

@@ -83,7 +83,7 @@ pub enum AccessKeyPermissionView {
         receiver_id: AccountId,
         method_names: Vec<String>,
     },
-    FullAccess,
+    FullAccess {},
 }
 
 impl From<AccessKeyPermission> for AccessKeyPermissionView {
@@ -94,7 +94,7 @@ impl From<AccessKeyPermission> for AccessKeyPermissionView {
                 receiver_id: func_call.receiver_id,
                 method_names: func_call.method_names,
             },
-            AccessKeyPermission::FullAccess => AccessKeyPermissionView::FullAccess,
+            AccessKeyPermission::FullAccess => AccessKeyPermissionView::FullAccess {},
         }
     }
 }
@@ -109,7 +109,7 @@ impl From<AccessKeyPermissionView> for AccessKeyPermission {
                     method_names,
                 })
             }
-            AccessKeyPermissionView::FullAccess => AccessKeyPermission::FullAccess,
+            AccessKeyPermissionView::FullAccess {} => AccessKeyPermission::FullAccess,
         }
     }
 }
@@ -594,7 +594,7 @@ impl ChunkView {
 
 #[derive(Serialize, Deserialize, Clone, Debug, BorshSerialize, BorshDeserialize, PartialEq, Eq)]
 pub enum ActionView {
-    CreateAccount,
+    CreateAccount {},
     DeployContract {
         code: String,
     },
@@ -629,7 +629,7 @@ pub enum ActionView {
 impl From<Action> for ActionView {
     fn from(action: Action) -> Self {
         match action {
-            Action::CreateAccount(_) => ActionView::CreateAccount,
+            Action::CreateAccount(_) => ActionView::CreateAccount {},
             Action::DeployContract(action) => {
                 ActionView::DeployContract { code: to_base64(&hash(&action.code)) }
             }
@@ -660,7 +660,7 @@ impl TryFrom<ActionView> for Action {
 
     fn try_from(action_view: ActionView) -> Result<Self, Self::Error> {
         Ok(match action_view {
-            ActionView::CreateAccount => Action::CreateAccount(CreateAccountAction {}),
+            ActionView::CreateAccount {} => Action::CreateAccount(CreateAccountAction {}),
             ActionView::DeployContract { code } => {
                 Action::DeployContract(DeployContractAction { code: from_base64(&code)? })
             }
@@ -762,7 +762,7 @@ pub enum ServerError {
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Clone)]
 pub enum ExecutionStatusView {
     /// The execution is pending or unknown.
-    Unknown,
+    Unknown {},
     /// The execution has failed.
     Failure(TxExecutionError),
     /// The final action succeeded and returned some value or an empty vec encoded in base64.
@@ -775,7 +775,7 @@ pub enum ExecutionStatusView {
 impl fmt::Debug for ExecutionStatusView {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            ExecutionStatusView::Unknown => f.write_str("Unknown"),
+            ExecutionStatusView::Unknown {} => f.write_str("Unknown"),
             ExecutionStatusView::Failure(e) => f.write_fmt(format_args!("Failure({:?})", e)),
             ExecutionStatusView::SuccessValue(v) => f.write_fmt(format_args!(
                 "SuccessValue({})",
@@ -791,7 +791,7 @@ impl fmt::Debug for ExecutionStatusView {
 impl From<ExecutionStatus> for ExecutionStatusView {
     fn from(outcome: ExecutionStatus) -> Self {
         match outcome {
-            ExecutionStatus::Unknown => ExecutionStatusView::Unknown,
+            ExecutionStatus::Unknown => ExecutionStatusView::Unknown {},
             ExecutionStatus::Failure(e) => ExecutionStatusView::Failure(e),
             ExecutionStatus::SuccessValue(v) => ExecutionStatusView::SuccessValue(to_base64(&v)),
             ExecutionStatus::SuccessReceiptId(receipt_id) => {
