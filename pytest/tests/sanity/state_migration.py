@@ -11,6 +11,9 @@ import os
 import sys
 import time
 import json
+import subprocess
+import shutil
+import re
 
 sys.path.append('lib')
 
@@ -29,24 +32,36 @@ def wait_for_blocks_or_timeout(node, num_blocks, timeout):
 
 def main():
     node_root = 'state_migration'
-    near_root, (stable_branch, current_branch) = branches.prepare_ab_test("beta")
+    if os.path.exists(node_root):
+        shutil.rmtree(node_root)
+
+    # near_root, (stable_branch, current_branch) = branches.prepare_ab_test("beta")
+    near_root, (stable_branch, current_branch) = ("../target/debug/", ("beta", "backward-support-test"))
 
     # Run stable node for few blocks.
     subprocess.call(["%snear-%s" % (near_root, stable_branch), "--home=%s/test0" % node_root, "init", "--fast"])
+    stable_protocol_version = json.load(open('%s/test0/genesis.json' % node_root))['protocol_version']
     config = {"local": True, 'near_root': near_root, 'binary_name': "near-%s" % stable_branch }
     stable_node = cluster.spin_up_node(config, near_root, os.path.join(node_root, "test0"), 0, None, None)
 
     wait_for_blocks_or_timeout(stable_node, 20, 100)
     # TODO: we should make state more interesting to migrate by sending some tx / contracts.
-    stable_node.kill()
+    stable_node.cleanup()
+    os.rename('%s/test0_finished' % node_root, '%s/test0' % node_root)
 
     # Dump state.
-    subprocess.call(["%sstate-viewer-%s" % (near_root, stable_branch), "--home", node_root, "dump_state"])
+    subprocess.call(["%sstate-viewer-%s" % (near_root, stable_branch), "--home", '%s/test0' % node_root, "dump_state"])
 
     # Migrate.
-    genesis = json.load(open(os.path.join(node_root, "output.json")), object_pairs_hook=OrderedDict)
-    # TODO: ???
-    json.dump(genesis, open(os.path.expanduser(node_root, "genesis.json"), "w"), indent=2)
+    migrations_home = '../scripts/migrations'
+    all_migrations = sorted(os.listdir(migrations_home))
+    # TODO: currently migrations don't support multiple in a row due to output formats.
+    for fname in all_migrations:
+        m = re.match('([0-9]+)\-.*', fname)
+        if m:
+            version = int(m.groups()[0])
+            if version > stable_protocol_version:
+                subprocess.call(['python', os.path.join(migrations_home, fname), '%s/test0' % node_root, '%s/test0' % node_root])
 
     # Run new node and verify it runs for a few more blocks.
     config["binary_name"] = "near-%s" % current_branch

@@ -24,4 +24,4 @@ def prepare_ab_test(other_branch):
     name = current_branch()
     compile_binary(name)
     compile_binary(other_branch)
-    return '../target/debug', [other_branch, name]
+    return '../target/debug/', [other_branch, name]

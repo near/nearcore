@@ -176,10 +176,11 @@ class LocalNode(BaseNode):
         self.near_root = near_root
         self.node_dir = node_dir
         self.binary_name = binary_name
+        self.cleaned = False
         with open(os.path.join(node_dir, "config.json")) as f:
             config_json = json.loads(f.read())
-        assert config_json['network']['addr'] == '0.0.0.0:24567', config_json['network']['addr']
-        assert config_json['rpc']['addr'] == '0.0.0.0:3030', config_json['rpc']['addr']
+        # assert config_json['network']['addr'] == '0.0.0.0:24567', config_json['network']['addr']
+        # assert config_json['rpc']['addr'] == '0.0.0.0:3030', config_json['rpc']['addr']
         # just a sanity assert that the setting name didn't change
         assert 0 <= config_json['consensus']['min_num_peers'] <= 3, config_json['consensus']['min_num_peers']
         config_json['network']['addr'] = '0.0.0.0:%s' % port
@@ -226,12 +227,15 @@ class LocalNode(BaseNode):
         shutil.rmtree(os.path.join(self.node_dir, "data"))
 
     def cleanup(self):
+        if self.cleaned:
+            return
         self.kill()
         # move the node dir to avoid weird interactions with multiple serial test invocations
         target_path = self.node_dir + '_finished'
         if os.path.exists(target_path) and os.path.isdir(target_path):
             shutil.rmtree(target_path)
         os.rename(self.node_dir, target_path)
+        self.cleaned = True
 
     def stop_network(self):
         print("Stopping network for process %s" % self.pid.value)
