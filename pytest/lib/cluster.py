@@ -101,6 +101,7 @@ class BaseNode(object):
     def get_status(self):
         r = requests.get("http://%s:%s/status" % self.rpc_addr(), timeout=2)
         r.raise_for_status()
+        self.check_refmap()
         return json.loads(r.content)
 
     def get_all_heights(self):
@@ -155,6 +156,15 @@ class BaseNode(object):
     def validators(self):
         return set(map(lambda v: v['account_id'], self.get_status()['validators']))
 
+    def check_refmap(self):
+        res = self.json_rpc('adv_check_refmap', [])
+        if not 'result' in res:
+            # cannot check Block Reference Map for the node, possibly not Adversarial Mode is running
+            pass
+        else:
+            print("%s%s" % ("checking Block Reference Map for %s:%s --- " % self.addr(), "Ok" if res['result'] == 1 else "FAILED!!! res = %d" % res['result']))
+            if res['result'] != 1:
+                self.kill()
 
 
 class RpcNode(BaseNode):

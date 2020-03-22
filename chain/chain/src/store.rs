@@ -1782,9 +1782,13 @@ impl<'a> ChainStoreUpdate<'a> {
     #[allow(unused)]
     pub fn dec_block_refcount(&mut self, block_hash: &CryptoHash) -> Result<(), Error> {
         let refcount = self.get_block_refcount(block_hash)?.clone();
-        assert!(refcount > 0);
-        self.chain_store_cache_update.block_refcounts.insert(*block_hash, refcount - 1);
-        Ok(())
+        if refcount > 0 {
+            self.chain_store_cache_update.block_refcounts.insert(*block_hash, refcount - 1);
+            Ok(())
+        } else {
+            debug_assert!(false, "refcount can not be negative");
+            Err(ErrorKind::Other(format!("cannot decrease refcount for {:?}", block_hash)).into())
+        }
     }
 
     pub fn clear_old_data_on_height(&mut self, height: BlockHeight) -> Result<(), Error> {
@@ -2274,7 +2278,6 @@ impl<'a> ChainStoreUpdate<'a> {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
     use std::sync::Arc;
 
     use cached::Cached;
@@ -2288,7 +2291,8 @@ mod tests {
     use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
     use near_store::test_utils::create_test_store;
 
-    use crate::store::{ChainStoreAccess, ChainStoreUpdate};
+    use crate::chain::check_refcount_map;
+    use crate::store::ChainStoreAccess;
     use crate::test_utils::KeyValueRuntime;
     use crate::{Chain, ChainGenesis, DoomslugThresholdMode};
 
@@ -2494,38 +2498,6 @@ mod tests {
         assert_ne!(epoch_id_to_hash, epoch_id_to_hash1);
     }
 
-    fn check_refcount_map(chain: &mut Chain) {
-        let head = chain.head().unwrap();
-        let mut block_refcounts = HashMap::new();
-        for height in chain.store().get_genesis_height() + 1..=head.height {
-            let blocks_current_height =
-                match chain.mut_store().get_all_block_hashes_by_height(height) {
-                    Ok(blocks_current_height) => {
-                        blocks_current_height.values().flatten().cloned().collect()
-                    }
-                    _ => vec![],
-                };
-            for block_hash in blocks_current_height.iter() {
-                if let Ok(prev_hash) =
-                    chain.get_block(&block_hash).map(|block| block.header.prev_hash)
-                {
-                    println!("IN CHAIN {:?}->{:?}", prev_hash, block_hash);
-                    *block_refcounts.entry(prev_hash).or_insert(0) += 1;
-                }
-            }
-        }
-        let mut chain_store_update = ChainStoreUpdate::new(chain.mut_store());
-        for (block_hash, refcount) in block_refcounts {
-            match chain_store_update.get_block(&block_hash) {
-                Ok(_) => assert_eq!(
-                    chain_store_update.get_block_refcount(&block_hash).unwrap(),
-                    &refcount
-                ),
-                Err(_) => assert!(chain_store_update.get_block_refcount(&block_hash).is_err()),
-            }
-        }
-    }
-
     #[test]
     fn test_clear_old_data_fixed_height() {
         let mut chain = get_chain();
@@ -2549,7 +2521,7 @@ mod tests {
             prev_block = block.clone();
         }
         store_update.commit().unwrap();
-        check_refcount_map(&mut chain);
+        assert!(check_refcount_map(&mut chain).is_ok());
 
         assert!(chain.get_block(&blocks[4].hash()).is_ok());
         assert!(chain.get_block(&blocks[5].hash()).is_ok());
@@ -2580,7 +2552,7 @@ mod tests {
         assert!(chain.mut_store().get_next_block_hash(&blocks[4].hash()).is_ok());
         assert!(chain.mut_store().get_next_block_hash(&blocks[5].hash()).is_err());
         assert!(chain.mut_store().get_next_block_hash(&blocks[6].hash()).is_ok());
-        check_refcount_map(&mut chain);
+        assert!(check_refcount_map(&mut chain).is_ok());
     }
 
     #[test]
@@ -2610,7 +2582,7 @@ mod tests {
         store_update.save_body_head(&head).unwrap();
         store_update.commit().unwrap();
 
-        check_refcount_map(&mut chain);
+        assert!(check_refcount_map(&mut chain).is_ok());
         chain.epoch_length = 1;
         assert!(chain.clear_old_data().is_ok());
 
@@ -2629,6 +2601,6 @@ mod tests {
             }
             assert!(chain.get_block_header(&blocks[i].hash()).is_ok());
         }
-        check_refcount_map(&mut chain);
+        assert!(check_refcount_map(&mut chain).is_ok());
     }
 }

@@ -9,6 +9,8 @@ use actix::{Actor, Addr, AsyncContext, Context, Handler};
 use chrono::{DateTime, Utc};
 use log::{debug, error, info, warn};
 
+#[cfg(feature = "adversarial")]
+use near_chain::check_refcount_map;
 use near_chain::test_utils::format_hash;
 use near_chain::types::AcceptedBlock;
 use near_chain::{
@@ -221,7 +223,14 @@ impl Handler<NetworkClientMessages> for ClientActor {
                         for _ in store.iter(ColBlock) {
                             num_blocks += 1;
                         }
-                        NetworkClientResponses::AdvU64(num_blocks)
+                        NetworkClientResponses::AdvResult(num_blocks)
+                    }
+                    NetworkAdversarialMessage::AdvCheckRefMap => {
+                        info!(target: "adversary", "Check Block Reference Map");
+                        match check_refcount_map(&mut self.client.chain) {
+                            Ok(_) => NetworkClientResponses::AdvResult(1), /* true */
+                            Err(_) => NetworkClientResponses::AdvResult(0), /* false */
+                        }
                     }
                     _ => panic!("invalid adversary message"),
                 };
