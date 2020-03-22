@@ -55,13 +55,14 @@ def main():
     # Migrate.
     migrations_home = '../scripts/migrations'
     all_migrations = sorted(os.listdir(migrations_home))
-    # TODO: currently migrations don't support multiple in a row due to output formats.
     for fname in all_migrations:
         m = re.match('([0-9]+)\-.*', fname)
         if m:
             version = int(m.groups()[0])
             if version > stable_protocol_version:
                 subprocess.call(['python', os.path.join(migrations_home, fname), '%s/test0' % node_root, '%s/test0' % node_root])
+
+    os.rename(os.path.join(node_root, 'output.json'), os.path.join(node_root, 'genesis.json'))
 
     # Run new node and verify it runs for a few more blocks.
     config["binary_name"] = "near-%s" % current_branch
