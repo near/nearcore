@@ -55,7 +55,7 @@ def main():
     print(f'====== {current_branch}')
     print(subprocess.check_output(['git', 'status']))
     migrations_home = os.path.join(os.path.dirname(os.path.abspath(__file__)), '../../../scripts/migrations')
-    all_migrations = sorted(os.listdir(migrations_home))
+    all_migrations = sorted(os.listdir(migrations_home), key=lambda x: int(x.split('-')[0]))
     for fname in all_migrations:
         m = re.match('([0-9]+)\-.*', fname)
         if m:
