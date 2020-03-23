@@ -49,6 +49,7 @@ pub struct AccountView {
     pub code_hash: CryptoHash,
     pub storage_usage: StorageUsage,
     /// TODO(2271): deprecated.
+    #[serde(default)]
     pub storage_paid_at: BlockHeight,
 }
 
