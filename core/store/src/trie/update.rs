@@ -79,10 +79,10 @@ impl TrieUpdate {
     }
 
     pub fn set<K: TrieKey>(&mut self, key: K, value: Vec<u8>) {
-        self.prospective.insert(key.into_vec(), Some(value));
+        self.prospective.insert(key.into(), Some(value));
     }
     pub fn remove<K: TrieKey>(&mut self, key: K) {
-        self.prospective.insert(key.into_vec(), None);
+        self.prospective.insert(key.into(), None);
     }
 
     pub fn remove_starts_with<K: TrieKey>(&mut self, key_prefix: &K) -> Result<(), StorageError> {
@@ -337,11 +337,13 @@ mod tests {
         }
     }
 
-    impl TrieKey for TestKey {
-        fn into_vec(self) -> Vec<u8> {
+    impl Into<Vec<u8>> for TestKey {
+        fn into(self) -> Vec<u8> {
             self.0
         }
     }
+
+    impl TrieKey for TestKey {}
 
     #[test]
     fn trie() {

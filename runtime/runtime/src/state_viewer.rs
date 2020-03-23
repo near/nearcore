@@ -9,7 +9,7 @@ use near_primitives::account::{AccessKey, Account};
 use near_primitives::hash::CryptoHash;
 use near_primitives::serialize::to_base64;
 use near_primitives::types::{AccountId, BlockHeight};
-use near_primitives::utils::{is_valid_account_id, KeyForData, TrieKey};
+use near_primitives::utils::{is_valid_account_id, KeyForData};
 use near_primitives::views::{StateItem, ViewStateResult};
 use near_runtime_fees::RuntimeFeesConfig;
 use near_store::{get_access_key, get_account, TrieUpdate};
@@ -62,7 +62,7 @@ impl TrieViewer {
             return Err(format!("Account ID '{}' is not valid", account_id).into());
         }
         let mut values = vec![];
-        let query = KeyForData::new(account_id, prefix).into_vec();
+        let query = KeyForData::new(account_id, prefix);
         let acc_sep_len = KeyForData::estimate_len(account_id, &[]);
         let mut iter = state_update.trie.iter(&state_update.get_root())?;
         iter.seek(&query)?;

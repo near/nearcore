@@ -92,11 +92,13 @@ impl AsRef<[u8]> for TestKey {
     }
 }
 
-impl TrieKey for TestKey {
-    fn into_vec(self) -> Vec<u8> {
+impl Into<Vec<u8>> for TestKey {
+    fn into(self) -> Vec<u8> {
         self.0
     }
 }
+
+impl TrieKey for TestKey {}
 
 #[test]
 fn test_reads_with_incomplete_storage() {
