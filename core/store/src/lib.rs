@@ -18,7 +18,7 @@ use near_primitives::receipt::{Receipt, ReceivedData};
 use near_primitives::serialize::to_base;
 use near_primitives::types::{AccountId, StorageUsage};
 use near_primitives::utils::{
-    KeyForAccessKey, KeyForAccount, KeyForCode, KeyForData, KeyForPostponedReceipt,
+    KeyForAccessKey, KeyForAccount, KeyForContractCode, KeyForData, KeyForPostponedReceipt,
     KeyForReceivedData,
 };
 
@@ -326,7 +326,7 @@ pub fn get_access_key_raw(
 }
 
 pub fn set_code(state_update: &mut TrieUpdate, account_id: &AccountId, code: &ContractCode) {
-    state_update.set(KeyForCode::new(account_id).into(), code.code.clone());
+    state_update.set(KeyForContractCode::new(account_id).into(), code.code.clone());
 }
 
 pub fn get_code(
@@ -334,7 +334,7 @@ pub fn get_code(
     account_id: &AccountId,
 ) -> Result<Option<ContractCode>, StorageError> {
     state_update
-        .get(KeyForCode::new(account_id))
+        .get(KeyForContractCode::new(account_id))
         .map(|opt| opt.map(|code| ContractCode::new(code.to_vec())))
 }
 
@@ -344,7 +344,7 @@ pub fn remove_account(
     account_id: &AccountId,
 ) -> Result<(), StorageError> {
     state_update.remove(KeyForAccount::new(account_id));
-    state_update.remove(KeyForCode::new(account_id));
+    state_update.remove(KeyForContractCode::new(account_id));
     state_update.remove_starts_with(KeyForAccessKey::get_prefix(account_id))?;
     state_update.remove_starts_with(KeyForData::get_prefix(account_id))?;
     Ok(())
