@@ -51,6 +51,7 @@ use crate::{metrics, DoomslugThresholdMode};
 use rand::rngs::StdRng;
 use rand::seq::SliceRandom;
 use rand::SeedableRng;
+use std::cmp::min;
 
 /// Maximum number of orphans chain can store.
 pub const MAX_ORPHAN_SIZE: usize = 1024;
@@ -539,8 +540,10 @@ impl Chain {
     pub fn clear_old_data(&mut self) -> Result<(), Error> {
         let mut chain_store_update = self.store.store_update();
         let head = chain_store_update.head()?;
-        let gc_head_height = self.runtime_adapter.get_gc_head_height(&head.last_block_hash)?;
-        for height in gc_head_height.saturating_sub(HEIGHTS_TO_CLEAR)..gc_head_height {
+        let gc_head_height = chain_store_update.gc_head_height()?;
+        let gc_stop_height = self.runtime_adapter.get_gc_stop_height(&head.last_block_hash)?;
+        let new_gc_head_height = min(gc_head_height + HEIGHTS_TO_CLEAR + 1, gc_stop_height);
+        for height in gc_head_height..new_gc_head_height {
             match chain_store_update.clear_old_data_on_height(height) {
                 Ok(_) => {}
                 Err(err) => {
@@ -548,6 +551,7 @@ impl Chain {
                 }
             }
         }
+        chain_store_update.save_gc_head_height(new_gc_head_height);
         chain_store_update.commit()?;
         Ok(())
     }
@@ -1876,6 +1880,12 @@ impl Chain {
     #[inline]
     pub fn sync_head(&self) -> Result<Tip, Error> {
         self.store.sync_head()
+    }
+
+    /// Gets gc head height.
+    #[inline]
+    pub fn gc_head_height(&self) -> Result<BlockHeight, Error> {
+        self.store.gc_head_height()
     }
 
     /// Header of the block at the head of the block chain (not the same thing as header_head).
