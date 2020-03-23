@@ -15,7 +15,7 @@ def compile_binary(branch):
     """
     # TODO: download pre-compiled binary from github for beta/stable?
     prev_branch = current_branch()
-    stash_output = subprocess.call(['git', 'stash'])
+    stash_output = subprocess.check_output(['git', 'stash'])
     subprocess.check_output(['git', 'checkout', branch])
     subprocess.check_output(['git', 'cargo', 'build', '-p', 'near'])
     subprocess.check_output(['cargo', 'build', '-p', 'state-viewer'])
@@ -23,7 +23,7 @@ def compile_binary(branch):
     os.rename('../target/debug/state-viewer', '../target/debug/state-viewer-%s' % branch)
     subprocess.check_output(['git', 'checkout', prev_branch])
     if stash_output != b"No local changes to save\n":
-        subprocess.call(['git', 'stash', 'pop'])
+        subprocess.check_output(['git', 'stash', 'pop'])
 
 
 def prepare_ab_test(other_branch):
