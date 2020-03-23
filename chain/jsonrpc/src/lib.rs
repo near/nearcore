@@ -196,6 +196,7 @@ impl JsonRpcHandler {
                 "adv_disable_doomslug" => Some(self.adv_disable_doomslug(params).await),
                 "adv_produce_blocks" => Some(self.adv_produce_blocks(params).await),
                 "adv_get_saved_blocks" => Some(self.adv_get_saved_blocks(params).await),
+                "adv_check_refmap" => Some(self.adv_check_refmap(params).await),
                 _ => None,
             };
 
@@ -297,7 +298,22 @@ impl JsonRpcHandler {
             .await
         {
             Ok(result) => match result {
-                NetworkClientResponses::AdvU64(value) => jsonify(Ok(Ok(value))),
+                NetworkClientResponses::AdvResult(value) => jsonify(Ok(Ok(value))),
+                _ => Err(RpcError::server_error::<String>(None)),
+            },
+            _ => Err(RpcError::server_error::<String>(None)),
+        }
+    }
+
+    #[cfg(feature = "adversarial")]
+    async fn adv_check_refmap(&self, _params: Option<Value>) -> Result<Value, RpcError> {
+        match self
+            .client_addr
+            .send(NetworkClientMessages::Adversarial(NetworkAdversarialMessage::AdvCheckRefMap))
+            .await
+        {
+            Ok(result) => match result {
+                NetworkClientResponses::AdvResult(value) => jsonify(Ok(Ok(value))),
                 _ => Err(RpcError::server_error::<String>(None)),
             },
             _ => Err(RpcError::server_error::<String>(None)),
