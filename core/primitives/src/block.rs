@@ -1,8 +1,11 @@
+use std::cmp::{max, Ordering};
+
 use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::{DateTime, Utc};
 use reed_solomon_erasure::galois_8::ReedSolomon;
+use serde::Serialize;
 
-use near_crypto::{EmptySigner, KeyType, PublicKey, Signature, Signer};
+use near_crypto::{KeyType, PublicKey, Signature};
 
 use crate::challenge::{Challenges, ChallengesResult};
 use crate::hash::{hash, CryptoHash};
@@ -12,7 +15,7 @@ use crate::types::{
     AccountId, Balance, BlockHeight, EpochId, Gas, MerkleHash, NumShards, StateRoot, ValidatorStake,
 };
 use crate::utils::{from_timestamp, to_timestamp};
-use std::cmp::{max, Ordering};
+use crate::validator_signer::{EmptyValidatorSigner, ValidatorSigner};
 
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, Eq, PartialEq)]
 pub struct BlockHeaderInnerLite {
@@ -26,7 +29,7 @@ pub struct BlockHeaderInnerLite {
     pub prev_state_root: MerkleHash,
     /// Root of the outcomes of transactions and receipts.
     pub outcome_root: MerkleHash,
-    /// Timestamp at which the block was built.
+    /// Timestamp at which the block was built (number of non-leap-nanoseconds since January 1, 1970 0:00:00 UTC).
     pub timestamp: u64,
     /// Hash of the next epoch block producers set
     pub next_bp_hash: CryptoHash,
@@ -44,6 +47,8 @@ pub struct BlockHeaderInnerRest {
     pub chunks_included: u64,
     /// Root hash of the challenges in the given block.
     pub challenges_root: MerkleHash,
+    /// The output of the randomness beacon
+    pub random_value: CryptoHash,
     /// Score.
     pub score: BlockScore,
     /// Validator proposals.
@@ -105,6 +110,7 @@ impl BlockHeaderInnerRest {
         chunk_tx_root: MerkleHash,
         chunks_included: u64,
         challenges_root: MerkleHash,
+        random_value: CryptoHash,
         score: BlockScore,
         validator_proposals: Vec<ValidatorStake>,
         chunk_mask: Vec<bool>,
@@ -124,6 +130,7 @@ impl BlockHeaderInnerRest {
             chunk_tx_root,
             chunks_included,
             challenges_root,
+            random_value,
             score,
             validator_proposals,
             chunk_mask,
@@ -168,25 +175,17 @@ impl Approval {
         reference_hash: Option<CryptoHash>,
         target_height: BlockHeight,
         is_endorsement: bool,
-        signer: &dyn Signer,
-        account_id: AccountId,
+        signer: &dyn ValidatorSigner,
     ) -> Self {
-        let signature = signer.sign(
-            Approval::get_data_for_sig(
-                &parent_hash,
-                &reference_hash,
-                target_height,
-                is_endorsement,
-            )
-            .as_ref(),
-        );
+        let signature =
+            signer.sign_approval(&parent_hash, &reference_hash, target_height, is_endorsement);
         Approval {
             parent_hash,
             reference_hash,
             target_height,
             is_endorsement,
             signature,
-            account_id,
+            account_id: signer.validator_id().clone(),
         }
     }
 
@@ -267,6 +266,7 @@ impl BlockHeader {
         timestamp: u64,
         chunks_included: u64,
         challenges_root: MerkleHash,
+        random_value: CryptoHash,
         score: BlockScore,
         validator_proposals: Vec<ValidatorStake>,
         chunk_mask: Vec<bool>,
@@ -277,7 +277,7 @@ impl BlockHeader {
         validator_reward: Balance,
         total_supply: Balance,
         challenges_result: ChallengesResult,
-        signer: &dyn Signer,
+        signer: &dyn ValidatorSigner,
         last_quorum_pre_vote: CryptoHash,
         last_quorum_pre_commit: CryptoHash,
         last_ds_final_block: CryptoHash,
@@ -299,6 +299,7 @@ impl BlockHeader {
             chunk_tx_root,
             chunks_included,
             challenges_root,
+            random_value,
             score,
             validator_proposals,
             chunk_mask,
@@ -312,11 +313,12 @@ impl BlockHeader {
             last_ds_final_block,
             approvals,
         );
-        let hash = BlockHeader::compute_hash(prev_hash, &inner_lite, &inner_rest);
-        Self { prev_hash, inner_lite, inner_rest, signature: signer.sign(hash.as_ref()), hash }
+        let (hash, signature) = signer.sign_block_header_parts(prev_hash, &inner_lite, &inner_rest);
+        Self { prev_hash, inner_lite, inner_rest, signature, hash }
     }
 
     pub fn genesis(
+        height: BlockHeight,
         state_root: MerkleHash,
         chunk_receipts_root: MerkleHash,
         chunk_headers_root: MerkleHash,
@@ -329,7 +331,7 @@ impl BlockHeader {
         next_bp_hash: CryptoHash,
     ) -> Self {
         let inner_lite = BlockHeaderInnerLite::new(
-            0,
+            height,
             EpochId::default(),
             EpochId::default(),
             state_root,
@@ -343,6 +345,7 @@ impl BlockHeader {
             chunk_tx_root,
             chunks_included,
             challenges_root,
+            CryptoHash::default(),
             0.into(),
             vec![],
             vec![],
@@ -393,12 +396,17 @@ pub struct Block {
     pub header: BlockHeader,
     pub chunks: Vec<ShardChunkHeader>,
     pub challenges: Challenges,
+
+    // Data to confirm the correctness of randomness beacon output
+    pub vrf_value: near_crypto::vrf::Value,
+    pub vrf_proof: near_crypto::vrf::Proof,
 }
 
 pub fn genesis_chunks(
     state_roots: Vec<StateRoot>,
     num_shards: NumShards,
     initial_gas_limit: Gas,
+    genesis_height: BlockHeight,
 ) -> Vec<ShardChunk> {
     assert!(state_roots.len() == 1 || state_roots.len() == (num_shards as usize));
     let rs = ReedSolomon::new(1, 2).unwrap();
@@ -409,7 +417,7 @@ pub fn genesis_chunks(
                 CryptoHash::default(),
                 state_roots[i as usize % state_roots.len()].clone(),
                 CryptoHash::default(),
-                0,
+                genesis_height,
                 i,
                 &rs,
                 0,
@@ -422,10 +430,12 @@ pub fn genesis_chunks(
                 vec![],
                 &vec![],
                 CryptoHash::default(),
-                &EmptySigner {},
+                &EmptyValidatorSigner::default(),
             )
             .expect("Failed to decode genesis chunk");
-            encoded_chunk.decode_chunk(1).expect("Failed to decode genesis chunk")
+            let mut chunk = encoded_chunk.decode_chunk(1).expect("Failed to decode genesis chunk");
+            chunk.header.height_included = genesis_height;
+            chunk
         })
         .collect()
 }
@@ -435,6 +445,7 @@ impl Block {
     pub fn genesis(
         chunks: Vec<ShardChunkHeader>,
         timestamp: DateTime<Utc>,
+        height: BlockHeight,
         initial_gas_price: Balance,
         initial_total_supply: Balance,
         next_bp_hash: CryptoHash,
@@ -442,6 +453,7 @@ impl Block {
         let challenges = vec![];
         Block {
             header: BlockHeader::genesis(
+                height,
                 Block::compute_state_root(&chunks),
                 Block::compute_chunk_receipts_root(&chunks),
                 Block::compute_chunk_headers_root(&chunks).0,
@@ -455,6 +467,9 @@ impl Block {
             ),
             chunks,
             challenges,
+
+            vrf_value: near_crypto::vrf::Value([0; 32]),
+            vrf_proof: near_crypto::vrf::Proof([0; 64]),
         }
     }
 
@@ -471,7 +486,7 @@ impl Block {
         inflation: Option<Balance>,
         challenges_result: ChallengesResult,
         challenges: Challenges,
-        signer: &dyn Signer,
+        signer: &dyn ValidatorSigner,
         score: BlockScore,
         last_quorum_pre_vote: CryptoHash,
         last_quorum_pre_commit: CryptoHash,
@@ -515,6 +530,10 @@ impl Block {
         let time =
             if now <= prev.inner_lite.timestamp { prev.inner_lite.timestamp + 1 } else { now };
 
+        let (vrf_value, vrf_proof) =
+            signer.compute_vrf_with_proof(prev.inner_rest.random_value.as_ref());
+        let random_value = hash(vrf_value.0.as_ref());
+
         Block {
             header: BlockHeader::new(
                 height,
@@ -527,6 +546,7 @@ impl Block {
                 time,
                 Block::compute_chunks_included(&chunks, height),
                 Block::compute_challenges_root(&challenges),
+                random_value,
                 score,
                 validator_proposals,
                 chunk_mask,
@@ -546,6 +566,9 @@ impl Block {
             ),
             chunks,
             challenges,
+
+            vrf_value,
+            vrf_proof,
         }
     }
 

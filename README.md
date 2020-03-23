@@ -11,7 +11,7 @@
 
 ## NEAR Protocol - scalable and usable blockchain
 
-![Build status](https://gitlab.com/near-protocol/nearcore/badges/master/pipeline.svg)
+[![Build status](https://badge.buildkite.com/a81147cb62c585cc434459eedd1d25e521453120ead9ee6c64.svg)](https://buildkite.com/nearprotocol/nearcore)
 [![codecov](https://codecov.io/gh/nearprotocol/nearcore/branch/master/graph/badge.svg)](https://codecov.io/gh/nearprotocol/nearcore)
 [![dependency status](https://deps.rs/repo/github/nearprotocol/nearcore/status.svg)](https://deps.rs/repo/github/nearprotocol/nearcore)
 [![Join the community on Spectrum](https://withspectrum.github.io/badge/badge.svg)](https://spectrum.chat/near)
@@ -34,7 +34,7 @@ Develop and deploy contracts without any setup required using [NEAR Studio](http
 
 ## Status
 
-This project is currently under heavy development. Please see Issues and Milestones to checkout the current progress and working items.
+This project is currently under heavy development. Please see [Issues](https://github.com/nearprotocol/nearcore/issues) and [Milestones](https://github.com/nearprotocol/nearcore/milestones) to checkout the current progress and working items.
 
 High level milestones:
 

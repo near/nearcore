@@ -1,5 +1,6 @@
-use borsh::{BorshDeserialize, BorshSerialize};
 use std::collections::HashMap;
+
+use borsh::{BorshDeserialize, BorshSerialize};
 
 use near_crypto::PublicKey;
 use near_primitives::block::{Block, BlockHeader};
@@ -11,7 +12,7 @@ use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::merklize;
 use near_primitives::sharding::{ChunkHash, ShardChunk, ShardChunkHeader};
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, ChunkExtra, EpochId, Nonce, NumBlocks};
+use near_primitives::types::{AccountId, ChunkExtra, EpochId, Nonce};
 use near_store::PartialStorage;
 
 use crate::byzantine_assert;
@@ -54,32 +55,6 @@ pub fn validate_chunk_proofs(chunk: &ShardChunk, runtime_adapter: &dyn RuntimeAd
         }
     }
     true
-}
-
-/// Validates transactions in the given chunk. Checks that the given transactions are in proper
-/// order and also checks that every transaction are in the same chain as the given block header.
-/// Returns true if chunk transactions are valid.
-pub fn validate_chunk_transactions(
-    chain_store: &mut ChainStore,
-    transactions: &[SignedTransaction],
-    block_header: &BlockHeader,
-    transaction_validity_period: NumBlocks,
-) -> bool {
-    if !validate_transactions_order(transactions) {
-        return false;
-    }
-
-    // Verifying transactions are on the same chain as the block header.
-    let all_transactions_are_valid = transactions.iter().all(|t| {
-        chain_store
-            .check_blocks_on_same_chain(
-                block_header,
-                &t.transaction.block_hash,
-                transaction_validity_period,
-            )
-            .is_ok()
-    });
-    all_transactions_are_valid
 }
 
 /// Validates that the given transactions are in proper valid order.
@@ -249,10 +224,8 @@ fn validate_chunk_authorship(
 }
 
 fn validate_chunk_proofs_challenge(
-    chain_store: &mut ChainStore,
     runtime_adapter: &dyn RuntimeAdapter,
     chunk_proofs: &ChunkProofs,
-    transaction_validity_period: NumBlocks,
 ) -> Result<(CryptoHash, Vec<AccountId>), Error> {
     let block_header = BlockHeader::try_from_slice(&chunk_proofs.block_header)?;
     validate_header_authorship(runtime_adapter, &block_header)?;
@@ -293,12 +266,7 @@ fn validate_chunk_proofs_challenge(
         return account_to_slash_for_valid_challenge;
     }
 
-    if !validate_chunk_transactions(
-        chain_store,
-        &chunk_ref.transactions,
-        &block_header,
-        transaction_validity_period,
-    ) {
+    if !validate_transactions_order(&chunk_ref.transactions) {
         // Chunk transactions are invalid. Good challenge.
         return account_to_slash_for_valid_challenge;
     }
@@ -371,12 +339,10 @@ fn validate_chunk_state_challenge(
 
 /// Returns Some(block hash, vec![account_id]) of invalid block and who to slash if challenge is correct and None if incorrect.
 pub fn validate_challenge(
-    chain_store: &mut ChainStore,
     runtime_adapter: &dyn RuntimeAdapter,
     epoch_id: &EpochId,
     last_block_hash: &CryptoHash,
     challenge: &Challenge,
-    transaction_validity_period: NumBlocks,
 ) -> Result<(CryptoHash, Vec<AccountId>), Error> {
     // Check signature is correct on the challenge.
     if !runtime_adapter.verify_validator_or_fisherman_signature(
@@ -392,12 +358,9 @@ pub fn validate_challenge(
         ChallengeBody::BlockDoubleSign(block_double_sign) => {
             validate_double_sign(runtime_adapter, block_double_sign)
         }
-        ChallengeBody::ChunkProofs(chunk_proofs) => validate_chunk_proofs_challenge(
-            chain_store,
-            runtime_adapter,
-            chunk_proofs,
-            transaction_validity_period,
-        ),
+        ChallengeBody::ChunkProofs(chunk_proofs) => {
+            validate_chunk_proofs_challenge(runtime_adapter, chunk_proofs)
+        }
         ChallengeBody::ChunkState(chunk_state) => {
             validate_chunk_state_challenge(runtime_adapter, chunk_state)
         }
@@ -406,9 +369,9 @@ pub fn validate_challenge(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     use near_crypto::{InMemorySigner, KeyType};
+
+    use super::*;
 
     fn make_tx(account_id: &str, seed: &str, nonce: Nonce) -> SignedTransaction {
         let signer = InMemorySigner::from_seed(account_id, KeyType::ED25519, seed);

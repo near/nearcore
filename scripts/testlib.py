@@ -30,6 +30,12 @@ def build_tests():
         os._exit(p.returncode)
 
 
+def run_doc_tests():
+    p = subprocess.run(['cargo', 'test', '--workspace', '--doc'])
+    if p.returncode != 0:
+        os._exit(p.returncode)
+
+
 def workers():
     workers = cpu_count() // 2
     print(f'========= run in {workers} workers')
@@ -57,8 +63,8 @@ def run_test(test_binary, isolate=True):
         cmd = ['docker', 'run', '--rm',
                '-u', f'{os.getuid()}:{os.getgid()}',
                '-v', f'{test_binary}:{test_binary}',
-               'ailisp/near-test-runtime',
-               'bash', '-c', f'chmod +x {test_binary} && RUST_BACKTRACE=1 {test_binary}']
+               'nearprotocol/near-test-runtime',
+               'bash', '-c', f'RUST_BACKTRACE=1 {test_binary}']
     else:
         cmd = [test_binary]
     print(f'========= run test {test_binary}')

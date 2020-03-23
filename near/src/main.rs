@@ -1,18 +1,21 @@
 use std::convert::TryInto;
 use std::env;
 use std::fs;
+use std::io;
 use std::path::Path;
 
 use actix::System;
 use clap::{crate_version, App, AppSettings, Arg, SubCommand};
+#[cfg(feature = "adversarial")]
+use log::error;
 use log::info;
+use tracing_subscriber::filter::LevelFilter;
+use tracing_subscriber::EnvFilter;
 
 use git_version::git_version;
 use near::config::init_testnet_configs;
 use near::{get_default_home, get_store_path, init_configs, load_config, start_with_config};
 use near_primitives::types::Version;
-use tracing_subscriber::filter::LevelFilter;
-use tracing_subscriber::EnvFilter;
 
 fn init_logging(verbose: Option<&str>) {
     let mut env_filter = EnvFilter::new("tokio_reactor=info,near=info,stats=info");
@@ -40,7 +43,10 @@ fn init_logging(verbose: Option<&str>) {
         }
     }
 
-    tracing_subscriber::fmt::Subscriber::builder().with_env_filter(env_filter).init();
+    tracing_subscriber::fmt::Subscriber::builder()
+        .with_env_filter(env_filter)
+        .with_writer(io::stderr)
+        .init();
 }
 
 fn main() {
@@ -64,6 +70,7 @@ fn main() {
             .arg(Arg::with_name("test-seed").long("test-seed").takes_value(true).help("Specify private key generated from seed (TESTING ONLY)"))
             .arg(Arg::with_name("num-shards").long("num-shards").takes_value(true).help("Number of shards to initialize the chain with"))
             .arg(Arg::with_name("fast").long("fast").takes_value(false).help("Makes block production fast (TESTING ONLY)"))
+            .arg(Arg::with_name("genesis").long("genesis").takes_value(true).help("Genesis file to use when initialize testnet"))
         )
         .subcommand(SubCommand::with_name("testnet").about("Setups testnet configuration with all necessary files (validator key, node key, genesis and config)")
             .arg(Arg::with_name("v").long("v").takes_value(true).help("Number of validators to initialize the testnet with (default 4)"))
@@ -78,12 +85,24 @@ fn main() {
             .arg(Arg::with_name("network-addr").long("network-addr").help("Customize network listening address (useful for running multiple nodes on the same machine)").takes_value(true))
             .arg(Arg::with_name("rpc-addr").long("rpc-addr").help("Customize RPC listening address (useful for running multiple nodes on the same machine)").takes_value(true))
             .arg(Arg::with_name("telemetry-url").long("telemetry-url").help("Customize telemetry url").takes_value(true))
+            .arg(Arg::with_name("archive").long("archive").help("Keep old blocks in the storage (default false)").takes_value(false))
         )
         .subcommand(SubCommand::with_name("unsafe_reset_data").about("(unsafe) Remove all the data, effectively resetting node to genesis state (keeps genesis and config)"))
         .subcommand(SubCommand::with_name("unsafe_reset_all").about("(unsafe) Remove all the config, keys, data and effectively removing all information about the network"))
         .get_matches();
 
     init_logging(matches.value_of("verbose"));
+
+    #[cfg(feature = "adversarial")]
+    {
+        error!("THIS IS A NODE COMPILED WITH ADVERSARIAL BEHAVIORS. DO NOT USE IN PRODUCTION.");
+
+        if env::var("ADVERSARY_CONSENT").unwrap_or_else(|_| "".to_string()) != "1" {
+            error!("To run a node with adversarial behavior enabled give your consent by setting variable:");
+            error!("ADVERSARY_CONSENT=1");
+            std::process::exit(1);
+        }
+    }
 
     let home_dir = matches.value_of("home").map(|dir| Path::new(dir)).unwrap();
 
@@ -93,12 +112,13 @@ fn main() {
             let chain_id = args.value_of("chain-id");
             let account_id = args.value_of("account-id");
             let test_seed = args.value_of("test-seed");
+            let genesis = args.value_of("genesis");
             let num_shards = args
                 .value_of("num-shards")
                 .map(|s| s.parse().expect("Number of shards must be a number"))
                 .unwrap_or(1);
             let fast = args.is_present("fast");
-            init_configs(home_dir, chain_id, account_id, test_seed, num_shards, fast);
+            init_configs(home_dir, chain_id, account_id, test_seed, num_shards, fast, genesis);
         }
         ("testnet", Some(args)) => {
             let num_validators = args
@@ -114,7 +134,14 @@ fn main() {
                 .map(|x| x.parse().expect("Failed to parse number of shards"))
                 .unwrap_or(1);
             let prefix = args.value_of("prefix").unwrap_or("node");
-            init_testnet_configs(home_dir, num_shards, num_validators, num_non_validators, prefix);
+            init_testnet_configs(
+                home_dir,
+                num_shards,
+                num_validators,
+                num_non_validators,
+                prefix,
+                false,
+            );
         }
         ("run", Some(args)) => {
             // Load configs from home.
@@ -154,6 +181,9 @@ fn main() {
             }
             if let Some(telemetry_url) = args.value_of("telemetry-url") {
                 near_config.telemetry_config.endpoints.push(telemetry_url.to_string());
+            }
+            if args.is_present("archive") {
+                near_config.client_config.archive = true;
             }
 
             let system = System::new("NEAR");

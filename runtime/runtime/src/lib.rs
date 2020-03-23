@@ -1,16 +1,10 @@
-#[macro_use]
-extern crate lazy_static;
-#[macro_use]
-extern crate log;
-#[macro_use]
-extern crate serde_derive;
-
 use std::cmp::max;
 use std::collections::HashMap;
 use std::convert::TryInto;
 use std::sync::Arc;
 
 use borsh::{BorshDeserialize, BorshSerialize};
+use log::debug;
 
 use near_crypto::PublicKey;
 use near_primitives::account::{AccessKey, Account};
@@ -19,18 +13,18 @@ use near_primitives::errors::{ActionError, ActionErrorKind, RuntimeError, TxExec
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{ActionReceipt, DataReceipt, Receipt, ReceiptEnum, ReceivedData};
 use near_primitives::serialize::from_base64;
+use near_primitives::state_record::StateRecord;
 use near_primitives::transaction::{
     Action, ExecutionOutcome, ExecutionOutcomeWithId, ExecutionStatus, LogEntry, SignedTransaction,
 };
 use near_primitives::types::{
-    AccountId, Balance, BlockHeight, BlockHeightDelta, EpochId, Gas, Nonce, StateChangeCause,
-    StateChanges, StateRoot, ValidatorStake,
+    AccountId, Balance, BlockHeight, BlockHeightDelta, EpochId, Gas, Nonce, RawStateChanges,
+    StateChangeCause, StateRoot, ValidatorStake,
 };
 use near_primitives::utils::col::DELAYED_RECEIPT_INDICES;
 use near_primitives::utils::{
-    create_nonce_with_nonce, key_for_delayed_receipt, key_for_pending_data_count,
-    key_for_postponed_receipt, key_for_postponed_receipt_id, key_for_received_data, system_account,
-    ACCOUNT_DATA_SEPARATOR,
+    create_nonce_with_nonce, system_account, KeyForDelayedReceipt, KeyForPendingDataCount,
+    KeyForPostponedReceipt, KeyForPostponedReceiptId, KeyForReceivedData, ACCOUNT_DATA_SEPARATOR,
 };
 use near_store::{
     get, get_account, get_receipt, get_received_data, set, set_access_key, set_account, set_code,
@@ -47,7 +41,6 @@ use crate::config::{
     exec_fee, safe_add_balance, safe_add_gas, safe_gas_to_balance, total_deposit, total_exec_fees,
     total_prepaid_gas, RuntimeConfig,
 };
-pub use crate::store::StateRecord;
 use crate::verifier::validate_receipt;
 pub use crate::verifier::verify_and_charge_transaction;
 
@@ -59,7 +52,6 @@ pub mod config;
 pub mod ext;
 mod metrics;
 pub mod state_viewer;
-mod store;
 mod verifier;
 
 const EXPECT_ACCOUNT_EXISTS: &str = "account exists, checked above";
@@ -75,7 +67,7 @@ pub struct ApplyState {
     pub epoch_id: EpochId,
     /// Price for the gas.
     pub gas_price: Balance,
-    /// A block timestamp
+    /// The current block timestamp (number of non-leap-nanoseconds since January 1, 1970 0:00:00 UTC).
     pub block_timestamp: u64,
     /// Gas limit for a given chunk.
     /// If None is given, assumes there is no gas limit.
@@ -118,7 +110,7 @@ pub struct ApplyResult {
     pub validator_proposals: Vec<ValidatorStake>,
     pub outgoing_receipts: Vec<Receipt>,
     pub outcomes: Vec<ExecutionOutcomeWithId>,
-    pub key_value_changes: StateChanges,
+    pub state_changes: RawStateChanges,
     pub stats: ApplyStats,
 }
 
@@ -328,7 +320,6 @@ impl Runtime {
             Action::DeployContract(deploy_contract) => {
                 near_metrics::inc_counter(&metrics::ACTION_DEPLOY_CONTRACT_TOTAL);
                 action_deploy_contract(
-                    &self.config.transaction_costs,
                     state_update,
                     account.as_mut().expect(EXPECT_ACCOUNT_EXISTS),
                     &account_id,
@@ -429,7 +420,7 @@ impl Runtime {
                         "received data should be in the state".to_string(),
                     )
                 })?;
-                state_update.remove(&key_for_received_data(account_id, data_id));
+                state_update.remove(KeyForReceivedData::new(account_id, data_id));
                 match data {
                     Some(value) => Ok(PromiseResult::Successful(value)),
                     None => Ok(PromiseResult::Failed),
@@ -446,7 +437,7 @@ impl Runtime {
         let mut account = get_account(state_update, account_id)?;
         let mut rent_paid = 0;
         if let Some(ref mut account) = account {
-            rent_paid = apply_rent(account_id, account, apply_state.block_index, &self.config);
+            rent_paid = apply_rent(account_id, account, apply_state.block_index, &self.config)?;
         }
         let mut actor_id = receipt.predecessor_id.clone();
         let mut result = ActionResult::default();
@@ -710,26 +701,26 @@ impl Runtime {
                 // If we don't have a postponed receipt yet, we don't need to do anything for now.
                 if let Some(receipt_id) = get(
                     state_update,
-                    &key_for_postponed_receipt_id(account_id, &data_receipt.data_id),
+                    &KeyForPostponedReceiptId::new(account_id, &data_receipt.data_id),
                 )? {
                     // There is already a receipt that is awaiting for the just received data.
                     // Removing this pending data_id for the receipt from the state.
                     state_update
-                        .remove(&key_for_postponed_receipt_id(account_id, &data_receipt.data_id));
+                        .remove(KeyForPostponedReceiptId::new(account_id, &data_receipt.data_id));
                     // Checking how many input data items is pending for the receipt.
                     let pending_data_count: u32 =
-                        get(state_update, &key_for_pending_data_count(account_id, &receipt_id))?
+                        get(state_update, &KeyForPendingDataCount::new(account_id, &receipt_id))?
                             .ok_or_else(|| {
-                                StorageError::StorageInconsistentState(
-                                    "pending data count should be in the state".to_string(),
-                                )
-                            })?;
+                            StorageError::StorageInconsistentState(
+                                "pending data count should be in the state".to_string(),
+                            )
+                        })?;
                     if pending_data_count == 1 {
                         // It was the last input data pending for this receipt. We'll cleanup
                         // some receipt related fields from the state and execute the receipt.
 
                         // Removing pending data count from the state.
-                        state_update.remove(&key_for_pending_data_count(account_id, &receipt_id));
+                        state_update.remove(KeyForPendingDataCount::new(account_id, &receipt_id));
                         // Fetching the receipt itself.
                         let ready_receipt = get_receipt(state_update, account_id, &receipt_id)?
                             .ok_or_else(|| {
@@ -738,7 +729,7 @@ impl Runtime {
                                 )
                             })?;
                         // Removing the receipt from the state.
-                        state_update.remove(&key_for_postponed_receipt(account_id, &receipt_id));
+                        state_update.remove(KeyForPostponedReceipt::new(account_id, &receipt_id));
                         // Executing the receipt. It will read all the input data and clean it up
                         // from the state.
                         return self
@@ -756,8 +747,13 @@ impl Runtime {
                         // pending data count in the state.
                         set(
                             state_update,
-                            key_for_pending_data_count(account_id, &receipt_id),
-                            &(pending_data_count - 1),
+                            KeyForPendingDataCount::new(account_id, &receipt_id),
+                            &(pending_data_count.checked_sub(1).ok_or_else(|| {
+                                StorageError::StorageInconsistentState(
+                                    "pending data count is 0, but there is a new DataReceipt"
+                                        .to_string(),
+                                )
+                            })?),
                         );
                     }
                 }
@@ -775,7 +771,7 @@ impl Runtime {
                         // receipt_id for the pending data_id into the state.
                         set(
                             state_update,
-                            key_for_postponed_receipt_id(account_id, data_id),
+                            KeyForPostponedReceiptId::new(account_id, data_id),
                             &receipt.receipt_id,
                         )
                     }
@@ -798,7 +794,7 @@ impl Runtime {
                     // Save the counter for the number of pending input data items into the state.
                     set(
                         state_update,
-                        key_for_pending_data_count(account_id, &receipt.receipt_id),
+                        KeyForPendingDataCount::new(account_id, &receipt.receipt_id),
                         &pending_data_count,
                     );
                     // Save the receipt itself into the state.
@@ -1013,6 +1009,8 @@ impl Runtime {
         // We first process local receipts. They contain staking, local contract calls, etc.
         for receipt in local_receipts.iter() {
             if total_gas_burnt < gas_limit {
+                // NOTE: We don't need to validate the local receipt, because it's just validated in
+                // the `verify_and_charge_transaction`.
                 process_receipt(&receipt, &mut state_update, &mut total_gas_burnt)?;
             } else {
                 Self::delay_receipt(&mut state_update, &mut delayed_receipts_indices, receipt)?;
@@ -1024,14 +1022,23 @@ impl Runtime {
             if total_gas_burnt >= gas_limit {
                 break;
             }
-            let key = key_for_delayed_receipt(delayed_receipts_indices.first_index);
+            let key = KeyForDelayedReceipt::new(delayed_receipts_indices.first_index);
             let receipt: Receipt = get(&state_update, &key)?.ok_or_else(|| {
                 StorageError::StorageInconsistentState(format!(
                     "Delayed receipt #{} should be in the state",
                     delayed_receipts_indices.first_index
                 ))
             })?;
-            state_update.remove(&key);
+
+            // Validating the delayed receipt. If it fails, it's likely the state is inconsistent.
+            validate_receipt(&self.config.wasm_config.limit_config, &receipt).map_err(|e| {
+                StorageError::StorageInconsistentState(format!(
+                    "Delayed receipt #{} in the state is invalid: {}",
+                    delayed_receipts_indices.first_index, e
+                ))
+            })?;
+
+            state_update.remove(key);
             // Math checked above: first_index is less than next_available_index
             delayed_receipts_indices.first_index += 1;
             process_receipt(&receipt, &mut state_update, &mut total_gas_burnt)?;
@@ -1039,6 +1046,10 @@ impl Runtime {
 
         // And then we process the new incoming receipts. These are receipts from other shards.
         for receipt in incoming_receipts.iter() {
+            // Validating new incoming no matter whether we have available gas or not. We don't
+            // want to store invalid receipts in state as delayed.
+            validate_receipt(&self.config.wasm_config.limit_config, &receipt)
+                .map_err(RuntimeError::ReceiptValidationError)?;
             if total_gas_burnt < gas_limit {
                 process_receipt(&receipt, &mut state_update, &mut total_gas_burnt)?;
             } else {
@@ -1063,7 +1074,7 @@ impl Runtime {
 
         state_update.commit(StateChangeCause::UpdatedDelayedReceipts);
         // TODO: Avoid cloning.
-        let key_value_changes = state_update.committed_updates_per_cause().clone();
+        let state_changes = state_update.committed_updates_per_cause().clone();
 
         let trie_changes = state_update.finalize()?;
         let state_root = trie_changes.new_root;
@@ -1073,7 +1084,7 @@ impl Runtime {
             validator_proposals,
             outgoing_receipts,
             outcomes,
-            key_value_changes,
+            state_changes,
             stats,
         })
     }
@@ -1086,7 +1097,7 @@ impl Runtime {
     ) -> Result<(), StorageError> {
         set(
             state_update,
-            key_for_delayed_receipt(delayed_receipts_indices.next_available_index),
+            KeyForDelayedReceipt::new(delayed_receipts_indices.next_available_index),
             receipt,
         );
         delayed_receipts_indices.next_available_index =
@@ -1107,7 +1118,7 @@ impl Runtime {
         for record in records {
             let account_and_storage = match record {
                 StateRecord::Account { account_id, .. } => {
-                    Some((account_id.clone(), config.account_cost))
+                    Some((account_id.clone(), config.num_bytes_account))
                 }
                 StateRecord::Data { key, value } => {
                     let key = from_base64(key).expect("Failed to decode key");
@@ -1118,23 +1129,20 @@ impl Runtime {
                     let account_id =
                         String::from_utf8(account_id.to_vec()).expect("Invalid account id");
                     let data_key = &key[(separator + 1)..];
-                    let storage_usage = config.data_record_cost
-                        + config.key_cost_per_byte * (data_key.len() as u64)
-                        + config.value_cost_per_byte * (value.len() as u64);
+                    let storage_usage =
+                        config.num_extra_bytes_record + data_key.len() as u64 + value.len() as u64;
                     Some((account_id, storage_usage))
                 }
                 StateRecord::Contract { account_id, code } => {
                     let code = from_base64(&code).expect("Failed to decode wasm from base64");
-                    Some((account_id.clone(), config.code_cost_per_byte * (code.len() as u64)))
+                    Some((account_id.clone(), code.len() as u64))
                 }
                 StateRecord::AccessKey { account_id, public_key, access_key } => {
                     let public_key: PublicKey = public_key.clone();
                     let access_key: AccessKey = access_key.clone().into();
-                    let storage_usage = config.data_record_cost
-                        + config.key_cost_per_byte
-                            * (public_key.try_to_vec().ok().unwrap_or_default().len() as u64)
-                        + config.value_cost_per_byte
-                            * (access_key.try_to_vec().ok().unwrap_or_default().len() as u64);
+                    let storage_usage = config.num_extra_bytes_record
+                        + public_key.try_to_vec().unwrap().len() as u64
+                        + access_key.try_to_vec().unwrap().len() as u64;
                     Some((account_id.clone(), storage_usage))
                 }
                 StateRecord::PostponedReceipt(_) => None,
@@ -1214,7 +1222,7 @@ impl Runtime {
                     pending_data_count += 1;
                     set(
                         &mut state_update,
-                        key_for_postponed_receipt_id(account_id, data_id),
+                        KeyForPostponedReceiptId::new(account_id, data_id),
                         &receipt.receipt_id,
                     )
                 }
@@ -1224,7 +1232,7 @@ impl Runtime {
             } else {
                 set(
                     &mut state_update,
-                    key_for_pending_data_count(account_id, &receipt.receipt_id),
+                    KeyForPendingDataCount::new(account_id, &receipt.receipt_id),
                     &pending_data_count,
                 );
                 set_receipt(&mut state_update, &receipt);
@@ -1251,14 +1259,15 @@ impl Runtime {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
     use near_crypto::{InMemorySigner, KeyType, Signer};
+    use near_primitives::errors::ReceiptValidationError;
     use near_primitives::hash::hash;
     use near_primitives::transaction::TransferAction;
     use near_primitives::types::MerkleHash;
     use near_store::test_utils::create_trie;
     use testlib::runtime_utils::{alice_account, bob_account};
-
-    use super::*;
 
     const GAS_PRICE: Balance = 100;
 
@@ -1662,5 +1671,64 @@ mod tests {
             ],
             "STEP #5 failed",
         );
+    }
+
+    #[test]
+    fn test_apply_invalid_incoming_receipts() {
+        let initial_balance = 1_000_000;
+        let initial_locked = 500_000;
+        let small_transfer = 10_000;
+        let gas_limit = 1;
+        let (runtime, trie, root, apply_state, _) =
+            setup_runtime(initial_balance, initial_locked, gas_limit);
+
+        let n = 1;
+        let mut receipts = generate_receipts(small_transfer, n);
+        let invalid_account_id = "Invalid".to_string();
+        receipts.get_mut(0).unwrap().predecessor_id = invalid_account_id.clone();
+
+        let err =
+            runtime.apply(trie.clone(), root, &None, &apply_state, &receipts, &[]).err().unwrap();
+        assert_eq!(
+            err,
+            RuntimeError::ReceiptValidationError(ReceiptValidationError::InvalidPredecessorId {
+                account_id: invalid_account_id
+            })
+        )
+    }
+
+    #[test]
+    fn test_apply_invalid_delayed_receipts() {
+        let initial_balance = 1_000_000;
+        let initial_locked = 500_000;
+        let small_transfer = 10_000;
+        let gas_limit = 1;
+        let (runtime, trie, root, apply_state, _) =
+            setup_runtime(initial_balance, initial_locked, gas_limit);
+
+        let n = 1;
+        let mut invalid_receipt = generate_receipts(small_transfer, n).pop().unwrap();
+        let invalid_account_id = "Invalid".to_string();
+        invalid_receipt.predecessor_id = invalid_account_id.clone();
+
+        // Saving invalid receipt to the delayed receipts.
+        let mut state_update = TrieUpdate::new(trie.clone(), root);
+        let mut delayed_receipts_indices = DelayedReceiptIndices::default();
+        Runtime::delay_receipt(&mut state_update, &mut delayed_receipts_indices, &invalid_receipt)
+            .unwrap();
+        set(&mut state_update, DELAYED_RECEIPT_INDICES.to_vec(), &delayed_receipts_indices);
+        state_update.commit(StateChangeCause::UpdatedDelayedReceipts);
+        let trie_changes = state_update.finalize().unwrap();
+        let (store_update, root) = trie_changes.into(trie.clone()).unwrap();
+        store_update.commit().unwrap();
+
+        let err = runtime.apply(trie.clone(), root, &None, &apply_state, &[], &[]).err().unwrap();
+        assert_eq!(
+            err,
+            RuntimeError::StorageError(StorageError::StorageInconsistentState(format!(
+                "Delayed receipt #0 in the state is invalid: {}",
+                ReceiptValidationError::InvalidPredecessorId { account_id: invalid_account_id }
+            )))
+        )
     }
 }

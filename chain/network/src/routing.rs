@@ -15,6 +15,7 @@ use log::{debug, trace};
 use near_crypto::{SecretKey, Signature};
 use near_metrics;
 use near_primitives::hash::{hash, CryptoHash};
+use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::types::AccountId;
 use near_primitives::utils::index_to_bytes;
 use near_store::{
@@ -23,10 +24,14 @@ use near_store::{
 };
 
 use crate::metrics;
-use crate::types::{AnnounceAccount, PeerId, PeerIdOrHash, Ping, Pong};
+use crate::{
+    types::{PeerIdOrHash, Ping, Pong},
+    utils::cache_to_hashmap,
+};
 
 const ANNOUNCE_ACCOUNT_CACHE_SIZE: usize = 10_000;
 const ROUTE_BACK_CACHE_SIZE: usize = 10_000;
+const PING_PONG_CACHE_SIZE: usize = 1_000;
 const ROUND_ROBIN_MAX_NONCE_DIFFERENCE_ALLOWED: usize = 10;
 const ROUND_ROBIN_NONCE_CACHE_SIZE: usize = 10_000;
 /// Routing table will clean edges if there is at least one node that is not reachable
@@ -260,10 +265,14 @@ pub struct RoutingTable {
     route_nonce: SizedCache<PeerId, usize>,
     /// Flag to know if there is state recalculation pending.
     recalculation_scheduled: Option<Instant>,
-    /// Ping received by nonce. Used for testing only.
-    ping_info: Option<HashMap<usize, Ping>>,
-    /// Ping received by nonce. Used for testing only.
-    pong_info: Option<HashMap<usize, Pong>>,
+    /// Ping received by nonce.
+    ping_info: SizedCache<usize, Ping>,
+    /// Ping received by nonce.
+    pong_info: SizedCache<usize, Pong>,
+    /// List of pings sent for which we haven't received any pong yet.
+    waiting_pong: SizedCache<PeerId, SizedCache<usize, Instant>>,
+    /// Last nonce sent to each peer through pings.
+    last_ping_nonce: SizedCache<PeerId, usize>,
     /// Last nonce used to store edges on disk.
     pub component_nonce: u64,
 }
@@ -294,14 +303,20 @@ impl RoutingTable {
             raw_graph: Graph::new(peer_id),
             route_nonce: SizedCache::with_size(ROUND_ROBIN_NONCE_CACHE_SIZE),
             recalculation_scheduled: None,
-            ping_info: None,
-            pong_info: None,
+            ping_info: SizedCache::with_size(PING_PONG_CACHE_SIZE),
+            pong_info: SizedCache::with_size(PING_PONG_CACHE_SIZE),
+            waiting_pong: SizedCache::with_size(PING_PONG_CACHE_SIZE),
+            last_ping_nonce: SizedCache::with_size(PING_PONG_CACHE_SIZE),
             component_nonce,
         }
     }
 
     fn peer_id(&self) -> &PeerId {
         &self.raw_graph.source
+    }
+
+    pub fn reachable_peers(&self) -> impl Iterator<Item = &PeerId> {
+        self.peer_forwarding.keys()
     }
 
     /// Find peer that is connected to `source` and belong to the shortest path
@@ -545,29 +560,47 @@ impl RoutingTable {
     }
 
     pub fn add_ping(&mut self, ping: Ping) {
-        if self.ping_info.is_none() {
-            self.ping_info = Some(HashMap::new());
-        }
-
-        if let Some(ping_info) = self.ping_info.as_mut() {
-            ping_info.entry(ping.nonce as usize).or_insert(ping);
-        }
+        self.ping_info.cache_set(ping.nonce as usize, ping);
     }
 
-    pub fn add_pong(&mut self, pong: Pong) {
-        if self.pong_info.is_none() {
-            self.pong_info = Some(HashMap::new());
+    /// Return time of the round trip of ping + pong
+    pub fn add_pong(&mut self, pong: Pong) -> Option<f64> {
+        let mut res = None;
+
+        if let Some(nonces) = self.waiting_pong.cache_get_mut(&pong.source) {
+            res = nonces
+                .cache_remove(&(pong.nonce as usize))
+                .and_then(|sent| Some(Instant::now().duration_since(sent).as_secs_f64() * 1000f64));
         }
 
-        if let Some(pong_info) = self.pong_info.as_mut() {
-            pong_info.entry(pong.nonce as usize).or_insert(pong);
+        self.pong_info.cache_set(pong.nonce as usize, pong);
+
+        res
+    }
+
+    pub fn sending_ping(&mut self, nonce: usize, target: PeerId) {
+        let entry = if let Some(entry) = self.waiting_pong.cache_get_mut(&target) {
+            entry
+        } else {
+            self.waiting_pong.cache_set(target.clone(), SizedCache::with_size(10));
+            self.waiting_pong.cache_get_mut(&target).unwrap()
+        };
+
+        entry.cache_set(nonce, Instant::now());
+    }
+
+    pub fn get_ping(&mut self, peer_id: PeerId) -> usize {
+        if let Some(entry) = self.last_ping_nonce.cache_get_mut(&peer_id) {
+            *entry += 1;
+            *entry - 1
+        } else {
+            self.last_ping_nonce.cache_set(peer_id, 1);
+            0
         }
     }
 
     pub fn fetch_ping_pong(&self) -> (HashMap<usize, Ping>, HashMap<usize, Pong>) {
-        let pings = self.ping_info.clone().unwrap_or_else(HashMap::new);
-        let pongs = self.pong_info.clone().unwrap_or_else(HashMap::new);
-        (pings, pongs)
+        (cache_to_hashmap(&self.ping_info), cache_to_hashmap(&self.pong_info))
     }
 
     pub fn info(&mut self) -> RoutingTableInfo {
@@ -694,6 +727,10 @@ impl RoutingTable {
                     None
                 })
         }
+    }
+
+    pub fn get_raw_graph(&self) -> &HashMap<PeerId, HashSet<PeerId>> {
+        &self.raw_graph.adjacency
     }
 }
 

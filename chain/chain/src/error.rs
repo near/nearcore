@@ -140,6 +140,12 @@ pub enum ErrorKind {
     /// Invalid shard id
     #[fail(display = "Shard id {} does not exist", _0)]
     InvalidShardId(ShardId),
+    /// Invalid shard id
+    #[fail(display = "Invalid state request: {}", _0)]
+    InvalidStateRequest(String),
+    /// Invalid VRF proof, or incorrect random_output in the header
+    #[fail(display = "Invalid Randomness Beacon Output")]
+    InvalidRandomnessBeaconOutput,
     /// Someone is not a validator. Usually happens in signature verification
     #[fail(display = "Not A Validator")]
     NotAValidator,
@@ -246,6 +252,8 @@ impl Error {
             | ErrorKind::InvalidBalanceBurnt
             | ErrorKind::InvalidRent
             | ErrorKind::InvalidShardId(_)
+            | ErrorKind::InvalidStateRequest(_)
+            | ErrorKind::InvalidRandomnessBeaconOutput
             | ErrorKind::NotAValidator => true,
         }
     }

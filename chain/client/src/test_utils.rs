@@ -1,5 +1,6 @@
 use std::cmp::max;
 use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
+use std::ops::Bound::{Excluded, Included, Unbounded};
 use std::ops::DerefMut;
 use std::sync::{Arc, RwLock};
 
@@ -11,7 +12,11 @@ use rand::{thread_rng, Rng};
 
 use near_chain::test_utils::KeyValueRuntime;
 use near_chain::{Chain, ChainGenesis, DoomslugThresholdMode, Provenance, RuntimeAdapter};
+use near_chain_configs::ClientConfig;
 use near_crypto::{InMemorySigner, KeyType, PublicKey};
+#[cfg(feature = "metric_recorder")]
+use near_network::recorder::MetricRecorder;
+use near_network::routing::EdgeInfo;
 use near_network::types::{
     AccountOrPeerIdOrHash, NetworkInfo, NetworkViewClientMessages, NetworkViewClientResponses,
     PeerChainInfo,
@@ -21,18 +26,17 @@ use near_network::{
     NetworkRequests, NetworkResponses, PeerInfo, PeerManagerActor,
 };
 use near_primitives::block::{Block, GenesisId, ScoreAndHeight};
+use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{
     AccountId, BlockHeight, BlockHeightDelta, NumBlocks, NumSeats, NumShards,
 };
+use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
 use near_store::test_utils::create_test_store;
 use near_store::Store;
 use near_telemetry::TelemetryActor;
 
-use crate::{BlockProducer, Client, ClientActor, ClientConfig, SyncStatus, ViewClientActor};
-use near_network::routing::EdgeInfo;
-use near_primitives::hash::{hash, CryptoHash};
-use std::ops::Bound::{Excluded, Included, Unbounded};
+use crate::{Client, ClientActor, SyncStatus, ViewClientActor};
 
 pub type NetworkMock = Mocker<PeerManagerActor>;
 
@@ -72,6 +76,7 @@ pub fn setup(
     min_block_prod_time: u64,
     max_block_prod_time: u64,
     enable_doomslug: bool,
+    archive: bool,
     network_adapter: Arc<dyn NetworkAdapter>,
     transaction_validity_period: NumBlocks,
     genesis_time: DateTime<Utc>,
@@ -87,6 +92,7 @@ pub fn setup(
     ));
     let chain_genesis = ChainGenesis::new(
         genesis_time,
+        0,
         1_000_000,
         100,
         1_000_000_000,
@@ -100,21 +106,20 @@ pub fn setup(
     } else {
         DoomslugThresholdMode::NoApprovals
     };
-    let mut chain =
-        Chain::new(store.clone(), runtime.clone(), &chain_genesis, doomslug_threshold_mode)
-            .unwrap();
+    let mut chain = Chain::new(runtime.clone(), &chain_genesis, doomslug_threshold_mode).unwrap();
     let genesis_block = chain.get_block(&chain.genesis().hash()).unwrap().clone();
 
-    let signer = Arc::new(InMemorySigner::from_seed(account_id, KeyType::ED25519, account_id));
+    let signer =
+        Arc::new(InMemoryValidatorSigner::from_seed(account_id, KeyType::ED25519, account_id));
     let telemetry = TelemetryActor::default().start();
     let config = ClientConfig::test(
         skip_sync_wait,
         min_block_prod_time,
         max_block_prod_time,
         num_validator_seats,
+        archive,
     );
     let view_client = ViewClientActor::new(
-        store.clone(),
         &chain_genesis,
         runtime.clone(),
         network_adapter.clone(),
@@ -124,12 +129,11 @@ pub fn setup(
 
     let client = ClientActor::new(
         config,
-        store,
         chain_genesis,
         runtime,
         PublicKey::empty(KeyType::ED25519).into(),
         network_adapter,
-        Some(signer.into()),
+        Some(signer),
         telemetry,
         enable_doomslug,
     )
@@ -186,6 +190,7 @@ pub fn setup_mock_with_validity_period(
         100,
         200,
         enable_doomslug,
+        false,
         network_adapter.clone(),
         transaction_validity_period,
         Utc::now(),
@@ -252,7 +257,8 @@ pub fn setup_mock_all_validators(
     tamper_with_fg: bool,
     epoch_length: BlockHeightDelta,
     enable_doomslug: bool,
-    network_mock: Arc<RwLock<dyn FnMut(String, &NetworkRequests) -> (NetworkResponses, bool)>>,
+    archive: bool,
+    network_mock: Arc<RwLock<Box<dyn FnMut(String, &NetworkRequests) -> (NetworkResponses, bool)>>>,
 ) -> (Block, Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>) {
     let validators_clone = validators.clone();
     let key_pairs = key_pairs.clone();
@@ -273,7 +279,7 @@ pub fn setup_mock_all_validators(
     let num_shards = validators.iter().map(|x| x.len()).min().unwrap() as NumShards;
 
     let last_height_score =
-        Arc::new(RwLock::new(vec![(0, ScoreAndHeight::from_ints(0, 0)); key_pairs.len()]));
+        Arc::new(RwLock::new(vec![ScoreAndHeight::from_ints(0, 0); key_pairs.len()]));
     let largest_endorsed_height = Arc::new(RwLock::new(vec![0u64; key_pairs.len()]));
     let largest_skipped_height = Arc::new(RwLock::new(vec![0u64; key_pairs.len()]));
     let hash_to_score = Arc::new(RwLock::new(HashMap::new()));
@@ -336,8 +342,8 @@ pub fn setup_mock_all_validators(
                                         chain_id: "unittest".to_string(),
                                         hash: Default::default(),
                                     },
-                                    height: last_height_score2[i].0,
-                                    score: last_height_score2[i].1.score,
+                                    height: last_height_score2[i].height,
+                                    score: last_height_score2[i].score,
                                     tracked_shards: vec![],
                                 },
                                 edge_info: EdgeInfo::default(),
@@ -352,6 +358,8 @@ pub fn setup_mock_all_validators(
                             sent_bytes_per_sec: 0,
                             received_bytes_per_sec: 0,
                             known_producers: vec![],
+                            #[cfg(feature = "metric_recorder")]
+                            metric_recorder: MetricRecorder::default(),
                         };
                         client_addr.do_send(NetworkClientMessages::NetworkInfo(info));
                     }
@@ -370,10 +378,8 @@ pub fn setup_mock_all_validators(
 
                             let my_height_score = &mut last_height_score1[my_ord];
 
-                            my_height_score.0 =
-                                max(my_height_score.0, block.header.inner_lite.height);
-                            my_height_score.1 =
-                                max(my_height_score.1, block.header.score_and_height());
+                            *my_height_score =
+                                max(*my_height_score, block.header.score_and_height());
 
                             hash_to_score1
                                 .write()
@@ -601,11 +607,8 @@ pub fn setup_mock_all_validators(
                                 }
                             }
                         }
-                        NetworkRequests::BlockHeaderAnnounce {
-                            header,
-                            approval_message: Some(approval_message),
-                        } => {
-                            let height_mod = header.inner_lite.height % 300;
+                        NetworkRequests::Approval { approval_message } => {
+                            let height_mod = approval_message.approval.target_height % 300;
 
                             let do_propagate = if tamper_with_fg {
                                 if height_mod < 100 {
@@ -702,7 +705,6 @@ pub fn setup_mock_all_validators(
                         | NetworkRequests::PingTo(_, _)
                         | NetworkRequests::FetchPingPongInfo
                         | NetworkRequests::BanPeer { .. }
-                        | NetworkRequests::BlockHeaderAnnounce { .. }
                         | NetworkRequests::TxStatus(_, _, _)
                         | NetworkRequests::Query { .. }
                         | NetworkRequests::Challenge(_)
@@ -724,14 +726,9 @@ pub fn setup_mock_all_validators(
                 account_id,
                 skip_sync_wait,
                 block_prod_time,
-                // When we tamper with fg, some blocks will have enough approvals, some will not,
-                //     and the `block_prod_timeout` is carefully chosen to get enough forkfulness,
-                //     but not to break the synchrony assumption, so we can't allow the timeout to
-                //     be too different for blocks with and without enough approvals.
-                // When not tampering with fg, make the relationship between constants closer to the
-                //     actual relationship.
-                if tamper_with_fg { block_prod_time } else { block_prod_time * 2 },
+                block_prod_time * 3,
                 enable_doomslug,
+                archive,
                 Arc::new(network_adapter),
                 10000,
                 genesis_time,
@@ -786,14 +783,7 @@ pub fn setup_no_network_with_validity_period(
     )
 }
 
-impl BlockProducer {
-    pub fn test(seed: &str) -> Self {
-        Arc::new(InMemorySigner::from_seed(seed, KeyType::ED25519, seed)).into()
-    }
-}
-
 pub fn setup_client_with_runtime(
-    store: Arc<Store>,
     num_validator_seats: NumSeats,
     account_id: Option<&str>,
     enable_doomslug: bool,
@@ -801,17 +791,18 @@ pub fn setup_client_with_runtime(
     chain_genesis: ChainGenesis,
     runtime_adapter: Arc<dyn RuntimeAdapter>,
 ) -> Client {
-    let block_producer =
-        account_id.map(|x| Arc::new(InMemorySigner::from_seed(x, KeyType::ED25519, x)).into());
-    let mut config = ClientConfig::test(true, 10, 20, num_validator_seats);
+    let validator_signer = account_id.map(|x| {
+        Arc::new(InMemoryValidatorSigner::from_seed(x, KeyType::ED25519, x))
+            as Arc<dyn ValidatorSigner>
+    });
+    let mut config = ClientConfig::test(true, 10, 20, num_validator_seats, false);
     config.epoch_length = chain_genesis.epoch_length;
     let mut client = Client::new(
         config,
-        store,
         chain_genesis,
         runtime_adapter,
         network_adapter,
-        block_producer,
+        validator_signer,
         enable_doomslug,
     )
     .unwrap();
@@ -838,7 +829,6 @@ pub fn setup_client(
         chain_genesis.epoch_length,
     ));
     setup_client_with_runtime(
-        store,
         num_validator_seats,
         account_id,
         enable_doomslug,
@@ -907,9 +897,7 @@ impl TestEnv {
             (0..num_validator_seats).map(|i| format!("test{}", i)).collect();
         let clients = (0..num_clients)
             .map(|i| {
-                let store = create_test_store();
                 setup_client_with_runtime(
-                    store.clone(),
                     num_validator_seats,
                     Some(&format!("test{}", i)),
                     false,

@@ -2,6 +2,7 @@ use crate::types::{AccountId, Balance, Gas, PublicKey};
 use crate::{External, ValuePtr};
 use near_vm_errors::HostError;
 use serde::{Deserialize, Serialize};
+use sha3::{Keccak256, Keccak512};
 use std::collections::btree_map::Range;
 use std::collections::{BTreeMap, HashMap};
 use std::intrinsics::transmute;
@@ -264,6 +265,26 @@ impl External for MockedExternal {
         Ok(value_hash.as_ref().to_vec())
     }
 
+    fn keccak256(&self, data: &[u8]) -> Result<Vec<u8>> {
+        use sha3::Digest;
+
+        let mut hasher = Keccak256::default();
+        hasher.input(&data);
+        let mut res = [0u8; 32];
+        res.copy_from_slice(hasher.result().as_slice());
+        Ok(res.to_vec())
+    }
+
+    fn keccak512(&self, data: &[u8]) -> Result<Vec<u8>> {
+        use sha3::Digest;
+
+        let mut hasher = Keccak512::default();
+        hasher.input(&data);
+        let mut res = [0u8; 64];
+        res.copy_from_slice(hasher.result().as_slice());
+        Ok(res.to_vec())
+    }
+
     fn get_touched_nodes_count(&self) -> u64 {
         0
     }
@@ -300,6 +321,10 @@ pub struct DeployContractAction {
 pub struct FunctionCallAction {
     #[serde(with = "crate::serde_with::bytes_as_str")]
     method_name: Vec<u8>,
+    /// Most function calls still take JSON as input, so we'll keep it there as a string.
+    /// Once we switch to borsh, we'll have to switch to base64 encoding.
+    /// Right now, it is only used with standalone runtime when passing in Receipts or expecting
+    /// receipts. The workaround for input is to use a VMContext input.
     #[serde(with = "crate::serde_with::bytes_as_str")]
     args: Vec<u8>,
     gas: Gas,

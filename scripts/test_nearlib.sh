@@ -1,13 +1,14 @@
 #!/bin/bash
 set -ex
 
+export RUST_BACKTRACE=full
 ./scripts/start_unittest.py --local &
 export NEAR_PID=$!
 trap 'pkill -15 -P $NEAR_PID' 0
 
 #./scripts/build_wasm.sh
 
-function get_nearlib_nearshell_release () {
+function get_nearlib_nearshell_release {
     rm -rf nearlib_release_test near-shell nearlib
     mkdir nearlib_release_test
     cd nearlib_release_test
@@ -19,7 +20,7 @@ function get_nearlib_nearshell_release () {
     cd ..
 }
 
-function get_nearlib_nearshell_git () {
+function get_nearlib_nearshell_git {
     rm -rf nearlib
     git clone https://github.com/nearprotocol/nearlib.git nearlib
 }

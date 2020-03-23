@@ -19,8 +19,8 @@ use crate::testbed::RuntimeTestbed;
 use crate::testbed_runners::{get_account_id, measure_actions, measure_transactions, Config};
 use crate::wasmer_estimator::nanosec_per_op;
 use near_runtime_fees::{
-    AccessKeyCreationConfig, ActionCreationConfig, DataReceiptCreationConfig, Fee, Fraction,
-    RuntimeFeesConfig, StorageUsageConfig,
+    AccessKeyCreationConfig, ActionCreationConfig, DataReceiptCreationConfig, Fee,
+    RuntimeFeesConfig,
 };
 use near_vm_logic::{ExtCosts, ExtCostsConfig, VMConfig, VMLimitConfig};
 use node_runtime::config::RuntimeConfig;
@@ -114,6 +114,10 @@ pub enum Metric {
     nul_utf16_log_10kib_10k,
     sha256_10b_10k,
     sha256_10kib_10k,
+    keccak256_10b_10k,
+    keccak256_10kib_10k,
+    keccak512_10b_10k,
+    keccak512_10kib_10k,
     storage_write_10b_key_10b_value_1k,
     storage_write_10kib_key_10b_value_1k,
     storage_write_10b_key_10kib_value_1k,
@@ -435,6 +439,10 @@ pub fn run(mut config: Config) -> RuntimeConfig {
     nul_utf16_log_10kib_10k => nul_utf16_log_10kib_10k,
     sha256_10b_10k => sha256_10b_10k,
     sha256_10kib_10k => sha256_10kib_10k,
+    keccak256_10b_10k => keccak256_10b_10k,
+    keccak256_10kib_10k => keccak256_10kib_10k,
+    keccak512_10b_10k => keccak512_10b_10k,
+    keccak512_10kib_10k => keccak512_10kib_10k,
     storage_write_10b_key_10b_value_1k => storage_write_10b_key_10b_value_1k,
     storage_read_10b_key_10b_value_1k => storage_read_10b_key_10b_value_1k,
     storage_has_key_10b_key_10b_value_1k => storage_has_key_10b_key_10b_value_1k,
@@ -533,14 +541,7 @@ fn get_runtime_fees_config(measurement: &Measurements) -> RuntimeFeesConfig {
             delete_key_cost: f64_to_fee(pure[&ActionDeleteKey]),
             delete_account_cost: f64_to_fee(pure[&ActionDeleteAccount]),
         },
-        storage_usage_config: StorageUsageConfig {
-            account_cost: 0,
-            data_record_cost: 0,
-            key_cost_per_byte: 0,
-            value_cost_per_byte: 0,
-            code_cost_per_byte: 0,
-        },
-        burnt_gas_reward: Fraction { numerator: 1, denominator: 3 },
+        ..Default::default()
     }
 }
 
@@ -564,6 +565,10 @@ fn get_ext_costs_config(measurement: &Measurements) -> ExtCostsConfig {
         utf16_decoding_byte: f64_to_gas(pure[&utf16_decoding_byte]),
         sha256_base: f64_to_gas(pure[&sha256_base]),
         sha256_byte: f64_to_gas(pure[&sha256_byte]),
+        keccak256_base: f64_to_gas(pure[&keccak256_base]),
+        keccak256_byte: f64_to_gas(pure[&keccak256_byte]),
+        keccak512_base: f64_to_gas(pure[&keccak512_base]),
+        keccak512_byte: f64_to_gas(pure[&keccak512_byte]),
         log_base: f64_to_gas(pure[&log_base]),
         log_byte: f64_to_gas(pure[&log_byte]),
         storage_write_base: f64_to_gas(pure[&storage_write_base]),

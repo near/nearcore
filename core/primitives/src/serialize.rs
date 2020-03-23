@@ -1,39 +1,6 @@
 use std::convert::TryFrom;
-use std::io;
 
-use serde::{de::DeserializeOwned, Serialize};
-
-pub type EncodeResult = Result<Vec<u8>, io::Error>;
-pub type DecodeResult<T> = Result<T, io::Error>;
-
-// encode a type to byte array
-pub trait Encode {
-    fn encode(&self) -> EncodeResult;
-}
-
-// decode from byte array
-pub trait Decode: Sized {
-    fn decode(data: &[u8]) -> DecodeResult<Self>;
-}
-
-impl<T: Serialize> Encode for T {
-    fn encode(&self) -> EncodeResult {
-        bincode::serialize(&self)
-            .map_err(|_| io::Error::new(io::ErrorKind::Other, "Failed to serialize"))
-    }
-}
-
-impl<T> Decode for T
-where
-    T: DeserializeOwned,
-{
-    fn decode(data: &[u8]) -> DecodeResult<Self> {
-        bincode::deserialize(data)
-            .map_err(|_| io::Error::new(io::ErrorKind::Other, "Failed to deserialize"))
-    }
-}
-
-pub fn to_base<T: ?Sized + AsRef<[u8]>>(input: &T) -> String {
+pub fn to_base<T: AsRef<[u8]>>(input: T) -> String {
     bs58::encode(input).into_string()
 }
 
@@ -41,8 +8,8 @@ pub fn from_base(s: &str) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
     bs58::decode(s).into_vec().map_err(|err| err.into())
 }
 
-pub fn to_base64<T: ?Sized + AsRef<[u8]>>(input: &T) -> String {
-    base64::encode(input)
+pub fn to_base64<T: AsRef<[u8]>>(input: T) -> String {
+    base64::encode(&input)
 }
 
 pub fn from_base64(s: &str) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
@@ -138,9 +105,8 @@ pub mod vec_base_format {
     use serde::de;
     use serde::de::{SeqAccess, Visitor};
     use serde::export::PhantomData;
+    use serde::ser::SerializeSeq;
     use serde::{Deserializer, Serializer};
-
-    use crate::serde::ser::SerializeSeq;
 
     use super::{BaseDecode, BaseEncode};
 
@@ -186,6 +152,30 @@ pub mod vec_base_format {
         D: Deserializer<'de>,
     {
         deserializer.deserialize_seq(VecBaseVisitor(PhantomData))
+    }
+}
+
+pub mod base64_format {
+    use serde::de;
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    use super::{from_base64, to_base64};
+
+    pub fn serialize<S, T>(data: T, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+        T: AsRef<[u8]>,
+    {
+        serializer.serialize_str(&to_base64(data))
+    }
+
+    pub fn deserialize<'de, D, T>(deserializer: D) -> Result<T, D::Error>
+    where
+        D: Deserializer<'de>,
+        T: From<Vec<u8>>,
+    {
+        let s = String::deserialize(deserializer)?;
+        from_base64(&s).map_err(|err| de::Error::custom(err.to_string())).map(Into::into)
     }
 }
 
@@ -261,6 +251,34 @@ pub mod u128_dec_format {
     }
 }
 
+pub mod u128_dec_format_compatible {
+    //! This in an extension to `u128_dec_format` that serves a compatibility layer role to
+    //! deserialize u128 from a "small" JSON number (u64).
+    //!
+    //! It is unfortunate that we cannot enable "arbitrary_precision" feature in serde_json due to
+    //! a bug: https://github.com/serde-rs/json/issues/505
+    use serde::{de, Deserialize, Deserializer};
+
+    pub use super::u128_dec_format::serialize;
+
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum U128 {
+        Number(u64),
+        String(String),
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<u128, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        match U128::deserialize(deserializer)? {
+            U128::Number(value) => Ok(u128::from(value)),
+            U128::String(value) => u128::from_str_radix(&value, 10).map_err(de::Error::custom),
+        }
+    }
+}
+
 pub mod option_u128_dec_format {
     use serde::de;
     use serde::{Deserialize, Deserializer, Serializer};
@@ -291,12 +309,22 @@ pub mod option_u128_dec_format {
 
 #[cfg(test)]
 mod tests {
+    use serde::{Deserialize, Serialize};
+
+    use crate::types::StoreKey;
+
     use super::*;
 
     #[derive(Deserialize, Serialize)]
     struct OptionBytesStruct {
         #[serde(with = "option_base64_format")]
         data: Option<Vec<u8>>,
+    }
+
+    #[derive(Deserialize, Serialize)]
+    struct StoreKeyStruct {
+        #[serde(with = "base64_format")]
+        store_key: StoreKey,
     }
 
     #[test]
@@ -325,5 +353,19 @@ mod tests {
         let encoded = "{\"data\":null}";
         let decoded: OptionBytesStruct = serde_json::from_str(&encoded).unwrap();
         assert_eq!(decoded.data, None);
+    }
+
+    #[test]
+    fn test_serialize_store_key() {
+        let s = StoreKeyStruct { store_key: StoreKey::from(vec![10, 20, 30]) };
+        let encoded = serde_json::to_string(&s).unwrap();
+        assert_eq!(encoded, "{\"store_key\":\"ChQe\"}");
+    }
+
+    #[test]
+    fn test_deserialize_store_key() {
+        let encoded = "{\"store_key\":\"ChQe\"}";
+        let decoded: StoreKeyStruct = serde_json::from_str(&encoded).unwrap();
+        assert_eq!(decoded.store_key, StoreKey::from(vec![10, 20, 30]));
     }
 }

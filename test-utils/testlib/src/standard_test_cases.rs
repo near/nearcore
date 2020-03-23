@@ -26,8 +26,8 @@ const FUNCTION_CALL_AMOUNT: Balance = TESTING_INIT_BALANCE / 10;
 
 fn fee_helper(node: &impl Node) -> FeeHelper {
     FeeHelper::new(
-        node.genesis_config().runtime_config.transaction_costs.clone(),
-        node.genesis_config().min_gas_price,
+        node.genesis().config.runtime_config.transaction_costs.clone(),
+        node.genesis().config.min_gas_price,
     )
 }
 

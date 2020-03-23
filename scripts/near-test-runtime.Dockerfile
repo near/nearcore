@@ -1,5 +1,5 @@
-FROM ubuntu:19.04
+FROM amazonlinux:2
 
-RUN apt-get update -qq && apt-get install -y \
-    libssl-dev \
-    && rm -rf /var/lib/apt/lists/*
+RUN yum update -y && yum install -y \
+    openssl-devel.x86_64 \
+    && yum clean all && rm -rf /var/cache/yum

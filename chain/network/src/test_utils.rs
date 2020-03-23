@@ -10,10 +10,11 @@ use tokio::time::delay_for;
 
 use near_crypto::{KeyType, SecretKey};
 use near_primitives::hash::hash;
+use near_primitives::network::PeerId;
 use near_primitives::types::EpochId;
 use near_primitives::utils::index_to_bytes;
 
-use crate::types::{NetworkConfig, NetworkInfo, PeerId, PeerInfo, ROUTED_MESSAGE_TTL};
+use crate::types::{NetworkConfig, NetworkInfo, PeerInfo, ROUTED_MESSAGE_TTL};
 use crate::PeerManagerActor;
 
 /// Returns available port.
@@ -62,12 +63,6 @@ pub fn convert_boot_nodes(boot_nodes: Vec<(&str, u16)>) -> Vec<PeerInfo> {
         result.push(PeerInfo::new(id.into(), format!("127.0.0.1:{}", port).parse().unwrap()))
     }
     result
-}
-
-impl PeerId {
-    pub fn random() -> Self {
-        SecretKey::from_random(KeyType::ED25519).public_key().into()
-    }
 }
 
 impl PeerInfo {

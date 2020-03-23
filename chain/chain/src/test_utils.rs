@@ -8,7 +8,7 @@ use chrono::Utc;
 use log::debug;
 use serde::Serialize;
 
-use near_crypto::{InMemorySigner, KeyType, PublicKey, SecretKey, Signature};
+use near_crypto::{KeyType, PublicKey, SecretKey, Signature};
 use near_pool::types::PoolIterator;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::block::{Approval, Block};
@@ -23,11 +23,13 @@ use near_primitives::transaction::{
     TransferAction,
 };
 use near_primitives::types::{
-    AccountId, Balance, BlockHeight, EpochId, Gas, Nonce, NumBlocks, ShardId, StateChanges,
-    StateChangesRequest, StateRoot, StateRootNode, ValidatorStake, ValidatorStats,
+    AccountId, Balance, BlockHeight, EpochId, Gas, Nonce, NumBlocks, ShardId, StateRoot,
+    StateRootNode, ValidatorStake, ValidatorStats,
 };
+use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_primitives::views::{
-    AccessKeyInfoView, AccessKeyList, EpochValidatorInfo, QueryResponse, QueryResponseKind,
+    AccessKeyInfoView, AccessKeyList, CallResult, EpochValidatorInfo, QueryRequest, QueryResponse,
+    QueryResponseKind, ViewStateResult,
 };
 use near_store::test_utils::create_test_store;
 use near_store::{
@@ -181,9 +183,9 @@ impl KeyValueRuntime {
         if prev_hash == CryptoHash::default() {
             return Ok((EpochId(prev_hash), 0, EpochId(prev_hash)));
         }
-        let prev_block_header = self.get_block_header(&prev_hash)?.ok_or_else(|| {
-            ErrorKind::Other(format!("Missing block {} when computing the epoch", prev_hash))
-        })?;
+        let prev_block_header = self
+            .get_block_header(&prev_hash)?
+            .ok_or_else(|| ErrorKind::DBNotFoundErr(to_base(&prev_hash)))?;
 
         let mut hash_to_epoch = self.hash_to_epoch.write().unwrap();
         let mut hash_to_next_epoch = self.hash_to_next_epoch.write().unwrap();
@@ -246,8 +248,9 @@ impl KeyValueRuntime {
 }
 
 impl RuntimeAdapter for KeyValueRuntime {
-    fn genesis_state(&self) -> (StoreUpdate, Vec<StateRoot>) {
+    fn genesis_state(&self) -> (Arc<Store>, StoreUpdate, Vec<StateRoot>) {
         (
+            self.store.clone(),
             self.store.store_update(),
             ((0..self.num_shards()).map(|_| StateRoot::default()).collect()),
         )
@@ -260,6 +263,17 @@ impl RuntimeAdapter for KeyValueRuntime {
         if !header.verify_block_producer(&validator.public_key) {
             return Err(ErrorKind::InvalidBlockProposer.into());
         }
+        Ok(())
+    }
+
+    fn verify_block_vrf(
+        &self,
+        _epoch_id: &EpochId,
+        _block_height: BlockHeight,
+        _prev_random_value: &CryptoHash,
+        _vrf_value: near_crypto::vrf::Value,
+        _vrf_proof: near_crypto::vrf::Proof,
+    ) -> Result<(), Error> {
         Ok(())
     }
 
@@ -452,6 +466,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         &self,
         _parent_hash: CryptoHash,
         _current_hash: CryptoHash,
+        _rng_seed: CryptoHash,
         _height: BlockHeight,
         _last_finalized_height: BlockHeight,
         _proposals: Vec<ValidatorStake>,
@@ -666,31 +681,27 @@ impl RuntimeAdapter for KeyValueRuntime {
         _block_timestamp: u64,
         block_hash: &CryptoHash,
         _epoch_id: &EpochId,
-        path: Vec<&str>,
-        _data: &[u8],
+        request: &QueryRequest,
     ) -> Result<QueryResponse, Box<dyn std::error::Error>> {
-        match path[0] {
-            "account" => {
-                let account_id = path[1].to_string();
-                Ok(QueryResponse {
-                    kind: QueryResponseKind::ViewAccount(
-                        Account {
-                            amount: self.state.read().unwrap().get(&state_root).map_or_else(
-                                || 0,
-                                |state| *state.amounts.get(&account_id).unwrap_or(&0),
-                            ),
-                            locked: 0,
-                            code_hash: CryptoHash::default(),
-                            storage_usage: 0,
-                            storage_paid_at: 0,
-                        }
-                        .into(),
-                    ),
-                    block_height,
-                    block_hash: *block_hash,
-                })
-            }
-            "access_key" if path.len() == 2 => Ok(QueryResponse {
+        match request {
+            QueryRequest::ViewAccount { account_id, .. } => Ok(QueryResponse {
+                kind: QueryResponseKind::ViewAccount(
+                    Account {
+                        amount: self.state.read().unwrap().get(&state_root).map_or_else(
+                            || 0,
+                            |state| *state.amounts.get(account_id).unwrap_or(&0),
+                        ),
+                        locked: 0,
+                        code_hash: CryptoHash::default(),
+                        storage_usage: 0,
+                        storage_paid_at: 0,
+                    }
+                    .into(),
+                ),
+                block_height,
+                block_hash: *block_hash,
+            }),
+            QueryRequest::ViewAccessKeyList { .. } => Ok(QueryResponse {
                 kind: QueryResponseKind::AccessKeyList(AccessKeyList {
                     keys: vec![AccessKeyInfoView {
                         public_key: PublicKey::empty(KeyType::ED25519),
@@ -700,14 +711,27 @@ impl RuntimeAdapter for KeyValueRuntime {
                 block_height,
                 block_hash: *block_hash,
             }),
-            "access_key" if path.len() == 3 => Ok(QueryResponse {
+            QueryRequest::ViewAccessKey { .. } => Ok(QueryResponse {
                 kind: QueryResponseKind::AccessKey(AccessKey::full_access().into()),
                 block_height,
                 block_hash: *block_hash,
             }),
-            _ => {
-                panic!("RuntimeAdapter.query mockup received unexpected query: {:?}", path);
-            }
+            QueryRequest::ViewState { .. } => Ok(QueryResponse {
+                kind: QueryResponseKind::ViewState(ViewStateResult {
+                    values: Default::default(),
+                    proof: vec![],
+                }),
+                block_height,
+                block_hash: *block_hash,
+            }),
+            QueryRequest::CallFunction { .. } => Ok(QueryResponse {
+                kind: QueryResponseKind::CallResult(CallResult {
+                    result: Default::default(),
+                    logs: Default::default(),
+                }),
+                block_height,
+                block_hash: *block_hash,
+            }),
         }
     }
 
@@ -822,14 +846,6 @@ impl RuntimeAdapter for KeyValueRuntime {
         })
     }
 
-    fn get_key_value_changes(
-        &self,
-        _block_hash: &CryptoHash,
-        _state_changes_request: &StateChangesRequest,
-    ) -> Result<StateChanges, Box<dyn std::error::Error>> {
-        Ok(Default::default())
-    }
-
     fn push_final_block_back_if_needed(
         &self,
         _prev_block: CryptoHash,
@@ -882,23 +898,32 @@ impl RuntimeAdapter for KeyValueRuntime {
     }
 }
 
-pub fn setup() -> (Chain, Arc<KeyValueRuntime>, Arc<InMemorySigner>) {
+pub fn setup() -> (Chain, Arc<KeyValueRuntime>, Arc<InMemoryValidatorSigner>) {
     setup_with_tx_validity_period(100)
 }
 
 pub fn setup_with_tx_validity_period(
     tx_validity_period: NumBlocks,
-) -> (Chain, Arc<KeyValueRuntime>, Arc<InMemorySigner>) {
+) -> (Chain, Arc<KeyValueRuntime>, Arc<InMemoryValidatorSigner>) {
     let store = create_test_store();
     let runtime = Arc::new(KeyValueRuntime::new(store.clone()));
     let chain = Chain::new(
-        store,
         runtime.clone(),
-        &ChainGenesis::new(Utc::now(), 1_000_000, 100, 1_000_000_000, 0, 0, tx_validity_period, 10),
+        &ChainGenesis::new(
+            Utc::now(),
+            0,
+            1_000_000,
+            100,
+            1_000_000_000,
+            0,
+            0,
+            tx_validity_period,
+            10,
+        ),
         DoomslugThresholdMode::NoApprovals,
     )
     .unwrap();
-    let signer = Arc::new(InMemorySigner::from_seed("test", KeyType::ED25519, "test"));
+    let signer = Arc::new(InMemoryValidatorSigner::from_seed("test", KeyType::ED25519, "test"));
     (chain, runtime, signer)
 }
 
@@ -908,11 +933,11 @@ pub fn setup_with_validators(
     num_shards: ShardId,
     epoch_length: u64,
     tx_validity_period: NumBlocks,
-) -> (Chain, Arc<KeyValueRuntime>, Vec<Arc<InMemorySigner>>) {
+) -> (Chain, Arc<KeyValueRuntime>, Vec<Arc<InMemoryValidatorSigner>>) {
     let store = create_test_store();
     let signers = validators
         .iter()
-        .map(|x| Arc::new(InMemorySigner::from_seed(x.as_str(), KeyType::ED25519, x)))
+        .map(|x| Arc::new(InMemoryValidatorSigner::from_seed(x.as_str(), KeyType::ED25519, x)))
         .collect();
     let runtime = Arc::new(KeyValueRuntime::new_with_validators(
         store.clone(),
@@ -922,10 +947,10 @@ pub fn setup_with_validators(
         epoch_length,
     ));
     let chain = Chain::new(
-        store,
         runtime.clone(),
         &ChainGenesis::new(
             Utc::now(),
+            0,
             1_000_000,
             100,
             1_000_000_000,
@@ -1042,6 +1067,7 @@ impl ChainGenesis {
     pub fn test() -> Self {
         ChainGenesis {
             time: Utc::now(),
+            height: 0,
             gas_limit: 1_000_000,
             min_gas_price: 0,
             total_supply: 1_000_000_000,
@@ -1057,19 +1083,14 @@ pub fn new_block_no_epoch_switches(
     prev_block: &Block,
     height: BlockHeight,
     approvals: Vec<&str>,
-    signer: &InMemorySigner,
+    signer: &InMemoryValidatorSigner,
 ) -> Block {
     let approvals = approvals
         .into_iter()
-        .map(|x| {
-            Approval::new(
-                prev_block.hash(),
-                Some(prev_block.hash()),
-                height,
-                true,
-                signer,
-                x.to_string(),
-            )
+        .map(|account_id| {
+            let signer =
+                InMemoryValidatorSigner::from_seed(account_id, KeyType::ED25519, account_id);
+            Approval::new(prev_block.hash(), Some(prev_block.hash()), height, true, &signer)
         })
         .collect();
     let (epoch_id, next_epoch_id) = if prev_block.header.prev_hash == CryptoHash::default() {

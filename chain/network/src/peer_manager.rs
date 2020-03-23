@@ -21,6 +21,7 @@ use tokio_util::codec::FramedRead;
 use tracing::{debug, error, info, trace, warn};
 
 use near_primitives::hash::CryptoHash;
+use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::types::AccountId;
 use near_primitives::utils::from_timestamp;
 use near_store::Store;
@@ -29,14 +30,16 @@ use crate::codec::Codec;
 use crate::metrics;
 use crate::peer::Peer;
 use crate::peer_store::PeerStore;
+#[cfg(feature = "metric_recorder")]
+use crate::recorder::{MetricRecorder, PeerMessageMetadata};
 use crate::routing::{Edge, EdgeInfo, EdgeType, ProcessEdgeResult, RoutingTable};
 use crate::types::{
-    AccountOrPeerIdOrHash, AnnounceAccount, Ban, BlockedPorts, Consolidate, ConsolidateResponse,
-    FullPeerInfo, InboundTcpConnect, KnownPeerStatus, KnownProducer, NetworkInfo,
-    NetworkViewClientMessages, NetworkViewClientResponses, OutboundTcpConnect, PeerId,
-    PeerIdOrHash, PeerList, PeerManagerRequest, PeerMessage, PeerRequest, PeerResponse, PeerType,
-    PeersRequest, PeersResponse, Ping, Pong, QueryPeerStats, RawRoutedMessage, ReasonForBan,
-    RoutedMessage, RoutedMessageBody, RoutedMessageFrom, SendMessage, SyncData, Unregister,
+    AccountOrPeerIdOrHash, Ban, BlockedPorts, Consolidate, ConsolidateResponse, FullPeerInfo,
+    InboundTcpConnect, KnownPeerStatus, KnownProducer, NetworkInfo, NetworkViewClientMessages,
+    NetworkViewClientResponses, OutboundTcpConnect, PeerIdOrHash, PeerList, PeerManagerRequest,
+    PeerMessage, PeerRequest, PeerResponse, PeerType, PeersRequest, PeersResponse, Ping, Pong,
+    QueryPeerStats, RawRoutedMessage, ReasonForBan, RoutedMessage, RoutedMessageBody,
+    RoutedMessageFrom, SendMessage, SyncData, Unregister,
 };
 use crate::types::{
     NetworkClientMessages, NetworkConfig, NetworkRequests, NetworkResponses, PeerInfo,
@@ -50,6 +53,9 @@ const WAIT_ON_TRY_UPDATE_NONCE: u64 = 6_000;
 /// If we see an edge between us and other peer, but this peer is not a current connection, wait this
 /// timeout and in case it didn't become an active peer, broadcast edge removal update.
 const WAIT_PEER_BEFORE_REMOVE: u64 = 6_000;
+/// Time to wait before sending ping to all reachable peers.
+#[cfg(feature = "metric_recorder")]
+const WAIT_BEFORE_PING: u64 = 20_000;
 
 macro_rules! unwrap_or_error(($obj: expr, $error: expr) => (match $obj {
     Ok(result) => result,
@@ -93,6 +99,9 @@ pub struct PeerManagerActor {
     monitor_peers_attempts: u64,
     /// Active peers we have sent new edge update, but we haven't received response so far.
     pending_update_nonce_request: HashMap<PeerId, u64>,
+    /// Store all collected metrics from a node.
+    #[cfg(feature = "metric_recorder")]
+    metric_recorder: MetricRecorder,
 }
 
 impl PeerManagerActor {
@@ -106,7 +115,8 @@ impl PeerManagerActor {
         debug!(target: "network", "Found known peers: {} (boot nodes={})", peer_store.len(), config.boot_nodes.len());
         debug!(target: "network", "Blacklist: {:?}", config.blacklist);
 
-        let me = config.public_key.clone().into();
+        let me: PeerId = config.public_key.clone().into();
+
         Ok(PeerManagerActor {
             peer_id: config.public_key.clone().into(),
             config,
@@ -115,9 +125,11 @@ impl PeerManagerActor {
             peer_store,
             active_peers: HashMap::default(),
             outgoing_peers: HashSet::default(),
-            routing_table: RoutingTable::new(me, store),
+            routing_table: RoutingTable::new(me.clone(), store),
             monitor_peers_attempts: 0,
             pending_update_nonce_request: HashMap::new(),
+            #[cfg(feature = "metric_recorder")]
+            metric_recorder: MetricRecorder::default().set_me(me),
         })
     }
 
@@ -401,7 +413,11 @@ impl PeerManagerActor {
             self.routing_table.process_edge(edge);
 
         if let Some(duration) = schedule_computation {
-            ctx.run_later(duration, |act, _ctx| act.routing_table.update());
+            ctx.run_later(duration, |act, _ctx| {
+                act.routing_table.update();
+                #[cfg(feature = "metric_recorder")]
+                act.metric_recorder.set_graph(act.routing_table.get_raw_graph())
+            });
         }
 
         new_edge
@@ -457,6 +473,18 @@ impl PeerManagerActor {
                     act.pending_update_nonce_request.remove(&other);
                 }
             }
+        });
+    }
+
+    #[cfg(feature = "metric_recorder")]
+    fn ping_all_peers(&mut self, ctx: &mut Context<Self>) {
+        for peer_id in self.routing_table.reachable_peers().cloned().collect::<Vec<_>>() {
+            let nonce = self.routing_table.get_ping(peer_id.clone());
+            self.send_ping(ctx, nonce, peer_id);
+        }
+
+        ctx.run_later(Duration::from_millis(WAIT_BEFORE_PING), move |act, ctx| {
+            act.ping_all_peers(ctx);
         });
     }
 
@@ -709,6 +737,7 @@ impl PeerManagerActor {
     fn send_ping(&mut self, ctx: &mut Context<Self>, nonce: usize, target: PeerId) {
         let body =
             RoutedMessageBody::Ping(Ping { nonce: nonce as u64, source: self.peer_id.clone() });
+        self.routing_table.sending_ping(nonce, target.clone());
         let msg = RawRoutedMessage { target: AccountOrPeerIdOrHash::PeerId(target), body };
         self.send_message_to_peer(ctx, msg);
     }
@@ -725,8 +754,18 @@ impl PeerManagerActor {
         self.routing_table.add_ping(ping);
     }
 
+    /// Handle pong messages. Add pong temporary to the routing table, mostly used for testing.
+    /// If `metric_recorder` feature flag is enabled, save how much time passed since we sent ping.
     fn handle_pong(&mut self, _ctx: &mut Context<Self>, pong: Pong) {
-        self.routing_table.add_pong(pong);
+        #[cfg(feature = "metric_recorder")]
+        let source = pong.source.clone();
+        #[allow(unused_variables)]
+        let latency = self.routing_table.add_pong(pong);
+        #[cfg(feature = "metric_recorder")]
+        latency.and_then::<(), _>(|latency| {
+            self.metric_recorder.add_latency(source, latency);
+            None
+        });
     }
 
     pub(crate) fn get_network_info(&mut self) -> NetworkInfo {
@@ -753,6 +792,8 @@ impl PeerManagerActor {
                     addr: None,
                 })
                 .collect(),
+            #[cfg(feature = "metric_recorder")]
+            metric_recorder: self.metric_recorder.clone(),
         }
     }
 
@@ -810,6 +851,10 @@ impl Actor for PeerManagerActor {
 
         // Start active peer stats querying.
         self.monitor_peer_stats(ctx);
+
+        // Periodically ping all peers to determine latencies between pair of peers.
+        #[cfg(feature = "metric_recorder")]
+        self.ping_all_peers(ctx);
     }
 
     /// Try to gracefully disconnect from active peers.
@@ -833,17 +878,11 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                 self.broadcast_message(ctx, SendMessage { message: PeerMessage::Block(block) });
                 NetworkResponses::NoResponse
             }
-            NetworkRequests::BlockHeaderAnnounce { header, approval_message } => {
-                if let Some(approval_message) = approval_message {
-                    self.send_message_to_account(
-                        ctx,
-                        &approval_message.target,
-                        RoutedMessageBody::BlockApproval(approval_message.approval),
-                    );
-                }
-                self.broadcast_message(
+            NetworkRequests::Approval { approval_message } => {
+                self.send_message_to_account(
                     ctx,
-                    SendMessage { message: PeerMessage::BlockHeaderAnnounce(header) },
+                    &approval_message.target,
+                    RoutedMessageBody::BlockApproval(approval_message.approval),
                 );
                 NetworkResponses::NoResponse
             }
@@ -966,11 +1005,11 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                     NetworkResponses::RouteNotFound
                 }
             }
-            NetworkRequests::Query { account_id, path, data, id } => {
+            NetworkRequests::Query { query_id, account_id, block_id_or_finality, request } => {
                 if self.send_message_to_account(
                     ctx,
                     &account_id,
-                    RoutedMessageBody::QueryRequest { path, data, id },
+                    RoutedMessageBody::QueryRequest { query_id, block_id_or_finality, request },
                 ) {
                     NetworkResponses::NoResponse
                 } else {
@@ -1382,5 +1421,13 @@ impl Handler<PeerRequest> for PeerManagerActor {
                 PeerResponse::NoResponse
             }
         }
+    }
+}
+
+#[cfg(feature = "metric_recorder")]
+impl Handler<PeerMessageMetadata> for PeerManagerActor {
+    type Result = ();
+    fn handle(&mut self, msg: PeerMessageMetadata, _ctx: &mut Self::Context) -> Self::Result {
+        self.metric_recorder.handle_peer_message(msg);
     }
 }

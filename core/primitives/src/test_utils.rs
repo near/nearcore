@@ -13,6 +13,7 @@ use crate::transaction::{
     TransferAction,
 };
 use crate::types::{AccountId, Balance, BlockHeight, EpochId, Nonce};
+use crate::validator_signer::ValidatorSigner;
 
 lazy_static! {
     static ref HEAVY_TESTS_LOCK: Mutex<()> = Mutex::new(());
@@ -73,7 +74,9 @@ pub fn init_stop_on_panic() {
         let default_hook = std::panic::take_hook();
         std::panic::set_hook(Box::new(move |info| {
             default_hook(info);
-            actix::System::with_current(|sys| sys.stop_with_code(1));
+            if actix::System::is_set() {
+                actix::System::with_current(|sys| sys.stop_with_code(1));
+            }
         }));
     })
 }
@@ -160,7 +163,7 @@ impl Block {
         epoch_id: EpochId,
         next_epoch_id: EpochId,
         next_bp_hash: CryptoHash,
-        signer: &dyn Signer,
+        signer: &dyn ValidatorSigner,
     ) -> Self {
         Self::empty_with_approvals(
             prev,
@@ -173,7 +176,11 @@ impl Block {
         )
     }
 
-    pub fn empty_with_height(prev: &Block, height: BlockHeight, signer: &dyn Signer) -> Self {
+    pub fn empty_with_height(
+        prev: &Block,
+        height: BlockHeight,
+        signer: &dyn ValidatorSigner,
+    ) -> Self {
         Self::empty_with_epoch(
             prev,
             height,
@@ -188,7 +195,7 @@ impl Block {
         )
     }
 
-    pub fn empty(prev: &Block, signer: &dyn Signer) -> Self {
+    pub fn empty(prev: &Block, signer: &dyn ValidatorSigner) -> Self {
         Self::empty_with_height(prev, prev.header.inner_lite.height + 1, signer)
     }
 
@@ -200,7 +207,7 @@ impl Block {
         epoch_id: EpochId,
         next_epoch_id: EpochId,
         approvals: Vec<Approval>,
-        signer: &dyn Signer,
+        signer: &dyn ValidatorSigner,
         next_bp_hash: CryptoHash,
     ) -> Self {
         Block::produce(

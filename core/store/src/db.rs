@@ -83,8 +83,12 @@ pub enum DBCol {
     ColTransactions = 34,
     ColChunkPerHeightShard = 35,
     /// Changes to key-values that we have recorded.
-    ColKeyValueChanges = 36,
+    ColStateChanges = 36,
+    ColBlockRefCount = 37,
 }
+
+// Do not move this line from enum DBCol
+const NUM_COLS: usize = 38;
 
 impl std::fmt::Display for DBCol {
     fn fmt(&self, formatter: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
@@ -125,13 +129,12 @@ impl std::fmt::Display for DBCol {
             Self::LastComponentNonce => "last component nonce",
             Self::ColTransactions => "transactions",
             Self::ColChunkPerHeightShard => "hash of chunk per height and shard_id",
-            Self::ColKeyValueChanges => "key value changes",
+            Self::ColStateChanges => "key value changes",
+            Self::ColBlockRefCount => "refcount per block",
         };
         write!(formatter, "{}", desc)
     }
 }
-
-const NUM_COLS: usize = 37;
 
 pub struct DBTransaction {
     pub ops: Vec<DBOp>,

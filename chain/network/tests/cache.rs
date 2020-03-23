@@ -1,7 +1,7 @@
 use near_crypto::Signature;
 use near_network::routing::RoutingTable;
 use near_network::test_utils::{random_epoch_id, random_peer_id};
-use near_network::types::AnnounceAccount;
+use near_primitives::network::AnnounceAccount;
 use near_store::test_utils::create_test_store;
 
 #[test]

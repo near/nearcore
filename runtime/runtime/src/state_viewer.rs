@@ -1,16 +1,17 @@
-use std::collections::HashMap;
 use std::str;
 use std::time::Instant;
 
 use borsh::BorshSerialize;
+use log::debug;
 
 use near_crypto::{KeyType, PublicKey};
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::hash::CryptoHash;
+use near_primitives::serialize::to_base64;
 use near_primitives::types::EpochId;
 use near_primitives::types::{AccountId, BlockHeight};
-use near_primitives::utils::{is_valid_account_id, prefix_for_data};
-use near_primitives::views::ViewStateResult;
+use near_primitives::utils::{is_valid_account_id, KeyForData};
+use near_primitives::views::{StateItem, ViewStateResult};
 use near_runtime_fees::RuntimeFeesConfig;
 use near_store::{get_access_key, get_account, TrieUpdate};
 use near_vm_logic::{ReturnData, VMConfig, VMContext};
@@ -61,17 +62,24 @@ impl TrieViewer {
         if !is_valid_account_id(account_id) {
             return Err(format!("Account ID '{}' is not valid", account_id).into());
         }
-        let mut values = HashMap::default();
-        let mut query = prefix_for_data(account_id);
-        let acc_sep_len = query.len();
-        query.extend_from_slice(prefix);
-        state_update.for_keys_with_prefix(&query, |key| {
-            // TODO error
-            if let Ok(Some(value)) = state_update.get(key) {
-                values.insert(key[acc_sep_len..].to_vec(), value.to_vec());
+        let mut values = vec![];
+        let query = KeyForData::new(account_id, prefix);
+        let acc_sep_len = KeyForData::estimate_len(account_id, &[]);
+        let mut iter = state_update.trie.iter(&state_update.get_root())?;
+        iter.seek(&query)?;
+        for item in iter {
+            let (key, value) = item?;
+            if !key.starts_with(&query.as_ref()) {
+                break;
             }
-        })?;
-        Ok(ViewStateResult { values })
+            values.push(StateItem {
+                key: to_base64(&key[acc_sep_len..]),
+                value: to_base64(&value),
+                proof: vec![],
+            });
+        }
+        // TODO(2076): Add proofs for the storage items.
+        Ok(ViewStateResult { values, proof: vec![] })
     }
 
     pub fn call_function(
@@ -155,10 +163,6 @@ impl TrieViewer {
             let outcome = outcome.unwrap();
             debug!(target: "runtime", "(exec time {}) result of execution: {:#?}", time_str, outcome);
             logs.extend(outcome.logs);
-            let trie_update = state_update.finalize()?;
-            if trie_update.new_root != root {
-                return Err("function call for viewing tried to change storage".into());
-            }
             let mut result = vec![];
             if let ReturnData::Value(buf) = &outcome.return_data {
                 result = buf.clone();
@@ -171,7 +175,8 @@ impl TrieViewer {
 #[cfg(test)]
 mod tests {
     use near_primitives::types::StateChangeCause;
-    use near_primitives::utils::key_for_data;
+    use near_primitives::utils::KeyForData;
+    use near_primitives::views::StateItem;
     use testlib::runtime_utils::{
         alice_account, encode_int, get_runtime_and_trie, get_test_trie_viewer,
     };
@@ -188,7 +193,7 @@ mod tests {
             1,
             1,
             &Default::default(),
-            &alice_account(),
+            &AccountId::from("test.contract"),
             "run_test",
             &[],
             &mut logs,
@@ -213,7 +218,11 @@ mod tests {
             &mut logs,
         );
 
-        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(
+            err.to_string().contains(r#"Contract ID "bad!contract" is not valid"#),
+            format!("Got different error that doesn't match: {}", err)
+        );
     }
 
     #[test]
@@ -226,13 +235,16 @@ mod tests {
             1,
             1,
             &Default::default(),
-            &alice_account(),
+            &AccountId::from("test.contract"),
             "run_test_with_storage_change",
             &[],
             &mut logs,
         );
-        // run_test tries to change storage, so it should fail
-        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(
+            err.to_string().contains(r#"ProhibitedInView { method_name: "storage_write" }"#),
+            format!("Got different error that doesn't match: {}", err)
+        );
     }
 
     #[test]
@@ -245,7 +257,7 @@ mod tests {
             1,
             1,
             &Default::default(),
-            &alice_account(),
+            &AccountId::from("test.contract"),
             "sum_with_input",
             &args,
             &mut logs,
@@ -257,7 +269,10 @@ mod tests {
     fn test_view_state() {
         let (_, trie, root) = get_runtime_and_trie();
         let mut state_update = TrieUpdate::new(trie.clone(), root);
-        state_update.set(key_for_data(&alice_account(), b"test123"), b"123".to_vec());
+        state_update.set(KeyForData::new(&alice_account(), b"test123").into(), b"123".to_vec());
+        state_update.set(KeyForData::new(&alice_account(), b"test321").into(), b"321".to_vec());
+        state_update.set(KeyForData::new(&"alina".to_string(), b"qqq").into(), b"321".to_vec());
+        state_update.set(KeyForData::new(&"alex".to_string(), b"qqq").into(), b"321".to_vec());
         state_update.commit(StateChangeCause::InitialState);
         let (db_changes, new_root) = state_update.finalize().unwrap().into(trie.clone()).unwrap();
         db_changes.commit().unwrap();
@@ -265,17 +280,33 @@ mod tests {
         let state_update = TrieUpdate::new(trie, new_root);
         let trie_viewer = TrieViewer::new();
         let result = trie_viewer.view_state(&state_update, &alice_account(), b"").unwrap();
+        assert_eq!(result.proof, Vec::<String>::new());
         assert_eq!(
             result.values,
-            [(b"test123".to_vec(), b"123".to_vec())].iter().cloned().collect()
+            [
+                StateItem {
+                    key: "dGVzdDEyMw==".to_string(),
+                    value: "MTIz".to_string(),
+                    proof: vec![]
+                },
+                StateItem {
+                    key: "dGVzdDMyMQ==".to_string(),
+                    value: "MzIx".to_string(),
+                    proof: vec![]
+                }
+            ]
         );
-        let result = trie_viewer.view_state(&state_update, &alice_account(), b"test321").unwrap();
-        assert_eq!(result.values, [].iter().cloned().collect());
+        let result = trie_viewer.view_state(&state_update, &alice_account(), b"xyz").unwrap();
+        assert_eq!(result.values, []);
         let result = trie_viewer.view_state(&state_update, &alice_account(), b"test123").unwrap();
         assert_eq!(
             result.values,
-            [(b"test123".to_vec(), b"123".to_vec())].iter().cloned().collect()
-        )
+            [StateItem {
+                key: "dGVzdDEyMw==".to_string(),
+                value: "MTIz".to_string(),
+                proof: vec![]
+            }]
+        );
     }
 
     #[test]
@@ -289,7 +320,7 @@ mod tests {
                 1,
                 1,
                 &Default::default(),
-                &alice_account(),
+                &AccountId::from("test.contract"),
                 "panic_after_logging",
                 &[],
                 &mut logs,

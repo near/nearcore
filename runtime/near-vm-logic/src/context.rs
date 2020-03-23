@@ -18,13 +18,14 @@ pub struct VMContext {
     /// If this execution is the result of direct execution of transaction then it
     /// is equal to `signer_account_id`.
     pub predecessor_account_id: AccountId,
-    #[serde(with = "crate::serde_with::bytes_as_str")]
     /// The input to the contract call.
+    /// Encoded as base64 string to be able to pass input in borsh binary format.
+    #[serde(with = "crate::serde_with::bytes_as_base64")]
     pub input: Vec<u8>,
     /// The current block height.
     // TODO #1903 rename to `block_height`
     pub block_index: BlockHeight,
-    /// The current block timestamp.
+    /// The current block timestamp (number of non-leap-nanoseconds since January 1, 1970 0:00:00 UTC).
     pub block_timestamp: u64,
     /// Current epoch id.
     pub epoch_id: EpochId,
