@@ -53,7 +53,7 @@ def main():
 
     # Migrate.
     print(f'====== {current_branch}')
-    subprocess.run(['git', 'status'])
+    print(subprocess.check_output(['git', 'status']))
     migrations_home = os.path.join(os.path.dirname(os.path.abspath(__file__)), '../../../scripts/migrations')
     all_migrations = sorted(os.listdir(migrations_home))
     for fname in all_migrations:
