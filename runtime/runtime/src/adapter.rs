@@ -1,6 +1,6 @@
 use near_crypto::PublicKey;
 use near_primitives::account::{AccessKey, Account};
-use near_primitives::types::{AccountId, BlockHeight, EpochId, MerkleHash};
+use near_primitives::types::{AccountId, BlockHeight, EpochHeight, MerkleHash};
 use near_primitives::views::ViewStateResult;
 
 /// Adapter for querying runtime.
@@ -16,7 +16,7 @@ pub trait ViewRuntimeAdapter {
         state_root: MerkleHash,
         height: BlockHeight,
         block_timestamp: u64,
-        epoch_id: &EpochId,
+        epoch_height: EpochHeight,
         contract_id: &AccountId,
         method_name: &str,
         args: &[u8],

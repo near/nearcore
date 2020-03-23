@@ -4,8 +4,8 @@ use crate::context::VMContext;
 use crate::dependencies::{External, MemoryLike};
 use crate::gas_counter::GasCounter;
 use crate::types::{
-    AccountId, Balance, Gas, IteratorIndex, PromiseIndex, PromiseResult, ReceiptIndex, ReturnData,
-    StorageUsage,
+    AccountId, Balance, EpochHeight, Gas, IteratorIndex, PromiseIndex, PromiseResult, ReceiptIndex,
+    ReturnData, StorageUsage,
 };
 use crate::utils::split_method_names;
 use crate::{ExtCosts, HostError, VMLogicError, ValuePtr};
@@ -606,14 +606,14 @@ impl<'a> VMLogic<'a> {
         Ok(self.context.block_timestamp)
     }
 
-    /// Returns the current epoch id.
+    /// Returns the current epoch height.
     ///
     /// # Cost
     ///
-    /// `base + write_register_base + write_register_byte * num_bytes`
-    pub fn epoch_id(&mut self, register_id: u64) -> Result<()> {
+    /// `base`
+    pub fn epoch_height(&mut self) -> Result<EpochHeight> {
         self.gas_counter.pay_base(base)?;
-        self.internal_write_register(register_id, self.context.epoch_id.to_vec())
+        Ok(self.context.epoch_height)
     }
 
     /// Returns the number of bytes used by the contract if it was saved to the trie as of the

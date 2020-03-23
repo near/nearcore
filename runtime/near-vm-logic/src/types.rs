@@ -3,13 +3,13 @@ use serde::{Deserialize, Serialize};
 pub type AccountId = String;
 pub type PublicKey = Vec<u8>;
 pub type BlockHeight = u64;
+pub type EpochHeight = u64;
 pub type Balance = u128;
 pub type Gas = u64;
 pub type PromiseIndex = u64;
 pub type ReceiptIndex = u64;
 pub type IteratorIndex = u64;
 pub type StorageUsage = u64;
-pub type EpochId = [u8; 32];
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub enum ReturnData {

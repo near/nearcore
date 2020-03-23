@@ -415,7 +415,7 @@ mod tests {
         let apply_state = ApplyState {
             block_index: 0,
             epoch_length: 3,
-            epoch_id: Default::default(),
+            epoch_height: 0,
             gas_price: 100,
             block_timestamp: 100,
             gas_limit: Some(gas_limit),

@@ -113,7 +113,7 @@ impl RuntimeUser {
             block_index: 0,
             block_timestamp: 0,
             epoch_length: client.epoch_length,
-            epoch_id: Default::default(),
+            epoch_height: 0,
             gas_price: MIN_GAS_PRICE,
             gas_limit: None,
         }

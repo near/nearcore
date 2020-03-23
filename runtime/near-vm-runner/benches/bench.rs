@@ -24,7 +24,7 @@ fn setup(
         signer_account_pk: vec![1, 2, 3],
         predecessor_account_id: "carol".to_owned(),
         input,
-        epoch_id: [0u8; 32],
+        epoch_height: 0,
         block_index: 0,
         block_timestamp: 0,
         account_balance: 0,

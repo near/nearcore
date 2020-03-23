@@ -55,7 +55,7 @@ impl StandaloneRuntime {
             block_index: 0,
             // Epoch length is long enough to avoid corner cases.
             epoch_length: 4,
-            epoch_id: Default::default(),
+            epoch_height: 0,
             gas_price: 100,
             block_timestamp: 0,
             gas_limit: None,
