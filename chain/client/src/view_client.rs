@@ -456,7 +456,7 @@ impl Handler<GetStateChanges> for ViewClientActor {
     fn handle(&mut self, msg: GetStateChanges, _: &mut Context<Self>) -> Self::Result {
         self.chain
             .store()
-            .get_state_changes(&msg.block_hash, &msg.state_changes_request)
+            .get_state_changes(&msg.block_hash, &msg.state_changes_request.into())
             .map(|state_changes| state_changes.into_iter().map(Into::into).collect())
             .map_err(|e| e.to_string())
     }

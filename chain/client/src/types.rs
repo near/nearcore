@@ -12,13 +12,12 @@ use near_network::types::{AccountOrPeerIdOrHash, KnownProducer};
 use near_network::PeerInfo;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::ChunkHash;
-use near_primitives::types::{
-    AccountId, BlockHeight, BlockIdOrFinality, MaybeBlockId, ShardId, StateChangesRequest,
-};
+use near_primitives::types::{AccountId, BlockHeight, BlockIdOrFinality, MaybeBlockId, ShardId};
 use near_primitives::utils::generate_random_string;
 use near_primitives::views::{
     BlockView, ChunkView, EpochValidatorInfo, FinalExecutionOutcomeView, GasPriceView,
-    LightClientBlockView, QueryRequest, QueryResponse, StateChangesKindsView, StateChangesView,
+    LightClientBlockView, QueryRequest, QueryResponse, StateChangesKindsView,
+    StateChangesRequestView, StateChangesView,
 };
 pub use near_primitives::views::{StatusResponse, StatusSyncInfo};
 
@@ -248,7 +247,7 @@ impl Message for GetValidatorInfo {
 
 pub struct GetStateChanges {
     pub block_hash: CryptoHash,
-    pub state_changes_request: StateChangesRequest,
+    pub state_changes_request: StateChangesRequestView,
 }
 
 impl Message for GetStateChanges {

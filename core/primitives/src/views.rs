@@ -34,9 +34,9 @@ use crate::transaction::{
     FunctionCallAction, SignedTransaction, StakeAction, TransferAction,
 };
 use crate::types::{
-    AccountId, Balance, BlockHeight, EpochId, FunctionArgs, Gas, Nonce, NumBlocks, ShardId,
-    StateChangeCause, StateChangeKind, StateChangeValue, StateChangeWithCause, StateRoot,
-    StorageUsage, StoreKey, StoreValue, ValidatorStake, Version,
+    AccountId, AccountWithPublicKey, Balance, BlockHeight, EpochId, FunctionArgs, Gas, Nonce,
+    NumBlocks, ShardId, StateChangeCause, StateChangeKind, StateChangeValue, StateChangeWithCause,
+    StateChangesRequest, StateRoot, StorageUsage, StoreKey, StoreValue, ValidatorStake, Version,
 };
 
 /// A view of the account
@@ -1059,14 +1059,65 @@ pub struct GasPriceView {
     pub gas_price: Balance,
 }
 
-/// See crate::types::StateChangeKind for details.
+/// It is a [serializable view] of [`StateChangesRequest`].
+///
+/// [serializable view]: ./index.html
+/// [`StateChangesRequest`]: ../types/struct.StateChangesRequest.html
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(tag = "changes_type", rename_all = "snake_case")]
+pub enum StateChangesRequestView {
+    AccountChanges {
+        account_ids: Vec<AccountId>,
+    },
+    SingleAccessKeyChanges {
+        keys: Vec<AccountWithPublicKey>,
+    },
+    AllAccessKeyChanges {
+        account_ids: Vec<AccountId>,
+    },
+    ContractCodeChanges {
+        account_ids: Vec<AccountId>,
+    },
+    DataChanges {
+        account_ids: Vec<AccountId>,
+        #[serde(rename = "key_prefix_base64", with = "base64_format")]
+        key_prefix: StoreKey,
+    },
+}
+
+impl From<StateChangesRequestView> for StateChangesRequest {
+    fn from(request: StateChangesRequestView) -> Self {
+        match request {
+            StateChangesRequestView::AccountChanges { account_ids } => {
+                Self::AccountChanges { account_ids }
+            }
+            StateChangesRequestView::SingleAccessKeyChanges { keys } => {
+                Self::SingleAccessKeyChanges { keys }
+            }
+            StateChangesRequestView::AllAccessKeyChanges { account_ids } => {
+                Self::AllAccessKeyChanges { account_ids }
+            }
+            StateChangesRequestView::ContractCodeChanges { account_ids } => {
+                Self::ContractCodeChanges { account_ids }
+            }
+            StateChangesRequestView::DataChanges { account_ids, key_prefix } => {
+                Self::DataChanges { account_ids, key_prefix }
+            }
+        }
+    }
+}
+
+/// It is a [serializable view] of [`StateChangeKind`].
+///
+/// [serializable view]: ./index.html
+/// [`StateChangeKind`]: ../types/struct.StateChangeKind.html
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case", tag = "type")]
 pub enum StateChangeKindView {
     AccountTouched { account_id: AccountId },
     AccessKeyTouched { account_id: AccountId },
     DataTouched { account_id: AccountId },
-    CodeTouched { account_id: AccountId },
+    ContractCodeTouched { account_id: AccountId },
 }
 
 impl From<StateChangeKind> for StateChangeKindView {
@@ -1077,7 +1128,9 @@ impl From<StateChangeKind> for StateChangeKindView {
                 Self::AccessKeyTouched { account_id }
             }
             StateChangeKind::DataTouched { account_id } => Self::DataTouched { account_id },
-            StateChangeKind::CodeTouched { account_id } => Self::CodeTouched { account_id },
+            StateChangeKind::ContractCodeTouched { account_id } => {
+                Self::ContractCodeTouched { account_id }
+            }
         }
     }
 }
@@ -1157,12 +1210,12 @@ pub enum StateChangeValueView {
         #[serde(rename = "key_base64", with = "base64_format")]
         key: StoreKey,
     },
-    CodeUpdate {
+    ContractCodeUpdate {
         account_id: AccountId,
         #[serde(rename = "code_base64", with = "base64_format")]
         code: Vec<u8>,
     },
-    CodeDeletion {
+    ContractCodeDeletion {
         account_id: AccountId,
     },
 }
@@ -1188,10 +1241,12 @@ impl From<StateChangeValue> for StateChangeValueView {
             StateChangeValue::DataDeletion { account_id, key } => {
                 Self::DataDeletion { account_id, key }
             }
-            StateChangeValue::CodeUpdate { account_id, code } => {
-                Self::CodeUpdate { account_id, code }
+            StateChangeValue::ContractCodeUpdate { account_id, code } => {
+                Self::ContractCodeUpdate { account_id, code }
             }
-            StateChangeValue::CodeDeletion { account_id } => Self::CodeDeletion { account_id },
+            StateChangeValue::ContractCodeDeletion { account_id } => {
+                Self::ContractCodeDeletion { account_id }
+            }
         }
     }
 }
