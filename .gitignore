@@ -58,3 +58,7 @@ pytest/.consent
 # testnet genesis
 /near/res/testnet.json
 /near/res/testnet_genesis_records*.json
+
+# state migration home dirs
+/pytest/backward
+/pytest/state_migration

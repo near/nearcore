@@ -52,7 +52,7 @@ def main():
     subprocess.call(["%sstate-viewer-%s" % (near_root, stable_branch), "--home", '%s/test0' % node_root, "dump_state"])
 
     # Migrate.
-    migrations_home = '../scripts/migrations'
+    migrations_home = os.path.join(os.path.dirname(os.path.abspath(__file__)), '../../../scripts/migrations')
     all_migrations = sorted(os.listdir(migrations_home))
     for fname in all_migrations:
         m = re.match('([0-9]+)\-.*', fname)
