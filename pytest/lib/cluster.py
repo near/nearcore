@@ -69,14 +69,14 @@ class Key(object):
 
 
 class BaseNode(object):
-    def _get_command_line(self, near_root, node_dir, boot_key, boot_node_addr):
+    def _get_command_line(self, near_root, node_dir, boot_key, boot_node_addr, binary_name='near'):
         if boot_key is None:
             assert boot_node_addr is None
-            return [os.path.join(near_root, 'near'), "--verbose", "", "--home", node_dir, "run"]
+            return [os.path.join(near_root, binary_name), "--verbose", "", "--home", node_dir, "run"]
         else:
             assert boot_node_addr is not None
             boot_key = boot_key.split(':')[1]
-            return [os.path.join(near_root, 'near'), "--verbose", "", "--home", node_dir, "run", '--boot-nodes', "%s@%s:%s" % (boot_key, boot_node_addr[0], boot_node_addr[1])]
+            return [os.path.join(near_root, binary_name), "--verbose", "", "--home", node_dir, "run", '--boot-nodes', "%s@%s:%s" % (boot_key, boot_node_addr[0], boot_node_addr[1])]
 
     def wait_for_rpc(self, timeout=1):
         retrying.retry(lambda: self.get_status(), timeout=timeout)
@@ -169,16 +169,18 @@ class RpcNode(BaseNode):
 
 
 class LocalNode(BaseNode):
-    def __init__(self, port, rpc_port, near_root, node_dir, blacklist):
+    def __init__(self, port, rpc_port, near_root, node_dir, blacklist, binary_name='near'):
         super(LocalNode, self).__init__()
         self.port = port
         self.rpc_port = rpc_port
         self.near_root = near_root
         self.node_dir = node_dir
+        self.binary_name = binary_name
+        self.cleaned = False
         with open(os.path.join(node_dir, "config.json")) as f:
             config_json = json.loads(f.read())
-        assert config_json['network']['addr'] == '0.0.0.0:24567', config_json['network']['addr']
-        assert config_json['rpc']['addr'] == '0.0.0.0:3030', config_json['rpc']['addr']
+        # assert config_json['network']['addr'] == '0.0.0.0:24567', config_json['network']['addr']
+        # assert config_json['rpc']['addr'] == '0.0.0.0:3030', config_json['rpc']['addr']
         # just a sanity assert that the setting name didn't change
         assert 0 <= config_json['consensus']['min_num_peers'] <= 3, config_json['consensus']['min_num_peers']
         config_json['network']['addr'] = '0.0.0.0:%s' % port
@@ -197,10 +199,10 @@ class LocalNode(BaseNode):
         atexit.register(atexit_cleanup, self)
 
     def addr(self):
-        return ("0.0.0.0", self.port)
+        return ("127.0.0.1", self.port)
 
     def rpc_addr(self):
-        return ("0.0.0.0", self.rpc_port)
+        return ("127.0.0.1", self.rpc_port)
 
     def start(self, boot_key, boot_node_addr):
         env = os.environ.copy()
@@ -211,7 +213,7 @@ class LocalNode(BaseNode):
         self.stdout = open(self.stdout_name, 'a')
         self.stderr = open(self.stderr_name, 'a')
         cmd = self._get_command_line(
-            self.near_root, self.node_dir, boot_key, boot_node_addr)
+            self.near_root, self.node_dir, boot_key, boot_node_addr, self.binary_name)
         self.pid.value = subprocess.Popen(
             cmd, stdout=self.stdout, stderr=self.stderr, env=env).pid
         self.wait_for_rpc(5)
@@ -225,12 +227,15 @@ class LocalNode(BaseNode):
         shutil.rmtree(os.path.join(self.node_dir, "data"))
 
     def cleanup(self):
+        if self.cleaned:
+            return
         self.kill()
         # move the node dir to avoid weird interactions with multiple serial test invocations
         target_path = self.node_dir + '_finished'
         if os.path.exists(target_path) and os.path.isdir(target_path):
             shutil.rmtree(target_path)
         os.rename(self.node_dir, target_path)
+        self.cleaned = True
 
     def stop_network(self):
         print("Stopping network for process %s" % self.pid.value)
@@ -358,7 +363,7 @@ def spin_up_node(config, near_root, node_dir, ordinal, boot_key, boot_addr, blac
     if is_local:
         blacklist = ["127.0.0.1:%s" % (24567 + 10 + bl_ordinal) for bl_ordinal in blacklist]
         node = LocalNode(24567 + 10 + ordinal, 3030 +
-                         10 + ordinal, near_root, node_dir, blacklist)
+                         10 + ordinal, near_root, node_dir, blacklist, config['binary_name'])
     else:
         # TODO: Figure out how to know IP address beforehand for remote deployment.
         assert len(blacklist) == 0, "Blacklist is only supported in LOCAL deployment."
@@ -493,7 +498,7 @@ def start_cluster(num_nodes, num_observers, num_shards, config, genesis_config_c
     return ret
 
 
-DEFAULT_CONFIG = {'local': True, 'near_root': '../target/debug/'}
+DEFAULT_CONFIG = {'local': True, 'near_root': '../target/debug/', 'binary_name': 'near'}
 CONFIG_ENV_VAR = 'NEAR_PYTEST_CONFIG'
 
 
