@@ -48,7 +48,7 @@ pub enum RuntimeError {
     /// An error happened during TX verification and account charging. It's likely the chunk is invalid.
     /// and should be challenged.
     InvalidTxError(InvalidTxError),
-    /// Unexpected error which is typically related to the node storage corruption.account
+    /// Unexpected error which is typically related to the node storage corruption.
     /// That it's possible the input state is invalid or malicious.
     StorageError(StorageError),
     /// An error happens if `check_balance` fails, which is likely an indication of an invalid state.

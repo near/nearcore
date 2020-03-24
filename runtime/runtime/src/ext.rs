@@ -92,7 +92,7 @@ impl<'a> RuntimeExt<'a> {
     fn append_action(&mut self, receipt_index: u64, action: Action) {
         self.action_receipts
             .get_mut(receipt_index as usize)
-            .expect("receipt index should be present")
+            .expect("receipt index should be present; qed")
             .1
             .actions
             .push(action);
@@ -142,8 +142,7 @@ impl<'a> External for RuntimeExt<'a> {
             // Any function that mutates trie_update must drop all existing iterators first.
             unsafe { &*(self.trie_update as *const TrieUpdate) }
                 .iter(&self.create_storage_key(prefix))
-                // TODO(#1131): if storage fails we actually want to abort the block rather than panic in the contract.
-                .expect("Error reading from storage")
+                .map_err(wrap_error)?
                 .peekable(),
         );
         self.last_iter_id += 1;
@@ -155,7 +154,7 @@ impl<'a> External for RuntimeExt<'a> {
             self.last_iter_id,
             unsafe { &mut *(self.trie_update as *mut TrieUpdate) }
                 .range(&self.storage_prefix, start, end)
-                .expect("Error reading from storage")
+                .map_err(wrap_error)?
                 .peekable(),
         );
         self.last_iter_id += 1;
@@ -182,7 +181,7 @@ impl<'a> External for RuntimeExt<'a> {
                 let ptr = self
                     .trie_update
                     .get_ref(&key)
-                    .expect("error cannot happen")
+                    .map_err(wrap_error)?
                     .expect("key is guaranteed to be there");
                 let result = Box::new(RuntimeExtValuePtr(ptr)) as Box<_>;
                 Ok(Some((key[self.storage_prefix.len()..].to_vec(), result)))
