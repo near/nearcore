@@ -226,7 +226,18 @@ class LocalNode(BaseNode):
             self.near_root, self.node_dir, boot_key, boot_node_addr, self.binary_name)
         self.pid.value = subprocess.Popen(
             cmd, stdout=self.stdout, stderr=self.stderr, env=env).pid
-        self.wait_for_rpc(5)
+        try:
+            self.wait_for_rpc(5)
+        except:
+            print('=== Error: failed to start node, rpc does not ready in 5 seconds')
+            self.stdout.close()
+            self.stderr.close()
+            if os.environ.get('BUILDKITE_CI'):
+                print('=== stdout: ')
+                print(open(self.stdout_name).read())
+                print('=== stderr: ')
+                print(open(self.stderr_name).read())
+
 
     def kill(self):
         if self.pid.value != 0:
