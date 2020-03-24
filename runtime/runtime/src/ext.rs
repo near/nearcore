@@ -4,7 +4,7 @@ use std::iter::Peekable;
 use borsh::BorshDeserialize;
 use near_crypto::PublicKey;
 use near_primitives::account::{AccessKey, AccessKeyPermission, FunctionCallPermission};
-use near_primitives::errors::StorageError;
+use near_primitives::errors::{ExternalError, StorageError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{ActionReceipt, DataReceiver, Receipt, ReceiptEnum};
 use near_primitives::transaction::{
@@ -38,7 +38,7 @@ impl<'a> ValuePtr for RuntimeExtValuePtr<'a> {
     }
 
     fn deref(&self) -> ExtResult<Vec<u8>> {
-        self.0.deref_value().map_err(wrap_error)
+        self.0.deref_value().map_err(wrap_storage_error)
     }
 }
 
@@ -99,10 +99,10 @@ impl<'a> RuntimeExt<'a> {
     }
 }
 
-fn wrap_error(error: StorageError) -> VMLogicError {
-    // TODO(#2010): Wrap StorageError into ExternalError.
+fn wrap_storage_error(error: StorageError) -> VMLogicError {
     VMLogicError::ExternalError(
-        borsh::BorshSerialize::try_to_vec(&error).expect("Borsh serialize cannot fail"),
+        borsh::BorshSerialize::try_to_vec(&ExternalError::StorageError(error))
+            .expect("Borsh serialize cannot fail"),
     )
 }
 
@@ -119,7 +119,7 @@ impl<'a> External for RuntimeExt<'a> {
         let storage_key = self.create_storage_key(key);
         self.trie_update
             .get_ref(&storage_key)
-            .map_err(wrap_error)
+            .map_err(wrap_storage_error)
             .map(|option| option.map(|ptr| Box::new(RuntimeExtValuePtr(ptr)) as Box<_>))
     }
 
@@ -131,7 +131,7 @@ impl<'a> External for RuntimeExt<'a> {
 
     fn storage_has_key(&mut self, key: &[u8]) -> ExtResult<bool> {
         let storage_key = self.create_storage_key(key);
-        self.trie_update.get_ref(&storage_key).map(|x| x.is_some()).map_err(wrap_error)
+        self.trie_update.get_ref(&storage_key).map(|x| x.is_some()).map_err(wrap_storage_error)
     }
 
     fn storage_iter(&mut self, prefix: &[u8]) -> ExtResult<u64> {
@@ -178,7 +178,7 @@ impl<'a> External for RuntimeExt<'a> {
                 Ok(None)
             }
             Some(key) => {
-                let key = key.map_err(wrap_error)?;
+                let key = key.map_err(wrap_storage_error)?;
                 let ptr = self
                     .trie_update
                     .get_ref(&key)
