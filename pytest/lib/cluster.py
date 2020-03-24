@@ -232,7 +232,7 @@ class LocalNode(BaseNode):
             print('=== Error: failed to start node, rpc does not ready in 5 seconds')
             self.stdout.close()
             self.stderr.close()
-            if os.environ.get('BUILDKITE_CI'):
+            if os.environ.get('BUILDKITE'):
                 print('=== stdout: ')
                 print(open(self.stdout_name).read())
                 print('=== stderr: ')
