@@ -47,7 +47,7 @@ def test_binaries(exclude=None):
     for f in glob.glob(f'{target_debug}/*'):
         fname = os.path.basename(f)
         ext = os.path.splitext(fname)[1]
-        if os.path.isfile(f) and fname != 'near' and ext == '':
+        if os.path.isfile(f) and fname != 'near' and fname != 'neard' and ext == '':
             if not exclude:
                 binaries.append(f)
             elif not any(map(lambda e: re.match(e, fname), exclude)):
