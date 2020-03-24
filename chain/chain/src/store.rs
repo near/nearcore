@@ -1871,7 +1871,7 @@ impl<'a> ChainStoreUpdate<'a> {
 
             // 3. Delete block_hash-indexed data
             // 3a. Delete block (ColBlock) if not genesis
-            if height > 0 {
+            if height > self.get_genesis_height() {
                 store_update.delete(ColBlock, block_hash.as_ref());
                 self.chain_store.blocks.cache_remove(&block_hash.clone().into());
             }
@@ -1890,8 +1890,10 @@ impl<'a> ChainStoreUpdate<'a> {
             // 3g. Delete from ColBlocksToCatchup
             store_update.delete(ColBlocksToCatchup, block_hash.as_ref());
             // 3i. Delete from ColBlockRefCount
-            self.chain_store.block_refcounts.cache_remove(&block_hash.clone().into());
-            store_update.delete(ColBlockRefCount, block_hash.as_ref());
+            if height > self.get_genesis_height() {
+                store_update.delete(ColBlockRefCount, block_hash.as_ref());
+                self.chain_store.block_refcounts.cache_remove(&block_hash.clone().into());
+            }
         }
         // 4. Delete height-indexed data
         // 4a. Delete blocks with current height (ColBlockPerHeight)
