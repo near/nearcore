@@ -18,8 +18,8 @@ use near_primitives::receipt::{Receipt, ReceivedData};
 use near_primitives::serialize::to_base;
 use near_primitives::types::{AccountId, StorageUsage};
 use near_primitives::utils::{
-    KeyForAccessKey, KeyForAccount, KeyForAccountId, KeyForCode, KeyForData,
-    KeyForPostponedReceipt, KeyForReceivedData,
+    KeyForAccessKey, KeyForAccount, KeyForAccountId, KeyForContractCode, KeyForData,
+    KeyForPostponedReceipt, KeyForReceivedData, TrieKey,
 };
 
 use crate::db::{DBOp, DBTransaction, Database, RocksDB};
@@ -231,11 +231,11 @@ pub fn create_store(path: &str) -> Arc<Store> {
 /// Reads an object from Trie.
 /// # Errors
 /// see StorageError
-pub fn get<T: BorshDeserialize, K: AsRef<[u8]>>(
+pub fn get<T: BorshDeserialize, K: TrieKey>(
     state_update: &TrieUpdate,
-    key: K,
+    key: &K,
 ) -> Result<Option<T>, StorageError> {
-    state_update.get(key.as_ref()).and_then(|opt| {
+    state_update.get(key).and_then(|opt| {
         opt.map_or_else(
             || Ok(None),
             |data| {
@@ -250,9 +250,9 @@ pub fn get<T: BorshDeserialize, K: AsRef<[u8]>>(
 }
 
 /// Writes an object into Trie.
-pub fn set<T: BorshSerialize, K: Into<Vec<u8>>>(state_update: &mut TrieUpdate, key: K, value: &T) {
+pub fn set<T: BorshSerialize, K: TrieKey>(state_update: &mut TrieUpdate, key: K, value: &T) {
     let data = value.try_to_vec().expect("Borsh serializer is not expected to ever fail");
-    state_update.set(key.into(), data);
+    state_update.set(key, data);
 }
 
 /// Number of bytes account and all of it's other data occupies in the storage.
@@ -323,7 +323,7 @@ pub fn get_access_key_raw(
     state_update: &TrieUpdate,
     key: &[u8],
 ) -> Result<Option<AccessKey>, StorageError> {
-    get(state_update, key)
+    get(state_update, &KeyForAccessKey::from_raw_key(&key))
 }
 
 pub fn set_data(state_update: &mut TrieUpdate, account_id: &AccountId, key: &[u8], value: Vec<u8>) {
@@ -331,7 +331,7 @@ pub fn set_data(state_update: &mut TrieUpdate, account_id: &AccountId, key: &[u8
 }
 
 pub fn set_code(state_update: &mut TrieUpdate, account_id: &AccountId, code: &ContractCode) {
-    state_update.set(KeyForCode::new(account_id).into(), code.code.clone());
+    state_update.set(KeyForContractCode::new(account_id), code.code.clone());
 }
 
 pub fn get_code(
@@ -339,7 +339,7 @@ pub fn get_code(
     account_id: &AccountId,
 ) -> Result<Option<ContractCode>, StorageError> {
     state_update
-        .get(KeyForCode::new(account_id))
+        .get(&KeyForContractCode::new(account_id))
         .map(|opt| opt.map(|code| ContractCode::new(code.to_vec())))
 }
 
@@ -357,8 +357,8 @@ pub fn remove_account(
 ) -> Result<(), StorageError> {
     state_update.remove(KeyForAccountId::new(account_id));
     state_update.remove(KeyForAccount::new(account_id));
-    state_update.remove(KeyForCode::new(account_id));
-    state_update.remove_starts_with(KeyForAccessKey::get_prefix(account_id))?;
-    state_update.remove_starts_with(KeyForData::get_prefix(account_id))?;
+    state_update.remove(KeyForContractCode::new(account_id));
+    state_update.remove_starts_with(&KeyForAccessKey::get_prefix(account_id))?;
+    state_update.remove_starts_with(&KeyForData::get_prefix(account_id))?;
     Ok(())
 }

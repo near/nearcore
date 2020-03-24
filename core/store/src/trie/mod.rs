@@ -16,7 +16,7 @@ use near_primitives::types::{
     RawStateChange, RawStateChanges, RawStateChangesWithMetadata, StateChangeCause,
     StateChangeKind, StateRoot, StateRootNode,
 };
-use near_primitives::utils::{KeyForAccessKey, KeyForAccount, KeyForCode, KeyForData};
+use near_primitives::utils::{KeyForAccessKey, KeyForAccount, KeyForContractCode, KeyForData};
 
 use crate::db::{DBCol, DBOp, DBTransaction};
 use crate::trie::insert_delete::NodesStorage;
@@ -582,8 +582,8 @@ impl WrappedTrieChanges {
                 StateChangeKind::AccountTouched { account_id }
             } else if let Ok(account_id) = KeyForAccessKey::parse_account_id_hash(&key) {
                 StateChangeKind::AccessKeyTouched { account_id }
-            } else if let Ok(account_id) = KeyForCode::parse_account_id_hash(&key) {
-                StateChangeKind::CodeTouched { account_id }
+            } else if let Ok(account_id) = KeyForContractCode::parse_account_id_hash(&key) {
+                StateChangeKind::ContractCodeTouched { account_id }
             } else {
                 continue;
             };
@@ -633,10 +633,34 @@ impl KeyForStateChanges {
                 // Split off the irrelevant part of the key, so only the original trie_key is left.
                 let (key, state_changes) = change?;
                 debug_assert!(key.starts_with(&self.0));
-                let key = OwningRef::new(key).map(|key| &key[prefix_len..]);
-                Ok((key, state_changes))
+                let trie_key = OwningRef::new(key).map(|key| &key[prefix_len..]);
+                Ok((trie_key, state_changes))
             },
         )
+    }
+
+    pub fn find_exact_iter<'a: 'b, 'b>(
+        &'a self,
+        store: &'b Store,
+    ) -> impl Iterator<
+        Item = Result<(OwningRef<Vec<u8>, [u8]>, RawStateChangesWithMetadata), std::io::Error>,
+    > + 'b {
+        let prefix_len = Self::estimate_prefix_len();
+        let trie_key_len = self.0.len() - prefix_len;
+        self.find_iter(store).filter_map(move |change| {
+            let (trie_key, state_changes) = match change {
+                Ok(change) => change,
+                error => {
+                    return Some(error);
+                }
+            };
+            if trie_key.len() != trie_key_len {
+                None
+            } else {
+                debug_assert_eq!(trie_key.as_ref(), &self.0[prefix_len..]);
+                Some(Ok((trie_key, state_changes)))
+            }
+        })
     }
 }
 
@@ -882,7 +906,7 @@ impl Trie {
 
     fn convert_to_insertions_and_deletions(
         changes: HashMap<CryptoHash, (Vec<u8>, i32)>,
-    ) -> ((Vec<(CryptoHash, Vec<u8>, u32)>, Vec<(CryptoHash, Vec<u8>, u32)>)) {
+    ) -> (Vec<(CryptoHash, Vec<u8>, u32)>, Vec<(CryptoHash, Vec<u8>, u32)>) {
         let mut deletions = Vec::new();
         let mut insertions = Vec::new();
         for (key, (value, rc)) in changes.into_iter() {

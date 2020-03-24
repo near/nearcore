@@ -53,8 +53,13 @@ pub mod col {
     pub const ACCOUNT_ID: &[u8] = &[10];
 }
 
+pub trait TrieKey: AsRef<[u8]> + Into<Vec<u8>> {}
+
 #[derive(derive_more::AsRef, derive_more::Into)]
+#[as_ref(forward)]
 struct KeyForColumnAccountId(Vec<u8>);
+
+impl TrieKey for KeyForColumnAccountId {}
 
 impl KeyForColumnAccountId {
     #[inline]
@@ -87,6 +92,8 @@ impl KeyForColumnAccountId {
 #[derive(derive_more::AsRef, derive_more::Into)]
 #[as_ref(forward)]
 pub struct KeyForAccount(Vec<u8>);
+
+impl TrieKey for KeyForAccount {}
 
 impl KeyForAccount {
     #[inline]
@@ -145,10 +152,17 @@ impl KeyForAccountId {
 #[as_ref(forward)]
 pub struct KeyForAccessKey(Vec<u8>);
 
+impl TrieKey for KeyForAccessKey {}
+
 impl KeyForAccessKey {
     #[inline]
     fn estimate_prefix_len() -> usize {
         KeyForColumnAccountId::estimate_len(col::ACCESS_KEY) + col::ACCESS_KEY.len()
+    }
+
+    /// This is not safe and should only be used internally for iterating over access keys for reading.
+    pub fn from_raw_key(key: &[u8]) -> Self {
+        Self(key.to_vec())
     }
 
     #[inline]
@@ -221,6 +235,8 @@ impl KeyForAccessKey {
 #[as_ref(forward)]
 pub struct KeyForData(Vec<u8>);
 
+impl TrieKey for KeyForData {}
+
 impl KeyForData {
     #[inline]
     pub fn estimate_len(key: &[u8]) -> usize {
@@ -238,6 +254,13 @@ impl KeyForData {
         Self::get_prefix_with_capacity(account_id, 0)
     }
 
+    pub fn with_suffix(&self, suffix: &[u8]) -> Self {
+        let mut raw_key = Vec::with_capacity(self.0.len() + suffix.len());
+        raw_key.extend(&self.0);
+        raw_key.extend(suffix);
+        Self(raw_key)
+    }
+
     pub fn new(account_id: &AccountId, key: &[u8]) -> Self {
         let mut bytes = Self::get_prefix_with_capacity(&account_id, key.len());
         bytes.0.extend(key);
@@ -245,7 +268,6 @@ impl KeyForData {
         bytes
     }
 
-    /*
     pub fn parse_account_id<K: AsRef<[u8]>>(raw_key: K) -> Result<AccountId, std::io::Error> {
         let account_id_prefix =
             KeyForColumnAccountId::parse_account_id_prefix(col::ACCOUNT, raw_key.as_ref())?;
@@ -288,9 +310,11 @@ impl KeyForData {
 
 #[derive(derive_more::AsRef, derive_more::Into)]
 #[as_ref(forward)]
-pub struct KeyForCode(Vec<u8>);
+pub struct KeyForContractCode(Vec<u8>);
 
-impl KeyForCode {
+impl TrieKey for KeyForContractCode {}
+
+impl KeyForContractCode {
     pub fn new(account_id: &AccountId) -> Self {
         Self(KeyForColumnAccountId::with_capacity(col::CODE, account_id, 0).into())
     }
@@ -311,6 +335,8 @@ impl KeyForCode {
 #[as_ref(forward)]
 pub struct KeyForReceivedData(Vec<u8>);
 
+impl TrieKey for KeyForReceivedData {}
+
 impl KeyForReceivedData {
     pub fn new(account_id: &AccountId, data_id: &CryptoHash) -> Self {
         let mut key: Vec<u8> = KeyForColumnAccountId::with_capacity(
@@ -327,6 +353,8 @@ impl KeyForReceivedData {
 #[derive(derive_more::AsRef, derive_more::Into)]
 #[as_ref(forward)]
 pub struct KeyForPostponedReceiptId(Vec<u8>);
+
+impl TrieKey for KeyForPostponedReceiptId {}
 
 impl KeyForPostponedReceiptId {
     pub fn new(account_id: &AccountId, data_id: &CryptoHash) -> Self {
@@ -345,6 +373,8 @@ impl KeyForPostponedReceiptId {
 #[as_ref(forward)]
 pub struct KeyForPendingDataCount(Vec<u8>);
 
+impl TrieKey for KeyForPendingDataCount {}
+
 impl KeyForPendingDataCount {
     pub fn new(account_id: &AccountId, receipt_id: &CryptoHash) -> Self {
         let mut key: Vec<u8> = KeyForColumnAccountId::with_capacity(
@@ -361,6 +391,8 @@ impl KeyForPendingDataCount {
 #[derive(derive_more::AsRef, derive_more::Into)]
 #[as_ref(forward)]
 pub struct KeyForPostponedReceipt(Vec<u8>);
+
+impl TrieKey for KeyForPostponedReceipt {}
 
 impl KeyForPostponedReceipt {
     pub fn new(account_id: &AccountId, receipt_id: &CryptoHash) -> Self {
@@ -379,6 +411,8 @@ impl KeyForPostponedReceipt {
 #[as_ref(forward)]
 pub struct KeyForDelayedReceipt(Vec<u8>);
 
+impl TrieKey for KeyForDelayedReceipt {}
+
 impl KeyForDelayedReceipt {
     pub fn new(index: u64) -> Self {
         let index_bytes = index.to_le_bytes();
@@ -386,6 +420,18 @@ impl KeyForDelayedReceipt {
         key.extend(col::DELAYED_RECEIPT);
         key.extend(&index_bytes);
         Self(key)
+    }
+}
+
+#[derive(derive_more::AsRef, derive_more::Into)]
+#[as_ref(forward)]
+pub struct KeyForDelayedReceiptIndices(Vec<u8>);
+
+impl TrieKey for KeyForDelayedReceiptIndices {}
+
+impl KeyForDelayedReceiptIndices {
+    pub fn new() -> Self {
+        Self(col::DELAYED_RECEIPT_INDICES.to_vec())
     }
 }
 
@@ -659,8 +705,8 @@ mod tests {
     #[test]
     fn test_key_for_code_consistency() {
         for account_id in OK_ACCOUNT_IDS.iter().map(|x| AccountId::from(*x)) {
-            let key = KeyForCode::new(&account_id);
-            assert_eq!(KeyForCode::parse_account_id(&key).unwrap(), account_id);
+            let key = KeyForContractCode::new(&account_id);
+            assert_eq!(KeyForContractCode::parse_account_id(&key).unwrap(), account_id);
         }
     }
 

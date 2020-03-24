@@ -1123,6 +1123,7 @@ pub enum NetworkAdversarialMessage {
     AdvDisableHeaderSync,
     AdvDisableDoomslug,
     AdvGetSavedBlocks,
+    AdvCheckRefMap,
     AdvSetSyncInfo(u64, u64),
 }
 
@@ -1161,7 +1162,7 @@ pub enum NetworkClientMessages {
 pub enum NetworkClientResponses {
     /// Adv controls.
     #[cfg(feature = "adversarial")]
-    AdvU64(u64),
+    AdvResult(u64),
 
     /// No response.
     NoResponse,

@@ -4,8 +4,7 @@ use crate::context::VMContext;
 use crate::dependencies::{External, MemoryLike};
 use crate::gas_counter::GasCounter;
 use crate::types::{
-    AccountId, Balance, Gas, IteratorIndex, PromiseIndex, PromiseResult, ReceiptIndex, ReturnData,
-    StorageUsage,
+    AccountId, Balance, Gas, PromiseIndex, PromiseResult, ReceiptIndex, ReturnData, StorageUsage,
 };
 use crate::utils::split_method_names;
 use crate::{ExtCosts, HostError, VMLogicError, ValuePtr};
@@ -13,7 +12,7 @@ use byteorder::ByteOrder;
 use near_runtime_fees::RuntimeFeesConfig;
 use near_vm_errors::InconsistentStateError;
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::mem::size_of;
 
 type Result<T> = ::std::result::Result<T, VMLogicError>;
@@ -51,11 +50,6 @@ pub struct VMLogic<'a> {
     /// host-guest boundary.
     registers: HashMap<u64, Vec<u8>>,
 
-    /// Iterators that were created and can still be used.
-    valid_iterators: HashSet<IteratorIndex>,
-    /// Iterators that became invalidated by mutating the trie.
-    invalid_iterators: HashSet<IteratorIndex>,
-
     /// The DAG of promises, indexed by promise id.
     promises: Vec<Promise>,
     /// Record the accounts towards which the receipts are directed.
@@ -79,7 +73,7 @@ enum Promise {
 
 macro_rules! memory_get {
     ($_type:ty, $name:ident) => {
-        fn $name(&mut self, offset: u64, ) -> Result<$_type> {
+        fn $name(&mut self, offset: u64) -> Result<$_type> {
             let mut array = [0u8; size_of::<$_type>()];
             self.memory_get_into(offset, &mut array)?;
             Ok(<$_type>::from_le_bytes(array))
@@ -89,7 +83,7 @@ macro_rules! memory_get {
 
 macro_rules! memory_set {
     ($_type:ty, $name:ident) => {
-        fn $name( &mut self, offset: u64, value: $_type, ) -> Result<()> {
+        fn $name(&mut self, offset: u64, value: $_type) -> Result<()> {
             self.memory_set_slice(offset, &value.to_le_bytes())
         }
     };
@@ -134,8 +128,6 @@ impl<'a> VMLogic<'a> {
             return_data: ReturnData::None,
             logs: vec![],
             registers: HashMap::new(),
-            valid_iterators: HashSet::new(),
-            invalid_iterators: HashSet::new(),
             promises: vec![],
             receipt_to_account: HashMap::new(),
             total_log_length: 0,
@@ -1873,11 +1865,6 @@ impl<'a> VMLogic<'a> {
             );
         }
         self.gas_counter.pay_base(storage_write_base)?;
-        // All iterators that were valid now become invalid
-        for invalidated_iter_idx in self.valid_iterators.drain() {
-            self.ext.storage_iter_drop(invalidated_iter_idx)?;
-            self.invalid_iterators.insert(invalidated_iter_idx);
-        }
         let key = self.get_vec_from_memory_or_register(key_ptr, key_len)?;
         if key.len() as u64 > self.config.limit_config.max_length_storage_key {
             return Err(HostError::KeyLengthExceeded {
@@ -2018,11 +2005,6 @@ impl<'a> VMLogic<'a> {
             );
         }
         self.gas_counter.pay_base(storage_remove_base)?;
-        // All iterators that were valid now become invalid
-        for invalidated_iter_idx in self.valid_iterators.drain() {
-            self.ext.storage_iter_drop(invalidated_iter_idx)?;
-            self.invalid_iterators.insert(invalidated_iter_idx);
-        }
         let key = self.get_vec_from_memory_or_register(key_ptr, key_len)?;
         if key.len() as u64 > self.config.limit_config.max_length_storage_key {
             return Err(HostError::KeyLengthExceeded {
@@ -2142,6 +2124,7 @@ impl<'a> VMLogic<'a> {
         }))
     }
 
+    /// DEPRECATED
     /// Advances iterator and saves the next key and value in the register.
     /// * If iterator is not empty (after calling next it points to a key-value), copies the key
     ///   into `key_register_id` and value into `value_register_id` and returns `1`;
