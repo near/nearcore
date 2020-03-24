@@ -905,7 +905,7 @@ impl Trie {
 
     fn convert_to_insertions_and_deletions(
         changes: HashMap<CryptoHash, (Vec<u8>, i32)>,
-    ) -> ((Vec<(CryptoHash, Vec<u8>, u32)>, Vec<(CryptoHash, Vec<u8>, u32)>)) {
+    ) -> (Vec<(CryptoHash, Vec<u8>, u32)>, Vec<(CryptoHash, Vec<u8>, u32)>) {
         let mut deletions = Vec::new();
         let mut insertions = Vec::new();
         for (key, (value, rc)) in changes.into_iter() {

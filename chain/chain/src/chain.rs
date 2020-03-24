@@ -3307,25 +3307,31 @@ pub fn check_refcount_map(chain: &mut Chain) -> Result<(), Error> {
     let mut chain_store_update = ChainStoreUpdate::new(chain.mut_store());
     for (block_hash, refcount) in block_refcounts {
         match chain_store_update.get_block(&block_hash) {
-            Ok(_) => {
-                if chain_store_update.get_block_refcount(&block_hash)? != &refcount {
+            Ok(_) => match chain_store_update.get_block_refcount(&block_hash) {
+                Ok(&block_refcount) => {
+                    if block_refcount != refcount {
+                        return Err(ErrorKind::Other(format!(
+                            "invalid number of references in Block {:?}, expected {:?}, found {:?}",
+                            block_hash, refcount, block_refcount
+                        ))
+                        .into());
+                    }
+                }
+                Err(e) => {
                     return Err(ErrorKind::Other(format!(
-                        "invalid number of references in Block {:?}, expected {:?}, found {:?}",
-                        block_hash,
-                        chain_store_update.get_block_refcount(&block_hash).unwrap(),
-                        refcount
+                        "Block {:?} is deleted while expected {:?} references; get_block_refcount failed: {:?}",
+                        block_hash, refcount, e
                     ))
                     .into());
                 }
-            }
-            Err(_) => {
-                if chain_store_update.get_block_refcount(&block_hash).is_ok() {
+            },
+            Err(e) => {
+                if let Ok(&block_refcount) = chain_store_update.get_block_refcount(&block_hash) {
                     return Err(ErrorKind::Other(format!(
-                        "Block {:?} expected to be deleted, found {:?} references instead",
-                        block_hash,
-                        chain_store_update.get_block_refcount(&block_hash).unwrap(),
+                        "Block {:?} expected to be deleted, found {:?} references instead: get_block failed: {:?}",
+                        block_hash, block_refcount, e
                     ))
-                    .into());
+                        .into());
                 }
             }
         }

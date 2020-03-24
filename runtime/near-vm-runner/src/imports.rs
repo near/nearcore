@@ -12,6 +12,7 @@ unsafe impl Sync for ImportReference {}
 macro_rules! wrapped_imports {
         ( $( $func:ident < [ $( $arg_name:ident : $arg_type:ident ),* ] -> [ $( $returns:ident ),* ] >, )* ) => {
             $(
+                #[allow(unused_parens)]
                 fn $func( ctx: &mut Ctx, $( $arg_name: $arg_type ),* ) -> Result<($( $returns ),*)> {
                     let logic: &mut VMLogic = unsafe { &mut *(ctx.data as *mut VMLogic) };
                     logic.$func( $( $arg_name, )* )
