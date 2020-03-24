@@ -47,24 +47,25 @@ def main():
     wait_for_blocks_or_timeout(stable_node, 20, 100)
     # TODO: we should make state more interesting to migrate by sending some tx / contracts.
     stable_node.cleanup()
-    os.rename('%s/test0_finished' % node_root, '%s/test0' % node_root)
-    subprocess.call(f'rm -rf {node_root}/test0/stderr', shell=True)
+    os.mkdir('%s/test0' % node_root)
+    
     # Dump state.
-    subprocess.call(["%sstate-viewer-%s" % (near_root, stable_branch), "--home", '%s/test0' % node_root, "dump_state"])
+    subprocess.call(["%sstate-viewer-%s" % (near_root, stable_branch), "--home", '%s/test0_finished' % node_root, "dump_state"])
 
     # Migrate.
-    print(f'====== {current_branch}')
-    print(subprocess.check_output(['git', 'status']))
-    migrations_home = os.path.join(os.path.dirname(os.path.abspath(__file__)), '../../../scripts/migrations')
+    migrations_home = '../scripts/migrations'
     all_migrations = sorted(os.listdir(migrations_home), key=lambda x: int(x.split('-')[0]))
     for fname in all_migrations:
         m = re.match('([0-9]+)\-.*', fname)
         if m:
             version = int(m.groups()[0])
             if version > stable_protocol_version:
-                subprocess.call(['python', os.path.join(migrations_home, fname), '%s/test0' % node_root, '%s/test0' % node_root])
+                subprocess.call(['python', os.path.join(migrations_home, fname), '%s/test0_finished' % node_root, '%s/test0_finished' % node_root])
 
-    os.rename(os.path.join(node_root, 'test0/output.json'), os.path.join(node_root, 'test0/genesis.json'))
+    os.rename(os.path.join(node_root, 'test0_finished/output.json'), os.path.join(node_root, 'test0/genesis.json'))
+    os.copy(os.path.join(node_root, 'test0_finished/config.json'), os.path.join(node_root, 'test0/'))
+    os.copy(os.path.join(node_root, 'test0_finished/validator_key.json'), os.path.join(node_root, 'test0/'))
+    os.copy(os.path.join(node_root, 'test0_finished/node_key.json'), os.path.join(node_root, 'test0/'))
 
     # Run new node and verify it runs for a few more blocks.
     config["binary_name"] = "near-%s" % current_branch
