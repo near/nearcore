@@ -563,7 +563,7 @@ impl ClientActor {
             .get_epoch_block_producers_ordered(&next_epoch_id, &prev_block_hash)
         {
             if validators.iter().any(|(validator_stake, _)| {
-                (&validator_stake.account_id == validator_signer.validator_id())
+                &validator_stake.account_id == validator_signer.validator_id()
             }) {
                 debug!(target: "client", "Sending announce account for {}", validator_signer.validator_id());
                 self.last_validator_announce_height = Some(epoch_start_height);

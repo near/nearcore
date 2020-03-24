@@ -10,17 +10,13 @@ use std::sync::RwLock;
 #[derive(Debug, Clone, PartialEq)]
 pub struct DBError(rocksdb::Error);
 
-impl std::error::Error for DBError {
-    fn description(&self) -> &str {
-        &self.0.description()
-    }
-}
-
 impl std::fmt::Display for DBError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
         self.0.fmt(formatter)
     }
 }
+
+impl std::error::Error for DBError {}
 
 impl From<rocksdb::Error> for DBError {
     fn from(err: rocksdb::Error) -> Self {

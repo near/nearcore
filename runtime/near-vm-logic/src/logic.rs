@@ -79,7 +79,7 @@ enum Promise {
 
 macro_rules! memory_get {
     ($_type:ty, $name:ident) => {
-        fn $name(&mut self, offset: u64, ) -> Result<$_type> {
+        fn $name(&mut self, offset: u64) -> Result<$_type> {
             let mut array = [0u8; size_of::<$_type>()];
             self.memory_get_into(offset, &mut array)?;
             Ok(<$_type>::from_le_bytes(array))
@@ -89,7 +89,7 @@ macro_rules! memory_get {
 
 macro_rules! memory_set {
     ($_type:ty, $name:ident) => {
-        fn $name( &mut self, offset: u64, value: $_type, ) -> Result<()> {
+        fn $name(&mut self, offset: u64, value: $_type) -> Result<()> {
             self.memory_set_slice(offset, &value.to_le_bytes())
         }
     };
