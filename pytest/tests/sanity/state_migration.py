@@ -63,9 +63,9 @@ def main():
                 subprocess.call(['python', os.path.join(migrations_home, fname), '%s/test0_finished' % node_root, '%s/test0_finished' % node_root])
 
     os.rename(os.path.join(node_root, 'test0_finished/output.json'), os.path.join(node_root, 'test0/genesis.json'))
-    os.copy(os.path.join(node_root, 'test0_finished/config.json'), os.path.join(node_root, 'test0/'))
-    os.copy(os.path.join(node_root, 'test0_finished/validator_key.json'), os.path.join(node_root, 'test0/'))
-    os.copy(os.path.join(node_root, 'test0_finished/node_key.json'), os.path.join(node_root, 'test0/'))
+    shutil.copy(os.path.join(node_root, 'test0_finished/config.json'), os.path.join(node_root, 'test0/'))
+    shutil.copy(os.path.join(node_root, 'test0_finished/validator_key.json'), os.path.join(node_root, 'test0/'))
+    shutil.copy(os.path.join(node_root, 'test0_finished/node_key.json'), os.path.join(node_root, 'test0/'))
 
     # Run new node and verify it runs for a few more blocks.
     config["binary_name"] = "near-%s" % current_branch
