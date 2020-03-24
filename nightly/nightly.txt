@@ -25,6 +25,8 @@ pytest --timeout=240 sanity/block_sync.py
 pytest --timeout=240 sanity/validator_switch.py
 pytest --timeout=240 sanity/restaked.py
 pytest --timeout=240 sanity/rpc_state_changes.py
+pytest --timeout=120 sanity/garbage_collection.py
+pytest --timeout=120 sanity/garbage_collection1.py
 
 # python tests for smart contract deployment and invocation
 pytest contracts/deploy_call_smart_contract.py

@@ -44,6 +44,7 @@ use node_runtime::state_viewer::TrieViewer;
 use node_runtime::{verify_and_charge_transaction, ApplyState, Runtime, ValidatorAccountsUpdate};
 
 use crate::shard_tracker::{account_id_to_shard_id, ShardTracker};
+use near_chain::chain::NUM_EPOCHS_TO_KEEP_STORE_DATA;
 
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 const STATE_DUMP_FILE: &str = "state_dump";
@@ -791,6 +792,27 @@ impl RuntimeAdapter for NightshadeRuntime {
     fn get_epoch_start_height(&self, block_hash: &CryptoHash) -> Result<BlockHeight, Error> {
         let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
         epoch_manager.get_epoch_start_height(block_hash).map_err(Error::from)
+    }
+
+    fn get_gc_stop_height(&self, block_hash: &CryptoHash) -> Result<BlockHeight, Error> {
+        let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
+        // an epoch must have a first block.
+        let epoch_first_block = epoch_manager.get_block_info(block_hash)?.epoch_first_block;
+        let epoch_first_block_info = epoch_manager.get_block_info(&epoch_first_block)?;
+        // maintain pointers to avoid cloning.
+        let mut last_block_in_prev_epoch = epoch_first_block_info.prev_hash;
+        let mut epoch_start_height = epoch_first_block_info.height;
+        for _ in 0..NUM_EPOCHS_TO_KEEP_STORE_DATA - 1 {
+            let epoch_first_block = match epoch_manager.get_block_info(&last_block_in_prev_epoch) {
+                Ok(block_info) => block_info.epoch_first_block,
+                Err(EpochError::MissingBlock(_)) => return Ok(epoch_start_height),
+                Err(e) => return Err(e.into()),
+            };
+            let epoch_first_block_info = epoch_manager.get_block_info(&epoch_first_block)?;
+            epoch_start_height = epoch_first_block_info.height;
+            last_block_in_prev_epoch = epoch_first_block_info.prev_hash;
+        }
+        Ok(epoch_start_height)
     }
 
     fn get_epoch_inflation(&self, epoch_id: &EpochId) -> Result<Balance, Error> {
