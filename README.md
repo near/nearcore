@@ -9,45 +9,77 @@
 <br />
 
 
-## NEAR Protocol - scalable and usable blockchain
+## Reference implementation of NEAR Protocol
 
-[![Build status](https://badge.buildkite.com/a81147cb62c585cc434459eedd1d25e521453120ead9ee6c64.svg)](https://buildkite.com/nearprotocol/nearcore)
-[![codecov](https://codecov.io/gh/nearprotocol/nearcore/branch/master/graph/badge.svg)](https://codecov.io/gh/nearprotocol/nearcore)
-(https://deps.rs/repo/github/nearprotocol/nearcore)
-<a href="https://discord.gg/gBtUFKR">![Discord](https://img.shields.io/discord/490367152054992913.svg)</a>
+[![codecov][codecov-badge]][codecov-url]
+[![Discord chat][discord-badge]][discord-url]
+[![Telegram Group][telegram-badge]][telegram-url]
 
-* ⚖️ NEAR Protocol is a new smart-contract platform that delivers scalability and usability.
-* 🛠 Through sharding, it will linearly scale with the number of validation nodes on the network.
-* 🗝 Leveraging WebAssembly, TypeScript, more sane contract management, ephemeral accounts and many other advancements, NEAR
-finally makes using a blockchain protocol easy for both developers and consumers.
+master | beta | stable
+---|---|---|
+[![Build Status][ci-badge-master]][ci-url] | [![Build Status][ci-badge-beta]][ci-url] | [![Build Status][ci-badge-stable]][ci-url] 
 
-## Quick start
+[ci-badge-master]: https://badge.buildkite.com/a81147cb62c585cc434459eedd1d25e521453120ead9ee6c64.svg
+[ci-badge-beta]: https://badge.buildkite.com/a81147cb62c585cc434459eedd1d25e521453120ead9ee6c64.svg?branch=beta
+[ci-badge-stable]: https://badge.buildkite.com/a81147cb62c585cc434459eedd1d25e521453120ead9ee6c64.svg?branch=stable
+[ci-url]: https://buildkite.com/nearprotocol/nearcore
+[codecov-badge]: https://codecov.io/gh/nearprotocol/nearcore/branch/master/graph/badge.svg
+[codecov-url]: https://codecov.io/gh/nearprotocol/nearcore
+[discord-badge]: https://img.shields.io/discord/490367152054992913.svg
+[discord-url]: https://near.chat
+[telegram-badge]: https://cdn.jsdelivr.net/gh/Patrolavia/telegram-badge@8fe3382b3fd3a1c533ba270e608035a27e430c2e/chat.svg
+[telegram-url]: https://t.me/cryptonear
 
-[Check out our documentation](http://docs.nearprotocol.com), specifically:
- - [Working with Smart Contracts in NEAR Studio](https://docs.nearprotocol.com/docs/quick-start/development-overview)
+## About NEAR
 
-Develop and deploy contracts without any setup required using [NEAR Studio](https://studio.nearprotocol.com):
+NEAR's purpose is to enable community-driven innovation to benefit people around the world.
 
-[![NEAR Studio](https://github.com/nearprotocol/NEARStudio/blob/master/demos/guest_book.gif)](https://studio.nearprotocol.com)
+To achieve this purpose, *NEAR* provides a developer platform where developers and entrepreneurs can create apps that put users back in control of their data and assets, which is the foundation of ["Open Web" movement][open-web-url].
 
+One of the components of *NEAR* is NEAR Protocol, an infra for server-less applications and smart contracts powered by blockchain.
+NEAR Protocol is built to deliver usability and scalability of modern PaaS like Firebase at fraction of prices that blockchains like Ethereum charge.
 
-## Status
+*NEAR* overall provides wide range of tools for developers to easily build applications:
+ - [JS SDK][js-api] to connect ot NEAR Protocol from your applications.
+ - [Rust][rust-sdk] and [AssemblyScript][as-sdk] SDKs to write sever-less functions & smart contracts.
+ - [Numerous examples][examples-url] with GitPod links to play with them right out of your browser.
+ - [Lots of documentation][docs-url], with [Tutorials][tutorials-url] and [API docs][api-docs-url].
 
-This project is currently under heavy development. Please see [Issues](https://github.com/nearprotocol/nearcore/issues) and [Milestones](https://github.com/nearprotocol/nearcore/milestones) to checkout the current progress and working items.
+[open-web-url]: https://techcrunch.com/2016/04/10/1301496/ 
+[js-api]: https://github.com/near/near-api-js 
+[rust-sdk]: https://github.com/near/near-sdk-rs
+[as-sdk]: https://github.com/near/near-sdk-as
+[examples-url]: https://near.dev
+[docs-url]: http://docs.nearprotocol.com
+[tutorials-url]: https://docs.nearprotocol.com/docs/roles/developer/tutorials/introduction
+[api-docs-url]: https://docs.nearprotocol.com/docs/roles/developer/examples/nearlib/introduction
 
-High level milestones:
+## Join the Network
 
- - [x] DevNet: a tool with fully working State Transition + WebAssembly.
- - [x] AlphaNet: Multi-node smart-contract platform.
- - [X] BetaNet: Added economics and enhanced security.
- - [ ] (In progress) Nightshade: Added sharding and staking.
- - [ ] TestNet: Added governance module, ready to launch as MainNet
- - [ ] MainNet: Launched full blockchain.
+The easiest way to join the network, is by using `nearup` command, which you can install:
 
-## Running
+```bash
+curl --proto '=https' --tlsv1.2 -sSfL https://up.near.dev | python3
+```
 
-Checkout the [Running Locally](https://docs.nearprotocol.com/docs/local-setup/running-testnet) and [Running Remotely](https://docs.nearprotocol.com/docs/local-setup/running-testnet#running-official-testnet-on-gcp) sections.
+You can join all the active networks:
+* TestNet: `nearup testnet`
+* BetaNet: `nearup betanet`
+* DevNet: `nearup devnet`
 
-## Developing
+Check `nearup` repository for [more details](https://github.com/near/nearup) how to run with or without docker.
 
-Checkout the [Developing NEARCore](https://docs.nearprotocol.com/docs/contribution/contribution-overview#creating-and-submitting-a-pull-request-prs) section of documentation.
+To learn how to become validator, checkout [documentation](https://docs.nearprotocol.com/docs/validator/staking-overview).
+
+## Development Status
+
+This project is currently under heavy development toward MainNet launch.
+
+We are using [ZenHub](https://zenhub.com) to manage the development process. You can either login on their website or [install ZenHub extension](https://www.zenhub.com/extension) to see additional information right on Github.
+
+For the high-level roadmap, checkout [Chain&Middleware's roadmap](https://app.zenhub.com/workspaces/chainmiddleware-5cea2bcf78297c385cf0ec81/roadmap). 
+
+## Contributing
+
+The workflow and details of setup to contribute are described in [CONTRIBUTING.md](CONTRIBUTING.md), and security policy is described in [SECURITY.md](SECURITY.md).
+To propose new protocol change or standard use [Specification & Standards repository](https://github.com/nearprotocol/NEPs). 
