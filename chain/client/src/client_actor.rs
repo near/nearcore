@@ -228,8 +228,11 @@ impl Handler<NetworkClientMessages> for ClientActor {
                     NetworkAdversarialMessage::AdvCheckRefMap => {
                         info!(target: "adversary", "Check Block Reference Map");
                         match check_refcount_map(&mut self.client.chain) {
-                            Ok(_) => NetworkClientResponses::AdvResult(1), /* true */
-                            Err(_) => NetworkClientResponses::AdvResult(0), /* false */
+                            Ok(_) => NetworkClientResponses::AdvResult(1 /* true */),
+                            Err(e) => {
+                                error!(target: "client", "Block Reference Map is inconsistent: {:?}", e);
+                                NetworkClientResponses::AdvResult(0 /* false */)
+                            }
                         }
                     }
                     _ => panic!("invalid adversary message"),
@@ -563,7 +566,7 @@ impl ClientActor {
             .get_epoch_block_producers_ordered(&next_epoch_id, &prev_block_hash)
         {
             if validators.iter().any(|(validator_stake, _)| {
-                (&validator_stake.account_id == validator_signer.validator_id())
+                &validator_stake.account_id == validator_signer.validator_id()
             }) {
                 debug!(target: "client", "Sending announce account for {}", validator_signer.validator_id());
                 self.last_validator_announce_height = Some(epoch_start_height);
