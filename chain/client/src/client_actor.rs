@@ -9,6 +9,8 @@ use actix::{Actor, Addr, AsyncContext, Context, Handler};
 use chrono::{DateTime, Utc};
 use log::{debug, error, info, warn};
 
+#[cfg(feature = "adversarial")]
+use near_chain::check_refcount_map;
 use near_chain::test_utils::format_hash;
 use near_chain::types::AcceptedBlock;
 use near_chain::{
@@ -221,7 +223,17 @@ impl Handler<NetworkClientMessages> for ClientActor {
                         for _ in store.iter(ColBlock) {
                             num_blocks += 1;
                         }
-                        NetworkClientResponses::AdvU64(num_blocks)
+                        NetworkClientResponses::AdvResult(num_blocks)
+                    }
+                    NetworkAdversarialMessage::AdvCheckRefMap => {
+                        info!(target: "adversary", "Check Block Reference Map");
+                        match check_refcount_map(&mut self.client.chain) {
+                            Ok(_) => NetworkClientResponses::AdvResult(1 /* true */),
+                            Err(e) => {
+                                error!(target: "client", "Block Reference Map is inconsistent: {:?}", e);
+                                NetworkClientResponses::AdvResult(0 /* false */)
+                            }
+                        }
                     }
                     _ => panic!("invalid adversary message"),
                 };
@@ -554,7 +566,7 @@ impl ClientActor {
             .get_epoch_block_producers_ordered(&next_epoch_id, &prev_block_hash)
         {
             if validators.iter().any(|(validator_stake, _)| {
-                (&validator_stake.account_id == validator_signer.validator_id())
+                &validator_stake.account_id == validator_signer.validator_id()
             }) {
                 debug!(target: "client", "Sending announce account for {}", validator_signer.validator_id());
                 self.last_validator_announce_height = Some(epoch_start_height);

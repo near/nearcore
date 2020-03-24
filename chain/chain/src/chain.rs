@@ -524,6 +524,7 @@ impl Chain {
         }
 
         chain_store_update.save_block(block.clone());
+        chain_store_update.inc_block_refcount(&block.header.prev_hash)?;
 
         chain_store_update.commit()?;
         Ok(())
@@ -1854,11 +1855,22 @@ impl Chain {
         })
     }
 
+    /// Find a validator to forward transactions to
+    pub fn find_chunk_producer_for_forwarding(
+        &self,
+        epoch_id: &EpochId,
+        shard_id: ShardId,
+    ) -> Result<AccountId, Error> {
+        let head = self.head()?;
+        let target_height = head.height + TX_ROUTING_HEIGHT_HORIZON - 1;
+        self.runtime_adapter.get_chunk_producer(&epoch_id, target_height, shard_id)
+    }
+
     /// Find a validator that is responsible for a given shard to forward requests to
     pub fn find_validator_for_forwarding(&self, shard_id: ShardId) -> Result<AccountId, Error> {
         let head = self.head()?;
-        let target_height = head.height + TX_ROUTING_HEIGHT_HORIZON - 1;
-        self.runtime_adapter.get_chunk_producer(&head.epoch_id, target_height, shard_id)
+        let epoch_id = self.runtime_adapter.get_epoch_id_from_prev_block(&head.last_block_hash)?;
+        self.find_chunk_producer_for_forwarding(&epoch_id, shard_id)
     }
 }
 
@@ -2666,6 +2678,7 @@ impl<'a> ChainUpdate<'a> {
 
         // Add validated block to the db, even if it's not the canonical fork.
         self.chain_store_update.save_block(block.clone());
+        self.chain_store_update.inc_block_refcount(&block.header.prev_hash)?;
         for (shard_id, chunk_headers) in block.chunks.iter().enumerate() {
             if chunk_headers.height_included == block.header.inner_lite.height {
                 self.chain_store_update
@@ -3278,4 +3291,57 @@ pub fn collect_receipts_from_response(
 ) -> Vec<Receipt> {
     let receipt_proofs = &receipt_proof_response.iter().map(|x| x.1.clone()).flatten().collect();
     collect_receipts(receipt_proofs)
+}
+
+// Used in testing only
+pub fn check_refcount_map(chain: &mut Chain) -> Result<(), Error> {
+    let head = chain.head()?;
+    let mut block_refcounts = HashMap::new();
+    for height in chain.store().get_genesis_height() + 1..=head.height {
+        let blocks_current_height = match chain.mut_store().get_all_block_hashes_by_height(height) {
+            Ok(blocks_current_height) => {
+                blocks_current_height.values().flatten().cloned().collect()
+            }
+            _ => vec![],
+        };
+        for block_hash in blocks_current_height.iter() {
+            if let Ok(prev_hash) = chain.get_block(&block_hash).map(|block| block.header.prev_hash)
+            {
+                *block_refcounts.entry(prev_hash).or_insert(0) += 1;
+            }
+        }
+    }
+    let mut chain_store_update = ChainStoreUpdate::new(chain.mut_store());
+    for (block_hash, refcount) in block_refcounts {
+        match chain_store_update.get_block(&block_hash) {
+            Ok(_) => match chain_store_update.get_block_refcount(&block_hash) {
+                Ok(&block_refcount) => {
+                    if block_refcount != refcount {
+                        return Err(ErrorKind::Other(format!(
+                            "invalid number of references in Block {:?}, expected {:?}, found {:?}",
+                            block_hash, refcount, block_refcount
+                        ))
+                        .into());
+                    }
+                }
+                Err(e) => {
+                    return Err(ErrorKind::Other(format!(
+                        "Block {:?} is deleted while expected {:?} references; get_block_refcount failed: {:?}",
+                        block_hash, refcount, e
+                    ))
+                    .into());
+                }
+            },
+            Err(e) => {
+                if let Ok(&block_refcount) = chain_store_update.get_block_refcount(&block_hash) {
+                    return Err(ErrorKind::Other(format!(
+                        "Block {:?} expected to be deleted, found {:?} references instead: get_block failed: {:?}",
+                        block_hash, block_refcount, e
+                    ))
+                        .into());
+                }
+            }
+        }
+    }
+    Ok(())
 }

@@ -371,7 +371,6 @@ mod tests {
     // It causes all the receipts to be applied only on height 16, which is the next epoch.
     // It tests that the incoming receipts are property synced through epochs
     #[test]
-    #[ignore]
     fn test_catchup_random_single_part_sync_skip_15() {
         test_catchup_random_single_part_sync_common(true, false, 13)
     }
@@ -502,7 +501,8 @@ mod tests {
                                 if let NetworkRequests::Block { block } = msg {
                                     assert!(block.header.inner_lite.height >= height);
                                     assert!(block.header.inner_lite.height <= 32);
-                                    if block.header.inner_lite.height >= 26 {
+                                    let check_height = if skip_15 { 28 } else { 26 };
+                                    if block.header.inner_lite.height >= check_height {
                                         println!(
                                             "BLOCK HEIGHT {:?}",
                                             block.header.inner_lite.height

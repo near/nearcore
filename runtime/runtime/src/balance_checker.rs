@@ -11,8 +11,9 @@ use near_primitives::errors::{
 use near_primitives::receipt::{Receipt, ReceiptEnum};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, Balance};
-use near_primitives::utils::col::DELAYED_RECEIPT_INDICES;
-use near_primitives::utils::{system_account, KeyForDelayedReceipt, KeyForPostponedReceiptId};
+use near_primitives::utils::{
+    system_account, KeyForDelayedReceipt, KeyForDelayedReceiptIndices, KeyForPostponedReceiptId,
+};
 use near_runtime_fees::RuntimeFeesConfig;
 use near_store::{get, get_account, get_receipt, TrieUpdate};
 use std::collections::HashSet;
@@ -31,9 +32,9 @@ pub(crate) fn check_balance(
 ) -> Result<(), RuntimeError> {
     // Delayed receipts
     let initial_delayed_receipt_indices: DelayedReceiptIndices =
-        get(&initial_state, DELAYED_RECEIPT_INDICES)?.unwrap_or_default();
+        get(&initial_state, &KeyForDelayedReceiptIndices::new())?.unwrap_or_default();
     let final_delayed_receipt_indices: DelayedReceiptIndices =
-        get(&final_state, DELAYED_RECEIPT_INDICES)?.unwrap_or_default();
+        get(&final_state, &KeyForDelayedReceiptIndices::new())?.unwrap_or_default();
     let get_delayed_receipts = |from_index, to_index, state| {
         (from_index..to_index)
             .map(|index| {
