@@ -48,7 +48,7 @@ def main():
     # TODO: we should make state more interesting to migrate by sending some tx / contracts.
     stable_node.cleanup()
     os.rename('%s/test0_finished' % node_root, '%s/test0' % node_root)
-
+    subprocess.check_output(f'rm -rf {node_root}/test0/stderr')
     # Dump state.
     subprocess.call(["%sstate-viewer-%s" % (near_root, stable_branch), "--home", '%s/test0' % node_root, "dump_state"])
 
