@@ -21,6 +21,7 @@ def compile_binary(branch):
     subprocess.check_output(['cargo', 'build', '-p', 'state-viewer'])
     os.rename('../target/debug/near', '../target/debug/near-%s' % branch)
     os.rename('../target/debug/state-viewer', '../target/debug/state-viewer-%s' % branch)
+    print(f'=== prev_branch: {prev_branch}')
     subprocess.check_output(['git', 'checkout', prev_branch])
     if stash_output != b"No local changes to save\n":
         subprocess.check_output(['git', 'stash', 'pop'])
