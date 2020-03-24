@@ -17,7 +17,7 @@ def compile_binary(branch):
     prev_branch = current_branch()
     stash_output = subprocess.check_output(['git', 'stash'])
     subprocess.check_output(['git', 'checkout', branch])
-    subprocess.check_output(['git', 'cargo', 'build', '-p', 'near'])
+    subprocess.check_output(['cargo', 'build', '-p', 'near'])
     subprocess.check_output(['cargo', 'build', '-p', 'state-viewer'])
     os.rename('../target/debug/near', '../target/debug/near-%s' % branch)
     os.rename('../target/debug/state-viewer', '../target/debug/state-viewer-%s' % branch)
