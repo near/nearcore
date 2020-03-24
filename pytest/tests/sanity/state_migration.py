@@ -35,8 +35,7 @@ def main():
     if os.path.exists(node_root):
         shutil.rmtree(node_root)
 
-    # near_root, (stable_branch, current_branch) = branches.prepare_ab_test("beta")
-    near_root, (stable_branch, current_branch) = ("../target/debug/", ("beta", "backward-support-test"))
+    near_root, (stable_branch, current_branch) = branches.prepare_ab_test("beta")
 
     # Run stable node for few blocks.
     subprocess.call(["%snear-%s" % (near_root, stable_branch), "--home=%s/test0" % node_root, "init", "--fast"])
@@ -62,7 +61,7 @@ def main():
             if version > stable_protocol_version:
                 subprocess.call(['python', os.path.join(migrations_home, fname), '%s/test0' % node_root, '%s/test0' % node_root])
 
-    os.rename(os.path.join(node_root, 'output.json'), os.path.join(node_root, 'genesis.json'))
+    os.rename(os.path.join(node_root, 'test0/output.json'), os.path.join(node_root, 'test0/genesis.json'))
 
     # Run new node and verify it runs for a few more blocks.
     config["binary_name"] = "near-%s" % current_branch
