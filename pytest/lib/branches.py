@@ -4,7 +4,7 @@ import subprocess
 
 
 def current_branch():
-    return subprocess.check_output([
+    return os.environ.get('BUILDKITE_BRANCH') or subprocess.check_output([
         "git", "rev-parse", "--symbolic-full-name", "--abbrev-ref", "HEAD"]).strip().decode()
 
 
