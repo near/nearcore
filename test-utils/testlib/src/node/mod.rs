@@ -4,8 +4,8 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::RwLock;
 
-use near::config::{create_testnet_configs, create_testnet_configs_from_seeds, Config, GenesisExt};
-use near::NearConfig;
+use neard::config::{create_testnet_configs, create_testnet_configs_from_seeds, Config, GenesisExt};
+use neard::NearConfig;
 use near_chain_configs::Genesis;
 use near_crypto::{InMemorySigner, Signer};
 use near_jsonrpc::ServerError;

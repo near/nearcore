@@ -56,5 +56,5 @@ pytest/.adversary
 pytest/.consent
 
 # testnet genesis
-/near/res/testnet.json
-/near/res/testnet_genesis_records*.json
+/neard/res/testnet.json
+/neard/res/testnet_genesis_records*.json

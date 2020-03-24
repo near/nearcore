@@ -7,8 +7,6 @@ use futures::{future, FutureExt};
 use rand::Rng;
 use tempdir::TempDir;
 
-use near::config::{GenesisExt, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
-use near::{load_test_config, start_with_config, NearConfig};
 use near_chain_configs::Genesis;
 use near_client::{ClientActor, GetBlock, Query, Status, ViewClientActor};
 use near_crypto::{InMemorySigner, KeyType};
@@ -19,6 +17,8 @@ use near_primitives::test_utils::{heavy_test, init_integration_logger};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockHeightDelta, BlockIdOrFinality, NumSeats};
 use near_primitives::views::{QueryRequest, QueryResponseKind, ValidatorInfo};
+use neard::config::{GenesisExt, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
+use neard::{load_test_config, start_with_config, NearConfig};
 use testlib::genesis_hash;
 
 #[derive(Clone)]

@@ -7,7 +7,7 @@ use std::{env, thread};
 use log::error;
 use rand::Rng;
 
-use near::config::NearConfig;
+use neard::config::NearConfig;
 use near_chain_configs::Genesis;
 use near_crypto::{InMemorySigner, KeyType, Signer};
 use near_primitives::types::AccountId;

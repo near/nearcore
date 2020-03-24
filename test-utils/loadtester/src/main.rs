@@ -12,8 +12,8 @@ use env_logger::Builder;
 use log::info;
 
 use git_version::git_version;
-use near::config::create_testnet_configs;
-use near::{get_default_home, get_store_path};
+use neard::config::create_testnet_configs;
+use neard::{get_default_home, get_store_path};
 use near_crypto::Signer;
 use near_primitives::types::{NumSeats, NumShards, Version};
 use near_primitives::validator_signer::ValidatorSigner;

@@ -1311,7 +1311,7 @@ impl Client {
 mod test {
     use crate::test_utils::TestEnv;
     use cached::Cached;
-    use near::config::GenesisExt;
+    use neard::config::GenesisExt;
     use near_chain::{ChainGenesis, RuntimeAdapter};
     use near_chain_configs::Genesis;
     use near_crypto::KeyType;
@@ -1327,7 +1327,7 @@ mod test {
     fn test_pending_approvals() {
         let store = create_test_store();
         let genesis = Genesis::test(vec!["test0", "test1"], 1);
-        let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![Arc::new(near::NightshadeRuntime::new(
+        let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![Arc::new(neard::NightshadeRuntime::new(
             Path::new("."),
             store,
             Arc::new(genesis),

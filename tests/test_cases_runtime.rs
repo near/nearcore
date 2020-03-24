@@ -1,10 +1,10 @@
 #[cfg(test)]
 mod test {
-    use near::config::{GenesisExt, TESTING_INIT_BALANCE};
     use near_chain_configs::Genesis;
     use near_primitives::serialize::to_base64;
     use near_primitives::state_record::StateRecord;
     use near_primitives::utils::KeyForData;
+    use neard::config::{GenesisExt, TESTING_INIT_BALANCE};
     use testlib::node::RuntimeNode;
     use testlib::runtime_utils::{add_test_contract, alice_account, bob_account};
     use testlib::standard_test_cases::*;

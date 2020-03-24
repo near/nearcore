@@ -32,7 +32,7 @@ ENV PORTABLE=ON
 RUN --mount=type=cache,target=/tmp/target \
     --mount=type=cache,target=/usr/local/cargo/git \
     --mount=type=cache,target=/usr/local/cargo/registry \
-    cargo build -p near --release && \
+    cargo build -p neard --release && \
     cargo build -p keypair-generator --release && \
     cargo build -p genesis-csv-to-json --release && \
     mkdir /tmp/build && \

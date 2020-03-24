@@ -1,5 +1,5 @@
 use clap::{App, Arg};
-use near::get_default_home;
+use neard::get_default_home;
 use near_primitives::types::ShardId;
 use std::collections::HashSet;
 use std::path::Path;

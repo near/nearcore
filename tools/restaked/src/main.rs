@@ -5,8 +5,8 @@ use std::time::Duration;
 use clap::{App, Arg};
 use log::{error, info, LevelFilter};
 
-use near::config::{Config, BLOCK_PRODUCER_KICKOUT_THRESHOLD, CONFIG_FILENAME};
-use near::get_default_home;
+use neard::config::{Config, BLOCK_PRODUCER_KICKOUT_THRESHOLD, CONFIG_FILENAME};
+use neard::get_default_home;
 use near_crypto::{InMemorySigner, KeyFile};
 use near_primitives::views::CurrentEpochValidatorInfo;
 // TODO(1905): Move out RPC interface for transacting into separate production crate.

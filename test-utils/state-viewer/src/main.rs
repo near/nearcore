@@ -7,7 +7,7 @@ use ansi_term::Color::Red;
 use borsh::BorshDeserialize;
 use clap::{App, Arg, SubCommand};
 
-use near::{get_default_home, get_store_path, load_config, NearConfig, NightshadeRuntime};
+use neard::{get_default_home, get_store_path, load_config, NearConfig, NightshadeRuntime};
 use near_chain::{ChainStore, ChainStoreAccess, RuntimeAdapter};
 use near_chain_configs::Genesis;
 use near_crypto::PublicKey;

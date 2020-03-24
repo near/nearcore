@@ -10,7 +10,7 @@ use borsh::BorshSerialize;
 use indicatif::{ProgressBar, ProgressStyle};
 use tempdir::TempDir;
 
-use near::{get_store_path, NightshadeRuntime};
+use neard::{get_store_path, NightshadeRuntime};
 use near_chain::{Block, Chain, ChainStore, RuntimeAdapter, Tip};
 use near_chain_configs::Genesis;
 use near_crypto::{InMemorySigner, KeyType};
