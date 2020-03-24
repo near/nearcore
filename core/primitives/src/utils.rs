@@ -23,7 +23,7 @@ pub const MAX_ACCOUNT_ID_LEN: usize = 64;
 const NS_IN_SECOND: u64 = 1_000_000_000;
 
 /// Type identifiers used for DB key generation to store values in the key-value storage.
-pub mod col {
+mod col {
     /// This column id is used when storing `primitives::account::Account` type about a given
     /// `account_id`.
     pub const ACCOUNT: &[u8] = &[0];
@@ -53,13 +53,99 @@ pub mod col {
     pub const ACCOUNT_ID: &[u8] = &[10];
 }
 
-pub trait TrieKey: AsRef<[u8]> + Into<Vec<u8>> {}
+pub trait TrieKey: AsRef<[u8]> + Into<Vec<u8>> {
+    fn get_account_id(&self) -> Option<&AccountId>;
 
-#[derive(derive_more::AsRef, derive_more::Into)]
-#[as_ref(forward)]
-struct KeyForColumnAccountId(Vec<u8>);
+    fn account_id_hash(&self) -> Option<CryptoHash>;
+}
 
-impl TrieKey for KeyForColumnAccountId {}
+/// Describes kind of the TrieKey.
+pub enum TrieKeyParts {
+    /// Used to store `primitives::account::Account` struct for a given `account_id`.
+    Account {
+        account_id: AccountId,
+    },
+    /// Used to store `Vec<u8>` contract code for a given `account_id`.
+    ContractCode {
+        account_id: AccountId,
+    },
+    /// Used to store `primitives::account::AccessKey` struct for a given `account_id` and
+    /// a given `public_key` (Borsh serialized public key).
+    AccessKey {
+        account_id: AccountId,
+        public_key: PublicKey,
+    },
+    /// Used to store `primitives::receipt::ReceivedData` struct for a given `account_id` and
+    /// a given `data_id` (the unique identifier for the data as vec of `CryptoHash`).
+    /// NOTE: This is one of the input data for some action receipts.
+    /// The action receipt might be still not be received or requires more pending input data.
+    ReceivedData {
+        account_id: AccountId,
+        data_id: CryptoHash,
+    },
+    /// Used to store receipt ID `primitives::hash::CryptoHash` for a given `account_id` and
+    /// a given `data_id` (the unique identifier for the required data  as vec of `CryptoHash`).
+    /// NOTE: This receipt ID indicates the postponed receipt. We store receipt_id for performance
+    /// purposes to avoid deserializing entire receipt.
+    PostponedReceiptId {
+        account_id: AccountId,
+        data_id: CryptoHash,
+    },
+    /// Used to store the number of still missing input data `u32` for a given `account_id` and
+    /// a given `receipt_id` (the unique identifier of the receipt as vec of `CryptoHash`).
+    PendingDataCount {
+        account_id: AccountId,
+        receipt_id: CryptoHash,
+    },
+    ///
+    PostponedReceipt {
+        account_id: AccountId,
+        receipt_id: CryptoHash,
+    },
+    DelayedReceiptIndices,
+    DelayedReceipt {
+        index: u32,
+    },
+    ContractData {
+        account_id: AccountId,
+        key: Vec<u8>,
+    },
+    AccountId {
+        account_id_hash: CryptoHash,
+    },
+}
+
+#[derive(derive_more::AsRef)]
+pub struct AccountBasedTrieKey {
+    /// The full raw key.
+    #[derive_more::as_ref]
+    raw_key: Vec<u8>,
+
+    key_kind: TrieKeyKind,
+    /// The account ID of the key.
+    /// It's available when the Account ID is known during construction.
+    account_id: Option<AccountId>,
+    /// Account ID Hash.
+    account_id_hash: Option<CryptoHash>,
+    /// Suffix
+    raw_suffix: Vec<u8>,
+}
+
+impl Into<Vec<u8>> for AccountBasedTrieKey {
+    fn into(self) -> Vec<u8> {
+        self.raw_key
+    }
+}
+
+impl TrieKey for AccountBasedTrieKey {
+    fn get_account_id(&self) -> Option<&AccountId> {
+        self.account_id.as_ref()
+    }
+
+    fn account_id_hash(&self) -> Option<CryptoHash> {
+        self.account_id_hash.clone()
+    }
+}
 
 impl KeyForColumnAccountId {
     #[inline]
@@ -268,6 +354,7 @@ impl KeyForData {
         bytes
     }
 
+    /*
     pub fn parse_account_id<K: AsRef<[u8]>>(raw_key: K) -> Result<AccountId, std::io::Error> {
         let account_id_prefix =
             KeyForColumnAccountId::parse_account_id_prefix(col::ACCOUNT, raw_key.as_ref())?;
