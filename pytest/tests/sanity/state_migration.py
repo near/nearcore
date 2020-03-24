@@ -31,9 +31,10 @@ def wait_for_blocks_or_timeout(node, num_blocks, timeout):
 
 
 def main():
-    node_root = 'state_migration'
+    node_root = '/tmp/near/state_migration'
     if os.path.exists(node_root):
         shutil.rmtree(node_root)
+    subprocess.check_output('mkdir -p /tmp/near', shell=True)
 
     near_root, (stable_branch, current_branch) = branches.prepare_ab_test("beta")
 
