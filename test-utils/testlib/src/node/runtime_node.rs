@@ -1,9 +1,9 @@
 use std::sync::{Arc, RwLock};
 
-use neard::config::GenesisExt;
 use near_chain_configs::Genesis;
 use near_crypto::{InMemorySigner, KeyType, Signer};
 use near_primitives::types::AccountId;
+use neard::config::GenesisExt;
 
 use crate::node::Node;
 use crate::runtime_utils::{

@@ -1311,7 +1311,6 @@ impl Client {
 mod test {
     use crate::test_utils::TestEnv;
     use cached::Cached;
-    use neard::config::GenesisExt;
     use near_chain::{ChainGenesis, RuntimeAdapter};
     use near_chain_configs::Genesis;
     use near_crypto::KeyType;
@@ -1319,6 +1318,7 @@ mod test {
     use near_primitives::hash::hash;
     use near_primitives::validator_signer::InMemoryValidatorSigner;
     use near_store::test_utils::create_test_store;
+    use neard::config::GenesisExt;
     use std::collections::HashMap;
     use std::path::Path;
     use std::sync::Arc;

@@ -1,10 +1,10 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use neard::{start_with_config, NearConfig};
 use near_chain_configs::Genesis;
 use near_crypto::{InMemorySigner, KeyType, Signer};
 use near_primitives::types::AccountId;
+use neard::{start_with_config, NearConfig};
 
 use crate::actix_utils::ShutdownableThread;
 use crate::node::Node;

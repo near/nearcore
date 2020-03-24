@@ -1,6 +1,9 @@
 use std::fs::File;
 use std::path::Path;
 
+use near_chain_configs::{Genesis, GenesisConfig, GENESIS_CONFIG_VERSION, PROTOCOL_VERSION};
+use near_primitives::types::{Balance, NumShards, ShardId};
+use near_primitives::utils::get_num_seats_per_shard;
 use neard::config::{
     Config, BLOCK_PRODUCER_KICKOUT_THRESHOLD, CHUNK_PRODUCER_KICKOUT_THRESHOLD, CONFIG_FILENAME,
     DEVELOPER_PERCENT, EXPECTED_EPOCH_LENGTH, FISHERMEN_THRESHOLD, GAS_PRICE_ADJUSTMENT_RATE,
@@ -8,9 +11,6 @@ use neard::config::{
     NUM_BLOCKS_PER_YEAR, NUM_BLOCK_PRODUCER_SEATS, PROTOCOL_PERCENT, TRANSACTION_VALIDITY_PERIOD,
 };
 use neard::NEAR_BASE;
-use near_chain_configs::{Genesis, GenesisConfig, GENESIS_CONFIG_VERSION, PROTOCOL_VERSION};
-use near_primitives::types::{Balance, NumShards, ShardId};
-use near_primitives::utils::get_num_seats_per_shard;
 
 const ACCOUNTS_FILE: &str = "accounts.csv";
 const NUM_SHARDS: NumShards = 8;

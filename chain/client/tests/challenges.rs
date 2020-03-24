@@ -6,8 +6,6 @@ use std::sync::Arc;
 use borsh::BorshSerialize;
 use reed_solomon_erasure::galois_8::ReedSolomon;
 
-use neard::config::{GenesisExt, FISHERMEN_THRESHOLD};
-use neard::NightshadeRuntime;
 use near_chain::chain::BlockEconomicsConfig;
 use near_chain::validate::validate_challenge;
 use near_chain::{
@@ -32,6 +30,8 @@ use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::StateRoot;
 use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_store::test_utils::create_test_store;
+use neard::config::{GenesisExt, FISHERMEN_THRESHOLD};
+use neard::NightshadeRuntime;
 
 #[test]
 fn test_verify_block_double_sign_challenge() {

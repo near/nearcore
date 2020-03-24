@@ -3,8 +3,8 @@ use std::path::{Path, PathBuf};
 
 use clap::{App, AppSettings, Arg, SubCommand};
 
-use neard::get_default_home;
 use near_crypto::{InMemorySigner, KeyType, SecretKey, Signer};
+use neard::get_default_home;
 
 fn generate_key_to_file(account_id: &str, key: SecretKey, path: PathBuf) {
     let signer = InMemorySigner::from_secret_key(account_id.to_string(), key);

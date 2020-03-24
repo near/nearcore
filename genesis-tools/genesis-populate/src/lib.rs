@@ -10,7 +10,6 @@ use borsh::BorshSerialize;
 use indicatif::{ProgressBar, ProgressStyle};
 use tempdir::TempDir;
 
-use neard::{get_store_path, NightshadeRuntime};
 use near_chain::{Block, Chain, ChainStore, RuntimeAdapter, Tip};
 use near_chain_configs::Genesis;
 use near_crypto::{InMemorySigner, KeyType};
@@ -25,6 +24,7 @@ use near_primitives::views::AccountView;
 use near_store::{
     create_store, get_account, set_access_key, set_account, set_code, ColState, Store, TrieUpdate,
 };
+use neard::{get_store_path, NightshadeRuntime};
 
 fn get_account_id(account_index: u64) -> String {
     format!("near_{}_{}", account_index, account_index)
