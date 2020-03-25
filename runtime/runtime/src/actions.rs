@@ -168,6 +168,7 @@ pub(crate) fn action_function_call(
         input: function_call.args.clone(),
         block_index: apply_state.block_index,
         block_timestamp: apply_state.block_timestamp,
+        epoch_height: apply_state.epoch_height,
         account_balance: account.amount,
         account_locked_balance: account.locked,
         storage_usage: account.storage_usage,

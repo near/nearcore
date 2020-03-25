@@ -398,6 +398,7 @@ pub trait RuntimeAdapter: Send + Sync {
         block_height: BlockHeight,
         block_timestamp: u64,
         block_hash: &CryptoHash,
+        epoch_id: &EpochId,
         request: &QueryRequest,
     ) -> Result<QueryResponse, Box<dyn std::error::Error>>;
 
