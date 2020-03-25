@@ -92,7 +92,7 @@ impl<'a> RuntimeExt<'a> {
     fn append_action(&mut self, receipt_index: u64, action: Action) {
         self.action_receipts
             .get_mut(receipt_index as usize)
-            .expect("receipt index should be present; qed")
+            .expect("receipt index should be present")
             .1
             .actions
             .push(action);
