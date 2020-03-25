@@ -8,7 +8,7 @@ use std::time::{Duration, Instant};
 
 use actix::{Actor, Context, Handler};
 use cached::{Cached, SizedCache};
-use log::{error, info, warn};
+use log::{debug, error, info, warn};
 
 use near_chain::types::ShardStateSyncResponse;
 use near_chain::{
@@ -730,7 +730,7 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
                         }
                         // Filter this account
                         Err(e) => {
-                            warn!(target: "view_client", "Failed to validate account announce signature: {}", e);
+                            debug!(target: "view_client", "Failed to validate account announce signature: {}", e);
                         }
                     }
                 }
