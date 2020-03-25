@@ -30,6 +30,7 @@ class DownloadException(Exception):
 
 def atexit_cleanup(node):
     print("Cleaning up node %s:%s on script exit" % node.addr())
+    print("Executed refmap tests: %s" % node.refmap_tests)
     try:
         node.cleanup()
     except:
@@ -156,15 +157,21 @@ class BaseNode(object):
     def validators(self):
         return set(map(lambda v: v['account_id'], self.get_status()['validators']))
 
+    def stop_checking_refmap(self):
+        self.is_check_refmap = False
+
     def check_refmap(self):
-        res = self.json_rpc('adv_check_refmap', [])
-        if not 'result' in res:
-            # cannot check Block Reference Map for the node, possibly not Adversarial Mode is running
-            pass
-        else:
-            print("%s%s" % ("checking Block Reference Map for %s:%s --- " % self.addr(), "Ok" if res['result'] == 1 else "FAILED!!! res = %d" % res['result']))
-            if res['result'] != 1:
-                self.kill()
+        if self.is_check_refmap:
+            res = self.json_rpc('adv_check_refmap', [])
+            if not 'result' in res:
+                # cannot check Block Reference Map for the node, possibly not Adversarial Mode is running
+                pass
+            else:
+                self.refmap_tests += 1
+                if res['result'] != 1:
+                    print("ERROR: Block Reference Map for %s:%s in inconsistent state, stopping" % self.addr())
+                    self.kill()
+
 
 
 class RpcNode(BaseNode):
@@ -186,6 +193,8 @@ class LocalNode(BaseNode):
         self.near_root = near_root
         self.node_dir = node_dir
         self.binary_name = binary_name
+        self.refmap_tests = 0
+        self.is_check_refmap = True
         self.cleaned = False
         with open(os.path.join(node_dir, "config.json")) as f:
             config_json = json.loads(f.read())
@@ -226,7 +235,18 @@ class LocalNode(BaseNode):
             self.near_root, self.node_dir, boot_key, boot_node_addr, self.binary_name)
         self.pid.value = subprocess.Popen(
             cmd, stdout=self.stdout, stderr=self.stderr, env=env).pid
-        self.wait_for_rpc(5)
+        try:
+            self.wait_for_rpc(10)
+        except:
+            print('=== Error: failed to start node, rpc does not ready in 10 seconds')
+            self.stdout.close()
+            self.stderr.close()
+            if os.environ.get('BUILDKITE'):
+                print('=== stdout: ')
+                print(open(self.stdout_name).read())
+                print('=== stderr: ')
+                print(open(self.stderr_name).read())
+
 
     def kill(self):
         if self.pid.value != 0:

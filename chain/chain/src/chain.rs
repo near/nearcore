@@ -51,6 +51,7 @@ use crate::{metrics, DoomslugThresholdMode};
 use rand::rngs::StdRng;
 use rand::seq::SliceRandom;
 use rand::SeedableRng;
+use std::cmp::min;
 
 /// Maximum number of orphans chain can store.
 pub const MAX_ORPHAN_SIZE: usize = 1024;
@@ -68,7 +69,7 @@ pub const TX_ROUTING_HEIGHT_HORIZON: BlockHeightDelta = 4;
 const NEAR_BASE: Balance = 1_000_000_000_000_000_000_000_000;
 
 /// Number of epochs for which we keep store data
-const NUM_EPOCHS_TO_KEEP_STORE_DATA: u64 = 5;
+pub const NUM_EPOCHS_TO_KEEP_STORE_DATA: u64 = 5;
 
 /// Number of heights to clear.
 const HEIGHTS_TO_CLEAR: BlockHeightDelta = 10;
@@ -540,18 +541,18 @@ impl Chain {
     pub fn clear_old_data(&mut self) -> Result<(), Error> {
         let mut chain_store_update = self.store.store_update();
         let head = chain_store_update.head()?;
-        let height_diff = NUM_EPOCHS_TO_KEEP_STORE_DATA * self.epoch_length;
-        if head.height >= height_diff {
-            let last_height = head.height - height_diff;
-            for height in last_height.saturating_sub(HEIGHTS_TO_CLEAR)..last_height {
-                match chain_store_update.clear_old_data_on_height(height) {
-                    Ok(_) => {}
-                    Err(err) => {
-                        error!(target: "client", "Error clearing old data on height {:?}, {:?}", height, err);
-                    }
+        let gc_head_height = chain_store_update.gc_head_height()?;
+        let gc_stop_height = self.runtime_adapter.get_gc_stop_height(&head.last_block_hash)?;
+        let new_gc_head_height = min(gc_head_height + HEIGHTS_TO_CLEAR + 1, gc_stop_height);
+        for height in gc_head_height..new_gc_head_height {
+            match chain_store_update.clear_old_data_on_height(height) {
+                Ok(_) => {}
+                Err(err) => {
+                    error!(target: "client", "Error clearing old data on height {:?}, {:?}", height, err);
                 }
             }
         }
+        chain_store_update.save_gc_head_height(new_gc_head_height);
         chain_store_update.commit()?;
         Ok(())
     }
@@ -1891,6 +1892,12 @@ impl Chain {
     #[inline]
     pub fn sync_head(&self) -> Result<Tip, Error> {
         self.store.sync_head()
+    }
+
+    /// Gets gc head height.
+    #[inline]
+    pub fn gc_head_height(&self) -> Result<BlockHeight, Error> {
+        self.store.gc_head_height()
     }
 
     /// Header of the block at the head of the block chain (not the same thing as header_head).
@@ -3290,7 +3297,7 @@ pub fn collect_receipts_from_response(
 pub fn check_refcount_map(chain: &mut Chain) -> Result<(), Error> {
     let head = chain.head()?;
     let mut block_refcounts = HashMap::new();
-    for height in chain.store().get_genesis_height()..=head.height {
+    for height in chain.store().get_genesis_height() + 1..=head.height {
         let blocks_current_height = match chain.mut_store().get_all_block_hashes_by_height(height) {
             Ok(blocks_current_height) => {
                 blocks_current_height.values().flatten().cloned().collect()
@@ -3307,25 +3314,31 @@ pub fn check_refcount_map(chain: &mut Chain) -> Result<(), Error> {
     let mut chain_store_update = ChainStoreUpdate::new(chain.mut_store());
     for (block_hash, refcount) in block_refcounts {
         match chain_store_update.get_block(&block_hash) {
-            Ok(_) => {
-                if chain_store_update.get_block_refcount(&block_hash)? != &refcount {
+            Ok(_) => match chain_store_update.get_block_refcount(&block_hash) {
+                Ok(&block_refcount) => {
+                    if block_refcount != refcount {
+                        return Err(ErrorKind::Other(format!(
+                            "invalid number of references in Block {:?}, expected {:?}, found {:?}",
+                            block_hash, refcount, block_refcount
+                        ))
+                        .into());
+                    }
+                }
+                Err(e) => {
                     return Err(ErrorKind::Other(format!(
-                        "invalid number of references in Block {:?}, expected {:?}, found {:?}",
-                        block_hash,
-                        chain_store_update.get_block_refcount(&block_hash).unwrap(),
-                        refcount
+                        "Block {:?} is deleted while expected {:?} references; get_block_refcount failed: {:?}",
+                        block_hash, refcount, e
                     ))
                     .into());
                 }
-            }
-            Err(_) => {
-                if chain_store_update.get_block_refcount(&block_hash).is_ok() {
+            },
+            Err(e) => {
+                if let Ok(&block_refcount) = chain_store_update.get_block_refcount(&block_hash) {
                     return Err(ErrorKind::Other(format!(
-                        "Block {:?} expected to be deleted, found {:?} references instead",
-                        block_hash,
-                        chain_store_update.get_block_refcount(&block_hash).unwrap(),
+                        "Block {:?} expected to be deleted, found {:?} references instead: get_block failed: {:?}",
+                        block_hash, block_refcount, e
                     ))
-                    .into());
+                        .into());
                 }
             }
         }
