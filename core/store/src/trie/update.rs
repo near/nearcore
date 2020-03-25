@@ -340,7 +340,10 @@ mod tests {
             .unwrap()
             .collect::<Result<Vec<_>, _>>()
             .unwrap();
-        assert_eq!(values, vec![b"dog".to_vec(), b"dog2".to_vec()]);
+        assert_eq!(
+            values,
+            vec![test_key(b"dog".to_vec()).to_vec(), test_key(b"dog2".to_vec()).to_vec()]
+        );
     }
 
     #[test]
@@ -400,13 +403,16 @@ mod tests {
 
         let values: Result<Vec<Vec<u8>>, _> =
             trie_update.iter(&test_key(b"dog".to_vec()).to_vec()).unwrap().collect();
-        assert_eq!(values.unwrap(), vec![b"dog".to_vec(), b"dog2".to_vec()]);
+        assert_eq!(
+            values.unwrap(),
+            vec![test_key(b"dog".to_vec()).to_vec(), test_key(b"dog2".to_vec()).to_vec()]
+        );
 
         trie_update.rollback();
 
         let values: Result<Vec<Vec<u8>>, _> =
             trie_update.iter(&test_key(b"dog".to_vec()).to_vec()).unwrap().collect();
-        assert_eq!(values.unwrap(), vec![b"dog".to_vec()]);
+        assert_eq!(values.unwrap(), vec![test_key(b"dog".to_vec()).to_vec()]);
 
         let mut trie_update = TrieUpdate::new(trie.clone(), new_root);
         trie_update.remove(test_key(b"dog".to_vec()));
@@ -423,7 +429,7 @@ mod tests {
 
         let values: Result<Vec<Vec<u8>>, _> =
             trie_update.iter(&test_key(b"dog".to_vec()).to_vec()).unwrap().collect();
-        assert_eq!(values.unwrap(), vec![b"dog".to_vec()]);
+        assert_eq!(values.unwrap(), vec![test_key(b"dog".to_vec()).to_vec()]);
 
         let mut trie_update = TrieUpdate::new(trie.clone(), new_root);
         trie_update.set(test_key(b"dog2".to_vec()), b"puppy".to_vec());
@@ -433,14 +439,32 @@ mod tests {
 
         let values: Result<Vec<Vec<u8>>, _> =
             trie_update.iter(&test_key(b"dog".to_vec()).to_vec()).unwrap().collect();
-        assert_eq!(values.unwrap(), vec![b"dog".to_vec(), b"dog2".to_vec(), b"dog3".to_vec()]);
+        assert_eq!(
+            values.unwrap(),
+            vec![
+                test_key(b"dog".to_vec()).to_vec(),
+                test_key(b"dog2".to_vec()).to_vec(),
+                test_key(b"dog3".to_vec()).to_vec()
+            ]
+        );
 
         let values: Result<Vec<Vec<u8>>, _> =
-            trie_update.range(b"do", b"g", b"g21").unwrap().collect();
-        assert_eq!(values.unwrap(), vec![b"dog".to_vec(), b"dog2".to_vec()]);
+            trie_update.range(&test_key(b"do".to_vec()).to_vec(), b"g", b"g21").unwrap().collect();
+        assert_eq!(
+            values.unwrap(),
+            vec![test_key(b"dog".to_vec()).to_vec(), test_key(b"dog2".to_vec()).to_vec(),]
+        );
 
         let values: Result<Vec<Vec<u8>>, _> =
-            trie_update.range(b"do", b"", b"xyz").unwrap().collect();
-        assert_eq!(values.unwrap(), vec![b"dog".to_vec(), b"dog2".to_vec(), b"dog3".to_vec()]);
+            trie_update.range(&test_key(b"do".to_vec()).to_vec(), b"", b"xyz").unwrap().collect();
+
+        assert_eq!(
+            values.unwrap(),
+            vec![
+                test_key(b"dog".to_vec()).to_vec(),
+                test_key(b"dog2".to_vec()).to_vec(),
+                test_key(b"dog3".to_vec()).to_vec()
+            ]
+        );
     }
 }
