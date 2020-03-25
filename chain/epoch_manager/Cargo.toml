@@ -17,7 +17,6 @@ serde_derive = "1.0"
 serde_json = "1.0"
 ethereum-types = "0.8.0"
 
-
 near-crypto = { path = "../../core/crypto" }
 near-primitives = { path = "../../core/primitives" }
 near-chain = { path = "../chain" }

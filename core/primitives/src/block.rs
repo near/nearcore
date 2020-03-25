@@ -2,7 +2,6 @@ use std::cmp::{max, Ordering};
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::{DateTime, Utc};
-use reed_solomon_erasure::galois_8::ReedSolomon;
 use serde::Serialize;
 
 use near_crypto::{KeyType, PublicKey, Signature};
@@ -10,7 +9,9 @@ use near_crypto::{KeyType, PublicKey, Signature};
 use crate::challenge::{Challenges, ChallengesResult};
 use crate::hash::{hash, CryptoHash};
 use crate::merkle::{combine_hash, merklize, verify_path, MerklePath};
-use crate::sharding::{ChunkHashHeight, EncodedShardChunk, ShardChunk, ShardChunkHeader};
+use crate::sharding::{
+    ChunkHashHeight, EncodedShardChunk, ReedSolomonWrapper, ShardChunk, ShardChunkHeader,
+};
 use crate::types::{
     AccountId, Balance, BlockHeight, EpochId, Gas, MerkleHash, NumShards, StateRoot, ValidatorStake,
 };
@@ -409,7 +410,7 @@ pub fn genesis_chunks(
     genesis_height: BlockHeight,
 ) -> Vec<ShardChunk> {
     assert!(state_roots.len() == 1 || state_roots.len() == (num_shards as usize));
-    let rs = ReedSolomon::new(1, 2).unwrap();
+    let mut rs = ReedSolomonWrapper::new(1, 2);
 
     (0..num_shards)
         .map(|i| {
@@ -419,7 +420,7 @@ pub fn genesis_chunks(
                 CryptoHash::default(),
                 genesis_height,
                 i,
-                &rs,
+                &mut rs,
                 0,
                 initial_gas_limit,
                 0,

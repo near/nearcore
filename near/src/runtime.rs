@@ -27,7 +27,7 @@ use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::state_record::StateRecord;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{
-    AccountId, Balance, BlockHeight, EpochId, Gas, MerkleHash, NumShards, ShardId,
+    AccountId, Balance, BlockHeight, EpochHeight, EpochId, Gas, MerkleHash, NumShards, ShardId,
     StateChangeCause, StateRoot, StateRootNode, ValidatorStake, ValidatorStats,
 };
 use near_primitives::utils::{KeyForAccessKey, ACCOUNT_DATA_SEPARATOR};
@@ -139,6 +139,15 @@ impl NightshadeRuntime {
             epoch_manager,
             shard_tracker,
         }
+    }
+
+    fn get_epoch_height_from_prev_block(
+        &self,
+        prev_block_hash: &CryptoHash,
+    ) -> Result<EpochHeight, Error> {
+        let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
+        let epoch_id = epoch_manager.get_epoch_id_from_prev_block(prev_block_hash)?;
+        epoch_manager.get_epoch_info(&epoch_id).map(|info| info.epoch_height).map_err(Error::from)
     }
 
     fn genesis_state_from_dump(&self) -> (Arc<Store>, StoreUpdate, Vec<StateRoot>) {
@@ -287,9 +296,12 @@ impl NightshadeRuntime {
             }
         };
 
+        let epoch_height = self.get_epoch_height_from_prev_block(prev_block_hash)?;
+
         let apply_state = ApplyState {
             block_index: block_height,
             epoch_length: self.genesis.config.epoch_length,
+            epoch_height,
             gas_price,
             block_timestamp,
             gas_limit: Some(gas_limit),
@@ -441,8 +453,9 @@ impl RuntimeAdapter for NightshadeRuntime {
             epoch_length: self.genesis.config.epoch_length,
             gas_price,
             block_timestamp,
-            // NOTE: verify transaction doesn't use gas limit
+            // NOTE: verify transaction doesn't use gas limit or epoch id
             gas_limit: None,
+            epoch_height: 0,
         };
 
         match verify_and_charge_transaction(
@@ -476,6 +489,8 @@ impl RuntimeAdapter for NightshadeRuntime {
         let apply_state = ApplyState {
             block_index: block_height,
             epoch_length: self.genesis.config.epoch_length,
+            // Not used in this function.
+            epoch_height: 0,
             gas_price,
             block_timestamp,
             gas_limit: Some(gas_limit),
@@ -953,6 +968,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         block_height: BlockHeight,
         block_timestamp: u64,
         block_hash: &CryptoHash,
+        epoch_id: &EpochId,
         request: &QueryRequest,
     ) -> Result<QueryResponse, Box<dyn std::error::Error>> {
         match request {
@@ -968,10 +984,13 @@ impl RuntimeAdapter for NightshadeRuntime {
             }
             QueryRequest::CallFunction { account_id, method_name, args } => {
                 let mut logs = vec![];
+                let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
+                let epoch_height = epoch_manager.get_epoch_info(&epoch_id)?.epoch_height;
                 match self.call_function(
                     *state_root,
                     block_height,
                     block_timestamp,
+                    epoch_height,
                     account_id,
                     method_name,
                     args.as_ref(),
@@ -1159,6 +1178,7 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
         state_root: MerkleHash,
         height: BlockHeight,
         block_timestamp: u64,
+        epoch_height: EpochHeight,
         contract_id: &AccountId,
         method_name: &str,
         args: &[u8],
@@ -1169,6 +1189,7 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
             state_update,
             height,
             block_timestamp,
+            epoch_height,
             contract_id,
             method_name,
             args,
