@@ -30,6 +30,12 @@ def build_tests():
         os._exit(p.returncode)
 
 
+def run_doc_tests():
+    p = subprocess.run(['cargo', 'test', '--workspace', '--doc'])
+    if p.returncode != 0:
+        os._exit(p.returncode)
+
+
 def workers():
     workers = cpu_count() // 2
     print(f'========= run in {workers} workers')

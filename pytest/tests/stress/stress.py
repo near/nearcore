@@ -29,9 +29,11 @@ from multiprocessing import Process, Value, Lock
 sys.path.append('lib')
 
 from cluster import init_cluster, spin_up_node, load_config
-from utils import TxContext
+from utils import TxContext, Unbuffered
 from transaction import sign_payment_tx, sign_staking_tx
 from network import init_network_pillager, stop_network, resume_network
+
+sys.stdout = Unbuffered(sys.stdout)
 
 TIMEOUT = 1500 # after how much time to shut down the test
 TIMEOUT_SHUTDOWN = 120 # time to wait after the shutdown was initiated before 
@@ -449,14 +451,14 @@ def doit(s, n, N, k, monkeys, timeout):
         if config['local']:
             init_network_pillager()
             expect_network_issues()
-        block_timeout += 20
+        block_timeout += 40
         tx_tolerance += 0.3
     if 'monkey_node_restart' in monkey_names:
         expect_network_issues()
     if 'monkey_node_restart' in monkey_names or 'monkey_node_set' in monkey_names:
-        block_timeout += 20
+        block_timeout += 40
         balances_timeout += 10
-        tx_tolerance += 0.4
+        tx_tolerance += 0.5
 
     stopped = Value('i', 0)
     error = Value('i', 0)

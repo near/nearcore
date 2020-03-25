@@ -18,14 +18,13 @@ use near_primitives::transaction::{
     Action, ExecutionOutcome, ExecutionOutcomeWithId, ExecutionStatus, LogEntry, SignedTransaction,
 };
 use near_primitives::types::{
-    AccountId, Balance, BlockHeight, BlockHeightDelta, Gas, Nonce, StateChangeCause, StateChanges,
-    StateRoot, ValidatorStake,
+    AccountId, Balance, BlockHeight, BlockHeightDelta, EpochHeight, Gas, Nonce, RawStateChanges,
+    StateChangeCause, StateRoot, ValidatorStake,
 };
-use near_primitives::utils::col::DELAYED_RECEIPT_INDICES;
 use near_primitives::utils::{
-    create_nonce_with_nonce, key_for_delayed_receipt, key_for_pending_data_count,
-    key_for_postponed_receipt, key_for_postponed_receipt_id, key_for_received_data, system_account,
-    ACCOUNT_DATA_SEPARATOR,
+    create_nonce_with_nonce, system_account, KeyForData, KeyForDelayedReceipt,
+    KeyForDelayedReceiptIndices, KeyForPendingDataCount, KeyForPostponedReceipt,
+    KeyForPostponedReceiptId, KeyForReceivedData, ACCOUNT_DATA_SEPARATOR,
 };
 use near_store::{
     get, get_account, get_receipt, get_received_data, set, set_access_key, set_account, set_code,
@@ -64,9 +63,11 @@ pub struct ApplyState {
     pub block_index: BlockHeight,
     /// Current epoch length.
     pub epoch_length: BlockHeightDelta,
+    /// Current epoch height
+    pub epoch_height: EpochHeight,
     /// Price for the gas.
     pub gas_price: Balance,
-    /// A block timestamp
+    /// The current block timestamp (number of non-leap-nanoseconds since January 1, 1970 0:00:00 UTC).
     pub block_timestamp: u64,
     /// Gas limit for a given chunk.
     /// If None is given, assumes there is no gas limit.
@@ -109,7 +110,7 @@ pub struct ApplyResult {
     pub validator_proposals: Vec<ValidatorStake>,
     pub outgoing_receipts: Vec<Receipt>,
     pub outcomes: Vec<ExecutionOutcomeWithId>,
-    pub key_value_changes: StateChanges,
+    pub state_changes: RawStateChanges,
     pub stats: ApplyStats,
 }
 
@@ -419,7 +420,7 @@ impl Runtime {
                         "received data should be in the state".to_string(),
                     )
                 })?;
-                state_update.remove(&key_for_received_data(account_id, data_id));
+                state_update.remove(KeyForReceivedData::new(account_id, data_id));
                 match data {
                     Some(value) => Ok(PromiseResult::Successful(value)),
                     None => Ok(PromiseResult::Failed),
@@ -700,26 +701,26 @@ impl Runtime {
                 // If we don't have a postponed receipt yet, we don't need to do anything for now.
                 if let Some(receipt_id) = get(
                     state_update,
-                    &key_for_postponed_receipt_id(account_id, &data_receipt.data_id),
+                    &KeyForPostponedReceiptId::new(account_id, &data_receipt.data_id),
                 )? {
                     // There is already a receipt that is awaiting for the just received data.
                     // Removing this pending data_id for the receipt from the state.
                     state_update
-                        .remove(&key_for_postponed_receipt_id(account_id, &data_receipt.data_id));
+                        .remove(KeyForPostponedReceiptId::new(account_id, &data_receipt.data_id));
                     // Checking how many input data items is pending for the receipt.
                     let pending_data_count: u32 =
-                        get(state_update, &key_for_pending_data_count(account_id, &receipt_id))?
+                        get(state_update, &KeyForPendingDataCount::new(account_id, &receipt_id))?
                             .ok_or_else(|| {
-                                StorageError::StorageInconsistentState(
-                                    "pending data count should be in the state".to_string(),
-                                )
-                            })?;
+                            StorageError::StorageInconsistentState(
+                                "pending data count should be in the state".to_string(),
+                            )
+                        })?;
                     if pending_data_count == 1 {
                         // It was the last input data pending for this receipt. We'll cleanup
                         // some receipt related fields from the state and execute the receipt.
 
                         // Removing pending data count from the state.
-                        state_update.remove(&key_for_pending_data_count(account_id, &receipt_id));
+                        state_update.remove(KeyForPendingDataCount::new(account_id, &receipt_id));
                         // Fetching the receipt itself.
                         let ready_receipt = get_receipt(state_update, account_id, &receipt_id)?
                             .ok_or_else(|| {
@@ -728,7 +729,7 @@ impl Runtime {
                                 )
                             })?;
                         // Removing the receipt from the state.
-                        state_update.remove(&key_for_postponed_receipt(account_id, &receipt_id));
+                        state_update.remove(KeyForPostponedReceipt::new(account_id, &receipt_id));
                         // Executing the receipt. It will read all the input data and clean it up
                         // from the state.
                         return self
@@ -746,7 +747,7 @@ impl Runtime {
                         // pending data count in the state.
                         set(
                             state_update,
-                            key_for_pending_data_count(account_id, &receipt_id),
+                            KeyForPendingDataCount::new(account_id, &receipt_id),
                             &(pending_data_count.checked_sub(1).ok_or_else(|| {
                                 StorageError::StorageInconsistentState(
                                     "pending data count is 0, but there is a new DataReceipt"
@@ -770,7 +771,7 @@ impl Runtime {
                         // receipt_id for the pending data_id into the state.
                         set(
                             state_update,
-                            key_for_postponed_receipt_id(account_id, data_id),
+                            KeyForPostponedReceiptId::new(account_id, data_id),
                             &receipt.receipt_id,
                         )
                     }
@@ -793,7 +794,7 @@ impl Runtime {
                     // Save the counter for the number of pending input data items into the state.
                     set(
                         state_update,
-                        key_for_pending_data_count(account_id, &receipt.receipt_id),
+                        KeyForPendingDataCount::new(account_id, &receipt.receipt_id),
                         &pending_data_count,
                     );
                     // Save the receipt itself into the state.
@@ -976,7 +977,7 @@ impl Runtime {
         }
 
         let mut delayed_receipts_indices: DelayedReceiptIndices =
-            get(&state_update, DELAYED_RECEIPT_INDICES)?.unwrap_or_default();
+            get(&state_update, &KeyForDelayedReceiptIndices::new())?.unwrap_or_default();
         let initial_delayed_receipt_indices = delayed_receipts_indices.clone();
 
         let mut process_receipt = |receipt: &Receipt,
@@ -1021,7 +1022,7 @@ impl Runtime {
             if total_gas_burnt >= gas_limit {
                 break;
             }
-            let key = key_for_delayed_receipt(delayed_receipts_indices.first_index);
+            let key = KeyForDelayedReceipt::new(delayed_receipts_indices.first_index);
             let receipt: Receipt = get(&state_update, &key)?.ok_or_else(|| {
                 StorageError::StorageInconsistentState(format!(
                     "Delayed receipt #{} should be in the state",
@@ -1037,7 +1038,7 @@ impl Runtime {
                 ))
             })?;
 
-            state_update.remove(&key);
+            state_update.remove(key);
             // Math checked above: first_index is less than next_available_index
             delayed_receipts_indices.first_index += 1;
             process_receipt(&receipt, &mut state_update, &mut total_gas_burnt)?;
@@ -1057,7 +1058,7 @@ impl Runtime {
         }
 
         if delayed_receipts_indices != initial_delayed_receipt_indices {
-            set(&mut state_update, DELAYED_RECEIPT_INDICES.to_vec(), &delayed_receipts_indices);
+            set(&mut state_update, KeyForDelayedReceiptIndices::new(), &delayed_receipts_indices);
         }
 
         check_balance(
@@ -1073,7 +1074,7 @@ impl Runtime {
 
         state_update.commit(StateChangeCause::UpdatedDelayedReceipts);
         // TODO: Avoid cloning.
-        let key_value_changes = state_update.committed_updates_per_cause().clone();
+        let state_changes = state_update.committed_updates_per_cause().clone();
 
         let trie_changes = state_update.finalize()?;
         let state_root = trie_changes.new_root;
@@ -1083,7 +1084,7 @@ impl Runtime {
             validator_proposals,
             outgoing_receipts,
             outcomes,
-            key_value_changes,
+            state_changes,
             stats,
         })
     }
@@ -1096,7 +1097,7 @@ impl Runtime {
     ) -> Result<(), StorageError> {
         set(
             state_update,
-            key_for_delayed_receipt(delayed_receipts_indices.next_available_index),
+            KeyForDelayedReceipt::new(delayed_receipts_indices.next_available_index),
             receipt,
         );
         delayed_receipts_indices.next_available_index =
@@ -1169,7 +1170,7 @@ impl Runtime {
                 }
                 StateRecord::Data { key, value } => {
                     state_update.set(
-                        from_base64(&key).expect("Failed to decode key"),
+                        KeyForData::from_raw_key(from_base64(&key).expect("Failed to decode key")),
                         from_base64(&value).expect("Failed to decode value"),
                     );
                 }
@@ -1221,7 +1222,7 @@ impl Runtime {
                     pending_data_count += 1;
                     set(
                         &mut state_update,
-                        key_for_postponed_receipt_id(account_id, data_id),
+                        KeyForPostponedReceiptId::new(account_id, data_id),
                         &receipt.receipt_id,
                     )
                 }
@@ -1231,7 +1232,7 @@ impl Runtime {
             } else {
                 set(
                     &mut state_update,
-                    key_for_pending_data_count(account_id, &receipt.receipt_id),
+                    KeyForPendingDataCount::new(account_id, &receipt.receipt_id),
                     &pending_data_count,
                 );
                 set_receipt(&mut state_update, &receipt);
@@ -1332,6 +1333,7 @@ mod tests {
         let apply_state = ApplyState {
             block_index: 0,
             epoch_length: 3,
+            epoch_height: 0,
             gas_price: GAS_PRICE,
             block_timestamp: 100,
             gas_limit: Some(gas_limit),
@@ -1714,7 +1716,7 @@ mod tests {
         let mut delayed_receipts_indices = DelayedReceiptIndices::default();
         Runtime::delay_receipt(&mut state_update, &mut delayed_receipts_indices, &invalid_receipt)
             .unwrap();
-        set(&mut state_update, DELAYED_RECEIPT_INDICES.to_vec(), &delayed_receipts_indices);
+        set(&mut state_update, KeyForDelayedReceiptIndices::new(), &delayed_receipts_indices);
         state_update.commit(StateChangeCause::UpdatedDelayedReceipts);
         let trie_changes = state_update.finalize().unwrap();
         let (store_update, root) = trie_changes.into(trie.clone()).unwrap();

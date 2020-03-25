@@ -3,22 +3,12 @@ use crate::{External, ValuePtr};
 use near_vm_errors::HostError;
 use serde::{Deserialize, Serialize};
 use sha3::{Keccak256, Keccak512};
-use std::collections::btree_map::Range;
-use std::collections::{BTreeMap, HashMap};
-use std::intrinsics::transmute;
-
-/// Encapsulates fake iterator. Optionally stores, if this iterator is built from prefix.
-struct FakeIterator {
-    iterator: Range<'static, Vec<u8>, Vec<u8>>,
-    prefix: Option<Vec<u8>>,
-}
+use std::collections::HashMap;
 
 #[derive(Default)]
 /// Emulates the trie and the mock handling code.
 pub struct MockedExternal {
-    pub fake_trie: BTreeMap<Vec<u8>, Vec<u8>>,
-    iterators: HashMap<u64, FakeIterator>,
-    next_iterator_index: u64,
+    pub fake_trie: HashMap<Vec<u8>, Vec<u8>>,
     receipts: Vec<Receipt>,
 }
 
@@ -78,62 +68,6 @@ impl External for MockedExternal {
 
     fn storage_has_key(&mut self, key: &[u8]) -> Result<bool> {
         Ok(self.fake_trie.contains_key(key))
-    }
-
-    fn storage_iter(&mut self, prefix: &[u8]) -> Result<u64> {
-        let res = self.next_iterator_index;
-        let iterator = self.fake_trie.range(prefix.to_vec()..);
-        let iterator = unsafe {
-            transmute::<Range<'_, Vec<u8>, Vec<u8>>, Range<'static, Vec<u8>, Vec<u8>>>(iterator)
-        };
-        self.iterators.insert(
-            self.next_iterator_index,
-            FakeIterator { iterator, prefix: Some(prefix.to_vec()) },
-        );
-        self.next_iterator_index += 1;
-        Ok(res)
-    }
-
-    fn storage_iter_range(&mut self, start: &[u8], end: &[u8]) -> Result<u64> {
-        let res = self.next_iterator_index;
-        let iterator = self.fake_trie.range(start.to_vec()..end.to_vec());
-        let iterator = unsafe {
-            transmute::<Range<'_, Vec<u8>, Vec<u8>>, Range<'static, Vec<u8>, Vec<u8>>>(iterator)
-        };
-        self.iterators.insert(self.next_iterator_index, FakeIterator { iterator, prefix: None });
-        self.next_iterator_index += 1;
-        Ok(res)
-    }
-
-    fn storage_iter_next(
-        &mut self,
-        iterator_idx: u64,
-    ) -> Result<Option<(Vec<u8>, Box<dyn ValuePtr>)>> {
-        match self.iterators.get_mut(&iterator_idx) {
-            Some(FakeIterator { iterator, prefix }) => match iterator.next() {
-                Some((k, v)) => {
-                    if let Some(prefix) = prefix {
-                        if k.starts_with(prefix) {
-                            Ok(Some((k.clone(), Box::new(MockedValuePtr { value: v.clone() }))))
-                        } else {
-                            Ok(None)
-                        }
-                    } else {
-                        Ok(Some((k.clone(), Box::new(MockedValuePtr { value: v.clone() }))))
-                    }
-                }
-                None => Ok(None),
-            },
-            None => Err(HostError::InvalidIteratorIndex { iterator_index: iterator_idx }.into()),
-        }
-    }
-
-    fn storage_iter_drop(&mut self, iterator_idx: u64) -> Result<()> {
-        if self.iterators.remove(&iterator_idx).is_none() {
-            Err(HostError::InvalidIteratorIndex { iterator_index: iterator_idx }.into())
-        } else {
-            Ok(())
-        }
     }
 
     fn create_receipt(&mut self, receipt_indices: Vec<u64>, receiver_id: String) -> Result<u64> {
@@ -321,6 +255,10 @@ pub struct DeployContractAction {
 pub struct FunctionCallAction {
     #[serde(with = "crate::serde_with::bytes_as_str")]
     method_name: Vec<u8>,
+    /// Most function calls still take JSON as input, so we'll keep it there as a string.
+    /// Once we switch to borsh, we'll have to switch to base64 encoding.
+    /// Right now, it is only used with standalone runtime when passing in Receipts or expecting
+    /// receipts. The workaround for input is to use a VMContext input.
     #[serde(with = "crate::serde_with::bytes_as_str")]
     args: Vec<u8>,
     gas: Gas,

@@ -14,6 +14,8 @@ use near_chain::test_utils::KeyValueRuntime;
 use near_chain::{Chain, ChainGenesis, DoomslugThresholdMode, Provenance, RuntimeAdapter};
 use near_chain_configs::ClientConfig;
 use near_crypto::{InMemorySigner, KeyType, PublicKey};
+#[cfg(feature = "metric_recorder")]
+use near_network::recorder::MetricRecorder;
 use near_network::routing::EdgeInfo;
 use near_network::types::{
     AccountOrPeerIdOrHash, NetworkInfo, NetworkViewClientMessages, NetworkViewClientResponses,
@@ -90,6 +92,7 @@ pub fn setup(
     ));
     let chain_genesis = ChainGenesis::new(
         genesis_time,
+        0,
         1_000_000,
         100,
         1_000_000_000,
@@ -103,9 +106,7 @@ pub fn setup(
     } else {
         DoomslugThresholdMode::NoApprovals
     };
-    let mut chain =
-        Chain::new(store.clone(), runtime.clone(), &chain_genesis, doomslug_threshold_mode)
-            .unwrap();
+    let mut chain = Chain::new(runtime.clone(), &chain_genesis, doomslug_threshold_mode).unwrap();
     let genesis_block = chain.get_block(&chain.genesis().hash()).unwrap().clone();
 
     let signer =
@@ -119,18 +120,15 @@ pub fn setup(
         archive,
     );
     let view_client = ViewClientActor::new(
-        store.clone(),
         &chain_genesis,
         runtime.clone(),
         network_adapter.clone(),
         config.clone(),
-        None,
     )
     .unwrap();
 
     let client = ClientActor::new(
         config,
-        store,
         chain_genesis,
         runtime,
         PublicKey::empty(KeyType::ED25519).into(),
@@ -260,7 +258,7 @@ pub fn setup_mock_all_validators(
     epoch_length: BlockHeightDelta,
     enable_doomslug: bool,
     archive: bool,
-    network_mock: Arc<RwLock<dyn FnMut(String, &NetworkRequests) -> (NetworkResponses, bool)>>,
+    network_mock: Arc<RwLock<Box<dyn FnMut(String, &NetworkRequests) -> (NetworkResponses, bool)>>>,
 ) -> (Block, Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>) {
     let validators_clone = validators.clone();
     let key_pairs = key_pairs.clone();
@@ -360,6 +358,8 @@ pub fn setup_mock_all_validators(
                             sent_bytes_per_sec: 0,
                             received_bytes_per_sec: 0,
                             known_producers: vec![],
+                            #[cfg(feature = "metric_recorder")]
+                            metric_recorder: MetricRecorder::default(),
                         };
                         client_addr.do_send(NetworkClientMessages::NetworkInfo(info));
                     }
@@ -784,7 +784,6 @@ pub fn setup_no_network_with_validity_period(
 }
 
 pub fn setup_client_with_runtime(
-    store: Arc<Store>,
     num_validator_seats: NumSeats,
     account_id: Option<&str>,
     enable_doomslug: bool,
@@ -800,7 +799,6 @@ pub fn setup_client_with_runtime(
     config.epoch_length = chain_genesis.epoch_length;
     let mut client = Client::new(
         config,
-        store,
         chain_genesis,
         runtime_adapter,
         network_adapter,
@@ -831,7 +829,6 @@ pub fn setup_client(
         chain_genesis.epoch_length,
     ));
     setup_client_with_runtime(
-        store,
         num_validator_seats,
         account_id,
         enable_doomslug,
@@ -900,9 +897,7 @@ impl TestEnv {
             (0..num_validator_seats).map(|i| format!("test{}", i)).collect();
         let clients = (0..num_clients)
             .map(|i| {
-                let store = create_test_store();
                 setup_client_with_runtime(
-                    store.clone(),
                     num_validator_seats,
                     Some(&format!("test{}", i)),
                     false,

@@ -110,7 +110,7 @@ impl GenesisBuilder {
 
     pub fn build(mut self) -> Result<Self> {
         // First, apply whatever is defined by the genesis config.
-        let (store_update, roots) = self.runtime.genesis_state();
+        let (_store, store_update, roots) = self.runtime.genesis_state();
         store_update.commit()?;
         self.roots = roots.into_iter().enumerate().map(|(k, v)| (k as u64, v)).collect();
         self.state_updates = self
@@ -187,16 +187,18 @@ impl GenesisBuilder {
             self.roots.values().cloned().collect(),
             self.runtime.num_shards(),
             self.genesis.config.gas_limit,
+            self.genesis.config.genesis_height,
         );
         let genesis = Block::genesis(
             genesis_chunks.into_iter().map(|chunk| chunk.header).collect(),
             self.genesis.config.genesis_time,
+            self.genesis.config.genesis_height,
             self.genesis.config.min_gas_price,
             self.genesis.config.total_supply,
             Chain::compute_bp_hash(&self.runtime, EpochId::default(), &CryptoHash::default())?,
         );
 
-        let mut store = ChainStore::new(self.store.clone());
+        let mut store = ChainStore::new(self.store.clone(), self.genesis.config.genesis_height);
         let mut store_update = store.store_update();
 
         self.runtime

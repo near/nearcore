@@ -26,12 +26,14 @@ use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::sharding::{ChunkHash, PartialEncodedChunk};
 use near_primitives::transaction::{ExecutionOutcomeWithIdAndProof, SignedTransaction};
-use near_primitives::types::{AccountId, BlockHeight, EpochId, MaybeBlockId, ShardId};
+use near_primitives::types::{AccountId, BlockHeight, BlockIdOrFinality, EpochId, ShardId};
 use near_primitives::utils::{from_timestamp, to_timestamp};
-use near_primitives::views::{FinalExecutionOutcomeView, Finality, QueryRequest, QueryResponse};
+use near_primitives::views::{FinalExecutionOutcomeView, QueryRequest, QueryResponse};
 
 use crate::metrics;
 use crate::peer::Peer;
+#[cfg(feature = "metric_recorder")]
+use crate::recorder::MetricRecorder;
 use crate::routing::{Edge, EdgeInfo, RoutingTableInfo};
 
 /// Number of hops a message is allowed to travel before being dropped.
@@ -213,9 +215,8 @@ pub enum RoutedMessageBody {
     TxStatusResponse(FinalExecutionOutcomeView),
     QueryRequest {
         query_id: String,
-        block_id: MaybeBlockId,
+        block_id_or_finality: BlockIdOrFinality,
         request: QueryRequest,
-        finality: Finality,
     },
     QueryResponse {
         query_id: String,
@@ -1006,9 +1007,8 @@ pub enum NetworkRequests {
     Query {
         query_id: String,
         account_id: AccountId,
-        block_id: MaybeBlockId,
+        block_id_or_finality: BlockIdOrFinality,
         request: QueryRequest,
-        finality: Finality,
     },
     /// Request for receipt execution outcome
     ReceiptOutComeRequest(AccountId, CryptoHash),
@@ -1067,6 +1067,8 @@ pub struct NetworkInfo {
     pub received_bytes_per_sec: u64,
     /// Accounts of known block and chunk producers from routing table.
     pub known_producers: Vec<KnownProducer>,
+    #[cfg(feature = "metric_recorder")]
+    pub metric_recorder: MetricRecorder,
 }
 
 impl<A, M> MessageResponse<A, M> for NetworkInfo
@@ -1119,7 +1121,9 @@ pub struct StateResponseInfo {
 pub enum NetworkAdversarialMessage {
     AdvProduceBlocks(u64, bool),
     AdvDisableHeaderSync,
+    AdvDisableDoomslug,
     AdvGetSavedBlocks,
+    AdvCheckRefMap,
     AdvSetSyncInfo(u64, u64),
 }
 
@@ -1158,7 +1162,7 @@ pub enum NetworkClientMessages {
 pub enum NetworkClientResponses {
     /// Adv controls.
     #[cfg(feature = "adversarial")]
-    AdvU64(u64),
+    AdvResult(u64),
 
     /// No response.
     NoResponse,
@@ -1197,7 +1201,7 @@ pub enum NetworkViewClientMessages {
     /// Transaction status response
     TxStatusResponse(FinalExecutionOutcomeView),
     /// General query
-    Query { query_id: String, block_id: MaybeBlockId, request: QueryRequest, finality: Finality },
+    Query { query_id: String, block_id_or_finality: BlockIdOrFinality, request: QueryRequest },
     /// Query response
     QueryResponse { query_id: String, response: Result<QueryResponse, String> },
     /// Request for receipt outcome

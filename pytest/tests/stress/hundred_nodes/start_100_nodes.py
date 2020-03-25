@@ -128,6 +128,8 @@ zones = [
     'us-west2-b',
     'us-west2-c',
 ]
+# Unless you want to shutdown gcloud instance and restart, keep this `False'
+reserve_ip=False
 
 pbar = tqdm(total=num_machines, desc=' create machines')
 def create_machine(i):
@@ -137,8 +139,8 @@ def create_machine(i):
                       image_project='near-core',
                       image=image_name,
                       zone=zones[i % len(zones)],
-                      firewall_allows=['tcp:3030', 'tcp:24567'],
-                      min_cpu_platform='Intel Skylake')
+                      min_cpu_platform='Intel Skylake',
+                      reserve_ip=reserve_ip)
     pbar.update(1)
     return m
 
@@ -152,7 +154,7 @@ for i in range(num_machines):
 mkdir -p /tmp/near/node{i}
 # deactivate virtualenv doesn't work in non interactive shell, explicitly run with python2
 cd ..
-/usr/bin/python2 scripts/start_stakewars.py --local --home /tmp/near/node{i} --init --signer-keys --account-id=node{i}
+python2 scripts/start_stakewars.py --local --home /tmp/near/node{i} --init --signer-keys --account-id=node{i}
 ''')
     assert p.returncode == 0
 

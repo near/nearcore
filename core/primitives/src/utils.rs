@@ -2,7 +2,7 @@ use std::cmp::max;
 use std::convert::AsRef;
 use std::fmt;
 
-use borsh::BorshSerialize;
+use borsh::{BorshDeserialize, BorshSerialize};
 use byteorder::{LittleEndian, WriteBytesExt};
 use chrono::{DateTime, NaiveDateTime, Utc};
 use rand::distributions::Alphanumeric;
@@ -23,101 +23,403 @@ pub const MAX_ACCOUNT_ID_LEN: usize = 64;
 /// Number of nano seconds in a second.
 const NS_IN_SECOND: u64 = 1_000_000_000;
 
+/// Type identifiers used for DB key generation to store values in the key-value storage.
 pub mod col {
+    /// This column id is used when storing `primitives::account::Account` type about a given
+    /// `account_id`.
     pub const ACCOUNT: &[u8] = &[0];
+    /// This column id is used when storing contract blob for a given `account_id`.
     pub const CODE: &[u8] = &[1];
+    /// This column id is used when storing `primitives::account::AccessKey` type for a given
+    /// `account_id`.
     pub const ACCESS_KEY: &[u8] = &[2];
+    /// This column id is used when storing `primitives::receipt::ReceivedData` type (data received
+    /// for a key `data_id`). The required postponed receipt might be still not received or requires
+    /// more pending input data.
     pub const RECEIVED_DATA: &[u8] = &[3];
+    /// This column id is used when storing `primitives::hash::CryptoHash` (ReceiptId) type. The
+    /// ReceivedData is not available and is needed for the postponed receipt to execute.
     pub const POSTPONED_RECEIPT_ID: &[u8] = &[4];
+    /// This column id is used when storing the number of missing data inputs that are still not
+    /// available for a key `receipt_id`.
     pub const PENDING_DATA_COUNT: &[u8] = &[5];
+    /// This column id is used when storing the postponed receipts (`primitives::receipt::Receipt`).
     pub const POSTPONED_RECEIPT: &[u8] = &[6];
+    /// This column id is used when storing the indices of the delayed receipts queue.
+    /// NOTE: It is a singleton per shard.
     pub const DELAYED_RECEIPT_INDICES: &[u8] = &[7];
+    /// This column id is used when storing delayed receipts, because the shard is overwhelmed.
     pub const DELAYED_RECEIPT: &[u8] = &[8];
 }
 
-fn key_for_column_account_id(column: &[u8], account_key: &AccountId) -> Vec<u8> {
-    let mut key = Vec::with_capacity(column.len() + account_key.len());
-    key.extend(column);
-    key.extend(account_key.as_bytes());
-    key
+pub trait TrieKey: AsRef<[u8]> + Into<Vec<u8>> {}
+
+#[derive(derive_more::AsRef, derive_more::Into)]
+#[as_ref(forward)]
+struct KeyForColumnAccountId(Vec<u8>);
+
+impl TrieKey for KeyForColumnAccountId {}
+
+impl KeyForColumnAccountId {
+    pub fn estimate_len(column: &[u8], account_id: &AccountId) -> usize {
+        column.len() + account_id.len()
+    }
+
+    pub fn with_capacity(column: &[u8], account_id: &AccountId, reserve_capacity: usize) -> Self {
+        let mut key =
+            Vec::with_capacity(Self::estimate_len(&column, &account_id) + reserve_capacity);
+        key.extend(column);
+        key.extend(account_id.as_bytes());
+        debug_assert_eq!(key.len(), Self::estimate_len(&column, &account_id));
+        Self(key)
+    }
+
+    pub fn parse_account_id_prefix<'a>(
+        column: &[u8],
+        raw_key: &'a [u8],
+    ) -> Result<&'a [u8], std::io::Error> {
+        if !raw_key.starts_with(column) {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "raw key is does not start with a proper column marker",
+            ));
+        }
+        Ok(&raw_key[column.len()..])
+    }
 }
 
-pub fn key_for_account(account_key: &AccountId) -> Vec<u8> {
-    key_for_column_account_id(col::ACCOUNT, account_key)
+#[derive(derive_more::AsRef, derive_more::Into)]
+#[as_ref(forward)]
+pub struct KeyForAccount(Vec<u8>);
+
+impl TrieKey for KeyForAccount {}
+
+impl KeyForAccount {
+    pub fn estimate_len(account_id: &AccountId) -> usize {
+        KeyForColumnAccountId::estimate_len(col::ACCOUNT, account_id)
+    }
+
+    pub fn with_capacity(account_id: &AccountId, reserve_capacity: usize) -> Self {
+        let key = KeyForColumnAccountId::with_capacity(col::ACCOUNT, account_id, reserve_capacity);
+        debug_assert_eq!(key.0.len(), Self::estimate_len(&account_id));
+        Self(key.into())
+    }
+
+    pub fn new(account_id: &AccountId) -> Self {
+        Self::with_capacity(&account_id, 0)
+    }
+
+    pub fn parse_account_id<K: AsRef<[u8]>>(raw_key: K) -> Result<AccountId, std::io::Error> {
+        let account_id =
+            KeyForColumnAccountId::parse_account_id_prefix(col::ACCOUNT, raw_key.as_ref())?;
+        Ok(AccountId::from(std::str::from_utf8(account_id).map_err(|_| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "raw key does not have a valid AccountId to be KeyForAccount",
+            )
+        })?))
+    }
 }
 
-pub fn key_for_data(account_id: &AccountId, data: &[u8]) -> Vec<u8> {
-    let mut bytes = key_for_account(account_id);
-    bytes.extend(ACCOUNT_DATA_SEPARATOR);
-    bytes.extend(data);
-    bytes
+#[derive(derive_more::AsRef, derive_more::Into)]
+#[as_ref(forward)]
+pub struct KeyForAccessKey(Vec<u8>);
+
+impl TrieKey for KeyForAccessKey {}
+
+impl KeyForAccessKey {
+    fn estimate_prefix_len(account_id: &AccountId) -> usize {
+        KeyForColumnAccountId::estimate_len(col::ACCESS_KEY, account_id) + col::ACCESS_KEY.len()
+    }
+
+    /// This is not safe and should only be used internally for iterating over access keys for reading.
+    pub fn from_raw_key(key: &[u8]) -> Self {
+        Self(key.to_vec())
+    }
+
+    pub fn estimate_len(account_id: &AccountId, public_key: &PublicKey) -> usize {
+        let serialized_public_key =
+            public_key.try_to_vec().expect("Failed to serialize public key");
+        Self::estimate_prefix_len(account_id) + serialized_public_key.len()
+    }
+
+    pub fn get_prefix_with_capacity(account_id: &AccountId, reserved_capacity: usize) -> Self {
+        let mut key: Vec<u8> = KeyForColumnAccountId::with_capacity(
+            col::ACCESS_KEY,
+            account_id,
+            col::ACCESS_KEY.len() + reserved_capacity,
+        )
+        .into();
+        key.extend(col::ACCESS_KEY);
+        Self(key)
+    }
+
+    pub fn get_prefix(account_id: &AccountId) -> Self {
+        Self::get_prefix_with_capacity(account_id, 0)
+    }
+
+    pub fn new(account_id: &AccountId, public_key: &PublicKey) -> Self {
+        let serialized_public_key =
+            public_key.try_to_vec().expect("Failed to serialize public key");
+        let mut key = Self::get_prefix_with_capacity(&account_id, serialized_public_key.len());
+        key.0.extend(&serialized_public_key);
+        debug_assert_eq!(key.0.len(), Self::estimate_len(&account_id, &public_key));
+        key
+    }
+
+    pub fn parse_account_id<K: AsRef<[u8]>>(raw_key: K) -> Result<AccountId, std::io::Error> {
+        let account_id_prefix =
+            KeyForColumnAccountId::parse_account_id_prefix(col::ACCESS_KEY, raw_key.as_ref())?;
+        let public_key_position = if let Some(index) =
+            account_id_prefix.iter().enumerate().find(|(_, c)| **c == 2).map(|(index, _)| index)
+        {
+            index
+        } else {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "raw key does not have public key to be KeyForAccessKey",
+            ));
+        };
+        let account_id = &account_id_prefix[..public_key_position];
+        Ok(AccountId::from(std::str::from_utf8(account_id).map_err(|_| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "raw key does not have a valid AccountId to be KeyForAccessKey",
+            )
+        })?))
+    }
+
+    pub fn parse_public_key(
+        raw_key: &[u8],
+        account_id: &AccountId,
+    ) -> Result<PublicKey, std::io::Error> {
+        let prefix_len = Self::estimate_prefix_len(account_id);
+        if raw_key.len() < prefix_len {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "raw key is too short for KeyForAccessKey",
+            ));
+        }
+        PublicKey::try_from_slice(&raw_key[prefix_len..])
+    }
 }
 
-pub fn prefix_for_access_key(account_id: &AccountId) -> Vec<u8> {
-    let mut key = key_for_column_account_id(col::ACCESS_KEY, account_id);
-    key.extend(col::ACCESS_KEY);
-    key
+#[derive(derive_more::AsRef, derive_more::Into)]
+#[as_ref(forward)]
+pub struct KeyForData(Vec<u8>);
+
+impl TrieKey for KeyForData {}
+
+impl KeyForData {
+    pub fn estimate_len(account_id: &AccountId, data: &[u8]) -> usize {
+        KeyForAccount::estimate_len(&account_id) + ACCOUNT_DATA_SEPARATOR.len() + data.len()
+    }
+
+    pub fn get_prefix_with_capacity(account_id: &AccountId, reserved_capacity: usize) -> Self {
+        let mut prefix: Vec<u8> = KeyForAccount::with_capacity(
+            account_id,
+            ACCOUNT_DATA_SEPARATOR.len() + reserved_capacity,
+        )
+        .into();
+        prefix.extend(ACCOUNT_DATA_SEPARATOR);
+        Self(prefix)
+    }
+
+    pub fn get_prefix(account_id: &AccountId) -> Self {
+        Self::get_prefix_with_capacity(account_id, 0)
+    }
+
+    pub fn with_suffix(&self, suffix: &[u8]) -> Self {
+        let mut raw_key = Vec::with_capacity(self.0.len() + suffix.len());
+        raw_key.extend(&self.0);
+        raw_key.extend(suffix);
+        Self(raw_key)
+    }
+
+    pub fn new(account_id: &AccountId, data: &[u8]) -> Self {
+        let mut key = Self::get_prefix_with_capacity(&account_id, data.len());
+        key.0.extend(data);
+        debug_assert_eq!(key.0.len(), Self::estimate_len(&account_id, &data));
+        key
+    }
+
+    /// Not safe, use only for genesis reads.
+    /// TODO(#2215): Remove once AccountId hashing is implemented.
+    pub fn from_raw_key(key: Vec<u8>) -> Self {
+        Self(key)
+    }
+
+    pub fn parse_account_id<K: AsRef<[u8]>>(raw_key: K) -> Result<AccountId, std::io::Error> {
+        let account_id_prefix =
+            KeyForColumnAccountId::parse_account_id_prefix(col::ACCOUNT, raw_key.as_ref())?;
+        // To simplify things, we assume that the data separator is a single byte.
+        debug_assert_eq!(ACCOUNT_DATA_SEPARATOR.len(), 1);
+        let account_data_separator_position = if let Some(index) = account_id_prefix
+            .iter()
+            .enumerate()
+            .find(|(_, c)| **c == ACCOUNT_DATA_SEPARATOR[0])
+            .map(|(index, _)| index)
+        {
+            index
+        } else {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "raw key does not have ACCOUNT_DATA_SEPARATOR to be KeyForData",
+            ));
+        };
+        let account_id_prefix = &account_id_prefix[..account_data_separator_position];
+        Ok(AccountId::from(std::str::from_utf8(account_id_prefix).map_err(|_| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "raw key does not have a valid AccountId to be KeyForData",
+            )
+        })?))
+    }
+
+    pub fn parse_data_key<'a>(
+        raw_key: &'a [u8],
+        account_id: &AccountId,
+    ) -> Result<&'a [u8], std::io::Error> {
+        let prefix_len = Self::estimate_len(account_id, &[]);
+        if raw_key.len() < prefix_len {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "raw key is too short for KeyForData",
+            ));
+        }
+        Ok(&raw_key[prefix_len..])
+    }
 }
 
-pub fn prefix_for_data(account_id: &AccountId) -> Vec<u8> {
-    let mut prefix = key_for_account(account_id);
-    prefix.extend(ACCOUNT_DATA_SEPARATOR);
-    prefix
+#[derive(derive_more::AsRef, derive_more::Into)]
+#[as_ref(forward)]
+pub struct KeyForContractCode(Vec<u8>);
+
+impl TrieKey for KeyForContractCode {}
+
+impl KeyForContractCode {
+    pub fn new(account_id: &AccountId) -> Self {
+        Self(KeyForColumnAccountId::with_capacity(col::CODE, account_id, 0).into())
+    }
+
+    pub fn parse_account_id<K: AsRef<[u8]>>(raw_key: K) -> Result<AccountId, std::io::Error> {
+        let account_id =
+            KeyForColumnAccountId::parse_account_id_prefix(col::CODE, raw_key.as_ref())?;
+        Ok(AccountId::from(std::str::from_utf8(account_id).map_err(|_| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "raw key does not have a valid AccountId to be KeyForCode",
+            )
+        })?))
+    }
 }
 
-pub fn key_for_access_key(account_id: &AccountId, public_key: &PublicKey) -> Vec<u8> {
-    let mut key = key_for_column_account_id(col::ACCESS_KEY, account_id);
-    key.extend(col::ACCESS_KEY);
-    key.extend(&public_key.try_to_vec().expect("Failed to serialize public key"));
-    key
+#[derive(derive_more::AsRef, derive_more::Into)]
+#[as_ref(forward)]
+pub struct KeyForReceivedData(Vec<u8>);
+
+impl TrieKey for KeyForReceivedData {}
+
+impl KeyForReceivedData {
+    pub fn new(account_id: &AccountId, data_id: &CryptoHash) -> Self {
+        let mut key: Vec<u8> = KeyForColumnAccountId::with_capacity(
+            col::RECEIVED_DATA,
+            account_id,
+            ACCOUNT_DATA_SEPARATOR.len() + data_id.as_ref().len(),
+        )
+        .into();
+        key.extend(ACCOUNT_DATA_SEPARATOR);
+        key.extend(data_id.as_ref());
+        Self(key)
+    }
 }
 
-pub fn key_for_all_access_keys(account_id: &AccountId) -> Vec<u8> {
-    key_for_column_account_id(col::ACCESS_KEY, account_id)
+#[derive(derive_more::AsRef, derive_more::Into)]
+#[as_ref(forward)]
+pub struct KeyForPostponedReceiptId(Vec<u8>);
+
+impl TrieKey for KeyForPostponedReceiptId {}
+
+impl KeyForPostponedReceiptId {
+    pub fn new(account_id: &AccountId, data_id: &CryptoHash) -> Self {
+        let mut key: Vec<u8> = KeyForColumnAccountId::with_capacity(
+            col::POSTPONED_RECEIPT_ID,
+            account_id,
+            ACCOUNT_DATA_SEPARATOR.len() + data_id.as_ref().len(),
+        )
+        .into();
+        key.extend(ACCOUNT_DATA_SEPARATOR);
+        key.extend(data_id.as_ref());
+        Self(key)
+    }
 }
 
-pub fn key_for_code(account_key: &AccountId) -> Vec<u8> {
-    key_for_column_account_id(col::CODE, account_key)
+#[derive(derive_more::AsRef, derive_more::Into)]
+#[as_ref(forward)]
+pub struct KeyForPendingDataCount(Vec<u8>);
+
+impl TrieKey for KeyForPendingDataCount {}
+
+impl KeyForPendingDataCount {
+    pub fn new(account_id: &AccountId, receipt_id: &CryptoHash) -> Self {
+        let mut key: Vec<u8> = KeyForColumnAccountId::with_capacity(
+            col::PENDING_DATA_COUNT,
+            account_id,
+            ACCOUNT_DATA_SEPARATOR.len() + receipt_id.as_ref().len(),
+        )
+        .into();
+        key.extend(ACCOUNT_DATA_SEPARATOR);
+        key.extend(receipt_id.as_ref());
+        Self(key)
+    }
 }
 
-pub fn key_for_received_data(account_id: &AccountId, data_id: &CryptoHash) -> Vec<u8> {
-    let mut key = key_for_column_account_id(col::RECEIVED_DATA, account_id);
-    key.extend(ACCOUNT_DATA_SEPARATOR);
-    key.extend(data_id.as_ref());
-    key
+#[derive(derive_more::AsRef, derive_more::Into)]
+#[as_ref(forward)]
+pub struct KeyForPostponedReceipt(Vec<u8>);
+
+impl TrieKey for KeyForPostponedReceipt {}
+
+impl KeyForPostponedReceipt {
+    pub fn new(account_id: &AccountId, receipt_id: &CryptoHash) -> Self {
+        let mut key: Vec<u8> = KeyForColumnAccountId::with_capacity(
+            col::POSTPONED_RECEIPT,
+            account_id,
+            ACCOUNT_DATA_SEPARATOR.len() + receipt_id.as_ref().len(),
+        )
+        .into();
+        key.extend(ACCOUNT_DATA_SEPARATOR);
+        key.extend(receipt_id.as_ref());
+        Self(key)
+    }
 }
 
-pub fn key_for_postponed_receipt_id(account_id: &AccountId, data_id: &CryptoHash) -> Vec<u8> {
-    let mut key = key_for_column_account_id(col::POSTPONED_RECEIPT_ID, account_id);
-    key.extend(ACCOUNT_DATA_SEPARATOR);
-    key.extend(data_id.as_ref());
-    key
+#[derive(derive_more::AsRef, derive_more::Into)]
+#[as_ref(forward)]
+pub struct KeyForDelayedReceipt(Vec<u8>);
+
+impl TrieKey for KeyForDelayedReceipt {}
+
+impl KeyForDelayedReceipt {
+    pub fn new(index: u64) -> Self {
+        let index_bytes = index.to_le_bytes();
+        let mut key = Vec::with_capacity(col::DELAYED_RECEIPT.len() + index_bytes.len());
+        key.extend(col::DELAYED_RECEIPT);
+        key.extend(&index_bytes);
+        Self(key)
+    }
 }
 
-pub fn key_for_pending_data_count(account_id: &AccountId, receipt_id: &CryptoHash) -> Vec<u8> {
-    let mut key = key_for_column_account_id(col::PENDING_DATA_COUNT, account_id);
-    key.extend(ACCOUNT_DATA_SEPARATOR);
-    key.extend(receipt_id.as_ref());
-    key
-}
+#[derive(derive_more::AsRef, derive_more::Into)]
+#[as_ref(forward)]
+pub struct KeyForDelayedReceiptIndices(Vec<u8>);
 
-pub fn key_for_postponed_receipt(account_id: &AccountId, receipt_id: &CryptoHash) -> Vec<u8> {
-    let mut key = key_for_column_account_id(col::POSTPONED_RECEIPT, account_id);
-    key.extend(ACCOUNT_DATA_SEPARATOR);
-    key.extend(receipt_id.as_ref());
-    key
-}
+impl TrieKey for KeyForDelayedReceiptIndices {}
 
-pub fn key_for_all_postponed_receipts(account_id: &AccountId) -> Vec<u8> {
-    let mut key = key_for_column_account_id(col::POSTPONED_RECEIPT, account_id);
-    key.extend(ACCOUNT_DATA_SEPARATOR);
-    key
-}
-
-pub fn key_for_delayed_receipt(index: u64) -> Vec<u8> {
-    let mut key = col::DELAYED_RECEIPT.to_vec();
-    key.extend(&index.to_le_bytes());
-    key
+impl KeyForDelayedReceiptIndices {
+    pub fn new() -> Self {
+        Self(col::DELAYED_RECEIPT_INDICES.to_vec())
+    }
 }
 
 pub fn create_nonce_with_nonce(base: &CryptoHash, salt: u64) -> CryptoHash {
@@ -317,38 +619,99 @@ where
 
 #[cfg(test)]
 mod tests {
+    use near_crypto::KeyType;
+
     use super::*;
+
+    const OK_ACCOUNT_IDS: &[&str] = &[
+        "aa",
+        "a-a",
+        "a-aa",
+        "100",
+        "0o",
+        "com",
+        "near",
+        "bowen",
+        "b-o_w_e-n",
+        "b.owen",
+        "bro.wen",
+        "a.ha",
+        "a.b-a.ra",
+        "system",
+        "over.9000",
+        "google.com",
+        "illia.cheapaccounts.near",
+        "0o0ooo00oo00o",
+        "alex-skidanov",
+        "10-4.8-2",
+        "b-o_w_e-n",
+        "no_lols",
+        "0123456789012345678901234567890123456789012345678901234567890123",
+        // Valid, but can't be created
+        "near.a",
+    ];
+
+    #[test]
+    fn test_key_for_account_consistency() {
+        for account_id in OK_ACCOUNT_IDS.iter().map(|x| AccountId::from(*x)) {
+            let key = KeyForAccount::new(&account_id);
+            assert_eq!((key.as_ref() as &[u8]).len(), KeyForAccount::estimate_len(&account_id));
+            assert_eq!(KeyForAccount::parse_account_id(&key).unwrap(), account_id);
+        }
+    }
+
+    #[test]
+    fn test_key_for_access_key_consistency() {
+        let public_key = PublicKey::empty(KeyType::ED25519);
+        for account_id in OK_ACCOUNT_IDS.iter().map(|x| AccountId::from(*x)) {
+            let key_prefix = KeyForAccessKey::get_prefix(&account_id);
+            assert_eq!(
+                (key_prefix.as_ref() as &[u8]).len(),
+                KeyForAccessKey::estimate_prefix_len(&account_id)
+            );
+            let key = KeyForAccessKey::new(&account_id, &public_key);
+            assert_eq!(
+                (key.as_ref() as &[u8]).len(),
+                KeyForAccessKey::estimate_len(&account_id, &public_key)
+            );
+            assert_eq!(KeyForAccessKey::parse_account_id(&key).unwrap(), account_id);
+            assert_eq!(
+                KeyForAccessKey::parse_public_key(key.as_ref(), &account_id).unwrap(),
+                public_key
+            );
+        }
+    }
+
+    #[test]
+    fn test_key_for_data_consistency() {
+        let data_key = b"0123456789" as &[u8];
+        for account_id in OK_ACCOUNT_IDS.iter().map(|x| AccountId::from(*x)) {
+            let key_prefix = KeyForData::get_prefix(&account_id);
+            assert_eq!(
+                (key_prefix.as_ref() as &[u8]).len(),
+                KeyForData::estimate_len(&account_id, &[])
+            );
+            let key = KeyForData::new(&account_id, &data_key);
+            assert_eq!(
+                (key.as_ref() as &[u8]).len(),
+                KeyForData::estimate_len(&account_id, &data_key)
+            );
+            assert_eq!(KeyForData::parse_account_id(&key).unwrap(), account_id);
+            assert_eq!(KeyForData::parse_data_key(key.as_ref(), &account_id).unwrap(), data_key);
+        }
+    }
+
+    #[test]
+    fn test_key_for_code_consistency() {
+        for account_id in OK_ACCOUNT_IDS.iter().map(|x| AccountId::from(*x)) {
+            let key = KeyForContractCode::new(&account_id);
+            assert_eq!(KeyForContractCode::parse_account_id(&key).unwrap(), account_id);
+        }
+    }
 
     #[test]
     fn test_is_valid_account_id() {
-        let ok_account_ids = vec![
-            "aa",
-            "a-a",
-            "a-aa",
-            "100",
-            "0o",
-            "com",
-            "near",
-            "bowen",
-            "b-o_w_e-n",
-            "b.owen",
-            "bro.wen",
-            "a.ha",
-            "a.b-a.ra",
-            "system",
-            "over.9000",
-            "google.com",
-            "illia.cheapaccounts.near",
-            "0o0ooo00oo00o",
-            "alex-skidanov",
-            "10-4.8-2",
-            "b-o_w_e-n",
-            "no_lols",
-            "0123456789012345678901234567890123456789012345678901234567890123",
-            // Valid, but can't be created
-            "near.a",
-        ];
-        for account_id in ok_account_ids {
+        for account_id in OK_ACCOUNT_IDS {
             assert!(
                 is_valid_account_id(&account_id.to_string()),
                 "Valid account id {:?} marked invalid",

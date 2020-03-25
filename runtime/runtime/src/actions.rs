@@ -13,7 +13,7 @@ use near_primitives::transaction::{
 };
 use near_primitives::types::{AccountId, Balance, BlockHeight, BlockHeightDelta, ValidatorStake};
 use near_primitives::utils::{
-    is_valid_sub_account_id, is_valid_top_level_account_id, key_for_access_key,
+    is_valid_sub_account_id, is_valid_top_level_account_id, KeyForAccessKey,
 };
 use near_runtime_fees::RuntimeFeesConfig;
 use near_store::{
@@ -28,7 +28,7 @@ use crate::ext::RuntimeExt;
 use crate::{ActionResult, ApplyState};
 use near_crypto::key_conversion::convert_public_key;
 use near_crypto::PublicKey;
-use near_primitives::errors::{ActionError, ActionErrorKind, RuntimeError};
+use near_primitives::errors::{ActionError, ActionErrorKind, ExternalError, RuntimeError};
 use near_vm_errors::{CompilationError, FunctionCallError};
 use near_vm_runner::VMError;
 
@@ -168,6 +168,7 @@ pub(crate) fn action_function_call(
         input: function_call.args.clone(),
         block_index: apply_state.block_index,
         block_timestamp: apply_state.block_timestamp,
+        epoch_height: apply_state.epoch_height,
         account_balance: account.amount,
         account_locked_balance: account.locked,
         storage_usage: account.storage_usage,
@@ -193,10 +194,12 @@ pub(crate) fn action_function_call(
             result.result = Err(ActionErrorKind::FunctionCallError(err).into());
             false
         }
-        Some(VMError::ExternalError(storage)) => {
-            let err: StorageError =
-                borsh::BorshDeserialize::try_from_slice(&storage).expect("Borsh cannot fail");
-            return Err(err.into());
+        Some(VMError::ExternalError(serialized_error)) => {
+            let err: ExternalError = borsh::BorshDeserialize::try_from_slice(&serialized_error)
+                .expect("External error deserialization shouldn't fail");
+            return match err {
+                ExternalError::StorageError(err) => Err(err.into()),
+            };
         }
         Some(VMError::InconsistentStateError(err)) => {
             return Err(StorageError::StorageInconsistentState(err.to_string()).into());
@@ -388,7 +391,7 @@ pub(crate) fn action_delete_key(
         return Ok(());
     }
     // Remove access key
-    state_update.remove(&key_for_access_key(account_id, &delete_key.public_key));
+    state_update.remove(KeyForAccessKey::new(account_id, &delete_key.public_key));
     let storage_usage_config = &fee_config.storage_usage_config;
     account.storage_usage = account
         .storage_usage

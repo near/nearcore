@@ -3,8 +3,8 @@ use std::collections::{BTreeMap, HashMap};
 use near_crypto::{KeyType, SecretKey};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::types::{
-    AccountId, Balance, BlockHeight, BlockHeightDelta, NumSeats, NumShards, ValidatorId,
-    ValidatorStake,
+    AccountId, Balance, BlockHeight, BlockHeightDelta, EpochHeight, NumSeats, NumShards,
+    ValidatorId, ValidatorStake,
 };
 use near_primitives::utils::get_num_seats_per_shard;
 use near_store::test_utils::create_test_store;
@@ -29,6 +29,7 @@ pub fn change_stake(stake_changes: Vec<(&str, Balance)>) -> BTreeMap<AccountId, 
 }
 
 pub fn epoch_info(
+    epoch_height: EpochHeight,
     mut accounts: Vec<(&str, Balance)>,
     block_producers_settlement: Vec<ValidatorId>,
     chunk_producers_settlement: Vec<Vec<ValidatorId>>,
@@ -60,6 +61,7 @@ pub fn epoch_info(
         .filter_map(|(account, balance)| if *balance == 0 { Some(account.clone()) } else { None })
         .collect();
     EpochInfo {
+        epoch_height,
         validators: account_to_validators(accounts),
         validator_to_index,
         block_producers_settlement,
@@ -103,24 +105,6 @@ pub fn epoch_config(
 pub fn stake(account_id: &str, amount: Balance) -> ValidatorStake {
     let public_key = SecretKey::from_seed(KeyType::ED25519, account_id).public_key();
     ValidatorStake::new(account_id.to_string(), public_key, amount)
-}
-
-pub fn reward_calculator(
-    max_inflation_rate: u8,
-    num_blocks_per_year: u64,
-    epoch_length: BlockHeightDelta,
-    validator_reward_percentage: u8,
-    protocol_reward_percentage: u8,
-    protocol_treasury_account: AccountId,
-) -> RewardCalculator {
-    RewardCalculator {
-        max_inflation_rate,
-        num_blocks_per_year,
-        epoch_length,
-        validator_reward_percentage,
-        protocol_reward_percentage,
-        protocol_treasury_account,
-    }
 }
 
 /// No-op reward calculator. Will produce no reward

@@ -9,6 +9,8 @@ use actix::{Actor, Addr, AsyncContext, Context, Handler};
 use chrono::{DateTime, Utc};
 use log::{debug, error, info, warn};
 
+#[cfg(feature = "adversarial")]
+use near_chain::check_refcount_map;
 use near_chain::test_utils::format_hash;
 use near_chain::types::AcceptedBlock;
 use near_chain::{
@@ -17,10 +19,10 @@ use near_chain::{
 };
 use near_chain_configs::ClientConfig;
 use near_crypto::Signature;
+#[cfg(feature = "metric_recorder")]
+use near_network::recorder::MetricRecorder;
 #[cfg(feature = "adversarial")]
-use near_network::types::NetworkAdversarialMessage::{
-    AdvDisableHeaderSync, AdvGetSavedBlocks, AdvProduceBlocks,
-};
+use near_network::types::NetworkAdversarialMessage;
 use near_network::types::{NetworkInfo, ReasonForBan, StateResponseInfo};
 use near_network::{
     NetworkAdapter, NetworkClientMessages, NetworkClientResponses, NetworkRequests,
@@ -34,7 +36,6 @@ use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::views::ValidatorInfo;
 #[cfg(feature = "adversarial")]
 use near_store::ColBlock;
-use near_store::Store;
 use near_telemetry::TelemetryActor;
 
 use crate::client::Client;
@@ -55,6 +56,8 @@ pub struct ClientActor {
     pub adv_sync_info: Option<(u64, u64)>,
     #[cfg(feature = "adversarial")]
     pub adv_disable_header_sync: bool,
+    #[cfg(feature = "adversarial")]
+    pub adv_disable_doomslug: bool,
 
     client: Client,
     network_adapter: Arc<dyn NetworkAdapter>,
@@ -85,7 +88,6 @@ fn wait_until_genesis(genesis_time: &DateTime<Utc>) {
 impl ClientActor {
     pub fn new(
         config: ClientConfig,
-        store: Arc<Store>,
         chain_genesis: ChainGenesis,
         runtime_adapter: Arc<dyn RuntimeAdapter>,
         node_id: PeerId,
@@ -101,7 +103,6 @@ impl ClientActor {
         let info_helper = InfoHelper::new(telemetry_actor, &config, validator_signer.clone());
         let client = Client::new(
             config,
-            store,
             chain_genesis,
             runtime_adapter,
             network_adapter.clone(),
@@ -114,6 +115,8 @@ impl ClientActor {
             adv_sync_info: None,
             #[cfg(feature = "adversarial")]
             adv_disable_header_sync: false,
+            #[cfg(feature = "adversarial")]
+            adv_disable_doomslug: false,
             client,
             network_adapter,
             node_id,
@@ -125,6 +128,8 @@ impl ClientActor {
                 received_bytes_per_sec: 0,
                 sent_bytes_per_sec: 0,
                 known_producers: vec![],
+                #[cfg(feature = "metric_recorder")]
+                metric_recorder: MetricRecorder::default(),
             },
             last_validator_announce_height: None,
             last_validator_announce_time: None,
@@ -164,12 +169,19 @@ impl Handler<NetworkClientMessages> for ClientActor {
             #[cfg(feature = "adversarial")]
             NetworkClientMessages::Adversarial(adversarial_msg) => {
                 return match adversarial_msg {
-                    AdvDisableHeaderSync => {
+                    NetworkAdversarialMessage::AdvDisableDoomslug => {
+                        info!(target: "adversary", "Turning Doomslug off");
+                        self.adv_disable_doomslug = true;
+                        self.client.doomslug.adv_disable();
+                        self.client.chain.adv_disable_doomslug();
+                        NetworkClientResponses::NoResponse
+                    }
+                    NetworkAdversarialMessage::AdvDisableHeaderSync => {
                         info!(target: "adversary", "Blocking header sync");
                         self.adv_disable_header_sync = true;
                         NetworkClientResponses::NoResponse
                     }
-                    AdvProduceBlocks(num_blocks, only_valid) => {
+                    NetworkAdversarialMessage::AdvProduceBlocks(num_blocks, only_valid) => {
                         info!(target: "adversary", "Producing {} blocks", num_blocks);
                         self.client.adv_produce_blocks = true;
                         self.client.adv_produce_blocks_only_valid = only_valid;
@@ -204,17 +216,27 @@ impl Handler<NetworkClientMessages> for ClientActor {
                         }
                         NetworkClientResponses::NoResponse
                     }
-                    AdvGetSavedBlocks => {
+                    NetworkAdversarialMessage::AdvGetSavedBlocks => {
                         info!(target: "adversary", "Requested number of saved blocks");
                         let store = self.client.chain.store().store();
                         let mut num_blocks = 0;
                         for _ in store.iter(ColBlock) {
                             num_blocks += 1;
                         }
-                        NetworkClientResponses::AdvU64(num_blocks)
+                        NetworkClientResponses::AdvResult(num_blocks)
+                    }
+                    NetworkAdversarialMessage::AdvCheckRefMap => {
+                        info!(target: "adversary", "Check Block Reference Map");
+                        match check_refcount_map(&mut self.client.chain) {
+                            Ok(_) => NetworkClientResponses::AdvResult(1 /* true */),
+                            Err(e) => {
+                                error!(target: "client", "Block Reference Map is inconsistent: {:?}", e);
+                                NetworkClientResponses::AdvResult(0 /* false */)
+                            }
+                        }
                     }
                     _ => panic!("invalid adversary message"),
-                }
+                };
             }
             NetworkClientMessages::Transaction(tx) => self.client.process_tx(tx),
             NetworkClientMessages::Block(block, peer_id, was_requested) => {
@@ -472,6 +494,8 @@ impl Handler<GetNetworkInfo> for ClientActor {
             sent_bytes_per_sec: self.network_info.sent_bytes_per_sec,
             received_bytes_per_sec: self.network_info.received_bytes_per_sec,
             known_producers: self.network_info.known_producers.clone(),
+            #[cfg(feature = "metric_recorder")]
+            metric_recorder: self.network_info.metric_recorder.clone(),
         })
     }
 }
@@ -542,7 +566,7 @@ impl ClientActor {
             .get_epoch_block_producers_ordered(&next_epoch_id, &prev_block_hash)
         {
             if validators.iter().any(|(validator_stake, _)| {
-                (&validator_stake.account_id == validator_signer.validator_id())
+                &validator_stake.account_id == validator_signer.validator_id()
             }) {
                 debug!(target: "client", "Sending announce account for {}", validator_signer.validator_id());
                 self.last_validator_announce_height = Some(epoch_start_height);

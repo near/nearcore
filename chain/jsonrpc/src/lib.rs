@@ -14,14 +14,15 @@ use futures::{FutureExt, TryFutureExt};
 use prometheus;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::Value;
 use tokio::time::{delay_for, timeout};
 use validator::Validate;
 
 use near_chain_configs::Genesis;
 use near_client::{
-    ClientActor, GetBlock, GetChunk, GetGasPrice, GetKeyValueChanges, GetNetworkInfo,
-    GetNextLightClientBlock, GetValidatorInfo, Query, Status, TxStatus, ViewClientActor,
+    ClientActor, GetBlock, GetChunk, GetGasPrice, GetNetworkInfo, GetNextLightClientBlock,
+    GetStateChanges, GetStateChangesInBlock, GetValidatorInfo, Query, Status, TxStatus,
+    ViewClientActor,
 };
 use near_crypto::PublicKey;
 pub use near_jsonrpc_client as client;
@@ -29,20 +30,19 @@ use near_jsonrpc_client::message::{Message, Request, RpcError};
 use near_jsonrpc_client::ChunkId;
 use near_metrics::{Encoder, TextEncoder};
 #[cfg(feature = "adversarial")]
-use near_network::types::NetworkAdversarialMessage::{
-    AdvDisableHeaderSync, AdvGetSavedBlocks, AdvProduceBlocks, AdvSetSyncInfo,
-};
-#[cfg(feature = "adversarial")]
-use near_network::types::NetworkViewClientMessages;
+use near_network::types::{NetworkAdversarialMessage, NetworkViewClientMessages};
 use near_network::{NetworkClientMessages, NetworkClientResponses};
 use near_primitives::errors::{InvalidTxError, TxExecutionError};
 use near_primitives::hash::CryptoHash;
-use near_primitives::rpc::{BlockQueryInfo, RpcGenesisRecordsRequest, RpcQueryRequest};
+use near_primitives::rpc::{
+    RpcGenesisRecordsRequest, RpcQueryRequest, RpcStateChangesInBlockRequest,
+    RpcStateChangesInBlockResponse, RpcStateChangesRequest, RpcStateChangesResponse,
+};
 use near_primitives::serialize::{from_base, from_base64, BaseEncode};
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, BlockId, MaybeBlockId, StateChangesRequest};
+use near_primitives::types::{AccountId, BlockId, BlockIdOrFinality, MaybeBlockId};
 use near_primitives::utils::is_valid_account_id;
-use near_primitives::views::{FinalExecutionStatus, Finality, GenesisRecordsView, QueryRequest};
+use near_primitives::views::{FinalExecutionStatus, GenesisRecordsView, QueryRequest};
 
 mod metrics;
 
@@ -193,8 +193,10 @@ impl JsonRpcHandler {
                 // Adversarial controls
                 "adv_set_weight" => Some(self.adv_set_sync_info(params).await),
                 "adv_disable_header_sync" => Some(self.adv_disable_header_sync(params).await),
+                "adv_disable_doomslug" => Some(self.adv_disable_doomslug(params).await),
                 "adv_produce_blocks" => Some(self.adv_produce_blocks(params).await),
                 "adv_get_saved_blocks" => Some(self.adv_get_saved_blocks(params).await),
+                "adv_check_refmap" => Some(self.adv_check_refmap(params).await),
                 _ => None,
             };
 
@@ -215,7 +217,8 @@ impl JsonRpcHandler {
             "tx" => self.tx_status(request.params).await,
             "block" => self.block(request.params).await,
             "chunk" => self.chunk(request.params).await,
-            "changes" => self.changes(request.params).await,
+            "EXPERIMENTAL_changes" => self.changes_in_block_by_type(request.params).await,
+            "EXPERIMENTAL_changes_in_block" => self.changes_in_block(request.params).await,
             "next_light_client_block" => self.next_light_client_block(request.params).await,
             "network_info" => self.network_info().await,
             "gas_price" => self.gas_price(request.params).await,
@@ -228,7 +231,9 @@ impl JsonRpcHandler {
         let (height, score) = parse_params::<(u64, u64)>(params)?;
         actix::spawn(
             self.view_client_addr
-                .send(NetworkViewClientMessages::Adversarial(AdvSetSyncInfo(height, score)))
+                .send(NetworkViewClientMessages::Adversarial(
+                    NetworkAdversarialMessage::AdvSetSyncInfo(height, score),
+                ))
                 .map(|_| ()),
         );
         Ok(Value::String("".to_string()))
@@ -238,12 +243,35 @@ impl JsonRpcHandler {
     async fn adv_disable_header_sync(&self, _params: Option<Value>) -> Result<Value, RpcError> {
         actix::spawn(
             self.client_addr
-                .send(NetworkClientMessages::Adversarial(AdvDisableHeaderSync))
+                .send(NetworkClientMessages::Adversarial(
+                    NetworkAdversarialMessage::AdvDisableHeaderSync,
+                ))
                 .map(|_| ()),
         );
         actix::spawn(
             self.view_client_addr
-                .send(NetworkViewClientMessages::Adversarial(AdvDisableHeaderSync))
+                .send(NetworkViewClientMessages::Adversarial(
+                    NetworkAdversarialMessage::AdvDisableHeaderSync,
+                ))
+                .map(|_| ()),
+        );
+        Ok(Value::String("".to_string()))
+    }
+
+    #[cfg(feature = "adversarial")]
+    async fn adv_disable_doomslug(&self, _params: Option<Value>) -> Result<Value, RpcError> {
+        actix::spawn(
+            self.client_addr
+                .send(NetworkClientMessages::Adversarial(
+                    NetworkAdversarialMessage::AdvDisableDoomslug,
+                ))
+                .map(|_| ()),
+        );
+        actix::spawn(
+            self.view_client_addr
+                .send(NetworkViewClientMessages::Adversarial(
+                    NetworkAdversarialMessage::AdvDisableDoomslug,
+                ))
                 .map(|_| ()),
         );
         Ok(Value::String("".to_string()))
@@ -254,7 +282,9 @@ impl JsonRpcHandler {
         let (num_blocks, only_valid) = parse_params::<(u64, bool)>(params)?;
         actix::spawn(
             self.client_addr
-                .send(NetworkClientMessages::Adversarial(AdvProduceBlocks(num_blocks, only_valid)))
+                .send(NetworkClientMessages::Adversarial(
+                    NetworkAdversarialMessage::AdvProduceBlocks(num_blocks, only_valid),
+                ))
                 .map(|_| ()),
         );
         Ok(Value::String("".to_string()))
@@ -262,9 +292,28 @@ impl JsonRpcHandler {
 
     #[cfg(feature = "adversarial")]
     async fn adv_get_saved_blocks(&self, _params: Option<Value>) -> Result<Value, RpcError> {
-        match self.client_addr.send(NetworkClientMessages::Adversarial(AdvGetSavedBlocks)).await {
+        match self
+            .client_addr
+            .send(NetworkClientMessages::Adversarial(NetworkAdversarialMessage::AdvGetSavedBlocks))
+            .await
+        {
             Ok(result) => match result {
-                NetworkClientResponses::AdvU64(value) => jsonify(Ok(Ok(value))),
+                NetworkClientResponses::AdvResult(value) => jsonify(Ok(Ok(value))),
+                _ => Err(RpcError::server_error::<String>(None)),
+            },
+            _ => Err(RpcError::server_error::<String>(None)),
+        }
+    }
+
+    #[cfg(feature = "adversarial")]
+    async fn adv_check_refmap(&self, _params: Option<Value>) -> Result<Value, RpcError> {
+        match self
+            .client_addr
+            .send(NetworkClientMessages::Adversarial(NetworkAdversarialMessage::AdvCheckRefMap))
+            .await
+        {
+            Ok(result) => match result {
+                NetworkClientResponses::AdvResult(value) => jsonify(Ok(Ok(value))),
                 _ => Err(RpcError::server_error::<String>(None)),
             },
             _ => Err(RpcError::server_error::<String>(None)),
@@ -431,12 +480,11 @@ impl JsonRpcHandler {
                     }
                 };
                 // Use Finality::None here to make backward compatibility tests work
-                RpcQueryRequest { block_id: None, request, finality: Finality::None }
+                RpcQueryRequest { request, block_id_or_finality: BlockIdOrFinality::latest() }
             } else {
                 parse_params::<RpcQueryRequest>(params)?
             };
-        let query =
-            Query::new(query_request.block_id, query_request.request, query_request.finality);
+        let query = Query::new(query_request.block_id_or_finality, query_request.request);
         timeout(self.polling_config.polling_timeout, async {
             loop {
                 let result = self.view_client_addr.send(query.clone()).await;
@@ -468,19 +516,13 @@ impl JsonRpcHandler {
     }
 
     async fn block(&self, params: Option<Value>) -> Result<Value, RpcError> {
-        let block_query = if let Ok((block_id,)) = parse_params::<(BlockId,)>(params.clone()) {
-            BlockQueryInfo::BlockId(block_id)
-        } else {
-            parse_params::<BlockQueryInfo>(params)?
-        };
-        jsonify(
-            self.view_client_addr
-                .send(match block_query {
-                    BlockQueryInfo::BlockId(block_id) => GetBlock::BlockId(block_id),
-                    BlockQueryInfo::Finality(finality) => GetBlock::Finality(finality),
-                })
-                .await,
-        )
+        let block_id_or_finality =
+            if let Ok((block_id,)) = parse_params::<(BlockId,)>(params.clone()) {
+                BlockIdOrFinality::BlockId(block_id)
+            } else {
+                parse_params::<BlockIdOrFinality>(params)?
+            };
+        jsonify(self.view_client_addr.send(GetBlock(block_id_or_finality)).await)
     }
 
     async fn chunk(&self, params: Option<Value>) -> Result<Value, RpcError> {
@@ -500,33 +542,41 @@ impl JsonRpcHandler {
         )
     }
 
-    async fn changes(&self, params: Option<Value>) -> Result<Value, RpcError> {
-        let (block_hash, state_changes_request) =
-            parse_params::<(CryptoHash, StateChangesRequest)>(params)?;
-        let block_hash_copy = block_hash.clone();
+    async fn changes_in_block(&self, params: Option<Value>) -> Result<Value, RpcError> {
+        let RpcStateChangesInBlockRequest { block_id_or_finality } = parse_params(params)?;
+        let block = self
+            .view_client_addr
+            .send(GetBlock(block_id_or_finality))
+            .await
+            .map_err(|err| RpcError::server_error(Some(err.to_string())))?
+            .map_err(|err| RpcError::server_error(Some(err)))?;
+        let block_hash = block.header.hash.clone();
+        jsonify(self.view_client_addr.send(GetStateChangesInBlock { block_hash }).await.map(|v| {
+            v.map(|changes| RpcStateChangesInBlockResponse {
+                block_hash: block.header.hash,
+                changes,
+            })
+        }))
+    }
+
+    async fn changes_in_block_by_type(&self, params: Option<Value>) -> Result<Value, RpcError> {
+        let RpcStateChangesRequest { block_id_or_finality, state_changes_request } =
+            parse_params(params)?;
+        let block = self
+            .view_client_addr
+            .send(GetBlock(block_id_or_finality))
+            .await
+            .map_err(|err| RpcError::server_error(Some(err.to_string())))?
+            .map_err(|err| RpcError::server_error(Some(err)))?;
+        let block_hash = block.header.hash.clone();
         jsonify(
             self.view_client_addr
-                .send(GetKeyValueChanges { block_hash, state_changes_request })
+                .send(GetStateChanges { block_hash, state_changes_request })
                 .await
                 .map(|v| {
-                    v.map(|changes| {
-                        json!({
-                            "block_hash": block_hash_copy,
-                            "changes_by_key": changes
-                            .into_iter()
-                            .map(|(key, changes)| {
-                                json!({
-                                    "key": key,
-                                    "changes": changes.into_iter().map(|(cause, value)| {
-                                        json!({
-                                            "cause": cause,
-                                            "value": value
-                                        })
-                                    }).collect::<Vec<_>>()
-                                })
-                            })
-                            .collect::<Vec<_>>()
-                        })
+                    v.map(|changes| RpcStateChangesResponse {
+                        block_hash: block.header.hash,
+                        changes,
                     })
                 }),
         )

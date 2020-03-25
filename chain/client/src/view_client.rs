@@ -16,7 +16,7 @@ use near_chain::{
 };
 use near_chain_configs::ClientConfig;
 #[cfg(feature = "adversarial")]
-use near_network::types::NetworkAdversarialMessage::{AdvDisableHeaderSync, AdvSetSyncInfo};
+use near_network::types::NetworkAdversarialMessage;
 use near_network::types::{
     NetworkViewClientMessages, NetworkViewClientResponses, ReasonForBan, StateResponseInfo,
 };
@@ -25,15 +25,20 @@ use near_primitives::block::{BlockHeader, BlockScore, GenesisId};
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::verify_path;
 use near_primitives::network::AnnounceAccount;
-use near_primitives::types::{AccountId, BlockHeight, BlockId, MaybeBlockId, StateChanges};
+use near_primitives::types::{
+    AccountId, BlockHeight, BlockId, BlockIdOrFinality, Finality, MaybeBlockId,
+};
 use near_primitives::views::{
     BlockView, ChunkView, EpochValidatorInfo, FinalExecutionOutcomeView, FinalExecutionStatus,
-    Finality, GasPriceView, LightClientBlockView, QueryRequest, QueryResponse,
+    GasPriceView, LightClientBlockView, QueryRequest, QueryResponse, StateChangesKindsView,
+    StateChangesView,
 };
-use near_store::Store;
 
 use crate::types::{Error, GetBlock, GetGasPrice, Query, TxStatus};
-use crate::{sync, GetChunk, GetKeyValueChanges, GetNextLightClientBlock, GetValidatorInfo};
+use crate::{
+    sync, GetChunk, GetNextLightClientBlock, GetStateChanges, GetStateChangesInBlock,
+    GetValidatorInfo,
+};
 
 /// Max number of queries that we keep.
 const QUERY_REQUEST_LIMIT: usize = 500;
@@ -44,6 +49,8 @@ const REQUEST_WAIT_TIME: u64 = 1000;
 pub struct ViewClientActor {
     #[cfg(feature = "adversarial")]
     pub adv_disable_header_sync: bool,
+    #[cfg(feature = "adversarial")]
+    pub adv_disable_doomslug: bool,
     #[cfg(feature = "adversarial")]
     pub adv_sync_info: Option<(u64, u64)>,
 
@@ -65,32 +72,19 @@ pub struct ViewClientActor {
 
 impl ViewClientActor {
     pub fn new(
-        store: Arc<Store>,
         chain_genesis: &ChainGenesis,
         runtime_adapter: Arc<dyn RuntimeAdapter>,
         network_adapter: Arc<dyn NetworkAdapter>,
         config: ClientConfig,
-        expected_genesis_hash: Option<String>,
     ) -> Result<Self, Error> {
         // TODO: should we create shared ChainStore that is passed to both Client and ViewClient?
-        let mut chain = Chain::new(
-            store,
-            runtime_adapter.clone(),
-            chain_genesis,
-            DoomslugThresholdMode::HalfStake,
-        )?;
-        if let Some(expected_genesis_hash) = expected_genesis_hash {
-            let genesis_hash = chain.get_block_by_height(0).unwrap().hash().to_string();
-            if genesis_hash != expected_genesis_hash {
-                panic!(
-                    "Expected genesis hash to be {}, actual {}",
-                    expected_genesis_hash, genesis_hash,
-                );
-            }
-        }
+        let chain =
+            Chain::new(runtime_adapter.clone(), chain_genesis, DoomslugThresholdMode::HalfStake)?;
         Ok(ViewClientActor {
             #[cfg(feature = "adversarial")]
             adv_disable_header_sync: false,
+            #[cfg(feature = "adversarial")]
+            adv_disable_doomslug: false,
             #[cfg(feature = "adversarial")]
             adv_sync_info: None,
             chain,
@@ -143,12 +137,16 @@ impl ViewClientActor {
             return response.map(Some);
         }
 
-        let header = match msg.block_id {
-            Some(BlockId::Height(block_height)) => self.chain.get_header_by_height(block_height),
-            Some(BlockId::Hash(block_hash)) => self.chain.get_block_header(&block_hash),
-            None => {
+        let header = match msg.block_id_or_finality {
+            BlockIdOrFinality::BlockId(BlockId::Height(block_height)) => {
+                self.chain.get_header_by_height(block_height)
+            }
+            BlockIdOrFinality::BlockId(BlockId::Hash(block_hash)) => {
+                self.chain.get_block_header(&block_hash)
+            }
+            BlockIdOrFinality::Finality(ref finality) => {
                 let block_hash =
-                    self.get_block_hash_by_finality(&msg.finality).map_err(|e| e.to_string())?;
+                    self.get_block_hash_by_finality(&finality).map_err(|e| e.to_string())?;
                 self.chain.get_block_header(&block_hash)
             }
         };
@@ -174,6 +172,7 @@ impl ViewClientActor {
                         header.inner_lite.height,
                         header.inner_lite.timestamp,
                         &header.hash,
+                        &header.inner_lite.epoch_id,
                         &msg.request,
                     )
                     .map(Some)
@@ -195,9 +194,8 @@ impl ViewClientActor {
                     self.network_adapter.do_send(NetworkRequests::Query {
                         query_id: msg.query_id.clone(),
                         account_id: validator,
-                        block_id: msg.block_id.clone(),
+                        block_id_or_finality: msg.block_id_or_finality.clone(),
                         request: msg.request.clone(),
-                        finality: msg.finality.clone(),
                     });
                 }
 
@@ -347,16 +345,18 @@ impl Handler<GetBlock> for ViewClientActor {
     type Result = Result<BlockView, String>;
 
     fn handle(&mut self, msg: GetBlock, _: &mut Context<Self>) -> Self::Result {
-        match msg {
-            GetBlock::Finality(finality) => {
+        match msg.0 {
+            BlockIdOrFinality::Finality(finality) => {
                 let block_hash =
                     self.get_block_hash_by_finality(&finality).map_err(|e| e.to_string())?;
                 self.chain.get_block(&block_hash).map(Clone::clone)
             }
-            GetBlock::BlockId(BlockId::Height(height)) => {
+            BlockIdOrFinality::BlockId(BlockId::Height(height)) => {
                 self.chain.get_block_by_height(height).map(Clone::clone)
             }
-            GetBlock::BlockId(BlockId::Hash(hash)) => self.chain.get_block(&hash).map(Clone::clone),
+            BlockIdOrFinality::BlockId(BlockId::Hash(hash)) => {
+                self.chain.get_block(&hash).map(Clone::clone)
+            }
         }
         .and_then(|block| {
             self.runtime_adapter
@@ -437,14 +437,28 @@ impl Handler<GetValidatorInfo> for ViewClientActor {
     }
 }
 
-/// Returns a list of changes in a store for a given block.
-impl Handler<GetKeyValueChanges> for ViewClientActor {
-    type Result = Result<StateChanges, String>;
+/// Returns a list of change kinds per account in a store for a given block.
+impl Handler<GetStateChangesInBlock> for ViewClientActor {
+    type Result = Result<StateChangesKindsView, String>;
 
-    fn handle(&mut self, msg: GetKeyValueChanges, _: &mut Context<Self>) -> Self::Result {
+    fn handle(&mut self, msg: GetStateChangesInBlock, _: &mut Context<Self>) -> Self::Result {
         self.chain
             .store()
-            .get_key_value_changes(&msg.block_hash, &msg.state_changes_request)
+            .get_state_changes_in_block(&msg.block_hash)
+            .map(|state_changes_kinds| state_changes_kinds.into_iter().map(Into::into).collect())
+            .map_err(|e| e.to_string())
+    }
+}
+
+/// Returns a list of changes in a store for a given block filtering by the state changes request.
+impl Handler<GetStateChanges> for ViewClientActor {
+    type Result = Result<StateChangesView, String>;
+
+    fn handle(&mut self, msg: GetStateChanges, _: &mut Context<Self>) -> Self::Result {
+        self.chain
+            .store()
+            .get_state_changes(&msg.block_hash, &msg.state_changes_request.into())
+            .map(|state_changes| state_changes.into_iter().map(Into::into).collect())
             .map_err(|e| e.to_string())
     }
 }
@@ -508,12 +522,18 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
             #[cfg(feature = "adversarial")]
             NetworkViewClientMessages::Adversarial(adversarial_msg) => {
                 return match adversarial_msg {
-                    AdvSetSyncInfo(height, score) => {
+                    NetworkAdversarialMessage::AdvDisableDoomslug => {
+                        info!(target: "adversary", "Turning Doomslug off");
+                        self.adv_disable_doomslug = true;
+                        self.chain.adv_disable_doomslug();
+                        NetworkViewClientResponses::NoResponse
+                    }
+                    NetworkAdversarialMessage::AdvSetSyncInfo(height, score) => {
                         info!(target: "adversary", "Setting adversarial stats: ({}, {})", height, score);
                         self.adv_sync_info = Some((height, score));
                         NetworkViewClientResponses::NoResponse
                     }
-                    AdvDisableHeaderSync => {
+                    NetworkAdversarialMessage::AdvDisableHeaderSync => {
                         info!(target: "adversary", "Blocking header sync");
                         self.adv_disable_header_sync = true;
                         NetworkViewClientResponses::NoResponse
@@ -535,8 +555,8 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
                 }
                 NetworkViewClientResponses::NoResponse
             }
-            NetworkViewClientMessages::Query { query_id, block_id, request, finality } => {
-                let query = Query { query_id: query_id.clone(), block_id, request, finality };
+            NetworkViewClientMessages::Query { query_id, block_id_or_finality, request } => {
+                let query = Query { query_id: query_id.clone(), block_id_or_finality, request };
                 match self.handle_query(query) {
                     Ok(Some(r)) => {
                         NetworkViewClientResponses::QueryResponse { query_id, response: Ok(r) }
