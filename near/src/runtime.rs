@@ -30,7 +30,6 @@ use near_primitives::types::{
     AccountId, Balance, BlockHeight, EpochId, Gas, MerkleHash, NumShards, ShardId,
     StateChangeCause, StateRoot, StateRootNode, ValidatorStake, ValidatorStats,
 };
-use near_primitives::utils::{KeyForAccessKey, ACCOUNT_DATA_SEPARATOR};
 use near_primitives::views::{
     AccessKeyInfoView, CallResult, EpochValidatorInfo, QueryError, QueryRequest, QueryResponse,
     QueryResponseKind, ViewStateResult,
@@ -44,6 +43,7 @@ use node_runtime::state_viewer::TrieViewer;
 use node_runtime::{verify_and_charge_transaction, ApplyState, Runtime, ValidatorAccountsUpdate};
 
 use crate::shard_tracker::{account_id_to_shard_id, ShardTracker};
+use near_primitives::utils::trie_key_parsers;
 
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 const STATE_DUMP_FILE: &str = "state_dump";
@@ -361,13 +361,9 @@ pub fn state_record_to_shard_id(state_record: &StateRecord, num_shards: NumShard
         }
         StateRecord::Data { key, .. } => {
             let key = from_base64(key).unwrap();
-            let separator = (1..key.len())
-                .find(|&x| key[x] == ACCOUNT_DATA_SEPARATOR[0])
+            let account_id = trie_key_parsers::parse_account_id_from_contract_data_key(&key)
                 .expect("Invalid data record");
-            account_id_to_shard_id(
-                &String::from_utf8(key[1..separator].to_vec()).expect("Must be account id"),
-                num_shards,
-            )
+            account_id_to_shard_id(&account_id, num_shards)
         }
         StateRecord::PostponedReceipt(receipt) => {
             account_id_to_shard_id(&receipt.receiver_id, num_shards)
@@ -1170,7 +1166,7 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
         account_id: &AccountId,
     ) -> Result<Vec<(PublicKey, AccessKey)>, Box<dyn std::error::Error>> {
         let state_update = TrieUpdate::new(self.trie.clone(), state_root);
-        let prefix = KeyForAccessKey::get_prefix(account_id);
+        let prefix = trie_key_parsers::get_raw_prefix_for_access_keys(account_id);
         let raw_prefix: &[u8] = prefix.as_ref();
         let access_keys = match state_update.iter(&prefix) {
             Ok(iter) => iter

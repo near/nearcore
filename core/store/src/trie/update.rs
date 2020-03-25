@@ -47,29 +47,29 @@ impl TrieUpdate {
     pub fn new(trie: Arc<Trie>, root: CryptoHash) -> Self {
         TrieUpdate { trie, root, committed: Default::default(), prospective: Default::default() }
     }
-    pub fn get<K: TrieKey>(&self, key: &K) -> Result<Option<Vec<u8>>, StorageError> {
-        let key = key.as_ref();
-        if let Some(value) = self.prospective.get(key) {
+    pub fn get(&self, key: &TrieKey) -> Result<Option<Vec<u8>>, StorageError> {
+        let key = key.to_vec();
+        if let Some(value) = self.prospective.get(&key) {
             return Ok(value.as_ref().map(<Vec<u8>>::clone));
-        } else if let Some(changes) = self.committed.get(key) {
+        } else if let Some(changes) = self.committed.get(&key) {
             if let Some(RawStateChange { data, .. }) = changes.last() {
                 return Ok(data.as_ref().map(<Vec<u8>>::clone));
             }
         }
 
-        self.trie.get(&self.root, key)
+        self.trie.get(&self.root, &key)
     }
 
-    pub fn get_ref<K: TrieKey>(&self, key: &K) -> Result<Option<TrieUpdateValuePtr>, StorageError> {
-        let key = key.as_ref();
-        if let Some(value) = self.prospective.get(key) {
+    pub fn get_ref(&self, key: &TrieKey) -> Result<Option<TrieUpdateValuePtr>, StorageError> {
+        let key = key.to_vec();
+        if let Some(value) = self.prospective.get(&key) {
             return Ok(value.as_ref().map(TrieUpdateValuePtr::MemoryRef));
-        } else if let Some(changes) = self.committed.get(key) {
+        } else if let Some(changes) = self.committed.get(&key) {
             if let Some(RawStateChange { data, .. }) = changes.last() {
                 return Ok(data.as_ref().map(TrieUpdateValuePtr::MemoryRef));
             }
         }
-        self.trie.get_ref(&self.root, key).map(|option| {
+        self.trie.get_ref(&self.root, &key).map(|option| {
             option.map(|(length, hash)| TrieUpdateValuePtr::HashAndSize(&self.trie, length, hash))
         })
     }
@@ -78,14 +78,14 @@ impl TrieUpdate {
         &self.committed
     }
 
-    pub fn set<K: TrieKey>(&mut self, key: K, value: Vec<u8>) {
-        self.prospective.insert(key.into(), Some(value));
+    pub fn set(&mut self, key: TrieKey, value: Vec<u8>) {
+        self.prospective.insert(key.to_vec(), Some(value));
     }
-    pub fn remove<K: TrieKey>(&mut self, key: K) {
-        self.prospective.insert(key.into(), None);
+    pub fn remove(&mut self, key: TrieKey) {
+        self.prospective.insert(key.to_vec(), None);
     }
 
-    pub fn remove_starts_with<K: TrieKey>(&mut self, key_prefix: &K) -> Result<(), StorageError> {
+    pub fn remove_starts_with(&mut self, key_prefix: &[u8]) -> Result<(), StorageError> {
         let mut keys = vec![];
         for key in self.iter(key_prefix)? {
             keys.push(key);
@@ -93,19 +93,6 @@ impl TrieUpdate {
         for key in keys {
             let key = key?;
             self.prospective.insert(key, None);
-        }
-        Ok(())
-    }
-
-    pub fn for_keys_with_prefix<K: TrieKey, F: FnMut(&[u8])>(
-        &self,
-        key_prefix: &K,
-        mut f: F,
-    ) -> Result<(), StorageError> {
-        let iter = self.iter(key_prefix)?;
-        for key in iter {
-            let key = key?;
-            f(&key);
         }
         Ok(())
     }
@@ -140,8 +127,8 @@ impl TrieUpdate {
     }
 
     /// Returns Error if the underlying storage fails
-    pub fn iter<K: TrieKey>(&self, key_prefix: &K) -> Result<TrieUpdateIterator, StorageError> {
-        TrieUpdateIterator::new(self, key_prefix.as_ref(), b"", None)
+    pub fn iter(&self, key_prefix: &[u8]) -> Result<TrieUpdateIterator, StorageError> {
+        TrieUpdateIterator::new(self, key_prefix, b"", None)
     }
 
     pub fn range(
