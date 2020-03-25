@@ -27,7 +27,7 @@ use near_primitives::block::{Approval, BlockHeader};
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::merklize;
-use near_primitives::sharding::EncodedShardChunk;
+use near_primitives::sharding::{EncodedShardChunk, ReedSolomonWrapper};
 use near_primitives::test_utils::init_test_logger;
 use near_primitives::transaction::{SignedTransaction, Transaction};
 use near_primitives::types::{BlockHeight, EpochId, MerkleHash, NumBlocks};
@@ -66,7 +66,6 @@ fn produce_two_blocks() {
 // TODO: figure out how to re-enable it correctly
 #[ignore]
 fn produce_blocks_with_tx() {
-    use reed_solomon_erasure::galois_8::ReedSolomon;
     let mut encoded_chunks: Vec<EncodedShardChunk> = vec![];
     init_test_logger();
     System::run(|| {
@@ -98,11 +97,12 @@ fn produce_blocks_with_tx() {
                     }
 
                     let parity_parts = total_parts - data_parts;
-                    let rs = ReedSolomon::new(data_parts, parity_parts).unwrap();
+                    let mut rs = ReedSolomonWrapper::new(data_parts, parity_parts);
 
-                    if let ChunkStatus::Complete(_) =
-                        ShardsManager::check_chunk_complete(&mut encoded_chunks[height - 2], &rs)
-                    {
+                    if let ChunkStatus::Complete(_) = ShardsManager::check_chunk_complete(
+                        &mut encoded_chunks[height - 2],
+                        &mut rs,
+                    ) {
                         let chunk = encoded_chunks[height - 2].decode_chunk(data_parts).unwrap();
                         if chunk.transactions.len() > 0 {
                             System::current().stop();
