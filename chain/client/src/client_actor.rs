@@ -228,8 +228,11 @@ impl Handler<NetworkClientMessages> for ClientActor {
                     NetworkAdversarialMessage::AdvCheckRefMap => {
                         info!(target: "adversary", "Check Block Reference Map");
                         match check_refcount_map(&mut self.client.chain) {
-                            Ok(_) => NetworkClientResponses::AdvResult(1), /* true */
-                            Err(_) => NetworkClientResponses::AdvResult(0), /* false */
+                            Ok(_) => NetworkClientResponses::AdvResult(1 /* true */),
+                            Err(e) => {
+                                error!(target: "client", "Block Reference Map is inconsistent: {:?}", e);
+                                NetworkClientResponses::AdvResult(0 /* false */)
+                            }
                         }
                     }
                     _ => panic!("invalid adversary message"),

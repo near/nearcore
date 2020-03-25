@@ -21,10 +21,10 @@ use near_primitives::types::{
     AccountId, Balance, BlockHeight, BlockHeightDelta, EpochHeight, Gas, Nonce, RawStateChanges,
     StateChangeCause, StateRoot, ValidatorStake,
 };
-use near_primitives::utils::col::DELAYED_RECEIPT_INDICES;
 use near_primitives::utils::{
-    create_nonce_with_nonce, system_account, KeyForDelayedReceipt, KeyForPendingDataCount,
-    KeyForPostponedReceipt, KeyForPostponedReceiptId, KeyForReceivedData, ACCOUNT_DATA_SEPARATOR,
+    create_nonce_with_nonce, system_account, KeyForData, KeyForDelayedReceipt,
+    KeyForDelayedReceiptIndices, KeyForPendingDataCount, KeyForPostponedReceipt,
+    KeyForPostponedReceiptId, KeyForReceivedData, ACCOUNT_DATA_SEPARATOR,
 };
 use near_store::{
     get, get_account, get_receipt, get_received_data, set, set_access_key, set_account, set_code,
@@ -977,7 +977,7 @@ impl Runtime {
         }
 
         let mut delayed_receipts_indices: DelayedReceiptIndices =
-            get(&state_update, DELAYED_RECEIPT_INDICES)?.unwrap_or_default();
+            get(&state_update, &KeyForDelayedReceiptIndices::new())?.unwrap_or_default();
         let initial_delayed_receipt_indices = delayed_receipts_indices.clone();
 
         let mut process_receipt = |receipt: &Receipt,
@@ -1058,7 +1058,7 @@ impl Runtime {
         }
 
         if delayed_receipts_indices != initial_delayed_receipt_indices {
-            set(&mut state_update, DELAYED_RECEIPT_INDICES.to_vec(), &delayed_receipts_indices);
+            set(&mut state_update, KeyForDelayedReceiptIndices::new(), &delayed_receipts_indices);
         }
 
         check_balance(
@@ -1170,7 +1170,7 @@ impl Runtime {
                 }
                 StateRecord::Data { key, value } => {
                     state_update.set(
-                        from_base64(&key).expect("Failed to decode key"),
+                        KeyForData::from_raw_key(from_base64(&key).expect("Failed to decode key")),
                         from_base64(&value).expect("Failed to decode value"),
                     );
                 }
@@ -1716,7 +1716,7 @@ mod tests {
         let mut delayed_receipts_indices = DelayedReceiptIndices::default();
         Runtime::delay_receipt(&mut state_update, &mut delayed_receipts_indices, &invalid_receipt)
             .unwrap();
-        set(&mut state_update, DELAYED_RECEIPT_INDICES.to_vec(), &delayed_receipts_indices);
+        set(&mut state_update, KeyForDelayedReceiptIndices::new(), &delayed_receipts_indices);
         state_update.commit(StateChangeCause::UpdatedDelayedReceipts);
         let trie_changes = state_update.finalize().unwrap();
         let (store_update, root) = trie_changes.into(trie.clone()).unwrap();

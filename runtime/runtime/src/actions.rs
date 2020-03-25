@@ -28,7 +28,7 @@ use crate::ext::RuntimeExt;
 use crate::{ActionResult, ApplyState};
 use near_crypto::key_conversion::convert_public_key;
 use near_crypto::PublicKey;
-use near_primitives::errors::{ActionError, ActionErrorKind, RuntimeError};
+use near_primitives::errors::{ActionError, ActionErrorKind, ExternalError, RuntimeError};
 use near_vm_errors::{CompilationError, FunctionCallError};
 use near_vm_runner::VMError;
 
@@ -194,10 +194,12 @@ pub(crate) fn action_function_call(
             result.result = Err(ActionErrorKind::FunctionCallError(err).into());
             false
         }
-        Some(VMError::ExternalError(storage)) => {
-            let err: StorageError =
-                borsh::BorshDeserialize::try_from_slice(&storage).expect("Borsh cannot fail");
-            return Err(err.into());
+        Some(VMError::ExternalError(serialized_error)) => {
+            let err: ExternalError = borsh::BorshDeserialize::try_from_slice(&serialized_error)
+                .expect("External error deserialization shouldn't fail");
+            return match err {
+                ExternalError::StorageError(err) => Err(err.into()),
+            };
         }
         Some(VMError::InconsistentStateError(err)) => {
             return Err(StorageError::StorageInconsistentState(err.to_string()).into());

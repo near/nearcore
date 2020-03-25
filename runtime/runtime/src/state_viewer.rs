@@ -269,10 +269,10 @@ mod tests {
     fn test_view_state() {
         let (_, trie, root) = get_runtime_and_trie();
         let mut state_update = TrieUpdate::new(trie.clone(), root);
-        state_update.set(KeyForData::new(&alice_account(), b"test123").into(), b"123".to_vec());
-        state_update.set(KeyForData::new(&alice_account(), b"test321").into(), b"321".to_vec());
-        state_update.set(KeyForData::new(&"alina".to_string(), b"qqq").into(), b"321".to_vec());
-        state_update.set(KeyForData::new(&"alex".to_string(), b"qqq").into(), b"321".to_vec());
+        state_update.set(KeyForData::new(&alice_account(), b"test123"), b"123".to_vec());
+        state_update.set(KeyForData::new(&alice_account(), b"test321"), b"321".to_vec());
+        state_update.set(KeyForData::new(&"alina".to_string(), b"qqq"), b"321".to_vec());
+        state_update.set(KeyForData::new(&"alex".to_string(), b"qqq"), b"321".to_vec());
         state_update.commit(StateChangeCause::InitialState);
         let (db_changes, new_root) = state_update.finalize().unwrap().into(trie.clone()).unwrap();
         db_changes.commit().unwrap();
