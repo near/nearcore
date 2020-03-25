@@ -41,6 +41,7 @@ use crate::types::{Block, BlockHeader, LatestKnown, ReceiptProofResponse, Receip
 
 const HEAD_KEY: &[u8; 4] = b"HEAD";
 const SYNC_HEAD_KEY: &[u8; 9] = b"SYNC_HEAD";
+const GC_HEAD_KEY: &[u8; 7] = b"GC_HEAD";
 const HEADER_HEAD_KEY: &[u8; 11] = b"HEADER_HEAD";
 const LATEST_KNOWN_KEY: &[u8; 12] = b"LATEST_KNOWN";
 const LARGEST_APPROVED_HEIGHT_KEY: &[u8; 23] = b"LARGEST_APPROVED_HEIGHT";
@@ -88,6 +89,8 @@ pub trait ChainStoreAccess {
     fn header_head(&self) -> Result<Tip, Error>;
     /// The "sync" head: last header we received from syncing.
     fn sync_head(&self) -> Result<Tip, Error>;
+    /// Get gc head height: smallest height that we didn't gc.
+    fn gc_head_height(&self) -> Result<BlockHeight, Error>;
     /// Header of the block at the head of the block chain (not the same thing as header_head).
     fn head_header(&mut self) -> Result<&BlockHeader, Error>;
     /// Largest score and height for which the approval was ever created
@@ -478,6 +481,13 @@ impl ChainStoreAccess for ChainStore {
     /// The "sync" head: last header we received from syncing.
     fn sync_head(&self) -> Result<Tip, Error> {
         option_to_not_found(self.store.get_ser(ColBlockMisc, SYNC_HEAD_KEY), "SYNC_HEAD")
+    }
+
+    fn gc_head_height(&self) -> Result<BlockHeight, Error> {
+        self.store
+            .get_ser(ColBlockMisc, GC_HEAD_KEY)
+            .map(|h| h.unwrap_or_else(|| self.genesis_height))
+            .map_err(|e| e.into())
     }
 
     /// Header of the block at the head of the block chain (not the same thing as header_head).
@@ -1053,6 +1063,7 @@ pub struct ChainStoreUpdate<'a> {
     head: Option<Tip>,
     header_head: Option<Tip>,
     sync_head: Option<Tip>,
+    gc_head_height: Option<BlockHeight>,
     largest_approved_height: Option<BlockHeight>,
     largest_approved_score: Option<BlockScore>,
     largest_endorsed_height: Option<BlockHeight>,
@@ -1077,6 +1088,7 @@ impl<'a> ChainStoreUpdate<'a> {
             head: None,
             header_head: None,
             sync_head: None,
+            gc_head_height: None,
             largest_approved_height: None,
             largest_approved_score: None,
             largest_endorsed_height: None,
@@ -1162,6 +1174,14 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
             Ok(header_head.clone())
         } else {
             self.chain_store.header_head()
+        }
+    }
+
+    fn gc_head_height(&self) -> Result<BlockHeight, Error> {
+        if let Some(gc_head_height) = self.gc_head_height {
+            Ok(gc_head_height)
+        } else {
+            self.chain_store.gc_head_height()
         }
     }
 
@@ -1579,6 +1599,10 @@ impl<'a> ChainStoreUpdate<'a> {
         self.sync_head = Some(t.clone());
     }
 
+    pub fn save_gc_head_height(&mut self, gc_head_height: BlockHeight) {
+        self.gc_head_height = Some(gc_head_height);
+    }
+
     pub fn save_largest_approved_height(&mut self, height: &BlockHeight) {
         self.largest_approved_height = Some(height.clone());
     }
@@ -1929,6 +1953,11 @@ impl<'a> ChainStoreUpdate<'a> {
         if let Some(t) = self.sync_head.take() {
             store_update
                 .set_ser(ColBlockMisc, SYNC_HEAD_KEY, &t)
+                .map_err::<Error, _>(|e| e.into())?;
+        }
+        if let Some(gc_head_height) = self.gc_head_height {
+            store_update
+                .set_ser(ColBlockMisc, GC_HEAD_KEY, &gc_head_height)
                 .map_err::<Error, _>(|e| e.into())?;
         }
         if let Some(t) = self.largest_approved_height {
@@ -2297,7 +2326,7 @@ mod tests {
     use near_primitives::block::Block;
     use near_primitives::errors::InvalidTxError;
     use near_primitives::hash::hash;
-    use near_primitives::types::{BlockHeight, EpochId};
+    use near_primitives::types::{BlockHeight, EpochId, NumBlocks};
     use near_primitives::utils::index_to_bytes;
     use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
     use near_store::test_utils::create_test_store;
@@ -2308,6 +2337,10 @@ mod tests {
     use crate::{Chain, ChainGenesis, DoomslugThresholdMode};
 
     fn get_chain() -> Chain {
+        get_chain_with_epoch_length(10)
+    }
+
+    fn get_chain_with_epoch_length(epoch_length: NumBlocks) -> Chain {
         let store = create_test_store();
         let chain_genesis = ChainGenesis::test();
         let validators = vec![vec!["test1"]];
@@ -2319,7 +2352,7 @@ mod tests {
                 .collect(),
             1,
             1,
-            10,
+            epoch_length,
         ));
         Chain::new(runtime_adapter, &chain_genesis, DoomslugThresholdMode::NoApprovals).unwrap()
     }
@@ -2357,7 +2390,6 @@ mod tests {
         store_update.commit().unwrap();
         let valid_base_hash = long_fork[1].hash();
         let cur_header = &long_fork.last().unwrap().header;
-        println!("here");
         assert!(chain
             .mut_store()
             .check_transaction_validity_period(
@@ -2566,9 +2598,11 @@ mod tests {
         assert!(check_refcount_map(&mut chain).is_ok());
     }
 
+    /// Test that garbage collection works properly. The blocks behind gc head should be garbage
+    /// collected while the blocks that are ahead of it should not.
     #[test]
     fn test_clear_old_data() {
-        let mut chain = get_chain();
+        let mut chain = get_chain_with_epoch_length(1);
         let genesis = chain.get_block_by_height(0).unwrap().clone();
         let signer =
             Arc::new(InMemoryValidatorSigner::from_seed("test1", KeyType::ED25519, "test1"));
@@ -2590,6 +2624,7 @@ mod tests {
         }
         let mut head = store_update.head().unwrap().clone();
         head.height = 14;
+        head.last_block_hash = blocks.last().unwrap().hash();
         store_update.save_body_head(&head).unwrap();
         store_update.commit().unwrap();
 
@@ -2598,8 +2633,10 @@ mod tests {
         assert!(chain.clear_old_data().is_ok());
 
         assert!(chain.get_block(&blocks[0].hash()).is_ok());
+
+        // epoch didn't change so no data is garbage collected.
         for i in 1..15 {
-            println!("height = {:?}", i);
+            println!("height = {} hash = {}", i, blocks[i].hash());
             if i < 9 {
                 assert!(chain.get_block(&blocks[i].hash()).is_err());
                 assert!(chain
@@ -2610,7 +2647,6 @@ mod tests {
                 assert!(chain.get_block(&blocks[i].hash()).is_ok());
                 assert!(chain.mut_store().get_all_block_hashes_by_height(i as BlockHeight).is_ok());
             }
-            assert!(chain.get_block_header(&blocks[i].hash()).is_ok());
         }
         assert!(check_refcount_map(&mut chain).is_ok());
     }

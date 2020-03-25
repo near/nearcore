@@ -24,8 +24,10 @@ pub type StorageUsage = u64;
 pub type StorageUsageChange = i64;
 /// Nonce for transactions.
 pub type Nonce = u64;
-/// Index of the block.
+/// Height of the block.
 pub type BlockHeight = u64;
+/// Height of the epoch.
+pub type EpochHeight = u64;
 /// Shard index, from 0 to NUM_SHARDS - 1.
 pub type ShardId = u64;
 /// Balance is type for storing amounts of tokens.

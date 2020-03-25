@@ -18,7 +18,7 @@ use near_primitives::transaction::{
     Action, ExecutionOutcome, ExecutionOutcomeWithId, ExecutionStatus, LogEntry, SignedTransaction,
 };
 use near_primitives::types::{
-    AccountId, Balance, BlockHeight, BlockHeightDelta, Gas, Nonce, RawStateChanges,
+    AccountId, Balance, BlockHeight, BlockHeightDelta, EpochHeight, Gas, Nonce, RawStateChanges,
     StateChangeCause, StateRoot, ValidatorStake,
 };
 use near_primitives::utils::{create_nonce_with_nonce, system_account, trie_key_parsers, TrieKey};
@@ -60,6 +60,8 @@ pub struct ApplyState {
     pub block_index: BlockHeight,
     /// Current epoch length.
     pub epoch_length: BlockHeightDelta,
+    /// Current epoch height
+    pub epoch_height: EpochHeight,
     /// Price for the gas.
     pub gas_price: Balance,
     /// The current block timestamp (number of non-leap-nanoseconds since January 1, 1970 0:00:00 UTC).
@@ -1371,6 +1373,7 @@ mod tests {
         let apply_state = ApplyState {
             block_index: 0,
             epoch_length: 3,
+            epoch_height: 0,
             gas_price: GAS_PRICE,
             block_timestamp: 100,
             gas_limit: Some(gas_limit),

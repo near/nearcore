@@ -172,6 +172,7 @@ impl ViewClientActor {
                         header.inner_lite.height,
                         header.inner_lite.timestamp,
                         &header.hash,
+                        &header.inner_lite.epoch_id,
                         &msg.request,
                     )
                     .map(Some)

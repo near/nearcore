@@ -8,6 +8,7 @@ use near_crypto::{KeyType, PublicKey};
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::hash::CryptoHash;
 use near_primitives::serialize::to_base64;
+use near_primitives::types::EpochHeight;
 use near_primitives::types::{AccountId, BlockHeight};
 use near_primitives::utils::{is_valid_account_id, trie_key_parsers};
 use near_primitives::views::{StateItem, ViewStateResult};
@@ -86,6 +87,7 @@ impl TrieViewer {
         mut state_update: TrieUpdate,
         block_height: BlockHeight,
         block_timestamp: u64,
+        epoch_height: EpochHeight,
         contract_id: &AccountId,
         method_name: &str,
         args: &[u8],
@@ -123,6 +125,7 @@ impl TrieViewer {
                 input: args.to_owned(),
                 block_index: block_height,
                 block_timestamp,
+                epoch_height,
                 account_balance: account.amount,
                 account_locked_balance: account.locked,
                 storage_usage: account.storage_usage,
@@ -189,6 +192,7 @@ mod tests {
             root,
             1,
             1,
+            0,
             &AccountId::from("test.contract"),
             "run_test",
             &[],
@@ -207,6 +211,7 @@ mod tests {
             root,
             1,
             1,
+            0,
             &"bad!contract".to_string(),
             "run_test",
             &[],
@@ -229,6 +234,7 @@ mod tests {
             root,
             1,
             1,
+            0,
             &AccountId::from("test.contract"),
             "run_test_with_storage_change",
             &[],
@@ -250,6 +256,7 @@ mod tests {
             root,
             1,
             1,
+            0,
             &AccountId::from("test.contract"),
             "sum_with_input",
             &args,
@@ -324,6 +331,7 @@ mod tests {
                 root,
                 1,
                 1,
+                0,
                 &AccountId::from("test.contract"),
                 "panic_after_logging",
                 &[],
