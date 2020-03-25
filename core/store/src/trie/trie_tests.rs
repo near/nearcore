@@ -5,7 +5,6 @@ use crate::trie::POISONED_LOCK_ERR;
 use crate::{PartialStorage, Trie, TrieUpdate};
 use near_primitives::errors::StorageError;
 use near_primitives::hash::{hash, CryptoHash};
-use near_primitives::utils::TrieKey;
 use rand::seq::SliceRandom;
 use rand::Rng;
 use std::collections::{HashMap, HashSet};
@@ -84,22 +83,6 @@ where
     println!("Success");
 }
 
-struct TestKey(pub Vec<u8>);
-
-impl AsRef<[u8]> for TestKey {
-    fn as_ref(&self) -> &[u8] {
-        self.0.as_ref()
-    }
-}
-
-impl Into<Vec<u8>> for TestKey {
-    fn into(self) -> Vec<u8> {
-        self.0
-    }
-}
-
-impl TrieKey for TestKey {}
-
 #[test]
 fn test_reads_with_incomplete_storage() {
     let mut rng = rand::thread_rng();
@@ -141,10 +124,7 @@ fn test_reads_with_incomplete_storage() {
             println!("Testing TrieUpdateIterator over prefix {:?}", key_prefix);
             let trie_update_keys = |trie: Arc<Trie>| -> Result<_, StorageError> {
                 let trie_update = TrieUpdate::new(trie, state_root);
-                let mut keys = Vec::new();
-                trie_update.for_keys_with_prefix(&TestKey(key_prefix.to_vec()), |key| {
-                    keys.push(key.to_vec());
-                })?;
+                let keys = trie_update.iter(key_prefix).unwrap().collect::<Result<Vec<_>, _>>()?;
                 Ok(keys)
             };
             test_incomplete_storage(Arc::clone(&trie), trie_update_keys);

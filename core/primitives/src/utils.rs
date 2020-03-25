@@ -901,93 +901,103 @@ mod tests {
     use near_crypto::KeyType;
 
     use super::*;
-    /*
-        const OK_ACCOUNT_IDS: &[&str] = &[
-            "aa",
-            "a-a",
-            "a-aa",
-            "100",
-            "0o",
-            "com",
-            "near",
-            "bowen",
-            "b-o_w_e-n",
-            "b.owen",
-            "bro.wen",
-            "a.ha",
-            "a.b-a.ra",
-            "system",
-            "over.9000",
-            "google.com",
-            "illia.cheapaccounts.near",
-            "0o0ooo00oo00o",
-            "alex-skidanov",
-            "10-4.8-2",
-            "b-o_w_e-n",
-            "no_lols",
-            "0123456789012345678901234567890123456789012345678901234567890123",
-            // Valid, but can't be created
-            "near.a",
-        ];
 
-        #[test]
-        fn test_key_for_account_consistency() {
-            for account_id in OK_ACCOUNT_IDS.iter().map(|x| AccountId::from(*x)) {
-                let key = KeyForAccount::new(&account_id);
-                assert_eq!((key.as_ref() as &[u8]).len(), KeyForAccount::estimate_len(&account_id));
-                assert_eq!(KeyForAccount::parse_account_id(&key).unwrap(), account_id);
-            }
-        }
+    const OK_ACCOUNT_IDS: &[&str] = &[
+        "aa",
+        "a-a",
+        "a-aa",
+        "100",
+        "0o",
+        "com",
+        "near",
+        "bowen",
+        "b-o_w_e-n",
+        "b.owen",
+        "bro.wen",
+        "a.ha",
+        "a.b-a.ra",
+        "system",
+        "over.9000",
+        "google.com",
+        "illia.cheapaccounts.near",
+        "0o0ooo00oo00o",
+        "alex-skidanov",
+        "10-4.8-2",
+        "b-o_w_e-n",
+        "no_lols",
+        "0123456789012345678901234567890123456789012345678901234567890123",
+        // Valid, but can't be created
+        "near.a",
+    ];
 
-        #[test]
-        fn test_key_for_access_key_consistency() {
-            let public_key = PublicKey::empty(KeyType::ED25519);
-            for account_id in OK_ACCOUNT_IDS.iter().map(|x| AccountId::from(*x)) {
-                let key_prefix = KeyForAccessKey::get_prefix(&account_id);
-                assert_eq!(
-                    (key_prefix.as_ref() as &[u8]).len(),
-                    KeyForAccessKey::estimate_prefix_len(&account_id)
-                );
-                let key = KeyForAccessKey::new(&account_id, &public_key);
-                assert_eq!(
-                    (key.as_ref() as &[u8]).len(),
-                    KeyForAccessKey::estimate_len(&account_id, &public_key)
-                );
-                assert_eq!(KeyForAccessKey::parse_account_id(&key).unwrap(), account_id);
-                assert_eq!(
-                    KeyForAccessKey::parse_public_key(key.as_ref(), &account_id).unwrap(),
-                    public_key
-                );
-            }
+    #[test]
+    fn test_key_for_account_consistency() {
+        for account_id in OK_ACCOUNT_IDS.iter().map(|x| AccountId::from(*x)) {
+            let key = TrieKey::Account { account_id: account_id.clone() };
+            let raw_key = key.to_vec();
+            assert_eq!(raw_key.len(), key.len());
+            assert_eq!(
+                trie_key_parsers::parse_account_id_from_account_key(&raw_key).unwrap(),
+                account_id
+            );
         }
+    }
 
-        #[test]
-        fn test_key_for_data_consistency() {
-            let data_key = b"0123456789" as &[u8];
-            for account_id in OK_ACCOUNT_IDS.iter().map(|x| AccountId::from(*x)) {
-                let key_prefix = KeyForData::get_prefix(&account_id);
-                assert_eq!(
-                    (key_prefix.as_ref() as &[u8]).len(),
-                    KeyForData::estimate_len(&account_id, &[])
-                );
-                let key = KeyForData::new(&account_id, &data_key);
-                assert_eq!(
-                    (key.as_ref() as &[u8]).len(),
-                    KeyForData::estimate_len(&account_id, &data_key)
-                );
-                assert_eq!(KeyForData::parse_account_id(&key).unwrap(), account_id);
-                assert_eq!(KeyForData::parse_data_key(key.as_ref(), &account_id).unwrap(), data_key);
-            }
+    #[test]
+    fn test_key_for_access_key_consistency() {
+        let public_key = PublicKey::empty(KeyType::ED25519);
+        for account_id in OK_ACCOUNT_IDS.iter().map(|x| AccountId::from(*x)) {
+            let key = TrieKey::AccessKey {
+                account_id: account_id.clone(),
+                public_key: public_key.clone(),
+            };
+            let raw_key = key.to_vec();
+            assert_eq!(raw_key.len(), key.len());
+            assert_eq!(
+                trie_key_parsers::parse_account_id_from_access_key_key(&raw_key).unwrap(),
+                account_id
+            );
+            assert_eq!(
+                trie_key_parsers::parse_public_key_from_access_key_key(&raw_key, &account_id)
+                    .unwrap(),
+                public_key
+            );
         }
+    }
 
-        #[test]
-        fn test_key_for_code_consistency() {
-            for account_id in OK_ACCOUNT_IDS.iter().map(|x| AccountId::from(*x)) {
-                let key = KeyForContractCode::new(&account_id);
-                assert_eq!(KeyForContractCode::parse_account_id(&key).unwrap(), account_id);
-            }
+    #[test]
+    fn test_key_for_data_consistency() {
+        let data_key = b"0123456789" as &[u8];
+        for account_id in OK_ACCOUNT_IDS.iter().map(|x| AccountId::from(*x)) {
+            let key =
+                TrieKey::ContractData { account_id: account_id.clone(), key: data_key.to_vec() };
+            let raw_key = key.to_vec();
+            assert_eq!(raw_key.len(), key.len());
+            assert_eq!(
+                trie_key_parsers::parse_account_id_from_contract_data_key(&raw_key).unwrap(),
+                account_id
+            );
+            assert_eq!(
+                trie_key_parsers::parse_data_key_from_contract_data_key(&raw_key, &account_id)
+                    .unwrap(),
+                data_key
+            );
         }
-    */
+    }
+
+    #[test]
+    fn test_key_for_code_consistency() {
+        for account_id in OK_ACCOUNT_IDS.iter().map(|x| AccountId::from(*x)) {
+            let key = TrieKey::ContractCode { account_id: account_id.clone() };
+            let raw_key = key.to_vec();
+            assert_eq!(raw_key.len(), key.len());
+            assert_eq!(
+                trie_key_parsers::parse_account_id_from_contract_code_key(&raw_key).unwrap(),
+                account_id
+            );
+        }
+    }
+
     #[test]
     fn test_is_valid_account_id() {
         for account_id in OK_ACCOUNT_IDS {

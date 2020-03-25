@@ -47,6 +47,7 @@ impl TrieUpdate {
     pub fn new(trie: Arc<Trie>, root: CryptoHash) -> Self {
         TrieUpdate { trie, root, committed: Default::default(), prospective: Default::default() }
     }
+
     pub fn get(&self, key: &TrieKey) -> Result<Option<Vec<u8>>, StorageError> {
         let key = key.to_vec();
         if let Some(value) = self.prospective.get(&key) {
@@ -316,39 +317,28 @@ mod tests {
 
     use super::*;
 
-    pub struct TestKey(pub Vec<u8>);
-
-    impl AsRef<[u8]> for TestKey {
-        fn as_ref(&self) -> &[u8] {
-            self.0.as_ref()
-        }
+    fn test_key(key: Vec<u8>) -> TrieKey {
+        TrieKey::ContractData { account_id: "alice".to_string(), key }
     }
-
-    impl Into<Vec<u8>> for TestKey {
-        fn into(self) -> Vec<u8> {
-            self.0
-        }
-    }
-
-    impl TrieKey for TestKey {}
 
     #[test]
     fn trie() {
         let trie = create_trie();
         let root = CryptoHash::default();
         let mut trie_update = TrieUpdate::new(trie.clone(), root);
-        trie_update.set(TestKey(b"dog".to_vec()), b"puppy".to_vec());
-        trie_update.set(TestKey(b"dog2".to_vec()), b"puppy".to_vec());
-        trie_update.set(TestKey(b"xxx".to_vec()), b"puppy".to_vec());
+        trie_update.set(test_key(b"dog".to_vec()), b"puppy".to_vec());
+        trie_update.set(test_key(b"dog2".to_vec()), b"puppy".to_vec());
+        trie_update.set(test_key(b"xxx".to_vec()), b"puppy".to_vec());
         trie_update
             .commit(StateChangeCause::TransactionProcessing { tx_hash: CryptoHash::default() });
         let (store_update, new_root) = trie_update.finalize().unwrap().into(trie.clone()).unwrap();
         store_update.commit().ok();
         let trie_update2 = TrieUpdate::new(trie.clone(), new_root);
-        assert_eq!(trie_update2.get(&TestKey(b"dog".to_vec())), Ok(Some(b"puppy".to_vec())));
-        let mut values = vec![];
-        trie_update2
-            .for_keys_with_prefix(&TestKey(b"dog".to_vec()), |key| values.push(key.to_vec()))
+        assert_eq!(trie_update2.get(&test_key(b"dog".to_vec())), Ok(Some(b"puppy".to_vec())));
+        let values = trie_update2
+            .iter(&test_key(b"dog".to_vec()).to_vec())
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
             .unwrap();
         assert_eq!(values, vec![b"dog".to_vec(), b"dog2".to_vec()]);
     }
@@ -359,7 +349,7 @@ mod tests {
 
         // Delete non-existing element.
         let mut trie_update = TrieUpdate::new(trie.clone(), CryptoHash::default());
-        trie_update.remove(TestKey(b"dog".to_vec()));
+        trie_update.remove(test_key(b"dog".to_vec()));
         trie_update
             .commit(StateChangeCause::TransactionProcessing { tx_hash: CryptoHash::default() });
         let (store_update, new_root) = trie_update.finalize().unwrap().into(trie.clone()).unwrap();
@@ -368,8 +358,8 @@ mod tests {
 
         // Add and right away delete element.
         let mut trie_update = TrieUpdate::new(trie.clone(), CryptoHash::default());
-        trie_update.set(TestKey(b"dog".to_vec()), b"puppy".to_vec());
-        trie_update.remove(TestKey(b"dog".to_vec()));
+        trie_update.set(test_key(b"dog".to_vec()), b"puppy".to_vec());
+        trie_update.remove(test_key(b"dog".to_vec()));
         trie_update
             .commit(StateChangeCause::TransactionProcessing { tx_hash: CryptoHash::default() });
         let (store_update, new_root) = trie_update.finalize().unwrap().into(trie.clone()).unwrap();
@@ -378,14 +368,14 @@ mod tests {
 
         // Add, apply changes and then delete element.
         let mut trie_update = TrieUpdate::new(trie.clone(), CryptoHash::default());
-        trie_update.set(TestKey(b"dog".to_vec()), b"puppy".to_vec());
+        trie_update.set(test_key(b"dog".to_vec()), b"puppy".to_vec());
         trie_update
             .commit(StateChangeCause::TransactionProcessing { tx_hash: CryptoHash::default() });
         let (store_update, new_root) = trie_update.finalize().unwrap().into(trie.clone()).unwrap();
         store_update.commit().ok();
         assert_ne!(new_root, CryptoHash::default());
         let mut trie_update = TrieUpdate::new(trie.clone(), new_root);
-        trie_update.remove(TestKey(b"dog".to_vec()));
+        trie_update.remove(test_key(b"dog".to_vec()));
         trie_update
             .commit(StateChangeCause::TransactionProcessing { tx_hash: CryptoHash::default() });
         let (store_update, new_root) = trie_update.finalize().unwrap().into(trie.clone()).unwrap();
@@ -397,52 +387,52 @@ mod tests {
     fn trie_iter() {
         let trie = create_trie();
         let mut trie_update = TrieUpdate::new(trie.clone(), CryptoHash::default());
-        trie_update.set(TestKey(b"dog".to_vec()), b"puppy".to_vec());
-        trie_update.set(TestKey(b"aaa".to_vec()), b"puppy".to_vec());
+        trie_update.set(test_key(b"dog".to_vec()), b"puppy".to_vec());
+        trie_update.set(test_key(b"aaa".to_vec()), b"puppy".to_vec());
         trie_update
             .commit(StateChangeCause::TransactionProcessing { tx_hash: CryptoHash::default() });
         let (store_update, new_root) = trie_update.finalize().unwrap().into(trie.clone()).unwrap();
         store_update.commit().ok();
 
         let mut trie_update = TrieUpdate::new(trie.clone(), new_root);
-        trie_update.set(TestKey(b"dog2".to_vec()), b"puppy".to_vec());
-        trie_update.set(TestKey(b"xxx".to_vec()), b"puppy".to_vec());
+        trie_update.set(test_key(b"dog2".to_vec()), b"puppy".to_vec());
+        trie_update.set(test_key(b"xxx".to_vec()), b"puppy".to_vec());
 
         let values: Result<Vec<Vec<u8>>, _> =
-            trie_update.iter(&TestKey(b"dog".to_vec())).unwrap().collect();
+            trie_update.iter(&test_key(b"dog".to_vec()).to_vec()).unwrap().collect();
         assert_eq!(values.unwrap(), vec![b"dog".to_vec(), b"dog2".to_vec()]);
 
         trie_update.rollback();
 
         let values: Result<Vec<Vec<u8>>, _> =
-            trie_update.iter(&TestKey(b"dog".to_vec())).unwrap().collect();
+            trie_update.iter(&test_key(b"dog".to_vec()).to_vec()).unwrap().collect();
         assert_eq!(values.unwrap(), vec![b"dog".to_vec()]);
 
         let mut trie_update = TrieUpdate::new(trie.clone(), new_root);
-        trie_update.remove(TestKey(b"dog".to_vec()));
+        trie_update.remove(test_key(b"dog".to_vec()));
 
         let values: Result<Vec<Vec<u8>>, _> =
-            trie_update.iter(&TestKey(b"dog".to_vec())).unwrap().collect();
+            trie_update.iter(&test_key(b"dog".to_vec()).to_vec()).unwrap().collect();
         assert_eq!(values.unwrap().len(), 0);
 
         let mut trie_update = TrieUpdate::new(trie.clone(), new_root);
-        trie_update.set(TestKey(b"dog2".to_vec()), b"puppy".to_vec());
+        trie_update.set(test_key(b"dog2".to_vec()), b"puppy".to_vec());
         trie_update
             .commit(StateChangeCause::TransactionProcessing { tx_hash: CryptoHash::default() });
-        trie_update.remove(TestKey(b"dog2".to_vec()));
+        trie_update.remove(test_key(b"dog2".to_vec()));
 
         let values: Result<Vec<Vec<u8>>, _> =
-            trie_update.iter(&TestKey(b"dog".to_vec())).unwrap().collect();
+            trie_update.iter(&test_key(b"dog".to_vec()).to_vec()).unwrap().collect();
         assert_eq!(values.unwrap(), vec![b"dog".to_vec()]);
 
         let mut trie_update = TrieUpdate::new(trie.clone(), new_root);
-        trie_update.set(TestKey(b"dog2".to_vec()), b"puppy".to_vec());
+        trie_update.set(test_key(b"dog2".to_vec()), b"puppy".to_vec());
         trie_update
             .commit(StateChangeCause::TransactionProcessing { tx_hash: CryptoHash::default() });
-        trie_update.set(TestKey(b"dog3".to_vec()), b"puppy".to_vec());
+        trie_update.set(test_key(b"dog3".to_vec()), b"puppy".to_vec());
 
         let values: Result<Vec<Vec<u8>>, _> =
-            trie_update.iter(&TestKey(b"dog".to_vec())).unwrap().collect();
+            trie_update.iter(&test_key(b"dog".to_vec()).to_vec()).unwrap().collect();
         assert_eq!(values.unwrap(), vec![b"dog".to_vec(), b"dog2".to_vec(), b"dog3".to_vec()]);
 
         let values: Result<Vec<Vec<u8>>, _> =
