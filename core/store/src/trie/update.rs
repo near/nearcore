@@ -3,7 +3,9 @@ use std::iter::Peekable;
 use std::sync::Arc;
 
 use near_primitives::hash::CryptoHash;
-use near_primitives::types::{RawStateChange, RawStateChanges, StateChangeCause};
+use near_primitives::types::{
+    RawStateChange, RawStateChanges, RawStateChangesWithTrieKey, StateChangeCause,
+};
 
 use crate::trie::TrieChanges;
 use crate::StorageError;
@@ -11,8 +13,14 @@ use crate::StorageError;
 use super::{Trie, TrieIterator};
 use near_primitives::utils::TrieKey;
 
+/// Key-value update. Contains a TrieKey and a value.
+pub struct TrieKeyValueUpdate {
+    pub trie_key: TrieKey,
+    pub value: Option<Vec<u8>>,
+}
+
 /// key that was updated -> the update.
-pub type TrieUpdates = BTreeMap<Vec<u8>, Option<Vec<u8>>>;
+pub type TrieUpdates = BTreeMap<Vec<u8>, TrieKeyValueUpdate>;
 
 /// Provides a way to access Storage and record changes with future commit.
 pub struct TrieUpdate {
@@ -50,10 +58,10 @@ impl TrieUpdate {
 
     pub fn get(&self, key: &TrieKey) -> Result<Option<Vec<u8>>, StorageError> {
         let key = key.to_vec();
-        if let Some(value) = self.prospective.get(&key) {
-            return Ok(value.as_ref().map(<Vec<u8>>::clone));
-        } else if let Some(changes) = self.committed.get(&key) {
-            if let Some(RawStateChange { data, .. }) = changes.last() {
+        if let Some(key_value) = self.prospective.get(&key) {
+            return Ok(key_value.value.as_ref().map(<Vec<u8>>::clone));
+        } else if let Some(changes_with_trie_key) = self.committed.get(&key) {
+            if let Some(RawStateChange { data, .. }) = changes_with_trie_key.changes.last() {
                 return Ok(data.as_ref().map(<Vec<u8>>::clone));
             }
         }
@@ -63,10 +71,10 @@ impl TrieUpdate {
 
     pub fn get_ref(&self, key: &TrieKey) -> Result<Option<TrieUpdateValuePtr>, StorageError> {
         let key = key.to_vec();
-        if let Some(value) = self.prospective.get(&key) {
-            return Ok(value.as_ref().map(TrieUpdateValuePtr::MemoryRef));
-        } else if let Some(changes) = self.committed.get(&key) {
-            if let Some(RawStateChange { data, .. }) = changes.last() {
+        if let Some(key_value) = self.prospective.get(&key) {
+            return Ok(key_value.value.as_ref().map(TrieUpdateValuePtr::MemoryRef));
+        } else if let Some(changes_with_trie_key) = self.committed.get(&key) {
+            if let Some(RawStateChange { data, .. }) = changes_with_trie_key.changes.last() {
                 return Ok(data.as_ref().map(TrieUpdateValuePtr::MemoryRef));
             }
         }
@@ -79,32 +87,22 @@ impl TrieUpdate {
         &self.committed
     }
 
-    pub fn set(&mut self, key: TrieKey, value: Vec<u8>) {
-        self.prospective.insert(key.to_vec(), Some(value));
+    pub fn set(&mut self, trie_key: TrieKey, value: Vec<u8>) {
+        self.prospective
+            .insert(trie_key.to_vec(), TrieKeyValueUpdate { trie_key, value: Some(value) });
     }
-    pub fn remove(&mut self, key: TrieKey) {
-        self.prospective.insert(key.to_vec(), None);
-    }
-
-    pub fn remove_starts_with(&mut self, key_prefix: &[u8]) -> Result<(), StorageError> {
-        let mut keys = vec![];
-        for key in self.iter(key_prefix)? {
-            keys.push(key);
-        }
-        for key in keys {
-            let key = key?;
-            self.prospective.insert(key, None);
-        }
-        Ok(())
+    pub fn remove(&mut self, trie_key: TrieKey) {
+        self.prospective.insert(trie_key.to_vec(), TrieKeyValueUpdate { trie_key, value: None });
     }
 
     pub fn commit(&mut self, event: StateChangeCause) {
         let prospective = std::mem::replace(&mut self.prospective, BTreeMap::new());
-        for (key, val) in prospective.into_iter() {
+        for (raw_key, TrieKeyValueUpdate { trie_key, value }) in prospective.into_iter() {
             self.committed
-                .entry(key)
-                .or_default()
-                .push(RawStateChange { cause: event.clone(), data: val });
+                .entry(raw_key)
+                .or_insert_with(|| RawStateChangesWithTrieKey { trie_key, changes: Vec::new() })
+                .changes
+                .push(RawStateChange { cause: event.clone(), data: value });
         }
     }
 
@@ -117,12 +115,12 @@ impl TrieUpdate {
         let TrieUpdate { trie, root, committed, .. } = self;
         trie.update(
             &root,
-            committed.iter().map(|(k, changes)| {
-                let RawStateChange { data, .. } = &changes
-                    .last()
-                    .as_ref()
+            committed.into_iter().map(|(k, mut changes_with_trie_key)| {
+                let RawStateChange { data, .. } = changes_with_trie_key
+                    .changes
+                    .pop()
                     .expect("Committed entry should have at least one change");
-                (k.clone(), data.clone())
+                (k, data)
             }),
         )
     }
@@ -202,18 +200,23 @@ impl<'a> TrieUpdateIterator<'a> {
             None => None,
         };
         trie_iter.seek(&start_offset)?;
-        let committed_iter =
-            state_update.committed.range(start_offset.clone()..).map(|(k, changes)| {
+        let committed_iter = state_update.committed.range(start_offset.clone()..).map(
+            |(raw_key, changes_with_trie_key)| {
                 (
-                    k,
-                    &changes
+                    raw_key,
+                    &changes_with_trie_key
+                        .changes
                         .last()
                         .as_ref()
                         .expect("Committed entry should have at least one change.")
                         .data,
                 )
-            });
-        let prospective_iter = state_update.prospective.range(start_offset..);
+            },
+        );
+        let prospective_iter = state_update
+            .prospective
+            .range(start_offset..)
+            .map(|(raw_key, key_value)| (raw_key, &key_value.value));
         let overlay_iter = MergeIter {
             left: (Box::new(committed_iter) as Box<dyn Iterator<Item = _>>).peekable(),
             right: (Box::new(prospective_iter) as Box<dyn Iterator<Item = _>>).peekable(),

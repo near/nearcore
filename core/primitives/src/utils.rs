@@ -54,7 +54,7 @@ pub mod col {
 }
 
 /// Describes the key of a specific key-value record in a state trie.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize)]
 pub enum TrieKey {
     /// Used to store `primitives::account::Account` struct for a given `AccountId`.
     Account { account_id: AccountId },

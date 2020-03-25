@@ -368,11 +368,39 @@ pub fn remove_account(
 ) -> Result<(), StorageError> {
     state_update.remove(TrieKey::Account { account_id: account_id.clone() });
     state_update.remove(TrieKey::ContractCode { account_id: account_id.clone() });
-    state_update
-        .remove_starts_with(&trie_key_parsers::get_raw_prefix_for_access_keys(&account_id))?;
-    state_update.remove_starts_with(&trie_key_parsers::get_raw_prefix_for_contract_data(
-        &account_id,
-        &[],
-    ))?;
+
+    // Removing access keys
+    let public_keys = state_update
+        .iter(&trie_key_parsers::get_raw_prefix_for_access_keys(&account_id))?
+        .map(|raw_key| {
+            trie_key_parsers::parse_public_key_from_access_key_key(&raw_key?, account_id).map_err(
+                |_e| {
+                    StorageError::StorageInconsistentState(
+                        "Can't parse public key from raw key".to_string(),
+                    )
+                },
+            )
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    for public_key in public_keys {
+        state_update.remove(TrieKey::AccessKey { account_id: account_id.clone(), public_key });
+    }
+
+    // Removing contract data
+    let data_keys = state_update
+        .iter(&trie_key_parsers::get_raw_prefix_for_contract_data(&account_id, &[]))?
+        .map(|raw_key| {
+            trie_key_parsers::parse_data_key_from_contract_data_key(&raw_key?, account_id)
+                .map_err(|_e| {
+                    StorageError::StorageInconsistentState(
+                        "Can't parse public key from raw key".to_string(),
+                    )
+                })
+                .map(Vec::from)
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    for key in data_keys {
+        state_update.remove(TrieKey::ContractData { account_id: account_id.clone(), key });
+    }
     Ok(())
 }
