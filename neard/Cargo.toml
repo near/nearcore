@@ -53,7 +53,6 @@ metric_recorder = ["near-network/metric_recorder", "near-client/metric_recorder"
 path = "src/main.rs"
 name = "neard"
 
-# Keep near for compatibility
 [[bin]]
 path = "src/../src/main.rs"
 name = "near"

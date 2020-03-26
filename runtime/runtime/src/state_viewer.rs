@@ -8,8 +8,9 @@ use near_crypto::{KeyType, PublicKey};
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::hash::CryptoHash;
 use near_primitives::serialize::to_base64;
+use near_primitives::types::EpochHeight;
 use near_primitives::types::{AccountId, BlockHeight};
-use near_primitives::utils::{is_valid_account_id, KeyForData};
+use near_primitives::utils::{is_valid_account_id, trie_key_parsers};
 use near_primitives::views::{StateItem, ViewStateResult};
 use near_runtime_fees::RuntimeFeesConfig;
 use near_store::{get_access_key, get_account, TrieUpdate};
@@ -62,8 +63,8 @@ impl TrieViewer {
             return Err(format!("Account ID '{}' is not valid", account_id).into());
         }
         let mut values = vec![];
-        let query = KeyForData::new(account_id, prefix);
-        let acc_sep_len = KeyForData::estimate_len(account_id, &[]);
+        let query = trie_key_parsers::get_raw_prefix_for_contract_data(account_id, prefix);
+        let acc_sep_len = query.len() - prefix.len();
         let mut iter = state_update.trie.iter(&state_update.get_root())?;
         iter.seek(&query)?;
         for item in iter {
@@ -86,6 +87,7 @@ impl TrieViewer {
         mut state_update: TrieUpdate,
         block_height: BlockHeight,
         block_timestamp: u64,
+        epoch_height: EpochHeight,
         contract_id: &AccountId,
         method_name: &str,
         args: &[u8],
@@ -123,6 +125,7 @@ impl TrieViewer {
                 input: args.to_owned(),
                 block_index: block_height,
                 block_timestamp,
+                epoch_height,
                 account_balance: account.amount,
                 account_locked_balance: account.locked,
                 storage_usage: account.storage_usage,
@@ -172,13 +175,13 @@ impl TrieViewer {
 #[cfg(test)]
 mod tests {
     use near_primitives::types::StateChangeCause;
-    use near_primitives::utils::KeyForData;
     use near_primitives::views::StateItem;
     use testlib::runtime_utils::{
         alice_account, encode_int, get_runtime_and_trie, get_test_trie_viewer,
     };
 
     use super::*;
+    use near_primitives::utils::TrieKey;
 
     #[test]
     fn test_view_call() {
@@ -189,6 +192,7 @@ mod tests {
             root,
             1,
             1,
+            0,
             &AccountId::from("test.contract"),
             "run_test",
             &[],
@@ -207,6 +211,7 @@ mod tests {
             root,
             1,
             1,
+            0,
             &"bad!contract".to_string(),
             "run_test",
             &[],
@@ -229,6 +234,7 @@ mod tests {
             root,
             1,
             1,
+            0,
             &AccountId::from("test.contract"),
             "run_test_with_storage_change",
             &[],
@@ -250,6 +256,7 @@ mod tests {
             root,
             1,
             1,
+            0,
             &AccountId::from("test.contract"),
             "sum_with_input",
             &args,
@@ -262,10 +269,22 @@ mod tests {
     fn test_view_state() {
         let (_, trie, root) = get_runtime_and_trie();
         let mut state_update = TrieUpdate::new(trie.clone(), root);
-        state_update.set(KeyForData::new(&alice_account(), b"test123"), b"123".to_vec());
-        state_update.set(KeyForData::new(&alice_account(), b"test321"), b"321".to_vec());
-        state_update.set(KeyForData::new(&"alina".to_string(), b"qqq"), b"321".to_vec());
-        state_update.set(KeyForData::new(&"alex".to_string(), b"qqq"), b"321".to_vec());
+        state_update.set(
+            TrieKey::ContractData { account_id: alice_account(), key: b"test123".to_vec() },
+            b"123".to_vec(),
+        );
+        state_update.set(
+            TrieKey::ContractData { account_id: alice_account(), key: b"test321".to_vec() },
+            b"321".to_vec(),
+        );
+        state_update.set(
+            TrieKey::ContractData { account_id: "alina".to_string(), key: b"qqq".to_vec() },
+            b"321".to_vec(),
+        );
+        state_update.set(
+            TrieKey::ContractData { account_id: "alex".to_string(), key: b"qqq".to_vec() },
+            b"321".to_vec(),
+        );
         state_update.commit(StateChangeCause::InitialState);
         let (db_changes, new_root) = state_update.finalize().unwrap().into(trie.clone()).unwrap();
         db_changes.commit().unwrap();
@@ -312,6 +331,7 @@ mod tests {
                 root,
                 1,
                 1,
+                0,
                 &AccountId::from("test.contract"),
                 "panic_after_logging",
                 &[],

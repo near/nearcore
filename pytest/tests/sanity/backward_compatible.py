@@ -9,6 +9,7 @@ import sys
 import os
 import subprocess
 import time
+import shutil
 
 sys.path.append('lib')
 
@@ -17,7 +18,11 @@ import cluster
 
 
 def main():
-    node_root = "backward"
+    node_root = "/tmp/near/backward"
+    if os.path.exists(node_root):
+        shutil.rmtree(node_root)
+    subprocess.check_output('mkdir -p /tmp/near', shell=True)
+
     near_root, (stable_branch, current_branch) = branches.prepare_ab_test("beta")
 
     # Setup local network.

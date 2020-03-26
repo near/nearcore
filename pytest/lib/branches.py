@@ -4,8 +4,8 @@ import subprocess
 
 
 def current_branch():
-    return subprocess.check_output([
-        "git", "rev-parse", "--abbrev-ref", "HEAD"]).strip().decode()
+    return os.environ.get('BUILDKITE_BRANCH') or subprocess.check_output([
+        "git", "rev-parse", "--symbolic-full-name", "--abbrev-ref", "HEAD"]).strip().decode()
 
 
 def compile_binary(branch):
@@ -16,14 +16,18 @@ def compile_binary(branch):
     # TODO: download pre-compiled binary from github for beta/stable?
     prev_branch = current_branch()
     stash_output = subprocess.check_output(['git', 'stash'])
-    subprocess.call(['git', 'checkout', branch])
-    subprocess.call(['cargo', 'build', '-p', 'near'])
-    subprocess.call(['cargo', 'build', '-p', 'state-viewer'])
+    subprocess.check_output(['git', 'checkout', branch])
+    subprocess.check_output(['git', 'pull'])
+    try:
+        subprocess.check_output(['cargo', 'build', '-p', 'neard'])
+    except:
+        subprocess.check_output(['cargo', 'build', '-p', 'near'])
+    subprocess.check_output(['cargo', 'build', '-p', 'state-viewer'])
     os.rename('../target/debug/near', '../target/debug/near-%s' % branch)
     os.rename('../target/debug/state-viewer', '../target/debug/state-viewer-%s' % branch)
-    subprocess.call(['git', 'checkout', prev_branch])
+    subprocess.check_output(['git', 'checkout', prev_branch])
     if stash_output != b"No local changes to save\n":
-        subprocess.call(['git', 'stash', 'pop'])
+        subprocess.check_output(['git', 'stash', 'pop'])
 
 
 def prepare_ab_test(other_branch):

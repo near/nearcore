@@ -9,14 +9,14 @@ use near_primitives::transaction::{
     DeployContractAction, FunctionCallAction, StakeAction, TransferAction,
 };
 use near_primitives::types::{AccountId, Balance};
-use near_primitives::utils::{create_nonce_with_nonce, KeyForData};
+use near_primitives::utils::{create_nonce_with_nonce, TrieKey};
 use near_store::{TrieUpdate, TrieUpdateValuePtr};
 use near_vm_logic::{External, HostError, VMLogicError, ValuePtr};
 use sha3::{Keccak256, Keccak512};
 
 pub struct RuntimeExt<'a> {
     trie_update: &'a mut TrieUpdate,
-    storage_prefix: KeyForData,
+    account_id: &'a AccountId,
     action_receipts: Vec<(AccountId, ActionReceipt)>,
     signer_id: &'a AccountId,
     signer_public_key: &'a PublicKey,
@@ -48,7 +48,7 @@ impl<'a> RuntimeExt<'a> {
     ) -> Self {
         RuntimeExt {
             trie_update,
-            storage_prefix: KeyForData::get_prefix(account_id),
+            account_id,
             action_receipts: vec![],
             signer_id,
             signer_public_key,
@@ -58,8 +58,8 @@ impl<'a> RuntimeExt<'a> {
         }
     }
 
-    pub fn create_storage_key(&self, key: &[u8]) -> KeyForData {
-        self.storage_prefix.with_suffix(&key)
+    pub fn create_storage_key(&self, key: &[u8]) -> TrieKey {
+        TrieKey::ContractData { account_id: self.account_id.clone(), key: key.to_vec() }
     }
 
     fn new_data_id(&mut self) -> CryptoHash {
