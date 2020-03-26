@@ -376,7 +376,7 @@ pub fn remove_account(
             trie_key_parsers::parse_public_key_from_access_key_key(&raw_key?, account_id).map_err(
                 |_e| {
                     StorageError::StorageInconsistentState(
-                        "Can't parse public key from raw key".to_string(),
+                        "Can't parse public key from raw key for AccessKey".to_string(),
                     )
                 },
             )
@@ -393,7 +393,7 @@ pub fn remove_account(
             trie_key_parsers::parse_data_key_from_contract_data_key(&raw_key?, account_id)
                 .map_err(|_e| {
                     StorageError::StorageInconsistentState(
-                        "Can't parse public key from raw key".to_string(),
+                        "Can't parse data key from raw key for ContractData".to_string(),
                     )
                 })
                 .map(Vec::from)

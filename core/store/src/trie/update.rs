@@ -96,7 +96,7 @@ impl TrieUpdate {
     }
 
     pub fn commit(&mut self, event: StateChangeCause) {
-        let prospective = std::mem::replace(&mut self.prospective, BTreeMap::new());
+        let prospective = std::mem::take(&mut self.prospective);
         for (raw_key, TrieKeyValueUpdate { trie_key, value }) in prospective.into_iter() {
             self.committed
                 .entry(raw_key)

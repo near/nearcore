@@ -120,14 +120,12 @@ pub type StateChangesKinds = Vec<StateChangeKind>;
 
 #[easy_ext::ext(StateChangesKindsExt)]
 impl StateChangesKinds {
-    pub fn from_changes<K: AsRef<[u8]>>(
-        raw_changes: &mut dyn Iterator<
-            Item = Result<(K, RawStateChangesWithTrieKey), std::io::Error>,
-        >,
+    pub fn from_changes(
+        raw_changes: &mut dyn Iterator<Item = Result<RawStateChangesWithTrieKey, std::io::Error>>,
     ) -> Result<StateChangesKinds, std::io::Error> {
         raw_changes
             .filter_map(|raw_change| {
-                let (_, RawStateChangesWithTrieKey { trie_key, .. }) = match raw_change {
+                let RawStateChangesWithTrieKey { trie_key, .. } = match raw_change {
                     Ok(p) => p,
                     Err(e) => return Some(Err(e)),
                 };
@@ -231,13 +229,13 @@ pub type StateChanges = Vec<StateChangeWithCause>;
 
 #[easy_ext::ext(StateChangesExt)]
 impl StateChanges {
-    pub fn from_account_changes<K: AsRef<[u8]>>(
-        raw_changes: impl Iterator<Item = Result<(K, RawStateChangesWithTrieKey), std::io::Error>>,
+    pub fn from_account_changes(
+        raw_changes: impl Iterator<Item = Result<RawStateChangesWithTrieKey, std::io::Error>>,
     ) -> Result<StateChanges, std::io::Error> {
         let mut state_changes = Self::new();
 
         for raw_change in raw_changes {
-            let (_, RawStateChangesWithTrieKey { trie_key, changes }) = raw_change?;
+            let RawStateChangesWithTrieKey { trie_key, changes } = raw_change?;
             let account_id = match trie_key {
                 TrieKey::Account { account_id } => account_id,
                 _ => panic!("Conflicting data stored under TrieKey::Account prefix"),
@@ -261,13 +259,13 @@ impl StateChanges {
         Ok(state_changes)
     }
 
-    pub fn from_access_key_changes<K: AsRef<[u8]>>(
-        raw_changes: impl Iterator<Item = Result<(K, RawStateChangesWithTrieKey), std::io::Error>>,
+    pub fn from_access_key_changes(
+        raw_changes: impl Iterator<Item = Result<RawStateChangesWithTrieKey, std::io::Error>>,
     ) -> Result<StateChanges, std::io::Error> {
         let mut state_changes = Self::new();
 
         for raw_change in raw_changes {
-            let (_, RawStateChangesWithTrieKey { trie_key, changes }) = raw_change?;
+            let RawStateChangesWithTrieKey { trie_key, changes } = raw_change?;
             let (account_id, public_key) = match trie_key {
                 TrieKey::AccessKey { account_id, public_key } => (account_id, public_key),
                 _ => panic!("Conflicting data stored under TrieKey::AccessKey prefix"),
@@ -295,13 +293,13 @@ impl StateChanges {
         Ok(state_changes)
     }
 
-    pub fn from_contract_code_changes<K: AsRef<[u8]>>(
-        raw_changes: impl Iterator<Item = Result<(K, RawStateChangesWithTrieKey), std::io::Error>>,
+    pub fn from_contract_code_changes(
+        raw_changes: impl Iterator<Item = Result<RawStateChangesWithTrieKey, std::io::Error>>,
     ) -> Result<StateChanges, std::io::Error> {
         let mut state_changes = Self::new();
 
         for raw_change in raw_changes {
-            let (_, RawStateChangesWithTrieKey { trie_key, changes }) = raw_change?;
+            let RawStateChangesWithTrieKey { trie_key, changes } = raw_change?;
             let account_id = match trie_key {
                 TrieKey::ContractCode { account_id } => account_id,
                 _ => panic!("Conflicting data stored under TrieKey::ContractCode prefix"),
@@ -324,13 +322,13 @@ impl StateChanges {
         Ok(state_changes)
     }
 
-    pub fn from_data_changes<K: AsRef<[u8]>>(
-        raw_changes: impl Iterator<Item = Result<(K, RawStateChangesWithTrieKey), std::io::Error>>,
+    pub fn from_data_changes(
+        raw_changes: impl Iterator<Item = Result<RawStateChangesWithTrieKey, std::io::Error>>,
     ) -> Result<StateChanges, std::io::Error> {
         let mut state_changes = Self::new();
 
         for raw_change in raw_changes {
-            let (_, RawStateChangesWithTrieKey { trie_key, changes }) = raw_change?;
+            let RawStateChangesWithTrieKey { trie_key, changes } = raw_change?;
             let (account_id, data_key) = match trie_key {
                 TrieKey::ContractData { account_id, key } => (account_id, key),
                 _ => panic!("Conflicting data stored under TrieKey::ContractData prefix"),
