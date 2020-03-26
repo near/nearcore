@@ -402,7 +402,7 @@ impl PeerManagerActor {
         future::try_join_all(requests)
             .into_actor(self)
             .map(|x, _, _| {
-                let _ignore = x.map_err(|e| error!("Failed sending broadcast message: {}", e));
+                let _ignore = x.map_err(|e| error!(target: "network", "Failed sending broadcast message(query_active_peers): {}", e));
             })
             .spawn(ctx);
     }
@@ -496,7 +496,7 @@ impl PeerManagerActor {
                 .addr
                 .send(QueryPeerStats {})
                 .into_actor(self)
-                .map(|result, _, _| result.map_err(|err| error!("Failed sending message: {}", err)))
+                .map(|result, _, _| result.map_err(|err| error!(target: "network", "Failed sending message(monitor_peer_stats): {}", err)))
                 .map(move |res, act, _| {
                     let _ignore = res.map(|res| {
                         if res.is_abusive {
@@ -579,7 +579,7 @@ impl PeerManagerActor {
 
         future::try_join_all(requests)
             .into_actor(self)
-            .map(|res, _, _| res.map_err(|e| error!("Failed sending broadcast message: {}", e)))
+            .map(|res, _, _| res.map_err(|e| error!(target: "network", "Failed sending broadcast message(broadcast_message): {}", e)))
             .map(|_, _, _| ())
             .spawn(ctx);
     }
@@ -604,11 +604,12 @@ impl PeerManagerActor {
         message: PeerMessage,
     ) -> bool {
         if let Some(active_peer) = self.active_peers.get(&peer_id) {
+            let msg_kind = format!("{}", message);
             active_peer
                 .addr
                 .send(SendMessage { message })
                 .into_actor(self)
-                .map(|res, _, _| res.map_err(|e| error!("Failed sending message: {}", e)))
+                .map(move |res, _, _| res.map_err(|e| error!(target: "network", "Failed sending message(send_message, {}): {}", msg_kind, e)))
                 .map(|_, _, _| ())
                 .spawn(ctx);
             true
@@ -939,7 +940,7 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                 if let Some(peer) = self.active_peers.get(&peer_id) {
                     let _ = peer.addr.do_send(PeerManagerRequest::BanPeer(ban_reason));
                 } else {
-                    warn!(target: "network", "Try to ban a disconnected peer: {:?}", peer_id);
+                    warn!(target: "network", "Try to ban a disconnected peer for {:?}: {:?}", ban_reason, peer_id);
                     // Call `ban_peer` in peer manager to trigger action that persists information
                     // of ban in disk.
                     self.ban_peer(ctx, &peer_id, ban_reason);

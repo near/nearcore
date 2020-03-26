@@ -405,7 +405,7 @@ impl NearConfig {
                 sync_height_threshold: 1,
                 header_sync_initial_timeout: Duration::from_secs(10),
                 header_sync_progress_timeout: Duration::from_secs(2),
-                header_sync_stall_ban_timeout: Duration::from_secs(40),
+                header_sync_stall_ban_timeout: Duration::from_secs(120),
                 header_sync_expected_height_per_second: 10,
                 min_num_peers: config.consensus.min_num_peers,
                 log_summary_period: Duration::from_secs(10),
