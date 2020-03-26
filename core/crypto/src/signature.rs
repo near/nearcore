@@ -133,6 +133,13 @@ pub enum PublicKey {
 }
 
 impl PublicKey {
+    pub fn len(&self) -> usize {
+        match self {
+            PublicKey::ED25519(_) => ed25519_dalek::PUBLIC_KEY_LENGTH + 1,
+            PublicKey::SECP256K1(_) => 65,
+        }
+    }
+
     pub fn empty(key_type: KeyType) -> Self {
         match key_type {
             KeyType::ED25519 => {

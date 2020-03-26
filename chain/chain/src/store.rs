@@ -23,9 +23,7 @@ use near_primitives::types::{
     AccountId, BlockExtra, BlockHeight, ChunkExtra, EpochId, ShardId, StateChanges,
     StateChangesExt, StateChangesKinds, StateChangesKindsExt, StateChangesRequest,
 };
-use near_primitives::utils::{
-    index_to_bytes, to_timestamp, KeyForAccessKey, KeyForAccount, KeyForContractCode, KeyForData,
-};
+use near_primitives::utils::{index_to_bytes, to_timestamp, trie_key_parsers, TrieKey};
 use near_primitives::views::LightClientBlockView;
 use near_store::{
     read_with_cache, ColBlock, ColBlockExtra, ColBlockHeader, ColBlockHeight, ColBlockMisc,
@@ -922,7 +920,7 @@ impl ChainStoreAccess for ChainStore {
             StateChangesRequest::AccountChanges { account_ids } => {
                 let mut changes = StateChanges::new();
                 for account_id in account_ids {
-                    let data_key = KeyForAccount::new(account_id);
+                    let data_key = TrieKey::Account { account_id: account_id.clone() }.to_vec();
                     let storage_key = KeyForStateChanges::new(&block_hash, data_key.as_ref());
                     let changes_per_key = storage_key.find_exact_iter(&self.store);
                     changes
@@ -933,7 +931,11 @@ impl ChainStoreAccess for ChainStore {
             StateChangesRequest::SingleAccessKeyChanges { keys } => {
                 let mut changes = StateChanges::new();
                 for key in keys {
-                    let data_key = KeyForAccessKey::new(&key.account_id, &key.public_key);
+                    let data_key = TrieKey::AccessKey {
+                        account_id: key.account_id.clone(),
+                        public_key: key.public_key.clone(),
+                    }
+                    .to_vec();
                     let storage_key = KeyForStateChanges::new(&block_hash, data_key.as_ref());
                     let changes_per_key = storage_key.find_exact_iter(&self.store);
                     changes.extend(StateChanges::from_access_key_changes(
@@ -947,7 +949,7 @@ impl ChainStoreAccess for ChainStore {
             StateChangesRequest::AllAccessKeyChanges { account_ids } => {
                 let mut changes = StateChanges::new();
                 for account_id in account_ids {
-                    let data_key = KeyForAccessKey::get_prefix(&account_id);
+                    let data_key = trie_key_parsers::get_raw_prefix_for_access_keys(account_id);
                     let storage_key = KeyForStateChanges::new(&block_hash, data_key.as_ref());
                     let changes_per_key_prefix = storage_key.find_iter(&self.store);
                     changes.extend(StateChanges::from_access_key_changes(
@@ -961,7 +963,8 @@ impl ChainStoreAccess for ChainStore {
             StateChangesRequest::ContractCodeChanges { account_ids } => {
                 let mut changes = StateChanges::new();
                 for account_id in account_ids {
-                    let data_key = KeyForContractCode::new(&account_id);
+                    let data_key =
+                        TrieKey::ContractCode { account_id: account_id.clone() }.to_vec();
                     let storage_key = KeyForStateChanges::new(&block_hash, data_key.as_ref());
                     let changes_per_key = storage_key.find_exact_iter(&self.store);
                     changes.extend(StateChanges::from_contract_code_changes(
@@ -974,7 +977,10 @@ impl ChainStoreAccess for ChainStore {
             StateChangesRequest::DataChanges { account_ids, key_prefix } => {
                 let mut changes = StateChanges::new();
                 for account_id in account_ids {
-                    let data_key = KeyForData::new(&account_id, key_prefix.as_ref());
+                    let data_key = trie_key_parsers::get_raw_prefix_for_contract_data(
+                        account_id,
+                        key_prefix.as_ref(),
+                    );
                     let storage_key = KeyForStateChanges::new(&block_hash, data_key.as_ref());
                     let changes_per_key_prefix = storage_key.find_iter(&self.store);
                     changes.extend(StateChanges::from_data_changes(
