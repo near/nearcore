@@ -184,6 +184,22 @@ fn default_reduce_wait_for_missing_block() -> Duration {
     Duration::from_millis(REDUCE_DELAY_FOR_MISSING_BLOCKS)
 }
 
+fn default_header_sync_initial_timeout() -> Duration {
+    Duration::from_secs(10)
+}
+
+fn default_header_sync_progress_timeout() -> Duration {
+    Duration::from_secs(2)
+}
+
+fn default_header_sync_stall_ban_timeout() -> Duration {
+    Duration::from_secs(120)
+}
+
+fn default_header_sync_expected_height_per_second() -> u64 {
+    10
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Consensus {
     /// Minimum number of peers to start syncing.
@@ -211,6 +227,18 @@ pub struct Consensus {
     pub catchup_step_period: Duration,
     /// Time between checking to re-request chunks.
     pub chunk_request_retry_period: Duration,
+    /// How much time to wait after initial header sync
+    #[serde(default = "default_header_sync_initial_timeout")]
+    pub header_sync_initial_timeout: Duration,
+    /// How much time to wait after some progress is made in header sync
+    #[serde(default = "default_header_sync_progress_timeout")]
+    pub header_sync_progress_timeout: Duration,
+    /// How much time to wait before banning a peer in header sync if sync is too slow
+    #[serde(default = "default_header_sync_stall_ban_timeout")]
+    pub header_sync_stall_ban_timeout: Duration,
+    /// Expected increase of header head weight per second during header sync
+    #[serde(default = "default_header_sync_expected_height_per_second")]
+    pub header_sync_expected_height_per_second: u64,
 }
 
 impl Default for Consensus {
@@ -221,13 +249,18 @@ impl Default for Consensus {
             min_block_production_delay: Duration::from_millis(MIN_BLOCK_PRODUCTION_DELAY),
             max_block_production_delay: Duration::from_millis(MAX_BLOCK_PRODUCTION_DELAY),
             max_block_wait_delay: Duration::from_millis(MAX_BLOCK_WAIT_DELAY),
-            reduce_wait_for_missing_block: Duration::from_millis(REDUCE_DELAY_FOR_MISSING_BLOCKS),
+            reduce_wait_for_missing_block: default_reduce_wait_for_missing_block(),
             produce_empty_blocks: true,
             block_fetch_horizon: BLOCK_FETCH_HORIZON,
             state_fetch_horizon: STATE_FETCH_HORIZON,
             block_header_fetch_horizon: BLOCK_HEADER_FETCH_HORIZON,
             catchup_step_period: Duration::from_millis(CATCHUP_STEP_PERIOD),
             chunk_request_retry_period: Duration::from_millis(CHUNK_REQUEST_RETRY_PERIOD),
+            header_sync_initial_timeout: default_header_sync_initial_timeout(),
+            header_sync_progress_timeout: default_header_sync_progress_timeout(),
+            header_sync_stall_ban_timeout: default_header_sync_stall_ban_timeout(),
+            header_sync_expected_height_per_second: default_header_sync_expected_height_per_second(
+            ),
         }
     }
 }
@@ -403,10 +436,12 @@ impl NearConfig {
                 sync_check_period: Duration::from_secs(10),
                 sync_step_period: Duration::from_millis(10),
                 sync_height_threshold: 1,
-                header_sync_initial_timeout: Duration::from_secs(10),
-                header_sync_progress_timeout: Duration::from_secs(2),
-                header_sync_stall_ban_timeout: Duration::from_secs(120),
-                header_sync_expected_height_per_second: 10,
+                header_sync_initial_timeout: config.consensus.header_sync_initial_timeout,
+                header_sync_progress_timeout: config.consensus.header_sync_progress_timeout,
+                header_sync_stall_ban_timeout: config.consensus.header_sync_stall_ban_timeout,
+                header_sync_expected_height_per_second: config
+                    .consensus
+                    .header_sync_expected_height_per_second,
                 min_num_peers: config.consensus.min_num_peers,
                 log_summary_period: Duration::from_secs(10),
                 produce_empty_blocks: config.consensus.produce_empty_blocks,
@@ -418,8 +453,8 @@ impl NearConfig {
                 block_fetch_horizon: config.consensus.block_fetch_horizon,
                 state_fetch_horizon: config.consensus.state_fetch_horizon,
                 block_header_fetch_horizon: config.consensus.block_header_fetch_horizon,
-                catchup_step_period: Duration::from_millis(CATCHUP_STEP_PERIOD),
-                chunk_request_retry_period: Duration::from_millis(CHUNK_REQUEST_RETRY_PERIOD),
+                catchup_step_period: config.consensus.catchup_step_period,
+                chunk_request_retry_period: config.consensus.chunk_request_retry_period,
                 tracked_accounts: config.tracked_accounts,
                 tracked_shards: config.tracked_shards,
                 archive: config.archive,
