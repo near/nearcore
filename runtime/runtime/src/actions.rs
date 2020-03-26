@@ -12,13 +12,11 @@ use near_primitives::transaction::{
     FunctionCallAction, StakeAction, TransferAction,
 };
 use near_primitives::types::{AccountId, Balance, BlockHeight, BlockHeightDelta, ValidatorStake};
-use near_primitives::utils::{
-    is_valid_sub_account_id, is_valid_top_level_account_id, KeyForAccessKey,
-};
+use near_primitives::utils::{is_valid_sub_account_id, is_valid_top_level_account_id};
 use near_runtime_fees::RuntimeFeesConfig;
 use near_store::{
-    get_access_key, get_code, remove_account, set_access_key, set_code, total_account_storage,
-    StorageError, TrieUpdate,
+    get_access_key, get_code, remove_access_key, remove_account, set_access_key, set_code,
+    total_account_storage, StorageError, TrieUpdate,
 };
 use near_vm_logic::types::PromiseResult;
 use near_vm_logic::VMContext;
@@ -346,7 +344,7 @@ pub(crate) fn action_deploy_contract(
             ))
         })?;
     account.code_hash = code.get_hash();
-    set_code(state_update, &account_id, &code);
+    set_code(state_update, account_id.clone(), &code);
     Ok(())
 }
 
@@ -381,7 +379,7 @@ pub(crate) fn action_delete_key(
     account_id: &AccountId,
     delete_key: &DeleteKeyAction,
 ) -> Result<(), StorageError> {
-    let access_key = get_access_key(state_update, account_id, &delete_key.public_key)?;
+    let access_key = get_access_key(state_update, &account_id, &delete_key.public_key)?;
     if access_key.is_none() {
         result.result = Err(ActionErrorKind::DeleteKeyDoesNotExist {
             public_key: delete_key.public_key.clone(),
@@ -391,7 +389,7 @@ pub(crate) fn action_delete_key(
         return Ok(());
     }
     // Remove access key
-    state_update.remove(KeyForAccessKey::new(account_id, &delete_key.public_key));
+    remove_access_key(state_update, account_id.clone(), delete_key.public_key.clone());
     let storage_usage_config = &fee_config.storage_usage_config;
     account.storage_usage = account
         .storage_usage
@@ -425,7 +423,12 @@ pub(crate) fn action_add_key(
         .into());
         return Ok(());
     }
-    set_access_key(state_update, account_id, &add_key.public_key, &add_key.access_key);
+    set_access_key(
+        state_update,
+        account_id.clone(),
+        add_key.public_key.clone(),
+        &add_key.access_key,
+    );
     let storage_config = &fees_config.storage_usage_config;
     account.storage_usage = account
         .storage_usage
