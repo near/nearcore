@@ -9,6 +9,8 @@ from utils import user_name
 
 additional_flags = ''
 
+toolchain = open(os.path.join(os.path.dirname(__file__), '../../../../rust-toolchain')).read().strip()
+
 try:
     image_name = sys.argv[1]
     branch = sys.argv[2]
@@ -44,7 +46,7 @@ sudo apt install -y python pkg-config libssl-dev build-essential cmake clang llv
 sudo groupadd docker
 sudo usermod -aG docker $USER
 
-curl -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain nightly-2020-03-19
+curl -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain {toolchain}
 source ~/.cargo/env
 
 git clone --single-branch --branch {branch} https://github.com/nearprotocol/nearcore.git nearcore
