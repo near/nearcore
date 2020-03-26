@@ -2191,9 +2191,23 @@ impl<'a> VMLogic<'a> {
             logs: self.logs,
         }
     }
+
+    /// clones the outcome of execution.
+    pub fn clone_outcome(&self) -> VMOutcome {
+        let logs = self.logs.clone();
+        let return_data = self.return_data.clone();
+        VMOutcome {
+            balance: self.current_account_balance,
+            storage_usage: self.current_storage_usage,
+            return_data,
+            burnt_gas: self.gas_counter.burnt_gas(),
+            used_gas: self.gas_counter.used_gas(),
+            logs,
+        }
+    }
 }
 
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Serialize, Deserialize, Clone)]
 pub struct VMOutcome {
     pub balance: Balance,
     pub storage_usage: StorageUsage,
