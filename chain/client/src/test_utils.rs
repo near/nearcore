@@ -257,7 +257,7 @@ pub fn setup_mock_all_validators(
     tamper_with_fg: bool,
     epoch_length: BlockHeightDelta,
     enable_doomslug: bool,
-    archive: bool,
+    archive: Vec<bool>,
     network_mock: Arc<RwLock<Box<dyn FnMut(String, &NetworkRequests) -> (NetworkResponses, bool)>>>,
 ) -> (Block, Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>) {
     let validators_clone = validators.clone();
@@ -286,7 +286,9 @@ pub fn setup_mock_all_validators(
     let approval_intervals: Arc<RwLock<Vec<BTreeSet<(ScoreAndHeight, ScoreAndHeight)>>>> =
         Arc::new(RwLock::new(key_pairs.iter().map(|_| BTreeSet::new()).collect()));
 
-    for account_id in validators.iter().flatten().cloned() {
+    for (index, account_id) in
+        validators.iter().flatten().enumerate().map(|(i, acc)| (i, acc.clone())).collect::<Vec<_>>()
+    {
         let view_client_addr = Arc::new(RwLock::new(None));
         let view_client_addr1 = view_client_addr.clone();
         let validators_clone1 = validators_clone.clone();
@@ -305,6 +307,7 @@ pub fn setup_mock_all_validators(
         let largest_skipped_height1 = largest_skipped_height.clone();
         let hash_to_score1 = hash_to_score.clone();
         let approval_intervals1 = approval_intervals.clone();
+        let archive1 = archive.clone();
         let client_addr = ClientActor::create(move |ctx| {
             let client_addr = ctx.address();
             let pm = NetworkMock::mock(Box::new(move |msg, _ctx| {
@@ -728,7 +731,7 @@ pub fn setup_mock_all_validators(
                 block_prod_time,
                 block_prod_time * 3,
                 enable_doomslug,
-                archive,
+                archive1[index],
                 Arc::new(network_adapter),
                 10000,
                 genesis_time,
