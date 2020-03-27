@@ -36,7 +36,7 @@ use near_store::{
     ColBlockHeader, PartialStorage, Store, StoreUpdate, Trie, TrieChanges, WrappedTrieChanges,
 };
 
-use crate::chain::{Chain, ChainGenesis};
+use crate::chain::{Chain, ChainGenesis, NUM_EPOCHS_TO_KEEP_STORE_DATA};
 use crate::error::{Error, ErrorKind};
 use crate::store::ChainStoreAccess;
 use crate::types::ApplyTransactionResult;
@@ -680,6 +680,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         block_height: BlockHeight,
         _block_timestamp: u64,
         block_hash: &CryptoHash,
+        _epoch_id: &EpochId,
         request: &QueryRequest,
     ) -> Result<QueryResponse, Box<dyn std::error::Error>> {
         match request {
@@ -829,6 +830,12 @@ impl RuntimeAdapter for KeyValueRuntime {
             Some(block_header) => Ok(block_header.inner_lite.height),
             None => Ok(0),
         }
+    }
+
+    fn get_gc_stop_height(&self, block_hash: &CryptoHash) -> Result<BlockHeight, Error> {
+        let block_height =
+            self.get_block_header(block_hash)?.map(|h| h.inner_lite.height).unwrap_or_default();
+        Ok(block_height.saturating_sub(NUM_EPOCHS_TO_KEEP_STORE_DATA * self.epoch_length))
     }
 
     fn get_epoch_inflation(&self, _epoch_id: &EpochId) -> Result<u128, Error> {

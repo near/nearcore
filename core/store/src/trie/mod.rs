@@ -16,7 +16,6 @@ use near_primitives::types::{
     RawStateChange, RawStateChanges, RawStateChangesWithMetadata, StateChangeCause,
     StateChangeKind, StateRoot, StateRootNode,
 };
-use near_primitives::utils::{KeyForAccessKey, KeyForAccount, KeyForContractCode, KeyForData};
 
 use crate::db::{DBCol, DBOp, DBTransaction};
 use crate::trie::insert_delete::NodesStorage;
@@ -27,6 +26,7 @@ use crate::trie::trie_storage::{
     TrieStorage,
 };
 use crate::{ColState, StorageError, Store, StoreUpdate};
+use near_primitives::utils::trie_key_parsers;
 
 mod insert_delete;
 pub mod iterator;
@@ -575,13 +575,20 @@ impl WrappedTrieChanges {
                 }),
                 "NotWritableToDisk changes must never be finalized."
             );
-            let kind = if let Ok(account_id) = KeyForData::parse_account_id(&key) {
+            let kind = if let Ok(account_id) =
+                trie_key_parsers::parse_account_id_from_contract_data_key(&key)
+            {
                 StateChangeKind::DataTouched { account_id }
-            } else if let Ok(account_id) = KeyForAccount::parse_account_id(&key) {
+            } else if let Ok(account_id) = trie_key_parsers::parse_account_id_from_account_key(&key)
+            {
                 StateChangeKind::AccountTouched { account_id }
-            } else if let Ok(account_id) = KeyForAccessKey::parse_account_id(&key) {
+            } else if let Ok(account_id) =
+                trie_key_parsers::parse_account_id_from_access_key_key(&key)
+            {
                 StateChangeKind::AccessKeyTouched { account_id }
-            } else if let Ok(account_id) = KeyForContractCode::parse_account_id(&key) {
+            } else if let Ok(account_id) =
+                trie_key_parsers::parse_account_id_from_contract_code_key(&key)
+            {
                 StateChangeKind::ContractCodeTouched { account_id }
             } else {
                 continue;
@@ -905,7 +912,7 @@ impl Trie {
 
     fn convert_to_insertions_and_deletions(
         changes: HashMap<CryptoHash, (Vec<u8>, i32)>,
-    ) -> ((Vec<(CryptoHash, Vec<u8>, u32)>, Vec<(CryptoHash, Vec<u8>, u32)>)) {
+    ) -> (Vec<(CryptoHash, Vec<u8>, u32)>, Vec<(CryptoHash, Vec<u8>, u32)>) {
         let mut deletions = Vec::new();
         let mut insertions = Vec::new();
         for (key, (value, rc)) in changes.into_iter() {
