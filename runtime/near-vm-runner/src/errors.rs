@@ -58,33 +58,28 @@ impl IntoVMError for wasmer_runtime::error::ResolveError {
 
 impl IntoVMError for wasmer_runtime::error::RuntimeError {
     fn into_vm_error(self) -> VMError {
-        use wasmer_runtime::error::RuntimeError;
-        match &self {
-            RuntimeError::Trap { msg } => {
-                VMError::FunctionCallError(FunctionCallError::WasmTrap { msg: msg.to_string() })
-            }
-            RuntimeError::Error { data } => {
-                if let Some(err) = data.downcast_ref::<VMLogicError>() {
-                    match err {
-                        VMLogicError::HostError(h) => {
-                            VMError::FunctionCallError(FunctionCallError::HostError(h.clone()))
-                        }
-                        VMLogicError::ExternalError(s) => VMError::ExternalError(s.clone()),
-                        VMLogicError::InconsistentStateError(e) => {
-                            VMError::InconsistentStateError(e.clone())
-                        }
-                    }
-                } else {
-                    eprintln!(
-                        "Bad error case! Output is non-deterministic {:?} {:?}",
-                        data.type_id(),
-                        self.to_string()
-                    );
-                    VMError::FunctionCallError(FunctionCallError::WasmTrap {
-                        msg: "unknown".to_string(),
-                    })
+        use wasmer_runtime_core::backend::ExceptionCode;
+        let data = self.0;
+
+        if let Some(err) = data.downcast_ref::<VMLogicError>() {
+            match err {
+                VMLogicError::HostError(h) => {
+                    VMError::FunctionCallError(FunctionCallError::HostError(h.clone()))
+                }
+                VMLogicError::ExternalError(s) => VMError::ExternalError(s.clone()),
+                VMLogicError::InconsistentStateError(e) => {
+                    VMError::InconsistentStateError(e.clone())
                 }
             }
+        } else if let Some(exc_code) = data.downcast_ref::<ExceptionCode>() {
+            VMError::FunctionCallError(FunctionCallError::WasmTrap { msg: exc_code.to_string() })
+        } else {
+            eprintln!(
+                "Bad error case! Output is non-deterministic {:?} {:?}",
+                data.type_id(),
+                data
+            );
+            VMError::FunctionCallError(FunctionCallError::WasmTrap { msg: "unknown".into() })
         }
     }
 }
