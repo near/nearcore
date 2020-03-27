@@ -712,7 +712,13 @@ impl ClientActor {
             // Don't care about challenge here since it will be handled when we actually process
             // the block.
             if self.client.chain.process_block_header(&block.header, |_| {}).is_ok() {
-                self.client.rebroadcast_block(block.clone());
+                let head = self.client.chain.head()?;
+                // do not broadcast blocks that are too far back.
+                if head.height < block.header.inner_lite.height
+                    || head.epoch_id == block.header.inner_lite.epoch_id
+                {
+                    self.client.rebroadcast_block(block.clone());
+                }
             }
         }
         let (accepted_blocks, result) = self.client.process_block(block, provenance);
@@ -728,7 +734,7 @@ impl ClientActor {
         was_requested: bool,
     ) -> NetworkClientResponses {
         let hash = block.hash();
-        debug!(target: "client", "{:?} Received block {} <- {} at {} from {}", self.client.validator_signer.as_ref().map(|vs| vs.validator_id()), hash, block.header.prev_hash, block.header.inner_lite.height, peer_id);
+        debug!(target: "client", "{:?} Received block {} <- {} at {} from {}, requested: {}", self.client.validator_signer.as_ref().map(|vs| vs.validator_id()), hash, block.header.prev_hash, block.header.inner_lite.height, peer_id, was_requested);
         let prev_hash = block.header.prev_hash;
         let provenance =
             if was_requested { near_chain::Provenance::SYNC } else { near_chain::Provenance::NONE };
