@@ -376,7 +376,7 @@ mod tests {
     use near_primitives::transaction::{
         CreateAccountAction, DeleteKeyAction, StakeAction, TransferAction,
     };
-    use near_primitives::types::{Balance, Gas, MerkleHash, StateChangeCause};
+    use near_primitives::types::{AccountId, Balance, Gas, MerkleHash, StateChangeCause};
     use near_store::test_utils::create_trie;
     use std::sync::Arc;
     use testlib::runtime_utils::{alice_account, bob_account, eve_dot_alice_account};
@@ -393,6 +393,16 @@ mod tests {
         gas_limit: Gas,
         access_key: Option<AccessKey>,
     ) -> (Arc<InMemorySigner>, TrieUpdate, ApplyState) {
+        setup_accounts(
+            vec![(alice_account(), initial_balance, initial_locked, access_key)],
+            gas_limit,
+        )
+    }
+
+    fn setup_accounts(
+        accounts: Vec<(AccountId, Balance, Balance, Option<AccessKey>)>,
+        gas_limit: Gas,
+    ) -> (Arc<InMemorySigner>, TrieUpdate, ApplyState) {
         let trie = create_trie();
         let root = MerkleHash::default();
 
@@ -401,16 +411,18 @@ mod tests {
             Arc::new(InMemorySigner::from_seed(&account_id, KeyType::ED25519, &account_id));
 
         let mut initial_state = TrieUpdate::new(trie.clone(), root);
-        let mut initial_account = Account::new(initial_balance, hash(&[]));
-        initial_account.locked = initial_locked;
-        set_account(&mut initial_state, account_id.clone(), &initial_account);
-        if let Some(access_key) = access_key {
-            set_access_key(
-                &mut initial_state,
-                account_id.clone(),
-                signer.public_key(),
-                &access_key,
-            );
+        for (account_id, initial_balance, initial_locked, access_key) in accounts {
+            let mut initial_account = Account::new(initial_balance, hash(&[]));
+            initial_account.locked = initial_locked;
+            set_account(&mut initial_state, account_id.clone(), &initial_account);
+            if let Some(access_key) = access_key {
+                set_access_key(
+                    &mut initial_state,
+                    account_id.clone(),
+                    signer.public_key(),
+                    &access_key,
+                );
+            }
         }
         initial_state.commit(StateChangeCause::InitialState);
         let trie_changes = initial_state.finalize().unwrap();
@@ -788,6 +800,62 @@ mod tests {
         }
     }
 
+    /// Test that account with 0 balance can be created.
+    #[test]
+    fn test_validate_transaction_create_account_no_balance() {
+        let mut config = RuntimeConfig::free();
+        config.storage_amount_per_byte = 10_000;
+        let (signer, mut state_update, apply_state) =
+            setup_common(1_000_000_000, 0, 10_000_000, Some(AccessKey::full_access()));
+
+        verify_and_charge_transaction(
+            &config,
+            &mut state_update,
+            &apply_state,
+            &SignedTransaction::create_account(
+                1,
+                alice_account(),
+                bob_account(),
+                0,
+                signer.public_key().clone(),
+                &*signer,
+                CryptoHash::default(),
+            ),
+        )
+        .expect("valid transaction");
+    }
+
+    /// Test that an account with 0 N can be deleted by another account.
+    #[test]
+    fn test_validate_transaction_delete_account_low_balance() {
+        let mut config = RuntimeConfig::free();
+        config.storage_amount_per_byte = 10_000;
+        let (signer, mut state_update, apply_state) = setup_accounts(
+            vec![
+                (alice_account(), 0, 0, Some(AccessKey::full_access())),
+                (bob_account(), 1_000_000, 0, Some(AccessKey::full_access())),
+            ],
+            10_000_000,
+        );
+
+        verify_and_charge_transaction(
+            &config,
+            &mut state_update,
+            &apply_state,
+            &SignedTransaction::delete_account(
+                1,
+                bob_account(),
+                alice_account(),
+                bob_account(),
+                &*signer,
+                CryptoHash::default(),
+            ),
+        )
+        .expect("valid transaction");
+    }
+
+    /// Setup: account has 1B yoctoN and is 180 bytes. Storage requirement is 1M per byte.
+    /// Test that such account can not send 950M yoctoN out as that will leave it under storage requirements.
     #[test]
     fn test_validate_transaction_invalid_low_balance() {
         let mut config = RuntimeConfig::free();
@@ -795,8 +863,6 @@ mod tests {
         let (signer, mut state_update, apply_state) =
             setup_common(1_000_000_000, 0, 10_000_000, Some(AccessKey::full_access()));
 
-        // The logic is the following:
-        // Account `alice.near` has 1B yoctoN, account is 180 bytes, requirement per byte is 1M.
         assert_eq!(
             verify_and_charge_transaction(
                 &config,
