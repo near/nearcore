@@ -114,6 +114,8 @@ pub enum InvalidTxError {
         #[serde(with = "u128_dec_format")]
         cost: Balance,
     },
+    /// TODO: Deprecated, keeping for near-api-js compatibility.
+    RentUnpaid { signer_id: AccountId, amount: Balance },
     /// Signer account doesn't have enough balance after transaction.
     LackBalanceForState {
         /// An account which doesn't have enough balance to cover storage.
@@ -313,12 +315,16 @@ pub enum ActionErrorKind {
     AddKeyAlreadyExists { account_id: AccountId, public_key: PublicKey },
     /// Account is staking and can not be deleted
     DeleteAccountStaking { account_id: AccountId },
+    /// TODO: Deprecated, keeping for near-api-js support.
+    DeleteAccountHasRent { account_id: AccountId, balance: Balance },
     /// Foreign sender (sender=!receiver) can delete an account only if a target account hasn't enough tokens.
     DeleteAccountHasEnoughBalance {
         account_id: AccountId,
         #[serde(with = "u128_dec_format")]
         balance: Balance,
     },
+    /// TODO: Deprecated, keeping for near-api-js support.
+    RentUnpaid { account_id: AccountId, amount: Balance },
     /// ActionReceipt can't be completed, because the remaining balance will not be enough to cover storage.
     LackBalanceForState {
         /// An account which needs balance
@@ -380,6 +386,9 @@ impl Display for InvalidTxError {
                 "Sender {:?} does not have enough balance {} for operation costing {}",
                 signer_id, balance, cost
             ),
+            InvalidTxError::RentUnpaid { signer_id, amount } => {
+                write!(f, "Failed to execute, because the account {:?} wouldn't have enough to pay required rent {}", signer_id, amount)
+            }
             InvalidTxError::LackBalanceForState { signer_id, amount } => {
                 write!(f, "Failed to execute, because the account {:?} wouldn't have enough balance to cover storage, required to have {}", signer_id, amount)
             }
@@ -587,6 +596,11 @@ impl Display for ActionErrorKind {
                 "Actor {:?} doesn't have permission to account {:?} to complete the action",
                 actor_id, account_id
             ),
+            ActionErrorKind::RentUnpaid { account_id, amount } => write!(
+                f,
+                "The account {} wouldn't have enough balance to pay required rent {}",
+                account_id, amount
+            ),
             ActionErrorKind::LackBalanceForState { account_id, amount } => write!(
                 f,
                 "The account {} wouldn't have enough balance to cover storage, required to have {}",
@@ -621,6 +635,11 @@ impl Display for ActionErrorKind {
             ActionErrorKind::DeleteAccountStaking { account_id } => {
                 write!(f, "Account {:?} is staking and can not be deleted", account_id)
             }
+            ActionErrorKind::DeleteAccountHasRent { account_id, balance } => write!(
+                f,
+                "Account {:?} can't be deleted. It has {}, which is enough to cover the rent",
+                account_id, balance
+            ),
             ActionErrorKind::DeleteAccountHasEnoughBalance { account_id, balance } => write!(
                 f,
                 "Account {:?} can't be deleted. It has {}, which is enough to cover it's storage",
