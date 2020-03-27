@@ -4,7 +4,6 @@ use std::path::Path;
 use std::sync::Arc;
 
 use borsh::BorshSerialize;
-use reed_solomon_erasure::galois_8::ReedSolomon;
 
 use near::config::{GenesisExt, FISHERMEN_THRESHOLD};
 use near::NightshadeRuntime;
@@ -26,7 +25,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{merklize, MerklePath};
 use near_primitives::receipt::Receipt;
 use near_primitives::serialize::BaseDecode;
-use near_primitives::sharding::EncodedShardChunk;
+use near_primitives::sharding::{EncodedShardChunk, ReedSolomonWrapper};
 use near_primitives::test_utils::init_test_logger;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::StateRoot;
@@ -153,7 +152,7 @@ fn create_chunk(
         let data_parts = client.chain.runtime_adapter.num_data_parts();
         let decoded_chunk = chunk.decode_chunk(data_parts).unwrap();
         let parity_parts = total_parts - data_parts;
-        let rs = ReedSolomon::new(data_parts, parity_parts).unwrap();
+        let mut rs = ReedSolomonWrapper::new(data_parts, parity_parts);
 
         let (tx_root, _) = merklize(&transactions);
         let signer = client.validator_signer.as_ref().unwrap().clone();
@@ -163,7 +162,7 @@ fn create_chunk(
             chunk.header.inner.outcome_root,
             chunk.header.inner.height_created,
             chunk.header.inner.shard_id,
-            &rs,
+            &mut rs,
             chunk.header.inner.gas_used,
             chunk.header.inner.gas_limit,
             chunk.header.inner.validator_reward,
@@ -391,7 +390,7 @@ fn test_verify_chunk_invalid_state_challenge() {
     let total_parts = env.clients[0].runtime_adapter.num_total_parts();
     let data_parts = env.clients[0].runtime_adapter.num_data_parts();
     let parity_parts = total_parts - data_parts;
-    let rs = ReedSolomon::new(data_parts, parity_parts).unwrap();
+    let mut rs = ReedSolomonWrapper::new(data_parts, parity_parts);
     let (mut invalid_chunk, merkle_paths) = env.clients[0]
         .shards_mgr
         .create_encoded_shard_chunk(
@@ -410,7 +409,7 @@ fn test_verify_chunk_invalid_state_challenge() {
             last_block.chunks[0].inner.outgoing_receipts_root,
             CryptoHash::default(),
             &validator_signer,
-            &rs,
+            &mut rs,
         )
         .unwrap();
 

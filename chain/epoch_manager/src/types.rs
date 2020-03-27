@@ -9,8 +9,8 @@ use near_primitives::challenge::SlashedValidator;
 use near_primitives::hash::CryptoHash;
 use near_primitives::serialize::to_base;
 use near_primitives::types::{
-    AccountId, Balance, BlockChunkValidatorStats, BlockHeight, BlockHeightDelta, EpochId, NumSeats,
-    NumShards, ShardId, ValidatorId, ValidatorStake, ValidatorStats,
+    AccountId, Balance, BlockChunkValidatorStats, BlockHeight, BlockHeightDelta, EpochHeight,
+    EpochId, NumSeats, NumShards, ShardId, ValidatorId, ValidatorStake, ValidatorStats,
 };
 
 pub type RngSeed = [u8; 32];
@@ -43,6 +43,9 @@ pub struct ValidatorWeight(ValidatorId, u64);
 /// Information per epoch.
 #[derive(Default, BorshSerialize, BorshDeserialize, Serialize, Clone, Debug, PartialEq, Eq)]
 pub struct EpochInfo {
+    /// Ordinal of given epoch from genesis.
+    /// There can be multiple epochs with the same ordinal in case of long forks.
+    pub epoch_height: EpochHeight,
     /// List of current validators.
     pub validators: Vec<ValidatorStake>,
     /// Validator account id to index in proposals.

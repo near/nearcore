@@ -8,7 +8,7 @@ use crate::account::{AccessKey, Account};
 use crate::challenge::ChallengesResult;
 use crate::hash::CryptoHash;
 use crate::serialize::u128_dec_format;
-use crate::utils::{KeyForAccessKey, KeyForData};
+use crate::utils::trie_key_parsers;
 
 /// Account identifier. Provides access to user's state.
 pub type AccountId = String;
@@ -24,8 +24,10 @@ pub type StorageUsage = u64;
 pub type StorageUsageChange = i64;
 /// Nonce for transactions.
 pub type Nonce = u64;
-/// Index of the block.
+/// Height of the block.
 pub type BlockHeight = u64;
+/// Height of the epoch.
+pub type EpochHeight = u64;
 /// Shard index, from 0 to NUM_SHARDS - 1.
 pub type ShardId = u64;
 /// Balance is type for storing amounts of tokens.
@@ -100,7 +102,7 @@ pub struct StoreValue(Vec<u8>);
 ///
 /// NOTE: The main reason for this to exist (except the type-safety) is that the value is
 /// transparently serialized and deserialized as a base64-encoded string when serde is used
-/// (serde_json).  
+/// (serde_json).
 #[derive(Debug, Clone, PartialEq, Eq, DeriveAsRef, DeriveFrom, BorshSerialize, BorshDeserialize)]
 #[as_ref(forward)]
 pub struct FunctionArgs(Vec<u8>);
@@ -263,8 +265,11 @@ impl StateChanges {
 
             let access_key_pk = match access_key_pk {
                 Some(access_key_pk) => access_key_pk.clone(),
-                None => KeyForAccessKey::parse_public_key(key.as_ref(), &account_id)
-                    .expect("Failed to parse internally stored public key"),
+                None => trie_key_parsers::parse_public_key_from_access_key_key(
+                    key.as_ref(),
+                    &account_id,
+                )
+                .expect("Failed to parse internally stored public key"),
             };
 
             changes.extend(raw_changes.into_iter().map(|RawStateChange { cause, data }| {
@@ -336,8 +341,9 @@ impl StateChanges {
                 false
             });
 
-            let data_key = KeyForData::parse_data_key(key.as_ref(), &account_id)
-                .expect("Failed to parse internally stored data key");
+            let data_key =
+                trie_key_parsers::parse_data_key_from_contract_data_key(key.as_ref(), &account_id)
+                    .expect("Failed to parse internally stored data key");
 
             changes.extend(raw_changes.into_iter().map(|RawStateChange { cause, data }| {
                 StateChangeWithCause {

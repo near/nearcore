@@ -25,7 +25,7 @@ pub enum ErrorKind {
     ChunkMissing(ChunkHash),
     /// Chunks missing with header info.
     #[fail(display = "Chunks Missing: {:?}", _0)]
-    ChunksMissing(Vec<(ShardChunkHeader)>),
+    ChunksMissing(Vec<ShardChunkHeader>),
     /// Block time is before parent block time.
     #[fail(display = "Invalid Block Time: block time {} before previous {}", _1, _0)]
     InvalidBlockPastTime(DateTime<Utc>, DateTime<Utc>),

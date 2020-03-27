@@ -180,9 +180,8 @@ pub fn proposals_to_epoch_info(
         .map(|(index, s)| (s.account_id.clone(), index as ValidatorId))
         .collect::<HashMap<_, _>>();
 
-    // TODO(1050): implement fishermen allocation.
-
     Ok(EpochInfo {
+        epoch_height: epoch_info.epoch_height + 1,
         validators: final_proposals,
         fishermen,
         validator_to_index,
@@ -226,6 +225,7 @@ mod tests {
             )
             .unwrap(),
             epoch_info(
+                1,
                 vec![("test1", 1_000_000)],
                 vec![0],
                 vec![vec![0], vec![0]],
@@ -262,6 +262,7 @@ mod tests {
             )
             .unwrap(),
             epoch_info(
+                1,
                 vec![("test1", 1_000_000), ("test2", 1_000_000), ("test3", 1_000_000)],
                 vec![0, 1, 0, 0, 1, 2],
                 vec![
@@ -306,6 +307,7 @@ mod tests {
             )
             .unwrap(),
             epoch_info(
+                1,
                 vec![("test1", 10)],
                 vec![0],
                 vec![vec![0], vec![0]],
@@ -319,6 +321,7 @@ mod tests {
 
         // 4 proposals of stake 9, fishermen threshold 10 --> 1 validator and 0 fishermen
         let mut epoch_info = epoch_info(
+            1,
             vec![("test1", 9)],
             vec![0],
             vec![vec![0], vec![0]],
