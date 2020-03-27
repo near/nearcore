@@ -1042,7 +1042,7 @@ pub enum PeerManagerRequest {
     UnregisterPeer,
 }
 
-/// Combines peer address info and chain information.
+/// Combines peer address info, chain and edge information.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct FullPeerInfo {
     pub peer_info: PeerInfo,
