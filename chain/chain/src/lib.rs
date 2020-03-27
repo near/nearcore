@@ -1,7 +1,7 @@
 #[macro_use]
 extern crate lazy_static;
 
-pub use chain::{collect_receipts, Chain, ChainGenesis, MAX_ORPHAN_SIZE};
+pub use chain::{check_refcount_map, collect_receipts, Chain, ChainGenesis, MAX_ORPHAN_SIZE};
 pub use doomslug::{Doomslug, DoomslugBlockProductionReadiness, DoomslugThresholdMode};
 pub use error::{Error, ErrorKind};
 pub use finality::{FinalityGadget, FinalityGadgetQuorums};

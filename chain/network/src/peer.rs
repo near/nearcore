@@ -8,7 +8,7 @@ use actix::{
     Actor, ActorContext, ActorFuture, Addr, AsyncContext, Context, ContextFutureSpawner, Handler,
     Recipient, Running, StreamHandler, WrapFuture,
 };
-use tracing::{debug, error, info, trace, warn};
+use tracing::{debug, error, info, warn};
 
 use near_chain_configs::PROTOCOL_VERSION;
 use near_metrics;
@@ -16,10 +16,12 @@ use near_primitives::block::GenesisId;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
 use near_primitives::unwrap_option_or_return;
-use near_primitives::utils::{ser, DisplayOption};
+use near_primitives::utils::DisplayOption;
 
 use crate::codec::{bytes_to_peer_message, peer_message_to_bytes, Codec};
 use crate::rate_counter::RateCounter;
+#[cfg(feature = "metric_recorder")]
+use crate::recorder::{PeerMessageMetadata, Status};
 use crate::routing::{Edge, EdgeInfo};
 use crate::types::{
     Ban, Consolidate, ConsolidateResponse, Handshake, HandshakeFailureReason,
@@ -199,11 +201,20 @@ impl Peer {
             PeerMessage::BlockRequest(h) => self.tracker.push_request(*h),
             _ => (),
         };
-
-        trace!(target: "diagnostic", key="tx", msg=%ser(&msg));
+        #[cfg(feature = "metric_recorder")]
+        let metadata = {
+            let mut metadata: PeerMessageMetadata = (&msg).into();
+            metadata = metadata.set_source(self.node_id()).set_status(Status::Sent);
+            if let Some(target) = self.peer_id() {
+                metadata = metadata.set_target(target);
+            }
+            metadata
+        };
 
         match peer_message_to_bytes(msg) {
             Ok(bytes) => {
+                #[cfg(feature = "metric_recorder")]
+                self.peer_manager_addr.do_send(metadata.set_size(bytes.len()));
                 self.tracker.increment_sent(bytes.len() as u64);
                 self.framed.write(bytes);
             }
@@ -242,7 +253,7 @@ impl Peer {
                     tracked_shards,
                 }) => {
                     let handshake = Handshake::new(
-                        act.node_info.id.clone(),
+                        act.node_id(),
                         act.node_info.addr_port(),
                         PeerChainInfo { genesis_id, height, score, tracked_shards },
                         act.edge_info.as_ref().unwrap().clone(),
@@ -263,6 +274,10 @@ impl Peer {
         info!(target: "network", "Banning peer {} for {:?}", self.peer_info, ban_reason);
         self.peer_status = PeerStatus::Banned(ban_reason);
         ctx.stop();
+    }
+
+    fn node_id(&self) -> PeerId {
+        self.node_info.id.clone()
     }
 
     fn peer_id(&self) -> Option<PeerId> {
@@ -522,6 +537,9 @@ impl StreamHandler<Vec<u8>> for Peer {
         near_metrics::inc_counter_by(&metrics::PEER_DATA_RECEIVED_BYTES, msg.len() as i64);
         near_metrics::inc_counter(&metrics::PEER_MESSAGE_RECEIVED_TOTAL);
 
+        #[cfg(feature = "metric_recorder")]
+        let msg_size = msg.len();
+
         self.tracker.increment_received(msg.len() as u64);
         let peer_msg = match bytes_to_peer_message(&msg) {
             Ok(peer_msg) => peer_msg,
@@ -531,7 +549,18 @@ impl StreamHandler<Vec<u8>> for Peer {
             }
         };
 
-        trace!(target: "diagnostic", key="rx", length=msg.len(), msg=%ser(&peer_msg));
+        #[cfg(feature = "metric_recorder")]
+        {
+            let mut metadata: PeerMessageMetadata = (&peer_msg).into();
+            metadata =
+                metadata.set_size(msg_size).set_target(self.node_id()).set_status(Status::Received);
+
+            if let Some(peer_id) = self.peer_id() {
+                metadata = metadata.set_source(peer_id);
+            }
+
+            self.peer_manager_addr.do_send(metadata);
+        }
 
         peer_msg.record(msg.len());
 
@@ -582,7 +611,7 @@ impl StreamHandler<Vec<u8>> for Peer {
 
                 // Verify signature of the new edge in handshake.
                 if !Edge::partial_verify(
-                    self.node_info.id.clone(),
+                    self.node_id(),
                     handshake.peer_id.clone(),
                     &handshake.edge_info,
                 ) {
@@ -633,12 +662,12 @@ impl StreamHandler<Vec<u8>> for Peer {
                                 actix::fut::ready(())
                             },
                             Ok(ConsolidateResponse::InvalidNonce(edge)) => {
-                                debug!(target: "network", "{:?}: Received invalid nonce from peer {:?} sending evidence.", act.node_info.id.clone(), act.peer_addr);
+                                debug!(target: "network", "{:?}: Received invalid nonce from peer {:?} sending evidence.", act.node_id(), act.peer_addr);
                                 act.send_message(PeerMessage::LastEdge(edge));
                                 actix::fut::ready(())
                             }
                             _ => {
-                                info!(target: "network", "{:?}: Peer with handshake {:?} wasn't consolidated, disconnecting.", act.node_info.id.clone(), handshake);
+                                info!(target: "network", "{:?}: Peer with handshake {:?} wasn't consolidated, disconnecting.", act.node_id(), handshake);
                                 ctx.stop();
                                 actix::fut::ready(())
                             }
@@ -649,14 +678,14 @@ impl StreamHandler<Vec<u8>> for Peer {
             (_, PeerStatus::Connecting, PeerMessage::LastEdge(edge)) => {
                 // This message will be received only if we started the connection.
                 if self.peer_type == PeerType::Inbound {
-                    info!(target: "network", "{:?}: Inbound peer {:?} sent invalid message. Disconnect.", self.node_info.id.clone(), self.peer_addr);
+                    info!(target: "network", "{:?}: Inbound peer {:?} sent invalid message. Disconnect.", self.node_id(), self.peer_addr);
                     ctx.stop();
                     return ();
                 }
 
                 // Disconnect if neighbor propose invalid edge.
                 if !edge.verify() {
-                    info!(target: "network", "{:?}: Peer {:?} sent invalid edge. Disconnect.", self.node_info.id.clone(), self.peer_addr);
+                    info!(target: "network", "{:?}: Peer {:?} sent invalid edge. Disconnect.", self.node_id(), self.peer_addr);
                     ctx.stop();
                     return ();
                 }

@@ -8,7 +8,7 @@ use std::time::{Duration, Instant};
 
 use actix::{Actor, Context, Handler};
 use cached::{Cached, SizedCache};
-use log::{error, info, warn};
+use log::{debug, error, info, warn};
 
 use near_chain::types::ShardStateSyncResponse;
 use near_chain::{
@@ -76,21 +76,10 @@ impl ViewClientActor {
         runtime_adapter: Arc<dyn RuntimeAdapter>,
         network_adapter: Arc<dyn NetworkAdapter>,
         config: ClientConfig,
-        expected_genesis_hash: Option<String>,
     ) -> Result<Self, Error> {
         // TODO: should we create shared ChainStore that is passed to both Client and ViewClient?
-        let mut chain =
+        let chain =
             Chain::new(runtime_adapter.clone(), chain_genesis, DoomslugThresholdMode::HalfStake)?;
-        if let Some(expected_genesis_hash) = expected_genesis_hash {
-            let genesis_hash =
-                chain.get_block_by_height(chain_genesis.height).unwrap().hash().to_string();
-            if genesis_hash != expected_genesis_hash {
-                panic!(
-                    "Expected genesis hash to be {}, actual {}",
-                    expected_genesis_hash, genesis_hash,
-                );
-            }
-        }
         Ok(ViewClientActor {
             #[cfg(feature = "adversarial")]
             adv_disable_header_sync: false,
@@ -183,6 +172,7 @@ impl ViewClientActor {
                         header.inner_lite.height,
                         header.inner_lite.timestamp,
                         &header.hash,
+                        &header.inner_lite.epoch_id,
                         &msg.request,
                     )
                     .map(Some)
@@ -467,7 +457,7 @@ impl Handler<GetStateChanges> for ViewClientActor {
     fn handle(&mut self, msg: GetStateChanges, _: &mut Context<Self>) -> Self::Result {
         self.chain
             .store()
-            .get_state_changes(&msg.block_hash, &msg.state_changes_request)
+            .get_state_changes(&msg.block_hash, &msg.state_changes_request.into())
             .map(|state_changes| state_changes.into_iter().map(Into::into).collect())
             .map_err(|e| e.to_string())
     }
@@ -740,7 +730,7 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
                         }
                         // Filter this account
                         Err(e) => {
-                            warn!(target: "view_client", "Failed to validate account announce signature: {}", e);
+                            debug!(target: "view_client", "Failed to validate account announce signature: {}", e);
                         }
                     }
                 }

@@ -75,7 +75,7 @@ fn test_block_query() {
             .await
             .unwrap();
         let block_response3 = client.block(BlockIdOrFinality::latest()).await.unwrap();
-        for block in [block_response1, block_response2, block_response3].into_iter() {
+        for block in [block_response1, block_response2, block_response3].iter() {
             assert_eq!(block.author, "test1");
             assert_eq!(block.header.height, 0);
             assert_eq!(block.header.epoch_id.0.as_ref(), &[0; 32]);
@@ -190,7 +190,7 @@ fn test_query_account() {
             })
             .await
             .unwrap();
-        for query_response in [query_response_1, query_response_2, query_response_3].into_iter() {
+        for query_response in [query_response_1, query_response_2, query_response_3].iter() {
             assert_eq!(query_response.block_height, 0);
             assert_eq!(query_response.block_hash, block_hash);
             let account_info = if let QueryResponseKind::ViewAccount(ref account) =
@@ -220,7 +220,7 @@ fn test_query_account() {
             })
             .await;
         for query_response in
-            [non_finalized_query_response_1, non_finalized_query_response_2].into_iter()
+            [non_finalized_query_response_1, non_finalized_query_response_2].iter()
         {
             let rpc_error = if let Err(err) = query_response {
                 err

@@ -32,6 +32,8 @@ use near_primitives::views::{FinalExecutionOutcomeView, QueryRequest, QueryRespo
 
 use crate::metrics;
 use crate::peer::Peer;
+#[cfg(feature = "metric_recorder")]
+use crate::recorder::MetricRecorder;
 use crate::routing::{Edge, EdgeInfo, RoutingTableInfo};
 
 /// Number of hops a message is allowed to travel before being dropped.
@@ -1065,6 +1067,8 @@ pub struct NetworkInfo {
     pub received_bytes_per_sec: u64,
     /// Accounts of known block and chunk producers from routing table.
     pub known_producers: Vec<KnownProducer>,
+    #[cfg(feature = "metric_recorder")]
+    pub metric_recorder: MetricRecorder,
 }
 
 impl<A, M> MessageResponse<A, M> for NetworkInfo
@@ -1119,6 +1123,7 @@ pub enum NetworkAdversarialMessage {
     AdvDisableHeaderSync,
     AdvDisableDoomslug,
     AdvGetSavedBlocks,
+    AdvCheckRefMap,
     AdvSetSyncInfo(u64, u64),
 }
 
@@ -1157,7 +1162,7 @@ pub enum NetworkClientMessages {
 pub enum NetworkClientResponses {
     /// Adv controls.
     #[cfg(feature = "adversarial")]
-    AdvU64(u64),
+    AdvResult(u64),
 
     /// No response.
     NoResponse,

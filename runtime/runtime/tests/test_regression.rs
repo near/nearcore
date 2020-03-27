@@ -108,7 +108,7 @@ fn template_test(transaction_type: TransactionType, db_type: DataBaseType, expec
                 storage_usage: 0,
                 storage_paid_at: 0,
             };
-            set_account(&mut state_update, &account_id, &account.clone().into());
+            set_account(&mut state_update, account_id.clone(), &account.clone().into());
             let account_record = StateRecord::Account { account_id: account_id.clone(), account };
             records.push(account_record);
             let access_key_record = StateRecord::AccessKey {
@@ -118,13 +118,13 @@ fn template_test(transaction_type: TransactionType, db_type: DataBaseType, expec
             };
             set_access_key(
                 &mut state_update,
-                &account_id,
-                &signer.public_key,
+                account_id.clone(),
+                signer.public_key.clone(),
                 &AccessKey::full_access(),
             );
             records.push(access_key_record);
             let code = ContractCode::new(wasm_binary.to_vec());
-            set_code(&mut state_update, &account_id, &code);
+            set_code(&mut state_update, account_id.clone(), &code);
             let contract_record = StateRecord::Contract {
                 account_id: account_id.clone(),
                 code: wasm_binary_base64.clone(),
@@ -173,7 +173,7 @@ fn template_test(transaction_type: TransactionType, db_type: DataBaseType, expec
                 .expect("Genesis storage error")
                 .expect("Account must exist");
             account.storage_usage = storage_usage;
-            set_account(&mut state_update, &account_id, &account);
+            set_account(&mut state_update, account_id.clone(), &account);
         }
         state_update.commit(StateChangeCause::InitialState);
         let trie = state_update.trie.clone();

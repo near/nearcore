@@ -64,6 +64,12 @@ genesis_config_changes = [
 
 num_machines = 100
 
+# machine 0-(k-1) run docker, machine k-100 run binary
+num_docker_machines = 50
+
+# docker image to use
+docker_image = 'nearprotocol/nearcore:master'
+
 # 25 zones, each zone 4 instances
 # 5 asia, 1 australia, 5 europe, 1 canada, 13 us
 zones = [
@@ -227,10 +233,17 @@ pmap(upload_genesis_files, range(num_machines))
 pbar.close()
 
 pbar = tqdm(total=num_machines, desc=' start near')
-def start_nearcore(m):
-    m.run_detach_tmux(
-        'cd nearcore && export RUST_LOG=diagnostic=trace && target/release/near run --archive')
+def start_nearcore(i):
+    m = machines[i]
+    if i < num_docker_machines:
+        m.run('bash', input=f'''
+docker run -d -u $UID:$UID -v /home/{m.username}/.near:/srv/near \
+    -p 3030:3030 -p 24567:24567 --name nearcore {docker_image} near --home=/srv/near run
+''')
+    else:
+        m.run_detach_tmux(
+            'cd nearcore && export RUST_LOG=diagnostic=trace && target/release/near run --archive')
     pbar.update(1)
 
-pmap(start_nearcore, machines)
+pmap(start_nearcore, range(len(machines)))
 pbar.close()

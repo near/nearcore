@@ -8,7 +8,6 @@ use std::time::Instant;
 use cached::{Cached, SizedCache};
 use chrono::Utc;
 use log::{debug, error, info, warn};
-use reed_solomon_erasure::galois_8::ReedSolomon;
 
 use near_chain::chain::TX_ROUTING_HEIGHT_HORIZON;
 use near_chain::test_utils::format_hash;
@@ -25,7 +24,9 @@ use near_primitives::challenge::{Challenge, ChallengeBody};
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{merklize, MerklePath};
 use near_primitives::receipt::Receipt;
-use near_primitives::sharding::{EncodedShardChunk, PartialEncodedChunk, ShardChunkHeader};
+use near_primitives::sharding::{
+    EncodedShardChunk, PartialEncodedChunk, ReedSolomonWrapper, ShardChunkHeader,
+};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockHeight, ChunkExtra, EpochId, ShardId};
 use near_primitives::unwrap_or_return;
@@ -70,7 +71,7 @@ pub struct Client {
     /// List of currently accumulated challenges.
     pub challenges: HashMap<CryptoHash, Challenge>,
     /// A ReedSolomon instance to reconstruct shard.
-    pub rs: ReedSolomon,
+    rs: ReedSolomonWrapper,
     /// Blocks that have been re-broadcast recently. They should not be broadcast again.
     rebroadcasted_blocks: SizedCache<CryptoHash, ()>,
 }
@@ -139,7 +140,7 @@ impl Client {
             block_sync,
             state_sync,
             challenges: Default::default(),
-            rs: ReedSolomon::new(data_parts, parity_parts).unwrap(),
+            rs: ReedSolomonWrapper::new(data_parts, parity_parts),
             rebroadcasted_blocks: SizedCache::with_size(NUM_REBROADCAST_BLOCKS),
         })
     }
@@ -529,7 +530,7 @@ impl Client {
             outgoing_receipts_root,
             tx_root,
             &*validator_signer,
-            &self.rs,
+            &mut self.rs,
         )?;
 
         debug!(
@@ -676,7 +677,7 @@ impl Client {
         let process_result = self.shards_mgr.process_partial_encoded_chunk(
             partial_encoded_chunk.clone(),
             self.chain.mut_store(),
-            &self.rs,
+            &mut self.rs,
         )?;
 
         match process_result {
@@ -1062,13 +1063,10 @@ impl Client {
     }
 
     /// Forwards given transaction to upcoming validators.
-    fn forward_tx(&self, tx: SignedTransaction) -> NetworkClientResponses {
+    fn forward_tx(&self, epoch_id: &EpochId, tx: &SignedTransaction) -> Result<(), Error> {
         let shard_id = self.runtime_adapter.account_id_to_shard_id(&tx.transaction.signer_id);
-        let me = self.validator_signer.as_ref().map(|bp| bp.validator_id());
-        let validator = unwrap_or_return!(self.chain.find_validator_for_forwarding(shard_id), {
-            warn!(target: "client", "Me: {:?} Dropping tx: {:?}", me, tx);
-            NetworkClientResponses::NoResponse
-        });
+
+        let validator = self.chain.find_chunk_producer_for_forwarding(epoch_id, shard_id)?;
 
         debug!(target: "client",
                "I'm {:?}, routing a transaction to {}, shard_id = {}",
@@ -1078,21 +1076,52 @@ impl Client {
         );
 
         // Send message to network to actually forward transaction.
-        self.network_adapter.do_send(NetworkRequests::ForwardTx(validator, tx));
+        self.network_adapter.do_send(NetworkRequests::ForwardTx(validator, tx.clone()));
 
-        NetworkClientResponses::RequestRouted
+        Ok(())
+    }
+
+    pub fn process_tx(&mut self, tx: SignedTransaction) -> NetworkClientResponses {
+        unwrap_or_return!(self.process_tx_internal(&tx), {
+            let me = self.validator_signer.as_ref().map(|vs| vs.validator_id());
+            warn!(target: "client", "I'm: {:?} Dropping tx: {:?}", me, tx);
+            NetworkClientResponses::NoResponse
+        })
+    }
+
+    /// If we're a validator in one of the next few chunks, but epoch switch could happen soon,
+    /// we forward to a validator from next epoch.
+    fn possibly_forward_tx_to_next_epoch(&mut self, tx: &SignedTransaction) -> Result<(), Error> {
+        let head = self.chain.head()?;
+        let next_epoch_started =
+            self.runtime_adapter.is_next_block_epoch_start(&head.last_block_hash)?;
+        if next_epoch_started {
+            return Ok(());
+        }
+        let next_epoch_estimated_height =
+            self.runtime_adapter.get_epoch_start_height(&head.last_block_hash)?
+                + self.config.epoch_length;
+
+        let epoch_boundary_possible =
+            head.height + TX_ROUTING_HEIGHT_HORIZON >= next_epoch_estimated_height;
+
+        if epoch_boundary_possible {
+            let next_epoch_id =
+                self.runtime_adapter.get_next_epoch_id_from_prev_block(&head.last_block_hash)?;
+            self.forward_tx(&next_epoch_id, tx)?;
+        }
+        Ok(())
     }
 
     /// Process transaction and either add it to the mempool or return to redirect to another validator.
-    pub fn process_tx(&mut self, tx: SignedTransaction) -> NetworkClientResponses {
-        let head = unwrap_or_return!(self.chain.head(), NetworkClientResponses::NoResponse);
+    fn process_tx_internal(
+        &mut self,
+        tx: &SignedTransaction,
+    ) -> Result<NetworkClientResponses, Error> {
+        let head = self.chain.head()?;
         let me = self.validator_signer.as_ref().map(|vs| vs.validator_id());
         let shard_id = self.runtime_adapter.account_id_to_shard_id(&tx.transaction.signer_id);
-        let cur_block_header = unwrap_or_return!(
-            self.chain.get_block_header(&head.last_block_hash),
-            NetworkClientResponses::NoResponse
-        )
-        .clone();
+        let cur_block_header = self.chain.head_header()?.clone();
         let transaction_validity_period = self.chain.transaction_validity_period;
         // here it is fine to use `cur_block_header` as it is a best effort estimate. If the transaction
         // were to be included, the block that the chunk points to will have height >= height of
@@ -1103,24 +1132,21 @@ impl Client {
             transaction_validity_period,
         ) {
             debug!(target: "client", "Invalid tx: expired or from a different fork -- {:?}", tx);
-            return NetworkClientResponses::InvalidTx(e);
+            return Ok(NetworkClientResponses::InvalidTx(e));
         }
+        let epoch_id = self.runtime_adapter.get_epoch_id_from_prev_block(&head.last_block_hash)?;
 
         if self.runtime_adapter.cares_about_shard(me, &head.last_block_hash, shard_id, true)
             || self.runtime_adapter.will_care_about_shard(me, &head.last_block_hash, shard_id, true)
         {
-            let gas_price = unwrap_or_return!(
-                self.chain.get_block_header(&head.last_block_hash),
-                NetworkClientResponses::NoResponse
-            )
-            .inner_rest
-            .gas_price;
+            let gas_price = cur_block_header.inner_rest.gas_price;
             let state_root = match self.chain.get_chunk_extra(&head.last_block_hash, shard_id) {
-                Ok(chunk_extra) => chunk_extra.state_root.clone(),
+                Ok(chunk_extra) => chunk_extra.state_root,
                 Err(_) => {
                     // Not being able to fetch a state root most likely implies that we haven't
                     //     caught up with the next epoch yet.
-                    return self.forward_tx(tx);
+                    self.forward_tx(&epoch_id, tx)?;
+                    return Ok(NetworkClientResponses::RequestRouted);
                 }
             };
             if let Some(err) = self
@@ -1135,12 +1161,9 @@ impl Client {
                 .expect("no storage errors")
             {
                 debug!(target: "client", "Invalid tx: {:?}", err);
-                NetworkClientResponses::InvalidTx(err)
+                Ok(NetworkClientResponses::InvalidTx(err))
             } else {
-                let active_validator = unwrap_or_return!(self.active_validator(shard_id), {
-                    warn!(target: "client", "I'm: {:?} Dropping tx: {:?}", me, tx);
-                    NetworkClientResponses::NoResponse
-                });
+                let active_validator = self.active_validator(shard_id)?;
 
                 // If I'm not an active validator I should forward tx to next validators.
                 debug!(
@@ -1149,17 +1172,24 @@ impl Client {
                     me,
                     shard_id
                 );
-                self.shards_mgr.insert_transaction(shard_id, tx.clone());
+                let new_transaction = self.shards_mgr.insert_transaction(shard_id, tx.clone());
 
                 if active_validator {
-                    NetworkClientResponses::ValidTx
+                    // Don't forward to next epoch validators if we've already seen the tx.
+                    // This is to prevent forwarding loops.
+                    if new_transaction {
+                        self.possibly_forward_tx_to_next_epoch(tx)?;
+                    }
+                    Ok(NetworkClientResponses::ValidTx)
                 } else {
-                    self.forward_tx(tx)
+                    self.forward_tx(&epoch_id, tx)?;
+                    Ok(NetworkClientResponses::RequestRouted)
                 }
             }
         } else {
             // We are not tracking this shard, so there is no way to validate this tx. Just rerouting.
-            self.forward_tx(tx)
+            self.forward_tx(&epoch_id, tx)?;
+            Ok(NetworkClientResponses::RequestRouted)
         }
     }
 

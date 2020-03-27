@@ -16,7 +16,6 @@ use near_primitives::types::{
     RawStateChange, RawStateChanges, RawStateChangesWithMetadata, StateChangeCause,
     StateChangeKind, StateRoot, StateRootNode,
 };
-use near_primitives::utils::{KeyForAccessKey, KeyForAccount, KeyForCode, KeyForData};
 
 use crate::db::{DBCol, DBOp, DBTransaction};
 use crate::trie::insert_delete::NodesStorage;
@@ -27,6 +26,7 @@ use crate::trie::trie_storage::{
     TrieStorage,
 };
 use crate::{ColState, StorageError, Store, StoreUpdate};
+use near_primitives::utils::trie_key_parsers;
 
 mod insert_delete;
 pub mod iterator;
@@ -575,14 +575,21 @@ impl WrappedTrieChanges {
                 }),
                 "NotWritableToDisk changes must never be finalized."
             );
-            let kind = if let Ok(account_id) = KeyForData::parse_account_id(&key) {
+            let kind = if let Ok(account_id) =
+                trie_key_parsers::parse_account_id_from_contract_data_key(&key)
+            {
                 StateChangeKind::DataTouched { account_id }
-            } else if let Ok(account_id) = KeyForAccount::parse_account_id(&key) {
+            } else if let Ok(account_id) = trie_key_parsers::parse_account_id_from_account_key(&key)
+            {
                 StateChangeKind::AccountTouched { account_id }
-            } else if let Ok(account_id) = KeyForAccessKey::parse_account_id(&key) {
+            } else if let Ok(account_id) =
+                trie_key_parsers::parse_account_id_from_access_key_key(&key)
+            {
                 StateChangeKind::AccessKeyTouched { account_id }
-            } else if let Ok(account_id) = KeyForCode::parse_account_id(&key) {
-                StateChangeKind::CodeTouched { account_id }
+            } else if let Ok(account_id) =
+                trie_key_parsers::parse_account_id_from_contract_code_key(&key)
+            {
+                StateChangeKind::ContractCodeTouched { account_id }
             } else {
                 continue;
             };
@@ -632,10 +639,34 @@ impl KeyForStateChanges {
                 // Split off the irrelevant part of the key, so only the original trie_key is left.
                 let (key, state_changes) = change?;
                 debug_assert!(key.starts_with(&self.0));
-                let key = OwningRef::new(key).map(|key| &key[prefix_len..]);
-                Ok((key, state_changes))
+                let trie_key = OwningRef::new(key).map(|key| &key[prefix_len..]);
+                Ok((trie_key, state_changes))
             },
         )
+    }
+
+    pub fn find_exact_iter<'a: 'b, 'b>(
+        &'a self,
+        store: &'b Store,
+    ) -> impl Iterator<
+        Item = Result<(OwningRef<Vec<u8>, [u8]>, RawStateChangesWithMetadata), std::io::Error>,
+    > + 'b {
+        let prefix_len = Self::estimate_prefix_len();
+        let trie_key_len = self.0.len() - prefix_len;
+        self.find_iter(store).filter_map(move |change| {
+            let (trie_key, state_changes) = match change {
+                Ok(change) => change,
+                error => {
+                    return Some(error);
+                }
+            };
+            if trie_key.len() != trie_key_len {
+                None
+            } else {
+                debug_assert_eq!(trie_key.as_ref(), &self.0[prefix_len..]);
+                Some(Ok((trie_key, state_changes)))
+            }
+        })
     }
 }
 
@@ -881,7 +912,7 @@ impl Trie {
 
     fn convert_to_insertions_and_deletions(
         changes: HashMap<CryptoHash, (Vec<u8>, i32)>,
-    ) -> ((Vec<(CryptoHash, Vec<u8>, u32)>, Vec<(CryptoHash, Vec<u8>, u32)>)) {
+    ) -> (Vec<(CryptoHash, Vec<u8>, u32)>, Vec<(CryptoHash, Vec<u8>, u32)>) {
         let mut deletions = Vec::new();
         let mut insertions = Vec::new();
         for (key, (value, rc)) in changes.into_iter() {
