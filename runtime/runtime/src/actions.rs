@@ -16,7 +16,7 @@ use near_primitives::utils::{is_valid_sub_account_id, is_valid_top_level_account
 use near_runtime_fees::RuntimeFeesConfig;
 use near_store::{
     get_access_key, get_code, remove_access_key, remove_account, set_access_key, set_code,
-    total_account_storage, StorageError, TrieUpdate,
+    StorageError, TrieUpdate,
 };
 use near_vm_logic::types::PromiseResult;
 use near_vm_logic::VMContext;
@@ -33,18 +33,11 @@ use near_vm_runner::VMError;
 /// Returns Ok if the account has enough balance to cover storage stake.
 /// Otherwise returns the amount required.
 pub(crate) fn check_storage_cost(
-    account_id: &AccountId,
     account: &Account,
     runtime_config: &RuntimeConfig,
 ) -> Result<(), Balance> {
-    let account_length_cost_per_block = if account_id.len() > 10 {
-        0
-    } else {
-        runtime_config.account_length_baseline_cost / 3_u128.pow(account_id.len() as u32 - 2)
-    };
-    let required_amount = account_length_cost_per_block
-        + Balance::from(total_account_storage(account_id, account))
-            * runtime_config.storage_amount_per_byte;
+    let required_amount =
+        Balance::from(account.storage_usage) * runtime_config.storage_amount_per_byte;
     if account.amount + account.locked >= required_amount {
         Ok(())
     } else {
@@ -425,7 +418,7 @@ pub(crate) fn check_actor_permissions(
                 }
                 .into());
             }
-            if actor_id != account_id && check_storage_cost(account_id, account, config).is_ok() {
+            if actor_id != account_id && check_storage_cost(account, config).is_ok() {
                 return Err(ActionErrorKind::DeleteAccountHasEnoughBalance {
                     account_id: account_id.clone(),
                     balance: account.amount,

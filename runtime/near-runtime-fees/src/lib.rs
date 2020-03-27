@@ -110,7 +110,7 @@ pub struct AccessKeyCreationConfig {
 /// Describes cost of storage per block
 #[derive(Debug, Serialize, Deserialize, Clone, Hash, PartialEq, Eq)]
 pub struct StorageUsageConfig {
-    /// Number of bytes for an account record.
+    /// Number of bytes for an account record, including rounding up for account id.
     pub num_bytes_account: u64,
     /// Additional number of bytes for a k/v record
     pub num_extra_bytes_record: u64,

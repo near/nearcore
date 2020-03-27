@@ -104,7 +104,7 @@ pub fn verify_and_charge_transaction(
         }
     }
 
-    if let Err(amount) = check_storage_cost(&signer_id, &signer, &config) {
+    if let Err(amount) = check_storage_cost(&signer, &config) {
         return Err(
             InvalidTxError::LackBalanceForState { signer_id: signer_id.clone(), amount }.into()
         );
@@ -444,9 +444,7 @@ mod tests {
 
     #[test]
     fn test_validate_transaction_valid() {
-        let mut config = RuntimeConfig::default();
-        let account_10_char_base_cost = 123;
-        config.account_length_baseline_cost = 3u128.pow(8) * account_10_char_base_cost;
+        let config = RuntimeConfig::default();
         let (signer, mut state_update, mut apply_state) =
             setup_common(TESTING_INIT_BALANCE, 0, 10_000_000, Some(AccessKey::full_access()));
         apply_state.block_index = 5;

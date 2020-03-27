@@ -13,7 +13,7 @@ pub struct Account {
     pub locked: Balance,
     /// Hash of the code stored in the storage for this account.
     pub code_hash: CryptoHash,
-    /// Storage used by the given account.
+    /// Storage used by the given account, includes account id, this struct, access keys and other data.
     pub storage_usage: StorageUsage,
 }
 

@@ -11,6 +11,9 @@ config = json.load(open(os.path.join(home, 'output.json')), object_pairs_hook=Or
 assert config['protocol_version'] == 5
 
 config['protocol_version'] = 6
+config['runtime_config'].remove('storage_cost_byte_per_block')
+config['runtime_config'].remove('account_length_baseline_cost_per_block')
+config['runtime_config']['storage_amount_per_byte'] =
 
 for record in config['records']:
     if "Account" in record:

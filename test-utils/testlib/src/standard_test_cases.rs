@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use near::config::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
+use near::config::{NEAR_BASE, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use near_crypto::{InMemorySigner, KeyType};
 use near_jsonrpc::ServerError;
 use near_primitives::account::{AccessKey, AccessKeyPermission, FunctionCallPermission};
@@ -395,7 +395,7 @@ pub fn test_create_account(node: impl Node) {
     let account_id = &node.account_id().unwrap();
     let node_user = node.user();
     let root = node_user.get_state_root();
-    let money_used = 1000;
+    let money_used = NEAR_BASE;
     let transaction_result = node_user
         .create_account(
             account_id.clone(),
@@ -431,7 +431,7 @@ pub fn test_create_account_again(node: impl Node) {
     let account_id = &node.account_id().unwrap();
     let node_user = node.user();
     let root = node_user.get_state_root();
-    let money_used = 1000;
+    let money_used = NEAR_BASE;
     let transaction_result = node_user
         .create_account(
             account_id.clone(),
@@ -440,6 +440,7 @@ pub fn test_create_account_again(node: impl Node) {
             money_used,
         )
         .unwrap();
+
     assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(to_base64(&[])));
     assert_eq!(transaction_result.receipts_outcome.len(), 1);
     let fee_helper = fee_helper(&node);

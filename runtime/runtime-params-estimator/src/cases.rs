@@ -615,6 +615,5 @@ fn get_runtime_config(measurement: &Measurements) -> RuntimeConfig {
         transaction_costs: get_runtime_fees_config(measurement),
         wasm_config: get_vm_config(measurement),
         storage_amount_per_byte: 1_000_000_000_000_000_000,
-        account_length_baseline_cost: 207909813343189798558,
     }
 }

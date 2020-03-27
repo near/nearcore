@@ -466,7 +466,7 @@ impl Runtime {
         // Going to check balance covers account's storage.
         if result.result.is_ok() {
             if let Some(ref mut account) = account {
-                if let Err(amount) = check_storage_cost(account_id, account, &self.config) {
+                if let Err(amount) = check_storage_cost(account, &self.config) {
                     result.merge(ActionResult {
                         result: Err(ActionError {
                             index: None,

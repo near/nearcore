@@ -38,28 +38,6 @@ mod test {
         RuntimeNode::new_from_genesis(&alice_account(), genesis)
     }
 
-    fn create_runtime_with_expensive_account_length() -> RuntimeNode {
-        let mut genesis = Genesis::test(vec![&alice_account(), &bob_account(), "carol.near"], 1);
-        // Set expensive account length requirement and add alice more money.
-        // `bob.near` has 8 characters. Cost per block is `base / (3^6)`.
-        // Need to have balance as least `base / (3^6)`, so if we put `base` at least 729
-        // it would be enough to delete bob's account.
-        genesis.config.runtime_config.account_length_baseline_cost = 1_000 * TESTING_INIT_BALANCE;
-        genesis.config.runtime_config.storage_amount_per_byte = 1_000_000;
-        match &mut genesis.records.as_mut()[0] {
-            StateRecord::Account { account, .. } => account.amount = TESTING_INIT_BALANCE,
-            _ => {}
-        }
-        genesis.records.as_mut().push(StateRecord::Data {
-            key: to_base64(
-                &TrieKey::ContractData { account_id: bob_account(), key: b"test".to_vec() }
-                    .to_vec(),
-            ),
-            value: to_base64(b"123"),
-        });
-        RuntimeNode::new_from_genesis(&alice_account(), genesis)
-    }
-
     #[test]
     fn test_smart_contract_simple_runtime() {
         let node = create_runtime_node();
@@ -291,18 +269,6 @@ mod test {
     #[test]
     fn test_delete_account_for_storage_runtime() {
         let node = create_runtime_with_expensive_storage();
-        test_delete_account_low_balance(node);
-    }
-
-    #[test]
-    fn test_fail_not_enough_rent_for_account_id_runtime() {
-        let node = create_runtime_with_expensive_account_length();
-        test_fail_not_enough_balance_for_storage(node);
-    }
-
-    #[test]
-    fn test_delete_account_for_account_id_runtime() {
-        let node = create_runtime_with_expensive_account_length();
         test_delete_account_low_balance(node);
     }
 
