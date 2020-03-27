@@ -1249,9 +1249,11 @@ mod test {
     use near_crypto::{InMemorySigner, KeyType, Signer};
     use near_primitives::test_utils::init_test_logger;
     use near_primitives::transaction::{Action, CreateAccountAction, StakeAction};
-    use near_primitives::types::{BlockHeightDelta, Nonce, ValidatorId};
+    use near_primitives::types::{BlockHeightDelta, Nonce, ValidatorId, ValidatorKickoutReason};
     use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
-    use near_primitives::views::{AccountView, CurrentEpochValidatorInfo, NextEpochValidatorInfo};
+    use near_primitives::views::{
+        AccountView, CurrentEpochValidatorInfo, NextEpochValidatorInfo, ValidatorKickoutView,
+    };
     use near_store::create_store;
     use node_runtime::config::RuntimeConfig;
 
@@ -2007,7 +2009,8 @@ mod test {
                     public_key: block_producers[0].public_key(),
                     stake: 0
                 }
-                .into()]
+                .into()],
+                prev_epoch_kickout: Default::default()
             }
         );
         env.step_default(vec![]);
@@ -2027,6 +2030,13 @@ mod test {
             .into()]
         );
         assert!(response.current_proposals.is_empty());
+        assert_eq!(
+            response.prev_epoch_kickout,
+            vec![ValidatorKickoutView {
+                account_id: "test1".to_string(),
+                reason: ValidatorKickoutReason::Unstaked
+            }]
+        )
     }
 
     #[test]
