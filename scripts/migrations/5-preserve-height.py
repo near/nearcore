@@ -14,9 +14,9 @@ records = json.load(open(os.path.join(home, records_fname[0])))
 
 assert config['protocol_version'] == 4
 
+config['protocol_version'] = 5
 config['genesis_height'] = 0
 config['records'] = records
-config['protocol_version'] = 5
 
 json.dump(config, open(os.path.join(output_home, 'output.json'), 'w'), indent=2)
 

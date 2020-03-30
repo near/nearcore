@@ -16,7 +16,7 @@ pub use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{Receipt, ReceivedData};
 use near_primitives::serialize::to_base;
-use near_primitives::types::{AccountId, StorageUsage};
+use near_primitives::types::AccountId;
 use near_primitives::utils::{trie_key_parsers, TrieKey};
 
 use crate::db::{DBOp, DBTransaction, Database, RocksDB};
@@ -250,11 +250,6 @@ pub fn get<T: BorshDeserialize>(
 pub fn set<T: BorshSerialize>(state_update: &mut TrieUpdate, key: TrieKey, value: &T) {
     let data = value.try_to_vec().expect("Borsh serializer is not expected to ever fail");
     state_update.set(key, data);
-}
-
-/// Number of bytes account and all of it's other data occupies in the storage.
-pub fn total_account_storage(_account_id: &AccountId, account: &Account) -> StorageUsage {
-    account.storage_usage
 }
 
 pub fn set_account(state_update: &mut TrieUpdate, account_id: AccountId, account: &Account) {
