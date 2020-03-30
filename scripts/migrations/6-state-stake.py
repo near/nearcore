@@ -13,11 +13,10 @@ assert config['protocol_version'] == 5
 config['protocol_version'] = 6
 config['runtime_config'].remove('storage_cost_byte_per_block')
 config['runtime_config'].remove('account_length_baseline_cost_per_block')
-config['runtime_config']['storage_amount_per_byte'] =
+config['runtime_config']['storage_amount_per_byte'] = 90949470177292823791
 
 for record in config['records']:
     if "Account" in record:
         record["Account"]["account"].pop("storage_paid_at")
 
 json.dump(config, open(os.path.join(output_home, 'output.json'), 'w'), indent=2)
-

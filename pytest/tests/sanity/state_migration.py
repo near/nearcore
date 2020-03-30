@@ -60,7 +60,8 @@ def main():
         if m:
             version = int(m.groups()[0])
             if version > stable_protocol_version:
-                subprocess.call(['python', os.path.join(migrations_home, fname), '%s/test0_finished' % node_root, '%s/test0_finished' % node_root])
+                exitcode = subprocess.call(['python', os.path.join(migrations_home, fname), '%s/test0_finished' % node_root, '%s/test0_finished' % node_root])
+                assert exitcode == 0, "Failed to run migration %d" % version
 
     os.rename(os.path.join(node_root, 'test0_finished/output.json'), os.path.join(node_root, 'test0/genesis.json'))
     shutil.copy(os.path.join(node_root, 'test0_finished/config.json'), os.path.join(node_root, 'test0/'))
