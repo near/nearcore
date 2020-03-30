@@ -8,7 +8,6 @@ use std::time::{Duration, Instant};
 use chrono::{DateTime, Utc};
 use log::{debug, error, warn};
 use rand::seq::SliceRandom;
-use reed_solomon_erasure::galois_8::ReedSolomon;
 
 use near_chain::validate::validate_chunk_proofs;
 use near_chain::{
@@ -24,7 +23,7 @@ use near_primitives::merkle::{merklize, verify_path, MerklePath};
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{
     ChunkHash, EncodedShardChunk, PartialEncodedChunk, PartialEncodedChunkPart, ReceiptProof,
-    ShardChunkHeader, ShardChunkHeaderInner, ShardProof,
+    ReedSolomonWrapper, ShardChunkHeader, ShardChunkHeaderInner, ShardProof,
 };
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{
@@ -559,8 +558,9 @@ impl ShardsManager {
         self.encoded_chunks.get_chunk_headers_for_block(&prev_block_hash)
     }
 
-    pub fn insert_transaction(&mut self, shard_id: ShardId, tx: SignedTransaction) {
-        self.tx_pools.entry(shard_id).or_insert_with(TransactionPool::new).insert_transaction(tx);
+    /// Returns true if transaction is not in the pool before call
+    pub fn insert_transaction(&mut self, shard_id: ShardId, tx: SignedTransaction) -> bool {
+        self.tx_pools.entry(shard_id).or_insert_with(TransactionPool::new).insert_transaction(tx)
     }
 
     pub fn remove_transactions(
@@ -673,7 +673,10 @@ impl ShardsManager {
         });
     }
 
-    pub fn check_chunk_complete(chunk: &mut EncodedShardChunk, rs: &ReedSolomon) -> ChunkStatus {
+    pub fn check_chunk_complete(
+        chunk: &mut EncodedShardChunk,
+        rs: &mut ReedSolomonWrapper,
+    ) -> ChunkStatus {
         let data_parts = rs.data_shard_count();
         if chunk.content.num_fetched_parts() >= data_parts {
             if let Ok(_) = chunk.content.reconstruct(rs) {
@@ -713,7 +716,7 @@ impl ShardsManager {
         &mut self,
         mut encoded_chunk: EncodedShardChunk,
         chain_store: &mut ChainStore,
-        rs: &ReedSolomon,
+        rs: &mut ReedSolomonWrapper,
     ) -> Result<bool, Error> {
         match ShardsManager::check_chunk_complete(&mut encoded_chunk, rs) {
             ChunkStatus::Complete(merkle_paths) => {
@@ -733,7 +736,7 @@ impl ShardsManager {
         &mut self,
         partial_encoded_chunk: PartialEncodedChunk,
         chain_store: &mut ChainStore,
-        rs: &ReedSolomon,
+        rs: &mut ReedSolomonWrapper,
     ) -> Result<ProcessPartialEncodedChunkResult, Error> {
         // Check validity first
 
@@ -1002,7 +1005,7 @@ impl ShardsManager {
         outgoing_receipts_root: CryptoHash,
         tx_root: CryptoHash,
         signer: &dyn ValidatorSigner,
-        rs: &ReedSolomon,
+        rs: &mut ReedSolomonWrapper,
     ) -> Result<(EncodedShardChunk, Vec<MerklePath>), Error> {
         EncodedShardChunk::new(
             prev_block_hash,

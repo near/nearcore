@@ -29,6 +29,7 @@ extern "C" {
     // TODO #1903 fn block_height() -> u64;
     fn block_index() -> u64;
     fn storage_usage() -> u64;
+    fn epoch_height() -> u64;
     // #################
     // # Economics API #
     // #################

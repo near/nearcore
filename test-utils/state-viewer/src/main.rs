@@ -8,7 +8,7 @@ use borsh::BorshDeserialize;
 use clap::{App, Arg, SubCommand};
 
 use near::{get_default_home, get_store_path, load_config, NearConfig, NightshadeRuntime};
-use near_chain::{ChainStore, ChainStoreAccess, DoomslugThresholdMode, RuntimeAdapter};
+use near_chain::{ChainStore, ChainStoreAccess, RuntimeAdapter};
 use near_chain_configs::Genesis;
 use near_crypto::PublicKey;
 use near_network::peer_store::PeerStore;
@@ -52,7 +52,7 @@ fn kv_to_state_record(key: Vec<u8>, value: Vec<u8>) -> Option<StateRecord> {
                 })
             }
         }
-        col::CODE => Some(StateRecord::Contract {
+        col::CONTRACT_CODE => Some(StateRecord::Contract {
             account_id: String::from_utf8(key[1..].to_vec()).unwrap(),
             code: to_base64(&value),
         }),

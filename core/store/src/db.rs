@@ -10,17 +10,13 @@ use std::sync::RwLock;
 #[derive(Debug, Clone, PartialEq)]
 pub struct DBError(rocksdb::Error);
 
-impl std::error::Error for DBError {
-    fn description(&self) -> &str {
-        &self.0.description()
-    }
-}
-
 impl std::fmt::Display for DBError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
         self.0.fmt(formatter)
     }
 }
+
+impl std::error::Error for DBError {}
 
 impl From<rocksdb::Error> for DBError {
     fn from(err: rocksdb::Error) -> Self {
@@ -84,7 +80,11 @@ pub enum DBCol {
     ColChunkPerHeightShard = 35,
     /// Changes to key-values that we have recorded.
     ColStateChanges = 36,
+    ColBlockRefCount = 37,
 }
+
+// Do not move this line from enum DBCol
+const NUM_COLS: usize = 38;
 
 impl std::fmt::Display for DBCol {
     fn fmt(&self, formatter: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
@@ -126,12 +126,11 @@ impl std::fmt::Display for DBCol {
             Self::ColTransactions => "transactions",
             Self::ColChunkPerHeightShard => "hash of chunk per height and shard_id",
             Self::ColStateChanges => "key value changes",
+            Self::ColBlockRefCount => "refcount per block",
         };
         write!(formatter, "{}", desc)
     }
 }
-
-const NUM_COLS: usize = 37;
 
 pub struct DBTransaction {
     pub ops: Vec<DBOp>,

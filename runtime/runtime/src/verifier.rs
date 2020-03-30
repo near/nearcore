@@ -153,8 +153,8 @@ pub fn verify_and_charge_transaction(
         }
     };
 
-    set_access_key(state_update, &signer_id, &transaction.public_key, &access_key);
-    set_account(state_update, &signer_id, &signer);
+    set_access_key(state_update, signer_id.clone(), transaction.public_key.clone(), &access_key);
+    set_account(state_update, signer_id.clone(), &signer);
 
     let validator_reward = safe_gas_to_balance(apply_state.gas_price, gas_burnt)
         .map_err(|_| InvalidTxError::CostOverflow)?;
@@ -403,9 +403,14 @@ mod tests {
         let mut initial_state = TrieUpdate::new(trie.clone(), root);
         let mut initial_account = Account::new(initial_balance, hash(&[]), 0);
         initial_account.locked = initial_locked;
-        set_account(&mut initial_state, &account_id, &initial_account);
+        set_account(&mut initial_state, account_id.clone(), &initial_account);
         if let Some(access_key) = access_key {
-            set_access_key(&mut initial_state, &account_id, &signer.public_key(), &access_key);
+            set_access_key(
+                &mut initial_state,
+                account_id.clone(),
+                signer.public_key(),
+                &access_key,
+            );
         }
         initial_state.commit(StateChangeCause::InitialState);
         let trie_changes = initial_state.finalize().unwrap();
@@ -415,6 +420,7 @@ mod tests {
         let apply_state = ApplyState {
             block_index: 0,
             epoch_length: 3,
+            epoch_height: 0,
             gas_price: 100,
             block_timestamp: 100,
             gas_limit: Some(gas_limit),
@@ -711,7 +717,7 @@ mod tests {
             setup_common(TESTING_INIT_BALANCE, 0, 10_000_000, Some(AccessKey::full_access()));
 
         let bad_account = Account::new(TESTING_INIT_BALANCE, hash(&[]), 10000);
-        set_account(&mut state_update, &alice_account(), &bad_account);
+        set_account(&mut state_update, alice_account(), &bad_account);
         state_update.commit(StateChangeCause::InitialState);
 
         assert_eq!(

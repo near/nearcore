@@ -141,7 +141,7 @@ mod tests {
                 false,
                 5,
                 false,
-                true,
+                vec![true; validators.iter().map(|x| x.len()).sum()],
                 Arc::new(RwLock::new(Box::new(
                     move |_account_id: String, msg: &NetworkRequests| {
                         let account_from = "test3.3".to_string();
@@ -371,7 +371,6 @@ mod tests {
     // It causes all the receipts to be applied only on height 16, which is the next epoch.
     // It tests that the incoming receipts are property synced through epochs
     #[test]
-    #[ignore]
     fn test_catchup_random_single_part_sync_skip_15() {
         test_catchup_random_single_part_sync_common(true, false, 13)
     }
@@ -438,7 +437,7 @@ mod tests {
                 false,
                 5,
                 false,
-                false,
+                vec![false; validators.iter().map(|x| x.len()).sum()],
                 Arc::new(RwLock::new(Box::new(
                     move |_account_id: String, msg: &NetworkRequests| {
                         let mut seen_heights_same_block = seen_heights_same_block.write().unwrap();
@@ -502,7 +501,8 @@ mod tests {
                                 if let NetworkRequests::Block { block } = msg {
                                     assert!(block.header.inner_lite.height >= height);
                                     assert!(block.header.inner_lite.height <= 32);
-                                    if block.header.inner_lite.height >= 26 {
+                                    let check_height = if skip_15 { 28 } else { 26 };
+                                    if block.header.inner_lite.height >= check_height {
                                         println!(
                                             "BLOCK HEIGHT {:?}",
                                             block.header.inner_lite.height
@@ -662,7 +662,7 @@ mod tests {
                 false,
                 5,
                 false,
-                false,
+                vec![false; validators.iter().map(|x| x.len()).sum()],
                 Arc::new(RwLock::new(Box::new(
                     move |_account_id: String, msg: &NetworkRequests| {
                         if let NetworkRequests::Block { block } = msg {
@@ -725,7 +725,7 @@ mod tests {
                 false,
                 5,
                 true,
-                false,
+                vec![false; validators.iter().map(|x| x.len()).sum()],
                 Arc::new(RwLock::new(Box::new(
                     move |_account_id: String, msg: &NetworkRequests| {
                         let propagate = if let NetworkRequests::Block { block } = msg {
@@ -798,7 +798,7 @@ mod tests {
                 false,
                 5,
                 false,
-                false,
+                vec![false; validators.iter().map(|x| x.len()).sum()],
                 Arc::new(RwLock::new(Box::new(
                     move |sender_account_id: String, msg: &NetworkRequests| {
                         let mut grieving_chunk_hash = grieving_chunk_hash.write().unwrap();
@@ -961,7 +961,7 @@ mod tests {
                 false,
                 epoch_length,
                 false,
-                false,
+                vec![false; validators.iter().map(|x| x.len()).sum()],
                 Arc::new(RwLock::new(Box::new(
                     move |sender_account_id: String, msg: &NetworkRequests| {
                         let mut seen_chunk_same_sender = seen_chunk_same_sender.write().unwrap();

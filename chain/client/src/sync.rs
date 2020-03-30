@@ -182,12 +182,16 @@ impl HeaderSync {
                                 if now > *stalling_ts + self.stall_ban_timeout
                                     && *highest_height == peer.chain_info.height
                                 {
-                                    info!(target: "sync", "Sync: ban a fraudulent peer: {}, claimed height: {}, score: {}",
+                                    info!(target: "sync", "Sync: ban a fraudulent peer: {}, claimed height: {}, score: {}", 
                                         peer.peer_info, peer.chain_info.height, peer.chain_info.score);
                                     self.network_adapter.do_send(NetworkRequests::BanPeer {
                                         peer_id: peer.peer_info.id.clone(),
                                         ban_reason: ReasonForBan::HeightFraud,
                                     });
+                                    // This peer is fraudulent, let's skip this beat and wait for
+                                    // the next one when this peer is not in the list anymore.
+                                    self.syncing_peer = None;
+                                    return false;
                                 }
                             }
                             _ => (),

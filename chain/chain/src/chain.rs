@@ -51,6 +51,7 @@ use crate::{metrics, DoomslugThresholdMode};
 use rand::rngs::StdRng;
 use rand::seq::SliceRandom;
 use rand::SeedableRng;
+use std::cmp::min;
 
 /// Maximum number of orphans chain can store.
 pub const MAX_ORPHAN_SIZE: usize = 1024;
@@ -68,7 +69,7 @@ pub const TX_ROUTING_HEIGHT_HORIZON: BlockHeightDelta = 4;
 const NEAR_BASE: Balance = 1_000_000_000_000_000_000_000_000;
 
 /// Number of epochs for which we keep store data
-const NUM_EPOCHS_TO_KEEP_STORE_DATA: u64 = 5;
+pub const NUM_EPOCHS_TO_KEEP_STORE_DATA: u64 = 5;
 
 /// Number of heights to clear.
 const HEIGHTS_TO_CLEAR: BlockHeightDelta = 10;
@@ -523,6 +524,7 @@ impl Chain {
         }
 
         chain_store_update.save_block(block.clone());
+        chain_store_update.inc_block_refcount(&block.header.prev_hash)?;
 
         chain_store_update.commit()?;
         Ok(())
@@ -539,18 +541,18 @@ impl Chain {
     pub fn clear_old_data(&mut self) -> Result<(), Error> {
         let mut chain_store_update = self.store.store_update();
         let head = chain_store_update.head()?;
-        let height_diff = NUM_EPOCHS_TO_KEEP_STORE_DATA * self.epoch_length;
-        if head.height >= height_diff {
-            let last_height = head.height - height_diff;
-            for height in last_height.saturating_sub(HEIGHTS_TO_CLEAR)..last_height {
-                match chain_store_update.clear_old_data_on_height(height) {
-                    Ok(_) => {}
-                    Err(err) => {
-                        error!(target: "client", "Error clearing old data on height {:?}, {:?}", height, err);
-                    }
+        let gc_head_height = chain_store_update.gc_head_height()?;
+        let gc_stop_height = self.runtime_adapter.get_gc_stop_height(&head.last_block_hash)?;
+        let new_gc_head_height = min(gc_head_height + HEIGHTS_TO_CLEAR + 1, gc_stop_height);
+        for height in gc_head_height..new_gc_head_height {
+            match chain_store_update.clear_old_data_on_height(height) {
+                Ok(_) => {}
+                Err(err) => {
+                    error!(target: "client", "Error clearing old data on height {:?}, {:?}", height, err);
                 }
             }
         }
+        chain_store_update.save_gc_head_height(new_gc_head_height);
         chain_store_update.commit()?;
         Ok(())
     }
@@ -1853,11 +1855,22 @@ impl Chain {
         })
     }
 
+    /// Find a validator to forward transactions to
+    pub fn find_chunk_producer_for_forwarding(
+        &self,
+        epoch_id: &EpochId,
+        shard_id: ShardId,
+    ) -> Result<AccountId, Error> {
+        let head = self.head()?;
+        let target_height = head.height + TX_ROUTING_HEIGHT_HORIZON - 1;
+        self.runtime_adapter.get_chunk_producer(&epoch_id, target_height, shard_id)
+    }
+
     /// Find a validator that is responsible for a given shard to forward requests to
     pub fn find_validator_for_forwarding(&self, shard_id: ShardId) -> Result<AccountId, Error> {
         let head = self.head()?;
-        let target_height = head.height + TX_ROUTING_HEIGHT_HORIZON - 1;
-        self.runtime_adapter.get_chunk_producer(&head.epoch_id, target_height, shard_id)
+        let epoch_id = self.runtime_adapter.get_epoch_id_from_prev_block(&head.last_block_hash)?;
+        self.find_chunk_producer_for_forwarding(&epoch_id, shard_id)
     }
 }
 
@@ -1879,6 +1892,12 @@ impl Chain {
     #[inline]
     pub fn sync_head(&self) -> Result<Tip, Error> {
         self.store.sync_head()
+    }
+
+    /// Gets gc head height.
+    #[inline]
+    pub fn gc_head_height(&self) -> Result<BlockHeight, Error> {
+        self.store.gc_head_height()
     }
 
     /// Header of the block at the head of the block chain (not the same thing as header_head).
@@ -2109,7 +2128,7 @@ impl<'a> ChainUpdate<'a> {
     {
         debug!(target: "chain", "Process block header: {} at {}", header.hash(), header.inner_lite.height);
 
-        self.check_header_known(header)?;
+        self.check_known(&header.hash)?;
         self.validate_header(header, &Provenance::NONE, on_challenge)?;
         Ok(())
     }
@@ -2503,7 +2522,7 @@ impl<'a> ChainUpdate<'a> {
         debug!(target: "chain", "Process block {} at {}, approvals: {}, me: {:?}", block.hash(), block.header.inner_lite.height, block.header.num_approvals(), me);
 
         // Check if we have already processed this block previously.
-        self.check_known(&block)?;
+        self.check_known(&block.header.hash)?;
 
         // Delay hitting the db for current chain head until we know this block is not already known.
         let head = self.chain_store_update.head()?;
@@ -2659,6 +2678,7 @@ impl<'a> ChainUpdate<'a> {
 
         // Add validated block to the db, even if it's not the canonical fork.
         self.chain_store_update.save_block(block.clone());
+        self.chain_store_update.inc_block_refcount(&block.header.prev_hash)?;
         for (shard_id, chunk_headers) in block.chunks.iter().enumerate() {
             if chunk_headers.height_included == block.header.inner_lite.height {
                 self.chain_store_update
@@ -3022,25 +3042,24 @@ impl<'a> ChainUpdate<'a> {
         {
             return Err(ErrorKind::Unfit("header already known".to_string()).into());
         }
-        self.check_known_store(header)
+        self.check_known_store(&header.hash)
     }
 
     /// Quick in-memory check for fast-reject any block handled recently.
-    fn check_known_head(&self, header: &BlockHeader) -> Result<(), Error> {
+    fn check_known_head(&self, block_hash: &CryptoHash) -> Result<(), Error> {
         let head = self.chain_store_update.head()?;
-        let bh = header.hash();
-        if bh == head.last_block_hash || bh == head.prev_block_hash {
+        if block_hash == &head.last_block_hash || block_hash == &head.prev_block_hash {
             return Err(ErrorKind::Unfit("already known in head".to_string()).into());
         }
         Ok(())
     }
 
     /// Check if this block is in the set of known orphans.
-    fn check_known_orphans(&self, header: &BlockHeader) -> Result<(), Error> {
-        if self.orphans.contains(&header.hash()) {
+    fn check_known_orphans(&self, block_hash: &CryptoHash) -> Result<(), Error> {
+        if self.orphans.contains(block_hash) {
             return Err(ErrorKind::Unfit("already known in orphans".to_string()).into());
         }
-        if self.blocks_with_missing_chunks.contains(&header.hash()) {
+        if self.blocks_with_missing_chunks.contains(block_hash) {
             return Err(ErrorKind::Unfit(
                 "already known in blocks with missing chunks".to_string(),
             )
@@ -3050,8 +3069,8 @@ impl<'a> ChainUpdate<'a> {
     }
 
     /// Check if this block is in the store already.
-    fn check_known_store(&self, header: &BlockHeader) -> Result<(), Error> {
-        match self.chain_store_update.block_exists(&header.hash()) {
+    fn check_known_store(&self, block_hash: &CryptoHash) -> Result<(), Error> {
+        match self.chain_store_update.block_exists(block_hash) {
             Ok(true) => Err(ErrorKind::Unfit("already known in store".to_string()).into()),
             Ok(false) => {
                 // Not yet processed this block, we can proceed.
@@ -3061,28 +3080,11 @@ impl<'a> ChainUpdate<'a> {
         }
     }
 
-    /// Check if header is known: head, orphan or in store.
-    #[allow(dead_code)]
-    fn is_header_known(&self, header: &BlockHeader) -> Result<bool, Error> {
-        let check = || {
-            self.check_known_head(header)?;
-            self.check_known_orphans(header)?;
-            self.check_known_store(header)
-        };
-        match check() {
-            Ok(()) => Ok(false),
-            Err(err) => match err.kind() {
-                ErrorKind::Unfit(_) => Ok(true),
-                kind => Err(kind.into()),
-            },
-        }
-    }
-
     /// Check if block is known: head, orphan or in store.
-    fn check_known(&self, block: &Block) -> Result<(), Error> {
-        self.check_known_head(&block.header)?;
-        self.check_known_orphans(&block.header)?;
-        self.check_known_store(&block.header)?;
+    fn check_known(&self, block_hash: &CryptoHash) -> Result<(), Error> {
+        self.check_known_head(&block_hash)?;
+        self.check_known_orphans(&block_hash)?;
+        self.check_known_store(&block_hash)?;
         Ok(())
     }
 
@@ -3271,4 +3273,57 @@ pub fn collect_receipts_from_response(
 ) -> Vec<Receipt> {
     let receipt_proofs = &receipt_proof_response.iter().map(|x| x.1.clone()).flatten().collect();
     collect_receipts(receipt_proofs)
+}
+
+// Used in testing only
+pub fn check_refcount_map(chain: &mut Chain) -> Result<(), Error> {
+    let head = chain.head()?;
+    let mut block_refcounts = HashMap::new();
+    for height in chain.store().get_genesis_height() + 1..=head.height {
+        let blocks_current_height = match chain.mut_store().get_all_block_hashes_by_height(height) {
+            Ok(blocks_current_height) => {
+                blocks_current_height.values().flatten().cloned().collect()
+            }
+            _ => vec![],
+        };
+        for block_hash in blocks_current_height.iter() {
+            if let Ok(prev_hash) = chain.get_block(&block_hash).map(|block| block.header.prev_hash)
+            {
+                *block_refcounts.entry(prev_hash).or_insert(0) += 1;
+            }
+        }
+    }
+    let mut chain_store_update = ChainStoreUpdate::new(chain.mut_store());
+    for (block_hash, refcount) in block_refcounts {
+        match chain_store_update.get_block(&block_hash) {
+            Ok(_) => match chain_store_update.get_block_refcount(&block_hash) {
+                Ok(&block_refcount) => {
+                    if block_refcount != refcount {
+                        return Err(ErrorKind::Other(format!(
+                            "invalid number of references in Block {:?}, expected {:?}, found {:?}",
+                            block_hash, refcount, block_refcount
+                        ))
+                        .into());
+                    }
+                }
+                Err(e) => {
+                    return Err(ErrorKind::Other(format!(
+                        "Block {:?} is deleted while expected {:?} references; get_block_refcount failed: {:?}",
+                        block_hash, refcount, e
+                    ))
+                    .into());
+                }
+            },
+            Err(e) => {
+                if let Ok(&block_refcount) = chain_store_update.get_block_refcount(&block_hash) {
+                    return Err(ErrorKind::Other(format!(
+                        "Block {:?} expected to be deleted, found {:?} references instead: get_block failed: {:?}",
+                        block_hash, block_refcount, e
+                    ))
+                        .into());
+                }
+            }
+        }
+    }
+    Ok(())
 }
