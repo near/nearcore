@@ -24,6 +24,10 @@ def compile_binary(branch):
         subprocess.check_output(['git', 'stash', 'pop'])
 
 
+def escaped(branch):
+    return branch.replace('/', '-')
+
+
 def compile_current():
     """ Compile current branch """
     branch = current_branch()
@@ -33,8 +37,10 @@ def compile_current():
     except:
         subprocess.check_output(['cargo', 'build', '-p', 'near'])
     subprocess.check_output(['cargo', 'build', '-p', 'state-viewer'])
+    branch = escaped(branch)
     os.rename('../target/debug/near', '../target/debug/near-%s' % branch)
     os.rename('../target/debug/state-viewer', '../target/debug/state-viewer-%s' % branch)
+    subprocess.check_output(['git', 'checkout', '../Cargo.lock'])
 
 
 def download_binary(branch):
@@ -52,4 +58,4 @@ def prepare_ab_test(other_branch):
         download_binary(other_branch)
     else:
         compile_binary(other_branch)
-    return '../target/debug/', [other_branch, current_branch()]
+    return '../target/debug/', [other_branch, escaped(current_branch())]
