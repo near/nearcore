@@ -35,7 +35,7 @@ impl IntoVMError for wasmer_runtime::error::CompileError {
     fn into_vm_error(self) -> VMError {
         match self {
             wasmer_runtime::error::CompileError::InternalError { .. } => {
-                // An internal Wasmer error is the most probably be a result of a node malfunction
+                // An internal Wasmer error the most probably is a result of a node malfunction
                 panic!("Internal Wasmer error: {}", self);
             }
             _ => VMError::FunctionCallError(FunctionCallError::CompilationError(
@@ -64,8 +64,7 @@ impl IntoVMError for wasmer_runtime::error::ResolveError {
 
 impl IntoVMError for wasmer_runtime::error::RuntimeError {
     fn into_vm_error(self) -> VMError {
-        use wasmer_runtime_core::backend::ExceptionCode;
-        let data = self.0;
+        let data = &*self.0;
 
         if let Some(err) = data.downcast_ref::<VMLogicError>() {
             match err {
@@ -77,12 +76,9 @@ impl IntoVMError for wasmer_runtime::error::RuntimeError {
                     VMError::InconsistentStateError(e.clone())
                 }
             }
-        } else if let Some(exc_code) = data.downcast_ref::<ExceptionCode>() {
-            VMError::FunctionCallError(FunctionCallError::WasmTrap { msg: exc_code.to_string() })
         } else {
-            VMError::FunctionCallError(FunctionCallError::WasmTrap {
-                msg: "Unknown Wasmer runtime error".into(),
-            })
+            // Reusing https://github.com/wasmerio/wasmer/blob/3999728e39016517c655aaa08e7f7e0e6c42cc58/lib/runtime-core/src/error.rs#L190
+            VMError::FunctionCallError(FunctionCallError::WasmTrap { msg: format!("{}", self) })
         }
     }
 }
