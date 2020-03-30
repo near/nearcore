@@ -181,6 +181,7 @@ impl Default for RuntimeFeesConfig {
                 },
             },
             storage_usage_config: StorageUsageConfig {
+                // amount - 16, locked - 16, code_hash - 32, storage_used - 4, account_id hash - 32
                 num_bytes_account: 100,
                 num_extra_bytes_record: 40,
             },

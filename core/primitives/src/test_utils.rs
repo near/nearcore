@@ -5,7 +5,7 @@ use log::LevelFilter;
 use lazy_static::lazy_static;
 use near_crypto::{EmptySigner, PublicKey, Signer};
 
-use crate::account::{AccessKey, AccessKeyPermission};
+use crate::account::{AccessKey, AccessKeyPermission, Account};
 use crate::block::{Approval, Block};
 use crate::hash::CryptoHash;
 use crate::transaction::{
@@ -247,5 +247,14 @@ impl Block {
             CryptoHash::default(),
             next_bp_hash,
         )
+    }
+}
+
+/// Size of account struct in bytes.
+const ACCOUNT_SIZE_BYTES: u64 = std::mem::size_of::<Account>() as u64;
+
+impl Account {
+    pub fn new(amount: Balance, code_hash: CryptoHash) -> Self {
+        Account { amount, locked: 0, code_hash, storage_usage: ACCOUNT_SIZE_BYTES }
     }
 }

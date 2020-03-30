@@ -17,15 +17,6 @@ pub struct Account {
     pub storage_usage: StorageUsage,
 }
 
-/// Size of account struct in bytes.
-const ACCOUNT_SIZE_BYTES: u64 = std::mem::size_of::<Account>() as u64;
-
-impl Account {
-    pub fn new(amount: Balance, code_hash: CryptoHash) -> Self {
-        Account { amount, locked: 0, code_hash, storage_usage: ACCOUNT_SIZE_BYTES }
-    }
-}
-
 /// Access key provides limited access to an account. Each access key belongs to some account and
 /// is identified by a unique (within the account) public key. One account may have large number of
 /// access keys. Access keys allow to act on behalf of the account by restricting transactions
