@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, HashSet};
 use std::convert::TryFrom;
 use std::io;
 use std::sync::Arc;
@@ -20,19 +20,19 @@ use near_primitives::transaction::{
     ExecutionOutcomeWithId, ExecutionOutcomeWithIdAndProof, SignedTransaction,
 };
 use near_primitives::types::{
-    AccountId, BlockExtra, BlockHeight, ChunkExtra, EpochId, NumBlocks, ShardId, StateChangeCause,
-    StateChanges, StateChangesRequest,
+    AccountId, BlockExtra, BlockHeight, ChunkExtra, EpochId, ShardId, StateChanges,
+    StateChangesExt, StateChangesKinds, StateChangesKindsExt, StateChangesRequest,
 };
-use near_primitives::utils::{index_to_bytes, to_timestamp};
+use near_primitives::utils::{index_to_bytes, to_timestamp, trie_key_parsers, TrieKey};
 use near_primitives::views::LightClientBlockView;
 use near_store::{
     read_with_cache, ColBlock, ColBlockExtra, ColBlockHeader, ColBlockHeight, ColBlockMisc,
-    ColBlockPerHeight, ColBlocksToCatchup, ColChallengedBlocks, ColChunkExtra,
+    ColBlockPerHeight, ColBlockRefCount, ColBlocksToCatchup, ColChallengedBlocks, ColChunkExtra,
     ColChunkPerHeightShard, ColChunks, ColEpochLightClientBlocks, ColIncomingReceipts,
-    ColInvalidChunks, ColKeyValueChanges, ColLastApprovalPerAccount, ColLastBlockWithNewChunk,
+    ColInvalidChunks, ColLastApprovalPerAccount, ColLastBlockWithNewChunk,
     ColMyLastApprovalsPerChain, ColNextBlockHashes, ColNextBlockWithNewChunk, ColOutgoingReceipts,
     ColPartialChunks, ColReceiptIdToShardId, ColStateDlInfos, ColTransactionResult,
-    ColTransactions, Store, StoreUpdate, WrappedTrieChanges,
+    ColTransactions, KeyForStateChanges, Store, StoreUpdate, WrappedTrieChanges,
 };
 
 use crate::byzantine_assert;
@@ -41,6 +41,7 @@ use crate::types::{Block, BlockHeader, LatestKnown, ReceiptProofResponse, Receip
 
 const HEAD_KEY: &[u8; 4] = b"HEAD";
 const SYNC_HEAD_KEY: &[u8; 9] = b"SYNC_HEAD";
+const GC_HEAD_KEY: &[u8; 7] = b"GC_HEAD";
 const HEADER_HEAD_KEY: &[u8; 11] = b"HEADER_HEAD";
 const LATEST_KNOWN_KEY: &[u8; 12] = b"LATEST_KNOWN";
 const LARGEST_APPROVED_HEIGHT_KEY: &[u8; 23] = b"LARGEST_APPROVED_HEIGHT";
@@ -78,97 +79,6 @@ pub struct StateSyncInfo {
     pub shards: Vec<ShardInfo>,
 }
 
-/// Header cache used for transaction history validation.
-/// The headers stored here should be all on the same fork.
-pub struct HeaderList {
-    queue: VecDeque<CryptoHash>,
-    headers: HashMap<CryptoHash, BlockHeader>,
-}
-
-impl HeaderList {
-    pub fn new() -> Self {
-        HeaderList { queue: VecDeque::default(), headers: HashMap::default() }
-    }
-
-    pub fn len(&self) -> usize {
-        self.queue.len()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.queue.is_empty()
-    }
-
-    pub fn contains(&self, hash: &CryptoHash) -> bool {
-        self.headers.contains_key(hash)
-    }
-
-    pub fn push_back(&mut self, block_header: BlockHeader) {
-        self.queue.push_back(block_header.hash);
-        self.headers.insert(block_header.hash, block_header);
-    }
-
-    pub fn push_front(&mut self, block_header: BlockHeader) {
-        let block_hash = block_header.hash;
-        self.queue.push_front(block_hash);
-        self.headers.insert(block_hash, block_header);
-    }
-
-    pub fn pop_front(&mut self) -> Option<BlockHeader> {
-        let front = if let Some(hash) = self.queue.pop_front() {
-            hash
-        } else {
-            return None;
-        };
-        let header = self.headers.remove(&front).unwrap();
-        Some(header)
-    }
-
-    pub fn pop_back(&mut self) -> Option<BlockHeader> {
-        let back = if let Some(hash) = self.queue.pop_back() {
-            hash
-        } else {
-            return None;
-        };
-        let header = self.headers.remove(&back).unwrap();
-        Some(header)
-    }
-
-    pub fn from_headers(headers: Vec<BlockHeader>) -> Self {
-        let mut res = Self::new();
-        for header in headers {
-            res.push_back(header);
-        }
-        res
-    }
-
-    /// Tries to update the cache. if `hash` is in the cache, remove everything before `hash`
-    /// and replace them with `new_list`. `new_list` must contain contiguous block headers, ordered
-    /// from higher height to lower height.
-    /// Returns true if `hash` is in the cache and false otherwise.
-    fn update(&mut self, hash: &CryptoHash, new_list: &[BlockHeader]) -> bool {
-        if !self.headers.contains_key(hash) {
-            return false;
-        }
-        loop {
-            let front = if let Some(elem) = self.queue.front() {
-                elem.clone()
-            } else {
-                break;
-            };
-            if &front == hash {
-                break;
-            } else {
-                self.queue.pop_front();
-                self.headers.remove(&front);
-            }
-        }
-        for header in new_list.into_iter().rev() {
-            self.push_front(header.clone());
-        }
-        true
-    }
-}
-
 /// Accesses the chain store. Used to create atomic editable views that can be reverted.
 pub trait ChainStoreAccess {
     /// Returns underlaying store.
@@ -179,6 +89,8 @@ pub trait ChainStoreAccess {
     fn header_head(&self) -> Result<Tip, Error>;
     /// The "sync" head: last header we received from syncing.
     fn sync_head(&self) -> Result<Tip, Error>;
+    /// Get gc head height: smallest height that we didn't gc.
+    fn gc_head_height(&self) -> Result<BlockHeight, Error>;
     /// Header of the block at the head of the block chain (not the same thing as header_head).
     fn head_header(&mut self) -> Result<&BlockHeader, Error>;
     /// Largest score and height for which the approval was ever created
@@ -249,6 +161,8 @@ pub trait ChainStoreAccess {
         &mut self,
         height: BlockHeight,
     ) -> Result<&HashMap<EpochId, HashSet<CryptoHash>>, Error>;
+    /// Returns a number of references for Block with `block_hash`
+    fn get_block_refcount(&mut self, block_hash: &CryptoHash) -> Result<&u64, Error>;
     /// Check if we saw chunk hash at given height and shard id.
     fn get_any_chunk_hash_by_height_shard(
         &mut self,
@@ -330,22 +244,29 @@ pub trait ChainStoreAccess {
         tx_hash: &CryptoHash,
     ) -> Result<Option<&SignedTransaction>, Error>;
 
-    fn get_key_value_changes(
+    fn get_state_changes_in_block(
+        &self,
+        block_hash: &CryptoHash,
+    ) -> Result<StateChangesKinds, Error>;
+
+    fn get_state_changes(
         &self,
         block_hash: &CryptoHash,
         state_changes_request: &StateChangesRequest,
     ) -> Result<StateChanges, Error>;
+
+    fn get_genesis_height(&self) -> BlockHeight;
 }
 
 /// All chain-related database operations.
 pub struct ChainStore {
     store: Arc<Store>,
+    /// Genesis block height.
+    genesis_height: BlockHeight,
     /// Latest known.
     latest_known: Option<LatestKnown>,
     /// Cache with headers.
     headers: SizedCache<Vec<u8>, BlockHeader>,
-    /// Cache with headers for transaction validation.
-    header_history: HeaderList,
     /// Cache with blocks.
     blocks: SizedCache<Vec<u8>, Block>,
     /// Cache with chunks
@@ -387,6 +308,8 @@ pub struct ChainStore {
     last_block_with_new_chunk: SizedCache<Vec<u8>, CryptoHash>,
     /// Transactions
     transactions: SizedCache<Vec<u8>, SignedTransaction>,
+    /// Cache with height to hash on any chain.
+    block_refcounts: SizedCache<Vec<u8>, u64>,
 }
 
 pub fn option_to_not_found<T>(res: io::Result<Option<T>>, field_name: &str) -> Result<T, Error> {
@@ -398,19 +321,20 @@ pub fn option_to_not_found<T>(res: io::Result<Option<T>>, field_name: &str) -> R
 }
 
 impl ChainStore {
-    pub fn new(store: Arc<Store>) -> ChainStore {
+    pub fn new(store: Arc<Store>, genesis_height: BlockHeight) -> ChainStore {
         ChainStore {
             store,
+            genesis_height,
             latest_known: None,
             blocks: SizedCache::with_size(CACHE_SIZE),
             headers: SizedCache::with_size(CACHE_SIZE),
-            header_history: HeaderList::new(),
             chunks: SizedCache::with_size(CHUNK_CACHE_SIZE),
             partial_chunks: SizedCache::with_size(CHUNK_CACHE_SIZE),
             block_extras: SizedCache::with_size(CACHE_SIZE),
             chunk_extras: SizedCache::with_size(CACHE_SIZE),
             height: SizedCache::with_size(CACHE_SIZE),
             block_hash_per_height: SizedCache::with_size(CACHE_SIZE),
+            block_refcounts: SizedCache::with_size(CACHE_SIZE),
             chunk_hash_per_height_shard: SizedCache::with_size(CACHE_SIZE),
             next_block_hashes: SizedCache::with_size(CACHE_SIZE),
             epoch_light_client_blocks: SizedCache::with_size(CACHE_SIZE),
@@ -472,77 +396,73 @@ impl ChainStore {
         }
     }
 
-    pub fn check_blocks_on_same_chain(
+    /// For a given transaction, it expires if the block that the chunk points to is more than `validity_period`
+    /// ahead of the block that has `base_block_hash`.
+    pub fn check_transaction_validity_period(
         &mut self,
-        cur_header: &BlockHeader,
+        prev_block_header: &BlockHeader,
         base_block_hash: &CryptoHash,
-        max_difference_in_blocks: NumBlocks,
+        validity_period: BlockHeight,
     ) -> Result<(), InvalidTxError> {
-        // first step: update cache head
-        if self.header_history.is_empty() {
-            self.header_history.push_back(cur_header.clone());
+        // if both are on the canonical chain, comparing height is sufficient
+        // we special case this because it is expected that this scenario will happen in most cases.
+        let base_height = self
+            .get_block_header(base_block_hash)
+            .map_err(|_| InvalidTxError::Expired)?
+            .inner_lite
+            .height;
+        let prev_height = prev_block_header.inner_lite.height;
+        if let Ok(base_block_hash_by_height) = self.get_block_hash_by_height(base_height) {
+            if &base_block_hash_by_height == base_block_hash {
+                if let Ok(prev_hash) = self.get_block_hash_by_height(prev_height) {
+                    if prev_hash == prev_block_header.hash {
+                        if prev_height <= base_height + validity_period {
+                            return Ok(());
+                        } else {
+                            return Err(InvalidTxError::Expired);
+                        }
+                    }
+                }
+            }
         }
-        let mut prev_block_hash = cur_header.prev_hash;
 
-        let contains_hash = self.header_history.update(&cur_header.hash, &[]);
-        if !contains_hash {
-            let mut header_list = vec![cur_header.clone()];
-            let mut found_ancestor = false;
-            while !self.header_history.is_empty() {
-                let prev_block_header = if let Ok(header) = self.get_block_header(&prev_block_hash)
-                {
-                    header.clone()
+        // if the base block height is smaller than `last_final_height` we only need to check
+        // whether the base block is the same as the one with that height on the canonical fork.
+        // Otherwise we walk back the chain to check whether base block is on the same chain.
+        let last_final_height = self
+            .get_block_height(&prev_block_header.inner_rest.last_quorum_pre_commit)
+            .map_err(|_| InvalidTxError::InvalidChain)?;
+
+        if prev_height > base_height + validity_period {
+            Err(InvalidTxError::Expired)
+        } else if last_final_height >= base_height {
+            let base_block_hash_by_height = self
+                .get_block_hash_by_height(base_height)
+                .map_err(|_| InvalidTxError::InvalidChain)?;
+            if &base_block_hash_by_height == base_block_hash {
+                if prev_height <= base_height + validity_period {
+                    Ok(())
                 } else {
-                    return Err(InvalidTxError::InvalidChain);
-                };
-                self.header_history.pop_front();
-                if self.header_history.update(&prev_block_header.hash, &header_list) {
-                    found_ancestor = true;
-                    break;
+                    Err(InvalidTxError::Expired)
                 }
-                prev_block_hash = prev_block_header.prev_hash;
-                header_list.push(prev_block_header);
-            }
-            if !found_ancestor {
-                self.header_history = HeaderList::from_headers(header_list);
-            }
-            // It is possible that cur_len is max_difference_in_blocks + 1 after the above update.
-            let cur_len = self.header_history.len() as NumBlocks;
-            if cur_len > max_difference_in_blocks {
-                for _ in 0..cur_len - max_difference_in_blocks {
-                    self.header_history.pop_back();
-                }
-            }
-        }
-
-        // second step: check if `base_block_hash` exists
-        assert!(max_difference_in_blocks >= self.header_history.len() as NumBlocks);
-        if self.header_history.contains(base_block_hash) {
-            return Ok(());
-        }
-        let num_to_fetch = max_difference_in_blocks - self.header_history.len() as NumBlocks;
-        // here the queue cannot be empty so it is safe to unwrap
-        let last_hash = self.header_history.queue.back().unwrap();
-        prev_block_hash = self.header_history.headers.get(last_hash).unwrap().prev_hash;
-        for _ in 0..num_to_fetch {
-            let cur_block_header = if let Ok(header) = self.get_block_header(&prev_block_hash) {
-                header.clone()
             } else {
-                return Err(InvalidTxError::InvalidChain);
-            };
-            prev_block_hash = cur_block_header.prev_hash;
-            let cur_block_hash = cur_block_header.hash;
-            self.header_history.push_back(cur_block_header);
-            if &cur_block_hash == base_block_hash {
-                return Ok(());
+                Err(InvalidTxError::InvalidChain)
+            }
+        } else {
+            let header = self
+                .get_header_on_chain_by_height(&prev_block_header.hash, base_height)
+                .map_err(|_| InvalidTxError::InvalidChain)?;
+            if &header.hash == base_block_hash {
+                Ok(())
+            } else {
+                Err(InvalidTxError::InvalidChain)
             }
         }
-        Err(InvalidTxError::Expired)
     }
 
     pub fn get_block_height(&mut self, hash: &CryptoHash) -> Result<BlockHeight, Error> {
         if hash == &CryptoHash::default() {
-            Ok(0)
+            Ok(self.genesis_height)
         } else {
             Ok(self.get_block_header(hash)?.inner_lite.height)
         }
@@ -561,6 +481,13 @@ impl ChainStoreAccess for ChainStore {
     /// The "sync" head: last header we received from syncing.
     fn sync_head(&self) -> Result<Tip, Error> {
         option_to_not_found(self.store.get_ser(ColBlockMisc, SYNC_HEAD_KEY), "SYNC_HEAD")
+    }
+
+    fn gc_head_height(&self) -> Result<BlockHeight, Error> {
+        self.store
+            .get_ser(ColBlockMisc, GC_HEAD_KEY)
+            .map(|h| h.unwrap_or_else(|| self.genesis_height))
+            .map_err(|e| e.into())
     }
 
     /// Header of the block at the head of the block chain (not the same thing as header_head).
@@ -744,6 +671,18 @@ impl ChainStoreAccess for ChainStore {
         )
     }
 
+    fn get_block_refcount(&mut self, block_hash: &CryptoHash) -> Result<&u64, Error> {
+        option_to_not_found(
+            read_with_cache(
+                &*self.store,
+                ColBlockRefCount,
+                &mut self.block_refcounts,
+                block_hash.as_ref(),
+            ),
+            &format!("BLOCK REFCOUNT: {}", block_hash),
+        )
+    }
+
     fn get_any_chunk_hash_by_height_shard(
         &mut self,
         height: BlockHeight,
@@ -917,56 +856,145 @@ impl ChainStoreAccess for ChainStore {
             .map_err(|e| e.into())
     }
 
-    fn get_key_value_changes(
+    /// Retrieve the kinds of state changes occurred in a given block.
+    ///
+    /// We store different types of data, so we prefer to only expose minimal information about the
+    /// changes (i.e. a kind of the change and an account id).
+    fn get_state_changes_in_block(
+        &self,
+        block_hash: &CryptoHash,
+    ) -> Result<StateChangesKinds, Error> {
+        // We store the trie changes under a compound key: `block_hash + trie_key`, so when we
+        // query the changes, we reverse the process by splitting the key using simple slicing of an
+        // array of bytes, essentially, extracting `trie_key`.
+        //
+        // Example: data changes are stored under a key:
+        //
+        //     block_hash + (col::ACCOUNT + account_id + ACCOUNT_DATA_SEPARATOR + user_specified_key)
+        //
+        // Thus, to query the list of touched accounts we do the following:
+        // 1. Query RocksDB for `block_hash` prefix.
+        // 2. Extract the original Trie key out of the keys returned by RocksDB
+        // 3. Try extracting `account_id` from the key using KeyFor* implementations
+
+        let storage_key = KeyForStateChanges::get_prefix(&block_hash);
+
+        let mut block_changes = storage_key.find_iter(&self.store);
+
+        Ok(StateChangesKinds::from_changes(&mut block_changes)?)
+    }
+
+    /// Retrieve the key-value changes from the store and decode them appropriately.
+    ///
+    /// We store different types of data, so we need to take care of all the types. That is, the
+    /// account data and the access keys are internally-serialized and we have to deserialize those
+    /// values appropriately. Code and data changes are simple blobs of data, so we return them as
+    /// base64-encoded blobs.
+    fn get_state_changes(
         &self,
         block_hash: &CryptoHash,
         state_changes_request: &StateChangesRequest,
     ) -> Result<StateChanges, Error> {
-        use near_primitives::utils;
-        let mut storage_key = block_hash.as_ref().to_vec();
-        storage_key.extend(match state_changes_request {
-            StateChangesRequest::AccountChanges { account_id } => {
-                utils::key_for_account(account_id)
-            }
-            StateChangesRequest::DataChanges { account_id, key_prefix } => {
-                utils::key_for_data(account_id, key_prefix)
-            }
-            StateChangesRequest::SingleAccessKeyChanges { account_id, access_key_pk } => {
-                utils::key_for_access_key(account_id, access_key_pk)
-            }
-            StateChangesRequest::AllAccessKeyChanges { account_id } => {
-                utils::key_for_all_access_keys(account_id)
-            }
-            StateChangesRequest::CodeChanges { account_id } => utils::key_for_code(account_id),
-            StateChangesRequest::SinglePostponedReceiptChanges { account_id, data_id } => {
-                utils::key_for_postponed_receipt_id(account_id, data_id)
-            }
-            StateChangesRequest::AllPostponedReceiptChanges { account_id } => {
-                utils::key_for_all_postponed_receipts(account_id)
-            }
-        });
-        let common_key_prefix_len = block_hash.as_ref().len()
-            + match state_changes_request {
-                StateChangesRequest::AccountChanges { .. }
-                | StateChangesRequest::SingleAccessKeyChanges { .. }
-                | StateChangesRequest::AllAccessKeyChanges { .. }
-                | StateChangesRequest::CodeChanges { .. }
-                | StateChangesRequest::SinglePostponedReceiptChanges { .. }
-                | StateChangesRequest::AllPostponedReceiptChanges { .. } => storage_key.len(),
-                StateChangesRequest::DataChanges { account_id, .. } => {
-                    utils::key_for_data(account_id, b"").len()
+        // We store the trie changes under a compound key: `block_hash + trie_key`, so when we
+        // query the changes, we reverse the process by splitting the key using simple slicing of an
+        // array of bytes, essentially, extracting `trie_key`.
+        //
+        // Example: data changes are stored under a key:
+        //
+        //     block_hash + (col::ACCOUNT + account_id + ACCOUNT_DATA_SEPARATOR + user_specified_key)
+        //
+        // Thus, to query all the changes by a user-specified key prefix, we do the following:
+        // 1. Query RocksDB for
+        //     block_hash + (col::ACCOUNT + account_id + ACCOUNT_DATA_SEPARATOR + user_specified_key_prefix)
+        //
+        // 2. In the simplest case, to extract the full key we need to slice the RocksDB key by a length of
+        //     block_hash + (col::ACCOUNT + account_id + ACCOUNT_DATA_SEPARATOR)
+        //
+        //    In this implementation, however, we decoupled this process into two steps:
+        //
+        //    2.1. Split off the `block_hash` (internally in `KeyForStateChanges`), thus we are
+        //         left working with a key that was used in the trie.
+        //    2.2. Parse the trie key with a relevant KeyFor* implementation to ensure consistency
+
+        Ok(match state_changes_request {
+            StateChangesRequest::AccountChanges { account_ids } => {
+                let mut changes = StateChanges::new();
+                for account_id in account_ids {
+                    let data_key = TrieKey::Account { account_id: account_id.clone() }.to_vec();
+                    let storage_key = KeyForStateChanges::new(&block_hash, data_key.as_ref());
+                    let changes_per_key = storage_key.find_exact_iter(&self.store);
+                    changes
+                        .extend(StateChanges::from_account_changes(changes_per_key, account_id)?);
                 }
-            };
-        let mut changes = StateChanges::new();
-        let changes_iter = self.store.iter_prefix_ser::<Vec<(StateChangeCause, Option<Vec<u8>>)>>(
-            ColKeyValueChanges,
-            &storage_key,
-        );
-        for change in changes_iter {
-            let (key, value) = change?;
-            changes.insert(key[common_key_prefix_len..].to_owned(), value);
-        }
-        Ok(changes)
+                changes
+            }
+            StateChangesRequest::SingleAccessKeyChanges { keys } => {
+                let mut changes = StateChanges::new();
+                for key in keys {
+                    let data_key = TrieKey::AccessKey {
+                        account_id: key.account_id.clone(),
+                        public_key: key.public_key.clone(),
+                    }
+                    .to_vec();
+                    let storage_key = KeyForStateChanges::new(&block_hash, data_key.as_ref());
+                    let changes_per_key = storage_key.find_exact_iter(&self.store);
+                    changes.extend(StateChanges::from_access_key_changes(
+                        changes_per_key,
+                        &key.account_id,
+                        Some(&key.public_key),
+                    )?);
+                }
+                changes
+            }
+            StateChangesRequest::AllAccessKeyChanges { account_ids } => {
+                let mut changes = StateChanges::new();
+                for account_id in account_ids {
+                    let data_key = trie_key_parsers::get_raw_prefix_for_access_keys(account_id);
+                    let storage_key = KeyForStateChanges::new(&block_hash, data_key.as_ref());
+                    let changes_per_key_prefix = storage_key.find_iter(&self.store);
+                    changes.extend(StateChanges::from_access_key_changes(
+                        changes_per_key_prefix,
+                        &account_id,
+                        None,
+                    )?);
+                }
+                changes
+            }
+            StateChangesRequest::ContractCodeChanges { account_ids } => {
+                let mut changes = StateChanges::new();
+                for account_id in account_ids {
+                    let data_key =
+                        TrieKey::ContractCode { account_id: account_id.clone() }.to_vec();
+                    let storage_key = KeyForStateChanges::new(&block_hash, data_key.as_ref());
+                    let changes_per_key = storage_key.find_exact_iter(&self.store);
+                    changes.extend(StateChanges::from_contract_code_changes(
+                        changes_per_key,
+                        &account_id,
+                    )?);
+                }
+                changes
+            }
+            StateChangesRequest::DataChanges { account_ids, key_prefix } => {
+                let mut changes = StateChanges::new();
+                for account_id in account_ids {
+                    let data_key = trie_key_parsers::get_raw_prefix_for_contract_data(
+                        account_id,
+                        key_prefix.as_ref(),
+                    );
+                    let storage_key = KeyForStateChanges::new(&block_hash, data_key.as_ref());
+                    let changes_per_key_prefix = storage_key.find_iter(&self.store);
+                    changes.extend(StateChanges::from_data_changes(
+                        changes_per_key_prefix,
+                        &account_id,
+                    )?);
+                }
+                changes
+            }
+        })
+    }
+
+    fn get_genesis_height(&self) -> BlockHeight {
+        self.genesis_height
     }
 }
 
@@ -993,6 +1021,7 @@ struct ChainStoreCacheUpdate {
     next_block_with_new_chunk: HashMap<(CryptoHash, ShardId), CryptoHash>,
     last_block_with_new_chunk: HashMap<ShardId, CryptoHash>,
     transactions: HashSet<SignedTransaction>,
+    block_refcounts: HashMap<CryptoHash, u64>,
 }
 
 impl ChainStoreCacheUpdate {
@@ -1019,6 +1048,7 @@ impl ChainStoreCacheUpdate {
             next_block_with_new_chunk: Default::default(),
             last_block_with_new_chunk: Default::default(),
             transactions: Default::default(),
+            block_refcounts: HashMap::default(),
         }
     }
 }
@@ -1033,6 +1063,7 @@ pub struct ChainStoreUpdate<'a> {
     head: Option<Tip>,
     header_head: Option<Tip>,
     sync_head: Option<Tip>,
+    gc_head_height: Option<BlockHeight>,
     largest_approved_height: Option<BlockHeight>,
     largest_approved_score: Option<BlockScore>,
     largest_endorsed_height: Option<BlockHeight>,
@@ -1057,6 +1088,7 @@ impl<'a> ChainStoreUpdate<'a> {
             head: None,
             header_head: None,
             sync_head: None,
+            gc_head_height: None,
             largest_approved_height: None,
             largest_approved_score: None,
             largest_endorsed_height: None,
@@ -1142,6 +1174,14 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
             Ok(header_head.clone())
         } else {
             self.chain_store.header_head()
+        }
+    }
+
+    fn gc_head_height(&self) -> Result<BlockHeight, Error> {
+        if let Some(gc_head_height) = self.gc_head_height {
+            Ok(gc_head_height)
+        } else {
+            self.chain_store.gc_head_height()
         }
     }
 
@@ -1244,6 +1284,14 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
         height: BlockHeight,
     ) -> Result<&HashMap<EpochId, HashSet<CryptoHash>>, Error> {
         self.chain_store.get_all_block_hashes_by_height(height)
+    }
+
+    fn get_block_refcount(&mut self, block_hash: &CryptoHash) -> Result<&u64, Error> {
+        if let Some(refcount) = self.chain_store_cache_update.block_refcounts.get(block_hash) {
+            Ok(refcount)
+        } else {
+            self.chain_store.get_block_refcount(block_hash)
+        }
     }
 
     fn get_any_chunk_hash_by_height_shard(
@@ -1446,12 +1494,23 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
         }
     }
 
-    fn get_key_value_changes(
+    fn get_state_changes_in_block(
+        &self,
+        block_hash: &CryptoHash,
+    ) -> Result<StateChangesKinds, Error> {
+        self.chain_store.get_state_changes_in_block(block_hash)
+    }
+
+    fn get_state_changes(
         &self,
         block_hash: &CryptoHash,
         state_changes_request: &StateChangesRequest,
     ) -> Result<StateChanges, Error> {
-        self.chain_store.get_key_value_changes(block_hash, state_changes_request)
+        self.chain_store.get_state_changes(block_hash, state_changes_request)
+    }
+
+    fn get_genesis_height(&self) -> BlockHeight {
+        self.chain_store.genesis_height
     }
 }
 
@@ -1508,7 +1567,7 @@ impl<'a> ChainStoreUpdate<'a> {
 
     /// Update header head and height to hash index for this branch.
     pub fn save_header_head_if_not_challenged(&mut self, t: &Tip) -> Result<(), Error> {
-        if t.height > 0 {
+        if t.height > self.chain_store.genesis_height {
             self.update_height_if_not_challenged(t.height, t.prev_block_hash)?;
         }
         self.try_save_latest_known(t.height)?;
@@ -1538,6 +1597,10 @@ impl<'a> ChainStoreUpdate<'a> {
     /// Save "sync" head.
     pub fn save_sync_head(&mut self, t: &Tip) {
         self.sync_head = Some(t.clone());
+    }
+
+    pub fn save_gc_head_height(&mut self, gc_head_height: BlockHeight) {
+        self.gc_head_height = Some(gc_head_height);
     }
 
     pub fn save_largest_approved_height(&mut self, height: &BlockHeight) {
@@ -1733,6 +1796,31 @@ impl<'a> ChainStoreUpdate<'a> {
             .insert((height, shard_id), chunk_hash);
     }
 
+    pub fn inc_block_refcount(&mut self, block_hash: &CryptoHash) -> Result<(), Error> {
+        let refcount = match self.get_block_refcount(block_hash) {
+            Ok(refcount) => refcount.clone(),
+            Err(e) => match e.kind() {
+                ErrorKind::DBNotFoundErr(_) => 0,
+                _ => return Err(e),
+            },
+        };
+        self.chain_store_cache_update.block_refcounts.insert(*block_hash, refcount + 1);
+        Ok(())
+    }
+
+    // TODO will be in use in #2084
+    #[allow(unused)]
+    pub fn dec_block_refcount(&mut self, block_hash: &CryptoHash) -> Result<(), Error> {
+        let refcount = self.get_block_refcount(block_hash)?.clone();
+        if refcount > 0 {
+            self.chain_store_cache_update.block_refcounts.insert(*block_hash, refcount - 1);
+            Ok(())
+        } else {
+            debug_assert!(false, "refcount can not be negative");
+            Err(ErrorKind::Other(format!("cannot decrease refcount for {:?}", block_hash)).into())
+        }
+    }
+
     pub fn clear_old_data_on_height(&mut self, height: BlockHeight) -> Result<(), Error> {
         let mut store_update = self.store().store_update();
         let blocks_current_height = match self.get_all_block_hashes_by_height(height) {
@@ -1813,7 +1901,7 @@ impl<'a> ChainStoreUpdate<'a> {
 
             // 3. Delete block_hash-indexed data
             // 3a. Delete block (ColBlock) if not genesis
-            if height > 0 {
+            if height > self.get_genesis_height() {
                 store_update.delete(ColBlock, block_hash.as_ref());
                 self.chain_store.blocks.cache_remove(&block_hash.clone().into());
             }
@@ -1831,15 +1919,16 @@ impl<'a> ChainStoreUpdate<'a> {
             store_update.delete(ColChallengedBlocks, block_hash.as_ref());
             // 3g. Delete from ColBlocksToCatchup
             store_update.delete(ColBlocksToCatchup, block_hash.as_ref());
+            // 3i. Delete from ColBlockRefCount
+            if height > self.get_genesis_height() {
+                store_update.delete(ColBlockRefCount, block_hash.as_ref());
+                self.chain_store.block_refcounts.cache_remove(&block_hash.clone().into());
+            }
         }
         // 4. Delete height-indexed data
         // 4a. Delete blocks with current height (ColBlockPerHeight)
         store_update.delete(ColBlockPerHeight, &index_to_bytes(height));
         self.chain_store.block_hash_per_height.cache_remove(&index_to_bytes(height));
-        // 4b. Delete from ColBlockHeight if not genesis
-        if height > 0 {
-            store_update.delete(ColBlockHeight, &index_to_bytes(height));
-        }
 
         self.merge(store_update);
 
@@ -1864,6 +1953,11 @@ impl<'a> ChainStoreUpdate<'a> {
         if let Some(t) = self.sync_head.take() {
             store_update
                 .set_ser(ColBlockMisc, SYNC_HEAD_KEY, &t)
+                .map_err::<Error, _>(|e| e.into())?;
+        }
+        if let Some(gc_head_height) = self.gc_head_height {
+            store_update
+                .set_ser(ColBlockMisc, GC_HEAD_KEY, &gc_head_height)
                 .map_err::<Error, _>(|e| e.into())?;
         }
         if let Some(t) = self.largest_approved_height {
@@ -2015,12 +2109,15 @@ impl<'a> ChainStoreUpdate<'a> {
         for transaction in self.chain_store_cache_update.transactions.iter() {
             store_update.set_ser(ColTransactions, transaction.get_hash().as_ref(), transaction)?;
         }
-        for trie_changes in self.trie_changes.drain(..) {
+        for (block_hash, refcount) in self.chain_store_cache_update.block_refcounts.iter() {
+            store_update.set_ser(ColBlockRefCount, block_hash.as_ref(), refcount)?;
+        }
+        for mut trie_changes in self.trie_changes.drain(..) {
             trie_changes
                 .insertions_into(&mut store_update)
                 .map_err(|err| ErrorKind::Other(err.to_string()))?;
             trie_changes
-                .key_value_changes_into(&mut store_update)
+                .state_changes_into(&mut store_update)
                 .map_err(|err| ErrorKind::Other(err.to_string()))?;
             // TODO: save deletions separately for garbage collection.
         }
@@ -2129,6 +2226,7 @@ impl<'a> ChainStoreUpdate<'a> {
             next_block_with_new_chunk,
             last_block_with_new_chunk,
             transactions,
+            block_refcounts,
         } = self.chain_store_cache_update;
         for (hash, block) in blocks {
             self.chain_store.blocks.cache_set(hash.into(), block);
@@ -2210,6 +2308,9 @@ impl<'a> ChainStoreUpdate<'a> {
         for transaction in transactions {
             self.chain_store.transactions.cache_set(transaction.get_hash().into(), transaction);
         }
+        for (block_hash, refcount) in block_refcounts {
+            self.chain_store.block_refcounts.cache_set(block_hash.into(), refcount);
+        }
 
         Ok(())
     }
@@ -2225,16 +2326,21 @@ mod tests {
     use near_primitives::block::Block;
     use near_primitives::errors::InvalidTxError;
     use near_primitives::hash::hash;
-    use near_primitives::types::{BlockHeight, EpochId};
+    use near_primitives::types::{BlockHeight, EpochId, NumBlocks};
     use near_primitives::utils::index_to_bytes;
     use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
     use near_store::test_utils::create_test_store;
 
+    use crate::chain::check_refcount_map;
     use crate::store::ChainStoreAccess;
     use crate::test_utils::KeyValueRuntime;
     use crate::{Chain, ChainGenesis, DoomslugThresholdMode};
 
     fn get_chain() -> Chain {
+        get_chain_with_epoch_length(10)
+    }
+
+    fn get_chain_with_epoch_length(epoch_length: NumBlocks) -> Chain {
         let store = create_test_store();
         let chain_genesis = ChainGenesis::test();
         let validators = vec![vec!["test1"]];
@@ -2246,19 +2352,13 @@ mod tests {
                 .collect(),
             1,
             1,
-            10,
+            epoch_length,
         ));
-        Chain::new(
-            store.clone(),
-            runtime_adapter,
-            &chain_genesis,
-            DoomslugThresholdMode::NoApprovals,
-        )
-        .unwrap()
+        Chain::new(runtime_adapter, &chain_genesis, DoomslugThresholdMode::NoApprovals).unwrap()
     }
 
     #[test]
-    fn test_header_cache_long_fork() {
+    fn test_tx_validity_long_fork() {
         let transaction_validity_period = 5;
         let mut chain = get_chain();
         let genesis = chain.get_block_by_height(0).unwrap().clone();
@@ -2272,7 +2372,7 @@ mod tests {
         let short_fork_head = short_fork[0].clone().header;
         assert!(chain
             .mut_store()
-            .check_blocks_on_same_chain(
+            .check_transaction_validity_period(
                 &short_fork_head,
                 &genesis.hash(),
                 transaction_validity_period
@@ -2281,7 +2381,7 @@ mod tests {
         let mut long_fork = vec![];
         let mut prev_block = genesis.clone();
         let mut store_update = chain.mut_store().store_update();
-        for i in 1..(transaction_validity_period + 2) {
+        for i in 1..(transaction_validity_period + 3) {
             let block = Block::empty_with_height(&prev_block, i, &*signer.clone());
             prev_block = block.clone();
             store_update.save_block_header(block.header.clone());
@@ -2292,30 +2392,25 @@ mod tests {
         let cur_header = &long_fork.last().unwrap().header;
         assert!(chain
             .mut_store()
-            .check_blocks_on_same_chain(cur_header, &valid_base_hash, transaction_validity_period)
+            .check_transaction_validity_period(
+                cur_header,
+                &valid_base_hash,
+                transaction_validity_period
+            )
             .is_ok());
         let invalid_base_hash = long_fork[0].hash();
         assert_eq!(
-            chain.mut_store().check_blocks_on_same_chain(
+            chain.mut_store().check_transaction_validity_period(
                 cur_header,
                 &invalid_base_hash,
                 transaction_validity_period
             ),
             Err(InvalidTxError::Expired)
         );
-        assert_eq!(
-            chain.store().header_history.queue.clone().into_iter().collect::<Vec<_>>(),
-            long_fork
-                .iter()
-                .rev()
-                .take(transaction_validity_period as usize)
-                .map(|h| h.hash())
-                .collect::<Vec<_>>()
-        );
     }
 
     #[test]
-    fn test_header_cache_normal_case() {
+    fn test_tx_validity_normal_case() {
         let transaction_validity_period = 5;
         let mut chain = get_chain();
         let genesis = chain.get_block_by_height(0).unwrap().clone();
@@ -2335,19 +2430,22 @@ mod tests {
         let cur_header = &blocks.last().unwrap().header;
         assert!(chain
             .mut_store()
-            .check_blocks_on_same_chain(cur_header, &valid_base_hash, transaction_validity_period)
+            .check_transaction_validity_period(
+                cur_header,
+                &valid_base_hash,
+                transaction_validity_period
+            )
             .is_ok());
-        assert_eq!(chain.store().header_history.len(), transaction_validity_period as usize);
         let new_block = Block::empty_with_height(
             &blocks.last().unwrap(),
-            transaction_validity_period + 2,
+            transaction_validity_period + 3,
             &*signer.clone(),
         );
         let mut store_update = chain.mut_store().store_update();
         store_update.save_block_header(new_block.header.clone());
         store_update.commit().unwrap();
         assert_eq!(
-            chain.mut_store().check_blocks_on_same_chain(
+            chain.mut_store().check_transaction_validity_period(
                 &new_block.header,
                 &valid_base_hash,
                 transaction_validity_period
@@ -2357,7 +2455,7 @@ mod tests {
     }
 
     #[test]
-    fn test_header_cache_off_by_one() {
+    fn test_tx_validity_off_by_one() {
         let transaction_validity_period = 5;
         let mut chain = get_chain();
         let genesis = chain.get_block_by_height(0).unwrap().clone();
@@ -2366,7 +2464,7 @@ mod tests {
         let mut short_fork = vec![];
         let mut prev_block = genesis.clone();
         let mut store_update = chain.mut_store().store_update();
-        for i in 1..(transaction_validity_period + 1) {
+        for i in 1..(transaction_validity_period + 2) {
             let block = Block::empty_with_height(&prev_block, i, &*signer.clone());
             prev_block = block.clone();
             store_update.save_block_header(block.header.clone());
@@ -2376,7 +2474,7 @@ mod tests {
 
         let short_fork_head = short_fork.last().unwrap().clone().header;
         assert_eq!(
-            chain.mut_store().check_blocks_on_same_chain(
+            chain.mut_store().check_transaction_validity_period(
                 &short_fork_head,
                 &genesis.hash(),
                 transaction_validity_period
@@ -2395,7 +2493,7 @@ mod tests {
         store_update.commit().unwrap();
         let long_fork_head = &long_fork.last().unwrap().header;
         assert_eq!(
-            chain.mut_store().check_blocks_on_same_chain(
+            chain.mut_store().check_transaction_validity_period(
                 long_fork_head,
                 &genesis.hash(),
                 transaction_validity_period
@@ -2456,6 +2554,7 @@ mod tests {
             let block = Block::empty_with_height(&prev_block, i, &*signer);
             blocks.push(block.clone());
             store_update.save_block(block.clone());
+            store_update.inc_block_refcount(&block.header.prev_hash).unwrap();
             store_update.save_block_header(block.header.clone());
             store_update
                 .chain_store_cache_update
@@ -2465,6 +2564,7 @@ mod tests {
             prev_block = block.clone();
         }
         store_update.commit().unwrap();
+        assert!(check_refcount_map(&mut chain).is_ok());
 
         assert!(chain.get_block(&blocks[4].hash()).is_ok());
         assert!(chain.get_block(&blocks[5].hash()).is_ok());
@@ -2495,11 +2595,14 @@ mod tests {
         assert!(chain.mut_store().get_next_block_hash(&blocks[4].hash()).is_ok());
         assert!(chain.mut_store().get_next_block_hash(&blocks[5].hash()).is_err());
         assert!(chain.mut_store().get_next_block_hash(&blocks[6].hash()).is_ok());
+        assert!(check_refcount_map(&mut chain).is_ok());
     }
 
+    /// Test that garbage collection works properly. The blocks behind gc head should be garbage
+    /// collected while the blocks that are ahead of it should not.
     #[test]
     fn test_clear_old_data() {
-        let mut chain = get_chain();
+        let mut chain = get_chain_with_epoch_length(1);
         let genesis = chain.get_block_by_height(0).unwrap().clone();
         let signer =
             Arc::new(InMemoryValidatorSigner::from_seed("test1", KeyType::ED25519, "test1"));
@@ -2510,6 +2613,7 @@ mod tests {
             let block = Block::empty_with_height(&prev_block, i, &*signer.clone());
             blocks.push(block.clone());
             store_update.save_block(block.clone());
+            store_update.inc_block_refcount(&block.header.prev_hash).unwrap();
             store_update.save_block_header(block.header.clone());
             store_update
                 .chain_store_cache_update
@@ -2520,15 +2624,19 @@ mod tests {
         }
         let mut head = store_update.head().unwrap().clone();
         head.height = 14;
+        head.last_block_hash = blocks.last().unwrap().hash();
         store_update.save_body_head(&head).unwrap();
         store_update.commit().unwrap();
 
+        assert!(check_refcount_map(&mut chain).is_ok());
         chain.epoch_length = 1;
         assert!(chain.clear_old_data().is_ok());
 
         assert!(chain.get_block(&blocks[0].hash()).is_ok());
+
+        // epoch didn't change so no data is garbage collected.
         for i in 1..15 {
-            println!("height = {:?}", i);
+            println!("height = {} hash = {}", i, blocks[i].hash());
             if i < 9 {
                 assert!(chain.get_block(&blocks[i].hash()).is_err());
                 assert!(chain
@@ -2539,7 +2647,7 @@ mod tests {
                 assert!(chain.get_block(&blocks[i].hash()).is_ok());
                 assert!(chain.mut_store().get_all_block_hashes_by_height(i as BlockHeight).is_ok());
             }
-            assert!(chain.get_block_header(&blocks[i].hash()).is_ok());
         }
+        assert!(check_refcount_map(&mut chain).is_ok());
     }
 }

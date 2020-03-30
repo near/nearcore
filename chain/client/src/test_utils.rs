@@ -14,6 +14,8 @@ use near_chain::test_utils::KeyValueRuntime;
 use near_chain::{Chain, ChainGenesis, DoomslugThresholdMode, Provenance, RuntimeAdapter};
 use near_chain_configs::ClientConfig;
 use near_crypto::{InMemorySigner, KeyType, PublicKey};
+#[cfg(feature = "metric_recorder")]
+use near_network::recorder::MetricRecorder;
 use near_network::routing::EdgeInfo;
 use near_network::types::{
     AccountOrPeerIdOrHash, NetworkInfo, NetworkViewClientMessages, NetworkViewClientResponses,
@@ -90,6 +92,7 @@ pub fn setup(
     ));
     let chain_genesis = ChainGenesis::new(
         genesis_time,
+        0,
         1_000_000,
         100,
         1_000_000_000,
@@ -103,9 +106,7 @@ pub fn setup(
     } else {
         DoomslugThresholdMode::NoApprovals
     };
-    let mut chain =
-        Chain::new(store.clone(), runtime.clone(), &chain_genesis, doomslug_threshold_mode)
-            .unwrap();
+    let mut chain = Chain::new(runtime.clone(), &chain_genesis, doomslug_threshold_mode).unwrap();
     let genesis_block = chain.get_block(&chain.genesis().hash()).unwrap().clone();
 
     let signer =
@@ -119,7 +120,6 @@ pub fn setup(
         archive,
     );
     let view_client = ViewClientActor::new(
-        store.clone(),
         &chain_genesis,
         runtime.clone(),
         network_adapter.clone(),
@@ -129,7 +129,6 @@ pub fn setup(
 
     let client = ClientActor::new(
         config,
-        store,
         chain_genesis,
         runtime,
         PublicKey::empty(KeyType::ED25519).into(),
@@ -258,8 +257,8 @@ pub fn setup_mock_all_validators(
     tamper_with_fg: bool,
     epoch_length: BlockHeightDelta,
     enable_doomslug: bool,
-    archive: bool,
-    network_mock: Arc<RwLock<dyn FnMut(String, &NetworkRequests) -> (NetworkResponses, bool)>>,
+    archive: Vec<bool>,
+    network_mock: Arc<RwLock<Box<dyn FnMut(String, &NetworkRequests) -> (NetworkResponses, bool)>>>,
 ) -> (Block, Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>) {
     let validators_clone = validators.clone();
     let key_pairs = key_pairs.clone();
@@ -280,14 +279,16 @@ pub fn setup_mock_all_validators(
     let num_shards = validators.iter().map(|x| x.len()).min().unwrap() as NumShards;
 
     let last_height_score =
-        Arc::new(RwLock::new(vec![(0, ScoreAndHeight::from_ints(0, 0)); key_pairs.len()]));
+        Arc::new(RwLock::new(vec![ScoreAndHeight::from_ints(0, 0); key_pairs.len()]));
     let largest_endorsed_height = Arc::new(RwLock::new(vec![0u64; key_pairs.len()]));
     let largest_skipped_height = Arc::new(RwLock::new(vec![0u64; key_pairs.len()]));
     let hash_to_score = Arc::new(RwLock::new(HashMap::new()));
     let approval_intervals: Arc<RwLock<Vec<BTreeSet<(ScoreAndHeight, ScoreAndHeight)>>>> =
         Arc::new(RwLock::new(key_pairs.iter().map(|_| BTreeSet::new()).collect()));
 
-    for account_id in validators.iter().flatten().cloned() {
+    for (index, account_id) in
+        validators.iter().flatten().enumerate().map(|(i, acc)| (i, acc.clone())).collect::<Vec<_>>()
+    {
         let view_client_addr = Arc::new(RwLock::new(None));
         let view_client_addr1 = view_client_addr.clone();
         let validators_clone1 = validators_clone.clone();
@@ -306,6 +307,7 @@ pub fn setup_mock_all_validators(
         let largest_skipped_height1 = largest_skipped_height.clone();
         let hash_to_score1 = hash_to_score.clone();
         let approval_intervals1 = approval_intervals.clone();
+        let archive1 = archive.clone();
         let client_addr = ClientActor::create(move |ctx| {
             let client_addr = ctx.address();
             let pm = NetworkMock::mock(Box::new(move |msg, _ctx| {
@@ -343,8 +345,8 @@ pub fn setup_mock_all_validators(
                                         chain_id: "unittest".to_string(),
                                         hash: Default::default(),
                                     },
-                                    height: last_height_score2[i].0,
-                                    score: last_height_score2[i].1.score,
+                                    height: last_height_score2[i].height,
+                                    score: last_height_score2[i].score,
                                     tracked_shards: vec![],
                                 },
                                 edge_info: EdgeInfo::default(),
@@ -359,6 +361,8 @@ pub fn setup_mock_all_validators(
                             sent_bytes_per_sec: 0,
                             received_bytes_per_sec: 0,
                             known_producers: vec![],
+                            #[cfg(feature = "metric_recorder")]
+                            metric_recorder: MetricRecorder::default(),
                         };
                         client_addr.do_send(NetworkClientMessages::NetworkInfo(info));
                     }
@@ -377,10 +381,8 @@ pub fn setup_mock_all_validators(
 
                             let my_height_score = &mut last_height_score1[my_ord];
 
-                            my_height_score.0 =
-                                max(my_height_score.0, block.header.inner_lite.height);
-                            my_height_score.1 =
-                                max(my_height_score.1, block.header.score_and_height());
+                            *my_height_score =
+                                max(*my_height_score, block.header.score_and_height());
 
                             hash_to_score1
                                 .write()
@@ -729,7 +731,7 @@ pub fn setup_mock_all_validators(
                 block_prod_time,
                 block_prod_time * 3,
                 enable_doomslug,
-                archive,
+                archive1[index],
                 Arc::new(network_adapter),
                 10000,
                 genesis_time,
@@ -785,7 +787,6 @@ pub fn setup_no_network_with_validity_period(
 }
 
 pub fn setup_client_with_runtime(
-    store: Arc<Store>,
     num_validator_seats: NumSeats,
     account_id: Option<&str>,
     enable_doomslug: bool,
@@ -801,7 +802,6 @@ pub fn setup_client_with_runtime(
     config.epoch_length = chain_genesis.epoch_length;
     let mut client = Client::new(
         config,
-        store,
         chain_genesis,
         runtime_adapter,
         network_adapter,
@@ -832,7 +832,6 @@ pub fn setup_client(
         chain_genesis.epoch_length,
     ));
     setup_client_with_runtime(
-        store,
         num_validator_seats,
         account_id,
         enable_doomslug,
@@ -901,9 +900,7 @@ impl TestEnv {
             (0..num_validator_seats).map(|i| format!("test{}", i)).collect();
         let clients = (0..num_clients)
             .map(|i| {
-                let store = create_test_store();
                 setup_client_with_runtime(
-                    store.clone(),
                     num_validator_seats,
                     Some(&format!("test{}", i)),
                     false,

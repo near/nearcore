@@ -30,6 +30,9 @@ if not config['local']:
       }
     }
     TIMEOUT = 600
+
+client_config_changes['archive'] = True
+
 nodes = start_cluster(4, 0, 4, None, [["epoch_length", 6], ["block_producer_kickout_threshold", 80]], client_config_changes)
 
 started = time.time()
@@ -78,7 +81,8 @@ def get_up_to(from_, to):
         if len(epochs) == 0 or epochs[-1] != hash_to_epoch[hash_]:
             epochs.append(hash_to_epoch[hash_])
 
-get_up_to(1, 29)
+# don't start from 1, sicne couple heights get produced while the nodes spin up
+get_up_to(4, 29)
 
 # since we already "know" the first block, the first light client block that will be returned
 # will be for the second epoch. The second epoch spans blocks 7-12, and the last final block in
@@ -86,7 +90,7 @@ get_up_to(1, 29)
 # the last block returned will be the last final block, with height 27
 heights = [None, 10, 16, 22, 27]
 
-last_known_block_hash = height_to_hash[1]
+last_known_block_hash = height_to_hash[4]
 last_known_block = None
 iter_ = 1
 

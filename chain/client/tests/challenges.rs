@@ -4,9 +4,8 @@ use std::path::Path;
 use std::sync::Arc;
 
 use borsh::BorshSerialize;
-use reed_solomon_erasure::galois_8::ReedSolomon;
 
-use near::config::{GenesisConfigExt, FISHERMEN_THRESHOLD};
+use near::config::{GenesisExt, FISHERMEN_THRESHOLD};
 use near::NightshadeRuntime;
 use near_chain::chain::BlockEconomicsConfig;
 use near_chain::validate::validate_challenge;
@@ -14,7 +13,7 @@ use near_chain::{
     Block, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode, Error, ErrorKind, Provenance,
     RuntimeAdapter,
 };
-use near_chain_configs::GenesisConfig;
+use near_chain_configs::Genesis;
 use near_client::test_utils::{MockNetworkAdapter, TestEnv};
 use near_client::Client;
 use near_crypto::{InMemorySigner, KeyType, Signer};
@@ -26,7 +25,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{merklize, MerklePath};
 use near_primitives::receipt::Receipt;
 use near_primitives::serialize::BaseDecode;
-use near_primitives::sharding::EncodedShardChunk;
+use near_primitives::sharding::{EncodedShardChunk, ReedSolomonWrapper};
 use near_primitives::test_utils::init_test_logger;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::StateRoot;
@@ -70,19 +69,11 @@ fn test_verify_block_double_sign_challenge() {
         }),
         &signer,
     );
-    let transaction_validity_period = env.clients[0].chain.transaction_validity_period;
     let runtime_adapter = env.clients[1].chain.runtime_adapter.clone();
     assert_eq!(
-        validate_challenge(
-            env.clients[0].chain.mut_store(),
-            &*runtime_adapter,
-            &epoch_id,
-            &genesis.hash(),
-            &valid_challenge,
-            transaction_validity_period,
-        )
-        .unwrap()
-        .0,
+        validate_challenge(&*runtime_adapter, &epoch_id, &genesis.hash(), &valid_challenge,)
+            .unwrap()
+            .0,
         if b1.hash() > b2.hash() { b1.hash() } else { b2.hash() }
     );
     let invalid_challenge = Challenge::produce(
@@ -92,17 +83,9 @@ fn test_verify_block_double_sign_challenge() {
         }),
         &signer,
     );
-    let transaction_validity_period = env.clients[0].chain.transaction_validity_period;
     let runtime_adapter = env.clients[1].chain.runtime_adapter.clone();
-    assert!(validate_challenge(
-        env.clients[0].chain.mut_store(),
-        &*runtime_adapter,
-        &epoch_id,
-        &genesis.hash(),
-        &invalid_challenge,
-        transaction_validity_period,
-    )
-    .is_err());
+    assert!(validate_challenge(&*runtime_adapter, &epoch_id, &genesis.hash(), &invalid_challenge,)
+        .is_err());
     let b3 = env.clients[0].produce_block(3).unwrap().unwrap();
     let invalid_challenge = Challenge::produce(
         ChallengeBody::BlockDoubleSign(BlockDoubleSign {
@@ -111,17 +94,9 @@ fn test_verify_block_double_sign_challenge() {
         }),
         &signer,
     );
-    let transaction_validity_period = env.clients[0].chain.transaction_validity_period;
     let runtime_adapter = env.clients[1].chain.runtime_adapter.clone();
-    assert!(validate_challenge(
-        env.clients[0].chain.mut_store(),
-        &*runtime_adapter,
-        &epoch_id,
-        &genesis.hash(),
-        &invalid_challenge,
-        transaction_validity_period,
-    )
-    .is_err());
+    assert!(validate_challenge(&*runtime_adapter, &epoch_id, &genesis.hash(), &invalid_challenge,)
+        .is_err());
 
     let (_, result) = env.clients[0].process_block(b2, Provenance::NONE);
     assert!(result.is_ok());
@@ -177,7 +152,7 @@ fn create_chunk(
         let data_parts = client.chain.runtime_adapter.num_data_parts();
         let decoded_chunk = chunk.decode_chunk(data_parts).unwrap();
         let parity_parts = total_parts - data_parts;
-        let rs = ReedSolomon::new(data_parts, parity_parts).unwrap();
+        let mut rs = ReedSolomonWrapper::new(data_parts, parity_parts);
 
         let (tx_root, _) = merklize(&transactions);
         let signer = client.validator_signer.as_ref().unwrap().clone();
@@ -187,7 +162,7 @@ fn create_chunk(
             chunk.header.inner.outcome_root,
             chunk.header.inner.height_created,
             chunk.header.inner.shard_id,
-            &rs,
+            &mut rs,
             chunk.header.inner.gas_used,
             chunk.header.inner.gas_limit,
             chunk.header.inner.rent_paid,
@@ -360,35 +335,8 @@ fn test_verify_chunk_proofs_challenge_transaction_order() {
     assert_eq!(challenge_result.unwrap(), (block.hash(), vec!["test0".to_string()]));
 }
 
-#[test]
-fn test_verify_chunk_proofs_challenge_transaction_validity() {
-    let mut env = TestEnv::new(ChainGenesis::test(), 1, 1);
-    env.produce_block(0, 1);
-
-    let signer = InMemorySigner::from_seed("test0", KeyType::ED25519, "test0");
-
-    let (chunk, _merkle_paths, _receipts, block) = create_chunk_with_transactions(
-        &mut env.clients[0],
-        vec![SignedTransaction::send_money(
-            1,
-            "test0".to_string(),
-            "test1".to_string(),
-            &signer,
-            1000,
-            CryptoHash::default(),
-        )],
-    );
-    let challenge_result = challenge(
-        env,
-        chunk.header.inner.shard_id as usize,
-        MaybeEncodedShardChunk::Encoded(chunk),
-        &block,
-    );
-    assert_eq!(challenge_result.unwrap(), (block.hash(), vec!["test0".to_string()]));
-}
-
 fn challenge(
-    mut env: TestEnv,
+    env: TestEnv,
     shard_id: usize,
     chunk: MaybeEncodedShardChunk,
     block: &Block,
@@ -402,26 +350,23 @@ fn challenge(
         }),
         &*env.clients[0].validator_signer.as_ref().unwrap().clone(),
     );
-    let transaction_validity_period = env.clients[0].chain.transaction_validity_period;
     let runtime_adapter = env.clients[0].chain.runtime_adapter.clone();
     validate_challenge(
-        env.clients[0].chain.mut_store(),
         &*runtime_adapter,
         &block.header.inner_lite.epoch_id,
         &block.header.prev_hash,
         &valid_challenge,
-        transaction_validity_period,
     )
 }
 
 #[test]
 fn test_verify_chunk_invalid_state_challenge() {
     let store1 = create_test_store();
-    let genesis_config = GenesisConfig::test(vec!["test0", "test1"], 1);
+    let genesis = Genesis::test(vec!["test0", "test1"], 1);
     let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![Arc::new(near::NightshadeRuntime::new(
         Path::new("."),
         store1,
-        genesis_config,
+        Arc::new(genesis),
         vec![],
         vec![],
     ))];
@@ -446,7 +391,7 @@ fn test_verify_chunk_invalid_state_challenge() {
     let total_parts = env.clients[0].runtime_adapter.num_total_parts();
     let data_parts = env.clients[0].runtime_adapter.num_data_parts();
     let parity_parts = total_parts - data_parts;
-    let rs = ReedSolomon::new(data_parts, parity_parts).unwrap();
+    let mut rs = ReedSolomonWrapper::new(data_parts, parity_parts);
     let (mut invalid_chunk, merkle_paths) = env.clients[0]
         .shards_mgr
         .create_encoded_shard_chunk(
@@ -466,7 +411,7 @@ fn test_verify_chunk_invalid_state_challenge() {
             last_block.chunks[0].inner.outgoing_receipts_root,
             CryptoHash::default(),
             &validator_signer,
-            &rs,
+            &mut rs,
         )
         .unwrap();
 
@@ -508,7 +453,6 @@ fn test_verify_chunk_invalid_state_challenge() {
         use near_chain::chain::{ChainUpdate, OrphanBlockPool};
         let chain = &mut client.chain;
         let adapter = chain.runtime_adapter.clone();
-        let validity_period = chain.transaction_validity_period;
         let epoch_length = chain.epoch_length;
         let empty_block_pool = OrphanBlockPool::new();
 
@@ -517,7 +461,6 @@ fn test_verify_chunk_invalid_state_challenge() {
             adapter,
             &empty_block_pool,
             &empty_block_pool,
-            validity_period,
             epoch_length,
             &BlockEconomicsConfig { gas_price_adjustment_rate: 0, min_gas_price: 0 },
             DoomslugThresholdMode::NoApprovals,
@@ -552,16 +495,13 @@ fn test_verify_chunk_invalid_state_challenge() {
     }
     let challenge =
         Challenge::produce(ChallengeBody::ChunkState(challenge_body), &validator_signer);
-    let transaction_validity_period = client.chain.transaction_validity_period;
     let runtime_adapter = client.chain.runtime_adapter.clone();
     assert_eq!(
         validate_challenge(
-            client.chain.mut_store(),
             &*runtime_adapter,
             &block.header.inner_lite.epoch_id,
             &block.header.prev_hash,
             &challenge,
-            transaction_validity_period,
         )
         .unwrap(),
         (block.hash(), vec!["test0".to_string()])
@@ -683,13 +623,14 @@ fn test_block_challenge() {
 #[test]
 fn test_fishermen_challenge() {
     init_test_logger();
-    let mut genesis_config = GenesisConfig::test(vec!["test0", "test1", "test2"], 1);
-    genesis_config.epoch_length = 5;
+    let mut genesis = Genesis::test(vec!["test0", "test1", "test2"], 1);
+    genesis.config.epoch_length = 5;
+    let genesis = Arc::new(genesis);
     let create_runtime = || -> Arc<NightshadeRuntime> {
         Arc::new(near::NightshadeRuntime::new(
             Path::new("."),
             create_test_store(),
-            genesis_config.clone(),
+            Arc::clone(&genesis),
             vec![],
             vec![],
         ))
@@ -742,21 +683,22 @@ fn test_fishermen_challenge() {
 #[test]
 fn test_challenge_in_different_epoch() {
     init_test_logger();
-    let mut genesis_config = GenesisConfig::test(vec!["test0", "test1"], 2);
-    genesis_config.epoch_length = 2;
-    //    genesis_config.validator_kickout_threshold = 10;
+    let mut genesis = Genesis::test(vec!["test0", "test1"], 2);
+    genesis.config.epoch_length = 2;
+    let genesis = Arc::new(genesis);
+    //    genesis.config.validator_kickout_threshold = 10;
     let network_adapter = Arc::new(MockNetworkAdapter::default());
     let runtime1 = Arc::new(near::NightshadeRuntime::new(
         Path::new("."),
         create_test_store(),
-        genesis_config.clone(),
+        Arc::clone(&genesis),
         vec![],
         vec![],
     ));
     let runtime2 = Arc::new(near::NightshadeRuntime::new(
         Path::new("."),
         create_test_store(),
-        genesis_config,
+        genesis,
         vec![],
         vec![],
     ));

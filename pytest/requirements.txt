@@ -5,6 +5,6 @@ requests
 retry
 ed25519
 base58
-python-rc==0.1.7
+python-rc==0.1.9
 tqdm
 deepdiff

@@ -21,7 +21,7 @@ serde_derive = "1.0"
 serde_json = "1.0"
 lazy_static = "1.4"
 dirs = "2.0.2"
-borsh = "0.2.10"
+borsh = "0.6.1"
 tracing = "0.1"
 tracing-subscriber = "0.1.6"
 
@@ -46,3 +46,5 @@ testlib = { path = "../test-utils/testlib" }
 
 [features]
 adversarial =  ["near-client/adversarial", "near-network/adversarial"]
+expensive_tests = ["near-client/expensive_tests", "near-epoch-manager/expensive_tests", "near-chain/expensive_tests"]
+metric_recorder = ["near-network/metric_recorder", "near-client/metric_recorder"]

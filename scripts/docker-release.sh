@@ -1,22 +1,14 @@
 #!/bin/bash
-function make_sure {
-    read -p "$1. Are you sure [y/n]? " -n 1 -r
-    echo
-    if [[ ! $REPLY =~ ^[Yy]$ ]]
-    then
-        exit 1
-    fi
-}
+set -euo pipefail
 
-branch=$(git rev-parse --abbrev-ref HEAD)
-if [ "${branch}" != "master" ]; then
-    make_sure "Not in master branch"
-fi
-
-if [ -n "$(git status -s)" ]; then
-    make_sure "There's untracked files or uncommitted changes"
-fi
+branch=${BUILDKITE_BRANCH}
+commit=${BUILDKITE_COMMIT}
 
 make
-docker tag nearcore nearprotocol/nearcore:latest
-docker push nearprotocol/nearcore:latest
+# Here we don't check master, beta and stable criteria, they have to be checked in buildkite pipeline
+# before this script. And nearprotocol/nearcore:latest must be manually tagged from a verified stable.
+docker tag nearcore nearprotocol/nearcore:${branch}-${commit}
+docker tag nearcore nearprotocol/nearcore:${branch}
+set -x
+docker push nearprotocol/nearcore:${branch}-${commit}
+docker push nearprotocol/nearcore:${branch}

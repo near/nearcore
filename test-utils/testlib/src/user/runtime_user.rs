@@ -87,6 +87,7 @@ impl RuntimeUser {
                     RuntimeError::UnexpectedIntegerOverflow => {
                         panic!("UnexpectedIntegerOverflow error")
                     }
+                    RuntimeError::ReceiptValidationError(e) => panic!("{}", e),
                 })?;
             for outcome_with_id in apply_result.outcomes {
                 self.transaction_results
@@ -112,6 +113,7 @@ impl RuntimeUser {
             block_index: 0,
             block_timestamp: 0,
             epoch_length: client.epoch_length,
+            epoch_height: 0,
             gas_price: MIN_GAS_PRICE,
             gas_limit: None,
         }

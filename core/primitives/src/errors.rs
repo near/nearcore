@@ -48,11 +48,22 @@ pub enum RuntimeError {
     /// An error happened during TX verification and account charging. It's likely the chunk is invalid.
     /// and should be challenged.
     InvalidTxError(InvalidTxError),
-    /// Unexpected error which is typically related to the node storage corruption.account
-    /// That it's possible the input state is invalid or malicious.
+    /// Unexpected error which is typically related to the node storage corruption.
+    /// It's possible the input state is invalid or malicious.
     StorageError(StorageError),
     /// An error happens if `check_balance` fails, which is likely an indication of an invalid state.
     BalanceMismatchError(BalanceMismatchError),
+    /// The incoming receipt didn't pass the validation, it's likely a malicious behaviour.
+    ReceiptValidationError(ReceiptValidationError),
+}
+
+/// Error used by `RuntimeExt`. This error has to be serializable, because it's transferred through
+/// the `VMLogicError`, which isn't aware of internal Runtime errors.
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq)]
+pub enum ExternalError {
+    /// Unexpected error which is typically related to the node storage corruption.
+    /// It's possible the input state is invalid or malicious.
+    StorageError(StorageError),
 }
 
 /// Internal

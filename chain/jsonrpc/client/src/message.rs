@@ -10,13 +10,11 @@
 //! The main entrypoint here is the [Message](enum.Message.html). The others are just building
 //! blocks and you should generally work with `Message` instead.
 
-#![allow(unused)]
-
 use std::fmt::{Formatter, Result as FmtResult};
 
-use serde::de::{Deserialize, Deserializer, Error, Unexpected, Visitor};
-use serde::ser::{Serialize, SerializeStruct, Serializer};
-use serde_derive::{Deserialize, Serialize};
+use serde::de::{Deserializer, Error, Unexpected, Visitor};
+use serde::ser::{SerializeStruct, Serializer};
+use serde::{Deserialize, Serialize};
 use serde_json::{to_value, Result as JsonResult, Value};
 use uuid::Uuid;
 
@@ -92,8 +90,17 @@ impl RpcError {
         RpcError { code, message, data }
     }
     /// Create an Invalid Param error.
-    pub fn invalid_params(msg: Option<String>) -> Self {
-        RpcError::new(-32_602, "Invalid params".to_owned(), msg.map(Value::String))
+    pub fn invalid_params(data: impl Serialize) -> Self {
+        let value = match to_value(data) {
+            Ok(value) => value,
+            Err(err) => {
+                return Self::server_error(Some(format!(
+                    "Failed to serialize invalid parameters error: {:?}",
+                    err.to_string()
+                )))
+            }
+        };
+        RpcError::new(-32_602, "Invalid params".to_owned(), Some(value))
     }
     /// Create a server error.
     pub fn server_error<E: Serialize>(e: Option<E>) -> Self {
@@ -172,7 +179,6 @@ struct WireResponse {
 // structure that directly corresponds to whatever is on the wire and then convert it to our more
 // convenient representation.
 impl<'de> Deserialize<'de> for Response {
-    #[allow(unreachable_code)] // For that unreachable below
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         let wr: WireResponse = Deserialize::deserialize(deserializer)?;
         let result = match (wr.result, wr.error) {

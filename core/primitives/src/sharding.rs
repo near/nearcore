@@ -1,5 +1,6 @@
 use borsh::{BorshDeserialize, BorshSerialize};
-use reed_solomon_erasure::galois_8::ReedSolomon;
+use reed_solomon_erasure::galois_8::{Field, ReedSolomon};
+use serde::Serialize;
 
 use near_crypto::Signature;
 
@@ -9,6 +10,7 @@ use crate::receipt::Receipt;
 use crate::transaction::SignedTransaction;
 use crate::types::{Balance, BlockHeight, Gas, MerkleHash, ShardId, StateRoot, ValidatorStake};
 use crate::validator_signer::ValidatorSigner;
+use reed_solomon_erasure::ReconstructShard;
 
 #[derive(
     BorshSerialize, BorshDeserialize, Serialize, Hash, Eq, PartialEq, Clone, Debug, Default,
@@ -185,7 +187,10 @@ impl EncodedShardChunkBody {
     }
 
     /// Returns true if reconstruction was successful
-    pub fn reconstruct(&mut self, rs: &ReedSolomon) -> Result<(), reed_solomon_erasure::Error> {
+    pub fn reconstruct(
+        &mut self,
+        rs: &mut ReedSolomonWrapper,
+    ) -> Result<(), reed_solomon_erasure::Error> {
         rs.reconstruct(self.parts.as_mut_slice())
     }
 
@@ -214,7 +219,7 @@ impl EncodedShardChunk {
         outcome_root: CryptoHash,
         height: BlockHeight,
         shard_id: ShardId,
-        rs: &ReedSolomon,
+        rs: &mut ReedSolomonWrapper,
         gas_used: Gas,
         gas_limit: Gas,
         rent_paid: Balance,
@@ -291,7 +296,7 @@ impl EncodedShardChunk {
         encoded_length: u64,
         parts: Vec<Option<Box<[u8]>>>,
 
-        rs: &ReedSolomon,
+        rs: &mut ReedSolomonWrapper,
 
         signer: &dyn ValidatorSigner,
     ) -> (Self, Vec<MerklePath>) {
@@ -368,5 +373,46 @@ impl EncodedShardChunk {
             transactions: transaction_receipts.0,
             receipts: transaction_receipts.1,
         })
+    }
+}
+
+/// An reed solomon instance should not consume more than 20MB of memory.
+const RS_MAX_MEMORY: u64 = 20 * 1024 * 1024;
+
+/// Wrapper around reed solomon which occasionally resets the underlying
+/// reed solomon instead to work around the memory leak in reed solomon
+/// implementation https://github.com/darrenldl/reed-solomon-erasure/issues/74.
+pub struct ReedSolomonWrapper {
+    rs: ReedSolomon,
+    ttl: u64,
+}
+
+impl ReedSolomonWrapper {
+    pub fn new(data_shards: usize, parity_shards: usize) -> Self {
+        ReedSolomonWrapper {
+            rs: ReedSolomon::new(data_shards, parity_shards).unwrap(),
+            ttl: RS_MAX_MEMORY / (data_shards * data_shards) as u64 + 1,
+        }
+    }
+
+    pub fn reconstruct<T: ReconstructShard<Field>>(
+        &mut self,
+        slices: &mut [T],
+    ) -> Result<(), reed_solomon_erasure::Error> {
+        let res = self.rs.reconstruct(slices);
+        self.ttl -= 1;
+        if self.ttl == 0 {
+            *self =
+                ReedSolomonWrapper::new(self.rs.data_shard_count(), self.rs.parity_shard_count());
+        }
+        res
+    }
+
+    pub fn data_shard_count(&self) -> usize {
+        self.rs.data_shard_count()
+    }
+
+    pub fn total_shard_count(&self) -> usize {
+        self.rs.total_shard_count()
     }
 }

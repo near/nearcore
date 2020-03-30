@@ -30,6 +30,8 @@ use crate::codec::Codec;
 use crate::metrics;
 use crate::peer::Peer;
 use crate::peer_store::PeerStore;
+#[cfg(feature = "metric_recorder")]
+use crate::recorder::{MetricRecorder, PeerMessageMetadata};
 use crate::routing::{Edge, EdgeInfo, EdgeType, ProcessEdgeResult, RoutingTable};
 use crate::types::{
     AccountOrPeerIdOrHash, Ban, BlockedPorts, Consolidate, ConsolidateResponse, FullPeerInfo,
@@ -51,6 +53,9 @@ const WAIT_ON_TRY_UPDATE_NONCE: u64 = 6_000;
 /// If we see an edge between us and other peer, but this peer is not a current connection, wait this
 /// timeout and in case it didn't become an active peer, broadcast edge removal update.
 const WAIT_PEER_BEFORE_REMOVE: u64 = 6_000;
+/// Time to wait before sending ping to all reachable peers.
+#[cfg(feature = "metric_recorder")]
+const WAIT_BEFORE_PING: u64 = 20_000;
 
 macro_rules! unwrap_or_error(($obj: expr, $error: expr) => (match $obj {
     Ok(result) => result,
@@ -94,6 +99,9 @@ pub struct PeerManagerActor {
     monitor_peers_attempts: u64,
     /// Active peers we have sent new edge update, but we haven't received response so far.
     pending_update_nonce_request: HashMap<PeerId, u64>,
+    /// Store all collected metrics from a node.
+    #[cfg(feature = "metric_recorder")]
+    metric_recorder: MetricRecorder,
 }
 
 impl PeerManagerActor {
@@ -107,7 +115,8 @@ impl PeerManagerActor {
         debug!(target: "network", "Found known peers: {} (boot nodes={})", peer_store.len(), config.boot_nodes.len());
         debug!(target: "network", "Blacklist: {:?}", config.blacklist);
 
-        let me = config.public_key.clone().into();
+        let me: PeerId = config.public_key.clone().into();
+
         Ok(PeerManagerActor {
             peer_id: config.public_key.clone().into(),
             config,
@@ -116,9 +125,11 @@ impl PeerManagerActor {
             peer_store,
             active_peers: HashMap::default(),
             outgoing_peers: HashSet::default(),
-            routing_table: RoutingTable::new(me, store),
+            routing_table: RoutingTable::new(me.clone(), store),
             monitor_peers_attempts: 0,
             pending_update_nonce_request: HashMap::new(),
+            #[cfg(feature = "metric_recorder")]
+            metric_recorder: MetricRecorder::default().set_me(me),
         })
     }
 
@@ -391,7 +402,7 @@ impl PeerManagerActor {
         future::try_join_all(requests)
             .into_actor(self)
             .map(|x, _, _| {
-                let _ignore = x.map_err(|e| error!("Failed sending broadcast message: {}", e));
+                let _ignore = x.map_err(|e| error!(target: "network", "Failed sending broadcast message(query_active_peers): {}", e));
             })
             .spawn(ctx);
     }
@@ -402,7 +413,11 @@ impl PeerManagerActor {
             self.routing_table.process_edge(edge);
 
         if let Some(duration) = schedule_computation {
-            ctx.run_later(duration, |act, _ctx| act.routing_table.update());
+            ctx.run_later(duration, |act, _ctx| {
+                act.routing_table.update();
+                #[cfg(feature = "metric_recorder")]
+                act.metric_recorder.set_graph(act.routing_table.get_raw_graph())
+            });
         }
 
         new_edge
@@ -437,7 +452,7 @@ impl PeerManagerActor {
 
         self.send_message(
             ctx,
-            &other.clone(),
+            other.clone(),
             PeerMessage::RequestUpdateNonce(EdgeInfo::new(
                 self.peer_id.clone(),
                 other.clone(),
@@ -461,6 +476,18 @@ impl PeerManagerActor {
         });
     }
 
+    #[cfg(feature = "metric_recorder")]
+    fn ping_all_peers(&mut self, ctx: &mut Context<Self>) {
+        for peer_id in self.routing_table.reachable_peers().cloned().collect::<Vec<_>>() {
+            let nonce = self.routing_table.get_ping(peer_id.clone());
+            self.send_ping(ctx, nonce, peer_id);
+        }
+
+        ctx.run_later(Duration::from_millis(WAIT_BEFORE_PING), move |act, ctx| {
+            act.ping_all_peers(ctx);
+        });
+    }
+
     /// Periodically query peer actors for latest weight and traffic info.
     fn monitor_peer_stats(&mut self, ctx: &mut Context<Self>) {
         for (peer_id, active_peer) in self.active_peers.iter() {
@@ -469,7 +496,7 @@ impl PeerManagerActor {
                 .addr
                 .send(QueryPeerStats {})
                 .into_actor(self)
-                .map(|result, _, _| result.map_err(|err| error!("Failed sending message: {}", err)))
+                .map(|result, _, _| result.map_err(|err| error!(target: "network", "Failed sending message(monitor_peer_stats): {}", err)))
                 .map(move |res, act, _| {
                     let _ignore = res.map(|res| {
                         if res.is_abusive {
@@ -552,7 +579,7 @@ impl PeerManagerActor {
 
         future::try_join_all(requests)
             .into_actor(self)
-            .map(|res, _, _| res.map_err(|e| error!("Failed sending broadcast message: {}", e)))
+            .map(|res, _, _| res.map_err(|e| error!(target: "network", "Failed sending broadcast message(broadcast_message): {}", e)))
             .map(|_, _, _| ())
             .spawn(ctx);
     }
@@ -573,15 +600,23 @@ impl PeerManagerActor {
     fn send_message(
         &mut self,
         ctx: &mut Context<Self>,
-        peer_id: &PeerId,
+        peer_id: PeerId,
         message: PeerMessage,
     ) -> bool {
         if let Some(active_peer) = self.active_peers.get(&peer_id) {
+            let msg_kind = format!("{}", message);
             active_peer
                 .addr
                 .send(SendMessage { message })
                 .into_actor(self)
-                .map(|res, _, _| res.map_err(|e| error!("Failed sending message: {}", e)))
+                .map(move |res, act, _|
+                    res.map_err(|e| {
+                        // Peer could have disconnect between check and sending the message.
+                        if act.active_peers.contains_key(&peer_id) {
+                            error!(target: "network", "Failed sending message(send_message, {}): {}", msg_kind, e)
+                        }
+                    })
+                )
                 .map(|_, _, _| ())
                 .spawn(ctx);
             true
@@ -625,7 +660,7 @@ impl PeerManagerActor {
                     self.routing_table.add_route_back(msg.hash(), self.peer_id.clone());
                 }
 
-                self.send_message(ctx, &peer_id, PeerMessage::Routed(msg))
+                self.send_message(ctx, peer_id, PeerMessage::Routed(msg))
             }
             Err(find_route_error) => {
                 // TODO(MarX, #1369): Message is dropped here. Define policy for this case.
@@ -710,6 +745,7 @@ impl PeerManagerActor {
     fn send_ping(&mut self, ctx: &mut Context<Self>, nonce: usize, target: PeerId) {
         let body =
             RoutedMessageBody::Ping(Ping { nonce: nonce as u64, source: self.peer_id.clone() });
+        self.routing_table.sending_ping(nonce, target.clone());
         let msg = RawRoutedMessage { target: AccountOrPeerIdOrHash::PeerId(target), body };
         self.send_message_to_peer(ctx, msg);
     }
@@ -726,8 +762,18 @@ impl PeerManagerActor {
         self.routing_table.add_ping(ping);
     }
 
+    /// Handle pong messages. Add pong temporary to the routing table, mostly used for testing.
+    /// If `metric_recorder` feature flag is enabled, save how much time passed since we sent ping.
     fn handle_pong(&mut self, _ctx: &mut Context<Self>, pong: Pong) {
-        self.routing_table.add_pong(pong);
+        #[cfg(feature = "metric_recorder")]
+        let source = pong.source.clone();
+        #[allow(unused_variables)]
+        let latency = self.routing_table.add_pong(pong);
+        #[cfg(feature = "metric_recorder")]
+        latency.and_then::<(), _>(|latency| {
+            self.metric_recorder.add_latency(source, latency);
+            None
+        });
     }
 
     pub(crate) fn get_network_info(&mut self) -> NetworkInfo {
@@ -754,6 +800,8 @@ impl PeerManagerActor {
                     addr: None,
                 })
                 .collect(),
+            #[cfg(feature = "metric_recorder")]
+            metric_recorder: self.metric_recorder.clone(),
         }
     }
 
@@ -811,6 +859,10 @@ impl Actor for PeerManagerActor {
 
         // Start active peer stats querying.
         self.monitor_peer_stats(ctx);
+
+        // Periodically ping all peers to determine latencies between pair of peers.
+        #[cfg(feature = "metric_recorder")]
+        self.ping_all_peers(ctx);
     }
 
     /// Try to gracefully disconnect from active peers.
@@ -843,14 +895,14 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                 NetworkResponses::NoResponse
             }
             NetworkRequests::BlockRequest { hash, peer_id } => {
-                if self.send_message(ctx, &peer_id, PeerMessage::BlockRequest(hash)) {
+                if self.send_message(ctx, peer_id, PeerMessage::BlockRequest(hash)) {
                     NetworkResponses::NoResponse
                 } else {
                     NetworkResponses::RouteNotFound
                 }
             }
             NetworkRequests::BlockHeadersRequest { hashes, peer_id } => {
-                if self.send_message(ctx, &peer_id, PeerMessage::BlockHeadersRequest(hashes)) {
+                if self.send_message(ctx, peer_id, PeerMessage::BlockHeadersRequest(hashes)) {
                     NetworkResponses::NoResponse
                 } else {
                     NetworkResponses::RouteNotFound
@@ -895,7 +947,7 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                 if let Some(peer) = self.active_peers.get(&peer_id) {
                     let _ = peer.addr.do_send(PeerManagerRequest::BanPeer(ban_reason));
                 } else {
-                    warn!(target: "network", "Try to ban a disconnected peer: {:?}", peer_id);
+                    warn!(target: "network", "Try to ban a disconnected peer for {:?}: {:?}", ban_reason, peer_id);
                     // Call `ban_peer` in peer manager to trigger action that persists information
                     // of ban in disk.
                     self.ban_peer(ctx, &peer_id, ban_reason);
@@ -961,11 +1013,11 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                     NetworkResponses::RouteNotFound
                 }
             }
-            NetworkRequests::Query { query_id, account_id, block_id, request, finality } => {
+            NetworkRequests::Query { query_id, account_id, block_id_or_finality, request } => {
                 if self.send_message_to_account(
                     ctx,
                     &account_id,
-                    RoutedMessageBody::QueryRequest { query_id, block_id, request, finality },
+                    RoutedMessageBody::QueryRequest { query_id, block_id_or_finality, request },
                 ) {
                     NetworkResponses::NoResponse
                 } else {
@@ -1377,5 +1429,13 @@ impl Handler<PeerRequest> for PeerManagerActor {
                 PeerResponse::NoResponse
             }
         }
+    }
+}
+
+#[cfg(feature = "metric_recorder")]
+impl Handler<PeerMessageMetadata> for PeerManagerActor {
+    type Result = ();
+    fn handle(&mut self, msg: PeerMessageMetadata, _ctx: &mut Self::Context) -> Self::Result {
+        self.metric_recorder.handle_peer_message(msg);
     }
 }

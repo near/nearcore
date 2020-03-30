@@ -2,14 +2,16 @@ use std::cmp::{max, Ordering};
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::{DateTime, Utc};
-use reed_solomon_erasure::galois_8::ReedSolomon;
+use serde::Serialize;
 
 use near_crypto::{KeyType, PublicKey, Signature};
 
 use crate::challenge::{Challenges, ChallengesResult};
 use crate::hash::{hash, CryptoHash};
 use crate::merkle::{combine_hash, merklize, verify_path, MerklePath};
-use crate::sharding::{ChunkHashHeight, EncodedShardChunk, ShardChunk, ShardChunkHeader};
+use crate::sharding::{
+    ChunkHashHeight, EncodedShardChunk, ReedSolomonWrapper, ShardChunk, ShardChunkHeader,
+};
 use crate::types::{
     AccountId, Balance, BlockHeight, EpochId, Gas, MerkleHash, NumShards, StateRoot, ValidatorStake,
 };
@@ -317,6 +319,7 @@ impl BlockHeader {
     }
 
     pub fn genesis(
+        height: BlockHeight,
         state_root: MerkleHash,
         chunk_receipts_root: MerkleHash,
         chunk_headers_root: MerkleHash,
@@ -329,7 +332,7 @@ impl BlockHeader {
         next_bp_hash: CryptoHash,
     ) -> Self {
         let inner_lite = BlockHeaderInnerLite::new(
-            0,
+            height,
             EpochId::default(),
             EpochId::default(),
             state_root,
@@ -404,9 +407,10 @@ pub fn genesis_chunks(
     state_roots: Vec<StateRoot>,
     num_shards: NumShards,
     initial_gas_limit: Gas,
+    genesis_height: BlockHeight,
 ) -> Vec<ShardChunk> {
     assert!(state_roots.len() == 1 || state_roots.len() == (num_shards as usize));
-    let rs = ReedSolomon::new(1, 2).unwrap();
+    let mut rs = ReedSolomonWrapper::new(1, 2);
 
     (0..num_shards)
         .map(|i| {
@@ -414,9 +418,9 @@ pub fn genesis_chunks(
                 CryptoHash::default(),
                 state_roots[i as usize % state_roots.len()].clone(),
                 CryptoHash::default(),
-                0,
+                genesis_height,
                 i,
-                &rs,
+                &mut rs,
                 0,
                 initial_gas_limit,
                 0,
@@ -430,7 +434,9 @@ pub fn genesis_chunks(
                 &EmptyValidatorSigner::default(),
             )
             .expect("Failed to decode genesis chunk");
-            encoded_chunk.decode_chunk(1).expect("Failed to decode genesis chunk")
+            let mut chunk = encoded_chunk.decode_chunk(1).expect("Failed to decode genesis chunk");
+            chunk.header.height_included = genesis_height;
+            chunk
         })
         .collect()
 }
@@ -440,6 +446,7 @@ impl Block {
     pub fn genesis(
         chunks: Vec<ShardChunkHeader>,
         timestamp: DateTime<Utc>,
+        height: BlockHeight,
         initial_gas_price: Balance,
         initial_total_supply: Balance,
         next_bp_hash: CryptoHash,
@@ -447,6 +454,7 @@ impl Block {
         let challenges = vec![];
         Block {
             header: BlockHeader::genesis(
+                height,
                 Block::compute_state_root(&chunks),
                 Block::compute_chunk_receipts_root(&chunks),
                 Block::compute_chunk_headers_root(&chunks).0,

@@ -182,12 +182,16 @@ impl HeaderSync {
                                 if now > *stalling_ts + self.stall_ban_timeout
                                     && *highest_height == peer.chain_info.height
                                 {
-                                    info!(target: "sync", "Sync: ban a fraudulent peer: {}, claimed height: {}, score: {}",
+                                    info!(target: "sync", "Sync: ban a fraudulent peer: {}, claimed height: {}, score: {}", 
                                         peer.peer_info, peer.chain_info.height, peer.chain_info.score);
                                     self.network_adapter.do_send(NetworkRequests::BanPeer {
                                         peer_id: peer.peer_info.id.clone(),
                                         ban_reason: ReasonForBan::HeightFraud,
                                     });
+                                    // This peer is fraudulent, let's skip this beat and wait for
+                                    // the next one when this peer is not in the list anymore.
+                                    self.syncing_peer = None;
+                                    return false;
                                 }
                             }
                             _ => (),
@@ -672,8 +676,7 @@ impl StateSync {
         Ok((update_sync_status, all_done))
     }
 
-    fn get_epoch_start_sync_hash(
-        &self,
+    pub fn get_epoch_start_sync_hash(
         chain: &mut Chain,
         sync_hash: &CryptoHash,
     ) -> Result<CryptoHash, near_chain::Error> {
@@ -745,7 +748,6 @@ impl StateSync {
 
         // Downloading strategy starts here
         let mut new_shard_sync_download = shard_sync_download.clone();
-        let epoch_start_sync_hash = self.get_epoch_start_sync_hash(chain, &sync_hash)?;
         match shard_sync_download.status {
             ShardSyncStatus::StateDownloadHeader => {
                 let target =
@@ -759,7 +761,7 @@ impl StateSync {
                     self.network_adapter
                         .send(NetworkRequests::StateRequestHeader {
                             shard_id,
-                            sync_hash: epoch_start_sync_hash,
+                            sync_hash,
                             target: target.clone(),
                         })
                         .then(move |result| {
@@ -785,7 +787,7 @@ impl StateSync {
                             self.network_adapter
                                 .send(NetworkRequests::StateRequestPart {
                                     shard_id,
-                                    sync_hash: epoch_start_sync_hash,
+                                    sync_hash,
                                     part_id: i as u64,
                                     target: target.clone(),
                                 })

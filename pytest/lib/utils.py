@@ -14,19 +14,15 @@ class TxContext:
         self.num_nodes = len(nodes)
         self.nodes = nodes
         self.act_to_val = act_to_val
-        print(f'get_balances')
         self.expected_balances = self.get_balances()
-        print(f'get_balances done')
         assert len(act_to_val) == self.num_nodes
         assert self.num_nodes >= 2
 
     @retry(tries=10, backoff=1.2)
     def get_balance(self, whose):
-        print(f'get_balance {whose}')
         r = self.nodes[self.act_to_val[whose]].get_account("test%s" % whose)
         assert 'result' in r, r
         return int(r['result']['amount']) + int(r['result']['locked'])
-        print(f'get_balance {whose} done')
 
     def get_balances(self):
         return [
@@ -191,3 +187,19 @@ def user_name():
     if username == 'root':  # digitalocean
         username = gcloud.list()[0].username.replace('_nearprotocol_com', '')
     return username
+
+# from https://stackoverflow.com/questions/107705/disable-output-buffering
+# this class allows making print always flush by executing
+#
+#     sys.stdout = Unbuffered(sys.stdout)
+class Unbuffered(object):
+   def __init__(self, stream):
+       self.stream = stream
+   def write(self, data):
+       self.stream.write(data)
+       self.stream.flush()
+   def writelines(self, datas):
+       self.stream.writelines(datas)
+       self.stream.flush()
+   def __getattr__(self, attr):
+       return getattr(self.stream, attr)

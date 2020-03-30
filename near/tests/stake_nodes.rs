@@ -7,9 +7,9 @@ use futures::{future, FutureExt};
 use rand::Rng;
 use tempdir::TempDir;
 
-use near::config::{GenesisConfigExt, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
+use near::config::{GenesisExt, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use near::{load_test_config, start_with_config, NearConfig};
-use near_chain_configs::GenesisConfig;
+use near_chain_configs::Genesis;
 use near_client::{ClientActor, GetBlock, Query, Status, ViewClientActor};
 use near_crypto::{InMemorySigner, KeyType};
 use near_network::test_utils::{convert_boot_nodes, open_port, WaitOrTimeout};
@@ -17,8 +17,8 @@ use near_network::NetworkClientMessages;
 use near_primitives::hash::CryptoHash;
 use near_primitives::test_utils::{heavy_test, init_integration_logger};
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, BlockHeightDelta, NumSeats};
-use near_primitives::views::{Finality, QueryRequest, QueryResponseKind, ValidatorInfo};
+use near_primitives::types::{AccountId, BlockHeightDelta, BlockIdOrFinality, NumSeats};
+use near_primitives::views::{QueryRequest, QueryResponseKind, ValidatorInfo};
 use testlib::genesis_hash;
 
 #[derive(Clone)]
@@ -41,23 +41,24 @@ fn init_test_staking(
     init_integration_logger();
 
     let seeds = (0..num_node_seats).map(|i| format!("near.{}", i)).collect::<Vec<_>>();
-    let mut genesis_config =
-        GenesisConfig::test(seeds.iter().map(|s| s.as_str()).collect(), num_validator_seats);
-    genesis_config.epoch_length = epoch_length;
-    genesis_config.num_block_producer_seats = num_node_seats;
-    genesis_config.block_producer_kickout_threshold = 20;
-    genesis_config.chunk_producer_kickout_threshold = 20;
+    let mut genesis =
+        Genesis::test(seeds.iter().map(|s| s.as_str()).collect(), num_validator_seats);
+    genesis.config.epoch_length = epoch_length;
+    genesis.config.num_block_producer_seats = num_node_seats;
+    genesis.config.block_producer_kickout_threshold = 20;
+    genesis.config.chunk_producer_kickout_threshold = 20;
     if !enable_rewards {
-        genesis_config.max_inflation_rate = 0;
-        genesis_config.min_gas_price = 0;
+        genesis.config.max_inflation_rate = 0;
+        genesis.config.min_gas_price = 0;
     }
+    let genesis = Arc::new(genesis);
     let first_node = open_port();
 
     let configs = (0..num_node_seats).map(|i| {
         let mut config = load_test_config(
             &format!("near.{}", i),
             if i == 0 { first_node } else { open_port() },
-            &genesis_config,
+            Arc::clone(&genesis),
         );
         if i != 0 {
             config.network_config.boot_nodes = convert_boot_nodes(vec![("near.0", first_node)]);
@@ -68,7 +69,7 @@ fn init_test_staking(
     configs
         .enumerate()
         .map(|(i, config)| {
-            let genesis_hash = genesis_hash(&config.genesis_config);
+            let genesis_hash = genesis_hash(Arc::clone(&config.genesis));
             let (client, view_client) = start_with_config(paths[i], config.clone());
             let account_id = format!("near.{}", i);
             let signer =
@@ -214,13 +215,12 @@ fn test_validator_kickout() {
                                     test_node1
                                         .view_client
                                         .send(Query::new(
-                                            None,
+                                            BlockIdOrFinality::latest(),
                                             QueryRequest::ViewAccount {
                                                 account_id: test_nodes[i as usize]
                                                     .account_id
                                                     .clone(),
                                             },
-                                            Finality::None,
                                         ))
                                         .then(move |res| {
                                             match res.unwrap().unwrap().unwrap().kind {
@@ -244,13 +244,12 @@ fn test_validator_kickout() {
                                     test_node1
                                         .view_client
                                         .send(Query::new(
-                                            None,
+                                            BlockIdOrFinality::latest(),
                                             QueryRequest::ViewAccount {
                                                 account_id: test_nodes[i as usize]
                                                     .account_id
                                                     .clone(),
                                             },
-                                            Finality::None,
                                         ))
                                         .then(move |res| {
                                             match res.unwrap().unwrap().unwrap().kind {
@@ -364,11 +363,10 @@ fn test_validator_join() {
                                 test_node1
                                     .view_client
                                     .send(Query::new(
-                                        None,
+                                        BlockIdOrFinality::latest(),
                                         QueryRequest::ViewAccount {
                                             account_id: test_nodes[1].account_id.clone(),
                                         },
-                                        Finality::None,
                                     ))
                                     .then(move |res| match res.unwrap().unwrap().unwrap().kind {
                                         QueryResponseKind::ViewAccount(result) => {
@@ -384,11 +382,10 @@ fn test_validator_join() {
                                 test_node1
                                     .view_client
                                     .send(Query::new(
-                                        None,
+                                        BlockIdOrFinality::latest(),
                                         QueryRequest::ViewAccount {
                                             account_id: test_nodes[2].account_id.clone(),
                                         },
-                                        Finality::None,
                                     ))
                                     .then(move |res| match res.unwrap().unwrap().unwrap().kind {
                                         QueryResponseKind::ViewAccount(result) => {
@@ -435,47 +432,37 @@ fn test_inflation() {
             epoch_length,
             true,
         );
-        let initial_total_supply = test_nodes[0].config.genesis_config.total_supply;
-        let max_inflation_rate = test_nodes[0].config.genesis_config.max_inflation_rate;
-        let num_blocks_per_year = test_nodes[0].config.genesis_config.num_blocks_per_year;
+        let initial_total_supply = test_nodes[0].config.genesis.config.total_supply;
+        let max_inflation_rate = test_nodes[0].config.genesis.config.max_inflation_rate;
+        let num_blocks_per_year = test_nodes[0].config.genesis.config.num_blocks_per_year;
 
         let (done1, done2) = (Arc::new(AtomicBool::new(false)), Arc::new(AtomicBool::new(false)));
         let (done1_copy1, done2_copy1) = (done1.clone(), done2.clone());
         WaitOrTimeout::new(
             Box::new(move |_ctx| {
                 let (done1_copy2, done2_copy2) = (done1_copy1.clone(), done2_copy1.clone());
-                actix::spawn(
-                    test_nodes[0].view_client.send(GetBlock::Finality(Finality::None)).then(
-                        move |res| {
-                            let header_view = res.unwrap().unwrap().header;
-                            if header_view.height >= 2 && header_view.height <= epoch_length {
-                                if header_view.total_supply == initial_total_supply {
-                                    done1_copy2.store(true, Ordering::SeqCst);
-                                }
-                            }
-                            future::ready(())
-                        },
-                    ),
-                );
-                actix::spawn(
-                    test_nodes[0].view_client.send(GetBlock::Finality(Finality::None)).then(
-                        move |res| {
-                            let header_view = res.unwrap().unwrap().header;
-                            if header_view.height > epoch_length
-                                && header_view.height < epoch_length * 2
-                            {
-                                let inflation = initial_total_supply
-                                    * max_inflation_rate as u128
-                                    * epoch_length as u128
-                                    / (100 * num_blocks_per_year as u128);
-                                if header_view.total_supply == initial_total_supply + inflation {
-                                    done2_copy2.store(true, Ordering::SeqCst);
-                                }
-                            }
-                            future::ready(())
-                        },
-                    ),
-                );
+                actix::spawn(test_nodes[0].view_client.send(GetBlock::latest()).then(move |res| {
+                    let header_view = res.unwrap().unwrap().header;
+                    if header_view.height >= 2 && header_view.height <= epoch_length {
+                        if header_view.total_supply == initial_total_supply {
+                            done1_copy2.store(true, Ordering::SeqCst);
+                        }
+                    }
+                    future::ready(())
+                }));
+                actix::spawn(test_nodes[0].view_client.send(GetBlock::latest()).then(move |res| {
+                    let header_view = res.unwrap().unwrap().header;
+                    if header_view.height > epoch_length && header_view.height < epoch_length * 2 {
+                        let inflation = initial_total_supply
+                            * max_inflation_rate as u128
+                            * epoch_length as u128
+                            / (100 * num_blocks_per_year as u128);
+                        if header_view.total_supply == initial_total_supply + inflation {
+                            done2_copy2.store(true, Ordering::SeqCst);
+                        }
+                    }
+                    future::ready(())
+                }));
                 if done1_copy1.load(Ordering::SeqCst) && done2_copy1.load(Ordering::SeqCst) {
                     System::current().stop();
                 }

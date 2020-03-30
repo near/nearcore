@@ -3,7 +3,6 @@ use std::fs;
 use std::fs::File;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-use std::str;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -11,8 +10,9 @@ use chrono::Utc;
 use log::info;
 use serde_derive::{Deserialize, Serialize};
 
-use near_chain_configs::ClientConfig;
-use near_chain_configs::{GenesisConfig, GENESIS_CONFIG_VERSION, PROTOCOL_VERSION};
+use near_chain_configs::{
+    ClientConfig, Genesis, GenesisConfig, GENESIS_CONFIG_VERSION, PROTOCOL_VERSION,
+};
 use near_crypto::{InMemorySigner, KeyFile, KeyType, PublicKey, Signer};
 use near_jsonrpc::RpcConfig;
 use near_network::test_utils::open_port;
@@ -184,6 +184,22 @@ fn default_reduce_wait_for_missing_block() -> Duration {
     Duration::from_millis(REDUCE_DELAY_FOR_MISSING_BLOCKS)
 }
 
+fn default_header_sync_initial_timeout() -> Duration {
+    Duration::from_secs(10)
+}
+
+fn default_header_sync_progress_timeout() -> Duration {
+    Duration::from_secs(2)
+}
+
+fn default_header_sync_stall_ban_timeout() -> Duration {
+    Duration::from_secs(120)
+}
+
+fn default_header_sync_expected_height_per_second() -> u64 {
+    10
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Consensus {
     /// Minimum number of peers to start syncing.
@@ -211,6 +227,18 @@ pub struct Consensus {
     pub catchup_step_period: Duration,
     /// Time between checking to re-request chunks.
     pub chunk_request_retry_period: Duration,
+    /// How much time to wait after initial header sync
+    #[serde(default = "default_header_sync_initial_timeout")]
+    pub header_sync_initial_timeout: Duration,
+    /// How much time to wait after some progress is made in header sync
+    #[serde(default = "default_header_sync_progress_timeout")]
+    pub header_sync_progress_timeout: Duration,
+    /// How much time to wait before banning a peer in header sync if sync is too slow
+    #[serde(default = "default_header_sync_stall_ban_timeout")]
+    pub header_sync_stall_ban_timeout: Duration,
+    /// Expected increase of header head weight per second during header sync
+    #[serde(default = "default_header_sync_expected_height_per_second")]
+    pub header_sync_expected_height_per_second: u64,
 }
 
 impl Default for Consensus {
@@ -221,13 +249,18 @@ impl Default for Consensus {
             min_block_production_delay: Duration::from_millis(MIN_BLOCK_PRODUCTION_DELAY),
             max_block_production_delay: Duration::from_millis(MAX_BLOCK_PRODUCTION_DELAY),
             max_block_wait_delay: Duration::from_millis(MAX_BLOCK_WAIT_DELAY),
-            reduce_wait_for_missing_block: Duration::from_millis(REDUCE_DELAY_FOR_MISSING_BLOCKS),
+            reduce_wait_for_missing_block: default_reduce_wait_for_missing_block(),
             produce_empty_blocks: true,
             block_fetch_horizon: BLOCK_FETCH_HORIZON,
             state_fetch_horizon: STATE_FETCH_HORIZON,
             block_header_fetch_horizon: BLOCK_HEADER_FETCH_HORIZON,
             catchup_step_period: Duration::from_millis(CATCHUP_STEP_PERIOD),
             chunk_request_retry_period: Duration::from_millis(CHUNK_REQUEST_RETRY_PERIOD),
+            header_sync_initial_timeout: default_header_sync_initial_timeout(),
+            header_sync_progress_timeout: default_header_sync_progress_timeout(),
+            header_sync_stall_ban_timeout: default_header_sync_stall_ban_timeout(),
+            header_sync_expected_height_per_second: default_header_sync_expected_height_per_second(
+            ),
         }
     }
 }
@@ -236,6 +269,7 @@ impl Default for Consensus {
 #[serde(default)]
 pub struct Config {
     pub genesis_file: String,
+    pub genesis_records_file: Option<String>,
     pub validator_key_file: String,
     pub node_key_file: String,
     pub rpc: RpcConfig,
@@ -251,6 +285,7 @@ impl Default for Config {
     fn default() -> Self {
         Config {
             genesis_file: GENESIS_CONFIG_FILENAME.to_string(),
+            genesis_records_file: None,
             validator_key_file: VALIDATOR_KEY_FILE.to_string(),
             node_key_file: NODE_KEY_FILE.to_string(),
             rpc: RpcConfig::default(),
@@ -287,8 +322,8 @@ impl From<&str> for Config {
     }
 }
 
-#[easy_ext::ext(GenesisConfigExt)]
-impl GenesisConfig {
+#[easy_ext::ext(GenesisExt)]
+impl Genesis {
     pub fn test_with_seeds(
         seeds: Vec<&str>,
         num_validator_seats: NumSeats,
@@ -319,7 +354,7 @@ impl GenesisConfig {
             );
         }
         add_protocol_account(&mut records);
-        let mut config = GenesisConfig {
+        let config = GenesisConfig {
             protocol_version: PROTOCOL_VERSION,
             config_version: GENESIS_CONFIG_VERSION,
             genesis_time: Utc::now(),
@@ -333,7 +368,6 @@ impl GenesisConfig {
             gas_price_adjustment_rate: GAS_PRICE_ADJUSTMENT_RATE,
             block_producer_kickout_threshold: BLOCK_PRODUCER_KICKOUT_THRESHOLD,
             validators,
-            records,
             developer_reward_percentage: DEVELOPER_PERCENT,
             protocol_reward_percentage: PROTOCOL_PERCENT,
             max_inflation_rate: MAX_INFLATION_RATE,
@@ -345,8 +379,7 @@ impl GenesisConfig {
             min_gas_price: MIN_GAS_PRICE,
             ..Default::default()
         };
-        config.init();
-        config
+        Genesis::new(config, records.into())
     }
 
     pub fn test(seeds: Vec<&str>, num_validator_seats: NumSeats) -> Self {
@@ -354,10 +387,10 @@ impl GenesisConfig {
     }
 
     pub fn test_free(seeds: Vec<&str>, num_validator_seats: NumSeats) -> Self {
-        let mut config =
+        let mut genesis =
             Self::test_with_seeds(seeds, num_validator_seats, vec![num_validator_seats]);
-        config.runtime_config = RuntimeConfig::free();
-        config
+        genesis.config.runtime_config = RuntimeConfig::free();
+        genesis
     }
 
     pub fn test_sharded(
@@ -376,14 +409,14 @@ pub struct NearConfig {
     pub network_config: NetworkConfig,
     pub rpc_config: RpcConfig,
     pub telemetry_config: TelemetryConfig,
+    pub genesis: Arc<Genesis>,
     pub validator_signer: Option<Arc<dyn ValidatorSigner>>,
-    pub genesis_config: GenesisConfig,
 }
 
 impl NearConfig {
     pub fn new(
         config: Config,
-        genesis_config: &GenesisConfig,
+        genesis: Arc<Genesis>,
         network_key_pair: KeyFile,
         validator_signer: Option<Arc<dyn ValidatorSigner>>,
     ) -> Self {
@@ -391,7 +424,7 @@ impl NearConfig {
             config: config.clone(),
             client_config: ClientConfig {
                 version: Default::default(),
-                chain_id: genesis_config.chain_id.clone(),
+                chain_id: genesis.config.chain_id.clone(),
                 rpc_addr: config.rpc.addr.clone(),
                 block_production_tracking_delay: config.consensus.block_production_tracking_delay,
                 min_block_production_delay: config.consensus.min_block_production_delay,
@@ -403,23 +436,25 @@ impl NearConfig {
                 sync_check_period: Duration::from_secs(10),
                 sync_step_period: Duration::from_millis(10),
                 sync_height_threshold: 1,
-                header_sync_initial_timeout: Duration::from_secs(10),
-                header_sync_progress_timeout: Duration::from_secs(2),
-                header_sync_stall_ban_timeout: Duration::from_secs(40),
-                header_sync_expected_height_per_second: 10,
+                header_sync_initial_timeout: config.consensus.header_sync_initial_timeout,
+                header_sync_progress_timeout: config.consensus.header_sync_progress_timeout,
+                header_sync_stall_ban_timeout: config.consensus.header_sync_stall_ban_timeout,
+                header_sync_expected_height_per_second: config
+                    .consensus
+                    .header_sync_expected_height_per_second,
                 min_num_peers: config.consensus.min_num_peers,
                 log_summary_period: Duration::from_secs(10),
                 produce_empty_blocks: config.consensus.produce_empty_blocks,
-                epoch_length: genesis_config.epoch_length,
-                num_block_producer_seats: genesis_config.num_block_producer_seats,
-                announce_account_horizon: genesis_config.epoch_length / 2,
+                epoch_length: genesis.config.epoch_length,
+                num_block_producer_seats: genesis.config.num_block_producer_seats,
+                announce_account_horizon: genesis.config.epoch_length / 2,
                 ttl_account_id_router: Duration::from_secs(TTL_ACCOUNT_ID_ROUTER),
                 // TODO(1047): this should be adjusted depending on the speed of sync of state.
                 block_fetch_horizon: config.consensus.block_fetch_horizon,
                 state_fetch_horizon: config.consensus.state_fetch_horizon,
                 block_header_fetch_horizon: config.consensus.block_header_fetch_horizon,
-                catchup_step_period: Duration::from_millis(CATCHUP_STEP_PERIOD),
-                chunk_request_retry_period: Duration::from_millis(CHUNK_REQUEST_RETRY_PERIOD),
+                catchup_step_period: config.consensus.catchup_step_period,
+                chunk_request_retry_period: config.consensus.chunk_request_retry_period,
                 tracked_accounts: config.tracked_accounts,
                 tracked_shards: config.tracked_shards,
                 archive: config.archive,
@@ -461,7 +496,7 @@ impl NearConfig {
             },
             telemetry_config: config.telemetry,
             rpc_config: config.rpc,
-            genesis_config: genesis_config.clone(),
+            genesis,
             validator_signer,
         }
     }
@@ -476,14 +511,14 @@ impl NearConfig {
         self.config.write_to_file(&dir.join(CONFIG_FILENAME));
 
         if let Some(validator_signer) = &self.validator_signer {
-            validator_signer.write_to_file(&dir.join(self.config.validator_key_file.clone()));
+            validator_signer.write_to_file(&dir.join(&self.config.validator_key_file));
         }
 
         let network_signer =
             InMemorySigner::from_secret_key("".to_string(), self.network_config.secret_key.clone());
-        network_signer.write_to_file(&dir.join(self.config.node_key_file.clone()));
+        network_signer.write_to_file(&dir.join(&self.config.node_key_file));
 
-        self.genesis_config.write_to_file(&dir.join(self.config.genesis_file.clone()));
+        self.genesis.to_file(&dir.join(&self.config.genesis_file));
     }
 }
 
@@ -532,14 +567,6 @@ fn state_records_account_with_key(
     ]
 }
 
-/// Official TestNet configuration.
-pub fn testnet_genesis() -> GenesisConfig {
-    let genesis_config_bytes = include_bytes!("../res/testnet.json");
-    GenesisConfig::from(
-        str::from_utf8(genesis_config_bytes).expect("Failed to read testnet configuration"),
-    )
-}
-
 /// Initializes genesis and client configs and stores in the given folder
 pub fn init_configs(
     dir: &Path,
@@ -548,6 +575,7 @@ pub fn init_configs(
     test_seed: Option<&str>,
     num_shards: ShardId,
     fast: bool,
+    genesis: Option<&str>,
 ) {
     fs::create_dir_all(dir).expect("Failed to create directory");
     // Check if config already exists in home dir.
@@ -564,7 +592,7 @@ pub fn init_configs(
             // TODO:
             unimplemented!();
         }
-        "testnet" | "staging" => {
+        "testnet" | "betanet" | "devnet" => {
             if test_seed.is_some() {
                 panic!("Test seed is not supported for official TestNet");
             }
@@ -585,10 +613,12 @@ pub fn init_configs(
             let network_signer = InMemorySigner::from_random("".to_string(), KeyType::ED25519);
             network_signer.write_to_file(&dir.join(config.node_key_file));
 
-            let mut genesis_config = testnet_genesis();
-            genesis_config.chain_id = chain_id;
+            let mut genesis = Genesis::from_file(
+                genesis.expect(&format!("Genesis file is required for {}.", &chain_id)),
+            );
+            genesis.config.chain_id = chain_id;
 
-            genesis_config.write_to_file(&dir.join(config.genesis_file));
+            genesis.to_file(&dir.join(config.genesis_file));
             info!(target: "near", "Generated node key and genesis file in {}", dir.to_str().unwrap());
         }
         _ => {
@@ -626,11 +656,12 @@ pub fn init_configs(
             );
             add_protocol_account(&mut records);
 
-            let mut genesis_config = GenesisConfig {
+            let genesis_config = GenesisConfig {
                 protocol_version: PROTOCOL_VERSION,
                 config_version: GENESIS_CONFIG_VERSION,
                 genesis_time: Utc::now(),
                 chain_id,
+                genesis_height: 0,
                 num_block_producer_seats: NUM_BLOCK_PRODUCER_SEATS,
                 num_block_producer_seats_per_shard: get_num_seats_per_shard(
                     num_shards,
@@ -649,7 +680,6 @@ pub fn init_configs(
                     amount: TESTING_INIT_STAKE,
                 }],
                 transaction_validity_period: TRANSACTION_VALIDITY_PERIOD,
-                records,
                 developer_reward_percentage: DEVELOPER_PERCENT,
                 protocol_reward_percentage: PROTOCOL_PERCENT,
                 max_inflation_rate: MAX_INFLATION_RATE,
@@ -660,8 +690,8 @@ pub fn init_configs(
                 fishermen_threshold: FISHERMEN_THRESHOLD,
                 min_gas_price: MIN_GAS_PRICE,
             };
-            genesis_config.init();
-            genesis_config.write_to_file(&dir.join(config.genesis_file));
+            let genesis = Genesis::new(genesis_config, records.into());
+            genesis.to_file(&dir.join(config.genesis_file));
             info!(target: "near", "Generated node key, validator key, genesis file in {}", dir.to_str().unwrap());
         }
     }
@@ -673,7 +703,7 @@ pub fn create_testnet_configs_from_seeds(
     num_non_validator_seats: NumSeats,
     local_ports: bool,
     archive: bool,
-) -> (Vec<Config>, Vec<InMemoryValidatorSigner>, Vec<InMemorySigner>, GenesisConfig) {
+) -> (Vec<Config>, Vec<InMemoryValidatorSigner>, Vec<InMemorySigner>, Genesis) {
     let num_validator_seats = (seeds.len() - num_non_validator_seats as usize) as NumSeats;
     let validator_signers = seeds
         .iter()
@@ -683,7 +713,7 @@ pub fn create_testnet_configs_from_seeds(
         .iter()
         .map(|seed| InMemorySigner::from_seed("", KeyType::ED25519, seed))
         .collect::<Vec<_>>();
-    let genesis_config = GenesisConfig::test_sharded(
+    let genesis = Genesis::test_sharded(
         seeds.iter().map(|s| s.as_str()).collect(),
         num_validator_seats,
         get_num_seats_per_shard(num_shards, num_validator_seats),
@@ -710,7 +740,7 @@ pub fn create_testnet_configs_from_seeds(
             std::cmp::min(num_validator_seats as usize - 1, config.consensus.min_num_peers);
         configs.push(config);
     }
-    (configs, validator_signers, network_signers, genesis_config)
+    (configs, validator_signers, network_signers, genesis)
 }
 
 /// Create testnet configuration. If `local_ports` is true,
@@ -722,7 +752,7 @@ pub fn create_testnet_configs(
     prefix: &str,
     local_ports: bool,
     archive: bool,
-) -> (Vec<Config>, Vec<InMemoryValidatorSigner>, Vec<InMemorySigner>, GenesisConfig) {
+) -> (Vec<Config>, Vec<InMemoryValidatorSigner>, Vec<InMemorySigner>, Genesis) {
     create_testnet_configs_from_seeds(
         (0..(num_validator_seats + num_non_validator_seats))
             .map(|i| format!("{}{}", prefix, i))
@@ -742,7 +772,7 @@ pub fn init_testnet_configs(
     prefix: &str,
     archive: bool,
 ) {
-    let (configs, validator_signers, network_signers, genesis_config) = create_testnet_configs(
+    let (configs, validator_signers, network_signers, genesis) = create_testnet_configs(
         num_shards,
         num_validator_seats,
         num_non_validator_seats,
@@ -754,31 +784,35 @@ pub fn init_testnet_configs(
         let node_dir = dir.join(format!("{}{}", prefix, i));
         fs::create_dir_all(node_dir.clone()).expect("Failed to create directory");
 
-        validator_signers[i].write_to_file(&node_dir.join(configs[i].validator_key_file.clone()));
-        network_signers[i].write_to_file(&node_dir.join(configs[i].node_key_file.clone()));
+        validator_signers[i].write_to_file(&node_dir.join(&configs[i].validator_key_file));
+        network_signers[i].write_to_file(&node_dir.join(&configs[i].node_key_file));
 
-        genesis_config.write_to_file(&node_dir.join(configs[i].genesis_file.clone()));
+        genesis.to_file(&node_dir.join(&configs[i].genesis_file));
         configs[i].write_to_file(&node_dir.join(CONFIG_FILENAME));
-        info!(target: "near", "Generated node key, validator key, genesis file in {}", node_dir.to_str().unwrap());
+        info!(target: "near", "Generated node key, validator key, genesis file in {}", node_dir.display());
     }
 }
 
 pub fn load_config(dir: &Path) -> NearConfig {
     let config = Config::from_file(&dir.join(CONFIG_FILENAME));
-    let genesis_config = GenesisConfig::from_file(&dir.join(config.genesis_file.clone()));
-    let validator_signer = if dir.join(config.validator_key_file.clone()).exists() {
-        let signer = Arc::new(InMemoryValidatorSigner::from_file(
-            &dir.join(config.validator_key_file.clone()),
-        )) as Arc<dyn ValidatorSigner>;
+    let genesis = if let Some(ref genesis_records_file) = config.genesis_records_file {
+        Genesis::from_files(&dir.join(&config.genesis_file), &dir.join(genesis_records_file))
+    } else {
+        Genesis::from_file(&dir.join(&config.genesis_file))
+    };
+    let validator_signer = if dir.join(&config.validator_key_file).exists() {
+        let signer =
+            Arc::new(InMemoryValidatorSigner::from_file(&dir.join(&config.validator_key_file)))
+                as Arc<dyn ValidatorSigner>;
         Some(signer)
     } else {
         None
     };
-    let network_signer = InMemorySigner::from_file(&dir.join(config.node_key_file.clone()));
-    NearConfig::new(config, &genesis_config, (&network_signer).into(), validator_signer)
+    let network_signer = InMemorySigner::from_file(&dir.join(&config.node_key_file));
+    NearConfig::new(config, Arc::new(genesis), (&network_signer).into(), validator_signer)
 }
 
-pub fn load_test_config(seed: &str, port: u16, genesis_config: &GenesisConfig) -> NearConfig {
+pub fn load_test_config(seed: &str, port: u16, genesis: Arc<Genesis>) -> NearConfig {
     let mut config = Config::default();
     config.network.addr = format!("0.0.0.0:{}", port);
     config.rpc.addr = format!("0.0.0.0:{}", open_port());
@@ -796,7 +830,7 @@ pub fn load_test_config(seed: &str, port: u16, genesis_config: &GenesisConfig) -
                 as Arc<dyn ValidatorSigner>;
         (signer, Some(validator_signer))
     };
-    NearConfig::new(config, &genesis_config, signer.into(), validator_signer)
+    NearConfig::new(config, genesis, signer.into(), validator_signer)
 }
 
 #[cfg(test)]
@@ -806,9 +840,9 @@ mod test {
     /// make sure testnet genesis can be deserialized
     #[test]
     fn test_deserialize_state() {
-        let genesis_config = testnet_genesis();
+        let genesis_config_str = include_str!("../res/testnet_genesis_config.json");
+        let genesis_config = GenesisConfig::from_json(&genesis_config_str);
         assert_eq!(genesis_config.protocol_version, PROTOCOL_VERSION);
         assert_eq!(genesis_config.config_version, GENESIS_CONFIG_VERSION);
-        assert!(genesis_config.total_supply > 0);
     }
 }

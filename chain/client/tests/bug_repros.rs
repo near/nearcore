@@ -15,6 +15,8 @@ use near_network::{NetworkClientMessages, NetworkRequests, NetworkResponses, Pee
 use near_primitives::block::Block;
 use near_primitives::test_utils::init_test_logger;
 use near_primitives::transaction::SignedTransaction;
+use std::cmp::max;
+use std::collections::HashMap;
 
 #[test]
 fn repro_1183() {
@@ -46,8 +48,8 @@ fn repro_1183() {
             false,
             5,
             false,
-            false,
-            Arc::new(RwLock::new(move |_account_id: String, msg: &NetworkRequests| {
+            vec![false; validators.iter().map(|x| x.len()).sum()],
+            Arc::new(RwLock::new(Box::new(move |_account_id: String, msg: &NetworkRequests| {
                 if let NetworkRequests::Block { block } = msg {
                     let mut last_block = last_block.write().unwrap();
                     let mut delayed_one_parts = delayed_one_parts.write().unwrap();
@@ -120,11 +122,108 @@ fn repro_1183() {
                 } else {
                     (NetworkResponses::NoResponse, true)
                 }
-            })),
+            }))),
         );
         *connectors.write().unwrap() = conn;
 
         near_network::test_utils::wait_or_panic(60000);
+    })
+    .unwrap();
+}
+
+#[test]
+fn test_sync_from_achival_node() {
+    init_test_logger();
+    let validators = vec![vec!["test1", "test2", "test3", "test4"]];
+    let key_pairs =
+        vec![PeerInfo::random(), PeerInfo::random(), PeerInfo::random(), PeerInfo::random()];
+    let largest_height = Arc::new(RwLock::new(0));
+    let blocks = Arc::new(RwLock::new(HashMap::new()));
+    let epoch_length = 4;
+
+    System::run(move || {
+        let network_mock: Arc<
+            RwLock<Box<dyn FnMut(String, &NetworkRequests) -> (NetworkResponses, bool)>>,
+        > = Arc::new(RwLock::new(Box::new(|_: String, _: &NetworkRequests| {
+            (NetworkResponses::NoResponse, true)
+        })));
+        let (_, conns) = setup_mock_all_validators(
+            validators.clone(),
+            key_pairs,
+            1,
+            true,
+            100,
+            false,
+            false,
+            epoch_length,
+            false,
+            vec![true, false, false, false],
+            network_mock.clone(),
+        );
+        let mut block_counter = 0;
+        *network_mock.write().unwrap() =
+            Box::new(move |_: String, msg: &NetworkRequests| -> (NetworkResponses, bool) {
+                if let NetworkRequests::Block { block } = msg {
+                    let mut largest_height = largest_height.write().unwrap();
+                    *largest_height = max(block.header.inner_lite.height, *largest_height);
+                }
+                if *largest_height.read().unwrap() >= 50 {
+                    System::current().stop();
+                }
+                if *largest_height.read().unwrap() <= 30 {
+                    match msg {
+                        NetworkRequests::Block { block } => {
+                            for (i, (client, _)) in conns.clone().into_iter().enumerate() {
+                                if i != 3 {
+                                    client.do_send(NetworkClientMessages::Block(
+                                        block.clone(),
+                                        PeerInfo::random().id,
+                                        false,
+                                    ))
+                                }
+                            }
+                            if block.header.inner_lite.height <= 10 {
+                                blocks.write().unwrap().insert(block.hash(), block.clone());
+                            }
+                            (NetworkResponses::NoResponse, false)
+                        }
+                        NetworkRequests::Approval { approval_message } => {
+                            for (i, (client, _)) in conns.clone().into_iter().enumerate() {
+                                if i != 3 {
+                                    client.do_send(NetworkClientMessages::BlockApproval(
+                                        approval_message.approval.clone(),
+                                        PeerInfo::random().id,
+                                    ))
+                                }
+                            }
+                            (NetworkResponses::NoResponse, false)
+                        }
+                        _ => (NetworkResponses::NoResponse, true),
+                    }
+                } else {
+                    if block_counter > 10 {
+                        panic!("incorrect rebroadcasting of blocks");
+                    }
+                    for (_, block) in blocks.write().unwrap().drain() {
+                        conns[3].0.do_send(NetworkClientMessages::Block(
+                            block,
+                            PeerInfo::random().id,
+                            false,
+                        ));
+                    }
+                    match msg {
+                        NetworkRequests::Block { block } => {
+                            if block.header.inner_lite.height <= 10 {
+                                block_counter += 1;
+                            }
+                            (NetworkResponses::NoResponse, true)
+                        }
+                        _ => (NetworkResponses::NoResponse, true),
+                    }
+                }
+            });
+
+        near_network::test_utils::wait_or_panic(20000);
     })
     .unwrap();
 }

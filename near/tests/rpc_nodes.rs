@@ -12,7 +12,7 @@ use near_primitives::serialize::to_base64;
 use near_primitives::test_utils::{heavy_test, init_integration_logger};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::BlockId;
-use near_primitives::views::{FinalExecutionStatus, Finality, QueryResponseKind};
+use near_primitives::views::{FinalExecutionStatus, QueryResponseKind};
 use testlib::{genesis_block, start_nodes};
 
 /// Starts 2 validators and 2 light clients (not tracking anything).
@@ -26,7 +26,7 @@ fn test_tx_propagation() {
         let dirs = (0..num_nodes)
             .map(|i| TempDir::new(&format!("tx_propagation{}", i)).unwrap())
             .collect::<Vec<_>>();
-        let (genesis_config, rpc_addrs, clients) = start_nodes(4, &dirs, 2, 2, 10);
+        let (genesis_config, rpc_addrs, clients) = start_nodes(4, &dirs, 2, 2, 10, 0);
         let view_client = clients[0].1.clone();
 
         let genesis_hash = genesis_block(genesis_config).hash();
@@ -49,24 +49,22 @@ fn test_tx_propagation() {
                 let tx_hash_clone = tx_hash.clone();
                 // We are sending this tx unstop, just to get over the warm up period.
                 // Probably make sense to stop after 1 time though.
-                actix::spawn(view_client.send(GetBlock::Finality(Finality::None)).then(
-                    move |res| {
-                        if res.unwrap().unwrap().header.height > 1 {
-                            let mut client = new_client(&format!("http://{}", rpc_addrs_copy[2]));
-                            let bytes = transaction_copy.try_to_vec().unwrap();
-                            actix::spawn(
-                                client
-                                    .broadcast_tx_async(to_base64(&bytes))
-                                    .map_err(|err| panic!(err.to_string()))
-                                    .map_ok(move |result| {
-                                        assert_eq!(String::from(&tx_hash_clone), result)
-                                    })
-                                    .map(drop),
-                            );
-                        }
-                        future::ready(())
-                    },
-                ));
+                actix::spawn(view_client.send(GetBlock::latest()).then(move |res| {
+                    if res.unwrap().unwrap().header.height > 1 {
+                        let mut client = new_client(&format!("http://{}", rpc_addrs_copy[2]));
+                        let bytes = transaction_copy.try_to_vec().unwrap();
+                        actix::spawn(
+                            client
+                                .broadcast_tx_async(to_base64(&bytes))
+                                .map_err(|err| panic!(err.to_string()))
+                                .map_ok(move |result| {
+                                    assert_eq!(String::from(&tx_hash_clone), result)
+                                })
+                                .map(drop),
+                        );
+                    }
+                    future::ready(())
+                }));
                 actix::spawn(
                     view_client
                         .send(TxStatus { tx_hash, signer_account_id: "near.1".to_string() })
@@ -105,7 +103,7 @@ fn test_tx_propagation_through_rpc() {
         let dirs = (0..num_nodes)
             .map(|i| TempDir::new(&format!("tx_propagation{}", i)).unwrap())
             .collect::<Vec<_>>();
-        let (genesis_config, rpc_addrs, clients) = start_nodes(4, &dirs, 2, 2, 10);
+        let (genesis_config, rpc_addrs, clients) = start_nodes(4, &dirs, 2, 2, 10, 0);
         let view_client = clients[0].1.clone();
 
         let genesis_hash = genesis_block(genesis_config).hash();
@@ -125,30 +123,28 @@ fn test_tx_propagation_through_rpc() {
                 let transaction_copy = transaction.clone();
                 // We are sending this tx unstop, just to get over the warm up period.
                 // Probably make sense to stop after 1 time though.
-                actix::spawn(view_client.send(GetBlock::Finality(Finality::None)).then(
-                    move |res| {
-                        if res.unwrap().unwrap().header.height > 1 {
-                            let mut client = new_client(&format!("http://{}", rpc_addrs_copy[2]));
-                            let bytes = transaction_copy.try_to_vec().unwrap();
-                            actix::spawn(
-                                client
-                                    .broadcast_tx_commit(to_base64(&bytes))
-                                    .map_err(|err| panic!(err.to_string()))
-                                    .map_ok(move |result| {
-                                        if result.status
-                                            == FinalExecutionStatus::SuccessValue("".to_string())
-                                        {
-                                            System::current().stop();
-                                        } else {
-                                            panic!("wrong transaction status");
-                                        }
-                                    })
-                                    .map(drop),
-                            );
-                        }
-                        future::ready(())
-                    },
-                ));
+                actix::spawn(view_client.send(GetBlock::latest()).then(move |res| {
+                    if res.unwrap().unwrap().header.height > 1 {
+                        let mut client = new_client(&format!("http://{}", rpc_addrs_copy[2]));
+                        let bytes = transaction_copy.try_to_vec().unwrap();
+                        actix::spawn(
+                            client
+                                .broadcast_tx_commit(to_base64(&bytes))
+                                .map_err(|err| panic!(err.to_string()))
+                                .map_ok(move |result| {
+                                    if result.status
+                                        == FinalExecutionStatus::SuccessValue("".to_string())
+                                    {
+                                        System::current().stop();
+                                    } else {
+                                        panic!("wrong transaction status");
+                                    }
+                                })
+                                .map(drop),
+                        );
+                    }
+                    future::ready(())
+                }));
             }),
             100,
             20000,
@@ -170,7 +166,7 @@ fn test_tx_status_with_light_client() {
         let dirs = (0..num_nodes)
             .map(|i| TempDir::new(&format!("tx_propagation{}", i)).unwrap())
             .collect::<Vec<_>>();
-        let (genesis_config, rpc_addrs, clients) = start_nodes(4, &dirs, 2, 2, 10);
+        let (genesis_config, rpc_addrs, clients) = start_nodes(4, &dirs, 2, 2, 10, 0);
         let view_client = clients[0].1.clone();
 
         let genesis_hash = genesis_block(genesis_config).hash();
@@ -192,24 +188,22 @@ fn test_tx_status_with_light_client() {
                 let transaction_copy = transaction.clone();
                 let signer_account_id = transaction_copy.transaction.signer_id.clone();
                 let tx_hash_clone = tx_hash.clone();
-                actix::spawn(view_client.send(GetBlock::Finality(Finality::None)).then(
-                    move |res| {
-                        if res.unwrap().unwrap().header.height > 1 {
-                            let mut client = new_client(&format!("http://{}", rpc_addrs_copy[2]));
-                            let bytes = transaction_copy.try_to_vec().unwrap();
-                            actix::spawn(
-                                client
-                                    .broadcast_tx_async(to_base64(&bytes))
-                                    .map_err(|err| panic!("{:?}", err))
-                                    .map_ok(move |result| {
-                                        assert_eq!(String::from(&tx_hash_clone), result)
-                                    })
-                                    .map(drop),
-                            );
-                        }
-                        future::ready(())
-                    },
-                ));
+                actix::spawn(view_client.send(GetBlock::latest()).then(move |res| {
+                    if res.unwrap().unwrap().header.height > 1 {
+                        let mut client = new_client(&format!("http://{}", rpc_addrs_copy[2]));
+                        let bytes = transaction_copy.try_to_vec().unwrap();
+                        actix::spawn(
+                            client
+                                .broadcast_tx_async(to_base64(&bytes))
+                                .map_err(|err| panic!("{:?}", err))
+                                .map_ok(move |result| {
+                                    assert_eq!(String::from(&tx_hash_clone), result)
+                                })
+                                .map(drop),
+                        );
+                    }
+                    future::ready(())
+                }));
                 let mut client = new_client(&format!("http://{}", rpc_addrs_copy1[2].clone()));
                 actix::spawn(
                     client
@@ -243,7 +237,7 @@ fn test_tx_status_with_light_client1() {
         let dirs = (0..num_nodes)
             .map(|i| TempDir::new(&format!("tx_propagation{}", i)).unwrap())
             .collect::<Vec<_>>();
-        let (genesis_config, rpc_addrs, clients) = start_nodes(4, &dirs, 2, 2, 10);
+        let (genesis_config, rpc_addrs, clients) = start_nodes(4, &dirs, 2, 2, 10, 0);
         let view_client = clients[0].1.clone();
 
         let genesis_hash = genesis_block(genesis_config).hash();
@@ -265,24 +259,22 @@ fn test_tx_status_with_light_client1() {
                 let transaction_copy = transaction.clone();
                 let signer_account_id = transaction_copy.transaction.signer_id.clone();
                 let tx_hash_clone = tx_hash.clone();
-                actix::spawn(view_client.send(GetBlock::Finality(Finality::None)).then(
-                    move |res| {
-                        if res.unwrap().unwrap().header.height > 1 {
-                            let mut client = new_client(&format!("http://{}", rpc_addrs_copy[2]));
-                            let bytes = transaction_copy.try_to_vec().unwrap();
-                            actix::spawn(
-                                client
-                                    .broadcast_tx_async(to_base64(&bytes))
-                                    .map_err(|err| panic!("{}", err.to_string()))
-                                    .map_ok(move |result| {
-                                        assert_eq!(String::from(&tx_hash_clone), result)
-                                    })
-                                    .map(drop),
-                            );
-                        }
-                        future::ready(())
-                    },
-                ));
+                actix::spawn(view_client.send(GetBlock::latest()).then(move |res| {
+                    if res.unwrap().unwrap().header.height > 1 {
+                        let mut client = new_client(&format!("http://{}", rpc_addrs_copy[2]));
+                        let bytes = transaction_copy.try_to_vec().unwrap();
+                        actix::spawn(
+                            client
+                                .broadcast_tx_async(to_base64(&bytes))
+                                .map_err(|err| panic!("{}", err.to_string()))
+                                .map_ok(move |result| {
+                                    assert_eq!(String::from(&tx_hash_clone), result)
+                                })
+                                .map(drop),
+                        );
+                    }
+                    future::ready(())
+                }));
                 let mut client = new_client(&format!("http://{}", rpc_addrs_copy1[2].clone()));
                 actix::spawn(
                     client
@@ -314,35 +306,33 @@ fn test_rpc_routing() {
         let dirs = (0..num_nodes)
             .map(|i| TempDir::new(&format!("tx_propagation{}", i)).unwrap())
             .collect::<Vec<_>>();
-        let (_, rpc_addrs, clients) = start_nodes(4, &dirs, 2, 2, 10);
+        let (_, rpc_addrs, clients) = start_nodes(4, &dirs, 2, 2, 10, 0);
         let view_client = clients[0].1.clone();
 
         WaitOrTimeout::new(
             Box::new(move |_ctx| {
                 let rpc_addrs_copy = rpc_addrs.clone();
-                actix::spawn(view_client.send(GetBlock::Finality(Finality::None)).then(
-                    move |res| {
-                        if res.unwrap().unwrap().header.height > 1 {
-                            let mut client = new_client(&format!("http://{}", rpc_addrs_copy[2]));
-                            actix::spawn(
-                                client
-                                    .query_by_path("account/near.2".to_string(), "".to_string())
-                                    .map_err(|err| {
-                                        println!("Error retrieving account: {:?}", err);
-                                    })
-                                    .map_ok(move |result| match result.kind {
-                                        QueryResponseKind::ViewAccount(account_view) => {
-                                            assert_eq!(account_view.amount, TESTING_INIT_BALANCE);
-                                            System::current().stop();
-                                        }
-                                        _ => panic!("wrong query response"),
-                                    })
-                                    .map(drop),
-                            );
-                        }
-                        future::ready(())
-                    },
-                ));
+                actix::spawn(view_client.send(GetBlock::latest()).then(move |res| {
+                    if res.unwrap().unwrap().header.height > 1 {
+                        let mut client = new_client(&format!("http://{}", rpc_addrs_copy[2]));
+                        actix::spawn(
+                            client
+                                .query_by_path("account/near.2".to_string(), "".to_string())
+                                .map_err(|err| {
+                                    println!("Error retrieving account: {:?}", err);
+                                })
+                                .map_ok(move |result| match result.kind {
+                                    QueryResponseKind::ViewAccount(account_view) => {
+                                        assert_eq!(account_view.amount, TESTING_INIT_BALANCE);
+                                        System::current().stop();
+                                    }
+                                    _ => panic!("wrong query response"),
+                                })
+                                .map(drop),
+                        );
+                    }
+                    future::ready(())
+                }));
             }),
             100,
             20000,
@@ -363,33 +353,28 @@ fn test_rpc_routing_error() {
         let dirs = (0..num_nodes)
             .map(|i| TempDir::new(&format!("tx_propagation{}", i)).unwrap())
             .collect::<Vec<_>>();
-        let (_, rpc_addrs, clients) = start_nodes(4, &dirs, 2, 2, 10);
+        let (_, rpc_addrs, clients) = start_nodes(4, &dirs, 2, 2, 10, 0);
         let view_client = clients[0].1.clone();
 
         WaitOrTimeout::new(
             Box::new(move |_ctx| {
                 let rpc_addrs_copy = rpc_addrs.clone();
-                actix::spawn(view_client.send(GetBlock::Finality(Finality::None)).then(
-                    move |res| {
-                        if res.unwrap().unwrap().header.height > 1 {
-                            let mut client = new_client(&format!("http://{}", rpc_addrs_copy[2]));
-                            actix::spawn(
-                                client
-                                    .query_by_path(
-                                        "account/nonexistent".to_string(),
-                                        "".to_string(),
-                                    )
-                                    .map_err(|err| {
-                                        println!("error: {}", err.to_string());
-                                        System::current().stop();
-                                    })
-                                    .map_ok(|_| panic!("wrong query response"))
-                                    .map(drop),
-                            );
-                        }
-                        future::ready(())
-                    },
-                ));
+                actix::spawn(view_client.send(GetBlock::latest()).then(move |res| {
+                    if res.unwrap().unwrap().header.height > 1 {
+                        let mut client = new_client(&format!("http://{}", rpc_addrs_copy[2]));
+                        actix::spawn(
+                            client
+                                .query_by_path("account/nonexistent".to_string(), "".to_string())
+                                .map_err(|err| {
+                                    println!("error: {}", err.to_string());
+                                    System::current().stop();
+                                })
+                                .map_ok(|_| panic!("wrong query response"))
+                                .map(drop),
+                        );
+                    }
+                    future::ready(())
+                }));
             }),
             100,
             20000,
@@ -409,38 +394,36 @@ fn test_get_validator_info_rpc() {
         let dirs = (0..num_nodes)
             .map(|i| TempDir::new(&format!("tx_propagation{}", i)).unwrap())
             .collect::<Vec<_>>();
-        let (_, rpc_addrs, clients) = start_nodes(1, &dirs, 1, 0, 10);
+        let (_, rpc_addrs, clients) = start_nodes(1, &dirs, 1, 0, 10, 0);
         let view_client = clients[0].1.clone();
 
         WaitOrTimeout::new(
             Box::new(move |_ctx| {
                 let rpc_addrs_copy = rpc_addrs.clone();
-                actix::spawn(view_client.send(GetBlock::Finality(Finality::None)).then(
-                    move |res| {
-                        let res = res.unwrap().unwrap();
-                        if res.header.height > 1 {
-                            let mut client = new_client(&format!("http://{}", rpc_addrs_copy[0]));
-                            let block_hash = res.header.hash;
-                            actix::spawn(
-                                client
-                                    .validators(Some(BlockId::Hash(block_hash)))
-                                    .map_err(|err| {
-                                        panic!(format!("error: {:?}", err));
-                                    })
-                                    .map_ok(move |result| {
-                                        assert_eq!(result.current_validators.len(), 1);
-                                        assert!(result
-                                            .current_validators
-                                            .iter()
-                                            .any(|r| r.account_id == "near.0".to_string()));
-                                        System::current().stop();
-                                    })
-                                    .map(drop),
-                            );
-                        }
-                        future::ready(())
-                    },
-                ));
+                actix::spawn(view_client.send(GetBlock::latest()).then(move |res| {
+                    let res = res.unwrap().unwrap();
+                    if res.header.height > 1 {
+                        let mut client = new_client(&format!("http://{}", rpc_addrs_copy[0]));
+                        let block_hash = res.header.hash;
+                        actix::spawn(
+                            client
+                                .validators(Some(BlockId::Hash(block_hash)))
+                                .map_err(|err| {
+                                    panic!(format!("error: {:?}", err));
+                                })
+                                .map_ok(move |result| {
+                                    assert_eq!(result.current_validators.len(), 1);
+                                    assert!(result
+                                        .current_validators
+                                        .iter()
+                                        .any(|r| r.account_id == "near.0".to_string()));
+                                    System::current().stop();
+                                })
+                                .map(drop),
+                        );
+                    }
+                    future::ready(())
+                }));
             }),
             100,
             20000,
