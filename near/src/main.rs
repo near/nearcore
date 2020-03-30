@@ -18,7 +18,7 @@ use near::{get_default_home, get_store_path, init_configs, load_config, start_wi
 use near_primitives::types::Version;
 
 fn init_logging(verbose: Option<&str>) {
-    let mut env_filter = EnvFilter::new("tokio_reactor=info,near=info,stats=info");
+    let mut env_filter = EnvFilter::new("tokio_reactor=info,near=info,stats=info,telemetry=info");
 
     if let Some(module) = verbose {
         env_filter = env_filter
