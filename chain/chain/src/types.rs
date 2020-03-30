@@ -7,7 +7,7 @@ use serde::Serialize;
 
 use near_crypto::Signature;
 use near_pool::types::PoolIterator;
-use near_primitives::block::{Approval, BlockScore, ScoreAndHeight};
+use near_primitives::block::Approval;
 pub use near_primitives::block::{Block, BlockHeader};
 use near_primitives::challenge::{ChallengesResult, SlashedValidator};
 use near_primitives::errors::InvalidTxError;
@@ -188,6 +188,8 @@ pub trait RuntimeAdapter: Send + Sync {
         &self,
         epoch_id: &EpochId,
         prev_block_hash: &CryptoHash,
+        prev_block_height: BlockHeight,
+        block_height: BlockHeight,
         approvals: &[Approval],
     ) -> Result<bool, Error>;
 
@@ -462,7 +464,7 @@ pub struct LatestKnown {
 
 /// The tip of a fork. A handle to the fork ancestry from its leaf in the
 /// blockchain tree. References the max height and the latest and previous
-/// blocks for convenience and the score.
+/// blocks for convenience
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, PartialEq)]
 pub struct Tip {
     /// Height of the tip (max height of the fork)
@@ -471,8 +473,6 @@ pub struct Tip {
     pub last_block_hash: CryptoHash,
     /// Previous block
     pub prev_block_hash: CryptoHash,
-    /// The score on that fork
-    pub score: BlockScore,
     /// Current epoch id. Used for getting validator info.
     pub epoch_id: EpochId,
     /// Next epoch id.
@@ -486,14 +486,9 @@ impl Tip {
             height: header.inner_lite.height,
             last_block_hash: header.hash(),
             prev_block_hash: header.prev_hash,
-            score: header.inner_rest.score,
             epoch_id: header.inner_lite.epoch_id.clone(),
             next_epoch_id: header.inner_lite.next_epoch_id.clone(),
         }
-    }
-
-    pub fn score_and_height(&self) -> ScoreAndHeight {
-        ScoreAndHeight { score: self.score, height: self.height }
     }
 }
 
@@ -555,7 +550,7 @@ mod tests {
         let b1 = Block::empty(&genesis, &signer);
         assert!(b1.header.verify_block_producer(&signer.public_key()));
         let other_signer = InMemoryValidatorSigner::from_seed("other2", KeyType::ED25519, "other2");
-        let approvals = vec![Approval::new(b1.hash(), Some(b1.hash()), 2, true, &other_signer)];
+        let approvals = vec![Approval::new(b1.hash(), 1, 2, &other_signer)];
         let b2 = Block::empty_with_approvals(
             &b1,
             2,

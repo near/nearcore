@@ -105,9 +105,9 @@ impl HeaderSync {
             | SyncStatus::StateSyncDone => true,
             SyncStatus::NoSync | SyncStatus::AwaitingPeers => {
                 let sync_head = chain.sync_head()?;
-                debug!(target: "sync", "Sync: initial transition to Header sync. Sync head: {} at {}/{:?}, resetting to {} at {}/{:?}",
-                    sync_head.last_block_hash, sync_head.height, sync_head.score,
-                    header_head.last_block_hash, header_head.height, header_head.score,
+                debug!(target: "sync", "Sync: initial transition to Header sync. Sync head: {} at {}, resetting to {} at {}",
+                    sync_head.last_block_hash, sync_head.height,
+                    header_head.last_block_hash, header_head.height,
                 );
                 // Reset sync_head to header_head on initial transition to HeaderSync.
                 chain.reset_sync_head()?;
@@ -123,7 +123,7 @@ impl HeaderSync {
             let header_head = chain.header_head()?;
             self.syncing_peer = None;
             if let Some(peer) = highest_height_peer(&highest_height_peers) {
-                if peer.chain_info.score_and_height() > header_head.score_and_height() {
+                if peer.chain_info.height > header_head.height {
                     self.syncing_peer = self.request_headers(chain, peer);
                 }
             }
@@ -183,8 +183,8 @@ impl HeaderSync {
                                 if now > *stalling_ts + self.stall_ban_timeout
                                     && *highest_height == peer.chain_info.height
                                 {
-                                    info!(target: "sync", "Sync: ban a fraudulent peer: {}, claimed height: {}, score: {}",
-                                        peer.peer_info, peer.chain_info.height, peer.chain_info.score);
+                                    info!(target: "sync", "Sync: ban a fraudulent peer: {}, claimed height: {}",
+                                        peer.peer_info, peer.chain_info.height);
                                     self.network_adapter.do_send(NetworkRequests::BanPeer {
                                         peer_id: peer.peer_info.id.clone(),
                                         ban_reason: ReasonForBan::HeightFraud,
@@ -936,7 +936,6 @@ mod test {
                     hash: chain.genesis().hash(),
                 },
                 height: chain2.head().unwrap().height,
-                score: chain2.head().unwrap().score,
                 tracked_shards: vec![],
             },
             edge_info: EdgeInfo::default(),

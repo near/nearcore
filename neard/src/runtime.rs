@@ -588,6 +588,8 @@ impl RuntimeAdapter for NightshadeRuntime {
         &self,
         epoch_id: &EpochId,
         prev_block_hash: &CryptoHash,
+        prev_block_height: BlockHeight,
+        block_height: BlockHeight,
         approvals: &[Approval],
     ) -> Result<bool, Error> {
         let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
@@ -600,15 +602,21 @@ impl RuntimeAdapter for NightshadeRuntime {
         for (validator, is_slashed) in info.into_iter() {
             if !is_slashed {
                 if let Some(approval) = approvals_hash_map.get(&validator.account_id) {
-                    if &approval.parent_hash != prev_block_hash {
+                    if approval.parent_height != prev_block_height
+                        || approval.target_height != block_height
+                    {
+                        return Ok(false);
+                    }
+                    if approval.parent_height + 1 == approval.target_height
+                        && &approval.parent_hash != prev_block_hash
+                    {
                         return Ok(false);
                     }
                     if !approval.signature.verify(
                         Approval::get_data_for_sig(
                             &approval.parent_hash,
-                            &approval.reference_hash,
+                            approval.parent_height,
                             approval.target_height,
-                            approval.is_endorsement,
                         )
                         .as_ref(),
                         &validator.public_key,
@@ -1366,7 +1374,6 @@ mod test {
                     prev_block_hash: CryptoHash::default(),
                     height: 0,
                     epoch_id: EpochId::default(),
-                    score: 0.into(),
                     next_epoch_id: Default::default(),
                 },
                 state_roots,
@@ -1434,7 +1441,6 @@ mod test {
                 prev_block_hash: self.head.last_block_hash,
                 height: self.head.height + 1,
                 epoch_id: self.runtime.get_epoch_id_from_prev_block(&new_hash).unwrap(),
-                score: self.head.score,
                 next_epoch_id: self.runtime.get_next_epoch_id_from_prev_block(&new_hash).unwrap(),
             };
         }

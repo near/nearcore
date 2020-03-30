@@ -58,12 +58,12 @@ pub enum Finality {
     #[serde(rename = "near-final")]
     DoomSlug,
     #[serde(rename = "final")]
-    NFG,
+    Final,
 }
 
 impl Default for Finality {
     fn default() -> Self {
-        Finality::NFG
+        Finality::Final
     }
 }
 

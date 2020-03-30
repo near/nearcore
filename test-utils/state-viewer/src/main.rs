@@ -176,9 +176,7 @@ fn replay_chain(
                     header.hash(),
                     header.inner_rest.random_value,
                     header.inner_lite.height,
-                    chain_store
-                        .get_block_height(&header.inner_rest.last_quorum_pre_commit)
-                        .unwrap(),
+                    chain_store.get_block_height(&header.inner_rest.last_final_block).unwrap(),
                     header.inner_rest.validator_proposals,
                     vec![],
                     header.inner_rest.chunk_mask,

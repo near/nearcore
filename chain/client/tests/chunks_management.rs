@@ -130,7 +130,7 @@ fn chunks_produced_and_distributed_common(
                         height_to_hash.insert(block.header.inner_lite.height, block.hash());
 
                         println!(
-                            "[{:?}]: BLOCK {} HEIGHT {}; HEADER HEIGHTS: {} / {} / {} / {}; QUORUMS: {} / {}\nAPPROVALS: {:?}",
+                            "[{:?}]: BLOCK {} HEIGHT {}; HEADER HEIGHTS: {} / {} / {} / {};\nAPPROVALS: {:?}",
                             Instant::now(),
                             block.hash(),
                             block.header.inner_lite.height,
@@ -138,8 +138,6 @@ fn chunks_produced_and_distributed_common(
                             block.chunks[1].inner.height_created,
                             block.chunks[2].inner.height_created,
                             block.chunks[3].inner.height_created,
-                            block.header.inner_rest.last_quorum_pre_vote,
-                            block.header.inner_rest.last_quorum_pre_commit,
                             block.header.inner_rest.approvals,
                         );
 
@@ -148,11 +146,8 @@ fn chunks_produced_and_distributed_common(
                         if h > 1 {
                             assert_eq!(block.header.inner_rest.last_ds_final_block, *height_to_hash.get(&(h - 1)).unwrap());
                         }
-                        if h > 1 && h != 6 {
-                            assert_eq!(block.header.inner_rest.last_quorum_pre_vote, *height_to_hash.get(&(h - 1)).unwrap());
-                        }
                         if h > 2 && (h != 6 && h != 7) {
-                            assert_eq!(block.header.inner_rest.last_quorum_pre_commit, *height_to_hash.get(&(h - 2)).unwrap());
+                            assert_eq!(block.header.inner_rest.last_final_block, *height_to_hash.get(&(h - 2)).unwrap());
                         }
 
                         if block.header.inner_lite.height > 1 {

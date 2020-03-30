@@ -42,9 +42,8 @@ pub trait ValidatorSigner: Sync + Send {
     fn sign_approval(
         &self,
         parent_hash: &CryptoHash,
-        reference_hash: &Option<CryptoHash>,
+        parent_height: BlockHeight,
         target_height: BlockHeight,
-        is_endorsement: bool,
     ) -> Signature;
 
     /// Signs challenge body.
@@ -108,9 +107,8 @@ impl ValidatorSigner for EmptyValidatorSigner {
     fn sign_approval(
         &self,
         _parent_hash: &CryptoHash,
-        _reference_hash: &Option<CryptoHash>,
+        _parent_height: BlockHeight,
         _target_height: BlockHeight,
-        _is_endorsement: bool,
     ) -> Signature {
         Signature::default()
     }
@@ -211,16 +209,10 @@ impl ValidatorSigner for InMemoryValidatorSigner {
     fn sign_approval(
         &self,
         parent_hash: &CryptoHash,
-        reference_hash: &Option<CryptoHash>,
+        parent_height: BlockHeight,
         target_height: BlockHeight,
-        is_endorsement: bool,
     ) -> Signature {
-        self.signer.sign(&Approval::get_data_for_sig(
-            parent_hash,
-            reference_hash,
-            target_height,
-            is_endorsement,
-        ))
+        self.signer.sign(&Approval::get_data_for_sig(parent_hash, parent_height, target_height))
     }
 
     fn sign_challenge(&self, challenge_body: &ChallengeBody) -> (CryptoHash, Signature) {

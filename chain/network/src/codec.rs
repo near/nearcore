@@ -100,7 +100,6 @@ mod test {
             chain_info: PeerChainInfo {
                 genesis_id: Default::default(),
                 height: 0,
-                score: 0.into(),
                 tracked_shards: vec![],
             },
             edge_info: EdgeInfo::default(),
@@ -151,9 +150,8 @@ mod test {
             body: RoutedMessageBody::BlockApproval(Approval {
                 account_id: "test2".to_string(),
                 parent_hash: CryptoHash::default(),
-                reference_hash: Some(CryptoHash::default()),
+                parent_height: 0,
                 target_height: 1,
-                is_endorsement: true,
                 signature: bls_signature,
             }),
         });

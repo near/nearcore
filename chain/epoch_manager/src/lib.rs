@@ -919,14 +919,7 @@ impl EpochManager {
         }
         let estimated_next_epoch_start =
             self.get_block_info(&block_info.epoch_first_block)?.height + self.config.epoch_length;
-        // Say the epoch length is 10, and say all the blocks have all the approvals.
-        // Say the first block of a particular epoch has height 111. We want the block 121 to be
-        //     the first block of the next epoch. For 121 to be the next block, the current block
-        //     has height 120, 119 has the quorum pre-commit and 118 is finalized.
-        // 121 - 118 = 3, hence the `last_finalized_height + 3`
-        Ok((block_info.last_finalized_height + 3 >= estimated_next_epoch_start
-            || self.config.num_block_producer_seats < 4)
-            && block_info.height + 1 >= estimated_next_epoch_start)
+        Ok(block_info.height + 1 >= estimated_next_epoch_start)
     }
 
     /// Returns epoch id for the next epoch (T+1), given an block info in current epoch (T).

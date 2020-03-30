@@ -86,7 +86,7 @@ impl Client {
         enable_doomslug: bool,
     ) -> Result<Self, Error> {
         let doomslug_threshold_mode = if enable_doomslug {
-            DoomslugThresholdMode::HalfStake
+            DoomslugThresholdMode::TwoThirds
         } else {
             DoomslugThresholdMode::NoApprovals
         };
@@ -111,8 +111,7 @@ impl Client {
         let parity_parts = runtime_adapter.num_total_parts() - data_parts;
 
         let doomslug = Doomslug::new(
-            chain.store().largest_skipped_height()?,
-            chain.store().largest_endorsed_height()?,
+            chain.store().largest_target_height()?,
             config.min_block_production_delay,
             config.max_block_production_delay,
             config.max_block_production_delay / 10,
@@ -289,10 +288,10 @@ impl Client {
 
         let prev = self.chain.get_block_header(&head.last_block_hash)?.clone();
         let prev_hash = head.last_block_hash;
+        let prev_height = head.height;
         let prev_prev_hash = prev.prev_hash;
         let prev_epoch_id = prev.inner_lite.epoch_id.clone();
         let prev_next_bp_hash = prev.inner_lite.next_bp_hash;
-        let prev_last_ds_final_block = prev.inner_rest.last_ds_final_block;
 
         // Check and update the doomslug tip here. This guarantees that our endorsement will be in the
         // doomslug witness. Have to do it before checking the ability to produce a block.
@@ -319,7 +318,7 @@ impl Client {
             return Ok(None);
         }
 
-        let approvals = self.doomslug.remove_witness(&prev_hash, next_height);
+        let approvals = self.doomslug.remove_witness(&prev_hash, prev_height, next_height);
 
         // At this point, the previous epoch hash must be available
         let epoch_id = self
@@ -331,35 +330,6 @@ impl Client {
             .runtime_adapter
             .get_next_epoch_id_from_prev_block(&head.last_block_hash)
             .expect("Epoch hash should exist at this point");
-
-        let quorums = Chain::compute_quorums(
-            prev_hash,
-            epoch_id.clone(),
-            next_height,
-            approvals.clone(),
-            &*self.runtime_adapter,
-            self.chain.mut_store(),
-            true,
-        )?
-        .clone();
-
-        let account_id_to_stake = self
-            .runtime_adapter
-            .get_epoch_block_producers_ordered(&epoch_id, &prev_hash)?
-            .iter()
-            .map(|x| (x.0.account_id.clone(), x.0.stake))
-            .collect();
-        let is_prev_block_ds_final =
-            Doomslug::is_approved_block_ds_final(&approvals, &account_id_to_stake);
-
-        let last_ds_final_block =
-            if is_prev_block_ds_final { prev_hash } else { prev_last_ds_final_block };
-
-        let score = if quorums.last_quorum_pre_vote == CryptoHash::default() {
-            0.into()
-        } else {
-            self.chain.get_block_header(&quorums.last_quorum_pre_vote)?.inner_lite.height.into()
-        };
 
         let gas_price_adjustment_rate = self.chain.block_economics_config.gas_price_adjustment_rate;
         let min_gas_price = self.chain.block_economics_config.min_gas_price;
@@ -374,8 +344,6 @@ impl Client {
         let prev_block_extra = self.chain.get_block_extra(&head.last_block_hash)?.clone();
         let prev_block = self.chain.get_block(&head.last_block_hash)?;
         let mut chunks = prev_block.chunks.clone();
-
-        assert!(score >= prev_block.header.inner_rest.score);
 
         // Collect new chunks.
         for (shard_id, mut chunk_header) in new_chunks {
@@ -410,10 +378,6 @@ impl Client {
             prev_block_extra.challenges_result,
             vec![],
             &*validator_signer,
-            score,
-            quorums.last_quorum_pre_vote,
-            quorums.last_quorum_pre_commit,
-            last_ds_final_block,
             next_bp_hash,
         );
 
@@ -695,20 +659,19 @@ impl Client {
 
         if tip.last_block_hash != self.doomslug.get_tip().0 {
             // We need to update the doomslug tip
-            let last_ds_final_hash =
-                self.chain.get_block_header(&tip.last_block_hash)?.inner_rest.last_ds_final_block;
-            let last_ds_final_height = if last_ds_final_hash == CryptoHash::default() {
+            let last_final_hash =
+                self.chain.get_block_header(&tip.last_block_hash)?.inner_rest.last_final_block;
+            let last_final_height = if last_final_hash == CryptoHash::default() {
                 0
             } else {
-                self.chain.get_block_header(&last_ds_final_hash)?.inner_lite.height
+                self.chain.get_block_header(&last_final_hash)?.inner_lite.height
             };
 
             self.doomslug.set_tip(
                 Instant::now(),
                 tip.last_block_hash,
-                self.chain.get_my_approval_reference_hash(tip.last_block_hash),
                 tip.height,
-                last_ds_final_height,
+                last_final_height,
             );
         }
 
@@ -938,14 +901,8 @@ impl Client {
     /// * `is_ours`  - whether the approval was just produced by us (in which case skip validation,
     ///                only check whether we are the next block producer and store in Doomslug)
     pub fn collect_block_approval(&mut self, approval: &Approval, is_ours: bool) {
-        let Approval {
-            parent_hash,
-            reference_hash,
-            account_id,
-            target_height,
-            is_endorsement,
-            signature,
-        } = approval;
+        let Approval { parent_hash, account_id, parent_height, target_height, signature } =
+            approval;
 
         let process_error = |e: near_chain::Error,
                              approval: &Approval,
@@ -974,22 +931,11 @@ impl Client {
                 &next_epoch_id,
                 &parent_hash,
                 account_id,
-                Approval::get_data_for_sig(
-                    parent_hash,
-                    reference_hash,
-                    *target_height,
-                    *is_endorsement,
-                )
-                .as_ref(),
+                Approval::get_data_for_sig(parent_hash, *parent_height, *target_height).as_ref(),
                 signature,
             ) {
                 Ok(true) => {}
                 _ => return,
-            }
-
-            if let Err(e) = self.chain.verify_approval_conditions(&approval) {
-                debug!(target: "client", "Rejecting approval {:?}: {:?}", approval, e);
-                return;
             }
         }
 
@@ -1356,7 +1302,7 @@ mod test {
         let mut env = TestEnv::new_with_runtime(ChainGenesis::test(), 1, 1, runtimes);
         let signer = InMemoryValidatorSigner::from_seed("test1", KeyType::ED25519, "test1");
         let parent_hash = hash(&[1]);
-        let approval = Approval::new(parent_hash, None, 1, true, &signer);
+        let approval = Approval::new(parent_hash, 0, 1, &signer);
         env.clients[0].collect_block_approval(&approval, false);
         let approvals = env.clients[0].pending_approvals.cache_remove(&parent_hash);
         let expected = vec![("test1".to_string(), approval)].into_iter().collect::<HashMap<_, _>>();

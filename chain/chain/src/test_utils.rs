@@ -305,6 +305,8 @@ impl RuntimeAdapter for KeyValueRuntime {
         &self,
         _epoch_id: &EpochId,
         _prev_block_hash: &CryptoHash,
+        _prev_block_height: BlockHeight,
+        _block_height: BlockHeight,
         _approvals: &[Approval],
     ) -> Result<bool, Error> {
         Ok(true)
@@ -1095,7 +1097,7 @@ pub fn new_block_no_epoch_switches(
         .map(|account_id| {
             let signer =
                 InMemoryValidatorSigner::from_seed(account_id, KeyType::ED25519, account_id);
-            Approval::new(prev_block.hash(), Some(prev_block.hash()), height, true, &signer)
+            Approval::new(prev_block.hash(), prev_block.header.inner_lite.height, height, &signer)
         })
         .collect();
     let (epoch_id, next_epoch_id) = if prev_block.header.prev_hash == CryptoHash::default() {
@@ -1119,10 +1121,6 @@ pub fn new_block_no_epoch_switches(
         vec![],
         vec![],
         signer,
-        0.into(),
-        CryptoHash::default(),
-        CryptoHash::default(),
-        CryptoHash::default(),
         prev_block.header.inner_lite.next_bp_hash.clone(),
     )
 }
