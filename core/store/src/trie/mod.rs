@@ -8,13 +8,12 @@ use std::sync::{Arc, Mutex};
 use borsh::BorshSerialize;
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use cached::Cached;
-use owning_ref::OwningRef;
 
 use near_primitives::challenge::PartialState;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::types::{
-    RawStateChange, RawStateChanges, RawStateChangesWithMetadata, StateChangeCause,
-    StateChangeKind, StateRoot, StateRootNode,
+    RawStateChange, RawStateChanges, RawStateChangesWithTrieKey, StateChangeCause, StateRoot,
+    StateRootNode,
 };
 
 use crate::db::{DBCol, DBOp, DBTransaction};
@@ -26,7 +25,6 @@ use crate::trie::trie_storage::{
     TrieStorage,
 };
 use crate::{ColState, StorageError, Store, StoreUpdate};
-use near_primitives::utils::trie_key_parsers;
 
 mod insert_delete;
 pub mod iterator;
@@ -562,40 +560,20 @@ impl WrappedTrieChanges {
         store_update: &mut StoreUpdate,
     ) -> Result<(), Box<dyn std::error::Error>> {
         store_update.trie = Some(self.trie.clone());
-        for (key, raw_changes) in
-            std::mem::replace(&mut self.state_changes, Default::default()).into_iter()
-        {
+        for (key, change_with_trie_key) in std::mem::take(&mut self.state_changes).into_iter() {
             assert!(
-                !raw_changes.iter().any(|RawStateChange { cause, .. }| {
-                    if let StateChangeCause::NotWritableToDisk = cause {
-                        true
-                    } else {
-                        false
-                    }
-                }),
+                !change_with_trie_key.changes.iter().any(|RawStateChange { cause, .. }| matches!(
+                    cause,
+                    StateChangeCause::NotWritableToDisk
+                )),
                 "NotWritableToDisk changes must never be finalized."
             );
-            let kind = if let Ok(account_id) =
-                trie_key_parsers::parse_account_id_from_contract_data_key(&key)
-            {
-                StateChangeKind::DataTouched { account_id }
-            } else if let Ok(account_id) = trie_key_parsers::parse_account_id_from_account_key(&key)
-            {
-                StateChangeKind::AccountTouched { account_id }
-            } else if let Ok(account_id) =
-                trie_key_parsers::parse_account_id_from_access_key_key(&key)
-            {
-                StateChangeKind::AccessKeyTouched { account_id }
-            } else if let Ok(account_id) =
-                trie_key_parsers::parse_account_id_from_contract_code_key(&key)
-            {
-                StateChangeKind::ContractCodeTouched { account_id }
-            } else {
-                continue;
-            };
             let storage_key = KeyForStateChanges::new(&self.block_hash, &key);
-            let changes = RawStateChangesWithMetadata { kind, raw_changes };
-            store_update.set(DBCol::ColStateChanges, storage_key.as_ref(), &changes.try_to_vec()?);
+            store_update.set(
+                DBCol::ColStateChanges,
+                storage_key.as_ref(),
+                &change_with_trie_key.try_to_vec()?,
+            );
         }
         Ok(())
     }
@@ -629,18 +607,15 @@ impl KeyForStateChanges {
     pub fn find_iter<'a: 'b, 'b>(
         &'a self,
         store: &'b Store,
-    ) -> impl Iterator<
-        Item = Result<(OwningRef<Vec<u8>, [u8]>, RawStateChangesWithMetadata), std::io::Error>,
-    > + 'b {
+    ) -> impl Iterator<Item = Result<RawStateChangesWithTrieKey, std::io::Error>> + 'b {
         let prefix_len = Self::estimate_prefix_len();
         debug_assert!(self.0.len() >= prefix_len);
-        store.iter_prefix_ser::<RawStateChangesWithMetadata>(DBCol::ColStateChanges, &self.0).map(
+        store.iter_prefix_ser::<RawStateChangesWithTrieKey>(DBCol::ColStateChanges, &self.0).map(
             move |change| {
                 // Split off the irrelevant part of the key, so only the original trie_key is left.
                 let (key, state_changes) = change?;
                 debug_assert!(key.starts_with(&self.0));
-                let trie_key = OwningRef::new(key).map(|key| &key[prefix_len..]);
-                Ok((trie_key, state_changes))
+                Ok(state_changes)
             },
         )
     }
@@ -648,23 +623,21 @@ impl KeyForStateChanges {
     pub fn find_exact_iter<'a: 'b, 'b>(
         &'a self,
         store: &'b Store,
-    ) -> impl Iterator<
-        Item = Result<(OwningRef<Vec<u8>, [u8]>, RawStateChangesWithMetadata), std::io::Error>,
-    > + 'b {
+    ) -> impl Iterator<Item = Result<RawStateChangesWithTrieKey, std::io::Error>> + 'b {
         let prefix_len = Self::estimate_prefix_len();
         let trie_key_len = self.0.len() - prefix_len;
         self.find_iter(store).filter_map(move |change| {
-            let (trie_key, state_changes) = match change {
+            let state_changes = match change {
                 Ok(change) => change,
                 error => {
                     return Some(error);
                 }
             };
-            if trie_key.len() != trie_key_len {
+            if state_changes.trie_key.len() != trie_key_len {
                 None
             } else {
-                debug_assert_eq!(trie_key.as_ref(), &self.0[prefix_len..]);
-                Some(Ok((trie_key, state_changes)))
+                debug_assert_eq!(&state_changes.trie_key.to_vec()[..], &self.0[prefix_len..]);
+                Some(Ok(state_changes))
             }
         })
     }
