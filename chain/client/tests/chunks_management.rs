@@ -119,7 +119,7 @@ fn chunks_produced_and_distributed_common(
             false,
             5,
             true,
-            false,
+            vec![false; validators.iter().map(|x| x.len()).sum()],
             Arc::new(RwLock::new(Box::new(move |from_whom: String, msg: &NetworkRequests| {
                 match msg {
                     NetworkRequests::Block { block } => {
