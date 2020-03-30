@@ -3389,12 +3389,14 @@ pub fn check_refcount_map(chain: &mut Chain) -> Result<(), Error> {
             }
             Err(e) => {
                 if block_refcount != 0 {
-                    debug_assert!(refcount != 0, "refcount should be zero for deleted blocks");
-                    return Err(ErrorKind::GCError(format!(
-                        "invalid number of references in deleted Block {:?}, expected 0 == {:?}, found {:?}; get_block failed: {:?}",
-                        block_hash, refcount, block_refcount, e
-                    ))
-                    .into());
+                    // May be the tail block
+                    if block_refcount != refcount {
+                        return Err(ErrorKind::GCError(format!(
+                            "invalid number of references in deleted Block {:?}, expected {:?}, found {:?}; get_block failed: {:?}",
+                            block_hash, refcount, block_refcount, e
+                        ))
+                            .into());
+                    }
                 }
                 if refcount >= 2 {
                     return Err(ErrorKind::GCError(format!(

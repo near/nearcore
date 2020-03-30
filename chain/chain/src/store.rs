@@ -1989,7 +1989,9 @@ impl<'a> ChainStoreUpdate<'a> {
                 .expect("current epoch id should exist");
             hashes.remove(&block_hash);
             store_update.set_ser(ColBlockPerHeight, &index_to_bytes(height), &epoch_to_hashes)?;
-            self.chain_store.block_hash_per_height.cache_remove(&index_to_bytes(height));
+            self.chain_store
+                .block_hash_per_height
+                .cache_set(index_to_bytes(height), epoch_to_hashes);
             // 5b. Decreasing block refcount
             self.dec_block_refcount(&block.header.prev_hash)?;
         } else {
@@ -2424,7 +2426,7 @@ mod tests {
     use near_primitives::utils::index_to_bytes;
     use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
     use near_store::test_utils::{create_test_store, gen_changes};
-    use near_store::{Trie, TrieIterator, WrappedTrieChanges};
+    use near_store::{Trie, WrappedTrieChanges};
 
     use crate::chain::check_refcount_map;
     use crate::store::ChainStoreAccess;
@@ -2683,6 +2685,8 @@ mod tests {
             store_update.save_trie_changes(wrapped_trie_changes);
             store_update.commit().unwrap();
 
+            assert!(trie.iter(&new_root).is_ok());
+
             prev_block = block.clone();
             prev_state_root = new_root;
         }
@@ -2752,7 +2756,7 @@ mod tests {
         let mut state_roots2 = vec![];
         state_roots2.push(Trie::empty_root());
 
-        for simple_chain in simple_chains {
+        for simple_chain in simple_chains.iter() {
             if simple_chain.is_removed {
                 for _ in 0..simple_chain.length {
                     // This chain is deleted in Chain1
@@ -2762,11 +2766,14 @@ mod tests {
                 continue;
             }
 
-            let mut state_root2 = state_roots2[simple_chain.from as usize].clone();
+            let mut state_root2 = state_roots2[simple_chain.from as usize];
+            let state_root1 = states1[simple_chain.from as usize].1;
+            assert!(trie1.iter(&state_root1).is_ok());
+            assert_eq!(state_root1, state_root2);
 
             for i in start_index..start_index + simple_chain.length {
                 let mut store_update2 = chain2.mut_store().store_update();
-                let (block1, _, changes1) = states1[i as usize].clone();
+                let (block1, state_root1, changes1) = states1[i as usize].clone();
                 // Apply to Trie 2 the same changes (changes1) as applied to Trie 1
                 let trie_changes2 = trie2.update(&state_root2, changes1.iter().cloned()).unwrap();
                 // i == gc_height is the only height should be processed here
@@ -2774,6 +2781,7 @@ mod tests {
                     let (trie_store_update2, new_root2) =
                         trie_changes2.clone().into_no_deletions(trie2.clone()).unwrap();
                     state_root2 = new_root2;
+                    assert_eq!(state_root1, state_root2);
                     store_update2.merge(trie_store_update2);
                 } else {
                     let (trie_store_update2, new_root2) =
@@ -2787,44 +2795,31 @@ mod tests {
             start_index += simple_chain.length;
         }
 
-        // Validation phase
-        for state1 in states1.iter() {
-            let (_, state_root1, _) = state1;
-            if trie1.iter(&state_root1).is_ok() {
-                let a = trie1
-                    .iter(&state_root1)
-                    .unwrap()
-                    // TODO Misha, can't do the following:
-                    //.map(|item| item.unwrap().0)
-                    .map(|item| if let Ok((key, _)) = item { key } else { vec![] })
-                    .collect::<Vec<_>>();
-                let b = trie2
-                    .iter(&state_root1)
-                    .unwrap_or(TrieIterator::new(&trie2, &Trie::empty_root()).unwrap())
-                    .map(|item| if let Ok((key, _)) = item { key } else { vec![] })
-                    .collect::<Vec<_>>();
-                if !a.is_empty() && !b.is_empty() {
+        let mut start_index = 1; // zero is for genesis
+        for simple_chain in simple_chains.iter() {
+            if simple_chain.is_removed {
+                start_index += simple_chain.length;
+                continue;
+            }
+            for i in start_index..start_index + simple_chain.length {
+                let (block1, state_root1, _) = states1[i as usize].clone();
+                if block1.header.inner_lite.height > gc_height || i == gc_height {
+                    assert!(trie1.iter(&state_root1).is_ok());
+                    assert!(trie2.iter(&state_root1).is_ok());
+                    let a = trie1
+                        .iter(&state_root1)
+                        .unwrap()
+                        .map(|item| item.unwrap().0)
+                        .collect::<Vec<_>>();
+                    let b = trie2
+                        .iter(&state_root1)
+                        .unwrap()
+                        .map(|item| item.unwrap().0)
+                        .collect::<Vec<_>>();
                     assert_eq!(a, b);
                 }
             }
-        }
-
-        for state_root2 in state_roots2.iter() {
-            if trie2.iter(&state_root2).is_ok() {
-                let a = trie1
-                    .iter(&state_root2)
-                    .unwrap_or(TrieIterator::new(&trie1, &Trie::empty_root()).unwrap())
-                    .map(|item| if let Ok((key, _)) = item { key } else { vec![] })
-                    .collect::<Vec<_>>();
-                let b = trie2
-                    .iter(&state_root2)
-                    .unwrap()
-                    .map(|item| if let Ok((key, _)) = item { key } else { vec![] })
-                    .collect::<Vec<_>>();
-                if !a.is_empty() && !b.is_empty() {
-                    assert_eq!(a, b);
-                }
-            }
+            start_index += simple_chain.length;
         }
     }
 
@@ -2880,12 +2875,17 @@ mod tests {
 
     #[test]
     fn test_gc_remove_fork_fail_often() {
-        for _tries in 0..25 {
+        for _tries in 0..10 {
             let chains = vec![
                 SimpleChain { from: 0, length: 101, is_removed: false },
                 SimpleChain { from: 10, length: 35, is_removed: true },
             ];
             gc_fork_common(chains, 1);
+            let chains = vec![
+                SimpleChain { from: 0, length: 101, is_removed: false },
+                SimpleChain { from: 10, length: 80, is_removed: false },
+            ];
+            gc_fork_common(chains, 6);
         }
     }
 
@@ -3014,8 +3014,8 @@ mod tests {
             let mut chains =
                 vec![SimpleChain { from: 0, length: canonical_len, is_removed: false }];
             for _num_chains in 1..10 {
-                let from = rng.gen_range(0, 60);
-                let len = rng.gen_range(0, 60) + 1;
+                let from = rng.gen_range(0, 50);
+                let len = rng.gen_range(0, 50) + 1;
                 chains.push(SimpleChain {
                     from,
                     length: len,
@@ -3052,7 +3052,7 @@ mod tests {
         for i in 1..49 {
             chains.push(SimpleChain { from: i, length: 2, is_removed: true });
         }
-        for i in 49..100 {
+        for i in 49..99 {
             chains.push(SimpleChain { from: i, length: 2, is_removed: false });
         }
         gc_fork_common(chains, 2);
@@ -3061,8 +3061,17 @@ mod tests {
         for i in 1..48 {
             chains.push(SimpleChain { from: i, length: 3, is_removed: true });
         }
-        for i in 48..100 {
+        for i in 48..98 {
             chains.push(SimpleChain { from: i, length: 3, is_removed: false });
+        }
+        gc_fork_common(chains, 1);
+
+        let mut chains = vec![SimpleChain { from: 0, length: 101, is_removed: false }];
+        for i in 1..40 {
+            chains.push(SimpleChain { from: i, length: 11, is_removed: true });
+        }
+        for i in 40..90 {
+            chains.push(SimpleChain { from: i, length: 11, is_removed: false });
         }
         gc_fork_common(chains, 1);
     }
@@ -3077,6 +3086,15 @@ mod tests {
             }
             for i in 50..100 {
                 chains.push(SimpleChain { from: i, length: 1, is_removed: false });
+            }
+            gc_fork_common(chains, max_changes);
+
+            let mut chains = vec![SimpleChain { from: 0, length: 101, is_removed: false }];
+            for i in 1..40 {
+                chains.push(SimpleChain { from: i, length: 11, is_removed: true });
+            }
+            for i in 40..90 {
+                chains.push(SimpleChain { from: i, length: 11, is_removed: false });
             }
             gc_fork_common(chains, max_changes);
         }
