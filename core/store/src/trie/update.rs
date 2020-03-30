@@ -88,6 +88,10 @@ impl TrieUpdate {
     }
 
     pub fn set(&mut self, trie_key: TrieKey, value: Vec<u8>) {
+        // NOTE: Converting `TrieKey` to a `Vec<u8>` is useful here for 2 reasons:
+        // - Using `Vec<u8>` for sorting `BTreeMap` in the same order as a `Trie` and
+        //   avoid recomputing `Vec<u8>` every time. It helps for merging iterators.
+        // - Using `TrieKey` later for `RawStateChangesWithTrieKey` for State changes RPCs.
         self.prospective
             .insert(trie_key.to_vec(), TrieKeyValueUpdate { trie_key, value: Some(value) });
     }
