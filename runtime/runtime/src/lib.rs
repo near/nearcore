@@ -1074,7 +1074,7 @@ impl Runtime {
         )?;
 
         state_update.commit(StateChangeCause::UpdatedDelayedReceipts);
-        // TODO: Avoid cloning.
+        // TODO(#2327): Avoid cloning.
         let state_changes = state_update.committed_updates_per_cause().clone();
 
         let trie_changes = state_update.finalize()?;

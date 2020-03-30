@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap};
 use std::fmt;
 
 use borsh::{BorshDeserialize, BorshSerialize};
@@ -10,7 +10,8 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::serialize::to_base;
 use near_primitives::types::{
     AccountId, Balance, BlockChunkValidatorStats, BlockHeight, BlockHeightDelta, EpochHeight,
-    EpochId, NumSeats, NumShards, ShardId, ValidatorId, ValidatorStake, ValidatorStats,
+    EpochId, NumSeats, NumShards, ShardId, ValidatorId, ValidatorKickoutReason, ValidatorStake,
+    ValidatorStats,
 };
 
 pub type RngSeed = [u8; 32];
@@ -67,7 +68,7 @@ pub struct EpochInfo {
     /// Total inflation in the epoch
     pub inflation: Balance,
     /// Validators who are kicked out in this epoch
-    pub validator_kickout: HashSet<AccountId>,
+    pub validator_kickout: HashMap<AccountId, ValidatorKickoutReason>,
 }
 
 /// Information per each block.
@@ -251,7 +252,7 @@ pub struct EpochSummary {
     // Proposals from the epoch, only the latest one per account
     pub all_proposals: Vec<ValidatorStake>,
     // Kickout set, includes slashed
-    pub validator_kickout: HashSet<AccountId>,
+    pub validator_kickout: HashMap<AccountId, ValidatorKickoutReason>,
     // Only for validators who met the threshold and didn't get slashed
     pub validator_block_chunk_stats: HashMap<AccountId, BlockChunkValidatorStats>,
     pub total_validator_reward: Balance,

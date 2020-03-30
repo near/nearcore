@@ -124,7 +124,7 @@ fn test_reads_with_incomplete_storage() {
             println!("Testing TrieUpdateIterator over prefix {:?}", key_prefix);
             let trie_update_keys = |trie: Arc<Trie>| -> Result<_, StorageError> {
                 let trie_update = TrieUpdate::new(trie, state_root);
-                let keys = trie_update.iter(key_prefix).unwrap().collect::<Result<Vec<_>, _>>()?;
+                let keys = trie_update.iter(key_prefix)?.collect::<Result<Vec<_>, _>>()?;
                 Ok(keys)
             };
             test_incomplete_storage(Arc::clone(&trie), trie_update_keys);
