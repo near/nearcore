@@ -129,6 +129,28 @@ impl TrieUpdate {
         )
     }
 
+    pub fn finalize_with_state_changes(
+        self,
+    ) -> Result<(TrieChanges, Vec<RawStateChangesWithTrieKey>), StorageError> {
+        assert!(self.prospective.is_empty(), "Finalize cannot be called with uncommitted changes.");
+        let TrieUpdate { trie, root, committed, .. } = self;
+        let mut state_changes = Vec::with_capacity(committed.len());
+        let trie_changes = trie.update(
+            &root,
+            committed.into_iter().map(|(k, changes_with_trie_key)| {
+                let data = changes_with_trie_key
+                    .changes
+                    .last()
+                    .expect("Committed entry should have at least one change")
+                    .data
+                    .clone();
+                state_changes.push(changes_with_trie_key);
+                (k, data)
+            }),
+        )?;
+        Ok((trie_changes, state_changes))
+    }
+
     /// Returns Error if the underlying storage fails
     pub fn iter(&self, key_prefix: &[u8]) -> Result<TrieUpdateIterator, StorageError> {
         TrieUpdateIterator::new(self, key_prefix, b"", None)

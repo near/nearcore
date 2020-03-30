@@ -18,8 +18,8 @@ use near_primitives::transaction::{
     Action, ExecutionOutcome, ExecutionOutcomeWithId, ExecutionStatus, LogEntry, SignedTransaction,
 };
 use near_primitives::types::{
-    AccountId, Balance, BlockHeight, BlockHeightDelta, EpochHeight, Gas, Nonce, RawStateChanges,
-    StateChangeCause, StateRoot, ValidatorStake,
+    AccountId, Balance, BlockHeight, BlockHeightDelta, EpochHeight, Gas, Nonce,
+    RawStateChangesWithTrieKey, StateChangeCause, StateRoot, ValidatorStake,
 };
 use near_primitives::utils::{create_nonce_with_nonce, system_account, trie_key_parsers, TrieKey};
 use near_store::{
@@ -107,7 +107,7 @@ pub struct ApplyResult {
     pub validator_proposals: Vec<ValidatorStake>,
     pub outgoing_receipts: Vec<Receipt>,
     pub outcomes: Vec<ExecutionOutcomeWithId>,
-    pub state_changes: RawStateChanges,
+    pub state_changes: Vec<RawStateChangesWithTrieKey>,
     pub stats: ApplyStats,
 }
 
@@ -1093,10 +1093,9 @@ impl Runtime {
         )?;
 
         state_update.commit(StateChangeCause::UpdatedDelayedReceipts);
-        // TODO(#2327): Avoid cloning.
-        let state_changes = state_update.committed_updates_per_cause().clone();
 
-        let trie_changes = state_update.finalize()?;
+        let (trie_changes, state_changes) = state_update.finalize_with_state_changes()?;
+
         let state_root = trie_changes.new_root;
         Ok(ApplyResult {
             state_root,
