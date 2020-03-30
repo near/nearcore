@@ -33,9 +33,15 @@ impl IntoVMError for wasmer_runtime::error::CallError {
 
 impl IntoVMError for wasmer_runtime::error::CompileError {
     fn into_vm_error(self) -> VMError {
-        VMError::FunctionCallError(FunctionCallError::CompilationError(
-            CompilationError::WasmerCompileError { msg: self.to_string() },
-        ))
+        match self {
+            wasmer_runtime::error::CompileError::InternalError { .. } => {
+                // An internal Wasmer error is the most probably be a result of a node malfunction
+                panic!("Internal Wasmer error: {}", self);
+            }
+            _ => VMError::FunctionCallError(FunctionCallError::CompilationError(
+                CompilationError::WasmerCompileError { msg: self.to_string() },
+            )),
+        }
     }
 }
 
@@ -74,12 +80,9 @@ impl IntoVMError for wasmer_runtime::error::RuntimeError {
         } else if let Some(exc_code) = data.downcast_ref::<ExceptionCode>() {
             VMError::FunctionCallError(FunctionCallError::WasmTrap { msg: exc_code.to_string() })
         } else {
-            eprintln!(
-                "Bad error case! Output is non-deterministic {:?} {:?}",
-                data.type_id(),
-                data
-            );
-            VMError::FunctionCallError(FunctionCallError::WasmTrap { msg: "unknown".into() })
+            VMError::FunctionCallError(FunctionCallError::WasmTrap {
+                msg: "Unknown Wasmer runtime error".into(),
+            })
         }
     }
 }
