@@ -41,7 +41,7 @@ client_config_changes = {
             "nanos": 0,
         },
         "max_block_wait_delay": {
-            "secs": 6 * block_production_time,            
+            "secs": 6 * block_production_time,
             "nanos": 0,
         },
     }
@@ -192,15 +192,17 @@ with open('/tmp/near/accounts.csv', 'w', newline='') as f:
 
     writer = csv.DictWriter(f, fieldnames=fieldnames)
     writer.writeheader()
+    amount = 1000 * 10 ** 24
+    staked_amount = 10 * 10 ** 24
 
     for i in range(num_machines):
         writer.writerow({
             'genesis_time': genesis_time,
             'account_id': f'node{i}',
             'full_pks': get_full_pks(i),
-            'amount': 10000000000000000000,
+            'amount': amount,
             'is_treasury': 'true' if i == 0 else 'false',
-            'validator_stake': 10000000000000000000,
+            'validator_stake': staked_amount,
             'validator_key': get_validator_key(i),
             'peer_info': f'{get_pubkey(i)}@{machines[i].ip}:24567'
         })
