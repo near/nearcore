@@ -181,9 +181,9 @@ impl Default for RuntimeFeesConfig {
                 },
             },
             storage_usage_config: StorageUsageConfig {
-                // See Account in core/primitives/src/account.rs for data structure:
-                // amount - 16, locked - 16, code_hash - 32, storage_used - 8, account_id hash - 32
-                num_bytes_account: 104,
+                // See Account in core/primitives/src/account.rs for the data structure.
+                // TODO(2291): figure out value for the MainNet.
+                num_bytes_account: 100,
                 num_extra_bytes_record: 40,
             },
             burnt_gas_reward: Fraction { numerator: 3, denominator: 10 },
