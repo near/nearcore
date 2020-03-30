@@ -464,9 +464,8 @@ impl Runtime {
         // Going to check balance covers account's storage.
         if result.result.is_ok() {
             if let Some(ref mut account) = account {
-                match get_insufficient_storage_stake(account, &self.config) {
-                    Ok(None) => set_account(state_update, account_id.clone(), account),
-                    Ok(Some(amount)) => result.merge(ActionResult {
+                if let Some(amount) = get_insufficient_storage_stake(account, &self.config)? {
+                    result.merge(ActionResult {
                         result: Err(ActionError {
                             index: None,
                             kind: ActionErrorKind::LackBalanceForState {
@@ -475,9 +474,10 @@ impl Runtime {
                             },
                         }),
                         ..Default::default()
-                    })?,
-                    Err(err) => return Err(RuntimeError::StorageError(err)),
-                };
+                    })?;
+                } else {
+                    set_account(state_update, account_id.clone(), account);
+                }
             }
         }
 

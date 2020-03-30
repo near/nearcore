@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use assert_matches::assert_matches;
 use near::config::{NEAR_BASE, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use near_crypto::{InMemorySigner, KeyType};
 use near_jsonrpc::ServerError;
@@ -18,7 +19,6 @@ use crate::fees_utils::FeeHelper;
 use crate::node::Node;
 use crate::runtime_utils::{alice_account, bob_account, eve_dot_alice_account};
 use crate::user::User;
-use near_primitives::errors::ActionErrorKind::LackBalanceForState;
 
 /// The amount to send with function call.
 const FUNCTION_CALL_AMOUNT: Balance = TESTING_INIT_BALANCE / 10;
@@ -525,16 +525,15 @@ pub fn test_create_account_failure_no_funds(node: impl Node) {
     let transaction_result = node_user
         .create_account(account_id.clone(), eve_dot_alice_account(), node.signer().public_key(), 0)
         .unwrap();
-    assert_eq!(
-        transaction_result.status,
-        FinalExecutionStatus::Failure(TxExecutionError::ActionError(ActionError {
-            index: None,
-            kind: LackBalanceForState {
-                account_id: eve_dot_alice_account(),
-                amount: 16543800000000000000000
-            }
-        }))
-    );
+    assert_matches!(
+    &transaction_result.status,
+    FinalExecutionStatus::Failure(e) => match &e {
+        &TxExecutionError::ActionError(action_err) => match action_err.kind {
+            ActionErrorKind::LackBalanceForState{..} => {},
+            _ => panic!("should be LackBalanceForState"),
+        },
+        _ => panic!("should be ActionError")
+    });
 }
 
 pub fn test_create_account_failure_already_exists(node: impl Node) {
