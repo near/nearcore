@@ -36,7 +36,8 @@ use crate::transaction::{
 use crate::types::{
     AccountId, AccountWithPublicKey, Balance, BlockHeight, EpochId, FunctionArgs, Gas, Nonce,
     NumBlocks, ShardId, StateChangeCause, StateChangeKind, StateChangeValue, StateChangeWithCause,
-    StateChangesRequest, StateRoot, StorageUsage, StoreKey, StoreValue, ValidatorStake, Version,
+    StateChangesRequest, StateRoot, StorageUsage, StoreKey, StoreValue, ValidatorKickoutReason,
+    ValidatorStake, Version,
 };
 
 /// A view of the account
@@ -1011,6 +1012,14 @@ pub struct EpochValidatorInfo {
     pub next_fishermen: Vec<ValidatorStakeView>,
     /// Proposals in the current epoch
     pub current_proposals: Vec<ValidatorStakeView>,
+    /// Kickout in the previous epoch
+    pub prev_epoch_kickout: Vec<ValidatorKickoutView>,
+}
+
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
+pub struct ValidatorKickoutView {
+    pub account_id: AccountId,
+    pub reason: ValidatorKickoutReason,
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]

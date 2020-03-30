@@ -497,3 +497,20 @@ pub struct BlockChunkValidatorStats {
     pub block_stats: ValidatorStats,
     pub chunk_stats: ValidatorStats,
 }
+
+/// Reasons for removing a validator from the validator set.
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub enum ValidatorKickoutReason {
+    /// Slashed validators are kicked out.
+    Slashed,
+    /// Validator didn't produce enough blocks.
+    NotEnoughBlocks { produced: NumBlocks, expected: NumBlocks },
+    /// Validator didn't produce enough chunks.
+    NotEnoughChunks { produced: NumBlocks, expected: NumBlocks },
+    /// Validator unstaked themselves.
+    Unstaked,
+    /// Validator stake is now below threshold
+    NotEnoughStake { stake: Balance, threshold: Balance },
+    /// Enough stake but is not chosen because of seat limits.
+    DidNotGetASeat,
+}
