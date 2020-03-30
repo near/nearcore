@@ -313,12 +313,6 @@ pub enum ActionErrorKind {
     AddKeyAlreadyExists { account_id: AccountId, public_key: PublicKey },
     /// Account is staking and can not be deleted
     DeleteAccountStaking { account_id: AccountId },
-    /// Foreign sender (sender=!receiver) can delete an account only if a target account hasn't enough tokens.
-    DeleteAccountHasEnoughBalance {
-        account_id: AccountId,
-        #[serde(with = "u128_dec_format")]
-        balance: Balance,
-    },
     /// ActionReceipt can't be completed, because the remaining balance will not be enough to cover storage.
     LackBalanceForState {
         /// An account which needs balance
@@ -621,11 +615,6 @@ impl Display for ActionErrorKind {
             ActionErrorKind::DeleteAccountStaking { account_id } => {
                 write!(f, "Account {:?} is staking and can not be deleted", account_id)
             }
-            ActionErrorKind::DeleteAccountHasEnoughBalance { account_id, balance } => write!(
-                f,
-                "Account {:?} can't be deleted. It has {}, which is enough to cover it's storage",
-                account_id, balance
-            ),
             ActionErrorKind::FunctionCallError(s) => write!(f, "{}", s),
             ActionErrorKind::NewReceiptValidationError(e) => {
                 write!(f, "An new action receipt created during a FunctionCall is not valid: {}", e)

@@ -378,7 +378,6 @@
         "DeleteKeyDoesNotExist",
         "AddKeyAlreadyExists",
         "DeleteAccountStaking",
-        "DeleteAccountHasEnoughBalance",
         "LackBalanceForState",
         "TriesToUnstake",
         "TriesToStake",

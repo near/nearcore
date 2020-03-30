@@ -153,6 +153,12 @@ mod test {
     }
 
     #[test]
+    fn test_create_account_failure_no_funds_runtime() {
+        let node = create_runtime_node();
+        test_create_account_failure_no_funds(node);
+    }
+
+    #[test]
     fn test_create_account_failure_already_exists_runtime() {
         let node = create_runtime_node();
         test_create_account_failure_already_exists(node);
@@ -264,12 +270,6 @@ mod test {
     fn test_fail_not_enough_balance_for_storage_runtime() {
         let node = create_runtime_with_expensive_storage();
         test_fail_not_enough_balance_for_storage(node);
-    }
-
-    #[test]
-    fn test_delete_account_for_storage_runtime() {
-        let node = create_runtime_with_expensive_storage();
-        test_delete_account_low_balance(node);
     }
 
     #[test]

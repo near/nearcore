@@ -18,6 +18,7 @@ use crate::fees_utils::FeeHelper;
 use crate::node::Node;
 use crate::runtime_utils::{alice_account, bob_account, eve_dot_alice_account};
 use crate::user::User;
+use near_primitives::errors::ActionErrorKind::LackBalanceForState;
 
 /// The amount to send with function call.
 const FUNCTION_CALL_AMOUNT: Balance = TESTING_INIT_BALANCE / 10;
@@ -516,6 +517,24 @@ pub fn test_create_account_failure_invalid_name(node: impl Node) {
             ))
         );
     }
+}
+
+pub fn test_create_account_failure_no_funds(node: impl Node) {
+    let account_id = &node.account_id().unwrap();
+    let node_user = node.user();
+    let transaction_result = node_user
+        .create_account(account_id.clone(), eve_dot_alice_account(), node.signer().public_key(), 0)
+        .unwrap();
+    assert_eq!(
+        transaction_result.status,
+        FinalExecutionStatus::Failure(TxExecutionError::ActionError(ActionError {
+            index: None,
+            kind: LackBalanceForState {
+                account_id: eve_dot_alice_account(),
+                amount: 16543800000000000000000
+            }
+        }))
+    );
 }
 
 pub fn test_create_account_failure_already_exists(node: impl Node) {
@@ -1026,39 +1045,29 @@ pub fn test_fail_not_enough_balance_for_storage(node: impl Node) {
     node_user.send_money(account_id, alice_account(), 10).unwrap_err();
 }
 
-pub fn test_delete_account_low_balance(node: impl Node) {
-    let node_user = node.user();
-    // There is some data attached to the account.
-    assert!(node_user.view_state(&bob_account(), b"").unwrap().values.len() > 0);
-    let initial_amount = node_user.view_account(&node.account_id().unwrap()).unwrap().amount;
-    let bobs_amount = node_user.view_account(&bob_account()).unwrap().amount;
-    let fee_helper = fee_helper(&node);
-    let delete_account_cost = fee_helper.delete_account_cost();
-    let transaction_result = node_user.delete_account(alice_account(), bob_account()).unwrap();
-    assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(to_base64(&[])));
-    assert_eq!(transaction_result.receipts_outcome.len(), 2);
-    assert!(node_user.view_account(&bob_account()).is_err());
-    // No data left.
-    assert_eq!(node_user.view_state(&bob_account(), b"").unwrap().values.len(), 0);
-    // Receive back reward the balance of the bob's account.
-    assert_eq!(
-        node_user.view_account(&node.account_id().unwrap()).unwrap().amount,
-        initial_amount + bobs_amount - delete_account_cost
-    );
-}
-
 pub fn test_delete_account_fail(node: impl Node) {
+    let money_used = TESTING_INIT_BALANCE / 2;
     let node_user = node.user();
+    let _ = node_user.create_account(
+        alice_account(),
+        eve_dot_alice_account(),
+        node.signer().public_key(),
+        money_used,
+    );
     let initial_amount = node_user.view_account(&node.account_id().unwrap()).unwrap().amount;
     let fee_helper = fee_helper(&node);
     let delete_account_cost = fee_helper.delete_account_cost();
-    let transaction_result = node_user.delete_account(alice_account(), bob_account()).unwrap();
+    let transaction_result =
+        node_user.delete_account(alice_account(), eve_dot_alice_account()).unwrap();
     assert_eq!(
         transaction_result.status,
         FinalExecutionStatus::Failure(
             ActionError {
                 index: Some(0),
-                kind: ActionErrorKind::DeleteAccountStaking { account_id: bob_account() }
+                kind: ActionErrorKind::ActorNoPermission {
+                    account_id: eve_dot_alice_account(),
+                    actor_id: alice_account()
+                }
             }
             .into()
         )
@@ -1099,13 +1108,18 @@ pub fn test_delete_account_while_staking(node: impl Node) {
     );
     let fee_helper = fee_helper(&node);
     let stake_fee = fee_helper.stake_cost();
+    let delete_account_fee = fee_helper.delete_account_cost();
     let transaction_result = node_user
-        .stake(eve_dot_alice_account(), node.block_signer().public_key(), money_used - stake_fee)
+        .stake(
+            eve_dot_alice_account(),
+            node.block_signer().public_key(),
+            money_used - stake_fee - delete_account_fee,
+        )
         .unwrap();
     assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(to_base64(&[])));
     assert_eq!(transaction_result.receipts_outcome.len(), 1);
     let transaction_result =
-        node_user.delete_account(alice_account(), eve_dot_alice_account()).unwrap();
+        node_user.delete_account(eve_dot_alice_account(), eve_dot_alice_account()).unwrap();
     assert_eq!(
         transaction_result.status,
         FinalExecutionStatus::Failure(

@@ -30,18 +30,34 @@ use near_primitives::errors::{ActionError, ActionErrorKind, ExternalError, Runti
 use near_vm_errors::{CompilationError, FunctionCallError};
 use near_vm_runner::VMError;
 
-/// Returns Ok if the account has enough balance to cover storage stake.
-/// Otherwise returns the amount required.
-pub(crate) fn check_storage_cost(
+/// Checks if given account has enough balance for state stake, and returns:
+///  - None if account has enough balance,
+///  - Some(insufficient_balance) if account doesn't have enough and how much need to be added,
+///  - Err(StorageError::StorageInconsistentState) if account has invalid storage usage or amount/locked.
+///
+/// Read details of state staking https://nomicon.io/Economics/README.html#state-stake
+pub(crate) fn get_insufficient_storage_stake(
     account: &Account,
     runtime_config: &RuntimeConfig,
-) -> Result<(), Balance> {
-    let required_amount =
-        Balance::from(account.storage_usage) * runtime_config.storage_amount_per_byte;
-    if account.amount + account.locked >= required_amount {
-        Ok(())
+) -> Result<Option<Balance>, StorageError> {
+    let required_amount = Balance::from(account.storage_usage)
+        .checked_mul(runtime_config.storage_amount_per_byte)
+        .ok_or_else(|| {
+            StorageError::StorageInconsistentState(format!(
+                "Account's storage_usage {} overflows multiplication",
+                account.storage_usage
+            ))
+        })?;
+    let available_amount = account.amount.checked_add(account.locked).ok_or_else(|| {
+        StorageError::StorageInconsistentState(format!(
+            "Account's amount {} and locked {} overflow addition",
+            account.amount, account.locked
+        ))
+    })?;
+    if available_amount >= required_amount {
+        Ok(None)
     } else {
-        Err(required_amount)
+        Ok(Some(required_amount - available_amount))
     }
 }
 
@@ -398,7 +414,6 @@ pub(crate) fn check_actor_permissions(
     account: &Option<Account>,
     actor_id: &AccountId,
     account_id: &AccountId,
-    config: &RuntimeConfig,
 ) -> Result<(), ActionError> {
     match action {
         Action::DeployContract(_) | Action::Stake(_) | Action::AddKey(_) | Action::DeleteKey(_) => {
@@ -411,17 +426,17 @@ pub(crate) fn check_actor_permissions(
             }
         }
         Action::DeleteAccount(_) => {
+            if actor_id != account_id {
+                return Err(ActionErrorKind::ActorNoPermission {
+                    account_id: account_id.clone(),
+                    actor_id: actor_id.clone(),
+                }
+                .into());
+            }
             let account = account.as_ref().unwrap();
             if account.locked != 0 {
                 return Err(ActionErrorKind::DeleteAccountStaking {
                     account_id: account_id.clone(),
-                }
-                .into());
-            }
-            if actor_id != account_id && check_storage_cost(account, config).is_ok() {
-                return Err(ActionErrorKind::DeleteAccountHasEnoughBalance {
-                    account_id: account_id.clone(),
-                    balance: account.amount,
                 }
                 .into());
             }

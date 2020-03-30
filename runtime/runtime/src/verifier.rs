@@ -1,4 +1,4 @@
-use crate::actions::check_storage_cost;
+use crate::actions::get_insufficient_storage_stake;
 use crate::config::{
     safe_gas_to_balance, total_prepaid_gas, tx_cost, RuntimeConfig, TransactionCost,
 };
@@ -104,11 +104,17 @@ pub fn verify_and_charge_transaction(
         }
     }
 
-    if let Err(amount) = check_storage_cost(&signer, &config) {
-        return Err(
-            InvalidTxError::LackBalanceForState { signer_id: signer_id.clone(), amount }.into()
-        );
-    }
+    match get_insufficient_storage_stake(&signer, &config) {
+        Ok(None) => {}
+        Ok(Some(amount)) => {
+            return Err(InvalidTxError::LackBalanceForState {
+                signer_id: signer_id.clone(),
+                amount,
+            }
+            .into())
+        }
+        Err(err) => return Err(RuntimeError::StorageError(err)),
+    };
 
     if let AccessKeyPermission::FunctionCall(ref function_call_permission) = access_key.permission {
         if transaction.actions.len() != 1 {
@@ -796,60 +802,6 @@ mod tests {
         } else {
             panic!("Incorrect error");
         }
-    }
-
-    /// Test that account with 0 balance can be created.
-    #[test]
-    fn test_validate_transaction_create_account_no_balance() {
-        let mut config = RuntimeConfig::free();
-        config.storage_amount_per_byte = 10_000;
-        let (signer, mut state_update, apply_state) =
-            setup_common(1_000_000_000, 0, 10_000_000, Some(AccessKey::full_access()));
-
-        verify_and_charge_transaction(
-            &config,
-            &mut state_update,
-            &apply_state,
-            &SignedTransaction::create_account(
-                1,
-                alice_account(),
-                bob_account(),
-                0,
-                signer.public_key().clone(),
-                &*signer,
-                CryptoHash::default(),
-            ),
-        )
-        .expect("valid transaction");
-    }
-
-    /// Test that an account with 0 N can be deleted by another account.
-    #[test]
-    fn test_validate_transaction_delete_account_low_balance() {
-        let mut config = RuntimeConfig::free();
-        config.storage_amount_per_byte = 10_000;
-        let (signer, mut state_update, apply_state) = setup_accounts(
-            vec![
-                (alice_account(), 0, 0, Some(AccessKey::full_access())),
-                (bob_account(), 1_000_000, 0, Some(AccessKey::full_access())),
-            ],
-            10_000_000,
-        );
-
-        verify_and_charge_transaction(
-            &config,
-            &mut state_update,
-            &apply_state,
-            &SignedTransaction::delete_account(
-                1,
-                bob_account(),
-                alice_account(),
-                bob_account(),
-                &*signer,
-                CryptoHash::default(),
-            ),
-        )
-        .expect("valid transaction");
     }
 
     /// Setup: account has 1B yoctoN and is 180 bytes. Storage requirement is 1M per byte.

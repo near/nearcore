@@ -287,9 +287,7 @@ impl Runtime {
             return Ok(result);
         }
         // Permission validation
-        if let Err(e) =
-            check_actor_permissions(action, account, &actor_id, account_id, &self.config)
-        {
+        if let Err(e) = check_actor_permissions(action, account, &actor_id, account_id) {
             result.result = Err(e);
             return Ok(result);
         }
@@ -466,8 +464,9 @@ impl Runtime {
         // Going to check balance covers account's storage.
         if result.result.is_ok() {
             if let Some(ref mut account) = account {
-                if let Err(amount) = check_storage_cost(account, &self.config) {
-                    result.merge(ActionResult {
+                match get_insufficient_storage_stake(account, &self.config) {
+                    Ok(None) => set_account(state_update, account_id.clone(), account),
+                    Ok(Some(amount)) => result.merge(ActionResult {
                         result: Err(ActionError {
                             index: None,
                             kind: ActionErrorKind::LackBalanceForState {
@@ -476,10 +475,9 @@ impl Runtime {
                             },
                         }),
                         ..Default::default()
-                    })?;
-                } else {
-                    set_account(state_update, account_id.clone(), account);
-                }
+                    })?,
+                    Err(err) => return Err(RuntimeError::StorageError(err)),
+                };
             }
         }
 

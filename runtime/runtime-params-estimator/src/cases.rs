@@ -611,9 +611,8 @@ fn get_vm_config(measurement: &Measurements) -> VMConfig {
 }
 
 fn get_runtime_config(measurement: &Measurements) -> RuntimeConfig {
-    RuntimeConfig {
-        transaction_costs: get_runtime_fees_config(measurement),
-        wasm_config: get_vm_config(measurement),
-        storage_amount_per_byte: 1_000_000_000_000_000_000,
-    }
+    let mut runtime_config = RuntimeConfig::default();
+    runtime_config.transaction_costs = get_runtime_fees_config(measurement);
+    runtime_config.wasm_config = get_vm_config(measurement);
+    runtime_config
 }
