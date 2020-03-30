@@ -377,7 +377,7 @@ fn produce_block_with_approvals_arrived_early() {
             false,
             100,
             true,
-            false,
+            vec![false; validators.iter().map(|x| x.len()).sum()],
             network_mock.clone(),
         );
         *network_mock.write().unwrap() =
