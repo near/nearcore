@@ -393,7 +393,7 @@ def spin_up_node(config, near_root, node_dir, ordinal, boot_key, boot_addr, blac
     if is_local:
         blacklist = ["127.0.0.1:%s" % (24567 + 10 + bl_ordinal) for bl_ordinal in blacklist]
         node = LocalNode(24567 + 10 + ordinal, 3030 +
-                         10 + ordinal, near_root, node_dir, blacklist, config['binary_name'])
+                         10 + ordinal, near_root, node_dir, blacklist, config.get('binary_name', 'near'))
     else:
         # TODO: Figure out how to know IP address beforehand for remote deployment.
         assert len(blacklist) == 0, "Blacklist is only supported in LOCAL deployment."
