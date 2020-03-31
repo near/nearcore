@@ -411,13 +411,10 @@ impl JsonRpcHandler {
     }
 
     async fn tx_status(&self, params: Option<Value>) -> Result<Value, RpcError> {
-        let (hash, account_id) = parse_params::<(String, String)>(params)?;
+        let (tx_hash, account_id) = parse_params::<(CryptoHash, String)>(params)?;
         if !is_valid_account_id(&account_id) {
             return Err(RpcError::invalid_params(format!("Invalid account id: {}", account_id)));
         }
-        let tx_hash = from_base_or_parse_err(hash).and_then(|bytes| {
-            CryptoHash::try_from(bytes).map_err(|err| RpcError::parse_error(err.to_string()))
-        })?;
 
         self.tx_polling(tx_hash, account_id).await
     }
