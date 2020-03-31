@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
-branch=${BUILDKITE_BRANCH:-${GITHUB_REF}}
+branch=${BUILDKITE_BRANCH:-${GITHUB_REF##*/}}
 commit=${BUILDKITE_COMMIT:-${GITHUB_SHA}}
 os=$(uname)
 

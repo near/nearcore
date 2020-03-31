@@ -7,7 +7,7 @@ on:
       - stable
       - mac-binary-release
 jobs:
-  test:
+  build_binary:
     runs-on: macOS-latest
 
     steps:
