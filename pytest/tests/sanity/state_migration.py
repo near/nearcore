@@ -74,6 +74,10 @@ def main():
 
     wait_for_blocks_or_timeout(current_node, 20, 100)
 
+    # Test deserialize state with new genesis
+    shutil.copy(os.path.join(node_root, 'test0/genesis.json'), '../near/res/testnet_genesis_config.json')
+    subprocess.check_output('cargo test --package near --lib -- config::test::test_deserialize_state --exact --nocapture', shell=True)
+    subprocess.check_output('git checkout ../near/res/testnet_genesis_config.json', shell=True)
 
 if __name__ == "__main__":
     main()
