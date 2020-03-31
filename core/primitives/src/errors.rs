@@ -302,7 +302,7 @@ pub enum ActionErrorKind {
     AccountAlreadyExists { account_id: AccountId },
     /// Happens when TX receiver_id doesn't exist (but action is not Action::CreateAccount)
     AccountDoesNotExist { account_id: AccountId },
-    /// A newly created top-level account ID can only be created by registrar.
+    /// A top-level account ID can only be created by registrar.
     CreateAccountOnlyByRegistrar {
         account_id: AccountId,
         registrar_account_id: AccountId,
@@ -604,12 +604,12 @@ impl Display for ActionErrorKind {
             }
             ActionErrorKind::CreateAccountOnlyByRegistrar { account_id, registrar_account_id, predecessor_id } => write!(
                 f,
-                "A new top-level account ID {:?} can't be created by {:?}, short top-level account IDs can only be created by {:?}",
+                "A top-level account ID {:?} can't be created by {:?}, short top-level account IDs can only be created by {:?}",
                 account_id, predecessor_id, registrar_account_id,
             ),
             ActionErrorKind::CreateAccountNotAllowed { account_id, predecessor_id } => write!(
                 f,
-                "A new sub-account ID {:?} can't be created by account {:?}",
+                "A sub-account ID {:?} can't be created by account {:?}",
                 account_id, predecessor_id,
             ),
             ActionErrorKind::DeleteKeyDoesNotExist { account_id, .. } => write!(
