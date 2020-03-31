@@ -1,6 +1,5 @@
 use borsh::BorshDeserialize;
 use serde::{Deserialize, Serialize};
-use std::convert::TryFrom;
 use std::fmt::{Display, Formatter};
 
 use near_crypto::PublicKey;
@@ -9,10 +8,13 @@ use crate::account::{AccessKey, Account};
 use crate::hash::{hash, CryptoHash};
 use crate::receipt::{Receipt, ReceivedData};
 use crate::serialize::{from_base64, option_base64_format, to_base64};
+use crate::trie_key::col;
 use crate::trie_key::trie_key_parsers::{
-    parse_account_id_from_contract_data_key, parse_data_key_from_contract_data_key,
+    parse_account_id_from_access_key_key, parse_account_id_from_account_key,
+    parse_account_id_from_contract_code_key, parse_account_id_from_contract_data_key,
+    parse_account_id_from_received_data_key, parse_data_id_from_received_data_key,
+    parse_data_key_from_contract_data_key, parse_public_key_from_access_key_key,
 };
-use crate::trie_key::{col, ACCOUNT_DATA_SEPARATOR};
 use crate::types::AccountId;
 use crate::views::{AccessKeyView, AccountView, ReceiptView};
 
@@ -43,25 +45,26 @@ impl StateRecord {
         let column = &key[0..1];
         match column {
             col::ACCOUNT => {
-                let separator = (1..key.len()).find(|&x| key[x] == ACCOUNT_DATA_SEPARATOR[0]);
-                if separator.is_some() {
+                let account_id = parse_account_id_from_contract_data_key(&key);
+                if let Ok(account_id) = account_id {
+                    let data_key =
+                        parse_data_key_from_contract_data_key(&key, &account_id).unwrap();
                     Some(StateRecord::Data { key: to_base64(&key), value: to_base64(&value) })
                 } else {
                     Some(StateRecord::Account {
-                        account_id: String::from_utf8(key[1..].to_vec()).unwrap(),
+                        account_id: parse_account_id_from_account_key(&key).unwrap(),
                         account: Account::try_from_slice(&value).unwrap().into(),
                     })
                 }
             }
             col::CONTRACT_CODE => Some(StateRecord::Contract {
-                account_id: String::from_utf8(key[1..].to_vec()).unwrap(),
+                account_id: parse_account_id_from_contract_code_key(&key).unwrap(),
                 code: to_base64(&value),
             }),
             col::ACCESS_KEY => {
-                let separator = (1..key.len()).find(|&x| key[x] == col::ACCESS_KEY[0]).unwrap();
                 let access_key = AccessKey::try_from_slice(&value).unwrap();
-                let account_id = String::from_utf8(key[1..separator].to_vec()).unwrap();
-                let public_key = PublicKey::try_from_slice(&key[(separator + 1)..]).unwrap();
+                let account_id = parse_account_id_from_access_key_key(&key).unwrap();
+                let public_key = parse_public_key_from_access_key_key(&key, &account_id).unwrap();
                 Some(StateRecord::AccessKey {
                     account_id,
                     public_key,
@@ -70,10 +73,8 @@ impl StateRecord {
             }
             col::RECEIVED_DATA => {
                 let data = ReceivedData::try_from_slice(&value).unwrap().data;
-                let separator =
-                    (1..key.len()).find(|&x| key[x] == ACCOUNT_DATA_SEPARATOR[0]).unwrap();
-                let account_id = String::from_utf8(key[1..separator].to_vec()).unwrap();
-                let data_id = CryptoHash::try_from(&key[(separator + 1)..]).unwrap();
+                let account_id = parse_account_id_from_received_data_key(&key).unwrap();
+                let data_id = parse_data_id_from_received_data_key(&key, &account_id).unwrap();
                 Some(StateRecord::ReceivedData { account_id, data_id, data })
             }
             col::POSTPONED_RECEIPT_ID => None,

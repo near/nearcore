@@ -176,6 +176,7 @@ impl TrieKey {
 // TODO: Remove once we switch to non-raw keys everywhere.
 pub mod trie_key_parsers {
     use super::*;
+    use std::convert::TryFrom;
 
     pub fn parse_public_key_from_access_key_key(
         raw_key: &[u8],
@@ -185,7 +186,7 @@ pub mod trie_key_parsers {
         if raw_key.len() < prefix_len {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
-                "raw key is too short for KeyForAccessKey",
+                "raw key is too short for TrieKey::AccessKey",
             ));
         }
         PublicKey::try_from_slice(&raw_key[prefix_len..])
@@ -199,7 +200,7 @@ pub mod trie_key_parsers {
         if raw_key.len() < prefix_len {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
-                "raw key is too short for KeyForData",
+                "raw key is too short for TrieKey::ContractData",
             ));
         }
         Ok(&raw_key[prefix_len..])
@@ -234,14 +235,14 @@ pub mod trie_key_parsers {
         } else {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
-                "raw key does not have ACCOUNT_DATA_SEPARATOR to be KeyForData",
+                "raw key does not have ACCOUNT_DATA_SEPARATOR to be TrieKey::ContractData",
             ));
         };
         let account_id_prefix = &account_id_prefix[..account_data_separator_position];
         Ok(AccountId::from(std::str::from_utf8(account_id_prefix).map_err(|_| {
             std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
-                "raw key does not have a valid AccountId to be KeyForData",
+                "raw key does not have a valid AccountId to be TrieKey::ContractData",
             )
         })?))
     }
@@ -251,7 +252,7 @@ pub mod trie_key_parsers {
         Ok(AccountId::from(std::str::from_utf8(account_id).map_err(|_| {
             std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
-                "raw key does not have a valid AccountId to be KeyForAccount",
+                "raw key does not have a valid AccountId to be TrieKey::Account",
             )
         })?))
     }
@@ -267,14 +268,14 @@ pub mod trie_key_parsers {
         } else {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
-                "raw key does not have public key to be KeyForAccessKey",
+                "raw key does not have public key to be TrieKey::AccessKey",
             ));
         };
         let account_id = &account_id_prefix[..public_key_position];
         Ok(AccountId::from(std::str::from_utf8(account_id).map_err(|_| {
             std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
-                "raw key does not have a valid AccountId to be KeyForAccessKey",
+                "raw key does not have a valid AccountId to be TrieKey::AccessKey",
             )
         })?))
     }
@@ -286,7 +287,7 @@ pub mod trie_key_parsers {
         Ok(AccountId::from(std::str::from_utf8(account_id).map_err(|_| {
             std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
-                "raw key does not have a valid AccountId to be KeyForCode",
+                "raw key does not have a valid AccountId to be TrieKey::ContractCode",
             )
         })?))
     }
@@ -297,6 +298,48 @@ pub mod trie_key_parsers {
         let account_id = parse_account_id_from_access_key_key(raw_key)?;
         let public_key = parse_public_key_from_access_key_key(raw_key, &account_id)?;
         Ok(TrieKey::AccessKey { account_id, public_key })
+    }
+
+    pub fn parse_account_id_from_received_data_key(
+        raw_key: &[u8],
+    ) -> Result<AccountId, std::io::Error> {
+        let account_id_prefix = parse_account_id_prefix(col::RECEIVED_DATA, raw_key)?;
+        // To simplify things, we assume that the data separator is a single byte.
+        debug_assert_eq!(ACCOUNT_DATA_SEPARATOR.len(), 1);
+        let account_data_separator_position = if let Some(index) = account_id_prefix
+            .iter()
+            .enumerate()
+            .find(|(_, c)| **c == ACCOUNT_DATA_SEPARATOR[0])
+            .map(|(index, _)| index)
+        {
+            index
+        } else {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "raw key does not have ACCOUNT_DATA_SEPARATOR to be TrieKey::ReceivedData",
+            ));
+        };
+        let account_id_prefix = &account_id_prefix[..account_data_separator_position];
+        Ok(AccountId::from(std::str::from_utf8(account_id_prefix).map_err(|_| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "raw key does not have a valid AccountId to be TrieKey::ReceivedData",
+            )
+        })?))
+    }
+
+    pub fn parse_data_id_from_received_data_key(
+        raw_key: &[u8],
+        account_id: &AccountId,
+    ) -> Result<CryptoHash, std::io::Error> {
+        let prefix_len = col::ACCESS_KEY.len() * 2 + account_id.len();
+        if raw_key.len() < prefix_len {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "raw key is too short for TrieKey::ReceivedData",
+            ));
+        }
+        CryptoHash::try_from(&raw_key[prefix_len..])
     }
 
     pub fn get_raw_prefix_for_access_keys(account_id: &AccountId) -> Vec<u8> {
