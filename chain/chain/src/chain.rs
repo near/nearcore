@@ -3361,7 +3361,7 @@ pub fn collect_receipts_from_response(
 pub fn check_refcount_map(chain: &mut Chain) -> Result<(), Error> {
     let head = chain.head()?;
     let mut block_refcounts = HashMap::new();
-    for height in chain.store().get_genesis_height() + 1..=head.height {
+    for height in chain.store().get_genesis_height() + 1..=head.height + 100 {
         let blocks_current_height = match chain.mut_store().get_all_block_hashes_by_height(height) {
             Ok(blocks_current_height) => {
                 blocks_current_height.values().flatten().cloned().collect()
