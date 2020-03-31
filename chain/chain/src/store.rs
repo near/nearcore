@@ -2427,7 +2427,7 @@ mod tests {
     use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
     use near_store::test_utils::create_test_store;
 
-    use crate::chain::check_refcount_map;
+    use crate::chain::{check_refcount_map, MAX_HEIGHTS_TO_CLEAR};
     use crate::store::ChainStoreAccess;
     use crate::test_utils::KeyValueRuntime;
     use crate::{Chain, ChainGenesis, DoomslugThresholdMode, Tip};
@@ -2753,5 +2753,62 @@ mod tests {
         assert!(chain.mut_store().get_next_block_hash(&blocks[4].hash()).is_err());
         assert!(chain.mut_store().get_next_block_hash(&blocks[5].hash()).is_ok());
         assert!(chain.mut_store().get_next_block_hash(&blocks[6].hash()).is_ok());
+    }
+
+    /// Test that MAX_HEIGHTS_TO_CLEAR works properly
+    #[test]
+    fn test_clear_old_data_too_many_heights() {
+        let mut chain = get_chain_with_epoch_length(1);
+        let genesis = chain.get_block_by_height(0).unwrap().clone();
+        let signer =
+            Arc::new(InMemoryValidatorSigner::from_seed("test1", KeyType::ED25519, "test1"));
+        let mut prev_block = genesis.clone();
+        let mut blocks = vec![prev_block.clone()];
+        for i in 1..1000 {
+            let block = Block::empty_with_height(&prev_block, i, &*signer.clone());
+            blocks.push(block.clone());
+
+            let mut store_update = chain.mut_store().store_update();
+            store_update.save_block(block.clone());
+            store_update.inc_block_refcount(&block.header.prev_hash).unwrap();
+            store_update.save_head(&Tip::from_header(&block.header)).unwrap();
+            store_update.save_block_header(block.header.clone());
+            store_update
+                .chain_store_cache_update
+                .height_to_hashes
+                .insert(i, Some(block.header.hash));
+            store_update.save_next_block_hash(&prev_block.hash(), block.hash());
+            store_update.commit().unwrap();
+
+            prev_block = block.clone();
+        }
+
+        assert!(check_refcount_map(&mut chain).is_ok());
+        let trie = chain.runtime_adapter.get_trie();
+
+        for iter in 0..10 {
+            println!("ITERATION #{:?}", iter);
+            assert!(chain.clear_data(trie.clone()).is_ok());
+
+            assert!(chain.get_block(&blocks[0].hash()).is_ok());
+
+            // epoch didn't change so no data is garbage collected.
+            for i in 1..1000 {
+                if i < (iter + 1) * (MAX_HEIGHTS_TO_CLEAR - 1) as usize {
+                    assert!(chain.get_block(&blocks[i].hash()).is_err());
+                    assert!(chain
+                        .mut_store()
+                        .get_all_block_hashes_by_height(i as BlockHeight)
+                        .is_err());
+                } else {
+                    assert!(chain.get_block(&blocks[i].hash()).is_ok());
+                    assert!(chain
+                        .mut_store()
+                        .get_all_block_hashes_by_height(i as BlockHeight)
+                        .is_ok());
+                }
+            }
+            assert!(check_refcount_map(&mut chain).is_ok());
+        }
     }
 }
