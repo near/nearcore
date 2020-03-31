@@ -1075,7 +1075,7 @@ impl Runtime {
 
         state_update.commit(StateChangeCause::UpdatedDelayedReceipts);
 
-        let (trie_changes, state_changes) = state_update.finalize_with_state_changes()?;
+        let (trie_changes, state_changes) = state_update.finalize()?;
 
         let state_root = trie_changes.new_root;
         Ok(ApplyResult {
@@ -1271,6 +1271,7 @@ impl Runtime {
         let (store_update, state_root) = state_update
             .finalize()
             .expect("Genesis state update failed")
+            .0
             .into(trie)
             .expect("Genesis state update failed");
         (store_update, state_root)
@@ -1311,7 +1312,8 @@ mod tests {
         let account_id = bob_account();
         set_account(&mut state_update, account_id.clone(), &test_account);
         state_update.commit(StateChangeCause::InitialState);
-        let (store_update, new_root) = state_update.finalize().unwrap().into(trie.clone()).unwrap();
+        let (store_update, new_root) =
+            state_update.finalize().unwrap().0.into(trie.clone()).unwrap();
         store_update.commit().unwrap();
         let new_state_update = TrieUpdate::new(trie.clone(), new_root);
         let get_res = get_account(&new_state_update, &account_id).unwrap().unwrap();
@@ -1346,7 +1348,7 @@ mod tests {
             &AccessKey::full_access(),
         );
         initial_state.commit(StateChangeCause::InitialState);
-        let trie_changes = initial_state.finalize().unwrap();
+        let trie_changes = initial_state.finalize().unwrap().0;
         let (store_update, root) = trie_changes.into(trie.clone()).unwrap();
         store_update.commit().unwrap();
 
@@ -1738,7 +1740,7 @@ mod tests {
             .unwrap();
         set(&mut state_update, TrieKey::DelayedReceiptIndices, &delayed_receipts_indices);
         state_update.commit(StateChangeCause::UpdatedDelayedReceipts);
-        let trie_changes = state_update.finalize().unwrap();
+        let trie_changes = state_update.finalize().unwrap().0;
         let (store_update, root) = trie_changes.into(trie.clone()).unwrap();
         store_update.commit().unwrap();
 

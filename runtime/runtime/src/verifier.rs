@@ -431,7 +431,7 @@ mod tests {
             }
         }
         initial_state.commit(StateChangeCause::InitialState);
-        let trie_changes = initial_state.finalize().unwrap();
+        let trie_changes = initial_state.finalize().unwrap().0;
         let (store_update, root) = trie_changes.into(trie.clone()).unwrap();
         store_update.commit().unwrap();
 
