@@ -256,6 +256,10 @@ impl RuntimeAdapter for KeyValueRuntime {
         )
     }
 
+    fn get_trie(&self) -> Arc<Trie> {
+        self.trie.clone()
+    }
+
     fn verify_block_signature(&self, header: &BlockHeader) -> Result<(), Error> {
         let validators = &self.validators
             [self.get_epoch_and_valset(header.prev_hash).map_err(|err| err.to_string())?.1];
@@ -472,7 +476,6 @@ impl RuntimeAdapter for KeyValueRuntime {
         _proposals: Vec<ValidatorStake>,
         _slashed_validators: Vec<SlashedValidator>,
         _validator_mask: Vec<bool>,
-        _rent_paid: Balance,
         _validator_reward: Balance,
         _total_supply: Balance,
     ) -> Result<(), Error> {
@@ -648,7 +651,6 @@ impl RuntimeAdapter for KeyValueRuntime {
             receipt_result: new_receipts,
             validator_proposals: vec![],
             total_gas_burnt: 0,
-            total_rent_paid: 0,
             total_validator_reward: 0,
             total_balance_burnt: 0,
             proof: None,
@@ -694,7 +696,6 @@ impl RuntimeAdapter for KeyValueRuntime {
                         locked: 0,
                         code_hash: CryptoHash::default(),
                         storage_usage: 0,
-                        storage_paid_at: 0,
                     }
                     .into(),
                 ),
@@ -849,6 +850,7 @@ impl RuntimeAdapter for KeyValueRuntime {
             current_fishermen: vec![],
             next_fishermen: vec![],
             current_proposals: vec![],
+            prev_epoch_kickout: vec![],
         })
     }
 

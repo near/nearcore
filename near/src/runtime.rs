@@ -353,7 +353,6 @@ impl NightshadeRuntime {
             receipt_result,
             validator_proposals: apply_result.validator_proposals,
             total_gas_burnt,
-            total_rent_paid: apply_result.stats.total_rent_paid,
             total_validator_reward: apply_result.stats.total_validator_reward,
             total_balance_burnt: apply_result.stats.total_balance_burnt
                 + apply_result.stats.total_balance_slashed,
@@ -402,6 +401,10 @@ impl RuntimeAdapter for NightshadeRuntime {
         } else {
             panic!("Found neither records in the config nor the state dump file. Either one should be present")
         }
+    }
+
+    fn get_trie(&self) -> Arc<Trie> {
+        self.trie.clone()
     }
 
     fn verify_block_signature(&self, header: &BlockHeader) -> Result<(), Error> {
@@ -850,7 +853,6 @@ impl RuntimeAdapter for NightshadeRuntime {
         proposals: Vec<ValidatorStake>,
         slashed_validators: Vec<SlashedValidator>,
         chunk_mask: Vec<bool>,
-        rent_paid: Balance,
         validator_reward: Balance,
         total_supply: Balance,
     ) -> Result<(), Error> {
@@ -866,7 +868,6 @@ impl RuntimeAdapter for NightshadeRuntime {
             proposals,
             chunk_mask,
             slashed_validators,
-            rent_paid,
             validator_reward,
             total_supply,
         );
@@ -1249,9 +1250,11 @@ mod test {
     use near_crypto::{InMemorySigner, KeyType, Signer};
     use near_primitives::test_utils::init_test_logger;
     use near_primitives::transaction::{Action, CreateAccountAction, StakeAction};
-    use near_primitives::types::{BlockHeightDelta, Nonce, ValidatorId};
+    use near_primitives::types::{BlockHeightDelta, Nonce, ValidatorId, ValidatorKickoutReason};
     use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
-    use near_primitives::views::{AccountView, CurrentEpochValidatorInfo, NextEpochValidatorInfo};
+    use near_primitives::views::{
+        AccountView, CurrentEpochValidatorInfo, NextEpochValidatorInfo, ValidatorKickoutView,
+    };
     use near_store::create_store;
     use node_runtime::config::RuntimeConfig;
 
@@ -1378,7 +1381,6 @@ mod test {
                     vec![],
                     vec![],
                     0,
-                    0,
                     genesis_total_supply,
                 )
                 .unwrap();
@@ -1445,7 +1447,6 @@ mod test {
                     self.last_proposals.clone(),
                     challenges_result,
                     chunk_mask,
-                    0,
                     0,
                     self.runtime.genesis.config.total_supply,
                 )
@@ -1855,7 +1856,6 @@ mod test {
                     vec![],
                     vec![true],
                     0,
-                    0,
                     new_env.runtime.genesis.config.total_supply,
                 )
                 .unwrap();
@@ -2007,7 +2007,8 @@ mod test {
                     public_key: block_producers[0].public_key(),
                     stake: 0
                 }
-                .into()]
+                .into()],
+                prev_epoch_kickout: Default::default()
             }
         );
         env.step_default(vec![]);
@@ -2027,6 +2028,13 @@ mod test {
             .into()]
         );
         assert!(response.current_proposals.is_empty());
+        assert_eq!(
+            response.prev_epoch_kickout,
+            vec![ValidatorKickoutView {
+                account_id: "test1".to_string(),
+                reason: ValidatorKickoutReason::Unstaked
+            }]
+        )
     }
 
     #[test]
