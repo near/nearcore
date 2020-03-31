@@ -287,7 +287,7 @@ mod tests {
             b"321".to_vec(),
         );
         state_update.commit(StateChangeCause::InitialState);
-        let (db_changes, new_root) = state_update.finalize().unwrap().into(trie.clone()).unwrap();
+        let (db_changes, new_root) = state_update.finalize().unwrap().0.into(trie.clone()).unwrap();
         db_changes.commit().unwrap();
 
         let state_update = TrieUpdate::new(trie, new_root);

@@ -83,10 +83,6 @@ impl TrieUpdate {
         })
     }
 
-    pub fn committed_updates_per_cause(&self) -> &RawStateChanges {
-        &self.committed
-    }
-
     pub fn set(&mut self, trie_key: TrieKey, value: Vec<u8>) {
         // NOTE: Converting `TrieKey` to a `Vec<u8>` is useful here for 2 reasons:
         // - Using `Vec<u8>` for sorting `BTreeMap` in the same order as a `Trie` and
@@ -114,19 +110,24 @@ impl TrieUpdate {
         self.prospective.clear();
     }
 
-    pub fn finalize(self) -> Result<TrieChanges, StorageError> {
+    pub fn finalize(self) -> Result<(TrieChanges, Vec<RawStateChangesWithTrieKey>), StorageError> {
         assert!(self.prospective.is_empty(), "Finalize cannot be called with uncommitted changes.");
         let TrieUpdate { trie, root, committed, .. } = self;
-        trie.update(
+        let mut state_changes = Vec::with_capacity(committed.len());
+        let trie_changes = trie.update(
             &root,
-            committed.into_iter().map(|(k, mut changes_with_trie_key)| {
-                let RawStateChange { data, .. } = changes_with_trie_key
+            committed.into_iter().map(|(k, changes_with_trie_key)| {
+                let data = changes_with_trie_key
                     .changes
-                    .pop()
-                    .expect("Committed entry should have at least one change");
+                    .last()
+                    .expect("Committed entry should have at least one change")
+                    .data
+                    .clone();
+                state_changes.push(changes_with_trie_key);
                 (k, data)
             }),
-        )
+        )?;
+        Ok((trie_changes, state_changes))
     }
 
     /// Returns Error if the underlying storage fails
@@ -338,7 +339,8 @@ mod tests {
         trie_update.set(test_key(b"xxx".to_vec()), b"puppy".to_vec());
         trie_update
             .commit(StateChangeCause::TransactionProcessing { tx_hash: CryptoHash::default() });
-        let (store_update, new_root) = trie_update.finalize().unwrap().into(trie.clone()).unwrap();
+        let (store_update, new_root) =
+            trie_update.finalize().unwrap().0.into(trie.clone()).unwrap();
         store_update.commit().ok();
         let trie_update2 = TrieUpdate::new(trie.clone(), new_root);
         assert_eq!(trie_update2.get(&test_key(b"dog".to_vec())), Ok(Some(b"puppy".to_vec())));
@@ -362,7 +364,8 @@ mod tests {
         trie_update.remove(test_key(b"dog".to_vec()));
         trie_update
             .commit(StateChangeCause::TransactionProcessing { tx_hash: CryptoHash::default() });
-        let (store_update, new_root) = trie_update.finalize().unwrap().into(trie.clone()).unwrap();
+        let (store_update, new_root) =
+            trie_update.finalize().unwrap().0.into(trie.clone()).unwrap();
         store_update.commit().ok();
         assert_eq!(new_root, CryptoHash::default());
 
@@ -372,7 +375,8 @@ mod tests {
         trie_update.remove(test_key(b"dog".to_vec()));
         trie_update
             .commit(StateChangeCause::TransactionProcessing { tx_hash: CryptoHash::default() });
-        let (store_update, new_root) = trie_update.finalize().unwrap().into(trie.clone()).unwrap();
+        let (store_update, new_root) =
+            trie_update.finalize().unwrap().0.into(trie.clone()).unwrap();
         store_update.commit().ok();
         assert_eq!(new_root, CryptoHash::default());
 
@@ -381,14 +385,16 @@ mod tests {
         trie_update.set(test_key(b"dog".to_vec()), b"puppy".to_vec());
         trie_update
             .commit(StateChangeCause::TransactionProcessing { tx_hash: CryptoHash::default() });
-        let (store_update, new_root) = trie_update.finalize().unwrap().into(trie.clone()).unwrap();
+        let (store_update, new_root) =
+            trie_update.finalize().unwrap().0.into(trie.clone()).unwrap();
         store_update.commit().ok();
         assert_ne!(new_root, CryptoHash::default());
         let mut trie_update = TrieUpdate::new(trie.clone(), new_root);
         trie_update.remove(test_key(b"dog".to_vec()));
         trie_update
             .commit(StateChangeCause::TransactionProcessing { tx_hash: CryptoHash::default() });
-        let (store_update, new_root) = trie_update.finalize().unwrap().into(trie.clone()).unwrap();
+        let (store_update, new_root) =
+            trie_update.finalize().unwrap().0.into(trie.clone()).unwrap();
         store_update.commit().ok();
         assert_eq!(new_root, CryptoHash::default());
     }
@@ -401,7 +407,8 @@ mod tests {
         trie_update.set(test_key(b"aaa".to_vec()), b"puppy".to_vec());
         trie_update
             .commit(StateChangeCause::TransactionProcessing { tx_hash: CryptoHash::default() });
-        let (store_update, new_root) = trie_update.finalize().unwrap().into(trie.clone()).unwrap();
+        let (store_update, new_root) =
+            trie_update.finalize().unwrap().0.into(trie.clone()).unwrap();
         store_update.commit().ok();
 
         let mut trie_update = TrieUpdate::new(trie.clone(), new_root);
