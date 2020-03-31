@@ -1,13 +1,13 @@
 use std::cmp::max;
-use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::ops::Bound::{Excluded, Included, Unbounded};
 use std::ops::DerefMut;
 use std::sync::{Arc, RwLock};
 
 use actix::actors::mocker::Mocker;
-use actix::{Actor, Addr, AsyncContext, Context, MailboxError};
+use actix::{Actor, Addr, AsyncContext, Context};
 use chrono::{DateTime, Utc};
-use futures::{future, future::BoxFuture, FutureExt};
+use futures::{future, FutureExt};
 use rand::{thread_rng, Rng};
 
 use near_chain::test_utils::KeyValueRuntime;
@@ -37,33 +37,9 @@ use near_store::Store;
 use near_telemetry::TelemetryActor;
 
 use crate::{Client, ClientActor, SyncStatus, ViewClientActor};
+use near_network::test_utils::MockNetworkAdapter;
 
 pub type NetworkMock = Mocker<PeerManagerActor>;
-
-#[derive(Default)]
-pub struct MockNetworkAdapter {
-    pub requests: Arc<RwLock<VecDeque<NetworkRequests>>>,
-}
-
-impl NetworkAdapter for MockNetworkAdapter {
-    fn send(
-        &self,
-        msg: NetworkRequests,
-    ) -> BoxFuture<'static, Result<NetworkResponses, MailboxError>> {
-        self.do_send(msg);
-        future::ok(NetworkResponses::NoResponse).boxed()
-    }
-
-    fn do_send(&self, msg: NetworkRequests) {
-        self.requests.write().unwrap().push_back(msg);
-    }
-}
-
-impl MockNetworkAdapter {
-    pub fn pop(&self) -> Option<NetworkRequests> {
-        self.requests.write().unwrap().pop_front()
-    }
-}
 
 /// Sets up ClientActor and ViewClientActor viewing the same store/runtime.
 pub fn setup(
@@ -257,7 +233,7 @@ pub fn setup_mock_all_validators(
     tamper_with_fg: bool,
     epoch_length: BlockHeightDelta,
     enable_doomslug: bool,
-    archive: bool,
+    archive: Vec<bool>,
     network_mock: Arc<RwLock<Box<dyn FnMut(String, &NetworkRequests) -> (NetworkResponses, bool)>>>,
 ) -> (Block, Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>) {
     let validators_clone = validators.clone();
@@ -286,7 +262,9 @@ pub fn setup_mock_all_validators(
     let approval_intervals: Arc<RwLock<Vec<BTreeSet<(ScoreAndHeight, ScoreAndHeight)>>>> =
         Arc::new(RwLock::new(key_pairs.iter().map(|_| BTreeSet::new()).collect()));
 
-    for account_id in validators.iter().flatten().cloned() {
+    for (index, account_id) in
+        validators.iter().flatten().enumerate().map(|(i, acc)| (i, acc.clone())).collect::<Vec<_>>()
+    {
         let view_client_addr = Arc::new(RwLock::new(None));
         let view_client_addr1 = view_client_addr.clone();
         let validators_clone1 = validators_clone.clone();
@@ -305,6 +283,7 @@ pub fn setup_mock_all_validators(
         let largest_skipped_height1 = largest_skipped_height.clone();
         let hash_to_score1 = hash_to_score.clone();
         let approval_intervals1 = approval_intervals.clone();
+        let archive1 = archive.clone();
         let client_addr = ClientActor::create(move |ctx| {
             let client_addr = ctx.address();
             let pm = NetworkMock::mock(Box::new(move |msg, _ctx| {
@@ -728,7 +707,7 @@ pub fn setup_mock_all_validators(
                 block_prod_time,
                 block_prod_time * 3,
                 enable_doomslug,
-                archive,
+                archive1[index],
                 Arc::new(network_adapter),
                 10000,
                 genesis_time,

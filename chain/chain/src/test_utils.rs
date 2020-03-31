@@ -36,7 +36,7 @@ use near_store::{
     ColBlockHeader, PartialStorage, Store, StoreUpdate, Trie, TrieChanges, WrappedTrieChanges,
 };
 
-use crate::chain::{Chain, ChainGenesis};
+use crate::chain::{Chain, ChainGenesis, NUM_EPOCHS_TO_KEEP_STORE_DATA};
 use crate::error::{Error, ErrorKind};
 use crate::store::ChainStoreAccess;
 use crate::types::ApplyTransactionResult;
@@ -256,6 +256,10 @@ impl RuntimeAdapter for KeyValueRuntime {
         )
     }
 
+    fn get_trie(&self) -> Arc<Trie> {
+        self.trie.clone()
+    }
+
     fn verify_block_signature(&self, header: &BlockHeader) -> Result<(), Error> {
         let validators = &self.validators
             [self.get_epoch_and_valset(header.prev_hash).map_err(|err| err.to_string())?.1];
@@ -472,7 +476,6 @@ impl RuntimeAdapter for KeyValueRuntime {
         _proposals: Vec<ValidatorStake>,
         _slashed_validators: Vec<SlashedValidator>,
         _validator_mask: Vec<bool>,
-        _rent_paid: Balance,
         _validator_reward: Balance,
         _total_supply: Balance,
     ) -> Result<(), Error> {
@@ -648,7 +651,6 @@ impl RuntimeAdapter for KeyValueRuntime {
             receipt_result: new_receipts,
             validator_proposals: vec![],
             total_gas_burnt: 0,
-            total_rent_paid: 0,
             total_validator_reward: 0,
             total_balance_burnt: 0,
             proof: None,
@@ -680,6 +682,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         block_height: BlockHeight,
         _block_timestamp: u64,
         block_hash: &CryptoHash,
+        _epoch_id: &EpochId,
         request: &QueryRequest,
     ) -> Result<QueryResponse, Box<dyn std::error::Error>> {
         match request {
@@ -693,7 +696,6 @@ impl RuntimeAdapter for KeyValueRuntime {
                         locked: 0,
                         code_hash: CryptoHash::default(),
                         storage_usage: 0,
-                        storage_paid_at: 0,
                     }
                     .into(),
                 ),
@@ -831,6 +833,12 @@ impl RuntimeAdapter for KeyValueRuntime {
         }
     }
 
+    fn get_gc_stop_height(&self, block_hash: &CryptoHash) -> Result<BlockHeight, Error> {
+        let block_height =
+            self.get_block_header(block_hash)?.map(|h| h.inner_lite.height).unwrap_or_default();
+        Ok(block_height.saturating_sub(NUM_EPOCHS_TO_KEEP_STORE_DATA * self.epoch_length))
+    }
+
     fn get_epoch_inflation(&self, _epoch_id: &EpochId) -> Result<u128, Error> {
         Ok(0)
     }
@@ -842,6 +850,7 @@ impl RuntimeAdapter for KeyValueRuntime {
             current_fishermen: vec![],
             next_fishermen: vec![],
             current_proposals: vec![],
+            prev_epoch_kickout: vec![],
         })
     }
 

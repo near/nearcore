@@ -292,7 +292,6 @@ mod tests {
                     vec![],
                     vec![],
                     0,
-                    0,
                     DEFAULT_TOTAL_SUPPLY,
                 ),
                 [0; 32],

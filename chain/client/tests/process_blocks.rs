@@ -1,19 +1,23 @@
+use std::path::Path;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, RwLock};
 
 use actix::System;
 use futures::{future, FutureExt};
 
-use near_chain::{Block, ChainGenesis, ErrorKind, Provenance};
+use near::config::GenesisExt;
+use near_chain::chain::NUM_EPOCHS_TO_KEEP_STORE_DATA;
+use near_chain::{Block, ChainGenesis, ChainStoreAccess, ErrorKind, Provenance, RuntimeAdapter};
+use near_chain_configs::Genesis;
 use near_chunks::{ChunkStatus, ShardsManager};
 use near_client::test_utils::setup_mock_all_validators;
-use near_client::test_utils::{setup_client, setup_mock, MockNetworkAdapter, TestEnv};
+use near_client::test_utils::{setup_client, setup_mock, TestEnv};
 use near_client::{Client, GetBlock};
 use near_crypto::{InMemorySigner, KeyType, Signature, Signer};
 #[cfg(feature = "metric_recorder")]
 use near_network::recorder::MetricRecorder;
 use near_network::routing::EdgeInfo;
-use near_network::test_utils::wait_or_panic;
+use near_network::test_utils::{wait_or_panic, MockNetworkAdapter};
 use near_network::types::{NetworkInfo, PeerChainInfo};
 use near_network::{
     FullPeerInfo, NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkResponses,
@@ -23,10 +27,10 @@ use near_primitives::block::{Approval, BlockHeader};
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::merklize;
-use near_primitives::sharding::EncodedShardChunk;
+use near_primitives::sharding::{EncodedShardChunk, ReedSolomonWrapper};
 use near_primitives::test_utils::init_test_logger;
 use near_primitives::transaction::{SignedTransaction, Transaction};
-use near_primitives::types::{EpochId, MerkleHash};
+use near_primitives::types::{BlockHeight, EpochId, MerkleHash, NumBlocks};
 use near_primitives::utils::to_timestamp;
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
 use near_store::test_utils::create_test_store;
@@ -62,7 +66,6 @@ fn produce_two_blocks() {
 // TODO: figure out how to re-enable it correctly
 #[ignore]
 fn produce_blocks_with_tx() {
-    use reed_solomon_erasure::galois_8::ReedSolomon;
     let mut encoded_chunks: Vec<EncodedShardChunk> = vec![];
     init_test_logger();
     System::run(|| {
@@ -94,11 +97,12 @@ fn produce_blocks_with_tx() {
                     }
 
                     let parity_parts = total_parts - data_parts;
-                    let rs = ReedSolomon::new(data_parts, parity_parts).unwrap();
+                    let mut rs = ReedSolomonWrapper::new(data_parts, parity_parts);
 
-                    if let ChunkStatus::Complete(_) =
-                        ShardsManager::check_chunk_complete(&mut encoded_chunks[height - 2], &rs)
-                    {
+                    if let ChunkStatus::Complete(_) = ShardsManager::check_chunk_complete(
+                        &mut encoded_chunks[height - 2],
+                        &mut rs,
+                    ) {
                         let chunk = encoded_chunks[height - 2].decode_chunk(data_parts).unwrap();
                         if chunk.transactions.len() > 0 {
                             System::current().stop();
@@ -373,7 +377,7 @@ fn produce_block_with_approvals_arrived_early() {
             false,
             100,
             true,
-            false,
+            vec![false; validators.iter().map(|x| x.len()).sum()],
             network_mock.clone(),
         );
         *network_mock.write().unwrap() =
@@ -824,4 +828,124 @@ fn test_minimum_gas_price() {
     }
     let block = env.clients[0].chain.get_block_by_height(100).unwrap();
     assert!(block.header.inner_rest.gas_price >= min_gas_price);
+}
+
+fn test_gc_with_epoch_length_common(epoch_length: NumBlocks) {
+    let store = create_test_store();
+    let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
+    genesis.config.epoch_length = epoch_length;
+    let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![Arc::new(near::NightshadeRuntime::new(
+        Path::new("."),
+        store,
+        Arc::new(genesis),
+        vec![],
+        vec![],
+    ))];
+    let mut chain_genesis = ChainGenesis::test();
+    chain_genesis.epoch_length = epoch_length;
+    let mut env = TestEnv::new_with_runtime(chain_genesis, 1, 1, runtimes);
+    let mut blocks = vec![];
+    for i in 1..=epoch_length * (NUM_EPOCHS_TO_KEEP_STORE_DATA + 1) {
+        let block = env.clients[0].produce_block(i).unwrap().unwrap();
+        env.process_block(0, block.clone(), Provenance::PRODUCED);
+        blocks.push(block);
+    }
+    for i in 1..=epoch_length * (NUM_EPOCHS_TO_KEEP_STORE_DATA + 1) {
+        if i <= epoch_length {
+            assert!(env.clients[0].chain.get_block(&blocks[i as usize - 1].hash()).is_err());
+            assert!(env.clients[0]
+                .chain
+                .mut_store()
+                .get_all_block_hashes_by_height(i as BlockHeight)
+                .is_err());
+        } else {
+            assert!(env.clients[0].chain.get_block(&blocks[i as usize - 1].hash()).is_ok());
+            assert!(env.clients[0]
+                .chain
+                .mut_store()
+                .get_all_block_hashes_by_height(i as BlockHeight)
+                .is_ok());
+        }
+    }
+}
+
+#[test]
+fn test_gc_with_epoch_length() {
+    for i in 2..20 {
+        test_gc_with_epoch_length_common(i);
+    }
+}
+
+/// When an epoch is very long there should not be anything garbage collected unexpectedly
+#[test]
+fn test_gc_long_epoch() {
+    let epoch_length = 5;
+    let mut genesis = Genesis::test(vec!["test0", "test1"], 5);
+    genesis.config.epoch_length = epoch_length;
+    let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![
+        Arc::new(near::NightshadeRuntime::new(
+            Path::new("."),
+            create_test_store(),
+            Arc::new(genesis.clone()),
+            vec![],
+            vec![],
+        )),
+        Arc::new(near::NightshadeRuntime::new(
+            Path::new("."),
+            create_test_store(),
+            Arc::new(genesis),
+            vec![],
+            vec![],
+        )),
+    ];
+    let mut chain_genesis = ChainGenesis::test();
+    chain_genesis.epoch_length = epoch_length;
+    let mut env = TestEnv::new_with_runtime(chain_genesis, 2, 5, runtimes);
+    let num_blocks = 100;
+    let mut blocks = vec![];
+
+    for i in 1..=num_blocks {
+        let block_producer = env.clients[0]
+            .runtime_adapter
+            .get_block_producer(&EpochId(CryptoHash::default()), i)
+            .unwrap();
+        if block_producer == "test0".to_string() {
+            let block = env.clients[0].produce_block(i).unwrap().unwrap();
+            env.process_block(0, block.clone(), Provenance::PRODUCED);
+            blocks.push(block);
+        }
+    }
+    for block in blocks {
+        assert!(env.clients[0].chain.get_block(&block.hash()).is_ok());
+        assert!(env.clients[0]
+            .chain
+            .mut_store()
+            .get_all_block_hashes_by_height(block.header.inner_lite.height)
+            .is_ok());
+    }
+}
+
+#[test]
+fn test_gc_block_skips() {
+    let mut chain_genesis = ChainGenesis::test();
+    chain_genesis.epoch_length = 5;
+    let mut env = TestEnv::new(chain_genesis.clone(), 1, 1);
+    for i in 1..=1000 {
+        if i % 2 == 0 {
+            env.produce_block(0, i);
+        }
+    }
+    let mut env = TestEnv::new(chain_genesis.clone(), 1, 1);
+    for i in 1..=1000 {
+        if i % 2 == 1 {
+            env.produce_block(0, i);
+        }
+    }
+    // Epoch skips
+    let mut env = TestEnv::new(chain_genesis, 1, 1);
+    for i in 1..=1000 {
+        if i % 9 == 7 {
+            env.produce_block(0, i);
+        }
+    }
 }

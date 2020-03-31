@@ -1120,6 +1120,7 @@ pub struct StateResponseInfo {
 #[derive(Debug)]
 pub enum NetworkAdversarialMessage {
     AdvProduceBlocks(u64, bool),
+    AdvSwitchToHeight(u64),
     AdvDisableHeaderSync,
     AdvDisableDoomslug,
     AdvGetSavedBlocks,

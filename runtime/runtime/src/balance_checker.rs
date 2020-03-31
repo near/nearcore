@@ -11,10 +11,9 @@ use near_primitives::errors::{
 use near_primitives::receipt::{Receipt, ReceiptEnum};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, Balance};
-use near_primitives::utils::col::DELAYED_RECEIPT_INDICES;
-use near_primitives::utils::{system_account, KeyForDelayedReceipt, KeyForPostponedReceiptId};
+use near_primitives::utils::{system_account, TrieKey};
 use near_runtime_fees::RuntimeFeesConfig;
-use near_store::{get, get_account, get_receipt, TrieUpdate};
+use near_store::{get, get_account, get_postponed_receipt, TrieUpdate};
 use std::collections::HashSet;
 
 // TODO: Check for balance overflows
@@ -31,13 +30,13 @@ pub(crate) fn check_balance(
 ) -> Result<(), RuntimeError> {
     // Delayed receipts
     let initial_delayed_receipt_indices: DelayedReceiptIndices =
-        get(&initial_state, DELAYED_RECEIPT_INDICES)?.unwrap_or_default();
+        get(&initial_state, &TrieKey::DelayedReceiptIndices)?.unwrap_or_default();
     let final_delayed_receipt_indices: DelayedReceiptIndices =
-        get(&final_state, DELAYED_RECEIPT_INDICES)?.unwrap_or_default();
+        get(&final_state, &TrieKey::DelayedReceiptIndices)?.unwrap_or_default();
     let get_delayed_receipts = |from_index, to_index, state| {
         (from_index..to_index)
             .map(|index| {
-                get(state, &KeyForDelayedReceipt::new(index))?.ok_or_else(|| {
+                get(state, &TrieKey::DelayedReceipt { index })?.ok_or_else(|| {
                     StorageError::StorageInconsistentState(format!(
                         "Delayed receipt #{} should be in the state",
                         index
@@ -139,13 +138,14 @@ pub(crate) fn check_balance(
         .map(|receipt| {
             let account_id = &receipt.receiver_id;
             match &receipt.receipt {
-                ReceiptEnum::Action(_) => {
-                    Ok(Some((account_id.clone(), receipt.receipt_id.clone())))
-                }
+                ReceiptEnum::Action(_) => Ok(Some((account_id.clone(), receipt.receipt_id))),
                 ReceiptEnum::Data(data_receipt) => {
                     if let Some(receipt_id) = get(
                         initial_state,
-                        &KeyForPostponedReceiptId::new(account_id, &data_receipt.data_id),
+                        &TrieKey::PostponedReceiptId {
+                            receiver_id: account_id.clone(),
+                            data_id: data_receipt.data_id,
+                        },
                     )? {
                         Ok(Some((account_id.clone(), receipt_id)))
                     } else {
@@ -163,7 +163,7 @@ pub(crate) fn check_balance(
         Ok(all_potential_postponed_receipt_ids
             .iter()
             .map(|(account_id, receipt_id)| {
-                Ok(get_receipt(state, account_id, &receipt_id)?
+                Ok(get_postponed_receipt(state, account_id, *receipt_id)?
                     .map_or(Ok(0), |r| receipt_cost(&r))?)
             })
             .collect::<Result<Vec<Balance>, RuntimeError>>()?
@@ -186,7 +186,6 @@ pub(crate) fn check_balance(
         outgoing_receipts_balance,
         new_delayed_receipts_balance,
         final_postponed_receipts_balance,
-        stats.total_rent_paid,
         stats.total_validator_reward,
         stats.total_balance_burnt,
         stats.total_balance_slashed
@@ -204,7 +203,6 @@ pub(crate) fn check_balance(
             outgoing_receipts_balance,
             new_delayed_receipts_balance,
             final_postponed_receipts_balance,
-            total_rent_paid: stats.total_rent_paid,
             total_validator_reward: stats.total_validator_reward,
             total_balance_burnt: stats.total_balance_burnt,
             total_balance_slashed: stats.total_balance_slashed,
@@ -289,13 +287,13 @@ mod tests {
         let refund_balance = 1000;
 
         let mut initial_state = TrieUpdate::new(trie.clone(), root);
-        let initial_account = Account::new(initial_balance, hash(&[]), 0);
-        set_account(&mut initial_state, &account_id, &initial_account);
+        let initial_account = Account::new(initial_balance, hash(&[]));
+        set_account(&mut initial_state, account_id.clone(), &initial_account);
         initial_state.commit(StateChangeCause::NotWritableToDisk);
 
         let mut final_state = TrieUpdate::new(trie.clone(), root);
-        let final_account = Account::new(initial_balance + refund_balance, hash(&[]), 0);
-        set_account(&mut final_state, &account_id, &final_account);
+        let final_account = Account::new(initial_balance + refund_balance, hash(&[]));
+        set_account(&mut final_state, account_id.clone(), &final_account);
         final_state.commit(StateChangeCause::NotWritableToDisk);
 
         let transaction_costs = RuntimeFeesConfig::default();
@@ -331,8 +329,8 @@ mod tests {
             * gas_price;
         let total_validator_reward = send_gas as Balance * gas_price - contract_reward;
         let mut initial_state = TrieUpdate::new(trie.clone(), root);
-        let initial_account = Account::new(initial_balance, hash(&[]), 0);
-        set_account(&mut initial_state, &account_id, &initial_account);
+        let initial_account = Account::new(initial_balance, hash(&[]));
+        set_account(&mut initial_state, account_id.clone(), &initial_account);
         initial_state.commit(StateChangeCause::NotWritableToDisk);
 
         let mut final_state = TrieUpdate::new(trie.clone(), root);
@@ -340,9 +338,8 @@ mod tests {
             initial_balance - (exec_gas + send_gas) as Balance * gas_price - deposit
                 + contract_reward,
             hash(&[]),
-            0,
         );
-        set_account(&mut final_state, &account_id, &final_account);
+        set_account(&mut final_state, account_id.clone(), &final_account);
         final_state.commit(StateChangeCause::NotWritableToDisk);
 
         let signer = InMemorySigner::from_seed(&account_id, KeyType::ED25519, &account_id);
@@ -377,7 +374,6 @@ mod tests {
             &[tx],
             &[receipt],
             &ApplyStats {
-                total_rent_paid: 0,
                 total_validator_reward,
                 total_balance_burnt: 0,
                 total_balance_slashed: 0,
@@ -396,11 +392,11 @@ mod tests {
         let deposit = 1000;
 
         let mut initial_state = TrieUpdate::new(trie.clone(), root);
-        let alice = Account::new(std::u128::MAX, hash(&[]), 0);
-        let bob = Account::new(1u128, hash(&[]), 0);
+        let alice = Account::new(std::u128::MAX, hash(&[]));
+        let bob = Account::new(1u128, hash(&[]));
 
-        set_account(&mut initial_state, &alice_id, &alice);
-        set_account(&mut initial_state, &bob_id, &bob);
+        set_account(&mut initial_state, alice_id.clone(), &alice);
+        set_account(&mut initial_state, bob_id.clone(), &bob);
         initial_state.commit(StateChangeCause::NotWritableToDisk);
 
         let signer = InMemorySigner::from_seed(&alice_id, KeyType::ED25519, &alice_id);

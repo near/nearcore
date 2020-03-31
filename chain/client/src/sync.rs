@@ -188,6 +188,10 @@ impl HeaderSync {
                                         peer_id: peer.peer_info.id.clone(),
                                         ban_reason: ReasonForBan::HeightFraud,
                                     });
+                                    // This peer is fraudulent, let's skip this beat and wait for
+                                    // the next one when this peer is not in the list anymore.
+                                    self.syncing_peer = None;
+                                    return false;
                                 }
                             }
                             _ => (),
@@ -860,12 +864,11 @@ mod test {
     use near_chain::Provenance;
     use near_crypto::{KeyType, PublicKey};
     use near_network::routing::EdgeInfo;
+    use near_network::test_utils::MockNetworkAdapter;
     use near_network::types::PeerChainInfo;
     use near_network::PeerInfo;
     use near_primitives::block::{Block, GenesisId};
     use near_primitives::network::PeerId;
-
-    use crate::test_utils::MockNetworkAdapter;
 
     use super::*;
 

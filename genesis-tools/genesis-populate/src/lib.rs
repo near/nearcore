@@ -171,7 +171,7 @@ impl GenesisBuilder {
             let mut account =
                 get_account(&state_update, &account_id)?.expect("We should've created account");
             account.storage_usage = storage_usage;
-            set_account(&mut state_update, &account_id, &account);
+            set_account(&mut state_update, account_id, &account);
         }
         let trie = state_update.trie.clone();
         let (store_update, root) = state_update.finalize()?.into(trie)?;
@@ -212,7 +212,6 @@ impl GenesisBuilder {
                 vec![],
                 vec![],
                 0,
-                0,
                 self.genesis.config.total_supply.clone(),
             )
             .unwrap();
@@ -229,7 +228,6 @@ impl GenesisBuilder {
                     vec![],
                     0,
                     self.genesis.config.gas_limit.clone(),
-                    0,
                     0,
                     0,
                 ),
@@ -260,7 +258,7 @@ impl GenesisBuilder {
             storage_usage: 0,
             storage_paid_at: 0,
         };
-        set_account(&mut state_update, &account_id, &account.clone().into());
+        set_account(&mut state_update, account_id.clone(), &account.clone().into());
         let account_record = StateRecord::Account { account_id: account_id.clone(), account };
         records.push(account_record);
         let access_key_record = StateRecord::AccessKey {
@@ -270,8 +268,8 @@ impl GenesisBuilder {
         };
         set_access_key(
             &mut state_update,
-            &account_id,
-            &signer.public_key,
+            account_id.clone(),
+            signer.public_key.clone(),
             &AccessKey::full_access(),
         );
         records.push(access_key_record);
@@ -279,7 +277,7 @@ impl GenesisBuilder {
             (self.additional_accounts_code.as_ref(), self.additional_accounts_code_base64.as_ref())
         {
             let code = ContractCode::new(wasm_binary.to_vec());
-            set_code(&mut state_update, &account_id, &code);
+            set_code(&mut state_update, account_id.clone(), &code);
             let contract_record =
                 StateRecord::Contract { account_id, code: wasm_binary_base64.clone() };
             records.push(contract_record);

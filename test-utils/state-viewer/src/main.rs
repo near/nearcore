@@ -52,7 +52,7 @@ fn kv_to_state_record(key: Vec<u8>, value: Vec<u8>) -> Option<StateRecord> {
                 })
             }
         }
-        col::CODE => Some(StateRecord::Contract {
+        col::CONTRACT_CODE => Some(StateRecord::Contract {
             account_id: String::from_utf8(key[1..].to_vec()).unwrap(),
             code: to_base64(&value),
         }),
@@ -244,7 +244,6 @@ fn replay_chain(
                     header.inner_rest.validator_proposals,
                     vec![],
                     header.inner_rest.chunk_mask,
-                    header.inner_rest.rent_paid,
                     header.inner_rest.validator_reward,
                     header.inner_rest.total_supply,
                 )

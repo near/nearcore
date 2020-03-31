@@ -1,3 +1,4 @@
+use std::cmp::min;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::{Duration as TimeDuration, Instant};
@@ -24,14 +25,14 @@ use near_primitives::transaction::{
 };
 use near_primitives::types::{
     AccountId, Balance, BlockExtra, BlockHeight, BlockHeightDelta, ChunkExtra, EpochId, Gas,
-    NumBlocks, ShardId, ValidatorStake,
+    NumBlocks, ShardId, StateHeaderKey, ValidatorStake,
 };
 use near_primitives::unwrap_or_return;
 use near_primitives::views::{
     ExecutionOutcomeWithIdView, ExecutionStatusView, FinalExecutionOutcomeView,
     FinalExecutionStatus, LightClientBlockView,
 };
-use near_store::{ColStateHeaders, ColStateParts};
+use near_store::{ColStateHeaders, ColStateParts, Trie};
 
 use crate::error::{Error, ErrorKind};
 use crate::finality::{ApprovalVerificationError, FinalityGadget, FinalityGadgetQuorums};
@@ -40,7 +41,7 @@ use crate::store::{ChainStore, ChainStoreAccess, ChainStoreUpdate, ShardInfo, St
 use crate::types::{
     AcceptedBlock, ApplyTransactionResult, Block, BlockHeader, BlockStatus, Provenance,
     ReceiptList, ReceiptProofResponse, ReceiptResponse, RootProof, RuntimeAdapter,
-    ShardStateSyncResponseHeader, StateHeaderKey, StatePartKey, Tip,
+    ShardStateSyncResponseHeader, StatePartKey, Tip,
 };
 use crate::validate::{
     validate_challenge, validate_chunk_proofs, validate_chunk_with_chunk_extra,
@@ -68,10 +69,10 @@ pub const TX_ROUTING_HEIGHT_HORIZON: BlockHeightDelta = 4;
 const NEAR_BASE: Balance = 1_000_000_000_000_000_000_000_000;
 
 /// Number of epochs for which we keep store data
-const NUM_EPOCHS_TO_KEEP_STORE_DATA: u64 = 5;
+pub const NUM_EPOCHS_TO_KEEP_STORE_DATA: u64 = 5;
 
-/// Number of heights to clear.
-const HEIGHTS_TO_CLEAR: BlockHeightDelta = 10;
+/// Maximum number of heights to clear per one GC run
+pub const MAX_HEIGHTS_TO_CLEAR: u64 = 100;
 
 /// Block economics config taken from genesis config
 pub struct BlockEconomicsConfig {
@@ -319,7 +320,6 @@ impl Chain {
                         vec![],
                         vec![],
                         0,
-                        0,
                         chain_genesis.total_supply,
                     )?;
                     store_update.save_block_header(genesis.header.clone());
@@ -340,7 +340,6 @@ impl Chain {
                                 vec![],
                                 0,
                                 chain_genesis.gas_limit,
-                                0,
                                 0,
                                 0,
                             ),
@@ -523,7 +522,8 @@ impl Chain {
         }
 
         chain_store_update.save_block(block.clone());
-        chain_store_update.inc_block_refcount(&block.header.prev_hash)?;
+        // We don't need to increase refcount for `prev_hash` at this point
+        // because this is the block before State Sync.
 
         chain_store_update.commit()?;
         Ok(())
@@ -537,20 +537,110 @@ impl Chain {
         });
     }
 
-    pub fn clear_old_data(&mut self) -> Result<(), Error> {
+    // GC CONTRACT
+    // ===
+    //
+    // Prerequisites, guaranteed by the System:
+    // 1. Genesis is always on the Canonical Chain, only one Genesis exists and its height is `genesis_height`,
+    //    and no block with height lower than `genesis_height` exists.
+    // 2. If block A is ancestor of block B, height of A is strictly less then height of B.
+    // 3. (Property 1). An oldest block where fork is happened has the least height among all blocks on the fork.
+    // 4. (Property 2). An oldest block where fork is happened is never affected by Canonical Chain Switching
+    //    and always stays on Canonical Chain.
+    //
+    // Overall:
+    // 1. GC procedure is handled by `clear_data()` function.
+    // 2. `clear_data()` runs GC process for all blocks from the lowest known block height (tail).
+    // 3. `clear_data()` contains of four parts:
+    //    a. Block Reference Map creating, if it not exists
+    //    b. Define clearing height as `height`; the highest height for which we want to clear the data
+    //    c. Forks Clearing at height `height` down to tail.
+    //    d. Canonical Chain Clearing from tail up to height `height`
+    // 4. Before actual clearing is started, Block Reference Map should be built.
+    // 5. It's recommended to execute `clear_data()` every time when block at new height is added.
+    //
+    // Forks Clearing:
+    // 1. Any fork which ends up on height `height` INCLUSIVELY and earlier will be completely deleted
+    //    from the Store with all its ancestors up to the ancestor block where fork is happened
+    //    EXCLUDING the ancestor block where fork is happened.
+    // 2. The oldest ancestor block always remains on the Canonical Chain by property 2.
+    // 3. All forks which end up on height `height + 1` and further are protected from deletion and
+    //    no their ancestor will be deleted (even with lowest heights).
+    // 4. `clear_forks_data()` handles forks clearing for fixed height `height`.
+    //
+    // Canonical Chain Clearing:
+    // 1. Blocks on the Canonical Chain with the only descendant (if no forks started from them)
+    //    are unlocked for Canonical Chain Clearing.
+    // 2. If Forks Clearing ended up on the Canonical Chain, the block may be unlocked
+    //    for the Canonical Chain Clearing. There is no other reason to unlock the block exists.
+    // 3. All the unlocked blocks will be completely deleted
+    //    from the tail up to the height `height` EXCLUSIVELY.
+    // 4. (Property 3, GC invariant). There is always only one block with the lowest height (tail)
+    //    (based on property 1) and it's always on the Canonical Chain (based on property 2).
+    //
+    // Example:
+    //
+    // height: 101   102   103   104
+    // --------[A]---[B]---[C]---[D]
+    //          \     \
+    //           \     \---[E]
+    //            \
+    //             \-[F]---[G]
+    //
+    // 1. Let's define clearing height = 102. It this case fork A-F-G is protected from deletion
+    //    because of G which is on height 103. Nothing will be deleted.
+    // 2. Let's define clearing height = 103. It this case Fork Clearing will be executed for A
+    //    to delete blocks G and F, then Fork Clearing will be executed for B to delete block E.
+    //    Then Canonical Chain Clearing will delete blocks A and B as unlocked.
+    //    Block C is the only block of height 103 remains on the Canonical Chain (invariant).
+    //
+    pub fn clear_data(&mut self, trie: Arc<Trie>) -> Result<(), Error> {
         let mut chain_store_update = self.store.store_update();
         let head = chain_store_update.head()?;
-        let height_diff = NUM_EPOCHS_TO_KEEP_STORE_DATA * self.epoch_length;
-        if head.height >= height_diff {
-            let last_height = head.height - height_diff;
-            for height in last_height.saturating_sub(HEIGHTS_TO_CLEAR)..last_height {
-                match chain_store_update.clear_old_data_on_height(height) {
-                    Ok(_) => {}
-                    Err(err) => {
-                        error!(target: "client", "Error clearing old data on height {:?}, {:?}", height, err);
-                    }
-                }
+        let tail = chain_store_update.tail()?;
+        let mut gc_stop_height = self.runtime_adapter.get_gc_stop_height(&head.last_block_hash)?;
+        if gc_stop_height > head.height {
+            return Err(ErrorKind::GCError(
+                "gc_stop_height cannot be larger than head.height".into(),
+            )
+            .into());
+        }
+        // To avoid network slowdown, we limit the number of heights to clear per GC execution
+        gc_stop_height = min(gc_stop_height, tail + MAX_HEIGHTS_TO_CLEAR);
+        // Forks Cleaning
+        for height in tail..gc_stop_height {
+            if height == chain_store_update.get_genesis_height() {
+                continue;
             }
+            chain_store_update.clear_forks_data(trie.clone(), height)?;
+        }
+
+        // Canonical Chain Clearing
+        for height in tail + 1..gc_stop_height {
+            let blocks_current_height: Vec<CryptoHash> =
+                match chain_store_update.get_all_block_hashes_by_height(height) {
+                    Ok(blocks_current_height) => {
+                        blocks_current_height.values().flatten().cloned().collect()
+                    }
+                    _ => continue,
+                };
+            if let Some(block_hash) = blocks_current_height.first() {
+                if blocks_current_height.len() > 1 {
+                    // Fork is here
+                    break;
+                }
+                let prev_hash = chain_store_update.get_block_header(block_hash)?.prev_hash;
+                if *chain_store_update.get_block_refcount(&prev_hash)? != 1 {
+                    return Err(ErrorKind::GCError(format!(
+                        "invalid refcount for {:?}, expected 1, found {:?}",
+                        block_hash,
+                        chain_store_update.get_block_refcount(&prev_hash).unwrap()
+                    ))
+                    .into());
+                }
+                chain_store_update.clear_block_data(trie.clone(), *block_hash, false)?;
+            }
+            chain_store_update.update_tail(height);
         }
         chain_store_update.commit()?;
         Ok(())
@@ -727,7 +817,6 @@ impl Chain {
                     header.inner_rest.validator_proposals.clone(),
                     vec![],
                     header.inner_rest.chunk_mask.clone(),
-                    header.inner_rest.rent_paid,
                     header.inner_rest.validator_reward,
                     header.inner_rest.total_supply,
                 )?;
@@ -2121,7 +2210,7 @@ impl<'a> ChainUpdate<'a> {
     {
         debug!(target: "chain", "Process block header: {} at {}", header.hash(), header.inner_lite.height);
 
-        self.check_header_known(header)?;
+        self.check_known(&header.hash)?;
         self.validate_header(header, &Provenance::NONE, on_challenge)?;
         Ok(())
     }
@@ -2435,7 +2524,6 @@ impl<'a> ChainUpdate<'a> {
                             apply_result.validator_proposals,
                             apply_result.total_gas_burnt,
                             gas_limit,
-                            apply_result.total_rent_paid,
                             apply_result.total_validator_reward,
                             apply_result.total_balance_burnt,
                         ),
@@ -2515,7 +2603,7 @@ impl<'a> ChainUpdate<'a> {
         debug!(target: "chain", "Process block {} at {}, approvals: {}, me: {:?}", block.hash(), block.header.inner_lite.height, block.header.num_approvals(), me);
 
         // Check if we have already processed this block previously.
-        self.check_known(&block)?;
+        self.check_known(&block.header.hash)?;
 
         // Delay hitting the db for current chain head until we know this block is not already known.
         let head = self.chain_store_update.head()?;
@@ -2664,7 +2752,6 @@ impl<'a> ChainUpdate<'a> {
             block.header.inner_rest.validator_proposals.clone(),
             block.header.inner_rest.challenges_result.clone(),
             block.header.inner_rest.chunk_mask.clone(),
-            block.header.inner_rest.rent_paid,
             block.header.inner_rest.validator_reward,
             block.header.inner_rest.total_supply,
         )?;
@@ -3035,25 +3122,24 @@ impl<'a> ChainUpdate<'a> {
         {
             return Err(ErrorKind::Unfit("header already known".to_string()).into());
         }
-        self.check_known_store(header)
+        self.check_known_store(&header.hash)
     }
 
     /// Quick in-memory check for fast-reject any block handled recently.
-    fn check_known_head(&self, header: &BlockHeader) -> Result<(), Error> {
+    fn check_known_head(&self, block_hash: &CryptoHash) -> Result<(), Error> {
         let head = self.chain_store_update.head()?;
-        let bh = header.hash();
-        if bh == head.last_block_hash || bh == head.prev_block_hash {
+        if block_hash == &head.last_block_hash || block_hash == &head.prev_block_hash {
             return Err(ErrorKind::Unfit("already known in head".to_string()).into());
         }
         Ok(())
     }
 
     /// Check if this block is in the set of known orphans.
-    fn check_known_orphans(&self, header: &BlockHeader) -> Result<(), Error> {
-        if self.orphans.contains(&header.hash()) {
+    fn check_known_orphans(&self, block_hash: &CryptoHash) -> Result<(), Error> {
+        if self.orphans.contains(block_hash) {
             return Err(ErrorKind::Unfit("already known in orphans".to_string()).into());
         }
-        if self.blocks_with_missing_chunks.contains(&header.hash()) {
+        if self.blocks_with_missing_chunks.contains(block_hash) {
             return Err(ErrorKind::Unfit(
                 "already known in blocks with missing chunks".to_string(),
             )
@@ -3063,8 +3149,8 @@ impl<'a> ChainUpdate<'a> {
     }
 
     /// Check if this block is in the store already.
-    fn check_known_store(&self, header: &BlockHeader) -> Result<(), Error> {
-        match self.chain_store_update.block_exists(&header.hash()) {
+    fn check_known_store(&self, block_hash: &CryptoHash) -> Result<(), Error> {
+        match self.chain_store_update.block_exists(block_hash) {
             Ok(true) => Err(ErrorKind::Unfit("already known in store".to_string()).into()),
             Ok(false) => {
                 // Not yet processed this block, we can proceed.
@@ -3074,28 +3160,11 @@ impl<'a> ChainUpdate<'a> {
         }
     }
 
-    /// Check if header is known: head, orphan or in store.
-    #[allow(dead_code)]
-    fn is_header_known(&self, header: &BlockHeader) -> Result<bool, Error> {
-        let check = || {
-            self.check_known_head(header)?;
-            self.check_known_orphans(header)?;
-            self.check_known_store(header)
-        };
-        match check() {
-            Ok(()) => Ok(false),
-            Err(err) => match err.kind() {
-                ErrorKind::Unfit(_) => Ok(true),
-                kind => Err(kind.into()),
-            },
-        }
-    }
-
     /// Check if block is known: head, orphan or in store.
-    fn check_known(&self, block: &Block) -> Result<(), Error> {
-        self.check_known_head(&block.header)?;
-        self.check_known_orphans(&block.header)?;
-        self.check_known_store(&block.header)?;
+    fn check_known(&self, block_hash: &CryptoHash) -> Result<(), Error> {
+        self.check_known_head(&block_hash)?;
+        self.check_known_orphans(&block_hash)?;
+        self.check_known_store(&block_hash)?;
         Ok(())
     }
 
@@ -3159,7 +3228,6 @@ impl<'a> ChainUpdate<'a> {
             apply_result.validator_proposals,
             apply_result.total_gas_burnt,
             gas_limit,
-            apply_result.total_rent_paid,
             apply_result.total_validator_reward,
             apply_result.total_balance_burnt,
         );
@@ -3302,33 +3370,53 @@ pub fn check_refcount_map(chain: &mut Chain) -> Result<(), Error> {
             {
                 *block_refcounts.entry(prev_hash).or_insert(0) += 1;
             }
+            block_refcounts.entry(*block_hash).or_insert(0);
         }
     }
     let mut chain_store_update = ChainStoreUpdate::new(chain.mut_store());
+    let mut tail_blocks = 0;
     for (block_hash, refcount) in block_refcounts {
+        let block_refcount = chain_store_update.get_block_refcount(&block_hash)?.clone();
         match chain_store_update.get_block(&block_hash) {
             Ok(_) => {
-                if chain_store_update.get_block_refcount(&block_hash)? != &refcount {
-                    return Err(ErrorKind::Other(format!(
+                if block_refcount != refcount {
+                    return Err(ErrorKind::GCError(format!(
                         "invalid number of references in Block {:?}, expected {:?}, found {:?}",
-                        block_hash,
-                        chain_store_update.get_block_refcount(&block_hash).unwrap(),
-                        refcount
+                        block_hash, refcount, block_refcount
                     ))
                     .into());
                 }
             }
-            Err(_) => {
-                if chain_store_update.get_block_refcount(&block_hash).is_ok() {
-                    return Err(ErrorKind::Other(format!(
-                        "Block {:?} expected to be deleted, found {:?} references instead",
-                        block_hash,
-                        chain_store_update.get_block_refcount(&block_hash).unwrap(),
-                    ))
-                    .into());
+            Err(e) => {
+                if block_refcount != 0 {
+                    // May be the tail block
+                    if block_refcount != refcount {
+                        return Err(ErrorKind::GCError(format!(
+                            "invalid number of references in deleted Block {:?}, expected {:?}, found {:?}; get_block failed: {:?}",
+                            block_hash, refcount, block_refcount, e
+                        ))
+                            .into());
+                    }
+                }
+                if refcount >= 2 {
+                    return Err(ErrorKind::GCError(format!(
+                            "Block {:?} expected to be deleted, found {:?} references instead; get_block failed: {:?}",
+                            block_hash, refcount, e
+                        ))
+                            .into());
+                } else if refcount == 1 {
+                    // If Block `block_hash` is successfully GCed, the only its descendant is alive.
+                    tail_blocks += 1;
                 }
             }
         }
+    }
+    if tail_blocks >= 2 {
+        return Err(ErrorKind::GCError(format!(
+            "There are {:?} tail blocks found, expected no more than 1",
+            tail_blocks,
+        ))
+        .into());
     }
     Ok(())
 }

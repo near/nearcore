@@ -8,7 +8,6 @@ use std::time::Instant;
 use cached::{Cached, SizedCache};
 use chrono::Utc;
 use log::{debug, error, info, warn};
-use reed_solomon_erasure::galois_8::ReedSolomon;
 
 use near_chain::chain::TX_ROUTING_HEIGHT_HORIZON;
 use near_chain::test_utils::format_hash;
@@ -25,7 +24,9 @@ use near_primitives::challenge::{Challenge, ChallengeBody};
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{merklize, MerklePath};
 use near_primitives::receipt::Receipt;
-use near_primitives::sharding::{EncodedShardChunk, PartialEncodedChunk, ShardChunkHeader};
+use near_primitives::sharding::{
+    EncodedShardChunk, PartialEncodedChunk, ReedSolomonWrapper, ShardChunkHeader,
+};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockHeight, ChunkExtra, EpochId, ShardId};
 use near_primitives::unwrap_or_return;
@@ -70,7 +71,7 @@ pub struct Client {
     /// List of currently accumulated challenges.
     pub challenges: HashMap<CryptoHash, Challenge>,
     /// A ReedSolomon instance to reconstruct shard.
-    pub rs: ReedSolomon,
+    rs: ReedSolomonWrapper,
     /// Blocks that have been re-broadcast recently. They should not be broadcast again.
     rebroadcasted_blocks: SizedCache<CryptoHash, ()>,
 }
@@ -139,7 +140,7 @@ impl Client {
             block_sync,
             state_sync,
             challenges: Default::default(),
-            rs: ReedSolomon::new(data_parts, parity_parts).unwrap(),
+            rs: ReedSolomonWrapper::new(data_parts, parity_parts),
             rebroadcasted_blocks: SizedCache::with_size(NUM_REBROADCAST_BLOCKS),
         })
     }
@@ -520,7 +521,6 @@ impl Client {
             shard_id,
             chunk_extra.gas_used,
             chunk_extra.gas_limit,
-            chunk_extra.rent_paid,
             chunk_extra.validator_reward,
             chunk_extra.balance_burnt,
             chunk_extra.validator_proposals.clone(),
@@ -529,7 +529,7 @@ impl Client {
             outgoing_receipts_root,
             tx_root,
             &*validator_signer,
-            &self.rs,
+            &mut self.rs,
         )?;
 
         debug!(
@@ -676,7 +676,7 @@ impl Client {
         let process_result = self.shards_mgr.process_partial_encoded_chunk(
             partial_encoded_chunk.clone(),
             self.chain.mut_store(),
-            &self.rs,
+            &mut self.rs,
         )?;
 
         match process_result {
@@ -694,15 +694,6 @@ impl Client {
                 Ok(vec![])
             }
         }
-    }
-
-    pub fn process_block_header(&mut self, header: &BlockHeader) -> Result<(), near_chain::Error> {
-        let challenges = Arc::new(RwLock::new(vec![]));
-        self.chain.process_block_header(header, |challenge| {
-            challenges.write().unwrap().push(challenge)
-        })?;
-        self.send_challenges(challenges);
-        Ok(())
     }
 
     pub fn sync_block_headers(
@@ -791,8 +782,9 @@ impl Client {
         if status.is_new_head() {
             self.shards_mgr.update_largest_seen_height(block.header.inner_lite.height);
             if !self.config.archive {
-                if let Err(err) = self.chain.clear_old_data() {
+                if let Err(err) = self.chain.clear_data(self.runtime_adapter.get_trie()) {
                     error!(target: "client", "Can't clear old data, {:?}", err);
+                    debug_assert!(false);
                 };
             }
         }
