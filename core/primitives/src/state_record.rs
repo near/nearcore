@@ -46,7 +46,7 @@ impl StateRecord {
         match column {
             col::ACCOUNT => {
                 let account_id = parse_account_id_from_contract_data_key(&key);
-                if let Ok(account_id) = account_id {
+                if account_id.is_ok() {
                     Some(StateRecord::Data { key: to_base64(&key), value: to_base64(&value) })
                 } else {
                     Some(StateRecord::Account {
