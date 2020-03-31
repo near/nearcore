@@ -73,6 +73,14 @@ impl Store {
         self.storage.iter(column)
     }
 
+    pub fn iter_prefix<'a>(
+        &'a self,
+        column: DBCol,
+        key_prefix: &'a [u8],
+    ) -> Box<dyn Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a> {
+        self.storage.iter_prefix(column, key_prefix)
+    }
+
     pub fn iter_prefix_ser<'a, T: BorshDeserialize>(
         &'a self,
         column: DBCol,

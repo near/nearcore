@@ -11,13 +11,13 @@ use near_chain::{Block, ChainGenesis, ChainStoreAccess, ErrorKind, Provenance, R
 use near_chain_configs::Genesis;
 use near_chunks::{ChunkStatus, ShardsManager};
 use near_client::test_utils::setup_mock_all_validators;
-use near_client::test_utils::{setup_client, setup_mock, MockNetworkAdapter, TestEnv};
+use near_client::test_utils::{setup_client, setup_mock, TestEnv};
 use near_client::{Client, GetBlock};
 use near_crypto::{InMemorySigner, KeyType, Signature, Signer};
 #[cfg(feature = "metric_recorder")]
 use near_network::recorder::MetricRecorder;
 use near_network::routing::EdgeInfo;
-use near_network::test_utils::wait_or_panic;
+use near_network::test_utils::{wait_or_panic, MockNetworkAdapter};
 use near_network::types::{NetworkInfo, PeerChainInfo};
 use near_network::{
     FullPeerInfo, NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkResponses,
@@ -830,7 +830,7 @@ fn test_minimum_gas_price() {
     assert!(block.header.inner_rest.gas_price >= min_gas_price);
 }
 
-fn test_garbage_collection(epoch_length: NumBlocks) {
+fn test_gc_with_epoch_length_common(epoch_length: NumBlocks) {
     let store = create_test_store();
     let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
     genesis.config.epoch_length = epoch_length;
@@ -872,7 +872,7 @@ fn test_garbage_collection(epoch_length: NumBlocks) {
 #[test]
 fn test_gc_with_epoch_length() {
     for i in 2..20 {
-        test_garbage_collection(i);
+        test_gc_with_epoch_length_common(i);
     }
 }
 
@@ -922,5 +922,30 @@ fn test_gc_long_epoch() {
             .mut_store()
             .get_all_block_hashes_by_height(block.header.inner_lite.height)
             .is_ok());
+    }
+}
+
+#[test]
+fn test_gc_block_skips() {
+    let mut chain_genesis = ChainGenesis::test();
+    chain_genesis.epoch_length = 5;
+    let mut env = TestEnv::new(chain_genesis.clone(), 1, 1);
+    for i in 1..=1000 {
+        if i % 2 == 0 {
+            env.produce_block(0, i);
+        }
+    }
+    let mut env = TestEnv::new(chain_genesis.clone(), 1, 1);
+    for i in 1..=1000 {
+        if i % 2 == 1 {
+            env.produce_block(0, i);
+        }
+    }
+    // Epoch skips
+    let mut env = TestEnv::new(chain_genesis, 1, 1);
+    for i in 1..=1000 {
+        if i % 9 == 7 {
+            env.produce_block(0, i);
+        }
     }
 }

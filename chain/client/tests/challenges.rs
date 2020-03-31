@@ -14,9 +14,10 @@ use near_chain::{
     RuntimeAdapter,
 };
 use near_chain_configs::Genesis;
-use near_client::test_utils::{MockNetworkAdapter, TestEnv};
+use near_client::test_utils::TestEnv;
 use near_client::Client;
 use near_crypto::{InMemorySigner, KeyType, Signer};
+use near_network::test_utils::MockNetworkAdapter;
 use near_network::NetworkRequests;
 use near_primitives::challenge::{
     BlockDoubleSign, Challenge, ChallengeBody, ChunkProofs, MaybeEncodedShardChunk,

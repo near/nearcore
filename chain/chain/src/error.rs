@@ -164,6 +164,9 @@ pub enum ErrorKind {
     /// Storage error. Used for internal passing the error.
     #[fail(display = "Storage Error")]
     StorageError,
+    /// GC error.
+    #[fail(display = "GC Error: {}", _0)]
+    GCError(String),
     /// Anything else
     #[fail(display = "Other Error: {}", _0)]
     Other(String),
@@ -211,6 +214,7 @@ impl Error {
             | ErrorKind::EpochOutOfBounds
             | ErrorKind::ChallengedBlockOnChain
             | ErrorKind::StorageError
+            | ErrorKind::GCError(_)
             | ErrorKind::DBNotFoundErr(_) => false,
             ErrorKind::InvalidBlockPastTime(_, _)
             | ErrorKind::InvalidBlockFutureTime(_)

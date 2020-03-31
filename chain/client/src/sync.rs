@@ -182,7 +182,7 @@ impl HeaderSync {
                                 if now > *stalling_ts + self.stall_ban_timeout
                                     && *highest_height == peer.chain_info.height
                                 {
-                                    info!(target: "sync", "Sync: ban a fraudulent peer: {}, claimed height: {}, score: {}", 
+                                    info!(target: "sync", "Sync: ban a fraudulent peer: {}, claimed height: {}, score: {}",
                                         peer.peer_info, peer.chain_info.height, peer.chain_info.score);
                                     self.network_adapter.do_send(NetworkRequests::BanPeer {
                                         peer_id: peer.peer_info.id.clone(),
@@ -864,12 +864,11 @@ mod test {
     use near_chain::Provenance;
     use near_crypto::{KeyType, PublicKey};
     use near_network::routing::EdgeInfo;
+    use near_network::test_utils::MockNetworkAdapter;
     use near_network::types::PeerChainInfo;
     use near_network::PeerInfo;
     use near_primitives::block::{Block, GenesisId};
     use near_primitives::network::PeerId;
-
-    use crate::test_utils::MockNetworkAdapter;
 
     use super::*;
 
