@@ -36,7 +36,7 @@ impl IntoVMError for wasmer_runtime::error::CompileError {
         match self {
             wasmer_runtime::error::CompileError::InternalError { .. } => {
                 // An internal Wasmer error the most probably is a result of a node malfunction
-                panic!("Internal Wasmer error: {}", self);
+                panic!("Internal Wasmer error on Wasm compilation: {}", self);
             }
             _ => VMError::FunctionCallError(FunctionCallError::CompilationError(
                 CompilationError::WasmerCompileError { msg: self.to_string() },
@@ -64,6 +64,7 @@ impl IntoVMError for wasmer_runtime::error::ResolveError {
 
 impl IntoVMError for wasmer_runtime::error::RuntimeError {
     fn into_vm_error(self) -> VMError {
+        use wasmer_runtime::ExceptionCode;
         let data = &*self.0;
 
         if let Some(err) = data.downcast_ref::<VMLogicError>() {
@@ -76,9 +77,10 @@ impl IntoVMError for wasmer_runtime::error::RuntimeError {
                     VMError::InconsistentStateError(e.clone())
                 }
             }
-        } else {
-            // Reusing https://github.com/wasmerio/wasmer/blob/3999728e39016517c655aaa08e7f7e0e6c42cc58/lib/runtime-core/src/error.rs#L190
+        } else if let Some(_) = data.downcast_ref::<ExceptionCode>() {
             VMError::FunctionCallError(FunctionCallError::WasmTrap { msg: format!("{}", self) })
+        } else {
+            panic!("Internal Wasmer error during contract execution: {}", self);
         }
     }
 }
