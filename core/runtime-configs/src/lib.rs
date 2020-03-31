@@ -2,7 +2,7 @@
 use serde::{Deserialize, Serialize};
 
 use near_primitives::serialize::u128_dec_format;
-use near_primitives::types::Balance;
+use near_primitives::types::{AccountId, Balance};
 use near_runtime_fees::RuntimeFeesConfig;
 use near_vm_logic::VMConfig;
 
@@ -19,6 +19,8 @@ pub struct RuntimeConfig {
     pub transaction_costs: RuntimeFeesConfig,
     /// Config of wasm operations.
     pub wasm_config: VMConfig,
+    /// Config that defines rules for account creation.
+    pub account_creation_config: AccountCreationConfig,
 }
 
 impl Default for RuntimeConfig {
@@ -28,6 +30,7 @@ impl Default for RuntimeConfig {
             storage_amount_per_byte: 909 * 100_000_000_000_000_000,
             transaction_costs: RuntimeFeesConfig::default(),
             wasm_config: VMConfig::default(),
+            account_creation_config: AccountCreationConfig::default(),
         }
     }
 }
@@ -38,6 +41,26 @@ impl RuntimeConfig {
             storage_amount_per_byte: 0,
             transaction_costs: RuntimeFeesConfig::free(),
             wasm_config: VMConfig::free(),
+            account_creation_config: AccountCreationConfig::default(),
+        }
+    }
+}
+
+/// The structure describes configuration for creation of new accounts.
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct AccountCreationConfig {
+    /// The minimum length of the top-level account ID that is allowed to be created by any account.
+    pub min_allowed_top_level_account_length: u8,
+    /// The account ID of the account registrar. This account ID allowed to create top-level
+    /// accounts of any valid length.
+    pub registrar_account_id: AccountId,
+}
+
+impl Default for AccountCreationConfig {
+    fn default() -> Self {
+        Self {
+            min_allowed_top_level_account_length: 11,
+            registrar_account_id: AccountId::from("registrar"),
         }
     }
 }
