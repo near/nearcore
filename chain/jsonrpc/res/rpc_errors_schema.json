@@ -49,6 +49,13 @@
         "size": ""
       }
     },
+    "Deprecated": {
+      "name": "Deprecated",
+      "subtypes": [],
+      "props": {
+        "method_name": ""
+      }
+    },
     "Deserialization": {
       "name": "Deserialization",
       "subtypes": [],
@@ -373,6 +380,7 @@
       "subtypes": [
         "AccountAlreadyExists",
         "AccountDoesNotExist",
+        "CreateAccountOnlyByRegistrar",
         "CreateAccountNotAllowed",
         "ActorNoPermission",
         "DeleteKeyDoesNotExist",
@@ -611,6 +619,13 @@
       ],
       "props": {}
     },
+    "UnsuitableStakingKey": {
+      "name": "UnsuitableStakingKey",
+      "subtypes": [],
+      "props": {
+        "public_key": ""
+      }
+    },
     "Closed": {
       "name": "Closed",
       "subtypes": [],
@@ -630,35 +645,21 @@
       "subtypes": [],
       "props": {}
     },
-    "UnsuitableStakingKey": {
-      "name": "UnsuitableStakingKey",
-      "subtypes": [],
-      "props": {
-        "public_key": ""
-      }
-    },
     "LackBalanceForState": {
       "name": "LackBalanceForState",
       "subtypes": [],
       "props": {
-        "amount": "",
-        "signer_id": "",
-        "account_id": ""
+        "account_id": "",
+        "amount": ""
       }
     },
-    "DeleteAccountHasEnoughBalance": {
-      "name": "DeleteAccountHasEnoughBalance",
+    "CreateAccountOnlyByRegistrar": {
+      "name": "CreateAccountOnlyByRegistrar",
       "subtypes": [],
       "props": {
         "account_id": "",
-        "balance": ""
-      }
-    },
-    "Deprecated": {
-      "name": "Deprecated",
-      "subtypes": [],
-      "props": {
-        "method_name": ""
+        "predecessor_id": "",
+        "registrar_account_id": ""
       }
     }
   }

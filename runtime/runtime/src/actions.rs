@@ -506,25 +506,90 @@ pub(crate) fn check_account_existence(
 mod tests {
     use super::*;
 
-    use testlib::runtime_utils::{alice_account, bob_account};
-
-    #[test]
-    fn test_create_account_valid_top_level() {
+    fn test_action_create_account(
+        account_id: AccountId,
+        predecessor_id: AccountId,
+    ) -> ActionResult {
         let mut account = None;
-        let account_id = AccountId::from("bob_near_long_name");
-        let mut actor_id = alice_account();
+        let mut actor_id = predecessor_id.clone();
         let mut action_result = ActionResult::default();
         action_create_account(
             &RuntimeFeesConfig::default(),
-            &AccountCreationConfig::default(),
+            &AccountCreationConfig {
+                min_allowed_top_level_account_length: 11,
+                registrar_account_id: AccountId::from("registrar"),
+            },
             &mut account,
             &mut actor_id,
             &account_id,
-            &alice_account(),
+            &predecessor_id,
             &mut action_result,
         );
+        if action_result.result.is_ok() {
+            assert!(account.is_some());
+            assert_eq!(actor_id, account_id);
+        } else {
+            assert!(account.is_none());
+        }
+        action_result
+    }
+
+    #[test]
+    fn test_create_account_valid_top_level_long() {
+        let account_id = AccountId::from("bob_near_long_name");
+        let predecessor_id = AccountId::from("alice.near");
+        let action_result = test_action_create_account(account_id, predecessor_id);
         assert!(action_result.result.is_ok());
-        assert!(account.is_some());
-        assert_eq!(actor_id, account_id);
+    }
+
+    #[test]
+    fn test_create_account_valid_top_level_by_registrar() {
+        let account_id = AccountId::from("bob");
+        let predecessor_id = AccountId::from("registrar");
+        let action_result = test_action_create_account(account_id, predecessor_id);
+        assert!(action_result.result.is_ok());
+    }
+
+    #[test]
+    fn test_create_account_valid_sub_account() {
+        let account_id = AccountId::from("alice.near");
+        let predecessor_id = AccountId::from("near");
+        let action_result = test_action_create_account(account_id, predecessor_id);
+        assert!(action_result.result.is_ok());
+    }
+
+    #[test]
+    fn test_create_account_invalid_sub_account() {
+        let account_id = AccountId::from("alice.near");
+        let predecessor_id = AccountId::from("bob");
+        let action_result = test_action_create_account(account_id.clone(), predecessor_id.clone());
+        assert_eq!(
+            action_result.result,
+            Err(ActionError {
+                index: None,
+                kind: ActionErrorKind::CreateAccountNotAllowed {
+                    account_id: account_id.clone(),
+                    predecessor_id: predecessor_id.clone(),
+                }
+            })
+        );
+    }
+
+    #[test]
+    fn test_create_account_invalid_short_top_level() {
+        let account_id = AccountId::from("bob");
+        let predecessor_id = AccountId::from("near");
+        let action_result = test_action_create_account(account_id.clone(), predecessor_id.clone());
+        assert_eq!(
+            action_result.result,
+            Err(ActionError {
+                index: None,
+                kind: ActionErrorKind::CreateAccountOnlyByRegistrar {
+                    account_id: account_id.clone(),
+                    registrar_account_id: AccountId::from("registrar"),
+                    predecessor_id: predecessor_id.clone(),
+                }
+            })
+        );
     }
 }
