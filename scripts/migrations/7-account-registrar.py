@@ -48,7 +48,7 @@ records.append({
     'Account': {
         'account': {
             # 1_000_000 N or 1e30
-            'amount': '1' + ('0' * 30),
+            'amount': str(10**30),
             'locked': '0',
             'code_hash': '11111111111111111111111111111111',
             'storage_usage': 100 + len(near_access_key_records) * 82,

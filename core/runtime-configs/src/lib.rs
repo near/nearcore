@@ -41,10 +41,7 @@ impl RuntimeConfig {
             storage_amount_per_byte: 0,
             transaction_costs: RuntimeFeesConfig::free(),
             wasm_config: VMConfig::free(),
-            account_creation_config: AccountCreationConfig {
-                min_allowed_top_level_account_length: 0,
-                registrar_account_id: AccountId::default(),
-            },
+            account_creation_config: AccountCreationConfig::default(),
         }
     }
 }
