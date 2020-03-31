@@ -13,9 +13,9 @@ use cached::Cached;
 use near_primitives::challenge::PartialState;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::types::{
-    RawStateChange, RawStateChanges, RawStateChangesWithTrieKey, StateChangeCause, StateRoot,
-    StateRootNode,
+    RawStateChange, RawStateChangesWithTrieKey, StateChangeCause, StateRoot, StateRootNode,
 };
+use near_primitives::utils::TrieKey;
 
 use crate::db::{DBCol, DBOp, DBTransaction};
 use crate::trie::insert_delete::NodesStorage;
@@ -559,7 +559,7 @@ impl TrieChanges {
 pub struct WrappedTrieChanges {
     trie: Arc<Trie>,
     trie_changes: TrieChanges,
-    state_changes: RawStateChanges,
+    state_changes: Vec<RawStateChangesWithTrieKey>,
     block_hash: CryptoHash,
 }
 
@@ -567,10 +567,10 @@ impl WrappedTrieChanges {
     pub fn new(
         trie: Arc<Trie>,
         trie_changes: TrieChanges,
-        kv_changes: RawStateChanges,
+        state_changes: Vec<RawStateChangesWithTrieKey>,
         block_hash: CryptoHash,
     ) -> Self {
-        WrappedTrieChanges { trie, trie_changes, state_changes: kv_changes, block_hash }
+        WrappedTrieChanges { trie, trie_changes, state_changes, block_hash }
     }
 
     pub fn insertions_into(
@@ -595,7 +595,7 @@ impl WrappedTrieChanges {
         store_update: &mut StoreUpdate,
     ) -> Result<(), Box<dyn std::error::Error>> {
         store_update.trie = Some(self.trie.clone());
-        for (key, change_with_trie_key) in std::mem::take(&mut self.state_changes).into_iter() {
+        for change_with_trie_key in self.state_changes.drain(..) {
             assert!(
                 !change_with_trie_key.changes.iter().any(|RawStateChange { cause, .. }| matches!(
                     cause,
@@ -603,7 +603,10 @@ impl WrappedTrieChanges {
                 )),
                 "NotWritableToDisk changes must never be finalized."
             );
-            let storage_key = KeyForStateChanges::new(&self.block_hash, &key);
+            let storage_key = KeyForStateChanges::new_from_trie_key(
+                &self.block_hash,
+                &change_with_trie_key.trie_key,
+            );
             store_update.set(
                 DBCol::ColStateChanges,
                 storage_key.as_ref(),
@@ -643,9 +646,15 @@ impl KeyForStateChanges {
         Self::get_prefix_with_capacity(block_hash, 0)
     }
 
-    pub fn new(block_hash: &CryptoHash, trie_key: &[u8]) -> Self {
+    pub fn new(block_hash: &CryptoHash, raw_key: &[u8]) -> Self {
+        let mut key = Self::get_prefix_with_capacity(block_hash, raw_key.len());
+        key.0.extend(raw_key);
+        key
+    }
+
+    pub fn new_from_trie_key(block_hash: &CryptoHash, trie_key: &TrieKey) -> Self {
         let mut key = Self::get_prefix_with_capacity(block_hash, trie_key.len());
-        key.0.extend(trie_key);
+        key.0.extend(trie_key.to_vec());
         key
     }
 

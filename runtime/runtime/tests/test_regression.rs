@@ -180,6 +180,7 @@ fn template_test(transaction_type: TransactionType, db_type: DataBaseType, expec
         let (store_update, root) = state_update
             .finalize()
             .expect("Genesis state update failed")
+            .0
             .into(trie)
             .expect("Genesis state update failed");
         store_update.commit().unwrap();
