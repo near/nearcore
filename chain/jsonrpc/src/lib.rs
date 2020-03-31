@@ -655,6 +655,18 @@ fn status_handler(
     response.boxed()
 }
 
+fn health_handler(
+    handler: web::Data<JsonRpcHandler>,
+) -> impl Future<Output = Result<HttpResponse, HttpError>> {
+    let response = async move {
+        match handler.health().await {
+            Ok(value) => Ok(HttpResponse::Ok().json(value)),
+            Err(_) => Ok(HttpResponse::ServiceUnavailable().finish()),
+        }
+    };
+    response.boxed()
+}
+
 fn network_info_handler(
     handler: web::Data<JsonRpcHandler>,
 ) -> impl Future<Output = Result<HttpResponse, HttpError>> {
@@ -718,6 +730,11 @@ pub fn start_http(
                 web::resource("/status")
                     .route(web::get().to(status_handler))
                     .route(web::head().to(status_handler)),
+            )
+            .service(
+                web::resource("/health")
+                    .route(web::get().to(health_handler))
+                    .route(web::head().to(health_handler)),
             )
             .service(web::resource("/network_info").route(web::get().to(network_info_handler)))
             .service(web::resource("/metrics").route(web::get().to(prometheus_handler)))
