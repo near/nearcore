@@ -16,7 +16,7 @@ pub use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{Receipt, ReceivedData};
 use near_primitives::serialize::to_base;
-use near_primitives::types::{AccountId, StorageUsage};
+use near_primitives::types::AccountId;
 use near_primitives::utils::{trie_key_parsers, TrieKey};
 
 use crate::db::{DBOp, DBTransaction, Database, RocksDB};
@@ -252,11 +252,6 @@ pub fn set<T: BorshSerialize>(state_update: &mut TrieUpdate, key: TrieKey, value
     state_update.set(key, data);
 }
 
-/// Number of bytes account and all of it's other data occupies in the storage.
-pub fn total_account_storage(_account_id: &AccountId, account: &Account) -> StorageUsage {
-    account.storage_usage
-}
-
 pub fn set_account(state_update: &mut TrieUpdate, account_id: AccountId, account: &Account) {
     set(state_update, TrieKey::Account { account_id }, account)
 }
@@ -368,11 +363,39 @@ pub fn remove_account(
 ) -> Result<(), StorageError> {
     state_update.remove(TrieKey::Account { account_id: account_id.clone() });
     state_update.remove(TrieKey::ContractCode { account_id: account_id.clone() });
-    state_update
-        .remove_starts_with(&trie_key_parsers::get_raw_prefix_for_access_keys(&account_id))?;
-    state_update.remove_starts_with(&trie_key_parsers::get_raw_prefix_for_contract_data(
-        &account_id,
-        &[],
-    ))?;
+
+    // Removing access keys
+    let public_keys = state_update
+        .iter(&trie_key_parsers::get_raw_prefix_for_access_keys(&account_id))?
+        .map(|raw_key| {
+            trie_key_parsers::parse_public_key_from_access_key_key(&raw_key?, account_id).map_err(
+                |_e| {
+                    StorageError::StorageInconsistentState(
+                        "Can't parse public key from raw key for AccessKey".to_string(),
+                    )
+                },
+            )
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    for public_key in public_keys {
+        state_update.remove(TrieKey::AccessKey { account_id: account_id.clone(), public_key });
+    }
+
+    // Removing contract data
+    let data_keys = state_update
+        .iter(&trie_key_parsers::get_raw_prefix_for_contract_data(&account_id, &[]))?
+        .map(|raw_key| {
+            trie_key_parsers::parse_data_key_from_contract_data_key(&raw_key?, account_id)
+                .map_err(|_e| {
+                    StorageError::StorageInconsistentState(
+                        "Can't parse data key from raw key for ContractData".to_string(),
+                    )
+                })
+                .map(Vec::from)
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    for key in data_keys {
+        state_update.remove(TrieKey::ContractData { account_id: account_id.clone(), key });
+    }
     Ok(())
 }

@@ -8,7 +8,7 @@ use crate::account::{AccessKey, Account};
 use crate::challenge::ChallengesResult;
 use crate::hash::CryptoHash;
 use crate::serialize::u128_dec_format;
-use crate::utils::trie_key_parsers;
+use crate::utils::TrieKey;
 
 /// Account identifier. Provides access to user's state.
 pub type AccountId = String;
@@ -120,15 +120,30 @@ pub type StateChangesKinds = Vec<StateChangeKind>;
 
 #[easy_ext::ext(StateChangesKindsExt)]
 impl StateChangesKinds {
-    pub fn from_changes<K: AsRef<[u8]>>(
-        raw_changes: &mut dyn Iterator<
-            Item = Result<(K, RawStateChangesWithMetadata), std::io::Error>,
-        >,
+    pub fn from_changes(
+        raw_changes: &mut dyn Iterator<Item = Result<RawStateChangesWithTrieKey, std::io::Error>>,
     ) -> Result<StateChangesKinds, std::io::Error> {
         raw_changes
-            .map(|raw_change| {
-                let (_, RawStateChangesWithMetadata { kind, .. }) = raw_change?;
-                Ok(kind)
+            .filter_map(|raw_change| {
+                let RawStateChangesWithTrieKey { trie_key, .. } = match raw_change {
+                    Ok(p) => p,
+                    Err(e) => return Some(Err(e)),
+                };
+                match trie_key {
+                    TrieKey::Account { account_id } => {
+                        Some(Ok(StateChangeKind::AccountTouched { account_id }))
+                    }
+                    TrieKey::ContractCode { account_id } => {
+                        Some(Ok(StateChangeKind::ContractCodeTouched { account_id }))
+                    }
+                    TrieKey::AccessKey { account_id, .. } => {
+                        Some(Ok(StateChangeKind::AccessKeyTouched { account_id }))
+                    }
+                    TrieKey::ContractData { account_id, .. } => {
+                        Some(Ok(StateChangeKind::DataTouched { account_id }))
+                    }
+                    _ => None,
+                }
             })
             .collect()
     }
@@ -166,24 +181,22 @@ pub enum StateChangeCause {
     ValidatorAccountsUpdate,
 }
 
-/// This represents the prospective and committed changes in the Trie.
+/// This represents the committed changes in the Trie with a change cause.
 #[derive(Debug, Clone, BorshSerialize, BorshDeserialize)]
 pub struct RawStateChange {
     pub cause: StateChangeCause,
     pub data: Option<Vec<u8>>,
 }
 
-pub type RawStateChangesList = Vec<RawStateChange>;
-
-/// This represents the data stored into the state changes table.
+/// List of committed changes with a cause for a given TrieKey
 #[derive(Debug, Clone, BorshSerialize, BorshDeserialize)]
-pub struct RawStateChangesWithMetadata {
-    pub kind: StateChangeKind,
-    pub raw_changes: RawStateChangesList,
+pub struct RawStateChangesWithTrieKey {
+    pub trie_key: TrieKey,
+    pub changes: Vec<RawStateChange>,
 }
 
 /// key that was updated -> list of updates with the corresponding indexing event.
-pub type RawStateChanges = std::collections::BTreeMap<Vec<u8>, RawStateChangesList>;
+pub type RawStateChanges = std::collections::BTreeMap<Vec<u8>, RawStateChangesWithTrieKey>;
 
 #[derive(Debug)]
 pub enum StateChangesRequest {
@@ -216,20 +229,18 @@ pub type StateChanges = Vec<StateChangeWithCause>;
 
 #[easy_ext::ext(StateChangesExt)]
 impl StateChanges {
-    pub fn from_account_changes<K: AsRef<[u8]>>(
-        raw_changes: impl Iterator<Item = Result<(K, RawStateChangesWithMetadata), std::io::Error>>,
-        account_id: &AccountId,
+    pub fn from_account_changes(
+        raw_changes: impl Iterator<Item = Result<RawStateChangesWithTrieKey, std::io::Error>>,
     ) -> Result<StateChanges, std::io::Error> {
-        let mut changes = Self::new();
+        let mut state_changes = Self::new();
 
         for raw_change in raw_changes {
-            let (_, RawStateChangesWithMetadata { kind, raw_changes }) = raw_change?;
-            debug_assert!(if let StateChangeKind::AccountTouched { .. } = kind {
-                true
-            } else {
-                false
-            });
-            changes.extend(raw_changes.into_iter().map(|RawStateChange { cause, data }| {
+            let RawStateChangesWithTrieKey { trie_key, changes } = raw_change?;
+            let account_id = match trie_key {
+                TrieKey::Account { account_id } => account_id,
+                _ => panic!("Conflicting data stored under TrieKey::Account prefix"),
+            };
+            state_changes.extend(changes.into_iter().map(|RawStateChange { cause, data }| {
                 StateChangeWithCause {
                     cause,
                     value: if let Some(change_data) = data {
@@ -245,71 +256,55 @@ impl StateChanges {
             }));
         }
 
-        Ok(changes)
+        Ok(state_changes)
     }
 
-    pub fn from_access_key_changes<K: AsRef<[u8]>>(
-        raw_changes: impl Iterator<Item = Result<(K, RawStateChangesWithMetadata), std::io::Error>>,
-        account_id: &AccountId,
-        access_key_pk: Option<&PublicKey>,
+    pub fn from_access_key_changes(
+        raw_changes: impl Iterator<Item = Result<RawStateChangesWithTrieKey, std::io::Error>>,
     ) -> Result<StateChanges, std::io::Error> {
-        let mut changes = Self::new();
+        let mut state_changes = Self::new();
 
         for raw_change in raw_changes {
-            let (key, RawStateChangesWithMetadata { kind, raw_changes }) = raw_change?;
-            debug_assert!(if let StateChangeKind::AccessKeyTouched { .. } = kind {
-                true
-            } else {
-                false
-            });
-
-            let access_key_pk = match access_key_pk {
-                Some(access_key_pk) => access_key_pk.clone(),
-                None => trie_key_parsers::parse_public_key_from_access_key_key(
-                    key.as_ref(),
-                    &account_id,
-                )
-                .expect("Failed to parse internally stored public key"),
+            let RawStateChangesWithTrieKey { trie_key, changes } = raw_change?;
+            let (account_id, public_key) = match trie_key {
+                TrieKey::AccessKey { account_id, public_key } => (account_id, public_key),
+                _ => panic!("Conflicting data stored under TrieKey::AccessKey prefix"),
             };
-
-            changes.extend(raw_changes.into_iter().map(|RawStateChange { cause, data }| {
+            state_changes.extend(changes.into_iter().map(|RawStateChange { cause, data }| {
                 StateChangeWithCause {
                     cause,
                     value: if let Some(change_data) = data {
                         StateChangeValue::AccessKeyUpdate {
                             account_id: account_id.clone(),
-                            public_key: access_key_pk.clone(),
+                            public_key: public_key.clone(),
                             access_key: <_>::try_from_slice(&change_data)
                                 .expect("Failed to parse internally stored access key"),
                         }
                     } else {
                         StateChangeValue::AccessKeyDeletion {
                             account_id: account_id.clone(),
-                            public_key: access_key_pk.clone(),
+                            public_key: public_key.clone(),
                         }
                     },
                 }
             }));
         }
 
-        Ok(changes)
+        Ok(state_changes)
     }
 
-    pub fn from_contract_code_changes<K: AsRef<[u8]>>(
-        raw_changes: impl Iterator<Item = Result<(K, RawStateChangesWithMetadata), std::io::Error>>,
-        account_id: &AccountId,
+    pub fn from_contract_code_changes(
+        raw_changes: impl Iterator<Item = Result<RawStateChangesWithTrieKey, std::io::Error>>,
     ) -> Result<StateChanges, std::io::Error> {
-        let mut changes = Self::new();
+        let mut state_changes = Self::new();
 
         for raw_change in raw_changes {
-            let (_, RawStateChangesWithMetadata { kind, raw_changes }) = raw_change?;
-            debug_assert!(if let StateChangeKind::ContractCodeTouched { .. } = kind {
-                true
-            } else {
-                false
-            });
-
-            changes.extend(raw_changes.into_iter().map(|RawStateChange { cause, data }| {
+            let RawStateChangesWithTrieKey { trie_key, changes } = raw_change?;
+            let account_id = match trie_key {
+                TrieKey::ContractCode { account_id } => account_id,
+                _ => panic!("Conflicting data stored under TrieKey::ContractCode prefix"),
+            };
+            state_changes.extend(changes.into_iter().map(|RawStateChange { cause, data }| {
                 StateChangeWithCause {
                     cause,
                     value: if let Some(change_data) = data {
@@ -324,28 +319,21 @@ impl StateChanges {
             }));
         }
 
-        Ok(changes)
+        Ok(state_changes)
     }
 
-    pub fn from_data_changes<K: AsRef<[u8]>>(
-        raw_changes: impl Iterator<Item = Result<(K, RawStateChangesWithMetadata), std::io::Error>>,
-        account_id: &AccountId,
+    pub fn from_data_changes(
+        raw_changes: impl Iterator<Item = Result<RawStateChangesWithTrieKey, std::io::Error>>,
     ) -> Result<StateChanges, std::io::Error> {
-        let mut changes = Self::new();
+        let mut state_changes = Self::new();
 
         for raw_change in raw_changes {
-            let (key, RawStateChangesWithMetadata { kind, raw_changes }) = raw_change?;
-            debug_assert!(if let StateChangeKind::DataTouched { .. } = kind {
-                true
-            } else {
-                false
-            });
-
-            let data_key =
-                trie_key_parsers::parse_data_key_from_contract_data_key(key.as_ref(), &account_id)
-                    .expect("Failed to parse internally stored data key");
-
-            changes.extend(raw_changes.into_iter().map(|RawStateChange { cause, data }| {
+            let RawStateChangesWithTrieKey { trie_key, changes } = raw_change?;
+            let (account_id, data_key) = match trie_key {
+                TrieKey::ContractData { account_id, key } => (account_id, key),
+                _ => panic!("Conflicting data stored under TrieKey::ContractData prefix"),
+            };
+            state_changes.extend(changes.into_iter().map(|RawStateChange { cause, data }| {
                 StateChangeWithCause {
                     cause,
                     value: if let Some(change_data) = data {
@@ -364,7 +352,7 @@ impl StateChanges {
             }));
         }
 
-        Ok(changes)
+        Ok(state_changes)
     }
 }
 
@@ -437,8 +425,6 @@ pub struct ChunkExtra {
     pub gas_used: Gas,
     /// Gas limit, allows to increase or decrease limit based on expected time vs real time for computing the chunk.
     pub gas_limit: Gas,
-    /// Total rent paid after processing the current chunk.
-    pub rent_paid: Balance,
     /// Total validation execution reward after processing the current chunk.
     pub validator_reward: Balance,
     /// Total balance burnt after processing the current chunk.
@@ -452,7 +438,6 @@ impl ChunkExtra {
         validator_proposals: Vec<ValidatorStake>,
         gas_used: Gas,
         gas_limit: Gas,
-        rent_paid: Balance,
         validator_reward: Balance,
         balance_burnt: Balance,
     ) -> Self {
@@ -462,7 +447,6 @@ impl ChunkExtra {
             validator_proposals,
             gas_used,
             gas_limit,
-            rent_paid,
             validator_reward,
             balance_burnt,
         }
@@ -508,4 +492,21 @@ pub struct ValidatorStats {
 pub struct BlockChunkValidatorStats {
     pub block_stats: ValidatorStats,
     pub chunk_stats: ValidatorStats,
+}
+
+/// Reasons for removing a validator from the validator set.
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub enum ValidatorKickoutReason {
+    /// Slashed validators are kicked out.
+    Slashed,
+    /// Validator didn't produce enough blocks.
+    NotEnoughBlocks { produced: NumBlocks, expected: NumBlocks },
+    /// Validator didn't produce enough chunks.
+    NotEnoughChunks { produced: NumBlocks, expected: NumBlocks },
+    /// Validator unstaked themselves.
+    Unstaked,
+    /// Validator stake is now below threshold
+    NotEnoughStake { stake: Balance, threshold: Balance },
+    /// Enough stake but is not chosen because of seat limits.
+    DidNotGetASeat,
 }
