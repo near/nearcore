@@ -119,7 +119,7 @@ fn chunks_produced_and_distributed_common(
             false,
             5,
             true,
-            false,
+            vec![false; validators.iter().map(|x| x.len()).sum()],
             Arc::new(RwLock::new(Box::new(move |from_whom: String, msg: &NetworkRequests| {
                 match msg {
                     NetworkRequests::Block { block } => {
@@ -293,7 +293,6 @@ fn store_partial_encoded_chunk_sanity() {
             0,
             0,
             0,
-            0,
             CryptoHash::default(),
             CryptoHash::default(),
             vec![],
@@ -339,7 +338,6 @@ fn store_partial_encoded_chunk_sanity() {
         0,
         0,
         0,
-        0,
         CryptoHash::default(),
         CryptoHash::default(),
         vec![],
@@ -371,7 +369,6 @@ fn store_partial_encoded_chunk_sanity() {
         1,
         2,
         1,
-        0,
         0,
         0,
         0,
