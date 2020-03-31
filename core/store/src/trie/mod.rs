@@ -15,6 +15,7 @@ use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::types::{
     RawStateChange, RawStateChangesWithTrieKey, StateChangeCause, StateRoot, StateRootNode,
 };
+use near_primitives::utils::TrieKey;
 
 use crate::db::{DBCol, DBOp, DBTransaction};
 use crate::trie::insert_delete::NodesStorage;
@@ -25,7 +26,6 @@ use crate::trie::trie_storage::{
     TrieStorage,
 };
 use crate::{ColState, ColTrieChanges, StorageError, Store, StoreUpdate};
-use near_primitives::utils::TrieKey;
 
 mod insert_delete;
 pub mod iterator;
