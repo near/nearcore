@@ -14,7 +14,7 @@ fn test_status() {
     System::run(|| {
         let (_view_client_addr, addr) = test_utils::start_all(false);
 
-        let mut client = new_http_client(&format!("http://{}", addr));
+        let client = new_http_client(&format!("http://{}", addr));
         actix::spawn(client.status().then(|res| {
             let res = res.unwrap();
             assert_eq!(res.chain_id, "unittest");

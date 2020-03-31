@@ -56,3 +56,22 @@ pub fn start_all_with_validity_period(
     );
     (view_client_addr, addr)
 }
+
+#[allow(unused_macros)] // Suppress Rustc warnings even though this macro is used.
+macro_rules! test_with_client {
+    ($validator_status:expr, $client:ident, $block:expr) => {
+        init_test_logger();
+
+        System::run(|| {
+            let (_view_client_addr, addr) = test_utils::start_all($validator_status == "validator");
+
+            let $client = new_client(&format!("http://{}", addr));
+
+            actix::spawn(async move {
+                $block.await;
+                System::current().stop();
+            });
+        })
+        .unwrap();
+    };
+}
