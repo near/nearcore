@@ -6,9 +6,6 @@ on:
       - beta
       - stable
       - mac-binary-release
-  pull_request:
-    branches:
-      - mac-binary-release
 jobs:
   test:
     runs-on: macOS-latest
