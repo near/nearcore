@@ -15,6 +15,7 @@ serde_derive = "1.0"
 cached = "0.12.0"
 log = "0.4"
 num_cpus = "1.11"
+rand = "0.7.2"
 
 borsh = "0.6.1"
 

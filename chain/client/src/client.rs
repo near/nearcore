@@ -521,7 +521,6 @@ impl Client {
             shard_id,
             chunk_extra.gas_used,
             chunk_extra.gas_limit,
-            chunk_extra.rent_paid,
             chunk_extra.validator_reward,
             chunk_extra.balance_burnt,
             chunk_extra.validator_proposals.clone(),
@@ -697,15 +696,6 @@ impl Client {
         }
     }
 
-    pub fn process_block_header(&mut self, header: &BlockHeader) -> Result<(), near_chain::Error> {
-        let challenges = Arc::new(RwLock::new(vec![]));
-        self.chain.process_block_header(header, |challenge| {
-            challenges.write().unwrap().push(challenge)
-        })?;
-        self.send_challenges(challenges);
-        Ok(())
-    }
-
     pub fn sync_block_headers(
         &mut self,
         headers: Vec<BlockHeader>,
@@ -792,8 +782,9 @@ impl Client {
         if status.is_new_head() {
             self.shards_mgr.update_largest_seen_height(block.header.inner_lite.height);
             if !self.config.archive {
-                if let Err(err) = self.chain.clear_old_data() {
+                if let Err(err) = self.chain.clear_data(self.runtime_adapter.get_trie()) {
                     error!(target: "client", "Can't clear old data, {:?}", err);
+                    debug_assert!(false);
                 };
             }
         }

@@ -611,12 +611,8 @@ fn get_vm_config(measurement: &Measurements) -> VMConfig {
 }
 
 fn get_runtime_config(measurement: &Measurements) -> RuntimeConfig {
-    RuntimeConfig {
-        transaction_costs: get_runtime_fees_config(measurement),
-        wasm_config: get_vm_config(measurement),
-        // TODO: Figure out the following values.
-        storage_cost_byte_per_block: 5000000,
-        poke_threshold: 86400,
-        account_length_baseline_cost_per_block: 207909813343189798558,
-    }
+    let mut runtime_config = RuntimeConfig::default();
+    runtime_config.transaction_costs = get_runtime_fees_config(measurement);
+    runtime_config.wasm_config = get_vm_config(measurement);
+    runtime_config
 }

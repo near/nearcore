@@ -11,12 +11,12 @@ use near_primitives::transaction::{
     Action, AddKeyAction, DeleteAccountAction, DeleteKeyAction, DeployContractAction,
     FunctionCallAction, StakeAction, TransferAction,
 };
-use near_primitives::types::{AccountId, Balance, BlockHeight, BlockHeightDelta, ValidatorStake};
+use near_primitives::types::{AccountId, Balance, ValidatorStake};
 use near_primitives::utils::{is_valid_sub_account_id, is_valid_top_level_account_id};
 use near_runtime_fees::RuntimeFeesConfig;
 use near_store::{
     get_access_key, get_code, remove_access_key, remove_account, set_access_key, set_code,
-    total_account_storage, StorageError, TrieUpdate,
+    StorageError, TrieUpdate,
 };
 use near_vm_logic::types::PromiseResult;
 use near_vm_logic::VMContext;
@@ -30,69 +30,35 @@ use near_primitives::errors::{ActionError, ActionErrorKind, ExternalError, Runti
 use near_vm_errors::{CompilationError, FunctionCallError};
 use near_vm_runner::VMError;
 
-/// Number of epochs it takes to unstake.
-const NUM_UNSTAKING_EPOCHS: u64 = 3;
-
-fn cost_per_block(
-    account_id: &AccountId,
+/// Checks if given account has enough balance for state stake, and returns:
+///  - None if account has enough balance,
+///  - Some(insufficient_balance) if account doesn't have enough and how much need to be added,
+///  - Err(StorageError::StorageInconsistentState) if account has invalid storage usage or amount/locked.
+///
+/// Read details of state staking https://nomicon.io/Economics/README.html#state-stake
+pub(crate) fn get_insufficient_storage_stake(
     account: &Account,
     runtime_config: &RuntimeConfig,
-) -> Balance {
-    let account_length_cost_per_block = if account_id.len() > 10 {
-        0
-    } else {
-        runtime_config.account_length_baseline_cost_per_block
-            / 3_u128.pow(account_id.len() as u32 - 2)
-    };
-
-    let storage_cost_per_block = u128::from(total_account_storage(account_id, account))
-        * runtime_config.storage_cost_byte_per_block;
-
-    account_length_cost_per_block + storage_cost_per_block
-}
-
-/// Returns Ok if the account has enough balance to pay storage rent for at least required number of blocks.
-/// Otherwise returns the amount required.
-/// Validators must have at least enough for `NUM_UNSTAKING_EPOCHS` * epoch_length of blocks,
-/// regular users - `poke_threshold` blocks.
-pub(crate) fn check_rent(
-    account_id: &AccountId,
-    account: &Account,
-    runtime_config: &RuntimeConfig,
-    epoch_length: BlockHeightDelta,
-) -> Result<(), u128> {
-    let buffer_length = if account.locked > 0 {
-        epoch_length * (NUM_UNSTAKING_EPOCHS + 1)
-    } else {
-        runtime_config.poke_threshold
-    };
-    let buffer_amount =
-        u128::from(buffer_length) * cost_per_block(account_id, account, runtime_config);
-    if account.amount >= buffer_amount {
-        Ok(())
-    } else {
-        Err(buffer_amount)
-    }
-}
-
-/// Subtracts the storage rent from the given account balance.
-pub(crate) fn apply_rent(
-    account_id: &AccountId,
-    account: &mut Account,
-    block_height: BlockHeight,
-    runtime_config: &RuntimeConfig,
-) -> Result<Balance, StorageError> {
-    let block_difference = block_height.checked_sub(account.storage_paid_at).ok_or_else(|| {
+) -> Result<Option<Balance>, StorageError> {
+    let required_amount = Balance::from(account.storage_usage)
+        .checked_mul(runtime_config.storage_amount_per_byte)
+        .ok_or_else(|| {
+            StorageError::StorageInconsistentState(format!(
+                "Account's storage_usage {} overflows multiplication",
+                account.storage_usage
+            ))
+        })?;
+    let available_amount = account.amount.checked_add(account.locked).ok_or_else(|| {
         StorageError::StorageInconsistentState(format!(
-            "storage_paid_at {} for account {} is larger than current block height {}",
-            account.storage_paid_at, account_id, block_height
+            "Account's amount {} and locked {} overflow addition",
+            account.amount, account.locked
         ))
     })?;
-    let charge = u128::from(block_difference) * cost_per_block(account_id, account, runtime_config);
-    let actual_charge = std::cmp::min(account.amount, charge);
-    account.amount -= actual_charge;
-    account.storage_paid_at = block_height;
-    Ok(actual_charge)
+    if available_amount >= required_amount {
+        Ok(None)
+    } else {
+        Ok(Some(required_amount - available_amount))
+    }
 }
 
 pub(crate) fn get_code_with_cache(
@@ -293,7 +259,6 @@ pub(crate) fn action_transfer(
 
 pub(crate) fn action_create_account(
     fee_config: &RuntimeFeesConfig,
-    apply_state: &ApplyState,
     account: &mut Option<Account>,
     actor_id: &mut AccountId,
     receipt: &Receipt,
@@ -316,7 +281,6 @@ pub(crate) fn action_create_account(
         locked: 0,
         code_hash: CryptoHash::default(),
         storage_usage: fee_config.storage_usage_config.num_bytes_account,
-        storage_paid_at: apply_state.block_index,
     });
 }
 
@@ -357,8 +321,7 @@ pub(crate) fn action_delete_account(
     account_id: &AccountId,
     delete_account: &DeleteAccountAction,
 ) -> Result<(), StorageError> {
-    // We use current amount as a reward, because this account's storage rent was updated before
-    // calling this function.
+    // We use current amount as a pay out to beneficiary.
     let account_balance = account.as_ref().unwrap().amount;
     if account_balance > 0 {
         result
@@ -448,11 +411,9 @@ pub(crate) fn action_add_key(
 
 pub(crate) fn check_actor_permissions(
     action: &Action,
-    apply_state: &ApplyState,
     account: &Option<Account>,
     actor_id: &AccountId,
     account_id: &AccountId,
-    config: &RuntimeConfig,
 ) -> Result<(), ActionError> {
     match action {
         Action::DeployContract(_) | Action::Stake(_) | Action::AddKey(_) | Action::DeleteKey(_) => {
@@ -465,19 +426,17 @@ pub(crate) fn check_actor_permissions(
             }
         }
         Action::DeleteAccount(_) => {
+            if actor_id != account_id {
+                return Err(ActionErrorKind::ActorNoPermission {
+                    account_id: account_id.clone(),
+                    actor_id: actor_id.clone(),
+                }
+                .into());
+            }
             let account = account.as_ref().unwrap();
             if account.locked != 0 {
                 return Err(ActionErrorKind::DeleteAccountStaking {
                     account_id: account_id.clone(),
-                }
-                .into());
-            }
-            if actor_id != account_id
-                && check_rent(account_id, account, config, apply_state.epoch_length).is_ok()
-            {
-                return Err(ActionErrorKind::DeleteAccountHasRent {
-                    account_id: account_id.clone(),
-                    balance: account.amount,
                 }
                 .into());
             }
