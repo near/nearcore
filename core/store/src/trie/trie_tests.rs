@@ -1,5 +1,4 @@
-use crate::test_utils::create_trie;
-use crate::trie::tests::{gen_changes, simplify_changes};
+use crate::test_utils::{create_trie, gen_changes, simplify_changes};
 use crate::trie::trie_storage::{TrieMemoryPartialStorage, TrieStorage};
 use crate::trie::POISONED_LOCK_ERR;
 use crate::{PartialStorage, Trie, TrieUpdate};
