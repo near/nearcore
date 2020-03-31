@@ -12,7 +12,9 @@ use near_primitives::transaction::{
     FunctionCallAction, StakeAction, TransferAction,
 };
 use near_primitives::types::{AccountId, Balance, ValidatorStake};
-use near_primitives::utils::{is_valid_sub_account_id, is_valid_top_level_account_id};
+use near_primitives::utils::{
+    is_valid_account_id, is_valid_sub_account_id, is_valid_top_level_account_id,
+};
 use near_runtime_fees::RuntimeFeesConfig;
 use near_store::{
     get_access_key, get_code, remove_access_key, remove_account, set_access_key, set_code,
@@ -27,6 +29,7 @@ use crate::{ActionResult, ApplyState};
 use near_crypto::key_conversion::convert_public_key;
 use near_crypto::PublicKey;
 use near_primitives::errors::{ActionError, ActionErrorKind, ExternalError, RuntimeError};
+use near_runtime_configs::AccountCreationConfig;
 use near_vm_errors::{CompilationError, FunctionCallError};
 use near_vm_runner::VMError;
 
@@ -259,23 +262,44 @@ pub(crate) fn action_transfer(
 
 pub(crate) fn action_create_account(
     fee_config: &RuntimeFeesConfig,
+    account_creation_config: &AccountCreationConfig,
     account: &mut Option<Account>,
     actor_id: &mut AccountId,
-    receipt: &Receipt,
+    account_id: &AccountId,
+    predecessor_id: &AccountId,
     result: &mut ActionResult,
 ) {
-    let account_id = &receipt.receiver_id;
-    if !is_valid_top_level_account_id(account_id)
-        && !is_valid_sub_account_id(&receipt.predecessor_id, account_id)
-    {
+    // NOTE: The account_id is valid, because the Receipt is validated before.
+    debug_assert!(is_valid_account_id(account_id));
+
+    if is_valid_top_level_account_id(account_id) {
+        if account_id.len() < account_creation_config.min_allowed_top_level_account_length as usize
+            && predecessor_id != &account_creation_config.registrar_account_id
+        {
+            // A short top-level account ID can only be created registrar account.
+            result.result = Err(ActionErrorKind::CreateAccountOnlyByRegistrar {
+                account_id: account_id.clone(),
+                registrar_account_id: account_creation_config.registrar_account_id.clone(),
+                predecessor_id: predecessor_id.clone(),
+            }
+            .into());
+            return;
+        } else {
+            // OK: Valid top-level Account ID
+        }
+    } else if !is_valid_sub_account_id(&predecessor_id, account_id) {
+        // The sub-account can only be created by its root account. E.g. `alice.near` only by `near`
         result.result = Err(ActionErrorKind::CreateAccountNotAllowed {
             account_id: account_id.clone(),
-            predecessor_id: receipt.predecessor_id.clone(),
+            predecessor_id: predecessor_id.clone(),
         }
         .into());
         return;
+    } else {
+        // OK: Valid sub-account ID by proper predecessor.
     }
-    *actor_id = receipt.receiver_id.clone();
+
+    *actor_id = account_id.clone();
     *account = Some(Account {
         amount: 0,
         locked: 0,
@@ -476,4 +500,31 @@ pub(crate) fn check_account_existence(
         }
     };
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use testlib::runtime_utils::{alice_account, bob_account};
+
+    #[test]
+    fn test_create_account_valid_top_level() {
+        let mut account = None;
+        let account_id = AccountId::from("bob_near_long_name");
+        let mut actor_id = alice_account();
+        let mut action_result = ActionResult::default();
+        action_create_account(
+            &RuntimeFeesConfig::default(),
+            &AccountCreationConfig::default(),
+            &mut account,
+            &mut actor_id,
+            &account_id,
+            &alice_account(),
+            &mut action_result,
+        );
+        assert!(action_result.result.is_ok());
+        assert!(account.is_some());
+        assert_eq!(actor_id, account_id);
+    }
 }
