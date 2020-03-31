@@ -339,7 +339,12 @@ pub mod trie_key_parsers {
                 "raw key is too short for TrieKey::ReceivedData",
             ));
         }
-        CryptoHash::try_from(&raw_key[prefix_len..])
+        CryptoHash::try_from(&raw_key[prefix_len..]).map_err(|_| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "Can't parse CryptoHash for TrieKey::ReceivedData",
+            )
+        })
     }
 
     pub fn get_raw_prefix_for_access_keys(account_id: &AccountId) -> Vec<u8> {
