@@ -384,6 +384,11 @@ impl ShardsManager {
                     account_id: account_id.clone(),
                     request,
                 });
+            } else {
+                debug_assert!(
+                    false,
+                    format!("{} requests parts {:?} from self", account_id, part_ords)
+                );
             }
         }
 
