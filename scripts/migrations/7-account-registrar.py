@@ -39,12 +39,12 @@ for record in config['records']:
     if ('AccessKey' in record) and (record['AccessKey']['account_id'] == 'registrar'):
         continue
     if ('AccessKey' in record) and (record['AccessKey']['account_id'] == 'near'):
-        near_access_key_records.push(record['AccessKey'])
-    records.push(record)
+        near_access_key_records.append(record['AccessKey'])
+    records.append(record)
 
 assert(len(near_access_key_records) > 0)
 
-records.push({
+records.append({
     'Account': {
         'account': {
             # 1_000_000 N or 1e30
@@ -58,7 +58,7 @@ records.push({
 })
 
 for access_key_record in near_access_key_records:
-    records.push({
+    records.append({
         'AccessKey': {
             'access_key': access_key_record['access_key'],
             'public_key': access_key_record['public_key'],
