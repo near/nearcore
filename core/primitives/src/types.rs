@@ -510,3 +510,6 @@ pub enum ValidatorKickoutReason {
     /// Enough stake but is not chosen because of seat limits.
     DidNotGetASeat,
 }
+
+#[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize, Serialize)]
+pub struct StateHeaderKey(pub ShardId, pub CryptoHash);
