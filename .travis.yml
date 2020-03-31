@@ -1,4 +1,0 @@
-os: osx
-language: rust
-script:
-    - make release
