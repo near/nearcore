@@ -353,7 +353,6 @@ impl NightshadeRuntime {
             receipt_result,
             validator_proposals: apply_result.validator_proposals,
             total_gas_burnt,
-            total_rent_paid: apply_result.stats.total_rent_paid,
             total_validator_reward: apply_result.stats.total_validator_reward,
             total_balance_burnt: apply_result.stats.total_balance_burnt
                 + apply_result.stats.total_balance_slashed,
@@ -854,7 +853,6 @@ impl RuntimeAdapter for NightshadeRuntime {
         proposals: Vec<ValidatorStake>,
         slashed_validators: Vec<SlashedValidator>,
         chunk_mask: Vec<bool>,
-        rent_paid: Balance,
         validator_reward: Balance,
         total_supply: Balance,
     ) -> Result<(), Error> {
@@ -870,7 +868,6 @@ impl RuntimeAdapter for NightshadeRuntime {
             proposals,
             chunk_mask,
             slashed_validators,
-            rent_paid,
             validator_reward,
             total_supply,
         );
@@ -1384,7 +1381,6 @@ mod test {
                     vec![],
                     vec![],
                     0,
-                    0,
                     genesis_total_supply,
                 )
                 .unwrap();
@@ -1451,7 +1447,6 @@ mod test {
                     self.last_proposals.clone(),
                     challenges_result,
                     chunk_mask,
-                    0,
                     0,
                     self.runtime.genesis.config.total_supply,
                 )
@@ -1860,7 +1855,6 @@ mod test {
                     new_env.last_proposals.clone(),
                     vec![],
                     vec![true],
-                    0,
                     0,
                     new_env.runtime.genesis.config.total_supply,
                 )
