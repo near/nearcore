@@ -1,7 +1,7 @@
 //! Client is responsible for tracking the chain, chunks, and producing them when needed.
 //! This client works completely synchronously and must be operated by some async actor outside.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, RwLock};
 use std::time::Instant;
 
@@ -9,7 +9,7 @@ use cached::{Cached, SizedCache};
 use chrono::Utc;
 use log::{debug, error, info, warn};
 
-use near_chain::chain::TX_ROUTING_HEIGHT_HORIZON;
+use near_chain::chain::{NUM_CHUNK_PRODUCERS_TO_FORWARD_TX, TX_ROUTING_HEIGHT_HORIZON};
 use near_chain::test_utils::format_hash;
 use near_chain::types::{AcceptedBlock, LatestKnown, ReceiptResponse};
 use near_chain::{
@@ -1057,17 +1057,27 @@ impl Client {
     fn forward_tx(&self, epoch_id: &EpochId, tx: &SignedTransaction) -> Result<(), Error> {
         let shard_id = self.runtime_adapter.account_id_to_shard_id(&tx.transaction.signer_id);
 
-        let validator = self.chain.find_chunk_producer_for_forwarding(epoch_id, shard_id)?;
+        let mut validators = HashSet::new();
+        for i in 0..NUM_CHUNK_PRODUCERS_TO_FORWARD_TX {
+            let validator = self.chain.find_chunk_producer_for_forwarding(
+                epoch_id,
+                shard_id,
+                TX_ROUTING_HEIGHT_HORIZON * (i + 1),
+            )?;
+            validators.insert(validator);
+        }
 
-        debug!(target: "client",
-               "I'm {:?}, routing a transaction to {}, shard_id = {}",
-               self.validator_signer.as_ref().map(|bp| bp.validator_id()),
-               validator,
-               shard_id
-        );
+        for validator in validators {
+            debug!(target: "client",
+                   "I'm {:?}, routing a transaction to {}, shard_id = {}",
+                   self.validator_signer.as_ref().map(|bp| bp.validator_id()),
+                   validator,
+                   shard_id
+            );
 
-        // Send message to network to actually forward transaction.
-        self.network_adapter.do_send(NetworkRequests::ForwardTx(validator, tx.clone()));
+            // Send message to network to actually forward transaction.
+            self.network_adapter.do_send(NetworkRequests::ForwardTx(validator, tx.clone()));
+        }
 
         Ok(())
     }

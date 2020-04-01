@@ -949,3 +949,15 @@ fn test_gc_block_skips() {
         }
     }
 }
+
+#[test]
+fn test_tx_forwarding() {
+    let mut chain_genesis = ChainGenesis::test();
+    chain_genesis.epoch_length = 100;
+    let mut env = TestEnv::new(chain_genesis, 50, 50);
+    let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
+    let genesis_hash = genesis_block.hash();
+    // forward to 2 chunk producers
+    env.clients[0].process_tx(SignedTransaction::empty(genesis_hash));
+    assert_eq!(env.network_adapters[0].requests.read().unwrap().len(), 2);
+}
