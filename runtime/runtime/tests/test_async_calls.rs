@@ -594,6 +594,8 @@ fn test_simple_transfer() {
 }
 
 #[test]
+#[ignore]
+// TODO FIXME #2370
 fn test_create_account_with_transfer_and_full_key() {
     let wasm_binary: &[u8] = include_bytes!("../../near-vm-runner/tests/res/test_contract_rs.wasm");
     let group = RuntimeGroup::new(3, 2, wasm_binary);
@@ -666,6 +668,8 @@ fn test_create_account_with_transfer_and_full_key() {
 }
 
 #[test]
+#[ignore]
+// TODO FIXME #2370
 fn test_account_factory() {
     let wasm_binary: &[u8] = include_bytes!("../../near-vm-runner/tests/res/test_contract_rs.wasm");
     let group = RuntimeGroup::new(3, 2, wasm_binary);
@@ -823,6 +827,8 @@ fn test_account_factory() {
 }
 
 #[test]
+#[ignore]
+// TODO FIXME #2370
 fn test_create_account_add_key_call_delete_key_delete_account() {
     let wasm_binary: &[u8] = include_bytes!("../../near-vm-runner/tests/res/test_contract_rs.wasm");
     let group = RuntimeGroup::new(4, 3, wasm_binary);

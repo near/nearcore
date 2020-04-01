@@ -807,6 +807,8 @@ mod tests {
     /// Setup: account has 1B yoctoN and is 180 bytes. Storage requirement is 1M per byte.
     /// Test that such account can not send 950M yoctoN out as that will leave it under storage requirements.
     #[test]
+    #[ignore]
+    // TODO FIXME #2371
     fn test_validate_transaction_invalid_low_balance() {
         let mut config = RuntimeConfig::free();
         config.storage_amount_per_byte = 10_000_000;
