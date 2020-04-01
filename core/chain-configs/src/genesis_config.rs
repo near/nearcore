@@ -23,6 +23,7 @@ use crate::PROTOCOL_VERSION;
 pub const CONFIG_VERSION: u32 = 1;
 
 #[derive(Debug, Clone, SmartDefault, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct GenesisConfig {
     /// This is a version of a genesis config structure this version of binary works with.
     /// If the binary tries to load a JSON config with a different version it will panic.
@@ -97,6 +98,7 @@ pub struct GenesisConfig {
 pub struct GenesisRecords(Vec<StateRecord>);
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Genesis {
     #[serde(flatten)]
     pub config: GenesisConfig,

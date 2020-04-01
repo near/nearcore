@@ -4,6 +4,7 @@ use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
 #[derive(Clone, Debug, Hash, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct VMConfig {
     /// Costs for runtime externals
     pub ext_costs: ExtCostsConfig,
@@ -19,6 +20,7 @@ pub struct VMConfig {
 
 /// Describes limits for VM and Runtime.
 #[derive(Debug, Serialize, Deserialize, Clone, Hash, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
 pub struct VMLimitConfig {
     /// Max amount of gas that can be used, excluding gas attached to promises.
     pub max_gas_burnt: Gas,
@@ -157,6 +159,7 @@ impl Default for VMLimitConfig {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Hash, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
 pub struct ExtCostsConfig {
     /// Base cost for calling a host function.
     pub base: Gas,

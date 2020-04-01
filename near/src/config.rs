@@ -839,7 +839,7 @@ mod test {
 
     /// make sure testnet genesis can be deserialized
     #[test]
-    fn test_deserialize_state() {
+    fn test_deserialize_genesis() {
         let genesis_config_str = include_str!("../res/testnet_genesis_config.json");
         let genesis_config = GenesisConfig::from_json(&genesis_config_str);
         assert_eq!(genesis_config.protocol_version, PROTOCOL_VERSION);

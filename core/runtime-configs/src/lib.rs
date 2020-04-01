@@ -8,7 +8,7 @@ use near_vm_logic::VMConfig;
 
 /// The structure that holds the parameters of the runtime, mostly economics.
 #[derive(Debug, Serialize, Deserialize, Clone)]
-#[serde(default)]
+#[serde(deny_unknown_fields)]
 pub struct RuntimeConfig {
     /// Amount of yN per byte required to have on the account.
     /// See https://nomicon.io/Economics/README.html#state-stake for details.
