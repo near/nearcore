@@ -187,7 +187,7 @@
     },
     "storage_amount_per_byte": "90949470177292823791",
     "account_creation_config": {
-      "min_allowed_top_level_account_length": 11,
+      "min_allowed_top_level_account_length": 0,
       "registrar_account_id": "registrar"
     }
   },

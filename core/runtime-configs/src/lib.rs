@@ -59,7 +59,7 @@ pub struct AccountCreationConfig {
 impl Default for AccountCreationConfig {
     fn default() -> Self {
         Self {
-            min_allowed_top_level_account_length: 11,
+            min_allowed_top_level_account_length: 0,
             registrar_account_id: AccountId::from("registrar"),
         }
     }
