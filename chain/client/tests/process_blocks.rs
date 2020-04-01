@@ -870,6 +870,8 @@ fn test_gc_with_epoch_length_common(epoch_length: NumBlocks) {
 }
 
 #[test]
+#[ignore]
+// TODO FIXME #2368
 fn test_gc_with_epoch_length() {
     for i in 2..20 {
         test_gc_with_epoch_length_common(i);
