@@ -11,7 +11,7 @@ use crate::trie::TrieChanges;
 use crate::StorageError;
 
 use super::{Trie, TrieIterator};
-use near_primitives::utils::TrieKey;
+use near_primitives::trie_key::TrieKey;
 
 /// Key-value update. Contains a TrieKey and a value.
 pub struct TrieKeyValueUpdate {

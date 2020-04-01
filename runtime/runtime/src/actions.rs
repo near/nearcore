@@ -12,7 +12,9 @@ use near_primitives::transaction::{
     FunctionCallAction, StakeAction, TransferAction,
 };
 use near_primitives::types::{AccountId, Balance, ValidatorStake};
-use near_primitives::utils::{is_valid_sub_account_id, is_valid_top_level_account_id};
+use near_primitives::utils::{
+    is_valid_account_id, is_valid_sub_account_id, is_valid_top_level_account_id,
+};
 use near_runtime_fees::RuntimeFeesConfig;
 use near_store::{
     get_access_key, get_code, remove_access_key, remove_account, set_access_key, set_code,
@@ -27,6 +29,7 @@ use crate::{ActionResult, ApplyState};
 use near_crypto::key_conversion::convert_public_key;
 use near_crypto::PublicKey;
 use near_primitives::errors::{ActionError, ActionErrorKind, ExternalError, RuntimeError};
+use near_runtime_configs::AccountCreationConfig;
 use near_vm_errors::{CompilationError, FunctionCallError};
 use near_vm_runner::VMError;
 
@@ -259,23 +262,44 @@ pub(crate) fn action_transfer(
 
 pub(crate) fn action_create_account(
     fee_config: &RuntimeFeesConfig,
+    account_creation_config: &AccountCreationConfig,
     account: &mut Option<Account>,
     actor_id: &mut AccountId,
-    receipt: &Receipt,
+    account_id: &AccountId,
+    predecessor_id: &AccountId,
     result: &mut ActionResult,
 ) {
-    let account_id = &receipt.receiver_id;
-    if !is_valid_top_level_account_id(account_id)
-        && !is_valid_sub_account_id(&receipt.predecessor_id, account_id)
-    {
+    // NOTE: The account_id is valid, because the Receipt is validated before.
+    debug_assert!(is_valid_account_id(account_id));
+
+    if is_valid_top_level_account_id(account_id) {
+        if account_id.len() < account_creation_config.min_allowed_top_level_account_length as usize
+            && predecessor_id != &account_creation_config.registrar_account_id
+        {
+            // A short top-level account ID can only be created registrar account.
+            result.result = Err(ActionErrorKind::CreateAccountOnlyByRegistrar {
+                account_id: account_id.clone(),
+                registrar_account_id: account_creation_config.registrar_account_id.clone(),
+                predecessor_id: predecessor_id.clone(),
+            }
+            .into());
+            return;
+        } else {
+            // OK: Valid top-level Account ID
+        }
+    } else if !is_valid_sub_account_id(&predecessor_id, account_id) {
+        // The sub-account can only be created by its root account. E.g. `alice.near` only by `near`
         result.result = Err(ActionErrorKind::CreateAccountNotAllowed {
             account_id: account_id.clone(),
-            predecessor_id: receipt.predecessor_id.clone(),
+            predecessor_id: predecessor_id.clone(),
         }
         .into());
         return;
+    } else {
+        // OK: Valid sub-account ID by proper predecessor.
     }
-    *actor_id = receipt.receiver_id.clone();
+
+    *actor_id = account_id.clone();
     *account = Some(Account {
         amount: 0,
         locked: 0,
@@ -476,4 +500,108 @@ pub(crate) fn check_account_existence(
         }
     };
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn test_action_create_account(
+        account_id: AccountId,
+        predecessor_id: AccountId,
+        length: u8,
+    ) -> ActionResult {
+        let mut account = None;
+        let mut actor_id = predecessor_id.clone();
+        let mut action_result = ActionResult::default();
+        action_create_account(
+            &RuntimeFeesConfig::default(),
+            &AccountCreationConfig {
+                min_allowed_top_level_account_length: length,
+                registrar_account_id: AccountId::from("registrar"),
+            },
+            &mut account,
+            &mut actor_id,
+            &account_id,
+            &predecessor_id,
+            &mut action_result,
+        );
+        if action_result.result.is_ok() {
+            assert!(account.is_some());
+            assert_eq!(actor_id, account_id);
+        } else {
+            assert!(account.is_none());
+        }
+        action_result
+    }
+
+    #[test]
+    fn test_create_account_valid_top_level_long() {
+        let account_id = AccountId::from("bob_near_long_name");
+        let predecessor_id = AccountId::from("alice.near");
+        let action_result = test_action_create_account(account_id, predecessor_id, 11);
+        assert!(action_result.result.is_ok());
+    }
+
+    #[test]
+    fn test_create_account_valid_top_level_by_registrar() {
+        let account_id = AccountId::from("bob");
+        let predecessor_id = AccountId::from("registrar");
+        let action_result = test_action_create_account(account_id, predecessor_id, 11);
+        assert!(action_result.result.is_ok());
+    }
+
+    #[test]
+    fn test_create_account_valid_sub_account() {
+        let account_id = AccountId::from("alice.near");
+        let predecessor_id = AccountId::from("near");
+        let action_result = test_action_create_account(account_id, predecessor_id, 11);
+        assert!(action_result.result.is_ok());
+    }
+
+    #[test]
+    fn test_create_account_invalid_sub_account() {
+        let account_id = AccountId::from("alice.near");
+        let predecessor_id = AccountId::from("bob");
+        let action_result =
+            test_action_create_account(account_id.clone(), predecessor_id.clone(), 11);
+        assert_eq!(
+            action_result.result,
+            Err(ActionError {
+                index: None,
+                kind: ActionErrorKind::CreateAccountNotAllowed {
+                    account_id: account_id.clone(),
+                    predecessor_id: predecessor_id.clone(),
+                }
+            })
+        );
+    }
+
+    #[test]
+    fn test_create_account_invalid_short_top_level() {
+        let account_id = AccountId::from("bob");
+        let predecessor_id = AccountId::from("near");
+        let action_result =
+            test_action_create_account(account_id.clone(), predecessor_id.clone(), 11);
+        assert_eq!(
+            action_result.result,
+            Err(ActionError {
+                index: None,
+                kind: ActionErrorKind::CreateAccountOnlyByRegistrar {
+                    account_id: account_id.clone(),
+                    registrar_account_id: AccountId::from("registrar"),
+                    predecessor_id: predecessor_id.clone(),
+                }
+            })
+        );
+    }
+
+    #[test]
+    fn test_create_account_valid_short_top_level_len_allowed() {
+        let account_id = AccountId::from("bob");
+        let predecessor_id = AccountId::from("near");
+        let action_result =
+            test_action_create_account(account_id.clone(), predecessor_id.clone(), 0);
+        assert!(action_result.result.is_ok());
+    }
 }

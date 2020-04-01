@@ -10,6 +10,8 @@ use borsh::ser::BorshSerialize;
 use borsh::BorshDeserialize;
 use log::debug;
 
+use crate::shard_tracker::{account_id_to_shard_id, ShardTracker};
+use near_chain::chain::NUM_EPOCHS_TO_KEEP_STORE_DATA;
 use near_chain::types::ApplyTransactionResult;
 use near_chain::{BlockHeader, Error, ErrorKind, RuntimeAdapter};
 use near_chain_configs::Genesis;
@@ -26,6 +28,7 @@ use near_primitives::serialize::from_base64;
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::state_record::StateRecord;
 use near_primitives::transaction::SignedTransaction;
+use near_primitives::trie_key::trie_key_parsers;
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, EpochHeight, EpochId, Gas, MerkleHash, NumShards, ShardId,
     StateChangeCause, StateRoot, StateRootNode, ValidatorStake, ValidatorStats,
@@ -41,10 +44,6 @@ use near_store::{
 use node_runtime::adapter::ViewRuntimeAdapter;
 use node_runtime::state_viewer::TrieViewer;
 use node_runtime::{verify_and_charge_transaction, ApplyState, Runtime, ValidatorAccountsUpdate};
-
-use crate::shard_tracker::{account_id_to_shard_id, ShardTracker};
-use near_chain::chain::NUM_EPOCHS_TO_KEEP_STORE_DATA;
-use near_primitives::utils::trie_key_parsers;
 
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 const STATE_DUMP_FILE: &str = "state_dump";
@@ -1497,6 +1496,8 @@ mod test {
     /// 4. Validator 1 gets unstaked because not enough stake.
     /// 5. At the end Validator 0 and 2 with 2 * X are validators. Validator 1 has stake returned to balance.
     #[test]
+    #[ignore]
+    // TODO FIXME: #2367
     fn test_validator_rotation() {
         init_test_logger();
         let num_nodes = 2;

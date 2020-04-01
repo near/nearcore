@@ -12,10 +12,10 @@ use cached::Cached;
 
 use near_primitives::challenge::PartialState;
 use near_primitives::hash::{hash, CryptoHash};
+use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{
     RawStateChange, RawStateChangesWithTrieKey, StateChangeCause, StateRoot, StateRootNode,
 };
-use near_primitives::utils::TrieKey;
 
 use crate::db::{DBCol, DBOp, DBTransaction};
 use crate::trie::insert_delete::NodesStorage;

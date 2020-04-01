@@ -10,8 +10,9 @@ use near_primitives::errors::{
 };
 use near_primitives::receipt::{Receipt, ReceiptEnum};
 use near_primitives::transaction::SignedTransaction;
+use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{AccountId, Balance};
-use near_primitives::utils::{system_account, TrieKey};
+use near_primitives::utils::system_account;
 use near_runtime_fees::RuntimeFeesConfig;
 use near_store::{get, get_account, get_postponed_receipt, TrieUpdate};
 use std::collections::HashSet;
