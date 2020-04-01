@@ -474,7 +474,7 @@ fn test_genesis_config() {
     test_with_client!(client, async move {
         let genesis_config = client.EXPERIMENTAL_genesis_config().await.unwrap();
         assert_eq!(genesis_config["config_version"].as_u64().unwrap(), 1);
-        assert_eq!(genesis_config["protocol_version"].as_u64().unwrap(), 5);
+        assert_eq!(genesis_config["protocol_version"].as_u64().unwrap(), 7);
         assert!(!genesis_config["chain_id"].as_str().unwrap().is_empty());
         assert!(!genesis_config.as_object().unwrap().contains_key("records"));
     });
