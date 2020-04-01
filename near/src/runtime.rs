@@ -1496,6 +1496,8 @@ mod test {
     /// 4. Validator 1 gets unstaked because not enough stake.
     /// 5. At the end Validator 0 and 2 with 2 * X are validators. Validator 1 has stake returned to balance.
     #[test]
+    #[ignore]
+    // TODO FIXME: #2367
     fn test_validator_rotation() {
         init_test_logger();
         let num_nodes = 2;
