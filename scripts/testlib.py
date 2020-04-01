@@ -47,7 +47,8 @@ def test_binaries(exclude=None):
     for f in glob.glob(f'{target_debug}/deps/*'):
         fname = os.path.basename(f)
         ext = os.path.splitext(fname)[1]
-        if os.path.isfile(f) and fname != 'near' and ext == '':
+        is_near_binary = re.match('near-[0-9a-f]{16}$', fname) or fname == 'near'
+        if os.path.isfile(f) and not is_near_binary and ext == '':
             if not exclude:
                 binaries.append(f)
             elif not any(map(lambda e: re.match(e, fname), exclude)):
