@@ -48,7 +48,7 @@ pub struct RuntimeFeesConfig {
     pub data_receipt_creation_config: DataReceiptCreationConfig,
     /// Describes the cost of creating a certain action, `Action`. Includes all variants.
     pub action_creation_config: ActionCreationConfig,
-    /// Describes fees for storage rent
+    /// Describes fees for storage.
     pub storage_usage_config: StorageUsageConfig,
 
     /// Fraction of the burnt gas to reward to the contract account for execution.
@@ -110,7 +110,7 @@ pub struct AccessKeyCreationConfig {
 /// Describes cost of storage per block
 #[derive(Debug, Serialize, Deserialize, Clone, Hash, PartialEq, Eq)]
 pub struct StorageUsageConfig {
-    /// Number of bytes for an account record.
+    /// Number of bytes for an account record, including rounding up for account id.
     pub num_bytes_account: u64,
     /// Additional number of bytes for a k/v record
     pub num_extra_bytes_record: u64,
@@ -181,6 +181,8 @@ impl Default for RuntimeFeesConfig {
                 },
             },
             storage_usage_config: StorageUsageConfig {
+                // See Account in core/primitives/src/account.rs for the data structure.
+                // TODO(2291): figure out value for the MainNet.
                 num_bytes_account: 100,
                 num_extra_bytes_record: 40,
             },

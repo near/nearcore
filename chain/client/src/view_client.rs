@@ -538,6 +538,17 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
                         self.adv_disable_header_sync = true;
                         NetworkViewClientResponses::NoResponse
                     }
+                    NetworkAdversarialMessage::AdvSwitchToHeight(height) => {
+                        info!(target: "adversary", "Switching to height");
+                        let mut chain_store_update = self.chain.mut_store().store_update();
+                        chain_store_update.save_largest_skipped_height(&height);
+                        chain_store_update.save_largest_approved_height(&height);
+                        chain_store_update
+                            .adv_save_latest_known(height)
+                            .expect("adv method should not fail");
+                        chain_store_update.commit().expect("adv method should not fail");
+                        NetworkViewClientResponses::NoResponse
+                    }
                     _ => panic!("invalid adversary message"),
                 }
             }

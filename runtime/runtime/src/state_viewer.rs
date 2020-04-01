@@ -8,9 +8,10 @@ use near_crypto::{KeyType, PublicKey};
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::hash::CryptoHash;
 use near_primitives::serialize::to_base64;
+use near_primitives::trie_key::trie_key_parsers;
 use near_primitives::types::EpochHeight;
 use near_primitives::types::{AccountId, BlockHeight};
-use near_primitives::utils::{is_valid_account_id, trie_key_parsers};
+use near_primitives::utils::is_valid_account_id;
 use near_primitives::views::{StateItem, ViewStateResult};
 use near_runtime_fees::RuntimeFeesConfig;
 use near_store::{get_access_key, get_account, TrieUpdate};
@@ -174,6 +175,7 @@ impl TrieViewer {
 
 #[cfg(test)]
 mod tests {
+    use near_primitives::trie_key::TrieKey;
     use near_primitives::types::StateChangeCause;
     use near_primitives::views::StateItem;
     use testlib::runtime_utils::{
@@ -181,7 +183,6 @@ mod tests {
     };
 
     use super::*;
-    use near_primitives::utils::TrieKey;
 
     #[test]
     fn test_view_call() {
@@ -286,7 +287,7 @@ mod tests {
             b"321".to_vec(),
         );
         state_update.commit(StateChangeCause::InitialState);
-        let (db_changes, new_root) = state_update.finalize().unwrap().into(trie.clone()).unwrap();
+        let (db_changes, new_root) = state_update.finalize().unwrap().0.into(trie.clone()).unwrap();
         db_changes.commit().unwrap();
 
         let state_update = TrieUpdate::new(trie, new_root);

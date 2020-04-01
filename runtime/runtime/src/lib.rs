@@ -17,11 +17,12 @@ use near_primitives::state_record::StateRecord;
 use near_primitives::transaction::{
     Action, ExecutionOutcome, ExecutionOutcomeWithId, ExecutionStatus, LogEntry, SignedTransaction,
 };
+use near_primitives::trie_key::{trie_key_parsers, TrieKey};
 use near_primitives::types::{
-    AccountId, Balance, BlockHeight, BlockHeightDelta, EpochHeight, Gas, Nonce, RawStateChanges,
-    StateChangeCause, StateRoot, ValidatorStake,
+    AccountId, Balance, BlockHeight, BlockHeightDelta, EpochHeight, Gas, Nonce,
+    RawStateChangesWithTrieKey, StateChangeCause, StateRoot, ValidatorStake,
 };
-use near_primitives::utils::{create_nonce_with_nonce, system_account, trie_key_parsers, TrieKey};
+use near_primitives::utils::{create_nonce_with_nonce, system_account};
 use near_store::{
     get, get_account, get_postponed_receipt, get_received_data, remove_postponed_receipt, set,
     set_access_key, set_account, set_code, set_postponed_receipt, set_received_data, StorageError,
@@ -89,13 +90,11 @@ pub struct ValidatorAccountsUpdate {
 pub struct VerificationResult {
     pub gas_burnt: Gas,
     pub gas_used: Gas,
-    pub rent_paid: Balance,
     pub validator_reward: Balance,
 }
 
 #[derive(Debug, Default)]
 pub struct ApplyStats {
-    pub total_rent_paid: Balance,
     pub total_validator_reward: Balance,
     pub total_balance_burnt: Balance,
     pub total_balance_slashed: Balance,
@@ -107,7 +106,7 @@ pub struct ApplyResult {
     pub validator_proposals: Vec<ValidatorStake>,
     pub outgoing_receipts: Vec<Receipt>,
     pub outcomes: Vec<ExecutionOutcomeWithId>,
-    pub state_changes: RawStateChanges,
+    pub state_changes: Vec<RawStateChangesWithTrieKey>,
     pub stats: ApplyStats,
 }
 
@@ -204,7 +203,7 @@ impl Runtime {
     /// either to the new local receipts if the signer is the same as receiver or to the new
     /// outgoing receipts.
     /// When transaction is converted to a receipt, the account is charged for the full value of
-    /// the generated receipt. Also the account is charged with the rent for storage and short name.
+    /// the generated receipt.
     /// In case of successful verification (expected for valid chunks), returns the receipt and
     /// `ExecutionOutcomeWithId` for the transaction.
     /// In case of an error, returns either `InvalidTxError` if the transaction verification failed
@@ -242,8 +241,6 @@ impl Runtime {
                         actions: transaction.actions.clone(),
                     }),
                 };
-                stats.total_rent_paid =
-                    safe_add_balance(stats.total_rent_paid, verification_result.rent_paid)?;
                 stats.total_validator_reward = safe_add_balance(
                     stats.total_validator_reward,
                     verification_result.validator_reward,
@@ -291,14 +288,7 @@ impl Runtime {
             return Ok(result);
         }
         // Permission validation
-        if let Err(e) = check_actor_permissions(
-            action,
-            apply_state,
-            account,
-            &actor_id,
-            account_id,
-            &self.config,
-        ) {
+        if let Err(e) = check_actor_permissions(action, account, &actor_id, account_id) {
             result.result = Err(e);
             return Ok(result);
         }
@@ -307,10 +297,11 @@ impl Runtime {
                 near_metrics::inc_counter(&metrics::ACTION_CREATE_ACCOUNT_TOTAL);
                 action_create_account(
                     &self.config.transaction_costs,
-                    apply_state,
+                    &self.config.account_creation_config,
                     account,
                     actor_id,
-                    receipt,
+                    &receipt.receiver_id,
+                    &receipt.predecessor_id,
                     &mut result,
                 );
             }
@@ -435,10 +426,6 @@ impl Runtime {
         });
 
         let mut account = get_account(state_update, account_id)?;
-        let mut rent_paid = 0;
-        if let Some(ref mut account) = account {
-            rent_paid = apply_rent(account_id, account, apply_state.block_index, &self.config)?;
-        }
         let mut actor_id = receipt.predecessor_id.clone();
         let mut result = ActionResult::default();
         let exec_fee = self.config.transaction_costs.action_receipt_creation_config.exec_fee();
@@ -477,16 +464,14 @@ impl Runtime {
             }
         }
 
-        // Going to check rent
+        // Going to check balance covers account's storage.
         if result.result.is_ok() {
             if let Some(ref mut account) = account {
-                if let Err(amount) =
-                    check_rent(account_id, account, &self.config, apply_state.epoch_length)
-                {
+                if let Some(amount) = get_insufficient_storage_stake(account, &self.config)? {
                     result.merge(ActionResult {
                         result: Err(ActionError {
                             index: None,
-                            kind: ActionErrorKind::RentUnpaid {
+                            kind: ActionErrorKind::LackBalanceForState {
                                 account_id: account_id.clone(),
                                 amount,
                             },
@@ -522,7 +507,6 @@ impl Runtime {
         // Committing or rolling back state.
         match &result.result {
             Ok(_) => {
-                stats.total_rent_paid = safe_add_balance(stats.total_rent_paid, rent_paid)?;
                 state_update.commit(StateChangeCause::ReceiptProcessing {
                     receipt_hash: receipt.get_hash(),
                 });
@@ -947,7 +931,7 @@ impl Runtime {
     /// All new signed transactions should be valid and already verified by the chunk producer.
     /// If any transaction is invalid, it would return an `InvalidTxError`.
     /// Returns an `ApplyResult` that contains the new state root, trie changes,
-    /// new outgoing receipts, total rent paid by all the affected accounts, execution outcomes for
+    /// new outgoing receipts, execution outcomes for
     /// all transactions, local action receipts (generated from transactions with signer ==
     /// receivers) and incoming action receipts.
     pub fn apply(
@@ -1093,10 +1077,9 @@ impl Runtime {
         )?;
 
         state_update.commit(StateChangeCause::UpdatedDelayedReceipts);
-        // TODO: Avoid cloning.
-        let state_changes = state_update.committed_updates_per_cause().clone();
 
-        let trie_changes = state_update.finalize()?;
+        let (trie_changes, state_changes) = state_update.finalize()?;
+
         let state_root = trie_changes.new_root;
         Ok(ApplyResult {
             state_root,
@@ -1291,6 +1274,7 @@ impl Runtime {
         let (store_update, state_root) = state_update
             .finalize()
             .expect("Genesis state update failed")
+            .0
             .into(trie)
             .expect("Genesis state update failed");
         (store_update, state_root)
@@ -1315,7 +1299,7 @@ mod tests {
     fn test_get_and_set_accounts() {
         let trie = create_trie();
         let mut state_update = TrieUpdate::new(trie, MerkleHash::default());
-        let test_account = Account::new(10, hash(&[]), 0);
+        let test_account = Account::new(10, hash(&[]));
         let account_id = bob_account();
         set_account(&mut state_update, account_id.clone(), &test_account);
         let get_res = get_account(&state_update, &account_id).unwrap().unwrap();
@@ -1327,11 +1311,12 @@ mod tests {
         let trie = create_trie();
         let root = MerkleHash::default();
         let mut state_update = TrieUpdate::new(trie.clone(), root);
-        let test_account = Account::new(10, hash(&[]), 0);
+        let test_account = Account::new(10, hash(&[]));
         let account_id = bob_account();
         set_account(&mut state_update, account_id.clone(), &test_account);
         state_update.commit(StateChangeCause::InitialState);
-        let (store_update, new_root) = state_update.finalize().unwrap().into(trie.clone()).unwrap();
+        let (store_update, new_root) =
+            state_update.finalize().unwrap().0.into(trie.clone()).unwrap();
         store_update.commit().unwrap();
         let new_state_update = TrieUpdate::new(trie.clone(), new_root);
         let get_res = get_account(&new_state_update, &account_id).unwrap().unwrap();
@@ -1356,7 +1341,7 @@ mod tests {
             Arc::new(InMemorySigner::from_seed(&account_id, KeyType::ED25519, &account_id));
 
         let mut initial_state = TrieUpdate::new(trie.clone(), root);
-        let mut initial_account = Account::new(initial_balance, hash(&[]), 0);
+        let mut initial_account = Account::new(initial_balance, hash(&[]));
         initial_account.locked = initial_locked;
         set_account(&mut initial_state, account_id.clone(), &initial_account);
         set_access_key(
@@ -1366,7 +1351,7 @@ mod tests {
             &AccessKey::full_access(),
         );
         initial_state.commit(StateChangeCause::InitialState);
-        let trie_changes = initial_state.finalize().unwrap();
+        let trie_changes = initial_state.finalize().unwrap().0;
         let (store_update, root) = trie_changes.into(trie.clone()).unwrap();
         store_update.commit().unwrap();
 
@@ -1758,7 +1743,7 @@ mod tests {
             .unwrap();
         set(&mut state_update, TrieKey::DelayedReceiptIndices, &delayed_receipts_indices);
         state_update.commit(StateChangeCause::UpdatedDelayedReceipts);
-        let trie_changes = state_update.finalize().unwrap();
+        let trie_changes = state_update.finalize().unwrap().0;
         let (store_update, root) = trie_changes.into(trie.clone()).unwrap();
         store_update.commit().unwrap();
 

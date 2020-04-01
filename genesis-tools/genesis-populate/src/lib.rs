@@ -174,7 +174,7 @@ impl GenesisBuilder {
             set_account(&mut state_update, account_id, &account);
         }
         let trie = state_update.trie.clone();
-        let (store_update, root) = state_update.finalize()?.into(trie)?;
+        let (store_update, root) = state_update.finalize()?.0.into(trie)?;
         store_update.commit()?;
 
         self.roots.insert(shard_idx, root.clone());
@@ -212,7 +212,6 @@ impl GenesisBuilder {
                 vec![],
                 vec![],
                 0,
-                0,
                 self.genesis.config.total_supply.clone(),
             )
             .unwrap();
@@ -229,7 +228,6 @@ impl GenesisBuilder {
                     vec![],
                     0,
                     self.genesis.config.gas_limit.clone(),
-                    0,
                     0,
                     0,
                 ),
