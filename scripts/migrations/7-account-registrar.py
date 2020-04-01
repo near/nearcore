@@ -4,8 +4,7 @@ https://github.com/nearprotocol/NEPs/pull/45
 
 Changes:
  - Introduce `account_creation_config` in `RuntimeConfig`.
- - Set `min_allowed_top_level_account_length` to 11. Means any top-level account ID with 10 chars or less
-   can only be created by `registrar`
+ - Set `min_allowed_top_level_account_length` to 0. Means any top-level account ID can still be created by anyone.
  - Set `registrar_account_id` to `registrar`.
  - Creates a new `registrar` account with `near` access keys and 1M $N.
 """
@@ -24,7 +23,7 @@ assert config['protocol_version'] == 6
 
 config['protocol_version'] = 7
 config['runtime_config']['account_creation_config'] = {
-    'min_allowed_top_level_account_length': 11,
+    'min_allowed_top_level_account_length': 0,
     'registrar_account_id': 'registrar',
 }
 
