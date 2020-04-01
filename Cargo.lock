@@ -2336,10 +2336,12 @@ dependencies = [
 name = "near-vm-runner-standalone"
 version = "0.7.0"
 dependencies = [
+ "base64 0.11.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "clap 2.33.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "near-runtime-fees 0.7.0",
  "near-vm-logic 0.7.0",
  "near-vm-runner 0.7.0",
+ "serde 1.0.104 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_json 1.0.41 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
