@@ -44,7 +44,7 @@ def workers():
 
 def test_binaries(exclude=None):
     binaries = []
-    for f in glob.glob(f'{target_debug}/*'):
+    for f in glob.glob(f'{target_debug}/deps/*'):
         fname = os.path.basename(f)
         ext = os.path.splitext(fname)[1]
         if os.path.isfile(f) and fname != 'near' and ext == '':
