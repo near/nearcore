@@ -1,25 +1,40 @@
 {
+  "protocol_version": 5,
   "config_version": 1,
-  "protocol_version": 7,
-  "genesis_time": "2020-03-31T21:27:57.474226Z",
-  "chain_id": "test-chain-IER4n",
-  "genesis_height": 21,
+  "genesis_height": 0,
+  "genesis_time": "2019-06-04T06:13:25Z",
+  "chain_id": "testnet",
   "num_block_producer_seats": 50,
   "num_block_producer_seats_per_shard": [
-    50
+    7,
+    7,
+    6,
+    6,
+    6,
+    6,
+    6,
+    6
   ],
   "avg_hidden_validator_seats_per_shard": [
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
     0
   ],
   "dynamic_resharding": false,
-  "epoch_length": 60,
+  "epoch_length": 600,
   "gas_limit": 1000000000000000,
-  "min_gas_price": "5000",
-  "block_producer_kickout_threshold": 90,
+  "min_gas_price": 5000,
+  "block_producer_kickout_threshold": 80,
   "chunk_producer_kickout_threshold": 60,
   "gas_price_adjustment_rate": 1,
   "runtime_config": {
-    "poke_threshold": 0,
+    "storage_cost_byte_per_block": "1",
+    "poke_threshold": 60,
     "transaction_costs": {
       "action_receipt_creation_config": {
         "send_sir": 924119500000,
@@ -185,26 +200,22 @@
         "max_number_input_data_dependencies": 128
       }
     },
-    "storage_amount_per_byte": "90949470177292823791",
-    "account_creation_config": {
-      "min_allowed_top_level_account_length": 11,
-      "registrar_account_id": "registrar"
-    }
+    "account_length_baseline_cost_per_block": "6561"
   },
   "validators": [
     {
-      "account_id": "test.near",
-      "public_key": "ed25519:Fr9rU2jBF5dWfXJ9ewH7qAuirJMa2DKJ2QxV4DnizRnh",
-      "amount": "50000000000000000000000000000000"
+      "account_id": "far",
+      "public_key": "ed25519:7rNEmDbkn8grQREdTt3PWhR1phNtsqJdgfV26XdR35QL",
+      "amount": "200000000000000000000000000000"
     }
   ],
-  "transaction_validity_period": 100,
+  "records": [],
+  "transaction_validity_period": 1000,
   "developer_reward_percentage": 30,
   "protocol_reward_percentage": 10,
   "max_inflation_rate": 5,
-  "total_supply": "2050000000000000000000000000000000",
+  "total_supply": 1633462267318535697189514651161,
   "num_blocks_per_year": 31536000,
-  "protocol_treasury_account": "test.near",
-  "fishermen_threshold": "10000000000000000000000000",
-  "records": []
+  "protocol_treasury_account": "near",
+  "fishermen_threshold": "10000000000000000000"
 }

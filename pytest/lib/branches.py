@@ -32,7 +32,7 @@ def compile_current():
     """ Compile current branch """
     branch = current_branch()
     try:
-        # Accommodate rename from near to neard
+        # Accommodate rename from near to neard 
         subprocess.check_output(['cargo', 'build', '-p', 'neard'])
     except:
         subprocess.check_output(['cargo', 'build', '-p', 'near'])
@@ -54,7 +54,7 @@ def download_binary(branch):
 
 def prepare_ab_test(other_branch):
     compile_current()
-    if os.environ.get('BUILDKITE') and other_branch in ['master', 'beta', 'stable']:
+    if other_branch in ['master', 'beta', 'stable']:
         download_binary(other_branch)
     else:
         compile_binary(other_branch)

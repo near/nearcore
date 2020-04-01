@@ -297,11 +297,9 @@ impl Runtime {
                 near_metrics::inc_counter(&metrics::ACTION_CREATE_ACCOUNT_TOTAL);
                 action_create_account(
                     &self.config.transaction_costs,
-                    &self.config.account_creation_config,
                     account,
                     actor_id,
-                    &receipt.receiver_id,
-                    &receipt.predecessor_id,
+                    receipt,
                     &mut result,
                 );
             }
