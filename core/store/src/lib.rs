@@ -16,8 +16,8 @@ pub use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{Receipt, ReceivedData};
 use near_primitives::serialize::to_base;
+use near_primitives::trie_key::{trie_key_parsers, TrieKey};
 use near_primitives::types::AccountId;
-use near_primitives::utils::{trie_key_parsers, TrieKey};
 
 use crate::db::{DBOp, DBTransaction, Database, RocksDB};
 pub use crate::trie::{

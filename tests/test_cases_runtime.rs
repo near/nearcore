@@ -4,7 +4,7 @@ mod test {
     use near_chain_configs::Genesis;
     use near_primitives::serialize::to_base64;
     use near_primitives::state_record::StateRecord;
-    use near_primitives::utils::TrieKey;
+    use near_primitives::trie_key::TrieKey;
     use testlib::node::RuntimeNode;
     use testlib::runtime_utils::{add_test_contract, alice_account, bob_account};
     use testlib::standard_test_cases::*;

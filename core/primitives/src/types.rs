@@ -8,7 +8,7 @@ use crate::account::{AccessKey, Account};
 use crate::challenge::ChallengesResult;
 use crate::hash::CryptoHash;
 use crate::serialize::u128_dec_format;
-use crate::utils::TrieKey;
+use crate::trie_key::TrieKey;
 
 /// Account identifier. Provides access to user's state.
 pub type AccountId = String;
