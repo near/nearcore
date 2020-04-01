@@ -99,6 +99,7 @@ fn repro_1183() {
                                         1,
                                         block.header.prev_hash,
                                     ),
+                                    false,
                                 ));
                             nonce_delta += 1
                         }

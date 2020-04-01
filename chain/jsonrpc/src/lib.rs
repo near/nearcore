@@ -230,7 +230,7 @@ impl JsonRpcHandler {
     async fn send_tx_async(&self, params: Option<Value>) -> Result<Value, RpcError> {
         let tx = parse_tx(params)?;
         let hash = (&tx.get_hash()).to_base();
-        actix::spawn(self.client_addr.send(NetworkClientMessages::Transaction(tx)).map(drop));
+        actix::spawn(self.client_addr.send(NetworkClientMessages::Transaction(tx, false)).map(drop));
         Ok(Value::String(hash))
     }
 
@@ -267,7 +267,7 @@ impl JsonRpcHandler {
         let signer_account_id = tx.transaction.signer_id.clone();
         let result = self
             .client_addr
-            .send(NetworkClientMessages::Transaction(tx))
+            .send(NetworkClientMessages::Transaction(tx, false))
             .map_err(|err| RpcError::server_error(Some(ServerError::from(err))))
             .await?;
         match result {

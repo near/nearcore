@@ -1082,8 +1082,12 @@ impl Client {
         Ok(())
     }
 
-    pub fn process_tx(&mut self, tx: SignedTransaction) -> NetworkClientResponses {
-        unwrap_or_return!(self.process_tx_internal(&tx), {
+    pub fn process_tx(
+        &mut self,
+        tx: SignedTransaction,
+        is_forwarded: bool,
+    ) -> NetworkClientResponses {
+        unwrap_or_return!(self.process_tx_internal(&tx, is_forwarded), {
             let me = self.validator_signer.as_ref().map(|vs| vs.validator_id());
             warn!(target: "client", "I'm: {:?} Dropping tx: {:?}", me, tx);
             NetworkClientResponses::NoResponse
@@ -1118,6 +1122,7 @@ impl Client {
     fn process_tx_internal(
         &mut self,
         tx: &SignedTransaction,
+        is_forwarded: bool,
     ) -> Result<NetworkClientResponses, Error> {
         let head = self.chain.head()?;
         let me = self.validator_signer.as_ref().map(|vs| vs.validator_id());
@@ -1146,8 +1151,14 @@ impl Client {
                 Err(_) => {
                     // Not being able to fetch a state root most likely implies that we haven't
                     //     caught up with the next epoch yet.
-                    self.forward_tx(&epoch_id, tx)?;
-                    return Ok(NetworkClientResponses::RequestRouted);
+                    if is_forwarded {
+                        return Err(
+                            ErrorKind::Other("Node has not caught up yet".to_string()).into()
+                        );
+                    } else {
+                        self.forward_tx(&epoch_id, tx)?;
+                        return Ok(NetworkClientResponses::RequestRouted);
+                    }
                 }
             };
             if let Some(err) = self
@@ -1178,16 +1189,23 @@ impl Client {
                 if active_validator {
                     // Don't forward to next epoch validators if we've already seen the tx.
                     // This is to prevent forwarding loops.
-                    if new_transaction {
+                    if new_transaction && !is_forwarded {
                         self.possibly_forward_tx_to_next_epoch(tx)?;
                     }
                     Ok(NetworkClientResponses::ValidTx)
-                } else {
+                } else if !is_forwarded {
                     self.forward_tx(&epoch_id, tx)?;
                     Ok(NetworkClientResponses::RequestRouted)
+                } else {
+                    Ok(NetworkClientResponses::NoResponse)
                 }
             }
         } else {
+            if is_forwarded {
+                // received forwarded transaction but we are not tracking the shard
+                debug!(target: "client", "Received forwarded transaction but no tracking shard {}, I'm {:?}", shard_id, me);
+                return Ok(NetworkClientResponses::NoResponse);
+            }
             // We are not tracking this shard, so there is no way to validate this tx. Just rerouting.
             self.forward_tx(&epoch_id, tx)?;
             Ok(NetworkClientResponses::RequestRouted)

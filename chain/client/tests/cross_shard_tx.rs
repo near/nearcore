@@ -111,14 +111,17 @@ mod tests {
         actix::spawn(
             connectors.write().unwrap()[connector_ordinal]
                 .0
-                .send(NetworkClientMessages::Transaction(SignedTransaction::send_money(
-                    nonce,
-                    from.clone(),
-                    to.clone(),
-                    &signer,
-                    amount,
-                    block_hash,
-                )))
+                .send(NetworkClientMessages::Transaction(
+                    SignedTransaction::send_money(
+                        nonce,
+                        from.clone(),
+                        to.clone(),
+                        &signer,
+                        amount,
+                        block_hash,
+                    ),
+                    false,
+                ))
                 .then(move |x| {
                     match x.unwrap() {
                         NetworkClientResponses::NoResponse
