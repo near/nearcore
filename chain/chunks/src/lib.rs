@@ -1254,6 +1254,8 @@ mod test {
     use std::time::{Duration, Instant};
 
     #[test]
+    #[ignore]
+    // TODO FIXME #2369
     fn test_request_partial_encoded_chunk_from_self() {
         let runtime_adapter = Arc::new(KeyValueRuntime::new(create_test_store()));
         let network_adapter = Arc::new(MockNetworkAdapter::default());
