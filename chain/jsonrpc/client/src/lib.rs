@@ -196,7 +196,7 @@ impl JsonRpcClient {
     pub fn EXPERIMENTAL_genesis_records(
         &mut self,
         request: RpcGenesisRecordsRequest,
-    ) -> RpcRequest<GenesisRecordsView> {
+    ) -> RpcRequest<GenesisRecordsView<'_>> {
         call_method(&self.client, &self.server_addr, "EXPERIMENTAL_genesis_records", request)
     }
 

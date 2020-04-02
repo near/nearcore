@@ -87,7 +87,7 @@ impl StateRecord {
 }
 
 impl Display for StateRecord {
-    fn fmt(&self, f: &mut Formatter) -> Result<(), std::fmt::Error> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
         match self {
             StateRecord::Account { account_id, account } => {
                 write!(f, "Account {:?}: {:?}", account_id, account)

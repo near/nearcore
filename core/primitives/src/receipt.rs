@@ -103,7 +103,7 @@ pub struct DataReceiver {
 }
 
 impl fmt::Debug for DataReceipt {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("DataReceipt")
             .field("data_id", &self.data_id)
             .field("data", &format_args!("{}", logging::pretty_result(&self.data)))
@@ -121,7 +121,7 @@ pub struct ReceivedData {
 }
 
 impl fmt::Debug for ReceivedData {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("ReceivedData")
             .field("data", &format_args!("{}", logging::pretty_result(&self.data)))
             .finish()

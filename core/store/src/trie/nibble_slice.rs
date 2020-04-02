@@ -83,7 +83,7 @@ impl<'a> NibbleSlice<'a> {
     }
 
     /// Create a new nibble slice from the given HPE encoded data (e.g. output of `encoded()`).
-    pub fn from_encoded(data: &'a [u8]) -> (NibbleSlice, bool) {
+    pub fn from_encoded(data: &'a [u8]) -> (NibbleSlice<'_>, bool) {
         (Self::new_offset(data, if data[0] & 16 == 16 { 1 } else { 2 }), data[0] & 32 == 32)
     }
 
@@ -216,7 +216,7 @@ impl<'a> PartialOrd for NibbleSlice<'a> {
 }
 
 impl<'a> fmt::Debug for NibbleSlice<'a> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         if self.is_empty() {
             return Ok(());
         }

@@ -735,7 +735,7 @@ pub enum FinalExecutionStatus {
 }
 
 impl fmt::Debug for FinalExecutionStatus {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             FinalExecutionStatus::NotStarted => f.write_str("NotStarted"),
             FinalExecutionStatus::Started => f.write_str("Started"),
@@ -775,7 +775,7 @@ pub enum ExecutionStatusView {
 }
 
 impl fmt::Debug for ExecutionStatusView {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             ExecutionStatusView::Unknown => f.write_str("Unknown"),
             ExecutionStatusView::Failure(e) => f.write_fmt(format_args!("Failure({:?})", e)),
@@ -859,7 +859,7 @@ pub struct FinalExecutionOutcomeView {
 }
 
 impl fmt::Debug for FinalExecutionOutcomeView {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("FinalExecutionOutcome")
             .field("status", &self.status)
             .field("transaction", &self.transaction)

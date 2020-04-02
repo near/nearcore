@@ -1,6 +1,3 @@
-extern crate proc_macro;
-extern crate proc_macro2;
-
 use near_rpc_error_core::{parse_error_type, ErrorType};
 use proc_macro::TokenStream;
 use serde::{Deserialize, Serialize};
