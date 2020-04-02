@@ -39,93 +39,6 @@ def assert_changes_response(request, expected_response, **kwargs):
             % (node_index, diff, expected_response, response)
 
 
-def test_changes_with_new_account():
-    """
-    Plan:
-    1. Create a new account.
-    2. Observe the changes in the block where the receipt lands.
-    """
-    status = nodes[0].get_status()
-    latest_block_hash = status['sync_info']['latest_block_hash']
-    new_account_id = 'rpc_key_value_changes'
-    create_account_tx = transaction.sign_create_account_tx(
-        nodes[0].signer_key,
-        new_account_id,
-        5,
-        base58.b58decode(latest_block_hash.encode('utf8'))
-    )
-    new_account_response = nodes[0].send_tx_and_wait(create_account_tx, 10)
-
-    block_hash = new_account_response['result']['receipts_outcome'][0]['block_hash']
-    assert_changes_in_block_response(
-        request={"block_id": block_hash},
-        expected_response={
-            "block_hash": block_hash,
-            "changes": [
-                {
-                    "type": "account_touched",
-                    "account_id": new_account_id,
-                }
-            ]
-        }
-    )
-
-    base_request = {
-        "block_id": block_hash,
-        "changes_type": "account_changes",
-    }
-    for request in [
-            # Test empty account_ids
-            {**base_request, "account_ids": []},
-            # Test an account_id that is a prefix of the original account_id.
-            {**base_request, "account_ids": [new_account_id[:-1]]},
-            # Test an account_id that has the original account_id as a prefix.
-            {**base_request, "account_ids": [new_account_id + '_extra']},
-        ]:
-        assert_changes_response(request=request, expected_response={"block_hash": block_hash, "changes": []})
-
-    # Test happy-path
-    expected_response = {
-        "block_hash": block_hash,
-        "changes": [
-            {
-                "cause": {
-                    "type": "receipt_processing",
-                    "receipt_hash": new_account_response['result']['receipts_outcome'][0]['id']
-                },
-                "type": "account_update",
-                "change": {
-                    "account_id": new_account_id,
-                    "amount": "0",
-                    "locked": "0",
-                    "code_hash": "11111111111111111111111111111111",
-                    "storage_usage": 100,
-                }
-            }
-        ]
-    }
-
-    assert_changes_response(
-        request={
-            "block_id": block_hash,
-            "changes_type": "account_changes",
-            "account_ids": [new_account_id],
-        },
-        expected_response=expected_response,
-        exclude_paths={"root['changes'][0]['change']['storage_paid_at']"}
-    )
-    assert_changes_response(
-        request={
-            "block_id": block_hash,
-            "changes_type": "account_changes",
-            "account_ids": [new_account_id + '_non_existing1', new_account_id, new_account_id + '_non_existing2'],
-        },
-        expected_response=expected_response,
-        exclude_paths={"root['changes'][0]['change']['storage_paid_at']"}
-    )
-
-
-
 def test_changes_with_new_account_with_access_key():
     """
     Plan:
@@ -149,7 +62,7 @@ def test_changes_with_new_account_with_access_key():
         creator_key=nodes[0].signer_key,
         new_account_id=new_key.account_id,
         new_key=new_key,
-        balance=10**17,
+        balance=10**24,
         nonce=7,
         block_hash=base58.b58decode(latest_block_hash.encode('utf8'))
     )
@@ -567,6 +480,5 @@ def test_key_value_changes():
 
 
 if __name__ == '__main__':
-    test_changes_with_new_account()
     test_changes_with_new_account_with_access_key()
     test_key_value_changes()

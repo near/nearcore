@@ -358,7 +358,7 @@ impl ChainStore {
         self.store.clone()
     }
 
-    pub fn store_update(&mut self) -> ChainStoreUpdate {
+    pub fn store_update(&mut self) -> ChainStoreUpdate<'_> {
         ChainStoreUpdate::new(self)
     }
 
