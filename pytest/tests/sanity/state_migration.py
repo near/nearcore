@@ -14,6 +14,7 @@ import json
 import subprocess
 import shutil
 import re
+from deepdiff import DeepDiff
 
 sys.path.append('lib')
 
@@ -74,10 +75,18 @@ def main():
 
     wait_for_blocks_or_timeout(current_node, 20, 100)
 
-    # Test deserialize state with new genesis
-    shutil.copy(os.path.join(node_root, 'test0/genesis.json'), '../near/res/testnet_genesis_config.json')
-    subprocess.check_output('cargo test --package near --lib -- config::test::test_deserialize_state --exact --nocapture', shell=True)
-    subprocess.check_output('git checkout ../near/res/testnet_genesis_config.json', shell=True)
+    # Test new genesis matched with near init genesis
+    new_genesis = json.load(os.path.join(node_root, 'test0/genesis.json'))
+    subprocess.check_output('rm -rf /tmp/near/init_fast && mkdir -p /tmp/near/init_fast', shell=True)
+    subprocess.check_output('cargo run -p near -- --home /tmp/near/init_fast init --fast')
+    near_init_genesis = json.load('/tmp/near/init_fast/genesis.json')
+    new_genesis['records']=near_init_genesis['records']=[]
+    new_genesis['genesis_time']=near_init_genesis['genesis_time']
+    new_genesis['chain_id']=near_init_genesis['chain_id']
+    if new_genesis != near_init_genesis:
+        print(f"migrated new genesis doesn't match old near init genesis. Difference:")
+        print(DeepDiff(near_init_genesis, new_genesis, ignore_order=True))
+        exit(1)
 
 if __name__ == "__main__":
     main()
