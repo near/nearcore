@@ -54,8 +54,9 @@ pub struct NibbleSliceIterator<'a> {
     i: usize,
 }
 
-impl<'a> Iterator for NibbleSliceIterator<'a> {
+impl Iterator for NibbleSliceIterator<'_> {
     type Item = u8;
+
     fn next(&mut self) -> Option<u8> {
         self.i += 1;
         if self.i <= self.p.len() {
@@ -83,7 +84,7 @@ impl<'a> NibbleSlice<'a> {
     }
 
     /// Create a new nibble slice from the given HPE encoded data (e.g. output of `encoded()`).
-    pub fn from_encoded(data: &'a [u8]) -> (NibbleSlice<'_>, bool) {
+    pub fn from_encoded(data: &'a [u8]) -> (Self, bool) {
         (Self::new_offset(data, if data[0] & 16 == 16 { 1 } else { 2 }), data[0] & 32 == 32)
     }
 
@@ -109,7 +110,7 @@ impl<'a> NibbleSlice<'a> {
     }
 
     /// Return object which represents a view on to this slice (further) offset by `i` nibbles.
-    pub fn mid(&self, i: usize) -> NibbleSlice<'a> {
+    pub fn mid(&self, i: usize) -> Self {
         NibbleSlice { data: self.data, offset: self.offset + i }
     }
 
@@ -195,13 +196,13 @@ impl<'a> NibbleSlice<'a> {
     }
 }
 
-impl<'a> PartialEq for NibbleSlice<'a> {
+impl PartialEq for NibbleSlice<'_> {
     fn eq(&self, them: &Self) -> bool {
         self.len() == them.len() && self.starts_with(them)
     }
 }
 
-impl<'a> PartialOrd for NibbleSlice<'a> {
+impl PartialOrd for NibbleSlice<'_> {
     fn partial_cmp(&self, them: &Self) -> Option<Ordering> {
         let s = min(self.len(), them.len());
         for i in 0..s {
@@ -215,7 +216,7 @@ impl<'a> PartialOrd for NibbleSlice<'a> {
     }
 }
 
-impl<'a> fmt::Debug for NibbleSlice<'a> {
+impl fmt::Debug for NibbleSlice<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         if self.is_empty() {
             return Ok(());
