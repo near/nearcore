@@ -241,7 +241,12 @@ fn sync_state_stake_change() {
             genesis_hash,
         );
         actix::spawn(
-            client1.send(NetworkClientMessages::Transaction(unstake_transaction, false)).map(drop),
+            client1
+                .send(NetworkClientMessages::Transaction {
+                    transaction: unstake_transaction,
+                    is_forwarded: false,
+                })
+                .map(drop),
         );
 
         let started = Arc::new(AtomicBool::new(false));

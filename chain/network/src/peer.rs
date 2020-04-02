@@ -406,7 +406,7 @@ impl Peer {
             }
             PeerMessage::Transaction(transaction) => {
                 near_metrics::inc_counter(&metrics::PEER_TRANSACTION_RECEIVED_TOTAL);
-                NetworkClientMessages::Transaction(transaction, false)
+                NetworkClientMessages::Transaction { transaction, is_forwarded: false }
             }
             PeerMessage::BlockHeaders(headers) => {
                 NetworkClientMessages::BlockHeaders(headers, peer_id)
@@ -420,7 +420,7 @@ impl Peer {
                         NetworkClientMessages::BlockApproval(approval, peer_id)
                     }
                     RoutedMessageBody::ForwardTx(transaction) => {
-                        NetworkClientMessages::Transaction(transaction, true)
+                        NetworkClientMessages::Transaction { transaction, is_forwarded: true }
                     }
 
                     RoutedMessageBody::StateResponse(info) => {

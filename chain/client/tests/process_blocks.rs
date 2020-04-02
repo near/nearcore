@@ -116,10 +116,10 @@ fn produce_blocks_with_tx() {
         actix::spawn(view_client.send(GetBlock::latest()).then(move |res| {
             let header: BlockHeader = res.unwrap().unwrap().header.into();
             let block_hash = header.hash;
-            client.do_send(NetworkClientMessages::Transaction(
-                SignedTransaction::empty(block_hash),
-                false,
-            ));
+            client.do_send(NetworkClientMessages::Transaction {
+                transaction: SignedTransaction::empty(block_hash),
+                is_forwarded: false,
+            });
             future::ready(())
         }))
     })

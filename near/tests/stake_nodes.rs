@@ -107,7 +107,10 @@ fn test_stake_nodes() {
             test_nodes[1].genesis_hash,
         );
         actix::spawn(
-            test_nodes[0].client.send(NetworkClientMessages::Transaction(tx, false)).map(drop),
+            test_nodes[0]
+                .client
+                .send(NetworkClientMessages::Transaction { transaction: tx, is_forwarded: false })
+                .map(drop),
         );
 
         WaitOrTimeout::new(
@@ -184,7 +187,10 @@ fn test_validator_kickout() {
             actix::spawn(
                 test_node
                     .client
-                    .send(NetworkClientMessages::Transaction(stake_transaction, false))
+                    .send(NetworkClientMessages::Transaction {
+                        transaction: stake_transaction,
+                        is_forwarded: false,
+                    })
                     .map(drop),
             );
         }
@@ -333,13 +339,19 @@ fn test_validator_join() {
         actix::spawn(
             test_nodes[1]
                 .client
-                .send(NetworkClientMessages::Transaction(unstake_transaction, false))
+                .send(NetworkClientMessages::Transaction {
+                    transaction: unstake_transaction,
+                    is_forwarded: false,
+                })
                 .map(drop),
         );
         actix::spawn(
             test_nodes[0]
                 .client
-                .send(NetworkClientMessages::Transaction(stake_transaction, false))
+                .send(NetworkClientMessages::Transaction {
+                    transaction: stake_transaction,
+                    is_forwarded: false,
+                })
                 .map(drop),
         );
 

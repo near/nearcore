@@ -222,13 +222,13 @@ fn chunks_produced_and_distributed_common(
             let connectors_ = connectors.write().unwrap();
             connectors_[0]
                 .0
-                .do_send(NetworkClientMessages::Transaction(SignedTransaction::empty(block_hash), false));
+                .do_send(NetworkClientMessages::Transaction{transaction: SignedTransaction::empty(block_hash), is_forwarded:false});
             connectors_[1]
                 .0
-                .do_send(NetworkClientMessages::Transaction(SignedTransaction::empty(block_hash), false));
+                .do_send(NetworkClientMessages::Transaction{transaction: SignedTransaction::empty(block_hash), is_forwarded:false});
             connectors_[2]
                 .0
-                .do_send(NetworkClientMessages::Transaction(SignedTransaction::empty(block_hash), false));
+                .do_send(NetworkClientMessages::Transaction{transaction:SignedTransaction::empty(block_hash), is_forwarded:false});
             future::ready(())
         }));
     })
