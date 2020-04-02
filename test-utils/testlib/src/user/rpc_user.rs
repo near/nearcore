@@ -15,7 +15,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
 use near_primitives::serialize::{to_base, to_base64};
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, BlockHeight, BlockId, MaybeBlockId};
+use near_primitives::types::{AccountId, BlockHeight, BlockId, BlockIdOrFinality, MaybeBlockId};
 use near_primitives::views::{
     AccessKeyView, AccountView, BlockView, EpochValidatorInfo, ExecutionOutcomeView,
     FinalExecutionOutcomeView, QueryResponse, ViewStateResult,
@@ -113,7 +113,10 @@ impl User for RpcUser {
     }
 
     fn get_block(&self, height: BlockHeight) -> Option<BlockView> {
-        self.actix(move |mut client| client.block(BlockId::Height(height))).ok()
+        self.actix(move |mut client| {
+            client.block(BlockIdOrFinality::BlockId(BlockId::Height(height)))
+        })
+        .ok()
     }
 
     fn get_transaction_result(&self, _hash: &CryptoHash) -> ExecutionOutcomeView {

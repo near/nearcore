@@ -19,7 +19,7 @@ fn track_shards() {
         let dirs = (0..num_nodes)
             .map(|i| TempDir::new(&format!("track_shards_{}", i)).unwrap())
             .collect::<Vec<_>>();
-        let (_, _, clients) = start_nodes(4, &dirs, 2, 0, 10);
+        let (_, _, clients) = start_nodes(4, &dirs, 2, 0, 10, 0);
         let view_client = clients[clients.len() - 1].1.clone();
         let last_block_hash: Arc<RwLock<Option<CryptoHash>>> = Arc::new(RwLock::new(None));
         WaitOrTimeout::new(
@@ -39,7 +39,7 @@ fn track_shards() {
                     ));
                 } else {
                     let last_block_hash1 = last_block_hash.clone();
-                    actix::spawn(view_client.send(GetBlock::Best).then(move |res| {
+                    actix::spawn(view_client.send(GetBlock::latest()).then(move |res| {
                         match &res {
                             Ok(Ok(b)) if b.header.height > 10 => {
                                 *last_block_hash1.write().unwrap() =

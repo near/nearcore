@@ -1,15 +1,17 @@
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap};
 use std::fmt;
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use serde::Serialize;
 
+use crate::EpochManager;
 use near_primitives::challenge::SlashedValidator;
 use near_primitives::hash::CryptoHash;
 use near_primitives::serialize::to_base;
 use near_primitives::types::{
-    AccountId, Balance, BlockChunkValidatorStats, BlockHeight, BlockHeightDelta, EpochId, NumSeats,
-    NumShards, ValidatorId, ValidatorStake, ValidatorStats,
+    AccountId, Balance, BlockChunkValidatorStats, BlockHeight, BlockHeightDelta, EpochHeight,
+    EpochId, NumSeats, NumShards, ShardId, ValidatorId, ValidatorKickoutReason, ValidatorStake,
+    ValidatorStats,
 };
 
 pub type RngSeed = [u8; 32];
@@ -42,6 +44,9 @@ pub struct ValidatorWeight(ValidatorId, u64);
 /// Information per epoch.
 #[derive(Default, BorshSerialize, BorshDeserialize, Serialize, Clone, Debug, PartialEq, Eq)]
 pub struct EpochInfo {
+    /// Ordinal of given epoch from genesis.
+    /// There can be multiple epochs with the same ordinal in case of long forks.
+    pub epoch_height: EpochHeight,
     /// List of current validators.
     pub validators: Vec<ValidatorStake>,
     /// Validator account id to index in proposals.
@@ -63,7 +68,7 @@ pub struct EpochInfo {
     /// Total inflation in the epoch
     pub inflation: Balance,
     /// Validators who are kicked out in this epoch
-    pub validator_kickout: HashSet<AccountId>,
+    pub validator_kickout: HashMap<AccountId, ValidatorKickoutReason>,
 }
 
 /// Information per each block.
@@ -76,17 +81,20 @@ pub struct BlockInfo {
     pub epoch_id: EpochId,
     pub proposals: Vec<ValidatorStake>,
     pub chunk_mask: Vec<bool>,
+    /// Validators slashed since the start of epoch or in previous epoch
     pub slashed: HashMap<AccountId, SlashState>,
-    /// Total rent paid in this block.
-    pub rent_paid: Balance,
     /// Total validator reward in this block.
     pub validator_reward: Balance,
     /// Total supply at this block.
     pub total_supply: Balance,
     /// Map from validator index to (num_blocks_produced, num_blocks_expected) so far in the given epoch.
     pub block_tracker: HashMap<ValidatorId, ValidatorStats>,
-    /// All proposals in this epoch up to this block
+    /// For each shard, a map of validator id to (num_chunks_produced, num_chunks_expected) so far in the given epoch.
+    pub shard_tracker: HashMap<ShardId, HashMap<ValidatorId, ValidatorStats>>,
+    /// All proposals in this epoch up to this block.
     pub all_proposals: Vec<ValidatorStake>,
+    /// Total validator reward so far in this epoch.
+    pub total_validator_reward: Balance,
 }
 
 impl BlockInfo {
@@ -97,7 +105,6 @@ impl BlockInfo {
         proposals: Vec<ValidatorStake>,
         validator_mask: Vec<bool>,
         slashed: Vec<SlashedValidator>,
-        rent_paid: Balance,
         validator_reward: Balance,
         total_supply: Balance,
     ) -> Self {
@@ -115,14 +122,15 @@ impl BlockInfo {
                     (s.account_id, slash_state)
                 })
                 .collect(),
-            rent_paid,
             validator_reward,
             total_supply,
             // These values are not set. This code is suboptimal
             epoch_first_block: CryptoHash::default(),
             epoch_id: EpochId::default(),
             block_tracker: HashMap::default(),
+            shard_tracker: HashMap::default(),
             all_proposals: vec![],
+            total_validator_reward: 0,
         }
     }
 
@@ -155,6 +163,28 @@ impl BlockInfo {
         }
         self.block_tracker = prev_block_tracker;
     }
+
+    pub fn update_shard_tracker(
+        &mut self,
+        epoch_info: &EpochInfo,
+        mut prev_shard_tracker: HashMap<ShardId, HashMap<ValidatorId, ValidatorStats>>,
+    ) {
+        for (i, mask) in self.chunk_mask.iter().enumerate() {
+            let chunk_validator_id =
+                EpochManager::chunk_producer_from_info(epoch_info, self.height, i as ShardId);
+            let tracker = prev_shard_tracker.entry(i as ShardId).or_insert_with(HashMap::new);
+            tracker
+                .entry(chunk_validator_id)
+                .and_modify(|stats| {
+                    if *mask {
+                        stats.produced += 1;
+                    }
+                    stats.expected += 1;
+                })
+                .or_insert(ValidatorStats { produced: u64::from(*mask), expected: 1 });
+        }
+        self.shard_tracker = prev_shard_tracker;
+    }
 }
 
 #[derive(Eq, PartialEq)]
@@ -164,8 +194,6 @@ pub enum EpochError {
     ThresholdError(Balance, u64),
     /// Requesting validators for an epoch that wasn't computed yet.
     EpochOutOfBounds,
-    /// Number of selected seats doesn't match requested.
-    SelectedSeatsMismatch(NumSeats, NumSeats),
     /// Missing block hash in the storage (means there is some structural issue).
     MissingBlock(CryptoHash),
     /// Other error.
@@ -183,11 +211,6 @@ impl fmt::Debug for EpochError {
                 stakes_sum, num_seats
             ),
             EpochError::EpochOutOfBounds => write!(f, "Epoch out of bounds"),
-            EpochError::SelectedSeatsMismatch(selected, required) => write!(
-                f,
-                "Number of selected seats {} < total number of seats {}",
-                selected, required
-            ),
             EpochError::MissingBlock(hash) => write!(f, "Missing block {}", hash),
             EpochError::Other(err) => write!(f, "Other: {}", err),
         }
@@ -201,9 +224,6 @@ impl fmt::Display for EpochError {
                 write!(f, "ThresholdError({}, {})", stake, num_seats)
             }
             EpochError::EpochOutOfBounds => write!(f, "EpochOutOfBounds"),
-            EpochError::SelectedSeatsMismatch(selected, required) => {
-                write!(f, "SelectedSeatsMismatch({}, {})", selected, required)
-            }
             EpochError::MissingBlock(hash) => write!(f, "MissingBlock({})", hash),
             EpochError::Other(err) => write!(f, "Other({})", err),
         }
@@ -228,11 +248,13 @@ impl From<EpochError> for near_chain::Error {
 }
 
 pub struct EpochSummary {
-    pub last_block_hash: CryptoHash,
+    pub prev_epoch_last_block_hash: CryptoHash,
+    // Proposals from the epoch, only the latest one per account
     pub all_proposals: Vec<ValidatorStake>,
-    pub validator_kickout: HashSet<AccountId>,
+    // Kickout set, includes slashed
+    pub validator_kickout: HashMap<AccountId, ValidatorKickoutReason>,
+    // Only for validators who met the threshold and didn't get slashed
     pub validator_block_chunk_stats: HashMap<AccountId, BlockChunkValidatorStats>,
-    pub total_storage_rent: Balance,
     pub total_validator_reward: Balance,
 }
 

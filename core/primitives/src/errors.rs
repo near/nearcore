@@ -48,11 +48,22 @@ pub enum RuntimeError {
     /// An error happened during TX verification and account charging. It's likely the chunk is invalid.
     /// and should be challenged.
     InvalidTxError(InvalidTxError),
-    /// Unexpected error which is typically related to the node storage corruption.account
-    /// That it's possible the input state is invalid or malicious.
+    /// Unexpected error which is typically related to the node storage corruption.
+    /// It's possible the input state is invalid or malicious.
     StorageError(StorageError),
     /// An error happens if `check_balance` fails, which is likely an indication of an invalid state.
     BalanceMismatchError(BalanceMismatchError),
+    /// The incoming receipt didn't pass the validation, it's likely a malicious behaviour.
+    ReceiptValidationError(ReceiptValidationError),
+}
+
+/// Error used by `RuntimeExt`. This error has to be serializable, because it's transferred through
+/// the `VMLogicError`, which isn't aware of internal Runtime errors.
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq)]
+pub enum ExternalError {
+    /// Unexpected error which is typically related to the node storage corruption.
+    /// It's possible the input state is invalid or malicious.
+    StorageError(StorageError),
 }
 
 /// Internal
@@ -103,11 +114,11 @@ pub enum InvalidTxError {
         #[serde(with = "u128_dec_format")]
         cost: Balance,
     },
-    /// Signer account rent is unpaid
-    RentUnpaid {
-        /// An account which is required to pay the rent
+    /// Signer account doesn't have enough balance after transaction.
+    LackBalanceForState {
+        /// An account which doesn't have enough balance to cover storage.
         signer_id: AccountId,
-        /// Required balance to cover the state rent
+        /// Required balance to cover the state.
         #[serde(with = "u128_dec_format")]
         amount: Balance,
     },
@@ -277,7 +288,7 @@ impl Display for ActionsValidationError {
 )]
 pub struct ActionError {
     /// Index of the failed action in the transaction.
-    /// Action index is not defined if ActionError.kind is `ActionErrorKind::RentUnpaid`
+    /// Action index is not defined if ActionError.kind is `ActionErrorKind::LackBalanceForState`
     pub index: Option<u64>,
     /// The kind of ActionError happened
     pub kind: ActionErrorKind,
@@ -291,6 +302,12 @@ pub enum ActionErrorKind {
     AccountAlreadyExists { account_id: AccountId },
     /// Happens when TX receiver_id doesn't exist (but action is not Action::CreateAccount)
     AccountDoesNotExist { account_id: AccountId },
+    /// A top-level account ID can only be created by registrar.
+    CreateAccountOnlyByRegistrar {
+        account_id: AccountId,
+        registrar_account_id: AccountId,
+        predecessor_id: AccountId,
+    },
     /// A newly created account must be under a namespace of the creator account
     CreateAccountNotAllowed { account_id: AccountId, predecessor_id: AccountId },
     /// Administrative actions like `DeployContract`, `Stake`, `AddKey`, `DeleteKey`. can be proceed only if sender=receiver
@@ -302,17 +319,11 @@ pub enum ActionErrorKind {
     AddKeyAlreadyExists { account_id: AccountId, public_key: PublicKey },
     /// Account is staking and can not be deleted
     DeleteAccountStaking { account_id: AccountId },
-    /// Foreign sender (sender=!receiver) can delete an account only if a target account hasn't enough tokens to pay rent
-    DeleteAccountHasRent {
+    /// ActionReceipt can't be completed, because the remaining balance will not be enough to cover storage.
+    LackBalanceForState {
+        /// An account which needs balance
         account_id: AccountId,
-        #[serde(with = "u128_dec_format")]
-        balance: Balance,
-    },
-    /// ActionReceipt can't be completed, because the remaining balance will not be enough to pay rent.
-    RentUnpaid {
-        /// An account which is required to pay the rent
-        account_id: AccountId,
-        /// Rent due to pay.
+        /// Balance required to complete an action.
         #[serde(with = "u128_dec_format")]
         amount: Balance,
     },
@@ -328,6 +339,8 @@ pub enum ActionErrorKind {
         #[serde(with = "u128_dec_format")]
         balance: Balance,
     },
+    /// An attempt to stake with a key that is not convertable to ristretto
+    UnsuitableStakingKey { public_key: PublicKey },
     /// An error occurred during a `FunctionCall` Action.
     FunctionCallError(FunctionCallError),
     /// Error occurs when a new `ActionReceipt` created by the `FunctionCall` action fails
@@ -367,8 +380,8 @@ impl Display for InvalidTxError {
                 "Sender {:?} does not have enough balance {} for operation costing {}",
                 signer_id, balance, cost
             ),
-            InvalidTxError::RentUnpaid { signer_id, amount } => {
-                write!(f, "Failed to execute, because the account {:?} wouldn't have enough to pay required rent {}", signer_id, amount)
+            InvalidTxError::LackBalanceForState { signer_id, amount } => {
+                write!(f, "Failed to execute, because the account {:?} wouldn't have enough balance to cover storage, required to have {}", signer_id, amount)
             }
             InvalidTxError::CostOverflow => {
                 write!(f, "Transaction gas or balance cost is too high")
@@ -459,8 +472,6 @@ pub struct BalanceMismatchError {
     #[serde(with = "u128_dec_format")]
     pub final_postponed_receipts_balance: Balance,
     #[serde(with = "u128_dec_format")]
-    pub total_rent_paid: Balance,
-    #[serde(with = "u128_dec_format")]
     pub total_validator_reward: Balance,
     #[serde(with = "u128_dec_format")]
     pub total_balance_burnt: Balance,
@@ -482,7 +493,6 @@ impl Display for BalanceMismatchError {
             .saturating_add(self.outgoing_receipts_balance)
             .saturating_add(self.new_delayed_receipts_balance)
             .saturating_add(self.final_postponed_receipts_balance)
-            .saturating_add(self.total_rent_paid)
             .saturating_add(self.total_validator_reward)
             .saturating_add(self.total_balance_burnt)
             .saturating_add(self.total_balance_slashed);
@@ -500,7 +510,6 @@ impl Display for BalanceMismatchError {
              \tOutgoing receipts balance sum: {}\n\
              \tNew delayed receipts balance sum: {}\n\
              \tFinal postponed receipts balance sum: {}\n\
-             \tTotal rent paid: {}\n\
              \tTotal validators reward: {}\n\
              \tTotal balance burnt: {}\n\
              \tTotal balance slashed: {}",
@@ -515,7 +524,6 @@ impl Display for BalanceMismatchError {
             self.outgoing_receipts_balance,
             self.new_delayed_receipts_balance,
             self.final_postponed_receipts_balance,
-            self.total_rent_paid,
             self.total_validator_reward,
             self.total_balance_burnt,
             self.total_balance_slashed,
@@ -568,7 +576,6 @@ impl Display for ActionErrorKind {
             ActionErrorKind::AccountAlreadyExists { account_id } => {
                 write!(f, "Can't create a new account {:?}, because it already exists", account_id)
             }
-
             ActionErrorKind::AccountDoesNotExist { account_id } => write!(
                 f,
                 "Can't complete the action because account {:?} doesn't exist",
@@ -579,9 +586,9 @@ impl Display for ActionErrorKind {
                 "Actor {:?} doesn't have permission to account {:?} to complete the action",
                 actor_id, account_id
             ),
-            ActionErrorKind::RentUnpaid { account_id, amount } => write!(
+            ActionErrorKind::LackBalanceForState { account_id, amount } => write!(
                 f,
-                "The account {} wouldn't have enough balance to pay required rent {}",
+                "The account {} wouldn't have enough balance to cover storage, required to have {}",
                 account_id, amount
             ),
             ActionErrorKind::TriesToUnstake { account_id } => {
@@ -592,10 +599,18 @@ impl Display for ActionErrorKind {
                 "Account {:?} tries to stake {}, but has staked {} and only has {}",
                 account_id, stake, locked, balance
             ),
+            ActionErrorKind::UnsuitableStakingKey { public_key } => {
+                write!(f, "The staking key must be ED25519. {} is provided instead.", public_key)
+            }
+            ActionErrorKind::CreateAccountOnlyByRegistrar { account_id, registrar_account_id, predecessor_id } => write!(
+                f,
+                "A top-level account ID {:?} can't be created by {:?}, short top-level account IDs can only be created by {:?}",
+                account_id, predecessor_id, registrar_account_id,
+            ),
             ActionErrorKind::CreateAccountNotAllowed { account_id, predecessor_id } => write!(
                 f,
-                "The new account_id {:?} can't be created by {:?}",
-                account_id, predecessor_id
+                "A sub-account ID {:?} can't be created by account {:?}",
+                account_id, predecessor_id,
             ),
             ActionErrorKind::DeleteKeyDoesNotExist { account_id, .. } => write!(
                 f,
@@ -610,11 +625,6 @@ impl Display for ActionErrorKind {
             ActionErrorKind::DeleteAccountStaking { account_id } => {
                 write!(f, "Account {:?} is staking and can not be deleted", account_id)
             }
-            ActionErrorKind::DeleteAccountHasRent { account_id, balance } => write!(
-                f,
-                "Account {:?} can't be deleted. It has {}, which is enough to cover the rent",
-                account_id, balance
-            ),
             ActionErrorKind::FunctionCallError(s) => write!(f, "{}", s),
             ActionErrorKind::NewReceiptValidationError(e) => {
                 write!(f, "An new action receipt created during a FunctionCall is not valid: {}", e)

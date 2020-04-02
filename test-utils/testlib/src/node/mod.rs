@@ -4,17 +4,17 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::RwLock;
 
-use near::config::{
-    create_testnet_configs, create_testnet_configs_from_seeds, Config, GenesisConfig,
-};
+use near::config::{create_testnet_configs, create_testnet_configs_from_seeds, Config, GenesisExt};
 use near::NearConfig;
+use near_chain_configs::Genesis;
 use near_crypto::{InMemorySigner, Signer};
 use near_jsonrpc::ServerError;
 use near_primitives::serialize::to_base64;
+use near_primitives::state_record::StateRecord;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, Balance, NumSeats};
+use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_primitives::views::AccountView;
-use node_runtime::StateRecord;
 
 pub use crate::node::process_node::ProcessNode;
 pub use crate::node::runtime_node::RuntimeNode;
@@ -28,8 +28,8 @@ mod thread_node;
 pub const TEST_BLOCK_FETCH_LIMIT: u64 = 5;
 pub const TEST_BLOCK_MAX_SIZE: u32 = 1000;
 
-pub fn configure_chain_spec() -> GenesisConfig {
-    GenesisConfig::test(vec!["alice.near", "bob.near"], 2)
+pub fn configure_chain_spec() -> Genesis {
+    Genesis::test(vec!["alice.near", "bob.near"], 2)
 }
 
 /// Config that can be used to start a node or connect to an existing node.
@@ -47,7 +47,7 @@ pub enum NodeConfig {
 }
 
 pub trait Node: Send + Sync {
-    fn genesis_config(&self) -> &GenesisConfig;
+    fn genesis(&self) -> &Genesis;
 
     fn account_id(&self) -> Option<AccountId>;
 
@@ -124,39 +124,41 @@ impl dyn Node {
 
 fn near_configs_to_node_configs(
     configs: Vec<Config>,
-    signers: Vec<InMemorySigner>,
+    validator_signers: Vec<InMemoryValidatorSigner>,
     network_signers: Vec<InMemorySigner>,
-    genesis_config: GenesisConfig,
+    genesis: Genesis,
 ) -> Vec<NodeConfig> {
+    let genesis = Arc::new(genesis);
     let mut result = vec![];
     for i in 0..configs.len() {
         result.push(NodeConfig::Thread(NearConfig::new(
             configs[i].clone(),
-            &genesis_config,
+            Arc::clone(&genesis),
             (&network_signers[i]).into(),
-            Some(signers[i].clone().into()),
+            Some(Arc::new(validator_signers[i].clone())),
         )))
     }
     result
 }
 
 pub fn create_nodes(num_nodes: usize, prefix: &str) -> Vec<NodeConfig> {
-    let (configs, signers, network_signers, genesis_config) =
-        create_testnet_configs(1, num_nodes as NumSeats, 0, prefix, true);
-    near_configs_to_node_configs(configs, signers, network_signers, genesis_config)
+    let (configs, validator_signers, network_signers, genesis) =
+        create_testnet_configs(1, num_nodes as NumSeats, 0, prefix, true, false);
+    near_configs_to_node_configs(configs, validator_signers, network_signers, genesis)
 }
 
 pub fn create_nodes_from_seeds(seeds: Vec<String>) -> Vec<NodeConfig> {
     let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     path.push("../../runtime/near-vm-runner/tests/res/test_contract_rs.wasm");
     let code = to_base64(&fs::read(path).unwrap());
-    let (configs, signers, network_signers, mut genesis_config) =
-        create_testnet_configs_from_seeds(seeds.clone(), 1, 0, true);
-    genesis_config.gas_price_adjustment_rate = 0;
+    let (configs, validator_signers, network_signers, mut genesis) =
+        create_testnet_configs_from_seeds(seeds.clone(), 1, 0, true, false);
+    genesis.config.gas_price_adjustment_rate = 0;
+    let records = genesis.records.as_mut();
     for seed in seeds {
-        genesis_config.records.push(StateRecord::Contract { account_id: seed, code: code.clone() });
+        records.push(StateRecord::Contract { account_id: seed, code: code.clone() });
     }
-    near_configs_to_node_configs(configs, signers, network_signers, genesis_config)
+    near_configs_to_node_configs(configs, validator_signers, network_signers, genesis)
 }
 
 pub fn sample_two_nodes(num_nodes: usize) -> (usize, usize) {

@@ -5,15 +5,19 @@ use std::fmt;
 use std::io::{Cursor, ErrorKind, Read, Write};
 use std::sync::{Arc, Mutex};
 
-use crate::db::{DBOp, DBTransaction};
+use borsh::{BorshDeserialize, BorshSerialize};
+
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use cached::Cached;
 
 use near_primitives::challenge::PartialState;
 use near_primitives::hash::{hash, CryptoHash};
-use near_primitives::types::{StateChangeCause, StateChanges, StateRoot, StateRootNode};
+use near_primitives::trie_key::TrieKey;
+use near_primitives::types::{
+    RawStateChange, RawStateChangesWithTrieKey, StateChangeCause, StateRoot, StateRootNode,
+};
 
-use crate::db::DBCol::ColKeyValueChanges;
+use crate::db::{DBCol, DBOp, DBTransaction};
 use crate::trie::insert_delete::NodesStorage;
 use crate::trie::iterator::TrieIterator;
 use crate::trie::nibble_slice::NibbleSlice;
@@ -21,8 +25,7 @@ use crate::trie::trie_storage::{
     TouchedNodesCounter, TrieCachingStorage, TrieMemoryPartialStorage, TrieRecordingStorage,
     TrieStorage,
 };
-use crate::{ColState, StorageError, Store, StoreUpdate};
-use borsh::BorshSerialize;
+use crate::{ColState, ColTrieChanges, StorageError, Store, StoreUpdate};
 
 mod insert_delete;
 pub mod iterator;
@@ -418,7 +421,7 @@ impl RcTrieNode {
 }
 
 pub struct Trie {
-    storage: Box<dyn TrieStorage>,
+    pub(crate) storage: Box<dyn TrieStorage>,
     pub counter: TouchedNodesCounter,
 }
 
@@ -445,6 +448,7 @@ pub struct Trie {
 /// Having old_root and values in deletions allows to apply TrieChanges in reverse
 ///
 /// StoreUpdate are the changes from current state refcount to refcount + delta.
+#[derive(BorshSerialize, BorshDeserialize, Clone)]
 pub struct TrieChanges {
     #[allow(dead_code)]
     old_root: StateRoot,
@@ -476,13 +480,29 @@ impl TrieChanges {
         Ok(())
     }
 
+    pub fn revert_insertions_into(
+        &self,
+        trie: Arc<Trie>,
+        store_update: &mut StoreUpdate,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        TrieChanges::deletions_into_inner(&self.insertions, trie, store_update)
+    }
+
     pub fn deletions_into(
         &self,
         trie: Arc<Trie>,
         store_update: &mut StoreUpdate,
     ) -> Result<(), Box<dyn std::error::Error>> {
+        TrieChanges::deletions_into_inner(&self.deletions, trie, store_update)
+    }
+
+    fn deletions_into_inner(
+        deletions: &Vec<(CryptoHash, Vec<u8>, u32)>,
+        trie: Arc<Trie>,
+        store_update: &mut StoreUpdate,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         store_update.trie = Some(trie.clone());
-        for (key, value, rc) in self.deletions.iter() {
+        for (key, value, rc) in deletions.iter() {
             let storage_rc = trie
                 .storage
                 .as_caching_storage()
@@ -504,6 +524,21 @@ impl TrieChanges {
         self,
         trie: Arc<Trie>,
     ) -> Result<(StoreUpdate, StateRoot), Box<dyn std::error::Error>> {
+        self.into_inner(trie, true)
+    }
+
+    pub fn into_no_deletions(
+        self,
+        trie: Arc<Trie>,
+    ) -> Result<(StoreUpdate, StateRoot), Box<dyn std::error::Error>> {
+        self.into_inner(trie, false)
+    }
+
+    fn into_inner(
+        self,
+        trie: Arc<Trie>,
+        apply_deletions: bool,
+    ) -> Result<(StoreUpdate, StateRoot), Box<dyn std::error::Error>> {
         let mut store_update = StoreUpdate::new_with_trie(
             trie.storage
                 .as_caching_storage()
@@ -514,7 +549,9 @@ impl TrieChanges {
             trie.clone(),
         );
         self.insertions_into(trie.clone(), &mut store_update)?;
-        self.deletions_into(trie, &mut store_update)?;
+        if apply_deletions {
+            self.deletions_into(trie, &mut store_update)?;
+        }
         Ok((store_update, self.new_root))
     }
 }
@@ -522,7 +559,7 @@ impl TrieChanges {
 pub struct WrappedTrieChanges {
     trie: Arc<Trie>,
     trie_changes: TrieChanges,
-    kv_changes: StateChanges,
+    state_changes: Vec<RawStateChangesWithTrieKey>,
     block_hash: CryptoHash,
 }
 
@@ -530,10 +567,10 @@ impl WrappedTrieChanges {
     pub fn new(
         trie: Arc<Trie>,
         trie_changes: TrieChanges,
-        kv_changes: StateChanges,
+        state_changes: Vec<RawStateChangesWithTrieKey>,
         block_hash: CryptoHash,
     ) -> Self {
-        WrappedTrieChanges { trie, trie_changes, kv_changes, block_hash }
+        WrappedTrieChanges { trie, trie_changes, state_changes, block_hash }
     }
 
     pub fn insertions_into(
@@ -550,29 +587,113 @@ impl WrappedTrieChanges {
         self.trie_changes.deletions_into(self.trie.clone(), store_update)
     }
 
-    pub fn key_value_changes_into(
-        &self,
+    /// Save state changes into Store.
+    ///
+    /// NOTE: the changes are drained from `self`.
+    pub fn state_changes_into(
+        &mut self,
         store_update: &mut StoreUpdate,
     ) -> Result<(), Box<dyn std::error::Error>> {
         store_update.trie = Some(self.trie.clone());
-        for (key, changes) in &self.kv_changes {
+        for change_with_trie_key in self.state_changes.drain(..) {
             assert!(
-                !changes.iter().any(|(change_cause, _)| {
-                    if let StateChangeCause::NotWritableToDisk = change_cause {
-                        true
-                    } else {
-                        false
-                    }
-                }),
+                !change_with_trie_key.changes.iter().any(|RawStateChange { cause, .. }| matches!(
+                    cause,
+                    StateChangeCause::NotWritableToDisk
+                )),
                 "NotWritableToDisk changes must never be finalized."
             );
-            let mut storage_key = Vec::with_capacity(self.block_hash.as_ref().len() + key.len());
-            storage_key.extend_from_slice(self.block_hash.as_ref());
-            storage_key.extend_from_slice(key);
-            let value = changes.try_to_vec()?;
-            store_update.set(ColKeyValueChanges, storage_key.as_ref(), &value);
+            let storage_key = KeyForStateChanges::new_from_trie_key(
+                &self.block_hash,
+                &change_with_trie_key.trie_key,
+            );
+            store_update.set(
+                DBCol::ColStateChanges,
+                storage_key.as_ref(),
+                &change_with_trie_key.try_to_vec()?,
+            );
         }
         Ok(())
+    }
+
+    pub fn wrapped_into(
+        &mut self,
+        mut store_update: &mut StoreUpdate,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        self.insertions_into(&mut store_update)?;
+        self.state_changes_into(&mut store_update)?;
+        store_update.set_ser(ColTrieChanges, self.block_hash.as_ref(), &self.trie_changes)?;
+        Ok(())
+    }
+}
+
+#[derive(derive_more::AsRef, derive_more::Into)]
+pub struct KeyForStateChanges(Vec<u8>);
+
+impl KeyForStateChanges {
+    fn estimate_prefix_len() -> usize {
+        std::mem::size_of::<CryptoHash>()
+    }
+
+    fn get_prefix_with_capacity(block_hash: &CryptoHash, reserve_capacity: usize) -> Self {
+        let mut key_prefix = Vec::with_capacity(Self::estimate_prefix_len() + reserve_capacity);
+        key_prefix.extend(block_hash.as_ref());
+        debug_assert_eq!(key_prefix.len(), Self::estimate_prefix_len());
+        Self(key_prefix)
+    }
+
+    pub fn get_prefix(block_hash: &CryptoHash) -> Self {
+        Self::get_prefix_with_capacity(block_hash, 0)
+    }
+
+    pub fn new(block_hash: &CryptoHash, raw_key: &[u8]) -> Self {
+        let mut key = Self::get_prefix_with_capacity(block_hash, raw_key.len());
+        key.0.extend(raw_key);
+        key
+    }
+
+    pub fn new_from_trie_key(block_hash: &CryptoHash, trie_key: &TrieKey) -> Self {
+        let mut key = Self::get_prefix_with_capacity(block_hash, trie_key.len());
+        key.0.extend(trie_key.to_vec());
+        key
+    }
+
+    pub fn find_iter<'a: 'b, 'b>(
+        &'a self,
+        store: &'b Store,
+    ) -> impl Iterator<Item = Result<RawStateChangesWithTrieKey, std::io::Error>> + 'b {
+        let prefix_len = Self::estimate_prefix_len();
+        debug_assert!(self.0.len() >= prefix_len);
+        store.iter_prefix_ser::<RawStateChangesWithTrieKey>(DBCol::ColStateChanges, &self.0).map(
+            move |change| {
+                // Split off the irrelevant part of the key, so only the original trie_key is left.
+                let (key, state_changes) = change?;
+                debug_assert!(key.starts_with(&self.0));
+                Ok(state_changes)
+            },
+        )
+    }
+
+    pub fn find_exact_iter<'a: 'b, 'b>(
+        &'a self,
+        store: &'b Store,
+    ) -> impl Iterator<Item = Result<RawStateChangesWithTrieKey, std::io::Error>> + 'b {
+        let prefix_len = Self::estimate_prefix_len();
+        let trie_key_len = self.0.len() - prefix_len;
+        self.find_iter(store).filter_map(move |change| {
+            let state_changes = match change {
+                Ok(change) => change,
+                error => {
+                    return Some(error);
+                }
+            };
+            if state_changes.trie_key.len() != trie_key_len {
+                None
+            } else {
+                debug_assert_eq!(&state_changes.trie_key.to_vec()[..], &self.0[prefix_len..]);
+                Some(Ok(state_changes))
+            }
+        })
     }
 }
 
@@ -818,7 +939,7 @@ impl Trie {
 
     fn convert_to_insertions_and_deletions(
         changes: HashMap<CryptoHash, (Vec<u8>, i32)>,
-    ) -> ((Vec<(CryptoHash, Vec<u8>, u32)>, Vec<(CryptoHash, Vec<u8>, u32)>)) {
+    ) -> (Vec<(CryptoHash, Vec<u8>, u32)>, Vec<(CryptoHash, Vec<u8>, u32)>) {
         let mut deletions = Vec::new();
         let mut insertions = Vec::new();
         for (key, (value, rc)) in changes.into_iter() {
@@ -893,11 +1014,10 @@ impl Trie {
 
 #[cfg(test)]
 mod tests {
-    use rand::seq::SliceRandom;
     use rand::Rng;
     use tempdir::TempDir;
 
-    use crate::test_utils::{create_test_store, create_trie};
+    use crate::test_utils::{create_test_store, create_trie, gen_changes, simplify_changes};
 
     use super::*;
 
@@ -1110,56 +1230,6 @@ mod tests {
         for r in trie.iter(&root).unwrap() {
             r.unwrap();
         }
-    }
-
-    pub(crate) fn gen_changes(
-        rng: &mut impl Rng,
-        max_size: usize,
-    ) -> Vec<(Vec<u8>, Option<Vec<u8>>)> {
-        let alphabet = &b"abcdefgh"[0..rng.gen_range(2, 8)];
-        let max_length = rng.gen_range(2, 8);
-
-        let mut state: HashMap<Vec<u8>, Vec<u8>> = HashMap::new();
-        let mut result = Vec::new();
-        let delete_probability = rng.gen_range(0.1, 0.5);
-        let size = rng.gen_range(1, max_size);
-        for _ in 0..size {
-            let key_length = rng.gen_range(1, max_length);
-            let key: Vec<u8> =
-                (0..key_length).map(|_| alphabet.choose(rng).unwrap().clone()).collect();
-
-            let delete = rng.gen_range(0.0, 1.0) < delete_probability;
-            if delete {
-                let mut keys: Vec<_> = state.keys().cloned().collect();
-                keys.push(key);
-                let key = keys.choose(rng).unwrap().clone();
-                state.remove(&key);
-                result.push((key.clone(), None));
-            } else {
-                let value_length = rng.gen_range(1, max_length);
-                let value: Vec<u8> =
-                    (0..value_length).map(|_| alphabet.choose(rng).unwrap().clone()).collect();
-                result.push((key.clone(), Some(value.clone())));
-                state.insert(key, value);
-            }
-        }
-        result
-    }
-
-    pub(crate) fn simplify_changes(
-        changes: &Vec<(Vec<u8>, Option<Vec<u8>>)>,
-    ) -> Vec<(Vec<u8>, Option<Vec<u8>>)> {
-        let mut state: HashMap<Vec<u8>, Vec<u8>> = HashMap::new();
-        for (key, value) in changes.iter() {
-            if let Some(value) = value {
-                state.insert(key.clone(), value.clone());
-            } else {
-                state.remove(key);
-            }
-        }
-        let mut result: Vec<_> = state.into_iter().map(|(k, v)| (k, Some(v))).collect();
-        result.sort();
-        result
     }
 
     #[test]

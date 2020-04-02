@@ -12,6 +12,7 @@ unsafe impl Sync for ImportReference {}
 macro_rules! wrapped_imports {
         ( $( $func:ident < [ $( $arg_name:ident : $arg_type:ident ),* ] -> [ $( $returns:ident ),* ] >, )* ) => {
             $(
+                #[allow(unused_parens)]
                 fn $func( ctx: &mut Ctx, $( $arg_name: $arg_type ),* ) -> Result<($( $returns ),*)> {
                     let logic: &mut VMLogic = unsafe { &mut *(ctx.data as *mut VMLogic) };
                     logic.$func( $( $arg_name, )* )
@@ -55,6 +56,7 @@ wrapped_imports! {
     // TODO #1903 rename to `block_height`
     block_index<[] -> [u64]>,
     block_timestamp<[] -> [u64]>,
+    epoch_height<[] -> [u64]>,
     storage_usage<[] -> [u64]>,
     // #################
     // # Economics API #
@@ -69,6 +71,8 @@ wrapped_imports! {
     // ############
     random_seed<[register_id: u64] -> []>,
     sha256<[value_len: u64, value_ptr: u64, register_id: u64] -> []>,
+    keccak256<[value_len: u64, value_ptr: u64, register_id: u64] -> []>,
+    keccak512<[value_len: u64, value_ptr: u64, register_id: u64] -> []>,
     // #####################
     // # Miscellaneous API #
     // #####################

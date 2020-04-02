@@ -5,14 +5,15 @@ use log::LevelFilter;
 use lazy_static::lazy_static;
 use near_crypto::{EmptySigner, PublicKey, Signer};
 
-use crate::account::{AccessKey, AccessKeyPermission};
+use crate::account::{AccessKey, AccessKeyPermission, Account};
 use crate::block::{Approval, Block};
 use crate::hash::CryptoHash;
 use crate::transaction::{
-    Action, AddKeyAction, CreateAccountAction, SignedTransaction, StakeAction, Transaction,
-    TransferAction,
+    Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, SignedTransaction, StakeAction,
+    Transaction, TransferAction,
 };
 use crate::types::{AccountId, Balance, BlockHeight, EpochId, Nonce};
+use crate::validator_signer::ValidatorSigner;
 
 lazy_static! {
     static ref HEAVY_TESTS_LOCK: Mutex<()> = Mutex::new(());
@@ -73,7 +74,9 @@ pub fn init_stop_on_panic() {
         let default_hook = std::panic::take_hook();
         std::panic::set_hook(Box::new(move |info| {
             default_hook(info);
-            actix::System::with_current(|sys| sys.stop_with_code(1));
+            if actix::System::is_set() {
+                actix::System::with_current(|sys| sys.stop_with_code(1));
+            }
         }));
     })
 }
@@ -148,6 +151,24 @@ impl SignedTransaction {
         )
     }
 
+    pub fn delete_account(
+        nonce: Nonce,
+        signer_id: AccountId,
+        receiver_id: AccountId,
+        beneficiary_id: AccountId,
+        signer: &dyn Signer,
+        block_hash: CryptoHash,
+    ) -> Self {
+        Self::from_actions(
+            nonce,
+            signer_id,
+            receiver_id,
+            signer,
+            vec![Action::DeleteAccount(DeleteAccountAction { beneficiary_id })],
+            block_hash,
+        )
+    }
+
     pub fn empty(block_hash: CryptoHash) -> Self {
         Self::from_actions(0, "".to_string(), "".to_string(), &EmptySigner {}, vec![], block_hash)
     }
@@ -160,7 +181,7 @@ impl Block {
         epoch_id: EpochId,
         next_epoch_id: EpochId,
         next_bp_hash: CryptoHash,
-        signer: &dyn Signer,
+        signer: &dyn ValidatorSigner,
     ) -> Self {
         Self::empty_with_approvals(
             prev,
@@ -173,7 +194,11 @@ impl Block {
         )
     }
 
-    pub fn empty_with_height(prev: &Block, height: BlockHeight, signer: &dyn Signer) -> Self {
+    pub fn empty_with_height(
+        prev: &Block,
+        height: BlockHeight,
+        signer: &dyn ValidatorSigner,
+    ) -> Self {
         Self::empty_with_epoch(
             prev,
             height,
@@ -188,7 +213,7 @@ impl Block {
         )
     }
 
-    pub fn empty(prev: &Block, signer: &dyn Signer) -> Self {
+    pub fn empty(prev: &Block, signer: &dyn ValidatorSigner) -> Self {
         Self::empty_with_height(prev, prev.header.inner_lite.height + 1, signer)
     }
 
@@ -200,7 +225,7 @@ impl Block {
         epoch_id: EpochId,
         next_epoch_id: EpochId,
         approvals: Vec<Approval>,
-        signer: &dyn Signer,
+        signer: &dyn ValidatorSigner,
         next_bp_hash: CryptoHash,
     ) -> Self {
         Block::produce(
@@ -222,5 +247,14 @@ impl Block {
             CryptoHash::default(),
             next_bp_hash,
         )
+    }
+}
+
+/// Size of account struct in bytes.
+const ACCOUNT_SIZE_BYTES: u64 = std::mem::size_of::<Account>() as u64;
+
+impl Account {
+    pub fn new(amount: Balance, code_hash: CryptoHash) -> Self {
+        Account { amount, locked: 0, code_hash, storage_usage: ACCOUNT_SIZE_BYTES }
     }
 }

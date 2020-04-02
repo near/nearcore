@@ -1,8 +1,8 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::net::TcpListener;
 use std::time::Duration;
 
-use actix::{Actor, ActorContext, AsyncContext, Context, Handler, Message};
+use actix::{Actor, ActorContext, AsyncContext, Context, Handler, MailboxError, Message};
 use futures::{future, FutureExt};
 use log::debug;
 use rand::{thread_rng, RngCore};
@@ -10,11 +10,14 @@ use tokio::time::delay_for;
 
 use near_crypto::{KeyType, SecretKey};
 use near_primitives::hash::hash;
+use near_primitives::network::PeerId;
 use near_primitives::types::EpochId;
 use near_primitives::utils::index_to_bytes;
 
-use crate::types::{NetworkConfig, NetworkInfo, PeerId, PeerInfo, ROUTED_MESSAGE_TTL};
-use crate::PeerManagerActor;
+use crate::types::{NetworkConfig, NetworkInfo, PeerInfo, ROUTED_MESSAGE_TTL};
+use crate::{NetworkAdapter, NetworkRequests, NetworkResponses, PeerManagerActor};
+use futures::future::BoxFuture;
+use std::sync::{Arc, RwLock};
 
 /// Returns available port.
 pub fn open_port() -> u16 {
@@ -62,12 +65,6 @@ pub fn convert_boot_nodes(boot_nodes: Vec<(&str, u16)>) -> Vec<PeerInfo> {
         result.push(PeerInfo::new(id.into(), format!("127.0.0.1:{}", port).parse().unwrap()))
     }
     result
-}
-
-impl PeerId {
-    pub fn random() -> Self {
-        SecretKey::from_random(KeyType::ED25519).public_key().into()
-    }
 }
 
 impl PeerInfo {
@@ -227,5 +224,30 @@ impl Handler<StopSignal> for PeerManagerActor {
         } else {
             ctx.stop();
         }
+    }
+}
+
+#[derive(Default)]
+pub struct MockNetworkAdapter {
+    pub requests: Arc<RwLock<VecDeque<NetworkRequests>>>,
+}
+
+impl NetworkAdapter for MockNetworkAdapter {
+    fn send(
+        &self,
+        msg: NetworkRequests,
+    ) -> BoxFuture<'static, Result<NetworkResponses, MailboxError>> {
+        self.do_send(msg);
+        future::ok(NetworkResponses::NoResponse).boxed()
+    }
+
+    fn do_send(&self, msg: NetworkRequests) {
+        self.requests.write().unwrap().push_back(msg);
+    }
+}
+
+impl MockNetworkAdapter {
+    pub fn pop(&self) -> Option<NetworkRequests> {
+        self.requests.write().unwrap().pop_front()
     }
 }

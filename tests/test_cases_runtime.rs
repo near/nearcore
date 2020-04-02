@@ -1,12 +1,12 @@
 #[cfg(test)]
 mod test {
-    use near::config::TESTING_INIT_BALANCE;
-    use near::GenesisConfig;
+    use near::config::{GenesisExt, TESTING_INIT_BALANCE};
+    use near_chain_configs::Genesis;
     use near_primitives::serialize::to_base64;
-    use near_primitives::utils::key_for_data;
-    use node_runtime::StateRecord;
+    use near_primitives::state_record::StateRecord;
+    use near_primitives::trie_key::TrieKey;
     use testlib::node::RuntimeNode;
-    use testlib::runtime_utils::{alice_account, bob_account};
+    use testlib::runtime_utils::{add_test_contract, alice_account, bob_account};
     use testlib::standard_test_cases::*;
 
     fn create_runtime_node() -> RuntimeNode {
@@ -18,42 +18,24 @@ mod test {
     }
 
     fn create_runtime_with_expensive_storage() -> RuntimeNode {
-        let mut genesis_config =
-            GenesisConfig::test(vec![&alice_account(), &bob_account(), "carol.near"], 1);
-        // Set expensive state rent and add alice more money.
-        genesis_config.runtime_config.storage_cost_byte_per_block = TESTING_INIT_BALANCE / 100000;
-        genesis_config.runtime_config.poke_threshold = 10;
-        match &mut genesis_config.records[0] {
+        let mut genesis = Genesis::test(vec![&alice_account(), &bob_account(), "carol.near"], 1);
+        add_test_contract(&mut genesis, &bob_account());
+        // Set expensive state requirements and add alice more money.
+        genesis.config.runtime_config.storage_amount_per_byte = TESTING_INIT_BALANCE / 1000;
+        match &mut genesis.records.as_mut()[0] {
             StateRecord::Account { account, .. } => account.amount = TESTING_INIT_BALANCE * 10000,
-            _ => {}
+            _ => {
+                panic!("the first record is expected to be alice account creation!");
+            }
         }
-        genesis_config.records.push(StateRecord::Data {
-            key: to_base64(&key_for_data(&bob_account(), b"test")),
+        genesis.records.as_mut().push(StateRecord::Data {
+            key: to_base64(
+                &TrieKey::ContractData { account_id: bob_account(), key: b"test".to_vec() }
+                    .to_vec(),
+            ),
             value: to_base64(b"123"),
         });
-        RuntimeNode::new_from_genesis(&alice_account(), genesis_config)
-    }
-
-    fn create_runtime_with_expensive_account_length() -> RuntimeNode {
-        let mut genesis_config =
-            GenesisConfig::test(vec![&alice_account(), &bob_account(), "carol.near"], 1);
-        // Set expensive account length rent and add alice more money.
-        // `bob.near` has 8 characters. Cost per block is `base / (3^6)`.
-        // Need to have balance as least `10 * base / (3^6)`, so if we put `base` at least 73
-        // it would be enough to delete bob's account.
-        genesis_config.runtime_config.account_length_baseline_cost_per_block =
-            73 * TESTING_INIT_BALANCE;
-        genesis_config.runtime_config.storage_cost_byte_per_block = 1;
-        genesis_config.runtime_config.poke_threshold = 10;
-        match &mut genesis_config.records[0] {
-            StateRecord::Account { account, .. } => account.amount = TESTING_INIT_BALANCE * 100,
-            _ => {}
-        }
-        genesis_config.records.push(StateRecord::Data {
-            key: to_base64(&key_for_data(&bob_account(), b"test")),
-            value: to_base64(b"123"),
-        });
-        RuntimeNode::new_from_genesis(&alice_account(), genesis_config)
+        RuntimeNode::new_from_genesis(&alice_account(), genesis)
     }
 
     #[test]
@@ -171,6 +153,12 @@ mod test {
     }
 
     #[test]
+    fn test_create_account_failure_no_funds_runtime() {
+        let node = create_runtime_node();
+        test_create_account_failure_no_funds(node);
+    }
+
+    #[test]
     fn test_create_account_failure_already_exists_runtime() {
         let node = create_runtime_node();
         test_create_account_failure_already_exists(node);
@@ -279,39 +267,9 @@ mod test {
     }
 
     #[test]
-    fn test_fail_not_enough_rent_for_storage_runtime() {
+    fn test_fail_not_enough_balance_for_storage_runtime() {
         let node = create_runtime_with_expensive_storage();
-        test_fail_not_enough_rent(node);
-    }
-
-    #[test]
-    fn test_stake_fail_not_enough_rent_for_storage_runtime() {
-        let node = create_runtime_with_expensive_storage();
-        test_stake_fail_not_enough_rent_for_storage(node);
-    }
-
-    #[test]
-    fn test_delete_account_for_storage_runtime() {
-        let node = create_runtime_with_expensive_storage();
-        test_delete_account_low_balance(node);
-    }
-
-    #[test]
-    fn test_fail_not_enough_rent_for_account_id_runtime() {
-        let node = create_runtime_with_expensive_account_length();
-        test_fail_not_enough_rent(node);
-    }
-
-    #[test]
-    fn test_stake_fail_not_enough_rent_for_account_id_runtime() {
-        let node = create_runtime_with_expensive_account_length();
-        test_stake_fail_not_enough_rent_for_account_id(node);
-    }
-
-    #[test]
-    fn test_delete_account_for_account_id_runtime() {
-        let node = create_runtime_with_expensive_account_length();
-        test_delete_account_low_balance(node);
+        test_fail_not_enough_balance_for_storage(node);
     }
 
     #[test]

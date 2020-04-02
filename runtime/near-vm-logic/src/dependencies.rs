@@ -1,6 +1,6 @@
 //! External dependencies of the near-vm-logic.
 
-use crate::types::{AccountId, Balance, Gas, IteratorIndex, PublicKey, ReceiptIndex};
+use crate::types::{AccountId, Balance, Gas, PublicKey, ReceiptIndex};
 use near_vm_errors::VMLogicError;
 
 /// An abstraction over the memory of the smart contract.
@@ -141,87 +141,6 @@ pub trait External {
     /// assert_eq!(external.storage_has_key(b"no_value_key"), Ok(false));
     /// ```
     fn storage_has_key(&mut self, key: &[u8]) -> Result<bool>;
-
-    /// Creates iterator in memory for a key prefix and returns its ID to use with `storage_iter_next`
-    ///
-    /// # Arguments
-    ///
-    /// * `prefix` - a prefix in the storage to iterate on
-    ///
-    /// # Errors
-    ///
-    /// This function could return HostErrorOrStorageError::StorageError on underlying DB failure
-    ///
-    /// # Example
-    /// ```
-    /// # use near_vm_logic::mocks::mock_external::MockedExternal;
-    /// # use near_vm_logic::External;
-    ///
-    /// # let mut external = MockedExternal::new();
-    ///
-    /// external.storage_set(b"key42", b"value1337").unwrap();
-    /// // Creates iterator and returns index
-    /// let index = external.storage_iter(b"key42").unwrap();
-    ///
-    /// assert_eq!(external.storage_iter_next(index).unwrap().map(|(key, ptr)| (key, ptr.deref().unwrap())), Some((b"key42".to_vec(), b"value1337".to_vec())));
-    /// assert_eq!(external.storage_iter_next(index).unwrap().map(|(key, ptr)| (key, ptr.deref().unwrap())), None);
-    ///
-    /// external.storage_iter(b"not_existing_key").expect("should be ok");
-    /// ```
-    fn storage_iter(&mut self, prefix: &[u8]) -> Result<IteratorIndex>;
-
-    /// Creates iterator in memory for a key range and returns its ID to use with `storage_iter_next`
-    ///
-    /// # Arguments
-    ///
-    /// * `start` - a start prefix in the storage to iterate on
-    /// * `end` - an end prefix in the storage to iterate on (exclusive)
-    ///
-    /// # Errors
-    ///
-    /// This function could return:
-    /// - HostErrorOrStorageError::StorageError on underlying DB failure
-    ///
-    ///
-    /// # Example
-    /// ```
-    /// # use near_vm_logic::mocks::mock_external::MockedExternal;
-    /// # use near_vm_logic::External;
-    ///
-    /// # let mut external = MockedExternal::new();
-    ///
-    /// external.storage_set(b"key42", b"value1337").unwrap();
-    /// external.storage_set(b"key43", b"val").unwrap();
-    /// // Creates iterator and returns index
-    /// let index = external.storage_iter_range(b"key42", b"key43").unwrap();
-    ///
-    /// assert_eq!(external.storage_iter_next(index).unwrap().map(|(key, ptr)| (key, ptr.deref().unwrap())), Some((b"key42".to_vec(), b"value1337".to_vec())));
-    /// // The second key is `key43`. Returns Ok(None), since the `end` parameter is exclusive
-    /// assert_eq!(external.storage_iter_next(index).unwrap().map(|(key, ptr)| (key, ptr.deref().unwrap())), None);
-    /// ```
-    fn storage_iter_range(&mut self, start: &[u8], end: &[u8]) -> Result<IteratorIndex>;
-
-    /// Returns the current iterator value and advances the iterator
-    /// If there is no more values, returns Ok(None)
-    ///
-    /// See usage examples in `storage_iter` and `storage_iter_range`
-    ///
-    /// # Arguments
-    ///
-    /// * `iterator_idx` - an iterator ID, created by `storage_iter` or `storage_iter_range`
-    ///
-    /// # Errors
-    ///
-    /// This function could return:
-    /// - HostErrorOrStorageError::StorageError on underlying DB failure
-    /// ```
-    fn storage_iter_next<'a>(
-        &'a mut self,
-        iterator_idx: IteratorIndex,
-    ) -> Result<Option<(Vec<u8>, Box<dyn ValuePtr + 'a>)>>;
-
-    /// Removes iterator index added with `storage_iter` and `storage_iter_range`
-    fn storage_iter_drop(&mut self, iterator_idx: IteratorIndex) -> Result<()>;
 
     /// Creates a receipt which will be executed after `receipt_indices`
     ///
@@ -545,6 +464,50 @@ pub trait External {
     ///
     /// ```
     fn sha256(&self, data: &[u8]) -> Result<Vec<u8>>;
+
+    /// Computes keccak256 hash
+    ///
+    /// # Arguments
+    ///
+    /// * `data` - data to hash
+    ///
+    /// # Example
+    /// ```
+    /// # use near_vm_logic::mocks::mock_external::MockedExternal;
+    /// # use near_vm_logic::External;
+    ///
+    /// # let mut external = MockedExternal::new();
+    /// let result = external.keccak256(b"tesdsst").unwrap();
+    /// assert_eq!(&result, &[
+    ///         104, 110, 58, 122, 230, 181, 215, 145, 231, 229, 49, 162, 123, 167, 177, 58, 26, 142,
+    ///         129, 173, 7, 37, 9, 26, 233, 115, 64, 102, 61, 85, 10, 159
+    /// ]);
+    ///
+    /// ```
+    fn keccak256(&self, data: &[u8]) -> Result<Vec<u8>>;
+
+    /// Computes keccak512 hash
+    ///
+    /// # Arguments
+    ///
+    /// * `data` - data to hash
+    ///
+    /// # Example
+    /// ```
+    /// # use near_vm_logic::mocks::mock_external::MockedExternal;
+    /// # use near_vm_logic::External;
+    ///
+    /// # let mut external = MockedExternal::new();
+    /// let result = external.keccak512(b"tesdsst").unwrap();
+    /// assert_eq!(&result, &[
+    ///         55, 134, 96, 137, 168, 122, 187, 95, 67, 76, 18, 122, 146, 11, 225, 106, 117, 194, 154,
+    ///         157, 48, 160, 90, 146, 104, 209, 118, 126, 222, 230, 200, 125, 48, 73, 197, 236, 123,
+    ///         173, 192, 197, 90, 153, 167, 121, 100, 88, 209, 240, 137, 86, 239, 41, 87, 128, 219, 249,
+    ///         136, 203, 220, 109, 46, 168, 234, 190
+    /// ].to_vec());
+    ///
+    /// ```
+    fn keccak512(&self, data: &[u8]) -> Result<Vec<u8>>;
 
     /// Returns amount of touched trie nodes by storage operations
     fn get_touched_nodes_count(&self) -> u64;

@@ -1,14 +1,18 @@
 #[cfg(test)]
 #[cfg(feature = "expensive_tests")]
 mod tests {
-    use near_chain::{Doomslug, DoomslugThresholdMode};
-    use near_crypto::{InMemorySigner, KeyType, SecretKey};
-    use near_primitives::hash::{hash, CryptoHash};
-    use near_primitives::types::{BlockHeight, ValidatorStake};
-    use rand::{thread_rng, Rng};
     use std::collections::{HashMap, HashSet};
     use std::sync::Arc;
     use std::time::{Duration, Instant};
+
+    use rand::{thread_rng, Rng};
+
+    use near_chain::{Doomslug, DoomslugThresholdMode};
+    use near_crypto::{KeyType, SecretKey};
+    use near_primitives::block::Approval;
+    use near_primitives::hash::{hash, CryptoHash};
+    use near_primitives::types::{BlockHeight, ValidatorStake};
+    use near_primitives::validator_signer::InMemoryValidatorSigner;
 
     fn block_hash(height: BlockHeight) -> CryptoHash {
         hash(height.to_le_bytes().as_ref())
@@ -47,17 +51,20 @@ mod tests {
         let signers = account_ids
             .iter()
             .map(|account_id| {
-                Arc::new(InMemorySigner::from_seed(account_id, KeyType::ED25519, account_id))
+                Arc::new(InMemoryValidatorSigner::from_seed(
+                    account_id,
+                    KeyType::ED25519,
+                    account_id,
+                ))
             })
             .collect::<Vec<_>>();
-        let mut doomslugs = account_ids
+        let mut doomslugs = signers
             .iter()
-            .zip(signers.iter())
-            .map(|(account_id, signer)| {
+            .map(|signer| {
                 Doomslug::new(
-                    Some(account_id.to_string()),
                     0,
                     0,
+                    Duration::from_millis(200),
                     Duration::from_millis(1000),
                     Duration::from_millis(100),
                     delta * 20, // some arbitrary number larger than delta * 6
@@ -71,7 +78,7 @@ mod tests {
         let started = now;
 
         let gst = now + time_to_gst;
-        let mut approval_queue = vec![];
+        let mut approval_queue: Vec<(Approval, Instant)> = vec![];
         let mut block_queue: Vec<(BlockHeight, usize, BlockHeight, Instant)> = vec![];
         let mut largest_produced_height: BlockHeight = 1;
         let mut chain_lengths = HashMap::new();
@@ -84,8 +91,7 @@ mod tests {
         chain_lengths.insert(block_hash(1), 1);
 
         for ds in doomslugs.iter_mut() {
-            let approval = ds.set_tip(now, block_hash(1), None, 1, 1).unwrap();
-            approval_queue.push((approval, get_msg_delivery_time(now, gst, delta)));
+            ds.set_tip(now, block_hash(1), None, 1, 1);
             hash_to_block_info.insert(block_hash(1), (1, 1));
         }
 
@@ -148,17 +154,13 @@ mod tests {
                         }
 
                         for block_info in block_infos.into_iter().rev() {
-                            let approval = ds
-                                .set_tip(
-                                    now,
-                                    block_hash(block_info.0),
-                                    None,
-                                    block_info.0 as BlockHeight,
-                                    block_info.1,
-                                )
-                                .unwrap();
-
-                            approval_queue.push((approval, get_msg_delivery_time(now, gst, delta)));
+                            ds.set_tip(
+                                now,
+                                block_hash(block_info.0),
+                                None,
+                                block_info.0 as BlockHeight,
+                                block_info.1,
+                            );
                         }
                     }
                 }
@@ -233,17 +235,13 @@ mod tests {
                         }
 
                         // Accept our own block
-                        let approval = ds
-                            .set_tip(
-                                now,
-                                block_hash,
-                                None,
-                                target_height as BlockHeight,
-                                last_ds_final_height,
-                            )
-                            .unwrap();
-
-                        approval_queue.push((approval, get_msg_delivery_time(now, gst, delta)));
+                        ds.set_tip(
+                            now,
+                            block_hash,
+                            None,
+                            target_height as BlockHeight,
+                            last_ds_final_height,
+                        );
                     }
                 }
             }

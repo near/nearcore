@@ -21,6 +21,7 @@ extern "C" {
     // TODO #1903 fn block_height() -> u64;
     fn block_index() -> u64;
     fn block_timestamp() -> u64;
+    fn epoch_height() -> u64;
     fn storage_usage() -> u64;
     // #################
     // # Economics API #
@@ -269,6 +270,13 @@ pub unsafe fn panic_after_logging() {
 pub unsafe fn run_test() {
     let value: [u8; 4] = 10i32.to_le_bytes();
     value_return(value.len() as u64, value.as_ptr() as _);
+}
+
+#[no_mangle]
+pub unsafe fn run_test_with_storage_change() {
+    let key = b"hello";
+    let value = b"world";
+    storage_write(key.len() as _, key.as_ptr() as _, value.len() as _, value.as_ptr() as _, 0);
 }
 
 #[no_mangle]

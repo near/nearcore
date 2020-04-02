@@ -3,12 +3,13 @@ use near_primitives::account::AccessKey;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::Receipt;
 use near_primitives::serialize::to_base64;
+use near_primitives::state_record::StateRecord;
 use near_primitives::transaction::{ExecutionOutcomeWithId, SignedTransaction};
 use near_primitives::types::{Balance, MerkleHash};
 use near_primitives::views::AccountView;
 use near_store::test_utils::create_trie;
 use near_store::{Trie, TrieUpdate};
-use node_runtime::{ApplyState, Runtime, StateRecord};
+use node_runtime::{ApplyState, Runtime};
 use random_config::random_config;
 use std::collections::HashMap;
 use std::sync::{Arc, Condvar, Mutex};
@@ -54,6 +55,7 @@ impl StandaloneRuntime {
             block_index: 0,
             // Epoch length is long enough to avoid corner cases.
             epoch_length: 4,
+            epoch_height: 0,
             gas_price: 100,
             block_timestamp: 0,
             gas_limit: None,

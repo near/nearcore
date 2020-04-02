@@ -48,7 +48,7 @@ pub struct RuntimeFeesConfig {
     pub data_receipt_creation_config: DataReceiptCreationConfig,
     /// Describes the cost of creating a certain action, `Action`. Includes all variants.
     pub action_creation_config: ActionCreationConfig,
-    /// Describes fees for storage rent
+    /// Describes fees for storage.
     pub storage_usage_config: StorageUsageConfig,
 
     /// Fraction of the burnt gas to reward to the contract account for execution.
@@ -110,16 +110,10 @@ pub struct AccessKeyCreationConfig {
 /// Describes cost of storage per block
 #[derive(Debug, Serialize, Deserialize, Clone, Hash, PartialEq, Eq)]
 pub struct StorageUsageConfig {
-    /// Base storage usage for an account
-    pub account_cost: Gas,
-    /// Base cost for a k/v record
-    pub data_record_cost: Gas,
-    /// Cost per byte of key
-    pub key_cost_per_byte: Gas,
-    /// Cost per byte of value
-    pub value_cost_per_byte: Gas,
-    /// Cost per byte of contract code
-    pub code_cost_per_byte: Gas,
+    /// Number of bytes for an account record, including rounding up for account id.
+    pub num_bytes_account: u64,
+    /// Additional number of bytes for a k/v record
+    pub num_extra_bytes_record: u64,
 }
 
 impl Default for RuntimeFeesConfig {
@@ -187,11 +181,10 @@ impl Default for RuntimeFeesConfig {
                 },
             },
             storage_usage_config: StorageUsageConfig {
-                account_cost: 100,
-                data_record_cost: 40,
-                key_cost_per_byte: 1,
-                value_cost_per_byte: 1,
-                code_cost_per_byte: 1,
+                // See Account in core/primitives/src/account.rs for the data structure.
+                // TODO(2291): figure out value for the MainNet.
+                num_bytes_account: 100,
+                num_extra_bytes_record: 40,
             },
             burnt_gas_reward: Fraction { numerator: 3, denominator: 10 },
         }
@@ -224,11 +217,8 @@ impl RuntimeFeesConfig {
                 delete_account_cost: free.clone(),
             },
             storage_usage_config: StorageUsageConfig {
-                account_cost: 0,
-                data_record_cost: 0,
-                key_cost_per_byte: 0,
-                value_cost_per_byte: 0,
-                code_cost_per_byte: 0,
+                num_bytes_account: 0,
+                num_extra_bytes_record: 0,
             },
             burnt_gas_reward: Fraction { numerator: 0, denominator: 1 },
         }

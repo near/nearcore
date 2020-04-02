@@ -1,49 +1,54 @@
 use std::sync::{Arc, RwLock};
 
-use near::GenesisConfig;
+use near::config::GenesisExt;
+use near_chain_configs::Genesis;
 use near_crypto::{InMemorySigner, KeyType, Signer};
 use near_primitives::types::AccountId;
 
 use crate::node::Node;
-use crate::runtime_utils::{alice_account, bob_account, get_runtime_and_trie_from_genesis};
+use crate::runtime_utils::{
+    add_test_contract, alice_account, bob_account, get_runtime_and_trie_from_genesis,
+};
 use crate::user::runtime_user::MockClient;
 use crate::user::{RuntimeUser, User};
 
 pub struct RuntimeNode {
     pub client: Arc<RwLock<MockClient>>,
     pub signer: Arc<InMemorySigner>,
-    pub genesis_config: GenesisConfig,
+    pub genesis: Genesis,
 }
 
 impl RuntimeNode {
     pub fn new(account_id: &AccountId) -> Self {
-        let genesis_config =
-            GenesisConfig::test(vec![&alice_account(), &bob_account(), "carol.near"], 3);
-        Self::new_from_genesis(account_id, genesis_config)
+        let mut genesis = Genesis::test(vec![&alice_account(), &bob_account(), "carol.near"], 3);
+        add_test_contract(&mut genesis, &alice_account());
+        add_test_contract(&mut genesis, &bob_account());
+        Self::new_from_genesis(account_id, genesis)
     }
 
-    pub fn new_from_genesis(account_id: &AccountId, genesis_config: GenesisConfig) -> Self {
+    pub fn new_from_genesis(account_id: &AccountId, genesis: Genesis) -> Self {
         let signer = Arc::new(InMemorySigner::from_seed(account_id, KeyType::ED25519, account_id));
-        let (runtime, trie, root) = get_runtime_and_trie_from_genesis(&genesis_config);
+        let (runtime, trie, root) = get_runtime_and_trie_from_genesis(&genesis);
         let client = Arc::new(RwLock::new(MockClient {
             runtime,
             trie,
             state_root: root,
-            epoch_length: genesis_config.epoch_length,
+            epoch_length: genesis.config.epoch_length,
         }));
-        RuntimeNode { signer, client, genesis_config }
+        RuntimeNode { signer, client, genesis }
     }
 
     pub fn free(account_id: &AccountId) -> Self {
-        let genesis_config =
-            GenesisConfig::test_free(vec![&alice_account(), &bob_account(), "carol.near"], 3);
-        Self::new_from_genesis(account_id, genesis_config)
+        let mut genesis =
+            Genesis::test_free(vec![&alice_account(), &bob_account(), "carol.near"], 3);
+        add_test_contract(&mut genesis, &bob_account());
+        Self::new_from_genesis(account_id, genesis)
     }
 }
 
 impl Node for RuntimeNode {
-    fn genesis_config(&self) -> &GenesisConfig {
-        &self.genesis_config
+    fn genesis(&self) -> &Genesis {
+        &self.genesis
     }
 
     fn account_id(&self) -> Option<AccountId> {
@@ -92,8 +97,8 @@ mod tests {
         );
         node_user.send_money(alice_account(), bob_account(), 1).unwrap();
         let fee_helper = FeeHelper::new(
-            node.genesis_config().runtime_config.transaction_costs.clone(),
-            node.genesis_config().min_gas_price,
+            node.genesis().config.runtime_config.transaction_costs.clone(),
+            node.genesis().config.min_gas_price,
         );
         let transfer_cost = fee_helper.transfer_cost();
         let (alice2, bob2) = (

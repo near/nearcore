@@ -4,15 +4,16 @@ use crate::context::VMContext;
 use crate::dependencies::{External, MemoryLike};
 use crate::gas_counter::GasCounter;
 use crate::types::{
-    AccountId, Balance, Gas, IteratorIndex, PromiseIndex, PromiseResult, ReceiptIndex, ReturnData,
+    AccountId, Balance, EpochHeight, Gas, PromiseIndex, PromiseResult, ReceiptIndex, ReturnData,
     StorageUsage,
 };
+use crate::utils::split_method_names;
 use crate::{ExtCosts, HostError, VMLogicError, ValuePtr};
 use byteorder::ByteOrder;
 use near_runtime_fees::RuntimeFeesConfig;
 use near_vm_errors::InconsistentStateError;
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::mem::size_of;
 
 type Result<T> = ::std::result::Result<T, VMLogicError>;
@@ -50,11 +51,6 @@ pub struct VMLogic<'a> {
     /// host-guest boundary.
     registers: HashMap<u64, Vec<u8>>,
 
-    /// Iterators that were created and can still be used.
-    valid_iterators: HashSet<IteratorIndex>,
-    /// Iterators that became invalidated by mutating the trie.
-    invalid_iterators: HashSet<IteratorIndex>,
-
     /// The DAG of promises, indexed by promise id.
     promises: Vec<Promise>,
     /// Record the accounts towards which the receipts are directed.
@@ -78,7 +74,7 @@ enum Promise {
 
 macro_rules! memory_get {
     ($_type:ty, $name:ident) => {
-        fn $name(&mut self, offset: u64, ) -> Result<$_type> {
+        fn $name(&mut self, offset: u64) -> Result<$_type> {
             let mut array = [0u8; size_of::<$_type>()];
             self.memory_get_into(offset, &mut array)?;
             Ok(<$_type>::from_le_bytes(array))
@@ -88,7 +84,7 @@ macro_rules! memory_get {
 
 macro_rules! memory_set {
     ($_type:ty, $name:ident) => {
-        fn $name( &mut self, offset: u64, value: $_type, ) -> Result<()> {
+        fn $name(&mut self, offset: u64, value: $_type) -> Result<()> {
             self.memory_set_slice(offset, &value.to_le_bytes())
         }
     };
@@ -133,8 +129,6 @@ impl<'a> VMLogic<'a> {
             return_data: ReturnData::None,
             logs: vec![],
             registers: HashMap::new(),
-            valid_iterators: HashSet::new(),
-            invalid_iterators: HashSet::new(),
             promises: vec![],
             receipt_to_account: HashMap::new(),
             total_log_length: 0,
@@ -595,7 +589,7 @@ impl<'a> VMLogic<'a> {
         Ok(self.context.block_index)
     }
 
-    /// Returns the current block timestamp.
+    /// Returns the current block timestamp (number of non-leap-nanoseconds since January 1, 1970 0:00:00 UTC).
     ///
     /// # Cost
     ///
@@ -603,6 +597,16 @@ impl<'a> VMLogic<'a> {
     pub fn block_timestamp(&mut self) -> Result<u64> {
         self.gas_counter.pay_base(base)?;
         Ok(self.context.block_timestamp)
+    }
+
+    /// Returns the current epoch height.
+    ///
+    /// # Cost
+    ///
+    /// `base`
+    pub fn epoch_height(&mut self) -> Result<EpochHeight> {
+        self.gas_counter.pay_base(base)?;
+        Ok(self.context.epoch_height)
     }
 
     /// Returns the number of bytes used by the contract if it was saved to the trie as of the
@@ -736,6 +740,42 @@ impl<'a> VMLogic<'a> {
         let value = self.get_vec_from_memory_or_register(value_ptr, value_len)?;
         self.gas_counter.pay_per_byte(sha256_byte, value.len() as u64)?;
         let value_hash = self.ext.sha256(&value)?;
+        self.internal_write_register(register_id, value_hash)
+    }
+
+    /// Hashes the random sequence of bytes using keccak256 and returns it into `register_id`.
+    ///
+    /// # Errors
+    ///
+    /// If `value_len + value_ptr` points outside the memory or the registers use more memory than
+    /// the limit with `MemoryAccessViolation`.
+    ///
+    /// # Cost
+    ///
+    /// `base + write_register_base + write_register_byte * num_bytes + keccak256_base + keccak256_byte * num_bytes`
+    pub fn keccak256(&mut self, value_len: u64, value_ptr: u64, register_id: u64) -> Result<()> {
+        self.gas_counter.pay_base(keccak256_base)?;
+        let value = self.get_vec_from_memory_or_register(value_ptr, value_len)?;
+        self.gas_counter.pay_per_byte(keccak256_byte, value.len() as u64)?;
+        let value_hash = self.ext.keccak256(&value)?;
+        self.internal_write_register(register_id, value_hash)
+    }
+
+    /// Hashes the random sequence of bytes using keccak512 and returns it into `register_id`.
+    ///
+    /// # Errors
+    ///
+    /// If `value_len + value_ptr` points outside the memory or the registers use more memory than
+    /// the limit with `MemoryAccessViolation`.
+    ///
+    /// # Cost
+    ///
+    /// `base + write_register_base + write_register_byte * num_bytes + keccak512_base + keccak512_byte * num_bytes`
+    pub fn keccak512(&mut self, value_len: u64, value_ptr: u64, register_id: u64) -> Result<()> {
+        self.gas_counter.pay_base(keccak512_base)?;
+        let value = self.get_vec_from_memory_or_register(value_ptr, value_len)?;
+        self.gas_counter.pay_per_byte(keccak512_byte, value.len() as u64)?;
+        let value_hash = self.ext.keccak512(&value)?;
         self.internal_write_register(register_id, value_hash)
     }
 
@@ -1400,20 +1440,9 @@ impl<'a> VMLogic<'a> {
         let allowance = self.memory_get_u128(allowance_ptr)?;
         let allowance = if allowance > 0 { Some(allowance) } else { None };
         let receiver_id = self.read_and_parse_account_id(receiver_id_ptr, receiver_id_len)?;
-        let method_names =
+        let raw_method_names =
             self.get_vec_from_memory_or_register(method_names_ptr, method_names_len)?;
-        // Use `,` separator to split `method_names` into a vector of method names.
-        let method_names =
-            method_names
-                .split(|c| *c == b',')
-                .map(|v| {
-                    if v.is_empty() {
-                        Err(HostError::EmptyMethodName.into())
-                    } else {
-                        Ok(v.to_vec())
-                    }
-                })
-                .collect::<Result<Vec<_>>>()?;
+        let method_names = split_method_names(&raw_method_names)?;
 
         let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
 
@@ -1824,6 +1853,7 @@ impl<'a> VMLogic<'a> {
     /// * If the length of the key exceeds `max_length_storage_key` returns `KeyLengthExceeded`.
     /// * If the length of the value exceeds `max_length_storage_value` returns
     ///   `ValueLengthExceeded`.
+    /// * If called as view function returns `ProhibitedInView``.
     ///
     /// # Cost
     ///
@@ -1840,12 +1870,12 @@ impl<'a> VMLogic<'a> {
         register_id: u64,
     ) -> Result<u64> {
         self.gas_counter.pay_base(base)?;
-        self.gas_counter.pay_base(storage_write_base)?;
-        // All iterators that were valid now become invalid
-        for invalidated_iter_idx in self.valid_iterators.drain() {
-            self.ext.storage_iter_drop(invalidated_iter_idx)?;
-            self.invalid_iterators.insert(invalidated_iter_idx);
+        if self.context.is_view {
+            return Err(
+                HostError::ProhibitedInView { method_name: "storage_write".to_string() }.into()
+            );
         }
+        self.gas_counter.pay_base(storage_write_base)?;
         let key = self.get_vec_from_memory_or_register(key_ptr, key_len)?;
         if key.len() as u64 > self.config.limit_config.max_length_storage_key {
             return Err(HostError::KeyLengthExceeded {
@@ -1877,12 +1907,12 @@ impl<'a> VMLogic<'a> {
                 // Inner value can't overflow, because the value length is limited.
                 self.current_storage_usage = self
                     .current_storage_usage
-                    .checked_sub((old_value.len() as u64) * storage_config.value_cost_per_byte)
+                    .checked_sub(old_value.len() as u64)
                     .ok_or(InconsistentStateError::IntegerOverflow)?;
                 // Inner value can't overflow, because the value length is limited.
                 self.current_storage_usage = self
                     .current_storage_usage
-                    .checked_add(value.len() as u64 * storage_config.value_cost_per_byte)
+                    .checked_add(value.len() as u64)
                     .ok_or(InconsistentStateError::IntegerOverflow)?;
                 self.internal_write_register(register_id, old_value)?;
                 Ok(1)
@@ -1892,9 +1922,9 @@ impl<'a> VMLogic<'a> {
                 self.current_storage_usage = self
                     .current_storage_usage
                     .checked_add(
-                        value.len() as u64 * storage_config.value_cost_per_byte
-                            + key.len() as u64 * storage_config.key_cost_per_byte
-                            + storage_config.data_record_cost,
+                        value.len() as u64
+                            + key.len() as u64
+                            + storage_config.num_extra_bytes_record,
                     )
                     .ok_or(InconsistentStateError::IntegerOverflow)?;
                 Ok(0)
@@ -1972,6 +2002,7 @@ impl<'a> VMLogic<'a> {
     /// * If returning the preempted value into the registers exceed the memory container it returns
     ///   `MemoryAccessViolation`.
     /// * If the length of the key exceeds `max_length_storage_key` returns `KeyLengthExceeded`.
+    /// * If called as view function returns `ProhibitedInView``.
     ///
     /// # Cost
     ///
@@ -1979,12 +2010,12 @@ impl<'a> VMLogic<'a> {
     /// + cost to read the key + cost to write the value`.
     pub fn storage_remove(&mut self, key_len: u64, key_ptr: u64, register_id: u64) -> Result<u64> {
         self.gas_counter.pay_base(base)?;
-        self.gas_counter.pay_base(storage_remove_base)?;
-        // All iterators that were valid now become invalid
-        for invalidated_iter_idx in self.valid_iterators.drain() {
-            self.ext.storage_iter_drop(invalidated_iter_idx)?;
-            self.invalid_iterators.insert(invalidated_iter_idx);
+        if self.context.is_view {
+            return Err(
+                HostError::ProhibitedInView { method_name: "storage_remove".to_string() }.into()
+            );
         }
+        self.gas_counter.pay_base(storage_remove_base)?;
         let key = self.get_vec_from_memory_or_register(key_ptr, key_len)?;
         if key.len() as u64 > self.config.limit_config.max_length_storage_key {
             return Err(HostError::KeyLengthExceeded {
@@ -2009,9 +2040,9 @@ impl<'a> VMLogic<'a> {
                 self.current_storage_usage = self
                     .current_storage_usage
                     .checked_sub(
-                        value.len() as u64 * storage_config.value_cost_per_byte
-                            + key.len() as u64 * storage_config.key_cost_per_byte
-                            + storage_config.data_record_cost,
+                        value.len() as u64
+                            + key.len() as u64
+                            + storage_config.num_extra_bytes_record,
                     )
                     .ok_or(InconsistentStateError::IntegerOverflow)?;
                 self.internal_write_register(register_id, value)?;
@@ -2052,6 +2083,7 @@ impl<'a> VMLogic<'a> {
         Ok(res? as u64)
     }
 
+    /// DEPRECATED
     /// Creates an iterator object inside the host. Returns the identifier that uniquely
     /// differentiates the given iterator from other iterators that can be simultaneously created.
     /// * It iterates over the keys that have the provided prefix. The order of iteration is defined
@@ -2068,28 +2100,13 @@ impl<'a> VMLogic<'a> {
     ///
     /// `base + storage_iter_create_prefix_base + storage_iter_create_key_byte * num_prefix_bytes
     ///  cost of reading the prefix`.
-    pub fn storage_iter_prefix(&mut self, prefix_len: u64, prefix_ptr: u64) -> Result<u64> {
-        self.gas_counter.pay_base(base)?;
-        self.gas_counter.pay_base(storage_iter_create_prefix_base)?;
-
-        let prefix = self.get_vec_from_memory_or_register(prefix_ptr, prefix_len)?;
-        if prefix.len() as u64 > self.config.limit_config.max_length_storage_key {
-            return Err(HostError::KeyLengthExceeded {
-                length: prefix.len() as u64,
-                limit: self.config.limit_config.max_length_storage_key,
-            }
-            .into());
-        }
-        self.gas_counter.pay_per_byte(storage_iter_create_prefix_byte, prefix.len() as u64)?;
-        let nodes_before = self.ext.get_touched_nodes_count();
-        let iterator_index = self.ext.storage_iter(&prefix);
-        self.gas_counter
-            .pay_per_byte(touching_trie_node, self.ext.get_touched_nodes_count() - nodes_before)?;
-        let iterator_index = iterator_index?;
-        self.valid_iterators.insert(iterator_index);
-        Ok(iterator_index)
+    pub fn storage_iter_prefix(&mut self, _prefix_len: u64, _prefix_ptr: u64) -> Result<u64> {
+        Err(VMLogicError::HostError(HostError::Deprecated {
+            method_name: "storage_iter_prefix".to_string(),
+        }))
     }
 
+    /// DEPRECATED
     /// Iterates over all key-values such that keys are between `start` and `end`, where `start` is
     /// inclusive and `end` is exclusive. Unless lexicographically `start < end`, it creates an
     /// empty iterator. Note, this definition allows for `start` or `end` keys to not actually exist
@@ -2108,41 +2125,17 @@ impl<'a> VMLogic<'a> {
     ///  + storage_iter_create_to_byte * num_to_bytes + reading from prefix + reading to prefix`.
     pub fn storage_iter_range(
         &mut self,
-        start_len: u64,
-        start_ptr: u64,
-        end_len: u64,
-        end_ptr: u64,
+        _start_len: u64,
+        _start_ptr: u64,
+        _end_len: u64,
+        _end_ptr: u64,
     ) -> Result<u64> {
-        self.gas_counter.pay_base(base)?;
-        self.gas_counter.pay_base(storage_iter_create_range_base)?;
-        let start_key = self.get_vec_from_memory_or_register(start_ptr, start_len)?;
-        if start_key.len() as u64 > self.config.limit_config.max_length_storage_key {
-            return Err(HostError::KeyLengthExceeded {
-                length: start_key.len() as u64,
-                limit: self.config.limit_config.max_length_storage_key,
-            }
-            .into());
-        }
-        let end_key = self.get_vec_from_memory_or_register(end_ptr, end_len)?;
-        if end_key.len() as u64 > self.config.limit_config.max_length_storage_key {
-            return Err(HostError::KeyLengthExceeded {
-                length: end_key.len() as u64,
-                limit: self.config.limit_config.max_length_storage_key,
-            }
-            .into());
-        }
-        self.gas_counter.pay_per_byte(storage_iter_create_from_byte, start_key.len() as u64)?;
-        self.gas_counter.pay_per_byte(storage_iter_create_to_byte, end_key.len() as u64)?;
-
-        let nodes_before = self.ext.get_touched_nodes_count();
-        let iterator_index = self.ext.storage_iter_range(&start_key, &end_key);
-        self.gas_counter
-            .pay_per_byte(touching_trie_node, self.ext.get_touched_nodes_count() - nodes_before)?;
-        let iterator_index = iterator_index?;
-        self.valid_iterators.insert(iterator_index);
-        Ok(iterator_index)
+        Err(VMLogicError::HostError(HostError::Deprecated {
+            method_name: "storage_iter_range".to_string(),
+        }))
     }
 
+    /// DEPRECATED
     /// Advances iterator and saves the next key and value in the register.
     /// * If iterator is not empty (after calling next it points to a key-value), copies the key
     ///   into `key_register_id` and value into `value_register_id` and returns `1`;
@@ -2172,40 +2165,13 @@ impl<'a> VMLogic<'a> {
     ///  + writing key to register + writing value to register`.
     pub fn storage_iter_next(
         &mut self,
-        iterator_id: u64,
-        key_register_id: u64,
-        value_register_id: u64,
+        _iterator_id: u64,
+        _key_register_id: u64,
+        _value_register_id: u64,
     ) -> Result<u64> {
-        self.gas_counter.pay_base(base)?;
-        self.gas_counter.pay_base(storage_iter_next_base)?;
-        if self.invalid_iterators.contains(&iterator_id) {
-            return Err(HostError::IteratorWasInvalidated { iterator_index: iterator_id }.into());
-        } else if !self.valid_iterators.contains(&iterator_id) {
-            return Err(HostError::InvalidIteratorIndex { iterator_index: iterator_id }.into());
-        }
-
-        let nodes_before = self.ext.get_touched_nodes_count();
-
-        let key_value = match self.ext.storage_iter_next(iterator_id)? {
-            Some((key, value_ptr)) => {
-                self.gas_counter.pay_per_byte(storage_iter_next_key_byte, key.len() as u64)?;
-                self.gas_counter
-                    .pay_per_byte(storage_iter_next_value_byte, value_ptr.len() as u64)?;
-                let value = value_ptr.deref()?;
-                Some((key, value))
-            }
-            None => None,
-        };
-        self.gas_counter
-            .pay_per_byte(touching_trie_node, self.ext.get_touched_nodes_count() - nodes_before)?;
-        match key_value {
-            Some((key, value)) => {
-                self.internal_write_register(key_register_id, key)?;
-                self.internal_write_register(value_register_id, value)?;
-                Ok(1)
-            }
-            None => Ok(0),
-        }
+        Err(VMLogicError::HostError(HostError::Deprecated {
+            method_name: "storage_iter_next".to_string(),
+        }))
     }
 
     /// Computes the outcome of execution.
@@ -2219,9 +2185,23 @@ impl<'a> VMLogic<'a> {
             logs: self.logs,
         }
     }
+
+    /// clones the outcome of execution.
+    pub fn clone_outcome(&self) -> VMOutcome {
+        let logs = self.logs.clone();
+        let return_data = self.return_data.clone();
+        VMOutcome {
+            balance: self.current_account_balance,
+            storage_usage: self.current_storage_usage,
+            return_data,
+            burnt_gas: self.gas_counter.burnt_gas(),
+            used_gas: self.gas_counter.used_gas(),
+            logs,
+        }
+    }
 }
 
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Serialize, Deserialize, Clone)]
 pub struct VMOutcome {
     pub balance: Balance,
     pub storage_usage: StorageUsage,

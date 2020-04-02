@@ -9,13 +9,14 @@ mod tests {
     use near_chain::test_utils::setup;
     use near_chain::{create_light_client_block_view, FinalityGadget};
     use near_chain::{Chain, ChainStore, ChainStoreAccess, ChainStoreUpdate};
-    use near_crypto::{KeyType, PublicKey, Signature, Signer};
+    use near_crypto::{KeyType, PublicKey, Signature};
     use near_epoch_manager::test_utils::{record_block, setup_default_epoch_manager};
     use near_epoch_manager::EpochManager;
     use near_primitives::block::{Approval, Block, BlockHeader, BlockScore};
     use near_primitives::hash::CryptoHash;
     use near_primitives::merkle::combine_hash;
     use near_primitives::types::{AccountId, BlockHeight, EpochId, ValidatorStake};
+    use near_primitives::validator_signer::ValidatorSigner;
     use near_primitives::views::ValidatorStakeView;
 
     fn create_block(
@@ -23,7 +24,7 @@ mod tests {
         prev: &Block,
         height: BlockHeight,
         chain_store: &mut ChainStore,
-        signer: &dyn Signer,
+        signer: &dyn ValidatorSigner,
         approvals: Vec<Approval>,
         stakes: &Vec<ValidatorStake>,
     ) -> (Block, CryptoHash) {
@@ -301,7 +302,7 @@ mod tests {
                     );
                     let (mut chain, _, signer) = setup();
                     let mut em = setup_default_epoch_manager(
-                        block_producers1.iter().map(|_| ("test", 1000000)).collect(),
+                        block_producers1.iter().map(|name| (name.as_str(), 1000000)).collect(),
                         10,
                         4,
                         7,

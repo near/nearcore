@@ -8,7 +8,7 @@ use chrono::Utc;
 use log::debug;
 use serde::Serialize;
 
-use near_crypto::{InMemorySigner, KeyType, PublicKey, SecretKey, Signature};
+use near_crypto::{KeyType, PublicKey, SecretKey, Signature};
 use near_pool::types::PoolIterator;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::block::{Approval, Block};
@@ -23,9 +23,10 @@ use near_primitives::transaction::{
     TransferAction,
 };
 use near_primitives::types::{
-    AccountId, Balance, BlockHeight, EpochId, Gas, Nonce, NumBlocks, ShardId, StateChanges,
-    StateChangesRequest, StateRoot, StateRootNode, ValidatorStake, ValidatorStats,
+    AccountId, Balance, BlockHeight, EpochId, Gas, Nonce, NumBlocks, ShardId, StateRoot,
+    StateRootNode, ValidatorStake, ValidatorStats,
 };
+use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_primitives::views::{
     AccessKeyInfoView, AccessKeyList, CallResult, EpochValidatorInfo, QueryRequest, QueryResponse,
     QueryResponseKind, ViewStateResult,
@@ -35,7 +36,7 @@ use near_store::{
     ColBlockHeader, PartialStorage, Store, StoreUpdate, Trie, TrieChanges, WrappedTrieChanges,
 };
 
-use crate::chain::{Chain, ChainGenesis};
+use crate::chain::{Chain, ChainGenesis, NUM_EPOCHS_TO_KEEP_STORE_DATA};
 use crate::error::{Error, ErrorKind};
 use crate::store::ChainStoreAccess;
 use crate::types::ApplyTransactionResult;
@@ -182,9 +183,9 @@ impl KeyValueRuntime {
         if prev_hash == CryptoHash::default() {
             return Ok((EpochId(prev_hash), 0, EpochId(prev_hash)));
         }
-        let prev_block_header = self.get_block_header(&prev_hash)?.ok_or_else(|| {
-            ErrorKind::Other(format!("Missing block {} when computing the epoch", prev_hash))
-        })?;
+        let prev_block_header = self
+            .get_block_header(&prev_hash)?
+            .ok_or_else(|| ErrorKind::DBNotFoundErr(to_base(&prev_hash)))?;
 
         let mut hash_to_epoch = self.hash_to_epoch.write().unwrap();
         let mut hash_to_next_epoch = self.hash_to_next_epoch.write().unwrap();
@@ -247,11 +248,16 @@ impl KeyValueRuntime {
 }
 
 impl RuntimeAdapter for KeyValueRuntime {
-    fn genesis_state(&self) -> (StoreUpdate, Vec<StateRoot>) {
+    fn genesis_state(&self) -> (Arc<Store>, StoreUpdate, Vec<StateRoot>) {
         (
+            self.store.clone(),
             self.store.store_update(),
             ((0..self.num_shards()).map(|_| StateRoot::default()).collect()),
         )
+    }
+
+    fn get_trie(&self) -> Arc<Trie> {
+        self.trie.clone()
     }
 
     fn verify_block_signature(&self, header: &BlockHeader) -> Result<(), Error> {
@@ -261,6 +267,17 @@ impl RuntimeAdapter for KeyValueRuntime {
         if !header.verify_block_producer(&validator.public_key) {
             return Err(ErrorKind::InvalidBlockProposer.into());
         }
+        Ok(())
+    }
+
+    fn verify_block_vrf(
+        &self,
+        _epoch_id: &EpochId,
+        _block_height: BlockHeight,
+        _prev_random_value: &CryptoHash,
+        _vrf_value: near_crypto::vrf::Value,
+        _vrf_proof: near_crypto::vrf::Proof,
+    ) -> Result<(), Error> {
         Ok(())
     }
 
@@ -453,12 +470,12 @@ impl RuntimeAdapter for KeyValueRuntime {
         &self,
         _parent_hash: CryptoHash,
         _current_hash: CryptoHash,
+        _rng_seed: CryptoHash,
         _height: BlockHeight,
         _last_finalized_height: BlockHeight,
         _proposals: Vec<ValidatorStake>,
         _slashed_validators: Vec<SlashedValidator>,
         _validator_mask: Vec<bool>,
-        _rent_paid: Balance,
         _validator_reward: Balance,
         _total_supply: Balance,
     ) -> Result<(), Error> {
@@ -634,7 +651,6 @@ impl RuntimeAdapter for KeyValueRuntime {
             receipt_result: new_receipts,
             validator_proposals: vec![],
             total_gas_burnt: 0,
-            total_rent_paid: 0,
             total_validator_reward: 0,
             total_balance_burnt: 0,
             proof: None,
@@ -666,6 +682,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         block_height: BlockHeight,
         _block_timestamp: u64,
         block_hash: &CryptoHash,
+        _epoch_id: &EpochId,
         request: &QueryRequest,
     ) -> Result<QueryResponse, Box<dyn std::error::Error>> {
         match request {
@@ -679,7 +696,6 @@ impl RuntimeAdapter for KeyValueRuntime {
                         locked: 0,
                         code_hash: CryptoHash::default(),
                         storage_usage: 0,
-                        storage_paid_at: 0,
                     }
                     .into(),
                 ),
@@ -702,7 +718,10 @@ impl RuntimeAdapter for KeyValueRuntime {
                 block_hash: *block_hash,
             }),
             QueryRequest::ViewState { .. } => Ok(QueryResponse {
-                kind: QueryResponseKind::ViewState(ViewStateResult { values: Default::default() }),
+                kind: QueryResponseKind::ViewState(ViewStateResult {
+                    values: Default::default(),
+                    proof: vec![],
+                }),
                 block_height,
                 block_hash: *block_hash,
             }),
@@ -814,6 +833,12 @@ impl RuntimeAdapter for KeyValueRuntime {
         }
     }
 
+    fn get_gc_stop_height(&self, block_hash: &CryptoHash) -> Result<BlockHeight, Error> {
+        let block_height =
+            self.get_block_header(block_hash)?.map(|h| h.inner_lite.height).unwrap_or_default();
+        Ok(block_height.saturating_sub(NUM_EPOCHS_TO_KEEP_STORE_DATA * self.epoch_length))
+    }
+
     fn get_epoch_inflation(&self, _epoch_id: &EpochId) -> Result<u128, Error> {
         Ok(0)
     }
@@ -825,15 +850,8 @@ impl RuntimeAdapter for KeyValueRuntime {
             current_fishermen: vec![],
             next_fishermen: vec![],
             current_proposals: vec![],
+            prev_epoch_kickout: vec![],
         })
-    }
-
-    fn get_key_value_changes(
-        &self,
-        _block_hash: &CryptoHash,
-        _state_changes_request: &StateChangesRequest,
-    ) -> Result<StateChanges, Box<dyn std::error::Error>> {
-        Ok(Default::default())
     }
 
     fn push_final_block_back_if_needed(
@@ -888,23 +906,32 @@ impl RuntimeAdapter for KeyValueRuntime {
     }
 }
 
-pub fn setup() -> (Chain, Arc<KeyValueRuntime>, Arc<InMemorySigner>) {
+pub fn setup() -> (Chain, Arc<KeyValueRuntime>, Arc<InMemoryValidatorSigner>) {
     setup_with_tx_validity_period(100)
 }
 
 pub fn setup_with_tx_validity_period(
     tx_validity_period: NumBlocks,
-) -> (Chain, Arc<KeyValueRuntime>, Arc<InMemorySigner>) {
+) -> (Chain, Arc<KeyValueRuntime>, Arc<InMemoryValidatorSigner>) {
     let store = create_test_store();
     let runtime = Arc::new(KeyValueRuntime::new(store.clone()));
     let chain = Chain::new(
-        store,
         runtime.clone(),
-        &ChainGenesis::new(Utc::now(), 1_000_000, 100, 1_000_000_000, 0, 0, tx_validity_period, 10),
+        &ChainGenesis::new(
+            Utc::now(),
+            0,
+            1_000_000,
+            100,
+            1_000_000_000,
+            0,
+            0,
+            tx_validity_period,
+            10,
+        ),
         DoomslugThresholdMode::NoApprovals,
     )
     .unwrap();
-    let signer = Arc::new(InMemorySigner::from_seed("test", KeyType::ED25519, "test"));
+    let signer = Arc::new(InMemoryValidatorSigner::from_seed("test", KeyType::ED25519, "test"));
     (chain, runtime, signer)
 }
 
@@ -914,11 +941,11 @@ pub fn setup_with_validators(
     num_shards: ShardId,
     epoch_length: u64,
     tx_validity_period: NumBlocks,
-) -> (Chain, Arc<KeyValueRuntime>, Vec<Arc<InMemorySigner>>) {
+) -> (Chain, Arc<KeyValueRuntime>, Vec<Arc<InMemoryValidatorSigner>>) {
     let store = create_test_store();
     let signers = validators
         .iter()
-        .map(|x| Arc::new(InMemorySigner::from_seed(x.as_str(), KeyType::ED25519, x)))
+        .map(|x| Arc::new(InMemoryValidatorSigner::from_seed(x.as_str(), KeyType::ED25519, x)))
         .collect();
     let runtime = Arc::new(KeyValueRuntime::new_with_validators(
         store.clone(),
@@ -928,10 +955,10 @@ pub fn setup_with_validators(
         epoch_length,
     ));
     let chain = Chain::new(
-        store,
         runtime.clone(),
         &ChainGenesis::new(
             Utc::now(),
+            0,
             1_000_000,
             100,
             1_000_000_000,
@@ -1048,6 +1075,7 @@ impl ChainGenesis {
     pub fn test() -> Self {
         ChainGenesis {
             time: Utc::now(),
+            height: 0,
             gas_limit: 1_000_000,
             min_gas_price: 0,
             total_supply: 1_000_000_000,
@@ -1063,19 +1091,14 @@ pub fn new_block_no_epoch_switches(
     prev_block: &Block,
     height: BlockHeight,
     approvals: Vec<&str>,
-    signer: &InMemorySigner,
+    signer: &InMemoryValidatorSigner,
 ) -> Block {
     let approvals = approvals
         .into_iter()
-        .map(|x| {
-            Approval::new(
-                prev_block.hash(),
-                Some(prev_block.hash()),
-                height,
-                true,
-                signer,
-                x.to_string(),
-            )
+        .map(|account_id| {
+            let signer =
+                InMemoryValidatorSigner::from_seed(account_id, KeyType::ED25519, account_id);
+            Approval::new(prev_block.hash(), Some(prev_block.hash()), height, true, &signer)
         })
         .collect();
     let (epoch_id, next_epoch_id) = if prev_block.header.prev_hash == CryptoHash::default() {

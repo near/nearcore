@@ -1,3 +1,4 @@
+use std::cmp::min;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::{Duration as TimeDuration, Instant};
@@ -7,6 +8,7 @@ use chrono::prelude::{DateTime, Utc};
 use chrono::Duration;
 use log::{debug, error, info};
 
+use near_chain_configs::GenesisConfig;
 use near_primitives::block::{genesis_chunks, Approval};
 use near_primitives::challenge::{
     BlockDoubleSign, Challenge, ChallengeBody, ChallengesResult, ChunkProofs, ChunkState,
@@ -23,14 +25,14 @@ use near_primitives::transaction::{
 };
 use near_primitives::types::{
     AccountId, Balance, BlockExtra, BlockHeight, BlockHeightDelta, ChunkExtra, EpochId, Gas,
-    NumBlocks, ShardId, ValidatorStake,
+    NumBlocks, ShardId, StateHeaderKey, ValidatorStake,
 };
 use near_primitives::unwrap_or_return;
 use near_primitives::views::{
     ExecutionOutcomeWithIdView, ExecutionStatusView, FinalExecutionOutcomeView,
     FinalExecutionStatus, LightClientBlockView,
 };
-use near_store::{ColStateHeaders, ColStateParts, Store};
+use near_store::{ColStateHeaders, ColStateParts, Trie};
 
 use crate::error::{Error, ErrorKind};
 use crate::finality::{ApprovalVerificationError, FinalityGadget, FinalityGadgetQuorums};
@@ -39,11 +41,11 @@ use crate::store::{ChainStore, ChainStoreAccess, ChainStoreUpdate, ShardInfo, St
 use crate::types::{
     AcceptedBlock, ApplyTransactionResult, Block, BlockHeader, BlockStatus, Provenance,
     ReceiptList, ReceiptProofResponse, ReceiptResponse, RootProof, RuntimeAdapter,
-    ShardStateSyncResponseHeader, StateHeaderKey, StatePartKey, Tip,
+    ShardStateSyncResponseHeader, StatePartKey, Tip,
 };
 use crate::validate::{
-    validate_challenge, validate_chunk_proofs, validate_chunk_transactions,
-    validate_chunk_with_chunk_extra,
+    validate_challenge, validate_chunk_proofs, validate_chunk_with_chunk_extra,
+    validate_transactions_order,
 };
 use crate::{byzantine_assert, create_light_client_block_view, Doomslug};
 use crate::{metrics, DoomslugThresholdMode};
@@ -67,10 +69,10 @@ pub const TX_ROUTING_HEIGHT_HORIZON: BlockHeightDelta = 4;
 const NEAR_BASE: Balance = 1_000_000_000_000_000_000_000_000;
 
 /// Number of epochs for which we keep store data
-const NUM_EPOCHS_TO_KEEP_STORE_DATA: u64 = 5;
+pub const NUM_EPOCHS_TO_KEEP_STORE_DATA: u64 = 5;
 
-/// Number of heights to clear.
-const HEIGHTS_TO_CLEAR: BlockHeightDelta = 10;
+/// Maximum number of heights to clear per one GC run
+pub const MAX_HEIGHTS_TO_CLEAR: u64 = 100;
 
 /// Block economics config taken from genesis config
 pub struct BlockEconomicsConfig {
@@ -176,6 +178,7 @@ impl OrphanBlockPool {
 #[derive(Clone)]
 pub struct ChainGenesis {
     pub time: DateTime<Utc>,
+    pub height: BlockHeight,
     pub gas_limit: Gas,
     pub min_gas_price: Balance,
     pub total_supply: Balance,
@@ -188,6 +191,7 @@ pub struct ChainGenesis {
 impl ChainGenesis {
     pub fn new(
         time: DateTime<Utc>,
+        height: BlockHeight,
         gas_limit: Gas,
         min_gas_price: Balance,
         total_supply: Balance,
@@ -198,6 +202,7 @@ impl ChainGenesis {
     ) -> Self {
         Self {
             time,
+            height,
             gas_limit,
             min_gas_price,
             total_supply,
@@ -206,6 +211,26 @@ impl ChainGenesis {
             transaction_validity_period,
             epoch_length,
         }
+    }
+}
+
+impl<T> From<T> for ChainGenesis
+where
+    T: AsRef<GenesisConfig>,
+{
+    fn from(genesis_config: T) -> Self {
+        let genesis_config = genesis_config.as_ref();
+        ChainGenesis::new(
+            genesis_config.genesis_time,
+            genesis_config.genesis_height,
+            genesis_config.gas_limit,
+            genesis_config.min_gas_price,
+            genesis_config.total_supply,
+            genesis_config.max_inflation_rate,
+            genesis_config.gas_price_adjustment_rate,
+            genesis_config.transaction_validity_period,
+            genesis_config.epoch_length,
+        )
     }
 }
 
@@ -226,23 +251,23 @@ pub struct Chain {
 
 impl Chain {
     pub fn new(
-        store: Arc<Store>,
         runtime_adapter: Arc<dyn RuntimeAdapter>,
         chain_genesis: &ChainGenesis,
         doomslug_threshold_mode: DoomslugThresholdMode,
     ) -> Result<Chain, Error> {
-        let mut store = ChainStore::new(store);
-
         // Get runtime initial state and create genesis block out of it.
-        let (state_store_update, state_roots) = runtime_adapter.genesis_state();
+        let (store, state_store_update, state_roots) = runtime_adapter.genesis_state();
+        let mut store = ChainStore::new(store, chain_genesis.height);
         let genesis_chunks = genesis_chunks(
             state_roots.clone(),
             runtime_adapter.num_shards(),
             chain_genesis.gas_limit,
+            chain_genesis.height,
         );
         let genesis = Block::genesis(
             genesis_chunks.iter().map(|chunk| chunk.header.clone()).collect(),
             chain_genesis.time,
+            chain_genesis.height,
             chain_genesis.min_gas_price,
             chain_genesis.total_supply,
             Chain::compute_bp_hash(&*runtime_adapter, EpochId::default(), &CryptoHash::default())?,
@@ -257,7 +282,7 @@ impl Chain {
                 head = h;
 
                 // Check that genesis in the store is the same as genesis given in the config.
-                let genesis_hash = store_update.get_block_hash_by_height(0)?;
+                let genesis_hash = store_update.get_block_hash_by_height(chain_genesis.height)?;
                 if genesis_hash != genesis.hash() {
                     return Err(ErrorKind::Other(format!(
                         "Genesis mismatch between storage and config: {:?} vs {:?}",
@@ -287,12 +312,13 @@ impl Chain {
                     runtime_adapter.add_validator_proposals(
                         CryptoHash::default(),
                         genesis.hash(),
+                        genesis.header.inner_rest.random_value,
                         genesis.header.inner_lite.height,
-                        0,
+                        // genesis height is considered final
+                        chain_genesis.height,
                         vec![],
                         vec![],
                         vec![],
-                        0,
                         0,
                         chain_genesis.total_supply,
                     )?;
@@ -314,7 +340,6 @@ impl Chain {
                                 vec![],
                                 0,
                                 chain_genesis.gas_limit,
-                                0,
                                 0,
                                 0,
                             ),
@@ -350,6 +375,11 @@ impl Chain {
             },
             doomslug_threshold_mode,
         })
+    }
+
+    #[cfg(feature = "adversarial")]
+    pub fn adv_disable_doomslug(&mut self) {
+        self.doomslug_threshold_mode = DoomslugThresholdMode::NoApprovals
     }
 
     pub fn process_approval(
@@ -492,6 +522,8 @@ impl Chain {
         }
 
         chain_store_update.save_block(block.clone());
+        // We don't need to increase refcount for `prev_hash` at this point
+        // because this is the block before State Sync.
 
         chain_store_update.commit()?;
         Ok(())
@@ -505,20 +537,110 @@ impl Chain {
         });
     }
 
-    pub fn clear_old_data(&mut self) -> Result<(), Error> {
+    // GC CONTRACT
+    // ===
+    //
+    // Prerequisites, guaranteed by the System:
+    // 1. Genesis is always on the Canonical Chain, only one Genesis exists and its height is `genesis_height`,
+    //    and no block with height lower than `genesis_height` exists.
+    // 2. If block A is ancestor of block B, height of A is strictly less then height of B.
+    // 3. (Property 1). An oldest block where fork is happened has the least height among all blocks on the fork.
+    // 4. (Property 2). An oldest block where fork is happened is never affected by Canonical Chain Switching
+    //    and always stays on Canonical Chain.
+    //
+    // Overall:
+    // 1. GC procedure is handled by `clear_data()` function.
+    // 2. `clear_data()` runs GC process for all blocks from the lowest known block height (tail).
+    // 3. `clear_data()` contains of four parts:
+    //    a. Block Reference Map creating, if it not exists
+    //    b. Define clearing height as `height`; the highest height for which we want to clear the data
+    //    c. Forks Clearing at height `height` down to tail.
+    //    d. Canonical Chain Clearing from tail up to height `height`
+    // 4. Before actual clearing is started, Block Reference Map should be built.
+    // 5. It's recommended to execute `clear_data()` every time when block at new height is added.
+    //
+    // Forks Clearing:
+    // 1. Any fork which ends up on height `height` INCLUSIVELY and earlier will be completely deleted
+    //    from the Store with all its ancestors up to the ancestor block where fork is happened
+    //    EXCLUDING the ancestor block where fork is happened.
+    // 2. The oldest ancestor block always remains on the Canonical Chain by property 2.
+    // 3. All forks which end up on height `height + 1` and further are protected from deletion and
+    //    no their ancestor will be deleted (even with lowest heights).
+    // 4. `clear_forks_data()` handles forks clearing for fixed height `height`.
+    //
+    // Canonical Chain Clearing:
+    // 1. Blocks on the Canonical Chain with the only descendant (if no forks started from them)
+    //    are unlocked for Canonical Chain Clearing.
+    // 2. If Forks Clearing ended up on the Canonical Chain, the block may be unlocked
+    //    for the Canonical Chain Clearing. There is no other reason to unlock the block exists.
+    // 3. All the unlocked blocks will be completely deleted
+    //    from the tail up to the height `height` EXCLUSIVELY.
+    // 4. (Property 3, GC invariant). There is always only one block with the lowest height (tail)
+    //    (based on property 1) and it's always on the Canonical Chain (based on property 2).
+    //
+    // Example:
+    //
+    // height: 101   102   103   104
+    // --------[A]---[B]---[C]---[D]
+    //          \     \
+    //           \     \---[E]
+    //            \
+    //             \-[F]---[G]
+    //
+    // 1. Let's define clearing height = 102. It this case fork A-F-G is protected from deletion
+    //    because of G which is on height 103. Nothing will be deleted.
+    // 2. Let's define clearing height = 103. It this case Fork Clearing will be executed for A
+    //    to delete blocks G and F, then Fork Clearing will be executed for B to delete block E.
+    //    Then Canonical Chain Clearing will delete blocks A and B as unlocked.
+    //    Block C is the only block of height 103 remains on the Canonical Chain (invariant).
+    //
+    pub fn clear_data(&mut self, trie: Arc<Trie>) -> Result<(), Error> {
         let mut chain_store_update = self.store.store_update();
         let head = chain_store_update.head()?;
-        let height_diff = NUM_EPOCHS_TO_KEEP_STORE_DATA * self.epoch_length;
-        if head.height >= height_diff {
-            let last_height = head.height - height_diff;
-            for height in last_height.saturating_sub(HEIGHTS_TO_CLEAR)..last_height {
-                match chain_store_update.clear_old_data_on_height(height) {
-                    Ok(_) => {}
-                    Err(err) => {
-                        error!(target: "client", "Error clearing old data on height {:?}, {:?}", height, err);
-                    }
-                }
+        let tail = chain_store_update.tail()?;
+        let mut gc_stop_height = self.runtime_adapter.get_gc_stop_height(&head.last_block_hash)?;
+        if gc_stop_height > head.height {
+            return Err(ErrorKind::GCError(
+                "gc_stop_height cannot be larger than head.height".into(),
+            )
+            .into());
+        }
+        // To avoid network slowdown, we limit the number of heights to clear per GC execution
+        gc_stop_height = min(gc_stop_height, tail + MAX_HEIGHTS_TO_CLEAR);
+        // Forks Cleaning
+        for height in tail..gc_stop_height {
+            if height == chain_store_update.get_genesis_height() {
+                continue;
             }
+            chain_store_update.clear_forks_data(trie.clone(), height)?;
+        }
+
+        // Canonical Chain Clearing
+        for height in tail + 1..gc_stop_height {
+            let blocks_current_height: Vec<CryptoHash> =
+                match chain_store_update.get_all_block_hashes_by_height(height) {
+                    Ok(blocks_current_height) => {
+                        blocks_current_height.values().flatten().cloned().collect()
+                    }
+                    _ => continue,
+                };
+            if let Some(block_hash) = blocks_current_height.first() {
+                if blocks_current_height.len() > 1 {
+                    // Fork is here
+                    break;
+                }
+                let prev_hash = chain_store_update.get_block_header(block_hash)?.prev_hash;
+                if *chain_store_update.get_block_refcount(&prev_hash)? != 1 {
+                    return Err(ErrorKind::GCError(format!(
+                        "invalid refcount for {:?}, expected 1, found {:?}",
+                        block_hash,
+                        chain_store_update.get_block_refcount(&prev_hash).unwrap()
+                    ))
+                    .into());
+                }
+                chain_store_update.clear_block_data(trie.clone(), *block_hash, false)?;
+            }
+            chain_store_update.update_tail(height);
         }
         chain_store_update.commit()?;
         Ok(())
@@ -539,7 +661,6 @@ impl Chain {
             self.runtime_adapter.clone(),
             &self.orphans,
             &self.blocks_with_missing_chunks,
-            self.transaction_validity_period,
             self.epoch_length,
             &self.block_economics_config,
             self.doomslug_threshold_mode,
@@ -558,7 +679,6 @@ impl Chain {
             self.runtime_adapter.clone(),
             &self.orphans,
             &self.blocks_with_missing_chunks,
-            self.transaction_validity_period,
             self.epoch_length,
             &self.block_economics_config,
             self.doomslug_threshold_mode,
@@ -620,7 +740,6 @@ impl Chain {
             self.runtime_adapter.clone(),
             &self.orphans,
             &self.blocks_with_missing_chunks,
-            self.transaction_validity_period,
             self.epoch_length,
             &self.block_economics_config,
             self.doomslug_threshold_mode,
@@ -671,7 +790,6 @@ impl Chain {
                     self.runtime_adapter.clone(),
                     &self.orphans,
                     &self.blocks_with_missing_chunks,
-                    self.transaction_validity_period,
                     self.epoch_length,
                     &self.block_economics_config,
                     self.doomslug_threshold_mode,
@@ -693,12 +811,12 @@ impl Chain {
                 self.runtime_adapter.add_validator_proposals(
                     header.prev_hash,
                     header.hash(),
+                    header.inner_rest.random_value,
                     header.inner_lite.height,
                     self.store.get_block_height(&header.inner_rest.last_quorum_pre_commit)?,
                     header.inner_rest.validator_proposals.clone(),
                     vec![],
                     header.inner_rest.chunk_mask.clone(),
-                    header.inner_rest.rent_paid,
                     header.inner_rest.validator_reward,
                     header.inner_rest.total_supply,
                 )?;
@@ -710,7 +828,6 @@ impl Chain {
             self.runtime_adapter.clone(),
             &self.orphans,
             &self.blocks_with_missing_chunks,
-            self.transaction_validity_period,
             self.epoch_length,
             &self.block_economics_config,
             self.doomslug_threshold_mode,
@@ -740,7 +857,7 @@ impl Chain {
         }
 
         // Find common block between header chain and block chain.
-        let mut oldest_height = 0;
+        let mut oldest_height = header_head.height;
         let mut current = self.get_block_header(&header_head.last_block_hash).map(|h| h.clone());
         while let Ok(header) = current {
             if header.inner_lite.height <= block_head.height {
@@ -754,9 +871,13 @@ impl Chain {
             current = self.get_previous_header(&header).map(|h| h.clone());
         }
 
-        let sync_head = self.sync_head()?;
-        if oldest_height < sync_head.height.saturating_sub(block_fetch_horizon) {
-            return Ok((true, vec![]));
+        // Don't run State Sync if epochs are the same
+        if block_head.epoch_id != header_head.epoch_id {
+            let sync_head = self.sync_head()?;
+            if oldest_height < sync_head.height.saturating_sub(block_fetch_horizon) {
+                // Epochs are different and we are too far from horizon, State Sync is needed
+                return Ok((true, vec![]));
+            }
         }
         Ok((false, hashes))
     }
@@ -894,7 +1015,6 @@ impl Chain {
             self.runtime_adapter.clone(),
             &self.orphans,
             &self.blocks_with_missing_chunks,
-            self.transaction_validity_period,
             self.epoch_length,
             &self.block_economics_config,
             self.doomslug_threshold_mode,
@@ -1167,15 +1287,22 @@ impl Chain {
         let sync_block =
             self.get_block(&sync_hash).expect("block has already been checked for existence");
         let sync_block_header = sync_block.header.clone();
+        let sync_block_epoch_id = sync_block.header.inner_lite.epoch_id.clone();
         if shard_id as usize >= sync_block.chunks.len() {
-            return Err(ErrorKind::Other("Invalid request: ShardId out of bounds".into()).into());
+            return Err(ErrorKind::InvalidStateRequest("ShardId out of bounds".into()).into());
         }
 
         // The chunk was applied at height `chunk_header.height_included`.
         // Getting the `current` state.
         let sync_prev_block = self.get_block(&sync_block_header.prev_hash)?;
+        if sync_block_epoch_id == sync_prev_block.header.inner_lite.epoch_id {
+            return Err(ErrorKind::InvalidStateRequest(
+                "sync_hash is not the first hash of the epoch".into(),
+            )
+            .into());
+        }
         if shard_id as usize >= sync_prev_block.chunks.len() {
-            return Err(ErrorKind::Other("Invalid request: ShardId out of bounds".into()).into());
+            return Err(ErrorKind::InvalidStateRequest("ShardId out of bounds".into()).into());
         }
         // Chunk header here is the same chunk header as at the `current` height.
         let chunk_header = sync_prev_block.chunks[shard_id as usize].clone();
@@ -1202,7 +1329,7 @@ impl Chain {
             Ok(prev_block) => {
                 if shard_id as usize >= prev_block.chunks.len() {
                     return Err(
-                        ErrorKind::Other("Invalid request: ShardId out of bounds".into()).into()
+                        ErrorKind::InvalidStateRequest("ShardId out of bounds".into()).into()
                     );
                 }
                 let prev_chunk_header = prev_block.chunks[shard_id as usize].clone();
@@ -1311,28 +1438,26 @@ impl Chain {
         let sync_block =
             self.get_block(&sync_hash).expect("block has already been checked for existence");
         let sync_block_header = sync_block.header.clone();
+        let sync_block_epoch_id = sync_block.header.inner_lite.epoch_id.clone();
         if shard_id as usize >= sync_block.chunks.len() {
-            return Err(ErrorKind::Other(
-                "get_syncing_state_root fail: shard_id out of bounds".into(),
+            return Err(ErrorKind::InvalidStateRequest("shard_id out of bounds".into()).into());
+        }
+        let sync_prev_block = self.get_block(&sync_block_header.prev_hash)?;
+        if sync_block_epoch_id == sync_prev_block.header.inner_lite.epoch_id {
+            return Err(ErrorKind::InvalidStateRequest(
+                "sync_hash is not the first hash of the epoch".into(),
             )
             .into());
         }
-        let sync_prev_block = self.get_block(&sync_block_header.prev_hash)?;
         if shard_id as usize >= sync_prev_block.chunks.len() {
-            return Err(ErrorKind::Other(
-                "get_syncing_state_root fail: shard_id out of bounds".into(),
-            )
-            .into());
+            return Err(ErrorKind::InvalidStateRequest("shard_id out of bounds".into()).into());
         }
         let state_root = sync_prev_block.chunks[shard_id as usize].inner.prev_state_root.clone();
         let state_root_node = self.runtime_adapter.get_state_root_node(&state_root);
         let num_parts = Self::get_num_state_parts(state_root_node.memory_usage);
 
         if part_id >= num_parts {
-            return Err(ErrorKind::Other(
-                "get_state_response_part fail: part_id out of bound".to_string(),
-            )
-            .into());
+            return Err(ErrorKind::InvalidStateRequest("part_id out of bound".to_string()).into());
         }
         let state_part = self.runtime_adapter.obtain_state_part(&state_root, part_id, num_parts);
 
@@ -1585,7 +1710,6 @@ impl Chain {
             self.runtime_adapter.clone(),
             &self.orphans,
             &self.blocks_with_missing_chunks,
-            self.transaction_validity_period,
             self.epoch_length,
             &self.block_economics_config,
             self.doomslug_threshold_mode,
@@ -1602,7 +1726,6 @@ impl Chain {
                 self.runtime_adapter.clone(),
                 &self.orphans,
                 &self.blocks_with_missing_chunks,
-                self.transaction_validity_period,
                 self.epoch_length,
                 &self.block_economics_config,
                 self.doomslug_threshold_mode,
@@ -1659,7 +1782,6 @@ impl Chain {
             self.runtime_adapter.clone(),
             &self.orphans,
             &self.blocks_with_missing_chunks,
-            self.transaction_validity_period,
             self.epoch_length,
             &self.block_economics_config,
             self.doomslug_threshold_mode,
@@ -1691,7 +1813,6 @@ impl Chain {
                     self.runtime_adapter.clone(),
                     &self.orphans,
                     &self.blocks_with_missing_chunks,
-                    self.transaction_validity_period,
                     self.epoch_length,
                     &self.block_economics_config,
                     self.doomslug_threshold_mode,
@@ -1822,11 +1943,22 @@ impl Chain {
         })
     }
 
+    /// Find a validator to forward transactions to
+    pub fn find_chunk_producer_for_forwarding(
+        &self,
+        epoch_id: &EpochId,
+        shard_id: ShardId,
+    ) -> Result<AccountId, Error> {
+        let head = self.head()?;
+        let target_height = head.height + TX_ROUTING_HEIGHT_HORIZON - 1;
+        self.runtime_adapter.get_chunk_producer(&epoch_id, target_height, shard_id)
+    }
+
     /// Find a validator that is responsible for a given shard to forward requests to
     pub fn find_validator_for_forwarding(&self, shard_id: ShardId) -> Result<AccountId, Error> {
         let head = self.head()?;
-        let target_height = head.height + TX_ROUTING_HEIGHT_HORIZON - 1;
-        self.runtime_adapter.get_chunk_producer(&head.epoch_id, target_height, shard_id)
+        let epoch_id = self.runtime_adapter.get_epoch_id_from_prev_block(&head.last_block_hash)?;
+        self.find_chunk_producer_for_forwarding(&epoch_id, shard_id)
     }
 }
 
@@ -2032,7 +2164,6 @@ pub struct ChainUpdate<'a> {
     chain_store_update: ChainStoreUpdate<'a>,
     orphans: &'a OrphanBlockPool,
     blocks_with_missing_chunks: &'a OrphanBlockPool,
-    transaction_validity_period: NumBlocks,
     epoch_length: BlockHeightDelta,
     block_economics_config: &'a BlockEconomicsConfig,
     doomslug_threshold_mode: DoomslugThresholdMode,
@@ -2044,7 +2175,6 @@ impl<'a> ChainUpdate<'a> {
         runtime_adapter: Arc<dyn RuntimeAdapter>,
         orphans: &'a OrphanBlockPool,
         blocks_with_missing_chunks: &'a OrphanBlockPool,
-        transaction_validity_period: NumBlocks,
         epoch_length: BlockHeightDelta,
         block_economics_config: &'a BlockEconomicsConfig,
         doomslug_threshold_mode: DoomslugThresholdMode,
@@ -2055,7 +2185,6 @@ impl<'a> ChainUpdate<'a> {
             chain_store_update,
             orphans,
             blocks_with_missing_chunks,
-            transaction_validity_period,
             epoch_length,
             block_economics_config,
             doomslug_threshold_mode,
@@ -2081,7 +2210,7 @@ impl<'a> ChainUpdate<'a> {
     {
         debug!(target: "chain", "Process block header: {} at {}", header.hash(), header.inner_lite.height);
 
-        self.check_header_known(header)?;
+        self.check_known(&header.hash)?;
         self.validate_header(header, &Provenance::NONE, on_challenge)?;
         Ok(())
     }
@@ -2350,12 +2479,7 @@ impl<'a> ChainUpdate<'a> {
                     let chunk =
                         self.chain_store_update.get_chunk_clone_from_header(&chunk_header)?;
 
-                    if !validate_chunk_transactions(
-                        self.chain_store_update.get_chain_store(),
-                        &chunk.transactions,
-                        &block.header,
-                        self.transaction_validity_period,
-                    ) {
+                    if !validate_transactions_order(&chunk.transactions) {
                         let merkle_paths = Block::compute_chunk_headers_root(&block.chunks).1;
                         let chunk_proof = ChunkProofs {
                             block_header: block.header.try_to_vec().expect("Failed to serialize"),
@@ -2400,7 +2524,6 @@ impl<'a> ChainUpdate<'a> {
                             apply_result.validator_proposals,
                             apply_result.total_gas_burnt,
                             gas_limit,
-                            apply_result.total_rent_paid,
                             apply_result.total_validator_reward,
                             apply_result.total_balance_burnt,
                         ),
@@ -2480,7 +2603,7 @@ impl<'a> ChainUpdate<'a> {
         debug!(target: "chain", "Process block {} at {}, approvals: {}, me: {:?}", block.hash(), block.header.inner_lite.height, block.header.num_approvals(), me);
 
         // Check if we have already processed this block previously.
-        self.check_known(&block)?;
+        self.check_known(&block.header.hash)?;
 
         // Delay hitting the db for current chain head until we know this block is not already known.
         let head = self.chain_store_update.head()?;
@@ -2499,13 +2622,14 @@ impl<'a> ChainUpdate<'a> {
         let prev_prev_hash = prev.prev_hash;
         let prev_gas_price = prev.inner_rest.gas_price;
         let prev_epoch_id = prev.inner_lite.epoch_id.clone();
+        let prev_random_value = prev.inner_rest.random_value;
 
         // Block is an orphan if we do not know about the previous full block.
         if !is_next && !self.chain_store_update.block_exists(&prev_hash)? {
             return Err(ErrorKind::Orphan.into());
         }
 
-        if block.header.inner_lite.height > head.height + self.epoch_length {
+        if block.header.inner_lite.height > head.height + self.epoch_length * 2 {
             return Err(ErrorKind::InvalidBlockHeight.into());
         }
 
@@ -2532,6 +2656,18 @@ impl<'a> ChainUpdate<'a> {
 
         for approval in block.header.inner_rest.approvals.iter() {
             FinalityGadget::process_approval(me, approval, &mut self.chain_store_update)?;
+        }
+
+        self.runtime_adapter.verify_block_vrf(
+            &block.header.inner_lite.epoch_id,
+            block.header.inner_lite.height,
+            &prev_random_value,
+            block.vrf_value,
+            block.vrf_proof,
+        )?;
+
+        if block.header.inner_rest.random_value != hash(block.vrf_value.0.as_ref()) {
+            return Err(ErrorKind::InvalidRandomnessBeaconOutput.into());
         }
 
         // We need to know the last approval on the previous block to later compute the reference
@@ -2603,25 +2739,26 @@ impl<'a> ChainUpdate<'a> {
         // If block checks out, record validator proposals for given block.
         let last_quorum_pre_commit = &block.header.inner_rest.last_quorum_pre_commit;
         let last_finalized_height = if last_quorum_pre_commit == &CryptoHash::default() {
-            0
+            self.chain_store_update.get_genesis_height()
         } else {
             self.chain_store_update.get_block_header(last_quorum_pre_commit)?.inner_lite.height
         };
         self.runtime_adapter.add_validator_proposals(
             block.header.prev_hash,
             block.hash(),
+            block.header.inner_rest.random_value,
             block.header.inner_lite.height,
             last_finalized_height,
             block.header.inner_rest.validator_proposals.clone(),
             block.header.inner_rest.challenges_result.clone(),
             block.header.inner_rest.chunk_mask.clone(),
-            block.header.inner_rest.rent_paid,
             block.header.inner_rest.validator_reward,
             block.header.inner_rest.total_supply,
         )?;
 
         // Add validated block to the db, even if it's not the canonical fork.
         self.chain_store_update.save_block(block.clone());
+        self.chain_store_update.inc_block_refcount(&block.header.prev_hash)?;
         for (shard_id, chunk_headers) in block.chunks.iter().enumerate() {
             if chunk_headers.height_included == block.header.inner_lite.height {
                 self.chain_store_update
@@ -2805,7 +2942,7 @@ impl<'a> ChainUpdate<'a> {
         if *provenance != Provenance::PRODUCED {
             // first verify aggregated signature
             if !self.runtime_adapter.verify_approval_signature(
-                &prev_header.inner_lite.epoch_id,
+                &header.inner_lite.epoch_id,
                 &prev_header.hash,
                 &header.inner_rest.approvals,
             )? {
@@ -2831,10 +2968,7 @@ impl<'a> ChainUpdate<'a> {
             };
             let account_id_to_stake = self
                 .runtime_adapter
-                .get_epoch_block_producers_ordered(
-                    &prev_header.inner_lite.epoch_id,
-                    &header.prev_hash,
-                )?
+                .get_epoch_block_producers_ordered(&header.inner_lite.epoch_id, &header.prev_hash)?
                 .iter()
                 .map(|x| (x.0.account_id.clone(), x.0.stake))
                 .collect();
@@ -2988,25 +3122,24 @@ impl<'a> ChainUpdate<'a> {
         {
             return Err(ErrorKind::Unfit("header already known".to_string()).into());
         }
-        self.check_known_store(header)
+        self.check_known_store(&header.hash)
     }
 
     /// Quick in-memory check for fast-reject any block handled recently.
-    fn check_known_head(&self, header: &BlockHeader) -> Result<(), Error> {
+    fn check_known_head(&self, block_hash: &CryptoHash) -> Result<(), Error> {
         let head = self.chain_store_update.head()?;
-        let bh = header.hash();
-        if bh == head.last_block_hash || bh == head.prev_block_hash {
+        if block_hash == &head.last_block_hash || block_hash == &head.prev_block_hash {
             return Err(ErrorKind::Unfit("already known in head".to_string()).into());
         }
         Ok(())
     }
 
     /// Check if this block is in the set of known orphans.
-    fn check_known_orphans(&self, header: &BlockHeader) -> Result<(), Error> {
-        if self.orphans.contains(&header.hash()) {
+    fn check_known_orphans(&self, block_hash: &CryptoHash) -> Result<(), Error> {
+        if self.orphans.contains(block_hash) {
             return Err(ErrorKind::Unfit("already known in orphans".to_string()).into());
         }
-        if self.blocks_with_missing_chunks.contains(&header.hash()) {
+        if self.blocks_with_missing_chunks.contains(block_hash) {
             return Err(ErrorKind::Unfit(
                 "already known in blocks with missing chunks".to_string(),
             )
@@ -3016,8 +3149,8 @@ impl<'a> ChainUpdate<'a> {
     }
 
     /// Check if this block is in the store already.
-    fn check_known_store(&self, header: &BlockHeader) -> Result<(), Error> {
-        match self.chain_store_update.block_exists(&header.hash()) {
+    fn check_known_store(&self, block_hash: &CryptoHash) -> Result<(), Error> {
+        match self.chain_store_update.block_exists(block_hash) {
             Ok(true) => Err(ErrorKind::Unfit("already known in store".to_string()).into()),
             Ok(false) => {
                 // Not yet processed this block, we can proceed.
@@ -3027,28 +3160,11 @@ impl<'a> ChainUpdate<'a> {
         }
     }
 
-    /// Check if header is known: head, orphan or in store.
-    #[allow(dead_code)]
-    fn is_header_known(&self, header: &BlockHeader) -> Result<bool, Error> {
-        let check = || {
-            self.check_known_head(header)?;
-            self.check_known_orphans(header)?;
-            self.check_known_store(header)
-        };
-        match check() {
-            Ok(()) => Ok(false),
-            Err(err) => match err.kind() {
-                ErrorKind::Unfit(_) => Ok(true),
-                kind => Err(kind.into()),
-            },
-        }
-    }
-
     /// Check if block is known: head, orphan or in store.
-    fn check_known(&self, block: &Block) -> Result<(), Error> {
-        self.check_known_head(&block.header)?;
-        self.check_known_orphans(&block.header)?;
-        self.check_known_store(&block.header)?;
+    fn check_known(&self, block_hash: &CryptoHash) -> Result<(), Error> {
+        self.check_known_head(&block_hash)?;
+        self.check_known_orphans(&block_hash)?;
+        self.check_known_store(&block_hash)?;
         Ok(())
     }
 
@@ -3112,7 +3228,6 @@ impl<'a> ChainUpdate<'a> {
             apply_result.validator_proposals,
             apply_result.total_gas_burnt,
             gas_limit,
-            apply_result.total_rent_paid,
             apply_result.total_validator_reward,
             apply_result.total_balance_burnt,
         );
@@ -3201,14 +3316,8 @@ impl<'a> ChainUpdate<'a> {
         debug!(target: "chain", "Verifying challenges {:?}", challenges);
         let mut result = vec![];
         for challenge in challenges.iter() {
-            match validate_challenge(
-                self.chain_store_update.get_chain_store(),
-                &*self.runtime_adapter,
-                &epoch_id,
-                &prev_block_hash,
-                challenge,
-                self.transaction_validity_period,
-            ) {
+            match validate_challenge(&*self.runtime_adapter, &epoch_id, &prev_block_hash, challenge)
+            {
                 Ok((hash, account_ids)) => {
                     let is_double_sign = match challenge.body {
                         // If it's double signed block, we don't invalidate blocks just slash.
@@ -3243,4 +3352,71 @@ pub fn collect_receipts_from_response(
 ) -> Vec<Receipt> {
     let receipt_proofs = &receipt_proof_response.iter().map(|x| x.1.clone()).flatten().collect();
     collect_receipts(receipt_proofs)
+}
+
+// Used in testing only
+pub fn check_refcount_map(chain: &mut Chain) -> Result<(), Error> {
+    let head = chain.head()?;
+    let mut block_refcounts = HashMap::new();
+    for height in chain.store().get_genesis_height() + 1..=head.height {
+        let blocks_current_height = match chain.mut_store().get_all_block_hashes_by_height(height) {
+            Ok(blocks_current_height) => {
+                blocks_current_height.values().flatten().cloned().collect()
+            }
+            _ => vec![],
+        };
+        for block_hash in blocks_current_height.iter() {
+            if let Ok(prev_hash) = chain.get_block(&block_hash).map(|block| block.header.prev_hash)
+            {
+                *block_refcounts.entry(prev_hash).or_insert(0) += 1;
+            }
+            block_refcounts.entry(*block_hash).or_insert(0);
+        }
+    }
+    let mut chain_store_update = ChainStoreUpdate::new(chain.mut_store());
+    let mut tail_blocks = 0;
+    for (block_hash, refcount) in block_refcounts {
+        let block_refcount = chain_store_update.get_block_refcount(&block_hash)?.clone();
+        match chain_store_update.get_block(&block_hash) {
+            Ok(_) => {
+                if block_refcount != refcount {
+                    return Err(ErrorKind::GCError(format!(
+                        "invalid number of references in Block {:?}, expected {:?}, found {:?}",
+                        block_hash, refcount, block_refcount
+                    ))
+                    .into());
+                }
+            }
+            Err(e) => {
+                if block_refcount != 0 {
+                    // May be the tail block
+                    if block_refcount != refcount {
+                        return Err(ErrorKind::GCError(format!(
+                            "invalid number of references in deleted Block {:?}, expected {:?}, found {:?}; get_block failed: {:?}",
+                            block_hash, refcount, block_refcount, e
+                        ))
+                            .into());
+                    }
+                }
+                if refcount >= 2 {
+                    return Err(ErrorKind::GCError(format!(
+                            "Block {:?} expected to be deleted, found {:?} references instead; get_block failed: {:?}",
+                            block_hash, refcount, e
+                        ))
+                            .into());
+                } else if refcount == 1 {
+                    // If Block `block_hash` is successfully GCed, the only its descendant is alive.
+                    tail_blocks += 1;
+                }
+            }
+        }
+    }
+    if tail_blocks >= 2 {
+        return Err(ErrorKind::GCError(format!(
+            "There are {:?} tail blocks found, expected no more than 1",
+            tail_blocks,
+        ))
+        .into());
+    }
+    Ok(())
 }

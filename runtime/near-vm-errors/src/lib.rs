@@ -133,6 +133,8 @@ pub enum HostError {
     ReturnedValueLengthExceeded { length: u64, limit: u64 },
     /// The contract size for DeployContract action exceeded the limit.
     ContractSizeExceeded { size: u64, limit: u64 },
+    /// The host function was deprecated.
+    Deprecated { method_name: String },
 }
 
 #[derive(Debug, Clone, PartialEq, BorshDeserialize, BorshSerialize, Deserialize, Serialize)]
@@ -275,6 +277,7 @@ impl std::fmt::Display for HostError {
             NumberInputDataDependenciesExceeded { number_of_input_data_dependencies, limit } => write!(f, "The number of input data dependencies {} exceeds the limit {}", number_of_input_data_dependencies, limit),
             ReturnedValueLengthExceeded { length, limit } => write!(f, "The length of a returned value {} exceeds the limit {}", length, limit),
             ContractSizeExceeded { size, limit } => write!(f, "The size of a contract code in DeployContract action {} exceeds the limit {}", size, limit),
+            Deprecated {method_name}=> write!(f, "Attempted to call deprecated host function {}", method_name),
         }
     }
 }

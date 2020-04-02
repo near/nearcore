@@ -13,6 +13,8 @@ mod peer;
 mod peer_manager;
 pub mod peer_store;
 mod rate_counter;
+#[cfg(feature = "metric_recorder")]
+pub mod recorder;
 pub mod routing;
 pub mod types;
 pub mod utils;

@@ -1,14 +1,15 @@
 use std::sync::{Arc, RwLock};
+use std::time::Duration;
 
 use actix::{Actor, System};
 use futures::{future, FutureExt};
 use tempdir::TempDir;
 
-use near::{load_test_config, start_with_config, GenesisConfig};
+use near::{config::GenesisExt, load_test_config, start_with_config};
+use near_chain_configs::Genesis;
 use near_client::GetBlock;
 use near_network::test_utils::{convert_boot_nodes, open_port, WaitOrTimeout};
 use near_primitives::test_utils::{heavy_test, init_integration_logger};
-use std::time::Duration;
 
 /// One client is in front, another must sync to it using state (fast) sync.
 #[test]
@@ -16,10 +17,10 @@ fn sync_state_nodes() {
     heavy_test(|| {
         init_integration_logger();
 
-        let genesis_config = GenesisConfig::test(vec!["test1"], 1);
+        let genesis = Arc::new(Genesis::test(vec!["test1"], 1));
 
         let (port1, port2) = (open_port(), open_port());
-        let mut near1 = load_test_config("test1", port1, &genesis_config);
+        let mut near1 = load_test_config("test1", port1, Arc::clone(&genesis));
         near1.network_config.boot_nodes = convert_boot_nodes(vec![]);
         near1.client_config.min_num_peers = 0;
         let system = System::new("NEAR");
@@ -33,9 +34,9 @@ fn sync_state_nodes() {
             Box::new(move |_ctx| {
                 if view_client2_holder.read().unwrap().is_none() {
                     let view_client2_holder2 = view_client2_holder.clone();
-                    let genesis_config2 = genesis_config.clone();
+                    let genesis2 = Arc::clone(&genesis);
 
-                    actix::spawn(view_client1.send(GetBlock::Best).then(move |res| {
+                    actix::spawn(view_client1.send(GetBlock::latest()).then(move |res| {
                         match &res {
                             Ok(Ok(b)) if b.header.height >= 101 => {
                                 let mut view_client2_holder2 =
@@ -43,7 +44,7 @@ fn sync_state_nodes() {
 
                                 if view_client2_holder2.is_none() {
                                     let mut near2 =
-                                        load_test_config("test2", port2, &genesis_config2);
+                                        load_test_config("test2", port2, Arc::clone(&genesis2));
                                     near2.client_config.skip_sync_wait = false;
                                     near2.client_config.min_num_peers = 1;
                                     near2.network_config.boot_nodes =
@@ -65,7 +66,7 @@ fn sync_state_nodes() {
                 }
 
                 if let Some(view_client2) = &*view_client2_holder.write().unwrap() {
-                    actix::spawn(view_client2.send(GetBlock::Best).then(|res| {
+                    actix::spawn(view_client2.send(GetBlock::latest()).then(|res| {
                         match &res {
                             Ok(Ok(b)) if b.header.height >= 101 => System::current().stop(),
                             Ok(Ok(b)) if b.header.height < 101 => {
@@ -97,22 +98,23 @@ fn sync_state_nodes_multishard() {
     heavy_test(|| {
         init_integration_logger();
 
-        let mut genesis_config =
-            GenesisConfig::test_sharded(vec!["test1", "test2", "test3", "test4"], 4, vec![2, 2]);
-        genesis_config.epoch_length = 150; // so that by the time test2 joins it is not kicked out yet
+        let mut genesis =
+            Genesis::test_sharded(vec!["test1", "test2", "test3", "test4"], 4, vec![2, 2]);
+        genesis.config.epoch_length = 150; // so that by the time test2 joins it is not kicked out yet
+        let genesis = Arc::new(genesis);
 
         let system = System::new("NEAR");
 
         let (port1, port2, port3, port4) = (open_port(), open_port(), open_port(), open_port());
 
-        let mut near1 = load_test_config("test1", port1, &genesis_config);
+        let mut near1 = load_test_config("test1", port1, Arc::clone(&genesis));
         near1.network_config.boot_nodes =
             convert_boot_nodes(vec![("test3", port3), ("test4", port4)]);
         near1.client_config.min_num_peers = 2;
         near1.client_config.min_block_production_delay = Duration::from_millis(200);
         near1.client_config.max_block_production_delay = Duration::from_millis(400);
 
-        let mut near3 = load_test_config("test3", port3, &genesis_config);
+        let mut near3 = load_test_config("test3", port3, Arc::clone(&genesis));
         near3.network_config.boot_nodes =
             convert_boot_nodes(vec![("test1", port1), ("test4", port4)]);
         near3.client_config.min_num_peers = 2;
@@ -121,7 +123,7 @@ fn sync_state_nodes_multishard() {
         near3.client_config.max_block_production_delay =
             near1.client_config.max_block_production_delay;
 
-        let mut near4 = load_test_config("test4", port4, &genesis_config);
+        let mut near4 = load_test_config("test4", port4, Arc::clone(&genesis));
         near4.network_config.boot_nodes =
             convert_boot_nodes(vec![("test1", port1), ("test3", port3)]);
         near4.client_config.min_num_peers = 2;
@@ -145,9 +147,9 @@ fn sync_state_nodes_multishard() {
             Box::new(move |_ctx| {
                 if view_client2_holder.read().unwrap().is_none() {
                     let view_client2_holder2 = view_client2_holder.clone();
-                    let genesis_config2 = genesis_config.clone();
+                    let genesis2 = Arc::clone(&genesis);
 
-                    actix::spawn(view_client1.send(GetBlock::Best).then(move |res| {
+                    actix::spawn(view_client1.send(GetBlock::latest()).then(move |res| {
                         match &res {
                             Ok(Ok(b)) if b.header.height >= 101 => {
                                 let mut view_client2_holder2 =
@@ -155,7 +157,7 @@ fn sync_state_nodes_multishard() {
 
                                 if view_client2_holder2.is_none() {
                                     let mut near2 =
-                                        load_test_config("test2", port2, &genesis_config2);
+                                        load_test_config("test2", port2, Arc::clone(&genesis2));
                                     near2.client_config.skip_sync_wait = false;
                                     near2.client_config.min_num_peers = 3;
                                     near2.client_config.min_block_production_delay =
@@ -184,7 +186,7 @@ fn sync_state_nodes_multishard() {
                 }
 
                 if let Some(view_client2) = &*view_client2_holder.write().unwrap() {
-                    actix::spawn(view_client2.send(GetBlock::Best).then(|res| {
+                    actix::spawn(view_client2.send(GetBlock::latest()).then(|res| {
                         match &res {
                             Ok(Ok(b)) if b.header.height >= 101 => System::current().stop(),
                             Ok(Ok(b)) if b.header.height < 101 => {
@@ -222,9 +224,9 @@ fn sync_empty_state() {
     heavy_test(|| {
         init_integration_logger();
 
-        let mut genesis_config =
-            GenesisConfig::test_sharded(vec!["test1", "test2"], 1, vec![1, 1, 1, 1]);
-        genesis_config.epoch_length = 20;
+        let mut genesis = Genesis::test_sharded(vec!["test1", "test2"], 1, vec![1, 1, 1, 1]);
+        genesis.config.epoch_length = 20;
+        let genesis = Arc::new(genesis);
 
         let system = System::new("NEAR");
 
@@ -233,7 +235,7 @@ fn sync_empty_state() {
         let block_header_fetch_horizon = 1;
         let block_fetch_horizon = 1;
 
-        let mut near1 = load_test_config("test1", port1, &genesis_config);
+        let mut near1 = load_test_config("test1", port1, Arc::clone(&genesis));
         near1.client_config.min_num_peers = 0;
         near1.client_config.min_block_production_delay = Duration::from_millis(200);
         near1.client_config.max_block_production_delay = Duration::from_millis(400);
@@ -248,10 +250,10 @@ fn sync_empty_state() {
             Box::new(move |_ctx| {
                 if view_client2_holder.read().unwrap().is_none() {
                     let view_client2_holder2 = view_client2_holder.clone();
-                    let genesis_config2 = genesis_config.clone();
+                    let genesis2 = Arc::clone(&genesis);
                     let dir2 = dir2.clone();
 
-                    actix::spawn(view_client1.send(GetBlock::Best).then(move |res| {
+                    actix::spawn(view_client1.send(GetBlock::latest()).then(move |res| {
                         match &res {
                             Ok(Ok(b)) if b.header.height >= state_sync_horizon + 1 => {
                                 let mut view_client2_holder2 =
@@ -259,7 +261,7 @@ fn sync_empty_state() {
 
                                 if view_client2_holder2.is_none() {
                                     let mut near2 =
-                                        load_test_config("test2", port2, &genesis_config2);
+                                        load_test_config("test2", port2, Arc::clone(&genesis2));
                                     near2.network_config.boot_nodes =
                                         convert_boot_nodes(vec![("test1", port1)]);
                                     near2.client_config.min_num_peers = 1;
@@ -288,7 +290,7 @@ fn sync_empty_state() {
                 }
 
                 if let Some(view_client2) = &*view_client2_holder.write().unwrap() {
-                    actix::spawn(view_client2.send(GetBlock::Best).then(|res| {
+                    actix::spawn(view_client2.send(GetBlock::latest()).then(|res| {
                         match &res {
                             Ok(Ok(b)) if b.header.height >= 40 => System::current().stop(),
                             Ok(Ok(b)) if b.header.height < 40 => {

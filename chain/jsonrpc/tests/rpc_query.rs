@@ -5,22 +5,23 @@ use futures::{future, FutureExt};
 
 use near_crypto::{KeyType, PublicKey, Signature};
 use near_jsonrpc::client::new_client;
-use near_jsonrpc::test_utils::start_all;
 use near_jsonrpc_client::ChunkId;
 use near_network::test_utils::WaitOrTimeout;
 use near_primitives::account::{AccessKey, AccessKeyPermission};
 use near_primitives::hash::CryptoHash;
-use near_primitives::rpc::RpcQueryRequest;
+use near_primitives::rpc::{RpcGenesisRecordsRequest, RpcPagination, RpcQueryRequest};
 use near_primitives::test_utils::init_test_logger;
-use near_primitives::types::{BlockId, ShardId};
+use near_primitives::types::{BlockId, BlockIdOrFinality, Finality, ShardId};
 use near_primitives::views::{QueryRequest, QueryResponseKind};
+
+mod test_utils;
 
 macro_rules! test_with_client {
     ($client:ident, $block:expr) => {
         init_test_logger();
 
         System::run(|| {
-            let (_view_client_addr, addr) = start_all(false);
+            let (_view_client_addr, addr) = test_utils::start_all(false);
 
             let mut $client = new_client(&format!("http://{}", addr));
 
@@ -35,9 +36,9 @@ macro_rules! test_with_client {
 
 /// Retrieve blocks via json rpc
 #[test]
-fn test_block() {
+fn test_block_by_id_height() {
     test_with_client!(client, async move {
-        let block = client.block(BlockId::Height(0)).await.unwrap();
+        let block = client.block_by_id(BlockId::Height(0)).await.unwrap();
         assert_eq!(block.author, "test1");
         assert_eq!(block.header.height, 0);
         assert_eq!(block.header.epoch_id.0.as_ref(), &[0; 32]);
@@ -54,12 +55,42 @@ fn test_block() {
 
 /// Retrieve blocks via json rpc
 #[test]
-fn test_block_by_hash() {
+fn test_block_by_id_hash() {
     test_with_client!(client, async move {
-        let block = client.block(BlockId::Height(0)).await.unwrap();
-        let same_block = client.block(BlockId::Hash(block.header.hash)).await.unwrap();
+        let block = client.block_by_id(BlockId::Height(0)).await.unwrap();
+        let same_block = client.block_by_id(BlockId::Hash(block.header.hash)).await.unwrap();
         assert_eq!(block.header.height, 0);
         assert_eq!(same_block.header.height, 0);
+    });
+}
+
+/// Retrieve blocks via json rpc
+#[test]
+fn test_block_query() {
+    test_with_client!(client, async move {
+        let block_response1 =
+            client.block(BlockIdOrFinality::BlockId(BlockId::Height(0))).await.unwrap();
+        let block_response2 = client
+            .block(BlockIdOrFinality::BlockId(BlockId::Hash(block_response1.header.hash)))
+            .await
+            .unwrap();
+        let block_response3 = client.block(BlockIdOrFinality::latest()).await.unwrap();
+        for block in [block_response1, block_response2, block_response3].iter() {
+            assert_eq!(block.author, "test1");
+            assert_eq!(block.header.height, 0);
+            assert_eq!(block.header.epoch_id.0.as_ref(), &[0; 32]);
+            assert_eq!(block.header.hash.0.as_ref().len(), 32);
+            assert_eq!(block.header.prev_hash.0.as_ref(), &[0; 32]);
+            assert_eq!(
+                block.header.prev_state_root,
+                CryptoHash::try_from("7tkzFg8RHBmMw1ncRJZCCZAizgq4rwCftTKYLce8RU8t").unwrap()
+            );
+            assert!(block.header.timestamp > 0);
+            assert_eq!(block.header.validator_proposals.len(), 0);
+        }
+        // no doomslug final or nfg final block
+        assert!(client.block(BlockIdOrFinality::Finality(Finality::DoomSlug)).await.is_err());
+        assert!(client.block(BlockIdOrFinality::Finality(Finality::NFG)).await.is_err());
     });
 }
 
@@ -140,26 +171,26 @@ fn test_query_account() {
         let block_hash = status.sync_info.latest_block_hash;
         let query_response_1 = client
             .query(RpcQueryRequest {
-                block_id: None,
+                block_id_or_finality: BlockIdOrFinality::latest(),
                 request: QueryRequest::ViewAccount { account_id: "test".to_string() },
             })
             .await
             .unwrap();
         let query_response_2 = client
             .query(RpcQueryRequest {
-                block_id: Some(BlockId::Height(0)),
+                block_id_or_finality: BlockIdOrFinality::BlockId(BlockId::Height(0)),
                 request: QueryRequest::ViewAccount { account_id: "test".to_string() },
             })
             .await
             .unwrap();
         let query_response_3 = client
             .query(RpcQueryRequest {
-                block_id: Some(BlockId::Hash(block_hash)),
+                block_id_or_finality: BlockIdOrFinality::BlockId(BlockId::Hash(block_hash)),
                 request: QueryRequest::ViewAccount { account_id: "test".to_string() },
             })
             .await
             .unwrap();
-        for query_response in [query_response_1, query_response_2, query_response_3].into_iter() {
+        for query_response in [query_response_1, query_response_2, query_response_3].iter() {
             assert_eq!(query_response.block_height, 0);
             assert_eq!(query_response.block_hash, block_hash);
             let account_info = if let QueryResponseKind::ViewAccount(ref account) =
@@ -174,6 +205,30 @@ fn test_query_account() {
             assert_eq!(account_info.locked, 0);
             assert_eq!(account_info.storage_paid_at, 0);
             assert_eq!(account_info.storage_usage, 0);
+        }
+
+        let non_finalized_query_response_1 = client
+            .query(RpcQueryRequest {
+                block_id_or_finality: BlockIdOrFinality::Finality(Finality::DoomSlug),
+                request: QueryRequest::ViewAccount { account_id: "test".to_string() },
+            })
+            .await;
+        let non_finalized_query_response_2 = client
+            .query(RpcQueryRequest {
+                block_id_or_finality: BlockIdOrFinality::Finality(Finality::NFG),
+                request: QueryRequest::ViewAccount { account_id: "test".to_string() },
+            })
+            .await;
+        for query_response in
+            [non_finalized_query_response_1, non_finalized_query_response_2].iter()
+        {
+            let rpc_error = if let Err(err) = query_response {
+                err
+            } else {
+                panic!("the error is expected since the latest block is not finalized yet");
+            };
+            assert_eq!(rpc_error.code, -32000);
+            assert!(rpc_error.data.as_ref().unwrap().as_str().unwrap().contains("DB Not Found"));
         }
     });
 }
@@ -203,7 +258,7 @@ fn test_query_access_keys() {
     test_with_client!(client, async move {
         let query_response = client
             .query(RpcQueryRequest {
-                block_id: None,
+                block_id_or_finality: BlockIdOrFinality::latest(),
                 request: QueryRequest::ViewAccessKeyList { account_id: "test".to_string() },
             })
             .await
@@ -249,7 +304,7 @@ fn test_query_access_key() {
     test_with_client!(client, async move {
         let query_response = client
             .query(RpcQueryRequest {
-                block_id: None,
+                block_id_or_finality: BlockIdOrFinality::latest(),
                 request: QueryRequest::ViewAccessKey {
                     account_id: "test".to_string(),
                     public_key: PublicKey::try_from(
@@ -277,7 +332,7 @@ fn test_query_state() {
     test_with_client!(client, async move {
         let query_response = client
             .query(RpcQueryRequest {
-                block_id: None,
+                block_id_or_finality: BlockIdOrFinality::latest(),
                 request: QueryRequest::ViewState {
                     account_id: "test".to_string(),
                     prefix: vec![].into(),
@@ -301,7 +356,7 @@ fn test_query_call_function() {
     test_with_client!(client, async move {
         let query_response = client
             .query(RpcQueryRequest {
-                block_id: None,
+                block_id_or_finality: BlockIdOrFinality::latest(),
                 request: QueryRequest::CallFunction {
                     account_id: "test".to_string(),
                     method_name: "method".to_string(),
@@ -341,7 +396,7 @@ fn test_status_fail() {
     init_test_logger();
 
     System::run(|| {
-        let (_, addr) = start_all(false);
+        let (_, addr) = test_utils::start_all(false);
 
         let mut client = new_client(&format!("http://{}", addr));
         WaitOrTimeout::new(
@@ -383,7 +438,7 @@ fn test_health_fail_no_blocks() {
     init_test_logger();
 
     System::run(|| {
-        let (_, addr) = start_all(false);
+        let (_, addr) = test_utils::start_all(false);
 
         let mut client = new_client(&format!("http://{}", addr));
         WaitOrTimeout::new(
@@ -412,6 +467,80 @@ fn test_health_ok() {
     });
 }
 
+/// Retrieve genesis config via JSON RPC.
+/// WARNING: Be mindful about changing genesis structure as it is part of the public protocol!
+#[test]
+fn test_genesis_config() {
+    test_with_client!(client, async move {
+        let genesis_config = client.EXPERIMENTAL_genesis_config().await.unwrap();
+        assert_eq!(genesis_config["config_version"].as_u64().unwrap(), 1);
+        assert_eq!(genesis_config["protocol_version"].as_u64().unwrap(), 7);
+        assert!(!genesis_config["chain_id"].as_str().unwrap().is_empty());
+        assert!(!genesis_config.as_object().unwrap().contains_key("records"));
+    });
+}
+
+/// Retrieve genesis records via JSON RPC.
+#[test]
+fn test_genesis_records() {
+    test_with_client!(client, async move {
+        let genesis_records = client
+            .EXPERIMENTAL_genesis_records(RpcGenesisRecordsRequest {
+                pagination: Default::default(),
+            })
+            .await
+            .unwrap();
+        assert_eq!(genesis_records.records.len(), 100);
+        let first100_records = genesis_records.records.to_vec();
+
+        let second_genesis_record = client
+            .EXPERIMENTAL_genesis_records(RpcGenesisRecordsRequest {
+                pagination: RpcPagination { offset: 1, limit: 1 },
+            })
+            .await
+            .unwrap();
+        assert_eq!(second_genesis_record.records.len(), 1);
+
+        assert_eq!(
+            serde_json::to_value(&first100_records[1]).unwrap(),
+            serde_json::to_value(&second_genesis_record.records[0]).unwrap()
+        );
+    });
+}
+
+/// Check invalid arguments to genesis records via JSON RPC.
+#[test]
+fn test_invalid_genesis_records_arguments() {
+    test_with_client!(client, async move {
+        let genesis_records_response = client
+            .EXPERIMENTAL_genesis_records(RpcGenesisRecordsRequest {
+                pagination: RpcPagination { offset: 1, limit: 101 },
+            })
+            .await;
+        let validation_error = genesis_records_response.err().unwrap();
+        assert_eq!(validation_error.code, -32_602);
+        assert_eq!(validation_error.message, "Invalid params");
+        assert_eq!(
+            validation_error.data.unwrap(),
+            serde_json::json!({
+                "pagination": {
+                    "limit": [
+                        {
+                            "code": "range",
+                            "message": null,
+                            "params": {
+                                "max": 100.0,
+                                "value": 101,
+                                "min": 1.0,
+                            }
+                        }
+                    ]
+                }
+            })
+        );
+    });
+}
+
 /// Retrieve gas price
 #[test]
 fn test_gas_price_by_height() {
@@ -425,7 +554,7 @@ fn test_gas_price_by_height() {
 #[test]
 fn test_gas_price_by_hash() {
     test_with_client!(client, async move {
-        let block = client.block(BlockId::Height(0)).await.unwrap();
+        let block = client.block(BlockIdOrFinality::BlockId(BlockId::Height(0))).await.unwrap();
         let gas_price = client.gas_price(Some(BlockId::Hash(block.header.hash))).await.unwrap();
         assert!(gas_price.gas_price > 0);
     });

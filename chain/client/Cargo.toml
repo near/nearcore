@@ -16,15 +16,16 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 sysinfo = "0.10.5"
 strum = { version = "0.16.0", features = ["derive"] }
-cached = "0.11.0"
+cached = "0.12.0"
 lazy_static = "1.4"
-borsh = "0.2.10"
+borsh = "0.6.1"
 reed-solomon-erasure = "4"
 
 near-crypto = { path = "../../core/crypto" }
 near-primitives = { path = "../../core/primitives" }
 near-store = { path = "../../core/store" }
 near-metrics = { path = "../../core/metrics" }
+near-chain-configs = { path = "../../core/chain-configs" }
 near-chain = { path = "../chain" }
 near-network = { path = "../network" }
 near-pool = { path = "../pool" }
@@ -38,3 +39,5 @@ near = { path = "../../near" }
 # if enabled, we assert in most situations that are impossible unless some byzantine behavior is observed.
 byzantine_asserts = ["near-chain/byzantine_asserts"]
 expensive_tests = []
+adversarial = ["near-network/adversarial", "near-chain/adversarial"]
+metric_recorder = []

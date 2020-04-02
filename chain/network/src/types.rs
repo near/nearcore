@@ -1,8 +1,6 @@
 use std::collections::{HashMap, HashSet};
-use std::convert::{From, TryInto};
-use std::convert::{Into, TryFrom};
+use std::convert::{Into, TryFrom, TryInto};
 use std::fmt;
-use std::hash::{Hash, Hasher};
 use std::net::{AddrParseError, IpAddr, SocketAddr};
 use std::str::FromStr;
 use std::sync::RwLock;
@@ -18,86 +16,30 @@ use tokio::net::TcpStream;
 
 use near_chain::types::ShardStateSyncResponse;
 use near_chain::{Block, BlockHeader};
+use near_chain_configs::PROTOCOL_VERSION;
 use near_crypto::{PublicKey, SecretKey, Signature};
 use near_metrics;
 use near_primitives::block::{Approval, ApprovalMessage, BlockScore, GenesisId, ScoreAndHeight};
 use near_primitives::challenge::Challenge;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::{hash, CryptoHash};
+use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::sharding::{ChunkHash, PartialEncodedChunk};
 use near_primitives::transaction::{ExecutionOutcomeWithIdAndProof, SignedTransaction};
-use near_primitives::types::{AccountId, BlockHeight, EpochId, MaybeBlockId, ShardId};
+use near_primitives::types::{AccountId, BlockHeight, BlockIdOrFinality, EpochId, ShardId};
 use near_primitives::utils::{from_timestamp, to_timestamp};
 use near_primitives::views::{FinalExecutionOutcomeView, QueryRequest, QueryResponse};
 
 use crate::metrics;
 use crate::peer::Peer;
+#[cfg(feature = "metric_recorder")]
+use crate::recorder::MetricRecorder;
 use crate::routing::{Edge, EdgeInfo, RoutingTableInfo};
 
-/// Current latest version of the protocol
-pub const PROTOCOL_VERSION: u32 = 4;
 /// Number of hops a message is allowed to travel before being dropped.
 /// This is used to avoid infinite loop because of inconsistent view of the network
 /// by different nodes.
 pub const ROUTED_MESSAGE_TTL: u8 = 100;
-
-/// Peer id is the public key.
-#[derive(BorshSerialize, BorshDeserialize, Clone, Eq, PartialOrd, Ord, Serialize, Deserialize)]
-pub struct PeerId(PublicKey);
-
-impl PeerId {
-    pub fn new(key: PublicKey) -> Self {
-        Self(key)
-    }
-
-    pub fn public_key(&self) -> PublicKey {
-        self.0.clone()
-    }
-}
-
-impl From<PeerId> for Vec<u8> {
-    fn from(peer_id: PeerId) -> Vec<u8> {
-        peer_id.0.try_to_vec().unwrap()
-    }
-}
-
-impl From<PublicKey> for PeerId {
-    fn from(public_key: PublicKey) -> PeerId {
-        PeerId(public_key)
-    }
-}
-
-impl TryFrom<Vec<u8>> for PeerId {
-    type Error = Box<dyn std::error::Error>;
-
-    fn try_from(bytes: Vec<u8>) -> Result<PeerId, Self::Error> {
-        Ok(PeerId(PublicKey::try_from_slice(&bytes)?))
-    }
-}
-
-impl Hash for PeerId {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        state.write(&self.0.try_to_vec().unwrap());
-    }
-}
-
-impl PartialEq for PeerId {
-    fn eq(&self, other: &Self) -> bool {
-        self.0 == other.0
-    }
-}
-
-impl fmt::Display for PeerId {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
-impl fmt::Debug for PeerId {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
 
 /// Peer information.
 #[derive(BorshSerialize, BorshDeserialize, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -236,51 +178,12 @@ impl Handshake {
     }
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Serialize)]
-struct AnnounceAccountRouteHeader {
-    pub account_id: AccountId,
-    pub peer_id: PeerId,
-    pub epoch_id: EpochId,
-}
-
 /// Account route description
 #[derive(BorshSerialize, BorshDeserialize, Serialize, PartialEq, Eq, Clone, Debug)]
 pub struct AnnounceAccountRoute {
     pub peer_id: PeerId,
     pub hash: CryptoHash,
     pub signature: Signature,
-}
-
-/// Account announcement information
-#[derive(BorshSerialize, BorshDeserialize, Serialize, PartialEq, Eq, Clone, Debug)]
-pub struct AnnounceAccount {
-    /// AccountId to be announced.
-    pub account_id: AccountId,
-    /// PeerId from the owner of the account.
-    pub peer_id: PeerId,
-    /// This announcement is only valid for this `epoch`.
-    pub epoch_id: EpochId,
-    /// Signature using AccountId associated secret key.
-    pub signature: Signature,
-}
-
-impl AnnounceAccount {
-    pub fn build_header_hash(
-        account_id: &AccountId,
-        peer_id: &PeerId,
-        epoch_id: &EpochId,
-    ) -> CryptoHash {
-        let header = AnnounceAccountRouteHeader {
-            account_id: account_id.clone(),
-            peer_id: peer_id.clone(),
-            epoch_id: epoch_id.clone(),
-        };
-        hash(&header.try_to_vec().unwrap())
-    }
-
-    pub fn hash(&self) -> CryptoHash {
-        AnnounceAccount::build_header_hash(&self.account_id, &self.peer_id, &self.epoch_id)
-    }
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Serialize, PartialEq, Eq, Clone, Debug)]
@@ -312,7 +215,7 @@ pub enum RoutedMessageBody {
     TxStatusResponse(FinalExecutionOutcomeView),
     QueryRequest {
         query_id: String,
-        block_id: MaybeBlockId,
+        block_id_or_finality: BlockIdOrFinality,
         request: QueryRequest,
     },
     QueryResponse {
@@ -495,7 +398,6 @@ pub enum PeerMessage {
 
     BlockHeadersRequest(Vec<CryptoHash>),
     BlockHeaders(Vec<BlockHeader>),
-    BlockHeaderAnnounce(BlockHeader),
 
     BlockRequest(CryptoHash),
     Block(Block),
@@ -524,7 +426,6 @@ impl fmt::Display for PeerMessage {
             PeerMessage::BlockHeaders(_) => f.write_str("BlockHeaders"),
             PeerMessage::BlockRequest(_) => f.write_str("BlockRequest"),
             PeerMessage::Block(_) => f.write_str("Block"),
-            PeerMessage::BlockHeaderAnnounce(_) => f.write_str("BlockHeaderAnnounce"),
             PeerMessage::Transaction(_) => f.write_str("Transaction"),
             PeerMessage::Routed(routed_message) => match routed_message.body {
                 RoutedMessageBody::BlockApproval(_) => f.write_str("BlockApproval"),
@@ -611,13 +512,6 @@ impl PeerMessage {
             PeerMessage::BlockHeaders(_) => {
                 near_metrics::inc_counter(&metrics::BLOCK_HEADERS_RECEIVED_TOTAL);
                 near_metrics::inc_counter_by(&metrics::BLOCK_HEADERS_RECEIVED_BYTES, size as i64);
-            }
-            PeerMessage::BlockHeaderAnnounce(_) => {
-                near_metrics::inc_counter(&metrics::BLOCK_HEADER_ANNOUNCE_RECEIVED_TOTAL);
-                near_metrics::inc_counter_by(
-                    &metrics::BLOCK_HEADER_ANNOUNCE_RECEIVED_BYTES,
-                    size as i64,
-                );
             }
             PeerMessage::BlockRequest(_) => {
                 near_metrics::inc_counter(&metrics::BLOCK_REQUEST_RECEIVED_TOTAL);
@@ -752,7 +646,6 @@ impl PeerMessage {
     pub fn is_client_message(&self) -> bool {
         match self {
             PeerMessage::Block(_)
-            | PeerMessage::BlockHeaderAnnounce(_)
             | PeerMessage::BlockHeaders(_)
             | PeerMessage::Transaction(_)
             | PeerMessage::Challenge(_) => true,
@@ -1050,11 +943,9 @@ pub enum NetworkRequests {
     Block {
         block: Block,
     },
-    /// Sends block header announcement, with possibly attaching approval for this block if
-    /// participating in this epoch.
-    BlockHeaderAnnounce {
-        header: BlockHeader,
-        approval_message: Option<ApprovalMessage>,
+    /// Sends approval.
+    Approval {
+        approval_message: ApprovalMessage,
     },
     /// Request block with given hash from given peer.
     BlockRequest {
@@ -1116,7 +1007,7 @@ pub enum NetworkRequests {
     Query {
         query_id: String,
         account_id: AccountId,
-        block_id: MaybeBlockId,
+        block_id_or_finality: BlockIdOrFinality,
         request: QueryRequest,
     },
     /// Request for receipt execution outcome
@@ -1176,6 +1067,8 @@ pub struct NetworkInfo {
     pub received_bytes_per_sec: u64,
     /// Accounts of known block and chunk producers from routing table.
     pub known_producers: Vec<KnownProducer>,
+    #[cfg(feature = "metric_recorder")]
+    pub metric_recorder: MetricRecorder,
 }
 
 impl<A, M> MessageResponse<A, M> for NetworkInfo
@@ -1223,14 +1116,27 @@ pub struct StateResponseInfo {
     pub state_response: ShardStateSyncResponse,
 }
 
+#[cfg(feature = "adversarial")]
+#[derive(Debug)]
+pub enum NetworkAdversarialMessage {
+    AdvProduceBlocks(u64, bool),
+    AdvSwitchToHeight(u64),
+    AdvDisableHeaderSync,
+    AdvDisableDoomslug,
+    AdvGetSavedBlocks,
+    AdvCheckRefMap,
+    AdvSetSyncInfo(u64, u64),
+}
+
 #[derive(Debug)]
 // TODO(#1313): Use Box
 #[allow(clippy::large_enum_variant)]
 pub enum NetworkClientMessages {
+    #[cfg(feature = "adversarial")]
+    Adversarial(NetworkAdversarialMessage),
+
     /// Received transaction.
     Transaction(SignedTransaction),
-    /// Received block header.
-    BlockHeader(BlockHeader, PeerId),
     /// Received block, possibly requested.
     Block(Block, PeerId, bool),
     /// Received list of headers for syncing.
@@ -1255,6 +1161,10 @@ pub enum NetworkClientMessages {
 #[derive(Eq, PartialEq, Debug)]
 #[allow(clippy::large_enum_variant)]
 pub enum NetworkClientResponses {
+    /// Adv controls.
+    #[cfg(feature = "adversarial")]
+    AdvResult(u64),
+
     /// No response.
     NoResponse,
     /// Valid transaction inserted into mempool as response to Transaction.
@@ -1263,7 +1173,7 @@ pub enum NetworkClientResponses {
     InvalidTx(InvalidTxError),
     /// The request is routed to other shards
     RequestRouted,
-    /// Ban peer for malicious behaviour.
+    /// Ban peer for malicious behavior.
     Ban { ban_reason: ReasonForBan },
 }
 
@@ -1284,12 +1194,15 @@ impl Message for NetworkClientMessages {
 }
 
 pub enum NetworkViewClientMessages {
+    #[cfg(feature = "adversarial")]
+    Adversarial(NetworkAdversarialMessage),
+
     /// Transaction status query
     TxStatus { tx_hash: CryptoHash, signer_account_id: AccountId },
     /// Transaction status response
     TxStatusResponse(FinalExecutionOutcomeView),
     /// General query
-    Query { query_id: String, block_id: MaybeBlockId, request: QueryRequest },
+    Query { query_id: String, block_id_or_finality: BlockIdOrFinality, request: QueryRequest },
     /// Query response
     QueryResponse { query_id: String, response: Result<QueryResponse, String> },
     /// Request for receipt outcome
@@ -1334,7 +1247,7 @@ pub enum NetworkViewClientResponses {
     StateResponse(StateResponseInfo),
     /// Valid announce accounts.
     AnnounceAccount(Vec<AnnounceAccount>),
-    /// Ban peer for malicious behaviour.
+    /// Ban peer for malicious behavior.
     Ban { ban_reason: ReasonForBan },
     /// Response not needed
     NoResponse,
