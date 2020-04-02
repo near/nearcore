@@ -1136,7 +1136,10 @@ pub enum NetworkClientMessages {
     Adversarial(NetworkAdversarialMessage),
 
     /// Received transaction.
-    Transaction(SignedTransaction),
+    Transaction {
+        transaction: SignedTransaction,
+        is_forwarded: bool,
+    },
     /// Received block, possibly requested.
     Block(Block, PeerId, bool),
     /// Received list of headers for syncing.
