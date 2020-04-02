@@ -3,6 +3,9 @@ set -euo pipefail
 
 branch=${BUILDKITE_BRANCH}
 commit=${BUILDKITE_COMMIT}
+if [[ ${commit} == "HEAD" ]]; then
+    commit=$(git rev-parse HEAD)
+fi
 
 make
 # Here we don't check master, beta and stable criteria, they have to be checked in buildkite pipeline
