@@ -84,7 +84,7 @@ impl Trie {
         &self,
         memory: &mut NodesStorage,
         node: StorageHandle,
-        partial: NibbleSlice,
+        partial: NibbleSlice<'_>,
         value: Vec<u8>,
     ) -> Result<StorageHandle, StorageError> {
         let root_handle = node;
@@ -312,7 +312,7 @@ impl Trie {
         &self,
         memory: &mut NodesStorage,
         node: StorageHandle,
-        partial: NibbleSlice,
+        partial: NibbleSlice<'_>,
     ) -> Result<(StorageHandle, bool), StorageError> {
         let mut handle = node;
         let mut partial = partial;

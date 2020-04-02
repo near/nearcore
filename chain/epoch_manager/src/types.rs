@@ -203,7 +203,7 @@ pub enum EpochError {
 impl std::error::Error for EpochError {}
 
 impl fmt::Debug for EpochError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             EpochError::ThresholdError(stakes_sum, num_seats) => write!(
                 f,
@@ -218,7 +218,7 @@ impl fmt::Debug for EpochError {
 }
 
 impl fmt::Display for EpochError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             EpochError::ThresholdError(stake, num_seats) => {
                 write!(f, "ThresholdError({}, {})", stake, num_seats)

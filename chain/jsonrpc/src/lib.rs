@@ -132,7 +132,7 @@ pub enum ServerError {
 }
 
 impl Display for ServerError {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
         match self {
             ServerError::TxExecutionError(e) => write!(f, "ServerError: {}", e),
             ServerError::Timeout => write!(f, "ServerError: Timeout"),

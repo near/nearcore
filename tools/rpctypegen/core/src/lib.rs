@@ -1,6 +1,3 @@
-extern crate proc_macro;
-extern crate proc_macro2;
-
 use std::collections::BTreeMap;
 use syn::{Data, DataEnum, DataStruct, DeriveInput, Fields, FieldsNamed, FieldsUnnamed};
 
@@ -27,7 +24,7 @@ fn error_type_name<'a>(
     name: String,
 ) -> &'a mut ErrorType {
     let error_type = ErrorType { name: name.clone(), ..Default::default() };
-    schema.entry(name.clone()).or_insert(error_type)
+    schema.entry(name).or_insert(error_type)
 }
 
 pub fn parse_error_type(schema: &mut BTreeMap<String, ErrorType>, input: &DeriveInput) {

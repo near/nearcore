@@ -2179,7 +2179,7 @@ impl<'a> ChainUpdate<'a> {
         block_economics_config: &'a BlockEconomicsConfig,
         doomslug_threshold_mode: DoomslugThresholdMode,
     ) -> Self {
-        let chain_store_update: ChainStoreUpdate = store.store_update();
+        let chain_store_update: ChainStoreUpdate<'_> = store.store_update();
         ChainUpdate {
             runtime_adapter,
             chain_store_update,
