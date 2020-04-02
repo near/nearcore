@@ -23,7 +23,7 @@ fn test_send_tx_async() {
     init_test_logger();
 
     System::run(|| {
-        let (_, addr) = test_utils::start_all(true);
+        let (_, addr) = test_utils::start_all(test_utils::NodeType::Validator);
 
         let client = new_client(&format!("http://{}", addr.clone()));
 
@@ -80,7 +80,7 @@ fn test_send_tx_async() {
 /// Test sending transaction and waiting for it to be committed to a block.
 #[test]
 fn test_send_tx_commit() {
-    test_with_client!("validator", client, async move {
+    test_with_client!(test_utils::NodeType::Validator, client, async move {
         let block_hash = client.block(BlockIdOrFinality::latest()).await.unwrap().header.hash;
         let signer = InMemorySigner::from_seed("test1", KeyType::ED25519, "test1");
         let tx = SignedTransaction::send_money(
@@ -102,7 +102,8 @@ fn test_send_tx_commit() {
 fn test_expired_tx() {
     init_integration_logger();
     System::run(|| {
-        let (_, addr) = test_utils::start_all_with_validity_period(true, 1, false);
+        let (_, addr) =
+            test_utils::start_all_with_validity_period(test_utils::NodeType::Validator, 1, false);
 
         let block_hash = Arc::new(Mutex::new(None));
         let block_height = Arc::new(Mutex::new(None));
@@ -158,7 +159,7 @@ fn test_expired_tx() {
 /// Test sending transaction based on a different fork should be rejected
 #[test]
 fn test_replay_protection() {
-    test_with_client!("validator", client, async move {
+    test_with_client!(test_utils::NodeType::Validator, client, async move {
         let signer = InMemorySigner::from_seed("test1", KeyType::ED25519, "test1");
         let tx = SignedTransaction::send_money(
             1,
@@ -177,7 +178,7 @@ fn test_replay_protection() {
 
 #[test]
 fn test_tx_status_invalid_account_id() {
-    test_with_client!("validator", client, async move {
+    test_with_client!(test_utils::NodeType::Validator, client, async move {
         match client.tx(to_base(&CryptoHash::default()), "".to_string()).await {
             Err(e) => {
                 let s = serde_json::to_string(&e.data.unwrap()).unwrap();

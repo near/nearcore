@@ -12,7 +12,7 @@ fn test_status() {
     init_test_logger();
 
     System::run(|| {
-        let (_view_client_addr, addr) = test_utils::start_all(false);
+        let (_view_client_addr, addr) = test_utils::start_all(test_utils::NodeType::NonValidator);
 
         let client = new_http_client(&format!("http://{}", addr));
         actix::spawn(client.status().then(|res| {

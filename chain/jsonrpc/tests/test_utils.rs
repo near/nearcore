@@ -16,12 +16,18 @@ lazy_static::lazy_static! {
         GenesisConfig::from_json(include_str!("../../../near/res/testnet_genesis_config.json"));
 }
 
-pub fn start_all(validator: bool) -> (Addr<ViewClientActor>, String) {
-    start_all_with_validity_period(validator, 100, false)
+#[allow(dead_code)] // Suppress Rustc warnings even though these variants are used.
+pub enum NodeType {
+    Validator,
+    NonValidator,
+}
+
+pub fn start_all(node_type: NodeType) -> (Addr<ViewClientActor>, String) {
+    start_all_with_validity_period(node_type, 100, false)
 }
 
 pub fn start_all_with_validity_period(
-    validator: bool,
+    node_type: NodeType,
     transaction_validity_period: NumBlocks,
     enable_doomslug: bool,
 ) -> (Addr<ViewClientActor>, String) {
@@ -40,7 +46,7 @@ pub fn start_all_with_validity_period(
     let genesis = Genesis::new(TEST_GENESIS_CONFIG.clone(), records.into());
     let (client_addr, view_client_addr) = setup_no_network_with_validity_period(
         vec!["test1", "test2"],
-        if validator { "test1" } else { "other" },
+        if let NodeType::Validator = node_type { "test1" } else { "other" },
         true,
         transaction_validity_period,
         enable_doomslug,
@@ -59,11 +65,11 @@ pub fn start_all_with_validity_period(
 
 #[allow(unused_macros)] // Suppress Rustc warnings even though this macro is used.
 macro_rules! test_with_client {
-    ($validator_status:expr, $client:ident, $block:expr) => {
+    ($node_type:expr, $client:ident, $block:expr) => {
         init_test_logger();
 
         System::run(|| {
-            let (_view_client_addr, addr) = test_utils::start_all($validator_status == "validator");
+            let (_view_client_addr, addr) = test_utils::start_all($node_type);
 
             let $client = new_client(&format!("http://{}", addr));
 
