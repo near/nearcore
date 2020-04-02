@@ -869,7 +869,7 @@ impl Trie {
     fn lookup(
         &self,
         root: &CryptoHash,
-        mut key: NibbleSlice,
+        mut key: NibbleSlice<'_>,
     ) -> Result<Option<(u32, CryptoHash)>, StorageError> {
         let mut hash = *root;
 

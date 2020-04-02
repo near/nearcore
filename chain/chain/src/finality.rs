@@ -28,7 +28,7 @@ impl FinalityGadget {
     pub fn process_approval(
         me: &Option<AccountId>,
         approval: &Approval,
-        chain_store_update: &mut ChainStoreUpdate,
+        chain_store_update: &mut ChainStoreUpdate<'_>,
     ) -> Result<(), Error> {
         // Approvals without reference hash are for doomslug / randomness only and are ignored by
         // the finality gadget
