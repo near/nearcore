@@ -13,7 +13,7 @@ use near_primitives::views::AccountView;
 
 lazy_static::lazy_static! {
     pub static ref TEST_GENESIS_CONFIG: GenesisConfig =
-        GenesisConfig::from_json(include_str!("../../../near/res/testnet_genesis_config.json"));
+        GenesisConfig::from_json(include_str!("../../../near/res/genesis_config.json"));
 }
 
 pub fn start_all(validator: bool) -> (Addr<ViewClientActor>, String) {
