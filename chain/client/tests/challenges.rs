@@ -375,14 +375,17 @@ fn test_verify_chunk_invalid_state_challenge() {
     let validator_signer = InMemoryValidatorSigner::from_seed("test0", KeyType::ED25519, "test0");
     let genesis_hash = env.clients[0].chain.genesis().hash();
     env.produce_block(0, 1);
-    env.clients[0].process_tx(SignedTransaction::send_money(
-        0,
-        "test0".to_string(),
-        "test1".to_string(),
-        &signer,
-        1000,
-        genesis_hash,
-    ));
+    env.clients[0].process_tx(
+        SignedTransaction::send_money(
+            0,
+            "test0".to_string(),
+            "test1".to_string(),
+            &signer,
+            1000,
+            genesis_hash,
+        ),
+        false,
+    );
     env.produce_block(0, 2);
 
     // Invalid chunk & block.
@@ -649,7 +652,7 @@ fn test_fishermen_challenge() {
         signer.public_key(),
         genesis_hash,
     );
-    env.clients[0].process_tx(stake_transaction);
+    env.clients[0].process_tx(stake_transaction, false);
     for i in 1..=11 {
         env.produce_block(0, i);
     }

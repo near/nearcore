@@ -20,7 +20,7 @@ pub enum TxExecutionError {
 }
 
 impl Display for TxExecutionError {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
         match self {
             TxExecutionError::ActionError(e) => write!(f, "{}", e),
             TxExecutionError::InvalidTxError(e) => write!(f, "{}", e),
@@ -82,7 +82,7 @@ pub enum StorageError {
 }
 
 impl std::fmt::Display for StorageError {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
         f.write_str(&format!("{:?}", self))
     }
 }
@@ -200,7 +200,7 @@ pub enum ReceiptValidationError {
 }
 
 impl Display for ReceiptValidationError {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
         match self {
             ReceiptValidationError::InvalidPredecessorId { account_id } => {
                 write!(f, "The predecessor_id `{}` of a Receipt is not valid.", account_id)
@@ -232,7 +232,7 @@ impl Display for ReceiptValidationError {
 }
 
 impl Display for ActionsValidationError {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
         match self {
             ActionsValidationError::TotalPrepaidGasExceeded { total_prepaid_gas, limit } => {
                 write!(f, "The total prepaid gas {} exceeds the limit {}", total_prepaid_gas, limit)
@@ -355,7 +355,7 @@ impl From<ActionErrorKind> for ActionError {
 }
 
 impl Display for InvalidTxError {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
         match self {
             InvalidTxError::InvalidSignerId { signer_id } => {
                 write!(f, "Invalid signer account ID {:?} according to requirements", signer_id)
@@ -406,7 +406,7 @@ impl From<InvalidAccessKeyError> for InvalidTxError {
 }
 
 impl Display for InvalidAccessKeyError {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
         match self {
             InvalidAccessKeyError::AccessKeyNotFound { account_id, public_key } => write!(
                 f,
@@ -480,7 +480,7 @@ pub struct BalanceMismatchError {
 }
 
 impl Display for BalanceMismatchError {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
         // Using saturating add to avoid overflow in display
         let initial_balance = self
             .incoming_validator_rewards
@@ -565,13 +565,13 @@ impl From<InvalidTxError> for RuntimeError {
 }
 
 impl Display for ActionError {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
         write!(f, "Action #{}: {}", self.index.unwrap_or_default(), self.kind)
     }
 }
 
 impl Display for ActionErrorKind {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
         match self {
             ActionErrorKind::AccountAlreadyExists { account_id } => {
                 write!(f, "Can't create a new account {:?}, because it already exists", account_id)

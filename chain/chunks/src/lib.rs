@@ -1,5 +1,3 @@
-extern crate log;
-
 use std::cmp;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -273,7 +271,7 @@ impl ShardsManager {
         );
     }
 
-    pub fn get_pool_iterator(&mut self, shard_id: ShardId) -> Option<PoolIteratorWrapper> {
+    pub fn get_pool_iterator(&mut self, shard_id: ShardId) -> Option<PoolIteratorWrapper<'_>> {
         self.tx_pools.get_mut(&shard_id).map(|pool| pool.pool_iterator())
     }
 
@@ -1040,7 +1038,7 @@ impl ShardsManager {
     pub fn persist_partial_chunk_for_data_availability(
         &self,
         chunk_entry: &EncodedChunksCacheEntry,
-        store_update: &mut ChainStoreUpdate,
+        store_update: &mut ChainStoreUpdate<'_>,
     ) {
         let prev_block_hash = chunk_entry.header.inner.prev_block_hash;
         let partial_chunk = PartialEncodedChunk {
@@ -1129,7 +1127,7 @@ impl ShardsManager {
         encoded_chunk: &EncodedShardChunk,
         merkle_paths: Vec<MerklePath>,
         outgoing_receipts: &Vec<Receipt>,
-        store_update: &mut ChainStoreUpdate,
+        store_update: &mut ChainStoreUpdate<'_>,
     ) {
         let shard_id = encoded_chunk.header.inner.shard_id;
         let outgoing_receipts_hashes =

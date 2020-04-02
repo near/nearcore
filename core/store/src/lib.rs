@@ -199,7 +199,7 @@ impl StoreUpdate {
 }
 
 impl fmt::Debug for StoreUpdate {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         writeln!(f, "Store Update {{")?;
         for op in self.transaction.ops.iter() {
             match op {

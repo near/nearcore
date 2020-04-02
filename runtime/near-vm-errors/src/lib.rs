@@ -175,7 +175,7 @@ impl From<PrepareError> for VMError {
 }
 
 impl fmt::Display for PrepareError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         use PrepareError::*;
         match self {
             Serialization => write!(f, "Error happened while serializing the module."),
@@ -192,7 +192,7 @@ impl fmt::Display for PrepareError {
 }
 
 impl fmt::Display for FunctionCallError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         match self {
             FunctionCallError::CompilationError(e) => e.fmt(f),
             FunctionCallError::MethodResolveError(e) => e.fmt(f),
@@ -204,7 +204,7 @@ impl fmt::Display for FunctionCallError {
 }
 
 impl fmt::Display for CompilationError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         match self {
             CompilationError::CodeDoesNotExist { account_id } => {
                 write!(f, "cannot find contract code for account {}", account_id)
@@ -218,13 +218,13 @@ impl fmt::Display for CompilationError {
 }
 
 impl fmt::Display for MethodResolveError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         fmt::Debug::fmt(self, f)
     }
 }
 
 impl fmt::Display for VMError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         match self {
             VMError::FunctionCallError(err) => fmt::Display::fmt(err, f),
             VMError::ExternalError(_err) => write!(f, "Serialized ExternalError"),
@@ -234,7 +234,7 @@ impl fmt::Display for VMError {
 }
 
 impl std::fmt::Display for InconsistentStateError {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
         match self {
             InconsistentStateError::IntegerOverflow => write!(
                 f,
@@ -245,7 +245,7 @@ impl std::fmt::Display for InconsistentStateError {
 }
 
 impl std::fmt::Display for HostError {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
         use HostError::*;
         match self {
             BadUTF8 => write!(f, "String encoding is bad UTF-8 sequence."),

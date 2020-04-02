@@ -82,7 +82,7 @@ pub mod vec_bytes_as_str {
     impl<'de> Visitor<'de> for VecBytesVisitor {
         type Value = Vec<Vec<u8>>;
 
-        fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+        fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
             formatter.write_str("an array with string in the first element")
         }
 
