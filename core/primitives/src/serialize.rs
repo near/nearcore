@@ -130,7 +130,7 @@ pub mod vec_base_format {
     {
         type Value = Vec<T>;
 
-        fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+        fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
             formatter.write_str("an array with base58 in the first element")
         }
 

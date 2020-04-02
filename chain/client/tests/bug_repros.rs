@@ -133,6 +133,8 @@ fn repro_1183() {
 }
 
 #[test]
+#[ignore]
+// TODO FIXME #2366
 fn test_sync_from_achival_node() {
     init_test_logger();
     let validators = vec![vec!["test1", "test2", "test3", "test4"]];

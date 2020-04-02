@@ -509,6 +509,7 @@ mod tests {
     fn test_action_create_account(
         account_id: AccountId,
         predecessor_id: AccountId,
+        length: u8,
     ) -> ActionResult {
         let mut account = None;
         let mut actor_id = predecessor_id.clone();
@@ -516,7 +517,7 @@ mod tests {
         action_create_account(
             &RuntimeFeesConfig::default(),
             &AccountCreationConfig {
-                min_allowed_top_level_account_length: 11,
+                min_allowed_top_level_account_length: length,
                 registrar_account_id: AccountId::from("registrar"),
             },
             &mut account,
@@ -538,7 +539,7 @@ mod tests {
     fn test_create_account_valid_top_level_long() {
         let account_id = AccountId::from("bob_near_long_name");
         let predecessor_id = AccountId::from("alice.near");
-        let action_result = test_action_create_account(account_id, predecessor_id);
+        let action_result = test_action_create_account(account_id, predecessor_id, 11);
         assert!(action_result.result.is_ok());
     }
 
@@ -546,7 +547,7 @@ mod tests {
     fn test_create_account_valid_top_level_by_registrar() {
         let account_id = AccountId::from("bob");
         let predecessor_id = AccountId::from("registrar");
-        let action_result = test_action_create_account(account_id, predecessor_id);
+        let action_result = test_action_create_account(account_id, predecessor_id, 11);
         assert!(action_result.result.is_ok());
     }
 
@@ -554,7 +555,7 @@ mod tests {
     fn test_create_account_valid_sub_account() {
         let account_id = AccountId::from("alice.near");
         let predecessor_id = AccountId::from("near");
-        let action_result = test_action_create_account(account_id, predecessor_id);
+        let action_result = test_action_create_account(account_id, predecessor_id, 11);
         assert!(action_result.result.is_ok());
     }
 
@@ -562,7 +563,8 @@ mod tests {
     fn test_create_account_invalid_sub_account() {
         let account_id = AccountId::from("alice.near");
         let predecessor_id = AccountId::from("bob");
-        let action_result = test_action_create_account(account_id.clone(), predecessor_id.clone());
+        let action_result =
+            test_action_create_account(account_id.clone(), predecessor_id.clone(), 11);
         assert_eq!(
             action_result.result,
             Err(ActionError {
@@ -579,7 +581,8 @@ mod tests {
     fn test_create_account_invalid_short_top_level() {
         let account_id = AccountId::from("bob");
         let predecessor_id = AccountId::from("near");
-        let action_result = test_action_create_account(account_id.clone(), predecessor_id.clone());
+        let action_result =
+            test_action_create_account(account_id.clone(), predecessor_id.clone(), 11);
         assert_eq!(
             action_result.result,
             Err(ActionError {
@@ -591,5 +594,14 @@ mod tests {
                 }
             })
         );
+    }
+
+    #[test]
+    fn test_create_account_valid_short_top_level_len_allowed() {
+        let account_id = AccountId::from("bob");
+        let predecessor_id = AccountId::from("near");
+        let action_result =
+            test_action_create_account(account_id.clone(), predecessor_id.clone(), 0);
+        assert!(action_result.result.is_ok());
     }
 }
