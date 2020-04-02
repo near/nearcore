@@ -181,7 +181,7 @@ fn main() {
                 let data = fs::read(&filepath).unwrap();
                 serde_json::from_slice(&data).unwrap()
             }
-            None => panic!("Config should be specified."),
+            None => VMConfig::default(),
         },
     };
 
