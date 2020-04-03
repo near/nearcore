@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
-# update_res.py: update near/res/genesis_config.json to be current `near init` without records
-# update_res.py check: check near/res/genesis_config.json matches current `near init`
+# update_res.py: update neard/res/genesis_config.json to be current `near init` without records
+# update_res.py check: check neard/res/genesis_config.json matches current `near init`
 
 import subprocess
 import sys
@@ -25,7 +25,7 @@ def near_init_genesis():
     subprocess.check_output('cargo run -p neard --bin neard -- --home /tmp/near/update_res init --chain-id sample', shell=True)
     genesis = json.load(open('/tmp/near/update_res/genesis.json'), object_pairs_hook=OrderedDict)
     genesis['records'] = []
-    # To avoid near/res/genesis_config.json doesn't change everytime
+    # To avoid neard/res/genesis_config.json doesn't change everytime
     genesis['genesis_time'] = '1970-01-01T00:00:00.000000000Z'
     return genesis
 
