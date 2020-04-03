@@ -1,5 +1,5 @@
 use clap::{App, Arg};
-use near::get_default_home;
+use neard::get_default_home;
 use runtime_params_estimator::cases::run;
 use runtime_params_estimator::testbed_runners::Config;
 use std::fs::File;

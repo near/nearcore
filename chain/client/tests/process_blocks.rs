@@ -5,7 +5,6 @@ use std::sync::{Arc, RwLock};
 use actix::System;
 use futures::{future, FutureExt};
 
-use near::config::GenesisExt;
 use near_chain::chain::NUM_EPOCHS_TO_KEEP_STORE_DATA;
 use near_chain::{Block, ChainGenesis, ChainStoreAccess, ErrorKind, Provenance, RuntimeAdapter};
 use near_chain_configs::Genesis;
@@ -34,6 +33,7 @@ use near_primitives::types::{BlockHeight, EpochId, MerkleHash, NumBlocks};
 use near_primitives::utils::to_timestamp;
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
 use near_store::test_utils::create_test_store;
+use neard::config::GenesisExt;
 
 /// Runs block producing client and stops after network mock received two blocks.
 #[test]
@@ -842,7 +842,7 @@ fn test_gc_with_epoch_length_common(epoch_length: NumBlocks) {
     let store = create_test_store();
     let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
     genesis.config.epoch_length = epoch_length;
-    let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![Arc::new(near::NightshadeRuntime::new(
+    let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![Arc::new(neard::NightshadeRuntime::new(
         Path::new("."),
         store,
         Arc::new(genesis),
@@ -892,14 +892,14 @@ fn test_gc_long_epoch() {
     let mut genesis = Genesis::test(vec!["test0", "test1"], 5);
     genesis.config.epoch_length = epoch_length;
     let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![
-        Arc::new(near::NightshadeRuntime::new(
+        Arc::new(neard::NightshadeRuntime::new(
             Path::new("."),
             create_test_store(),
             Arc::new(genesis.clone()),
             vec![],
             vec![],
         )),
-        Arc::new(near::NightshadeRuntime::new(
+        Arc::new(neard::NightshadeRuntime::new(
             Path::new("."),
             create_test_store(),
             Arc::new(genesis),
