@@ -379,6 +379,7 @@ mod tests {
     use near_primitives::account::{AccessKey, Account, FunctionCallPermission};
     use near_primitives::hash::{hash, CryptoHash};
     use near_primitives::receipt::DataReceiver;
+    use near_primitives::test_utils::ACCOUNT_SIZE_BYTES;
     use near_primitives::transaction::{
         CreateAccountAction, DeleteKeyAction, StakeAction, TransferAction,
     };
@@ -807,13 +808,13 @@ mod tests {
     /// Setup: account has 1B yoctoN and is 180 bytes. Storage requirement is 1M per byte.
     /// Test that such account can not send 950M yoctoN out as that will leave it under storage requirements.
     #[test]
-    #[ignore]
-    // TODO FIXME #2371
     fn test_validate_transaction_invalid_low_balance() {
         let mut config = RuntimeConfig::free();
         config.storage_amount_per_byte = 10_000_000;
+        let initial_balance = 1_000_000_000;
+        let transfer_amount = 950_000_000;
         let (signer, mut state_update, apply_state) =
-            setup_common(1_000_000_000, 0, 10_000_000, Some(AccessKey::full_access()));
+            setup_common(initial_balance, 0, 10_000_000, Some(AccessKey::full_access()));
 
         assert_eq!(
             verify_and_charge_transaction(
@@ -825,14 +826,15 @@ mod tests {
                     alice_account(),
                     bob_account(),
                     &*signer,
-                    950_000_000,
+                    transfer_amount,
                     CryptoHash::default(),
                 ),
             )
             .expect_err("expected an error"),
             RuntimeError::InvalidTxError(InvalidTxError::LackBalanceForState {
                 signer_id: alice_account(),
-                amount: 72 * config.storage_amount_per_byte
+                amount: Balance::from(ACCOUNT_SIZE_BYTES) * config.storage_amount_per_byte
+                    - (initial_balance - transfer_amount)
             })
         );
     }

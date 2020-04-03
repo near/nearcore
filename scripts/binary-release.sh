@@ -3,6 +3,9 @@ set -euo pipefail
 
 branch=${BUILDKITE_BRANCH:-${GITHUB_REF##*/}}
 commit=${BUILDKITE_COMMIT:-${GITHUB_SHA}}
+if [[ ${commit} == "HEAD" ]]; then
+    commit=$(git rev-parse HEAD)
+fi
 os=$(uname)
 
 make release
