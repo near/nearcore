@@ -628,18 +628,10 @@ impl Chain {
                     _ => continue,
                 };
             if let Some(block_hash) = blocks_current_height.first() {
-                if blocks_current_height.len() > 1 {
-                    // Fork is here
-                    break;
-                }
                 let prev_hash = chain_store_update.get_block_header(block_hash)?.prev_hash;
-                if *chain_store_update.get_block_refcount(&prev_hash)? != 1 {
-                    return Err(ErrorKind::GCError(format!(
-                        "invalid refcount for {:?}, expected 1, found {:?}",
-                        block_hash,
-                        chain_store_update.get_block_refcount(&prev_hash).unwrap()
-                    ))
-                    .into());
+                // break when there is a fork
+                if *chain_store_update.get_block_refcount(&prev_hash)? > 1 {
+                    break;
                 }
                 chain_store_update.clear_block_data(trie.clone(), *block_hash, false)?;
             }
