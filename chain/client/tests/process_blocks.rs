@@ -859,7 +859,8 @@ fn test_gc_with_epoch_length_common(epoch_length: NumBlocks) {
         blocks.push(block);
     }
     for i in 1..=epoch_length * (NUM_EPOCHS_TO_KEEP_STORE_DATA + 1) {
-        if i <= epoch_length {
+        println!("height = {}", i);
+        if i < epoch_length {
             assert!(env.clients[0].chain.get_block(&blocks[i as usize - 1].hash()).is_err());
             assert!(env.clients[0]
                 .chain
@@ -878,8 +879,6 @@ fn test_gc_with_epoch_length_common(epoch_length: NumBlocks) {
 }
 
 #[test]
-#[ignore]
-// TODO FIXME #2368
 fn test_gc_with_epoch_length() {
     for i in 2..20 {
         test_gc_with_epoch_length_common(i);
