@@ -1,3 +1,4 @@
+from utils import user_name
 import sys
 import os
 import datetime
@@ -5,7 +6,6 @@ from rc import gcloud, run
 
 import sys
 sys.path.append('lib')
-from utils import user_name
 
 additional_flags = ''
 
@@ -51,7 +51,7 @@ source ~/.cargo/env
 
 git clone --single-branch --branch {branch} https://github.com/nearprotocol/nearcore.git nearcore
 cd nearcore
-cargo build -p near --release {additional_flags}
+cargo build -p neard --release {additional_flags}
 ''')
 
 assert p.returncode == 0

@@ -1,5 +1,5 @@
 [package]
-name = "near"
+name = "neard"
 version = "0.4.13"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2018"
@@ -48,3 +48,11 @@ testlib = { path = "../test-utils/testlib" }
 adversarial =  ["near-client/adversarial", "near-network/adversarial"]
 expensive_tests = ["near-client/expensive_tests", "near-epoch-manager/expensive_tests", "near-chain/expensive_tests"]
 metric_recorder = ["near-network/metric_recorder", "near-client/metric_recorder"]
+
+[[bin]]
+path = "src/main.rs"
+name = "neard"
+
+[[bin]]
+path = "src/../src/main.rs"
+name = "near"

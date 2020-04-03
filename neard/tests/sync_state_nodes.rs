@@ -5,11 +5,11 @@ use actix::{Actor, System};
 use futures::{future, FutureExt};
 use tempdir::TempDir;
 
-use near::{config::GenesisExt, load_test_config, start_with_config};
 use near_chain_configs::Genesis;
 use near_client::GetBlock;
 use near_network::test_utils::{convert_boot_nodes, open_port, WaitOrTimeout};
 use near_primitives::test_utils::{heavy_test, init_integration_logger};
+use neard::{config::GenesisExt, load_test_config, start_with_config};
 
 /// One client is in front, another must sync to it using state (fast) sync.
 #[test]
