@@ -78,7 +78,7 @@ def main():
     # Test new genesis matched with near init genesis
     new_genesis = json.load(open(os.path.join(node_root, 'test0/genesis.json')))
     subprocess.check_output('rm -rf /tmp/near/init_fast && mkdir -p /tmp/near/init_fast', shell=True)
-    subprocess.check_output('cargo run -p near -- --home /tmp/near/init_fast init --fast', shell=True)
+    subprocess.check_output('cargo run -p neard --bin neard -- --home /tmp/near/init_fast init --fast', shell=True)
     near_init_genesis = json.load(open('/tmp/near/init_fast/genesis.json'))
     new_genesis['records']=near_init_genesis['records']=[]
     new_genesis['genesis_time']=near_init_genesis['genesis_time']
