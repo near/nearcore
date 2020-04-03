@@ -116,8 +116,10 @@ fn produce_blocks_with_tx() {
         actix::spawn(view_client.send(GetBlock::latest()).then(move |res| {
             let header: BlockHeader = res.unwrap().unwrap().header.into();
             let block_hash = header.hash;
-            client
-                .do_send(NetworkClientMessages::Transaction(SignedTransaction::empty(block_hash)));
+            client.do_send(NetworkClientMessages::Transaction {
+                transaction: SignedTransaction::empty(block_hash),
+                is_forwarded: false,
+            });
             future::ready(())
         }))
     })
@@ -648,7 +650,10 @@ fn test_process_invalid_tx() {
         },
     );
     produce_blocks(&mut client, 12);
-    assert_eq!(client.process_tx(tx), NetworkClientResponses::InvalidTx(InvalidTxError::Expired));
+    assert_eq!(
+        client.process_tx(tx, false),
+        NetworkClientResponses::InvalidTx(InvalidTxError::Expired)
+    );
     let tx2 = SignedTransaction::new(
         Signature::empty(KeyType::ED25519),
         Transaction {
@@ -660,7 +665,10 @@ fn test_process_invalid_tx() {
             actions: vec![],
         },
     );
-    assert_eq!(client.process_tx(tx2), NetworkClientResponses::InvalidTx(InvalidTxError::Expired));
+    assert_eq!(
+        client.process_tx(tx2, false),
+        NetworkClientResponses::InvalidTx(InvalidTxError::Expired)
+    );
 }
 
 /// If someone produce a block with Utc::now() + 1 min, we should produce a block with valid timestamp
@@ -949,4 +957,27 @@ fn test_gc_block_skips() {
             env.produce_block(0, i);
         }
     }
+}
+
+#[test]
+fn test_tx_forwarding() {
+    let mut chain_genesis = ChainGenesis::test();
+    chain_genesis.epoch_length = 100;
+    let mut env = TestEnv::new(chain_genesis, 50, 50);
+    let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
+    let genesis_hash = genesis_block.hash();
+    // forward to 2 chunk producers
+    env.clients[0].process_tx(SignedTransaction::empty(genesis_hash), false);
+    assert_eq!(env.network_adapters[0].requests.read().unwrap().len(), 2);
+}
+
+#[test]
+fn test_tx_forwarding_no_double_forwarding() {
+    let mut chain_genesis = ChainGenesis::test();
+    chain_genesis.epoch_length = 100;
+    let mut env = TestEnv::new(chain_genesis, 50, 50);
+    let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
+    let genesis_hash = genesis_block.hash();
+    env.clients[0].process_tx(SignedTransaction::empty(genesis_hash), true);
+    assert!(env.network_adapters[0].requests.read().unwrap().is_empty());
 }

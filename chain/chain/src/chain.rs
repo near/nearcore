@@ -65,6 +65,9 @@ const ACCEPTABLE_TIME_DIFFERENCE: i64 = 12 * 10;
 /// Over this block height delta in advance if we are not chunk producer - route tx to upcoming validators.
 pub const TX_ROUTING_HEIGHT_HORIZON: BlockHeightDelta = 4;
 
+/// We choose this number of chunk producers to forward transactions to, if necessary.
+pub const NUM_CHUNK_PRODUCERS_TO_FORWARD_TX: u64 = 2;
+
 /// Private constant for 1 NEAR (copy from near/config.rs) used for reporting.
 const NEAR_BASE: Balance = 1_000_000_000_000_000_000_000_000;
 
@@ -1948,9 +1951,10 @@ impl Chain {
         &self,
         epoch_id: &EpochId,
         shard_id: ShardId,
+        horizon: BlockHeight,
     ) -> Result<AccountId, Error> {
         let head = self.head()?;
-        let target_height = head.height + TX_ROUTING_HEIGHT_HORIZON - 1;
+        let target_height = head.height + horizon - 1;
         self.runtime_adapter.get_chunk_producer(&epoch_id, target_height, shard_id)
     }
 
@@ -1958,7 +1962,7 @@ impl Chain {
     pub fn find_validator_for_forwarding(&self, shard_id: ShardId) -> Result<AccountId, Error> {
         let head = self.head()?;
         let epoch_id = self.runtime_adapter.get_epoch_id_from_prev_block(&head.last_block_hash)?;
-        self.find_chunk_producer_for_forwarding(&epoch_id, shard_id)
+        self.find_chunk_producer_for_forwarding(&epoch_id, shard_id, TX_ROUTING_HEIGHT_HORIZON)
     }
 }
 
