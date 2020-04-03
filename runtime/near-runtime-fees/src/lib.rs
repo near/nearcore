@@ -118,6 +118,7 @@ pub struct StorageUsageConfig {
 
 impl Default for RuntimeFeesConfig {
     fn default() -> Self {
+        #[allow(clippy::unreadable_literal)]
         Self {
             action_receipt_creation_config: Fee {
                 send_sir: 924119500000,
@@ -214,7 +215,7 @@ impl RuntimeFeesConfig {
                     function_call_cost_per_byte: free.clone(),
                 },
                 delete_key_cost: free.clone(),
-                delete_account_cost: free.clone(),
+                delete_account_cost: free,
             },
             storage_usage_config: StorageUsageConfig {
                 num_bytes_account: 0,

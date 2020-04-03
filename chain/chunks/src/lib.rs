@@ -1,5 +1,3 @@
-extern crate log;
-
 use std::cmp;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -273,7 +271,7 @@ impl ShardsManager {
         );
     }
 
-    pub fn get_pool_iterator(&mut self, shard_id: ShardId) -> Option<PoolIteratorWrapper> {
+    pub fn get_pool_iterator(&mut self, shard_id: ShardId) -> Option<PoolIteratorWrapper<'_>> {
         self.tx_pools.get_mut(&shard_id).map(|pool| pool.pool_iterator())
     }
 
@@ -319,8 +317,8 @@ impl ShardsManager {
             chunk_producer_account_id.clone()
         } else {
             match self.get_random_shard_block_producer(&parent_hash, shard_id) {
-                Ok(someone) => someone,
-                Err(_) => chunk_producer_account_id.clone(),
+                Ok(Some(someone)) => someone,
+                Ok(None) | Err(_) => chunk_producer_account_id.clone(),
             }
         };
 
@@ -385,9 +383,8 @@ impl ShardsManager {
                     request,
                 });
             } else {
-                debug_assert!(
-                    false,
-                    format!("{} requests parts {:?} from self", account_id, part_ords)
+                warn!(target: "client", "{} requests parts {:?} for chunk {:?} from self",
+                    account_id, part_ords, chunk_hash
                 );
             }
         }
@@ -400,7 +397,7 @@ impl ShardsManager {
         &self,
         parent_hash: &CryptoHash,
         shard_id: ShardId,
-    ) -> Result<AccountId, Error> {
+    ) -> Result<Option<AccountId>, Error> {
         let mut block_producers = vec![];
         let epoch_id = self.runtime_adapter.get_epoch_id_from_prev_block(parent_hash).unwrap();
         for (validator_stake, is_slashed) in
@@ -419,7 +416,7 @@ impl ShardsManager {
             }
         }
 
-        Ok(block_producers.choose(&mut rand::thread_rng()).unwrap().clone())
+        Ok(block_producers.choose(&mut rand::thread_rng()).cloned())
     }
 
     fn get_tracking_shards(&self, parent_hash: &CryptoHash) -> HashSet<ShardId> {
@@ -1040,7 +1037,7 @@ impl ShardsManager {
     pub fn persist_partial_chunk_for_data_availability(
         &self,
         chunk_entry: &EncodedChunksCacheEntry,
-        store_update: &mut ChainStoreUpdate,
+        store_update: &mut ChainStoreUpdate<'_>,
     ) {
         let prev_block_hash = chunk_entry.header.inner.prev_block_hash;
         let partial_chunk = PartialEncodedChunk {
@@ -1129,7 +1126,7 @@ impl ShardsManager {
         encoded_chunk: &EncodedShardChunk,
         merkle_paths: Vec<MerklePath>,
         outgoing_receipts: &Vec<Receipt>,
-        store_update: &mut ChainStoreUpdate,
+        store_update: &mut ChainStoreUpdate<'_>,
     ) {
         let shard_id = encoded_chunk.header.inner.shard_id;
         let outgoing_receipts_hashes =
@@ -1253,9 +1250,8 @@ mod test {
     use std::sync::Arc;
     use std::time::{Duration, Instant};
 
+    /// should not request partial encoded chunk from self
     #[test]
-    #[ignore]
-    // TODO FIXME #2369
     fn test_request_partial_encoded_chunk_from_self() {
         let runtime_adapter = Arc::new(KeyValueRuntime::new(create_test_store()));
         let network_adapter = Arc::new(MockNetworkAdapter::default());

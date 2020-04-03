@@ -132,7 +132,7 @@ pub enum ServerError {
 }
 
 impl Display for ServerError {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
         match self {
             ServerError::TxExecutionError(e) => write!(f, "ServerError: {}", e),
             ServerError::Timeout => write!(f, "ServerError: Timeout"),
@@ -230,7 +230,11 @@ impl JsonRpcHandler {
     async fn send_tx_async(&self, params: Option<Value>) -> Result<Value, RpcError> {
         let tx = parse_tx(params)?;
         let hash = (&tx.get_hash()).to_base();
-        actix::spawn(self.client_addr.send(NetworkClientMessages::Transaction(tx)).map(drop));
+        actix::spawn(
+            self.client_addr
+                .send(NetworkClientMessages::Transaction { transaction: tx, is_forwarded: false })
+                .map(drop),
+        );
         Ok(Value::String(hash))
     }
 
@@ -267,7 +271,7 @@ impl JsonRpcHandler {
         let signer_account_id = tx.transaction.signer_id.clone();
         let result = self
             .client_addr
-            .send(NetworkClientMessages::Transaction(tx))
+            .send(NetworkClientMessages::Transaction { transaction: tx, is_forwarded: false })
             .map_err(|err| RpcError::server_error(Some(ServerError::from(err))))
             .await?;
         match result {

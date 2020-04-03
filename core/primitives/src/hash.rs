@@ -125,13 +125,13 @@ impl From<&CryptoHash> for Vec<u8> {
 }
 
 impl fmt::Debug for CryptoHash {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", pretty_hash(&String::from(self)))
     }
 }
 
 impl fmt::Display for CryptoHash {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", String::from(self))
     }
 }

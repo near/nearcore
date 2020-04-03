@@ -65,6 +65,9 @@ const ACCEPTABLE_TIME_DIFFERENCE: i64 = 12 * 10;
 /// Over this block height delta in advance if we are not chunk producer - route tx to upcoming validators.
 pub const TX_ROUTING_HEIGHT_HORIZON: BlockHeightDelta = 4;
 
+/// We choose this number of chunk producers to forward transactions to, if necessary.
+pub const NUM_CHUNK_PRODUCERS_TO_FORWARD_TX: u64 = 2;
+
 /// Private constant for 1 NEAR (copy from near/config.rs) used for reporting.
 const NEAR_BASE: Balance = 1_000_000_000_000_000_000_000_000;
 
@@ -625,19 +628,18 @@ impl Chain {
                     _ => continue,
                 };
             if let Some(block_hash) = blocks_current_height.first() {
-                if blocks_current_height.len() > 1 {
-                    // Fork is here
-                    break;
-                }
                 let prev_hash = chain_store_update.get_block_header(block_hash)?.prev_hash;
-                if *chain_store_update.get_block_refcount(&prev_hash)? != 1 {
-                    return Err(ErrorKind::GCError(format!(
-                        "invalid refcount for {:?}, expected 1, found {:?}",
-                        block_hash,
-                        chain_store_update.get_block_refcount(&prev_hash).unwrap()
-                    ))
+                let prev_block_refcount = *chain_store_update.get_block_refcount(&prev_hash)?;
+                // break when there is a fork
+                if prev_block_refcount > 1 {
+                    break;
+                } else if prev_block_refcount == 0 {
+                    return Err(ErrorKind::GCError(
+                        "block on canonical chain shouldn't have refcount 0".into(),
+                    )
                     .into());
                 }
+                debug_assert_eq!(blocks_current_height.len(), 1);
                 chain_store_update.clear_block_data(trie.clone(), *block_hash, false)?;
             }
             chain_store_update.update_tail(height);
@@ -1948,9 +1950,10 @@ impl Chain {
         &self,
         epoch_id: &EpochId,
         shard_id: ShardId,
+        horizon: BlockHeight,
     ) -> Result<AccountId, Error> {
         let head = self.head()?;
-        let target_height = head.height + TX_ROUTING_HEIGHT_HORIZON - 1;
+        let target_height = head.height + horizon - 1;
         self.runtime_adapter.get_chunk_producer(&epoch_id, target_height, shard_id)
     }
 
@@ -1958,7 +1961,7 @@ impl Chain {
     pub fn find_validator_for_forwarding(&self, shard_id: ShardId) -> Result<AccountId, Error> {
         let head = self.head()?;
         let epoch_id = self.runtime_adapter.get_epoch_id_from_prev_block(&head.last_block_hash)?;
-        self.find_chunk_producer_for_forwarding(&epoch_id, shard_id)
+        self.find_chunk_producer_for_forwarding(&epoch_id, shard_id, TX_ROUTING_HEIGHT_HORIZON)
     }
 }
 
@@ -2179,7 +2182,7 @@ impl<'a> ChainUpdate<'a> {
         block_economics_config: &'a BlockEconomicsConfig,
         doomslug_threshold_mode: DoomslugThresholdMode,
     ) -> Self {
-        let chain_store_update: ChainStoreUpdate = store.store_update();
+        let chain_store_update: ChainStoreUpdate<'_> = store.store_update();
         ChainUpdate {
             runtime_adapter,
             chain_store_update,
