@@ -27,6 +27,8 @@ def near_init_genesis():
     genesis['records'] = []
     # To avoid neard/res/genesis_config.json doesn't change everytime
     genesis['genesis_time'] = '1970-01-01T00:00:00.000000000Z'
+    # secret key is seed from test.near
+    genesis['validators'][0]['public_key'] = 'ed25519:9BmAFNRTa5mRRXpSAm6MxSEeqRASDGNh2FuuwZ4gyxTw'
     return genesis
 
 def update_res():

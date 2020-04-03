@@ -193,7 +193,7 @@
   "validators": [
     {
       "account_id": "test.near",
-      "public_key": "ed25519:3MSgRAN3847w5qhq13cmYVVExVCshSf6GKFozCrQTnD6",
+      "public_key": "ed25519:9BmAFNRTa5mRRXpSAm6MxSEeqRASDGNh2FuuwZ4gyxTw",
       "amount": "50000000000000000000000000000000"
     }
   ],
