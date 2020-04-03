@@ -59,7 +59,7 @@ impl TransactionPool {
     /// Returns a pool iterator wrapper that implements an iterator like trait to iterate over
     /// transaction groups in the proper order defined by the protocol.
     /// When the iterator is dropped, all remaining groups are inserted back into the pool.
-    pub fn pool_iterator(&mut self) -> PoolIteratorWrapper {
+    pub fn pool_iterator(&mut self) -> PoolIteratorWrapper<'_> {
         PoolIteratorWrapper::new(self)
     }
 

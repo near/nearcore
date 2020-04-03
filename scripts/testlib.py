@@ -7,6 +7,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from multiprocessing import cpu_count
 import fcntl
 import re
+import filecmp
 
 
 fcntl.fcntl(1, fcntl.F_SETFL, 0)
@@ -44,10 +45,11 @@ def workers():
 
 def test_binaries(exclude=None):
     binaries = []
-    for f in glob.glob(f'{target_debug}/*'):
+    for f in glob.glob(f'{target_debug}/deps/*'):
         fname = os.path.basename(f)
         ext = os.path.splitext(fname)[1]
-        if os.path.isfile(f) and fname != 'near' and fname != 'neard' and ext == '':
+        is_near_binary = filecmp.cmp(f, f'{target_debug}/near')
+        if os.path.isfile(f) and not is_near_binary and ext == '':
             if not exclude:
                 binaries.append(f)
             elif not any(map(lambda e: re.match(e, fname), exclude)):

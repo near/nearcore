@@ -369,9 +369,9 @@ checksum = "7deb0a829ca7bcfaf5da70b073a8d128619259a7be8216a355e23f00763059e5"
 
 [[package]]
 name = "async-trait"
-version = "0.1.27"
+version = "0.1.29"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "991d0a1a3e790c835fd54ab41742a59251338d8c7577fe7d7f0170c7072be708"
+checksum = "bab5c215748dc1ad11a145359b1067107ae0f8ca5e99844fa64067ed5bf198e3"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -2336,6 +2336,7 @@ dependencies = [
  "derive_more",
  "easy-ext",
  "env_logger",
+ "hex 0.4.2",
  "jemallocator",
  "lazy_static",
  "log",
@@ -2388,7 +2389,7 @@ dependencies = [
 
 [[package]]
 name = "near-runtime-fees"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "serde",
 ]
@@ -2433,7 +2434,7 @@ dependencies = [
 
 [[package]]
 name = "near-vm-errors"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "borsh",
  "near-rpc-error-macro",
@@ -2442,7 +2443,7 @@ dependencies = [
 
 [[package]]
 name = "near-vm-logic"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "base64",
  "bs58",
@@ -2457,7 +2458,7 @@ dependencies = [
 
 [[package]]
 name = "near-vm-runner"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "assert_matches",
  "bencher",
@@ -2475,7 +2476,7 @@ dependencies = [
 
 [[package]]
 name = "near-vm-runner-standalone"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "clap",
  "near-runtime-fees",
@@ -2693,9 +2694,9 @@ checksum = "77af24da69f9d9341038eba93a073b1fdaaa1b788221b00a69bce9e762cb32de"
 
 [[package]]
 name = "openssl-src"
-version = "111.7.0+1.1.1e"
+version = "111.8.1+1.1.1f"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6fde5a8c01ef8aa31ff8d0aaf9bae248581ed8840fca0b66e51cc9f294a8cb2c"
+checksum = "f04f0299a91de598dde58d2e99101895498dcf3d58896a3297798f28b27c8b72"
 dependencies = [
  "cc",
 ]
@@ -3620,9 +3621,9 @@ dependencies = [
 
 [[package]]
 name = "socket2"
-version = "0.3.11"
+version = "0.3.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e8b74de517221a2cb01a53349cf54182acdc31a074727d3079068448c0676d85"
+checksum = "03088793f677dce356f3ccc2edb1b314ad191ab702a5de3faf49304f7e104918"
 dependencies = [
  "cfg-if",
  "libc",
@@ -3649,7 +3650,6 @@ dependencies = [
  "ansi_term 0.12.1",
  "borsh",
  "clap",
- "hex 0.4.2",
  "near-chain",
  "near-chain-configs",
  "near-crypto",
@@ -3875,9 +3875,9 @@ dependencies = [
 
 [[package]]
 name = "tokio"
-version = "0.2.13"
+version = "0.2.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0fa5e81d6bc4e67fe889d5783bd2a128ab2e0cfa487e0be16b6a8d177b101616"
+checksum = "619cdb2245c40c42d563089b72e80c5df659513d667a017598439ef7a7b1ffe1"
 dependencies = [
  "bytes",
  "fnv",

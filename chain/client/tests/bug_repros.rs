@@ -90,8 +90,8 @@ fn repro_1183() {
                             connectors1.write().unwrap()
                                 [account_id_to_shard_id(&from.to_string(), 4) as usize]
                                 .0
-                                .do_send(NetworkClientMessages::Transaction(
-                                    SignedTransaction::send_money(
+                                .do_send(NetworkClientMessages::Transaction {
+                                    transaction: SignedTransaction::send_money(
                                         block.header.inner_lite.height * 16 + nonce_delta,
                                         from.to_string(),
                                         to.to_string(),
@@ -99,7 +99,8 @@ fn repro_1183() {
                                         1,
                                         block.header.prev_hash,
                                     ),
-                                ));
+                                    is_forwarded: false,
+                                });
                             nonce_delta += 1
                         }
                     }
@@ -132,6 +133,8 @@ fn repro_1183() {
 }
 
 #[test]
+#[ignore]
+// TODO FIXME #2366
 fn test_sync_from_achival_node() {
     init_test_logger();
     let validators = vec![vec!["test1", "test2", "test3", "test4"]];

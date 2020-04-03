@@ -58,7 +58,7 @@ def download_binary(branch):
 
 def prepare_ab_test(other_branch):
     compile_current()
-    if other_branch in ['master', 'beta', 'stable']:
+    if os.environ.get('BUILDKITE') and other_branch in ['master', 'beta', 'stable']:
         download_binary(other_branch)
     else:
         compile_binary(other_branch)
