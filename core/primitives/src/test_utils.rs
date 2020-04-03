@@ -12,7 +12,7 @@ use crate::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, SignedTransaction, StakeAction,
     Transaction, TransferAction,
 };
-use crate::types::{AccountId, Balance, BlockHeight, EpochId, Nonce};
+use crate::types::{AccountId, Balance, BlockHeight, EpochId, Fraction, Nonce};
 use crate::validator_signer::ValidatorSigner;
 
 lazy_static! {
@@ -235,7 +235,7 @@ impl Block {
             epoch_id,
             next_epoch_id,
             approvals,
-            0,
+            Fraction::zero(),
             0,
             Some(0),
             vec![],

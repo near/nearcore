@@ -16,7 +16,7 @@ use near_primitives::block::Approval;
 use near_primitives::hash::CryptoHash;
 use near_primitives::test_utils::{heavy_test, init_integration_logger};
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{BlockHeightDelta, EpochId, ValidatorStake};
+use near_primitives::types::{BlockHeightDelta, EpochId, Fraction, ValidatorStake};
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
 use neard::config::{GenesisExt, TESTING_INIT_STAKE};
 use neard::{load_test_config, start_with_config};
@@ -55,7 +55,7 @@ fn add_blocks(
                 false,
                 signer,
             )],
-            0,
+            Fraction::zero(),
             0,
             Some(0),
             vec![],

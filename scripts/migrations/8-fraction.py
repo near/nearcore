@@ -19,6 +19,10 @@ config = json.load(open(os.path.join(home, 'output.json')), object_pairs_hook=Or
 assert config['protocol_version'] == 7
 
 config['protocol_version'] = 8
+config['gas_price_adjustment_rate'] = {
+    'numerator': 1,
+    'denominator': 100,
+}
 config['protocol_reward_percentage'] = {
     'numerator': 1,
     'denominator': 10,
@@ -31,5 +35,6 @@ config['max_inflation_rate'] = {
     'numerator': 5,
     'denominator': 1,
 }
+
 
 json.dump(config, open(os.path.join(output_home, 'output.json'), 'w'), indent=2)

@@ -58,7 +58,7 @@ pub fn setup_network_node(
         100,
         1_000_000_000,
         Fraction::zero(),
-        0,
+        Fraction::zero(),
         1000,
         5,
     );

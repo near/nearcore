@@ -73,7 +73,7 @@ pub fn setup(
         100,
         1_000_000_000,
         Fraction::zero(),
-        0,
+        Fraction::zero(),
         transaction_validity_period,
         epoch_length,
     );

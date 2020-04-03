@@ -13,7 +13,8 @@ use crate::sharding::{
     ChunkHashHeight, EncodedShardChunk, ReedSolomonWrapper, ShardChunk, ShardChunkHeader,
 };
 use crate::types::{
-    AccountId, Balance, BlockHeight, EpochId, Gas, MerkleHash, NumShards, StateRoot, ValidatorStake,
+    AccountId, Balance, BlockHeight, EpochId, Fraction, Gas, MerkleHash, NumShards, StateRoot,
+    ValidatorStake,
 };
 use crate::utils::{from_timestamp, to_timestamp};
 use crate::validator_signer::{EmptyValidatorSigner, ValidatorSigner};
@@ -474,7 +475,7 @@ impl Block {
         epoch_id: EpochId,
         next_epoch_id: EpochId,
         approvals: Vec<Approval>,
-        gas_price_adjustment_rate: u8,
+        gas_price_adjustment_rate: Fraction,
         min_gas_price: Balance,
         inflation: Option<Balance>,
         challenges_result: ChallengesResult,
@@ -566,7 +567,7 @@ impl Block {
         &self,
         prev_gas_price: Balance,
         min_gas_price: Balance,
-        gas_price_adjustment_rate: u8,
+        gas_price_adjustment_rate: Fraction,
     ) -> bool {
         let gas_used = Self::compute_gas_used(&self.chunks, self.header.inner_lite.height);
         let gas_limit = Self::compute_gas_limit(&self.chunks, self.header.inner_lite.height);
@@ -583,15 +584,17 @@ impl Block {
         prev_gas_price: Balance,
         gas_used: Gas,
         gas_limit: Gas,
-        gas_price_adjustment_rate: u8,
+        gas_price_adjustment_rate: Fraction,
     ) -> Balance {
         if gas_limit == 0 {
             prev_gas_price
         } else {
-            let numerator = 2 * 100 * u128::from(gas_limit)
-                - u128::from(gas_price_adjustment_rate) * u128::from(gas_limit)
-                + 2 * u128::from(gas_price_adjustment_rate) * u128::from(gas_used);
-            let denominator = 2 * 100 * u128::from(gas_limit);
+            let numerator =
+                2 * u128::from(gas_price_adjustment_rate.denominator) * u128::from(gas_limit)
+                    - u128::from(gas_price_adjustment_rate.numerator) * u128::from(gas_limit)
+                    + 2 * u128::from(gas_price_adjustment_rate.numerator) * u128::from(gas_used);
+            let denominator =
+                2 * u128::from(gas_price_adjustment_rate.denominator) * u128::from(gas_limit);
             prev_gas_price * numerator / denominator
         }
     }

@@ -59,7 +59,7 @@ pub struct GenesisConfig {
     /// Criterion for kicking out chunk producers (this is a number between 0 and 100)
     pub chunk_producer_kickout_threshold: u8,
     /// Gas price adjustment rate
-    pub gas_price_adjustment_rate: u8,
+    pub gas_price_adjustment_rate: Fraction,
     /// Runtime configuration (mostly economics constants).
     pub runtime_config: RuntimeConfig,
     /// List of initial validators.

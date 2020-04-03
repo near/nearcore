@@ -10,7 +10,7 @@ use near_jsonrpc::ServerError;
 use near_primitives::serialize::to_base64;
 use near_primitives::state_record::StateRecord;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, Balance, NumSeats};
+use near_primitives::types::{AccountId, Balance, Fraction, NumSeats};
 use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_primitives::views::AccountView;
 use neard::config::{
@@ -155,7 +155,7 @@ pub fn create_nodes_from_seeds(seeds: Vec<String>) -> Vec<NodeConfig> {
     let code = to_base64(&fs::read(path).unwrap());
     let (configs, validator_signers, network_signers, mut genesis) =
         create_testnet_configs_from_seeds(seeds.clone(), 1, 0, true, false);
-    genesis.config.gas_price_adjustment_rate = 0;
+    genesis.config.gas_price_adjustment_rate = Fraction::zero();
     let records = genesis.records.as_mut();
     for seed in seeds {
         records.push(StateRecord::Contract { account_id: seed, code: code.clone() });

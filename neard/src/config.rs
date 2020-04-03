@@ -107,8 +107,7 @@ pub const MIN_GAS_PRICE: Balance = 5000;
 /// The rate at which the gas price can be adjusted (alpha in the formula).
 /// The formula is
 /// gas_price_t = gas_price_{t-1} * (1 + (gas_used/gas_limit - 1/2) * alpha))
-/// This constant is supposedly 0.01 and should be divided by 100 when used
-pub const GAS_PRICE_ADJUSTMENT_RATE: u8 = 1;
+pub const GAS_PRICE_ADJUSTMENT_RATE: Fraction = Fraction { numerator: 1, denominator: 100 };
 
 /// Rewards
 pub const PROTOCOL_PERCENT: Fraction = Fraction { numerator: 1, denominator: 10 };

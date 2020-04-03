@@ -27,7 +27,7 @@ use near_primitives::serialize::BaseDecode;
 use near_primitives::sharding::{EncodedShardChunk, ReedSolomonWrapper};
 use near_primitives::test_utils::init_test_logger;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::StateRoot;
+use near_primitives::types::{Fraction, StateRoot};
 use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_store::test_utils::create_test_store;
 use neard::config::{GenesisExt, FISHERMEN_THRESHOLD};
@@ -50,7 +50,7 @@ fn test_verify_block_double_sign_challenge() {
         b1.header.inner_lite.epoch_id.clone(),
         b1.header.inner_lite.next_epoch_id.clone(),
         vec![],
-        0,
+        Fraction::zero(),
         0,
         None,
         vec![],
@@ -194,7 +194,7 @@ fn create_chunk(
         last_block.header.inner_lite.epoch_id.clone(),
         last_block.header.inner_lite.next_epoch_id.clone(),
         vec![],
-        0,
+        Fraction::zero(),
         0,
         None,
         vec![],
@@ -438,7 +438,7 @@ fn test_verify_chunk_invalid_state_challenge() {
         last_block.header.inner_lite.epoch_id.clone(),
         last_block.header.inner_lite.next_epoch_id.clone(),
         vec![],
-        0,
+        Fraction::zero(),
         0,
         None,
         vec![],
@@ -457,6 +457,8 @@ fn test_verify_chunk_invalid_state_challenge() {
         let adapter = chain.runtime_adapter.clone();
         let epoch_length = chain.epoch_length;
         let empty_block_pool = OrphanBlockPool::new();
+        let economics_config =
+            BlockEconomicsConfig { gas_price_adjustment_rate: Fraction::zero(), min_gas_price: 0 };
 
         let mut chain_update = ChainUpdate::new(
             chain.mut_store(),
@@ -464,7 +466,7 @@ fn test_verify_chunk_invalid_state_challenge() {
             &empty_block_pool,
             &empty_block_pool,
             epoch_length,
-            &BlockEconomicsConfig { gas_price_adjustment_rate: 0, min_gas_price: 0 },
+            &economics_config,
             DoomslugThresholdMode::NoApprovals,
         );
 

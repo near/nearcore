@@ -79,7 +79,7 @@ pub const MAX_HEIGHTS_TO_CLEAR: u64 = 100;
 
 /// Block economics config taken from genesis config
 pub struct BlockEconomicsConfig {
-    pub gas_price_adjustment_rate: u8,
+    pub gas_price_adjustment_rate: Fraction,
     pub min_gas_price: Balance,
 }
 
@@ -186,7 +186,7 @@ pub struct ChainGenesis {
     pub min_gas_price: Balance,
     pub total_supply: Balance,
     pub max_inflation_rate: Fraction,
-    pub gas_price_adjustment_rate: u8,
+    pub gas_price_adjustment_rate: Fraction,
     pub transaction_validity_period: NumBlocks,
     pub epoch_length: BlockHeightDelta,
 }
@@ -199,7 +199,7 @@ impl ChainGenesis {
         min_gas_price: Balance,
         total_supply: Balance,
         max_inflation_rate: Fraction,
-        gas_price_adjustment_rate: u8,
+        gas_price_adjustment_rate: Fraction,
         transaction_validity_period: NumBlocks,
         epoch_length: BlockHeightDelta,
     ) -> Self {
