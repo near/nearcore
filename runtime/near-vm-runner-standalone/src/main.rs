@@ -7,11 +7,65 @@
 //! ```
 use clap::{App, Arg};
 use near_runtime_fees::RuntimeFeesConfig;
-use near_vm_logic::mocks::mock_external::MockedExternal;
+use near_vm_logic::mocks::mock_external::{MockedExternal, Receipt};
 use near_vm_logic::types::PromiseResult;
-use near_vm_logic::{VMConfig, VMContext};
-use near_vm_runner::run;
-use std::fs;
+use near_vm_logic::{VMConfig, VMContext, VMOutcome};
+use near_vm_runner::{run, VMError};
+use serde::de::{MapAccess, Visitor};
+use serde::ser::SerializeMap;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use std::collections::HashMap;
+use std::{fmt, fs};
+
+#[derive(Debug, Clone)]
+struct State(HashMap<Vec<u8>, Vec<u8>>);
+
+impl Serialize for State {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let mut map = serializer.serialize_map(Some(self.0.len()))?;
+        for (k, v) in &self.0 {
+            map.serialize_entry(&base64::encode(&k).to_string(), &base64::encode(&v).to_string())?;
+        }
+        map.end()
+    }
+}
+
+struct Base64HashMapVisitor;
+
+impl<'de> Visitor<'de> for Base64HashMapVisitor {
+    type Value = State;
+
+    fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+        formatter.write_str("Base64 serialized HashMap")
+    }
+
+    fn visit_map<M>(self, mut access: M) -> Result<Self::Value, M::Error>
+    where
+        M: MapAccess<'de>,
+    {
+        let mut map = HashMap::with_capacity(access.size_hint().unwrap_or(0));
+
+        while let Some((key, value)) = access.next_entry::<String, String>()? {
+            map.insert(base64::decode(&key).unwrap(), base64::decode(&value).unwrap());
+        }
+
+        Ok(State(map))
+    }
+}
+
+impl<'de> Deserialize<'de> for State {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        deserializer.deserialize_map(Base64HashMapVisitor {})
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct StandaloneOutput {
+    pub outcome: Option<VMOutcome>,
+    pub err: Option<VMError>,
+    pub receipts: Vec<Receipt>,
+    pub state: State,
+}
 
 fn main() {
     let matches = App::new(env!("CARGO_PKG_NAME"))
@@ -44,6 +98,14 @@ fn main() {
                 .long("method-name")
                 .value_name("METHOD_NAME")
                 .help("The name of the method to call on the smart contract.")
+                .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("state")
+                .long("state")
+                .value_name("STATE")
+                .help("Key-value state in JSON base64 format for the smart contract \
+                as HashMap.")
                 .takes_value(true),
         )
         .arg(
@@ -93,6 +155,13 @@ fn main() {
         context.input = value_str.as_bytes().to_vec();
     }
 
+    let mut fake_external = MockedExternal::new();
+
+    if let Some(state_str) = matches.value_of("state") {
+        let state: State = serde_json::from_str(state_str).unwrap();
+        fake_external.fake_trie = state.0;
+    }
+
     let method_name = matches
         .value_of("method-name")
         .expect("Name of the method must be specified")
@@ -112,14 +181,13 @@ fn main() {
                 let data = fs::read(&filepath).unwrap();
                 serde_json::from_slice(&data).unwrap()
             }
-            None => panic!("Config should be specified."),
+            None => VMConfig::default(),
         },
     };
 
     let code =
         fs::read(matches.value_of("wasm-file").expect("Wasm file needs to be specified")).unwrap();
 
-    let mut fake_external = MockedExternal::new();
     let fees = RuntimeFeesConfig::default();
     let (outcome, err) = run(
         vec![],
@@ -132,16 +200,14 @@ fn main() {
         &promise_results,
     );
 
-    if let Some(outcome) = outcome {
-        let str = serde_json::to_string(&outcome).unwrap();
-        println!("{}", str);
-        for call in fake_external.get_receipt_create_calls() {
-            let str = serde_json::to_string(&call).unwrap();
-            println!("{}", str);
-        }
-    }
-
-    if let Some(err) = err {
-        println!("{:?}", err);
-    }
+    println!(
+        "{}",
+        serde_json::to_string(&StandaloneOutput {
+            outcome,
+            err,
+            receipts: fake_external.get_receipt_create_calls().clone(),
+            state: State(fake_external.fake_trie),
+        })
+        .unwrap()
+    )
 }
