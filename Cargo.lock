@@ -2391,6 +2391,7 @@ dependencies = [
 name = "near-runtime-fees"
 version = "0.7.1"
 dependencies = [
+ "near-primitives",
  "serde",
 ]
 

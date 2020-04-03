@@ -2,15 +2,14 @@ use ethereum_types::U256;
 use std::cmp::max;
 use std::collections::HashMap;
 
-use near_primitives::types::{AccountId, Balance, BlockChunkValidatorStats};
+use near_primitives::types::{AccountId, Balance, BlockChunkValidatorStats, Fraction};
 
 #[derive(Clone)]
 pub struct RewardCalculator {
-    pub max_inflation_rate: u8,
+    pub max_inflation_rate: Fraction,
     pub num_blocks_per_year: u64,
     pub epoch_length: u64,
-    pub validator_reward_percentage: u8,
-    pub protocol_reward_percentage: u8,
+    pub protocol_reward_percentage: Fraction,
     pub protocol_treasury_account: AccountId,
 }
 
@@ -25,16 +24,17 @@ impl RewardCalculator {
     ) -> (HashMap<AccountId, Balance>, Balance) {
         let mut res = HashMap::new();
         let num_validators = validator_block_chunk_stats.len();
-        let max_inflation = (U256::from(self.max_inflation_rate)
+        let max_inflation = (U256::from(self.max_inflation_rate.numerator)
             * U256::from(total_supply)
             * U256::from(self.epoch_length)
-            / (U256::from(100) * U256::from(self.num_blocks_per_year)))
+            / (U256::from(100)
+                * U256::from(self.num_blocks_per_year)
+                * U256::from(self.max_inflation_rate.denominator)))
         .as_u128();
         let epoch_fee = total_validator_reward;
         let inflation = if max_inflation > epoch_fee { max_inflation - epoch_fee } else { 0 };
         let epoch_total_reward = max(max_inflation, epoch_fee);
-        let epoch_protocol_treasury =
-            epoch_total_reward * u128::from(self.protocol_reward_percentage) / 100;
+        let epoch_protocol_treasury = epoch_total_reward * self.protocol_reward_percentage;
         res.insert(self.protocol_treasury_account.clone(), epoch_protocol_treasury);
         if num_validators == 0 {
             return (res, inflation);
@@ -68,7 +68,7 @@ impl RewardCalculator {
 #[cfg(test)]
 mod tests {
     use crate::RewardCalculator;
-    use near_primitives::types::{BlockChunkValidatorStats, ValidatorStats};
+    use near_primitives::types::{BlockChunkValidatorStats, Fraction, ValidatorStats};
     use std::collections::HashMap;
 
     /// Test that under an extreme setting (total supply 100b, epoch length half a day),
@@ -76,12 +76,11 @@ mod tests {
     #[test]
     fn test_reward_no_overflow() {
         let reward_calculator = RewardCalculator {
-            max_inflation_rate: 5,
+            max_inflation_rate: Fraction::new(5, 1),
             num_blocks_per_year: 60 * 60 * 24 * 365,
             // half a day
             epoch_length: 60 * 60 * 12,
-            validator_reward_percentage: 30,
-            protocol_reward_percentage: 10,
+            protocol_reward_percentage: Fraction::new(1, 10),
             protocol_treasury_account: "near".to_string(),
         };
         let validator_block_chunk_stats = vec![(

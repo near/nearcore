@@ -23,7 +23,7 @@ use near_primitives::transaction::{
     TransferAction,
 };
 use near_primitives::types::{
-    AccountId, Balance, BlockHeight, EpochId, Gas, Nonce, NumBlocks, ShardId, StateRoot,
+    AccountId, Balance, BlockHeight, EpochId, Fraction, Gas, Nonce, NumBlocks, ShardId, StateRoot,
     StateRootNode, ValidatorStake, ValidatorStats,
 };
 use near_primitives::validator_signer::InMemoryValidatorSigner;
@@ -923,7 +923,7 @@ pub fn setup_with_tx_validity_period(
             1_000_000,
             100,
             1_000_000_000,
-            0,
+            Fraction::zero(),
             0,
             tx_validity_period,
             10,
@@ -962,7 +962,7 @@ pub fn setup_with_validators(
             1_000_000,
             100,
             1_000_000_000,
-            0,
+            Fraction::zero(),
             0,
             tx_validity_period,
             epoch_length,
@@ -1079,7 +1079,7 @@ impl ChainGenesis {
             gas_limit: 1_000_000,
             min_gas_price: 0,
             total_supply: 1_000_000_000,
-            max_inflation_rate: 0,
+            max_inflation_rate: Fraction::zero(),
             gas_price_adjustment_rate: 0,
             transaction_validity_period: 100,
             epoch_length: 5,

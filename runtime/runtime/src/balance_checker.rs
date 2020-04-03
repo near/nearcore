@@ -325,9 +325,7 @@ mod tests {
             + cfg.action_creation_config.transfer_cost.exec_fee();
         let send_gas = cfg.action_receipt_creation_config.send_fee(false)
             + cfg.action_creation_config.transfer_cost.send_fee(false);
-        let contract_reward = (send_gas * cfg.burnt_gas_reward.numerator
-            / cfg.burnt_gas_reward.denominator) as Balance
-            * gas_price;
+        let contract_reward = send_gas as u128 * cfg.burnt_gas_reward * gas_price;
         let total_validator_reward = send_gas as Balance * gas_price - contract_reward;
         let mut initial_state = TrieUpdate::new(trie.clone(), root);
         let initial_account = Account::new(initial_balance, hash(&[]));

@@ -518,8 +518,8 @@ impl Runtime {
 
         // Adding burnt gas reward for function calls if the account exists.
         let receiver_gas_reward = result.gas_burnt_for_function_call
-            * self.config.transaction_costs.burnt_gas_reward.numerator
-            / self.config.transaction_costs.burnt_gas_reward.denominator;
+            * u64::from(self.config.transaction_costs.burnt_gas_reward.numerator)
+            / u64::from(self.config.transaction_costs.burnt_gas_reward.denominator);
         let mut validator_reward = safe_gas_to_balance(action_receipt.gas_price, result.gas_burnt)?;
         if receiver_gas_reward > 0 {
             let mut account = get_account(state_update, account_id)?;

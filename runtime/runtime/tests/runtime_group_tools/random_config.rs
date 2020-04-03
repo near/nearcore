@@ -1,5 +1,6 @@
+use near_primitives::types::Fraction;
 use near_runtime_fees::{
-    AccessKeyCreationConfig, ActionCreationConfig, DataReceiptCreationConfig, Fee, Fraction,
+    AccessKeyCreationConfig, ActionCreationConfig, DataReceiptCreationConfig, Fee,
     RuntimeFeesConfig, StorageUsageConfig,
 };
 use node_runtime::config::RuntimeConfig;
@@ -39,7 +40,7 @@ pub fn random_config() -> RuntimeConfig {
                 num_bytes_account: rng.next_u64() % 10000,
                 num_extra_bytes_record: rng.next_u64() % 10000,
             },
-            burnt_gas_reward: Fraction { numerator: rng.next_u64() % 100, denominator: 100 },
+            burnt_gas_reward: Fraction { numerator: rng.next_u32() % 100, denominator: 100 },
         },
         ..Default::default()
     }

@@ -22,7 +22,7 @@ use near_network::{
     NetworkConfig, NetworkRecipient, NetworkRequests, NetworkResponses, PeerInfo, PeerManagerActor,
 };
 use near_primitives::test_utils::init_test_logger;
-use near_primitives::types::ValidatorId;
+use near_primitives::types::{Fraction, ValidatorId};
 use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_store::test_utils::create_test_store;
 use near_telemetry::{TelemetryActor, TelemetryConfig};
@@ -51,8 +51,17 @@ pub fn setup_network_node(
         account_id.as_str(),
     ));
     let telemetry_actor = TelemetryActor::new(TelemetryConfig::default()).start();
-    let chain_genesis =
-        ChainGenesis::new(genesis_time, 0, 1_000_000, 100, 1_000_000_000, 0, 0, 1000, 5);
+    let chain_genesis = ChainGenesis::new(
+        genesis_time,
+        0,
+        1_000_000,
+        100,
+        1_000_000_000,
+        Fraction::zero(),
+        0,
+        1000,
+        5,
+    );
 
     let peer_manager = PeerManagerActor::create(move |ctx| {
         let mut client_config = ClientConfig::test(false, 100, 200, num_validators, false);

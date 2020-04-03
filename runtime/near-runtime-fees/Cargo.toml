@@ -14,3 +14,4 @@ Fees applied to near runtime encapsulated in a separate crate. Might merge it la
 
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
+near-primitives = { path = "../../core/primitives" }

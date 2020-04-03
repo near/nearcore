@@ -232,7 +232,7 @@ mod tests {
     use near_crypto::{KeyType, PublicKey};
     use near_epoch_manager::{BlockInfo, EpochConfig, EpochManager, RewardCalculator};
     use near_primitives::hash::{hash, CryptoHash};
-    use near_primitives::types::{BlockHeight, EpochId, NumShards, ValidatorStake};
+    use near_primitives::types::{BlockHeight, EpochId, Fraction, NumShards, ValidatorStake};
     use near_store::test_utils::create_test_store;
 
     use super::{account_id_to_shard_id, ShardTracker, POISONED_LOCK_ERR};
@@ -252,11 +252,10 @@ mod tests {
             fishermen_threshold: 0,
         };
         let reward_calculator = RewardCalculator {
-            max_inflation_rate: 0,
+            max_inflation_rate: Fraction::zero(),
             num_blocks_per_year: 1000000,
             epoch_length: 1,
-            validator_reward_percentage: 0,
-            protocol_reward_percentage: 0,
+            protocol_reward_percentage: Fraction::zero(),
             protocol_treasury_account: "".to_string(),
         };
         Arc::new(RwLock::new(

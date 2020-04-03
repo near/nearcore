@@ -29,7 +29,7 @@ use near_primitives::block::{Block, GenesisId, ScoreAndHeight};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{
-    AccountId, BlockHeight, BlockHeightDelta, NumBlocks, NumSeats, NumShards,
+    AccountId, BlockHeight, BlockHeightDelta, Fraction, NumBlocks, NumSeats, NumShards,
 };
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
 use near_store::test_utils::create_test_store;
@@ -72,7 +72,7 @@ pub fn setup(
         1_000_000,
         100,
         1_000_000_000,
-        0,
+        Fraction::zero(),
         0,
         transaction_validity_period,
         epoch_length,

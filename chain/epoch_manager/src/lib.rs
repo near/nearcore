@@ -1046,6 +1046,7 @@ mod tests {
     };
 
     use super::*;
+    use near_primitives::types::Fraction;
 
     #[test]
     fn test_stake_validator() {
@@ -1676,11 +1677,10 @@ mod tests {
         let epoch_length = 2;
         let total_supply = stake_amount * validators.len() as u128;
         let reward_calculator = RewardCalculator {
-            max_inflation_rate: 5,
+            max_inflation_rate: Fraction::new(5, 1),
             num_blocks_per_year: 50,
             epoch_length,
-            validator_reward_percentage: 60,
-            protocol_reward_percentage: 10,
+            protocol_reward_percentage: Fraction::new(1, 10),
             protocol_treasury_account: "near".to_string(),
         };
         let mut epoch_manager = setup_epoch_manager(
@@ -1806,11 +1806,10 @@ mod tests {
         let epoch_length = 2;
         let total_supply = (stake_amount1 + stake_amount2) * validators.len() as u128;
         let reward_calculator = RewardCalculator {
-            max_inflation_rate: 5,
+            max_inflation_rate: Fraction::new(5, 1),
             num_blocks_per_year: 50,
             epoch_length,
-            validator_reward_percentage: 60,
-            protocol_reward_percentage: 10,
+            protocol_reward_percentage: Fraction::new(1, 10),
             protocol_treasury_account: "near".to_string(),
         };
         let mut epoch_manager = setup_epoch_manager(
@@ -1955,11 +1954,10 @@ mod tests {
         let epoch_length = 2;
         let total_supply = stake_amount * validators.len() as u128;
         let reward_calculator = RewardCalculator {
-            max_inflation_rate: 5,
+            max_inflation_rate: Fraction::new(5, 1),
             num_blocks_per_year: 1_000_000,
             epoch_length,
-            validator_reward_percentage: 60,
-            protocol_reward_percentage: 10,
+            protocol_reward_percentage: Fraction::new(1, 10),
             protocol_treasury_account: "near".to_string(),
         };
         let mut epoch_manager = setup_epoch_manager(

@@ -14,7 +14,8 @@ use smart_default::SmartDefault;
 use near_primitives::serialize::{u128_dec_format, u128_dec_format_compatible};
 use near_primitives::state_record::StateRecord;
 use near_primitives::types::{
-    AccountId, AccountInfo, Balance, BlockHeight, BlockHeightDelta, Gas, NumBlocks, NumSeats,
+    AccountId, AccountInfo, Balance, BlockHeight, BlockHeightDelta, Fraction, Gas, NumBlocks,
+    NumSeats,
 };
 use near_runtime_configs::RuntimeConfig;
 
@@ -65,12 +66,12 @@ pub struct GenesisConfig {
     pub validators: Vec<AccountInfo>,
     /// Number of blocks for which a given transaction is valid
     pub transaction_validity_period: NumBlocks,
-    /// Developer reward percentage (this is a number between 0 and 100)
-    pub developer_reward_percentage: u8,
-    /// Protocol treasury percentage (this is a number between 0 and 100)
-    pub protocol_reward_percentage: u8,
-    /// Maximum inflation on the total supply every epoch (this is a number between 0 and 100)
-    pub max_inflation_rate: u8,
+    /// Developer reward percentage
+    pub developer_reward_percentage: Fraction,
+    /// Protocol treasury percentage
+    pub protocol_reward_percentage: Fraction,
+    /// Maximum inflation on the total supply every epoch.
+    pub max_inflation_rate: Fraction,
     /// Total supply of tokens at genesis.
     #[serde(with = "u128_dec_format", skip_deserializing)]
     pub total_supply: Balance,

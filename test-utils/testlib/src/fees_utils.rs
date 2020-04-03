@@ -14,8 +14,8 @@ impl FeeHelper {
     }
 
     pub fn gas_burnt_to_reward(&self, gas_burnt: Gas) -> Balance {
-        let gas_reward =
-            gas_burnt * self.cfg.burnt_gas_reward.numerator / self.cfg.burnt_gas_reward.denominator;
+        let gas_reward = gas_burnt * u64::from(self.cfg.burnt_gas_reward.numerator)
+            / u64::from(self.cfg.burnt_gas_reward.denominator);
         gas_reward as Balance * self.gas_price
     }
 

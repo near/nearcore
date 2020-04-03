@@ -23,7 +23,8 @@ use near_primitives::account::AccessKey;
 use near_primitives::hash::CryptoHash;
 use near_primitives::state_record::StateRecord;
 use near_primitives::types::{
-    AccountId, AccountInfo, Balance, BlockHeightDelta, Gas, NumBlocks, NumSeats, NumShards, ShardId,
+    AccountId, AccountInfo, Balance, BlockHeightDelta, Fraction, Gas, NumBlocks, NumSeats,
+    NumShards, ShardId,
 };
 use near_primitives::utils::{generate_random_string, get_num_seats_per_shard};
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
@@ -110,8 +111,8 @@ pub const MIN_GAS_PRICE: Balance = 5000;
 pub const GAS_PRICE_ADJUSTMENT_RATE: u8 = 1;
 
 /// Rewards
-pub const PROTOCOL_PERCENT: u8 = 10;
-pub const DEVELOPER_PERCENT: u8 = 30;
+pub const PROTOCOL_PERCENT: Fraction = Fraction { numerator: 1, denominator: 10 };
+pub const DEVELOPER_PERCENT: Fraction = Fraction { numerator: 3, denominator: 10 };
 
 /// Protocol treasury account
 pub const PROTOCOL_TREASURY_ACCOUNT: &str = "near";
@@ -120,7 +121,7 @@ pub const PROTOCOL_TREASURY_ACCOUNT: &str = "near";
 pub const FISHERMEN_THRESHOLD: Balance = 10 * NEAR_BASE;
 
 /// Maximum inflation rate per year
-pub const MAX_INFLATION_RATE: u8 = 5;
+pub const MAX_INFLATION_RATE: Fraction = Fraction { numerator: 5, denominator: 1 };
 
 /// Number of blocks for which a given transaction is valid
 pub const TRANSACTION_VALIDITY_PERIOD: NumBlocks = 100;

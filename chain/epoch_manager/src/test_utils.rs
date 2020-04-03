@@ -3,7 +3,7 @@ use std::collections::{BTreeMap, HashMap};
 use near_crypto::{KeyType, SecretKey};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::types::{
-    AccountId, Balance, BlockHeight, BlockHeightDelta, EpochHeight, NumSeats, NumShards,
+    AccountId, Balance, BlockHeight, BlockHeightDelta, EpochHeight, Fraction, NumSeats, NumShards,
     ValidatorId, ValidatorKickoutReason, ValidatorStake,
 };
 use near_primitives::utils::get_num_seats_per_shard;
@@ -109,11 +109,10 @@ pub fn stake(account_id: &str, amount: Balance) -> ValidatorStake {
 /// No-op reward calculator. Will produce no reward
 pub fn default_reward_calculator() -> RewardCalculator {
     RewardCalculator {
-        max_inflation_rate: 0,
+        max_inflation_rate: Fraction::zero(),
         num_blocks_per_year: 1,
         epoch_length: 1,
-        validator_reward_percentage: 0,
-        protocol_reward_percentage: 0,
+        protocol_reward_percentage: Fraction::zero(),
         protocol_treasury_account: "near".to_string(),
     }
 }

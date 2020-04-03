@@ -15,7 +15,7 @@ use near_network::NetworkClientMessages;
 use near_primitives::hash::CryptoHash;
 use near_primitives::test_utils::{heavy_test, init_integration_logger};
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, BlockHeightDelta, BlockIdOrFinality, NumSeats};
+use near_primitives::types::{AccountId, BlockHeightDelta, BlockIdOrFinality, Fraction, NumSeats};
 use near_primitives::views::{QueryRequest, QueryResponseKind, ValidatorInfo};
 use neard::config::{GenesisExt, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use neard::{load_test_config, start_with_config, NearConfig};
@@ -48,7 +48,7 @@ fn init_test_staking(
     genesis.config.block_producer_kickout_threshold = 20;
     genesis.config.chunk_producer_kickout_threshold = 20;
     if !enable_rewards {
-        genesis.config.max_inflation_rate = 0;
+        genesis.config.max_inflation_rate = Fraction::zero();
         genesis.config.min_gas_price = 0;
     }
     let genesis = Arc::new(genesis);
@@ -467,10 +467,9 @@ fn test_inflation() {
                 actix::spawn(test_nodes[0].view_client.send(GetBlock::latest()).then(move |res| {
                     let header_view = res.unwrap().unwrap().header;
                     if header_view.height > epoch_length && header_view.height < epoch_length * 2 {
-                        let inflation = initial_total_supply
-                            * max_inflation_rate as u128
-                            * epoch_length as u128
-                            / (100 * num_blocks_per_year as u128);
+                        let inflation = initial_total_supply * epoch_length as u128
+                            / (num_blocks_per_year as u128)
+                            * max_inflation_rate;
                         if header_view.total_supply == initial_total_supply + inflation {
                             done2_copy2.store(true, Ordering::SeqCst);
                         }

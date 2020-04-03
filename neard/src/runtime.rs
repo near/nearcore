@@ -95,7 +95,6 @@ impl NightshadeRuntime {
             max_inflation_rate: genesis.config.max_inflation_rate,
             num_blocks_per_year: genesis.config.num_blocks_per_year,
             epoch_length: genesis.config.epoch_length,
-            validator_reward_percentage: 100 - genesis.config.developer_reward_percentage,
             protocol_reward_percentage: genesis.config.protocol_reward_percentage,
             protocol_treasury_account: genesis.config.protocol_treasury_account.to_string(),
         };
@@ -1249,7 +1248,9 @@ mod test {
     use near_crypto::{InMemorySigner, KeyType, Signer};
     use near_primitives::test_utils::init_test_logger;
     use near_primitives::transaction::{Action, CreateAccountAction, StakeAction};
-    use near_primitives::types::{BlockHeightDelta, Nonce, ValidatorId, ValidatorKickoutReason};
+    use near_primitives::types::{
+        BlockHeightDelta, Fraction, Nonce, ValidatorId, ValidatorKickoutReason,
+    };
     use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
     use near_primitives::views::{
         AccountView, CurrentEpochValidatorInfo, NextEpochValidatorInfo, ValidatorKickoutView,
@@ -1356,7 +1357,7 @@ mod test {
             genesis.config.chunk_producer_kickout_threshold =
                 genesis.config.block_producer_kickout_threshold;
             if !has_reward {
-                genesis.config.max_inflation_rate = 0;
+                genesis.config.max_inflation_rate = Fraction::zero();
             }
             let genesis_total_supply = genesis.config.total_supply;
             let runtime = NightshadeRuntime::new(
@@ -1476,13 +1477,15 @@ mod test {
 
         /// Compute per epoch per validator reward and per epoch protocol treasury reward
         pub fn compute_reward(&self, num_validators: usize) -> (Balance, Balance) {
-            let per_epoch_total_reward = self.runtime.genesis.config.max_inflation_rate as u128
+            let per_epoch_total_reward = self.runtime.genesis.config.max_inflation_rate.numerator
+                as u128
                 * self.runtime.genesis.config.total_supply
                 * self.runtime.genesis.config.epoch_length as u128
-                / (100 * self.runtime.genesis.config.num_blocks_per_year as u128);
-            let per_epoch_protocol_treasury = per_epoch_total_reward
-                * self.runtime.genesis.config.protocol_reward_percentage as u128
-                / 100;
+                / (100
+                    * self.runtime.genesis.config.num_blocks_per_year as u128
+                    * self.runtime.genesis.config.max_inflation_rate.denominator as u128);
+            let per_epoch_protocol_treasury =
+                per_epoch_total_reward * self.runtime.genesis.config.protocol_reward_percentage;
             let per_epoch_per_validator_reward =
                 (per_epoch_total_reward - per_epoch_protocol_treasury) / num_validators as u128;
             (per_epoch_per_validator_reward, per_epoch_protocol_treasury)
