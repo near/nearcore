@@ -27,8 +27,7 @@ impl RewardCalculator {
         let max_inflation = (U256::from(self.max_inflation_rate.numerator)
             * U256::from(total_supply)
             * U256::from(self.epoch_length)
-            / (U256::from(100)
-                * U256::from(self.num_blocks_per_year)
+            / (U256::from(self.num_blocks_per_year)
                 * U256::from(self.max_inflation_rate.denominator)))
         .as_u128();
         let epoch_fee = total_validator_reward;
@@ -76,7 +75,7 @@ mod tests {
     #[test]
     fn test_reward_no_overflow() {
         let reward_calculator = RewardCalculator {
-            max_inflation_rate: Fraction::new(5, 1),
+            max_inflation_rate: Fraction::new(5, 100),
             num_blocks_per_year: 60 * 60 * 24 * 365,
             // half a day
             epoch_length: 60 * 60 * 12,

@@ -33,7 +33,7 @@ config['developer_reward_percentage'] = {
 }
 config['max_inflation_rate'] = {
     'numerator': 5,
-    'denominator': 1,
+    'denominator': 100,
 }
 
 

@@ -110,8 +110,8 @@ pub const MIN_GAS_PRICE: Balance = 5000;
 pub const GAS_PRICE_ADJUSTMENT_RATE: Fraction = Fraction { numerator: 1, denominator: 100 };
 
 /// Rewards
-pub const PROTOCOL_PERCENT: Fraction = Fraction { numerator: 1, denominator: 10 };
-pub const DEVELOPER_PERCENT: Fraction = Fraction { numerator: 3, denominator: 10 };
+pub const PROTOCOL_REWARD_RATE: Fraction = Fraction { numerator: 1, denominator: 10 };
+pub const DEVELOPER_REWARD_RATE: Fraction = Fraction { numerator: 3, denominator: 10 };
 
 /// Protocol treasury account
 pub const PROTOCOL_TREASURY_ACCOUNT: &str = "near";
@@ -120,7 +120,7 @@ pub const PROTOCOL_TREASURY_ACCOUNT: &str = "near";
 pub const FISHERMEN_THRESHOLD: Balance = 10 * NEAR_BASE;
 
 /// Maximum inflation rate per year
-pub const MAX_INFLATION_RATE: Fraction = Fraction { numerator: 5, denominator: 1 };
+pub const MAX_INFLATION_RATE: Fraction = Fraction { numerator: 5, denominator: 100 };
 
 /// Number of blocks for which a given transaction is valid
 pub const TRANSACTION_VALIDITY_PERIOD: NumBlocks = 100;
@@ -368,8 +368,8 @@ impl Genesis {
             gas_price_adjustment_rate: GAS_PRICE_ADJUSTMENT_RATE,
             block_producer_kickout_threshold: BLOCK_PRODUCER_KICKOUT_THRESHOLD,
             validators,
-            developer_reward_percentage: DEVELOPER_PERCENT,
-            protocol_reward_percentage: PROTOCOL_PERCENT,
+            developer_reward_percentage: DEVELOPER_REWARD_RATE,
+            protocol_reward_percentage: PROTOCOL_REWARD_RATE,
             max_inflation_rate: MAX_INFLATION_RATE,
             num_blocks_per_year: NUM_BLOCKS_PER_YEAR,
             protocol_treasury_account: PROTOCOL_TREASURY_ACCOUNT.to_string(),
@@ -680,8 +680,8 @@ pub fn init_configs(
                     amount: TESTING_INIT_STAKE,
                 }],
                 transaction_validity_period: TRANSACTION_VALIDITY_PERIOD,
-                developer_reward_percentage: DEVELOPER_PERCENT,
-                protocol_reward_percentage: PROTOCOL_PERCENT,
+                developer_reward_percentage: DEVELOPER_REWARD_RATE,
+                protocol_reward_percentage: PROTOCOL_REWARD_RATE,
                 max_inflation_rate: MAX_INFLATION_RATE,
                 total_supply: 0,
                 num_blocks_per_year: NUM_BLOCKS_PER_YEAR,

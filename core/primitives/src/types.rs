@@ -516,7 +516,7 @@ pub enum ValidatorKickoutReason {
 pub struct StateHeaderKey(pub ShardId, pub CryptoHash);
 
 /// Represents a rational number. This struct is used exclusively in configs so
-/// `u8` provides enough precision. Since we do not expect to have computation
+/// `u32` provides enough precision. Since we do not expect to have computation
 /// that returns a `Fraction`, there is no guarantee that it is an irreducible fraction.
 #[derive(Debug, Serialize, Deserialize, Hash, PartialEq, Eq, Clone, Copy)]
 pub struct Fraction {
