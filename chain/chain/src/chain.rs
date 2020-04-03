@@ -3361,7 +3361,9 @@ pub fn collect_receipts_from_response(
 pub fn check_refcount_map(chain: &mut Chain) -> Result<(), Error> {
     let head = chain.head()?;
     let mut block_refcounts = HashMap::new();
-    for height in chain.store().get_genesis_height() + 1..=head.height + 100 {
+    // TODO #2352: make sure there is no block with height > head.height and set highest_height to `head.height`
+    let highest_height = head.height + 100;
+    for height in chain.store().get_genesis_height() + 1..=highest_height {
         let blocks_current_height = match chain.mut_store().get_all_block_hashes_by_height(height) {
             Ok(blocks_current_height) => {
                 blocks_current_height.values().flatten().cloned().collect()
@@ -3373,7 +3375,11 @@ pub fn check_refcount_map(chain: &mut Chain) -> Result<(), Error> {
             {
                 *block_refcounts.entry(prev_hash).or_insert(0) += 1;
             }
-            block_refcounts.entry(*block_hash).or_insert(0);
+            // This is temporary workaround to ignore all blocks with height >= highest_height
+            // TODO #2352: remove `if` and keep only `block_refcounts.entry(*block_hash).or_insert(0)`
+            if height < highest_height {
+                block_refcounts.entry(*block_hash).or_insert(0);
+            }
         }
     }
     let mut chain_store_update = ChainStoreUpdate::new(chain.mut_store());
