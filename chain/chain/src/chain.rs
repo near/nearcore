@@ -629,10 +629,17 @@ impl Chain {
                 };
             if let Some(block_hash) = blocks_current_height.first() {
                 let prev_hash = chain_store_update.get_block_header(block_hash)?.prev_hash;
+                let prev_block_refcount = *chain_store_update.get_block_refcount(&prev_hash)?;
                 // break when there is a fork
-                if *chain_store_update.get_block_refcount(&prev_hash)? > 1 {
+                if prev_block_refcount > 1 {
                     break;
+                } else if prev_block_refcount == 0 {
+                    return Err(ErrorKind::GCError(
+                        "block on canonical chain shouldn't have refcount 0".into(),
+                    )
+                    .into());
                 }
+                debug_assert_eq!(blocks_current_height.len(), 1);
                 chain_store_update.clear_block_data(trie.clone(), *block_hash, false)?;
             }
             chain_store_update.update_tail(height);
