@@ -4,8 +4,6 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::RwLock;
 
-use near::config::{create_testnet_configs, create_testnet_configs_from_seeds, Config, GenesisExt};
-use near::NearConfig;
 use near_chain_configs::Genesis;
 use near_crypto::{InMemorySigner, Signer};
 use near_jsonrpc::ServerError;
@@ -15,6 +13,10 @@ use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, Balance, NumSeats};
 use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_primitives::views::AccountView;
+use neard::config::{
+    create_testnet_configs, create_testnet_configs_from_seeds, Config, GenesisExt,
+};
+use neard::NearConfig;
 
 pub use crate::node::process_node::ProcessNode;
 pub use crate::node::runtime_node::RuntimeNode;

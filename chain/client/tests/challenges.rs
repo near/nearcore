@@ -5,8 +5,6 @@ use std::sync::Arc;
 
 use borsh::BorshSerialize;
 
-use near::config::{GenesisExt, FISHERMEN_THRESHOLD};
-use near::NightshadeRuntime;
 use near_chain::chain::BlockEconomicsConfig;
 use near_chain::validate::validate_challenge;
 use near_chain::{
@@ -32,6 +30,8 @@ use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::StateRoot;
 use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_store::test_utils::create_test_store;
+use neard::config::{GenesisExt, FISHERMEN_THRESHOLD};
+use neard::NightshadeRuntime;
 
 #[test]
 fn test_verify_block_double_sign_challenge() {
@@ -363,7 +363,7 @@ fn challenge(
 fn test_verify_chunk_invalid_state_challenge() {
     let store1 = create_test_store();
     let genesis = Genesis::test(vec!["test0", "test1"], 1);
-    let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![Arc::new(near::NightshadeRuntime::new(
+    let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![Arc::new(neard::NightshadeRuntime::new(
         Path::new("."),
         store1,
         Arc::new(genesis),
@@ -629,7 +629,7 @@ fn test_fishermen_challenge() {
     genesis.config.epoch_length = 5;
     let genesis = Arc::new(genesis);
     let create_runtime = || -> Arc<NightshadeRuntime> {
-        Arc::new(near::NightshadeRuntime::new(
+        Arc::new(neard::NightshadeRuntime::new(
             Path::new("."),
             create_test_store(),
             Arc::clone(&genesis),
@@ -690,14 +690,14 @@ fn test_challenge_in_different_epoch() {
     let genesis = Arc::new(genesis);
     //    genesis.config.validator_kickout_threshold = 10;
     let network_adapter = Arc::new(MockNetworkAdapter::default());
-    let runtime1 = Arc::new(near::NightshadeRuntime::new(
+    let runtime1 = Arc::new(neard::NightshadeRuntime::new(
         Path::new("."),
         create_test_store(),
         Arc::clone(&genesis),
         vec![],
         vec![],
     ));
-    let runtime2 = Arc::new(near::NightshadeRuntime::new(
+    let runtime2 = Arc::new(neard::NightshadeRuntime::new(
         Path::new("."),
         create_test_store(),
         genesis,

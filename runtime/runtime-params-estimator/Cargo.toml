@@ -23,5 +23,5 @@ near-vm-runner = {path = "../../runtime/near-vm-runner" , features = ["costs_cou
 node-runtime = { path = "../../runtime/runtime" , features = ["costs_counting", "no_cache"]}
 near-store = { path = "../../core/store" }
 near-primitives = { path = "../../core/primitives" }
-near = { path = "../../near" }
+neard = { path = "../../neard" }
 
