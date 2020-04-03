@@ -75,6 +75,18 @@ def main():
 
     wait_for_blocks_or_timeout(current_node, 20, 100)
 
+    # Test new genesis matched with near init genesis
+    new_genesis = json.load(open(os.path.join(node_root, 'test0/genesis.json')))
+    subprocess.check_output('rm -rf /tmp/near/init_fast && mkdir -p /tmp/near/init_fast', shell=True)
+    subprocess.check_output('cargo run -p near -- --home /tmp/near/init_fast init --fast', shell=True)
+    near_init_genesis = json.load(open('/tmp/near/init_fast/genesis.json'))
+    new_genesis['records']=near_init_genesis['records']=[]
+    new_genesis['genesis_time']=near_init_genesis['genesis_time']
+    new_genesis['chain_id']=near_init_genesis['chain_id']
+    if new_genesis != near_init_genesis:
+        print(f"migrated new genesis doesn't match old near init genesis. Difference:")
+        print(DeepDiff(near_init_genesis, new_genesis, ignore_order=True))
+        exit(1)
 
 if __name__ == "__main__":
     main()
