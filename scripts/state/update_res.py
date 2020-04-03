@@ -18,11 +18,11 @@ def main():
         print('Usage: update-res.py | update-res.py check')
         exit(2)
 
-genesis_config_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), '../../near/res/genesis_config.json')
+genesis_config_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), '../../neard/res/genesis_config.json')
 
 def near_init_genesis():
     subprocess.check_output('rm -rf /tmp/near/update_res && mkdir -p /tmp/near/update_res', shell=True)
-    subprocess.check_output('cargo run -p near -- --home /tmp/near/update_res init --chain-id sample', shell=True)
+    subprocess.check_output('cargo run -p neard --bin neard -- --home /tmp/near/update_res init --chain-id sample', shell=True)
     genesis = json.load(open('/tmp/near/update_res/genesis.json'), object_pairs_hook=OrderedDict)
     genesis['records'] = []
     # To avoid near/res/genesis_config.json doesn't change everytime
@@ -32,13 +32,13 @@ def near_init_genesis():
 def update_res():
     genesis = near_init_genesis()
     json.dump(genesis, open(genesis_config_path, 'w'), indent=2)
-    print('near/res/genesis_config.json updated')
+    print('neard/res/genesis_config.json updated')
 
 def check_res():
     genesis = near_init_genesis()
     res_genesis_config = json.load(open(genesis_config_path), object_pairs_hook=OrderedDict)
     if genesis != res_genesis_config:
-        print('near/res/genesis_config.json does not match `near init` generated')
+        print('neard/res/genesis_config.json does not match `near init` generated')
         print('Please update by run scripts/state/update_res.py')
         exit(1)
 
