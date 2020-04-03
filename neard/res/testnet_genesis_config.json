@@ -1,6 +1,6 @@
 {
   "config_version": 1,
-  "protocol_version": 7,
+  "protocol_version": 8,
   "genesis_time": "2020-03-31T21:27:57.474226Z",
   "chain_id": "test-chain-IER4n",
   "genesis_height": 21,
@@ -17,7 +17,10 @@
   "min_gas_price": "5000",
   "block_producer_kickout_threshold": 90,
   "chunk_producer_kickout_threshold": 60,
-  "gas_price_adjustment_rate": 1,
+  "gas_price_adjustment_rate": {
+    "numerator": 1,
+    "denominator": 100
+  },
   "runtime_config": {
     "poke_threshold": 0,
     "transaction_costs": {
@@ -199,9 +202,18 @@
     }
   ],
   "transaction_validity_period": 100,
-  "developer_reward_percentage": 30,
-  "protocol_reward_percentage": 10,
-  "max_inflation_rate": 5,
+  "developer_reward_percentage": {
+    "numerator": 3,
+    "denominator": 10
+  },
+  "protocol_reward_percentage": {
+    "numerator": 1,
+    "denominator": 10
+  },
+  "max_inflation_rate": {
+    "numerator": 5,
+    "denominator": 100
+  },
   "total_supply": "2050000000000000000000000000000000",
   "num_blocks_per_year": 31536000,
   "protocol_treasury_account": "test.near",

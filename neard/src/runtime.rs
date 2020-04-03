@@ -1481,8 +1481,7 @@ mod test {
                 as u128
                 * self.runtime.genesis.config.total_supply
                 * self.runtime.genesis.config.epoch_length as u128
-                / (100
-                    * self.runtime.genesis.config.num_blocks_per_year as u128
+                / (self.runtime.genesis.config.num_blocks_per_year as u128
                     * self.runtime.genesis.config.max_inflation_rate.denominator as u128);
             let per_epoch_protocol_treasury =
                 per_epoch_total_reward * self.runtime.genesis.config.protocol_reward_percentage;

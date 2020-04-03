@@ -1,8 +1,9 @@
 """
-This migration implements https://github.com/nearprotocol/nearcore/issues/1747
+This migration implements spec change https://github.com/nearprotocol/NEPs/pull/58.
 
 Changes:
- - Change `protocol_reward_percentage`, `developer_reward_percentage`, and `max_inflation_rate` to fractions.
+ - Change `gas_price_adjustment_rate`, `protocol_reward_percentage`, `developer_reward_percentage`,
+ and `max_inflation_rate` to fractions.
 """
 
 
