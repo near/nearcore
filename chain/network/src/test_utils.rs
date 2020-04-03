@@ -17,15 +17,34 @@ use near_primitives::utils::index_to_bytes;
 use crate::types::{NetworkConfig, NetworkInfo, PeerInfo, ROUTED_MESSAGE_TTL};
 use crate::{NetworkAdapter, NetworkRequests, NetworkResponses, PeerManagerActor};
 use futures::future::BoxFuture;
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, Mutex, RwLock};
+
+lazy_static! {
+    static ref OPENED_PORTS: Mutex<HashSet<u16>> = Mutex::new(HashSet::new());
+}
 
 /// Returns available port.
 pub fn open_port() -> u16 {
     // use port 0 to allow the OS to assign an open port
     // TcpListener's Drop impl will unbind the port as soon as
-    // listener goes out of scope
-    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-    listener.local_addr().unwrap().port()
+    // listener goes out of scope. We retry multiple times and store
+    // selected port in OPENED_PORTS to avoid port collision among
+    // multiple tests.
+    let max_attempts = 100;
+
+    for _ in 0..max_attempts {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+
+        let mut opened_ports = OPENED_PORTS.lock().unwrap();
+
+        if !opened_ports.contains(&port) {
+            opened_ports.insert(port);
+            return port;
+        }
+    }
+
+    panic!("Failed to find an open port after {} attempts.", max_attempts);
 }
 
 impl NetworkConfig {
