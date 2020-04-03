@@ -8,8 +8,9 @@ use near_primitives::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
     DeployContractAction, FunctionCallAction, StakeAction, TransferAction,
 };
+use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{AccountId, Balance};
-use near_primitives::utils::{create_nonce_with_nonce, TrieKey};
+use near_primitives::utils::create_nonce_with_nonce;
 use near_store::{TrieUpdate, TrieUpdateValuePtr};
 use near_vm_logic::{External, HostError, VMLogicError, ValuePtr};
 use sha3::{Keccak256, Keccak512};

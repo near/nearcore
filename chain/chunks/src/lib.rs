@@ -368,25 +368,34 @@ impl ShardsManager {
         }
 
         for (account_id, part_ords) in bp_to_parts {
-            let request = PartialEncodedChunkRequestMsg {
-                chunk_hash: chunk_hash.clone(),
-                part_ords,
-                tracking_shards: if account_id == shard_representative_account_id {
-                    shards_to_fetch_receipts.clone()
-                } else {
-                    HashSet::new()
-                },
-            };
+            // extra check that we are not sending request to ourselves.
+            if Some(&account_id) != self.me.as_ref() {
+                let request = PartialEncodedChunkRequestMsg {
+                    chunk_hash: chunk_hash.clone(),
+                    part_ords,
+                    tracking_shards: if account_id == shard_representative_account_id {
+                        shards_to_fetch_receipts.clone()
+                    } else {
+                        HashSet::new()
+                    },
+                };
 
-            self.network_adapter.do_send(NetworkRequests::PartialEncodedChunkRequest {
-                account_id: account_id.clone(),
-                request,
-            });
+                self.network_adapter.do_send(NetworkRequests::PartialEncodedChunkRequest {
+                    account_id: account_id.clone(),
+                    request,
+                });
+            } else {
+                debug_assert!(
+                    false,
+                    format!("{} requests parts {:?} from self", account_id, part_ords)
+                );
+            }
         }
 
         Ok(())
     }
 
+    /// Get a random shard block producer that is not me.
     fn get_random_shard_block_producer(
         &self,
         parent_hash: &CryptoHash,
@@ -404,6 +413,7 @@ impl ShardsManager {
                     shard_id,
                     false,
                 )
+                && self.me.as_ref() != Some(&validator_stake.account_id)
             {
                 block_producers.push(validator_stake.account_id.clone());
             }
@@ -996,7 +1006,6 @@ impl ShardsManager {
         shard_id: ShardId,
         gas_used: Gas,
         gas_limit: Gas,
-        rent_paid: Balance,
         validator_reward: Balance,
         balance_burnt: Balance,
         validator_proposals: Vec<ValidatorStake>,
@@ -1016,7 +1025,6 @@ impl ShardsManager {
             rs,
             gas_used,
             gas_limit,
-            rent_paid,
             validator_reward,
             balance_burnt,
             tx_root,
@@ -1231,5 +1239,40 @@ impl ShardsManager {
         self.decode_and_persist_encoded_chunk(encoded_chunk, chain_store, merkle_paths)?;
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use crate::{ChunkRequestInfo, ShardsManager};
+    use near_chain::test_utils::KeyValueRuntime;
+    use near_network::test_utils::MockNetworkAdapter;
+    use near_primitives::hash::hash;
+    use near_primitives::sharding::ChunkHash;
+    use near_store::test_utils::create_test_store;
+    use std::sync::Arc;
+    use std::time::{Duration, Instant};
+
+    #[test]
+    #[ignore]
+    // TODO FIXME #2369
+    fn test_request_partial_encoded_chunk_from_self() {
+        let runtime_adapter = Arc::new(KeyValueRuntime::new(create_test_store()));
+        let network_adapter = Arc::new(MockNetworkAdapter::default());
+        let mut shards_manager =
+            ShardsManager::new(Some("test".to_string()), runtime_adapter, network_adapter.clone());
+        shards_manager.requested_partial_encoded_chunks.insert(
+            ChunkHash(hash(&[1])),
+            ChunkRequestInfo {
+                height: 0,
+                parent_hash: Default::default(),
+                shard_id: 0,
+                added: Instant::now(),
+                last_requested: Instant::now(),
+            },
+        );
+        std::thread::sleep(Duration::from_millis(200));
+        shards_manager.resend_chunk_requests().unwrap();
+        assert!(network_adapter.requests.read().unwrap().is_empty());
     }
 }

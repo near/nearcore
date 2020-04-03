@@ -216,6 +216,17 @@ impl Handler<NetworkClientMessages> for ClientActor {
                         }
                         NetworkClientResponses::NoResponse
                     }
+                    NetworkAdversarialMessage::AdvSwitchToHeight(height) => {
+                        info!(target: "adversary", "Switching to height {:?}", height);
+                        let mut chain_store_update = self.client.chain.mut_store().store_update();
+                        chain_store_update.save_largest_skipped_height(&height);
+                        chain_store_update.save_largest_approved_height(&height);
+                        chain_store_update
+                            .adv_save_latest_known(height)
+                            .expect("adv method should not fail");
+                        chain_store_update.commit().expect("adv method should not fail");
+                        NetworkClientResponses::NoResponse
+                    }
                     NetworkAdversarialMessage::AdvGetSavedBlocks => {
                         info!(target: "adversary", "Requested number of saved blocks");
                         let store = self.client.chain.store().store();

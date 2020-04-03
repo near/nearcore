@@ -2,39 +2,65 @@
 use serde::{Deserialize, Serialize};
 
 use near_primitives::serialize::u128_dec_format;
-use near_primitives::types::{Balance, NumBlocks};
+use near_primitives::types::{AccountId, Balance};
 use near_runtime_fees::RuntimeFeesConfig;
 use near_vm_logic::VMConfig;
 
 /// The structure that holds the parameters of the runtime, mostly economics.
-#[derive(Default, Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(default)]
 pub struct RuntimeConfig {
-    /// The cost to store one byte of storage per block.
+    /// Amount of yN per byte required to have on the account.
+    /// See https://nomicon.io/Economics/README.html#state-stake for details.
     #[serde(with = "u128_dec_format")]
-    pub storage_cost_byte_per_block: Balance,
-    /// The minimum number of blocks of storage rent an account has to maintain to prevent forced deletion.
-    pub poke_threshold: NumBlocks,
+    pub storage_amount_per_byte: Balance,
     /// Costs of different actions that need to be performed when sending and processing transaction
     /// and receipts.
     pub transaction_costs: RuntimeFeesConfig,
     /// Config of wasm operations.
     pub wasm_config: VMConfig,
-    /// The baseline cost to store account_id of short length per block.
-    /// The original formula in NEP#0006 is `1,000 / (3 ^ (account_id.length - 2))` for cost per year.
-    /// This value represents `1,000` above adjusted to use per block.
-    #[serde(with = "u128_dec_format")]
-    pub account_length_baseline_cost_per_block: Balance,
+    /// Config that defines rules for account creation.
+    pub account_creation_config: AccountCreationConfig,
+}
+
+impl Default for RuntimeConfig {
+    fn default() -> Self {
+        RuntimeConfig {
+            // See https://nomicon.io/Economics/README.html#general-variables for how it was calculated.
+            storage_amount_per_byte: 909 * 100_000_000_000_000_000,
+            transaction_costs: RuntimeFeesConfig::default(),
+            wasm_config: VMConfig::default(),
+            account_creation_config: AccountCreationConfig::default(),
+        }
+    }
 }
 
 impl RuntimeConfig {
     pub fn free() -> Self {
         Self {
-            storage_cost_byte_per_block: 0,
-            poke_threshold: 0,
+            storage_amount_per_byte: 0,
             transaction_costs: RuntimeFeesConfig::free(),
             wasm_config: VMConfig::free(),
-            account_length_baseline_cost_per_block: 0,
+            account_creation_config: AccountCreationConfig::default(),
+        }
+    }
+}
+
+/// The structure describes configuration for creation of new accounts.
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct AccountCreationConfig {
+    /// The minimum length of the top-level account ID that is allowed to be created by any account.
+    pub min_allowed_top_level_account_length: u8,
+    /// The account ID of the account registrar. This account ID allowed to create top-level
+    /// accounts of any valid length.
+    pub registrar_account_id: AccountId,
+}
+
+impl Default for AccountCreationConfig {
+    fn default() -> Self {
+        Self {
+            min_allowed_top_level_account_length: 0,
+            registrar_account_id: AccountId::from("registrar"),
         }
     }
 }

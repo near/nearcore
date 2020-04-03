@@ -10,8 +10,9 @@ use near_primitives::errors::{
 };
 use near_primitives::receipt::{Receipt, ReceiptEnum};
 use near_primitives::transaction::SignedTransaction;
+use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{AccountId, Balance};
-use near_primitives::utils::{system_account, TrieKey};
+use near_primitives::utils::system_account;
 use near_runtime_fees::RuntimeFeesConfig;
 use near_store::{get, get_account, get_postponed_receipt, TrieUpdate};
 use std::collections::HashSet;
@@ -186,7 +187,6 @@ pub(crate) fn check_balance(
         outgoing_receipts_balance,
         new_delayed_receipts_balance,
         final_postponed_receipts_balance,
-        stats.total_rent_paid,
         stats.total_validator_reward,
         stats.total_balance_burnt,
         stats.total_balance_slashed
@@ -204,7 +204,6 @@ pub(crate) fn check_balance(
             outgoing_receipts_balance,
             new_delayed_receipts_balance,
             final_postponed_receipts_balance,
-            total_rent_paid: stats.total_rent_paid,
             total_validator_reward: stats.total_validator_reward,
             total_balance_burnt: stats.total_balance_burnt,
             total_balance_slashed: stats.total_balance_slashed,
@@ -289,12 +288,12 @@ mod tests {
         let refund_balance = 1000;
 
         let mut initial_state = TrieUpdate::new(trie.clone(), root);
-        let initial_account = Account::new(initial_balance, hash(&[]), 0);
+        let initial_account = Account::new(initial_balance, hash(&[]));
         set_account(&mut initial_state, account_id.clone(), &initial_account);
         initial_state.commit(StateChangeCause::NotWritableToDisk);
 
         let mut final_state = TrieUpdate::new(trie.clone(), root);
-        let final_account = Account::new(initial_balance + refund_balance, hash(&[]), 0);
+        let final_account = Account::new(initial_balance + refund_balance, hash(&[]));
         set_account(&mut final_state, account_id.clone(), &final_account);
         final_state.commit(StateChangeCause::NotWritableToDisk);
 
@@ -331,7 +330,7 @@ mod tests {
             * gas_price;
         let total_validator_reward = send_gas as Balance * gas_price - contract_reward;
         let mut initial_state = TrieUpdate::new(trie.clone(), root);
-        let initial_account = Account::new(initial_balance, hash(&[]), 0);
+        let initial_account = Account::new(initial_balance, hash(&[]));
         set_account(&mut initial_state, account_id.clone(), &initial_account);
         initial_state.commit(StateChangeCause::NotWritableToDisk);
 
@@ -340,7 +339,6 @@ mod tests {
             initial_balance - (exec_gas + send_gas) as Balance * gas_price - deposit
                 + contract_reward,
             hash(&[]),
-            0,
         );
         set_account(&mut final_state, account_id.clone(), &final_account);
         final_state.commit(StateChangeCause::NotWritableToDisk);
@@ -377,7 +375,6 @@ mod tests {
             &[tx],
             &[receipt],
             &ApplyStats {
-                total_rent_paid: 0,
                 total_validator_reward,
                 total_balance_burnt: 0,
                 total_balance_slashed: 0,
@@ -396,8 +393,8 @@ mod tests {
         let deposit = 1000;
 
         let mut initial_state = TrieUpdate::new(trie.clone(), root);
-        let alice = Account::new(std::u128::MAX, hash(&[]), 0);
-        let bob = Account::new(1u128, hash(&[]), 0);
+        let alice = Account::new(std::u128::MAX, hash(&[]));
+        let bob = Account::new(1u128, hash(&[]));
 
         set_account(&mut initial_state, alice_id.clone(), &alice);
         set_account(&mut initial_state, bob_id.clone(), &bob);
