@@ -80,7 +80,12 @@ impl IntoVMError for wasmer_runtime::error::RuntimeError {
         } else if let Some(_) = data.downcast_ref::<ExceptionCode>() {
             VMError::FunctionCallError(FunctionCallError::WasmTrap { msg: format!("{}", self) })
         } else {
-            panic!("Internal Wasmer error during contract execution: {}", self);
+            eprintln!(
+                "Bad error case! Output is non-deterministic {:?} {:?}",
+                data.type_id(),
+                self.to_string()
+            );
+            VMError::FunctionCallError(FunctionCallError::WasmTrap { msg: "unknown".into() })
         }
     }
 }
