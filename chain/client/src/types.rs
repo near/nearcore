@@ -113,7 +113,7 @@ pub struct ShardSyncDownload {
 /// Various status sync can be in, whether it's fast sync or archival.
 #[derive(Clone, Debug, strum::AsStaticStr)]
 pub enum SyncStatus {
-    /// Initial state. Not enough peers to do anything yet. If boolean is false, skip this step.
+    /// Initial state. Not enough peers to do anything yet.
     AwaitingPeers,
     /// Not syncing / Done syncing.
     NoSync,

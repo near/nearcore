@@ -515,6 +515,17 @@ pub struct ShardStateSyncResponse {
     pub part: Option<(u64, Vec<u8>)>,
 }
 
+/// When running block sync response to know if the node needs to sync state,
+/// or the hashes from the blocks that are needed.
+pub enum BlockSyncResponse {
+    /// State is needed before we start fetching recent blocks.
+    StateNeeded,
+    /// We are up to date with state, list of block hashes that need to be fetched.
+    BlocksNeeded(Vec<CryptoHash>),
+    /// We are up to date, nothing is required.
+    None,
+}
+
 #[cfg(test)]
 mod tests {
     use chrono::Utc;
