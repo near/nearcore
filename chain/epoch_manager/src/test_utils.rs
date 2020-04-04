@@ -1,9 +1,10 @@
 use std::collections::{BTreeMap, HashMap};
 
 use near_crypto::{KeyType, SecretKey};
+use near_primitives::fraction::Fraction;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::types::{
-    AccountId, Balance, BlockHeight, BlockHeightDelta, EpochHeight, Fraction, NumSeats, NumShards,
+    AccountId, Balance, BlockHeight, BlockHeightDelta, EpochHeight, NumSeats, NumShards,
     ValidatorId, ValidatorKickoutReason, ValidatorStake,
 };
 use near_primitives::utils::get_num_seats_per_shard;

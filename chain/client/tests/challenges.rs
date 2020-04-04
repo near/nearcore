@@ -20,6 +20,7 @@ use near_network::NetworkRequests;
 use near_primitives::challenge::{
     BlockDoubleSign, Challenge, ChallengeBody, ChunkProofs, MaybeEncodedShardChunk,
 };
+use near_primitives::fraction::Fraction;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{merklize, MerklePath};
 use near_primitives::receipt::Receipt;
@@ -27,7 +28,7 @@ use near_primitives::serialize::BaseDecode;
 use near_primitives::sharding::{EncodedShardChunk, ReedSolomonWrapper};
 use near_primitives::test_utils::init_test_logger;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{Fraction, StateRoot};
+use near_primitives::types::StateRoot;
 use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_store::test_utils::create_test_store;
 use neard::config::{GenesisExt, FISHERMEN_THRESHOLD};

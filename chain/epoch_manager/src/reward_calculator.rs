@@ -2,7 +2,8 @@ use ethereum_types::U256;
 use std::cmp::max;
 use std::collections::HashMap;
 
-use near_primitives::types::{AccountId, Balance, BlockChunkValidatorStats, Fraction};
+use near_primitives::fraction::Fraction;
+use near_primitives::types::{AccountId, Balance, BlockChunkValidatorStats};
 
 #[derive(Clone)]
 pub struct RewardCalculator {
@@ -67,7 +68,8 @@ impl RewardCalculator {
 #[cfg(test)]
 mod tests {
     use crate::RewardCalculator;
-    use near_primitives::types::{BlockChunkValidatorStats, Fraction, ValidatorStats};
+    use near_primitives::fraction::Fraction;
+    use near_primitives::types::{BlockChunkValidatorStats, ValidatorStats};
     use std::collections::HashMap;
 
     /// Test that under an extreme setting (total supply 100b, epoch length half a day),

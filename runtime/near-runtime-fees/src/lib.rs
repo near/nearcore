@@ -3,7 +3,7 @@
 //! * sir -- sender is receiver. Receipts that are directed by an account to itself are guaranteed
 //!   to not be cross-shard which is cheaper than cross-shard. Conversely, when sender is not a
 //!   receiver it might or might not be a cross-shard communication.
-use near_primitives::types::Fraction;
+use near_primitives::fraction::Fraction;
 use serde::{Deserialize, Serialize};
 pub type Gas = u64;
 

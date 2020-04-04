@@ -20,11 +20,11 @@ use near_network::types::ROUTED_MESSAGE_TTL;
 use near_network::utils::blacklist_from_vec;
 use near_network::NetworkConfig;
 use near_primitives::account::AccessKey;
+use near_primitives::fraction::Fraction;
 use near_primitives::hash::CryptoHash;
 use near_primitives::state_record::StateRecord;
 use near_primitives::types::{
-    AccountId, AccountInfo, Balance, BlockHeightDelta, Fraction, Gas, NumBlocks, NumSeats,
-    NumShards, ShardId,
+    AccountId, AccountInfo, Balance, BlockHeightDelta, Gas, NumBlocks, NumSeats, NumShards, ShardId,
 };
 use near_primitives::utils::{generate_random_string, get_num_seats_per_shard};
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};

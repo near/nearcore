@@ -14,6 +14,7 @@ use near_primitives::challenge::{
     BlockDoubleSign, Challenge, ChallengeBody, ChallengesResult, ChunkProofs, ChunkState,
     MaybeEncodedShardChunk, SlashedValidator,
 };
+use near_primitives::fraction::Fraction;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::{merklize, verify_path};
 use near_primitives::receipt::Receipt;
@@ -24,8 +25,8 @@ use near_primitives::transaction::{
     ExecutionOutcome, ExecutionOutcomeWithId, ExecutionOutcomeWithIdAndProof, ExecutionStatus,
 };
 use near_primitives::types::{
-    AccountId, Balance, BlockExtra, BlockHeight, BlockHeightDelta, ChunkExtra, EpochId, Fraction,
-    Gas, NumBlocks, ShardId, StateHeaderKey, ValidatorStake,
+    AccountId, Balance, BlockExtra, BlockHeight, BlockHeightDelta, ChunkExtra, EpochId, Gas,
+    NumBlocks, ShardId, StateHeaderKey, ValidatorStake,
 };
 use near_primitives::unwrap_or_return;
 use near_primitives::views::{

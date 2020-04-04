@@ -21,8 +21,9 @@ use near_network::utils::blacklist_from_vec;
 use near_network::{
     NetworkConfig, NetworkRecipient, NetworkRequests, NetworkResponses, PeerInfo, PeerManagerActor,
 };
+use near_primitives::fraction::Fraction;
 use near_primitives::test_utils::init_test_logger;
-use near_primitives::types::{Fraction, ValidatorId};
+use near_primitives::types::ValidatorId;
 use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_store::test_utils::create_test_store;
 use near_telemetry::{TelemetryActor, TelemetryConfig};

@@ -1,8 +1,8 @@
 use near_chain::test_utils::setup;
 use near_chain::{Block, ChainStoreAccess, ErrorKind, Provenance};
+use near_primitives::fraction::Fraction;
 use near_primitives::hash::CryptoHash;
 use near_primitives::test_utils::init_test_logger;
-use near_primitives::types::Fraction;
 
 #[test]
 fn empty_chain() {

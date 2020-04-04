@@ -11,11 +11,11 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use smart_default::SmartDefault;
 
+use near_primitives::fraction::Fraction;
 use near_primitives::serialize::{u128_dec_format, u128_dec_format_compatible};
 use near_primitives::state_record::StateRecord;
 use near_primitives::types::{
-    AccountId, AccountInfo, Balance, BlockHeight, BlockHeightDelta, Fraction, Gas, NumBlocks,
-    NumSeats,
+    AccountId, AccountInfo, Balance, BlockHeight, BlockHeightDelta, Gas, NumBlocks, NumSeats,
 };
 use near_runtime_configs::RuntimeConfig;
 

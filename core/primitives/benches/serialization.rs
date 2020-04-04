@@ -8,9 +8,10 @@ use chrono::Utc;
 use near_crypto::{KeyType, PublicKey, Signature};
 use near_primitives::account::Account;
 use near_primitives::block::{genesis_chunks, Block};
+use near_primitives::fraction::Fraction;
 use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::{Action, SignedTransaction, Transaction, TransferAction};
-use near_primitives::types::{EpochId, Fraction, StateRoot};
+use near_primitives::types::{EpochId, StateRoot};
 use near_primitives::validator_signer::InMemoryValidatorSigner;
 
 fn create_transaction() -> SignedTransaction {

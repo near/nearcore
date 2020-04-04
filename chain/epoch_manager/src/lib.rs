@@ -1046,7 +1046,7 @@ mod tests {
     };
 
     use super::*;
-    use near_primitives::types::Fraction;
+    use near_primitives::fraction::Fraction;
 
     #[test]
     fn test_stake_validator() {

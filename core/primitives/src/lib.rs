@@ -10,6 +10,7 @@ pub mod block;
 pub mod challenge;
 pub mod contract;
 pub mod errors;
+pub mod fraction;
 pub mod hash;
 pub mod logging;
 pub mod merkle;

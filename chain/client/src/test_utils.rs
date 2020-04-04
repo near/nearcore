@@ -26,10 +26,11 @@ use near_network::{
     NetworkRequests, NetworkResponses, PeerInfo, PeerManagerActor,
 };
 use near_primitives::block::{Block, GenesisId, ScoreAndHeight};
+use near_primitives::fraction::Fraction;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{
-    AccountId, BlockHeight, BlockHeightDelta, Fraction, NumBlocks, NumSeats, NumShards,
+    AccountId, BlockHeight, BlockHeightDelta, NumBlocks, NumSeats, NumShards,
 };
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
 use near_store::test_utils::create_test_store;

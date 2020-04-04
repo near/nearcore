@@ -7,12 +7,13 @@ use near_crypto::{EmptySigner, PublicKey, Signer};
 
 use crate::account::{AccessKey, AccessKeyPermission, Account};
 use crate::block::{Approval, Block};
+use crate::fraction::Fraction;
 use crate::hash::CryptoHash;
 use crate::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, SignedTransaction, StakeAction,
     Transaction, TransferAction,
 };
-use crate::types::{AccountId, Balance, BlockHeight, EpochId, Fraction, Nonce};
+use crate::types::{AccountId, Balance, BlockHeight, EpochId, Nonce};
 use crate::validator_signer::ValidatorSigner;
 
 lazy_static! {

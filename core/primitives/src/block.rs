@@ -7,14 +7,14 @@ use serde::Serialize;
 use near_crypto::{KeyType, PublicKey, Signature};
 
 use crate::challenge::{Challenges, ChallengesResult};
+use crate::fraction::Fraction;
 use crate::hash::{hash, CryptoHash};
 use crate::merkle::{combine_hash, merklize, verify_path, MerklePath};
 use crate::sharding::{
     ChunkHashHeight, EncodedShardChunk, ReedSolomonWrapper, ShardChunk, ShardChunkHeader,
 };
 use crate::types::{
-    AccountId, Balance, BlockHeight, EpochId, Fraction, Gas, MerkleHash, NumShards, StateRoot,
-    ValidatorStake,
+    AccountId, Balance, BlockHeight, EpochId, Gas, MerkleHash, NumShards, StateRoot, ValidatorStake,
 };
 use crate::utils::{from_timestamp, to_timestamp};
 use crate::validator_signer::{EmptyValidatorSigner, ValidatorSigner};

@@ -1,4 +1,4 @@
-use near_primitives::types::Fraction;
+use near_primitives::fraction::Fraction;
 use near_runtime_fees::{
     AccessKeyCreationConfig, ActionCreationConfig, DataReceiptCreationConfig, Fee,
     RuntimeFeesConfig, StorageUsageConfig,

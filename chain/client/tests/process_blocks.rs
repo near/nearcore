@@ -24,12 +24,13 @@ use near_network::{
 };
 use near_primitives::block::{Approval, BlockHeader};
 use near_primitives::errors::InvalidTxError;
+use near_primitives::fraction::Fraction;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::merklize;
 use near_primitives::sharding::{EncodedShardChunk, ReedSolomonWrapper};
 use near_primitives::test_utils::init_test_logger;
 use near_primitives::transaction::{SignedTransaction, Transaction};
-use near_primitives::types::{BlockHeight, EpochId, Fraction, MerkleHash, NumBlocks};
+use near_primitives::types::{BlockHeight, EpochId, MerkleHash, NumBlocks};
 use near_primitives::utils::to_timestamp;
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
 use near_store::test_utils::create_test_store;

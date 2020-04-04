@@ -231,8 +231,9 @@ mod tests {
 
     use near_crypto::{KeyType, PublicKey};
     use near_epoch_manager::{BlockInfo, EpochConfig, EpochManager, RewardCalculator};
+    use near_primitives::fraction::Fraction;
     use near_primitives::hash::{hash, CryptoHash};
-    use near_primitives::types::{BlockHeight, EpochId, Fraction, NumShards, ValidatorStake};
+    use near_primitives::types::{BlockHeight, EpochId, NumShards, ValidatorStake};
     use near_store::test_utils::create_test_store;
 
     use super::{account_id_to_shard_id, ShardTracker, POISONED_LOCK_ERR};

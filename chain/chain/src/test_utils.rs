@@ -14,6 +14,7 @@ use near_primitives::account::{AccessKey, Account};
 use near_primitives::block::{Approval, Block};
 use near_primitives::challenge::{ChallengesResult, SlashedValidator};
 use near_primitives::errors::InvalidTxError;
+use near_primitives::fraction::Fraction;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum};
 use near_primitives::serialize::to_base;
@@ -23,7 +24,7 @@ use near_primitives::transaction::{
     TransferAction,
 };
 use near_primitives::types::{
-    AccountId, Balance, BlockHeight, EpochId, Fraction, Gas, Nonce, NumBlocks, ShardId, StateRoot,
+    AccountId, Balance, BlockHeight, EpochId, Gas, Nonce, NumBlocks, ShardId, StateRoot,
     StateRootNode, ValidatorStake, ValidatorStats,
 };
 use near_primitives::validator_signer::InMemoryValidatorSigner;
