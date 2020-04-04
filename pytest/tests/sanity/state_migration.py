@@ -14,6 +14,7 @@ import json
 import subprocess
 import shutil
 import re
+from deepdiff import DeepDiff
 
 sys.path.append('lib')
 
@@ -73,6 +74,12 @@ def main():
     current_node = cluster.spin_up_node(config, near_root, os.path.join(node_root, "test0"), 0, None, None)
 
     wait_for_blocks_or_timeout(current_node, 20, 100)
+
+    # New genesis can be deserialized by new near is verified above (new near can produce blocks)
+    # Also test new genesis protocol_version matches neard/res/genesis_config's
+    new_genesis = json.load(open(os.path.join(node_root, 'test0/genesis.json')))
+    res_genesis = json.load(open('../neard/res/genesis_config.json'))
+    assert new_genesis['protocol_version'] == res_genesis['protocol_version']
 
 
 if __name__ == "__main__":
