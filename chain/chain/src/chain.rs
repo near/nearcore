@@ -1078,22 +1078,26 @@ impl Chain {
             }
             Err(e) => match e.kind() {
                 ErrorKind::Orphan => {
-                    let block_hash = block.hash();
-                    let orphan = Orphan { block, provenance, added: Instant::now() };
+                    let tail_height = self.store.tail()?;
+                    // we only add blocks that couldn't have been gc'ed to the orphan pool.
+                    if block.header.inner_lite.height >= tail_height {
+                        let block_hash = block.hash();
+                        let orphan = Orphan { block, provenance, added: Instant::now() };
 
-                    self.orphans.add(orphan);
+                        self.orphans.add(orphan);
 
-                    debug!(
-                        target: "chain",
-                        "Process block: orphan: {:?}, # orphans {}{}",
-                        block_hash,
-                        self.orphans.len(),
-                        if self.orphans.len_evicted() > 0 {
-                            format!(", # evicted {}", self.orphans.len_evicted())
-                        } else {
-                            String::new()
-                        },
-                    );
+                        debug!(
+                            target: "chain",
+                            "Process block: orphan: {:?}, # orphans {}{}",
+                            block_hash,
+                            self.orphans.len(),
+                            if self.orphans.len_evicted() > 0 {
+                                format!(", # evicted {}", self.orphans.len_evicted())
+                            } else {
+                                String::new()
+                            },
+                        );
+                    }
                     Err(e)
                 }
                 ErrorKind::ChunksMissing(missing_chunks) => {
