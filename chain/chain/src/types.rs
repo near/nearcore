@@ -7,7 +7,6 @@ use serde::Serialize;
 
 use near_crypto::Signature;
 use near_pool::types::PoolIterator;
-use near_primitives::block::Approval;
 pub use near_primitives::block::{Block, BlockHeader};
 use near_primitives::challenge::{ChallengesResult, SlashedValidator};
 use near_primitives::errors::InvalidTxError;
@@ -190,7 +189,7 @@ pub trait RuntimeAdapter: Send + Sync {
         prev_block_hash: &CryptoHash,
         prev_block_height: BlockHeight,
         block_height: BlockHeight,
-        approvals: &[Approval],
+        approvals: &[Option<Signature>],
     ) -> Result<bool, Error>;
 
     /// Epoch block producers ordered by their order in the proposals.
@@ -297,12 +296,6 @@ pub trait RuntimeAdapter: Send + Sync {
 
     /// Get inflation for a certain epoch
     fn get_epoch_inflation(&self, epoch_id: &EpochId) -> Result<Balance, Error>;
-
-    fn push_final_block_back_if_needed(
-        &self,
-        parent_hash: CryptoHash,
-        last_final_hash: CryptoHash,
-    ) -> Result<CryptoHash, Error>;
 
     /// Add proposals for validators.
     fn add_validator_proposals(
@@ -525,7 +518,7 @@ mod tests {
     use chrono::Utc;
 
     use near_crypto::KeyType;
-    use near_primitives::block::genesis_chunks;
+    use near_primitives::block::{genesis_chunks, Approval};
     use near_primitives::merkle::verify_path;
     use near_primitives::transaction::{ExecutionOutcome, ExecutionStatus};
     use near_primitives::validator_signer::InMemoryValidatorSigner;
@@ -550,7 +543,7 @@ mod tests {
         let b1 = Block::empty(&genesis, &signer);
         assert!(b1.header.verify_block_producer(&signer.public_key()));
         let other_signer = InMemoryValidatorSigner::from_seed("other2", KeyType::ED25519, "other2");
-        let approvals = vec![Approval::new(b1.hash(), 1, 2, &other_signer)];
+        let approvals = vec![Some(Approval::new(b1.hash(), 1, 2, &other_signer).signature)];
         let b2 = Block::empty_with_approvals(
             &b1,
             2,

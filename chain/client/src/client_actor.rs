@@ -961,7 +961,9 @@ impl ClientActor {
         match chain_store_update.commit() {
             Ok(_) => {
                 for approval in approvals {
-                    if let Err(e) = self.client.send_approval(approval) {
+                    if let Err(e) =
+                        self.client.send_approval(&self.client.doomslug.get_tip().0, approval)
+                    {
                         error!("Error while sending an approval {:?}", e);
                     }
                 }

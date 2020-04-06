@@ -881,36 +881,6 @@ impl EpochManager {
             as usize]
     }
 
-    /// The epoch switches when a block at a particular height gets final. We cannot allow blocks
-    /// beyond that height in the current epoch to get final, otherwise the safety of the finality
-    /// gadget can get violated.
-    pub fn push_final_block_back_if_needed(
-        &mut self,
-        parent_hash: CryptoHash,
-        mut last_final_hash: CryptoHash,
-    ) -> Result<CryptoHash, EpochError> {
-        if last_final_hash == CryptoHash::default() {
-            return Ok(last_final_hash);
-        }
-
-        let block_info = self.get_block_info(&parent_hash)?;
-        let epoch_first_block = block_info.epoch_first_block;
-        let estimated_next_epoch_start =
-            self.get_block_info(&epoch_first_block)?.height + self.config.epoch_length;
-
-        loop {
-            let block_info = self.get_block_info(&last_final_hash)?;
-            let prev_hash = block_info.prev_hash;
-            let prev_block_info = self.get_block_info(&prev_hash)?;
-            // See `is_next_block_in_next_epoch` for details on ` + 3`
-            if prev_block_info.height + 3 >= estimated_next_epoch_start {
-                last_final_hash = prev_hash;
-            } else {
-                return Ok(last_final_hash);
-            }
-        }
-    }
-
     /// Returns true, if given current block info, next block supposed to be in the next epoch.
     #[allow(clippy::wrong_self_convention)]
     fn is_next_block_in_next_epoch(&mut self, block_info: &BlockInfo) -> Result<bool, EpochError> {

@@ -25,7 +25,7 @@ use near_network::{
     FullPeerInfo, NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkResponses,
     PeerInfo,
 };
-use near_primitives::block::{Approval, BlockHeader};
+use near_primitives::block::{Approval, ApprovalInner, BlockHeader};
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::merklize;
@@ -274,16 +274,6 @@ fn produce_block_with_approvals() {
                         System::current().stop();
                     } else if block.header.inner_lite.height == 10 {
                         println!("{}", block.header.inner_lite.height);
-                        println!(
-                            "{:?}",
-                            block
-                                .header
-                                .inner_rest
-                                .approvals
-                                .iter()
-                                .map(|x| x.account_id.clone())
-                                .collect::<Vec<_>>()
-                        );
                         println!(
                             "{} != {} -2 (height: {})",
                             block.header.num_approvals(),
@@ -710,17 +700,15 @@ fn test_invalid_approvals() {
     let genesis = client.chain.get_block_by_height(0).unwrap();
     let mut b1 = Block::empty_with_height(genesis, 1, &signer);
     b1.header.inner_rest.approvals = (0..100)
-        .map(|i| Approval {
-            account_id: format!("test{}", i).to_string(),
-            parent_hash: genesis.hash(),
-            parent_height: 0,
-            target_height: 1,
-            signature: InMemoryValidatorSigner::from_seed(
-                &format!("test{}", i),
-                KeyType::ED25519,
-                &format!("test{}", i),
+        .map(|i| {
+            Some(
+                InMemoryValidatorSigner::from_seed(
+                    &format!("test{}", i),
+                    KeyType::ED25519,
+                    &format!("test{}", i),
+                )
+                .sign_approval(&ApprovalInner::Endorsement(genesis.hash()), 1),
             )
-            .sign_approval(&genesis.hash(), 0, 1),
         })
         .collect();
     let (hash, signature) = signer.sign_block_header_parts(

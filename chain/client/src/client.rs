@@ -19,7 +19,7 @@ use near_chain::{
 use near_chain_configs::ClientConfig;
 use near_chunks::{ProcessPartialEncodedChunkResult, ShardsManager};
 use near_network::{FullPeerInfo, NetworkAdapter, NetworkClientResponses, NetworkRequests};
-use near_primitives::block::{Approval, ApprovalMessage, Block, BlockHeader};
+use near_primitives::block::{Approval, ApprovalInner, ApprovalMessage, Block, BlockHeader};
 use near_primitives::challenge::{Challenge, ChallengeBody};
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{merklize, MerklePath};
@@ -28,7 +28,9 @@ use near_primitives::sharding::{
     EncodedShardChunk, PartialEncodedChunk, ReedSolomonWrapper, ShardChunkHeader,
 };
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, BlockHeight, ChunkExtra, EpochId, ShardId};
+use near_primitives::types::{
+    AccountId, BlockHeight, ChunkExtra, EpochId, ShardId, ValidatorStake,
+};
 use near_primitives::unwrap_or_return;
 use near_primitives::utils::to_timestamp;
 use near_primitives::validator_signer::ValidatorSigner;
@@ -58,7 +60,7 @@ pub struct Client {
     /// Signer for block producer (if present).
     pub validator_signer: Option<Arc<dyn ValidatorSigner>>,
     /// Approvals for which we do not have the block yet
-    pending_approvals: SizedCache<CryptoHash, HashMap<AccountId, Approval>>,
+    pending_approvals: SizedCache<ApprovalInner, HashMap<AccountId, Approval>>,
     /// A mapping from a block for which a state sync is underway for the next epoch, and the object
     /// storing the current status of the state sync
     pub catchup_state_syncs: HashMap<CryptoHash, (StateSync, HashMap<u64, ShardSyncDownload>)>,
@@ -318,13 +320,24 @@ impl Client {
             return Ok(None);
         }
 
-        let approvals = self.doomslug.remove_witness(&prev_hash, prev_height, next_height);
+        let mut approvals_map = self.doomslug.remove_witness(&prev_hash, prev_height, next_height);
 
         // At this point, the previous epoch hash must be available
         let epoch_id = self
             .runtime_adapter
             .get_epoch_id_from_prev_block(&head.last_block_hash)
             .expect("Epoch hash should exist at this point");
+
+        let approvals = self
+            .runtime_adapter
+            .get_epoch_block_producers_ordered(&epoch_id, &prev_hash)?
+            .into_iter()
+            .map(|(ValidatorStake { account_id, .. }, _)| {
+                approvals_map.remove(&account_id).map(|x| x.signature)
+            })
+            .collect();
+
+        debug_assert_eq!(approvals_map.len(), 0);
 
         let next_epoch_id = self
             .runtime_adapter
@@ -678,9 +691,12 @@ impl Client {
         Ok(())
     }
 
-    pub fn send_approval(&mut self, approval: Approval) -> Result<(), Error> {
-        let parent_hash = approval.parent_hash;
-        let next_epoch_id = self.runtime_adapter.get_epoch_id_from_prev_block(&parent_hash)?;
+    pub fn send_approval(
+        &mut self,
+        parent_hash: &CryptoHash,
+        approval: Approval,
+    ) -> Result<(), Error> {
+        let next_epoch_id = self.runtime_adapter.get_epoch_id_from_prev_block(parent_hash)?;
         let next_block_producer =
             self.runtime_adapter.get_block_producer(&next_epoch_id, approval.target_height)?;
         if Some(&next_block_producer) == self.validator_signer.as_ref().map(|x| x.validator_id()) {
@@ -715,7 +731,17 @@ impl Client {
         // If we produced the block, then it should have already been broadcasted.
         // If received the block from another node then broadcast "header first" to minimize network traffic.
         if provenance == Provenance::NONE {
-            let approvals = self.pending_approvals.cache_remove(&block_hash);
+            let approvals =
+                self.pending_approvals.cache_remove(&ApprovalInner::Endorsement(block_hash));
+            if let Some(approvals) = approvals {
+                for (_account_id, approval) in approvals {
+                    self.collect_block_approval(&approval, false);
+                }
+            }
+
+            let approvals = self
+                .pending_approvals
+                .cache_remove(&ApprovalInner::Skip(block.header.inner_lite.height));
             if let Some(approvals) = approvals {
                 for (_account_id, approval) in approvals {
                     self.collect_block_approval(&approval, false);
@@ -901,29 +927,40 @@ impl Client {
     /// * `is_ours`  - whether the approval was just produced by us (in which case skip validation,
     ///                only check whether we are the next block producer and store in Doomslug)
     pub fn collect_block_approval(&mut self, approval: &Approval, is_ours: bool) {
-        let Approval { parent_hash, account_id, parent_height, target_height, signature } =
-            approval;
+        let Approval { inner, account_id, target_height, signature } = approval;
 
         let process_error = |e: near_chain::Error,
                              approval: &Approval,
                              pending_approvals: &mut SizedCache<_, _>| {
             if let ErrorKind::DBNotFoundErr(_) = e.kind() {
                 let mut entry = pending_approvals
-                    .cache_remove(&approval.parent_hash)
+                    .cache_remove(&approval.inner)
                     .unwrap_or_else(|| HashMap::new());
                 entry.insert(approval.account_id.clone(), approval.clone());
-                pending_approvals.cache_set(approval.parent_hash, entry);
+                pending_approvals.cache_set(approval.inner.clone(), entry);
             }
         };
 
-        let next_epoch_id =
-            match self.runtime_adapter.get_epoch_id_from_prev_block(&approval.parent_hash) {
-                Err(e) => {
-                    process_error(e, approval, &mut self.pending_approvals);
-                    return;
+        let parent_hash = match inner {
+            ApprovalInner::Endorsement(parent_hash) => parent_hash.clone(),
+            ApprovalInner::Skip(parent_height) => {
+                match self.chain.get_header_by_height(*parent_height) {
+                    Ok(header) => header.hash(),
+                    Err(e) => {
+                        process_error(e, approval, &mut self.pending_approvals);
+                        return;
+                    }
                 }
-                Ok(next_epoch_id) => next_epoch_id,
-            };
+            }
+        };
+
+        let next_epoch_id = match self.runtime_adapter.get_epoch_id_from_prev_block(&parent_hash) {
+            Err(e) => {
+                process_error(e, approval, &mut self.pending_approvals);
+                return;
+            }
+            Ok(next_epoch_id) => next_epoch_id,
+        };
 
         if !is_ours {
             // Check signature is correct for given validator.
@@ -931,7 +968,7 @@ impl Client {
                 &next_epoch_id,
                 &parent_hash,
                 account_id,
-                Approval::get_data_for_sig(parent_hash, *parent_height, *target_height).as_ref(),
+                Approval::get_data_for_sig(inner, *target_height).as_ref(),
                 signature,
             ) {
                 Ok(true) => {}
@@ -1279,7 +1316,7 @@ mod test {
     use near_chain::{ChainGenesis, RuntimeAdapter};
     use near_chain_configs::Genesis;
     use near_crypto::KeyType;
-    use near_primitives::block::Approval;
+    use near_primitives::block::{Approval, ApprovalInner};
     use near_primitives::hash::hash;
     use near_primitives::validator_signer::InMemoryValidatorSigner;
     use near_store::test_utils::create_test_store;
@@ -1304,7 +1341,8 @@ mod test {
         let parent_hash = hash(&[1]);
         let approval = Approval::new(parent_hash, 0, 1, &signer);
         env.clients[0].collect_block_approval(&approval, false);
-        let approvals = env.clients[0].pending_approvals.cache_remove(&parent_hash);
+        let approvals =
+            env.clients[0].pending_approvals.cache_remove(&ApprovalInner::Endorsement(parent_hash));
         let expected = vec![("test1".to_string(), approval)].into_iter().collect::<HashMap<_, _>>();
         assert_eq!(approvals, Some(expected));
     }

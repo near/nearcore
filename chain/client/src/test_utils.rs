@@ -24,7 +24,7 @@ use near_network::{
     FullPeerInfo, NetworkAdapter, NetworkClientMessages, NetworkClientResponses, NetworkRecipient,
     NetworkRequests, NetworkResponses, PeerInfo, PeerManagerActor,
 };
-use near_primitives::block::{Block, GenesisId};
+use near_primitives::block::{ApprovalInner, Block, GenesisId};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{
@@ -612,29 +612,38 @@ pub fn setup_mock_all_validators(
                                 }
                             }
 
-                            // Ensure the finality gadget invariant that no two approvals intersect
-                            //     is maintained
-                            if let Some(prev_height) =
-                                hash_to_height1.read().unwrap().get(&approval.parent_hash).clone()
-                            {
-                                if approval.target_height == prev_height + 1 {
-                                    // an endorsement
+                            // Verify doomslug invariant
+                            match approval.inner {
+                                ApprovalInner::Endorsement(parent_hash) => {
                                     assert!(
                                         approval.target_height
                                             > largest_skipped_height1.read().unwrap()[my_ord]
                                     );
                                     largest_endorsed_height1.write().unwrap()[my_ord] =
                                         approval.target_height;
-                                } else {
-                                    // a skip message
+
+                                    if let Some(prev_height) =
+                                        hash_to_height1.read().unwrap().get(&parent_hash).clone()
+                                    {
+                                        assert_eq!(prev_height + 1, approval.target_height);
+                                    }
+                                }
+                                ApprovalInner::Skip(prev_height) => {
                                     largest_skipped_height1.write().unwrap()[my_ord] =
                                         approval.target_height;
+                                    let e = largest_endorsed_height1.read().unwrap()[my_ord];
+                                    // `e` is the *target* height of the last endorsement. `prev_height`
+                                    // is allowed to be anything >= to the source height, which is e-1.
                                     assert!(
-                                        approval.target_height
-                                            > largest_endorsed_height1.read().unwrap()[my_ord]
+                                        prev_height + 1 >= e,
+                                        "New: {}->{}, Old: {}->{}",
+                                        prev_height,
+                                        approval.target_height,
+                                        e - 1,
+                                        e
                                     );
                                 }
-                            }
+                            };
                         }
                         NetworkRequests::ForwardTx(_, _)
                         | NetworkRequests::Sync { .. }

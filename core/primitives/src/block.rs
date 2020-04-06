@@ -70,7 +70,7 @@ pub struct BlockHeaderInnerRest {
     pub last_ds_final_block: CryptoHash,
 
     /// All the approvals included in this block
-    pub approvals: Vec<Approval>,
+    pub approvals: Vec<Option<Signature>>,
 }
 
 impl BlockHeaderInnerLite {
@@ -115,7 +115,7 @@ impl BlockHeaderInnerRest {
         challenges_result: ChallengesResult,
         last_final_block: CryptoHash,
         last_ds_final_block: CryptoHash,
-        approvals: Vec<Approval>,
+        approvals: Vec<Option<Signature>>,
     ) -> Self {
         Self {
             chunk_receipts_root,
@@ -141,11 +141,17 @@ impl BlockHeaderInnerRest {
     }
 }
 
-/// Block approval by other block producers.
+/// The part of the block approval that is different for endorsements and skips
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, PartialEq, Eq, Hash)]
+pub enum ApprovalInner {
+    Endorsement(CryptoHash),
+    Skip(BlockHeight),
+}
+
+/// Block approval by other block producers with a signature
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, PartialEq, Eq)]
 pub struct Approval {
-    pub parent_hash: CryptoHash,
-    pub parent_height: BlockHeight,
+    pub inner: ApprovalInner,
     pub target_height: BlockHeight,
     pub signature: Signature,
     pub account_id: AccountId,
@@ -158,6 +164,20 @@ pub struct ApprovalMessage {
     pub target: AccountId,
 }
 
+impl ApprovalInner {
+    pub fn new(
+        parent_hash: &CryptoHash,
+        parent_height: BlockHeight,
+        target_height: BlockHeight,
+    ) -> Self {
+        if target_height == parent_height + 1 {
+            ApprovalInner::Endorsement(parent_hash.clone())
+        } else {
+            ApprovalInner::Skip(parent_height)
+        }
+    }
+}
+
 impl Approval {
     pub fn new(
         parent_hash: CryptoHash,
@@ -165,26 +185,13 @@ impl Approval {
         target_height: BlockHeight,
         signer: &dyn ValidatorSigner,
     ) -> Self {
-        let signature = signer.sign_approval(&parent_hash, parent_height, target_height);
-        Approval {
-            parent_hash,
-            target_height,
-            parent_height,
-            signature,
-            account_id: signer.validator_id().clone(),
-        }
+        let inner = ApprovalInner::new(&parent_hash, parent_height, target_height);
+        let signature = signer.sign_approval(&inner, target_height);
+        Approval { inner, target_height, signature, account_id: signer.validator_id().clone() }
     }
 
-    pub fn get_data_for_sig(
-        parent_hash: &CryptoHash,
-        parent_height: BlockHeight,
-        target_height: BlockHeight,
-    ) -> Vec<u8> {
-        if parent_height + 1 == target_height {
-            [parent_hash.as_ref(), target_height.to_be_bytes().as_ref()].concat()
-        } else {
-            [parent_height.to_be_bytes(), target_height.to_be_bytes()].concat()
-        }
+    pub fn get_data_for_sig(inner: &ApprovalInner, target_height: BlockHeight) -> Vec<u8> {
+        [inner.try_to_vec().unwrap().as_ref(), target_height.to_be_bytes().as_ref()].concat()
     }
 }
 
@@ -259,7 +266,7 @@ impl BlockHeader {
         signer: &dyn ValidatorSigner,
         last_final_block: CryptoHash,
         last_ds_final_block: CryptoHash,
-        approvals: Vec<Approval>,
+        approvals: Vec<Option<Signature>>,
         next_bp_hash: CryptoHash,
     ) -> Self {
         let inner_lite = BlockHeaderInnerLite::new(
@@ -355,7 +362,7 @@ impl BlockHeader {
     }
 
     pub fn num_approvals(&self) -> u64 {
-        self.inner_rest.approvals.len() as u64
+        self.inner_rest.approvals.iter().filter(|x| x.is_some()).count() as u64
     }
 }
 
@@ -447,7 +454,7 @@ impl Block {
         chunks: Vec<ShardChunkHeader>,
         epoch_id: EpochId,
         next_epoch_id: EpochId,
-        approvals: Vec<Approval>,
+        approvals: Vec<Option<Signature>>,
         gas_price_adjustment_rate: Rational,
         min_gas_price: Balance,
         inflation: Option<Balance>,

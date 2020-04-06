@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 use near_crypto::{PublicKey, Signature};
 
 use crate::account::{AccessKey, AccessKeyPermission, Account, FunctionCallPermission};
-use crate::block::{Approval, Block, BlockHeader, BlockHeaderInnerLite, BlockHeaderInnerRest};
+use crate::block::{Block, BlockHeader, BlockHeaderInnerLite, BlockHeaderInnerRest};
 use crate::challenge::{Challenge, ChallengesResult};
 use crate::errors::TxExecutionError;
 use crate::hash::{hash, CryptoHash};
@@ -337,7 +337,7 @@ pub struct BlockHeaderView {
     pub last_final_block: CryptoHash,
     pub last_ds_final_block: CryptoHash,
     pub next_bp_hash: CryptoHash,
-    pub approvals: Vec<(AccountId, CryptoHash, BlockHeight, BlockHeight, Signature)>,
+    pub approvals: Vec<Option<Signature>>,
     pub signature: Signature,
 }
 
@@ -373,14 +373,7 @@ impl From<BlockHeader> for BlockHeaderView {
             last_final_block: header.inner_rest.last_final_block,
             last_ds_final_block: header.inner_rest.last_ds_final_block,
             next_bp_hash: header.inner_lite.next_bp_hash,
-            approvals: header
-                .inner_rest
-                .approvals
-                .into_iter()
-                .map(|x| {
-                    (x.account_id, x.parent_hash, x.parent_height, x.target_height, x.signature)
-                })
-                .collect(),
+            approvals: header.inner_rest.approvals.clone(),
             signature: header.signature,
         }
     }
@@ -418,19 +411,7 @@ impl From<BlockHeaderView> for BlockHeader {
                 validator_reward: view.validator_reward,
                 last_final_block: view.last_final_block,
                 last_ds_final_block: view.last_ds_final_block,
-                approvals: view
-                    .approvals
-                    .into_iter()
-                    .map(|(account_id, parent_hash, parent_height, target_height, signature)| {
-                        Approval {
-                            account_id,
-                            parent_hash,
-                            parent_height,
-                            target_height,
-                            signature,
-                        }
-                    })
-                    .collect(),
+                approvals: view.approvals.clone(),
             },
             signature: view.signature,
             hash: CryptoHash::default(),

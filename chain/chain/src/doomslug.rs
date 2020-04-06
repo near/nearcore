@@ -3,7 +3,8 @@ use std::convert::TryFrom;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use near_primitives::block::Approval;
+use near_crypto::Signature;
+use near_primitives::block::{Approval, ApprovalInner};
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{AccountId, Balance, BlockHeight, BlockHeightDelta, ValidatorStake};
 use near_primitives::validator_signer::ValidatorSigner;
@@ -28,12 +29,6 @@ const MAX_HEIGHTS_AHEAD_TO_STORE_APPROVALS: BlockHeight = 10_000;
 pub enum DoomslugThresholdMode {
     NoApprovals,
     TwoThirds,
-}
-
-#[derive(Hash, PartialEq, Eq, Clone)]
-pub enum HashOrHeight {
-    Hash(CryptoHash),
-    Height(BlockHeight),
 }
 
 /// The result of processing an approval.
@@ -81,8 +76,8 @@ struct DoomslugApprovalsTracker {
 /// responsible for ensuring that only approvals for proper account_ids with valid signatures are
 /// provided.
 struct DoomslugApprovalsTrackersAtHeight {
-    approval_trackers: HashMap<HashOrHeight, DoomslugApprovalsTracker>,
-    last_approval_per_account: HashMap<AccountId, HashOrHeight>,
+    approval_trackers: HashMap<ApprovalInner, DoomslugApprovalsTracker>,
+    last_approval_per_account: HashMap<AccountId, ApprovalInner>,
 }
 
 /// Contains all the logic for Doomslug, but no integration with chain or storage. The integration
@@ -106,20 +101,6 @@ pub struct Doomslug {
     /// How many approvals to have before producing a block. In production should be always `HalfStake`,
     ///    but for many tests we use `NoApprovals` to invoke more forkfulness
     threshold_mode: DoomslugThresholdMode,
-}
-
-impl HashOrHeight {
-    fn new(
-        parent_hash: &CryptoHash,
-        parent_height: BlockHeight,
-        target_height: BlockHeight,
-    ) -> Self {
-        if parent_height + 1 == target_height {
-            HashOrHeight::Hash(parent_hash.clone())
-        } else {
-            HashOrHeight::Height(parent_height)
-        }
-    }
 }
 
 impl DoomslugTimer {
@@ -247,16 +228,10 @@ impl DoomslugApprovalsTrackersAtHeight {
         stakes: &Vec<ValidatorStake>,
         threshold_mode: DoomslugThresholdMode,
     ) -> DoomslugBlockProductionReadiness {
-        let hash_or_height = HashOrHeight::new(
-            &approval.parent_hash,
-            approval.parent_height,
-            approval.target_height,
-        );
-
         if let Some(last_parent) = self.last_approval_per_account.get(&approval.account_id) {
             let should_remove = self
                 .approval_trackers
-                .get_mut(&last_parent)
+                .get_mut(last_parent)
                 .map(|x| {
                     x.withdraw_approval(&approval.account_id);
                     x.witness.is_empty()
@@ -267,9 +242,9 @@ impl DoomslugApprovalsTrackersAtHeight {
                 self.approval_trackers.remove(&last_parent);
             }
         }
-        self.last_approval_per_account.insert(approval.account_id.clone(), hash_or_height.clone());
+        self.last_approval_per_account.insert(approval.account_id.clone(), approval.inner.clone());
         self.approval_trackers
-            .entry(hash_or_height)
+            .entry(approval.inner.clone())
             .or_insert_with(|| DoomslugApprovalsTracker::new(stakes, threshold_mode))
             .process_approval(now, approval)
     }
@@ -419,20 +394,19 @@ impl Doomslug {
     /// * `stakes`    - the vector of validator stakes in the current epoch
     pub fn can_approved_block_be_produced(
         mode: DoomslugThresholdMode,
-        approvals: &Vec<Approval>,
-        account_id_to_stake: &HashMap<AccountId, Balance>,
+        approvals: &Vec<Option<Signature>>,
+        stakes: &Vec<Balance>,
     ) -> bool {
         if mode == DoomslugThresholdMode::NoApprovals {
             return true;
         }
 
-        let threshold = account_id_to_stake.values().sum::<Balance>() * 2 / 3;
+        let threshold = stakes.iter().sum::<Balance>() * 2 / 3;
 
         let approved_stake = approvals
             .iter()
-            .map(|approval| {
-                { account_id_to_stake.get(&approval.account_id) }.map_or(0, |stake| *stake)
-            })
+            .zip(stakes.iter())
+            .map(|(approval, stake)| if approval.is_some() { *stake } else { 0 })
             .sum::<Balance>();
 
         approved_stake > threshold
@@ -443,19 +417,17 @@ impl Doomslug {
         prev_hash: &CryptoHash,
         parent_height: BlockHeight,
         target_height: BlockHeight,
-    ) -> Vec<Approval> {
-        let hash_or_height = HashOrHeight::new(prev_hash, parent_height, target_height);
+    ) -> HashMap<AccountId, Approval> {
+        let hash_or_height = ApprovalInner::new(prev_hash, parent_height, target_height);
         if let Some(approval_trackers_at_height) = self.approval_tracking.get_mut(&target_height) {
             let approvals_tracker =
                 approval_trackers_at_height.approval_trackers.remove(&hash_or_height);
             match approvals_tracker {
-                None => vec![],
-                Some(approvals_tracker) => {
-                    approvals_tracker.witness.into_iter().map(|(_, v)| v).collect::<Vec<_>>()
-                }
+                None => HashMap::new(),
+                Some(approvals_tracker) => approvals_tracker.witness,
             }
         } else {
-            vec![]
+            HashMap::new()
         }
     }
 
@@ -551,7 +523,7 @@ impl Doomslug {
         has_enough_chunks: bool,
     ) -> bool {
         let hash_or_height =
-            HashOrHeight::new(&self.tip.block_hash, self.tip.height, target_height);
+            ApprovalInner::new(&self.tip.block_hash, self.tip.height, target_height);
         if let Some(approval_trackers_at_height) = self.approval_tracking.get_mut(&target_height) {
             if let Some(approval_tracker) =
                 approval_trackers_at_height.approval_trackers.get_mut(&hash_or_height)
@@ -587,14 +559,13 @@ mod tests {
     use std::time::{Duration, Instant};
 
     use near_crypto::{KeyType, SecretKey};
-    use near_primitives::block::Approval;
+    use near_primitives::block::{Approval, ApprovalInner};
     use near_primitives::hash::hash;
     use near_primitives::types::ValidatorStake;
     use near_primitives::validator_signer::InMemoryValidatorSigner;
 
     use crate::doomslug::{
         DoomslugApprovalsTrackersAtHeight, DoomslugBlockProductionReadiness, DoomslugThresholdMode,
-        HashOrHeight,
     };
     use crate::Doomslug;
 
@@ -617,7 +588,7 @@ mod tests {
         assert_eq!(ds.process_timer(now + Duration::from_millis(399)).len(), 0);
         let approval =
             ds.process_timer(now + Duration::from_millis(400)).into_iter().nth(0).unwrap();
-        assert_eq!(approval.parent_hash, hash(&[1]));
+        assert_eq!(approval.inner, ApprovalInner::Endorsement(hash(&[1])));
         assert_eq!(approval.target_height, 2);
 
         // Same tip => no approval
@@ -630,7 +601,7 @@ mod tests {
         match ds.process_timer(now + Duration::from_millis(1000)) {
             approvals if approvals.len() == 0 => assert!(false),
             approvals => {
-                assert_eq!(approvals[0].parent_hash, hash(&[1]));
+                assert_eq!(approvals[0].inner, ApprovalInner::Skip(1));
                 assert_eq!(approvals[0].target_height, 3);
             }
         }
@@ -645,11 +616,11 @@ mod tests {
         // Shift now 1 second forward
         now += Duration::from_millis(1000);
 
-        // But at height 3 should (also neither block has finality set, keep last final at 1 for now)
+        // But at height 3 should (also neither block has finality set, keep last final at 0 for now)
         ds.set_tip(now, hash(&[3]), 3, 0);
         let approval =
             ds.process_timer(now + Duration::from_millis(400)).into_iter().nth(0).unwrap();
-        assert_eq!(approval.parent_hash, hash(&[3]));
+        assert_eq!(approval.inner, ApprovalInner::Endorsement(hash(&[3])));
         assert_eq!(approval.target_height, 4);
 
         // Move 1 second further
@@ -660,7 +631,7 @@ mod tests {
         match ds.process_timer(now + Duration::from_millis(200)) {
             approvals if approvals.len() == 0 => assert!(false),
             approvals if approvals.len() == 1 => {
-                assert_eq!(approvals[0].parent_hash, hash(&[3]));
+                assert_eq!(approvals[0].inner, ApprovalInner::Skip(3));
                 assert_eq!(approvals[0].target_height, 5);
             }
             _ => assert!(false),
@@ -675,7 +646,7 @@ mod tests {
         match ds.process_timer(now + Duration::from_millis(500)) {
             approvals if approvals.len() == 0 => assert!(false),
             approvals => {
-                assert_eq!(approvals[0].parent_hash, hash(&[3]));
+                assert_eq!(approvals[0].inner, ApprovalInner::Skip(3));
                 assert_eq!(approvals[0].target_height, 6);
             }
         }
@@ -689,7 +660,7 @@ mod tests {
         match ds.process_timer(now + Duration::from_millis(900)) {
             approvals if approvals.len() == 0 => assert!(false),
             approvals => {
-                assert_eq!(approvals[0].parent_hash, hash(&[3]));
+                assert_eq!(approvals[0].inner, ApprovalInner::Skip(3));
                 assert_eq!(approvals[0].target_height, 7);
             }
         }
@@ -720,7 +691,7 @@ mod tests {
         match ds.process_timer(now + Duration::from_millis(1100)) {
             approvals if approvals.len() == 0 => assert!(false),
             approvals => {
-                assert_eq!(approvals[0].parent_hash, hash(&[6]));
+                assert_eq!(approvals[0].inner, ApprovalInner::Skip(6));
                 assert_eq!(approvals[0].target_height, 8);
             }
         }
@@ -886,14 +857,14 @@ mod tests {
         tracker.process_approval(Instant::now(), &a1_1, &stakes, DoomslugThresholdMode::TwoThirds);
 
         assert_eq!(
-            tracker.approval_trackers.get(&HashOrHeight::Height(1)).unwrap().approved_stake,
+            tracker.approval_trackers.get(&ApprovalInner::Skip(1)).unwrap().approved_stake,
             2
         );
 
         tracker.process_approval(Instant::now(), &a1_1, &stakes, DoomslugThresholdMode::TwoThirds);
 
         assert_eq!(
-            tracker.approval_trackers.get(&HashOrHeight::Height(1)).unwrap().approved_stake,
+            tracker.approval_trackers.get(&ApprovalInner::Skip(1)).unwrap().approved_stake,
             2
         );
 
@@ -902,7 +873,7 @@ mod tests {
         tracker.process_approval(Instant::now(), &a1_3, &stakes, DoomslugThresholdMode::TwoThirds);
 
         assert_eq!(
-            tracker.approval_trackers.get(&HashOrHeight::Height(1)).unwrap().approved_stake,
+            tracker.approval_trackers.get(&ApprovalInner::Skip(1)).unwrap().approved_stake,
             6
         );
 
@@ -910,34 +881,42 @@ mod tests {
         tracker.process_approval(Instant::now(), &a2_1, &stakes, DoomslugThresholdMode::TwoThirds);
 
         assert_eq!(
-            tracker.approval_trackers.get(&HashOrHeight::Height(1)).unwrap().approved_stake,
+            tracker.approval_trackers.get(&ApprovalInner::Skip(1)).unwrap().approved_stake,
             4
         );
 
         tracker.process_approval(Instant::now(), &a2_2, &stakes, DoomslugThresholdMode::TwoThirds);
 
         assert_eq!(
-            tracker.approval_trackers.get(&HashOrHeight::Height(1)).unwrap().approved_stake,
+            tracker.approval_trackers.get(&ApprovalInner::Skip(1)).unwrap().approved_stake,
             3
         );
 
         // As we update the last of the three approvals, the tracker for the first block should be completely removed
         tracker.process_approval(Instant::now(), &a2_3, &stakes, DoomslugThresholdMode::TwoThirds);
 
-        assert!(tracker.approval_trackers.get(&HashOrHeight::Height(1)).is_none());
+        assert!(tracker.approval_trackers.get(&ApprovalInner::Skip(1)).is_none());
 
         // Check the approved and endorsed stake for the new block, and also ensure that processing one of the same approvals
         // again works fine
 
         assert_eq!(
-            tracker.approval_trackers.get(&HashOrHeight::Hash(hash(&[3]))).unwrap().approved_stake,
+            tracker
+                .approval_trackers
+                .get(&ApprovalInner::Endorsement(hash(&[3])))
+                .unwrap()
+                .approved_stake,
             6
         );
 
         tracker.process_approval(Instant::now(), &a2_3, &stakes, DoomslugThresholdMode::TwoThirds);
 
         assert_eq!(
-            tracker.approval_trackers.get(&HashOrHeight::Hash(hash(&[3]))).unwrap().approved_stake,
+            tracker
+                .approval_trackers
+                .get(&ApprovalInner::Endorsement(hash(&[3])))
+                .unwrap()
+                .approved_stake,
             6
         );
     }

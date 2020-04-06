@@ -19,7 +19,7 @@ use near_crypto::{PublicKey, Signature};
 use near_epoch_manager::{BlockInfo, EpochConfig, EpochError, EpochManager, RewardCalculator};
 use near_pool::types::PoolIterator;
 use near_primitives::account::{AccessKey, Account};
-use near_primitives::block::Approval;
+use near_primitives::block::{Approval, ApprovalInner};
 use near_primitives::challenge::{ChallengesResult, SlashedValidator};
 use near_primitives::errors::{InvalidTxError, RuntimeError};
 use near_primitives::hash::{hash, CryptoHash};
@@ -590,44 +590,35 @@ impl RuntimeAdapter for NightshadeRuntime {
         prev_block_hash: &CryptoHash,
         prev_block_height: BlockHeight,
         block_height: BlockHeight,
-        approvals: &[Approval],
+        approvals: &[Option<Signature>],
     ) -> Result<bool, Error> {
         let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
         let info = epoch_manager
             .get_all_block_producers_ordered(epoch_id, prev_block_hash)
             .map_err(Error::from)?;
-        let approvals_hash_map =
-            approvals.iter().map(|x| (x.account_id.clone(), x)).collect::<HashMap<_, _>>();
-        let mut signatures_verified = 0;
-        for (validator, is_slashed) in info.into_iter() {
+        if approvals.len() > info.len() {
+            return Ok(false);
+        }
+
+        let message_to_sign = Approval::get_data_for_sig(
+            &if prev_block_height + 1 == block_height {
+                ApprovalInner::Endorsement(prev_block_hash.clone())
+            } else {
+                ApprovalInner::Skip(prev_block_height)
+            },
+            block_height,
+        );
+
+        for ((validator, is_slashed), may_be_signature) in info.into_iter().zip(approvals.iter()) {
             if !is_slashed {
-                if let Some(approval) = approvals_hash_map.get(&validator.account_id) {
-                    if approval.parent_height != prev_block_height
-                        || approval.target_height != block_height
-                    {
+                if let Some(signature) = may_be_signature {
+                    if !signature.verify(message_to_sign.as_ref(), &validator.public_key) {
                         return Ok(false);
                     }
-                    if approval.parent_height + 1 == approval.target_height
-                        && &approval.parent_hash != prev_block_hash
-                    {
-                        return Ok(false);
-                    }
-                    if !approval.signature.verify(
-                        Approval::get_data_for_sig(
-                            &approval.parent_hash,
-                            approval.parent_height,
-                            approval.target_height,
-                        )
-                        .as_ref(),
-                        &validator.public_key,
-                    ) {
-                        return Ok(false);
-                    }
-                    signatures_verified += 1;
                 }
             }
         }
-        Ok(signatures_verified == approvals.len())
+        Ok(true)
     }
 
     fn get_epoch_block_producers_ordered(
@@ -808,15 +799,6 @@ impl RuntimeAdapter for NightshadeRuntime {
     fn get_epoch_inflation(&self, epoch_id: &EpochId) -> Result<Balance, Error> {
         let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
         Ok(epoch_manager.get_epoch_inflation(epoch_id)?)
-    }
-
-    fn push_final_block_back_if_needed(
-        &self,
-        parent_hash: CryptoHash,
-        last_final_hash: CryptoHash,
-    ) -> Result<CryptoHash, Error> {
-        let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
-        Ok(epoch_manager.push_final_block_back_if_needed(parent_hash, last_final_hash)?)
     }
 
     fn add_validator_proposals(

@@ -24,11 +24,6 @@ pub fn get_epoch_block_producers_view(
 ///
 /// # Arguments
 ///  * `block_header` - block header of the block for which the `LightClientBlock` is computed
-///  * `pushed_back_commit_hash` - in case `block_header` corresponds to the last final block in
-///                   some epoch, it is possible that the `last_quorum_pre_commit` for the block
-///                   from which perspective `block_header` was final. In that case this argument
-///                   should contain the pushed back hash (and the `block_header` must correspond
-///                   to the non-pushed back block)
 ///  * `chain_store`
 ///  * `block_producers` - the ordered list of block producers in the epoch of the block that
 ///                   corresponds to `block_header`
@@ -36,13 +31,8 @@ pub fn get_epoch_block_producers_view(
 ///                   client should contain them (otherwise `None`)
 ///
 /// # Requirements:
-///    `block_header` must correspond to some block for which `compute_quorums` returned it as
-///                   `quorum_pre_commit` for some other block. Note that it doesn't necessarily
-///                   correspond to some block's `last_quorum_pre_commit` since for the last block
-///                   in each epoch we push it back via `push_final_block_back_if_needed`.
-///    `get_next_final_block_hash` in the chain is set for all the blocks between the block
-///                   corresponding to `block_header` and the first block from which perspective
-///                   such block is final
+///    `get_next_final_block_hash` in the chain is set for the block that `block_header` corresponds
+///                   to and for the next block, and the three blocks must have sequential heights.
 pub fn create_light_client_block_view(
     block_header: &BlockHeader,
     chain_store: &mut dyn ChainStoreAccess,
@@ -67,26 +57,26 @@ pub fn create_light_client_block_view(
         .map(|(i, v): (usize, &ValidatorStakeView)| (v.account_id.clone(), i))
         .collect::<HashMap<_, _>>();
 
-    let mut approvals_next = vec![None; validator_ords.len()];
-    let mut approvals_after_next = vec![None; validator_ords.len()];
+    let /*mut*/ approvals_next = vec![None; validator_ords.len()];
+    let /*mut*/ approvals_after_next = vec![None; validator_ords.len()];
 
     let next_block_hash = chain_store.get_next_block_hash(&block_header.hash())?.clone();
-    let next_block_header = chain_store.get_block_header(&next_block_hash)?;
+    //let next_block_header = chain_store.get_block_header(&next_block_hash)?;
 
-    for approval in next_block_header.inner_rest.approvals.iter() {
+    /*for approval in next_block_header.inner_rest.approvals.iter() {
         approvals_next[*validator_ords.get(&approval.account_id).expect(
             "Block can't get accepted with approvals by someone who is not a block producer",
         )] = Some(approval.signature.clone());
-    }
+    }*/
 
-    let after_next_block_hash = chain_store.get_next_block_hash(&next_block_hash)?.clone();
-    let after_next_block_header = chain_store.get_block_header(&after_next_block_hash)?;
+    //let after_next_block_hash = chain_store.get_next_block_hash(&next_block_hash)?.clone();
+    //let after_next_block_header = chain_store.get_block_header(&after_next_block_hash)?;
 
-    for approval in after_next_block_header.inner_rest.approvals.iter() {
+    /*for approval in after_next_block_header.inner_rest.approvals.iter() {
         approvals_after_next[*validator_ords.get(&approval.account_id).expect(
             "Block can't get accepted with approvals by someone who is not a block producer",
         )] = Some(approval.signature.clone());
-    }
+    }*/
 
     Ok(LightClientBlockView {
         inner_lite: inner_lite_view,

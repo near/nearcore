@@ -11,7 +11,6 @@ use serde::Serialize;
 use near_crypto::{KeyType, PublicKey, SecretKey, Signature};
 use near_pool::types::PoolIterator;
 use near_primitives::account::{AccessKey, Account};
-use near_primitives::block::{Approval, Block};
 use near_primitives::challenge::{ChallengesResult, SlashedValidator};
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::{hash, CryptoHash};
@@ -307,7 +306,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         _prev_block_hash: &CryptoHash,
         _prev_block_height: BlockHeight,
         _block_height: BlockHeight,
-        _approvals: &[Approval],
+        _approvals: &[Option<Signature>],
     ) -> Result<bool, Error> {
         Ok(true)
     }
@@ -853,14 +852,6 @@ impl RuntimeAdapter for KeyValueRuntime {
         })
     }
 
-    fn push_final_block_back_if_needed(
-        &self,
-        _prev_block: CryptoHash,
-        last_final: CryptoHash,
-    ) -> Result<CryptoHash, Error> {
-        Ok(last_final)
-    }
-
     fn compare_epoch_id(
         &self,
         epoch_id: &EpochId,
@@ -1084,43 +1075,4 @@ impl ChainGenesis {
             epoch_length: 5,
         }
     }
-}
-
-pub fn new_block_no_epoch_switches(
-    prev_block: &Block,
-    height: BlockHeight,
-    approvals: Vec<&str>,
-    signer: &InMemoryValidatorSigner,
-) -> Block {
-    let approvals = approvals
-        .into_iter()
-        .map(|account_id| {
-            let signer =
-                InMemoryValidatorSigner::from_seed(account_id, KeyType::ED25519, account_id);
-            Approval::new(prev_block.hash(), prev_block.header.inner_lite.height, height, &signer)
-        })
-        .collect();
-    let (epoch_id, next_epoch_id) = if prev_block.header.prev_hash == CryptoHash::default() {
-        (prev_block.header.inner_lite.next_epoch_id.clone(), EpochId(prev_block.hash()))
-    } else {
-        (
-            prev_block.header.inner_lite.epoch_id.clone(),
-            prev_block.header.inner_lite.next_epoch_id.clone(),
-        )
-    };
-    Block::produce(
-        &prev_block.header,
-        height,
-        prev_block.chunks.clone(),
-        epoch_id,
-        next_epoch_id,
-        approvals,
-        Rational::from_integer(0),
-        0,
-        Some(0),
-        vec![],
-        vec![],
-        signer,
-        prev_block.header.inner_lite.next_bp_hash.clone(),
-    )
 }

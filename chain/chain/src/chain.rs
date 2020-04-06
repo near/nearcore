@@ -2917,16 +2917,16 @@ impl<'a> ChainUpdate<'a> {
 
             self.runtime_adapter.verify_block_signature(header)?;
 
-            let account_id_to_stake = self
+            let stakes = self
                 .runtime_adapter
                 .get_epoch_block_producers_ordered(&header.inner_lite.epoch_id, &header.prev_hash)?
                 .iter()
-                .map(|x| (x.0.account_id.clone(), x.0.stake))
+                .map(|x| x.0.stake)
                 .collect();
             if !Doomslug::can_approved_block_be_produced(
                 self.doomslug_threshold_mode,
                 &header.inner_rest.approvals,
-                &account_id_to_stake,
+                &stakes,
             ) {
                 return Err(ErrorKind::NotEnoughApprovals.into());
             }

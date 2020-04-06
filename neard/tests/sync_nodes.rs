@@ -48,11 +48,14 @@ fn add_blocks(
             blocks[0].chunks.clone(),
             epoch_id,
             next_epoch_id,
-            vec![Approval::new(
-                prev.hash(),
-                prev.header.inner_lite.height,
-                prev.header.inner_lite.height + 1,
-                signer,
+            vec![Some(
+                Approval::new(
+                    prev.hash(),
+                    prev.header.inner_lite.height,
+                    prev.header.inner_lite.height + 1,
+                    signer,
+                )
+                .signature,
             )],
             Rational::from_integer(0),
             0,
