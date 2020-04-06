@@ -1,11 +1,12 @@
 from transaction import sign_payment_tx
 import random, base58
 from retry import retry
-from cluster import LocalNode, GCloudNode
+from cluster import LocalNode, GCloudNode, CONFIG_ENV_VAR
 import sys
 from rc import run, gcloud
 import os
 import tempfile
+import json
 from pprint import pprint
 
 class TxContext:
@@ -140,7 +141,7 @@ def chain_query(node, block_handler, *, block_hash=None, max_blocks=-1):
                 print(f'Fatal: validator set of node {node} changes, from {initial_validators} to {validators}')
                 sys.exit(1)
             block = node.get_block(block_hash)['result']
-            block_handler(block)     
+            block_handler(block)
             block_hash = block['header']['prev_hash']
             block_height = block['header']['height']
             if block_height == 0:
@@ -169,7 +170,7 @@ def compile_rust_contract(content):
     p = run(f'cp -r {empty_contract_rs} {tmp_contract}')
     if p.returncode != 0:
         raise Exception(p.stderr)
-    
+
     with open(f'{tmp_contract}/src/lib.rs', 'a') as f:
         f.write(content)
 
@@ -203,3 +204,28 @@ class Unbuffered(object):
        self.stream.flush()
    def __getattr__(self, attr):
        return getattr(self.stream, attr)
+
+
+def collect_gcloud_config(num_nodes):
+    import pathlib
+    keys = []
+    for i in range(num_nodes):
+        if not os.path.exists(f'/tmp/near/node{i}'):
+            # TODO: avoid hardcoding the username
+            print(f'downloading node{i} config from gcloud')
+            pathlib.Path(f'/tmp/near/node{i}').mkdir(parents=True, exist_ok=True)
+            gcloud.get(f'pytest-node-{user_name()}-{i}').download('/home/bowen_nearprotocol_com/.near/config.json', f'/tmp/near/node{i}/')
+            gcloud.get(f'pytest-node-{user_name()}-{i}').download('/home/bowen_nearprotocol_com/.near/signer0_key.json', f'/tmp/near/node{i}/')
+            gcloud.get(f'pytest-node-{user_name()}-{i}').download('/home/bowen_nearprotocol_com/.near/validator_key.json', f'/tmp/near/node{i}/')
+            gcloud.get(f'pytest-node-{user_name()}-{i}').download('/home/bowen_nearprotocol_com/.near/node_key.json', f'/tmp/near/node{i}/')
+        with open(f'/tmp/near/node{i}/signer0_key.json') as f:
+            key = json.load(f)
+        keys.append(key)
+    with open('/tmp/near/node0/config.json') as f:
+        config = json.load(f)
+    ip_addresses = map(lambda x: x.split('@')[-1], config['network']['boot_nodes'].split(','))
+    res = {'nodes': list(map(lambda x: {'ip': x.split(':')[0], 'port': 3030}, ip_addresses)), 'accounts': keys}
+    outfile = '/tmp/near/gcloud_config.json'
+    with open(outfile, 'w+') as f:
+        json.dump(res, f)
+    os.environ[CONFIG_ENV_VAR] = outfile
