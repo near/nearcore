@@ -314,7 +314,9 @@ impl EpochManager {
             Ok(next_next_epoch_info) => next_next_epoch_info,
             Err(EpochError::ThresholdError(amount, num_seats)) => {
                 warn!(target: "epoch_manager", "Not enough stake for required number of seats (all validators tried to unstake?): amount = {} for {}", amount, num_seats);
-                next_epoch_info.clone()
+                let mut epoch_info = next_epoch_info.clone();
+                epoch_info.epoch_height += 1;
+                epoch_info
             }
             Err(err) => return Err(err),
         };
@@ -2669,5 +2671,21 @@ mod tests {
                 0,
             )
         )
+    }
+
+    #[test]
+    fn test_epoch_height_increase() {
+        let stake_amount = 1_000;
+        let validators =
+            vec![("test1", stake_amount), ("test2", stake_amount), ("test3", stake_amount)];
+        let mut epoch_manager = setup_default_epoch_manager(validators, 1, 1, 3, 0, 90, 60);
+        let h = hash_range(5);
+        record_block(&mut epoch_manager, CryptoHash::default(), h[0], 0, vec![]);
+        record_block(&mut epoch_manager, h[0], h[2], 2, vec![stake("test1", 223)]);
+        record_block(&mut epoch_manager, h[2], h[4], 4, vec![]);
+
+        let epoch_info2 = epoch_manager.get_epoch_info(&EpochId(h[2])).unwrap().clone();
+        let epoch_info3 = epoch_manager.get_epoch_info(&EpochId(h[4])).unwrap().clone();
+        assert_ne!(epoch_info2.epoch_height, epoch_info3.epoch_height);
     }
 }
