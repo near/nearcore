@@ -85,7 +85,7 @@ pub struct DeployContractAction {
 }
 
 impl fmt::Debug for DeployContractAction {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("DeployContractAction")
             .field("code", &format_args!("{}", logging::pretty_utf8(&self.code)))
             .finish()
@@ -101,7 +101,7 @@ pub struct FunctionCallAction {
 }
 
 impl fmt::Debug for FunctionCallAction {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("FunctionCallAction")
             .field("method_name", &format_args!("{}", &self.method_name))
             .field("args", &format_args!("{}", logging::pretty_utf8(&self.args)))
@@ -221,7 +221,7 @@ pub enum ExecutionStatus {
 }
 
 impl fmt::Debug for ExecutionStatus {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             ExecutionStatus::Unknown => f.write_str("Unknown"),
             ExecutionStatus::Failure(e) => f.write_fmt(format_args!("Failure({})", e)),
@@ -281,7 +281,7 @@ impl ExecutionOutcome {
 }
 
 impl fmt::Debug for ExecutionOutcome {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("ExecutionOutcome")
             .field("logs", &format_args!("{}", logging::pretty_vec(&self.logs)))
             .field("receipt_ids", &format_args!("{}", logging::pretty_vec(&self.receipt_ids)))

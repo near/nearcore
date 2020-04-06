@@ -14,6 +14,7 @@ import json
 import subprocess
 import shutil
 import re
+from deepdiff import DeepDiff
 
 sys.path.append('lib')
 
@@ -48,7 +49,7 @@ def main():
     # TODO: we should make state more interesting to migrate by sending some tx / contracts.
     stable_node.cleanup()
     os.mkdir('%s/test0' % node_root)
-    
+
     # Dump state.
     subprocess.call(["%sstate-viewer-%s" % (near_root, stable_branch), "--home", '%s/test0_finished' % node_root, "dump_state"])
 
@@ -60,7 +61,8 @@ def main():
         if m:
             version = int(m.groups()[0])
             if version > stable_protocol_version:
-                subprocess.call(['python', os.path.join(migrations_home, fname), '%s/test0_finished' % node_root, '%s/test0_finished' % node_root])
+                exitcode = subprocess.call(['python', os.path.join(migrations_home, fname), '%s/test0_finished' % node_root, '%s/test0_finished' % node_root])
+                assert exitcode == 0, "Failed to run migration %d" % version
 
     os.rename(os.path.join(node_root, 'test0_finished/output.json'), os.path.join(node_root, 'test0/genesis.json'))
     shutil.copy(os.path.join(node_root, 'test0_finished/config.json'), os.path.join(node_root, 'test0/'))
@@ -72,6 +74,12 @@ def main():
     current_node = cluster.spin_up_node(config, near_root, os.path.join(node_root, "test0"), 0, None, None)
 
     wait_for_blocks_or_timeout(current_node, 20, 100)
+
+    # New genesis can be deserialized by new near is verified above (new near can produce blocks)
+    # Also test new genesis protocol_version matches neard/res/genesis_config's
+    new_genesis = json.load(open(os.path.join(node_root, 'test0/genesis.json')))
+    res_genesis = json.load(open('../neard/res/genesis_config.json'))
+    assert new_genesis['protocol_version'] == res_genesis['protocol_version']
 
 
 if __name__ == "__main__":

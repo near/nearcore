@@ -18,17 +18,48 @@ def compile_binary(branch):
     stash_output = subprocess.check_output(['git', 'stash'])
     subprocess.check_output(['git', 'checkout', branch])
     subprocess.check_output(['git', 'pull'])
-    subprocess.check_output(['cargo', 'build', '-p', 'near'])
-    subprocess.check_output(['cargo', 'build', '-p', 'state-viewer'])
-    os.rename('../target/debug/near', '../target/debug/near-%s' % branch)
-    os.rename('../target/debug/state-viewer', '../target/debug/state-viewer-%s' % branch)
+    compile_current()
     subprocess.check_output(['git', 'checkout', prev_branch])
     if stash_output != b"No local changes to save\n":
         subprocess.check_output(['git', 'stash', 'pop'])
 
 
+def escaped(branch):
+    return branch.replace('/', '-')
+
+
+def compile_current():
+    """ Compile current branch """
+    branch = current_branch()
+    try:
+        # Accommodate rename from near to neard
+        subprocess.check_output(['cargo', 'build', '-p', 'neard'])
+    except:
+        subprocess.check_output(['cargo', 'build', '-p', 'near'])
+    subprocess.check_output(['cargo', 'build', '-p', 'state-viewer'])
+    branch = escaped(branch)
+    os.rename('../target/debug/near', '../target/debug/near-%s' % branch)
+    os.rename('../target/debug/state-viewer',
+              '../target/debug/state-viewer-%s' % branch)
+    subprocess.check_output(['git', 'checkout', '../Cargo.lock'])
+
+
+def download_binary(branch):
+    url = f'https://s3-us-west-1.amazonaws.com/build.nearprotocol.com/nearcore/Linux/{branch}/near'
+    subprocess.check_output(['curl', '--proto', '=https', '--tlsv1.2',
+                             '-sSfL', url, '-o', f'../target/debug/near-{branch}'])
+    subprocess.check_output(['chmod', '+x', f'../target/debug/near-{branch}'])
+    url = f'https://s3-us-west-1.amazonaws.com/build.nearprotocol.com/nearcore/Linux/{branch}/state-viewer'
+    subprocess.check_output(['curl', '--proto', '=https', '--tlsv1.2',
+                             '-sSfL', url, '-o', f'../target/debug/state-viewer-{branch}'])
+    subprocess.check_output(
+        ['chmod', '+x', f'../target/debug/state-viewer-{branch}'])
+
+
 def prepare_ab_test(other_branch):
-    name = current_branch()
-    compile_binary(name)
-    compile_binary(other_branch)
-    return '../target/debug/', [other_branch, name]
+    compile_current()
+    if os.environ.get('BUILDKITE') and other_branch in ['master', 'beta', 'stable']:
+        download_binary(other_branch)
+    else:
+        compile_binary(other_branch)
+    return '../target/debug/', [other_branch, escaped(current_branch())]

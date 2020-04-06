@@ -13,12 +13,12 @@ use tracing_subscriber::filter::LevelFilter;
 use tracing_subscriber::EnvFilter;
 
 use git_version::git_version;
-use near::config::init_testnet_configs;
-use near::{get_default_home, get_store_path, init_configs, load_config, start_with_config};
 use near_primitives::types::Version;
+use neard::config::init_testnet_configs;
+use neard::{get_default_home, get_store_path, init_configs, load_config, start_with_config};
 
 fn init_logging(verbose: Option<&str>) {
-    let mut env_filter = EnvFilter::new("tokio_reactor=info,near=info,stats=info");
+    let mut env_filter = EnvFilter::new("tokio_reactor=info,near=info,stats=info,telemetry=info");
 
     if let Some(module) = verbose {
         env_filter = env_filter

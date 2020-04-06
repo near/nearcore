@@ -51,8 +51,6 @@ pub struct ShardChunkHeaderInner {
     pub gas_used: Gas,
     /// Gas limit voted by validators.
     pub gas_limit: Gas,
-    /// Rent paid in the previous chunk
-    pub rent_paid: Balance,
     /// Total validator reward in previous chunk
     pub validator_reward: Balance,
     /// Total balance burnt in previous chunk
@@ -103,7 +101,6 @@ impl ShardChunkHeader {
         shard_id: ShardId,
         gas_used: Gas,
         gas_limit: Gas,
-        rent_paid: Balance,
         validator_reward: Balance,
         balance_burnt: Balance,
         outgoing_receipts_root: CryptoHash,
@@ -121,7 +118,6 @@ impl ShardChunkHeader {
             shard_id,
             gas_used,
             gas_limit,
-            rent_paid,
             validator_reward,
             balance_burnt,
             outgoing_receipts_root,
@@ -222,7 +218,6 @@ impl EncodedShardChunk {
         rs: &mut ReedSolomonWrapper,
         gas_used: Gas,
         gas_limit: Gas,
-        rent_paid: Balance,
         validator_reward: Balance,
         balance_burnt: Balance,
 
@@ -264,7 +259,6 @@ impl EncodedShardChunk {
             shard_id,
             gas_used,
             gas_limit,
-            rent_paid,
             validator_reward,
             balance_burnt,
             outgoing_receipts_root,
@@ -286,7 +280,6 @@ impl EncodedShardChunk {
         shard_id: ShardId,
         gas_used: Gas,
         gas_limit: Gas,
-        rent_paid: Balance,
         validator_reward: Balance,
         balance_burnt: Balance,
         outgoing_receipts_root: CryptoHash,
@@ -313,7 +306,6 @@ impl EncodedShardChunk {
             shard_id,
             gas_used,
             gas_limit,
-            rent_paid,
             validator_reward,
             balance_burnt,
             outgoing_receipts_root,

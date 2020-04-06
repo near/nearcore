@@ -4,7 +4,6 @@ use std::sync::Arc;
 
 use byteorder::{ByteOrder, LittleEndian};
 
-use near::config::GenesisExt;
 use near_chain_configs::Genesis;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::serialize::to_base64;
@@ -13,6 +12,7 @@ use near_primitives::types::{AccountId, MerkleHash, StateRoot};
 use near_primitives::views::AccountView;
 use near_store::test_utils::create_trie;
 use near_store::{Trie, TrieUpdate};
+use neard::config::GenesisExt;
 use node_runtime::{state_viewer::TrieViewer, Runtime};
 
 pub fn alice_account() -> AccountId {

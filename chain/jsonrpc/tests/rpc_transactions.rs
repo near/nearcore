@@ -10,7 +10,7 @@ use near_jsonrpc::client::new_client;
 use near_network::test_utils::{wait_or_panic, WaitOrTimeout};
 use near_primitives::block::BlockHeader;
 use near_primitives::hash::{hash, CryptoHash};
-use near_primitives::serialize::to_base64;
+use near_primitives::serialize::{to_base, to_base64};
 use near_primitives::test_utils::{init_integration_logger, init_test_logger};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::views::FinalExecutionStatus;
@@ -219,7 +219,7 @@ fn test_tx_status_invalid_account_id() {
         let mut client = new_client(&format!("http://{}", addr));
         actix::spawn(
             client
-                .tx(to_base64(&CryptoHash::default()), "".to_string())
+                .tx(to_base(&CryptoHash::default()), "".to_string())
                 .map_err(|e| {
                     let s = serde_json::to_string(&e.data.unwrap()).unwrap();
                     assert!(s.starts_with("\"Invalid account id"));

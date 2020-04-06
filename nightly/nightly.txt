@@ -115,6 +115,14 @@ expensive nearcore test_cases_testnet_rpc test::test_delete_access_key_with_allo
 # The next test is disabled due to #2208
 # expensive nearcore test_cases_testnet_rpc test::test_access_key_smart_contract_testnet
 
+# GC tests
+expensive --timeout=600 near-chain gc tests::test_gc_remove_fork_large
+expensive --timeout=1200 near-chain gc tests::test_gc_not_remove_fork_large
+expensive --timeout=600 near-chain gc tests::test_gc_boundaries_large
+expensive --timeout=600 near-chain gc tests::test_gc_random_large
+expensive --timeout=600 near-chain gc tests::test_gc_pine
+expensive --timeout=600 near-chain gc tests::test_gc_star_large
+
 # other tests
 expensive nearcore test_simple test::test_2_10_multiple_nodes
 expensive nearcore test_simple test::test_4_10_multiple_nodes

@@ -20,7 +20,6 @@ impl RewardCalculator {
         &self,
         validator_block_chunk_stats: HashMap<AccountId, BlockChunkValidatorStats>,
         validator_stake: &HashMap<AccountId, Balance>,
-        total_storage_rent: Balance,
         total_validator_reward: Balance,
         total_supply: Balance,
     ) -> (HashMap<AccountId, Balance>, Balance) {
@@ -31,7 +30,7 @@ impl RewardCalculator {
             * U256::from(self.epoch_length)
             / (U256::from(100) * U256::from(self.num_blocks_per_year)))
         .as_u128();
-        let epoch_fee = total_validator_reward + total_storage_rent;
+        let epoch_fee = total_validator_reward;
         let inflation = if max_inflation > epoch_fee { max_inflation - epoch_fee } else { 0 };
         let epoch_total_reward = max(max_inflation, epoch_fee);
         let epoch_protocol_treasury =
@@ -102,7 +101,6 @@ mod tests {
         reward_calculator.calculate_reward(
             validator_block_chunk_stats,
             &validator_stake,
-            0,
             10_u128.pow(24),
             total_supply,
         );

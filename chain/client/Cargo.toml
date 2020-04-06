@@ -33,7 +33,7 @@ near-chunks = { path = "../chunks" }
 near-telemetry = { path = "../telemetry" }
 
 [dev-dependencies]
-near = { path = "../../near" }
+neard = { path = "../../neard" }
 
 [features]
 # if enabled, we assert in most situations that are impossible unless some byzantine behavior is observed.

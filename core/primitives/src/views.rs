@@ -36,7 +36,8 @@ use crate::transaction::{
 use crate::types::{
     AccountId, AccountWithPublicKey, Balance, BlockHeight, EpochId, FunctionArgs, Gas, Nonce,
     NumBlocks, ShardId, StateChangeCause, StateChangeKind, StateChangeValue, StateChangeWithCause,
-    StateChangesRequest, StateRoot, StorageUsage, StoreKey, StoreValue, ValidatorStake, Version,
+    StateChangesRequest, StateRoot, StorageUsage, StoreKey, StoreValue, ValidatorKickoutReason,
+    ValidatorStake, Version,
 };
 
 /// A view of the account
@@ -48,6 +49,8 @@ pub struct AccountView {
     pub locked: Balance,
     pub code_hash: CryptoHash,
     pub storage_usage: StorageUsage,
+    /// TODO(2271): deprecated.
+    #[serde(default)]
     pub storage_paid_at: BlockHeight,
 }
 
@@ -58,7 +61,7 @@ impl From<Account> for AccountView {
             locked: account.locked,
             code_hash: account.code_hash,
             storage_usage: account.storage_usage,
-            storage_paid_at: account.storage_paid_at,
+            storage_paid_at: 0,
         }
     }
 }
@@ -70,7 +73,6 @@ impl From<AccountView> for Account {
             locked: view.locked,
             code_hash: view.code_hash,
             storage_usage: view.storage_usage,
-            storage_paid_at: view.storage_paid_at,
         }
     }
 }
@@ -325,6 +327,7 @@ pub struct BlockHeaderView {
     pub chunk_mask: Vec<bool>,
     #[serde(with = "u128_dec_format")]
     pub gas_price: Balance,
+    /// TODO(2271): deprecated.
     #[serde(with = "u128_dec_format")]
     pub rent_paid: Balance,
     #[serde(with = "u128_dec_format")]
@@ -366,7 +369,7 @@ impl From<BlockHeader> for BlockHeaderView {
                 .collect(),
             chunk_mask: header.inner_rest.chunk_mask,
             gas_price: header.inner_rest.gas_price,
-            rent_paid: header.inner_rest.rent_paid,
+            rent_paid: 0,
             validator_reward: header.inner_rest.validator_reward,
             total_supply: header.inner_rest.total_supply,
             challenges_result: header.inner_rest.challenges_result,
@@ -424,7 +427,6 @@ impl From<BlockHeaderView> for BlockHeader {
                 gas_price: view.gas_price,
                 total_supply: view.total_supply,
                 challenges_result: view.challenges_result,
-                rent_paid: view.rent_paid,
                 validator_reward: view.validator_reward,
                 last_quorum_pre_vote: view.last_quorum_pre_vote,
                 last_quorum_pre_commit: view.last_quorum_pre_commit,
@@ -485,6 +487,7 @@ pub struct ChunkHeaderView {
     pub shard_id: ShardId,
     pub gas_used: Gas,
     pub gas_limit: Gas,
+    /// TODO(2271): deprecated.
     #[serde(with = "u128_dec_format")]
     pub rent_paid: Balance,
     #[serde(with = "u128_dec_format")]
@@ -511,7 +514,7 @@ impl From<ShardChunkHeader> for ChunkHeaderView {
             shard_id: chunk.inner.shard_id,
             gas_used: chunk.inner.gas_used,
             gas_limit: chunk.inner.gas_limit,
-            rent_paid: chunk.inner.rent_paid,
+            rent_paid: 0,
             validator_reward: chunk.inner.validator_reward,
             balance_burnt: chunk.inner.balance_burnt,
             outgoing_receipts_root: chunk.inner.outgoing_receipts_root,
@@ -540,7 +543,6 @@ impl From<ChunkHeaderView> for ShardChunkHeader {
                 shard_id: view.shard_id,
                 gas_used: view.gas_used,
                 gas_limit: view.gas_limit,
-                rent_paid: view.rent_paid,
                 validator_reward: view.validator_reward,
                 balance_burnt: view.balance_burnt,
                 outgoing_receipts_root: view.outgoing_receipts_root,
@@ -733,7 +735,7 @@ pub enum FinalExecutionStatus {
 }
 
 impl fmt::Debug for FinalExecutionStatus {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             FinalExecutionStatus::NotStarted => f.write_str("NotStarted"),
             FinalExecutionStatus::Started => f.write_str("Started"),
@@ -773,7 +775,7 @@ pub enum ExecutionStatusView {
 }
 
 impl fmt::Debug for ExecutionStatusView {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             ExecutionStatusView::Unknown => f.write_str("Unknown"),
             ExecutionStatusView::Failure(e) => f.write_fmt(format_args!("Failure({:?})", e)),
@@ -857,7 +859,7 @@ pub struct FinalExecutionOutcomeView {
 }
 
 impl fmt::Debug for FinalExecutionOutcomeView {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("FinalExecutionOutcome")
             .field("status", &self.status)
             .field("transaction", &self.transaction)
@@ -1011,6 +1013,14 @@ pub struct EpochValidatorInfo {
     pub next_fishermen: Vec<ValidatorStakeView>,
     /// Proposals in the current epoch
     pub current_proposals: Vec<ValidatorStakeView>,
+    /// Kickout in the previous epoch
+    pub prev_epoch_kickout: Vec<ValidatorKickoutView>,
+}
+
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
+pub struct ValidatorKickoutView {
+    pub account_id: AccountId,
+    pub reason: ValidatorKickoutReason,
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]

@@ -1,7 +1,5 @@
 use std::sync::Arc;
 
-use near::config::{GenesisExt, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
-use near::load_test_config;
 use near_chain_configs::Genesis;
 use near_crypto::{InMemorySigner, KeyType};
 use near_network::test_utils::open_port;
@@ -11,6 +9,8 @@ use near_primitives::test_utils::init_integration_logger;
 use near_primitives::transaction::{
     Action, AddKeyAction, CreateAccountAction, SignedTransaction, TransferAction,
 };
+use neard::config::{GenesisExt, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
+use neard::load_test_config;
 use testlib::node::{Node, ThreadNode};
 
 fn start_node() -> ThreadNode {

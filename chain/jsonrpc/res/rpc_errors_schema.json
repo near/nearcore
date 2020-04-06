@@ -49,6 +49,13 @@
         "size": ""
       }
     },
+    "Deprecated": {
+      "name": "Deprecated",
+      "subtypes": [],
+      "props": {
+        "method_name": ""
+      }
+    },
     "Deserialization": {
       "name": "Deserialization",
       "subtypes": [],
@@ -123,7 +130,8 @@
         "NumberPromisesExceeded",
         "NumberInputDataDependenciesExceeded",
         "ReturnedValueLengthExceeded",
-        "ContractSizeExceeded"
+        "ContractSizeExceeded",
+        "Deprecated"
       ],
       "props": {}
     },
@@ -372,15 +380,16 @@
       "subtypes": [
         "AccountAlreadyExists",
         "AccountDoesNotExist",
+        "CreateAccountOnlyByRegistrar",
         "CreateAccountNotAllowed",
         "ActorNoPermission",
         "DeleteKeyDoesNotExist",
         "AddKeyAlreadyExists",
         "DeleteAccountStaking",
-        "DeleteAccountHasRent",
-        "RentUnpaid",
+        "LackBalanceForState",
         "TriesToUnstake",
         "TriesToStake",
+        "UnsuitableStakingKey",
         "FunctionCallError",
         "NewReceiptValidationError"
       ],
@@ -419,7 +428,6 @@
         "processed_delayed_receipts_balance": "",
         "total_balance_burnt": "",
         "total_balance_slashed": "",
-        "total_rent_paid": "",
         "total_validator_reward": ""
       }
     },
@@ -436,12 +444,13 @@
         "predecessor_id": ""
       }
     },
-    "DeleteAccountHasRent": {
-      "name": "DeleteAccountHasRent",
+    "CreateAccountOnlyByRegistrar": {
+      "name": "CreateAccountOnlyByRegistrar",
       "subtypes": [],
       "props": {
         "account_id": "",
-        "balance": ""
+        "predecessor_id": "",
+        "registrar_account_id": ""
       }
     },
     "DeleteAccountStaking": {
@@ -523,13 +532,21 @@
         "InvalidReceiverId",
         "InvalidSignature",
         "NotEnoughBalance",
-        "RentUnpaid",
+        "LackBalanceForState",
         "CostOverflow",
         "InvalidChain",
         "Expired",
         "ActionsValidation"
       ],
       "props": {}
+    },
+    "LackBalanceForState": {
+      "name": "LackBalanceForState",
+      "subtypes": [],
+      "props": {
+        "account_id": "",
+        "amount": ""
+      }
     },
     "MethodNameMismatch": {
       "name": "MethodNameMismatch",
@@ -563,14 +580,6 @@
       "props": {
         "ak_receiver": "",
         "tx_receiver": ""
-      }
-    },
-    "RentUnpaid": {
-      "name": "RentUnpaid",
-      "subtypes": [],
-      "props": {
-        "account_id": "",
-        "amount": ""
       }
     },
     "RequiresFullAccess": {
@@ -609,6 +618,13 @@
         "InvalidTxError"
       ],
       "props": {}
+    },
+    "UnsuitableStakingKey": {
+      "name": "UnsuitableStakingKey",
+      "subtypes": [],
+      "props": {
+        "public_key": ""
+      }
     },
     "Closed": {
       "name": "Closed",
