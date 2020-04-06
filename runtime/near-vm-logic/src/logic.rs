@@ -2203,6 +2203,7 @@ impl<'a> VMLogic<'a> {
 
 #[derive(Debug, PartialEq, Serialize, Deserialize, Clone)]
 pub struct VMOutcome {
+    #[serde(with = "crate::serde_with::u128_dec_format")]
     pub balance: Balance,
     pub storage_usage: StorageUsage,
     pub return_data: ReturnData,

@@ -56,8 +56,8 @@ pytest/.adversary
 pytest/.consent
 
 # testnet genesis
-/near/res/testnet.json
-/near/res/testnet_genesis_records*.json
+/neard/res/testnet.json
+/neard/res/testnet_genesis_records*.json
 
 # empty contract Cargo.lock, this would prevent cargo update latest git version of near-bindgen
 /pytest/empty-contract-rs/Cargo.lock

@@ -39,17 +39,21 @@ def compile_current():
     subprocess.check_output(['cargo', 'build', '-p', 'state-viewer'])
     branch = escaped(branch)
     os.rename('../target/debug/near', '../target/debug/near-%s' % branch)
-    os.rename('../target/debug/state-viewer', '../target/debug/state-viewer-%s' % branch)
+    os.rename('../target/debug/state-viewer',
+              '../target/debug/state-viewer-%s' % branch)
     subprocess.check_output(['git', 'checkout', '../Cargo.lock'])
 
 
 def download_binary(branch):
     url = f'https://s3-us-west-1.amazonaws.com/build.nearprotocol.com/nearcore/Linux/{branch}/near'
-    subprocess.check_output(['curl', '--proto', '=https', '--tlsv1.2', '-sSfL', url, '-o', f'../target/debug/near-{branch}'])
+    subprocess.check_output(['curl', '--proto', '=https', '--tlsv1.2',
+                             '-sSfL', url, '-o', f'../target/debug/near-{branch}'])
     subprocess.check_output(['chmod', '+x', f'../target/debug/near-{branch}'])
     url = f'https://s3-us-west-1.amazonaws.com/build.nearprotocol.com/nearcore/Linux/{branch}/state-viewer'
-    subprocess.check_output(['curl', '--proto', '=https', '--tlsv1.2', '-sSfL', url, '-o', f'../target/debug/state-viewer-{branch}'])
-    subprocess.check_output(['chmod', '+x', f'../target/debug/state-viewer-{branch}'])
+    subprocess.check_output(['curl', '--proto', '=https', '--tlsv1.2',
+                             '-sSfL', url, '-o', f'../target/debug/state-viewer-{branch}'])
+    subprocess.check_output(
+        ['chmod', '+x', f'../target/debug/state-viewer-{branch}'])
 
 
 def prepare_ab_test(other_branch):

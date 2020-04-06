@@ -3,7 +3,6 @@ use borsh::BorshSerialize;
 use futures::{future, FutureExt, TryFutureExt};
 use tempdir::TempDir;
 
-use near::config::TESTING_INIT_BALANCE;
 use near_client::{GetBlock, TxStatus};
 use near_crypto::{InMemorySigner, KeyType};
 use near_jsonrpc::client::new_client;
@@ -13,6 +12,7 @@ use near_primitives::test_utils::{heavy_test, init_integration_logger};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::BlockId;
 use near_primitives::views::{FinalExecutionStatus, QueryResponseKind};
+use neard::config::TESTING_INIT_BALANCE;
 use testlib::{genesis_block, start_nodes};
 
 /// Starts 2 validators and 2 light clients (not tracking anything).

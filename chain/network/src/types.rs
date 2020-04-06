@@ -1042,7 +1042,7 @@ pub enum PeerManagerRequest {
     UnregisterPeer,
 }
 
-/// Combines peer address info and chain information.
+/// Combines peer address info, chain and edge information.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct FullPeerInfo {
     pub peer_info: PeerInfo,
@@ -1136,7 +1136,10 @@ pub enum NetworkClientMessages {
     Adversarial(NetworkAdversarialMessage),
 
     /// Received transaction.
-    Transaction(SignedTransaction),
+    Transaction {
+        transaction: SignedTransaction,
+        is_forwarded: bool,
+    },
     /// Received block, possibly requested.
     Block(Block, PeerId, bool),
     /// Received list of headers for syncing.

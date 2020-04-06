@@ -230,7 +230,11 @@ impl JsonRpcHandler {
     async fn send_tx_async(&self, params: Option<Value>) -> Result<Value, RpcError> {
         let tx = parse_tx(params)?;
         let hash = (&tx.get_hash()).to_base();
-        actix::spawn(self.client_addr.send(NetworkClientMessages::Transaction(tx)).map(drop));
+        actix::spawn(
+            self.client_addr
+                .send(NetworkClientMessages::Transaction { transaction: tx, is_forwarded: false })
+                .map(drop),
+        );
         Ok(Value::String(hash))
     }
 
@@ -267,7 +271,7 @@ impl JsonRpcHandler {
         let signer_account_id = tx.transaction.signer_id.clone();
         let result = self
             .client_addr
-            .send(NetworkClientMessages::Transaction(tx))
+            .send(NetworkClientMessages::Transaction { transaction: tx, is_forwarded: false })
             .map_err(|err| RpcError::server_error(Some(ServerError::from(err))))
             .await?;
         match result {
@@ -411,13 +415,10 @@ impl JsonRpcHandler {
     }
 
     async fn tx_status(&self, params: Option<Value>) -> Result<Value, RpcError> {
-        let (hash, account_id) = parse_params::<(String, String)>(params)?;
+        let (tx_hash, account_id) = parse_params::<(CryptoHash, String)>(params)?;
         if !is_valid_account_id(&account_id) {
             return Err(RpcError::invalid_params(format!("Invalid account id: {}", account_id)));
         }
-        let tx_hash = from_base_or_parse_err(hash).and_then(|bytes| {
-            CryptoHash::try_from(bytes).map_err(|err| RpcError::parse_error(err.to_string()))
-        })?;
 
         self.tx_polling(tx_hash, account_id).await
     }
