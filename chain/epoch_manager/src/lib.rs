@@ -349,7 +349,6 @@ impl EpochManager {
                 )?;
             } else {
                 let prev_block_info = self.get_block_info(&block_info.prev_hash)?.clone();
-                let epoch_info = self.get_epoch_info(&prev_block_info.epoch_id)?.clone();
 
                 let mut is_epoch_start = false;
                 if prev_block_info.prev_hash == CryptoHash::default() {
@@ -367,6 +366,7 @@ impl EpochManager {
                     block_info.epoch_id = prev_block_info.epoch_id;
                     block_info.epoch_first_block = prev_block_info.epoch_first_block;
                 }
+                let epoch_info = self.get_epoch_info(&block_info.epoch_id)?.clone();
 
                 // Keep `slashed` from previous block if they are still in the epoch info stake change
                 // (e.g. we need to keep track that they are still slashed, because when we compute
@@ -1048,6 +1048,7 @@ mod tests {
     };
 
     use super::*;
+    use std::iter::FromIterator;
 
     #[test]
     fn test_stake_validator() {
@@ -2687,5 +2688,22 @@ mod tests {
         let epoch_info2 = epoch_manager.get_epoch_info(&EpochId(h[2])).unwrap().clone();
         let epoch_info3 = epoch_manager.get_epoch_info(&EpochId(h[4])).unwrap().clone();
         assert_ne!(epoch_info2.epoch_height, epoch_info3.epoch_height);
+    }
+
+    #[test]
+    fn test_bad_block_tracker() {
+        let stake_amount = 1_000;
+        let validators =
+            vec![("test1", stake_amount), ("test2", stake_amount), ("test3", stake_amount)];
+        let mut epoch_manager = setup_default_epoch_manager(validators, 1, 1, 3, 0, 90, 60);
+        let h = hash_range(5);
+        record_block(&mut epoch_manager, CryptoHash::default(), h[0], 0, vec![]);
+        record_block(&mut epoch_manager, h[0], h[1], 1, vec![stake("test1", 10 * stake_amount)]);
+        record_block(&mut epoch_manager, h[1], h[2], 2, vec![]);
+        record_block(&mut epoch_manager, h[2], h[3], 3, vec![]);
+        assert_eq!(
+            epoch_manager.get_block_info(&h[3]).unwrap().block_tracker,
+            HashMap::from_iter([(0, ValidatorStats { produced: 1, expected: 1 })].iter().cloned())
+        );
     }
 }
