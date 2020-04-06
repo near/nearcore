@@ -18,11 +18,7 @@ For support questions, please head over to our [Discord](http://near.chat/) or a
 Please provide a short description of the bug.
 
 **To Reproduce**
-Steps to reproduce the behavior:
-1. Go to '...'
-2. Click on '....'
-3. Scroll down to '....'
-4. See error
+Steps to reproduce the behavior.
 
 **Expected behavior**
 A clear and concise description of what you expected to happen.
@@ -34,7 +30,7 @@ If applicable, add screenshots to help explain your problem.
 - nearcore commit/branch
 - rust version (if local)
 - docker (if using docker)
-- production/testnet/local
+- mainnet/testnet/betanet/devnet/local
 
 **Additional context**
 Add any other context about the problem here.
