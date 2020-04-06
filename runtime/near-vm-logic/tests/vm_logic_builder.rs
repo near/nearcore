@@ -27,7 +27,7 @@ impl Default for VMLogicBuilder {
 }
 
 impl VMLogicBuilder {
-    pub fn build(&mut self, context: VMContext) -> VMLogic {
+    pub fn build(&mut self, context: VMContext) -> VMLogic<'_> {
         VMLogic::new(
             &mut self.ext,
             context,

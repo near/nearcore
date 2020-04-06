@@ -69,7 +69,7 @@ impl TrieUpdate {
         self.trie.get(&self.root, &key)
     }
 
-    pub fn get_ref(&self, key: &TrieKey) -> Result<Option<TrieUpdateValuePtr>, StorageError> {
+    pub fn get_ref(&self, key: &TrieKey) -> Result<Option<TrieUpdateValuePtr<'_>>, StorageError> {
         let key = key.to_vec();
         if let Some(key_value) = self.prospective.get(&key) {
             return Ok(key_value.value.as_ref().map(TrieUpdateValuePtr::MemoryRef));
@@ -131,7 +131,7 @@ impl TrieUpdate {
     }
 
     /// Returns Error if the underlying storage fails
-    pub fn iter(&self, key_prefix: &[u8]) -> Result<TrieUpdateIterator, StorageError> {
+    pub fn iter(&self, key_prefix: &[u8]) -> Result<TrieUpdateIterator<'_>, StorageError> {
         TrieUpdateIterator::new(self, key_prefix, b"", None)
     }
 
@@ -140,7 +140,7 @@ impl TrieUpdate {
         prefix: &[u8],
         start: &[u8],
         end: &[u8],
-    ) -> Result<TrieUpdateIterator, StorageError> {
+    ) -> Result<TrieUpdateIterator<'_>, StorageError> {
         TrieUpdateIterator::new(self, prefix, start, Some(end))
     }
 

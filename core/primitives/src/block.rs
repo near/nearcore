@@ -759,7 +759,7 @@ impl From<u64> for BlockScore {
 }
 
 impl std::fmt::Display for BlockScore {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.num)
     }
 }

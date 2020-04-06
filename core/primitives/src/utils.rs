@@ -85,7 +85,7 @@ pub fn is_valid_sub_account_id(signer_id: &AccountId, sub_account_id: &AccountId
 pub struct DisplayOption<T>(pub Option<T>);
 
 impl<T: fmt::Display> fmt::Display for DisplayOption<T> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self.0 {
             Some(ref v) => write!(f, "Some({})", v),
             None => write!(f, "None"),

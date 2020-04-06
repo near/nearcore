@@ -27,13 +27,13 @@ macro_rules! common_conversions {
         }
 
         impl ::std::fmt::Debug for $ty {
-            fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+            fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
                 f.write_str(to_str!(self))
             }
         }
 
         impl ::std::fmt::Display for $ty {
-            fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+            fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
                 f.write_str(to_str!(self))
             }
         }
