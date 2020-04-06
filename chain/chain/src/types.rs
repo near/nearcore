@@ -1,5 +1,6 @@
 use std::cmp::Ordering;
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use serde::Serialize;
@@ -20,10 +21,9 @@ use near_primitives::types::{
     ValidatorStake, ValidatorStats,
 };
 use near_primitives::views::{EpochValidatorInfo, QueryRequest, QueryResponse};
-use near_store::{PartialStorage, Store, StoreUpdate, WrappedTrieChanges};
+use near_store::{PartialStorage, Store, StoreUpdate, Trie, WrappedTrieChanges};
 
 use crate::error::Error;
-use std::sync::Arc;
 
 #[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize, Serialize)]
 pub struct ReceiptResponse(pub CryptoHash, pub Vec<Receipt>);
@@ -33,9 +33,6 @@ pub struct ReceiptProofResponse(pub CryptoHash, pub Vec<ReceiptProof>);
 
 #[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize, Serialize)]
 pub struct RootProof(pub CryptoHash, pub MerklePath);
-
-#[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize, Serialize)]
-pub struct StateHeaderKey(pub ShardId, pub CryptoHash);
 
 #[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize, Serialize)]
 pub struct StatePartKey(pub CryptoHash, pub ShardId, pub u64 /* PartId */);
@@ -90,7 +87,6 @@ pub struct ApplyTransactionResult {
     pub receipt_result: ReceiptResult,
     pub validator_proposals: Vec<ValidatorStake>,
     pub total_gas_burnt: Gas,
-    pub total_rent_paid: Balance,
     pub total_validator_reward: Balance,
     pub total_balance_burnt: Balance,
     pub proof: Option<PartialStorage>,
@@ -116,6 +112,9 @@ pub trait RuntimeAdapter: Send + Sync {
     /// Initialize state to genesis state and returns StoreUpdate, state root and initial validators.
     /// StoreUpdate can be discarded if the chain past the genesis.
     fn genesis_state(&self) -> (Arc<Store>, StoreUpdate, Vec<StateRoot>);
+
+    /// Returns trie.
+    fn get_trie(&self) -> Arc<Trie>;
 
     /// Verify block producer validity
     fn verify_block_signature(&self, header: &BlockHeader) -> Result<(), Error>;
@@ -318,7 +317,6 @@ pub trait RuntimeAdapter: Send + Sync {
         proposals: Vec<ValidatorStake>,
         slashed_validators: Vec<SlashedValidator>,
         validator_mask: Vec<bool>,
-        rent_paid: Balance,
         validator_reward: Balance,
         total_supply: Balance,
     ) -> Result<(), Error>;
@@ -515,6 +513,17 @@ pub struct ShardStateSyncResponseHeader {
 pub struct ShardStateSyncResponse {
     pub header: Option<ShardStateSyncResponseHeader>,
     pub part: Option<(u64, Vec<u8>)>,
+}
+
+/// When running block sync response to know if the node needs to sync state,
+/// or the hashes from the blocks that are needed.
+pub enum BlockSyncResponse {
+    /// State is needed before we start fetching recent blocks.
+    StateNeeded,
+    /// We are up to date with state, list of block hashes that need to be fetched.
+    BlocksNeeded(Vec<CryptoHash>),
+    /// We are up to date, nothing is required.
+    None,
 }
 
 #[cfg(test)]

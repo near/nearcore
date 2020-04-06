@@ -1,13 +1,13 @@
 use std::cmp::max;
-use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::ops::Bound::{Excluded, Included, Unbounded};
 use std::ops::DerefMut;
 use std::sync::{Arc, RwLock};
 
 use actix::actors::mocker::Mocker;
-use actix::{Actor, Addr, AsyncContext, Context, MailboxError};
+use actix::{Actor, Addr, AsyncContext, Context};
 use chrono::{DateTime, Utc};
-use futures::{future, future::BoxFuture, FutureExt};
+use futures::{future, FutureExt};
 use rand::{thread_rng, Rng};
 
 use near_chain::test_utils::KeyValueRuntime;
@@ -37,33 +37,9 @@ use near_store::Store;
 use near_telemetry::TelemetryActor;
 
 use crate::{Client, ClientActor, SyncStatus, ViewClientActor};
+use near_network::test_utils::MockNetworkAdapter;
 
 pub type NetworkMock = Mocker<PeerManagerActor>;
-
-#[derive(Default)]
-pub struct MockNetworkAdapter {
-    pub requests: Arc<RwLock<VecDeque<NetworkRequests>>>,
-}
-
-impl NetworkAdapter for MockNetworkAdapter {
-    fn send(
-        &self,
-        msg: NetworkRequests,
-    ) -> BoxFuture<'static, Result<NetworkResponses, MailboxError>> {
-        self.do_send(msg);
-        future::ok(NetworkResponses::NoResponse).boxed()
-    }
-
-    fn do_send(&self, msg: NetworkRequests) {
-        self.requests.write().unwrap().push_back(msg);
-    }
-}
-
-impl MockNetworkAdapter {
-    pub fn pop(&self) -> Option<NetworkRequests> {
-        self.requests.write().unwrap().pop_front()
-    }
-}
 
 /// Sets up ClientActor and ViewClientActor viewing the same store/runtime.
 pub fn setup(
@@ -942,7 +918,7 @@ impl TestEnv {
             100,
             self.clients[id].chain.head().unwrap().last_block_hash,
         );
-        self.clients[id].process_tx(tx)
+        self.clients[id].process_tx(tx, false)
     }
 
     pub fn restart(&mut self, id: usize) {

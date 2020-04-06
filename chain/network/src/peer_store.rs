@@ -155,7 +155,7 @@ impl PeerStore {
     }
 
     /// Return iterator over all known peers.
-    pub fn iter(&self) -> Iter<PeerId, KnownPeerState> {
+    pub fn iter(&self) -> Iter<'_, PeerId, KnownPeerState> {
         self.peer_states.iter()
     }
 
@@ -194,7 +194,7 @@ impl PeerStore {
 
 #[cfg(test)]
 mod test {
-    extern crate tempdir;
+    use tempdir;
 
     use near_crypto::{KeyType, SecretKey};
     use near_store::create_store;

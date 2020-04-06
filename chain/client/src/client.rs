@@ -1,7 +1,7 @@
 //! Client is responsible for tracking the chain, chunks, and producing them when needed.
 //! This client works completely synchronously and must be operated by some async actor outside.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, RwLock};
 use std::time::Instant;
 
@@ -9,7 +9,7 @@ use cached::{Cached, SizedCache};
 use chrono::Utc;
 use log::{debug, error, info, warn};
 
-use near_chain::chain::TX_ROUTING_HEIGHT_HORIZON;
+use near_chain::chain::{NUM_CHUNK_PRODUCERS_TO_FORWARD_TX, TX_ROUTING_HEIGHT_HORIZON};
 use near_chain::test_utils::format_hash;
 use near_chain::types::{AcceptedBlock, LatestKnown, ReceiptResponse};
 use near_chain::{
@@ -521,7 +521,6 @@ impl Client {
             shard_id,
             chunk_extra.gas_used,
             chunk_extra.gas_limit,
-            chunk_extra.rent_paid,
             chunk_extra.validator_reward,
             chunk_extra.balance_burnt,
             chunk_extra.validator_proposals.clone(),
@@ -751,6 +750,7 @@ impl Client {
 
     /// Gets called when block got accepted.
     /// Send updates over network, update tx pool and notify ourselves if it's time to produce next block.
+    /// Blocks are passed in no particular order.
     pub fn on_block_accepted(
         &mut self,
         block_hash: CryptoHash,
@@ -768,7 +768,7 @@ impl Client {
         let _ = self.check_and_update_doomslug_tip();
 
         // If we produced the block, then it should have already been broadcasted.
-        // If received the block from another node then broadcast "header first" to minimise network traffic.
+        // If received the block from another node then broadcast "header first" to minimize network traffic.
         if provenance == Provenance::NONE {
             let approvals = self.pending_approvals.cache_remove(&block_hash);
             if let Some(approvals) = approvals {
@@ -783,8 +783,9 @@ impl Client {
         if status.is_new_head() {
             self.shards_mgr.update_largest_seen_height(block.header.inner_lite.height);
             if !self.config.archive {
-                if let Err(err) = self.chain.clear_old_data() {
+                if let Err(err) = self.chain.clear_data(self.runtime_adapter.get_trie()) {
                     error!(target: "client", "Can't clear old data, {:?}", err);
+                    debug_assert!(false);
                 };
             }
         }
@@ -1057,23 +1058,37 @@ impl Client {
     fn forward_tx(&self, epoch_id: &EpochId, tx: &SignedTransaction) -> Result<(), Error> {
         let shard_id = self.runtime_adapter.account_id_to_shard_id(&tx.transaction.signer_id);
 
-        let validator = self.chain.find_chunk_producer_for_forwarding(epoch_id, shard_id)?;
+        let mut validators = HashSet::new();
+        for i in 0..NUM_CHUNK_PRODUCERS_TO_FORWARD_TX {
+            let validator = self.chain.find_chunk_producer_for_forwarding(
+                epoch_id,
+                shard_id,
+                TX_ROUTING_HEIGHT_HORIZON * (i + 1),
+            )?;
+            validators.insert(validator);
+        }
 
-        debug!(target: "client",
-               "I'm {:?}, routing a transaction to {}, shard_id = {}",
-               self.validator_signer.as_ref().map(|bp| bp.validator_id()),
-               validator,
-               shard_id
-        );
+        for validator in validators {
+            debug!(target: "client",
+                   "I'm {:?}, routing a transaction to {}, shard_id = {}",
+                   self.validator_signer.as_ref().map(|bp| bp.validator_id()),
+                   validator,
+                   shard_id
+            );
 
-        // Send message to network to actually forward transaction.
-        self.network_adapter.do_send(NetworkRequests::ForwardTx(validator, tx.clone()));
+            // Send message to network to actually forward transaction.
+            self.network_adapter.do_send(NetworkRequests::ForwardTx(validator, tx.clone()));
+        }
 
         Ok(())
     }
 
-    pub fn process_tx(&mut self, tx: SignedTransaction) -> NetworkClientResponses {
-        unwrap_or_return!(self.process_tx_internal(&tx), {
+    pub fn process_tx(
+        &mut self,
+        tx: SignedTransaction,
+        is_forwarded: bool,
+    ) -> NetworkClientResponses {
+        unwrap_or_return!(self.process_tx_internal(&tx, is_forwarded), {
             let me = self.validator_signer.as_ref().map(|vs| vs.validator_id());
             warn!(target: "client", "I'm: {:?} Dropping tx: {:?}", me, tx);
             NetworkClientResponses::NoResponse
@@ -1108,6 +1123,7 @@ impl Client {
     fn process_tx_internal(
         &mut self,
         tx: &SignedTransaction,
+        is_forwarded: bool,
     ) -> Result<NetworkClientResponses, Error> {
         let head = self.chain.head()?;
         let me = self.validator_signer.as_ref().map(|vs| vs.validator_id());
@@ -1136,8 +1152,14 @@ impl Client {
                 Err(_) => {
                     // Not being able to fetch a state root most likely implies that we haven't
                     //     caught up with the next epoch yet.
-                    self.forward_tx(&epoch_id, tx)?;
-                    return Ok(NetworkClientResponses::RequestRouted);
+                    if is_forwarded {
+                        return Err(
+                            ErrorKind::Other("Node has not caught up yet".to_string()).into()
+                        );
+                    } else {
+                        self.forward_tx(&epoch_id, tx)?;
+                        return Ok(NetworkClientResponses::RequestRouted);
+                    }
                 }
             };
             if let Some(err) = self
@@ -1168,16 +1190,23 @@ impl Client {
                 if active_validator {
                     // Don't forward to next epoch validators if we've already seen the tx.
                     // This is to prevent forwarding loops.
-                    if new_transaction {
+                    if new_transaction && !is_forwarded {
                         self.possibly_forward_tx_to_next_epoch(tx)?;
                     }
                     Ok(NetworkClientResponses::ValidTx)
-                } else {
+                } else if !is_forwarded {
                     self.forward_tx(&epoch_id, tx)?;
                     Ok(NetworkClientResponses::RequestRouted)
+                } else {
+                    Ok(NetworkClientResponses::NoResponse)
                 }
             }
         } else {
+            if is_forwarded {
+                // received forwarded transaction but we are not tracking the shard
+                debug!(target: "client", "Received forwarded transaction but no tracking shard {}, I'm {:?}", shard_id, me);
+                return Ok(NetworkClientResponses::NoResponse);
+            }
             // We are not tracking this shard, so there is no way to validate this tx. Just rerouting.
             self.forward_tx(&epoch_id, tx)?;
             Ok(NetworkClientResponses::RequestRouted)
@@ -1303,7 +1332,6 @@ impl Client {
 mod test {
     use crate::test_utils::TestEnv;
     use cached::Cached;
-    use near::config::GenesisExt;
     use near_chain::{ChainGenesis, RuntimeAdapter};
     use near_chain_configs::Genesis;
     use near_crypto::KeyType;
@@ -1311,6 +1339,7 @@ mod test {
     use near_primitives::hash::hash;
     use near_primitives::validator_signer::InMemoryValidatorSigner;
     use near_store::test_utils::create_test_store;
+    use neard::config::GenesisExt;
     use std::collections::HashMap;
     use std::path::Path;
     use std::sync::Arc;
@@ -1319,7 +1348,7 @@ mod test {
     fn test_pending_approvals() {
         let store = create_test_store();
         let genesis = Genesis::test(vec!["test0", "test1"], 1);
-        let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![Arc::new(near::NightshadeRuntime::new(
+        let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![Arc::new(neard::NightshadeRuntime::new(
             Path::new("."),
             store,
             Arc::new(genesis),

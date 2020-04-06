@@ -10,7 +10,6 @@ use borsh::BorshSerialize;
 use indicatif::{ProgressBar, ProgressStyle};
 use tempdir::TempDir;
 
-use near::{get_store_path, NightshadeRuntime};
 use near_chain::{Block, Chain, ChainStore, RuntimeAdapter, Tip};
 use near_chain_configs::Genesis;
 use near_crypto::{InMemorySigner, KeyType};
@@ -25,6 +24,7 @@ use near_primitives::views::AccountView;
 use near_store::{
     create_store, get_account, set_access_key, set_account, set_code, ColState, Store, TrieUpdate,
 };
+use neard::{get_store_path, NightshadeRuntime};
 
 fn get_account_id(account_index: u64) -> String {
     format!("near_{}_{}", account_index, account_index)
@@ -174,7 +174,7 @@ impl GenesisBuilder {
             set_account(&mut state_update, account_id, &account);
         }
         let trie = state_update.trie.clone();
-        let (store_update, root) = state_update.finalize()?.into(trie)?;
+        let (store_update, root) = state_update.finalize()?.0.into(trie)?;
         store_update.commit()?;
 
         self.roots.insert(shard_idx, root.clone());
@@ -212,7 +212,6 @@ impl GenesisBuilder {
                 vec![],
                 vec![],
                 0,
-                0,
                 self.genesis.config.total_supply.clone(),
             )
             .unwrap();
@@ -229,7 +228,6 @@ impl GenesisBuilder {
                     vec![],
                     0,
                     self.genesis.config.gas_limit.clone(),
-                    0,
                     0,
                     0,
                 ),

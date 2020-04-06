@@ -12,12 +12,12 @@ use env_logger::Builder;
 use log::info;
 
 use git_version::git_version;
-use near::config::create_testnet_configs;
-use near::{get_default_home, get_store_path};
 use near_crypto::Signer;
 use near_primitives::types::{NumSeats, NumShards, Version};
 use near_primitives::validator_signer::ValidatorSigner;
 use near_store::{create_store, ColState};
+use neard::config::create_testnet_configs;
+use neard::{get_default_home, get_store_path};
 use remote_node::RemoteNode;
 
 use crate::transactions_executor::Executor;
@@ -167,7 +167,7 @@ fn main() {
 
 pub const CONFIG_FILENAME: &str = "config.json";
 
-fn create_genesis(matches: &clap::ArgMatches) {
+fn create_genesis(matches: &clap::ArgMatches<'_>) {
     let n = value_t_or_exit!(matches, "accounts", u64) as u64;
     let v = value_t_or_exit!(matches, "validators", u64) as NumSeats;
     let s = value_t_or_exit!(matches, "shards", u64) as NumShards;
@@ -191,7 +191,7 @@ fn create_genesis(matches: &clap::ArgMatches) {
     }
 }
 
-fn load_state_dump(matches: &clap::ArgMatches) {
+fn load_state_dump(matches: &clap::ArgMatches<'_>) {
     let dir_buf = value_t_or_exit!(matches, "home", PathBuf);
     let state_dump_path = value_t_or_exit!(matches, "state_dump", PathBuf);
     let dir = dir_buf.as_path();
@@ -200,7 +200,7 @@ fn load_state_dump(matches: &clap::ArgMatches) {
     store.load_from_file(ColState, state_dump).expect("Failed to read state dump");
 }
 
-fn run(matches: &clap::ArgMatches) {
+fn run(matches: &clap::ArgMatches<'_>) {
     let n = value_t_or_exit!(matches, "accounts", u64);
     let prefix = value_t_or_exit!(matches, "prefix", String);
     let massive_accounts = matches.is_present("massive_accounts");

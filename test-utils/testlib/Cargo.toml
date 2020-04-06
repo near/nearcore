@@ -33,7 +33,7 @@ near-client = { path = "../../chain/client" }
 near-jsonrpc = { path = "../../chain/jsonrpc" }
 near-network = { path = "../../chain/network" }
 near-jsonrpc-client = { path = "../../chain/jsonrpc/client" }
-near = { path = "../../near" }
+neard = { path = "../../neard" }
 near-runtime-fees = { path = "../../runtime/near-runtime-fees" }
 
 reqwest = { version = "0.10", features = ["rustls-tls", "blocking", "json"] }

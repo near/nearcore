@@ -6,8 +6,6 @@ use actix::{Actor, Addr, System};
 use futures::{future, FutureExt};
 use tempdir::TempDir;
 
-use near::config::{GenesisExt, TESTING_INIT_STAKE};
-use near::{load_test_config, start_with_config};
 use near_chain::{Block, Chain};
 use near_chain_configs::Genesis;
 use near_client::{ClientActor, GetBlock};
@@ -20,6 +18,8 @@ use near_primitives::test_utils::{heavy_test, init_integration_logger};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{BlockHeightDelta, EpochId, ValidatorStake};
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
+use neard::config::{GenesisExt, TESTING_INIT_STAKE};
+use neard::{load_test_config, start_with_config};
 use testlib::genesis_block;
 
 // This assumes that there is no height skipped. Otherwise epoch hash calculation will be wrong.
@@ -241,7 +241,12 @@ fn sync_state_stake_change() {
             genesis_hash,
         );
         actix::spawn(
-            client1.send(NetworkClientMessages::Transaction(unstake_transaction)).map(drop),
+            client1
+                .send(NetworkClientMessages::Transaction {
+                    transaction: unstake_transaction,
+                    is_forwarded: false,
+                })
+                .map(drop),
         );
 
         let started = Arc::new(AtomicBool::new(false));

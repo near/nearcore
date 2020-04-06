@@ -1,16 +1,16 @@
 use std::fs::File;
 use std::path::Path;
 
-use near::config::{
+use near_chain_configs::{Genesis, GenesisConfig, GENESIS_CONFIG_VERSION, PROTOCOL_VERSION};
+use near_primitives::types::{Balance, NumShards, ShardId};
+use near_primitives::utils::get_num_seats_per_shard;
+use neard::config::{
     Config, BLOCK_PRODUCER_KICKOUT_THRESHOLD, CHUNK_PRODUCER_KICKOUT_THRESHOLD, CONFIG_FILENAME,
     DEVELOPER_PERCENT, EXPECTED_EPOCH_LENGTH, FISHERMEN_THRESHOLD, GAS_PRICE_ADJUSTMENT_RATE,
     GENESIS_CONFIG_FILENAME, INITIAL_GAS_LIMIT, MAX_INFLATION_RATE, MIN_GAS_PRICE, NODE_KEY_FILE,
     NUM_BLOCKS_PER_YEAR, NUM_BLOCK_PRODUCER_SEATS, PROTOCOL_PERCENT, TRANSACTION_VALIDITY_PERIOD,
 };
-use near::NEAR_BASE;
-use near_chain_configs::{Genesis, GenesisConfig, GENESIS_CONFIG_VERSION, PROTOCOL_VERSION};
-use near_primitives::types::{Balance, NumShards, ShardId};
-use near_primitives::utils::get_num_seats_per_shard;
+use neard::NEAR_BASE;
 
 const ACCOUNTS_FILE: &str = "accounts.csv";
 const NUM_SHARDS: NumShards = 8;
@@ -42,7 +42,7 @@ pub fn csv_to_json_configs(home: &Path, chain_id: String, tracked_shards: Vec<Sh
     // Construct `config.json`.
     let mut config = Config::default();
     config.tracked_shards = tracked_shards;
-    config.telemetry.endpoints.push(near::config::DEFAULT_TELEMETRY_URL.to_string());
+    config.telemetry.endpoints.push(neard::config::DEFAULT_TELEMETRY_URL.to_string());
 
     // Construct genesis config.
     let (records, validators, peer_info, treasury, genesis_time) =

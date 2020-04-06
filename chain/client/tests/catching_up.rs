@@ -64,9 +64,12 @@ mod tests {
         block_hash: CryptoHash,
     ) {
         let signer = InMemorySigner::from_seed("test1", KeyType::ED25519, "test1");
-        connector.do_send(NetworkClientMessages::Transaction(SignedTransaction::send_money(
-            nonce, from, to, &signer, amount, block_hash,
-        )));
+        connector.do_send(NetworkClientMessages::Transaction {
+            transaction: SignedTransaction::send_money(
+                nonce, from, to, &signer, amount, block_hash,
+            ),
+            is_forwarded: false,
+        });
     }
 
     enum ReceiptsSyncPhases {

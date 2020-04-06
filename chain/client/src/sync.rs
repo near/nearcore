@@ -10,6 +10,7 @@ use futures::{future, FutureExt};
 use log::{debug, error, info, warn};
 use rand::{thread_rng, Rng};
 
+use near_chain::types::BlockSyncResponse;
 use near_chain::{Chain, RuntimeAdapter, Tip};
 use near_network::types::{AccountOrPeerIdOrHash, NetworkResponses, ReasonForBan};
 use near_network::{FullPeerInfo, NetworkAdapter, NetworkRequests};
@@ -182,7 +183,7 @@ impl HeaderSync {
                                 if now > *stalling_ts + self.stall_ban_timeout
                                     && *highest_height == peer.chain_info.height
                                 {
-                                    info!(target: "sync", "Sync: ban a fraudulent peer: {}, claimed height: {}, score: {}", 
+                                    info!(target: "sync", "Sync: ban a fraudulent peer: {}, claimed height: {}, score: {}",
                                         peer.peer_info, peer.chain_info.height, peer.chain_info.score);
                                     self.network_adapter.do_send(NetworkRequests::BanPeer {
                                         peer_id: peer.peer_info.id.clone(),
@@ -358,44 +359,51 @@ impl BlockSync {
         highest_height_peers: &[FullPeerInfo],
         block_fetch_horizon: BlockHeightDelta,
     ) -> Result<bool, near_chain::Error> {
-        let (state_needed, mut hashes) = chain.check_state_needed(block_fetch_horizon)?;
-        if state_needed {
-            return Ok(true);
-        }
-        hashes.reverse();
-        // Ask for `num_peers * MAX_PEER_BLOCK_REQUEST` blocks up to 100, throttle if there is too many orphans in the chain.
-        let block_count = min(
-            min(MAX_BLOCK_REQUEST, MAX_PEER_BLOCK_REQUEST * highest_height_peers.len()),
-            near_chain::MAX_ORPHAN_SIZE.saturating_sub(chain.orphans_len()) + 1,
-        );
+        match chain.check_state_needed(block_fetch_horizon)? {
+            BlockSyncResponse::StateNeeded => {
+                return Ok(true);
+            }
+            BlockSyncResponse::BlocksNeeded(hashes) => {
+                // Ask for `num_peers * MAX_PEER_BLOCK_REQUEST` blocks up to 100, throttle if there is too many orphans in the chain.
+                let block_count = min(
+                    min(MAX_BLOCK_REQUEST, MAX_PEER_BLOCK_REQUEST * highest_height_peers.len()),
+                    near_chain::MAX_ORPHAN_SIZE.saturating_sub(chain.orphans_len()) + 1,
+                );
 
-        let hashes_to_request = hashes
-            .iter()
-            .filter(|x| {
-                !chain.get_block(x).is_ok() && !chain.is_orphan(x) && !chain.is_chunk_orphan(x)
-            })
-            .take(block_count)
-            .collect::<Vec<_>>();
-        if hashes_to_request.len() > 0 {
-            let head = chain.head()?;
-            let header_head = chain.header_head()?;
+                let hashes_to_request = hashes
+                    .iter()
+                    .filter(|x| {
+                        !chain.get_block(x).is_ok()
+                            && !chain.is_orphan(x)
+                            && !chain.is_chunk_orphan(x)
+                    })
+                    .take(block_count)
+                    .collect::<Vec<_>>();
 
-            debug!(target: "sync", "Block sync: {}/{} requesting blocks {:?} from {} peers", head.height, header_head.height, hashes_to_request, highest_height_peers.len());
+                if hashes_to_request.len() > 0 {
+                    let head = chain.head()?;
+                    let header_head = chain.header_head()?;
 
-            self.blocks_requested = 0;
-            self.receive_timeout = Utc::now() + Duration::seconds(BLOCK_REQUEST_TIMEOUT);
+                    debug!(target: "sync", "Block sync: {}/{} requesting blocks {:?} from {} peers", head.height, header_head.height, hashes_to_request, highest_height_peers.len());
 
-            let mut peers_iter = highest_height_peers.iter().cycle();
-            for hash in hashes_to_request.into_iter() {
-                if let Some(peer) = peers_iter.next() {
-                    self.network_adapter.do_send(NetworkRequests::BlockRequest {
-                        hash: hash.clone(),
-                        peer_id: peer.peer_info.id.clone(),
-                    });
-                    self.blocks_requested += 1;
+                    self.blocks_requested = 0;
+                    self.receive_timeout = Utc::now() + Duration::seconds(BLOCK_REQUEST_TIMEOUT);
+
+                    let mut peers_iter = highest_height_peers.iter().cycle();
+                    for hash in hashes_to_request.into_iter() {
+                        if let Some(peer) = peers_iter.next() {
+                            self.network_adapter.do_send(NetworkRequests::BlockRequest {
+                                hash: hash.clone(),
+                                peer_id: peer.peer_info.id.clone(),
+                            });
+                            self.blocks_requested += 1;
+                        }
+                    }
                 }
             }
+            BlockSyncResponse::None => {}
         }
+
         Ok(false)
     }
 
@@ -676,6 +684,7 @@ impl StateSync {
         Ok((update_sync_status, all_done))
     }
 
+    /// Find the hash of the first block on the same epoch (and chain) of block with hash `sync_hash`.
     pub fn get_epoch_start_sync_hash(
         chain: &mut Chain,
         sync_hash: &CryptoHash,
@@ -864,12 +873,11 @@ mod test {
     use near_chain::Provenance;
     use near_crypto::{KeyType, PublicKey};
     use near_network::routing::EdgeInfo;
+    use near_network::test_utils::MockNetworkAdapter;
     use near_network::types::PeerChainInfo;
     use near_network::PeerInfo;
     use near_primitives::block::{Block, GenesisId};
     use near_primitives::network::PeerId;
-
-    use crate::test_utils::MockNetworkAdapter;
 
     use super::*;
 
