@@ -48,26 +48,22 @@ while True:
             sent_height = height
 
     elif step == 1:
-        print(f'step {step}')
-        print(f'height {height}, sent_height {sent_height}')
         if height == sent_height + 6:
             cur_balances = ctx.get_balances()
-            print(f'cur_balances {cur_balances}')
-            print(f'expected_bal {ctx.expected_balances}')
 
             assert cur_balances == ctx.expected_balances, "%s != %s" % (cur_balances, ctx.expected_balances)
             step = 2
 
     else:
-        print(f'step {step}')
         # we are done with the sanity test, now let's stress it
         if ctx.get_balances() == ctx.expected_balances:
             print("Balances caught up, took %s blocks, moving on" % (height - sent_height));
+            last_balances = [x for x in ctx.expected_balances]
             ctx.send_moar_txs(hash_, 10, use_routing=True)
             sent_height = height
         else:
             if height > sent_height + 10:
-                assert False, "Balances before: %s\nExpected balances: %s\nCurrent balances: %s\nSent at height: %s\n" % (last_balances, ctx.expected_balances, ctx.get_balances(), sent_height)
+                assert False, "Balances before: %s\nExpected balances: %s\nCurrent balances: %s\nSent at height: %s, cur height: %s\n" % (last_balances, ctx.expected_balances, ctx.get_balances(), sent_height, height)
             time.sleep(0.2)
 
         if height >= 100:

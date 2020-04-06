@@ -25,7 +25,7 @@ impl ExtCostsGenerator {
         let mut res = agg.upper() as f64;
         let mut multiplier = None;
         for (k, v) in &agg.ext_costs {
-            if ignore_costs.contains(k) {
+            if ignore_costs.contains(k) || k == &ExtCosts::touching_trie_node {
                 continue;
             }
             if k == &ext_cost {
@@ -172,7 +172,7 @@ impl ExtCostsGenerator {
     }
 }
 impl std::fmt::Display for ExtCostsGenerator {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         for (k, v) in &self.agg {
             writeln!(f, "{:?}\t\t\t\t{}", k, v)?;
         }

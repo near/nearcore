@@ -8,29 +8,32 @@ use actix::{
     Actor, ActorContext, ActorFuture, Addr, AsyncContext, Context, ContextFutureSpawner, Handler,
     Recipient, Running, StreamHandler, WrapFuture,
 };
-use log::{debug, error, info, warn};
-use tokio::io::WriteHalf;
-use tokio::net::TcpStream;
+use tracing::{debug, error, info, warn};
 
+use near_chain_configs::PROTOCOL_VERSION;
 use near_metrics;
 use near_primitives::block::GenesisId;
 use near_primitives::hash::CryptoHash;
+use near_primitives::network::PeerId;
 use near_primitives::unwrap_option_or_return;
 use near_primitives::utils::DisplayOption;
 
 use crate::codec::{bytes_to_peer_message, peer_message_to_bytes, Codec};
 use crate::rate_counter::RateCounter;
+#[cfg(feature = "metric_recorder")]
+use crate::recorder::{PeerMessageMetadata, Status};
 use crate::routing::{Edge, EdgeInfo};
 use crate::types::{
     Ban, Consolidate, ConsolidateResponse, Handshake, HandshakeFailureReason,
     NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkViewClientMessages,
-    NetworkViewClientResponses, PeerChainInfo, PeerId, PeerInfo, PeerManagerRequest, PeerMessage,
+    NetworkViewClientResponses, PeerChainInfo, PeerInfo, PeerManagerRequest, PeerMessage,
     PeerRequest, PeerResponse, PeerStatsResult, PeerStatus, PeerType, PeersRequest, PeersResponse,
     QueryPeerStats, ReasonForBan, RoutedMessageBody, RoutedMessageFrom, SendMessage, Unregister,
-    PROTOCOL_VERSION,
 };
 use crate::PeerManagerActor;
 use crate::{metrics, NetworkResponses};
+
+type WriteHalf = tokio::io::WriteHalf<tokio::net::TcpStream>;
 
 /// Maximum number of requests and responses to track.
 const MAX_TRACK_SIZE: usize = 30;
@@ -134,7 +137,7 @@ pub struct Peer {
     /// Peer status.
     pub peer_status: PeerStatus,
     /// Framed wrapper to send messages through the TCP connection.
-    framed: FramedWrite<WriteHalf<TcpStream>, Codec>,
+    framed: FramedWrite<WriteHalf, Codec>,
     /// Handshake timeout.
     handshake_timeout: Duration,
     /// Peer manager recipient to break the dependency loop.
@@ -159,7 +162,7 @@ impl Peer {
         peer_addr: SocketAddr,
         peer_info: Option<PeerInfo>,
         peer_type: PeerType,
-        framed: FramedWrite<WriteHalf<TcpStream>, Codec>,
+        framed: FramedWrite<WriteHalf, Codec>,
         handshake_timeout: Duration,
         peer_manager_addr: Addr<PeerManagerActor>,
         client_addr: Recipient<NetworkClientMessages>,
@@ -195,12 +198,23 @@ impl Peer {
         // Record block requests in tracker.
         match &msg {
             PeerMessage::Block(b) if self.tracker.has_received(b.hash()) => return,
-            PeerMessage::BlockHeaderAnnounce(h) if self.tracker.has_received(h.hash()) => return,
             PeerMessage::BlockRequest(h) => self.tracker.push_request(*h),
             _ => (),
         };
+        #[cfg(feature = "metric_recorder")]
+        let metadata = {
+            let mut metadata: PeerMessageMetadata = (&msg).into();
+            metadata = metadata.set_source(self.node_id()).set_status(Status::Sent);
+            if let Some(target) = self.peer_id() {
+                metadata = metadata.set_target(target);
+            }
+            metadata
+        };
+
         match peer_message_to_bytes(msg) {
             Ok(bytes) => {
+                #[cfg(feature = "metric_recorder")]
+                self.peer_manager_addr.do_send(metadata.set_size(bytes.len()));
                 self.tracker.increment_sent(bytes.len() as u64);
                 self.framed.write(bytes);
             }
@@ -209,46 +223,49 @@ impl Peer {
     }
 
     fn fetch_client_chain_info(&mut self, ctx: &mut Context<Peer>) {
-        ctx.wait(self.client_addr.send(NetworkClientMessages::GetChainInfo).into_actor(self).then(
-            move |res, act, _ctx| match res {
-                Ok(NetworkClientResponses::ChainInfo { genesis_id, .. }) => {
-                    act.genesis_id = genesis_id;
-                    actix::fut::ok(())
-                }
-                Err(err) => {
-                    error!(target: "network", "Failed sending GetChain to client: {}", err);
-                    actix::fut::err(())
-                }
-                _ => actix::fut::err(()),
-            },
-        ));
+        ctx.wait(
+            self.view_client_addr
+                .send(NetworkViewClientMessages::GetChainInfo)
+                .into_actor(self)
+                .then(move |res, act, _ctx| match res {
+                    Ok(NetworkViewClientResponses::ChainInfo { genesis_id, .. }) => {
+                        act.genesis_id = genesis_id;
+                        actix::fut::ready(())
+                    }
+                    Err(err) => {
+                        error!(target: "network", "Failed sending GetChain to client: {}", err);
+                        actix::fut::ready(())
+                    }
+                    _ => actix::fut::ready(()),
+                }),
+        );
     }
 
     fn send_handshake(&mut self, ctx: &mut Context<Peer>) {
-        self.client_addr
-            .send(NetworkClientMessages::GetChainInfo)
+        self.view_client_addr
+            .send(NetworkViewClientMessages::GetChainInfo)
             .into_actor(self)
             .then(move |res, act, _ctx| match res {
-                Ok(NetworkClientResponses::ChainInfo {
+                Ok(NetworkViewClientResponses::ChainInfo {
                     genesis_id,
                     height,
-                    weight_and_score,
+                    score,
                     tracked_shards,
                 }) => {
                     let handshake = Handshake::new(
-                        act.node_info.id.clone(),
+                        act.node_id(),
                         act.node_info.addr_port(),
-                        PeerChainInfo { genesis_id, height, weight_and_score, tracked_shards },
+                        PeerChainInfo { genesis_id, height, score, tracked_shards },
                         act.edge_info.as_ref().unwrap().clone(),
                     );
                     act.send_message(PeerMessage::Handshake(handshake));
-                    actix::fut::ok(())
+                    actix::fut::ready(())
                 }
                 Err(err) => {
                     error!(target: "network", "Failed sending GetChain to client: {}", err);
-                    actix::fut::err(())
+                    actix::fut::ready(())
                 }
-                _ => actix::fut::err(()),
+                _ => actix::fut::ready(()),
             })
             .spawn(ctx);
     }
@@ -257,6 +274,10 @@ impl Peer {
         info!(target: "network", "Banning peer {} for {:?}", self.peer_info, ban_reason);
         self.peer_status = PeerStatus::Banned(ban_reason);
         ctx.stop();
+    }
+
+    fn node_id(&self) -> PeerId {
+        self.node_info.id.clone()
     }
 
     fn peer_id(&self) -> Option<PeerId> {
@@ -272,16 +293,16 @@ impl Peer {
     }
 
     fn receive_view_client_message(&mut self, ctx: &mut Context<Peer>, msg: PeerMessage) {
-        let msg_hash;
+        let mut msg_hash = None;
         let view_client_message = match msg {
             PeerMessage::Routed(message) => {
-                msg_hash = message.hash();
+                msg_hash = Some(message.hash());
                 match message.body {
-                    RoutedMessageBody::QueryRequest { path, data, id } => {
-                        NetworkViewClientMessages::Query { path, data, id }
+                    RoutedMessageBody::QueryRequest { query_id, block_id_or_finality, request } => {
+                        NetworkViewClientMessages::Query { query_id, block_id_or_finality, request }
                     }
-                    RoutedMessageBody::QueryResponse { response, id } => {
-                        NetworkViewClientMessages::QueryResponse { response, id }
+                    RoutedMessageBody::QueryResponse { query_id, response } => {
+                        NetworkViewClientMessages::QueryResponse { query_id, response }
                     }
                     RoutedMessageBody::TxStatusRequest(account_id, tx_hash) => {
                         NetworkViewClientMessages::TxStatus {
@@ -298,11 +319,21 @@ impl Peer {
                     RoutedMessageBody::ReceiptOutComeResponse(response) => {
                         NetworkViewClientMessages::ReceiptOutcomeResponse(response)
                     }
+                    RoutedMessageBody::StateRequestHeader(shard_id, sync_hash) => {
+                        NetworkViewClientMessages::StateRequestHeader { shard_id, sync_hash }
+                    }
+                    RoutedMessageBody::StateRequestPart(shard_id, sync_hash, part_id) => {
+                        NetworkViewClientMessages::StateRequestPart { shard_id, sync_hash, part_id }
+                    }
                     body => {
                         error!(target: "network", "Peer receive_view_client_message received unexpected type: {:?}", body);
                         return;
                     }
                 }
+            }
+            PeerMessage::BlockRequest(hash) => NetworkViewClientMessages::BlockRequest(hash),
+            PeerMessage::BlockHeadersRequest(hashes) => {
+                NetworkViewClientMessages::BlockHeadersRequest(hashes)
             }
             peer_message => {
                 error!(target: "network", "Peer receive_view_client_message received unexpected type: {:?}", peer_message);
@@ -318,15 +349,29 @@ impl Peer {
                 match res {
                     Ok(NetworkViewClientResponses::TxStatus(tx_result)) => {
                         let body = RoutedMessageBody::TxStatusResponse(tx_result);
-                        act.peer_manager_addr.do_send(PeerRequest::RouteBack(body, msg_hash));
+                        act.peer_manager_addr
+                            .do_send(PeerRequest::RouteBack(body, msg_hash.unwrap()));
                     }
-                    Ok(NetworkViewClientResponses::QueryResponse { response, id }) => {
-                        let body = RoutedMessageBody::QueryResponse { response, id };
-                        act.peer_manager_addr.do_send(PeerRequest::RouteBack(body, msg_hash));
+                    Ok(NetworkViewClientResponses::QueryResponse { query_id, response }) => {
+                        let body = RoutedMessageBody::QueryResponse { query_id, response };
+                        act.peer_manager_addr
+                            .do_send(PeerRequest::RouteBack(body, msg_hash.unwrap()));
                     }
                     Ok(NetworkViewClientResponses::ReceiptOutcomeResponse(response)) => {
                         let body = RoutedMessageBody::ReceiptOutComeResponse(response);
-                        act.peer_manager_addr.do_send(PeerRequest::RouteBack(body, msg_hash));
+                        act.peer_manager_addr
+                            .do_send(PeerRequest::RouteBack(body, msg_hash.unwrap()));
+                    }
+                    Ok(NetworkViewClientResponses::StateResponse(state_response)) => {
+                        let body = RoutedMessageBody::StateResponse(state_response);
+                        act.peer_manager_addr
+                            .do_send(PeerRequest::RouteBack(body, msg_hash.unwrap()));
+                    }
+                    Ok(NetworkViewClientResponses::Block(block)) => {
+                        act.send_message(PeerMessage::Block(block))
+                    }
+                    Ok(NetworkViewClientResponses::BlockHeaders(headers)) => {
+                        act.send_message(PeerMessage::BlockHeaders(headers))
                     }
                     Err(err) => {
                         error!(
@@ -334,11 +379,11 @@ impl Peer {
                             "Received error sending message to view client: {} for {}",
                             err, act.peer_info
                         );
-                        return actix::fut::err(());
+                        return actix::fut::ready(());
                     }
                     _ => {}
                 };
-                actix::fut::ok(())
+                actix::fut::ready(())
             })
             .spawn(ctx);
     }
@@ -356,27 +401,12 @@ impl Peer {
                 self.tracker.push_received(block_hash);
                 self.chain_info.height =
                     max(self.chain_info.height, block.header.inner_lite.height);
-                self.chain_info.weight_and_score = max(
-                    self.chain_info.weight_and_score,
-                    block.header.inner_rest.weight_and_score(),
-                );
+                self.chain_info.score = max(self.chain_info.score, block.header.inner_rest.score);
                 NetworkClientMessages::Block(block, peer_id, self.tracker.has_request(block_hash))
-            }
-            PeerMessage::BlockHeaderAnnounce(header) => {
-                let block_hash = header.hash();
-                self.tracker.push_received(block_hash);
-                self.chain_info.height = max(self.chain_info.height, header.inner_lite.height);
-                self.chain_info.weight_and_score =
-                    max(self.chain_info.weight_and_score, header.inner_rest.weight_and_score());
-                NetworkClientMessages::BlockHeader(header, peer_id)
             }
             PeerMessage::Transaction(transaction) => {
                 near_metrics::inc_counter(&metrics::PEER_TRANSACTION_RECEIVED_TOTAL);
-                NetworkClientMessages::Transaction(transaction)
-            }
-            PeerMessage::BlockRequest(hash) => NetworkClientMessages::BlockRequest(hash),
-            PeerMessage::BlockHeadersRequest(hashes) => {
-                NetworkClientMessages::BlockHeadersRequest(hashes)
+                NetworkClientMessages::Transaction { transaction, is_forwarded: false }
             }
             PeerMessage::BlockHeaders(headers) => {
                 NetworkClientMessages::BlockHeaders(headers, peer_id)
@@ -390,17 +420,9 @@ impl Peer {
                         NetworkClientMessages::BlockApproval(approval, peer_id)
                     }
                     RoutedMessageBody::ForwardTx(transaction) => {
-                        NetworkClientMessages::Transaction(transaction)
+                        NetworkClientMessages::Transaction { transaction, is_forwarded: true }
                     }
-                    RoutedMessageBody::StateRequest(shard_id, hash, need_header, parts) => {
-                        NetworkClientMessages::StateRequest(
-                            shard_id,
-                            hash,
-                            need_header,
-                            parts,
-                            msg_hash,
-                        )
-                    }
+
                     RoutedMessageBody::StateResponse(info) => {
                         NetworkClientMessages::StateResponse(info)
                     }
@@ -417,8 +439,10 @@ impl Peer {
                     | RoutedMessageBody::QueryRequest { .. }
                     | RoutedMessageBody::QueryResponse { .. }
                     | RoutedMessageBody::ReceiptOutcomeRequest(_)
-                    | RoutedMessageBody::ReceiptOutComeResponse(_) => {
-                        error!(target: "network", "Peer receive_client_message received unexpected type");
+                    | RoutedMessageBody::ReceiptOutComeResponse(_)
+                    | RoutedMessageBody::StateRequestHeader(_, _)
+                    | RoutedMessageBody::StateRequestPart(_, _, _) => {
+                        error!(target: "network", "Peer receive_client_message received unexpected type: {:?}", routed_message);
                         return;
                     }
                 }
@@ -432,8 +456,10 @@ impl Peer {
             | PeerMessage::LastEdge(_)
             | PeerMessage::Disconnect
             | PeerMessage::RequestUpdateNonce(_)
-            | PeerMessage::ResponseUpdateNonce(_) => {
-                error!(target: "network", "Peer receive_client_message received unexpected type");
+            | PeerMessage::ResponseUpdateNonce(_)
+            | PeerMessage::BlockRequest(_)
+            | PeerMessage::BlockHeadersRequest(_) => {
+                error!(target: "network", "Peer receive_client_message received unexpected type: {:?}", msg);
                 return;
             }
         };
@@ -446,20 +472,10 @@ impl Peer {
                 match res {
                     Ok(NetworkClientResponses::InvalidTx(err)) => {
                         warn!(target: "network", "Received invalid tx from peer {}: {}", act.peer_info, err);
-                        // TODO: count as malicious behaviour?
+                        // TODO: count as malicious behavior?
                     }
                     Ok(NetworkClientResponses::Ban { ban_reason }) => {
                         act.ban_peer(ctx, ban_reason);
-                    }
-                    Ok(NetworkClientResponses::Block(block)) => {
-                        act.send_message(PeerMessage::Block(block))
-                    }
-                    Ok(NetworkClientResponses::BlockHeaders(headers)) => {
-                        act.send_message(PeerMessage::BlockHeaders(headers))
-                    }
-                    Ok(NetworkClientResponses::StateResponse(info, hash)) => {
-                        let body = RoutedMessageBody::StateResponse(info);
-                        act.peer_manager_addr.do_send(PeerRequest::RouteBack(body, hash));
                     }
                     Err(err) => {
                         error!(
@@ -467,11 +483,11 @@ impl Peer {
                             "Received error sending message to client: {} for {}",
                             err, act.peer_info
                         );
-                        return actix::fut::err(());
+                        return actix::fut::ready(());
                     }
                     _ => {}
                 };
-                actix::fut::ok(())
+                actix::fut::ready(())
             })
             .spawn(ctx);
     }
@@ -516,10 +532,13 @@ impl Actor for Peer {
 
 impl WriteHandler<io::Error> for Peer {}
 
-impl StreamHandler<Vec<u8>, io::Error> for Peer {
+impl StreamHandler<Vec<u8>> for Peer {
     fn handle(&mut self, msg: Vec<u8>, ctx: &mut Self::Context) {
         near_metrics::inc_counter_by(&metrics::PEER_DATA_RECEIVED_BYTES, msg.len() as i64);
         near_metrics::inc_counter(&metrics::PEER_MESSAGE_RECEIVED_TOTAL);
+
+        #[cfg(feature = "metric_recorder")]
+        let msg_size = msg.len();
 
         self.tracker.increment_received(msg.len() as u64);
         let peer_msg = match bytes_to_peer_message(&msg) {
@@ -529,6 +548,19 @@ impl StreamHandler<Vec<u8>, io::Error> for Peer {
                 return;
             }
         };
+
+        #[cfg(feature = "metric_recorder")]
+        {
+            let mut metadata: PeerMessageMetadata = (&peer_msg).into();
+            metadata =
+                metadata.set_size(msg_size).set_target(self.node_id()).set_status(Status::Received);
+
+            if let Some(peer_id) = self.peer_id() {
+                metadata = metadata.set_source(peer_id);
+            }
+
+            self.peer_manager_addr.do_send(metadata);
+        }
 
         peer_msg.record(msg.len());
 
@@ -579,7 +611,7 @@ impl StreamHandler<Vec<u8>, io::Error> for Peer {
 
                 // Verify signature of the new edge in handshake.
                 if !Edge::partial_verify(
-                    self.node_info.id.clone(),
+                    self.node_id(),
                     handshake.peer_id.clone(),
                     &handshake.edge_info,
                 ) {
@@ -620,7 +652,6 @@ impl StreamHandler<Vec<u8>, io::Error> for Peer {
                     .then(move |res, act, ctx| {
                         match res {
                             Ok(ConsolidateResponse::Accept(edge_info)) => {
-                                debug!(target: "network", "{:?}: Peer {:?} successfully consolidated", act.node_info.id.clone(), act.peer_addr);
                                 act.peer_info = Some(peer_info).into();
                                 act.peer_status = PeerStatus::Ready;
                                 // Respond to handshake if it's inbound and connection was consolidated.
@@ -628,17 +659,17 @@ impl StreamHandler<Vec<u8>, io::Error> for Peer {
                                     act.edge_info = edge_info;
                                     act.send_handshake(ctx);
                                 }
-                                actix::fut::ok(())
+                                actix::fut::ready(())
                             },
                             Ok(ConsolidateResponse::InvalidNonce(edge)) => {
-                                debug!(target: "network", "{:?}: Received invalid nonce from peer {:?} sending evidence.", act.node_info.id.clone(), act.peer_addr);
+                                debug!(target: "network", "{:?}: Received invalid nonce from peer {:?} sending evidence.", act.node_id(), act.peer_addr);
                                 act.send_message(PeerMessage::LastEdge(edge));
-                                actix::fut::ok(())
+                                actix::fut::ready(())
                             }
                             _ => {
-                                info!(target: "network", "{:?}: Peer with handshake {:?} wasn't consolidated, disconnecting.", act.node_info.id.clone(), handshake);
+                                info!(target: "network", "{:?}: Peer with handshake {:?} wasn't consolidated, disconnecting.", act.node_id(), handshake);
                                 ctx.stop();
-                                actix::fut::err(())
+                                actix::fut::ready(())
                             }
                         }
                     })
@@ -647,14 +678,14 @@ impl StreamHandler<Vec<u8>, io::Error> for Peer {
             (_, PeerStatus::Connecting, PeerMessage::LastEdge(edge)) => {
                 // This message will be received only if we started the connection.
                 if self.peer_type == PeerType::Inbound {
-                    info!(target: "network", "{:?}: Inbound peer {:?} sent invalid message. Disconnect.", self.node_info.id.clone(), self.peer_addr);
+                    info!(target: "network", "{:?}: Inbound peer {:?} sent invalid message. Disconnect.", self.node_id(), self.peer_addr);
                     ctx.stop();
                     return ();
                 }
 
                 // Disconnect if neighbor propose invalid edge.
                 if !edge.verify() {
-                    info!(target: "network", "{:?}: Peer {:?} sent invalid edge. Disconnect.", self.node_info.id.clone(), self.peer_addr);
+                    info!(target: "network", "{:?}: Peer {:?} sent invalid edge. Disconnect.", self.node_id(), self.peer_addr);
                     ctx.stop();
                     return ();
                 }
@@ -670,7 +701,7 @@ impl StreamHandler<Vec<u8>, io::Error> for Peer {
                             }
                             _ => {}
                         }
-                        actix::fut::ok(())
+                        actix::fut::ready(())
                     })
                     .spawn(ctx);
             }
@@ -688,7 +719,7 @@ impl StreamHandler<Vec<u8>, io::Error> for Peer {
                         debug!(target: "network", "Peers request from {}: sending {} peers.", act.peer_info, peers.peers.len());
                         act.send_message(PeerMessage::PeersResponse(peers.peers));
                     }
-                    actix::fut::ok(())
+                    actix::fut::ready(())
                 }).spawn(ctx);
             }
             (_, PeerStatus::Ready, PeerMessage::PeersResponse(peers)) => {
@@ -709,7 +740,7 @@ impl StreamHandler<Vec<u8>, io::Error> for Peer {
                         }
                         _ => {}
                     }
-                    actix::fut::ok(())
+                    actix::fut::ready(())
                 })
                 .spawn(ctx),
             (_, PeerStatus::Ready, PeerMessage::ResponseUpdateNonce(edge)) => self
@@ -723,7 +754,7 @@ impl StreamHandler<Vec<u8>, io::Error> for Peer {
                         }
                         _ => {}
                     }
-                    actix::fut::ok(())
+                    actix::fut::ready(())
                 })
                 .spawn(ctx),
             (_, PeerStatus::Ready, PeerMessage::Sync(sync_data)) => {
@@ -747,7 +778,7 @@ impl StreamHandler<Vec<u8>, io::Error> for Peer {
                             if res.unwrap_or(false) {
                                 act.receive_message(ctx, PeerMessage::Routed(routed_message));
                             }
-                            actix::fut::ok(())
+                            actix::fut::ready(())
                         })
                         .spawn(ctx);
                 }
@@ -804,8 +835,9 @@ impl Handler<PeerManagerRequest> for Peer {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use near_primitives::hash::hash;
+
+    use super::*;
 
     #[test]
     #[should_panic]

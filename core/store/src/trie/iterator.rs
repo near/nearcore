@@ -57,11 +57,14 @@ impl<'a> TrieIterator<'a> {
     }
 
     /// Position the iterator on the first element with key => `key`.
-    pub fn seek(&mut self, key: &[u8]) -> Result<(), StorageError> {
-        self.seek_nibble_slice(NibbleSlice::new(key))
+    pub fn seek<K: AsRef<[u8]>>(&mut self, key: K) -> Result<(), StorageError> {
+        self.seek_nibble_slice(NibbleSlice::new(key.as_ref()))
     }
 
-    pub(crate) fn seek_nibble_slice(&mut self, mut key: NibbleSlice) -> Result<(), StorageError> {
+    pub(crate) fn seek_nibble_slice(
+        &mut self,
+        mut key: NibbleSlice<'_>,
+    ) -> Result<(), StorageError> {
         self.trail.clear();
         self.key_nibbles.clear();
         let mut hash = NodeHandle::Hash(self.root);

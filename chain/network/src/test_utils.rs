@@ -1,29 +1,50 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::net::TcpListener;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
-use actix::{Actor, AsyncContext, Context, Handler, Message, System};
-use futures::future;
-use futures::future::Future;
+use actix::{Actor, ActorContext, AsyncContext, Context, Handler, MailboxError, Message};
+use futures::{future, FutureExt};
+use log::debug;
 use rand::{thread_rng, RngCore};
-use tokio::timer::Delay;
+use tokio::time::delay_for;
 
 use near_crypto::{KeyType, SecretKey};
 use near_primitives::hash::hash;
+use near_primitives::network::PeerId;
 use near_primitives::types::EpochId;
-
-use crate::types::{NetworkConfig, NetworkInfo, PeerId, PeerInfo};
-use crate::PeerManagerActor;
-use near_chain::chain::WEIGHT_MULTIPLIER;
 use near_primitives::utils::index_to_bytes;
+
+use crate::types::{NetworkConfig, NetworkInfo, PeerInfo, ROUTED_MESSAGE_TTL};
+use crate::{NetworkAdapter, NetworkRequests, NetworkResponses, PeerManagerActor};
+use futures::future::BoxFuture;
+use std::sync::{Arc, Mutex, RwLock};
+
+lazy_static! {
+    static ref OPENED_PORTS: Mutex<HashSet<u16>> = Mutex::new(HashSet::new());
+}
 
 /// Returns available port.
 pub fn open_port() -> u16 {
     // use port 0 to allow the OS to assign an open port
     // TcpListener's Drop impl will unbind the port as soon as
-    // listener goes out of scope
-    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-    listener.local_addr().unwrap().port()
+    // listener goes out of scope. We retry multiple times and store
+    // selected port in OPENED_PORTS to avoid port collision among
+    // multiple tests.
+    let max_attempts = 100;
+
+    for _ in 0..max_attempts {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+
+        let mut opened_ports = OPENED_PORTS.lock().unwrap();
+
+        if !opened_ports.contains(&port) {
+            opened_ports.insert(port);
+            return port;
+        }
+    }
+
+    panic!("Failed to find an open port after {} attempts.", max_attempts);
 }
 
 impl NetworkConfig {
@@ -40,15 +61,18 @@ impl NetworkConfig {
             handshake_timeout: Duration::from_secs(60),
             reconnect_delay: Duration::from_secs(60),
             bootstrap_peers_period: Duration::from_millis(100),
-            peer_max_count: 10,
+            max_peer: 10,
             ban_window: Duration::from_secs(1),
             peer_expiration_duration: Duration::from_secs(60 * 60),
             max_send_peers: 512,
             peer_stats_period: Duration::from_secs(5),
             ttl_account_id_router: Duration::from_secs(60 * 60),
+            routed_message_ttl: ROUTED_MESSAGE_TTL,
             max_routes_to_store: 1,
-            most_weighted_peer_horizon: 5 * WEIGHT_MULTIPLIER,
+            highest_peer_horizon: 5,
             push_info_period: Duration::from_millis(100),
+            blacklist: HashMap::new(),
+            outbound_disabled: false,
         }
     }
 }
@@ -62,12 +86,6 @@ pub fn convert_boot_nodes(boot_nodes: Vec<(&str, u16)>) -> Vec<PeerInfo> {
     result
 }
 
-impl PeerId {
-    pub fn random() -> Self {
-        SecretKey::from_random(KeyType::ED25519).public_key().into()
-    }
-}
-
 impl PeerInfo {
     /// Creates random peer info.
     pub fn random() -> Self {
@@ -79,10 +97,9 @@ impl PeerInfo {
 /// Useful in tests to prevent them from running forever.
 #[allow(unreachable_code)]
 pub fn wait_or_panic(max_wait_ms: u64) {
-    actix::spawn(Delay::new(Instant::now() + Duration::from_millis(max_wait_ms)).then(|_| {
-        System::current().stop();
+    actix::spawn(delay_for(Duration::from_millis(max_wait_ms)).then(|_| {
         panic!("Timeout exceeded.");
-        future::result(Ok(()))
+        future::ready(())
     }));
 }
 
@@ -196,5 +213,60 @@ impl Handler<GetInfo> for PeerManagerActor {
 
     fn handle(&mut self, _msg: GetInfo, _ctx: &mut Context<Self>) -> Self::Result {
         self.get_network_info()
+    }
+}
+
+#[derive(Message)]
+#[rtype(result = "()")]
+pub struct StopSignal {
+    pub should_panic: bool,
+}
+
+impl StopSignal {
+    pub fn new() -> Self {
+        Self { should_panic: false }
+    }
+
+    pub fn should_panic() -> Self {
+        Self { should_panic: true }
+    }
+}
+
+impl Handler<StopSignal> for PeerManagerActor {
+    type Result = ();
+
+    fn handle(&mut self, msg: StopSignal, ctx: &mut Self::Context) -> Self::Result {
+        debug!(target: "network", "Receive Stop Signal.");
+
+        if msg.should_panic {
+            panic!("Node crashed");
+        } else {
+            ctx.stop();
+        }
+    }
+}
+
+#[derive(Default)]
+pub struct MockNetworkAdapter {
+    pub requests: Arc<RwLock<VecDeque<NetworkRequests>>>,
+}
+
+impl NetworkAdapter for MockNetworkAdapter {
+    fn send(
+        &self,
+        msg: NetworkRequests,
+    ) -> BoxFuture<'static, Result<NetworkResponses, MailboxError>> {
+        self.do_send(msg);
+        future::ok(NetworkResponses::NoResponse).boxed()
+    }
+
+    fn do_send(&self, msg: NetworkRequests) {
+        self.requests.write().unwrap().push_back(msg);
+    }
+}
+
+impl MockNetworkAdapter {
+    pub fn pop(&self) -> Option<NetworkRequests> {
+        self.requests.write().unwrap().pop_front()
     }
 }

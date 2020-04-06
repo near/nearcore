@@ -1,27 +1,24 @@
-use std::collections::HashMap;
-use std::iter::Peekable;
-
 use borsh::BorshDeserialize;
 use near_crypto::PublicKey;
 use near_primitives::account::{AccessKey, AccessKeyPermission, FunctionCallPermission};
-use near_primitives::errors::StorageError;
+use near_primitives::errors::{ExternalError, StorageError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{ActionReceipt, DataReceiver, Receipt, ReceiptEnum};
 use near_primitives::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
     DeployContractAction, FunctionCallAction, StakeAction, TransferAction,
 };
+use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{AccountId, Balance};
-use near_primitives::utils::{create_nonce_with_nonce, prefix_for_data};
-use near_store::{TrieUpdate, TrieUpdateIterator, TrieUpdateValuePtr};
-use near_vm_logic::{External, HostError, HostErrorOrStorageError, ValuePtr};
+use near_primitives::utils::create_nonce_with_nonce;
+use near_store::{TrieUpdate, TrieUpdateValuePtr};
+use near_vm_logic::{External, HostError, VMLogicError, ValuePtr};
+use sha3::{Keccak256, Keccak512};
 
 pub struct RuntimeExt<'a> {
     trie_update: &'a mut TrieUpdate,
-    storage_prefix: Vec<u8>,
+    account_id: &'a AccountId,
     action_receipts: Vec<(AccountId, ActionReceipt)>,
-    iters: HashMap<u64, Peekable<TrieUpdateIterator<'a>>>,
-    last_iter_id: u64,
     signer_id: &'a AccountId,
     signer_public_key: &'a PublicKey,
     gas_price: Balance,
@@ -37,7 +34,7 @@ impl<'a> ValuePtr for RuntimeExtValuePtr<'a> {
     }
 
     fn deref(&self) -> ExtResult<Vec<u8>> {
-        self.0.deref_value().map_err(wrap_error)
+        self.0.deref_value().map_err(wrap_storage_error)
     }
 }
 
@@ -52,10 +49,8 @@ impl<'a> RuntimeExt<'a> {
     ) -> Self {
         RuntimeExt {
             trie_update,
-            storage_prefix: prefix_for_data(account_id),
+            account_id,
             action_receipts: vec![],
-            iters: HashMap::new(),
-            last_iter_id: 0,
             signer_id,
             signer_public_key,
             gas_price,
@@ -64,10 +59,8 @@ impl<'a> RuntimeExt<'a> {
         }
     }
 
-    pub fn create_storage_key(&self, key: &[u8]) -> Vec<u8> {
-        let mut storage_key = self.storage_prefix.clone();
-        storage_key.extend_from_slice(key);
-        storage_key
+    pub fn create_storage_key(&self, key: &[u8]) -> TrieKey {
+        TrieKey::ContractData { account_id: self.account_id.clone(), key: key.to_vec() }
     }
 
     fn new_data_id(&mut self) -> CryptoHash {
@@ -98,13 +91,14 @@ impl<'a> RuntimeExt<'a> {
     }
 }
 
-fn wrap_error(error: StorageError) -> HostErrorOrStorageError {
-    HostErrorOrStorageError::StorageError(
-        borsh::BorshSerialize::try_to_vec(&error).expect("Borsh serialize cannot fail"),
+fn wrap_storage_error(error: StorageError) -> VMLogicError {
+    VMLogicError::ExternalError(
+        borsh::BorshSerialize::try_to_vec(&ExternalError::StorageError(error))
+            .expect("Borsh serialize cannot fail"),
     )
 }
 
-type ExtResult<T> = ::std::result::Result<T, HostErrorOrStorageError>;
+type ExtResult<T> = ::std::result::Result<T, VMLogicError>;
 
 impl<'a> External for RuntimeExt<'a> {
     fn storage_set(&mut self, key: &[u8], value: &[u8]) -> ExtResult<()> {
@@ -117,78 +111,19 @@ impl<'a> External for RuntimeExt<'a> {
         let storage_key = self.create_storage_key(key);
         self.trie_update
             .get_ref(&storage_key)
-            .map_err(wrap_error)
+            .map_err(wrap_storage_error)
             .map(|option| option.map(|ptr| Box::new(RuntimeExtValuePtr(ptr)) as Box<_>))
     }
 
     fn storage_remove(&mut self, key: &[u8]) -> ExtResult<()> {
         let storage_key = self.create_storage_key(key);
-        self.trie_update.remove(&storage_key);
+        self.trie_update.remove(storage_key);
         Ok(())
     }
 
     fn storage_has_key(&mut self, key: &[u8]) -> ExtResult<bool> {
         let storage_key = self.create_storage_key(key);
-        self.trie_update.get_ref(&storage_key).map(|x| x.is_some()).map_err(wrap_error)
-    }
-
-    fn storage_iter(&mut self, prefix: &[u8]) -> ExtResult<u64> {
-        self.iters.insert(
-            self.last_iter_id,
-            // Danger: we're creating a read reference to trie_update while still
-            // having a mutable reference.
-            // Any function that mutates trie_update must drop all existing iterators first.
-            unsafe { &*(self.trie_update as *const TrieUpdate) }
-                .iter(&self.create_storage_key(prefix))
-                // TODO(#1131): if storage fails we actually want to abort the block rather than panic in the contract.
-                .expect("Error reading from storage")
-                .peekable(),
-        );
-        self.last_iter_id += 1;
-        Ok(self.last_iter_id - 1)
-    }
-
-    fn storage_iter_range(&mut self, start: &[u8], end: &[u8]) -> ExtResult<u64> {
-        self.iters.insert(
-            self.last_iter_id,
-            unsafe { &mut *(self.trie_update as *mut TrieUpdate) }
-                .range(&self.storage_prefix, start, end)
-                .expect("Error reading from storage")
-                .peekable(),
-        );
-        self.last_iter_id += 1;
-        Ok(self.last_iter_id - 1)
-    }
-
-    fn storage_iter_next<'b>(
-        &'b mut self,
-        iterator_idx: u64,
-    ) -> ExtResult<Option<(Vec<u8>, Box<dyn ValuePtr + 'b>)>> {
-        let result = match self.iters.get_mut(&iterator_idx) {
-            Some(iter) => iter.next(),
-            None => return Err(HostError::InvalidIteratorIndex(iterator_idx).into()),
-        };
-        match result {
-            None => {
-                self.iters.remove(&iterator_idx);
-                Ok(None)
-            }
-            Some(key) => {
-                let key = key.map_err(wrap_error)?;
-                let ptr = self
-                    .trie_update
-                    .get_ref(&key)
-                    .expect("error cannot happen")
-                    .expect("key is guaranteed to be there");
-                let result = Box::new(RuntimeExtValuePtr(ptr)) as Box<_>;
-                Ok(Some((key[self.storage_prefix.len()..].to_vec(), result)))
-            }
-        }
-    }
-
-    fn storage_iter_drop(&mut self, iterator_idx: u64) -> ExtResult<()> {
-        self.iters.remove(&iterator_idx);
-        Ok(())
+        self.trie_update.get_ref(&storage_key).map(|x| x.is_some()).map_err(wrap_storage_error)
     }
 
     fn create_receipt(&mut self, receipt_indices: Vec<u64>, receiver_id: String) -> ExtResult<u64> {
@@ -197,11 +132,7 @@ impl<'a> External for RuntimeExt<'a> {
             let data_id = self.new_data_id();
             self.action_receipts
                 .get_mut(receipt_index as usize)
-                .ok_or_else(|| {
-                    HostErrorOrStorageError::HostError(
-                        HostError::InvalidReceiptIndex(receipt_index).into(),
-                    )
-                })?
+                .ok_or_else(|| HostError::InvalidReceiptIndex { receipt_index })?
                 .1
                 .output_data_receivers
                 .push(DataReceiver { data_id, receiver_id: receiver_id.clone() });
@@ -357,8 +288,29 @@ impl<'a> External for RuntimeExt<'a> {
 
     fn sha256(&self, data: &[u8]) -> ExtResult<Vec<u8>> {
         use sha2::Digest;
+
         let value_hash = sha2::Sha256::digest(data);
         Ok(value_hash.as_ref().to_vec())
+    }
+
+    fn keccak256(&self, data: &[u8]) -> ExtResult<Vec<u8>> {
+        use sha3::Digest;
+
+        let mut hasher = Keccak256::default();
+        hasher.input(&data);
+        let mut res = [0u8; 32];
+        res.copy_from_slice(hasher.result().as_slice());
+        Ok(res.to_vec())
+    }
+
+    fn keccak512(&self, data: &[u8]) -> ExtResult<Vec<u8>> {
+        use sha3::Digest;
+
+        let mut hasher = Keccak512::default();
+        hasher.input(&data);
+        let mut res = [0u8; 64];
+        res.copy_from_slice(hasher.result().as_slice());
+        Ok(res.to_vec())
     }
 
     fn get_touched_nodes_count(&self) -> u64 {

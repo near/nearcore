@@ -1,0 +1,17 @@
+[package]
+name = "restaked"
+version = "0.1.0"
+authors = ["Near Inc <hello@nearprotocol.com>"]
+edition = "2018"
+
+[dependencies]
+clap = "2.33.0"
+log = "0.4"
+env_logger = "0.7"
+
+near-crypto = { path = "../../core/crypto" }
+near-primitives = { path = "../../core/primitives" }
+near-jsonrpc-client = { path = "../../chain/jsonrpc/client" }
+neard = { path = "../../neard" }
+
+testlib = { path = "../../test-utils/testlib" }

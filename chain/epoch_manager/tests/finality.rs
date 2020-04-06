@@ -1,27 +1,30 @@
 #[cfg(test)]
 #[cfg(feature = "expensive_tests")]
 mod tests {
+    use std::collections::{HashMap, HashSet};
+
+    use rand::seq::SliceRandom;
+    use rand::Rng;
+
     use near_chain::test_utils::setup;
     use near_chain::{create_light_client_block_view, FinalityGadget};
     use near_chain::{Chain, ChainStore, ChainStoreAccess, ChainStoreUpdate};
-    use near_crypto::{KeyType, PublicKey, Signature, Signer};
+    use near_crypto::{KeyType, PublicKey, Signature};
     use near_epoch_manager::test_utils::{record_block, setup_default_epoch_manager};
     use near_epoch_manager::EpochManager;
-    use near_primitives::block::{Approval, Block, BlockHeader, Weight};
+    use near_primitives::block::{Approval, Block, BlockHeader, BlockScore};
     use near_primitives::hash::CryptoHash;
     use near_primitives::merkle::combine_hash;
-    use near_primitives::types::{AccountId, BlockIndex, EpochId, ValidatorStake};
+    use near_primitives::types::{AccountId, BlockHeight, EpochId, ValidatorStake};
+    use near_primitives::validator_signer::ValidatorSigner;
     use near_primitives::views::ValidatorStakeView;
-    use rand::seq::SliceRandom;
-    use rand::Rng;
-    use std::collections::{HashMap, HashSet};
 
     fn create_block(
         em: &mut EpochManager,
         prev: &Block,
-        height: BlockIndex,
+        height: BlockHeight,
         chain_store: &mut ChainStore,
-        signer: &dyn Signer,
+        signer: &dyn ValidatorSigner,
         approvals: Vec<Approval>,
         stakes: &Vec<ValidatorStake>,
     ) -> (Block, CryptoHash) {
@@ -40,7 +43,6 @@ mod tests {
         let mut block = Block::empty(prev, signer);
         block.header.inner_rest.approvals = approvals.clone();
         block.header.inner_lite.height = height;
-        block.header.inner_rest.total_weight = (height as u128).into();
         block.header.inner_lite.epoch_id = epoch_id.clone();
 
         let quorums = FinalityGadget::compute_quorums(
@@ -65,8 +67,9 @@ mod tests {
             chain_store
                 .get_block_header(&quorums.last_quorum_pre_vote)
                 .unwrap()
-                .inner_rest
-                .total_weight
+                .inner_lite
+                .height
+                .into()
         };
 
         block.header.init();
@@ -87,7 +90,14 @@ mod tests {
     }
 
     fn apr(account_id: AccountId, reference_hash: CryptoHash, parent_hash: CryptoHash) -> Approval {
-        Approval { account_id, reference_hash, parent_hash, signature: Signature::default() }
+        Approval {
+            account_id,
+            reference_hash: Some(reference_hash),
+            target_height: 0,
+            is_endorsement: true,
+            parent_hash,
+            signature: Signature::default(),
+        }
     }
 
     fn print_chain(chain: &mut Chain, mut hash: CryptoHash) {
@@ -109,7 +119,7 @@ mod tests {
     fn check_safety(
         chain: &mut Chain,
         new_final_hash: CryptoHash,
-        old_final_height: BlockIndex,
+        old_final_height: BlockHeight,
         old_final_hash: CryptoHash,
     ) {
         let on_chain_hash =
@@ -182,7 +192,7 @@ mod tests {
             .zip(light_client_block_view.qc_approvals.iter().zip(stakes.iter()))
         {
             if let Some(qv_approval) = qv_approval {
-                qv_stake += stake.amount;
+                qv_stake += stake.stake;
 
                 // each qv_approval must have the new_block or a block in the progeny of the new_block as parent block
                 // and the new_block or a block in its ancestry as the reference block. qv_blocks has all the blocks
@@ -198,7 +208,7 @@ mod tests {
             }
 
             if let Some(qc_approval) = qc_approval {
-                qc_stake += stake.amount;
+                qc_stake += stake.stake;
                 if !qc_blocks.contains(&qc_approval.parent_hash) {
                     assert!(false);
                 }
@@ -212,7 +222,7 @@ mod tests {
                 }
             }
 
-            total_stake += stake.amount;
+            total_stake += stake.stake;
         }
 
         let threshold = total_stake * 2 / 3;
@@ -292,7 +302,7 @@ mod tests {
                     );
                     let (mut chain, _, signer) = setup();
                     let mut em = setup_default_epoch_manager(
-                        block_producers1.iter().map(|_| ("test", 1000000)).collect(),
+                        block_producers1.iter().map(|name| (name.as_str(), 1000000)).collect(),
                         10,
                         4,
                         7,
@@ -304,11 +314,11 @@ mod tests {
                     let genesis_block = chain.get_block(&chain.genesis().hash()).unwrap().clone();
 
                     let mut last_final_block_hash = CryptoHash::default();
-                    let mut last_final_block_height = 0;
+                    let mut last_final_height = 0;
                     let mut largest_height = 0;
                     let mut finalized_hashes = HashSet::new();
-                    let mut largest_weight: HashMap<AccountId, Weight> = HashMap::new();
-                    let mut largest_score: HashMap<AccountId, Weight> = HashMap::new();
+                    let mut largest_heights: HashMap<AccountId, BlockHeight> = HashMap::new();
+                    let mut largest_scores: HashMap<AccountId, BlockScore> = HashMap::new();
                     let mut last_approvals: HashMap<CryptoHash, HashMap<AccountId, Approval>> =
                         HashMap::new();
 
@@ -396,7 +406,7 @@ mod tests {
                                 let prev_reference = if let Some(prev_approval) =
                                     last_approvals_entry.get(block_producer)
                                 {
-                                    prev_approval.reference_hash
+                                    prev_approval.reference_hash.unwrap()
                                 } else {
                                     genesis_block.hash().clone()
                                 };
@@ -420,15 +430,15 @@ mod tests {
                                 possible_references.choose(&mut rand::thread_rng()).unwrap().clone()
                             } else {
                                 // honest
-                                let old_largest_weight =
-                                    *largest_weight.get(block_producer).unwrap_or(&0u128.into());
+                                let old_largest_height =
+                                    *largest_heights.get(block_producer).unwrap_or(&0u64);
                                 let old_largest_score =
-                                    *largest_score.get(block_producer).unwrap_or(&0u128.into());
+                                    *largest_scores.get(block_producer).unwrap_or(&0u64.into());
 
                                 match FinalityGadget::get_my_approval_reference_hash_inner(
                                     prev_block.hash(),
                                     last_approvals_entry.get(block_producer).cloned(),
-                                    old_largest_weight,
+                                    old_largest_height,
                                     old_largest_score,
                                     chain.mut_store(),
                                 ) {
@@ -444,11 +454,11 @@ mod tests {
                             );
                             approvals.push(approval.clone());
                             last_approvals_entry.insert(block_producer.clone(), approval);
-                            largest_weight.insert(
+                            largest_heights.insert(
                                 block_producer.clone(),
-                                prev_block.header.inner_rest.total_weight,
+                                prev_block.header.inner_lite.height,
                             );
-                            largest_score
+                            largest_scores
                                 .insert(block_producer.clone(), prev_block.header.inner_rest.score);
                         }
 
@@ -464,24 +474,24 @@ mod tests {
 
                         let final_block_hash = new_block.header.inner_rest.last_quorum_pre_commit;
                         if final_block_hash != CryptoHash::default() {
-                            let new_final_block_height = chain
+                            let new_final_height = chain
                                 .get_block_header(&final_block_hash)
                                 .unwrap()
                                 .inner_lite
                                 .height;
-                            if last_final_block_height != 0 {
-                                if new_final_block_height > last_final_block_height {
+                            if last_final_height != 0 {
+                                if new_final_height > last_final_height {
                                     check_safety(
                                         &mut chain,
                                         final_block_hash,
-                                        last_final_block_height,
+                                        last_final_height,
                                         last_final_block_hash,
                                     );
-                                } else if new_final_block_height < last_final_block_height {
+                                } else if new_final_height < last_final_height {
                                     check_safety(
                                         &mut chain,
                                         last_final_block_hash,
-                                        new_final_block_height,
+                                        new_final_height,
                                         final_block_hash,
                                     );
                                 } else {
@@ -495,7 +505,7 @@ mod tests {
 
                             finalized_hashes.insert(final_block_hash);
 
-                            if new_final_block_height > last_final_block_height {
+                            if new_final_height > last_final_height {
                                 if test_light_client {
                                     let mut chain_store_update =
                                         ChainStoreUpdate::new(chain.mut_store());
@@ -526,7 +536,7 @@ mod tests {
                                 }
 
                                 last_final_block_hash = final_block_hash;
-                                last_final_block_height = new_final_block_height;
+                                last_final_height = new_final_height;
                             }
                         }
 
@@ -538,8 +548,8 @@ mod tests {
 
                         all_blocks.push(new_block);
                     }
-                    println!("Finished iteration {}, largest finalized height: {}, largest height: {}, final blocks: {}", iter, last_final_block_height, largest_height, finalized_hashes.len());
-                    if last_final_block_height > 0 {
+                    println!("Finished iteration {}, largest finalized height: {}, largest height: {}, final blocks: {}", iter, last_final_height, largest_height, finalized_hashes.len());
+                    if last_final_height > 0 {
                         good_iters += 1;
                     }
                 }

@@ -7,14 +7,14 @@ use std::{env, thread};
 use log::error;
 use rand::Rng;
 
-use near::config::NearConfig;
+use near_chain_configs::Genesis;
 use near_crypto::{InMemorySigner, KeyType, Signer};
 use near_primitives::types::AccountId;
+use neard::config::NearConfig;
 
 use crate::node::Node;
 use crate::user::rpc_user::RpcUser;
 use crate::user::User;
-use near::GenesisConfig;
 
 pub enum ProcessNodeState {
     Stopped,
@@ -29,13 +29,13 @@ pub struct ProcessNode {
 }
 
 impl Node for ProcessNode {
-    fn genesis_config(&self) -> &GenesisConfig {
-        &self.config.genesis_config
+    fn genesis(&self) -> &Genesis {
+        &self.config.genesis
     }
 
     fn account_id(&self) -> Option<AccountId> {
-        match &self.config.block_producer {
-            Some(bp) => Some(bp.account_id.clone()),
+        match &self.config.validator_signer {
+            Some(vs) => Some(vs.validator_id().clone()),
             None => None,
         }
     }
@@ -93,14 +93,14 @@ impl ProcessNode {
     pub fn new(config: NearConfig) -> ProcessNode {
         let mut rng = rand::thread_rng();
         let work_dir = format!(
-            "{}process_node_{}",
+            "{}/process_node_{}",
             env::temp_dir().as_path().to_str().unwrap(),
             rng.gen::<u64>()
         );
         let signer = Arc::new(InMemorySigner::from_seed(
-            &config.block_producer.clone().unwrap().account_id,
+            &config.validator_signer.as_ref().unwrap().validator_id(),
             KeyType::ED25519,
-            &config.block_producer.clone().unwrap().account_id,
+            &config.validator_signer.as_ref().unwrap().validator_id(),
         ));
         let result = ProcessNode { config, work_dir, state: ProcessNodeState::Stopped, signer };
         result.reset_storage();

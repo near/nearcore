@@ -1,24 +1,23 @@
-use std::sync::Mutex;
+use std::sync::{Mutex, Once};
 
 use log::LevelFilter;
 
 use lazy_static::lazy_static;
 use near_crypto::{EmptySigner, PublicKey, Signer};
 
-use crate::account::{AccessKey, AccessKeyPermission};
+use crate::account::{AccessKey, AccessKeyPermission, Account};
 use crate::block::{Approval, Block};
 use crate::hash::CryptoHash;
 use crate::transaction::{
-    Action, AddKeyAction, CreateAccountAction, SignedTransaction, StakeAction, Transaction,
-    TransferAction,
+    Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, SignedTransaction, StakeAction,
+    Transaction, TransferAction,
 };
-use crate::types::{AccountId, Balance, BlockIndex, EpochId, Nonce};
+use crate::types::{AccountId, Balance, BlockHeight, EpochId, Nonce};
+use crate::validator_signer::ValidatorSigner;
 
 lazy_static! {
     static ref HEAVY_TESTS_LOCK: Mutex<()> = Mutex::new(());
 }
-
-const TEST_TIME_DELTA: u64 = 20;
 
 pub fn heavy_test<F>(f: F)
 where
@@ -29,6 +28,16 @@ where
 }
 
 pub fn init_test_logger() {
+    let _ = env_logger::Builder::new()
+        .filter_module("tokio_reactor", LevelFilter::Info)
+        .filter_module("tokio_core", LevelFilter::Info)
+        .filter_module("hyper", LevelFilter::Info)
+        .filter(None, LevelFilter::Debug)
+        .try_init();
+    init_stop_on_panic();
+}
+
+pub fn init_test_logger_allow_panic() {
     let _ = env_logger::Builder::new()
         .filter_module("tokio_reactor", LevelFilter::Info)
         .filter_module("tokio_core", LevelFilter::Info)
@@ -46,6 +55,7 @@ pub fn init_test_module_logger(module: &str) {
         .filter_module(module, LevelFilter::Info)
         .filter(None, LevelFilter::Info)
         .try_init();
+    init_stop_on_panic();
 }
 
 pub fn init_integration_logger() {
@@ -53,6 +63,22 @@ pub fn init_integration_logger() {
         .filter(None, LevelFilter::Info)
         .filter(Some("actix_web"), LevelFilter::Warn)
         .try_init();
+    init_stop_on_panic();
+}
+
+static SET_PANIC_HOOK: Once = Once::new();
+
+/// This is a workaround to make actix/tokio runtime stop when a task panics.
+pub fn init_stop_on_panic() {
+    SET_PANIC_HOOK.call_once(|| {
+        let default_hook = std::panic::take_hook();
+        std::panic::set_hook(Box::new(move |info| {
+            default_hook(info);
+            if actix::System::is_set() {
+                actix::System::with_current(|sys| sys.stop_with_code(1));
+            }
+        }));
+    })
 }
 
 impl Transaction {
@@ -125,6 +151,24 @@ impl SignedTransaction {
         )
     }
 
+    pub fn delete_account(
+        nonce: Nonce,
+        signer_id: AccountId,
+        receiver_id: AccountId,
+        beneficiary_id: AccountId,
+        signer: &dyn Signer,
+        block_hash: CryptoHash,
+    ) -> Self {
+        Self::from_actions(
+            nonce,
+            signer_id,
+            receiver_id,
+            signer,
+            vec![Action::DeleteAccount(DeleteAccountAction { beneficiary_id })],
+            block_hash,
+        )
+    }
+
     pub fn empty(block_hash: CryptoHash) -> Self {
         Self::from_actions(0, "".to_string(), "".to_string(), &EmptySigner {}, vec![], block_hash)
     }
@@ -133,11 +177,11 @@ impl SignedTransaction {
 impl Block {
     pub fn empty_with_epoch(
         prev: &Block,
-        height: BlockIndex,
+        height: BlockHeight,
         epoch_id: EpochId,
         next_epoch_id: EpochId,
         next_bp_hash: CryptoHash,
-        signer: &dyn Signer,
+        signer: &dyn ValidatorSigner,
     ) -> Self {
         Self::empty_with_approvals(
             prev,
@@ -147,16 +191,14 @@ impl Block {
             vec![],
             signer,
             next_bp_hash,
-            if prev.header.prev_hash == CryptoHash::default() {
-                0
-            } else {
-                TEST_TIME_DELTA as u128
-            },
-            1,
         )
     }
 
-    pub fn empty_with_height(prev: &Block, height: BlockIndex, signer: &dyn Signer) -> Self {
+    pub fn empty_with_height(
+        prev: &Block,
+        height: BlockHeight,
+        signer: &dyn ValidatorSigner,
+    ) -> Self {
         Self::empty_with_epoch(
             prev,
             height,
@@ -171,7 +213,7 @@ impl Block {
         )
     }
 
-    pub fn empty(prev: &Block, signer: &dyn Signer) -> Self {
+    pub fn empty(prev: &Block, signer: &dyn ValidatorSigner) -> Self {
         Self::empty_with_height(prev, prev.header.inner_lite.height + 1, signer)
     }
 
@@ -179,16 +221,14 @@ impl Block {
     /// Done because chain tests don't have a good way to store chunks right now.
     pub fn empty_with_approvals(
         prev: &Block,
-        height: BlockIndex,
+        height: BlockHeight,
         epoch_id: EpochId,
         next_epoch_id: EpochId,
         approvals: Vec<Approval>,
-        signer: &dyn Signer,
+        signer: &dyn ValidatorSigner,
         next_bp_hash: CryptoHash,
-        time_delta: u128,
-        weight_delta: u128,
     ) -> Self {
-        let mut ret = Block::produce(
+        Block::produce(
             &prev.header,
             height,
             prev.chunks.clone(),
@@ -201,19 +241,20 @@ impl Block {
             vec![],
             vec![],
             signer,
-            time_delta,
-            weight_delta,
             0.into(),
             CryptoHash::default(),
             CryptoHash::default(),
+            CryptoHash::default(),
             next_bp_hash,
-        );
-        // Make blocks to be `TEST_TIME_DELTA` apart from each other so that the fork choice rule behaves predictably.
-        // Tests that test the fork choice rule itself (such as `fork_choice.rs`) change the time when
-        // needed on their end.
-        ret.header.inner_lite.timestamp = prev.header.inner_lite.timestamp + TEST_TIME_DELTA;
-        ret.header.init();
-        ret.header.signature = signer.sign(ret.header.hash.as_ref());
-        ret
+        )
+    }
+}
+
+/// Size of account struct in bytes.
+pub const ACCOUNT_SIZE_BYTES: u64 = std::mem::size_of::<Account>() as u64;
+
+impl Account {
+    pub fn new(amount: Balance, code_hash: CryptoHash) -> Self {
+        Account { amount, locked: 0, code_hash, storage_usage: ACCOUNT_SIZE_BYTES }
     }
 }

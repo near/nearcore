@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 import os
-from testlib import clean_binary_tests, build_tests, test_binaries, workers, run_test
+from testlib import clean_binary_tests, build_tests, test_binaries, workers, run_test, run_doc_tests
 from concurrent.futures import as_completed, ThreadPoolExecutor
 
 RERUN_THRESHOLD = 5
@@ -16,8 +16,9 @@ def show_test_result(binary, result):
 
 if __name__ == "__main__":
     clean_binary_tests()
+    run_doc_tests()
     build_tests()
-    binaries = test_binaries(exclude=[r'test_regression-.*'])
+    binaries = test_binaries(exclude=[r'test_regression-.*', r'near_rpc_error_macro-.*'])
     print(f'========= collected {len(binaries)} test binaries:')
     print('\n'.join(binaries))
 
@@ -69,6 +70,7 @@ if __name__ == "__main__":
                 binary_full_name = f[0]
                 result = f[1]
                 binary = os.path.basename(binary_full_name)
+                show_test_result(binary, result)
                 print(f'========= test binary {binary} failed, exit code {result[0]}')
             exit(1)
     else:

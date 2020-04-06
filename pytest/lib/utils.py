@@ -2,6 +2,11 @@ from transaction import sign_payment_tx
 import random, base58
 from retry import retry
 from cluster import LocalNode, GCloudNode
+import sys
+from rc import run, gcloud
+import os
+import tempfile
+from pprint import pprint
 
 class TxContext:
     def __init__(self, act_to_val, nodes):
@@ -9,19 +14,15 @@ class TxContext:
         self.num_nodes = len(nodes)
         self.nodes = nodes
         self.act_to_val = act_to_val
-        print(f'get_balances')
         self.expected_balances = self.get_balances()
-        print(f'get_balances done')
         assert len(act_to_val) == self.num_nodes
         assert self.num_nodes >= 2
 
     @retry(tries=10, backoff=1.2)
     def get_balance(self, whose):
-        print(f'get_balance {whose}')
         r = self.nodes[self.act_to_val[whose]].get_account("test%s" % whose)
         assert 'result' in r, r
         return int(r['result']['amount']) + int(r['result']['locked'])
-        print(f'get_balance {whose} done')
 
     def get_balances(self):
         return [
@@ -73,21 +74,132 @@ with open('/tmp/python-rc.log') as f:
             # the above method should works for other cloud, if it has node.machine but untested
             raise NotImplementedError()
 
-    def check(self, s):
+    # Check whether there is at least on occurrence of pattern in new logs
+    def check(self, pattern):
         if type(self.node) is LocalNode:
             with open(self.fname) as f:
                 f.seek(self.offset)
-                ret = s in f.read()
+                ret = pattern in f.read()
                 self.offset = f.tell()
             return ret
         elif type(self.node) is GCloudNode:
-            ret, offset = int(node.machine.run("python3", input=f'''
+            ret, offset = map(int, node.machine.run("python3", input=f'''
+pattern={pattern}
 with open('/tmp/python-rc.log') as f:
     f.seek({self.offset})
     print(s in f.read())
     print(f.tell())
-''')).stdout.strip().split('\n')
-            offset = int(self.offset)
+''').stdout.strip().split('\n'))
+            self.offset = int(offset)
+            return ret == "True"
+        else:
+            raise NotImplementedError()
+
+    def reset(self):
+        self.offset = 0
+
+    # Count number of occurrences of pattern in new logs
+    def count(self, pattern):
+        if type(self.node) is LocalNode:
+            with open(self.fname) as f:
+                f.seek(self.offset)
+                ret = f.read().count(pattern)
+                self.offset = f.tell()
+            return ret
+        elif type(self.node) == GCloudNode:
+            ret, offset = node.machine.run("python3", input=f'''
+with open('/tmp/python-rc.log') as f:
+    f.seek({self.offset})
+    print(f.read().count({pattern})
+    print(f.tell())
+''').stdout.strip().split('\n')
+            ret = int(ret)
+            self.offset = int(offset)
             return ret
         else:
             raise NotImplementedError()
+
+
+
+def chain_query(node, block_handler, *, block_hash=None, max_blocks=-1):
+    """
+    Query chain block approvals and chunks preceding of block of block_hash.
+    If block_hash is None, it query latest block hash
+    It query at most max_blocks, or if it's -1, all blocks back to genesis
+    """
+    if block_hash is None:
+        status = node.get_status()
+        block_hash = status['sync_info']['latest_block_hash']
+
+    initial_validators = node.validators()
+
+    if max_blocks == -1:
+        while True:
+            validators = node.validators()
+            if validators != initial_validators:
+                print(f'Fatal: validator set of node {node} changes, from {initial_validators} to {validators}')
+                sys.exit(1)
+            block = node.get_block(block_hash)['result']
+            block_handler(block)     
+            block_hash = block['header']['prev_hash']
+            block_height = block['header']['height']
+            if block_height == 0:
+                break
+    else:
+        for _ in range(max_blocks):
+            validators = node.validators()
+            if validators != initial_validators:
+                print(f'Fatal: validator set of node {node} changes, from {initial_validators} to {validators}')
+                sys.exit(1)
+            block = node.get_block(block_hash)['result']
+            block_handler(block)
+            block_hash = block['header']['prev_hash']
+            block_height = block['header']['height']
+            if block_height == 0:
+                break
+
+def load_binary_file(filepath):
+    with open(filepath, "rb") as binaryfile:
+        return bytearray(binaryfile.read())
+
+def compile_rust_contract(content):
+    empty_contract_rs = os.path.join(os.path.dirname(__file__), '../empty-contract-rs')
+    run('mkdir -p /tmp/near')
+    tmp_contract = tempfile.TemporaryDirectory(dir='/tmp/near').name
+    p = run(f'cp -r {empty_contract_rs} {tmp_contract}')
+    if p.returncode != 0:
+        raise Exception(p.stderr)
+    
+    with open(f'{tmp_contract}/src/lib.rs', 'a') as f:
+        f.write(content)
+
+    p = run('bash', input=f'''
+cd {tmp_contract}
+./build.sh
+''')
+    if p.returncode != 0:
+        raise Exception(p.stderr)
+    return f'{tmp_contract}/target/release/empty_contract_rs.wasm'
+
+
+def user_name():
+    username = os.getlogin()
+    if username == 'root':  # digitalocean
+        username = gcloud.list()[0].username.replace('_nearprotocol_com', '')
+    return username
+
+# from https://stackoverflow.com/questions/107705/disable-output-buffering
+# this class allows making print always flush by executing
+#
+#     sys.stdout = Unbuffered(sys.stdout)
+class Unbuffered(object):
+   def __init__(self, stream):
+       self.stream = stream
+   def write(self, data):
+       self.stream.write(data)
+       self.stream.flush()
+   def writelines(self, datas):
+       self.stream.writelines(datas)
+       self.stream.flush()
+   def __getattr__(self, attr):
+       return getattr(self.stream, attr)

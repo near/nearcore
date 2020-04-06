@@ -1,15 +1,14 @@
 use std::cmp::Ordering;
 use std::convert::{TryFrom, TryInto};
 use std::fmt::{Debug, Display, Formatter};
-use std::io::{Error, ErrorKind, Read, Write};
+use std::hash::{Hash, Hasher};
+use std::io::{Error, ErrorKind, Write};
 
 use borsh::{BorshDeserialize, BorshSerialize};
-use rand::rngs::{OsRng, StdRng};
-use rand::SeedableRng;
+use rand_core::OsRng;
 use serde_derive::{Deserialize, Serialize};
 
 use lazy_static::lazy_static;
-use std::hash::{Hash, Hasher};
 
 lazy_static! {
     pub static ref SECP256K1: secp256k1::Secp256k1 = secp256k1::Secp256k1::new();
@@ -22,7 +21,7 @@ pub enum KeyType {
 }
 
 impl Display for KeyType {
-    fn fmt(&self, f: &mut Formatter) -> Result<(), std::fmt::Error> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
         write!(
             f,
             "{}",
@@ -72,7 +71,7 @@ fn split_key_type_data(value: &str) -> Result<(KeyType, &str), Box<dyn std::erro
 pub struct Secp256K1PublicKey([u8; 64]);
 
 impl std::fmt::Debug for Secp256K1PublicKey {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
         write!(f, "{}", bs58::encode(&self.0.to_vec()).into_string())
     }
 }
@@ -101,7 +100,7 @@ impl Ord for Secp256K1PublicKey {
 pub struct ED25519PublicKey(pub [u8; ed25519_dalek::PUBLIC_KEY_LENGTH]);
 
 impl std::fmt::Debug for ED25519PublicKey {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
         write!(f, "{}", bs58::encode(&self.0.to_vec()).into_string())
     }
 }
@@ -134,6 +133,13 @@ pub enum PublicKey {
 }
 
 impl PublicKey {
+    pub fn len(&self) -> usize {
+        match self {
+            PublicKey::ED25519(_) => ed25519_dalek::PUBLIC_KEY_LENGTH + 1,
+            PublicKey::SECP256K1(_) => 65,
+        }
+    }
+
     pub fn empty(key_type: KeyType) -> Self {
         match key_type {
             KeyType::ED25519 => {
@@ -147,6 +153,13 @@ impl PublicKey {
         match self {
             PublicKey::ED25519(_) => KeyType::ED25519,
             PublicKey::SECP256K1(_) => KeyType::SECP256K1,
+        }
+    }
+
+    pub fn unwrap_as_ed25519(&self) -> &ED25519PublicKey {
+        match self {
+            PublicKey::ED25519(key) => &key,
+            PublicKey::SECP256K1(_) => panic!(),
         }
     }
 }
@@ -167,13 +180,13 @@ impl Hash for PublicKey {
 }
 
 impl Display for PublicKey {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
         write!(f, "{}", String::from(self))
     }
 }
 
 impl Debug for PublicKey {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
         write!(f, "{}", String::from(self))
     }
 }
@@ -195,19 +208,15 @@ impl BorshSerialize for PublicKey {
 }
 
 impl BorshDeserialize for PublicKey {
-    fn deserialize<R: Read>(reader: &mut R) -> Result<Self, Error> {
-        let key_type = KeyType::try_from(u8::deserialize(reader)?)
+    fn deserialize(buf: &mut &[u8]) -> Result<Self, Error> {
+        let key_type = KeyType::try_from(u8::deserialize(buf)?)
             .map_err(|err| Error::new(ErrorKind::InvalidData, err.to_string()))?;
         match key_type {
             KeyType::ED25519 => {
-                let mut array = [0; ed25519_dalek::PUBLIC_KEY_LENGTH];
-                reader.read_exact(&mut array)?;
-                Ok(PublicKey::ED25519(ED25519PublicKey(array)))
+                Ok(PublicKey::ED25519(ED25519PublicKey(BorshDeserialize::deserialize(buf)?)))
             }
             KeyType::SECP256K1 => {
-                let mut array = [0; 64];
-                reader.read_exact(&mut array)?;
-                Ok(PublicKey::SECP256K1(Secp256K1PublicKey(array)))
+                Ok(PublicKey::SECP256K1(Secp256K1PublicKey(BorshDeserialize::deserialize(buf)?)))
             }
         }
     }
@@ -298,7 +307,7 @@ impl PartialEq for ED25519SecretKey {
 }
 
 impl std::fmt::Debug for ED25519SecretKey {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
         write!(
             f,
             "{}",
@@ -327,13 +336,11 @@ impl SecretKey {
     pub fn from_random(key_type: KeyType) -> SecretKey {
         match key_type {
             KeyType::ED25519 => {
-                let mut csprng = rand_os::OsRng::new().unwrap();
-                let keypair = ed25519_dalek::Keypair::generate::<sha2::Sha512, _>(&mut csprng);
+                let keypair = ed25519_dalek::Keypair::generate(&mut OsRng);
                 SecretKey::ED25519(ED25519SecretKey(keypair.to_bytes()))
             }
             KeyType::SECP256K1 => {
-                let mut rng = StdRng::from_rng(OsRng::default()).unwrap();
-                SecretKey::SECP256K1(secp256k1::key::SecretKey::new(&SECP256K1, &mut rng))
+                SecretKey::SECP256K1(secp256k1::key::SecretKey::new(&SECP256K1, &mut OsRng))
             }
         }
     }
@@ -342,7 +349,7 @@ impl SecretKey {
         match &self {
             SecretKey::ED25519(secret_key) => {
                 let keypair = ed25519_dalek::Keypair::from_bytes(&secret_key.0).unwrap();
-                Signature::ED25519(keypair.sign::<sha2::Sha512>(data))
+                Signature::ED25519(keypair.sign(data))
             }
 
             SecretKey::SECP256K1(secret_key) => {
@@ -376,10 +383,17 @@ impl SecretKey {
             }
         }
     }
+
+    pub fn unwrap_as_ed25519(&self) -> &ED25519SecretKey {
+        match self {
+            SecretKey::ED25519(key) => &key,
+            SecretKey::SECP256K1(_) => panic!(),
+        }
+    }
 }
 
 impl std::fmt::Display for SecretKey {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
         let data = match self {
             SecretKey::ED25519(secret_key) => bs58::encode(&secret_key.0[..]).into_string(),
             SecretKey::SECP256K1(secret_key) => bs58::encode(&secret_key[..]).into_string(),
@@ -458,7 +472,7 @@ impl PartialEq for Secp256K1Signature {
 }
 
 impl Debug for Secp256K1Signature {
-    fn fmt(&self, f: &mut Formatter) -> Result<(), std::fmt::Error> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
         write!(f, "{}", bs58::encode(&self.0.to_vec()).into_string())
     }
 }
@@ -478,7 +492,7 @@ impl Signature {
             (Signature::ED25519(signature), PublicKey::ED25519(public_key)) => {
                 match ed25519_dalek::PublicKey::from_bytes(&public_key.0) {
                     Err(_) => false,
-                    Ok(public_key) => public_key.verify::<sha2::Sha512>(data, signature).is_ok(),
+                    Ok(public_key) => public_key.verify(data, signature).is_ok(),
                 }
             }
             (Signature::SECP256K1(signature), PublicKey::SECP256K1(public_key)) => {
@@ -538,21 +552,20 @@ impl BorshSerialize for Signature {
 }
 
 impl BorshDeserialize for Signature {
-    fn deserialize<R: Read>(reader: &mut R) -> Result<Self, Error> {
-        let key_type = KeyType::try_from(u8::deserialize(reader)?)
+    fn deserialize(buf: &mut &[u8]) -> Result<Self, Error> {
+        let key_type = KeyType::try_from(u8::deserialize(buf)?)
             .map_err(|err| Error::new(ErrorKind::InvalidData, err.to_string()))?;
         match key_type {
             KeyType::ED25519 => {
-                let mut array = [0; ed25519_dalek::SIGNATURE_LENGTH];
-                reader.read_exact(&mut array)?;
+                let array: [u8; ed25519_dalek::SIGNATURE_LENGTH] =
+                    BorshDeserialize::deserialize(buf)?;
                 Ok(Signature::ED25519(
                     ed25519_dalek::Signature::from_bytes(&array)
                         .map_err(|e| Error::new(ErrorKind::InvalidData, e.to_string()))?,
                 ))
             }
             KeyType::SECP256K1 => {
-                let mut array = [0; 65];
-                reader.read_exact(&mut array)?;
+                let array: [u8; 65] = BorshDeserialize::deserialize(buf)?;
                 Ok(Signature::SECP256K1(Secp256K1Signature(array)))
             }
         }
@@ -560,7 +573,7 @@ impl BorshDeserialize for Signature {
 }
 
 impl Display for Signature {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
         let data = match self {
             Signature::ED25519(signature) => {
                 bs58::encode(&signature.to_bytes().to_vec()).into_string()

@@ -1,9 +1,10 @@
 use std::time::Duration;
 
-use actix::prelude::Future;
 use actix::{Actor, Addr, Context, Handler, Message};
 use actix_web::client::{Client, Connector};
+use futures::FutureExt;
 use serde_derive::{Deserialize, Serialize};
+use tracing::info;
 
 /// Timeout for establishing connection.
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
@@ -15,6 +16,7 @@ pub struct TelemetryConfig {
 
 /// Event to send over telemetry.
 #[derive(Message)]
+#[rtype(result = "()")]
 pub struct TelemetryEvent {
     content: serde_json::Value,
 }
@@ -32,6 +34,7 @@ impl Default for TelemetryActor {
 
 impl TelemetryActor {
     pub fn new(config: TelemetryConfig) -> Self {
+        openssl_probe::init_ssl_cert_env_vars();
         let client = Client::build()
             .timeout(CONNECT_TIMEOUT)
             .connector(
@@ -59,8 +62,11 @@ impl Handler<TelemetryEvent> for TelemetryActor {
                     .post(endpoint)
                     .header("Content-Type", "application/json")
                     .send_json(&msg.content)
-                    .map_err(|_err| {})
-                    .map(|_response| {}),
+                    .map(|response| {
+                        if let Err(error) = response {
+                            info!(target: "telemetry", "Telemetry data could not be sent due to: {}", error);
+                        }
+                    }),
             );
         }
     }

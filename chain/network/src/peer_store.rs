@@ -8,11 +8,12 @@ use log::debug;
 use rand::seq::SliceRandom;
 use rand::thread_rng;
 
+use near_primitives::network::PeerId;
 use near_primitives::utils::to_timestamp;
 use near_store::{ColPeers, Store};
 
 use crate::types::{
-    FullPeerInfo, KnownPeerState, KnownPeerStatus, NetworkConfig, PeerId, PeerInfo, ReasonForBan,
+    FullPeerInfo, KnownPeerState, KnownPeerStatus, NetworkConfig, PeerInfo, ReasonForBan,
 };
 
 /// Known peers store, maintaining cache of known peers and connection to storage to save/load them.
@@ -128,11 +129,13 @@ impl PeerStore {
     }
 
     /// Return unconnected or peers with unknown status that we can try to connect to.
+    /// Peers with unknown addresses are filtered out
     pub fn unconnected_peers(&self, ignore_list: &HashSet<PeerId>) -> Vec<PeerInfo> {
         self.find_peers(
             |p| {
                 (p.status == KnownPeerStatus::NotConnected || p.status == KnownPeerStatus::Unknown)
                     && !ignore_list.contains(&p.peer_info.id)
+                    && p.peer_info.addr.is_some()
             },
             0,
         )
@@ -152,7 +155,7 @@ impl PeerStore {
     }
 
     /// Return iterator over all known peers.
-    pub fn iter(&self) -> Iter<PeerId, KnownPeerState> {
+    pub fn iter(&self) -> Iter<'_, PeerId, KnownPeerState> {
         self.peer_states.iter()
     }
 
@@ -191,12 +194,12 @@ impl PeerStore {
 
 #[cfg(test)]
 mod test {
-    extern crate tempdir;
+    use tempdir;
 
+    use near_crypto::{KeyType, SecretKey};
     use near_store::create_store;
 
     use super::*;
-    use near_crypto::{KeyType, SecretKey};
 
     fn gen_peer_info() -> PeerInfo {
         PeerInfo {

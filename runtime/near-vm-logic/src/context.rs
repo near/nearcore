@@ -1,4 +1,4 @@
-use crate::types::{AccountId, Balance, BlockIndex, Gas, PublicKey, StorageUsage};
+use crate::types::{AccountId, Balance, BlockHeight, EpochHeight, Gas, PublicKey, StorageUsage};
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -18,23 +18,30 @@ pub struct VMContext {
     /// If this execution is the result of direct execution of transaction then it
     /// is equal to `signer_account_id`.
     pub predecessor_account_id: AccountId,
-    #[serde(with = "crate::serde_with::bytes_as_str")]
     /// The input to the contract call.
+    /// Encoded as base64 string to be able to pass input in borsh binary format.
+    #[serde(with = "crate::serde_with::bytes_as_base64")]
     pub input: Vec<u8>,
-    /// The current block index.
-    pub block_index: BlockIndex,
-    /// The current block timestamp.
+    /// The current block height.
+    // TODO #1903 rename to `block_height`
+    pub block_index: BlockHeight,
+    /// The current block timestamp (number of non-leap-nanoseconds since January 1, 1970 0:00:00 UTC).
     pub block_timestamp: u64,
+    /// The current epoch height.
+    pub epoch_height: EpochHeight,
 
     /// The balance attached to the given account. Excludes the `attached_deposit` that was
     /// attached to the transaction.
+    #[serde(with = "crate::serde_with::u128_dec_format_compatible")]
     pub account_balance: Balance,
     /// The balance of locked tokens on the given account.
+    #[serde(with = "crate::serde_with::u128_dec_format_compatible")]
     pub account_locked_balance: Balance,
     /// The account's storage usage before the contract execution
     pub storage_usage: StorageUsage,
     /// The balance that was attached to the call that will be immediately deposited before the
     /// contract execution starts.
+    #[serde(with = "crate::serde_with::u128_dec_format_compatible")]
     pub attached_deposit: Balance,
     /// The gas attached to the call that can be used to pay for the gas fees.
     pub prepaid_gas: Gas,

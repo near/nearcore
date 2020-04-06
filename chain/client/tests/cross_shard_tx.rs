@@ -2,14 +2,14 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, RwLock};
 
 use actix::{Addr, System};
-use futures::future;
-use futures::future::Future;
+use futures::{future, FutureExt};
 
 use near_client::test_utils::setup_mock_all_validators;
 use near_client::{ClientActor, Query, ViewClientActor};
 use near_network::{NetworkRequests, NetworkResponses, PeerInfo};
 use near_primitives::test_utils::init_test_logger;
-use near_primitives::views::QueryResponseKind::ViewAccount;
+use near_primitives::types::BlockIdOrFinality;
+use near_primitives::views::{QueryRequest, QueryResponseKind::ViewAccount};
 
 /// Tests that the KeyValueRuntime properly sets balances in genesis and makes them queriable
 #[test]
@@ -34,9 +34,11 @@ fn test_keyvalue_runtime_balances() {
             false,
             false,
             5,
-            Arc::new(RwLock::new(move |_account_id: String, _msg: &NetworkRequests| {
+            false,
+            vec![false; validators.iter().map(|x| x.len()).sum()],
+            Arc::new(RwLock::new(Box::new(move |_account_id: String, _msg: &NetworkRequests| {
                 (NetworkResponses::NoResponse, true)
-            })),
+            }))),
         );
         *connectors.write().unwrap() = conn;
 
@@ -49,7 +51,10 @@ fn test_keyvalue_runtime_balances() {
             actix::spawn(
                 connectors_[i]
                     .1
-                    .send(Query::new("account/".to_string() + flat_validators[i], vec![]))
+                    .send(Query::new(
+                        BlockIdOrFinality::latest(),
+                        QueryRequest::ViewAccount { account_id: flat_validators[i].to_string() },
+                    ))
                     .then(move |res| {
                         let query_response = res.unwrap().unwrap().unwrap();
                         if let ViewAccount(view_account_result) = query_response.kind {
@@ -59,7 +64,7 @@ fn test_keyvalue_runtime_balances() {
                                 System::current().stop();
                             }
                         }
-                        future::result(Ok(()))
+                        future::ready(())
                     }),
             );
         }
@@ -76,8 +81,7 @@ mod tests {
     use std::sync::{Arc, RwLock};
 
     use actix::{Addr, MailboxError, System};
-    use futures::future;
-    use futures::future::Future;
+    use futures::{future, FutureExt};
 
     use near_chain::test_utils::account_id_to_shard_id;
     use near_client::test_utils::setup_mock_all_validators;
@@ -89,9 +93,8 @@ mod tests {
     use near_primitives::hash::CryptoHash;
     use near_primitives::test_utils::init_test_logger;
     use near_primitives::transaction::SignedTransaction;
-    use near_primitives::types::AccountId;
-    use near_primitives::views::QueryResponse;
-    use near_primitives::views::QueryResponseKind::ViewAccount;
+    use near_primitives::types::{AccountId, BlockIdOrFinality};
+    use near_primitives::views::{QueryRequest, QueryResponse, QueryResponseKind::ViewAccount};
 
     fn send_tx(
         num_validators: usize,
@@ -108,14 +111,17 @@ mod tests {
         actix::spawn(
             connectors.write().unwrap()[connector_ordinal]
                 .0
-                .send(NetworkClientMessages::Transaction(SignedTransaction::send_money(
-                    nonce,
-                    from.clone(),
-                    to.clone(),
-                    &signer,
-                    amount,
-                    block_hash,
-                )))
+                .send(NetworkClientMessages::Transaction {
+                    transaction: SignedTransaction::send_money(
+                        nonce,
+                        from.clone(),
+                        to.clone(),
+                        &signer,
+                        amount,
+                        block_hash,
+                    ),
+                    is_forwarded: false,
+                })
                 .then(move |x| {
                     match x.unwrap() {
                         NetworkClientResponses::NoResponse
@@ -146,7 +152,7 @@ mod tests {
                             assert!(false)
                         }
                     }
-                    future::result(Ok(()))
+                    future::ready(())
                 }),
         );
     }
@@ -187,7 +193,10 @@ mod tests {
                     connectors_[account_id_to_shard_id(&account_id, 8) as usize
                         + (*presumable_epoch.read().unwrap() * 8) % 24]
                         .1
-                        .send(Query::new("account/".to_owned() + &account_id, vec![]))
+                        .send(Query::new(
+                            BlockIdOrFinality::latest(),
+                            QueryRequest::ViewAccount { account_id: account_id.clone() },
+                        ))
                         .then(move |x| {
                             test_cross_shard_tx_callback(
                                 x,
@@ -204,7 +213,7 @@ mod tests {
                                 num_iters,
                                 block_hash,
                             );
-                            future::result(Ok(()))
+                            future::ready(())
                         }),
                 );
                 return;
@@ -276,8 +285,10 @@ mod tests {
                                 + (*presumable_epoch.read().unwrap() * 8) % 24]
                                 .1
                                 .send(Query::new(
-                                    "account/".to_string() + validators[i].clone(),
-                                    vec![],
+                                    BlockIdOrFinality::latest(),
+                                    QueryRequest::ViewAccount {
+                                        account_id: validators[i].to_string(),
+                                    },
                                 ))
                                 .then(move |x| {
                                     test_cross_shard_tx_callback(
@@ -295,7 +306,7 @@ mod tests {
                                         num_iters,
                                         block_hash,
                                     );
-                                    future::result(Ok(()))
+                                    future::ready(())
                                 }),
                         );
                     }
@@ -324,7 +335,10 @@ mod tests {
                     connectors_[account_id_to_shard_id(&account_id, 8) as usize
                         + (*presumable_epoch.read().unwrap() * 8) % 24]
                         .1
-                        .send(Query::new("account/".to_string() + &account_id, vec![]))
+                        .send(Query::new(
+                            BlockIdOrFinality::latest(),
+                            QueryRequest::ViewAccount { account_id: account_id.clone() },
+                        ))
                         .then(move |x| {
                             test_cross_shard_tx_callback(
                                 x,
@@ -341,14 +355,20 @@ mod tests {
                                 num_iters,
                                 block_hash,
                             );
-                            future::result(Ok(()))
+                            future::ready(())
                         }),
                 );
             }
         }
     }
 
-    fn test_cross_shard_tx_common(num_iters: usize, rotate_validators: bool, drop_chunks: bool) {
+    fn test_cross_shard_tx_common(
+        num_iters: usize,
+        rotate_validators: bool,
+        drop_chunks: bool,
+        test_doomslug: bool,
+        block_production_time: u64,
+    ) {
         if !cfg!(feature = "expensive_tests") {
             return;
         }
@@ -396,13 +416,17 @@ mod tests {
                 key_pairs.clone(),
                 validator_groups,
                 true,
-                if drop_chunks || rotate_validators { 150 } else { 100 },
+                block_production_time,
                 drop_chunks,
-                true,
+                !test_doomslug,
                 20,
-                Arc::new(RwLock::new(move |_account_id: String, _msg: &NetworkRequests| {
-                    (NetworkResponses::NoResponse, true)
-                })),
+                test_doomslug,
+                vec![true; validators.iter().map(|x| x.len()).sum()],
+                Arc::new(RwLock::new(Box::new(
+                    move |_account_id: String, _msg: &NetworkRequests| {
+                        (NetworkResponses::NoResponse, true)
+                    },
+                ))),
             );
             *connectors.write().unwrap() = conn;
             let block_hash = genesis_block.hash();
@@ -429,8 +453,10 @@ mod tests {
                     connectors_[i + *presumable_epoch.read().unwrap() * 8]
                         .1
                         .send(Query::new(
-                            "account/".to_string() + flat_validators[i].clone(),
-                            vec![],
+                            BlockIdOrFinality::latest(),
+                            QueryRequest::ViewAccount {
+                                account_id: flat_validators[i].to_string(),
+                            },
                         ))
                         .then(move |x| {
                             test_cross_shard_tx_callback(
@@ -448,15 +474,15 @@ mod tests {
                                 num_iters,
                                 block_hash,
                             );
-                            future::result(Ok(()))
+                            future::ready(())
                         }),
                 );
             }
 
             near_network::test_utils::wait_or_panic(if rotate_validators {
-                1000 * 60 * 15 * 4
+                1000 * 60 * 80
             } else {
-                1000 * 60 * 15 * 2
+                1000 * 60 * 30
             });
         })
         .unwrap();
@@ -464,26 +490,36 @@ mod tests {
 
     #[test]
     fn test_cross_shard_tx() {
-        test_cross_shard_tx_common(64, false, false);
+        test_cross_shard_tx_common(64, false, false, false, 100);
+    }
+
+    #[test]
+    fn test_cross_shard_tx_doomslug() {
+        test_cross_shard_tx_common(64, false, false, true, 100);
     }
 
     #[test]
     fn test_cross_shard_tx_drop_chunks() {
-        test_cross_shard_tx_common(64, false, true);
+        test_cross_shard_tx_common(64, false, true, false, 150);
     }
 
     #[test]
     fn test_cross_shard_tx_8_iterations() {
-        test_cross_shard_tx_common(8, false, false);
+        test_cross_shard_tx_common(8, false, false, false, 100);
     }
 
     #[test]
     fn test_cross_shard_tx_8_iterations_drop_chunks() {
-        test_cross_shard_tx_common(8, false, true);
+        test_cross_shard_tx_common(8, false, true, false, 150);
     }
 
     #[test]
-    fn test_cross_shard_tx_with_validator_rotation() {
-        test_cross_shard_tx_common(64, true, false);
+    fn test_cross_shard_tx_with_validator_rotation_1() {
+        test_cross_shard_tx_common(8, true, false, false, 200);
+    }
+
+    #[test]
+    fn test_cross_shard_tx_with_validator_rotation_2() {
+        test_cross_shard_tx_common(24, true, false, false, 400);
     }
 }

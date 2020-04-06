@@ -1,6 +1,6 @@
 use rocksdb::{
-    BlockBasedOptions, ColumnFamily, ColumnFamilyDescriptor, IteratorMode, Options, ReadOptions,
-    WriteBatch, DB,
+    BlockBasedOptions, ColumnFamily, ColumnFamilyDescriptor, Direction, IteratorMode, Options,
+    ReadOptions, WriteBatch, DB,
 };
 use std::cmp;
 use std::collections::HashMap;
@@ -10,17 +10,13 @@ use std::sync::RwLock;
 #[derive(Debug, Clone, PartialEq)]
 pub struct DBError(rocksdb::Error);
 
-impl std::error::Error for DBError {
-    fn description(&self) -> &str {
-        &self.0.description()
-    }
-}
-
 impl std::fmt::Display for DBError {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
         self.0.fmt(formatter)
     }
 }
+
+impl std::error::Error for DBError {}
 
 impl From<rocksdb::Error> for DBError {
     fn from(err: rocksdb::Error) -> Self {
@@ -39,7 +35,7 @@ pub enum DBCol {
     ColBlockMisc = 0,
     ColBlock = 1,
     ColBlockHeader = 2,
-    ColBlockIndex = 3,
+    ColBlockHeight = 3,
     ColState = 4,
     ColChunkExtra = 5,
     ColTransactionResult = 6,
@@ -73,21 +69,31 @@ pub enum DBCol {
     ColReceiptIdToShardId = 28,
     ColNextBlockWithNewChunk = 29,
     ColLastBlockWithNewChunk = 30,
-    // Map each saved peer on disk with its component id.
+    /// Map each saved peer on disk with its component id.
     ColPeerComponent = 31,
-    // Map component id with all edges in this component.
+    /// Map component id with all edges in this component.
     ColComponentEdges = 32,
-    // Biggest nonce used.
+    /// Biggest nonce used.
     LastComponentNonce = 33,
+    /// Transactions
+    ColTransactions = 34,
+    ColChunkPerHeightShard = 35,
+    /// Changes to key-values that we have recorded.
+    ColStateChanges = 36,
+    ColBlockRefCount = 37,
+    ColTrieChanges = 38,
 }
 
+// Do not move this line from enum DBCol
+const NUM_COLS: usize = 39;
+
 impl std::fmt::Display for DBCol {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
         let desc = match self {
             Self::ColBlockMisc => "miscellaneous block data",
             Self::ColBlock => "block data",
             Self::ColBlockHeader => "block header data",
-            Self::ColBlockIndex => "block index",
+            Self::ColBlockHeight => "block height",
             Self::ColState => "blockchain state",
             Self::ColChunkExtra => "extra information of trunk",
             Self::ColTransactionResult => "transaction results",
@@ -118,12 +124,15 @@ impl std::fmt::Display for DBCol {
             Self::ColPeerComponent => "peer components",
             Self::ColComponentEdges => "component edges",
             Self::LastComponentNonce => "last component nonce",
+            Self::ColTransactions => "transactions",
+            Self::ColChunkPerHeightShard => "hash of chunk per height and shard_id",
+            Self::ColStateChanges => "key value changes",
+            Self::ColBlockRefCount => "refcount per block",
+            Self::ColTrieChanges => "trie changes",
         };
         write!(formatter, "{}", desc)
     }
 }
-
-const NUM_COLS: usize = 34;
 
 pub struct DBTransaction {
     pub ops: Vec<DBOp>,
@@ -169,6 +178,11 @@ pub trait Database: Sync + Send {
     }
     fn get(&self, col: DBCol, key: &[u8]) -> Result<Option<Vec<u8>>, DBError>;
     fn iter<'a>(&'a self, column: DBCol) -> Box<dyn Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a>;
+    fn iter_prefix<'a>(
+        &'a self,
+        col: DBCol,
+        key_prefix: &'a [u8],
+    ) -> Box<dyn Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a>;
     fn write(&self, batch: DBTransaction) -> Result<(), DBError>;
 }
 
@@ -184,6 +198,32 @@ impl Database for RocksDB {
                 .db
                 .iterator_cf_opt(cf_handle, &self.read_options, IteratorMode::Start)
                 .unwrap();
+            Box::new(iterator)
+        }
+    }
+
+    fn iter_prefix<'a>(
+        &'a self,
+        col: DBCol,
+        key_prefix: &'a [u8],
+    ) -> Box<dyn Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a> {
+        // NOTE: There is no Clone implementation for ReadOptions, so we cannot really reuse
+        // `self.read_options` here.
+        let mut read_options = rocksdb_read_options();
+        read_options.set_prefix_same_as_start(true);
+        unsafe {
+            let cf_handle = &*self.cfs[col as usize];
+            // This implementation is copied from RocksDB implementation of `prefix_iterator_cf` since
+            // there is no `prefix_iterator_cf_opt` method.
+            let iterator = self
+                .db
+                .iterator_cf_opt(
+                    cf_handle,
+                    &read_options,
+                    IteratorMode::From(key_prefix, Direction::Forward),
+                )
+                .unwrap()
+                .take_while(move |(key, _value)| key.starts_with(key_prefix));
             Box::new(iterator)
         }
     }
@@ -215,6 +255,14 @@ impl Database for TestDB {
             .into_iter()
             .map(|(k, v)| (k.into_boxed_slice(), v.into_boxed_slice()));
         Box::new(iterator)
+    }
+
+    fn iter_prefix<'a>(
+        &'a self,
+        col: DBCol,
+        key_prefix: &'a [u8],
+    ) -> Box<dyn Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a> {
+        Box::new(self.iter(col).filter(move |(key, _value)| key.starts_with(key_prefix)))
     }
 
     fn write(&self, transaction: DBTransaction) -> Result<(), DBError> {
@@ -254,12 +302,12 @@ fn rocksdb_options() -> Options {
 
 fn rocksdb_block_based_options() -> BlockBasedOptions {
     let mut block_opts = BlockBasedOptions::default();
-    block_opts.set_block_size(1024 * 1024 * 8);
+    block_opts.set_block_size(1024 * 16);
     let cache_size = 1024 * 1024 * 512 / 3;
     block_opts.set_lru_cache(cache_size);
     block_opts.set_pin_l0_filter_and_index_blocks_in_cache(true);
     block_opts.set_cache_index_and_filter_blocks(true);
-
+    block_opts.set_bloom_filter(10, true);
     block_opts
 }
 

@@ -1,9 +1,13 @@
+use std::collections::{HashMap, HashSet};
+
+use near_primitives::block::{
+    Approval, BlockHeader, BlockHeaderInnerLite, BlockHeaderInnerRest, BlockScore,
+};
+use near_primitives::hash::CryptoHash;
+use near_primitives::types::{AccountId, Balance, BlockHeight, EpochId, ValidatorStake};
+
 use crate::error::{Error, ErrorKind};
 use crate::{ChainStoreAccess, ChainStoreUpdate};
-use near_primitives::block::{Approval, BlockHeader, BlockHeaderInnerRest, Weight};
-use near_primitives::hash::CryptoHash;
-use near_primitives::types::{AccountId, Balance, BlockIndex, EpochId, ValidatorStake};
-use std::collections::{HashMap, HashSet};
 
 // How many blocks back to search for a new reference hash when the chain switches and the block
 //     producer cannot use the same reference hash as the last approval on chain
@@ -24,20 +28,28 @@ impl FinalityGadget {
     pub fn process_approval(
         me: &Option<AccountId>,
         approval: &Approval,
-        chain_store_update: &mut ChainStoreUpdate,
+        chain_store_update: &mut ChainStoreUpdate<'_>,
     ) -> Result<(), Error> {
+        // Approvals without reference hash are for doomslug / randomness only and are ignored by
+        // the finality gadget
+        if approval.reference_hash.is_none() {
+            return Ok(());
+        }
+
         if me.as_ref().map(|me| me == &approval.account_id).unwrap_or(false) {
             // First update the statistics for the current block producer if the approval is created by us
             let header = chain_store_update.get_block_header(&approval.parent_hash)?;
             let BlockHeader {
-                inner_rest: BlockHeaderInnerRest { total_weight, score, .. }, ..
+                inner_lite: BlockHeaderInnerLite { height, .. },
+                inner_rest: BlockHeaderInnerRest { score, .. },
+                ..
             } = header;
-            let total_weight = total_weight.clone();
+            let height = height.clone();
             let score = score.clone();
 
-            let update_weight =
-                match chain_store_update.largest_approved_weight().map(|x| x.clone()) {
-                    Ok(prev_weight) => total_weight > prev_weight,
+            let update_height =
+                match chain_store_update.largest_approved_height().map(|x| x.clone()) {
+                    Ok(prev_height) => height > prev_height,
                     Err(e) => match e.kind() {
                         ErrorKind::DBNotFoundErr(_) => true,
                         _ => return Err(e),
@@ -53,14 +65,15 @@ impl FinalityGadget {
                 },
             };
 
-            if update_weight {
-                chain_store_update.save_largest_approved_weight(&total_weight);
+            if update_height {
+                chain_store_update.save_largest_approved_height(&height);
             }
             if update_score {
                 chain_store_update.save_largest_approved_score(&score);
             }
 
-            chain_store_update.save_my_last_approval(&approval.parent_hash, approval.clone());
+            chain_store_update
+                .save_my_last_approval_with_reference_hash(&approval.parent_hash, approval.clone());
         }
 
         Ok(())
@@ -85,8 +98,8 @@ impl FinalityGadget {
             }
         };
 
-        let largest_weight_approved = match chain_store.largest_approved_weight() {
-            Ok(largest_weight) => largest_weight.clone(),
+        let largest_height_approved = match chain_store.largest_approved_height() {
+            Ok(largest_height) => largest_height.clone(),
             Err(e) => match e.kind() {
                 ErrorKind::DBNotFoundErr(_) => return Some(prev_hash),
                 _ => return None,
@@ -107,7 +120,7 @@ impl FinalityGadget {
         FinalityGadget::get_my_approval_reference_hash_inner(
             prev_hash,
             last_approval_on_chain,
-            largest_weight_approved,
+            largest_height_approved,
             largest_score_approved,
             chain_store,
         )
@@ -116,8 +129,8 @@ impl FinalityGadget {
     pub fn get_my_approval_reference_hash_inner(
         prev_hash: CryptoHash,
         last_approval_on_chain: Option<Approval>,
-        largest_weight_approved: Weight,
-        largest_score_approved: Weight,
+        largest_height_approved: BlockHeight,
+        largest_score_approved: BlockScore,
         chain_store: &mut dyn ChainStoreAccess,
     ) -> Option<CryptoHash> {
         let default_f = |chain_store: &mut dyn ChainStoreAccess| match chain_store
@@ -127,7 +140,7 @@ impl FinalityGadget {
                 let mut candidate = None;
                 // Get the reference_hash up to `REFERENCE_HASH_LOOKUP_DEPTH` blocks into the past
                 for _ in 0..REFERENCE_HASH_LOOKUP_DEPTH {
-                    if header.inner_rest.total_weight > largest_weight_approved
+                    if header.inner_lite.height > largest_height_approved
                         && header.inner_rest.score >= largest_score_approved
                     {
                         candidate = Some(header.hash());
@@ -150,10 +163,10 @@ impl FinalityGadget {
             None => return default_f(chain_store),
         };
 
-        let (last_weight_approved_on_chain, last_score_approved_on_chain) =
+        let (last_height_approved_on_chain, last_score_approved_on_chain) =
             match chain_store.get_block_header(&last_approval_on_chain.parent_hash) {
                 Ok(last_header_approved_on_chain) => (
-                    last_header_approved_on_chain.inner_rest.total_weight.clone(),
+                    last_header_approved_on_chain.inner_lite.height,
                     last_header_approved_on_chain.inner_rest.score.clone(),
                 ),
                 Err(_) => {
@@ -161,12 +174,13 @@ impl FinalityGadget {
                 }
             };
 
-        // It is impossible for an honest actor to have two approvals with the same weight for
+        // It is impossible for an honest actor to have two approvals with the same height for
         //    their parent hashes on two different chains, so this check is sufficient
-        if last_weight_approved_on_chain == largest_weight_approved
+        if last_height_approved_on_chain == largest_height_approved
             && last_score_approved_on_chain == largest_score_approved
+            && last_approval_on_chain.reference_hash.is_some()
         {
-            Some(last_approval_on_chain.reference_hash)
+            Some(last_approval_on_chain.reference_hash).unwrap()
         } else {
             default_f(chain_store)
         }
@@ -175,7 +189,7 @@ impl FinalityGadget {
     pub fn compute_quorums(
         mut prev_hash: CryptoHash,
         epoch_id: EpochId,
-        mut height: BlockIndex,
+        mut height: BlockHeight,
         mut approvals: Vec<Approval>,
         chain_store: &mut dyn ChainStoreAccess,
         stakes: &Vec<ValidatorStake>,
@@ -193,7 +207,7 @@ impl FinalityGadget {
         let mut stake_surrounding_no_quorum = 0 as Balance;
 
         let account_id_to_stake =
-            stakes.iter().map(|x| (&x.account_id, x.amount)).collect::<HashMap<_, _>>();
+            stakes.iter().map(|x| (&x.account_id, x.stake)).collect::<HashMap<_, _>>();
         assert!(account_id_to_stake.len() == stakes.len());
         let threshold = account_id_to_stake.values().sum::<u128>() * 2u128 / 3u128;
 
@@ -211,14 +225,16 @@ impl FinalityGadget {
 
             // Update surrounding approvals
             for approval in approvals {
+                let reference_height = match approval.reference_hash {
+                    Some(rh) => chain_store.get_block_header(&rh)?.inner_lite.height,
+                    None => continue,
+                };
+
                 let account_id = approval.account_id.clone();
                 let cur_account_stake = match account_id_to_stake.get(&account_id) {
                     Some(stake) => *stake,
                     None => continue,
                 };
-
-                let reference_height =
-                    chain_store.get_block_header(&approval.reference_hash)?.inner_lite.height;
 
                 let was_surrounding_no_quroum = if let Some(old_height) =
                     accounts_to_height_to_remove.get(&account_id)

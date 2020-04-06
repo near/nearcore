@@ -1,98 +1,45 @@
 use std::collections::{HashMap, HashSet};
-use std::convert::{From, TryInto};
-use std::convert::{Into, TryFrom};
+use std::convert::{Into, TryFrom, TryInto};
 use std::fmt;
-use std::hash::{Hash, Hasher};
-use std::net::SocketAddr;
+use std::net::{AddrParseError, IpAddr, SocketAddr};
 use std::str::FromStr;
+use std::sync::RwLock;
 use std::time::Duration;
 
 use actix::dev::{MessageResponse, ResponseChannel};
-use actix::{Actor, Addr, Message, Recipient};
+use actix::{Actor, Addr, MailboxError, Message, Recipient};
 use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::{DateTime, Utc};
+use futures::{future::BoxFuture, FutureExt};
 use serde_derive::{Deserialize, Serialize};
 use tokio::net::TcpStream;
 
-use near_chain::types::{ShardStateSyncResponse, StateRequestParts};
+use near_chain::types::ShardStateSyncResponse;
 use near_chain::{Block, BlockHeader};
+use near_chain_configs::PROTOCOL_VERSION;
 use near_crypto::{PublicKey, SecretKey, Signature};
 use near_metrics;
-use near_primitives::block::{Approval, ApprovalMessage, GenesisId, WeightAndScore};
+use near_primitives::block::{Approval, ApprovalMessage, BlockScore, GenesisId, ScoreAndHeight};
 use near_primitives::challenge::Challenge;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::{hash, CryptoHash};
+use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::sharding::{ChunkHash, PartialEncodedChunk};
 use near_primitives::transaction::{ExecutionOutcomeWithIdAndProof, SignedTransaction};
-use near_primitives::types::{AccountId, BlockIndex, EpochId, ShardId};
+use near_primitives::types::{AccountId, BlockHeight, BlockIdOrFinality, EpochId, ShardId};
 use near_primitives::utils::{from_timestamp, to_timestamp};
-use near_primitives::views::{FinalExecutionOutcomeView, QueryResponse};
+use near_primitives::views::{FinalExecutionOutcomeView, QueryRequest, QueryResponse};
 
 use crate::metrics;
 use crate::peer::Peer;
+#[cfg(feature = "metric_recorder")]
+use crate::recorder::MetricRecorder;
 use crate::routing::{Edge, EdgeInfo, RoutingTableInfo};
-use std::sync::RwLock;
 
-/// Current latest version of the protocol
-pub const PROTOCOL_VERSION: u32 = 4;
-
-/// Peer id is the public key.
-#[derive(BorshSerialize, BorshDeserialize, Clone, Eq, PartialOrd, Ord, Serialize, Deserialize)]
-pub struct PeerId(PublicKey);
-
-impl PeerId {
-    pub fn new(key: PublicKey) -> Self {
-        Self(key)
-    }
-
-    pub fn public_key(&self) -> PublicKey {
-        self.0.clone()
-    }
-}
-
-impl From<PeerId> for Vec<u8> {
-    fn from(peer_id: PeerId) -> Vec<u8> {
-        peer_id.0.try_to_vec().unwrap()
-    }
-}
-
-impl From<PublicKey> for PeerId {
-    fn from(public_key: PublicKey) -> PeerId {
-        PeerId(public_key)
-    }
-}
-
-impl TryFrom<Vec<u8>> for PeerId {
-    type Error = Box<dyn std::error::Error>;
-
-    fn try_from(bytes: Vec<u8>) -> Result<PeerId, Self::Error> {
-        Ok(PeerId(PublicKey::try_from_slice(&bytes)?))
-    }
-}
-
-impl Hash for PeerId {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        state.write(&self.0.try_to_vec().unwrap());
-    }
-}
-
-impl PartialEq for PeerId {
-    fn eq(&self, other: &Self) -> bool {
-        self.0 == other.0
-    }
-}
-
-impl fmt::Display for PeerId {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
-impl fmt::Debug for PeerId {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
+/// Number of hops a message is allowed to travel before being dropped.
+/// This is used to avoid infinite loop because of inconsistent view of the network
+/// by different nodes.
+pub const ROUTED_MESSAGE_TTL: u8 = 100;
 
 /// Peer information.
 #[derive(BorshSerialize, BorshDeserialize, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -116,7 +63,7 @@ impl PeerInfo {
 
 // Note, `Display` automatically implements `ToString` which must be reciprocal to `FromStr`.
 impl fmt::Display for PeerInfo {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.id)?;
         if let Some(addr) = &self.addr {
             write!(f, "@{}", addr)?;
@@ -168,16 +115,22 @@ impl TryFrom<&str> for PeerInfo {
 }
 
 /// Peer chain information.
-#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, Eq, PartialEq, Default)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Clone, Debug, Eq, PartialEq, Default)]
 pub struct PeerChainInfo {
     /// Chain Id and hash of genesis block.
     pub genesis_id: GenesisId,
     /// Last known chain height of the peer.
-    pub height: BlockIndex,
-    /// Last known chain weight/score of the peer.
-    pub weight_and_score: WeightAndScore,
+    pub height: BlockHeight,
+    /// Last known chain score of the peer.
+    pub score: BlockScore,
     /// Shards that the peer is tracking
     pub tracked_shards: Vec<ShardId>,
+}
+
+impl PeerChainInfo {
+    pub fn score_and_height(&self) -> ScoreAndHeight {
+        ScoreAndHeight { score: self.score, height: self.height }
+    }
 }
 
 /// Peer type.
@@ -200,7 +153,7 @@ pub enum PeerStatus {
     Banned(ReasonForBan),
 }
 
-#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, PartialEq, Eq, Clone, Debug)]
 pub struct Handshake {
     /// Protocol version.
     pub version: u32,
@@ -225,73 +178,34 @@ impl Handshake {
     }
 }
 
-#[derive(BorshSerialize, BorshDeserialize)]
-struct AnnounceAccountRouteHeader {
-    pub account_id: AccountId,
-    pub peer_id: PeerId,
-    pub epoch_id: EpochId,
-}
-
 /// Account route description
-#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, PartialEq, Eq, Clone, Debug)]
 pub struct AnnounceAccountRoute {
     pub peer_id: PeerId,
     pub hash: CryptoHash,
     pub signature: Signature,
 }
 
-/// Account announcement information
-#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
-pub struct AnnounceAccount {
-    /// AccountId to be announced.
-    pub account_id: AccountId,
-    /// PeerId from the owner of the account.
-    pub peer_id: PeerId,
-    /// This announcement is only valid for this `epoch`.
-    pub epoch_id: EpochId,
-    /// Signature using AccountId associated secret key.
-    pub signature: Signature,
-}
-
-impl AnnounceAccount {
-    pub fn build_header_hash(
-        account_id: &AccountId,
-        peer_id: &PeerId,
-        epoch_id: &EpochId,
-    ) -> CryptoHash {
-        let header = AnnounceAccountRouteHeader {
-            account_id: account_id.clone(),
-            peer_id: peer_id.clone(),
-            epoch_id: epoch_id.clone(),
-        };
-        hash(&header.try_to_vec().unwrap())
-    }
-
-    pub fn hash(&self) -> CryptoHash {
-        AnnounceAccount::build_header_hash(&self.account_id, &self.peer_id, &self.epoch_id)
-    }
-}
-
-#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, PartialEq, Eq, Clone, Debug)]
 pub enum HandshakeFailureReason {
     ProtocolVersionMismatch(u32),
     GenesisMismatch(GenesisId),
 }
 
-#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, PartialEq, Eq, Clone, Debug)]
 pub struct Ping {
     pub nonce: u64,
     pub source: PeerId,
 }
 
-#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, PartialEq, Eq, Clone, Debug)]
 pub struct Pong {
     pub nonce: u64,
     pub source: PeerId,
 }
 
 // TODO(#1313): Use Box
-#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, PartialEq, Eq, Clone, Debug)]
 #[allow(clippy::large_enum_variant)]
 pub enum RoutedMessageBody {
     BlockApproval(Approval),
@@ -300,17 +214,18 @@ pub enum RoutedMessageBody {
     TxStatusRequest(AccountId, CryptoHash),
     TxStatusResponse(FinalExecutionOutcomeView),
     QueryRequest {
-        path: String,
-        data: Vec<u8>,
-        id: String,
+        query_id: String,
+        block_id_or_finality: BlockIdOrFinality,
+        request: QueryRequest,
     },
     QueryResponse {
+        query_id: String,
         response: Result<QueryResponse, String>,
-        id: String,
     },
     ReceiptOutcomeRequest(CryptoHash),
     ReceiptOutComeResponse(ExecutionOutcomeWithIdAndProof),
-    StateRequest(ShardId, CryptoHash, bool, StateRequestParts),
+    StateRequestHeader(ShardId, CryptoHash),
+    StateRequestPart(ShardId, CryptoHash, u64),
     StateResponse(StateResponseInfo),
     PartialEncodedChunkRequest(PartialEncodedChunkRequestMsg),
     PartialEncodedChunk(PartialEncodedChunk),
@@ -319,13 +234,13 @@ pub enum RoutedMessageBody {
     Pong(Pong),
 }
 
-#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, PartialEq, Eq, Clone, Debug)]
 pub enum PeerIdOrHash {
     PeerId(PeerId),
     Hash(CryptoHash),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, Serialize)]
 pub enum AccountOrPeerIdOrHash {
     AccountId(AccountId),
     PeerId(PeerId),
@@ -343,6 +258,7 @@ impl AccountOrPeerIdOrHash {
 }
 
 #[derive(Message)]
+#[rtype(result = "()")]
 pub struct RawRoutedMessage {
     pub target: AccountOrPeerIdOrHash,
     pub body: RoutedMessageBody,
@@ -351,22 +267,26 @@ pub struct RawRoutedMessage {
 impl RawRoutedMessage {
     /// Add signature to the message.
     /// Panics if the target is an AccountId instead of a PeerId.
-    pub fn sign(self, author: PeerId, secret_key: &SecretKey) -> RoutedMessage {
+    pub fn sign(
+        self,
+        author: PeerId,
+        secret_key: &SecretKey,
+        routed_message_ttl: u8,
+    ) -> RoutedMessage {
         let target = self.target.peer_id_or_hash().unwrap();
         let hash = RoutedMessage::build_hash(target.clone(), author.clone(), self.body.clone());
         let signature = secret_key.sign(hash.as_ref());
-        RoutedMessage { target, author, signature, body: self.body }
+        RoutedMessage { target, author, signature, ttl: routed_message_ttl, body: self.body }
     }
 }
 
-#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, PartialEq, Eq, Clone, Debug)]
 pub struct RoutedMessageNoSignature {
     target: PeerIdOrHash,
     author: PeerId,
     body: RoutedMessageBody,
 }
 
-// TODO(MarX, #1367): Add TTL for routed message to avoid infinite loops
 /// RoutedMessage represent a package that will travel the network towards a specific peer id.
 /// It contains the peer_id and signature from the original sender. Every intermediate peer in the
 /// route must verify that this signature is valid otherwise previous sender of this package should
@@ -374,7 +294,7 @@ pub struct RoutedMessageNoSignature {
 /// sender of the package should be banned instead.
 /// If target is hash, it is a message that should be routed back using the same path used to route
 /// the request in first place. It is the hash of the request message.
-#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, PartialEq, Eq, Clone, Debug)]
 pub struct RoutedMessage {
     /// Peer id which is directed this message.
     /// If `target` is hash, this a message should be routed back.
@@ -384,6 +304,9 @@ pub struct RoutedMessage {
     /// Signature from the author of the message. If this signature is invalid we should ban
     /// last sender of this message. If the message is invalid we should ben author of the message.
     pub signature: Signature,
+    /// Time to live for this message. After passing through some hop this number should be
+    /// decreased by 1. If this number is 0, drop this message.
+    pub ttl: u8,
     /// Message
     pub body: RoutedMessageBody,
 }
@@ -409,12 +332,19 @@ impl RoutedMessage {
         match self.body {
             RoutedMessageBody::Ping(_)
             | RoutedMessageBody::TxStatusRequest(_, _)
-            | RoutedMessageBody::StateRequest(_, _, _, _)
+            | RoutedMessageBody::StateRequestHeader(_, _)
+            | RoutedMessageBody::StateRequestPart(_, _, _)
             | RoutedMessageBody::PartialEncodedChunkRequest(_)
             | RoutedMessageBody::QueryRequest { .. }
             | RoutedMessageBody::ReceiptOutcomeRequest(_) => true,
             _ => false,
         }
+    }
+
+    /// Return true if ttl is positive after decreasing ttl by one, false otherwise.
+    pub fn decrease_ttl(&mut self) -> bool {
+        self.ttl = self.ttl.saturating_sub(1);
+        self.ttl > 0
     }
 }
 
@@ -430,7 +360,7 @@ impl Message for RoutedMessageFrom {
     type Result = bool;
 }
 
-#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, PartialEq, Eq, Clone, Debug)]
 pub struct SyncData {
     pub edges: Vec<Edge>,
     pub accounts: Vec<AnnounceAccount>,
@@ -450,7 +380,7 @@ impl SyncData {
     }
 }
 
-#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, PartialEq, Eq, Clone, Debug)]
 // TODO(#1313): Use Box
 #[allow(clippy::large_enum_variant)]
 pub enum PeerMessage {
@@ -468,7 +398,6 @@ pub enum PeerMessage {
 
     BlockHeadersRequest(Vec<CryptoHash>),
     BlockHeaders(Vec<BlockHeader>),
-    BlockHeaderAnnounce(BlockHeader),
 
     BlockRequest(CryptoHash),
     Block(Block),
@@ -483,7 +412,7 @@ pub enum PeerMessage {
 }
 
 impl fmt::Display for PeerMessage {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             PeerMessage::Handshake(_) => f.write_str("Handshake"),
             PeerMessage::HandshakeFailure(_, _) => f.write_str("HandshakeFailure"),
@@ -497,7 +426,6 @@ impl fmt::Display for PeerMessage {
             PeerMessage::BlockHeaders(_) => f.write_str("BlockHeaders"),
             PeerMessage::BlockRequest(_) => f.write_str("BlockRequest"),
             PeerMessage::Block(_) => f.write_str("Block"),
-            PeerMessage::BlockHeaderAnnounce(_) => f.write_str("BlockHeaderAnnounce"),
             PeerMessage::Transaction(_) => f.write_str("Transaction"),
             PeerMessage::Routed(routed_message) => match routed_message.body {
                 RoutedMessageBody::BlockApproval(_) => f.write_str("BlockApproval"),
@@ -508,7 +436,8 @@ impl fmt::Display for PeerMessage {
                 }
                 RoutedMessageBody::QueryRequest { .. } => f.write_str("Query request"),
                 RoutedMessageBody::QueryResponse { .. } => f.write_str("Query response"),
-                RoutedMessageBody::StateRequest(_, _, _, _) => f.write_str("StateResponse"),
+                RoutedMessageBody::StateRequestHeader(_, _) => f.write_str("StateResponseHeader"),
+                RoutedMessageBody::StateRequestPart(_, _, _) => f.write_str("StateResponsePart"),
                 RoutedMessageBody::StateResponse(_) => f.write_str("StateResponse"),
                 RoutedMessageBody::ReceiptOutcomeRequest(_) => {
                     f.write_str("Receipt outcome request")
@@ -584,13 +513,6 @@ impl PeerMessage {
                 near_metrics::inc_counter(&metrics::BLOCK_HEADERS_RECEIVED_TOTAL);
                 near_metrics::inc_counter_by(&metrics::BLOCK_HEADERS_RECEIVED_BYTES, size as i64);
             }
-            PeerMessage::BlockHeaderAnnounce(_) => {
-                near_metrics::inc_counter(&metrics::BLOCK_HEADER_ANNOUNCE_RECEIVED_TOTAL);
-                near_metrics::inc_counter_by(
-                    &metrics::BLOCK_HEADER_ANNOUNCE_RECEIVED_BYTES,
-                    size as i64,
-                );
-            }
             PeerMessage::BlockRequest(_) => {
                 near_metrics::inc_counter(&metrics::BLOCK_REQUEST_RECEIVED_TOTAL);
                 near_metrics::inc_counter_by(&metrics::BLOCK_REQUEST_RECEIVED_BYTES, size as i64);
@@ -664,10 +586,17 @@ impl PeerMessage {
                         size as i64,
                     );
                 }
-                RoutedMessageBody::StateRequest(_, _, _, _) => {
-                    near_metrics::inc_counter(&metrics::ROUTED_STATE_REQUEST_RECEIVED_TOTAL);
+                RoutedMessageBody::StateRequestHeader(_, _) => {
+                    near_metrics::inc_counter(&metrics::ROUTED_STATE_REQUEST_HEADER_RECEIVED_TOTAL);
                     near_metrics::inc_counter_by(
-                        &metrics::ROUTED_STATE_REQUEST_RECEIVED_BYTES,
+                        &metrics::ROUTED_STATE_REQUEST_HEADER_RECEIVED_BYTES,
+                        size as i64,
+                    );
+                }
+                RoutedMessageBody::StateRequestPart(_, _, _) => {
+                    near_metrics::inc_counter(&metrics::ROUTED_STATE_REQUEST_PART_RECEIVED_TOTAL);
+                    near_metrics::inc_counter_by(
+                        &metrics::ROUTED_STATE_REQUEST_PART_RECEIVED_BYTES,
                         size as i64,
                     );
                 }
@@ -717,10 +646,7 @@ impl PeerMessage {
     pub fn is_client_message(&self) -> bool {
         match self {
             PeerMessage::Block(_)
-            | PeerMessage::BlockHeaderAnnounce(_)
             | PeerMessage::BlockHeaders(_)
-            | PeerMessage::BlockHeadersRequest(_)
-            | PeerMessage::BlockRequest(_)
             | PeerMessage::Transaction(_)
             | PeerMessage::Challenge(_) => true,
             PeerMessage::Routed(r) => match r.body {
@@ -728,7 +654,6 @@ impl PeerMessage {
                 | RoutedMessageBody::ForwardTx(_)
                 | RoutedMessageBody::PartialEncodedChunk(_)
                 | RoutedMessageBody::PartialEncodedChunkRequest(_)
-                | RoutedMessageBody::StateRequest(_, _, _, _)
                 | RoutedMessageBody::StateResponse(_) => true,
                 _ => false,
             },
@@ -744,12 +669,22 @@ impl PeerMessage {
                 | RoutedMessageBody::TxStatusRequest(_, _)
                 | RoutedMessageBody::TxStatusResponse(_)
                 | RoutedMessageBody::ReceiptOutcomeRequest(_)
-                | RoutedMessageBody::ReceiptOutComeResponse(_) => true,
+                | RoutedMessageBody::ReceiptOutComeResponse(_)
+                | RoutedMessageBody::StateRequestHeader(_, _)
+                | RoutedMessageBody::StateRequestPart(_, _, _) => true,
                 _ => false,
             },
+            PeerMessage::BlockHeadersRequest(_) => true,
+            PeerMessage::BlockRequest(_) => true,
             _ => false,
         }
     }
+}
+
+#[derive(Debug, Clone)]
+pub enum BlockedPorts {
+    All,
+    Some(HashSet<u16>),
 }
 
 /// Configuration for the peer-to-peer manager.
@@ -763,7 +698,7 @@ pub struct NetworkConfig {
     pub handshake_timeout: Duration,
     pub reconnect_delay: Duration,
     pub bootstrap_peers_period: Duration,
-    pub peer_max_count: u32,
+    pub max_peer: u32,
     /// Duration of the ban for misbehaving peers.
     pub ban_window: Duration,
     /// Remove expired peers.
@@ -774,18 +709,58 @@ pub struct NetworkConfig {
     pub peer_stats_period: Duration,
     /// Time to persist Accounts Id in the router without removing them.
     pub ttl_account_id_router: Duration,
+    /// Number of hops a message is allowed to travel before being dropped.
+    /// This is used to avoid infinite loop because of inconsistent view of the network
+    /// by different nodes.
+    pub routed_message_ttl: u8,
     /// Maximum number of routes that we should keep track for each Account id in the Routing Table.
     pub max_routes_to_store: usize,
-    /// Weight horizon for most weighted peers, measured in stake seconds.
-    /// For example if one peer is 1 stake second away from max weight peer,
+    /// Height horizon for highest height peers
+    /// For example if one peer is 1 height away from max height peer,
     /// we still want to use the rest to query for state/headers/blocks.
-    pub most_weighted_peer_horizon: u128,
+    pub highest_peer_horizon: u64,
     /// Period between pushing network info to client
     pub push_info_period: Duration,
+    /// Peers on blacklist by IP:Port.
+    /// Nodes will not accept or try to establish connection to such peers.
+    pub blacklist: HashMap<IpAddr, BlockedPorts>,
+    /// Flag to disable outbound connections. When this flag is active, nodes will not try to
+    /// establish connection with other nodes, but will accept incoming connection if other requirements
+    /// are satisfied.
+    /// This flag should be ALWAYS FALSE. Only set to true for testing purposes.
+    pub outbound_disabled: bool,
+}
+
+/// Used to match a socket addr by IP:Port or only by IP
+#[derive(Clone, Debug)]
+pub enum PatternAddr {
+    Ip(IpAddr),
+    IpPort(SocketAddr),
+}
+
+impl PatternAddr {
+    pub fn contains(&self, addr: &SocketAddr) -> bool {
+        match self {
+            PatternAddr::Ip(pattern) => &addr.ip() == pattern,
+            PatternAddr::IpPort(pattern) => addr == pattern,
+        }
+    }
+}
+
+impl FromStr for PatternAddr {
+    type Err = AddrParseError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        if let Ok(pattern) = s.parse::<IpAddr>() {
+            return Ok(PatternAddr::Ip(pattern));
+        }
+
+        s.parse::<SocketAddr>().map(PatternAddr::IpPort)
+    }
 }
 
 /// Status of the known peers.
-#[derive(BorshSerialize, BorshDeserialize, Eq, PartialEq, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Eq, PartialEq, Debug)]
 pub enum KnownPeerStatus {
     Unknown,
     NotConnected,
@@ -794,7 +769,7 @@ pub enum KnownPeerStatus {
 }
 
 /// Information node stores about known peers.
-#[derive(BorshSerialize, BorshDeserialize, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Debug)]
 pub struct KnownPeerState {
     pub peer_info: PeerInfo,
     pub status: KnownPeerStatus,
@@ -831,6 +806,7 @@ impl TryFrom<Vec<u8>> for KnownPeerState {
 
 /// Actor message that holds the TCP stream from an inbound TCP connection
 #[derive(Message)]
+#[rtype(result = "()")]
 pub struct InboundTcpConnect {
     /// Tcp stream of the inbound connections
     pub stream: TcpStream,
@@ -845,12 +821,14 @@ impl InboundTcpConnect {
 
 /// Actor message to request the creation of an outbound TCP connection to a peer.
 #[derive(Message)]
+#[rtype(result = "()")]
 pub struct OutboundTcpConnect {
     /// Peer information of the outbound connection
     pub peer_info: PeerInfo,
 }
 
 #[derive(Message, Clone, Debug)]
+#[rtype(result = "()")]
 pub struct SendMessage {
     pub message: PeerMessage,
 }
@@ -883,6 +861,7 @@ pub enum ConsolidateResponse {
 
 /// Unregister message from Peer to PeerManager.
 #[derive(Message)]
+#[rtype(result = "()")]
 pub struct Unregister {
     pub peer_id: PeerId,
 }
@@ -916,6 +895,7 @@ impl Message for PeersRequest {
 
 /// Received new peers from another peer.
 #[derive(Message)]
+#[rtype(result = "()")]
 pub struct PeersResponse {
     pub peers: Vec<PeerInfo>,
 }
@@ -933,7 +913,7 @@ where
 }
 
 /// Ban reason.
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, Copy)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, PartialEq, Eq, Copy)]
 pub enum ReasonForBan {
     None = 0,
     BadBlock = 1,
@@ -949,6 +929,7 @@ pub enum ReasonForBan {
 }
 
 #[derive(Message)]
+#[rtype(result = "()")]
 pub struct Ban {
     pub peer_id: PeerId,
     pub ban_reason: ReasonForBan,
@@ -962,11 +943,9 @@ pub enum NetworkRequests {
     Block {
         block: Block,
     },
-    /// Sends block header announcement, with possibly attaching approval for this block if
-    /// participating in this epoch.
-    BlockHeaderAnnounce {
-        header: BlockHeader,
-        approval_message: Option<ApprovalMessage>,
+    /// Sends approval.
+    Approval {
+        approval_message: ApprovalMessage,
     },
     /// Request block with given hash from given peer.
     BlockRequest {
@@ -978,13 +957,23 @@ pub enum NetworkRequests {
         hashes: Vec<CryptoHash>,
         peer_id: PeerId,
     },
-    /// Request state for given shard at given state root.
-    StateRequest {
+    /// Request state header for given shard at given state root.
+    StateRequestHeader {
         shard_id: ShardId,
         sync_hash: CryptoHash,
-        need_header: bool,
-        parts: StateRequestParts,
         target: AccountOrPeerIdOrHash,
+    },
+    /// Request state part for given shard at given state root.
+    StateRequestPart {
+        shard_id: ShardId,
+        sync_hash: CryptoHash,
+        part_id: u64,
+        target: AccountOrPeerIdOrHash,
+    },
+    /// Response to state request.
+    StateResponse {
+        route_back: CryptoHash,
+        response: StateResponseInfo,
     },
     /// Ban given peer.
     BanPeer {
@@ -1016,10 +1005,10 @@ pub enum NetworkRequests {
     TxStatus(AccountId, AccountId, CryptoHash),
     /// General query
     Query {
+        query_id: String,
         account_id: AccountId,
-        path: String,
-        data: Vec<u8>,
-        id: String,
+        block_id_or_finality: BlockIdOrFinality,
+        request: QueryRequest,
     },
     /// Request for receipt execution outcome
     ReceiptOutComeRequest(AccountId, CryptoHash),
@@ -1047,12 +1036,13 @@ pub enum NetworkRequests {
 
 /// Messages from PeerManager to Peer
 #[derive(Message)]
+#[rtype(result = "()")]
 pub enum PeerManagerRequest {
     BanPeer(ReasonForBan),
     UnregisterPeer,
 }
 
-/// Combines peer address info and chain information.
+/// Combines peer address info, chain and edge information.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct FullPeerInfo {
     pub peer_info: PeerInfo,
@@ -1060,16 +1050,25 @@ pub struct FullPeerInfo {
     pub edge_info: EdgeInfo,
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct KnownProducer {
+    pub account_id: AccountId,
+    pub addr: Option<SocketAddr>,
+    pub peer_id: PeerId,
+}
+
 #[derive(Debug)]
 pub struct NetworkInfo {
     pub active_peers: Vec<FullPeerInfo>,
     pub num_active_peers: usize,
     pub peer_max_count: u32,
-    pub most_weight_peers: Vec<FullPeerInfo>,
+    pub highest_height_peers: Vec<FullPeerInfo>,
     pub sent_bytes_per_sec: u64,
     pub received_bytes_per_sec: u64,
     /// Accounts of known block and chunk producers from routing table.
-    pub known_producers: Vec<AccountId>,
+    pub known_producers: Vec<KnownProducer>,
+    #[cfg(feature = "metric_recorder")]
+    pub metric_recorder: MetricRecorder,
 }
 
 impl<A, M> MessageResponse<A, M> for NetworkInfo
@@ -1091,6 +1090,7 @@ pub enum NetworkResponses {
     PingPongInfo { pings: HashMap<usize, Ping>, pongs: HashMap<usize, Pong> },
     BanPeer(ReasonForBan),
     EdgeUpdate(Edge),
+    RouteNotFound,
 }
 
 impl<A, M> MessageResponse<A, M> for NetworkResponses
@@ -1109,41 +1109,45 @@ impl Message for NetworkRequests {
     type Result = NetworkResponses;
 }
 
-#[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize)]
+#[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize, Serialize)]
 pub struct StateResponseInfo {
     pub shard_id: ShardId,
-    pub hash: CryptoHash,
-    pub shard_state: ShardStateSyncResponse,
+    pub sync_hash: CryptoHash,
+    pub state_response: ShardStateSyncResponse,
+}
+
+#[cfg(feature = "adversarial")]
+#[derive(Debug)]
+pub enum NetworkAdversarialMessage {
+    AdvProduceBlocks(u64, bool),
+    AdvSwitchToHeight(u64),
+    AdvDisableHeaderSync,
+    AdvDisableDoomslug,
+    AdvGetSavedBlocks,
+    AdvCheckRefMap,
+    AdvSetSyncInfo(u64, u64),
 }
 
 #[derive(Debug)]
 // TODO(#1313): Use Box
 #[allow(clippy::large_enum_variant)]
 pub enum NetworkClientMessages {
+    #[cfg(feature = "adversarial")]
+    Adversarial(NetworkAdversarialMessage),
+
     /// Received transaction.
-    Transaction(SignedTransaction),
-    /// Received block header.
-    BlockHeader(BlockHeader, PeerId),
+    Transaction {
+        transaction: SignedTransaction,
+        is_forwarded: bool,
+    },
     /// Received block, possibly requested.
     Block(Block, PeerId, bool),
     /// Received list of headers for syncing.
     BlockHeaders(Vec<BlockHeader>, PeerId),
-    /// Get Chain information from Client.
-    GetChainInfo,
     /// Block approval.
     BlockApproval(Approval, PeerId),
-    /// Request headers.
-    BlockHeadersRequest(Vec<CryptoHash>),
-    /// Request a block.
-    BlockRequest(CryptoHash),
-    /// State request.
-    StateRequest(ShardId, CryptoHash, bool, StateRequestParts, CryptoHash),
     /// State response.
     StateResponse(StateResponseInfo),
-    /// Account announcements that needs to be validated before being processed.
-    /// They are paired with last epoch id known to this announcement, in order to accept only
-    /// newer announcements.
-    AnnounceAccount(Vec<(AnnounceAccount, Option<EpochId>)>),
 
     /// Request chunk parts and/or receipts.
     PartialEncodedChunkRequest(PartialEncodedChunkRequestMsg, CryptoHash),
@@ -1160,6 +1164,10 @@ pub enum NetworkClientMessages {
 #[derive(Eq, PartialEq, Debug)]
 #[allow(clippy::large_enum_variant)]
 pub enum NetworkClientResponses {
+    /// Adv controls.
+    #[cfg(feature = "adversarial")]
+    AdvResult(u64),
+
     /// No response.
     NoResponse,
     /// Valid transaction inserted into mempool as response to Transaction.
@@ -1168,23 +1176,8 @@ pub enum NetworkClientResponses {
     InvalidTx(InvalidTxError),
     /// The request is routed to other shards
     RequestRouted,
-    /// Ban peer for malicious behaviour.
+    /// Ban peer for malicious behavior.
     Ban { ban_reason: ReasonForBan },
-    /// Chain information.
-    ChainInfo {
-        genesis_id: GenesisId,
-        height: BlockIndex,
-        weight_and_score: WeightAndScore,
-        tracked_shards: Vec<ShardId>,
-    },
-    /// Block response.
-    Block(Block),
-    /// Headers response.
-    BlockHeaders(Vec<BlockHeader>),
-    /// Response to state request.
-    StateResponse(StateResponseInfo, CryptoHash),
-    /// Valid announce accounts.
-    AnnounceAccount(Vec<AnnounceAccount>),
 }
 
 impl<A, M> MessageResponse<A, M> for NetworkClientResponses
@@ -1204,27 +1197,61 @@ impl Message for NetworkClientMessages {
 }
 
 pub enum NetworkViewClientMessages {
+    #[cfg(feature = "adversarial")]
+    Adversarial(NetworkAdversarialMessage),
+
     /// Transaction status query
     TxStatus { tx_hash: CryptoHash, signer_account_id: AccountId },
     /// Transaction status response
     TxStatusResponse(FinalExecutionOutcomeView),
     /// General query
-    Query { path: String, data: Vec<u8>, id: String },
+    Query { query_id: String, block_id_or_finality: BlockIdOrFinality, request: QueryRequest },
     /// Query response
-    QueryResponse { response: Result<QueryResponse, String>, id: String },
+    QueryResponse { query_id: String, response: Result<QueryResponse, String> },
     /// Request for receipt outcome
     ReceiptOutcomeRequest(CryptoHash),
     /// Receipt outcome response
     ReceiptOutcomeResponse(ExecutionOutcomeWithIdAndProof),
+    /// Request a block.
+    BlockRequest(CryptoHash),
+    /// Request headers.
+    BlockHeadersRequest(Vec<CryptoHash>),
+    /// State request header.
+    StateRequestHeader { shard_id: ShardId, sync_hash: CryptoHash },
+    /// State request part.
+    StateRequestPart { shard_id: ShardId, sync_hash: CryptoHash, part_id: u64 },
+    /// Get Chain information from Client.
+    GetChainInfo,
+    /// Account announcements that needs to be validated before being processed.
+    /// They are paired with last epoch id known to this announcement, in order to accept only
+    /// newer announcements.
+    AnnounceAccount(Vec<(AnnounceAccount, Option<EpochId>)>),
 }
 
 pub enum NetworkViewClientResponses {
     /// Transaction execution outcome
     TxStatus(FinalExecutionOutcomeView),
     /// Response to general queries
-    QueryResponse { response: Result<QueryResponse, String>, id: String },
+    QueryResponse { query_id: String, response: Result<QueryResponse, String> },
     /// Receipt outcome response
     ReceiptOutcomeResponse(ExecutionOutcomeWithIdAndProof),
+    /// Block response.
+    Block(Block),
+    /// Headers response.
+    BlockHeaders(Vec<BlockHeader>),
+    /// Chain information.
+    ChainInfo {
+        genesis_id: GenesisId,
+        height: BlockHeight,
+        score: BlockScore,
+        tracked_shards: Vec<ShardId>,
+    },
+    /// Response to state request.
+    StateResponse(StateResponseInfo),
+    /// Valid announce accounts.
+    AnnounceAccount(Vec<AnnounceAccount>),
+    /// Ban peer for malicious behavior.
+    Ban { ban_reason: ReasonForBan },
     /// Response not needed
     NoResponse,
 }
@@ -1279,20 +1306,22 @@ impl Message for QueryPeerStats {
     type Result = PeerStatsResult;
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, BorshSerialize, BorshDeserialize, Serialize)]
 pub struct PartialEncodedChunkRequestMsg {
     pub chunk_hash: ChunkHash,
     pub part_ords: Vec<u64>,
     pub tracking_shards: HashSet<ShardId>,
 }
 
-#[derive(Message)]
-pub struct StopSignal {}
-
 /// Adapter to break dependency of sub-components on the network requests.
 /// For tests use MockNetworkAdapter that accumulates the requests to network.
 pub trait NetworkAdapter: Sync + Send {
-    fn send(&self, msg: NetworkRequests);
+    fn send(
+        &self,
+        msg: NetworkRequests,
+    ) -> BoxFuture<'static, Result<NetworkResponses, MailboxError>>;
+
+    fn do_send(&self, msg: NetworkRequests);
 }
 
 pub struct NetworkRecipient {
@@ -1312,7 +1341,20 @@ impl NetworkRecipient {
 }
 
 impl NetworkAdapter for NetworkRecipient {
-    fn send(&self, msg: NetworkRequests) {
+    fn send(
+        &self,
+        msg: NetworkRequests,
+    ) -> BoxFuture<'static, Result<NetworkResponses, MailboxError>> {
+        self.network_recipient
+            .read()
+            .unwrap()
+            .as_ref()
+            .expect("Recipient must be set")
+            .send(msg)
+            .boxed()
+    }
+
+    fn do_send(&self, msg: NetworkRequests) {
         let _ = self
             .network_recipient
             .read()
@@ -1325,8 +1367,9 @@ impl NetworkAdapter for NetworkRecipient {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::mem::size_of;
+
+    use super::*;
 
     const ALLOWED_SIZE: usize = 1 << 20;
     const NOTIFY_SIZE: usize = 1024;
@@ -1390,6 +1433,5 @@ mod tests {
         assert_size!(StateResponseInfo);
         assert_size!(QueryPeerStats);
         assert_size!(PartialEncodedChunkRequestMsg);
-        assert_size!(StopSignal);
     }
 }

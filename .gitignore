@@ -27,6 +27,7 @@ core/wasm/**/Cargo.lock
 # Python env
 .env
 *.pyc
+venv
 
 # Node
 **/node_modules/
@@ -53,3 +54,10 @@ pytest/.adversary
 
 # a file indicating that the person understands the risks of running adversarial tests
 pytest/.consent
+
+# testnet genesis
+/neard/res/testnet.json
+/neard/res/testnet_genesis_records*.json
+
+# empty contract Cargo.lock, this would prevent cargo update latest git version of near-bindgen
+/pytest/empty-contract-rs/Cargo.lock

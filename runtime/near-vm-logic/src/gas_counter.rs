@@ -1,6 +1,6 @@
 use crate::config::{ExtCosts, ExtCostsConfig};
 use crate::types::Gas;
-use crate::{HostError, HostErrorOrStorageError};
+use crate::{HostError, VMLogicError};
 use near_runtime_fees::Fee;
 
 #[cfg(feature = "costs_counting")]
@@ -9,7 +9,7 @@ thread_local! {
         Default::default();
 }
 
-type Result<T> = ::std::result::Result<T, HostErrorOrStorageError>;
+type Result<T> = ::std::result::Result<T, VMLogicError>;
 
 /// Gas counter (a part of VMlogic)
 pub struct GasCounter {

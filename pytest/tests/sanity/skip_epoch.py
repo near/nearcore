@@ -16,7 +16,8 @@ TIMEOUT = 600
 TWENTY_FIVE = 25
 
 config = load_config()
-near_root, node_dirs = init_cluster(2, 1, 2, config, [["min_gas_price", 0], ["max_inflation_rate", 0], ["epoch_length", 7], ["block_producer_kickout_threshold", 80]], {2: {"tracked_shards": [0, 1]}})
+# give more stake to the bootnode so that it can produce the blocks alone
+near_root, node_dirs = init_cluster(2, 1, 2, config, [["min_gas_price", 0], ["max_inflation_rate", 0], ["epoch_length", 7], ["block_producer_kickout_threshold", 80], ["validators", 0, "amount", "60000000000000000000000000000000"], ["records", 0, "Account", "account", "locked", "60000000000000000000000000000000"]], {2: {"tracked_shards": [0, 1]}})
 
 started = time.time()
 
@@ -103,7 +104,9 @@ def get_validators():
 
 print(get_validators())
 
-tx = sign_staking_tx(node2.signer_key, node2.validator_key, 50000000000000000000000000, 20, base58.b58decode(hash_.encode('utf8')))
+# The stake for node2 must be higher than that of boot_node, so that it can produce blocks
+# after the boot_node is brought down
+tx = sign_staking_tx(node2.signer_key, node2.validator_key, 70000000000000000000000000000000, 20, base58.b58decode(hash_.encode('utf8')))
 boot_node.send_tx(tx)
 
 assert(get_validators() == set(["test0"]))

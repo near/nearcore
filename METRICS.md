@@ -20,7 +20,7 @@ First run Prometheus, using the `prometheus-near.yml` config file located in the
 
 Build the NEARCore node:
 
-`$ cargo build -p near`
+`$ cargo build -p neard`
 
 Generate the initial configuration (genesis state, validator keys and node keys):
 

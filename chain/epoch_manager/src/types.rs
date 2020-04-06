@@ -1,13 +1,17 @@
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap};
 use std::fmt;
 
 use borsh::{BorshDeserialize, BorshSerialize};
+use serde::Serialize;
 
+use crate::EpochManager;
 use near_primitives::challenge::SlashedValidator;
 use near_primitives::hash::CryptoHash;
 use near_primitives::serialize::to_base;
 use near_primitives::types::{
-    AccountId, Balance, BlockIndex, EpochId, ShardId, ValidatorId, ValidatorStake,
+    AccountId, Balance, BlockChunkValidatorStats, BlockHeight, BlockHeightDelta, EpochHeight,
+    EpochId, NumSeats, NumShards, ShardId, ValidatorId, ValidatorKickoutReason, ValidatorStake,
+    ValidatorStats,
 };
 
 pub type RngSeed = [u8; 32];
@@ -16,16 +20,16 @@ pub type RngSeed = [u8; 32];
 /// Can change from epoch to epoch depending on the sharding and other parameters, etc.
 #[derive(Clone)]
 pub struct EpochConfig {
-    /// Epoch length in blocks.
-    pub epoch_length: BlockIndex,
+    /// Epoch length in block heights.
+    pub epoch_length: BlockHeightDelta,
     /// Number of shards currently.
-    pub num_shards: ShardId,
-    /// Number of block producers.
-    pub num_block_producers: ValidatorId,
-    /// Number of block producers per each shard.
-    pub block_producers_per_shard: Vec<ValidatorId>,
-    /// Expected number of fisherman per each shard.
-    pub avg_hidden_validators_per_shard: Vec<ValidatorId>,
+    pub num_shards: NumShards,
+    /// Number of seats for block producers.
+    pub num_block_producer_seats: NumSeats,
+    /// Number of seats of block producers per each shard.
+    pub num_block_producer_seats_per_shard: Vec<NumSeats>,
+    /// Expected number of hidden validator seats per each shard.
+    pub avg_hidden_validator_seats_per_shard: Vec<NumSeats>,
     /// Criterion for kicking out block producers.
     pub block_producer_kickout_threshold: u8,
     /// Criterion for kicking out chunk producers.
@@ -34,22 +38,25 @@ pub struct EpochConfig {
     pub fishermen_threshold: Balance,
 }
 
-#[derive(Default, BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq)]
+#[derive(Default, BorshSerialize, BorshDeserialize, Serialize, Clone, Debug, PartialEq, Eq)]
 pub struct ValidatorWeight(ValidatorId, u64);
 
 /// Information per epoch.
-#[derive(Default, BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq)]
+#[derive(Default, BorshSerialize, BorshDeserialize, Serialize, Clone, Debug, PartialEq, Eq)]
 pub struct EpochInfo {
+    /// Ordinal of given epoch from genesis.
+    /// There can be multiple epochs with the same ordinal in case of long forks.
+    pub epoch_height: EpochHeight,
     /// List of current validators.
     pub validators: Vec<ValidatorStake>,
     /// Validator account id to index in proposals.
     pub validator_to_index: HashMap<AccountId, ValidatorId>,
-    /// Weights for each of the validators responsible for block production.
-    pub block_producers: Vec<ValidatorId>,
-    /// Per each shard, ids and seats of validators that are responsible.
-    pub chunk_producers: Vec<Vec<ValidatorId>>,
-    /// Weight of given validator used to determine how many shards they will validate.
-    pub hidden_validators: Vec<ValidatorWeight>,
+    /// Settlement of validators responsible for block production.
+    pub block_producers_settlement: Vec<ValidatorId>,
+    /// Per each shard, settlement validators that are responsible.
+    pub chunk_producers_settlement: Vec<Vec<ValidatorId>>,
+    /// Settlement of hidden validators with weights used to determine how many shards they will validate.
+    pub hidden_validators_settlement: Vec<ValidatorWeight>,
     /// List of current fishermen.
     pub fishermen: Vec<ValidatorStake>,
     /// Fisherman account id to index of proposal.
@@ -61,46 +68,48 @@ pub struct EpochInfo {
     /// Total inflation in the epoch
     pub inflation: Balance,
     /// Validators who are kicked out in this epoch
-    pub validator_kickout: HashSet<AccountId>,
+    pub validator_kickout: HashMap<AccountId, ValidatorKickoutReason>,
 }
 
 /// Information per each block.
-#[derive(Default, BorshSerialize, BorshDeserialize, Clone, Debug)]
+#[derive(Default, BorshSerialize, BorshDeserialize, Serialize, Clone, Debug)]
 pub struct BlockInfo {
-    pub index: BlockIndex,
-    pub last_finalized_height: BlockIndex,
+    pub height: BlockHeight,
+    pub last_finalized_height: BlockHeight,
     pub prev_hash: CryptoHash,
     pub epoch_first_block: CryptoHash,
     pub epoch_id: EpochId,
     pub proposals: Vec<ValidatorStake>,
     pub chunk_mask: Vec<bool>,
+    /// Validators slashed since the start of epoch or in previous epoch
     pub slashed: HashMap<AccountId, SlashState>,
-    /// Total rent paid in this block.
-    pub rent_paid: Balance,
     /// Total validator reward in this block.
     pub validator_reward: Balance,
     /// Total supply at this block.
     pub total_supply: Balance,
     /// Map from validator index to (num_blocks_produced, num_blocks_expected) so far in the given epoch.
-    pub block_tracker: HashMap<ValidatorId, (BlockIndex, BlockIndex)>,
-    /// All proposals in this epoch up to this block
+    pub block_tracker: HashMap<ValidatorId, ValidatorStats>,
+    /// For each shard, a map of validator id to (num_chunks_produced, num_chunks_expected) so far in the given epoch.
+    pub shard_tracker: HashMap<ShardId, HashMap<ValidatorId, ValidatorStats>>,
+    /// All proposals in this epoch up to this block.
     pub all_proposals: Vec<ValidatorStake>,
+    /// Total validator reward so far in this epoch.
+    pub total_validator_reward: Balance,
 }
 
 impl BlockInfo {
     pub fn new(
-        index: BlockIndex,
-        last_finalized_height: BlockIndex,
+        height: BlockHeight,
+        last_finalized_height: BlockHeight,
         prev_hash: CryptoHash,
         proposals: Vec<ValidatorStake>,
         validator_mask: Vec<bool>,
         slashed: Vec<SlashedValidator>,
-        rent_paid: Balance,
         validator_reward: Balance,
         total_supply: Balance,
     ) -> Self {
         Self {
-            index,
+            height,
             last_finalized_height,
             prev_hash,
             proposals,
@@ -113,14 +122,15 @@ impl BlockInfo {
                     (s.account_id, slash_state)
                 })
                 .collect(),
-            rent_paid,
             validator_reward,
             total_supply,
             // These values are not set. This code is suboptimal
             epoch_first_block: CryptoHash::default(),
             epoch_id: EpochId::default(),
             block_tracker: HashMap::default(),
+            shard_tracker: HashMap::default(),
             all_proposals: vec![],
+            total_validator_reward: 0,
         }
     }
 
@@ -128,30 +138,52 @@ impl BlockInfo {
     pub fn update_block_tracker(
         &mut self,
         epoch_info: &EpochInfo,
-        prev_block_index: BlockIndex,
-        mut prev_block_tracker: HashMap<ValidatorId, (BlockIndex, BlockIndex)>,
+        prev_block_height: BlockHeight,
+        mut prev_block_tracker: HashMap<ValidatorId, ValidatorStats>,
     ) {
-        let block_producer_id = epoch_info.block_producers
-            [(self.index % (epoch_info.block_producers.len() as BlockIndex)) as usize];
+        let block_producer_id = epoch_info.block_producers_settlement
+            [(self.height as u64 % (epoch_info.block_producers_settlement.len() as u64)) as usize];
         prev_block_tracker
             .entry(block_producer_id)
-            .and_modify(|(produced, expected)| {
-                *produced += 1;
-                *expected += 1;
+            .and_modify(|validator_stats| {
+                validator_stats.produced += 1;
+                validator_stats.expected += 1;
             })
-            .or_insert((1, 1));
+            .or_insert(ValidatorStats { produced: 1, expected: 1 });
         // Iterate over all skipped blocks and increase the number of expected blocks.
-        for index in prev_block_index + 1..self.index {
-            let bp = epoch_info.block_producers
-                [(index % (epoch_info.block_producers.len() as BlockIndex)) as usize];
+        for height in prev_block_height + 1..self.height {
+            let block_producer_id = epoch_info.block_producers_settlement
+                [(height as u64 % (epoch_info.block_producers_settlement.len() as u64)) as usize];
             prev_block_tracker
-                .entry(bp)
-                .and_modify(|(_produced, expected)| {
-                    *expected += 1;
+                .entry(block_producer_id)
+                .and_modify(|validator_stats| {
+                    validator_stats.expected += 1;
                 })
-                .or_insert((0, 1));
+                .or_insert(ValidatorStats { produced: 0, expected: 1 });
         }
         self.block_tracker = prev_block_tracker;
+    }
+
+    pub fn update_shard_tracker(
+        &mut self,
+        epoch_info: &EpochInfo,
+        mut prev_shard_tracker: HashMap<ShardId, HashMap<ValidatorId, ValidatorStats>>,
+    ) {
+        for (i, mask) in self.chunk_mask.iter().enumerate() {
+            let chunk_validator_id =
+                EpochManager::chunk_producer_from_info(epoch_info, self.height, i as ShardId);
+            let tracker = prev_shard_tracker.entry(i as ShardId).or_insert_with(HashMap::new);
+            tracker
+                .entry(chunk_validator_id)
+                .and_modify(|stats| {
+                    if *mask {
+                        stats.produced += 1;
+                    }
+                    stats.expected += 1;
+                })
+                .or_insert(ValidatorStats { produced: u64::from(*mask), expected: 1 });
+        }
+        self.shard_tracker = prev_shard_tracker;
     }
 }
 
@@ -162,8 +194,6 @@ pub enum EpochError {
     ThresholdError(Balance, u64),
     /// Requesting validators for an epoch that wasn't computed yet.
     EpochOutOfBounds,
-    /// Number of selected seats doesn't match requested.
-    SelectedSeatsMismatch(u64, ValidatorId),
     /// Missing block hash in the storage (means there is some structural issue).
     MissingBlock(CryptoHash),
     /// Other error.
@@ -173,7 +203,7 @@ pub enum EpochError {
 impl std::error::Error for EpochError {}
 
 impl fmt::Debug for EpochError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             EpochError::ThresholdError(stakes_sum, num_seats) => write!(
                 f,
@@ -181,11 +211,6 @@ impl fmt::Debug for EpochError {
                 stakes_sum, num_seats
             ),
             EpochError::EpochOutOfBounds => write!(f, "Epoch out of bounds"),
-            EpochError::SelectedSeatsMismatch(selected, required) => write!(
-                f,
-                "Number of selected seats {} < total number of seats {}",
-                selected, required
-            ),
             EpochError::MissingBlock(hash) => write!(f, "Missing block {}", hash),
             EpochError::Other(err) => write!(f, "Other: {}", err),
         }
@@ -193,15 +218,12 @@ impl fmt::Debug for EpochError {
 }
 
 impl fmt::Display for EpochError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             EpochError::ThresholdError(stake, num_seats) => {
                 write!(f, "ThresholdError({}, {})", stake, num_seats)
             }
             EpochError::EpochOutOfBounds => write!(f, "EpochOutOfBounds"),
-            EpochError::SelectedSeatsMismatch(num_seats, validator) => {
-                write!(f, "SelectedSeatsMismatch({}, {})", num_seats, validator)
-            }
             EpochError::MissingBlock(hash) => write!(f, "MissingBlock({})", hash),
             EpochError::Other(err) => write!(f, "Other({})", err),
         }
@@ -226,16 +248,18 @@ impl From<EpochError> for near_chain::Error {
 }
 
 pub struct EpochSummary {
-    pub last_block_hash: CryptoHash,
+    pub prev_epoch_last_block_hash: CryptoHash,
+    // Proposals from the epoch, only the latest one per account
     pub all_proposals: Vec<ValidatorStake>,
-    pub validator_kickout: HashSet<AccountId>,
-    pub validator_online_ratio: HashMap<AccountId, (u64, u64)>,
-    pub total_storage_rent: Balance,
+    // Kickout set, includes slashed
+    pub validator_kickout: HashMap<AccountId, ValidatorKickoutReason>,
+    // Only for validators who met the threshold and didn't get slashed
+    pub validator_block_chunk_stats: HashMap<AccountId, BlockChunkValidatorStats>,
     pub total_validator_reward: Balance,
 }
 
 /// State that a slashed validator can be in.
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, PartialEq, Eq)]
 pub enum SlashState {
     /// Double Sign, will be partially slashed.
     DoubleSign,

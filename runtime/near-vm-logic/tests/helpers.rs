@@ -1,14 +1,14 @@
-use near_vm_errors::HostErrorOrStorageError;
+use near_vm_errors::VMLogicError;
 use near_vm_logic::types::Gas;
 use near_vm_logic::{ExtCosts, VMLogic, EXT_COSTS_COUNTER};
 use std::collections::HashMap;
 
 #[allow(dead_code)]
-type Result<T> = ::std::result::Result<T, HostErrorOrStorageError>;
+type Result<T> = ::std::result::Result<T, VMLogicError>;
 
 #[allow(dead_code)]
 pub fn promise_create(
-    logic: &mut VMLogic,
+    logic: &mut VMLogic<'_>,
     account_id: &[u8],
     amount: u128,
     gas: Gas,
@@ -29,7 +29,7 @@ pub fn promise_create(
 
 #[allow(dead_code)]
 pub fn promise_batch_action_function_call(
-    logic: &mut VMLogic,
+    logic: &mut VMLogic<'_>,
     promise_index: u64,
     amount: u128,
     gas: Gas,
@@ -50,7 +50,7 @@ pub fn promise_batch_action_function_call(
 
 #[allow(dead_code)]
 pub fn promise_batch_action_add_key_with_function_call(
-    logic: &mut VMLogic,
+    logic: &mut VMLogic<'_>,
     promise_index: u64,
     public_key: &[u8],
     nonce: u64,

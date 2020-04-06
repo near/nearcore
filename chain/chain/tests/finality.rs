@@ -1,14 +1,17 @@
+use std::collections::{HashMap, HashSet};
+
+use rand::seq::SliceRandom;
+use rand::Rng;
+
 use near_chain::test_utils::setup;
 use near_chain::{ChainStore, ChainStoreAccess, ChainStoreUpdate};
 use near_chain::{FinalityGadget, FinalityGadgetQuorums};
-use near_crypto::{KeyType, PublicKey, Signature, Signer};
+use near_crypto::{KeyType, PublicKey, Signature};
 use near_primitives::block::{Approval, Block};
 use near_primitives::hash::CryptoHash;
-use near_primitives::types::{AccountId, Balance, BlockIndex, EpochId, ValidatorStake};
+use near_primitives::types::{AccountId, Balance, BlockHeight, EpochId, ValidatorStake};
+use near_primitives::validator_signer::ValidatorSigner;
 use near_store::test_utils::create_test_store;
-use rand::seq::SliceRandom;
-use rand::Rng;
-use std::collections::{HashMap, HashSet};
 
 fn compute_quorums_slow(
     mut prev_hash: CryptoHash,
@@ -24,7 +27,7 @@ fn compute_quorums_slow(
     let mut all_heights_and_hashes = vec![];
 
     let account_id_to_stake =
-        stakes.iter().map(|x| (&x.account_id, x.amount)).collect::<HashMap<_, _>>();
+        stakes.iter().map(|x| (&x.account_id, x.stake)).collect::<HashMap<_, _>>();
     assert!(account_id_to_stake.len() == stakes.len());
     let threshold = account_id_to_stake.values().sum::<u128>() * 2u128 / 3u128;
 
@@ -40,8 +43,11 @@ fn compute_quorums_slow(
     let all_approvals = all_approvals
         .into_iter()
         .map(|approval| {
-            let reference_height =
-                chain_store.get_block_header(&approval.reference_hash).unwrap().inner_lite.height;
+            let reference_height = chain_store
+                .get_block_header(&approval.reference_hash.unwrap())
+                .unwrap()
+                .inner_lite
+                .height;
             let parent_height =
                 chain_store.get_block_header(&approval.parent_hash).unwrap().inner_lite.height;
 
@@ -108,29 +114,21 @@ fn compute_quorums_slow(
 
 fn create_block(
     prev: &Block,
-    height: BlockIndex,
+    height: BlockHeight,
     chain_store: &mut ChainStore,
-    signer: &dyn Signer,
+    signer: &dyn ValidatorSigner,
     approvals: Vec<Approval>,
     stakes: Vec<ValidatorStake>,
 ) -> Block {
     let mut block = Block::empty(prev, signer);
     block.header.inner_rest.approvals = approvals.clone();
     block.header.inner_lite.height = height;
-    block.header.inner_rest.total_weight = (height as u128).into();
-
-    /*println!(
-        "Creating block at height {} with parent {:?} and approvals {:?}",
-        height,
-        prev.hash(),
-        approvals
-    );*/
 
     let slow_quorums =
         compute_quorums_slow(prev.hash(), approvals.clone(), chain_store, stakes.clone()).clone();
     let fast_quorums = FinalityGadget::compute_quorums(
         prev.hash(),
-        EpochId(CryptoHash::default()),
+        EpochId::default(),
         height,
         approvals.clone(),
         chain_store,
@@ -148,13 +146,12 @@ fn create_block(
         chain_store
             .get_block_header(&fast_quorums.last_quorum_pre_vote)
             .unwrap()
-            .inner_rest
-            .total_weight
+            .inner_lite
+            .height
+            .into()
     };
 
     block.header.init();
-
-    //println!("Created; Hash: {:?}", block.hash());
 
     assert_eq!(slow_quorums, fast_quorums);
 
@@ -165,7 +162,14 @@ fn create_block(
 }
 
 fn apr(account_id: AccountId, reference_hash: CryptoHash, parent_hash: CryptoHash) -> Approval {
-    Approval { account_id, reference_hash, parent_hash, signature: Signature::default() }
+    Approval {
+        account_id,
+        reference_hash: Some(reference_hash),
+        is_endorsement: true,
+        target_height: 0,
+        parent_hash,
+        signature: Signature::default(),
+    }
 }
 
 fn gen_stakes(n: usize) -> Vec<ValidatorStake> {
@@ -179,7 +183,7 @@ fn gen_stakes(n: usize) -> Vec<ValidatorStake> {
 #[test]
 fn test_finality_genesis() {
     let store = create_test_store();
-    let mut chain_store = ChainStore::new(store);
+    let mut chain_store = ChainStore::new(store, 0);
 
     let stakes = gen_stakes(10);
 
@@ -227,7 +231,7 @@ fn test_finality_genesis2() {
         compute_quorums_slow(block1.hash(), vec![], chain.mut_store(), stakes.clone()).clone();
     let fast_quorums = FinalityGadget::compute_quorums(
         block1.hash(),
-        EpochId(CryptoHash::default()),
+        EpochId::default(),
         2,
         vec![],
         chain.mut_store(),
@@ -283,7 +287,7 @@ fn test_finality_basic() {
         compute_quorums_slow(block3.hash(), vec![], chain.mut_store(), stakes.clone()).clone();
     let fast_quorums = FinalityGadget::compute_quorums(
         block3.hash(),
-        EpochId(CryptoHash::default()),
+        EpochId::default(),
         4,
         vec![],
         chain.mut_store(),
@@ -300,7 +304,7 @@ fn test_finality_basic() {
 fn test_finality_weight() {
     let (mut chain, _, signer) = setup();
     let mut stakes = gen_stakes(4);
-    stakes[0].amount = 8;
+    stakes[0].stake = 8;
 
     let genesis_block = chain.get_block(&chain.genesis().hash()).unwrap().clone();
 
@@ -332,7 +336,7 @@ fn test_finality_weight() {
         compute_quorums_slow(block3.hash(), vec![], chain.mut_store(), stakes.clone()).clone();
     let fast_quorums = FinalityGadget::compute_quorums(
         block3.hash(),
-        EpochId(CryptoHash::default()),
+        EpochId::default(),
         4,
         vec![],
         chain.mut_store(),
@@ -408,7 +412,7 @@ fn test_finality_fewer_approvals_per_block() {
         compute_quorums_slow(block5.hash(), vec![], chain.mut_store(), stakes.clone()).clone();
     let fast_quorums = FinalityGadget::compute_quorums(
         block5.hash(),
-        EpochId(CryptoHash::default()),
+        EpochId::default(),
         6,
         vec![],
         chain.mut_store(),
@@ -470,7 +474,7 @@ fn test_finality_quorum_precommit_cases() {
             compute_quorums_slow(block4.hash(), vec![], chain.mut_store(), stakes.clone()).clone();
         let fast_quorums = FinalityGadget::compute_quorums(
             block4.hash(),
-            EpochId(CryptoHash::default()),
+            EpochId::default(),
             5,
             vec![],
             chain.mut_store(),
@@ -488,7 +492,6 @@ fn test_finality_quorum_precommit_cases() {
 fn test_my_approvals() {
     let (mut chain, _, signer) = setup();
     let stakes = gen_stakes(4);
-    let account_id = "test1".to_string();
 
     let genesis_block = chain.get_block(&chain.genesis().hash()).unwrap().clone();
 
@@ -528,10 +531,10 @@ fn test_my_approvals() {
             FinalityGadget::get_my_approval_reference_hash(block.hash(), chain.mut_store())
                 .unwrap();
         assert_eq!(reference_hash, expected_reference);
-        let approval = Approval::new(block.hash(), reference_hash, &*signer, account_id.clone());
+        let approval = Approval::new(block.hash(), Some(reference_hash), 0, true, &*signer);
         let mut chain_store_update = ChainStoreUpdate::new(chain.mut_store());
         FinalityGadget::process_approval(
-            &Some(account_id.clone()),
+            &Some(signer.validator_id().clone()),
             &approval,
             &mut chain_store_update,
         )
@@ -575,7 +578,7 @@ fn test_fuzzy_finality() {
                     }
                     let prev_reference =
                         if let Some(prev_approval) = last_approvals_entry.get(block_producer) {
-                            prev_approval.reference_hash
+                            prev_approval.reference_hash.unwrap()
                         } else {
                             genesis_block.hash().clone()
                         };
