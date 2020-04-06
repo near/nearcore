@@ -6,9 +6,9 @@ import time
 import os
 
 sys.path.append('lib')
-from cluster import collect_gcloud_config, GCloudNode, Key
+from cluster import GCloudNode, Key
 from transaction import sign_staking_tx
-from utils import user_name
+from utils import user_name, collect_gcloud_config
 
 def stop_node(machine):
     machine.run('tmux send-keys -t python-rc C-c')
@@ -43,12 +43,10 @@ class RemoteNode(GCloudNode):
         self.validator_key = Key.from_json_file(os.path.join(node_dir, "validator_key.json"))
         self.node_key = Key.from_json_file(os.path.join(node_dir, "node_key.json"))
         self.signer_key = Key.from_json_file(os.path.join(node_dir, "signer0_key.json"))
-        self.account_key_nonce = super().get_nonce_for_pk(self.signer_key.account_id, self.signer_key.pk)
+        self.last_synced_height = 0
 
-        status = super().get_status()
-        if 'error' in status or status is None:
-            self.state = NodeState.NOTRUNNING
-        else:
+        try:
+            status = super().get_status()
             validators = set(map(lambda x: x['account_id'], status['validators']))
             if self.signer_key.account_id in validators:
                 self.state = NodeState.VALIDATING
@@ -56,29 +54,44 @@ class RemoteNode(GCloudNode):
                 self.state = NodeState.SYNCING
             else:
                 self.state = NodeState.NONVALIDATING
+            self.account_key_nonce = super().get_nonce_for_pk(self.signer_key.account_id, self.signer_key.pk)
+        except Exception:
+            start_node(self.machine)
+            time.sleep(20)
+            self.state = NodeState.SYNCING
+            self.account_key_nonce = None
+
 
     def send_staking_tx(self, stake):
         status = self.get_status()
         hash_ = status['sync_info']['latest_block_hash']
+        if self.account_key_nonce is None:
+            self.account_key_nonce = self.get_nonce_for_pk(self.signer_key.account_id, self.signer_key.pk)
         self.account_key_nonce += 1
         tx = sign_staking_tx(nodes[index].signer_key, nodes[index].validator_key, stake, self.account_key_nonce, base58.b58decode(hash_.encode('utf8')))
+        print(f'{self.signer_key.account_id} stakes {stake}')
         res = self.send_tx_and_wait(tx, timeout=15)
-        assert 'error' not in res, f'node: {node.signer_key} result: {res}'
+        if 'error' in res or 'Failure' in res['result']['status']:
+            print(res)
 
     def send_unstaking_tx(self):
         self.send_staking_tx(0)
 
     def change_state(self, cur_validators):
         if self.state is NodeState.NOTRUNNING:
-            start_node(self.machine)
-            self.state = NodeState.SYNCING
+            if bool(random.getrandbits(1)):
+                start_node(self.machine)
+                self.state = NodeState.SYNCING
         elif self.state is NodeState.SYNCING:
             node_status = self.get_status()
             if not node_status['sync_info']['syncing']:
                 self.state = NodeState.NONVALIDATING
+            else:
+                cur_height = node_status['sync_info']['latest_block_height']
+                assert cur_height > self.last_synced_height + 10, f'current height {cur_height} did not change much from last synced height: {self.last_synced_height}'
+                self.last_synced_height = cur_height
         elif self.state is NodeState.NONVALIDATING:
-            shutdown = bool(random.getrandbits(1))
-            if shutdown:
+            if bool(random.getrandbits(1)):
                 stop_node(self.machine)
                 self.state = NodeState.NOTRUNNING
             else:
@@ -86,13 +99,15 @@ class RemoteNode(GCloudNode):
                 self.send_staking_tx(stake)
                 self.state = NodeState.STAKED
         elif self.state is NodeState.STAKED:
-            if f'node{index}' in cur_validators:
+            if self.signer_key.account_id in cur_validators:
                 self.state = NodeState.VALIDATING
         elif self.state is NodeState.VALIDATING:
-            self.send_unstaking_tx()
-            self.state = NodeState.UNSTAKED
+            assert self.signer_key.account_id in cur_validators, f'invariant failed: {self.signer_key.account_id} not in {cur_validators}'
+            if bool(random.getrandbits(1)):
+                self.send_unstaking_tx()
+                self.state = NodeState.UNSTAKED
         elif self.state is NodeState.UNSTAKED:
-            if f'node{index}' not in cur_validators:
+            if self.signer_key.account_id not in cur_validators:
                 self.state = NodeState.NONVALIDATING
         else:
             assert False, "unexpected state"
@@ -113,6 +128,10 @@ while True:
         assert False, "all nodes are syncing"
     assert 'error' not in validator_info, validator_info
     cur_validators = dict(map(lambda x: (x['account_id'], x['stake']), validator_info['result']['current_validators']))
+    prev_epoch_kickout = validator_info['result']['prev_epoch_kickout']
+    print(f'validators kicked out in the previous epoch: {prev_epoch_kickout}')
+    for validator_kickout in prev_epoch_kickout:
+        assert validator_kickout['reason'] != 'Unstaked' or validator_kickout['reason'] != 'DidNotGetASeat' or not validator_kickout.startswith('NotEnoughStake'), validator_kickout
     print(f'current validators: {cur_validators}')
 
     # choose 5 nodes and change their state
