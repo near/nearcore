@@ -39,8 +39,8 @@ use crate::finality::{ApprovalVerificationError, FinalityGadget, FinalityGadgetQ
 use crate::lightclient::get_epoch_block_producers_view;
 use crate::store::{ChainStore, ChainStoreAccess, ChainStoreUpdate, ShardInfo, StateSyncInfo};
 use crate::types::{
-    AcceptedBlock, ApplyTransactionResult, Block, BlockHeader, BlockStatus, Provenance,
-    ReceiptList, ReceiptProofResponse, ReceiptResponse, RootProof, RuntimeAdapter,
+    AcceptedBlock, ApplyTransactionResult, Block, BlockHeader, BlockStatus, BlockSyncResponse,
+    Provenance, ReceiptList, ReceiptProofResponse, ReceiptResponse, RootProof, RuntimeAdapter,
     ShardStateSyncResponseHeader, StatePartKey, Tip,
 };
 use crate::validate::{
@@ -846,16 +846,19 @@ impl Chain {
     }
 
     /// Check if state download is required, otherwise return hashes of blocks to fetch.
+    /// Hashes are sorted increasingly by height.
     pub fn check_state_needed(
         &mut self,
         block_fetch_horizon: BlockHeightDelta,
-    ) -> Result<(bool, Vec<CryptoHash>), Error> {
+    ) -> Result<BlockSyncResponse, Error> {
         let block_head = self.head()?;
         let header_head = self.header_head()?;
         let mut hashes = vec![];
 
+        // If latest block is up to date return early.
+        // No state download is required, neither any blocks need to be fetched.
         if block_head.score_and_height() >= header_head.score_and_height() {
-            return Ok((false, hashes));
+            return Ok(BlockSyncResponse::None);
         }
 
         // Find common block between header chain and block chain.
@@ -878,13 +881,17 @@ impl Chain {
             let sync_head = self.sync_head()?;
             if oldest_height < sync_head.height.saturating_sub(block_fetch_horizon) {
                 // Epochs are different and we are too far from horizon, State Sync is needed
-                return Ok((true, vec![]));
+                return Ok(BlockSyncResponse::StateNeeded);
             }
         }
-        Ok((false, hashes))
+
+        // Sort hashes by height
+        hashes.reverse();
+
+        Ok(BlockSyncResponse::BlocksNeeded(hashes))
     }
 
-    /// Returns if given block header on the current chain.
+    /// Returns if given block header is on the current chain.
     fn is_on_current_chain(&mut self, header: &BlockHeader) -> Result<(), Error> {
         let chain_header = self.get_header_by_height(header.inner_lite.height)?;
         if chain_header.hash() == header.hash() {
@@ -930,6 +937,8 @@ impl Chain {
         }
     }
 
+    /// Set the new head after state sync was completed if it is indeed newer.
+    /// Check for potentially unlocked orphans after this update.
     pub fn reset_heads_post_state_sync<F, F2, F3>(
         &mut self,
         me: &Option<AccountId>,

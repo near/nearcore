@@ -129,7 +129,7 @@ macro_rules! http_client {
 
             $(
                 $(#[$attr])*
-                pub fn $method(&mut $selff $(, $arg_name: $arg_ty)*)
+                pub fn $method(&$selff $(, $arg_name: $arg_ty)*)
                     -> HttpRequest<$return_ty>
                 {
                     let method = String::from(stringify!($method));
@@ -148,7 +148,7 @@ macro_rules! jsonrpc_client {
         $(#[$struct_attr:meta])*
         pub struct $struct_name:ident {$(
             $(#[$attr:meta])*
-            pub fn $method:ident(&mut $selff:ident $(, $arg_name:ident: $arg_ty:ty)*)
+            pub fn $method:ident(&$selff:ident $(, $arg_name:ident: $arg_ty:ty)*)
                 -> RpcRequest<$return_ty:ty>;
         )*}
     ) => (
@@ -166,7 +166,7 @@ macro_rules! jsonrpc_client {
 
             $(
                 $(#[$attr])*
-                pub fn $method(&mut $selff $(, $arg_name: $arg_ty)*)
+                pub fn $method(&$selff $(, $arg_name: $arg_ty)*)
                     -> RpcRequest<$return_ty>
                 {
                     let method = String::from(stringify!($method));
@@ -179,22 +179,22 @@ macro_rules! jsonrpc_client {
 }
 
 jsonrpc_client!(pub struct JsonRpcClient {
-    pub fn broadcast_tx_async(&mut self, tx: String) -> RpcRequest<String>;
-    pub fn broadcast_tx_commit(&mut self, tx: String) -> RpcRequest<FinalExecutionOutcomeView>;
-    pub fn status(&mut self) -> RpcRequest<StatusResponse>;
+    pub fn broadcast_tx_async(&self, tx: String) -> RpcRequest<String>;
+    pub fn broadcast_tx_commit(&self, tx: String) -> RpcRequest<FinalExecutionOutcomeView>;
+    pub fn status(&self) -> RpcRequest<StatusResponse>;
     #[allow(non_snake_case)]
-    pub fn EXPERIMENTAL_genesis_config(&mut self) -> RpcRequest<serde_json::Value>;
-    pub fn health(&mut self) -> RpcRequest<()>;
-    pub fn tx(&mut self, hash: String, account_id: String) -> RpcRequest<FinalExecutionOutcomeView>;
-    pub fn chunk(&mut self, id: ChunkId) -> RpcRequest<ChunkView>;
-    pub fn validators(&mut self, block_id: MaybeBlockId) -> RpcRequest<EpochValidatorInfo>;
-    pub fn gas_price(&mut self, block_id: MaybeBlockId) -> RpcRequest<GasPriceView>;
+    pub fn EXPERIMENTAL_genesis_config(&self) -> RpcRequest<serde_json::Value>;
+    pub fn health(&self) -> RpcRequest<()>;
+    pub fn tx(&self, hash: String, account_id: String) -> RpcRequest<FinalExecutionOutcomeView>;
+    pub fn chunk(&self, id: ChunkId) -> RpcRequest<ChunkView>;
+    pub fn validators(&self, block_id: MaybeBlockId) -> RpcRequest<EpochValidatorInfo>;
+    pub fn gas_price(&self, block_id: MaybeBlockId) -> RpcRequest<GasPriceView>;
 });
 
 impl JsonRpcClient {
     #[allow(non_snake_case)]
     pub fn EXPERIMENTAL_genesis_records(
-        &mut self,
+        &self,
         request: RpcGenesisRecordsRequest,
     ) -> RpcRequest<GenesisRecordsView<'_>> {
         call_method(&self.client, &self.server_addr, "EXPERIMENTAL_genesis_records", request)
@@ -202,25 +202,25 @@ impl JsonRpcClient {
 
     /// This is a soft-deprecated method to do query RPC request with a path and data positional
     /// parameters.
-    pub fn query_by_path(&mut self, path: String, data: String) -> RpcRequest<QueryResponse> {
+    pub fn query_by_path(&self, path: String, data: String) -> RpcRequest<QueryResponse> {
         call_method(&self.client, &self.server_addr, "query", [path, data])
     }
 
-    pub fn query(&mut self, request: RpcQueryRequest) -> RpcRequest<QueryResponse> {
+    pub fn query(&self, request: RpcQueryRequest) -> RpcRequest<QueryResponse> {
         call_method(&self.client, &self.server_addr, "query", request)
     }
 
-    pub fn block_by_id(&mut self, block_id: BlockId) -> RpcRequest<BlockView> {
+    pub fn block_by_id(&self, block_id: BlockId) -> RpcRequest<BlockView> {
         call_method(&self.client, &self.server_addr, "block", [block_id])
     }
 
-    pub fn block(&mut self, request: BlockIdOrFinality) -> RpcRequest<BlockView> {
+    pub fn block(&self, request: BlockIdOrFinality) -> RpcRequest<BlockView> {
         call_method(&self.client, &self.server_addr, "block", request)
     }
 
     #[allow(non_snake_case)]
     pub fn EXPERIMENTAL_changes(
-        &mut self,
+        &self,
         request: RpcStateChangesRequest,
     ) -> RpcRequest<RpcStateChangesResponse> {
         call_method(&self.client, &self.server_addr, "EXPERIMENTAL_changes", request)

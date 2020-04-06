@@ -45,18 +45,16 @@ impl RpcUser {
     }
 
     pub fn get_status(&self) -> Option<StatusResponse> {
-        self.actix(|mut client| client.status()).ok()
+        self.actix(|client| client.status()).ok()
     }
 
     pub fn query(&self, path: String, data: &[u8]) -> Result<QueryResponse, String> {
         let data = to_base(data);
-        self.actix(move |mut client| {
-            client.query_by_path(path, data).map_err(|err| err.to_string())
-        })
+        self.actix(move |client| client.query_by_path(path, data).map_err(|err| err.to_string()))
     }
 
     pub fn validators(&self, block_id: MaybeBlockId) -> Result<EpochValidatorInfo, String> {
-        self.actix(move |mut client| client.validators(block_id).map_err(|err| err.to_string()))
+        self.actix(move |client| client.validators(block_id).map_err(|err| err.to_string()))
     }
 }
 
@@ -71,14 +69,14 @@ impl User for RpcUser {
 
     fn add_transaction(&self, transaction: SignedTransaction) -> Result<(), ServerError> {
         let bytes = transaction.try_to_vec().unwrap();
-        let _ = self
-            .actix(move |mut client| client.broadcast_tx_async(to_base64(&bytes)))
-            .map_err(|err| {
+        let _ = self.actix(move |client| client.broadcast_tx_async(to_base64(&bytes))).map_err(
+            |err| {
                 serde_json::from_value::<ServerError>(
                     err.data.expect("server error must carry data"),
                 )
                 .expect("deserialize server error must be ok")
-            })?;
+            },
+        )?;
         Ok(())
     }
 
@@ -87,7 +85,7 @@ impl User for RpcUser {
         transaction: SignedTransaction,
     ) -> Result<FinalExecutionOutcomeView, ServerError> {
         let bytes = transaction.try_to_vec().unwrap();
-        let result = self.actix(move |mut client| client.broadcast_tx_commit(to_base64(&bytes)));
+        let result = self.actix(move |client| client.broadcast_tx_commit(to_base64(&bytes)));
         // Wait for one more block, to make sure all nodes actually apply the state transition.
         let height = self.get_best_height().unwrap();
         while height == self.get_best_height().unwrap() {
@@ -113,10 +111,8 @@ impl User for RpcUser {
     }
 
     fn get_block(&self, height: BlockHeight) -> Option<BlockView> {
-        self.actix(move |mut client| {
-            client.block(BlockIdOrFinality::BlockId(BlockId::Height(height)))
-        })
-        .ok()
+        self.actix(move |client| client.block(BlockIdOrFinality::BlockId(BlockId::Height(height))))
+            .ok()
     }
 
     fn get_transaction_result(&self, _hash: &CryptoHash) -> ExecutionOutcomeView {
@@ -126,7 +122,7 @@ impl User for RpcUser {
     fn get_transaction_final_result(&self, hash: &CryptoHash) -> FinalExecutionOutcomeView {
         let account_id = self.account_id.clone();
         let hash = *hash;
-        self.actix(move |mut client| client.tx((&hash).into(), account_id)).unwrap()
+        self.actix(move |client| client.tx((&hash).into(), account_id)).unwrap()
     }
 
     fn get_state_root(&self) -> CryptoHash {
