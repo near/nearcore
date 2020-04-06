@@ -79,7 +79,7 @@ expensive --timeout=2400 near-epoch-manager finality tests::test_fuzzy_safety
 expensive --timeout=1200 near-epoch-manager finality tests::test_fuzzy_light_client
 
 # state sync tests
-expensive near sync_state_nodes sync_state_nodes_multishard
+expensive neard sync_state_nodes sync_state_nodes_multishard
 
 # testnet rpc
 expensive nearcore test_tps_regression test::test_highload
