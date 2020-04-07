@@ -337,6 +337,11 @@ impl Client {
             })
             .collect();
 
+        println!(
+            "{:?}\n{:?}",
+            self.runtime_adapter.get_epoch_block_producers_ordered(&epoch_id, &prev_hash)?,
+            approvals_map
+        );
         debug_assert_eq!(approvals_map.len(), 0);
 
         let next_epoch_id = self
@@ -675,7 +680,7 @@ impl Client {
             let last_final_hash =
                 self.chain.get_block_header(&tip.last_block_hash)?.inner_rest.last_final_block;
             let last_final_height = if last_final_hash == CryptoHash::default() {
-                0
+                self.chain.genesis().inner_lite.height
             } else {
                 self.chain.get_block_header(&last_final_hash)?.inner_lite.height
             };
@@ -731,21 +736,17 @@ impl Client {
         // If we produced the block, then it should have already been broadcasted.
         // If received the block from another node then broadcast "header first" to minimize network traffic.
         if provenance == Provenance::NONE {
-            let approvals =
-                self.pending_approvals.cache_remove(&ApprovalInner::Endorsement(block_hash));
-            if let Some(approvals) = approvals {
-                for (_account_id, approval) in approvals {
-                    self.collect_block_approval(&approval, false);
-                }
-            }
-
-            let approvals = self
+            let endorsements = self
                 .pending_approvals
-                .cache_remove(&ApprovalInner::Skip(block.header.inner_lite.height));
-            if let Some(approvals) = approvals {
-                for (_account_id, approval) in approvals {
-                    self.collect_block_approval(&approval, false);
-                }
+                .cache_remove(&ApprovalInner::Endorsement(block_hash))
+                .unwrap_or_default();
+            let skips = self
+                .pending_approvals
+                .cache_remove(&ApprovalInner::Skip(block.header.inner_lite.height))
+                .unwrap_or_default();
+
+            for (_account_id, approval) in endorsements.into_iter().chain(skips.into_iter()) {
+                self.collect_block_approval(&approval, false);
             }
 
             self.rebroadcast_block(block.clone());

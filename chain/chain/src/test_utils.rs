@@ -300,7 +300,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         Ok(true)
     }
 
-    fn verify_approval_signature(
+    fn verify_approval(
         &self,
         _epoch_id: &EpochId,
         _prev_block_hash: &CryptoHash,

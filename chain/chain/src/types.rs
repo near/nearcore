@@ -183,7 +183,7 @@ pub trait RuntimeAdapter: Send + Sync {
     fn verify_chunk_header_signature(&self, header: &ShardChunkHeader) -> Result<bool, Error>;
 
     /// Verify aggregated bls signature
-    fn verify_approval_signature(
+    fn verify_approval(
         &self,
         epoch_id: &EpochId,
         prev_block_hash: &CryptoHash,

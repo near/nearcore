@@ -584,7 +584,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         }
     }
 
-    fn verify_approval_signature(
+    fn verify_approval(
         &self,
         epoch_id: &EpochId,
         prev_block_hash: &CryptoHash,

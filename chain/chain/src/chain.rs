@@ -2905,7 +2905,7 @@ impl<'a> ChainUpdate<'a> {
         // producer, confirmation signatures and finality info.
         if *provenance != Provenance::PRODUCED {
             // first verify aggregated signature
-            if !self.runtime_adapter.verify_approval_signature(
+            if !self.runtime_adapter.verify_approval(
                 &header.inner_lite.epoch_id,
                 &prev_header.hash,
                 prev_header.inner_lite.height,
@@ -2950,13 +2950,6 @@ impl<'a> ChainUpdate<'a> {
             if header.inner_rest.last_ds_final_block != expected_last_ds_final_block
                 || header.inner_rest.last_final_block != expected_last_final_block
             {
-                println!(
-                    "{}, {} != {}, {}",
-                    expected_last_final_block,
-                    expected_last_ds_final_block,
-                    header.inner_rest.last_final_block,
-                    header.inner_rest.last_ds_final_block,
-                );
                 return Err(ErrorKind::InvalidFinalityInfo.into());
             }
         }

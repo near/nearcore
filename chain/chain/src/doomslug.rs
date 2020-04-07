@@ -119,10 +119,10 @@ impl DoomslugTimer {
 }
 
 impl DoomslugApprovalsTracker {
-    fn new(stakes: &Vec<ValidatorStake>, threshold_mode: DoomslugThresholdMode) -> Self {
-        let account_id_to_stake =
-            stakes.iter().map(|x| (x.account_id.clone(), x.stake)).collect::<HashMap<_, _>>();
-        assert!(account_id_to_stake.len() == stakes.len());
+    fn new(
+        account_id_to_stake: HashMap<AccountId, Balance>,
+        threshold_mode: DoomslugThresholdMode,
+    ) -> Self {
         let total_stake = account_id_to_stake.values().sum::<Balance>();
 
         DoomslugApprovalsTracker {
@@ -242,10 +242,20 @@ impl DoomslugApprovalsTrackersAtHeight {
                 self.approval_trackers.remove(&last_parent);
             }
         }
+
+        let account_id_to_stake =
+            stakes.iter().map(|x| (x.account_id.clone(), x.stake)).collect::<HashMap<_, _>>();
+
+        assert!(account_id_to_stake.len() == stakes.len());
+
+        if !account_id_to_stake.contains_key(&approval.account_id) {
+            return DoomslugBlockProductionReadiness::NotReady;
+        }
+
         self.last_approval_per_account.insert(approval.account_id.clone(), approval.inner.clone());
         self.approval_trackers
             .entry(approval.inner.clone())
-            .or_insert_with(|| DoomslugApprovalsTracker::new(stakes, threshold_mode))
+            .or_insert_with(|| DoomslugApprovalsTracker::new(account_id_to_stake, threshold_mode))
             .process_approval(now, approval)
     }
 }
