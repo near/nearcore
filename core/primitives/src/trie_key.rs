@@ -261,8 +261,13 @@ pub mod trie_key_parsers {
         raw_key: &[u8],
     ) -> Result<AccountId, std::io::Error> {
         let account_id_prefix = parse_account_id_prefix(col::ACCESS_KEY, raw_key)?;
-        let public_key_position = if let Some(index) =
-            account_id_prefix.iter().enumerate().find(|(_, c)| **c == 2).map(|(index, _)| index)
+        // To simplify things, we assume that the data separator is a single byte.
+        debug_assert_eq!(col::ACCESS_KEY.len(), 1);
+        let public_key_position = if let Some(index) = account_id_prefix
+            .iter()
+            .enumerate()
+            .find(|(_, c)| **c == col::ACCESS_KEY[0])
+            .map(|(index, _)| index)
         {
             index
         } else {
