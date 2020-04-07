@@ -644,8 +644,6 @@ impl Chain {
                 }
                 debug_assert_eq!(blocks_current_height.len(), 1);
                 chain_store_update.clear_block_data(trie.clone(), *block_hash, false)?;
-            } else {
-                debug_assert!(false, "all block hashes should not be empty")
             }
             chain_store_update.update_tail(height);
         }
