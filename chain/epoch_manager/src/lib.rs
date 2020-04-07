@@ -173,7 +173,9 @@ impl EpochManager {
                     all_kicked_out = false;
                 }
             }
-            if block_stats.produced > maximum_block_prod && !is_already_kicked_out {
+            if (max_validator_id.is_none() || block_stats.produced > maximum_block_prod)
+                && !is_already_kicked_out
+            {
                 maximum_block_prod = block_stats.produced;
                 max_validator_id = Some(i);
             }
@@ -2704,6 +2706,27 @@ mod tests {
         assert_eq!(
             epoch_manager.get_block_info(&h[3]).unwrap().block_tracker,
             HashMap::from_iter([(0, ValidatorStats { produced: 1, expected: 1 })].iter().cloned())
+        );
+    }
+
+    #[test]
+    fn test_all_kickout_edge_case() {
+        let stake_amount = 1_000;
+        let validators =
+            vec![("test1", stake_amount), ("test2", stake_amount), ("test3", stake_amount)];
+        let mut epoch_manager = setup_default_epoch_manager(validators, 1, 1, 3, 0, 90, 60);
+        let h = hash_range(9);
+        // 1. kickout test2
+        // 2. kickout test1 and test2
+        // 3. test1 produces a block and test3 misses, but since test1 is about to get kicked we keep test3
+        record_block(&mut epoch_manager, CryptoHash::default(), h[0], 0, vec![]);
+        record_block(&mut epoch_manager, h[0], h[2], 2, vec![]);
+        record_block(&mut epoch_manager, h[2], h[6], 6, vec![]);
+        record_block(&mut epoch_manager, h[6], h[8], 8, vec![]);
+
+        assert_eq!(
+            epoch_manager.get_epoch_info(&EpochId(h[8])).unwrap().validator_kickout,
+            HashMap::default()
         );
     }
 }
