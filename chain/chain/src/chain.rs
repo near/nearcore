@@ -625,7 +625,10 @@ impl Chain {
                     Ok(blocks_current_height) => {
                         blocks_current_height.values().flatten().cloned().collect()
                     }
-                    _ => continue,
+                    _ => {
+                        chain_store_update.update_tail(height);
+                        continue;
+                    }
                 };
             if let Some(block_hash) = blocks_current_height.first() {
                 let prev_hash = chain_store_update.get_block_header(block_hash)?.prev_hash;
@@ -641,6 +644,8 @@ impl Chain {
                 }
                 debug_assert_eq!(blocks_current_height.len(), 1);
                 chain_store_update.clear_block_data(trie.clone(), *block_hash, false)?;
+            } else {
+                debug_assert!(false, "all block hashes should not be empty")
             }
             chain_store_update.update_tail(height);
         }
