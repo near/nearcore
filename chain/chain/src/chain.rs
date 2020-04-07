@@ -620,27 +620,26 @@ impl Chain {
 
         // Canonical Chain Clearing
         for height in tail + 1..gc_stop_height {
-            let blocks_current_height: Vec<CryptoHash> =
-                match chain_store_update.get_all_block_hashes_by_height(height) {
-                    Ok(blocks_current_height) => {
-                        blocks_current_height.values().flatten().cloned().collect()
+            if let Ok(blocks_current_height) =
+                chain_store_update.get_all_block_hashes_by_height(height)
+            {
+                let blocks_current_height =
+                    blocks_current_height.values().flatten().cloned().collect::<Vec<_>>();
+                if let Some(block_hash) = blocks_current_height.first() {
+                    let prev_hash = chain_store_update.get_block_header(block_hash)?.prev_hash;
+                    let prev_block_refcount = *chain_store_update.get_block_refcount(&prev_hash)?;
+                    // break when there is a fork
+                    if prev_block_refcount > 1 {
+                        break;
+                    } else if prev_block_refcount == 0 {
+                        return Err(ErrorKind::GCError(
+                            "block on canonical chain shouldn't have refcount 0".into(),
+                        )
+                        .into());
                     }
-                    _ => continue,
-                };
-            if let Some(block_hash) = blocks_current_height.first() {
-                let prev_hash = chain_store_update.get_block_header(block_hash)?.prev_hash;
-                let prev_block_refcount = *chain_store_update.get_block_refcount(&prev_hash)?;
-                // break when there is a fork
-                if prev_block_refcount > 1 {
-                    break;
-                } else if prev_block_refcount == 0 {
-                    return Err(ErrorKind::GCError(
-                        "block on canonical chain shouldn't have refcount 0".into(),
-                    )
-                    .into());
+                    debug_assert_eq!(blocks_current_height.len(), 1);
+                    chain_store_update.clear_block_data(trie.clone(), *block_hash, false)?;
                 }
-                debug_assert_eq!(blocks_current_height.len(), 1);
-                chain_store_update.clear_block_data(trie.clone(), *block_hash, false)?;
             }
             chain_store_update.update_tail(height);
         }
