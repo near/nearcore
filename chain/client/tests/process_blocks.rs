@@ -1013,3 +1013,46 @@ fn test_not_resync_old_blocks() {
         assert_eq!(env.clients[0].chain.orphans_len(), 0);
     }
 }
+
+#[test]
+fn test_gc_tail_update() {
+    let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
+    let epoch_length = 2;
+    genesis.config.epoch_length = epoch_length;
+    let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![
+        Arc::new(neard::NightshadeRuntime::new(
+            Path::new("."),
+            create_test_store(),
+            Arc::new(genesis.clone()),
+            vec![],
+            vec![],
+        )),
+        Arc::new(neard::NightshadeRuntime::new(
+            Path::new("."),
+            create_test_store(),
+            Arc::new(genesis),
+            vec![],
+            vec![],
+        )),
+    ];
+    let mut chain_genesis = ChainGenesis::test();
+    chain_genesis.epoch_length = epoch_length;
+    let mut env = TestEnv::new_with_runtime(chain_genesis, 2, 1, runtimes);
+    let mut blocks = vec![];
+    for i in 1..=epoch_length * (NUM_EPOCHS_TO_KEEP_STORE_DATA + 1) {
+        let block = env.clients[0].produce_block(i).unwrap().unwrap();
+        env.process_block(0, block.clone(), Provenance::PRODUCED);
+        blocks.push(block);
+    }
+    let headers = blocks.clone().into_iter().map(|b| b.header).collect::<Vec<_>>();
+    env.clients[1].sync_block_headers(headers).unwrap();
+    // simulate save sync hash block
+    let sync_block = blocks[blocks.len() - 2].clone();
+    env.clients[1].chain.save_block(&sync_block).unwrap();
+    env.clients[1]
+        .chain
+        .reset_heads_post_state_sync(&None, sync_block.hash(), |_| {}, |_| {}, |_| {})
+        .unwrap();
+    env.process_block(1, blocks.pop().unwrap(), Provenance::NONE);
+    assert_eq!(env.clients[1].chain.store().tail().unwrap(), epoch_length);
+}
