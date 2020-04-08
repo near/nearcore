@@ -26,14 +26,14 @@ impl Executor {
             let mut hashes = vec![];
             // Submit deploy contract transactions.
             for tx in transactions {
-                let hash = wait(|| n.write().unwrap().add_transaction(tx.clone()));
-                debug!("txn to deploy contract submitted: {}", &hash);
-                hashes.push(hash);
+                let (hash, account_id) = wait(|| n.write().unwrap().add_transaction(tx.clone()));
+                debug!("txn {} to deploy contract submitted by {}", &hash, &account_id);
+                hashes.push((hash, account_id));
             }
             // Wait for them to propagate.
             wait(|| {
-                for h in &hashes {
-                    try_wait(|| n.write().unwrap().transaction_committed(h))?;
+                for (h, a) in &hashes {
+                    try_wait(|| n.write().unwrap().transaction_committed(h, a))?;
                 }
                 Ok(())
             });
@@ -91,7 +91,7 @@ impl Executor {
                                         Generator::call_heavy_storage_blocks(&node, signer_ind)
                                     }
                                 };
-                                node.write().unwrap().add_transaction_committed(t.clone()).unwrap();
+                                // node.write().unwrap().add_transaction_committed(t.clone()).unwrap();
                                 let f = { node.write().unwrap().add_transaction_async(t) };
                                 let f = f
                                     .map_ok(|r| debug!("txn submitted: {}", r))

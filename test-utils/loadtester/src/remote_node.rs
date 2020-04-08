@@ -13,11 +13,8 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::serialize::to_base64;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, Nonce};
-use near_primitives::views::AccessKeyView;
 use reqwest::blocking::Client as SyncClient;
 use std::convert::TryInto;
-use testlib::user::rpc_user::RpcUser;
-use testlib::user::User;
 
 use log::{debug, info};
 
@@ -37,10 +34,10 @@ const MAX_WAIT_RPC: Duration = Duration::from_secs(60);
 const MAX_WAIT_REACHED_ERR: &str = "Exceeded maximum wait on RPC";
 
 pub struct RemoteNode {
-    pub addr: SocketAddr,
     pub signers: Vec<Arc<InMemorySigner>>,
     pub nonces: Vec<Nonce>,
     pub url: String,
+    pub addr: String,
     sync_client: SyncClient,
     async_client: Arc<AsyncClient>,
 }
@@ -103,11 +100,12 @@ where
 }
 
 impl RemoteNode {
-    pub fn new(addr: SocketAddr, signers_accs: &[AccountId]) -> Arc<RwLock<Self>> {
-        let url = format!("http://{}", addr);
+    pub fn new(addr: &str, signers_accs: &[AccountId]) -> Arc<RwLock<Self>> {
+        let addr = addr.to_string();
+        let url = addr.clone();
         let signers: Vec<_> = signers_accs
             .iter()
-            .map(|s| Arc::new(InMemorySigner::from_seed(s.as_str(), KeyType::ED25519, s.as_str())))
+            .map(|s| Arc::new(InMemorySigner::from_seed(s.as_str(), KeyType::ED25519, "near")))
             .collect();
         let nonces = vec![0; signers.len()];
 
@@ -124,7 +122,7 @@ impl RemoteNode {
                 .build()
                 .unwrap(),
         );
-        let mut result = Self { addr, signers, nonces, url, sync_client, async_client };
+        let mut result = Self { signers, nonces, addr, url, sync_client, async_client };
 
         // Wait for the node to be up.
         wait(|| result.health_ok());
@@ -139,9 +137,7 @@ impl RemoteNode {
         let nonces: Vec<Nonce> = accounts
             .iter()
             .zip(self.signers.iter().map(|s| &s.public_key))
-            .map(|(account_id, public_key)| {
-                get_result(|| self.get_access_key(&account_id, &public_key)).nonce
-            })
+            .map(|(account_id, public_key)| get_result(|| self.get_nonce(&account_id, &public_key)))
             .collect();
         self.nonces = nonces;
     }
@@ -149,25 +145,25 @@ impl RemoteNode {
     pub fn update_accounts(&mut self, signers_accs: &[AccountId]) {
         let signers: Vec<_> = signers_accs
             .iter()
-            .map(|s| Arc::new(InMemorySigner::from_seed(s.as_str(), KeyType::ED25519, s.as_str())))
+            .map(|s| Arc::new(InMemorySigner::from_seed(s.as_str(), KeyType::ED25519, "near")))
             .collect();
         self.signers = signers;
         self.get_nonces(signers_accs);
     }
 
-    fn get_access_key(
+    fn get_nonce(
         &self,
         account_id: &AccountId,
         public_key: &PublicKey,
-    ) -> Result<AccessKeyView, Box<dyn std::error::Error>> {
-        let user = RpcUser::new(
-            &self.addr.to_string(),
-            account_id.to_string(),
-            self.signers.first().unwrap().clone(),
-        );
-        let access_key = user.get_access_key(account_id, public_key)?;
-        info!("get access key of {}", account_id);
-        Ok(access_key)
+    ) -> Result<Nonce, Box<dyn std::error::Error>> {
+        let params = (format!("access_key/{}/{}", account_id, public_key), "".to_string());
+        let message =
+            Message::request("query".to_string(), Some(serde_json::to_value(params).unwrap()));
+        let result: serde_json::Value =
+            self.sync_client.post(self.url.as_str()).json(&message).send()?.json()?;
+        let nonce = result["result"]["nonce"].as_u64().unwrap();
+        debug!("get nonce of {}, nonce {}", account_id, nonce);
+        Ok(nonce)
     }
 
     fn health_ok(&self) -> Result<(), Box<dyn std::error::Error>> {
@@ -208,7 +204,7 @@ impl RemoteNode {
     pub fn add_transaction(
         &self,
         transaction: SignedTransaction,
-    ) -> Result<String, Box<dyn std::error::Error>> {
+    ) -> Result<(String, String), Box<dyn std::error::Error>> {
         let bytes = transaction.try_to_vec().unwrap();
         let params = (to_base64(&bytes),);
         let message = Message::request(
@@ -217,8 +213,9 @@ impl RemoteNode {
         );
         let result: serde_json::Value =
             self.sync_client.post(self.url.as_str()).json(&message).send()?.json()?;
-
-        Ok(result["result"].as_str().ok_or(VALUE_NOT_STR_ERR)?.to_owned())
+        let hash = result["result"].as_str().ok_or(VALUE_NOT_STR_ERR)?.to_owned();
+        let account_id = transaction.transaction.signer_id.to_string();
+        Ok((hash, account_id))
     }
 
     pub fn add_transaction_committed(
@@ -238,20 +235,27 @@ impl RemoteNode {
     }
 
     /// Returns () if transaction is completed
-    pub fn transaction_committed(&self, hash: &String) -> Result<(), Box<dyn std::error::Error>> {
-        let params = (hash,);
+    pub fn transaction_committed(
+        &self,
+        hash: &String,
+        account_id: &String,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let params = (hash, account_id);
         let message =
             Message::request("tx".to_string(), Some(serde_json::to_value(&params).unwrap()));
 
         let response: serde_json::Value =
             self.sync_client.post(self.url.as_str()).json(&message).send()?.json()?;
-
-        let status = response["result"]["status"].as_str().ok_or(VALUE_NOT_STR_ERR)?.to_owned();
-        if status == "Completed" {
-            debug!("txn completed: {}", hash);
+        let status = response["result"]["status"].clone();
+        if status.get("SuccessValue").is_some() {
+            debug!("txn {} success", hash);
+            Ok(())
+        } else if let Some(err) = status.get("Failure") {
+            debug!("txn {} failure: {}", hash, err);
             Ok(())
         } else {
-            Err(format!("txn not completed: {} status: {}", hash, status).into())
+            debug!("txn pending: {}", hash);
+            Err(format!("txn not completed: {}", hash).into())
         }
     }
 
@@ -275,12 +279,8 @@ impl RemoteNode {
         let params = (height,);
         let message =
             Message::request("block".to_string(), Some(serde_json::to_value(&params).unwrap()));
-        let response: serde_json::Value = self
-            .sync_client
-            .post(&format!("http://{}", &self.addr.to_string()))
-            .json(&message)
-            .send()?
-            .json()?;
+        let response: serde_json::Value =
+            self.sync_client.post(&format!("http://{}", self.url)).json(&message).send()?.json()?;
 
         Ok(response["result"]["transactions"].as_array().ok_or(VALUE_NOT_ARR_ERR)?.len() as u64)
     }

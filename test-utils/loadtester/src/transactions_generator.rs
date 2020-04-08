@@ -2,6 +2,8 @@
 
 use std::sync::{Arc, RwLock};
 
+use neard::NEAR_BASE;
+use near_crypto::Signer;
 use near_primitives::transaction::{
     Action, DeployContractAction, FunctionCallAction, SignedTransaction,
 };
@@ -36,6 +38,31 @@ impl FromStr for TransactionType {
 pub struct Generator {}
 
 impl Generator {
+    /// Create account transaction
+    pub fn create_account(
+        node: &Arc<RwLock<RemoteNode>>,
+        signer_ind: usize,
+        new_account_id: String,
+    ) -> SignedTransaction {
+        let (signer_from, nonce, block_hash) = {
+            let mut node = node.write().unwrap();
+            node.nonces[signer_ind] += 1;
+            let block_hash = node.get_current_block_hash().unwrap();
+            (node.signers[signer_ind].clone(), node.nonces[signer_ind], block_hash)
+        };
+        let acc_from = signer_from.account_id.clone();
+
+        SignedTransaction::create_account(
+            nonce,
+            acc_from,
+            new_account_id,
+            10 * NEAR_BASE,
+            (*signer_from).public_key(),
+            &*signer_from,
+            block_hash,
+        )
+    }
+
     /// Create send money transaction.
     pub fn send_money(
         node: &Arc<RwLock<RemoteNode>>,
