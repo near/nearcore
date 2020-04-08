@@ -1185,7 +1185,6 @@ impl Runtime {
                     );
                 }
                 StateRecord::DelayedReceipt(receipt) => {
-                    // Delaying processing postponed receipts, until we process all data first
                     Self::delay_receipt(
                         &mut state_update,
                         &mut delayed_receipts_indices,
