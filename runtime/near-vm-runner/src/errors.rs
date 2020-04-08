@@ -67,6 +67,9 @@ impl IntoVMError for wasmer_runtime::error::RuntimeError {
         use wasmer_runtime::ExceptionCode;
         let data = &*self.0;
 
+        // TODO: Wasmer provides no way to distingush runtime Internal Wasmer errors or host panics
+        // (at least for a single-pass backend)
+        // https://github.com/wasmerio/wasmer/issues/1338
         if let Some(err) = data.downcast_ref::<VMLogicError>() {
             match err {
                 VMLogicError::HostError(h) => {
