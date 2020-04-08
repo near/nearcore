@@ -79,6 +79,10 @@ impl IntoVMError for wasmer_runtime::error::RuntimeError {
             }
         } else if let Some(_) = data.downcast_ref::<ExceptionCode>() {
             VMError::FunctionCallError(FunctionCallError::WasmTrap { msg: format!("{}", self) })
+        } else if let Some(_) = data.downcast_ref::<String>() {
+            VMError::FunctionCallError(FunctionCallError::WasmTrap { msg: format!("{}", self) })
+        } else if let Some(_) = data.downcast_ref::<&str>() {
+            VMError::FunctionCallError(FunctionCallError::WasmTrap { msg: format!("{}", self) })
         } else {
             eprintln!(
                 "Bad error case! Output is non-deterministic {:?} {:?}",
