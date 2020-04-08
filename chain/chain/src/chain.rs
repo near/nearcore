@@ -416,15 +416,8 @@ impl Chain {
         runtime_adapter: &dyn RuntimeAdapter,
         chain_store: &mut dyn ChainStoreAccess,
     ) -> Result<LightClientBlockView, Error> {
-        // Get the actual, not pushed, back, final block
         let final_block_header =
             chain_store.get_block_header(&header.inner_rest.last_final_block)?.clone();
-
-        let block_producers = get_epoch_block_producers_view(
-            &final_block_header.inner_lite.epoch_id,
-            &header.prev_hash,
-            runtime_adapter,
-        )?;
 
         let next_block_producers = get_epoch_block_producers_view(
             &final_block_header.inner_lite.next_epoch_id,
@@ -432,12 +425,7 @@ impl Chain {
             runtime_adapter,
         )?;
 
-        create_light_client_block_view(
-            &final_block_header,
-            chain_store,
-            &block_producers,
-            Some(next_block_producers),
-        )
+        create_light_client_block_view(&final_block_header, chain_store, Some(next_block_producers))
     }
 
     /// Reset "sync" head to current header head.

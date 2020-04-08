@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use near_primitives::block::BlockHeader;
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::EpochId;
@@ -36,7 +34,6 @@ pub fn get_epoch_block_producers_view(
 pub fn create_light_client_block_view(
     block_header: &BlockHeader,
     chain_store: &mut dyn ChainStoreAccess,
-    block_producers: &Vec<ValidatorStakeView>,
     next_block_producers: Option<Vec<ValidatorStakeView>>,
 ) -> Result<LightClientBlockView, Error> {
     let inner_lite = block_header.inner_lite.clone();
@@ -51,32 +48,13 @@ pub fn create_light_client_block_view(
     };
     let inner_rest_hash = block_header.inner_rest.hash();
 
-    let validator_ords = block_producers
-        .iter()
-        .enumerate()
-        .map(|(i, v): (usize, &ValidatorStakeView)| (v.account_id.clone(), i))
-        .collect::<HashMap<_, _>>();
-
-    let /*mut*/ approvals_next = vec![None; validator_ords.len()];
-    let /*mut*/ approvals_after_next = vec![None; validator_ords.len()];
-
     let next_block_hash = chain_store.get_next_block_hash(&block_header.hash())?.clone();
-    //let next_block_header = chain_store.get_block_header(&next_block_hash)?;
+    let next_block_header = chain_store.get_block_header(&next_block_hash)?;
+    let approvals_next = next_block_header.inner_rest.approvals.clone();
 
-    /*for approval in next_block_header.inner_rest.approvals.iter() {
-        approvals_next[*validator_ords.get(&approval.account_id).expect(
-            "Block can't get accepted with approvals by someone who is not a block producer",
-        )] = Some(approval.signature.clone());
-    }*/
-
-    //let after_next_block_hash = chain_store.get_next_block_hash(&next_block_hash)?.clone();
-    //let after_next_block_header = chain_store.get_block_header(&after_next_block_hash)?;
-
-    /*for approval in after_next_block_header.inner_rest.approvals.iter() {
-        approvals_after_next[*validator_ords.get(&approval.account_id).expect(
-            "Block can't get accepted with approvals by someone who is not a block producer",
-        )] = Some(approval.signature.clone());
-    }*/
+    let after_next_block_hash = chain_store.get_next_block_hash(&next_block_hash)?.clone();
+    let after_next_block_header = chain_store.get_block_header(&after_next_block_hash)?;
+    let approvals_after_next = after_next_block_header.inner_rest.approvals.clone();
 
     Ok(LightClientBlockView {
         inner_lite: inner_lite_view,
