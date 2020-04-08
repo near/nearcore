@@ -173,7 +173,9 @@ impl EpochManager {
                     all_kicked_out = false;
                 }
             }
-            if block_stats.produced > maximum_block_prod && !is_already_kicked_out {
+            if (max_validator_id.is_none() || block_stats.produced > maximum_block_prod)
+                && !is_already_kicked_out
+            {
                 maximum_block_prod = block_stats.produced;
                 max_validator_id = Some(i);
             }
@@ -314,7 +316,9 @@ impl EpochManager {
             Ok(next_next_epoch_info) => next_next_epoch_info,
             Err(EpochError::ThresholdError(amount, num_seats)) => {
                 warn!(target: "epoch_manager", "Not enough stake for required number of seats (all validators tried to unstake?): amount = {} for {}", amount, num_seats);
-                next_epoch_info.clone()
+                let mut epoch_info = next_epoch_info.clone();
+                epoch_info.epoch_height += 1;
+                epoch_info
             }
             Err(err) => return Err(err),
         };
@@ -347,7 +351,6 @@ impl EpochManager {
                 )?;
             } else {
                 let prev_block_info = self.get_block_info(&block_info.prev_hash)?.clone();
-                let epoch_info = self.get_epoch_info(&prev_block_info.epoch_id)?.clone();
 
                 let mut is_epoch_start = false;
                 if prev_block_info.prev_hash == CryptoHash::default() {
@@ -365,6 +368,7 @@ impl EpochManager {
                     block_info.epoch_id = prev_block_info.epoch_id;
                     block_info.epoch_first_block = prev_block_info.epoch_first_block;
                 }
+                let epoch_info = self.get_epoch_info(&block_info.epoch_id)?.clone();
 
                 // Keep `slashed` from previous block if they are still in the epoch info stake change
                 // (e.g. we need to keep track that they are still slashed, because when we compute
@@ -1046,6 +1050,8 @@ mod tests {
     };
 
     use super::*;
+    use near_primitives::types::ValidatorKickoutReason::NotEnoughBlocks;
+    use std::iter::FromIterator;
 
     #[test]
     fn test_stake_validator() {
@@ -2669,5 +2675,112 @@ mod tests {
                 0,
             )
         )
+    }
+
+    #[test]
+    fn test_epoch_height_increase() {
+        let stake_amount = 1_000;
+        let validators =
+            vec![("test1", stake_amount), ("test2", stake_amount), ("test3", stake_amount)];
+        let mut epoch_manager = setup_default_epoch_manager(validators, 1, 1, 3, 0, 90, 60);
+        let h = hash_range(5);
+        record_block(&mut epoch_manager, CryptoHash::default(), h[0], 0, vec![]);
+        record_block(&mut epoch_manager, h[0], h[2], 2, vec![stake("test1", 223)]);
+        record_block(&mut epoch_manager, h[2], h[4], 4, vec![]);
+
+        let epoch_info2 = epoch_manager.get_epoch_info(&EpochId(h[2])).unwrap().clone();
+        let epoch_info3 = epoch_manager.get_epoch_info(&EpochId(h[4])).unwrap().clone();
+        assert_ne!(epoch_info2.epoch_height, epoch_info3.epoch_height);
+    }
+
+    #[test]
+    fn test_bad_block_tracker() {
+        let stake_amount = 1_000;
+        let validators =
+            vec![("test1", stake_amount), ("test2", stake_amount), ("test3", stake_amount)];
+        let mut epoch_manager = setup_default_epoch_manager(validators, 1, 1, 3, 0, 90, 60);
+        let h = hash_range(5);
+        record_block(&mut epoch_manager, CryptoHash::default(), h[0], 0, vec![]);
+        record_block(&mut epoch_manager, h[0], h[1], 1, vec![stake("test1", 10 * stake_amount)]);
+        record_block(&mut epoch_manager, h[1], h[2], 2, vec![]);
+        record_block(&mut epoch_manager, h[2], h[3], 3, vec![]);
+        assert_eq!(
+            epoch_manager.get_block_info(&h[3]).unwrap().block_tracker,
+            HashMap::from_iter([(0, ValidatorStats { produced: 1, expected: 1 })].iter().cloned())
+        );
+    }
+
+    #[test]
+    fn test_all_kickout_edge_case() {
+        let stake_amount = 1_000;
+        let validators =
+            vec![("test1", stake_amount), ("test2", stake_amount), ("test3", stake_amount)];
+        let mut epoch_manager = setup_default_epoch_manager(validators, 1, 1, 3, 0, 90, 60);
+        let h = hash_range(9);
+        // 1. kickout test2
+        // 2. kickout test1 and test2
+        // 3. test1 produces a block and test3 misses, but since test1 is about to get kicked we keep test3
+        record_block(&mut epoch_manager, CryptoHash::default(), h[0], 0, vec![]);
+        record_block(&mut epoch_manager, h[0], h[2], 2, vec![]);
+        record_block(&mut epoch_manager, h[2], h[6], 6, vec![]);
+        record_block(&mut epoch_manager, h[6], h[8], 8, vec![]);
+
+        assert_eq!(
+            epoch_manager.get_epoch_info(&EpochId(h[8])).unwrap().validator_kickout,
+            HashMap::default()
+        );
+    }
+
+    #[test]
+    fn test_fisherman_kickout() {
+        let stake_amount = 1_000;
+        let validators =
+            vec![("test1", stake_amount), ("test2", stake_amount), ("test3", stake_amount)];
+        let mut epoch_manager = setup_default_epoch_manager(validators, 1, 1, 3, 0, 90, 60);
+        let h = hash_range(6);
+        record_block(&mut epoch_manager, CryptoHash::default(), h[0], 0, vec![]);
+        record_block(&mut epoch_manager, h[0], h[1], 1, vec![stake("test1", 148)]);
+        // test1 starts as validator,
+        // - reduces stake in epoch T, will be fisherman in epoch T+2
+        // - Misses a block in epoch T+1, will be kicked out in epoch T+3
+        // - Finalize epoch T+1 => T+3 kicks test1 as fisherman without a record in stake_change
+        record_block(&mut epoch_manager, h[1], h[3], 3, vec![]);
+
+        let epoch_info2 = epoch_manager.get_epoch_info(&EpochId(h[1])).unwrap().clone();
+        let epoch_info3 = epoch_manager.get_epoch_info(&EpochId(h[3])).unwrap().clone();
+        assert_eq!(
+            epoch_info2,
+            epoch_info(
+                2,
+                vec![("test2", stake_amount), ("test3", stake_amount)],
+                vec![0, 1, 0],
+                vec![vec![0, 1, 0]],
+                vec![],
+                vec![("test1", 148)],
+                change_stake(vec![
+                    ("test1", 148),
+                    ("test2", stake_amount),
+                    ("test3", stake_amount)
+                ]),
+                vec![],
+                reward(vec![("near", 0), ("test1", 0), ("test2", 0), ("test3", 0)]),
+                0,
+            )
+        );
+        assert_eq!(
+            epoch_info3,
+            epoch_info(
+                3,
+                vec![("test2", stake_amount), ("test3", stake_amount)],
+                vec![0, 1, 0],
+                vec![vec![0, 1, 0]],
+                vec![],
+                vec![],
+                change_stake(vec![("test2", stake_amount), ("test3", stake_amount), ("test1", 0)]),
+                vec![("test1", NotEnoughBlocks { produced: 0, expected: 1 })],
+                reward(vec![("near", 0), ("test2", 0), ("test3", 0)]),
+                0,
+            )
+        );
     }
 }

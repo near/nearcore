@@ -79,7 +79,7 @@ expensive --timeout=2400 near-epoch-manager finality tests::test_fuzzy_safety
 expensive --timeout=1200 near-epoch-manager finality tests::test_fuzzy_light_client
 
 # state sync tests
-expensive near sync_state_nodes sync_state_nodes_multishard
+expensive neard sync_state_nodes sync_state_nodes_multishard
 
 # testnet rpc
 expensive nearcore test_tps_regression test::test_highload
@@ -116,12 +116,12 @@ expensive nearcore test_cases_testnet_rpc test::test_delete_access_key_with_allo
 # expensive nearcore test_cases_testnet_rpc test::test_access_key_smart_contract_testnet
 
 # GC tests
-expensive near-chain gc tests::test_gc_remove_fork_large
-expensive near-chain gc tests::test_gc_not_remove_fork_large
-expensive near-chain gc tests::test_gc_boundaries_large
-expensive near-chain gc tests::test_gc_random_large
-expensive near-chain gc tests::test_gc_pine
-expensive near-chain gc tests::test_gc_star_large
+expensive --timeout=600 near-chain gc tests::test_gc_remove_fork_large
+expensive --timeout=1200 near-chain gc tests::test_gc_not_remove_fork_large
+expensive --timeout=600 near-chain gc tests::test_gc_boundaries_large
+expensive --timeout=600 near-chain gc tests::test_gc_random_large
+expensive --timeout=600 near-chain gc tests::test_gc_pine
+expensive --timeout=600 near-chain gc tests::test_gc_star_large
 
 # other tests
 expensive nearcore test_simple test::test_2_10_multiple_nodes

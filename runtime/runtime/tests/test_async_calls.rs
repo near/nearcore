@@ -594,8 +594,6 @@ fn test_simple_transfer() {
 }
 
 #[test]
-#[ignore]
-// TODO FIXME #2370
 fn test_create_account_with_transfer_and_full_key() {
     let wasm_binary: &[u8] = include_bytes!("../../near-vm-runner/tests/res/test_contract_rs.wasm");
     let group = RuntimeGroup::new(3, 2, wasm_binary);
@@ -612,7 +610,7 @@ fn test_create_account_with_transfer_and_full_key() {
         }, "id": 0 },
         {"action_transfer": {
             "promise_index": 0,
-            "amount": "1000000",
+            "amount": "10000000000000000000000000",
         }, "id": 0 },
         {"action_add_key_with_full_access": {
             "promise_index": 0,
@@ -655,7 +653,7 @@ fn test_create_account_with_transfer_and_full_key() {
                      actions,
                      a0, Action::CreateAccount(CreateAccountAction{}), {},
                      a1, Action::Transfer(TransferAction{deposit}), {
-                        assert_eq!(*deposit, 1000000);
+                        assert_eq!(*deposit, 10000000000000000000000000);
                      },
                      a2, Action::AddKey(AddKeyAction{public_key, access_key}), {
                         assert_eq!(public_key, &signer_new_account.public_key);
@@ -668,8 +666,6 @@ fn test_create_account_with_transfer_and_full_key() {
 }
 
 #[test]
-#[ignore]
-// TODO FIXME #2370
 fn test_account_factory() {
     let wasm_binary: &[u8] = include_bytes!("../../near-vm-runner/tests/res/test_contract_rs.wasm");
     let group = RuntimeGroup::new(3, 2, wasm_binary);
@@ -827,8 +823,6 @@ fn test_account_factory() {
 }
 
 #[test]
-#[ignore]
-// TODO FIXME #2370
 fn test_create_account_add_key_call_delete_key_delete_account() {
     let wasm_binary: &[u8] = include_bytes!("../../near-vm-runner/tests/res/test_contract_rs.wasm");
     let group = RuntimeGroup::new(4, 3, wasm_binary);

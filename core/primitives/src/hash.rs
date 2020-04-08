@@ -63,6 +63,11 @@ impl<'de> Deserialize<'de> for CryptoHash {
         D: Deserializer<'de>,
     {
         let s = String::deserialize(deserializer)?;
+        // base58-encoded string is at most 1.4 longer than the binary sequence, but factor of 2 is
+        // good enough to prevent DoS.
+        if s.len() > std::mem::size_of::<CryptoHash>() * 2 {
+            return Err(serde::de::Error::custom("incorrect length for hash"));
+        }
         from_base(&s)
             .and_then(CryptoHash::try_from)
             .map_err(|err| serde::de::Error::custom(err.to_string()))
@@ -120,13 +125,13 @@ impl From<&CryptoHash> for Vec<u8> {
 }
 
 impl fmt::Debug for CryptoHash {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", pretty_hash(&String::from(self)))
     }
 }
 
 impl fmt::Display for CryptoHash {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", String::from(self))
     }
 }
@@ -199,7 +204,7 @@ mod tests {
     }
 
     #[test]
-    fn test_deserialize_not_base64() {
+    fn test_deserialize_not_base58() {
         let encoded = "\"---\"";
         match serde_json::from_str(&encoded) {
             Ok(CryptoHash(_)) => assert!(false, "should have failed"),
@@ -209,10 +214,17 @@ mod tests {
 
     #[test]
     fn test_deserialize_not_crypto_hash() {
-        let encoded = "\"CjNSmWXTWhC3ELhRmWMTkRbU96wUACqxMtV1uGf\"";
-        match serde_json::from_str(&encoded) {
-            Ok(CryptoHash(_)) => assert!(false, "should have failed"),
-            Err(_) => (),
+        for encoded in &[
+            "\"CjNSmWXTWhC3ELhRmWMTkRbU96wUACqxMtV1uGf\"".to_string(),
+            "\"\"".to_string(),
+            format!("\"{}\"", "1".repeat(31)),
+            format!("\"{}\"", "1".repeat(33)),
+            format!("\"{}\"", "1".repeat(1000)),
+        ] {
+            match serde_json::from_str::<CryptoHash>(&encoded) {
+                Err(e) if e.to_string() == "incorrect length for hash" => {}
+                res => assert!(false, "should have failed with incorrect length error: {:?}", res),
+            };
         }
     }
 }

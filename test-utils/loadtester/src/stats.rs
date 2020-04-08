@@ -20,7 +20,7 @@ pub struct Stats {
 }
 
 impl std::fmt::Display for Stats {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
         let from_height = self.from_height.unwrap();
         let to_height = self.to_height.unwrap();
         let blocks_passed = to_height - from_height + 1;

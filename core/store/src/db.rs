@@ -11,7 +11,7 @@ use std::sync::RwLock;
 pub struct DBError(rocksdb::Error);
 
 impl std::fmt::Display for DBError {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
         self.0.fmt(formatter)
     }
 }
@@ -88,7 +88,7 @@ pub enum DBCol {
 const NUM_COLS: usize = 39;
 
 impl std::fmt::Display for DBCol {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
         let desc = match self {
             Self::ColBlockMisc => "miscellaneous block data",
             Self::ColBlock => "block data",

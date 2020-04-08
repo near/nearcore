@@ -39,8 +39,8 @@ use crate::finality::{ApprovalVerificationError, FinalityGadget, FinalityGadgetQ
 use crate::lightclient::get_epoch_block_producers_view;
 use crate::store::{ChainStore, ChainStoreAccess, ChainStoreUpdate, ShardInfo, StateSyncInfo};
 use crate::types::{
-    AcceptedBlock, ApplyTransactionResult, Block, BlockHeader, BlockStatus, Provenance,
-    ReceiptList, ReceiptProofResponse, ReceiptResponse, RootProof, RuntimeAdapter,
+    AcceptedBlock, ApplyTransactionResult, Block, BlockHeader, BlockStatus, BlockSyncResponse,
+    Provenance, ReceiptList, ReceiptProofResponse, ReceiptResponse, RootProof, RuntimeAdapter,
     ShardStateSyncResponseHeader, StatePartKey, Tip,
 };
 use crate::validate::{
@@ -64,6 +64,9 @@ const ACCEPTABLE_TIME_DIFFERENCE: i64 = 12 * 10;
 
 /// Over this block height delta in advance if we are not chunk producer - route tx to upcoming validators.
 pub const TX_ROUTING_HEIGHT_HORIZON: BlockHeightDelta = 4;
+
+/// We choose this number of chunk producers to forward transactions to, if necessary.
+pub const NUM_CHUNK_PRODUCERS_TO_FORWARD_TX: u64 = 2;
 
 /// Private constant for 1 NEAR (copy from near/config.rs) used for reporting.
 const NEAR_BASE: Balance = 1_000_000_000_000_000_000_000_000;
@@ -617,28 +620,26 @@ impl Chain {
 
         // Canonical Chain Clearing
         for height in tail + 1..gc_stop_height {
-            let blocks_current_height: Vec<CryptoHash> =
-                match chain_store_update.get_all_block_hashes_by_height(height) {
-                    Ok(blocks_current_height) => {
-                        blocks_current_height.values().flatten().cloned().collect()
+            if let Ok(blocks_current_height) =
+                chain_store_update.get_all_block_hashes_by_height(height)
+            {
+                let blocks_current_height =
+                    blocks_current_height.values().flatten().cloned().collect::<Vec<_>>();
+                if let Some(block_hash) = blocks_current_height.first() {
+                    let prev_hash = chain_store_update.get_block_header(block_hash)?.prev_hash;
+                    let prev_block_refcount = *chain_store_update.get_block_refcount(&prev_hash)?;
+                    // break when there is a fork
+                    if prev_block_refcount > 1 {
+                        break;
+                    } else if prev_block_refcount == 0 {
+                        return Err(ErrorKind::GCError(
+                            "block on canonical chain shouldn't have refcount 0".into(),
+                        )
+                        .into());
                     }
-                    _ => continue,
-                };
-            if let Some(block_hash) = blocks_current_height.first() {
-                if blocks_current_height.len() > 1 {
-                    // Fork is here
-                    break;
+                    debug_assert_eq!(blocks_current_height.len(), 1);
+                    chain_store_update.clear_block_data(trie.clone(), *block_hash, false)?;
                 }
-                let prev_hash = chain_store_update.get_block_header(block_hash)?.prev_hash;
-                if *chain_store_update.get_block_refcount(&prev_hash)? != 1 {
-                    return Err(ErrorKind::GCError(format!(
-                        "invalid refcount for {:?}, expected 1, found {:?}",
-                        block_hash,
-                        chain_store_update.get_block_refcount(&prev_hash).unwrap()
-                    ))
-                    .into());
-                }
-                chain_store_update.clear_block_data(trie.clone(), *block_hash, false)?;
             }
             chain_store_update.update_tail(height);
         }
@@ -844,16 +845,19 @@ impl Chain {
     }
 
     /// Check if state download is required, otherwise return hashes of blocks to fetch.
+    /// Hashes are sorted increasingly by height.
     pub fn check_state_needed(
         &mut self,
         block_fetch_horizon: BlockHeightDelta,
-    ) -> Result<(bool, Vec<CryptoHash>), Error> {
+    ) -> Result<BlockSyncResponse, Error> {
         let block_head = self.head()?;
         let header_head = self.header_head()?;
         let mut hashes = vec![];
 
+        // If latest block is up to date return early.
+        // No state download is required, neither any blocks need to be fetched.
         if block_head.score_and_height() >= header_head.score_and_height() {
-            return Ok((false, hashes));
+            return Ok(BlockSyncResponse::None);
         }
 
         // Find common block between header chain and block chain.
@@ -876,13 +880,17 @@ impl Chain {
             let sync_head = self.sync_head()?;
             if oldest_height < sync_head.height.saturating_sub(block_fetch_horizon) {
                 // Epochs are different and we are too far from horizon, State Sync is needed
-                return Ok((true, vec![]));
+                return Ok(BlockSyncResponse::StateNeeded);
             }
         }
-        Ok((false, hashes))
+
+        // Sort hashes by height
+        hashes.reverse();
+
+        Ok(BlockSyncResponse::BlocksNeeded(hashes))
     }
 
-    /// Returns if given block header on the current chain.
+    /// Returns if given block header is on the current chain.
     fn is_on_current_chain(&mut self, header: &BlockHeader) -> Result<(), Error> {
         let chain_header = self.get_header_by_height(header.inner_lite.height)?;
         if chain_header.hash() == header.hash() {
@@ -928,6 +936,8 @@ impl Chain {
         }
     }
 
+    /// Set the new head after state sync was completed if it is indeed newer.
+    /// Check for potentially unlocked orphans after this update.
     pub fn reset_heads_post_state_sync<F, F2, F3>(
         &mut self,
         me: &Option<AccountId>,
@@ -1067,22 +1077,26 @@ impl Chain {
             }
             Err(e) => match e.kind() {
                 ErrorKind::Orphan => {
-                    let block_hash = block.hash();
-                    let orphan = Orphan { block, provenance, added: Instant::now() };
+                    let tail_height = self.store.tail()?;
+                    // we only add blocks that couldn't have been gc'ed to the orphan pool.
+                    if block.header.inner_lite.height >= tail_height {
+                        let block_hash = block.hash();
+                        let orphan = Orphan { block, provenance, added: Instant::now() };
 
-                    self.orphans.add(orphan);
+                        self.orphans.add(orphan);
 
-                    debug!(
-                        target: "chain",
-                        "Process block: orphan: {:?}, # orphans {}{}",
-                        block_hash,
-                        self.orphans.len(),
-                        if self.orphans.len_evicted() > 0 {
-                            format!(", # evicted {}", self.orphans.len_evicted())
-                        } else {
-                            String::new()
-                        },
-                    );
+                        debug!(
+                            target: "chain",
+                            "Process block: orphan: {:?}, # orphans {}{}",
+                            block_hash,
+                            self.orphans.len(),
+                            if self.orphans.len_evicted() > 0 {
+                                format!(", # evicted {}", self.orphans.len_evicted())
+                            } else {
+                                String::new()
+                            },
+                        );
+                    }
                     Err(e)
                 }
                 ErrorKind::ChunksMissing(missing_chunks) => {
@@ -1948,9 +1962,10 @@ impl Chain {
         &self,
         epoch_id: &EpochId,
         shard_id: ShardId,
+        horizon: BlockHeight,
     ) -> Result<AccountId, Error> {
         let head = self.head()?;
-        let target_height = head.height + TX_ROUTING_HEIGHT_HORIZON - 1;
+        let target_height = head.height + horizon - 1;
         self.runtime_adapter.get_chunk_producer(&epoch_id, target_height, shard_id)
     }
 
@@ -1958,7 +1973,7 @@ impl Chain {
     pub fn find_validator_for_forwarding(&self, shard_id: ShardId) -> Result<AccountId, Error> {
         let head = self.head()?;
         let epoch_id = self.runtime_adapter.get_epoch_id_from_prev_block(&head.last_block_hash)?;
-        self.find_chunk_producer_for_forwarding(&epoch_id, shard_id)
+        self.find_chunk_producer_for_forwarding(&epoch_id, shard_id, TX_ROUTING_HEIGHT_HORIZON)
     }
 }
 
@@ -2179,7 +2194,7 @@ impl<'a> ChainUpdate<'a> {
         block_economics_config: &'a BlockEconomicsConfig,
         doomslug_threshold_mode: DoomslugThresholdMode,
     ) -> Self {
-        let chain_store_update: ChainStoreUpdate = store.store_update();
+        let chain_store_update: ChainStoreUpdate<'_> = store.store_update();
         ChainUpdate {
             runtime_adapter,
             chain_store_update,
@@ -3358,7 +3373,9 @@ pub fn collect_receipts_from_response(
 pub fn check_refcount_map(chain: &mut Chain) -> Result<(), Error> {
     let head = chain.head()?;
     let mut block_refcounts = HashMap::new();
-    for height in chain.store().get_genesis_height() + 1..=head.height {
+    // TODO #2352: make sure there is no block with height > head.height and set highest_height to `head.height`
+    let highest_height = head.height + 100;
+    for height in chain.store().get_genesis_height() + 1..=highest_height {
         let blocks_current_height = match chain.mut_store().get_all_block_hashes_by_height(height) {
             Ok(blocks_current_height) => {
                 blocks_current_height.values().flatten().cloned().collect()
@@ -3370,7 +3387,11 @@ pub fn check_refcount_map(chain: &mut Chain) -> Result<(), Error> {
             {
                 *block_refcounts.entry(prev_hash).or_insert(0) += 1;
             }
-            block_refcounts.entry(*block_hash).or_insert(0);
+            // This is temporary workaround to ignore all blocks with height >= highest_height
+            // TODO #2352: remove `if` and keep only `block_refcounts.entry(*block_hash).or_insert(0)`
+            if height < highest_height {
+                block_refcounts.entry(*block_hash).or_insert(0);
+            }
         }
     }
     let mut chain_store_update = ChainStoreUpdate::new(chain.mut_store());

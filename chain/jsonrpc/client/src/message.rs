@@ -33,7 +33,7 @@ impl<'de> Deserialize<'de> for Version {
         impl<'de> Visitor<'de> for VersionVisitor {
             type Value = Version;
 
-            fn expecting(&self, formatter: &mut Formatter) -> FmtResult {
+            fn expecting(&self, formatter: &mut Formatter<'_>) -> FmtResult {
                 formatter.write_str("a version string")
             }
 

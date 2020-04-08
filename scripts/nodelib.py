@@ -62,7 +62,7 @@ def compile_package(package_name, is_release):
 """Checks if there is already everything setup on this machine, otherwise sets up NEAR node."""
 def check_and_setup(nodocker, is_release, image, home_dir, init_flags, no_gas_price=False):
     if nodocker:
-        compile_package('near', is_release)
+        compile_package('neard', is_release)
 
     chain_id = get_chain_id_from_flags(init_flags)
     if os.path.exists(os.path.join(home_dir, 'config.json')):
@@ -305,7 +305,7 @@ def start_stakewars(home, is_release, nodocker, image, telemetry_url, verbose, t
     if nodocker:
         install_cargo()
         compile_package('genesis-csv-to-json', is_release)
-        compile_package('near', is_release)
+        compile_package('neard', is_release)
     else:
         try:
             subprocess.check_output(['docker', 'pull', image])
