@@ -750,6 +750,7 @@ impl Client {
 
     /// Gets called when block got accepted.
     /// Send updates over network, update tx pool and notify ourselves if it's time to produce next block.
+    /// Blocks are passed in no particular order.
     pub fn on_block_accepted(
         &mut self,
         block_hash: CryptoHash,
@@ -767,7 +768,7 @@ impl Client {
         let _ = self.check_and_update_doomslug_tip();
 
         // If we produced the block, then it should have already been broadcasted.
-        // If received the block from another node then broadcast "header first" to minimise network traffic.
+        // If received the block from another node then broadcast "header first" to minimize network traffic.
         if provenance == Provenance::NONE {
             let approvals = self.pending_approvals.cache_remove(&block_hash);
             if let Some(approvals) = approvals {

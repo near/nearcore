@@ -71,9 +71,11 @@ pub fn proposals_to_epoch_info(
     }
 
     for r in epoch_info.fishermen.iter() {
-        if !ordered_proposals.contains_key(&r.account_id)
-            && !validator_kickout.contains_key(&r.account_id)
-        {
+        if validator_kickout.contains_key(&r.account_id) {
+            stake_change.insert(r.account_id.clone(), 0);
+            continue;
+        }
+        if !ordered_proposals.contains_key(&r.account_id) {
             // safe to do this here because fishermen from previous epoch is guaranteed to have no
             // duplicates.
             fishermen.push(r.clone());

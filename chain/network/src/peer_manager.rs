@@ -230,7 +230,7 @@ impl PeerManagerActor {
 
     fn remove_active_peer(&mut self, ctx: &mut Context<Self>, peer_id: &PeerId) {
         // If the last edge we have with this peer represent a connection addition, create the edge
-        // update the represents the connection removal.
+        // update that represents the connection removal.
         self.active_peers.remove(&peer_id);
 
         if let Some(edge) = self.routing_table.get_edge(self.peer_id.clone(), peer_id.clone()) {

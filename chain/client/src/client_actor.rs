@@ -1,4 +1,4 @@
-//! Client actor is orchestrates Client and facilitates network connection.
+//! Client actor orchestrates Client and facilitates network connection.
 
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
@@ -827,6 +827,7 @@ impl ClientActor {
     }
 
     /// Check whether need to (continue) sync.
+    /// Also return higher height with known peers at that height.
     fn syncing_info(&self) -> Result<(bool, u64), near_chain::Error> {
         let head = self.client.chain.head()?;
         let mut is_syncing = self.client.sync_status.is_syncing();
@@ -901,6 +902,15 @@ impl ClientActor {
         self.sync(ctx);
     }
 
+    /// Select the block hash we are using to sync state. It will sync with the state before applying the
+    /// content of such block.
+    ///
+    /// The selected block will always be the first block on a new epoch:
+    /// https://github.com/nearprotocol/nearcore/issues/2021#issuecomment-583039862
+    ///
+    /// To prevent syncing from a fork, we move `state_fetch_horizon` steps backwards and use that epoch.
+    /// Usually `state_fetch_horizon` is much less than the expected number of produced blocks on an epoch,
+    /// so this is only relevant on epoch boundaries.
     fn find_sync_hash(&mut self) -> Result<CryptoHash, near_chain::Error> {
         let header_head = self.client.chain.header_head()?;
         let mut sync_hash = header_head.prev_block_hash;
@@ -1073,10 +1083,10 @@ impl ClientActor {
                     StateSyncResult::Unchanged => (),
                     StateSyncResult::Changed(fetch_block) => {
                         self.client.sync_status = SyncStatus::StateSync(sync_hash, new_shard_sync);
-                        if let Some(peer_info) =
-                            highest_height_peer(&self.network_info.highest_height_peers)
-                        {
-                            if fetch_block {
+                        if fetch_block {
+                            if let Some(peer_info) =
+                                highest_height_peer(&self.network_info.highest_height_peers)
+                            {
                                 if let Ok(header) = self.client.chain.get_block_header(&sync_hash) {
                                     let prev_hash = header.prev_hash;
                                     self.request_block_by_hash(prev_hash, peer_info.peer_info.id);

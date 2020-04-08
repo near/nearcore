@@ -2395,7 +2395,7 @@ dependencies = [
 
 [[package]]
 name = "near-runtime-fees"
-version = "0.7.1"
+version = "0.8.0"
 dependencies = [
  "num-rational",
  "serde",
@@ -2441,7 +2441,7 @@ dependencies = [
 
 [[package]]
 name = "near-vm-errors"
-version = "0.7.1"
+version = "0.8.0"
 dependencies = [
  "borsh",
  "near-rpc-error-macro",
@@ -2450,7 +2450,7 @@ dependencies = [
 
 [[package]]
 name = "near-vm-logic"
-version = "0.7.1"
+version = "0.8.0"
 dependencies = [
  "base64",
  "bs58",
@@ -2465,7 +2465,7 @@ dependencies = [
 
 [[package]]
 name = "near-vm-runner"
-version = "0.7.1"
+version = "0.8.0"
 dependencies = [
  "assert_matches",
  "bencher",
@@ -2483,12 +2483,14 @@ dependencies = [
 
 [[package]]
 name = "near-vm-runner-standalone"
-version = "0.7.1"
+version = "0.8.0"
 dependencies = [
+ "base64",
  "clap",
  "near-runtime-fees",
  "near-vm-logic",
  "near-vm-runner",
+ "serde",
  "serde_json",
 ]
 
