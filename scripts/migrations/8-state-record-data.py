@@ -3,6 +3,7 @@ This migration implements StateRecord spec change by updating StateRecord::Data:
 https://github.com/nearprotocol/NEPs/pull/39
 
 Changes:
+- Removes `storage_paid_at` from Account
 - Modifies `StateRecord::Data` records
 """
 
@@ -22,6 +23,8 @@ assert config['protocol_version'] == 7
 config['protocol_version'] = 8
 
 for record in config['records']:
+    if "Account" in record:
+        record["Account"]["account"].pop("storage_paid_at")
     if "Data" in record:
         # Removing old joined key
         key = base64.b64decode(["Data"].pop("key"))
