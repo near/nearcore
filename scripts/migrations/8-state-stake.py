@@ -31,6 +31,6 @@ for record in config['records']:
         account_id = key[:separator_pos]
         data_key = key[separator_pos + 1:]
         record["Data"]["account_id"] = account_id.decode('utf-8')
-        record["Data"]["data_key"] = base64.encode(data_key, 'utf-8')
+        record["Data"]["data_key"] = base64.b64encode(data_key)
 
 json.dump(config, open(os.path.join(output_home, 'output.json'), 'w'), indent=2)
