@@ -5,7 +5,7 @@ use std::sync::{Arc, RwLock};
 use actix::System;
 use futures::{future, FutureExt};
 
-use near_chain::chain::NUM_EPOCHS_TO_KEEP_STORE_DATA;
+use near_chain::chain::{check_refcount_map, NUM_EPOCHS_TO_KEEP_STORE_DATA};
 use near_chain::{Block, ChainGenesis, ChainStoreAccess, ErrorKind, Provenance, RuntimeAdapter};
 use near_chain_configs::Genesis;
 use near_chunks::{ChunkStatus, ShardsManager};
@@ -876,6 +876,7 @@ fn test_gc_with_epoch_length_common(epoch_length: NumBlocks) {
                 .is_ok());
         }
     }
+    assert!(check_refcount_map(&mut env.clients[0].chain).is_ok());
 }
 
 #[test]
@@ -932,6 +933,7 @@ fn test_gc_long_epoch() {
             .get_all_block_hashes_by_height(block.header.inner_lite.height)
             .is_ok());
     }
+    assert!(check_refcount_map(&mut env.clients[0].chain).is_ok());
 }
 
 #[test]
@@ -957,6 +959,7 @@ fn test_gc_block_skips() {
             env.produce_block(0, i);
         }
     }
+    assert!(check_refcount_map(&mut env.clients[0].chain).is_ok());
 }
 
 #[test]
@@ -1047,12 +1050,19 @@ fn test_gc_tail_update() {
     let headers = blocks.clone().into_iter().map(|b| b.header).collect::<Vec<_>>();
     env.clients[1].sync_block_headers(headers).unwrap();
     // simulate save sync hash block
+    let prev_sync_block = blocks[blocks.len() - 3].clone();
     let sync_block = blocks[blocks.len() - 2].clone();
+    env.clients[1].chain.reset_data_pre_state_sync(sync_block.hash()).unwrap();
     env.clients[1].chain.save_block(&sync_block).unwrap();
     env.clients[1]
         .chain
         .reset_heads_post_state_sync(&None, sync_block.hash(), |_| {}, |_| {}, |_| {})
         .unwrap();
     env.process_block(1, blocks.pop().unwrap(), Provenance::NONE);
-    assert_eq!(env.clients[1].chain.store().tail().unwrap(), epoch_length);
+    assert_eq!(
+        env.clients[1].chain.store().tail().unwrap(),
+        prev_sync_block.header.inner_lite.height
+    );
+    assert!(check_refcount_map(&mut env.clients[0].chain).is_ok());
+    assert!(check_refcount_map(&mut env.clients[1].chain).is_ok());
 }

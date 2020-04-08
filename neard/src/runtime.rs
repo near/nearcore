@@ -1114,7 +1114,6 @@ impl RuntimeAdapter for NightshadeRuntime {
         }
         let trie_changes = Trie::combine_state_parts(&state_root, &parts)
             .expect("combine_state_parts is guaranteed to succeed when each part is valid");
-        // TODO clean old states
         let trie = self.trie.clone();
         let (store_update, _) = trie_changes.into(trie).expect("TrieChanges::into never fails");
         Ok(store_update.commit()?)
