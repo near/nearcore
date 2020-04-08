@@ -95,7 +95,7 @@ impl NightshadeRuntime {
             max_inflation_rate: genesis.config.max_inflation_rate,
             num_blocks_per_year: genesis.config.num_blocks_per_year,
             epoch_length: genesis.config.epoch_length,
-            protocol_reward_percentage: genesis.config.protocol_reward_percentage,
+            protocol_reward_percentage: genesis.config.protocol_reward_rate,
             protocol_treasury_account: genesis.config.protocol_treasury_account.to_string(),
         };
         let epoch_manager = Arc::new(RwLock::new(
@@ -1483,8 +1483,8 @@ mod test {
                 / (self.runtime.genesis.config.num_blocks_per_year as u128
                     * *self.runtime.genesis.config.max_inflation_rate.denom() as u128);
             let per_epoch_protocol_treasury = per_epoch_total_reward
-                * *self.runtime.genesis.config.protocol_reward_percentage.numer() as u128
-                / *self.runtime.genesis.config.protocol_reward_percentage.denom() as u128;
+                * *self.runtime.genesis.config.protocol_reward_rate.numer() as u128
+                / *self.runtime.genesis.config.protocol_reward_rate.denom() as u128;
             let per_epoch_per_validator_reward =
                 (per_epoch_total_reward - per_epoch_protocol_treasury) / num_validators as u128;
             (per_epoch_per_validator_reward, per_epoch_protocol_treasury)
