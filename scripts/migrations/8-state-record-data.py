@@ -24,7 +24,7 @@ config['protocol_version'] = 8
 
 for record in config['records']:
     if "Account" in record:
-        record["Account"]["account"].pop("storage_paid_at")
+        record["Account"]["account"].pop("storage_paid_at", None)
     if "Data" in record:
         # Removing old joined key
         key = base64.b64decode(["Data"].pop("key"))
