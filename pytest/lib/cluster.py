@@ -548,27 +548,3 @@ def load_config():
     return config
 
 
-def collect_gcloud_config(num_nodes):
-    keys = []
-    for i in range(num_nodes):
-        if not os.path.exists(f'/tmp/near/node{i}'):
-            # TODO: avoid hardcoding the username
-            print(f'downloading node{i} config from gcloud')
-            os.mkdir(f'/tmp/near/node{i}')
-            rc.gcloud.get(f'pytest-node-bowenwang-{i}').download('/home/bowen_nearprotocol_com/.near/config.json', f'/tmp/near/node{i}/')
-            rc.gcloud.get(f'pytest-node-bowenwang-{i}').download('/home/bowen_nearprotocol_com/.near/signer0_key.json', f'/tmp/near/node{i}/')
-            rc.gcloud.get(f'pytest-node-bowenwang-{i}').download('/home/bowen_nearprotocol_com/.near/validator_key.json', f'/tmp/near/node{i}/')
-            rc.gcloud.get(f'pytest-node-bowenwang-{i}').download('/home/bowen_nearprotocol_com/.near/node_key.json', f'/tmp/near/node{i}/')
-        with open(f'/tmp/near/node{i}/signer0_key.json') as f:
-            key = json.load(f)
-        keys.append(key)
-    with open('/tmp/near/node0/config.json') as f:
-        config = json.load(f)
-    ip_addresses = map(lambda x: x.split('@')[-1], config['network']['boot_nodes'].split(','))
-    res = {'nodes': list(map(lambda x: {'ip': x.split(':')[0], 'port': 3030}, ip_addresses)), 'accounts': keys}
-    outfile = '/tmp/near/gcloud_config.json'
-    with open(outfile, 'w+') as f:
-        json.dump(res, f)
-    os.environ[CONFIG_ENV_VAR] = outfile
-
-
