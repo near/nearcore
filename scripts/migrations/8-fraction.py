@@ -23,7 +23,7 @@ config['protocol_version'] = 8
 config['gas_price_adjustment_rate'] = [1, 100]
 config['protocol_reward_percentage'] = [1, 10]
 config['developer_reward_percentage'] = [3, 10]
-config['max_inflation_rate'] = [5, 100]
+config['max_inflation_rate'] = [1, 20]
 config['runtime_config']['transaction_costs']['burnt_gas_reward'] = [3, 10]
 
 json.dump(config, open(os.path.join(output_home, 'output.json'), 'w'), indent=2)

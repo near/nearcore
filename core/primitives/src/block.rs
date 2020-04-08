@@ -593,7 +593,7 @@ impl Block {
                 - *gas_price_adjustment_rate.numer() as u128 * u128::from(gas_limit)
                 + 2 * *gas_price_adjustment_rate.numer() as u128 * u128::from(gas_used);
             let denominator =
-                2 * *gas_price_adjustment_rate.numer() as u128 * u128::from(gas_limit);
+                2 * *gas_price_adjustment_rate.denom() as u128 * u128::from(gas_limit);
             prev_gas_price * numerator / denominator
         }
     }
