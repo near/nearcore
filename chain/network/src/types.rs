@@ -864,6 +864,7 @@ pub enum ConsolidateResponse {
 #[rtype(result = "()")]
 pub struct Unregister {
     pub peer_id: PeerId,
+    pub peer_type: PeerType,
 }
 
 pub struct PeerList {
