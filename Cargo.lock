@@ -2105,6 +2105,7 @@ dependencies = [
  "near-pool",
  "near-primitives",
  "near-store",
+ "num-rational",
  "rand 0.7.3",
  "rocksdb",
  "serde",
@@ -2120,6 +2121,7 @@ dependencies = [
  "near-crypto",
  "near-primitives",
  "near-runtime-configs",
+ "num-rational",
  "serde",
  "serde_json",
  "smart-default",
@@ -2170,6 +2172,7 @@ dependencies = [
  "near-store",
  "near-telemetry",
  "neard",
+ "num-rational",
  "rand 0.7.3",
  "reed-solomon-erasure",
  "rocksdb",
@@ -2216,6 +2219,7 @@ dependencies = [
  "near-crypto",
  "near-primitives",
  "near-store",
+ "num-rational",
  "rand 0.6.5",
  "rand 0.7.3",
  "serde",
@@ -2301,6 +2305,7 @@ dependencies = [
  "near-primitives",
  "near-store",
  "near-telemetry",
+ "num-rational",
  "rand 0.7.3",
  "serde",
  "serde_derive",
@@ -2343,6 +2348,7 @@ dependencies = [
  "near-crypto",
  "near-rpc-error-macro",
  "near-vm-errors",
+ "num-rational",
  "rand 0.7.3",
  "reed-solomon-erasure",
  "regex",
@@ -2391,7 +2397,7 @@ dependencies = [
 name = "near-runtime-fees"
 version = "0.7.1"
 dependencies = [
- "near-primitives",
+ "num-rational",
  "serde",
 ]
 
@@ -2538,6 +2544,7 @@ dependencies = [
  "near-store",
  "near-telemetry",
  "node-runtime",
+ "num-rational",
  "rand 0.7.3",
  "rocksdb",
  "serde",
@@ -2595,6 +2602,7 @@ dependencies = [
  "near-vm-errors",
  "near-vm-logic",
  "near-vm-runner",
+ "num-rational",
  "rand 0.7.3",
  "rayon",
  "rocksdb",
@@ -2627,6 +2635,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "num-bigint"
+version = "0.2.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "090c7f9998ee0ff65aa5b723e4009f7b217707f1fb5ea551329cc4d6231fb304"
+dependencies = [
+ "autocfg 1.0.0",
+ "num-integer",
+ "num-traits",
+]
+
+[[package]]
 name = "num-integer"
 version = "0.1.42"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2634,6 +2653,19 @@ checksum = "3f6ea62e9d81a77cd3ee9a2a5b9b609447857f3d358704331e4ef39eb247fcba"
 dependencies = [
  "autocfg 1.0.0",
  "num-traits",
+]
+
+[[package]]
+name = "num-rational"
+version = "0.2.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5c000134b5dbf44adc5cb772486d335293351644b801551abe8f75c84cfa4aef"
+dependencies = [
+ "autocfg 1.0.0",
+ "num-bigint",
+ "num-integer",
+ "num-traits",
+ "serde",
 ]
 
 [[package]]
@@ -3820,6 +3852,7 @@ dependencies = [
  "near-vm-errors",
  "neard",
  "node-runtime",
+ "num-rational",
  "rand 0.7.3",
  "reqwest",
  "serde",

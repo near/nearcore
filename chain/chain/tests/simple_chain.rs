@@ -1,8 +1,8 @@
 use near_chain::test_utils::setup;
 use near_chain::{Block, ChainStoreAccess, ErrorKind, Provenance};
-use near_primitives::fraction::Fraction;
 use near_primitives::hash::CryptoHash;
 use near_primitives::test_utils::init_test_logger;
+use num_rational::Rational;
 
 #[test]
 fn empty_chain() {
@@ -44,7 +44,7 @@ fn build_chain_with_orhpans() {
         last_block.header.inner_lite.epoch_id.clone(),
         last_block.header.inner_lite.next_epoch_id.clone(),
         vec![],
-        Fraction::zero(),
+        Rational::from_integer(0),
         0,
         Some(0),
         vec![],

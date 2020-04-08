@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use actix::{Actor, Addr, System};
 use futures::{future, FutureExt};
+use num_rational::Rational;
 use rand::Rng;
 use tempdir::TempDir;
 
@@ -12,7 +13,6 @@ use near_client::{ClientActor, GetBlock, Query, Status, ViewClientActor};
 use near_crypto::{InMemorySigner, KeyType};
 use near_network::test_utils::{convert_boot_nodes, open_port, WaitOrTimeout};
 use near_network::NetworkClientMessages;
-use near_primitives::fraction::Fraction;
 use near_primitives::hash::CryptoHash;
 use near_primitives::test_utils::{heavy_test, init_integration_logger};
 use near_primitives::transaction::SignedTransaction;
@@ -49,7 +49,7 @@ fn init_test_staking(
     genesis.config.block_producer_kickout_threshold = 20;
     genesis.config.chunk_producer_kickout_threshold = 20;
     if !enable_rewards {
-        genesis.config.max_inflation_rate = Fraction::zero();
+        genesis.config.max_inflation_rate = Rational::from_integer(0);
         genesis.config.min_gas_price = 0;
     }
     let genesis = Arc::new(genesis);
@@ -468,9 +468,10 @@ fn test_inflation() {
                 actix::spawn(test_nodes[0].view_client.send(GetBlock::latest()).then(move |res| {
                     let header_view = res.unwrap().unwrap().header;
                     if header_view.height > epoch_length && header_view.height < epoch_length * 2 {
-                        let inflation = initial_total_supply * epoch_length as u128
-                            / (num_blocks_per_year as u128)
-                            * max_inflation_rate;
+                        let inflation = initial_total_supply
+                            * epoch_length as u128
+                            * *max_inflation_rate.numer() as u128
+                            / (num_blocks_per_year as u128 * *max_inflation_rate.denom() as u128);
                         if header_view.total_supply == initial_total_supply + inflation {
                             done2_copy2.store(true, Ordering::SeqCst);
                         }

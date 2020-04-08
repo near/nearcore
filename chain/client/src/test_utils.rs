@@ -26,7 +26,6 @@ use near_network::{
     NetworkRequests, NetworkResponses, PeerInfo, PeerManagerActor,
 };
 use near_primitives::block::{Block, GenesisId, ScoreAndHeight};
-use near_primitives::fraction::Fraction;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{
@@ -39,6 +38,7 @@ use near_telemetry::TelemetryActor;
 
 use crate::{Client, ClientActor, SyncStatus, ViewClientActor};
 use near_network::test_utils::MockNetworkAdapter;
+use num_rational::Rational;
 
 pub type NetworkMock = Mocker<PeerManagerActor>;
 
@@ -73,8 +73,8 @@ pub fn setup(
         1_000_000,
         100,
         1_000_000_000,
-        Fraction::zero(),
-        Fraction::zero(),
+        Rational::from_integer(0),
+        Rational::from_integer(0),
         transaction_validity_period,
         epoch_length,
     );

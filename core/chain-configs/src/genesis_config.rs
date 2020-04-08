@@ -11,7 +11,6 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use smart_default::SmartDefault;
 
-use near_primitives::fraction::Fraction;
 use near_primitives::serialize::{u128_dec_format, u128_dec_format_compatible};
 use near_primitives::state_record::StateRecord;
 use near_primitives::types::{
@@ -20,6 +19,7 @@ use near_primitives::types::{
 use near_runtime_configs::RuntimeConfig;
 
 use crate::PROTOCOL_VERSION;
+use num_rational::Rational;
 
 pub const CONFIG_VERSION: u32 = 1;
 
@@ -59,7 +59,8 @@ pub struct GenesisConfig {
     /// Criterion for kicking out chunk producers (this is a number between 0 and 100)
     pub chunk_producer_kickout_threshold: u8,
     /// Gas price adjustment rate
-    pub gas_price_adjustment_rate: Fraction,
+    #[default(Rational::from_integer(0))]
+    pub gas_price_adjustment_rate: Rational,
     /// Runtime configuration (mostly economics constants).
     pub runtime_config: RuntimeConfig,
     /// List of initial validators.
@@ -67,11 +68,14 @@ pub struct GenesisConfig {
     /// Number of blocks for which a given transaction is valid
     pub transaction_validity_period: NumBlocks,
     /// Developer reward percentage
-    pub developer_reward_percentage: Fraction,
+    #[default(Rational::from_integer(0))]
+    pub developer_reward_percentage: Rational,
     /// Protocol treasury percentage
-    pub protocol_reward_percentage: Fraction,
+    #[default(Rational::from_integer(0))]
+    pub protocol_reward_percentage: Rational,
     /// Maximum inflation on the total supply every epoch.
-    pub max_inflation_rate: Fraction,
+    #[default(Rational::from_integer(0))]
+    pub max_inflation_rate: Rational,
     /// Total supply of tokens at genesis.
     #[serde(with = "u128_dec_format", skip_deserializing)]
     pub total_supply: Balance,

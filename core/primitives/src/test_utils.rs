@@ -7,7 +7,6 @@ use near_crypto::{EmptySigner, PublicKey, Signer};
 
 use crate::account::{AccessKey, AccessKeyPermission, Account};
 use crate::block::{Approval, Block};
-use crate::fraction::Fraction;
 use crate::hash::CryptoHash;
 use crate::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, SignedTransaction, StakeAction,
@@ -15,6 +14,7 @@ use crate::transaction::{
 };
 use crate::types::{AccountId, Balance, BlockHeight, EpochId, Nonce};
 use crate::validator_signer::ValidatorSigner;
+use num_rational::Rational;
 
 lazy_static! {
     static ref HEAVY_TESTS_LOCK: Mutex<()> = Mutex::new(());
@@ -236,7 +236,7 @@ impl Block {
             epoch_id,
             next_epoch_id,
             approvals,
-            Fraction::zero(),
+            Rational::from_integer(0),
             0,
             Some(0),
             vec![],

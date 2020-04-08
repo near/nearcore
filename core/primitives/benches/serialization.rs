@@ -8,11 +8,11 @@ use chrono::Utc;
 use near_crypto::{KeyType, PublicKey, Signature};
 use near_primitives::account::Account;
 use near_primitives::block::{genesis_chunks, Block};
-use near_primitives::fraction::Fraction;
 use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::{Action, SignedTransaction, Transaction, TransferAction};
 use near_primitives::types::{EpochId, StateRoot};
 use near_primitives::validator_signer::InMemoryValidatorSigner;
+use num_rational::Rational;
 
 fn create_transaction() -> SignedTransaction {
     let mut actions = vec![];
@@ -50,7 +50,7 @@ fn create_block() -> Block {
         EpochId::default(),
         EpochId::default(),
         vec![],
-        Fraction::zero(),
+        Rational::from_integer(0),
         0,
         Some(0),
         vec![],

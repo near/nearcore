@@ -1046,7 +1046,7 @@ mod tests {
     };
 
     use super::*;
-    use near_primitives::fraction::Fraction;
+    use num_rational::Rational;
 
     #[test]
     fn test_stake_validator() {
@@ -1677,10 +1677,10 @@ mod tests {
         let epoch_length = 2;
         let total_supply = stake_amount * validators.len() as u128;
         let reward_calculator = RewardCalculator {
-            max_inflation_rate: Fraction::new(5, 100),
+            max_inflation_rate: Rational::new(5, 100),
             num_blocks_per_year: 50,
             epoch_length,
-            protocol_reward_percentage: Fraction::new(1, 10),
+            protocol_reward_percentage: Rational::new(1, 10),
             protocol_treasury_account: "near".to_string(),
         };
         let mut epoch_manager = setup_epoch_manager(
@@ -1806,10 +1806,10 @@ mod tests {
         let epoch_length = 2;
         let total_supply = (stake_amount1 + stake_amount2) * validators.len() as u128;
         let reward_calculator = RewardCalculator {
-            max_inflation_rate: Fraction::new(5, 100),
+            max_inflation_rate: Rational::new(5, 100),
             num_blocks_per_year: 50,
             epoch_length,
-            protocol_reward_percentage: Fraction::new(1, 10),
+            protocol_reward_percentage: Rational::new(1, 10),
             protocol_treasury_account: "near".to_string(),
         };
         let mut epoch_manager = setup_epoch_manager(
@@ -1954,10 +1954,10 @@ mod tests {
         let epoch_length = 2;
         let total_supply = stake_amount * validators.len() as u128;
         let reward_calculator = RewardCalculator {
-            max_inflation_rate: Fraction::new(5, 100),
+            max_inflation_rate: Rational::new(5, 100),
             num_blocks_per_year: 1_000_000,
             epoch_length,
-            protocol_reward_percentage: Fraction::new(1, 10),
+            protocol_reward_percentage: Rational::new(1, 10),
             protocol_treasury_account: "near".to_string(),
         };
         let mut epoch_manager = setup_epoch_manager(

@@ -1246,7 +1246,6 @@ mod test {
 
     use near_chain::{ReceiptResult, Tip};
     use near_crypto::{InMemorySigner, KeyType, Signer};
-    use near_primitives::fraction::Fraction;
     use near_primitives::test_utils::init_test_logger;
     use near_primitives::transaction::{Action, CreateAccountAction, StakeAction};
     use near_primitives::types::{BlockHeightDelta, Nonce, ValidatorId, ValidatorKickoutReason};
@@ -1263,6 +1262,7 @@ mod test {
     use crate::get_store_path;
 
     use super::*;
+    use num_rational::Rational;
 
     fn stake(
         nonce: Nonce,
@@ -1356,7 +1356,7 @@ mod test {
             genesis.config.chunk_producer_kickout_threshold =
                 genesis.config.block_producer_kickout_threshold;
             if !has_reward {
-                genesis.config.max_inflation_rate = Fraction::zero();
+                genesis.config.max_inflation_rate = Rational::from_integer(0);
             }
             let genesis_total_supply = genesis.config.total_supply;
             let runtime = NightshadeRuntime::new(
@@ -1476,14 +1476,15 @@ mod test {
 
         /// Compute per epoch per validator reward and per epoch protocol treasury reward
         pub fn compute_reward(&self, num_validators: usize) -> (Balance, Balance) {
-            let per_epoch_total_reward = self.runtime.genesis.config.max_inflation_rate.numerator
+            let per_epoch_total_reward = *self.runtime.genesis.config.max_inflation_rate.numer()
                 as u128
                 * self.runtime.genesis.config.total_supply
                 * self.runtime.genesis.config.epoch_length as u128
                 / (self.runtime.genesis.config.num_blocks_per_year as u128
-                    * self.runtime.genesis.config.max_inflation_rate.denominator as u128);
-            let per_epoch_protocol_treasury =
-                per_epoch_total_reward * self.runtime.genesis.config.protocol_reward_percentage;
+                    * *self.runtime.genesis.config.max_inflation_rate.denom() as u128);
+            let per_epoch_protocol_treasury = per_epoch_total_reward
+                * *self.runtime.genesis.config.protocol_reward_percentage.numer() as u128
+                / *self.runtime.genesis.config.protocol_reward_percentage.denom() as u128;
             let per_epoch_per_validator_reward =
                 (per_epoch_total_reward - per_epoch_protocol_treasury) / num_validators as u128;
             (per_epoch_per_validator_reward, per_epoch_protocol_treasury)

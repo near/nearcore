@@ -24,7 +24,6 @@ use near_network::{
 };
 use near_primitives::block::{Approval, BlockHeader};
 use near_primitives::errors::InvalidTxError;
-use near_primitives::fraction::Fraction;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::merklize;
 use near_primitives::sharding::{EncodedShardChunk, ReedSolomonWrapper};
@@ -35,6 +34,7 @@ use near_primitives::utils::to_timestamp;
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
 use near_store::test_utils::create_test_store;
 use neard::config::GenesisExt;
+use num_rational::Rational;
 
 /// Runs block producing client and stops after network mock received two blocks.
 #[test]
@@ -167,7 +167,7 @@ fn receive_network_block() {
                     EpochId(last_block.header.next_epoch_id.clone())
                 },
                 vec![],
-                Fraction::zero(),
+                Rational::from_integer(0),
                 0,
                 None,
                 vec![],
@@ -231,7 +231,7 @@ fn receive_network_block_header() {
                     EpochId(last_block.header.next_epoch_id.clone())
                 },
                 vec![],
-                Fraction::zero(),
+                Rational::from_integer(0),
                 0,
                 None,
                 vec![],
@@ -316,7 +316,7 @@ fn produce_block_with_approvals() {
                     EpochId(last_block.header.next_epoch_id.clone())
                 },
                 vec![],
-                Fraction::zero(),
+                Rational::from_integer(0),
                 0,
                 Some(0),
                 vec![],
@@ -469,7 +469,7 @@ fn invalid_blocks() {
                     EpochId(last_block.header.next_epoch_id.clone())
                 },
                 vec![],
-                Fraction::zero(),
+                Rational::from_integer(0),
                 0,
                 Some(0),
                 vec![],
@@ -500,7 +500,7 @@ fn invalid_blocks() {
                     EpochId(last_block.header.next_epoch_id.clone())
                 },
                 vec![],
-                Fraction::zero(),
+                Rational::from_integer(0),
                 0,
                 Some(0),
                 vec![],
@@ -830,7 +830,7 @@ fn test_minimum_gas_price() {
     let min_gas_price = 100;
     let mut chain_genesis = ChainGenesis::test();
     chain_genesis.min_gas_price = min_gas_price;
-    chain_genesis.gas_price_adjustment_rate = Fraction::new(1, 10);
+    chain_genesis.gas_price_adjustment_rate = Rational::new(1, 10);
     let mut env = TestEnv::new(chain_genesis, 1, 1);
     for i in 1..=100 {
         env.produce_block(0, i);
