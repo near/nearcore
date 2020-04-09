@@ -528,7 +528,7 @@ def start_cluster(num_nodes, num_observers, num_shards, config, genesis_config_c
     return ret
 
 
-DEFAULT_CONFIG = {'local': True, 'near_root': '../target/debug/', 'binary_name': 'near'}
+DEFAULT_CONFIG = {'local': True, 'near_root': '../target/debug/', 'binary_name': 'neard'}
 CONFIG_ENV_VAR = 'NEAR_PYTEST_CONFIG'
 
 
