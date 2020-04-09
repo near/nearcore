@@ -105,11 +105,7 @@ fn run(matches: &clap::ArgMatches<'_>) {
     node.write().unwrap().update_accounts(&accounts);
     let nodes = vec![node];
 
-    use tokio::prelude::*;
-    use tokio::runtime::Runtime;
-    let mut rt = Runtime::new().unwrap();
-
     // Start the executor.
-    let fut = Executor::spawn(nodes, Some(Duration::from_secs(duration)), tps, transaction_type);
-    rt.block_on(fut);
+    let handle = Executor::spawn(nodes, Some(Duration::from_secs(duration)), tps, transaction_type);
+    handle.join().unwrap();
 }
