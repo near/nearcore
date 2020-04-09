@@ -1,10 +1,10 @@
 use std::collections::HashSet;
 use std::iter::Iterator;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
-use actix::{Actor, Addr, AsyncContext, Context, System};
+use actix::{Actor, Addr, AsyncContext, Context, Handler, Message, System};
 use chrono::{DateTime, Utc};
 use futures::{future, FutureExt, TryFutureExt};
 
@@ -14,7 +14,7 @@ use near_chain_configs::ClientConfig;
 use near_client::{ClientActor, ViewClientActor};
 use near_crypto::KeyType;
 use near_network::test_utils::{
-    convert_boot_nodes, expected_routing_tables, open_port, StopSignal, WaitOrTimeout,
+    convert_boot_nodes, expected_routing_tables, open_port, GetInfo, StopSignal, WaitOrTimeout,
 };
 use near_network::types::{OutboundTcpConnect, ROUTED_MESSAGE_TTL};
 use near_network::utils::blacklist_from_vec;
@@ -22,10 +22,15 @@ use near_network::{
     NetworkConfig, NetworkRecipient, NetworkRequests, NetworkResponses, PeerInfo, PeerManagerActor,
 };
 use near_primitives::test_utils::init_test_logger;
-use near_primitives::types::ValidatorId;
+use near_primitives::types::{AccountId, ValidatorId};
 use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_store::test_utils::create_test_store;
 use near_telemetry::{TelemetryActor, TelemetryConfig};
+
+pub type SharedRunningInfo = Arc<RwLock<RunningInfo>>;
+
+pub type ActionFn =
+    Box<dyn FnMut(SharedRunningInfo, Arc<AtomicBool>, &mut Context<WaitOrTimeout>, Addr<Runner>)>;
 
 /// Sets up a node with a valid Client, Peer
 pub fn setup_network_node(
@@ -93,6 +98,7 @@ pub fn setup_network_node(
     peer_manager
 }
 
+// TODO: Deprecate this in favor of separate functions.
 pub enum Action {
     AddEdge(usize, usize),
     CheckRoutingTable(usize, Vec<(usize, Vec<usize>)>),
@@ -108,13 +114,13 @@ pub enum Action {
 }
 
 #[derive(Clone)]
-struct RunningInfo {
+pub struct RunningInfo {
     pm_addr: Vec<Addr<PeerManagerActor>>,
     peers_info: Vec<PeerInfo>,
 }
 
 struct StateMachine {
-    actions: Vec<Box<dyn FnMut(RunningInfo, Arc<AtomicBool>, &mut Context<WaitOrTimeout>)>>,
+    actions: Vec<ActionFn>,
 }
 
 impl StateMachine {
@@ -122,15 +128,20 @@ impl StateMachine {
         Self { actions: vec![] }
     }
 
+    pub fn push_action(&mut self, action: ActionFn) {
+        self.actions.push(action);
+    }
+
     pub fn push(&mut self, action: Action) {
         match action {
             Action::AddEdge(u, v) => {
                 self.actions.push(Box::new(
-                    move |info: RunningInfo,
+                    move |info: SharedRunningInfo,
                           flag: Arc<AtomicBool>,
-                          _ctx: &mut Context<WaitOrTimeout>| {
-                        let addr = info.pm_addr[u].clone();
-                        let peer_info = info.peers_info[v].clone();
+                          _ctx: &mut Context<WaitOrTimeout>,
+                          _runner| {
+                        let addr = info.read().unwrap().pm_addr[u].clone();
+                        let peer_info = info.read().unwrap().peers_info[v].clone();
                         actix::spawn(addr.send(OutboundTcpConnect { peer_info }).then(
                             move |res| match res {
                                 Ok(_) => {
@@ -146,25 +157,28 @@ impl StateMachine {
                 ));
             }
             Action::CheckRoutingTable(u, expected) => self.actions.push(Box::new(
-                move |info: RunningInfo,
+                move |info: SharedRunningInfo,
                       flag: Arc<AtomicBool>,
-                      _ctx: &mut Context<WaitOrTimeout>| {
+                      _ctx: &mut Context<WaitOrTimeout>,
+                      _runner| {
                     let expected = expected
                         .clone()
                         .into_iter()
                         .map(|(target, routes)| {
                             (
-                                info.peers_info[target].id.clone(),
+                                info.read().unwrap().peers_info[target].id.clone(),
                                 routes
                                     .into_iter()
-                                    .map(|hop| info.peers_info[hop].id.clone())
+                                    .map(|hop| info.read().unwrap().peers_info[hop].id.clone())
                                     .collect(),
                             )
                         })
                         .collect();
 
                     actix::spawn(
-                        info.pm_addr
+                        info.read()
+                            .unwrap()
+                            .pm_addr
                             .get(u)
                             .unwrap()
                             .send(NetworkRequests::FetchRoutingTable)
@@ -186,17 +200,20 @@ impl StateMachine {
             )),
             Action::CheckAccountId(source, known_validators) => {
                 self.actions.push(Box::new(
-                    move |info: RunningInfo,
+                    move |info: SharedRunningInfo,
                           flag: Arc<AtomicBool>,
-                          _ctx: &mut Context<WaitOrTimeout>| {
+                          _ctx: &mut Context<WaitOrTimeout>,
+                          _runner| {
                         let expected_known: Vec<_> = known_validators
                             .clone()
                             .into_iter()
-                            .map(|u| info.peers_info[u].account_id.clone().unwrap())
+                            .map(|u| info.read().unwrap().peers_info[u].account_id.clone().unwrap())
                             .collect();
 
                         actix::spawn(
-                            info.pm_addr
+                            info.read()
+                                .unwrap()
+                                .pm_addr
                                 .get(source)
                                 .unwrap()
                                 .send(NetworkRequests::FetchRoutingTable)
@@ -218,23 +235,27 @@ impl StateMachine {
             }
             Action::PingTo(source, nonce, target) => {
                 self.actions.push(Box::new(
-                    move |info: RunningInfo,
+                    move |info: SharedRunningInfo,
                           flag: Arc<AtomicBool>,
-                          _ctx: &mut Context<WaitOrTimeout>| {
-                        let target = info.peers_info[target].id.clone();
-                        let _ =
-                            info.pm_addr[source].do_send(NetworkRequests::PingTo(nonce, target));
+                          _ctx: &mut Context<WaitOrTimeout>,
+                          _runner| {
+                        let target = info.read().unwrap().peers_info[target].id.clone();
+                        let _ = info.read().unwrap().pm_addr[source]
+                            .do_send(NetworkRequests::PingTo(nonce, target));
                         flag.store(true, Ordering::Relaxed);
                     },
                 ));
             }
             Action::Stop(source) => {
                 self.actions.push(Box::new(
-                    move |info: RunningInfo,
+                    move |info: SharedRunningInfo,
                           flag: Arc<AtomicBool>,
-                          _ctx: &mut Context<WaitOrTimeout>| {
+                          _ctx: &mut Context<WaitOrTimeout>,
+                          _runner| {
                         actix::spawn(
-                            info.pm_addr
+                            info.read()
+                                .unwrap()
+                                .pm_addr
                                 .get(source)
                                 .unwrap()
                                 .send(StopSignal::new())
@@ -250,9 +271,10 @@ impl StateMachine {
             }
             Action::Wait(time) => {
                 self.actions.push(Box::new(
-                    move |_info: RunningInfo,
+                    move |_info: SharedRunningInfo,
                           flag: Arc<AtomicBool>,
-                          ctx: &mut Context<WaitOrTimeout>| {
+                          ctx: &mut Context<WaitOrTimeout>,
+                          _runner| {
                         ctx.run_later(Duration::from_millis(time as u64), move |_, _| {
                             flag.store(true, Ordering::Relaxed);
                         });
@@ -261,23 +283,30 @@ impl StateMachine {
             }
             Action::CheckPingPong(source, pings, pongs) => {
                 self.actions.push(Box::new(
-                    move |info: RunningInfo,
+                    move |info: SharedRunningInfo,
                           flag: Arc<AtomicBool>,
-                          _ctx: &mut Context<WaitOrTimeout>| {
+                          _ctx: &mut Context<WaitOrTimeout>,
+                          _runner| {
                         let pings_expected: Vec<_> = pings
                             .clone()
                             .into_iter()
-                            .map(|(nonce, source)| (nonce, info.peers_info[source].id.clone()))
+                            .map(|(nonce, source)| {
+                                (nonce, info.read().unwrap().peers_info[source].id.clone())
+                            })
                             .collect();
 
                         let pongs_expected: Vec<_> = pongs
                             .clone()
                             .into_iter()
-                            .map(|(nonce, source)| (nonce, info.peers_info[source].id.clone()))
+                            .map(|(nonce, source)| {
+                                (nonce, info.read().unwrap().peers_info[source].id.clone())
+                            })
                             .collect();
 
                         actix::spawn(
-                            info.pm_addr
+                            info.read()
+                                .unwrap()
+                                .pm_addr
                                 .get(source)
                                 .unwrap()
                                 .send(NetworkRequests::FetchPingPongInfo)
@@ -342,6 +371,13 @@ pub struct Runner {
     num_validators: usize,
     test_config: Vec<TestConfig>,
     state_machine: Option<StateMachine>,
+
+    info: Option<Arc<RwLock<RunningInfo>>>,
+
+    accounts_id: Option<Vec<AccountId>>,
+    ports: Option<Vec<u16>>,
+    validators: Option<Vec<AccountId>>,
+    genesis_time: Option<DateTime<Utc>>,
 }
 
 impl Runner {
@@ -351,6 +387,11 @@ impl Runner {
             num_validators,
             test_config: (0..num_nodes).map(|_| TestConfig::new()).collect(),
             state_machine: Some(StateMachine::new()),
+            info: None,
+            accounts_id: None,
+            ports: None,
+            validators: None,
+            genesis_time: None,
         }
     }
 
@@ -406,6 +447,12 @@ impl Runner {
         self.state_machine.as_mut().unwrap().push(action);
     }
 
+    /// Add an action to be executed by the Runner. Actions are executed sequentially.
+    /// Each action is executed after the previous action succeed.
+    pub fn push_action(&mut self, action: ActionFn) {
+        self.state_machine.as_mut().unwrap().push_action(action);
+    }
+
     fn apply_all<F>(&mut self, mut apply: F)
     where
         F: FnMut(&mut TestConfig) -> (),
@@ -415,9 +462,52 @@ impl Runner {
         }
     }
 
-    fn build(&self) -> RunningInfo {
-        let genesis_time = Utc::now();
+    fn setup_node(&self, node_id: usize) -> Addr<PeerManagerActor> {
+        let accounts_id = self.accounts_id.as_ref().unwrap();
+        let ports = self.ports.as_ref().unwrap();
+        let test_config = &self.test_config[node_id];
 
+        let boot_nodes = convert_boot_nodes(
+            test_config
+                .boot_nodes
+                .iter()
+                .map(|ix| (accounts_id[*ix].as_str(), ports[*ix]))
+                .collect(),
+        );
+
+        let blacklist = blacklist_from_vec(
+            &test_config
+                .blacklist
+                .iter()
+                .map(|x| {
+                    if let Some(x) = x {
+                        format!("127.0.0.1:{}", ports[*x]).parse().unwrap()
+                    } else {
+                        "127.0.0.1".parse().unwrap()
+                    }
+                })
+                .collect(),
+        );
+
+        let mut network_config =
+            NetworkConfig::from_seed(accounts_id[node_id].as_str(), ports[node_id].clone());
+
+        network_config.max_peer = test_config.max_peer;
+        network_config.ttl_account_id_router = Duration::from_secs(5);
+        network_config.routed_message_ttl = test_config.routed_message_ttl;
+        network_config.blacklist = blacklist;
+        network_config.outbound_disabled = test_config.outbound_disabled;
+        network_config.boot_nodes = boot_nodes;
+
+        setup_network_node(
+            accounts_id[node_id].clone(),
+            self.validators.clone().unwrap(),
+            self.genesis_time.clone().unwrap(),
+            network_config,
+        )
+    }
+
+    fn build(&mut self) -> RunningInfo {
         let accounts_id: Vec<_> = (0..self.num_nodes).map(|ix| format!("test{}", ix)).collect();
         let ports: Vec<_> = (0..self.num_nodes).map(|_| open_port()).collect();
 
@@ -431,57 +521,37 @@ impl Runner {
             peer_info.account_id = Some(validator.clone());
         }
 
+        self.genesis_time = Some(Utc::now());
+        self.accounts_id = Some(accounts_id);
+        self.ports = Some(ports);
+        self.validators = Some(validators);
+
         let pm_addr: Vec<_> = self
             .test_config
             .iter()
             .enumerate()
-            .map(|(ix, test_config)| {
-                let boot_nodes = convert_boot_nodes(
-                    test_config
-                        .boot_nodes
-                        .iter()
-                        .map(|ix| (accounts_id[*ix].as_str(), ports[*ix]))
-                        .collect(),
-                );
-
-                let blacklist = blacklist_from_vec(
-                    &test_config
-                        .blacklist
-                        .iter()
-                        .map(|x| {
-                            if let Some(x) = x {
-                                format!("127.0.0.1:{}", ports[*x]).parse().unwrap()
-                            } else {
-                                "127.0.0.1".parse().unwrap()
-                            }
-                        })
-                        .collect(),
-                );
-
-                let mut network_config =
-                    NetworkConfig::from_seed(accounts_id[ix].as_str(), ports[ix].clone());
-
-                network_config.outbound_disabled = true;
-                network_config.max_peer = test_config.max_peer;
-                network_config.ttl_account_id_router = Duration::from_secs(5);
-                network_config.routed_message_ttl = test_config.routed_message_ttl;
-                network_config.blacklist = blacklist;
-                network_config.outbound_disabled = test_config.outbound_disabled;
-                network_config.boot_nodes = boot_nodes;
-
-                setup_network_node(
-                    accounts_id[ix].clone(),
-                    validators.clone(),
-                    genesis_time,
-                    network_config,
-                )
-            })
+            .map(|(node_id, _)| self.setup_node(node_id))
             .collect();
 
         RunningInfo { pm_addr, peers_info }
     }
+}
 
-    pub fn run(&mut self) {
+/// Use to start running the test.
+/// It will fail if it doesn't solve all actions.
+pub fn start_test(runner: Runner) {
+    System::run(|| {
+        runner.start();
+    })
+    .unwrap();
+}
+
+impl Actor for Runner {
+    type Context = Context<Self>;
+
+    fn started(&mut self, ctx: &mut Self::Context) {
+        let addr = ctx.address();
+
         init_test_logger();
 
         let info = self.build();
@@ -489,6 +559,9 @@ impl Runner {
         let mut pointer = None;
         let mut flag = Arc::new(AtomicBool::new(true));
         let mut state_machine = self.state_machine.take().unwrap();
+        self.info = Some(Arc::new(RwLock::new(info)));
+
+        let info = self.info.as_ref().cloned().unwrap();
 
         WaitOrTimeout::new(
             Box::new(move |ctx| {
@@ -501,7 +574,7 @@ impl Runner {
                     System::current().stop();
                 } else {
                     let action = state_machine.actions.get_mut(pointer.unwrap()).unwrap();
-                    action(info.clone(), flag.clone(), ctx);
+                    action(info.clone(), flag.clone(), ctx, addr.clone());
                 }
             }),
             50,
@@ -509,4 +582,67 @@ impl Runner {
         )
         .start();
     }
+}
+
+#[derive(Message)]
+#[rtype(result = "()")]
+struct StartNode(usize);
+
+impl Handler<StartNode> for Runner {
+    type Result = ();
+    fn handle(&mut self, msg: StartNode, _ctx: &mut Self::Context) -> Self::Result {
+        let node_id = msg.0;
+        let pm = self.setup_node(node_id);
+        let info = self.info.as_ref().cloned().unwrap();
+        (*info.write().unwrap()).pm_addr[node_id] = pm;
+    }
+}
+
+/// Check that `node_id` has at least `expected_connections` as active peers.
+pub fn check_expected_connections(node_id: usize, expected_connections: usize) -> ActionFn {
+    Box::new(
+        move |info: SharedRunningInfo,
+              flag: Arc<AtomicBool>,
+              _ctx: &mut Context<WaitOrTimeout>,
+              _runner| {
+            actix::spawn(
+                info.read()
+                    .unwrap()
+                    .pm_addr
+                    .get(node_id)
+                    .unwrap()
+                    .send(GetInfo {})
+                    .map_err(|_| ())
+                    .and_then(move |res| {
+                        if res.num_active_peers >= expected_connections {
+                            println!("Total connections: {} {}", node_id, res.num_active_peers,);
+                            flag.store(true, Ordering::Relaxed);
+                        }
+                        future::ok(())
+                    })
+                    .map(drop),
+            );
+        },
+    )
+}
+
+// Restart a node that was already stopped
+pub fn restart(node_id: usize) -> ActionFn {
+    Box::new(
+        move |_info: SharedRunningInfo,
+              flag: Arc<AtomicBool>,
+              _ctx: &mut Context<WaitOrTimeout>,
+              runner: Addr<Runner>| {
+            actix::spawn(
+                runner
+                    .send(StartNode(node_id))
+                    .map_err(|_| ())
+                    .and_then(move |_| {
+                        flag.store(true, Ordering::Relaxed);
+                        future::ok(())
+                    })
+                    .map(drop),
+            );
+        },
+    )
 }
