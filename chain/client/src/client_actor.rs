@@ -1170,6 +1170,7 @@ impl ClientActor {
             };
 
             act.info_helper.info(
+                act.client.chain.store().get_genesis_height(),
                 &head,
                 &act.client.sync_status,
                 &act.node_id,

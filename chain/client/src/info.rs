@@ -15,8 +15,8 @@ use near_primitives::serialize::to_base;
 use near_primitives::telemetry::{
     TelemetryAgentInfo, TelemetryChainInfo, TelemetryInfo, TelemetrySystemInfo,
 };
-use near_primitives::types::Gas;
 use near_primitives::types::Version;
+use near_primitives::types::{BlockHeight, Gas};
 use near_primitives::validator_signer::ValidatorSigner;
 use near_telemetry::{telemetry, TelemetryActor};
 
@@ -73,6 +73,7 @@ impl InfoHelper {
 
     pub fn info(
         &mut self,
+        genesis_height: BlockHeight,
         head: &Tip,
         sync_status: &SyncStatus,
         node_id: &PeerId,
@@ -102,7 +103,7 @@ impl InfoHelper {
         let avg_gas_used =
             ((self.gas_used as f64) / (self.started.elapsed().as_millis() as f64) * 1000.0) as u64;
         info!(target: "stats", "{} {} {} {} {} {}",
-              Yellow.bold().paint(display_sync_status(&sync_status, &head)),
+              Yellow.bold().paint(display_sync_status(&sync_status, &head, genesis_height)),
               White.bold().paint(format!("{}/{}", if is_validator { "V" } else if is_fisherman { "F" } else { "-" }, num_validators)),
               Cyan.bold().paint(format!("{:2}/{:?}/{:2} peers", network_info.num_active_peers, network_info.highest_height_peers.len(), network_info.peer_max_count)),
               Cyan.bold().paint(format!("⬇ {} ⬆ {}", pretty_bytes_per_sec(network_info.received_bytes_per_sec), pretty_bytes_per_sec(network_info.sent_bytes_per_sec))),
@@ -151,22 +152,30 @@ impl InfoHelper {
     }
 }
 
-fn display_sync_status(sync_status: &SyncStatus, head: &Tip) -> String {
+fn display_sync_status(
+    sync_status: &SyncStatus,
+    head: &Tip,
+    genesis_height: BlockHeight,
+) -> String {
     match sync_status {
         SyncStatus::AwaitingPeers => format!("#{:>8} Waiting for peers", head.height),
         SyncStatus::NoSync => format!("#{:>8} {:>44}", head.height, head.last_block_hash),
         SyncStatus::HeaderSync { current_height, highest_height } => {
-            let percent = if *highest_height == 0 {
+            let percent = if *highest_height == genesis_height {
                 0
             } else {
-                min(current_height, highest_height) * 100 / highest_height
+                (min(current_height, highest_height) - genesis_height) * 100
+                    / (highest_height - genesis_height)
             };
             format!("#{:>8} Downloading headers {}%", head.height, percent)
         }
         SyncStatus::BodySync { current_height, highest_height } => {
-            let percent =
-                if *highest_height == 0 { 0 } else { current_height * 100 / highest_height };
-            format!("#{:>8} Downloading blocks {}%", current_height, percent)
+            let percent = if *highest_height == 0 {
+                0
+            } else {
+                (current_height - genesis_height) * 100 / (highest_height - genesis_height)
+            };
+            format!("#{:>8} Downloading blocks {}%", head.height, percent)
         }
         SyncStatus::StateSync(_sync_hash, shard_statuses) => {
             let mut res = String::from("State ");
