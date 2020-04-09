@@ -67,9 +67,6 @@ impl IntoVMError for wasmer_runtime::error::RuntimeError {
         use wasmer_runtime::ExceptionCode;
         let data = &*self.0;
 
-        // TODO: Wasmer provides no way to distingush runtime Internal Wasmer errors or host panics
-        // (at least for a single-pass backend)
-        // https://github.com/wasmerio/wasmer/issues/1338
         if let Some(err) = data.downcast_ref::<VMLogicError>() {
             match err {
                 VMLogicError::HostError(h) => {
@@ -80,19 +77,24 @@ impl IntoVMError for wasmer_runtime::error::RuntimeError {
                     VMError::InconsistentStateError(e.clone())
                 }
             }
-        } else if let Some(_) = data.downcast_ref::<ExceptionCode>() {
-            VMError::FunctionCallError(FunctionCallError::WasmTrap { msg: format!("{}", self) })
-        } else if let Some(_) = data.downcast_ref::<String>() {
-            VMError::FunctionCallError(FunctionCallError::WasmTrap { msg: format!("{}", self) })
-        } else if let Some(_) = data.downcast_ref::<&str>() {
-            VMError::FunctionCallError(FunctionCallError::WasmTrap { msg: format!("{}", self) })
         } else {
+            // TODO: Wasmer provides no way to distingush runtime Internal Wasmer errors or host panics
+            // (at least for a single-pass backend)
+            // https://github.com/wasmerio/wasmer/issues/1338
             eprintln!(
                 "Bad error case! Output is non-deterministic {:?} {:?}",
                 data.type_id(),
                 self.to_string()
             );
-            VMError::FunctionCallError(FunctionCallError::WasmTrap { msg: "unknown".into() })
+            if let Some(_) = data.downcast_ref::<ExceptionCode>() {
+                VMError::FunctionCallError(FunctionCallError::WasmTrap { msg: format!("{}", self) })
+            } else if let Some(_) = data.downcast_ref::<String>() {
+                VMError::FunctionCallError(FunctionCallError::WasmTrap { msg: format!("{}", self) })
+            } else if let Some(_) = data.downcast_ref::<&str>() {
+                VMError::FunctionCallError(FunctionCallError::WasmTrap { msg: format!("{}", self) })
+            } else {
+                VMError::FunctionCallError(FunctionCallError::WasmTrap { msg: "unknown".into() })
+            }
         }
     }
 }
