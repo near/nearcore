@@ -133,9 +133,8 @@ lazy_static! {
     /// gas_price_t = gas_price_{t-1} * (1 + (gas_used/gas_limit - 1/2) * alpha))
     pub static ref GAS_PRICE_ADJUSTMENT_RATE: Rational = Rational::new(1, 100);
 
-    /// Rewards
+    /// Protocol treasury reward
     pub static ref PROTOCOL_REWARD_RATE: Rational = Rational::new(1, 10);
-    pub static ref DEVELOPER_REWARD_RATE: Rational = Rational::new(3, 10);
 
     /// Maximum inflation rate per year
     pub static ref MAX_INFLATION_RATE: Rational = Rational::new(5, 100);
@@ -371,7 +370,6 @@ impl Genesis {
             gas_price_adjustment_rate: *GAS_PRICE_ADJUSTMENT_RATE,
             block_producer_kickout_threshold: BLOCK_PRODUCER_KICKOUT_THRESHOLD,
             validators,
-            developer_reward_rate: *DEVELOPER_REWARD_RATE,
             protocol_reward_rate: *PROTOCOL_REWARD_RATE,
             max_inflation_rate: *MAX_INFLATION_RATE,
             num_blocks_per_year: NUM_BLOCKS_PER_YEAR,
@@ -683,7 +681,6 @@ pub fn init_configs(
                     amount: TESTING_INIT_STAKE,
                 }],
                 transaction_validity_period: TRANSACTION_VALIDITY_PERIOD,
-                developer_reward_rate: *DEVELOPER_REWARD_RATE,
                 protocol_reward_rate: *PROTOCOL_REWARD_RATE,
                 max_inflation_rate: *MAX_INFLATION_RATE,
                 total_supply: 0,

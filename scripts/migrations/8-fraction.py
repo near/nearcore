@@ -24,7 +24,6 @@ config['gas_price_adjustment_rate'] = [1, 100]
 config.pop('protocol_reward_percentage')
 config.pop('developer_reward_percentage')
 config['protocol_reward_rate'] = [1, 10]
-config['developer_reward_rate'] = [3, 10]
 config['max_inflation_rate'] = [1, 20]
 config['runtime_config']['transaction_costs']['burnt_gas_reward'] = [3, 10]
 

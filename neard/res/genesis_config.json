@@ -201,10 +201,6 @@
     }
   ],
   "transaction_validity_period": 100,
-  "developer_reward_rate": [
-    3,
-    10
-  ],
   "protocol_reward_rate": [
     1,
     10

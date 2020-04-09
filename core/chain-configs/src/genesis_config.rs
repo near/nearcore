@@ -67,9 +67,6 @@ pub struct GenesisConfig {
     pub validators: Vec<AccountInfo>,
     /// Number of blocks for which a given transaction is valid
     pub transaction_validity_period: NumBlocks,
-    /// Developer reward rate
-    #[default(Rational::from_integer(0))]
-    pub developer_reward_rate: Rational,
     /// Protocol treasury rate
     #[default(Rational::from_integer(0))]
     pub protocol_reward_rate: Rational,
