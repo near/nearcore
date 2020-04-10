@@ -137,8 +137,6 @@ class BaseNode(object):
                 return access_key['access_key']['nonce']
         return None
 
-
-
     def get_block(self, block_id):
         return self.json_rpc('block', [block_id])
 
