@@ -609,6 +609,11 @@ impl ClientActor {
         let epoch_id =
             self.client.runtime_adapter.get_epoch_id_from_prev_block(&head.last_block_hash)?;
 
+        // println!(
+        //     "MOO {:?} -> {}",
+        //     self.client.validator_signer.as_ref().map(|bp| bp.validator_id()),
+        //     self.client.doomslug.get_largest_height_crossing_threshold()
+        // );
         for height in
             latest_known.height + 1..=self.client.doomslug.get_largest_height_crossing_threshold()
         {
@@ -627,10 +632,21 @@ impl ClientActor {
                     height,
                     have_all_chunks,
                 ) {
+                    println!(
+                        "MOO {:?} I'm a BP for {} and ready to produce a block",
+                        self.client.validator_signer.as_ref().map(|bp| bp.validator_id()),
+                        height
+                    );
                     if let Err(err) = self.produce_block(height) {
                         // If there is an error, report it and let it retry on the next loop step.
                         error!(target: "client", "Block production failed: {:?}", err);
                     }
+                } else {
+                    println!(
+                        "MOO {:?} I'm a BP for {} and NOT ready to produce a block",
+                        self.client.validator_signer.as_ref().map(|bp| bp.validator_id()),
+                        height
+                    );
                 }
             }
         }
