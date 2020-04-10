@@ -1050,6 +1050,7 @@ mod tests {
     };
 
     use super::*;
+    use near_primitives::types::ValidatorKickoutReason::NotEnoughBlocks;
     use std::iter::FromIterator;
 
     #[test]
@@ -2727,6 +2728,59 @@ mod tests {
         assert_eq!(
             epoch_manager.get_epoch_info(&EpochId(h[8])).unwrap().validator_kickout,
             HashMap::default()
+        );
+    }
+
+    #[test]
+    fn test_fisherman_kickout() {
+        let stake_amount = 1_000;
+        let validators =
+            vec![("test1", stake_amount), ("test2", stake_amount), ("test3", stake_amount)];
+        let mut epoch_manager = setup_default_epoch_manager(validators, 1, 1, 3, 0, 90, 60);
+        let h = hash_range(6);
+        record_block(&mut epoch_manager, CryptoHash::default(), h[0], 0, vec![]);
+        record_block(&mut epoch_manager, h[0], h[1], 1, vec![stake("test1", 148)]);
+        // test1 starts as validator,
+        // - reduces stake in epoch T, will be fisherman in epoch T+2
+        // - Misses a block in epoch T+1, will be kicked out in epoch T+3
+        // - Finalize epoch T+1 => T+3 kicks test1 as fisherman without a record in stake_change
+        record_block(&mut epoch_manager, h[1], h[3], 3, vec![]);
+
+        let epoch_info2 = epoch_manager.get_epoch_info(&EpochId(h[1])).unwrap().clone();
+        let epoch_info3 = epoch_manager.get_epoch_info(&EpochId(h[3])).unwrap().clone();
+        assert_eq!(
+            epoch_info2,
+            epoch_info(
+                2,
+                vec![("test2", stake_amount), ("test3", stake_amount)],
+                vec![0, 1, 0],
+                vec![vec![0, 1, 0]],
+                vec![],
+                vec![("test1", 148)],
+                change_stake(vec![
+                    ("test1", 148),
+                    ("test2", stake_amount),
+                    ("test3", stake_amount)
+                ]),
+                vec![],
+                reward(vec![("near", 0), ("test1", 0), ("test2", 0), ("test3", 0)]),
+                0,
+            )
+        );
+        assert_eq!(
+            epoch_info3,
+            epoch_info(
+                3,
+                vec![("test2", stake_amount), ("test3", stake_amount)],
+                vec![0, 1, 0],
+                vec![vec![0, 1, 0]],
+                vec![],
+                vec![],
+                change_stake(vec![("test2", stake_amount), ("test3", stake_amount), ("test1", 0)]),
+                vec![("test1", NotEnoughBlocks { produced: 0, expected: 1 })],
+                reward(vec![("near", 0), ("test2", 0), ("test3", 0)]),
+                0,
+            )
         );
     }
 }

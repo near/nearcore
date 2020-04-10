@@ -520,10 +520,13 @@ impl Actor for Peer {
         near_metrics::dec_gauge(&metrics::PEER_CONNECTIONS_TOTAL);
         debug!(target: "network", "{:?}: Peer {} disconnected.", self.node_info.id, self.peer_info);
         if let Some(peer_info) = self.peer_info.as_ref() {
-            if self.peer_status == PeerStatus::Ready {
-                self.peer_manager_addr.do_send(Unregister { peer_id: peer_info.id.clone() })
-            } else if let PeerStatus::Banned(ban_reason) = self.peer_status {
+            if let PeerStatus::Banned(ban_reason) = self.peer_status {
                 self.peer_manager_addr.do_send(Ban { peer_id: peer_info.id.clone(), ban_reason });
+            } else {
+                self.peer_manager_addr.do_send(Unregister {
+                    peer_id: peer_info.id.clone(),
+                    peer_type: self.peer_type,
+                })
             }
         }
         Running::Stop
