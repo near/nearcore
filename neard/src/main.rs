@@ -15,6 +15,7 @@ use tracing_subscriber::EnvFilter;
 use git_version::git_version;
 use near_primitives::types::Version;
 use neard::config::init_testnet_configs;
+use neard::genesis_validate::validate_genesis;
 use neard::{get_default_home, get_store_path, init_configs, load_config, start_with_config};
 
 fn init_logging(verbose: Option<&str>) {
@@ -146,6 +147,7 @@ fn main() {
         ("run", Some(args)) => {
             // Load configs from home.
             let mut near_config = load_config(home_dir);
+            validate_genesis(&near_config.genesis);
             // Set current version in client config.
             near_config.client_config.version = version;
             // Override some parameters from command line.
