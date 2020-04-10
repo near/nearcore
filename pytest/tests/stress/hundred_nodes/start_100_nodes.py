@@ -44,6 +44,9 @@ client_config_changes = {
             "secs": 6 * block_production_time,
             "nanos": 0,
         },
+    },
+    "telemetry": {
+        "endpoints": [],
     }
 }
 

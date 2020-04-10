@@ -15,7 +15,7 @@ use chrono::offset::TimeZone;
 use chrono::{DateTime, Utc};
 use futures::task::Poll;
 use futures::{future, Stream, StreamExt};
-use rand::{thread_rng, Rng};
+use rand::seq::SliceRandom;
 use tokio::net::{TcpListener, TcpStream};
 use tokio_util::codec::FramedRead;
 use tracing::{debug, error, info, trace, warn};
@@ -75,6 +75,8 @@ struct ActivePeer {
     sent_bytes_per_sec: u64,
     /// Last time requested peers.
     last_time_peer_requested: DateTime<Utc>,
+    /// Who started connection. Inbound (other) or Outbound (us).
+    peer_type: PeerType,
 }
 
 /// Actor that manages peers connections.
@@ -190,6 +192,7 @@ impl PeerManagerActor {
                 sent_bytes_per_sec: 0,
                 received_bytes_per_sec: 0,
                 last_time_peer_requested: Utc.timestamp(0, 0),
+                peer_type,
             },
         );
 
@@ -228,7 +231,24 @@ impl PeerManagerActor {
         });
     }
 
-    fn remove_active_peer(&mut self, ctx: &mut Context<Self>, peer_id: &PeerId) {
+    /// Remove peer from active set.
+    /// Check it match peer_type to avoid removing a peer that both started connection to each other.
+    /// If peer_type is None, remove anyway disregarding who started the connection.
+    fn remove_active_peer(
+        &mut self,
+        ctx: &mut Context<Self>,
+        peer_id: &PeerId,
+        peer_type: Option<PeerType>,
+    ) {
+        if let Some(peer_type) = peer_type {
+            if let Some(peer) = self.active_peers.get(&peer_id) {
+                if peer.peer_type != peer_type {
+                    // Don't remove the peer
+                    return;
+                }
+            }
+        }
+
         // If the last edge we have with this peer represent a connection addition, create the edge
         // update that represents the connection removal.
         self.active_peers.remove(&peer_id);
@@ -247,20 +267,20 @@ impl PeerManagerActor {
 
     /// Remove a peer from the active peer set. If the peer doesn't belong to the active peer set
     /// data from ongoing connection established is removed.
-    fn unregister_peer(&mut self, ctx: &mut Context<Self>, peer_id: PeerId) {
+    fn unregister_peer(&mut self, ctx: &mut Context<Self>, peer_id: PeerId, peer_type: PeerType) {
         // If this is an unconsolidated peer because failed / connected inbound, just delete it.
-        if self.outgoing_peers.contains(&peer_id) {
+        if peer_type == PeerType::Outbound && self.outgoing_peers.contains(&peer_id) {
             self.outgoing_peers.remove(&peer_id);
             return;
         }
-        self.remove_active_peer(ctx, &peer_id);
+        self.remove_active_peer(ctx, &peer_id, Some(peer_type));
         unwrap_or_error!(self.peer_store.peer_disconnected(&peer_id), "Failed to save peer data");
     }
 
     /// Add peer to ban list.
     fn ban_peer(&mut self, ctx: &mut Context<Self>, peer_id: &PeerId, ban_reason: ReasonForBan) {
         info!(target: "network", "Banning peer {:?} for {:?}", peer_id, ban_reason);
-        self.remove_active_peer(ctx, peer_id);
+        self.remove_active_peer(ctx, peer_id, None);
         unwrap_or_error!(self.peer_store.peer_ban(peer_id, ban_reason), "Failed to save peer data");
     }
 
@@ -378,13 +398,7 @@ impl PeerManagerActor {
     /// Get a random peer we are not connected to from the known list.
     fn sample_random_peer(&self, ignore_list: &HashSet<PeerId>) -> Option<PeerInfo> {
         let unconnected_peers = self.peer_store.unconnected_peers(ignore_list);
-        let index = thread_rng().gen_range(0, std::cmp::max(unconnected_peers.len(), 1));
-
-        unconnected_peers
-            .iter()
-            .enumerate()
-            .filter_map(|(i, v)| if i == index { Some(v.clone()) } else { None })
-            .next()
+        unconnected_peers.choose(&mut rand::thread_rng()).cloned()
     }
 
     /// Query current peers for more peers.
@@ -1338,7 +1352,7 @@ impl Handler<Unregister> for PeerManagerActor {
     type Result = ();
 
     fn handle(&mut self, msg: Unregister, ctx: &mut Self::Context) {
-        self.unregister_peer(ctx, msg.peer_id);
+        self.unregister_peer(ctx, msg.peer_id, msg.peer_type);
     }
 }
 
