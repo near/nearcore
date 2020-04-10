@@ -259,9 +259,10 @@ impl RemoteNode {
         }
     }
 
-    pub fn get_current_height(&self) -> Result<u64, Box<dyn std::error::Error>> {
+    pub async fn get_current_height(&self) -> Result<u64, Box<dyn std::error::Error>> {
         let url = format!("{}{}", self.url, "/status");
-        let response: serde_json::Value = self.sync_client.get(url.as_str()).send()?.json()?;
+        let response: serde_json::Value =
+            self.async_client.get(url.as_str()).send().await?.json().await?;
         Ok(response["sync_info"]["latest_block_height"].as_u64().ok_or(VALUE_NOT_NUM_ERR)?)
     }
 

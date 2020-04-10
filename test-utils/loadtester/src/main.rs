@@ -6,6 +6,7 @@ use std::time::Duration;
 use clap::{crate_version, App, AppSettings, Arg, SubCommand};
 use env_logger::Builder;
 
+use futures::future;
 use git_version::git_version;
 use near_primitives::types::Version;
 use remote_node::RemoteNode;
@@ -31,6 +32,10 @@ fn configure_logging(log_level: log::LevelFilter) {
     builder.format_timestamp_nanos();
     builder.try_init().unwrap();
 }
+
+use tokio::net::TcpListener;
+use tokio::prelude::*;
+use tokio::runtime::Runtime;
 
 fn main() {
     let version =
@@ -106,6 +111,6 @@ fn run(matches: &clap::ArgMatches<'_>) {
     let nodes = vec![node];
 
     // Start the executor.
-    let handle = Executor::spawn(nodes, Some(Duration::from_secs(duration)), tps, transaction_type);
-    handle.join().unwrap();
+    Executor::spawn(nodes, Some(Duration::from_secs(duration)), tps, transaction_type);
+    // handle.join().unwrap();
 }
