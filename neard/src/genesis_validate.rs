@@ -21,20 +21,48 @@ pub fn validate_genesis(genesis: &Genesis) {
     let mut total_supply = 0;
     let mut staked_accounts = HashMap::new();
     let mut account_ids = HashSet::new();
+    let mut access_key_account_ids = HashSet::new();
+    let mut contract_account_ids = HashSet::new();
     for record in genesis.records.0.iter() {
-        if let StateRecord::Account { account_id, account } = record {
-            if account_ids.contains(account_id) {
-                panic!("Duplicate account id {} in genesis records", account_id);
+        match record {
+            StateRecord::Account { account_id, account } => {
+                if account_ids.contains(account_id) {
+                    panic!("Duplicate account id {} in genesis records", account_id);
+                }
+                total_supply += account.locked + account.amount;
+                account_ids.insert(account_id.clone());
+                if account.locked > 0 {
+                    staked_accounts.insert(account_id.clone(), account.locked);
+                }
             }
-            total_supply += account.locked + account.amount;
-            account_ids.insert(account_id.clone());
-            if account.locked > 0 {
-                staked_accounts.insert(account_id.clone(), account.locked);
+            StateRecord::AccessKey { account_id, .. } => {
+                access_key_account_ids.insert(account_id.clone());
             }
+            StateRecord::Contract { account_id, .. } => {
+                if contract_account_ids.contains(account_id) {
+                    panic!("account {} has more than one contract deployed", account_id);
+                }
+                contract_account_ids.insert(account_id.clone());
+            }
+            _ => {}
         }
     }
     assert_eq!(total_supply, genesis.config.total_supply, "wrong total supply");
     assert_eq!(validators, staked_accounts, "validator accounts do not match staked accounts");
+    for account_id in access_key_account_ids {
+        assert!(
+            account_ids.contains(&account_id),
+            "access key account {} does not exist",
+            account_id
+        );
+    }
+    for account_id in contract_account_ids {
+        assert!(
+            account_ids.contains(&account_id),
+            "contract account {} does not exist",
+            account_id
+        );
+    }
 }
 
 #[cfg(test)]
@@ -42,9 +70,10 @@ mod test {
     use crate::genesis_validate::validate_genesis;
     use near_chain_configs::{Genesis, GenesisRecords};
     use near_crypto::{KeyType, PublicKey};
+    use near_primitives::serialize::to_base64;
     use near_primitives::state_record::StateRecord;
     use near_primitives::types::AccountInfo;
-    use near_primitives::views::AccountView;
+    use near_primitives::views::{AccessKeyPermissionView, AccessKeyView, AccountView};
 
     #[test]
     #[should_panic(expected = "wrong total supply")]
@@ -94,7 +123,67 @@ mod test {
     #[test]
     #[should_panic(expected = "no validators in genesis")]
     fn test_empty_validator() {
+        let genesis = Genesis::default();
+        validate_genesis(&genesis);
+    }
+
+    #[test]
+    #[should_panic(expected = "access key account test1 does not exist")]
+    fn test_access_key_with_nonexistent_account() {
         let mut genesis = Genesis::default();
+        genesis.config.validators = vec![AccountInfo {
+            account_id: "test".to_string(),
+            public_key: PublicKey::empty(KeyType::ED25519),
+            amount: 10,
+        }];
+        genesis.config.total_supply = 110;
+        genesis.records = GenesisRecords(vec![
+            StateRecord::Account {
+                account_id: "test".to_string(),
+                account: AccountView {
+                    amount: 100,
+                    locked: 10,
+                    code_hash: Default::default(),
+                    storage_usage: 0,
+                    storage_paid_at: 0,
+                },
+            },
+            StateRecord::AccessKey {
+                account_id: "test1".to_string(),
+                public_key: PublicKey::empty(KeyType::ED25519),
+                access_key: AccessKeyView {
+                    nonce: 0,
+                    permission: AccessKeyPermissionView::FullAccess,
+                },
+            },
+        ]);
+        validate_genesis(&genesis);
+    }
+
+    #[test]
+    #[should_panic(expected = "account test has more than one contract deployed")]
+    fn test_more_than_one_contract() {
+        let mut genesis = Genesis::default();
+        genesis.config.validators = vec![AccountInfo {
+            account_id: "test".to_string(),
+            public_key: PublicKey::empty(KeyType::ED25519),
+            amount: 10,
+        }];
+        genesis.config.total_supply = 110;
+        genesis.records = GenesisRecords(vec![
+            StateRecord::Account {
+                account_id: "test".to_string(),
+                account: AccountView {
+                    amount: 100,
+                    locked: 10,
+                    code_hash: Default::default(),
+                    storage_usage: 0,
+                    storage_paid_at: 0,
+                },
+            },
+            StateRecord::Contract { account_id: "test".to_string(), code: to_base64([1, 2, 3]) },
+            StateRecord::Contract { account_id: "test".to_string(), code: to_base64([1, 2, 3, 4]) },
+        ]);
         validate_genesis(&genesis);
     }
 }
