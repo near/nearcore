@@ -23,17 +23,7 @@ fn main() {
                 .help("Directory for config and data (default \"~/.near\")")
                 .takes_value(true),
         )
-        .arg(
-            Arg::with_name("account-id")
-                .long("account-id")
-                .takes_value(true),
-        )
-        .arg(
-            Arg::with_name("generate-config")
-                .long("generate-config")
-                .help("Whether to generate a config file when generating keys. Requires account-id to be specified.")
-                .takes_value(false),
-        )
+        .arg(Arg::with_name("account-id").long("account-id").takes_value(true))
         .subcommand(
             SubCommand::with_name("signer-keys").about("Generate signer keys.").arg(
                 Arg::with_name("num-keys")
@@ -51,7 +41,6 @@ fn main() {
     let home_dir = matches.value_of("home").map(|dir| Path::new(dir)).unwrap();
     fs::create_dir_all(home_dir).expect("Failed to create directory");
     let account_id = matches.value_of("account-id");
-    let generate_config = matches.is_present("generate-config");
 
     match matches.subcommand() {
         ("signer-keys", Some(args)) => {
@@ -66,14 +55,12 @@ fn main() {
                 println!("Key#{}", i);
                 println!("PK: {}", key.public_key());
                 println!();
-                if generate_config {
-                    let account_id = account_id
-                        .expect("Account id must be specified if --generate-config is used");
-                    let key_file_name = format!("signer{}_key.json", i);
-                    let mut path = home_dir.to_path_buf();
-                    path.push(&key_file_name);
-                    generate_key_to_file(account_id, key.clone(), path);
-                }
+                let account_id =
+                    account_id.expect("Account id must be specified if --generate-config is used");
+                let key_file_name = format!("signer{}_key.json", i);
+                let mut path = home_dir.to_path_buf();
+                path.push(&key_file_name);
+                generate_key_to_file(account_id, key.clone(), path);
 
                 pks.push(key.public_key());
             }
@@ -84,22 +71,18 @@ fn main() {
         ("validator-key", Some(_)) => {
             let key = SecretKey::from_random(KeyType::ED25519);
             println!("PK: {}", key.public_key());
-            if generate_config {
-                let account_id =
-                    account_id.expect("Account id must be specified if --generate-config is used");
-                let mut path = home_dir.to_path_buf();
-                path.push(neard::config::VALIDATOR_KEY_FILE);
-                generate_key_to_file(account_id, key, path);
-            }
+            let account_id =
+                account_id.expect("Account id must be specified for validator_key generation");
+            let mut path = home_dir.to_path_buf();
+            path.push(neard::config::VALIDATOR_KEY_FILE);
+            generate_key_to_file(account_id, key, path);
         }
         ("node-key", Some(_args)) => {
             let key = SecretKey::from_random(KeyType::ED25519);
             println!("PK: {}", key.public_key());
-            if generate_config {
-                let mut path = home_dir.to_path_buf();
-                path.push(neard::config::NODE_KEY_FILE);
-                generate_key_to_file("", key, path);
-            }
+            let mut path = home_dir.to_path_buf();
+            path.push(neard::config::NODE_KEY_FILE);
+            generate_key_to_file("", key, path);
         }
         (_, _) => unreachable!(),
     }
