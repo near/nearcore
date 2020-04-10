@@ -20,15 +20,7 @@ sys.path.append('lib')
 
 import branches
 import cluster
-
-
-def wait_for_blocks_or_timeout(node, num_blocks, timeout):
-    max_height = 0
-    started = time.time()
-    while max_height < num_blocks:
-        assert time.time() - started < timeout
-        status = node.get_status()
-        max_height = status['sync_info']['latest_block_height']
+from utils import wait_for_blocks_or_timeout
 
 
 def main():

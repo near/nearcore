@@ -229,3 +229,12 @@ def collect_gcloud_config(num_nodes):
     with open(outfile, 'w+') as f:
         json.dump(res, f)
     os.environ[CONFIG_ENV_VAR] = outfile
+
+
+def wait_for_blocks_or_timeout(node, num_blocks, timeout):
+    max_height = 0
+    started = time.time()
+    while max_height < num_blocks:
+        assert time.time() - started < timeout
+        status = node.get_status()
+        max_height = status['sync_info']['latest_block_height']

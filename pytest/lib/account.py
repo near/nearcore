@@ -6,6 +6,9 @@ import requests
 import transaction
 
 
+DEFAULT_ATTACHED_GAS = 10000000000000000
+
+
 class JsonProviderError(Exception):
     pass
 
@@ -97,14 +100,18 @@ class Account(object):
     def account_id(self):
         return self._account_id
 
+    @property
+    def signer(self):
+        return self._signer
+
+    @property
+    def provider(self):
+        return self._provider
+
     def send_money(self, account_id, amount):
         return self._sign_and_submit_tx(account_id, [transaction.create_transfer_action(amount)])
 
-    def function_call(self, contract_id, method_name, args, gas=None, amount=None):
-        if gas is None:
-            gas = 10000000000000000
-        if amount is None:
-            amount = 0
+    def function_call(self, contract_id, method_name, args, gas=DEFAULT_ATTACHED_GAS, amount=0):
         return self._sign_and_submit_tx(contract_id, transaction.create_function_call_action(method_name, args, gas, amount))
 
     def create_account(self, account_id, public_key, initial_balance):
@@ -114,12 +121,28 @@ class Account(object):
             transaction.create_transfer_action(initial_balance)]
         return self._sign_and_submit_tx(account_id, actions)
 
+    def deploy_contract(self, contract_code):
+        return self._sign_and_submit_tx(self._account_id, [transaction.create_deploy_action(contract_code)])
+
+    def stake(self, public_key, amount):
+        return self._sign_and_submit_tx(self._account_id, [transaction.create_stake_action(public_key, amount)])
+
     def create_and_deploy_contract(self, contract_id, public_key, contract_code, initial_balance):
         actions = [
             transaction.create_create_account_action(),
             transaction.create_transfer_action(initial_balance),
             transaction.create_deploy_action(contract_code)] + \
                   [transaction.create_full_access_key_action(public_key)] if public_key is not None else []
+        return self._sign_and_submit_tx(contract_id, actions)
+
+    def create_deploy_and_init_contract(self, contract_id, public_key, contract_code, initial_balance, args,
+                                        gas=DEFAULT_ATTACHED_GAS, init_method_name="new"):
+        actions = [
+          transaction.create_create_account_action(),
+          transaction.create_transfer_action(initial_balance),
+          transaction.create_deploy_action(contract_code),
+          transaction.create_function_call_action(init_method_name, args, gas, 0)] + \
+              [transaction.create_full_access_key_action(public_key)] if public_key is not None else []
         return self._sign_and_submit_tx(contract_id, actions)
 
     def view_function(self, contract_id, method_name, args):

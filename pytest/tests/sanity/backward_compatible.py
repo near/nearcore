@@ -15,6 +15,7 @@ sys.path.append('lib')
 
 import branches
 import cluster
+from utils import wait_for_blocks_or_timeout
 
 
 def main():
@@ -37,14 +38,7 @@ def main():
     # Check it all works.
     # TODO: we should run for at least 2 epochs.
     # TODO: send some transactions to test that runtime works the same.
-    BLOCKS = 20
-    TIMEOUT = 150
-    max_height = 0
-    started = time.time()
-    while max_height < BLOCKS:
-        assert time.time() - started < TIMEOUT
-        status = current_node.get_status()
-        max_height = status['sync_info']['latest_block_height']
+    wait_for_blocks_or_timeout(current_node, 20, 150)
 
 
 if __name__ == "__main__":

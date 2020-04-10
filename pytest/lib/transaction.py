@@ -192,13 +192,17 @@ def create_delete_access_key_action(pk):
     return action
 
 
-def create_payment_action(amount):
+def create_transfer_action(amount):
     transfer = Transfer()
     transfer.deposit = amount
     action = Action()
     action.enum = 'transfer'
     action.transfer = transfer
     return action
+
+
+# TODO: deprecate usage of create_payment_action.
+create_payment_action = create_transfer_action
 
 
 def create_staking_action(amount, pk):
@@ -242,7 +246,7 @@ def sign_create_account_tx(creator_key, new_account_id, nonce, block_hash):
 def sign_create_account_with_full_access_key_and_balance_tx(creator_key, new_account_id, new_key, balance, nonce, block_hash):
     create_account_action = create_create_account_action()
     full_access_key_action = create_full_access_key_action(new_key.decoded_pk())
-    payment_action = create_payment_action(balance)
+    payment_action = create_transfer_action(balance)
     actions = [create_account_action, full_access_key_action, payment_action]
     return sign_and_serialize_transaction(new_account_id, nonce, actions, block_hash, creator_key.account_id, creator_key.decoded_pk(), creator_key.decoded_sk())
 
@@ -253,7 +257,7 @@ def sign_delete_access_key_tx(signer_key, target_account_id, key_for_deletion, n
 
 
 def sign_payment_tx(key, to, amount, nonce, blockHash):
-    action = create_payment_action(amount)
+    action = create_transfer_action(amount)
     return sign_and_serialize_transaction(to, nonce, [action], blockHash, key.account_id, key.decoded_pk(), key.decoded_sk())
 
 
