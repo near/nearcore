@@ -18,3 +18,6 @@ near-chain = { path = "../../chain/chain" }
 near-network = { path = "../../chain/network" }
 neard = { path = "../../neard" }
 
+[dev-dependencies]
+near-client = { path = "../../chain/client" }
+
