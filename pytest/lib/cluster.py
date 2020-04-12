@@ -73,7 +73,7 @@ class BaseNode(object):
     def _get_command_line(self, near_root, node_dir, boot_key, boot_node_addr, binary_name='near'):
         if boot_key is None:
             assert boot_node_addr is None
-            return [os.path.join(near_root, binary_name), "--verbose", "", "--home", node_dir, "run"]
+            return [os.path.join(near_root, binary_name), "--verbose", "", "--home", node_dir, "run", "--archive"]
         else:
             assert boot_node_addr is not None
             boot_key = boot_key.split(':')[1]

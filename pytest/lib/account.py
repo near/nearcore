@@ -78,6 +78,10 @@ class JsonProvider(object):
         return self.json_rpc('EXPERIMENTAL_changes_in_block', changes_in_block_request)
 
 
+class TransactionError(Exception):
+    pass
+
+
 class Account(object):
 
     def __init__(self, provider, signer, account_id):
@@ -94,7 +98,10 @@ class Account(object):
         serialzed_tx = transaction.sign_and_serialize_transaction(
             receiver_id, self._access_key["nonce"], actions, block_hash, self._account_id,
             self._signer.decoded_pk(), self._signer.decoded_sk())
-        self._provider.send_tx(serialzed_tx)
+        result = self._provider.send_tx_and_wait(serialzed_tx, 10)
+        if 'Failure' in result['status']:
+            raise TransactionError(result['status']['Failure'])
+        return result
 
     @property
     def account_id(self):
@@ -112,7 +119,8 @@ class Account(object):
         return self._sign_and_submit_tx(account_id, [transaction.create_transfer_action(amount)])
 
     def function_call(self, contract_id, method_name, args, gas=DEFAULT_ATTACHED_GAS, amount=0):
-        return self._sign_and_submit_tx(contract_id, transaction.create_function_call_action(method_name, args, gas, amount))
+        args = json.dumps(args).encode('utf8')
+        return self._sign_and_submit_tx(contract_id, [transaction.create_function_call_action(method_name, args, gas, amount)])
 
     def create_account(self, account_id, public_key, initial_balance):
         actions = [
@@ -122,7 +130,7 @@ class Account(object):
         return self._sign_and_submit_tx(account_id, actions)
 
     def deploy_contract(self, contract_code):
-        return self._sign_and_submit_tx(self._account_id, [transaction.create_deploy_action(contract_code)])
+        return self._sign_and_submit_tx(self._account_id, [transaction.create_deploy_contract_action(contract_code)])
 
     def stake(self, public_key, amount):
         return self._sign_and_submit_tx(self._account_id, [transaction.create_stake_action(public_key, amount)])
@@ -131,19 +139,20 @@ class Account(object):
         actions = [
             transaction.create_create_account_action(),
             transaction.create_transfer_action(initial_balance),
-            transaction.create_deploy_action(contract_code)] + \
-                  [transaction.create_full_access_key_action(public_key)] if public_key is not None else []
+            transaction.create_deploy_contract_action(contract_code)] + \
+                  ([transaction.create_full_access_key_action(public_key)] if public_key is not None else [])
         return self._sign_and_submit_tx(contract_id, actions)
 
     def create_deploy_and_init_contract(self, contract_id, public_key, contract_code, initial_balance, args,
                                         gas=DEFAULT_ATTACHED_GAS, init_method_name="new"):
+        args = json.dumps(args).encode('utf8')
         actions = [
           transaction.create_create_account_action(),
           transaction.create_transfer_action(initial_balance),
-          transaction.create_deploy_action(contract_code),
+          transaction.create_deploy_contract_action(contract_code),
           transaction.create_function_call_action(init_method_name, args, gas, 0)] + \
-              [transaction.create_full_access_key_action(public_key)] if public_key is not None else []
+                  ([transaction.create_full_access_key_action(public_key)] if public_key is not None else [])
         return self._sign_and_submit_tx(contract_id, actions)
 
     def view_function(self, contract_id, method_name, args):
-        return self._provider.view_call(contract_id, method_name, args)
+        return self._provider.view_call(contract_id, method_name, json.dumps(args))

@@ -4,44 +4,49 @@ class BinarySerializer:
         self.schema = schema
 
     def serialize_num(self, value, n_bytes):
-        assert value >= 0
+        orig_value = value
+        assert value >= 0, "Can't serialize negative numbers %d" % value
         for i in range(n_bytes):
             self.array.append(value & 255)
             value //= 256
-        assert value == 0
+        assert value == 0, "Value %d has more than %d bytes" % (orig_value, n_bytes)
 
     def serialize_field(self, value, fieldType):
-        if type(fieldType) == str:
-            if fieldType[0] == 'u':
-                self.serialize_num(value, int(fieldType[1:]) // 8)
-            elif fieldType == 'string':
-                b = value.encode('utf8')
-                self.serialize_num(len(b), 4)
-                self.array += b
+        try:
+            if type(fieldType) == str:
+                if fieldType[0] == 'u':
+                    self.serialize_num(value, int(fieldType[1:]) // 8)
+                elif fieldType == 'string':
+                    b = value.encode('utf8')
+                    self.serialize_num(len(b), 4)
+                    self.array += b
+                else:
+                    assert False, fieldType
+            elif type(fieldType) == list:
+                assert len(fieldType) == 1
+                if type(fieldType[0]) == int:
+                    assert type(value) == bytes, "type(%s) = %s != bytes" % (value, type(value))
+                    assert len(value) == fieldType[0], "len(%s) = %s != %s" % (value, len(value), fieldType[0])
+                    self.array += bytearray(value)
+                else:
+                    self.serialize_num(len(value), 4)
+                    for el in value:
+                        self.serialize_field(el, fieldType[0])
+            elif type(fieldType) == dict:
+                assert fieldType['kind'] == 'option'
+                if value is None:
+                    self.serialize_num(0, 1)
+                else:
+                    self.serialize_num(1, 1)
+                    self.serialize_field(value, fieldType['type'])
+            elif type(fieldType) == type:
+                assert type(value) == fieldType, "%s != type(%s)" % (fieldType, value)
+                self.serialize_struct(value)
             else:
-                assert False, fieldType
-        elif type(fieldType) == list:
-            assert len(fieldType) == 1
-            if type(fieldType[0]) == int:
-                assert type(value) == bytes
-                assert len(value) == fieldType[0], "len(%s) = %s != %s" % (value, len(value), fieldType[0])
-                self.array += bytearray(value)
-            else:
-                self.serialize_num(len(value), 4)
-                for el in value:
-                    self.serialize_field(el, fieldType[0])
-        elif type(fieldType) == dict:
-            assert fieldType['kind'] == 'option'
-            if value is None:
-                self.serialize_num(0, 1)
-            else:
-                self.serialize_num(1, 1)
-                self.serialize_field(value, fieldType['type'])
-        elif type(fieldType) == type:
-            assert type(value) == fieldType, "%s != type(%s)" % (fieldType, value)
-            self.serialize_struct(value)
-        else:
-             assert False, type(fieldType)
+                 assert False, type(fieldType)
+        except:
+            print("Failed to serialize %s as %s" % (value, fieldType))
+            raise
 
     def serialize_struct(self, obj):
         structSchema = self.schema[type(obj)]
