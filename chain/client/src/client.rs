@@ -408,7 +408,7 @@ impl Client {
             min_gas_price,
             inflation,
             prev_block_extra.challenges_result,
-            challenges,
+            vec![],
             &*validator_signer,
             score,
             quorums.last_quorum_pre_vote,
@@ -1303,7 +1303,7 @@ impl Client {
     }
 
     /// When accepting challenge, we verify that it's valid given signature with current validators.
-    pub fn process_challenge(&mut self, challenge: Challenge) -> Result<(), Error> {
+    pub fn process_challenge(&mut self, _challenge: Challenge) -> Result<(), Error> {
         // TODO(2445): Enable challenges when they are working correctly.
         //        if self.challenges.contains_key(&challenge.hash) {
         //            return Ok(());
