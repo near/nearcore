@@ -63,7 +63,7 @@ class JsonProvider(object):
 
     def view_call(self, account_id, method_name, args, finality='optimistic'):
         return self.json_rpc('query', {"request_type": "call_function", "account_id": account_id,
-                                       "method_name": method_name, "args": args, "finality": finality})
+                                       "method_name": method_name, "args": base64.b64encode(args).decode('utf8'), "finality": finality})
 
     def get_block(self, block_id):
         return self.json_rpc('block', [block_id])
@@ -155,4 +155,4 @@ class Account(object):
         return self._sign_and_submit_tx(contract_id, actions)
 
     def view_function(self, contract_id, method_name, args):
-        return self._provider.view_call(contract_id, method_name, json.dumps(args))
+        return self._provider.view_call(contract_id, method_name, json.dumps(args).encode('utf8'))
