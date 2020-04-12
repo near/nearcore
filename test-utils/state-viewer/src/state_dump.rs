@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use near_chain::RuntimeAdapter;
 use near_chain_configs::{Genesis, GenesisConfig};
 use near_primitives::block::BlockHeader;
@@ -5,7 +7,6 @@ use near_primitives::state_record::StateRecord;
 use near_primitives::types::{AccountInfo, StateRoot};
 use near_store::TrieIterator;
 use neard::NightshadeRuntime;
-use std::collections::HashMap;
 
 pub fn state_dump(
     runtime: NightshadeRuntime,
@@ -13,7 +14,10 @@ pub fn state_dump(
     last_block_header: BlockHeader,
     genesis_config: &GenesisConfig,
 ) -> Genesis {
-    println!("Generating genesis from state data");
+    println!(
+        "Generating genesis from state data of #{} / {}",
+        last_block_header.inner_lite.height, last_block_header.hash
+    );
     let genesis_height = last_block_header.inner_lite.height + 1;
     let block_producers = runtime
         .get_epoch_block_producers_ordered(
@@ -40,13 +44,9 @@ pub fn state_dump(
             if let Some(mut sr) = StateRecord::from_raw_key_value(key, value) {
                 if let StateRecord::Account { account_id, account } = &mut sr {
                     if account.locked > 0 {
-                        if let Some((_, stake)) = validators.get(account_id) {
-                            account.amount = account.amount + account.locked - *stake;
-                            account.locked = *stake;
-                        } else {
-                            account.amount += account.locked;
-                            account.locked = 0;
-                        }
+                        let stake = *validators.get(account_id).map(|(_, s)| s).unwrap_or(&0);
+                        account.amount = account.amount + account.locked - stake;
+                        account.locked = stake;
                     }
                 }
                 records.push(sr);
@@ -65,8 +65,12 @@ pub fn state_dump(
 
 #[cfg(test)]
 mod test {
-    use crate::state_dump::state_dump;
-    use near_chain::{ChainGenesis, RuntimeAdapter};
+    use std::collections::HashSet;
+    use std::iter::FromIterator;
+    use std::path::Path;
+    use std::sync::Arc;
+
+    use near_chain::{ChainGenesis, Provenance, RuntimeAdapter};
     use near_chain_configs::Genesis;
     use near_client::test_utils::TestEnv;
     use near_crypto::{InMemorySigner, KeyType};
@@ -78,10 +82,8 @@ mod test {
     use neard::config::TESTING_INIT_STAKE;
     use neard::genesis_validate::validate_genesis;
     use neard::NightshadeRuntime;
-    use std::collections::HashSet;
-    use std::iter::FromIterator;
-    use std::path::Path;
-    use std::sync::Arc;
+
+    use crate::state_dump::state_dump;
 
     fn setup(epoch_length: NumBlocks) -> (Arc<Store>, Genesis, TestEnv) {
         let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
@@ -135,10 +137,8 @@ mod test {
             HashSet::from_iter(vec!["test0".to_string(), "test1".to_string()])
         );
         let last_block = env.clients[0].chain.get_block(&head.last_block_hash).unwrap().clone();
-        let mut state_roots = vec![];
-        for chunk in last_block.chunks.iter() {
-            state_roots.push(chunk.inner.prev_state_root.clone());
-        }
+        let state_roots =
+            last_block.chunks.iter().map(|chunk| chunk.inner.prev_state_root).collect();
         let runtime = NightshadeRuntime::new(
             Path::new("."),
             store.clone(),
@@ -146,8 +146,7 @@ mod test {
             vec![],
             vec![],
         );
-        let new_genesis =
-            state_dump(runtime, state_roots, last_block.header.clone(), &genesis.config);
+        let new_genesis = state_dump(runtime, state_roots, last_block.header, &genesis.config);
         assert_eq!(new_genesis.config.validators.len(), 2);
         validate_genesis(&new_genesis);
     }
@@ -173,10 +172,8 @@ mod test {
         }
         let head = env.clients[0].chain.head().unwrap();
         let last_block = env.clients[0].chain.get_block(&head.last_block_hash).unwrap().clone();
-        let mut state_roots = vec![];
-        for chunk in last_block.chunks.iter() {
-            state_roots.push(chunk.inner.prev_state_root.clone());
-        }
+        let state_roots =
+            last_block.chunks.iter().map(|chunk| chunk.inner.prev_state_root).collect();
         let runtime = NightshadeRuntime::new(
             Path::new("."),
             store.clone(),
@@ -184,8 +181,7 @@ mod test {
             vec![],
             vec![],
         );
-        let new_genesis =
-            state_dump(runtime, state_roots, last_block.header.clone(), &genesis.config);
+        let new_genesis = state_dump(runtime, state_roots, last_block.header, &genesis.config);
         assert_eq!(
             new_genesis
                 .config
@@ -197,5 +193,57 @@ mod test {
             vec!["test0".to_string()]
         );
         validate_genesis(&new_genesis);
+    }
+
+    /// If the node does not track a shard, state dump will not give the correct result.
+    #[test]
+    #[should_panic(expected = "Trie node missing")]
+    fn test_dump_state_not_track_shard() {
+        let epoch_length = 4;
+        let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
+        genesis.config.num_block_producer_seats = 2;
+        genesis.config.num_block_producer_seats_per_shard = vec![2];
+        genesis.config.epoch_length = epoch_length;
+        let store1 = create_test_store();
+        let store2 = create_test_store();
+        let create_runtime = |store| -> NightshadeRuntime {
+            NightshadeRuntime::new(Path::new("."), store, Arc::new(genesis.clone()), vec![], vec![])
+        };
+        let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![
+            Arc::new(create_runtime(store1.clone())),
+            Arc::new(create_runtime(store2.clone())),
+        ];
+        let mut chain_genesis = ChainGenesis::test();
+        chain_genesis.epoch_length = epoch_length;
+        chain_genesis.gas_limit = genesis.config.gas_limit;
+        let mut env = TestEnv::new_with_runtime(chain_genesis, 2, 1, runtimes);
+        let genesis_hash = env.clients[0].chain.genesis().hash();
+        let signer = InMemorySigner::from_seed("test1", KeyType::ED25519, "test1");
+        let tx = SignedTransaction::send_money(
+            1,
+            "test1".to_string(),
+            "test0".to_string(),
+            &signer,
+            1,
+            genesis_hash,
+        );
+        env.clients[0].process_tx(tx, false);
+
+        let mut blocks = vec![];
+        for i in 1..epoch_length {
+            let block = env.clients[0].produce_block(i).unwrap().unwrap();
+            for j in 0..2 {
+                let provenance = if j == 0 { Provenance::PRODUCED } else { Provenance::NONE };
+                env.process_block(j, block.clone(), provenance);
+            }
+            blocks.push(block);
+        }
+        let last_block = blocks.pop().unwrap();
+        let state_roots =
+            last_block.chunks.iter().map(|chunk| chunk.inner.prev_state_root).collect::<Vec<_>>();
+        let runtime2 = create_runtime(store2);
+
+        let _ =
+            state_dump(runtime2, state_roots.clone(), last_block.header.clone(), &genesis.config);
     }
 }
