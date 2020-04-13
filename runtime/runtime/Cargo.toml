@@ -15,6 +15,7 @@ rand = "0.7"
 sha2 = "0.8"
 sha3 = "0.8"
 lazy_static = "1.4"
+num-rational = "0.2.4"
 
 borsh = "0.6.1"
 cached = "0.12.0"

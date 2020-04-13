@@ -7,6 +7,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use chrono::Utc;
+use lazy_static::lazy_static;
 use log::info;
 use serde_derive::{Deserialize, Serialize};
 
@@ -30,6 +31,7 @@ use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner
 use near_primitives::views::AccountView;
 use near_runtime_configs::RuntimeConfig;
 use near_telemetry::TelemetryConfig;
+use num_rational::Rational;
 
 /// Initial balance used in tests.
 pub const TESTING_INIT_BALANCE: Balance = 1_000_000_000 * NEAR_BASE;
@@ -103,24 +105,11 @@ pub const INITIAL_GAS_LIMIT: Gas = 1_000_000_000_000_000;
 /// Initial gas price.
 pub const MIN_GAS_PRICE: Balance = 5000;
 
-/// The rate at which the gas price can be adjusted (alpha in the formula).
-/// The formula is
-/// gas_price_t = gas_price_{t-1} * (1 + (gas_used/gas_limit - 1/2) * alpha))
-/// This constant is supposedly 0.01 and should be divided by 100 when used
-pub const GAS_PRICE_ADJUSTMENT_RATE: u8 = 1;
-
-/// Rewards
-pub const PROTOCOL_PERCENT: u8 = 10;
-pub const DEVELOPER_PERCENT: u8 = 30;
-
 /// Protocol treasury account
 pub const PROTOCOL_TREASURY_ACCOUNT: &str = "near";
 
 /// Fishermen stake threshold.
 pub const FISHERMEN_THRESHOLD: Balance = 10 * NEAR_BASE;
-
-/// Maximum inflation rate per year
-pub const MAX_INFLATION_RATE: u8 = 5;
 
 /// Number of blocks for which a given transaction is valid
 pub const TRANSACTION_VALIDITY_PERIOD: NumBlocks = 100;
@@ -137,6 +126,19 @@ pub const NODE_KEY_FILE: &str = "node_key.json";
 pub const VALIDATOR_KEY_FILE: &str = "validator_key.json";
 
 pub const DEFAULT_TELEMETRY_URL: &str = "https://explorer.nearprotocol.com/api/nodes";
+
+lazy_static! {
+    /// The rate at which the gas price can be adjusted (alpha in the formula).
+    /// The formula is
+    /// gas_price_t = gas_price_{t-1} * (1 + (gas_used/gas_limit - 1/2) * alpha))
+    pub static ref GAS_PRICE_ADJUSTMENT_RATE: Rational = Rational::new(1, 100);
+
+    /// Protocol treasury reward
+    pub static ref PROTOCOL_REWARD_RATE: Rational = Rational::new(1, 10);
+
+    /// Maximum inflation rate per year
+    pub static ref MAX_INFLATION_RATE: Rational = Rational::new(5, 100);
+}
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Network {
@@ -365,12 +367,11 @@ impl Genesis {
             dynamic_resharding: false,
             epoch_length: FAST_EPOCH_LENGTH,
             gas_limit: INITIAL_GAS_LIMIT,
-            gas_price_adjustment_rate: GAS_PRICE_ADJUSTMENT_RATE,
+            gas_price_adjustment_rate: *GAS_PRICE_ADJUSTMENT_RATE,
             block_producer_kickout_threshold: BLOCK_PRODUCER_KICKOUT_THRESHOLD,
             validators,
-            developer_reward_percentage: DEVELOPER_PERCENT,
-            protocol_reward_percentage: PROTOCOL_PERCENT,
-            max_inflation_rate: MAX_INFLATION_RATE,
+            protocol_reward_rate: *PROTOCOL_REWARD_RATE,
+            max_inflation_rate: *MAX_INFLATION_RATE,
             num_blocks_per_year: NUM_BLOCKS_PER_YEAR,
             protocol_treasury_account: PROTOCOL_TREASURY_ACCOUNT.to_string(),
             transaction_validity_period: TRANSACTION_VALIDITY_PERIOD,
@@ -671,7 +672,7 @@ pub fn init_configs(
                 dynamic_resharding: false,
                 epoch_length: if fast { FAST_EPOCH_LENGTH } else { EXPECTED_EPOCH_LENGTH },
                 gas_limit: INITIAL_GAS_LIMIT,
-                gas_price_adjustment_rate: GAS_PRICE_ADJUSTMENT_RATE,
+                gas_price_adjustment_rate: *GAS_PRICE_ADJUSTMENT_RATE,
                 block_producer_kickout_threshold: BLOCK_PRODUCER_KICKOUT_THRESHOLD,
                 runtime_config: Default::default(),
                 validators: vec![AccountInfo {
@@ -680,9 +681,8 @@ pub fn init_configs(
                     amount: TESTING_INIT_STAKE,
                 }],
                 transaction_validity_period: TRANSACTION_VALIDITY_PERIOD,
-                developer_reward_percentage: DEVELOPER_PERCENT,
-                protocol_reward_percentage: PROTOCOL_PERCENT,
-                max_inflation_rate: MAX_INFLATION_RATE,
+                protocol_reward_rate: *PROTOCOL_REWARD_RATE,
+                max_inflation_rate: *MAX_INFLATION_RATE,
                 total_supply: 0,
                 num_blocks_per_year: NUM_BLOCKS_PER_YEAR,
                 protocol_treasury_account: account_id,
