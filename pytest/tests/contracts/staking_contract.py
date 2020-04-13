@@ -115,12 +115,12 @@ if __name__ == "__main__":
 
     user1.function_call(account_name, 'unstake', {"amount": str(nty(stake_amount1))})
 
-
     wait_for_blocks_or_timeout(cluster.nodes[node_id], 20, 120, ping)
     assert is_active_validator("staker")
 
     # user1.function_call(account_name, 'withdraw', {}, amount=nty(stake_amount))
-    assert user1.view_function(account_name, 'get_user_balance', {}) == str(nty(stake_amount1))
+    user1_balance = user1.view_function(account_name, 'get_user_balance', {"account_id": "user1"})
+    assert user1_balance == str(nty(stake_amount1)), "%s != %s" % (user1_balance, stake_amount1)
 
     # account_state = user1.provider.get_account('user1')
     # assert account_state["amount"] > nty(50000000)
