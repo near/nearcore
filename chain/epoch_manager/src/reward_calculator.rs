@@ -34,9 +34,10 @@ impl RewardCalculator {
         let epoch_fee = total_validator_reward;
         let inflation = if max_inflation > epoch_fee { max_inflation - epoch_fee } else { 0 };
         let epoch_total_reward = max(max_inflation, epoch_fee);
-        let epoch_protocol_treasury = epoch_total_reward
-            * *self.protocol_reward_percentage.numer() as u128
-            / *self.protocol_reward_percentage.denom() as u128;
+        let epoch_protocol_treasury = (U256::from(epoch_total_reward)
+            * U256::from(*self.protocol_reward_percentage.numer() as u64)
+            / U256::from(*self.protocol_reward_percentage.denom() as u64))
+        .as_u128();
         res.insert(self.protocol_treasury_account.clone(), epoch_protocol_treasury);
         if num_validators == 0 {
             return (res, inflation);
