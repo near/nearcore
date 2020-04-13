@@ -42,7 +42,6 @@ pub fn csv_to_json_configs(home: &Path, chain_id: String, tracked_shards: Vec<Sh
     // Construct `config.json`.
     let mut config = Config::default();
     config.tracked_shards = tracked_shards;
-    config.telemetry.endpoints.push(neard::config::DEFAULT_TELEMETRY_URL.to_string());
 
     // Construct genesis config.
     let (records, validators, peer_info, treasury, genesis_time) =
