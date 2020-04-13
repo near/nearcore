@@ -3384,12 +3384,14 @@ dependencies = [
  "clap 2.33.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "near-chain 0.1.0",
  "near-chain-configs 0.1.0",
+ "near-client 0.1.0",
  "near-crypto 0.1.0",
  "near-network 0.1.0",
  "near-primitives 0.1.0",
  "near-store 0.1.0",
  "neard 0.4.13",
  "node-runtime 0.0.1",
+ "serde_json 1.0.41 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
