@@ -244,3 +244,8 @@ def wait_for_blocks_or_timeout(node, num_blocks, timeout, callback=None):
         if callback is not None:
             if callback():
                 break
+
+
+def ntoy(value):
+    """Converts NEAR to yoctoNEAR"""
+    return int(value * (10 ** 24))

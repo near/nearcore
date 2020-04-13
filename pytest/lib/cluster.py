@@ -18,11 +18,14 @@ from rc import gcloud
 import uuid
 import network
 
+import account
+
 os.environ["ADVERSARY_CONSENT"] = "1"
 
 remote_nodes = []
 remote_nodes_lock = threading.Lock()
 cleanup_remote_nodes_atexit_registered = False
+
 
 class DownloadException(Exception):
     pass
@@ -546,3 +549,40 @@ def load_config():
     return config
 
 
+class Cluster(object):
+    """Manages cluster of nodes."""
+
+    def __init__(self, num_shards, config, genesis_config_changes, client_config_changes):
+        if not config:
+            config = load_config()
+        if "node_root" not in config:
+            config["node_root"] = os.path.expanduser("~/.near/")
+
+        self.config = config
+        self.num_shards = num_shards
+        self.genesis_config_changes = genesis_config_changes
+        self.client_config_changes = client_config_changes
+        self.nodes = []
+
+    def start(self, num_nodes, num_observers):
+        assert len(self.nodes) == 0
+        # TODO: this really should be implemented better by taking apart the start_cluster function.
+        # instead start_cluster should use this class.
+        self.nodes = start_cluster(num_nodes, num_observers, self.num_shards, self.config, self.genesis_config_changes, self.client_config_changes)
+
+    def add_node(self, account_id):
+        assert len(self.nodes) > 0
+        node_id = len(self.nodes)
+        base_node_root = os.path.join(self.config["node_root"], "test0")
+        node_root = os.path.join(self.config["node_root"], "test%s" % node_id)
+        os.mkdir(node_root)
+        for filename in ["config.json", "genesis.json"]:
+            shutil.copy(os.path.join(base_node_root, filename), os.path.join(node_root, filename))
+        subprocess.check_output([os.path.join(self.config["near_root"], "keypair-generator"), "--home=%s" % node_root, "node-key"])
+        subprocess.check_output([os.path.join(self.config["near_root"], "keypair-generator"), "--home=%s" % node_root, "--account-id=%s" % account_id, "validator-key"])
+        node = spin_up_node(self.config, self.config["near_root"], node_root, node_id, self.nodes[0].node_key.pk, self.nodes[0].addr())
+        self.nodes.append(node)
+        return node_id
+
+    def get_account_for_node(self, node_id):
+        return account.Account(account.JsonProvider(self.nodes[node_id].rpc_addr()), self.nodes[node_id].signer_key, self.nodes[node_id].signer_key.account_id)

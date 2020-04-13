@@ -11,46 +11,9 @@ import subprocess
 import shutil
 
 sys.path.append('lib')
-import cluster as clusterlib
+from cluster import Cluster
 from account import JsonProvider, Account
-from utils import load_binary_file, wait_for_blocks_or_timeout
-
-
-class Cluster(object):
-
-    def __init__(self, num_shards, config, genesis_config_changes, client_config_changes):
-        if not config:
-            config = clusterlib.load_config()
-        if "node_root" not in config:
-            config["node_root"] = os.path.expanduser("~/.near/")
-
-        self.config = config
-        self.num_shards = num_shards
-        self.genesis_config_changes = genesis_config_changes
-        self.client_config_changes = client_config_changes
-        self.nodes = []
-
-    def start(self, num_nodes, num_observers):
-        assert len(self.nodes) == 0
-        # TODO: this really should implement this better by taking apart the start_cluster funciton.
-        self.nodes = clusterlib.start_cluster(num_nodes, num_observers, self.num_shards, self.config, self.genesis_config_changes, self.client_config_changes)
-
-    def add_node(self, account_id):
-        assert len(self.nodes) > 0
-        node_id = len(self.nodes)
-        base_node_root = os.path.join(self.config["node_root"], "test0")
-        node_root = os.path.join(self.config["node_root"], "test%s" % node_id)
-        os.mkdir(node_root)
-        for filename in ["config.json", "genesis.json"]:
-            shutil.copy(os.path.join(base_node_root, filename), os.path.join(node_root, filename))
-        subprocess.check_output([os.path.join(self.config["near_root"], "keypair-generator"), "--home=%s" % node_root, "node-key"])
-        subprocess.check_output([os.path.join(self.config["near_root"], "keypair-generator"), "--home=%s" % node_root, "--account-id=%s" % account_id, "validator-key"])
-        node = clusterlib.spin_up_node(self.config, self.config["near_root"], node_root, node_id, self.nodes[0].node_key.pk, self.nodes[0].addr())
-        self.nodes.append(node)
-        return node_id
-
-    def get_account_for_node(self, node_id):
-        return Account(JsonProvider(self.nodes[node_id].rpc_addr()), self.nodes[node_id].signer_key, self.nodes[node_id].signer_key.account_id)
+from utils import load_binary_file, wait_for_blocks_or_timeout, ntoy
 
 
 def download_from_url(url):
@@ -67,11 +30,6 @@ def is_active_validator(account_id):
         if validator["account_id"] == account_id:
             return True
     return False
-
-
-def nty(value):
-    """Converts NAER to yoctoNEAR"""
-    return int(value * (10 ** 24))
 
 
 if __name__ == "__main__":
@@ -93,18 +51,18 @@ if __name__ == "__main__":
 
     stake_public_key = cluster.nodes[node_id].signer_key.pk.split(':')[1]
     master_account.create_deploy_and_init_contract(
-        account_name, None, load_binary_file(contract_path), nty(100),
+        account_name, None, load_binary_file(contract_path), ntoy(100),
         {"owner": cluster.nodes[0].signer_key.account_id, "stake_public_key": stake_public_key})
 
     print(master_account.provider.get_account(account_name))
 
     # Create couple accounts to delegate.
-    master_account.create_account('user1', master_account.signer.decoded_pk(), nty(stake_amount1 + 1))
-    master_account.create_account('user2', master_account.signer.decoded_pk(), nty(stake_amount2 + 1))
+    master_account.create_account('user1', master_account.signer.decoded_pk(), ntoy(stake_amount1 + 1))
+    master_account.create_account('user2', master_account.signer.decoded_pk(), ntoy(stake_amount2 + 1))
 
     user1 = Account(master_account.provider, master_account.signer, 'user1')
-    user1.function_call(account_name, 'deposit', {}, amount=nty(stake_amount1))
-    user1.function_call(account_name, 'stake', {"amount": str(nty(stake_amount1))})
+    user1.function_call(account_name, 'deposit', {}, amount=ntoy(stake_amount1))
+    user1.function_call(account_name, 'stake', {"amount": str(ntoy(stake_amount1))})
 
     def ping():
         master_account.function_call(account_name, 'ping', {})
@@ -114,17 +72,21 @@ if __name__ == "__main__":
     assert is_active_validator("staker")
 
     user2 = Account(master_account.provider, master_account.signer, 'user2')
-    user2.function_call(account_name, 'deposit', {}, amount=nty(stake_amount2))
-    user2.function_call(account_name, 'stake', {"amount": str(nty(stake_amount2))})
+    user2.function_call(account_name, 'deposit', {}, amount=ntoy(stake_amount2))
+    user2.function_call(account_name, 'stake', {"amount": str(ntoy(stake_amount2))})
 
-    user1.function_call(account_name, 'unstake', {"amount": str(nty(stake_amount1))})
+    # Unstake everything by user1 including rewards.
+    user1_stake = user1.view_function(account_name, 'get_user_stake', {"account_id": "user1"})["result"]
+    user1.function_call(account_name, 'unstake', {"amount": user1_stake})
 
     wait_for_blocks_or_timeout(cluster.nodes[node_id], 20, 120, ping)
     assert is_active_validator("staker")
 
-    # user1.function_call(account_name, 'withdraw', {}, amount=nty(stake_amount))
+    user1_left_stake = user1.view_function(account_name, 'get_user_stake', {"account_id": "user1"})["result"]
+    assert user1_left_stake == "0", "%s != 0" % user1_left_stake
     user1_balance = user1.view_function(account_name, 'get_user_balance', {"account_id": "user1"})["result"]
-    assert user1_balance == str(nty(stake_amount1)), "%s != %s" % (user1_balance, stake_amount1)
+    assert user1_balance == str(ntoy(user1_stake)), "%s != %s" % (user1_balance, user1_stake)
+    # user1.function_call(account_name, 'withdraw', {}, amount=ntoy(stake_amount))
 
     # account_state = user1.provider.get_account('user1')
-    # assert account_state["amount"] > nty(50000000)
+    # assert account_state["amount"] > ntoy(50000000)
