@@ -162,4 +162,5 @@ class Account(object):
         result = self._provider.view_call(contract_id, method_name, json.dumps(args).encode('utf8'))
         if "error" in result:
             raise ViewFunctionError(result["error"])
+        result["result"] = json.loads(''.join([chr(x) for x in result["result"]]))
         return result

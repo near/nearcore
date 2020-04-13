@@ -75,6 +75,10 @@ def nty(value):
 
 
 if __name__ == "__main__":
+    contract_path = sys.argv[1] if len(sys.argv) > 1 else None
+    if not contract_path:
+        contract_path = download_from_url('https://github.com/near/staking-contract/raw/master/res/staking_contract.wasm')
+
     cluster = Cluster(1, None, [["num_block_producer_seats", 10], ["num_block_producer_seats_per_shard", [10]], ["epoch_length", 10], ["block_producer_kickout_threshold", 40]], {})
     cluster.start(1, 0)
 
@@ -86,7 +90,7 @@ if __name__ == "__main__":
 
     # Deploy & init staking contract.
     master_account = cluster.get_account_for_node(0)
-    contract_path = download_from_url('https://github.com/near/staking-contract/raw/master/res/staking_contract.wasm')
+
     stake_public_key = cluster.nodes[node_id].signer_key.pk.split(':')[1]
     master_account.create_deploy_and_init_contract(
         account_name, None, load_binary_file(contract_path), nty(100),
@@ -119,7 +123,7 @@ if __name__ == "__main__":
     assert is_active_validator("staker")
 
     # user1.function_call(account_name, 'withdraw', {}, amount=nty(stake_amount))
-    user1_balance = user1.view_function(account_name, 'get_user_balance', {"account_id": "user1"})
+    user1_balance = user1.view_function(account_name, 'get_user_balance', {"account_id": "user1"})["result"]
     assert user1_balance == str(nty(stake_amount1)), "%s != %s" % (user1_balance, stake_amount1)
 
     # account_state = user1.provider.get_account('user1')
