@@ -93,6 +93,7 @@ fn main() {
         .get_matches();
 
     init_logging(matches.value_of("verbose"));
+    info!(target: "near", "Version: {}, Build: {}", version.version, version.build);
 
     #[cfg(feature = "adversarial")]
     {
