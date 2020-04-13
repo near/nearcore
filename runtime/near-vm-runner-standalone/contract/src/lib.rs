@@ -7,7 +7,7 @@ static ALLOC: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;
 #[near_bindgen]
 #[derive(Default, BorshDeserialize, BorshSerialize)]
 pub struct Basic {
-    pings: i32
+    pings: i32,
 }
 
 #[near_bindgen]
