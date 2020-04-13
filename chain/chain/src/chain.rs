@@ -552,7 +552,7 @@ impl Chain {
     //    a. Tail is always on the Canonical Chain.
     //    b. Only one Tail exists.
     //    c. Tail's height is higher than or equal to `genesis_height`,
-    // 4. There is known highest block height (Head).
+    // 4. There is a known highest block height (Head).
     //    a. Head is always on the Canonical Chain.
     // 5. All blocks in the storage have heights in range [Tail; Head].
     //    a. All forks end up on height of Head or lower.
@@ -560,8 +560,8 @@ impl Chain {
     // 7. (Property 1). A block with the lowest height among all the blocks at which the fork has started,
     //    i.e. all the blocks with the outgoing degree 2 or more,
     //    has the least height among all blocks on the fork.
-    // 8. (Property 2). An oldest block where fork is happened is never affected by Canonical Chain Switching
-    //    and always stays on Canonical Chain.
+    // 8. (Property 2). The oldest block where the fork happened is never affected
+    //    by Canonical Chain Switching and always stays on Canonical Chain.
     //
     // Overall:
     // 1. GC procedure is handled by `clear_data()` function.
