@@ -2,9 +2,10 @@
 //! Usage example:
 //! ```
 //! cargo run --package near-vm-runner-standalone --bin near-vm-runner-standalone \
-//! -- --context-file=/tmp/context.json --config-file=/tmp/config.json --method-name=hello \
-//! --wasm-file=/tmp/main.wasm
+//! -- --method-name=hello --wasm-file=/tmp/main.wasm
 //! ```
+//! Optional `--context-file=/tmp/context.json --config-file=/tmp/config.json` could be added
+//! to provide custom context and VM config.
 use clap::{App, Arg};
 use near_runtime_fees::RuntimeFeesConfig;
 use near_vm_logic::mocks::mock_external::{MockedExternal, Receipt};
@@ -65,6 +66,27 @@ struct StandaloneOutput {
     pub err: Option<VMError>,
     pub receipts: Vec<Receipt>,
     pub state: State,
+}
+
+fn default_vm_context() -> VMContext {
+    return VMContext {
+        current_account_id: "alice".to_string(),
+        signer_account_id: "bob".to_string(),
+        signer_account_pk: vec![0, 1, 2],
+        predecessor_account_id: "carol".to_string(),
+        input: vec![],
+        block_index: 1,
+        block_timestamp: 1586796191203000000,
+        account_balance: 10u128.pow(25),
+        account_locked_balance: 0,
+        storage_usage: 100,
+        attached_deposit: 0,
+        prepaid_gas: 10u64.pow(18),
+        random_seed: vec![0, 1, 2],
+        is_view: false,
+        output_data_receivers: vec![],
+        epoch_height: 1,
+    };
 }
 
 fn main() {
@@ -147,7 +169,7 @@ fn main() {
                 let data = fs::read(&filepath).unwrap();
                 serde_json::from_slice(&data).unwrap()
             }
-            None => panic!("Context should be specified."),
+            None => default_vm_context(),
         },
     };
 

@@ -96,7 +96,7 @@ pub struct GenesisConfig {
     Serialize,
     Deserialize,
 )]
-pub struct GenesisRecords(Vec<StateRecord>);
+pub struct GenesisRecords(pub Vec<StateRecord>);
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Genesis {

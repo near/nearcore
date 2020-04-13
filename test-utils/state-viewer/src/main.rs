@@ -6,8 +6,8 @@ use ansi_term::Color::Red;
 use clap::{App, Arg, SubCommand};
 
 use near_chain::{ChainStore, ChainStoreAccess, RuntimeAdapter};
-use near_chain_configs::Genesis;
 use near_network::peer_store::PeerStore;
+use near_primitives::block::BlockHeader;
 use near_primitives::hash::CryptoHash;
 use near_primitives::serialize::to_base;
 use near_primitives::state_record::StateRecord;
@@ -16,12 +16,15 @@ use near_primitives::types::{BlockHeight, StateRoot};
 use near_store::test_utils::create_test_store;
 use near_store::{create_store, Store, TrieIterator};
 use neard::{get_default_home, get_store_path, load_config, NearConfig, NightshadeRuntime};
+use state_dump::state_dump;
+
+mod state_dump;
 
 fn load_trie(
     store: Arc<Store>,
     home_dir: &Path,
     near_config: &NearConfig,
-) -> (NightshadeRuntime, Vec<StateRoot>, BlockHeight) {
+) -> (NightshadeRuntime, Vec<StateRoot>, BlockHeader) {
     let mut chain_store = ChainStore::new(store.clone(), near_config.genesis.config.genesis_height);
 
     let runtime = NightshadeRuntime::new(
@@ -37,7 +40,7 @@ fn load_trie(
     for chunk in last_block.chunks.iter() {
         state_roots.push(chunk.inner.prev_state_root.clone());
     }
-    (runtime, state_roots, last_block.header.inner_lite.height)
+    (runtime, state_roots, last_block.header)
 }
 
 pub fn format_hash(h: CryptoHash) -> String {
@@ -217,8 +220,11 @@ fn main() {
             }
         }
         ("state", Some(_args)) => {
-            let (runtime, state_roots, height) = load_trie(store, &home_dir, &near_config);
-            println!("Storage roots are {:?}, block height is {}", state_roots, height);
+            let (runtime, state_roots, header) = load_trie(store, &home_dir, &near_config);
+            println!(
+                "Storage roots are {:?}, block height is {}",
+                state_roots, header.inner_lite.height
+            );
             for state_root in state_roots {
                 let trie = TrieIterator::new(&runtime.trie, &state_root).unwrap();
                 for item in trie {
@@ -230,26 +236,12 @@ fn main() {
             }
         }
         ("dump_state", Some(_args)) => {
-            let (runtime, state_roots, height) = load_trie(store.clone(), home_dir, &near_config);
+            let (runtime, state_roots, header) = load_trie(store.clone(), home_dir, &near_config);
+            let height = header.inner_lite.height;
             let home_dir = PathBuf::from(&home_dir);
 
-            println!("Generating genesis from state data");
-            let genesis_height = height + 1;
-
-            let mut records = vec![];
-            for state_root in &state_roots {
-                let trie = TrieIterator::new(&runtime.trie, &state_root).unwrap();
-                for item in trie {
-                    let (key, value) = item.unwrap();
-                    if let Some(sr) = StateRecord::from_raw_key_value(key, value) {
-                        records.push(sr);
-                    }
-                }
-            }
-
-            let mut genesis_config = near_config.genesis.config.clone();
-            genesis_config.genesis_height = genesis_height;
-            let genesis = Arc::new(Genesis::new(genesis_config, records.into()));
+            let new_genesis =
+                state_dump(runtime, state_roots.clone(), header, &near_config.genesis.config);
 
             let output_path = home_dir.join(Path::new("output.json"));
             println!(
@@ -258,7 +250,7 @@ fn main() {
                 height,
                 output_path.display(),
             );
-            genesis.to_file(&output_path);
+            new_genesis.to_file(&output_path);
         }
         ("chain", Some(args)) => {
             let start_index =
