@@ -391,13 +391,13 @@ def test_key_value_changes():
                     "account_id": contract_key.account_id,
                 },
                 {
-                    "type": "data_touched",
+                    "type": "access_key_touched",
                     "account_id": contract_key.account_id,
                 },
                 {
-                    "type": "access_key_touched",
+                    "type": "data_touched",
                     "account_id": contract_key.account_id,
-                }
+                },
             ]
         }
     )

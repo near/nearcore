@@ -20,7 +20,7 @@ use near_network::test_utils::open_port;
 use near_network::types::ROUTED_MESSAGE_TTL;
 use near_network::utils::blacklist_from_vec;
 use near_network::NetworkConfig;
-use near_primitives::account::AccessKey;
+use near_primitives::account::{AccessKey, Account};
 use near_primitives::hash::CryptoHash;
 use near_primitives::state_record::StateRecord;
 use near_primitives::types::{
@@ -28,7 +28,6 @@ use near_primitives::types::{
 };
 use near_primitives::utils::{generate_random_string, get_num_seats_per_shard};
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
-use near_primitives::views::AccountView;
 use near_runtime_configs::RuntimeConfig;
 use near_telemetry::TelemetryConfig;
 use num_rational::Rational;
@@ -552,18 +551,12 @@ fn state_records_account_with_key(
     vec![
         StateRecord::Account {
             account_id: account_id.to_string(),
-            account: AccountView {
-                amount,
-                locked: staked,
-                code_hash,
-                storage_usage: 0,
-                storage_paid_at: 0,
-            },
+            account: Account { amount, locked: staked, code_hash, storage_usage: 0 },
         },
         StateRecord::AccessKey {
             account_id: account_id.to_string(),
             public_key: public_key.clone(),
-            access_key: AccessKey::full_access().into(),
+            access_key: AccessKey::full_access(),
         },
     ]
 }
