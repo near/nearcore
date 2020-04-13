@@ -523,7 +523,9 @@ fn test_verify_chunk_invalid_state_challenge() {
 }
 
 /// Receive invalid state transition in chunk as next chunk producer.
+/// TODO(2445): Enable challenges when they are working correctly.
 #[test]
+#[ignore]
 fn test_receive_invalid_chunk_as_chunk_producer() {
     init_test_logger();
     let mut env = TestEnv::new(ChainGenesis::test(), 2, 1);
@@ -598,7 +600,9 @@ fn test_receive_two_chunks_from_one_producer() {}
 fn test_receive_two_blocks_from_one_producer() {}
 
 /// Receive challenges in the blocks.
+/// TODO(2445): Enable challenges when they are working correctly.
 #[test]
+#[ignore]
 fn test_block_challenge() {
     init_test_logger();
     let mut env = TestEnv::new(ChainGenesis::test(), 1, 1);
@@ -622,7 +626,9 @@ fn test_block_challenge() {
 
 /// Make sure that fisherman can initiate challenges while an account that is neither a fisherman nor
 /// a validator cannot.
+// TODO(2445): Enable challenges when they are working correctly.
 #[test]
+#[ignore]
 fn test_fishermen_challenge() {
     init_test_logger();
     let mut genesis = Genesis::test(vec!["test0", "test1", "test2"], 1);

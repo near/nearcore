@@ -394,7 +394,8 @@ impl Client {
         };
 
         // Get all the current challenges.
-        let challenges = self.challenges.drain().map(|(_, challenge)| challenge).collect();
+        // TODO(2445): Enable challenges when they are working correctly.
+        // let challenges = self.challenges.drain().map(|(_, challenge)| challenge).collect();
 
         let block = Block::produce(
             &prev_header,
@@ -407,7 +408,7 @@ impl Client {
             min_gas_price,
             inflation,
             prev_block_extra.challenges_result,
-            challenges,
+            vec![],
             &*validator_signer,
             score,
             quorums.last_quorum_pre_vote,
@@ -1302,28 +1303,29 @@ impl Client {
     }
 
     /// When accepting challenge, we verify that it's valid given signature with current validators.
-    pub fn process_challenge(&mut self, challenge: Challenge) -> Result<(), Error> {
-        if self.challenges.contains_key(&challenge.hash) {
-            return Ok(());
-        }
-        debug!(target: "client", "Received challenge: {:?}", challenge);
-        let head = self.chain.head()?;
-        if self.runtime_adapter.verify_validator_or_fisherman_signature(
-            &head.epoch_id,
-            &head.prev_block_hash,
-            &challenge.account_id,
-            challenge.hash.as_ref(),
-            &challenge.signature,
-        )? {
-            // If challenge is not double sign, we should process it right away to invalidate the chain.
-            match challenge.body {
-                ChallengeBody::BlockDoubleSign(_) => {}
-                _ => {
-                    self.chain.process_challenge(&challenge);
-                }
-            }
-            self.challenges.insert(challenge.hash, challenge);
-        }
+    pub fn process_challenge(&mut self, _challenge: Challenge) -> Result<(), Error> {
+        // TODO(2445): Enable challenges when they are working correctly.
+        //        if self.challenges.contains_key(&challenge.hash) {
+        //            return Ok(());
+        //        }
+        //        debug!(target: "client", "Received challenge: {:?}", challenge);
+        //        let head = self.chain.head()?;
+        //        if self.runtime_adapter.verify_validator_or_fisherman_signature(
+        //            &head.epoch_id,
+        //            &head.prev_block_hash,
+        //            &challenge.account_id,
+        //            challenge.hash.as_ref(),
+        //            &challenge.signature,
+        //        )? {
+        //            // If challenge is not double sign, we should process it right away to invalidate the chain.
+        //            match challenge.body {
+        //                ChallengeBody::BlockDoubleSign(_) => {}
+        //                _ => {
+        //                    self.chain.process_challenge(&challenge);
+        //                }
+        //            }
+        //            self.challenges.insert(challenge.hash, challenge);
+        //        }
         Ok(())
     }
 }
