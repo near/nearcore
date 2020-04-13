@@ -542,19 +542,25 @@ impl Chain {
         });
     }
 
-    // TODO review it carefully
     // GC CONTRACT
     // ===
     //
     // Prerequisites, guaranteed by the System:
     // 1. Genesis block is available and should not be removed by GC.
-    // 2. There is known lowest block height (Tail) which is the most earliest existing block came from
-    //    Genesis or State Sync.
-    // 3. Tail is always on the Canonical Chain, only one Tail exists and its height is higher than `genesis_height`,
-    //    and no block except Genesis has height lower or equal to `genesis_height`.
-    // 4. If block A is ancestor of block B, height of A is strictly less then height of B.
-    // 5. (Property 1). An oldest block where fork is happened has the least height among all blocks on the fork.
-    // 6. (Property 2). An oldest block where fork is happened is never affected by Canonical Chain Switching
+    // 2. No block in storage except Genesis has height lower or equal to `genesis_height`.
+    // 3. There is known lowest block height (Tail) came from Genesis or State Sync.
+    //    a. Tail is always on the Canonical Chain.
+    //    b. Only one Tail exists.
+    //    c. Tail's height is higher than or equal to `genesis_height`,
+    // 4. There is known highest block height (Head).
+    //    a. Head is always on the Canonical Chain.
+    // 5. All blocks in the storage have heights in range [Tail; Head].
+    //    a. All forks end up on height of Head or lower.
+    // 6. If block A is ancestor of block B, height of A is strictly less then height of B.
+    // 7. (Property 1). A block with the lowest height among all the blocks at which the fork has started,
+    //    i.e. all the blocks with the outgoing degree 2 or more,
+    //    has the least height among all blocks on the fork.
+    // 8. (Property 2). An oldest block where fork is happened is never affected by Canonical Chain Switching
     //    and always stays on Canonical Chain.
     //
     // Overall:
@@ -562,9 +568,10 @@ impl Chain {
     // 2. `clear_data()` runs GC process for all blocks from the Tail to GC Stop Height provided by Epoch Manager.
     // 3. `clear_data()` executes separately:
     //    a. Forks Clearing runs for each height from Tail up to GC Stop Height.
-    //    b. Canonical Chain Clearing from Tail up to GC Stop Height.
+    //    b. Canonical Chain Clearing from (Tail + 1) up to GC Stop Height.
     // 4. Before actual clearing is started, Block Reference Map should be built.
     // 5. `clear_data()` executes every time when block at new height is added.
+    // 6. In case of State Sync, State Sync Clearing happens.
     //
     // Forks Clearing:
     // 1. Any fork which ends up on height `height` INCLUSIVELY and earlier will be completely deleted
@@ -601,6 +608,14 @@ impl Chain {
     //    to delete blocks G and F, then Fork Clearing will be executed for B to delete block E.
     //    Then Canonical Chain Clearing will delete blocks A and B as unlocked.
     //    Block C is the only block of height 103 remains on the Canonical Chain (invariant).
+    //
+    // State Sync Clearing:
+    // 1. Executing State Sync means that no data in the storage is useful for block processing
+    //    and should be removed completely.
+    // 2. The Tail should be set to the block preceding Sync Block.
+    // 3. All the data preceding new Tail is deleted in State Sync Clearing
+    //    and the Trie is updated with having only Genesis data.
+    // 4. State Sync Clearing happens in `reset_data_pre_state_sync()`.
     //
     pub fn clear_data(&mut self, trie: Arc<Trie>) -> Result<(), Error> {
         let mut chain_store_update = self.store.store_update();
@@ -967,7 +982,7 @@ impl Chain {
         // Clear all Trie data
         chain_store_update.clear_state_data();
 
-        chain_store_update.update_tail(tip.height);
+        chain_store_update.update_tail(new_tail);
 
         chain_store_update.commit()?;
 
