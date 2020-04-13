@@ -18,9 +18,9 @@ output_home = sys.argv[2]
 
 config = json.load(open(os.path.join(home, 'output.json')), object_pairs_hook=OrderedDict)
 
-assert config['protocol_version'] == 7
+assert config['protocol_version'] == 8
 
-config['protocol_version'] = 8
+config['protocol_version'] = 9
 
 for record in config['records']:
     if "Account" in record:

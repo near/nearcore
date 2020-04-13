@@ -17,6 +17,7 @@ use crate::types::{
 };
 use crate::utils::{from_timestamp, to_timestamp};
 use crate::validator_signer::{EmptyValidatorSigner, ValidatorSigner};
+use num_rational::Rational;
 
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, Eq, PartialEq)]
 pub struct BlockHeaderInnerLite {
@@ -474,7 +475,7 @@ impl Block {
         epoch_id: EpochId,
         next_epoch_id: EpochId,
         approvals: Vec<Approval>,
-        gas_price_adjustment_rate: u8,
+        gas_price_adjustment_rate: Rational,
         min_gas_price: Balance,
         inflation: Option<Balance>,
         challenges_result: ChallengesResult,
@@ -566,7 +567,7 @@ impl Block {
         &self,
         prev_gas_price: Balance,
         min_gas_price: Balance,
-        gas_price_adjustment_rate: u8,
+        gas_price_adjustment_rate: Rational,
     ) -> bool {
         let gas_used = Self::compute_gas_used(&self.chunks, self.header.inner_lite.height);
         let gas_limit = Self::compute_gas_limit(&self.chunks, self.header.inner_lite.height);
@@ -583,15 +584,16 @@ impl Block {
         prev_gas_price: Balance,
         gas_used: Gas,
         gas_limit: Gas,
-        gas_price_adjustment_rate: u8,
+        gas_price_adjustment_rate: Rational,
     ) -> Balance {
         if gas_limit == 0 {
             prev_gas_price
         } else {
-            let numerator = 2 * 100 * u128::from(gas_limit)
-                - u128::from(gas_price_adjustment_rate) * u128::from(gas_limit)
-                + 2 * u128::from(gas_price_adjustment_rate) * u128::from(gas_used);
-            let denominator = 2 * 100 * u128::from(gas_limit);
+            let numerator = 2 * *gas_price_adjustment_rate.denom() as u128 * u128::from(gas_limit)
+                - *gas_price_adjustment_rate.numer() as u128 * u128::from(gas_limit)
+                + 2 * *gas_price_adjustment_rate.numer() as u128 * u128::from(gas_used);
+            let denominator =
+                2 * *gas_price_adjustment_rate.denom() as u128 * u128::from(gas_limit);
             prev_gas_price * numerator / denominator
         }
     }
