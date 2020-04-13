@@ -70,7 +70,7 @@ class Key(object):
 
 
 class BaseNode(object):
-    def _get_command_line(self, near_root, node_dir, boot_key, boot_node_addr, binary_name='near'):
+    def _get_command_line(self, near_root, node_dir, boot_key, boot_node_addr, binary_name='neard'):
         if boot_key is None:
             assert boot_node_addr is None
             return [os.path.join(near_root, binary_name), "--verbose", "", "--home", node_dir, "run", "--archive"]
@@ -184,7 +184,7 @@ class RpcNode(BaseNode):
 
 
 class LocalNode(BaseNode):
-    def __init__(self, port, rpc_port, near_root, node_dir, blacklist, binary_name='near'):
+    def __init__(self, port, rpc_port, near_root, node_dir, blacklist, binary_name='neard'):
         super(LocalNode, self).__init__()
         self.port = port
         self.rpc_port = rpc_port
@@ -526,7 +526,7 @@ def start_cluster(num_nodes, num_observers, num_shards, config, genesis_config_c
     return ret
 
 
-DEFAULT_CONFIG = {'local': True, 'near_root': '../target/debug/', 'binary_name': 'near'}
+DEFAULT_CONFIG = {'local': True, 'near_root': '../target/debug/', 'binary_name': 'neard'}
 CONFIG_ENV_VAR = 'NEAR_PYTEST_CONFIG'
 
 
