@@ -1,5 +1,5 @@
 [package]
-name = "basic-contract"
+name = "example-contract"
 version = "0.1.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2018"
@@ -9,9 +9,9 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
-serde_json = { git = "https://github.com/nearprotocol/json", rev = "1f5779f3b0bd3d2a4b0b975abc46f3d3fe873331", features = ["no_floats"] }
-near-bindgen = "0.6.0"
-borsh = "*"
+serde_json = "1.0.45"
+near-sdk = "0.6.0"
+borsh = "0.6.0"
 wee_alloc = "0.4.5"
 
 [profile.release]
