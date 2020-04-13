@@ -1,6 +1,5 @@
 use std::cmp::max;
 use std::collections::HashMap;
-use std::convert::TryInto;
 use std::sync::Arc;
 
 use borsh::{BorshDeserialize, BorshSerialize};
@@ -12,12 +11,11 @@ use near_primitives::contract::ContractCode;
 use near_primitives::errors::{ActionError, ActionErrorKind, RuntimeError, TxExecutionError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{ActionReceipt, DataReceipt, Receipt, ReceiptEnum, ReceivedData};
-use near_primitives::serialize::from_base64;
 use near_primitives::state_record::StateRecord;
 use near_primitives::transaction::{
     Action, ExecutionOutcome, ExecutionOutcomeWithId, ExecutionStatus, LogEntry, SignedTransaction,
 };
-use near_primitives::trie_key::{trie_key_parsers, TrieKey};
+use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, BlockHeightDelta, EpochHeight, Gas, Nonce,
     RawStateChangesWithTrieKey, StateChangeCause, StateRoot, ValidatorStake,
@@ -518,8 +516,8 @@ impl Runtime {
 
         // Adding burnt gas reward for function calls if the account exists.
         let receiver_gas_reward = result.gas_burnt_for_function_call
-            * self.config.transaction_costs.burnt_gas_reward.numerator
-            / self.config.transaction_costs.burnt_gas_reward.denominator;
+            * *self.config.transaction_costs.burnt_gas_reward.numer() as u64
+            / *self.config.transaction_costs.burnt_gas_reward.denom() as u64;
         let mut validator_reward = safe_gas_to_balance(action_receipt.gas_price, result.gas_burnt)?;
         if receiver_gas_reward > 0 {
             let mut account = get_account(state_update, account_id)?;
@@ -1123,23 +1121,12 @@ impl Runtime {
                 StateRecord::Account { account_id, .. } => {
                     Some((account_id.clone(), config.num_bytes_account))
                 }
-                StateRecord::Data { key, value } => {
-                    let raw_key = from_base64(key).expect("Failed to decode key");
-                    let value = from_base64(value).expect("Failed to decode value");
-                    let account_id =
-                        trie_key_parsers::parse_account_id_from_contract_data_key(&raw_key)
-                            .expect("failed to parse account id");
-                    let data_key = trie_key_parsers::parse_data_key_from_contract_data_key(
-                        &raw_key,
-                        &account_id,
-                    )
-                    .expect("failed to parse data key");
+                StateRecord::Data { account_id, data_key, value } => {
                     let storage_usage =
                         config.num_extra_bytes_record + data_key.len() as u64 + value.len() as u64;
-                    Some((account_id, storage_usage))
+                    Some((account_id.clone(), storage_usage))
                 }
                 StateRecord::Contract { account_id, code } => {
-                    let code = from_base64(&code).expect("Failed to decode wasm from base64");
                     Some((account_id.clone(), code.len() as u64))
                 }
                 StateRecord::AccessKey { account_id, public_key, access_key } => {
@@ -1152,6 +1139,7 @@ impl Runtime {
                 }
                 StateRecord::PostponedReceipt(_) => None,
                 StateRecord::ReceivedData { .. } => None,
+                StateRecord::DelayedReceipt(_) => None,
             };
             if let Some((account, storage_usage)) = account_and_storage {
                 *result.entry(account).or_default() += storage_usage;
@@ -1168,42 +1156,25 @@ impl Runtime {
         records: &[StateRecord],
     ) -> (StoreUpdate, StateRoot) {
         let mut postponed_receipts: Vec<Receipt> = vec![];
+        let mut delayed_receipts_indices = DelayedReceiptIndices::default();
         for record in records {
             match record.clone() {
                 StateRecord::Account { account_id, account } => {
-                    set_account(&mut state_update, account_id, &account.into());
+                    set_account(&mut state_update, account_id, &account);
                 }
-                StateRecord::Data { key, value } => {
-                    let raw_key = from_base64(&key).expect("Failed to decode key");
-                    let account_id =
-                        trie_key_parsers::parse_account_id_from_contract_data_key(&raw_key)
-                            .expect("Failed to parse account_id");
-                    state_update.set(
-                        TrieKey::ContractData {
-                            key: trie_key_parsers::parse_data_key_from_contract_data_key(
-                                &raw_key,
-                                &account_id,
-                            )
-                            .expect("Failed to parse account_id")
-                            .to_vec(),
-                            account_id,
-                        },
-                        from_base64(&value).expect("Failed to decode value"),
-                    );
+                StateRecord::Data { account_id, data_key, value } => {
+                    state_update.set(TrieKey::ContractData { key: data_key, account_id }, value);
                 }
                 StateRecord::Contract { account_id, code } => {
-                    let code = ContractCode::new(
-                        from_base64(&code).expect("Failed to decode wasm from base64"),
-                    );
+                    let code = ContractCode::new(code);
                     set_code(&mut state_update, account_id, &code);
                 }
                 StateRecord::AccessKey { account_id, public_key, access_key } => {
-                    set_access_key(&mut state_update, account_id, public_key, &access_key.into());
+                    set_access_key(&mut state_update, account_id, public_key, &access_key);
                 }
                 StateRecord::PostponedReceipt(receipt) => {
                     // Delaying processing postponed receipts, until we process all data first
-                    postponed_receipts
-                        .push((*receipt).try_into().expect("Failed to convert receipt from view"));
+                    postponed_receipts.push(*receipt);
                 }
                 StateRecord::ReceivedData { account_id, data_id, data } => {
                     set_received_data(
@@ -1212,6 +1183,14 @@ impl Runtime {
                         data_id,
                         &ReceivedData { data },
                     );
+                }
+                StateRecord::DelayedReceipt(receipt) => {
+                    Self::delay_receipt(
+                        &mut state_update,
+                        &mut delayed_receipts_indices,
+                        &*receipt,
+                    )
+                    .unwrap();
                 }
             }
         }
@@ -1260,6 +1239,9 @@ impl Runtime {
                 );
                 set_postponed_receipt(&mut state_update, &receipt);
             }
+        }
+        if delayed_receipts_indices != DelayedReceiptIndices::default() {
+            set(&mut state_update, TrieKey::DelayedReceiptIndices, &delayed_receipts_indices);
         }
 
         for (account_id, _, amount) in validators {

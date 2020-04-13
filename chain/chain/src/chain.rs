@@ -51,6 +51,7 @@ use crate::validate::{
 };
 use crate::{byzantine_assert, create_light_client_block_view, Doomslug};
 use crate::{metrics, DoomslugThresholdMode};
+use num_rational::Rational;
 use rand::rngs::StdRng;
 use rand::seq::SliceRandom;
 use rand::SeedableRng;
@@ -81,7 +82,7 @@ pub const MAX_HEIGHTS_TO_CLEAR: u64 = 100;
 
 /// Block economics config taken from genesis config
 pub struct BlockEconomicsConfig {
-    pub gas_price_adjustment_rate: u8,
+    pub gas_price_adjustment_rate: Rational,
     pub min_gas_price: Balance,
 }
 
@@ -187,8 +188,8 @@ pub struct ChainGenesis {
     pub gas_limit: Gas,
     pub min_gas_price: Balance,
     pub total_supply: Balance,
-    pub max_inflation_rate: u8,
-    pub gas_price_adjustment_rate: u8,
+    pub max_inflation_rate: Rational,
+    pub gas_price_adjustment_rate: Rational,
     pub transaction_validity_period: NumBlocks,
     pub epoch_length: BlockHeightDelta,
 }
@@ -200,8 +201,8 @@ impl ChainGenesis {
         gas_limit: Gas,
         min_gas_price: Balance,
         total_supply: Balance,
-        max_inflation_rate: u8,
-        gas_price_adjustment_rate: u8,
+        max_inflation_rate: Rational,
+        gas_price_adjustment_rate: Rational,
         transaction_validity_period: NumBlocks,
         epoch_length: BlockHeightDelta,
     ) -> Self {

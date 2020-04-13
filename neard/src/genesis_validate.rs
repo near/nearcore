@@ -67,13 +67,12 @@ pub fn validate_genesis(genesis: &Genesis) {
 
 #[cfg(test)]
 mod test {
-    use crate::genesis_validate::validate_genesis;
-    use near_chain_configs::{Genesis, GenesisRecords};
+    use super::*;
+
+    use near_chain_configs::GenesisRecords;
     use near_crypto::{KeyType, PublicKey};
-    use near_primitives::serialize::to_base64;
-    use near_primitives::state_record::StateRecord;
+    use near_primitives::account::{AccessKey, Account};
     use near_primitives::types::AccountInfo;
-    use near_primitives::views::{AccessKeyPermissionView, AccessKeyView, AccountView};
 
     #[test]
     #[should_panic(expected = "wrong total supply")]
@@ -86,12 +85,11 @@ mod test {
         }];
         genesis.records = GenesisRecords(vec![StateRecord::Account {
             account_id: "test".to_string(),
-            account: AccountView {
+            account: Account {
                 amount: 100,
                 locked: 10,
                 code_hash: Default::default(),
                 storage_usage: 0,
-                storage_paid_at: 0,
             },
         }]);
         validate_genesis(&genesis);
@@ -109,12 +107,11 @@ mod test {
         genesis.config.total_supply = 110;
         genesis.records = GenesisRecords(vec![StateRecord::Account {
             account_id: "test".to_string(),
-            account: AccountView {
+            account: Account {
                 amount: 100,
                 locked: 10,
                 code_hash: Default::default(),
                 storage_usage: 0,
-                storage_paid_at: 0,
             },
         }]);
         validate_genesis(&genesis);
@@ -140,21 +137,17 @@ mod test {
         genesis.records = GenesisRecords(vec![
             StateRecord::Account {
                 account_id: "test".to_string(),
-                account: AccountView {
+                account: Account {
                     amount: 100,
                     locked: 10,
                     code_hash: Default::default(),
                     storage_usage: 0,
-                    storage_paid_at: 0,
                 },
             },
             StateRecord::AccessKey {
                 account_id: "test1".to_string(),
                 public_key: PublicKey::empty(KeyType::ED25519),
-                access_key: AccessKeyView {
-                    nonce: 0,
-                    permission: AccessKeyPermissionView::FullAccess,
-                },
+                access_key: AccessKey::full_access(),
             },
         ]);
         validate_genesis(&genesis);
@@ -173,16 +166,15 @@ mod test {
         genesis.records = GenesisRecords(vec![
             StateRecord::Account {
                 account_id: "test".to_string(),
-                account: AccountView {
+                account: Account {
                     amount: 100,
                     locked: 10,
                     code_hash: Default::default(),
                     storage_usage: 0,
-                    storage_paid_at: 0,
                 },
             },
-            StateRecord::Contract { account_id: "test".to_string(), code: to_base64([1, 2, 3]) },
-            StateRecord::Contract { account_id: "test".to_string(), code: to_base64([1, 2, 3, 4]) },
+            StateRecord::Contract { account_id: "test".to_string(), code: [1, 2, 3].to_vec() },
+            StateRecord::Contract { account_id: "test".to_string(), code: [1, 2, 3, 4].to_vec() },
         ]);
         validate_genesis(&genesis);
     }

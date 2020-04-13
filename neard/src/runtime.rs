@@ -24,7 +24,6 @@ use near_primitives::challenge::{ChallengesResult, SlashedValidator};
 use near_primitives::errors::{InvalidTxError, RuntimeError};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::Receipt;
-use near_primitives::serialize::from_base64;
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::state_record::StateRecord;
 use near_primitives::transaction::SignedTransaction;
@@ -95,8 +94,7 @@ impl NightshadeRuntime {
             max_inflation_rate: genesis.config.max_inflation_rate,
             num_blocks_per_year: genesis.config.num_blocks_per_year,
             epoch_length: genesis.config.epoch_length,
-            validator_reward_percentage: 100 - genesis.config.developer_reward_percentage,
-            protocol_reward_percentage: genesis.config.protocol_reward_percentage,
+            protocol_reward_percentage: genesis.config.protocol_reward_rate,
             protocol_treasury_account: genesis.config.protocol_treasury_account.to_string(),
         };
         let epoch_manager = Arc::new(RwLock::new(
@@ -367,16 +365,9 @@ pub fn state_record_to_shard_id(state_record: &StateRecord, num_shards: NumShard
         StateRecord::Account { account_id, .. }
         | StateRecord::AccessKey { account_id, .. }
         | StateRecord::Contract { account_id, .. }
-        | StateRecord::ReceivedData { account_id, .. } => {
-            account_id_to_shard_id(account_id, num_shards)
-        }
-        StateRecord::Data { key, .. } => {
-            let key = from_base64(key).unwrap();
-            let account_id = trie_key_parsers::parse_account_id_from_contract_data_key(&key)
-                .expect("Invalid data record");
-            account_id_to_shard_id(&account_id, num_shards)
-        }
-        StateRecord::PostponedReceipt(receipt) => {
+        | StateRecord::ReceivedData { account_id, .. }
+        | StateRecord::Data { account_id, .. } => account_id_to_shard_id(account_id, num_shards),
+        StateRecord::PostponedReceipt(receipt) | StateRecord::DelayedReceipt(receipt) => {
             account_id_to_shard_id(&receipt.receiver_id, num_shards)
         }
     }
@@ -1262,6 +1253,7 @@ mod test {
     use crate::get_store_path;
 
     use super::*;
+    use num_rational::Rational;
 
     fn stake(
         nonce: Nonce,
@@ -1355,7 +1347,7 @@ mod test {
             genesis.config.chunk_producer_kickout_threshold =
                 genesis.config.block_producer_kickout_threshold;
             if !has_reward {
-                genesis.config.max_inflation_rate = 0;
+                genesis.config.max_inflation_rate = Rational::from_integer(0);
             }
             let genesis_total_supply = genesis.config.total_supply;
             let runtime = NightshadeRuntime::new(
@@ -1475,13 +1467,15 @@ mod test {
 
         /// Compute per epoch per validator reward and per epoch protocol treasury reward
         pub fn compute_reward(&self, num_validators: usize) -> (Balance, Balance) {
-            let per_epoch_total_reward = self.runtime.genesis.config.max_inflation_rate as u128
+            let per_epoch_total_reward = *self.runtime.genesis.config.max_inflation_rate.numer()
+                as u128
                 * self.runtime.genesis.config.total_supply
                 * self.runtime.genesis.config.epoch_length as u128
-                / (100 * self.runtime.genesis.config.num_blocks_per_year as u128);
+                / (self.runtime.genesis.config.num_blocks_per_year as u128
+                    * *self.runtime.genesis.config.max_inflation_rate.denom() as u128);
             let per_epoch_protocol_treasury = per_epoch_total_reward
-                * self.runtime.genesis.config.protocol_reward_percentage as u128
-                / 100;
+                * *self.runtime.genesis.config.protocol_reward_rate.numer() as u128
+                / *self.runtime.genesis.config.protocol_reward_rate.denom() as u128;
             let per_epoch_per_validator_reward =
                 (per_epoch_total_reward - per_epoch_protocol_treasury) / num_validators as u128;
             (per_epoch_per_validator_reward, per_epoch_protocol_treasury)

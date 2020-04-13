@@ -7,16 +7,14 @@ use runtime_group_tools::StandaloneRuntime;
 
 use indicatif::{ProgressBar, ProgressStyle};
 use near_crypto::{InMemorySigner, KeyType};
-use near_primitives::account::AccessKey;
+use near_primitives::account::{AccessKey, Account};
 use near_primitives::contract::ContractCode;
 use near_primitives::hash::{hash, CryptoHash};
-use near_primitives::serialize::to_base64;
 use near_primitives::state_record::StateRecord;
 use near_primitives::transaction::{
     Action, ExecutionStatus, FunctionCallAction, SignedTransaction, TransferAction,
 };
 use near_primitives::types::StateChangeCause;
-use near_primitives::views::AccountView;
 use near_store::test_utils::create_trie;
 use near_store::{
     create_store, get_account, set_access_key, set_account, set_code, Trie, TrieUpdate,
@@ -92,7 +90,6 @@ fn template_test(transaction_type: TransactionType, db_type: DataBaseType, expec
         "[elapsed {elapsed_precise} remaining {eta_precise}] Preparing {bar} {pos:>7}/{len:7}",
     ));
     let wasm_binary: &[u8] = include_bytes!("./tiny-contract-rs/res/tiny_contract_rs.wasm");
-    let wasm_binary_base64 = to_base64(wasm_binary);
     let code_hash = hash(wasm_binary);
     for chunk in chunked_accounts {
         let mut state_update = TrieUpdate::new(runtime.trie.clone(), runtime.root);
@@ -101,14 +98,13 @@ fn template_test(transaction_type: TransactionType, db_type: DataBaseType, expec
         for account_index in chunk {
             let account_id = get_account_id(*account_index);
             let signer = InMemorySigner::from_seed(&account_id, KeyType::ED25519, &account_id);
-            let account = AccountView {
+            let account = Account {
                 amount: TESTING_INIT_BALANCE,
                 locked: TESTING_INIT_STAKE,
-                code_hash: code_hash.clone().into(),
+                code_hash,
                 storage_usage: 0,
-                storage_paid_at: 0,
             };
-            set_account(&mut state_update, account_id.clone(), &account.clone().into());
+            set_account(&mut state_update, account_id.clone(), &account);
             let account_record = StateRecord::Account { account_id: account_id.clone(), account };
             records.push(account_record);
             let access_key_record = StateRecord::AccessKey {
@@ -127,7 +123,7 @@ fn template_test(transaction_type: TransactionType, db_type: DataBaseType, expec
             set_code(&mut state_update, account_id.clone(), &code);
             let contract_record = StateRecord::Contract {
                 account_id: account_id.clone(),
-                code: wasm_binary_base64.clone(),
+                code: wasm_binary.to_vec(),
             };
             records.push(contract_record);
 
