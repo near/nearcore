@@ -33,6 +33,8 @@ pub(crate) mod col {
     pub const DELAYED_RECEIPT_INDICES: &[u8] = &[7];
     /// This column id is used when storing delayed receipts, because the shard is overwhelmed.
     pub const DELAYED_RECEIPT: &[u8] = &[8];
+    /// This column id is used when storing Key-Value data from a contract on an `account_id`.
+    pub const CONTRACT_DATA: &[u8] = &[9];
 }
 
 /// Describes the key of a specific key-value record in a state trie.
@@ -107,7 +109,10 @@ impl TrieKey {
             TrieKey::DelayedReceiptIndices => col::DELAYED_RECEIPT_INDICES.len(),
             TrieKey::DelayedReceipt { .. } => col::DELAYED_RECEIPT.len() + size_of::<u64>(),
             TrieKey::ContractData { account_id, key } => {
-                col::ACCOUNT.len() + account_id.len() + ACCOUNT_DATA_SEPARATOR.len() + key.len()
+                col::CONTRACT_DATA.len()
+                    + account_id.len()
+                    + ACCOUNT_DATA_SEPARATOR.len()
+                    + key.len()
             }
         }
     }
@@ -162,7 +167,7 @@ impl TrieKey {
                 res.extend(&index.to_le_bytes());
             }
             TrieKey::ContractData { account_id, key } => {
-                res.extend(col::ACCOUNT);
+                res.extend(col::CONTRACT_DATA);
                 res.extend(account_id.as_bytes());
                 res.extend(ACCOUNT_DATA_SEPARATOR);
                 res.extend(key);
@@ -196,7 +201,7 @@ pub mod trie_key_parsers {
         raw_key: &'a [u8],
         account_id: &AccountId,
     ) -> Result<&'a [u8], std::io::Error> {
-        let prefix_len = col::ACCOUNT.len() + account_id.len() + ACCOUNT_DATA_SEPARATOR.len();
+        let prefix_len = col::CONTRACT_DATA.len() + account_id.len() + ACCOUNT_DATA_SEPARATOR.len();
         if raw_key.len() < prefix_len {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
@@ -222,7 +227,7 @@ pub mod trie_key_parsers {
     pub fn parse_account_id_from_contract_data_key(
         raw_key: &[u8],
     ) -> Result<AccountId, std::io::Error> {
-        let account_id_prefix = parse_account_id_prefix(col::ACCOUNT, raw_key)?;
+        let account_id_prefix = parse_account_id_prefix(col::CONTRACT_DATA, raw_key)?;
         // To simplify things, we assume that the data separator is a single byte.
         debug_assert_eq!(ACCOUNT_DATA_SEPARATOR.len(), 1);
         let account_data_separator_position = if let Some(index) = account_id_prefix
@@ -362,9 +367,12 @@ pub mod trie_key_parsers {
 
     pub fn get_raw_prefix_for_contract_data(account_id: &AccountId, prefix: &[u8]) -> Vec<u8> {
         let mut res = Vec::with_capacity(
-            col::ACCOUNT.len() + account_id.len() + ACCOUNT_DATA_SEPARATOR.len() + prefix.len(),
+            col::CONTRACT_DATA.len()
+                + account_id.len()
+                + ACCOUNT_DATA_SEPARATOR.len()
+                + prefix.len(),
         );
-        res.extend(col::ACCOUNT);
+        res.extend(col::CONTRACT_DATA);
         res.extend(account_id.as_bytes());
         res.extend(ACCOUNT_DATA_SEPARATOR);
         res.extend(prefix);

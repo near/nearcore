@@ -20,6 +20,7 @@ use near_primitives::types::{BlockHeightDelta, EpochId, ValidatorStake};
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
 use neard::config::{GenesisExt, TESTING_INIT_STAKE};
 use neard::{load_test_config, start_with_config};
+use num_rational::Rational;
 use testlib::genesis_block;
 
 // This assumes that there is no height skipped. Otherwise epoch hash calculation will be wrong.
@@ -55,7 +56,7 @@ fn add_blocks(
                 false,
                 signer,
             )],
-            0,
+            Rational::from_integer(0),
             0,
             Some(0),
             vec![],

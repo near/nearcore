@@ -1,9 +1,7 @@
 #[cfg(test)]
 mod test {
     use near_chain_configs::Genesis;
-    use near_primitives::serialize::to_base64;
     use near_primitives::state_record::StateRecord;
-    use near_primitives::trie_key::TrieKey;
     use neard::config::{GenesisExt, TESTING_INIT_BALANCE};
     use testlib::node::RuntimeNode;
     use testlib::runtime_utils::{add_test_contract, alice_account, bob_account};
@@ -29,11 +27,9 @@ mod test {
             }
         }
         genesis.records.as_mut().push(StateRecord::Data {
-            key: to_base64(
-                &TrieKey::ContractData { account_id: bob_account(), key: b"test".to_vec() }
-                    .to_vec(),
-            ),
-            value: to_base64(b"123"),
+            account_id: bob_account(),
+            data_key: b"test".to_vec(),
+            value: b"123".to_vec(),
         });
         RuntimeNode::new_from_genesis(&alice_account(), genesis)
     }

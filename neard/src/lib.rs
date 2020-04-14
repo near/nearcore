@@ -17,6 +17,7 @@ pub use crate::config::{init_configs, load_config, load_test_config, NearConfig,
 pub use crate::runtime::NightshadeRuntime;
 
 pub mod config;
+pub mod genesis_validate;
 mod runtime;
 mod shard_tracker;
 

@@ -14,7 +14,7 @@ use near_primitives::network::PeerId;
 use near_primitives::types::EpochId;
 use near_primitives::utils::index_to_bytes;
 
-use crate::types::{NetworkConfig, NetworkInfo, PeerInfo, ROUTED_MESSAGE_TTL};
+use crate::types::{NetworkConfig, NetworkInfo, PeerInfo, ReasonForBan, ROUTED_MESSAGE_TTL};
 use crate::{NetworkAdapter, NetworkRequests, NetworkResponses, PeerManagerActor};
 use futures::future::BoxFuture;
 use std::sync::{Arc, Mutex, RwLock};
@@ -243,6 +243,28 @@ impl Handler<StopSignal> for PeerManagerActor {
         } else {
             ctx.stop();
         }
+    }
+}
+
+#[derive(Message)]
+#[rtype(result = "()")]
+pub struct BanPeerSignal {
+    pub peer_id: PeerId,
+    pub ban_reason: ReasonForBan,
+}
+
+impl BanPeerSignal {
+    pub fn new(peer_id: PeerId) -> Self {
+        Self { peer_id, ban_reason: ReasonForBan::None }
+    }
+}
+
+impl Handler<BanPeerSignal> for PeerManagerActor {
+    type Result = ();
+
+    fn handle(&mut self, msg: BanPeerSignal, ctx: &mut Self::Context) -> Self::Result {
+        debug!(target: "network", "Ban peer: {:?}", msg.peer_id);
+        self.try_ban_peer(ctx, &msg.peer_id, msg.ban_reason);
     }
 }
 
