@@ -8,7 +8,7 @@
 - Locally compile these packages (used for create config, keys and genesis)
 
 ```bash
-cargo build -p near --release
+cargo build -p neard --release
 cargo build -p genesis-csv-to-json --release
 cargo build -p keypair-generator --release
 ```

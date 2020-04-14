@@ -5,15 +5,16 @@ use log::LevelFilter;
 use lazy_static::lazy_static;
 use near_crypto::{EmptySigner, PublicKey, Signer};
 
-use crate::account::{AccessKey, AccessKeyPermission};
+use crate::account::{AccessKey, AccessKeyPermission, Account};
 use crate::block::{Approval, Block};
 use crate::hash::CryptoHash;
 use crate::transaction::{
-    Action, AddKeyAction, CreateAccountAction, SignedTransaction, StakeAction, Transaction,
-    TransferAction,
+    Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, SignedTransaction, StakeAction,
+    Transaction, TransferAction,
 };
 use crate::types::{AccountId, Balance, BlockHeight, EpochId, Nonce};
 use crate::validator_signer::ValidatorSigner;
+use num_rational::Rational;
 
 lazy_static! {
     static ref HEAVY_TESTS_LOCK: Mutex<()> = Mutex::new(());
@@ -151,6 +152,24 @@ impl SignedTransaction {
         )
     }
 
+    pub fn delete_account(
+        nonce: Nonce,
+        signer_id: AccountId,
+        receiver_id: AccountId,
+        beneficiary_id: AccountId,
+        signer: &dyn Signer,
+        block_hash: CryptoHash,
+    ) -> Self {
+        Self::from_actions(
+            nonce,
+            signer_id,
+            receiver_id,
+            signer,
+            vec![Action::DeleteAccount(DeleteAccountAction { beneficiary_id })],
+            block_hash,
+        )
+    }
+
     pub fn empty(block_hash: CryptoHash) -> Self {
         Self::from_actions(0, "".to_string(), "".to_string(), &EmptySigner {}, vec![], block_hash)
     }
@@ -217,7 +236,7 @@ impl Block {
             epoch_id,
             next_epoch_id,
             approvals,
-            0,
+            Rational::from_integer(0),
             0,
             Some(0),
             vec![],
@@ -229,5 +248,14 @@ impl Block {
             CryptoHash::default(),
             next_bp_hash,
         )
+    }
+}
+
+/// Size of account struct in bytes.
+pub const ACCOUNT_SIZE_BYTES: u64 = std::mem::size_of::<Account>() as u64;
+
+impl Account {
+    pub fn new(amount: Balance, code_hash: CryptoHash) -> Self {
+        Account { amount, locked: 0, code_hash, storage_usage: ACCOUNT_SIZE_BYTES }
     }
 }

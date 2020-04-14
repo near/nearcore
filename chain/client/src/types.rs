@@ -12,13 +12,12 @@ use near_network::types::{AccountOrPeerIdOrHash, KnownProducer};
 use near_network::PeerInfo;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::ChunkHash;
-use near_primitives::types::{
-    AccountId, BlockHeight, BlockIdOrFinality, MaybeBlockId, ShardId, StateChangesRequest,
-};
+use near_primitives::types::{AccountId, BlockHeight, BlockIdOrFinality, MaybeBlockId, ShardId};
 use near_primitives::utils::generate_random_string;
 use near_primitives::views::{
     BlockView, ChunkView, EpochValidatorInfo, FinalExecutionOutcomeView, GasPriceView,
-    LightClientBlockView, QueryRequest, QueryResponse, StateChangesKindsView, StateChangesView,
+    LightClientBlockView, QueryRequest, QueryResponse, StateChangesKindsView,
+    StateChangesRequestView, StateChangesView,
 };
 pub use near_primitives::views::{StatusResponse, StatusSyncInfo};
 
@@ -33,7 +32,7 @@ pub enum Error {
 }
 
 impl std::fmt::Display for Error {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Error::Chain(err) => write!(f, "Chain: {}", err),
             Error::Chunk(err) => write!(f, "Chunk: {}", err),
@@ -114,7 +113,7 @@ pub struct ShardSyncDownload {
 /// Various status sync can be in, whether it's fast sync or archival.
 #[derive(Clone, Debug, strum::AsStaticStr)]
 pub enum SyncStatus {
-    /// Initial state. Not enough peers to do anything yet. If boolean is false, skip this step.
+    /// Initial state. Not enough peers to do anything yet.
     AwaitingPeers,
     /// Not syncing / Done syncing.
     NoSync,
@@ -248,7 +247,7 @@ impl Message for GetValidatorInfo {
 
 pub struct GetStateChanges {
     pub block_hash: CryptoHash,
-    pub state_changes_request: StateChangesRequest,
+    pub state_changes_request: StateChangesRequestView,
 }
 
 impl Message for GetStateChanges {

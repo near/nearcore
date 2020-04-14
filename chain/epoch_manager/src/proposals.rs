@@ -1,7 +1,9 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::iter;
 
-use near_primitives::types::{AccountId, Balance, NumSeats, ValidatorId, ValidatorStake};
+use near_primitives::types::{
+    AccountId, Balance, NumSeats, ValidatorId, ValidatorKickoutReason, ValidatorStake,
+};
 
 use crate::types::{EpochConfig, EpochError, EpochInfo, RngSeed};
 
@@ -35,7 +37,7 @@ pub fn proposals_to_epoch_info(
     rng_seed: RngSeed,
     epoch_info: &EpochInfo,
     proposals: Vec<ValidatorStake>,
-    mut validator_kickout: HashSet<AccountId>,
+    mut validator_kickout: HashMap<AccountId, ValidatorKickoutReason>,
     validator_reward: HashMap<AccountId, Balance>,
     inflation: Balance,
 ) -> Result<EpochInfo, EpochError> {
@@ -51,7 +53,7 @@ pub fn proposals_to_epoch_info(
     );
 
     for p in proposals {
-        if validator_kickout.contains(&p.account_id) {
+        if validator_kickout.contains_key(&p.account_id) {
             stake_change.insert(p.account_id, 0);
         } else {
             stake_change.insert(p.account_id.clone(), p.stake);
@@ -59,7 +61,7 @@ pub fn proposals_to_epoch_info(
         }
     }
     for r in epoch_info.validators.iter() {
-        if validator_kickout.contains(&r.account_id) {
+        if validator_kickout.contains_key(&r.account_id) {
             stake_change.insert(r.account_id.clone(), 0);
             continue;
         }
@@ -69,9 +71,11 @@ pub fn proposals_to_epoch_info(
     }
 
     for r in epoch_info.fishermen.iter() {
-        if !ordered_proposals.contains_key(&r.account_id)
-            && !validator_kickout.contains(&r.account_id)
-        {
+        if validator_kickout.contains_key(&r.account_id) {
+            stake_change.insert(r.account_id.clone(), 0);
+            continue;
+        }
+        if !ordered_proposals.contains_key(&r.account_id) {
             // safe to do this here because fishermen from previous epoch is guaranteed to have no
             // duplicates.
             fishermen.push(r.clone());
@@ -99,7 +103,10 @@ pub fn proposals_to_epoch_info(
             if epoch_info.validator_to_index.contains_key(&account_id)
                 || epoch_info.fishermen_to_index.contains_key(&account_id)
             {
-                validator_kickout.insert(account_id);
+                validator_kickout.insert(
+                    account_id,
+                    ValidatorKickoutReason::NotEnoughStake { stake: p.stake, threshold },
+                );
             }
         }
     }
@@ -145,7 +152,7 @@ pub fn proposals_to_epoch_info(
             if epoch_info.validator_to_index.contains_key(&p.account_id)
                 || epoch_info.fishermen_to_index.contains_key(&p.account_id)
             {
-                validator_kickout.insert(p.account_id);
+                validator_kickout.insert(p.account_id, ValidatorKickoutReason::DidNotGetASeat);
             }
         }
     }
@@ -180,9 +187,8 @@ pub fn proposals_to_epoch_info(
         .map(|(index, s)| (s.account_id.clone(), index as ValidatorId))
         .collect::<HashMap<_, _>>();
 
-    // TODO(1050): implement fishermen allocation.
-
     Ok(EpochInfo {
+        epoch_height: epoch_info.epoch_height + 1,
         validators: final_proposals,
         fishermen,
         validator_to_index,
@@ -220,18 +226,20 @@ mod tests {
                 [0; 32],
                 &EpochInfo::default(),
                 vec![stake("test1", 1_000_000)],
-                HashSet::default(),
+                HashMap::default(),
                 HashMap::default(),
                 0
             )
             .unwrap(),
             epoch_info(
+                1,
                 vec![("test1", 1_000_000)],
                 vec![0],
                 vec![vec![0], vec![0]],
                 vec![],
                 vec![],
                 change_stake(vec![("test1", 1_000_000)]),
+                vec![],
                 HashMap::default(),
                 0
             )
@@ -256,12 +264,13 @@ mod tests {
                     stake("test3", 1_000_000),
                     stake("test4", 100),
                 ],
-                HashSet::default(),
+                HashMap::default(),
                 HashMap::default(),
                 0
             )
             .unwrap(),
             epoch_info(
+                1,
                 vec![("test1", 1_000_000), ("test2", 1_000_000), ("test3", 1_000_000)],
                 vec![0, 1, 0, 0, 1, 2],
                 vec![
@@ -280,6 +289,7 @@ mod tests {
                     ("test3", 1_000_000),
                     ("test4", 100),
                 ]),
+                vec![],
                 HashMap::default(),
                 0
             )
@@ -300,18 +310,20 @@ mod tests {
                     stake("test3", 10),
                     stake("test4", 10)
                 ],
-                HashSet::default(),
+                HashMap::default(),
                 HashMap::default(),
                 0
             )
             .unwrap(),
             epoch_info(
+                1,
                 vec![("test1", 10)],
                 vec![0],
                 vec![vec![0], vec![0]],
                 vec![],
                 vec![("test2", 10), ("test3", 10), ("test4", 10)],
                 change_stake(vec![("test1", 10), ("test2", 10), ("test3", 10), ("test4", 10)]),
+                vec![],
                 HashMap::default(),
                 0
             )
@@ -319,23 +331,25 @@ mod tests {
 
         // 4 proposals of stake 9, fishermen threshold 10 --> 1 validator and 0 fishermen
         let mut epoch_info = epoch_info(
+            1,
             vec![("test1", 9)],
             vec![0],
             vec![vec![0], vec![0]],
             vec![],
             vec![],
             change_stake(vec![("test1", 9), ("test2", 0), ("test3", 0), ("test4", 0)]),
+            vec![],
             HashMap::default(),
             0,
         );
-        epoch_info.validator_kickout = HashSet::default();
+        epoch_info.validator_kickout = HashMap::default();
         assert_eq!(
             proposals_to_epoch_info(
                 &epoch_config(2, 2, 1, 0, 90, 60, 10),
                 [0; 32],
                 &EpochInfo::default(),
                 vec![stake("test1", 9), stake("test2", 9), stake("test3", 9), stake("test4", 9)],
-                HashSet::default(),
+                HashMap::default(),
                 HashMap::default(),
                 0
             )

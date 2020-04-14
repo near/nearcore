@@ -1,5 +1,4 @@
-use crate::test_utils::create_trie;
-use crate::trie::tests::{gen_changes, simplify_changes};
+use crate::test_utils::{create_trie, gen_changes, simplify_changes};
 use crate::trie::trie_storage::{TrieMemoryPartialStorage, TrieStorage};
 use crate::trie::POISONED_LOCK_ERR;
 use crate::{PartialStorage, Trie, TrieUpdate};
@@ -124,10 +123,7 @@ fn test_reads_with_incomplete_storage() {
             println!("Testing TrieUpdateIterator over prefix {:?}", key_prefix);
             let trie_update_keys = |trie: Arc<Trie>| -> Result<_, StorageError> {
                 let trie_update = TrieUpdate::new(trie, state_root);
-                let mut keys = Vec::new();
-                trie_update.for_keys_with_prefix(key_prefix, |key| {
-                    keys.push(key.to_vec());
-                })?;
+                let keys = trie_update.iter(key_prefix)?.collect::<Result<Vec<_>, _>>()?;
                 Ok(keys)
             };
             test_incomplete_storage(Arc::clone(&trie), trie_update_keys);

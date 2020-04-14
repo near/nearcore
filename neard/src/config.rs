@@ -7,6 +7,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use chrono::Utc;
+use lazy_static::lazy_static;
 use log::info;
 use serde_derive::{Deserialize, Serialize};
 
@@ -19,7 +20,7 @@ use near_network::test_utils::open_port;
 use near_network::types::ROUTED_MESSAGE_TTL;
 use near_network::utils::blacklist_from_vec;
 use near_network::NetworkConfig;
-use near_primitives::account::AccessKey;
+use near_primitives::account::{AccessKey, Account};
 use near_primitives::hash::CryptoHash;
 use near_primitives::state_record::StateRecord;
 use near_primitives::types::{
@@ -27,9 +28,9 @@ use near_primitives::types::{
 };
 use near_primitives::utils::{generate_random_string, get_num_seats_per_shard};
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
-use near_primitives::views::AccountView;
 use near_runtime_configs::RuntimeConfig;
 use near_telemetry::TelemetryConfig;
+use num_rational::Rational;
 
 /// Initial balance used in tests.
 pub const TESTING_INIT_BALANCE: Balance = 1_000_000_000 * NEAR_BASE;
@@ -103,24 +104,11 @@ pub const INITIAL_GAS_LIMIT: Gas = 1_000_000_000_000_000;
 /// Initial gas price.
 pub const MIN_GAS_PRICE: Balance = 5000;
 
-/// The rate at which the gas price can be adjusted (alpha in the formula).
-/// The formula is
-/// gas_price_t = gas_price_{t-1} * (1 + (gas_used/gas_limit - 1/2) * alpha))
-/// This constant is supposedly 0.01 and should be divided by 100 when used
-pub const GAS_PRICE_ADJUSTMENT_RATE: u8 = 1;
-
-/// Rewards
-pub const PROTOCOL_PERCENT: u8 = 10;
-pub const DEVELOPER_PERCENT: u8 = 30;
-
 /// Protocol treasury account
 pub const PROTOCOL_TREASURY_ACCOUNT: &str = "near";
 
 /// Fishermen stake threshold.
 pub const FISHERMEN_THRESHOLD: Balance = 10 * NEAR_BASE;
-
-/// Maximum inflation rate per year
-pub const MAX_INFLATION_RATE: u8 = 5;
 
 /// Number of blocks for which a given transaction is valid
 pub const TRANSACTION_VALIDITY_PERIOD: NumBlocks = 100;
@@ -137,6 +125,19 @@ pub const NODE_KEY_FILE: &str = "node_key.json";
 pub const VALIDATOR_KEY_FILE: &str = "validator_key.json";
 
 pub const DEFAULT_TELEMETRY_URL: &str = "https://explorer.nearprotocol.com/api/nodes";
+
+lazy_static! {
+    /// The rate at which the gas price can be adjusted (alpha in the formula).
+    /// The formula is
+    /// gas_price_t = gas_price_{t-1} * (1 + (gas_used/gas_limit - 1/2) * alpha))
+    pub static ref GAS_PRICE_ADJUSTMENT_RATE: Rational = Rational::new(1, 100);
+
+    /// Protocol treasury reward
+    pub static ref PROTOCOL_REWARD_RATE: Rational = Rational::new(1, 10);
+
+    /// Maximum inflation rate per year
+    pub static ref MAX_INFLATION_RATE: Rational = Rational::new(5, 100);
+}
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Network {
@@ -184,6 +185,22 @@ fn default_reduce_wait_for_missing_block() -> Duration {
     Duration::from_millis(REDUCE_DELAY_FOR_MISSING_BLOCKS)
 }
 
+fn default_header_sync_initial_timeout() -> Duration {
+    Duration::from_secs(10)
+}
+
+fn default_header_sync_progress_timeout() -> Duration {
+    Duration::from_secs(2)
+}
+
+fn default_header_sync_stall_ban_timeout() -> Duration {
+    Duration::from_secs(120)
+}
+
+fn default_header_sync_expected_height_per_second() -> u64 {
+    10
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Consensus {
     /// Minimum number of peers to start syncing.
@@ -211,6 +228,18 @@ pub struct Consensus {
     pub catchup_step_period: Duration,
     /// Time between checking to re-request chunks.
     pub chunk_request_retry_period: Duration,
+    /// How much time to wait after initial header sync
+    #[serde(default = "default_header_sync_initial_timeout")]
+    pub header_sync_initial_timeout: Duration,
+    /// How much time to wait after some progress is made in header sync
+    #[serde(default = "default_header_sync_progress_timeout")]
+    pub header_sync_progress_timeout: Duration,
+    /// How much time to wait before banning a peer in header sync if sync is too slow
+    #[serde(default = "default_header_sync_stall_ban_timeout")]
+    pub header_sync_stall_ban_timeout: Duration,
+    /// Expected increase of header head weight per second during header sync
+    #[serde(default = "default_header_sync_expected_height_per_second")]
+    pub header_sync_expected_height_per_second: u64,
 }
 
 impl Default for Consensus {
@@ -221,13 +250,18 @@ impl Default for Consensus {
             min_block_production_delay: Duration::from_millis(MIN_BLOCK_PRODUCTION_DELAY),
             max_block_production_delay: Duration::from_millis(MAX_BLOCK_PRODUCTION_DELAY),
             max_block_wait_delay: Duration::from_millis(MAX_BLOCK_WAIT_DELAY),
-            reduce_wait_for_missing_block: Duration::from_millis(REDUCE_DELAY_FOR_MISSING_BLOCKS),
+            reduce_wait_for_missing_block: default_reduce_wait_for_missing_block(),
             produce_empty_blocks: true,
             block_fetch_horizon: BLOCK_FETCH_HORIZON,
             state_fetch_horizon: STATE_FETCH_HORIZON,
             block_header_fetch_horizon: BLOCK_HEADER_FETCH_HORIZON,
             catchup_step_period: Duration::from_millis(CATCHUP_STEP_PERIOD),
             chunk_request_retry_period: Duration::from_millis(CHUNK_REQUEST_RETRY_PERIOD),
+            header_sync_initial_timeout: default_header_sync_initial_timeout(),
+            header_sync_progress_timeout: default_header_sync_progress_timeout(),
+            header_sync_stall_ban_timeout: default_header_sync_stall_ban_timeout(),
+            header_sync_expected_height_per_second: default_header_sync_expected_height_per_second(
+            ),
         }
     }
 }
@@ -332,12 +366,11 @@ impl Genesis {
             dynamic_resharding: false,
             epoch_length: FAST_EPOCH_LENGTH,
             gas_limit: INITIAL_GAS_LIMIT,
-            gas_price_adjustment_rate: GAS_PRICE_ADJUSTMENT_RATE,
+            gas_price_adjustment_rate: *GAS_PRICE_ADJUSTMENT_RATE,
             block_producer_kickout_threshold: BLOCK_PRODUCER_KICKOUT_THRESHOLD,
             validators,
-            developer_reward_percentage: DEVELOPER_PERCENT,
-            protocol_reward_percentage: PROTOCOL_PERCENT,
-            max_inflation_rate: MAX_INFLATION_RATE,
+            protocol_reward_rate: *PROTOCOL_REWARD_RATE,
+            max_inflation_rate: *MAX_INFLATION_RATE,
             num_blocks_per_year: NUM_BLOCKS_PER_YEAR,
             protocol_treasury_account: PROTOCOL_TREASURY_ACCOUNT.to_string(),
             transaction_validity_period: TRANSACTION_VALIDITY_PERIOD,
@@ -403,10 +436,12 @@ impl NearConfig {
                 sync_check_period: Duration::from_secs(10),
                 sync_step_period: Duration::from_millis(10),
                 sync_height_threshold: 1,
-                header_sync_initial_timeout: Duration::from_secs(10),
-                header_sync_progress_timeout: Duration::from_secs(2),
-                header_sync_stall_ban_timeout: Duration::from_secs(40),
-                header_sync_expected_height_per_second: 10,
+                header_sync_initial_timeout: config.consensus.header_sync_initial_timeout,
+                header_sync_progress_timeout: config.consensus.header_sync_progress_timeout,
+                header_sync_stall_ban_timeout: config.consensus.header_sync_stall_ban_timeout,
+                header_sync_expected_height_per_second: config
+                    .consensus
+                    .header_sync_expected_height_per_second,
                 min_num_peers: config.consensus.min_num_peers,
                 log_summary_period: Duration::from_secs(10),
                 produce_empty_blocks: config.consensus.produce_empty_blocks,
@@ -418,8 +453,8 @@ impl NearConfig {
                 block_fetch_horizon: config.consensus.block_fetch_horizon,
                 state_fetch_horizon: config.consensus.state_fetch_horizon,
                 block_header_fetch_horizon: config.consensus.block_header_fetch_horizon,
-                catchup_step_period: Duration::from_millis(CATCHUP_STEP_PERIOD),
-                chunk_request_retry_period: Duration::from_millis(CHUNK_REQUEST_RETRY_PERIOD),
+                catchup_step_period: config.consensus.catchup_step_period,
+                chunk_request_retry_period: config.consensus.chunk_request_retry_period,
                 tracked_accounts: config.tracked_accounts,
                 tracked_shards: config.tracked_shards,
                 archive: config.archive,
@@ -516,18 +551,12 @@ fn state_records_account_with_key(
     vec![
         StateRecord::Account {
             account_id: account_id.to_string(),
-            account: AccountView {
-                amount,
-                locked: staked,
-                code_hash,
-                storage_usage: 0,
-                storage_paid_at: 0,
-            },
+            account: Account { amount, locked: staked, code_hash, storage_usage: 0 },
         },
         StateRecord::AccessKey {
             account_id: account_id.to_string(),
             public_key: public_key.clone(),
-            access_key: AccessKey::full_access().into(),
+            access_key: AccessKey::full_access(),
         },
     ]
 }
@@ -636,7 +665,7 @@ pub fn init_configs(
                 dynamic_resharding: false,
                 epoch_length: if fast { FAST_EPOCH_LENGTH } else { EXPECTED_EPOCH_LENGTH },
                 gas_limit: INITIAL_GAS_LIMIT,
-                gas_price_adjustment_rate: GAS_PRICE_ADJUSTMENT_RATE,
+                gas_price_adjustment_rate: *GAS_PRICE_ADJUSTMENT_RATE,
                 block_producer_kickout_threshold: BLOCK_PRODUCER_KICKOUT_THRESHOLD,
                 runtime_config: Default::default(),
                 validators: vec![AccountInfo {
@@ -645,9 +674,8 @@ pub fn init_configs(
                     amount: TESTING_INIT_STAKE,
                 }],
                 transaction_validity_period: TRANSACTION_VALIDITY_PERIOD,
-                developer_reward_percentage: DEVELOPER_PERCENT,
-                protocol_reward_percentage: PROTOCOL_PERCENT,
-                max_inflation_rate: MAX_INFLATION_RATE,
+                protocol_reward_rate: *PROTOCOL_REWARD_RATE,
+                max_inflation_rate: *MAX_INFLATION_RATE,
                 total_supply: 0,
                 num_blocks_per_year: NUM_BLOCKS_PER_YEAR,
                 protocol_treasury_account: account_id,
@@ -805,7 +833,7 @@ mod test {
     /// make sure testnet genesis can be deserialized
     #[test]
     fn test_deserialize_state() {
-        let genesis_config_str = include_str!("../res/testnet_genesis_config.json");
+        let genesis_config_str = include_str!("../res/genesis_config.json");
         let genesis_config = GenesisConfig::from_json(&genesis_config_str);
         assert_eq!(genesis_config.protocol_version, PROTOCOL_VERSION);
         assert_eq!(genesis_config.config_version, GENESIS_CONFIG_VERSION);

@@ -2,7 +2,6 @@ use std::cmp::{max, Ordering};
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::{DateTime, Utc};
-use reed_solomon_erasure::galois_8::ReedSolomon;
 use serde::Serialize;
 
 use near_crypto::{KeyType, PublicKey, Signature};
@@ -10,12 +9,15 @@ use near_crypto::{KeyType, PublicKey, Signature};
 use crate::challenge::{Challenges, ChallengesResult};
 use crate::hash::{hash, CryptoHash};
 use crate::merkle::{combine_hash, merklize, verify_path, MerklePath};
-use crate::sharding::{ChunkHashHeight, EncodedShardChunk, ShardChunk, ShardChunkHeader};
+use crate::sharding::{
+    ChunkHashHeight, EncodedShardChunk, ReedSolomonWrapper, ShardChunk, ShardChunkHeader,
+};
 use crate::types::{
     AccountId, Balance, BlockHeight, EpochId, Gas, MerkleHash, NumShards, StateRoot, ValidatorStake,
 };
 use crate::utils::{from_timestamp, to_timestamp};
 use crate::validator_signer::{EmptyValidatorSigner, ValidatorSigner};
+use num_rational::Rational;
 
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, Eq, PartialEq)]
 pub struct BlockHeaderInnerLite {
@@ -57,8 +59,6 @@ pub struct BlockHeaderInnerRest {
     pub chunk_mask: Vec<bool>,
     /// Gas price. Same for all chunks
     pub gas_price: Balance,
-    /// Sum of all storage rent paid across all chunks.
-    pub rent_paid: Balance,
     /// Sum of all validator reward across all chunks.
     pub validator_reward: Balance,
     /// Total supply of tokens in the system
@@ -115,7 +115,6 @@ impl BlockHeaderInnerRest {
         validator_proposals: Vec<ValidatorStake>,
         chunk_mask: Vec<bool>,
         gas_price: Balance,
-        rent_paid: Balance,
         validator_reward: Balance,
         total_supply: Balance,
         challenges_result: ChallengesResult,
@@ -135,7 +134,6 @@ impl BlockHeaderInnerRest {
             validator_proposals,
             chunk_mask,
             gas_price,
-            rent_paid,
             validator_reward,
             total_supply,
             challenges_result,
@@ -273,7 +271,6 @@ impl BlockHeader {
         epoch_id: EpochId,
         next_epoch_id: EpochId,
         gas_price: Balance,
-        rent_paid: Balance,
         validator_reward: Balance,
         total_supply: Balance,
         challenges_result: ChallengesResult,
@@ -304,7 +301,6 @@ impl BlockHeader {
             validator_proposals,
             chunk_mask,
             gas_price,
-            rent_paid,
             validator_reward,
             total_supply,
             challenges_result,
@@ -350,7 +346,6 @@ impl BlockHeader {
             vec![],
             vec![],
             initial_gas_price,
-            0,
             0,
             initial_total_supply,
             vec![],
@@ -409,7 +404,7 @@ pub fn genesis_chunks(
     genesis_height: BlockHeight,
 ) -> Vec<ShardChunk> {
     assert!(state_roots.len() == 1 || state_roots.len() == (num_shards as usize));
-    let rs = ReedSolomon::new(1, 2).unwrap();
+    let mut rs = ReedSolomonWrapper::new(1, 2);
 
     (0..num_shards)
         .map(|i| {
@@ -419,10 +414,9 @@ pub fn genesis_chunks(
                 CryptoHash::default(),
                 genesis_height,
                 i,
-                &rs,
+                &mut rs,
                 0,
                 initial_gas_limit,
-                0,
                 0,
                 0,
                 CryptoHash::default(),
@@ -481,7 +475,7 @@ impl Block {
         epoch_id: EpochId,
         next_epoch_id: EpochId,
         approvals: Vec<Approval>,
-        gas_price_adjustment_rate: u8,
+        gas_price_adjustment_rate: Rational,
         min_gas_price: Balance,
         inflation: Option<Balance>,
         challenges_result: ChallengesResult,
@@ -498,7 +492,6 @@ impl Block {
         let mut gas_used = 0;
         // This computation of chunk_mask relies on the fact that chunks are ordered by shard_id.
         let mut chunk_mask = vec![];
-        let mut storage_rent = 0;
         let mut validator_reward = 0;
         let mut balance_burnt = 0;
         let mut gas_limit = 0;
@@ -507,7 +500,6 @@ impl Block {
                 validator_proposals.extend_from_slice(&chunk.inner.validator_proposals);
                 gas_used += chunk.inner.gas_used;
                 gas_limit += chunk.inner.gas_limit;
-                storage_rent += chunk.inner.rent_paid;
                 validator_reward += chunk.inner.validator_reward;
                 balance_burnt += chunk.inner.balance_burnt;
                 chunk_mask.push(true);
@@ -553,7 +545,6 @@ impl Block {
                 epoch_id,
                 next_epoch_id,
                 new_gas_price,
-                storage_rent,
                 validator_reward,
                 new_total_supply,
                 challenges_result,
@@ -576,7 +567,7 @@ impl Block {
         &self,
         prev_gas_price: Balance,
         min_gas_price: Balance,
-        gas_price_adjustment_rate: u8,
+        gas_price_adjustment_rate: Rational,
     ) -> bool {
         let gas_used = Self::compute_gas_used(&self.chunks, self.header.inner_lite.height);
         let gas_limit = Self::compute_gas_limit(&self.chunks, self.header.inner_lite.height);
@@ -593,15 +584,16 @@ impl Block {
         prev_gas_price: Balance,
         gas_used: Gas,
         gas_limit: Gas,
-        gas_price_adjustment_rate: u8,
+        gas_price_adjustment_rate: Rational,
     ) -> Balance {
         if gas_limit == 0 {
             prev_gas_price
         } else {
-            let numerator = 2 * 100 * u128::from(gas_limit)
-                - u128::from(gas_price_adjustment_rate) * u128::from(gas_limit)
-                + 2 * u128::from(gas_price_adjustment_rate) * u128::from(gas_used);
-            let denominator = 2 * 100 * u128::from(gas_limit);
+            let numerator = 2 * *gas_price_adjustment_rate.denom() as u128 * u128::from(gas_limit)
+                - *gas_price_adjustment_rate.numer() as u128 * u128::from(gas_limit)
+                + 2 * *gas_price_adjustment_rate.numer() as u128 * u128::from(gas_used);
+            let denominator =
+                2 * *gas_price_adjustment_rate.denom() as u128 * u128::from(gas_limit);
             prev_gas_price * numerator / denominator
         }
     }
@@ -769,7 +761,7 @@ impl From<u64> for BlockScore {
 }
 
 impl std::fmt::Display for BlockScore {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.num)
     }
 }

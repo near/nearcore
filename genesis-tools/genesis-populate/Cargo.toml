@@ -5,13 +5,13 @@ authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2018"
 
 [dependencies]
-borsh = "0.6.0"
+borsh = "0.6.1"
 byteorder = "1.2"
 indicatif = "0.13.0"
 clap = "2.33.0"
 tempdir = "0.3"
 
-near = { path = "../../near" }
+neard = { path = "../../neard" }
 near-chain-configs = { path = "../../core/chain-configs" }
 near-crypto = { path = "../../core/crypto" }
 near-primitives = { path = "../../core/primitives" }

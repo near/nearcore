@@ -21,7 +21,7 @@ pub enum KeyType {
 }
 
 impl Display for KeyType {
-    fn fmt(&self, f: &mut Formatter) -> Result<(), std::fmt::Error> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
         write!(
             f,
             "{}",
@@ -71,7 +71,7 @@ fn split_key_type_data(value: &str) -> Result<(KeyType, &str), Box<dyn std::erro
 pub struct Secp256K1PublicKey([u8; 64]);
 
 impl std::fmt::Debug for Secp256K1PublicKey {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
         write!(f, "{}", bs58::encode(&self.0.to_vec()).into_string())
     }
 }
@@ -100,7 +100,7 @@ impl Ord for Secp256K1PublicKey {
 pub struct ED25519PublicKey(pub [u8; ed25519_dalek::PUBLIC_KEY_LENGTH]);
 
 impl std::fmt::Debug for ED25519PublicKey {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
         write!(f, "{}", bs58::encode(&self.0.to_vec()).into_string())
     }
 }
@@ -133,6 +133,13 @@ pub enum PublicKey {
 }
 
 impl PublicKey {
+    pub fn len(&self) -> usize {
+        match self {
+            PublicKey::ED25519(_) => ed25519_dalek::PUBLIC_KEY_LENGTH + 1,
+            PublicKey::SECP256K1(_) => 65,
+        }
+    }
+
     pub fn empty(key_type: KeyType) -> Self {
         match key_type {
             KeyType::ED25519 => {
@@ -173,13 +180,13 @@ impl Hash for PublicKey {
 }
 
 impl Display for PublicKey {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
         write!(f, "{}", String::from(self))
     }
 }
 
 impl Debug for PublicKey {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
         write!(f, "{}", String::from(self))
     }
 }
@@ -300,7 +307,7 @@ impl PartialEq for ED25519SecretKey {
 }
 
 impl std::fmt::Debug for ED25519SecretKey {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
         write!(
             f,
             "{}",
@@ -386,7 +393,7 @@ impl SecretKey {
 }
 
 impl std::fmt::Display for SecretKey {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
         let data = match self {
             SecretKey::ED25519(secret_key) => bs58::encode(&secret_key.0[..]).into_string(),
             SecretKey::SECP256K1(secret_key) => bs58::encode(&secret_key[..]).into_string(),
@@ -465,7 +472,7 @@ impl PartialEq for Secp256K1Signature {
 }
 
 impl Debug for Secp256K1Signature {
-    fn fmt(&self, f: &mut Formatter) -> Result<(), std::fmt::Error> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
         write!(f, "{}", bs58::encode(&self.0.to_vec()).into_string())
     }
 }
@@ -566,7 +573,7 @@ impl BorshDeserialize for Signature {
 }
 
 impl Display for Signature {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
         let data = match self {
             Signature::ED25519(signature) => {
                 bs58::encode(&signature.to_bytes().to_vec()).into_string()

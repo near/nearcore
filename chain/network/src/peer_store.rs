@@ -55,6 +55,12 @@ impl PeerStore {
         self.peer_states.is_empty()
     }
 
+    pub fn is_banned(&self, peer_id: &PeerId) -> bool {
+        self.peer_states
+            .get(&peer_id)
+            .map_or(false, |known_peer_state| known_peer_state.status.is_banned())
+    }
+
     pub fn peer_connected(
         &mut self,
         peer_info: &FullPeerInfo,
@@ -143,8 +149,6 @@ impl PeerStore {
 
     /// Return healthy known peers up to given amount.
     pub fn healthy_peers(&self, max_count: u32) -> Vec<PeerInfo> {
-        // TODO: better healthy peer definition here.
-        //  Discussion: wdyt about using reachable peers in the current routing table?
         self.find_peers(
             |p| match p.status {
                 KnownPeerStatus::Banned(_, _) => false,
@@ -155,7 +159,7 @@ impl PeerStore {
     }
 
     /// Return iterator over all known peers.
-    pub fn iter(&self) -> Iter<PeerId, KnownPeerState> {
+    pub fn iter(&self) -> Iter<'_, PeerId, KnownPeerState> {
         self.peer_states.iter()
     }
 
@@ -194,7 +198,7 @@ impl PeerStore {
 
 #[cfg(test)]
 mod test {
-    extern crate tempdir;
+    use tempdir;
 
     use near_crypto::{KeyType, SecretKey};
     use near_store::create_store;

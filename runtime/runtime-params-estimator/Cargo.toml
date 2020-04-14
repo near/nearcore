@@ -5,7 +5,7 @@ authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2018"
 
 [dependencies]
-borsh = "0.6.0"
+borsh = "0.6.1"
 indicatif = {version = "0.13.0", features = ["with_rayon"]}
 rayon = "1.1"
 tempdir = "0.3.7"
@@ -23,5 +23,5 @@ near-vm-runner = {path = "../../runtime/near-vm-runner" , features = ["costs_cou
 node-runtime = { path = "../../runtime/runtime" , features = ["costs_counting", "no_cache"]}
 near-store = { path = "../../core/store" }
 near-primitives = { path = "../../core/primitives" }
-near = { path = "../../near" }
+neard = { path = "../../neard" }
 

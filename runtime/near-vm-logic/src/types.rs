@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 pub type AccountId = String;
 pub type PublicKey = Vec<u8>;
 pub type BlockHeight = u64;
+pub type EpochHeight = u64;
 pub type Balance = u128;
 pub type Gas = u64;
 pub type PromiseIndex = u64;
@@ -10,7 +11,7 @@ pub type ReceiptIndex = u64;
 pub type IteratorIndex = u64;
 pub type StorageUsage = u64;
 
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Serialize, Deserialize, Clone)]
 pub enum ReturnData {
     /// Method returned some value or data.
     #[serde(with = "crate::serde_with::bytes_as_str")]

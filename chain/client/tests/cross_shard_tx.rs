@@ -35,7 +35,7 @@ fn test_keyvalue_runtime_balances() {
             false,
             5,
             false,
-            false,
+            vec![false; validators.iter().map(|x| x.len()).sum()],
             Arc::new(RwLock::new(Box::new(move |_account_id: String, _msg: &NetworkRequests| {
                 (NetworkResponses::NoResponse, true)
             }))),
@@ -111,14 +111,17 @@ mod tests {
         actix::spawn(
             connectors.write().unwrap()[connector_ordinal]
                 .0
-                .send(NetworkClientMessages::Transaction(SignedTransaction::send_money(
-                    nonce,
-                    from.clone(),
-                    to.clone(),
-                    &signer,
-                    amount,
-                    block_hash,
-                )))
+                .send(NetworkClientMessages::Transaction {
+                    transaction: SignedTransaction::send_money(
+                        nonce,
+                        from.clone(),
+                        to.clone(),
+                        &signer,
+                        amount,
+                        block_hash,
+                    ),
+                    is_forwarded: false,
+                })
                 .then(move |x| {
                     match x.unwrap() {
                         NetworkClientResponses::NoResponse
@@ -418,7 +421,7 @@ mod tests {
                 !test_doomslug,
                 20,
                 test_doomslug,
-                true,
+                vec![true; validators.iter().map(|x| x.len()).sum()],
                 Arc::new(RwLock::new(Box::new(
                     move |_account_id: String, _msg: &NetworkRequests| {
                         (NetworkResponses::NoResponse, true)

@@ -3,14 +3,10 @@
 //! * sir -- sender is receiver. Receipts that are directed by an account to itself are guaranteed
 //!   to not be cross-shard which is cheaper than cross-shard. Conversely, when sender is not a
 //!   receiver it might or might not be a cross-shard communication.
+use num_rational::Rational;
 use serde::{Deserialize, Serialize};
-pub type Gas = u64;
 
-#[derive(Debug, Serialize, Deserialize, Clone, Hash, PartialEq, Eq)]
-pub struct Fraction {
-    pub numerator: u64,
-    pub denominator: u64,
-}
+pub type Gas = u64;
 
 /// Costs associated with an object that can only be sent over the network (and executed
 /// by the receiver).
@@ -48,11 +44,11 @@ pub struct RuntimeFeesConfig {
     pub data_receipt_creation_config: DataReceiptCreationConfig,
     /// Describes the cost of creating a certain action, `Action`. Includes all variants.
     pub action_creation_config: ActionCreationConfig,
-    /// Describes fees for storage rent
+    /// Describes fees for storage.
     pub storage_usage_config: StorageUsageConfig,
 
     /// Fraction of the burnt gas to reward to the contract account for execution.
-    pub burnt_gas_reward: Fraction,
+    pub burnt_gas_reward: Rational,
 }
 
 /// Describes the cost of creating a data receipt, `DataReceipt`.
@@ -110,7 +106,7 @@ pub struct AccessKeyCreationConfig {
 /// Describes cost of storage per block
 #[derive(Debug, Serialize, Deserialize, Clone, Hash, PartialEq, Eq)]
 pub struct StorageUsageConfig {
-    /// Number of bytes for an account record.
+    /// Number of bytes for an account record, including rounding up for account id.
     pub num_bytes_account: u64,
     /// Additional number of bytes for a k/v record
     pub num_extra_bytes_record: u64,
@@ -118,6 +114,7 @@ pub struct StorageUsageConfig {
 
 impl Default for RuntimeFeesConfig {
     fn default() -> Self {
+        #[allow(clippy::unreadable_literal)]
         Self {
             action_receipt_creation_config: Fee {
                 send_sir: 924119500000,
@@ -181,10 +178,12 @@ impl Default for RuntimeFeesConfig {
                 },
             },
             storage_usage_config: StorageUsageConfig {
+                // See Account in core/primitives/src/account.rs for the data structure.
+                // TODO(2291): figure out value for the MainNet.
                 num_bytes_account: 100,
                 num_extra_bytes_record: 40,
             },
-            burnt_gas_reward: Fraction { numerator: 3, denominator: 10 },
+            burnt_gas_reward: Rational::new(3, 10),
         }
     }
 }
@@ -212,13 +211,13 @@ impl RuntimeFeesConfig {
                     function_call_cost_per_byte: free.clone(),
                 },
                 delete_key_cost: free.clone(),
-                delete_account_cost: free.clone(),
+                delete_account_cost: free,
             },
             storage_usage_config: StorageUsageConfig {
                 num_bytes_account: 0,
                 num_extra_bytes_record: 0,
             },
-            burnt_gas_reward: Fraction { numerator: 0, denominator: 1 },
+            burnt_gas_reward: Rational::from_integer(0),
         }
     }
 }

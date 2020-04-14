@@ -1,6 +1,6 @@
 [package]
 name = "near-vm-errors"
-version = "0.6.0"
+version = "0.8.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2018"
 license = "Apache-2.0"
@@ -13,7 +13,7 @@ Error that can occur inside Near Runtime encapsulated in a separate crate. Might
 """
 
 [dependencies]
-borsh = "0.6.0"
+borsh = "0.6.1"
 near-rpc-error-macro = { path = "../../tools/rpctypegen/macro", version = "0.1.0" }
 serde = { version = "1.0", features = ["derive"] }
 

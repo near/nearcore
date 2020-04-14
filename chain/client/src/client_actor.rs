@@ -1,4 +1,4 @@
-//! Client actor is orchestrates Client and facilitates network connection.
+//! Client actor orchestrates Client and facilitates network connection.
 
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
@@ -9,6 +9,8 @@ use actix::{Actor, Addr, AsyncContext, Context, Handler};
 use chrono::{DateTime, Utc};
 use log::{debug, error, info, warn};
 
+#[cfg(feature = "adversarial")]
+use near_chain::check_refcount_map;
 use near_chain::test_utils::format_hash;
 use near_chain::types::AcceptedBlock;
 use near_chain::{
@@ -47,6 +49,8 @@ use crate::StatusResponse;
 
 /// Multiplier on `max_block_time` to wait until deciding that chain stalled.
 const STATUS_WAIT_TIME_MULTIPLIER: u64 = 10;
+/// Drop blocks whose height are beyond head + horizon.
+const BLOCK_HORIZON: u64 = 500;
 
 pub struct ClientActor {
     /// Adversarial controls
@@ -214,6 +218,17 @@ impl Handler<NetworkClientMessages> for ClientActor {
                         }
                         NetworkClientResponses::NoResponse
                     }
+                    NetworkAdversarialMessage::AdvSwitchToHeight(height) => {
+                        info!(target: "adversary", "Switching to height {:?}", height);
+                        let mut chain_store_update = self.client.chain.mut_store().store_update();
+                        chain_store_update.save_largest_skipped_height(&height);
+                        chain_store_update.save_largest_approved_height(&height);
+                        chain_store_update
+                            .adv_save_latest_known(height)
+                            .expect("adv method should not fail");
+                        chain_store_update.commit().expect("adv method should not fail");
+                        NetworkClientResponses::NoResponse
+                    }
                     NetworkAdversarialMessage::AdvGetSavedBlocks => {
                         info!(target: "adversary", "Requested number of saved blocks");
                         let store = self.client.chain.store().store();
@@ -221,12 +236,24 @@ impl Handler<NetworkClientMessages> for ClientActor {
                         for _ in store.iter(ColBlock) {
                             num_blocks += 1;
                         }
-                        NetworkClientResponses::AdvU64(num_blocks)
+                        NetworkClientResponses::AdvResult(num_blocks)
+                    }
+                    NetworkAdversarialMessage::AdvCheckRefMap => {
+                        info!(target: "adversary", "Check Block Reference Map");
+                        match check_refcount_map(&mut self.client.chain) {
+                            Ok(_) => NetworkClientResponses::AdvResult(1 /* true */),
+                            Err(e) => {
+                                error!(target: "client", "Block Reference Map is inconsistent: {:?}", e);
+                                NetworkClientResponses::AdvResult(0 /* false */)
+                            }
+                        }
                     }
                     _ => panic!("invalid adversary message"),
                 };
             }
-            NetworkClientMessages::Transaction(tx) => self.client.process_tx(tx),
+            NetworkClientMessages::Transaction { transaction, is_forwarded } => {
+                self.client.process_tx(transaction, is_forwarded)
+            }
             NetworkClientMessages::Block(block, peer_id, was_requested) => {
                 let blocks_at_height = self
                     .client
@@ -554,7 +581,7 @@ impl ClientActor {
             .get_epoch_block_producers_ordered(&next_epoch_id, &prev_block_hash)
         {
             if validators.iter().any(|(validator_stake, _)| {
-                (&validator_stake.account_id == validator_signer.validator_id())
+                &validator_stake.account_id == validator_signer.validator_id()
             }) {
                 debug!(target: "client", "Sending announce account for {}", validator_signer.validator_id());
                 self.last_validator_announce_height = Some(epoch_start_height);
@@ -700,7 +727,13 @@ impl ClientActor {
             // Don't care about challenge here since it will be handled when we actually process
             // the block.
             if self.client.chain.process_block_header(&block.header, |_| {}).is_ok() {
-                self.client.rebroadcast_block(block.clone());
+                let head = self.client.chain.head()?;
+                // do not broadcast blocks that are too far back.
+                if head.height < block.header.inner_lite.height
+                    || head.epoch_id == block.header.inner_lite.epoch_id
+                {
+                    self.client.rebroadcast_block(block.clone());
+                }
             }
         }
         let (accepted_blocks, result) = self.client.process_block(block, provenance);
@@ -716,7 +749,13 @@ impl ClientActor {
         was_requested: bool,
     ) -> NetworkClientResponses {
         let hash = block.hash();
-        debug!(target: "client", "{:?} Received block {} <- {} at {} from {}", self.client.validator_signer.as_ref().map(|vs| vs.validator_id()), hash, block.header.prev_hash, block.header.inner_lite.height, peer_id);
+        debug!(target: "client", "{:?} Received block {} <- {} at {} from {}, requested: {}", self.client.validator_signer.as_ref().map(|vs| vs.validator_id()), hash, block.header.prev_hash, block.header.inner_lite.height, peer_id, was_requested);
+        // drop the block if it is too far ahead
+        let head = unwrap_or_return!(self.client.chain.head(), NetworkClientResponses::NoResponse);
+        if block.header.inner_lite.height >= head.height + BLOCK_HORIZON {
+            debug!(target: "client", "dropping block {} that is too far ahead. Block height {} current head height {}", block.hash(), block.header.inner_lite.height, head.height);
+            return NetworkClientResponses::NoResponse;
+        }
         let prev_hash = block.header.prev_hash;
         let provenance =
             if was_requested { near_chain::Provenance::SYNC } else { near_chain::Provenance::NONE };
@@ -796,6 +835,7 @@ impl ClientActor {
     }
 
     /// Check whether need to (continue) sync.
+    /// Also return higher height with known peers at that height.
     fn syncing_info(&self) -> Result<(bool, u64), near_chain::Error> {
         let head = self.client.chain.head()?;
         let mut is_syncing = self.client.sync_status.is_syncing();
@@ -870,6 +910,15 @@ impl ClientActor {
         self.sync(ctx);
     }
 
+    /// Select the block hash we are using to sync state. It will sync with the state before applying the
+    /// content of such block.
+    ///
+    /// The selected block will always be the first block on a new epoch:
+    /// https://github.com/nearprotocol/nearcore/issues/2021#issuecomment-583039862
+    ///
+    /// To prevent syncing from a fork, we move `state_fetch_horizon` steps backwards and use that epoch.
+    /// Usually `state_fetch_horizon` is much less than the expected number of produced blocks on an epoch,
+    /// so this is only relevant on epoch boundaries.
     fn find_sync_hash(&mut self) -> Result<CryptoHash, near_chain::Error> {
         let header_head = self.client.chain.header_head()?;
         let mut sync_hash = header_head.prev_block_hash;
@@ -1030,6 +1079,9 @@ impl ClientActor {
                         )
                     })
                     .collect();
+
+                unwrap_or_run_later!(self.client.chain.reset_data_pre_state_sync(sync_hash));
+
                 match unwrap_or_run_later!(self.client.state_sync.run(
                     &me,
                     sync_hash,
@@ -1042,13 +1094,17 @@ impl ClientActor {
                     StateSyncResult::Unchanged => (),
                     StateSyncResult::Changed(fetch_block) => {
                         self.client.sync_status = SyncStatus::StateSync(sync_hash, new_shard_sync);
-                        if let Some(peer_info) =
-                            highest_height_peer(&self.network_info.highest_height_peers)
-                        {
-                            if fetch_block {
+                        if fetch_block {
+                            if let Some(peer_info) =
+                                highest_height_peer(&self.network_info.highest_height_peers)
+                            {
                                 if let Ok(header) = self.client.chain.get_block_header(&sync_hash) {
-                                    let prev_hash = header.prev_hash;
-                                    self.request_block_by_hash(prev_hash, peer_info.peer_info.id);
+                                    for hash in vec![header.prev_hash, header.hash].into_iter() {
+                                        self.request_block_by_hash(
+                                            hash,
+                                            peer_info.peer_info.id.clone(),
+                                        );
+                                    }
                                 }
                             }
                         }
@@ -1129,6 +1185,7 @@ impl ClientActor {
             };
 
             act.info_helper.info(
+                act.client.chain.store().get_genesis_height(),
                 &head,
                 &act.client.sync_status,
                 &act.node_id,

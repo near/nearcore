@@ -12,6 +12,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::{Action, SignedTransaction, Transaction, TransferAction};
 use near_primitives::types::{EpochId, StateRoot};
 use near_primitives::validator_signer::InMemoryValidatorSigner;
+use num_rational::Rational;
 
 fn create_transaction() -> SignedTransaction {
     let mut actions = vec![];
@@ -49,7 +50,7 @@ fn create_block() -> Block {
         EpochId::default(),
         EpochId::default(),
         vec![],
-        0,
+        Rational::from_integer(0),
         0,
         Some(0),
         vec![],
@@ -64,7 +65,7 @@ fn create_block() -> Block {
 }
 
 fn create_account() -> Account {
-    Account::new(0, CryptoHash::default(), 1_000)
+    Account::new(0, CryptoHash::default())
 }
 
 fn serialize_tx(bench: &mut Bencher) {

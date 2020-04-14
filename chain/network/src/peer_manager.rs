@@ -15,7 +15,7 @@ use chrono::offset::TimeZone;
 use chrono::{DateTime, Utc};
 use futures::task::Poll;
 use futures::{future, Stream, StreamExt};
-use rand::{thread_rng, Rng};
+use rand::seq::SliceRandom;
 use tokio::net::{TcpListener, TcpStream};
 use tokio_util::codec::FramedRead;
 use tracing::{debug, error, info, trace, warn};
@@ -75,6 +75,8 @@ struct ActivePeer {
     sent_bytes_per_sec: u64,
     /// Last time requested peers.
     last_time_peer_requested: DateTime<Utc>,
+    /// Who started connection. Inbound (other) or Outbound (us).
+    peer_type: PeerType,
 }
 
 /// Actor that manages peers connections.
@@ -190,6 +192,7 @@ impl PeerManagerActor {
                 sent_bytes_per_sec: 0,
                 received_bytes_per_sec: 0,
                 last_time_peer_requested: Utc.timestamp(0, 0),
+                peer_type,
             },
         );
 
@@ -228,9 +231,26 @@ impl PeerManagerActor {
         });
     }
 
-    fn remove_active_peer(&mut self, ctx: &mut Context<Self>, peer_id: &PeerId) {
+    /// Remove peer from active set.
+    /// Check it match peer_type to avoid removing a peer that both started connection to each other.
+    /// If peer_type is None, remove anyway disregarding who started the connection.
+    fn remove_active_peer(
+        &mut self,
+        ctx: &mut Context<Self>,
+        peer_id: &PeerId,
+        peer_type: Option<PeerType>,
+    ) {
+        if let Some(peer_type) = peer_type {
+            if let Some(peer) = self.active_peers.get(&peer_id) {
+                if peer.peer_type != peer_type {
+                    // Don't remove the peer
+                    return;
+                }
+            }
+        }
+
         // If the last edge we have with this peer represent a connection addition, create the edge
-        // update the represents the connection removal.
+        // update that represents the connection removal.
         self.active_peers.remove(&peer_id);
 
         if let Some(edge) = self.routing_table.get_edge(self.peer_id.clone(), peer_id.clone()) {
@@ -247,21 +267,41 @@ impl PeerManagerActor {
 
     /// Remove a peer from the active peer set. If the peer doesn't belong to the active peer set
     /// data from ongoing connection established is removed.
-    fn unregister_peer(&mut self, ctx: &mut Context<Self>, peer_id: PeerId) {
+    fn unregister_peer(&mut self, ctx: &mut Context<Self>, peer_id: PeerId, peer_type: PeerType) {
         // If this is an unconsolidated peer because failed / connected inbound, just delete it.
-        if self.outgoing_peers.contains(&peer_id) {
+        if peer_type == PeerType::Outbound && self.outgoing_peers.contains(&peer_id) {
             self.outgoing_peers.remove(&peer_id);
             return;
         }
-        self.remove_active_peer(ctx, &peer_id);
+        self.remove_active_peer(ctx, &peer_id, Some(peer_type));
         unwrap_or_error!(self.peer_store.peer_disconnected(&peer_id), "Failed to save peer data");
     }
 
     /// Add peer to ban list.
+    /// This function should only be called after Peer instance is stopped.
+    /// Note: Use `try_ban_peer` if there might be a Peer instance still active.
     fn ban_peer(&mut self, ctx: &mut Context<Self>, peer_id: &PeerId, ban_reason: ReasonForBan) {
         info!(target: "network", "Banning peer {:?} for {:?}", peer_id, ban_reason);
-        self.remove_active_peer(ctx, peer_id);
+        self.remove_active_peer(ctx, peer_id, None);
         unwrap_or_error!(self.peer_store.peer_ban(peer_id, ban_reason), "Failed to save peer data");
+    }
+
+    /// Ban peer. Stop peer instance if it is still active,
+    /// and then mark peer as banned in the peer store.
+    pub(crate) fn try_ban_peer(
+        &mut self,
+        ctx: &mut Context<Self>,
+        peer_id: &PeerId,
+        ban_reason: ReasonForBan,
+    ) {
+        if let Some(peer) = self.active_peers.get(&peer_id) {
+            let _ = peer.addr.do_send(PeerManagerRequest::BanPeer(ban_reason));
+        } else {
+            warn!(target: "network", "Try to ban a disconnected peer for {:?}: {:?}", ban_reason, peer_id);
+            // Call `ban_peer` in peer manager to trigger action that persists information
+            // of ban in disk.
+            self.ban_peer(ctx, &peer_id, ban_reason);
+        }
     }
 
     /// Connects peer with given TcpStream and optional information if it's outbound.
@@ -378,13 +418,7 @@ impl PeerManagerActor {
     /// Get a random peer we are not connected to from the known list.
     fn sample_random_peer(&self, ignore_list: &HashSet<PeerId>) -> Option<PeerInfo> {
         let unconnected_peers = self.peer_store.unconnected_peers(ignore_list);
-        let index = thread_rng().gen_range(0, std::cmp::max(unconnected_peers.len(), 1));
-
-        unconnected_peers
-            .iter()
-            .enumerate()
-            .filter_map(|(i, v)| if i == index { Some(v.clone()) } else { None })
-            .next()
+        unconnected_peers.choose(&mut rand::thread_rng()).cloned()
     }
 
     /// Query current peers for more peers.
@@ -402,7 +436,7 @@ impl PeerManagerActor {
         future::try_join_all(requests)
             .into_actor(self)
             .map(|x, _, _| {
-                let _ignore = x.map_err(|e| error!("Failed sending broadcast message: {}", e));
+                let _ignore = x.map_err(|e| error!(target: "network", "Failed sending broadcast message(query_active_peers): {}", e));
             })
             .spawn(ctx);
     }
@@ -452,7 +486,7 @@ impl PeerManagerActor {
 
         self.send_message(
             ctx,
-            &other.clone(),
+            other.clone(),
             PeerMessage::RequestUpdateNonce(EdgeInfo::new(
                 self.peer_id.clone(),
                 other.clone(),
@@ -496,7 +530,7 @@ impl PeerManagerActor {
                 .addr
                 .send(QueryPeerStats {})
                 .into_actor(self)
-                .map(|result, _, _| result.map_err(|err| error!("Failed sending message: {}", err)))
+                .map(|result, _, _| result.map_err(|err| error!(target: "network", "Failed sending message(monitor_peer_stats): {}", err)))
                 .map(move |res, act, _| {
                     let _ignore = res.map(|res| {
                         if res.is_abusive {
@@ -579,7 +613,7 @@ impl PeerManagerActor {
 
         future::try_join_all(requests)
             .into_actor(self)
-            .map(|res, _, _| res.map_err(|e| error!("Failed sending broadcast message: {}", e)))
+            .map(|res, _, _| res.map_err(|e| error!(target: "network", "Failed sending broadcast message(broadcast_message): {}", e)))
             .map(|_, _, _| ())
             .spawn(ctx);
     }
@@ -600,15 +634,23 @@ impl PeerManagerActor {
     fn send_message(
         &mut self,
         ctx: &mut Context<Self>,
-        peer_id: &PeerId,
+        peer_id: PeerId,
         message: PeerMessage,
     ) -> bool {
         if let Some(active_peer) = self.active_peers.get(&peer_id) {
+            let msg_kind = format!("{}", message);
             active_peer
                 .addr
                 .send(SendMessage { message })
                 .into_actor(self)
-                .map(|res, _, _| res.map_err(|e| error!("Failed sending message: {}", e)))
+                .map(move |res, act, _|
+                    res.map_err(|e| {
+                        // Peer could have disconnect between check and sending the message.
+                        if act.active_peers.contains_key(&peer_id) {
+                            error!(target: "network", "Failed sending message(send_message, {}): {}", msg_kind, e)
+                        }
+                    })
+                )
                 .map(|_, _, _| ())
                 .spawn(ctx);
             true
@@ -652,7 +694,7 @@ impl PeerManagerActor {
                     self.routing_table.add_route_back(msg.hash(), self.peer_id.clone());
                 }
 
-                self.send_message(ctx, &peer_id, PeerMessage::Routed(msg))
+                self.send_message(ctx, peer_id, PeerMessage::Routed(msg))
             }
             Err(find_route_error) => {
                 // TODO(MarX, #1369): Message is dropped here. Define policy for this case.
@@ -887,14 +929,14 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                 NetworkResponses::NoResponse
             }
             NetworkRequests::BlockRequest { hash, peer_id } => {
-                if self.send_message(ctx, &peer_id, PeerMessage::BlockRequest(hash)) {
+                if self.send_message(ctx, peer_id, PeerMessage::BlockRequest(hash)) {
                     NetworkResponses::NoResponse
                 } else {
                     NetworkResponses::RouteNotFound
                 }
             }
             NetworkRequests::BlockHeadersRequest { hashes, peer_id } => {
-                if self.send_message(ctx, &peer_id, PeerMessage::BlockHeadersRequest(hashes)) {
+                if self.send_message(ctx, peer_id, PeerMessage::BlockHeadersRequest(hashes)) {
                     NetworkResponses::NoResponse
                 } else {
                     NetworkResponses::RouteNotFound
@@ -936,15 +978,7 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                 }
             }
             NetworkRequests::BanPeer { peer_id, ban_reason } => {
-                if let Some(peer) = self.active_peers.get(&peer_id) {
-                    let _ = peer.addr.do_send(PeerManagerRequest::BanPeer(ban_reason));
-                } else {
-                    warn!(target: "network", "Try to ban a disconnected peer: {:?}", peer_id);
-                    // Call `ban_peer` in peer manager to trigger action that persists information
-                    // of ban in disk.
-                    self.ban_peer(ctx, &peer_id, ban_reason);
-                }
-
+                self.try_ban_peer(ctx, &peer_id, ban_reason);
                 NetworkResponses::NoResponse
             }
             NetworkRequests::AnnounceAccount(announce_account) => {
@@ -1265,6 +1299,11 @@ impl Handler<Consolidate> for PeerManagerActor {
             return ConsolidateResponse::Reject;
         }
 
+        if self.peer_store.is_banned(&msg.peer_info.id) {
+            debug!(target: "network", "Dropping connection from banned peer: {:?}", msg.peer_info.id);
+            return ConsolidateResponse::Reject;
+        }
+
         // We already connected to this peer.
         if self.active_peers.contains_key(&msg.peer_info.id) {
             debug!(target: "network", "Dropping handshake (Active Peer). {:?} {:?}", self.peer_id, msg.peer_info.id);
@@ -1330,7 +1369,7 @@ impl Handler<Unregister> for PeerManagerActor {
     type Result = ();
 
     fn handle(&mut self, msg: Unregister, ctx: &mut Self::Context) {
-        self.unregister_peer(ctx, msg.peer_id);
+        self.unregister_peer(ctx, msg.peer_id, msg.peer_type);
     }
 }
 

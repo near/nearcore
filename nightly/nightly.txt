@@ -25,6 +25,11 @@ pytest --timeout=240 sanity/block_sync.py
 pytest --timeout=240 sanity/validator_switch.py
 pytest --timeout=240 sanity/restaked.py
 pytest --timeout=240 sanity/rpc_state_changes.py
+pytest --timeout=120 sanity/garbage_collection.py
+pytest --timeout=120 sanity/garbage_collection1.py
+pytest --timeout=300 sanity/gc_after_sync.py
+pytest --timeout=300 sanity/gc_sync_after_sync.py
+pytest --timeout=300 sanity/gc_sync_after_sync.py swap_nodes
 
 # python tests for smart contract deployment and invocation
 pytest contracts/deploy_call_smart_contract.py
@@ -77,7 +82,7 @@ expensive --timeout=2400 near-epoch-manager finality tests::test_fuzzy_safety
 expensive --timeout=1200 near-epoch-manager finality tests::test_fuzzy_light_client
 
 # state sync tests
-expensive near sync_state_nodes sync_state_nodes_multishard
+expensive neard sync_state_nodes sync_state_nodes_multishard
 
 # testnet rpc
 expensive nearcore test_tps_regression test::test_highload
@@ -112,6 +117,14 @@ expensive nearcore test_cases_testnet_rpc test::test_add_access_key_with_allowan
 expensive nearcore test_cases_testnet_rpc test::test_delete_access_key_with_allowance_testnet
 # The next test is disabled due to #2208
 # expensive nearcore test_cases_testnet_rpc test::test_access_key_smart_contract_testnet
+
+# GC tests
+expensive --timeout=600 near-chain gc tests::test_gc_remove_fork_large
+expensive --timeout=1200 near-chain gc tests::test_gc_not_remove_fork_large
+expensive --timeout=600 near-chain gc tests::test_gc_boundaries_large
+expensive --timeout=600 near-chain gc tests::test_gc_random_large
+expensive --timeout=600 near-chain gc tests::test_gc_pine
+expensive --timeout=600 near-chain gc tests::test_gc_star_large
 
 # other tests
 expensive nearcore test_simple test::test_2_10_multiple_nodes

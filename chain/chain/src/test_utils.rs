@@ -36,11 +36,12 @@ use near_store::{
     ColBlockHeader, PartialStorage, Store, StoreUpdate, Trie, TrieChanges, WrappedTrieChanges,
 };
 
-use crate::chain::{Chain, ChainGenesis};
+use crate::chain::{Chain, ChainGenesis, NUM_EPOCHS_TO_KEEP_STORE_DATA};
 use crate::error::{Error, ErrorKind};
 use crate::store::ChainStoreAccess;
 use crate::types::ApplyTransactionResult;
 use crate::{BlockHeader, DoomslugThresholdMode, RuntimeAdapter};
+use num_rational::Rational;
 
 #[derive(
     BorshSerialize, BorshDeserialize, Serialize, Hash, PartialEq, Eq, Ord, PartialOrd, Clone, Debug,
@@ -254,6 +255,10 @@ impl RuntimeAdapter for KeyValueRuntime {
             self.store.store_update(),
             ((0..self.num_shards()).map(|_| StateRoot::default()).collect()),
         )
+    }
+
+    fn get_trie(&self) -> Arc<Trie> {
+        self.trie.clone()
     }
 
     fn verify_block_signature(&self, header: &BlockHeader) -> Result<(), Error> {
@@ -472,7 +477,6 @@ impl RuntimeAdapter for KeyValueRuntime {
         _proposals: Vec<ValidatorStake>,
         _slashed_validators: Vec<SlashedValidator>,
         _validator_mask: Vec<bool>,
-        _rent_paid: Balance,
         _validator_reward: Balance,
         _total_supply: Balance,
     ) -> Result<(), Error> {
@@ -648,7 +652,6 @@ impl RuntimeAdapter for KeyValueRuntime {
             receipt_result: new_receipts,
             validator_proposals: vec![],
             total_gas_burnt: 0,
-            total_rent_paid: 0,
             total_validator_reward: 0,
             total_balance_burnt: 0,
             proof: None,
@@ -680,6 +683,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         block_height: BlockHeight,
         _block_timestamp: u64,
         block_hash: &CryptoHash,
+        _epoch_id: &EpochId,
         request: &QueryRequest,
     ) -> Result<QueryResponse, Box<dyn std::error::Error>> {
         match request {
@@ -693,7 +697,6 @@ impl RuntimeAdapter for KeyValueRuntime {
                         locked: 0,
                         code_hash: CryptoHash::default(),
                         storage_usage: 0,
-                        storage_paid_at: 0,
                     }
                     .into(),
                 ),
@@ -831,6 +834,12 @@ impl RuntimeAdapter for KeyValueRuntime {
         }
     }
 
+    fn get_gc_stop_height(&self, block_hash: &CryptoHash) -> Result<BlockHeight, Error> {
+        let block_height =
+            self.get_block_header(block_hash)?.map(|h| h.inner_lite.height).unwrap_or_default();
+        Ok(block_height.saturating_sub(NUM_EPOCHS_TO_KEEP_STORE_DATA * self.epoch_length))
+    }
+
     fn get_epoch_inflation(&self, _epoch_id: &EpochId) -> Result<u128, Error> {
         Ok(0)
     }
@@ -842,6 +851,7 @@ impl RuntimeAdapter for KeyValueRuntime {
             current_fishermen: vec![],
             next_fishermen: vec![],
             current_proposals: vec![],
+            prev_epoch_kickout: vec![],
         })
     }
 
@@ -914,8 +924,8 @@ pub fn setup_with_tx_validity_period(
             1_000_000,
             100,
             1_000_000_000,
-            0,
-            0,
+            Rational::from_integer(0),
+            Rational::from_integer(0),
             tx_validity_period,
             10,
         ),
@@ -953,8 +963,8 @@ pub fn setup_with_validators(
             1_000_000,
             100,
             1_000_000_000,
-            0,
-            0,
+            Rational::from_integer(0),
+            Rational::from_integer(0),
             tx_validity_period,
             epoch_length,
         ),
@@ -1070,8 +1080,8 @@ impl ChainGenesis {
             gas_limit: 1_000_000,
             min_gas_price: 0,
             total_supply: 1_000_000_000,
-            max_inflation_rate: 0,
-            gas_price_adjustment_rate: 0,
+            max_inflation_rate: Rational::from_integer(0),
+            gas_price_adjustment_rate: Rational::from_integer(0),
             transaction_validity_period: 100,
             epoch_length: 5,
         }
@@ -1107,7 +1117,7 @@ pub fn new_block_no_epoch_switches(
         epoch_id,
         next_epoch_id,
         approvals,
-        0,
+        Rational::from_integer(0),
         0,
         Some(0),
         vec![],

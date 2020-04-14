@@ -1,8 +1,8 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::net::TcpListener;
 use std::time::Duration;
 
-use actix::{Actor, ActorContext, AsyncContext, Context, Handler, Message};
+use actix::{Actor, ActorContext, AsyncContext, Context, Handler, MailboxError, Message};
 use futures::{future, FutureExt};
 use log::debug;
 use rand::{thread_rng, RngCore};
@@ -14,16 +14,37 @@ use near_primitives::network::PeerId;
 use near_primitives::types::EpochId;
 use near_primitives::utils::index_to_bytes;
 
-use crate::types::{NetworkConfig, NetworkInfo, PeerInfo, ROUTED_MESSAGE_TTL};
-use crate::PeerManagerActor;
+use crate::types::{NetworkConfig, NetworkInfo, PeerInfo, ReasonForBan, ROUTED_MESSAGE_TTL};
+use crate::{NetworkAdapter, NetworkRequests, NetworkResponses, PeerManagerActor};
+use futures::future::BoxFuture;
+use std::sync::{Arc, Mutex, RwLock};
+
+lazy_static! {
+    static ref OPENED_PORTS: Mutex<HashSet<u16>> = Mutex::new(HashSet::new());
+}
 
 /// Returns available port.
 pub fn open_port() -> u16 {
     // use port 0 to allow the OS to assign an open port
     // TcpListener's Drop impl will unbind the port as soon as
-    // listener goes out of scope
-    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-    listener.local_addr().unwrap().port()
+    // listener goes out of scope. We retry multiple times and store
+    // selected port in OPENED_PORTS to avoid port collision among
+    // multiple tests.
+    let max_attempts = 100;
+
+    for _ in 0..max_attempts {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+
+        let mut opened_ports = OPENED_PORTS.lock().unwrap();
+
+        if !opened_ports.contains(&port) {
+            opened_ports.insert(port);
+            return port;
+        }
+    }
+
+    panic!("Failed to find an open port after {} attempts.", max_attempts);
 }
 
 impl NetworkConfig {
@@ -222,5 +243,52 @@ impl Handler<StopSignal> for PeerManagerActor {
         } else {
             ctx.stop();
         }
+    }
+}
+
+#[derive(Message)]
+#[rtype(result = "()")]
+pub struct BanPeerSignal {
+    pub peer_id: PeerId,
+    pub ban_reason: ReasonForBan,
+}
+
+impl BanPeerSignal {
+    pub fn new(peer_id: PeerId) -> Self {
+        Self { peer_id, ban_reason: ReasonForBan::None }
+    }
+}
+
+impl Handler<BanPeerSignal> for PeerManagerActor {
+    type Result = ();
+
+    fn handle(&mut self, msg: BanPeerSignal, ctx: &mut Self::Context) -> Self::Result {
+        debug!(target: "network", "Ban peer: {:?}", msg.peer_id);
+        self.try_ban_peer(ctx, &msg.peer_id, msg.ban_reason);
+    }
+}
+
+#[derive(Default)]
+pub struct MockNetworkAdapter {
+    pub requests: Arc<RwLock<VecDeque<NetworkRequests>>>,
+}
+
+impl NetworkAdapter for MockNetworkAdapter {
+    fn send(
+        &self,
+        msg: NetworkRequests,
+    ) -> BoxFuture<'static, Result<NetworkResponses, MailboxError>> {
+        self.do_send(msg);
+        future::ok(NetworkResponses::NoResponse).boxed()
+    }
+
+    fn do_send(&self, msg: NetworkRequests) {
+        self.requests.write().unwrap().push_back(msg);
+    }
+}
+
+impl MockNetworkAdapter {
+    pub fn pop(&self) -> Option<NetworkRequests> {
+        self.requests.write().unwrap().pop_front()
     }
 }

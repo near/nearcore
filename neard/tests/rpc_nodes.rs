@@ -3,7 +3,6 @@ use borsh::BorshSerialize;
 use futures::{future, FutureExt, TryFutureExt};
 use tempdir::TempDir;
 
-use near::config::TESTING_INIT_BALANCE;
 use near_client::{GetBlock, TxStatus};
 use near_crypto::{InMemorySigner, KeyType};
 use near_jsonrpc::client::new_client;
@@ -13,6 +12,7 @@ use near_primitives::test_utils::{heavy_test, init_integration_logger};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::BlockId;
 use near_primitives::views::{FinalExecutionStatus, QueryResponseKind};
+use neard::config::TESTING_INIT_BALANCE;
 use testlib::{genesis_block, start_nodes};
 
 /// Starts 2 validators and 2 light clients (not tracking anything).
@@ -51,7 +51,7 @@ fn test_tx_propagation() {
                 // Probably make sense to stop after 1 time though.
                 actix::spawn(view_client.send(GetBlock::latest()).then(move |res| {
                     if res.unwrap().unwrap().header.height > 1 {
-                        let mut client = new_client(&format!("http://{}", rpc_addrs_copy[2]));
+                        let client = new_client(&format!("http://{}", rpc_addrs_copy[2]));
                         let bytes = transaction_copy.try_to_vec().unwrap();
                         actix::spawn(
                             client
@@ -125,7 +125,7 @@ fn test_tx_propagation_through_rpc() {
                 // Probably make sense to stop after 1 time though.
                 actix::spawn(view_client.send(GetBlock::latest()).then(move |res| {
                     if res.unwrap().unwrap().header.height > 1 {
-                        let mut client = new_client(&format!("http://{}", rpc_addrs_copy[2]));
+                        let client = new_client(&format!("http://{}", rpc_addrs_copy[2]));
                         let bytes = transaction_copy.try_to_vec().unwrap();
                         actix::spawn(
                             client
@@ -190,7 +190,7 @@ fn test_tx_status_with_light_client() {
                 let tx_hash_clone = tx_hash.clone();
                 actix::spawn(view_client.send(GetBlock::latest()).then(move |res| {
                     if res.unwrap().unwrap().header.height > 1 {
-                        let mut client = new_client(&format!("http://{}", rpc_addrs_copy[2]));
+                        let client = new_client(&format!("http://{}", rpc_addrs_copy[2]));
                         let bytes = transaction_copy.try_to_vec().unwrap();
                         actix::spawn(
                             client
@@ -204,7 +204,7 @@ fn test_tx_status_with_light_client() {
                     }
                     future::ready(())
                 }));
-                let mut client = new_client(&format!("http://{}", rpc_addrs_copy1[2].clone()));
+                let client = new_client(&format!("http://{}", rpc_addrs_copy1[2].clone()));
                 actix::spawn(
                     client
                         .tx(tx_hash_clone.to_string(), signer_account_id)
@@ -261,7 +261,7 @@ fn test_tx_status_with_light_client1() {
                 let tx_hash_clone = tx_hash.clone();
                 actix::spawn(view_client.send(GetBlock::latest()).then(move |res| {
                     if res.unwrap().unwrap().header.height > 1 {
-                        let mut client = new_client(&format!("http://{}", rpc_addrs_copy[2]));
+                        let client = new_client(&format!("http://{}", rpc_addrs_copy[2]));
                         let bytes = transaction_copy.try_to_vec().unwrap();
                         actix::spawn(
                             client
@@ -275,7 +275,7 @@ fn test_tx_status_with_light_client1() {
                     }
                     future::ready(())
                 }));
-                let mut client = new_client(&format!("http://{}", rpc_addrs_copy1[2].clone()));
+                let client = new_client(&format!("http://{}", rpc_addrs_copy1[2].clone()));
                 actix::spawn(
                     client
                         .tx(tx_hash_clone.to_string(), signer_account_id)
@@ -314,7 +314,7 @@ fn test_rpc_routing() {
                 let rpc_addrs_copy = rpc_addrs.clone();
                 actix::spawn(view_client.send(GetBlock::latest()).then(move |res| {
                     if res.unwrap().unwrap().header.height > 1 {
-                        let mut client = new_client(&format!("http://{}", rpc_addrs_copy[2]));
+                        let client = new_client(&format!("http://{}", rpc_addrs_copy[2]));
                         actix::spawn(
                             client
                                 .query_by_path("account/near.2".to_string(), "".to_string())
@@ -361,7 +361,7 @@ fn test_rpc_routing_error() {
                 let rpc_addrs_copy = rpc_addrs.clone();
                 actix::spawn(view_client.send(GetBlock::latest()).then(move |res| {
                     if res.unwrap().unwrap().header.height > 1 {
-                        let mut client = new_client(&format!("http://{}", rpc_addrs_copy[2]));
+                        let client = new_client(&format!("http://{}", rpc_addrs_copy[2]));
                         actix::spawn(
                             client
                                 .query_by_path("account/nonexistent".to_string(), "".to_string())
@@ -403,7 +403,7 @@ fn test_get_validator_info_rpc() {
                 actix::spawn(view_client.send(GetBlock::latest()).then(move |res| {
                     let res = res.unwrap().unwrap();
                     if res.header.height > 1 {
-                        let mut client = new_client(&format!("http://{}", rpc_addrs_copy[0]));
+                        let client = new_client(&format!("http://{}", rpc_addrs_copy[0]));
                         let block_hash = res.header.hash;
                         actix::spawn(
                             client

@@ -25,7 +25,7 @@ pub enum ErrorKind {
     ChunkMissing(ChunkHash),
     /// Chunks missing with header info.
     #[fail(display = "Chunks Missing: {:?}", _0)]
-    ChunksMissing(Vec<(ShardChunkHeader)>),
+    ChunksMissing(Vec<ShardChunkHeader>),
     /// Block time is before parent block time.
     #[fail(display = "Invalid Block Time: block time {} before previous {}", _1, _0)]
     InvalidBlockPastTime(DateTime<Utc>, DateTime<Utc>),
@@ -128,9 +128,6 @@ pub enum ErrorKind {
     /// Invalid Gas Used
     #[fail(display = "Invalid Gas Used")]
     InvalidGasUsed,
-    /// Invalid Rent Paid
-    #[fail(display = "Invalid Rent Paid")]
-    InvalidRent,
     /// Invalid Validator Reward
     #[fail(display = "Invalid Validator Reward")]
     InvalidReward,
@@ -167,6 +164,9 @@ pub enum ErrorKind {
     /// Storage error. Used for internal passing the error.
     #[fail(display = "Storage Error")]
     StorageError,
+    /// GC error.
+    #[fail(display = "GC Error: {}", _0)]
+    GCError(String),
     /// Anything else
     #[fail(display = "Other Error: {}", _0)]
     Other(String),
@@ -214,6 +214,7 @@ impl Error {
             | ErrorKind::EpochOutOfBounds
             | ErrorKind::ChallengedBlockOnChain
             | ErrorKind::StorageError
+            | ErrorKind::GCError(_)
             | ErrorKind::DBNotFoundErr(_) => false,
             ErrorKind::InvalidBlockPastTime(_, _)
             | ErrorKind::InvalidBlockFutureTime(_)
@@ -250,7 +251,6 @@ impl Error {
             | ErrorKind::InvalidGasUsed
             | ErrorKind::InvalidReward
             | ErrorKind::InvalidBalanceBurnt
-            | ErrorKind::InvalidRent
             | ErrorKind::InvalidShardId(_)
             | ErrorKind::InvalidStateRequest(_)
             | ErrorKind::InvalidRandomnessBeaconOutput

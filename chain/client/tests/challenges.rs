@@ -4,10 +4,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use borsh::BorshSerialize;
-use reed_solomon_erasure::galois_8::ReedSolomon;
 
-use near::config::{GenesisExt, FISHERMEN_THRESHOLD};
-use near::NightshadeRuntime;
 use near_chain::chain::BlockEconomicsConfig;
 use near_chain::validate::validate_challenge;
 use near_chain::{
@@ -15,9 +12,10 @@ use near_chain::{
     RuntimeAdapter,
 };
 use near_chain_configs::Genesis;
-use near_client::test_utils::{MockNetworkAdapter, TestEnv};
+use near_client::test_utils::TestEnv;
 use near_client::Client;
 use near_crypto::{InMemorySigner, KeyType, Signer};
+use near_network::test_utils::MockNetworkAdapter;
 use near_network::NetworkRequests;
 use near_primitives::challenge::{
     BlockDoubleSign, Challenge, ChallengeBody, ChunkProofs, MaybeEncodedShardChunk,
@@ -26,12 +24,15 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{merklize, MerklePath};
 use near_primitives::receipt::Receipt;
 use near_primitives::serialize::BaseDecode;
-use near_primitives::sharding::EncodedShardChunk;
+use near_primitives::sharding::{EncodedShardChunk, ReedSolomonWrapper};
 use near_primitives::test_utils::init_test_logger;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::StateRoot;
 use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_store::test_utils::create_test_store;
+use neard::config::{GenesisExt, FISHERMEN_THRESHOLD};
+use neard::NightshadeRuntime;
+use num_rational::Rational;
 
 #[test]
 fn test_verify_block_double_sign_challenge() {
@@ -50,7 +51,7 @@ fn test_verify_block_double_sign_challenge() {
         b1.header.inner_lite.epoch_id.clone(),
         b1.header.inner_lite.next_epoch_id.clone(),
         vec![],
-        0,
+        Rational::from_integer(0),
         0,
         None,
         vec![],
@@ -153,7 +154,7 @@ fn create_chunk(
         let data_parts = client.chain.runtime_adapter.num_data_parts();
         let decoded_chunk = chunk.decode_chunk(data_parts).unwrap();
         let parity_parts = total_parts - data_parts;
-        let rs = ReedSolomon::new(data_parts, parity_parts).unwrap();
+        let mut rs = ReedSolomonWrapper::new(data_parts, parity_parts);
 
         let (tx_root, _) = merklize(&transactions);
         let signer = client.validator_signer.as_ref().unwrap().clone();
@@ -163,10 +164,9 @@ fn create_chunk(
             chunk.header.inner.outcome_root,
             chunk.header.inner.height_created,
             chunk.header.inner.shard_id,
-            &rs,
+            &mut rs,
             chunk.header.inner.gas_used,
             chunk.header.inner.gas_limit,
-            chunk.header.inner.rent_paid,
             chunk.header.inner.validator_reward,
             chunk.header.inner.balance_burnt,
             tx_root,
@@ -195,7 +195,7 @@ fn create_chunk(
         last_block.header.inner_lite.epoch_id.clone(),
         last_block.header.inner_lite.next_epoch_id.clone(),
         vec![],
-        0,
+        Rational::from_integer(0),
         0,
         None,
         vec![],
@@ -364,7 +364,7 @@ fn challenge(
 fn test_verify_chunk_invalid_state_challenge() {
     let store1 = create_test_store();
     let genesis = Genesis::test(vec!["test0", "test1"], 1);
-    let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![Arc::new(near::NightshadeRuntime::new(
+    let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![Arc::new(neard::NightshadeRuntime::new(
         Path::new("."),
         store1,
         Arc::new(genesis),
@@ -376,14 +376,17 @@ fn test_verify_chunk_invalid_state_challenge() {
     let validator_signer = InMemoryValidatorSigner::from_seed("test0", KeyType::ED25519, "test0");
     let genesis_hash = env.clients[0].chain.genesis().hash();
     env.produce_block(0, 1);
-    env.clients[0].process_tx(SignedTransaction::send_money(
-        0,
-        "test0".to_string(),
-        "test1".to_string(),
-        &signer,
-        1000,
-        genesis_hash,
-    ));
+    env.clients[0].process_tx(
+        SignedTransaction::send_money(
+            0,
+            "test0".to_string(),
+            "test1".to_string(),
+            &signer,
+            1000,
+            genesis_hash,
+        ),
+        false,
+    );
     env.produce_block(0, 2);
 
     // Invalid chunk & block.
@@ -392,7 +395,7 @@ fn test_verify_chunk_invalid_state_challenge() {
     let total_parts = env.clients[0].runtime_adapter.num_total_parts();
     let data_parts = env.clients[0].runtime_adapter.num_data_parts();
     let parity_parts = total_parts - data_parts;
-    let rs = ReedSolomon::new(data_parts, parity_parts).unwrap();
+    let mut rs = ReedSolomonWrapper::new(data_parts, parity_parts);
     let (mut invalid_chunk, merkle_paths) = env.clients[0]
         .shards_mgr
         .create_encoded_shard_chunk(
@@ -405,14 +408,13 @@ fn test_verify_chunk_invalid_state_challenge() {
             1_000,
             0,
             0,
-            0,
             vec![],
             vec![],
             &vec![],
             last_block.chunks[0].inner.outgoing_receipts_root,
             CryptoHash::default(),
             &validator_signer,
-            &rs,
+            &mut rs,
         )
         .unwrap();
 
@@ -437,7 +439,7 @@ fn test_verify_chunk_invalid_state_challenge() {
         last_block.header.inner_lite.epoch_id.clone(),
         last_block.header.inner_lite.next_epoch_id.clone(),
         vec![],
-        0,
+        Rational::from_integer(0),
         0,
         None,
         vec![],
@@ -456,6 +458,10 @@ fn test_verify_chunk_invalid_state_challenge() {
         let adapter = chain.runtime_adapter.clone();
         let epoch_length = chain.epoch_length;
         let empty_block_pool = OrphanBlockPool::new();
+        let economics_config = BlockEconomicsConfig {
+            gas_price_adjustment_rate: Rational::from_integer(0),
+            min_gas_price: 0,
+        };
 
         let mut chain_update = ChainUpdate::new(
             chain.mut_store(),
@@ -463,7 +469,7 @@ fn test_verify_chunk_invalid_state_challenge() {
             &empty_block_pool,
             &empty_block_pool,
             epoch_length,
-            &BlockEconomicsConfig { gas_price_adjustment_rate: 0, min_gas_price: 0 },
+            &economics_config,
             DoomslugThresholdMode::NoApprovals,
         );
 
@@ -480,16 +486,16 @@ fn test_verify_chunk_invalid_state_challenge() {
             challenge_body.partial_state.0,
             vec![
                 vec![
-                    1, 5, 0, 195, 214, 6, 46, 119, 169, 1, 3, 121, 138, 244, 191, 143, 67, 22, 114,
-                    135, 198, 178, 165, 31, 28, 170, 137, 37, 101, 144, 65, 83, 21, 211, 67, 171,
-                    30, 7, 228, 175, 99, 17, 113, 5, 94, 136, 200, 39, 136, 37, 110, 166, 241, 148,
-                    128, 55, 131, 173, 97, 98, 201, 68, 82, 244, 223, 70, 86, 185, 5, 0, 0, 0, 0,
-                    0, 0
+                    1, 5, 0, 10, 178, 228, 151, 124, 13, 70, 6, 146, 31, 193, 111, 108, 60, 102,
+                    227, 106, 220, 133, 45, 144, 104, 255, 30, 155, 129, 215, 15, 43, 202, 26, 122,
+                    171, 30, 7, 228, 175, 99, 17, 113, 5, 94, 136, 200, 39, 136, 37, 110, 166, 241,
+                    148, 128, 55, 131, 173, 97, 98, 201, 68, 82, 244, 223, 70, 86, 161, 5, 0, 0, 0,
+                    0, 0, 0
                 ],
                 vec![
-                    3, 1, 0, 0, 0, 16, 89, 163, 102, 187, 221, 241, 76, 89, 115, 107, 96, 179, 220,
-                    198, 2, 101, 186, 51, 10, 127, 106, 82, 61, 92, 36, 164, 125, 1, 231, 68, 208,
-                    8, 237, 5, 0, 0, 0, 0, 0, 0
+                    3, 1, 0, 0, 0, 16, 49, 233, 115, 11, 86, 10, 193, 50, 45, 253, 137, 126, 230,
+                    236, 254, 86, 230, 148, 94, 141, 44, 46, 130, 154, 189, 73, 179, 223, 178, 17,
+                    133, 232, 213, 5, 0, 0, 0, 0, 0, 0
                 ]
             ],
         );
@@ -522,7 +528,9 @@ fn test_verify_chunk_invalid_state_challenge() {
 }
 
 /// Receive invalid state transition in chunk as next chunk producer.
+/// TODO(2445): Enable challenges when they are working correctly.
 #[test]
+#[ignore]
 fn test_receive_invalid_chunk_as_chunk_producer() {
     init_test_logger();
     let mut env = TestEnv::new(ChainGenesis::test(), 2, 1);
@@ -597,7 +605,9 @@ fn test_receive_two_chunks_from_one_producer() {}
 fn test_receive_two_blocks_from_one_producer() {}
 
 /// Receive challenges in the blocks.
+/// TODO(2445): Enable challenges when they are working correctly.
 #[test]
+#[ignore]
 fn test_block_challenge() {
     init_test_logger();
     let mut env = TestEnv::new(ChainGenesis::test(), 1, 1);
@@ -621,14 +631,16 @@ fn test_block_challenge() {
 
 /// Make sure that fisherman can initiate challenges while an account that is neither a fisherman nor
 /// a validator cannot.
+// TODO(2445): Enable challenges when they are working correctly.
 #[test]
+#[ignore]
 fn test_fishermen_challenge() {
     init_test_logger();
     let mut genesis = Genesis::test(vec!["test0", "test1", "test2"], 1);
     genesis.config.epoch_length = 5;
     let genesis = Arc::new(genesis);
     let create_runtime = || -> Arc<NightshadeRuntime> {
-        Arc::new(near::NightshadeRuntime::new(
+        Arc::new(neard::NightshadeRuntime::new(
             Path::new("."),
             create_test_store(),
             Arc::clone(&genesis),
@@ -651,7 +663,7 @@ fn test_fishermen_challenge() {
         signer.public_key(),
         genesis_hash,
     );
-    env.clients[0].process_tx(stake_transaction);
+    env.clients[0].process_tx(stake_transaction, false);
     for i in 1..=11 {
         env.produce_block(0, i);
     }
@@ -689,14 +701,14 @@ fn test_challenge_in_different_epoch() {
     let genesis = Arc::new(genesis);
     //    genesis.config.validator_kickout_threshold = 10;
     let network_adapter = Arc::new(MockNetworkAdapter::default());
-    let runtime1 = Arc::new(near::NightshadeRuntime::new(
+    let runtime1 = Arc::new(neard::NightshadeRuntime::new(
         Path::new("."),
         create_test_store(),
         Arc::clone(&genesis),
         vec![],
         vec![],
     ));
-    let runtime2 = Arc::new(near::NightshadeRuntime::new(
+    let runtime2 = Arc::new(neard::NightshadeRuntime::new(
         Path::new("."),
         create_test_store(),
         genesis,

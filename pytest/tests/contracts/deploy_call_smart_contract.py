@@ -27,9 +27,11 @@ res = nodes[1].send_tx_and_wait(tx2, 10)
 assert res['result']['receipts_outcome'][0]['outcome']['logs'][0] == 'hello'
 
 wasm_file = compile_rust_contract('''
-#[near_bindgen]
-#[derive(Default, BorshDeserialize, BorshSerialize)]
-pub struct StatusMessage {}
+metadata! {
+  #[near_bindgen]
+  #[derive(Default, BorshDeserialize, BorshSerialize)]
+  pub struct StatusMessage {}
+}
 
 #[near_bindgen]
 impl StatusMessage {
@@ -49,6 +51,6 @@ time.sleep(3)
 status4 = nodes[3].get_status()
 hash_4 = status4['sync_info']['latest_block_hash']
 hash_4 = base58.b58decode(hash_4.encode('utf8'))
-tx4 = sign_function_call_tx(nodes[2].signer_key, nodes[2].signer_key.account_id, 'log_world', [], 100000000000, 100000000000, 20, hash_4)
+tx4 = sign_function_call_tx(nodes[2].signer_key, nodes[2].signer_key.account_id, 'log_world', [], 100000000000, 0, 20, hash_4)
 res = nodes[3].send_tx_and_wait(tx4, 10)
 assert res['result']['receipts_outcome'][0]['outcome']['logs'][0] == 'world'

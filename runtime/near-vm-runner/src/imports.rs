@@ -12,13 +12,14 @@ unsafe impl Sync for ImportReference {}
 macro_rules! wrapped_imports {
         ( $( $func:ident < [ $( $arg_name:ident : $arg_type:ident ),* ] -> [ $( $returns:ident ),* ] >, )* ) => {
             $(
+                #[allow(unused_parens)]
                 fn $func( ctx: &mut Ctx, $( $arg_name: $arg_type ),* ) -> Result<($( $returns ),*)> {
-                    let logic: &mut VMLogic = unsafe { &mut *(ctx.data as *mut VMLogic) };
+                    let logic: &mut VMLogic<'_> = unsafe { &mut *(ctx.data as *mut VMLogic<'_>) };
                     logic.$func( $( $arg_name, )* )
                 }
             )*
 
-            pub(crate) fn build(memory: Memory, logic: &mut VMLogic) -> ImportObject {
+            pub(crate) fn build(memory: Memory, logic: &mut VMLogic<'_>) -> ImportObject {
                 let raw_ptr = logic as *mut _ as *mut c_void;
                 let import_reference = ImportReference(raw_ptr);
                 imports! {
@@ -55,6 +56,7 @@ wrapped_imports! {
     // TODO #1903 rename to `block_height`
     block_index<[] -> [u64]>,
     block_timestamp<[] -> [u64]>,
+    epoch_height<[] -> [u64]>,
     storage_usage<[] -> [u64]>,
     // #################
     // # Economics API #

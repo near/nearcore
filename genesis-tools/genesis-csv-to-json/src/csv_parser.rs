@@ -9,14 +9,13 @@ use serde::{Deserialize, Serialize};
 
 use near_crypto::{KeyType, PublicKey};
 use near_network::PeerInfo;
+use near_primitives::account::{AccessKey, AccessKeyPermission, Account, FunctionCallPermission};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum};
-use near_primitives::serialize::to_base64;
 use near_primitives::state_record::StateRecord;
 use near_primitives::transaction::{Action, FunctionCallAction};
 use near_primitives::types::{AccountId, AccountInfo, Balance, Gas};
 use near_primitives::utils::{create_nonce_with_nonce, is_valid_account_id};
-use near_primitives::views::{AccessKeyPermissionView, AccessKeyView, AccountView};
 
 /// Methods that can be called by a non-privileged access key.
 const REGULAR_METHOD_NAMES: &[&str] = &["stake", "transfer"];
@@ -181,7 +180,7 @@ where
 /// Returns the records representing state of an individual token holder.
 fn account_records(row: &Row, gas_price: Balance) -> Vec<StateRecord> {
     let smart_contract_hash;
-    let smart_contract_base64;
+    let smart_contract_code;
     if let Some(ref smart_contract) = row.smart_contract {
         let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         path.push(smart_contract);
@@ -189,20 +188,19 @@ fn account_records(row: &Row, gas_price: Balance) -> Vec<StateRecord> {
         let mut code = vec![];
         f.read_to_end(&mut code).expect("Failed reading smart contract file.");
         smart_contract_hash = hash(&code);
-        smart_contract_base64 = Some(to_base64(&code));
+        smart_contract_code = Some(code);
     } else {
         smart_contract_hash = CryptoHash::default();
-        smart_contract_base64 = None;
+        smart_contract_code = None;
     }
 
     let mut res = vec![StateRecord::Account {
         account_id: row.account_id.clone(),
-        account: AccountView {
+        account: Account {
             amount: row.amount,
             locked: row.validator_stake,
             code_hash: smart_contract_hash.into(),
             storage_usage: 0,
-            storage_paid_at: 0,
         },
     }];
 
@@ -216,13 +214,13 @@ fn account_records(row: &Row, gas_price: Balance) -> Vec<StateRecord> {
             res.push(StateRecord::AccessKey {
                 account_id: row.account_id.clone(),
                 public_key: pk,
-                access_key: AccessKeyView {
+                access_key: AccessKey {
                     nonce: 0,
-                    permission: AccessKeyPermissionView::FunctionCall {
+                    permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
                         allowance: None,
                         receiver_id: row.account_id.clone(),
                         method_names: method_names.iter().map(|x| x.to_string()).collect(),
-                    },
+                    }),
                 },
             })
         }
@@ -233,16 +231,13 @@ fn account_records(row: &Row, gas_price: Balance) -> Vec<StateRecord> {
         res.push(StateRecord::AccessKey {
             account_id: row.account_id.clone(),
             public_key: pk,
-            access_key: AccessKeyView { nonce: 0, permission: AccessKeyPermissionView::FullAccess },
+            access_key: AccessKey::full_access(),
         })
     }
 
     // Add smart contract code if was specified.
-    if let Some(smart_contract_base64) = smart_contract_base64 {
-        res.push(StateRecord::Contract {
-            account_id: row.account_id.clone(),
-            code: smart_contract_base64,
-        });
+    if let Some(code) = smart_contract_code {
+        res.push(StateRecord::Contract { account_id: row.account_id.clone(), code });
     }
 
     // Add init function call if smart contract was provided.

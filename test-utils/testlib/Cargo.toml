@@ -19,8 +19,9 @@ lazy_static = "1.4"
 byteorder = "1.2"
 tempdir = "0.3"
 assert_matches = "1.3.0"
+num-rational = "0.2.4"
 
-borsh = "0.6.0"
+borsh = "0.6.1"
 
 near-chain-configs = { path = "../../core/chain-configs" }
 near-crypto = { path = "../../core/crypto" }
@@ -33,7 +34,7 @@ near-client = { path = "../../chain/client" }
 near-jsonrpc = { path = "../../chain/jsonrpc" }
 near-network = { path = "../../chain/network" }
 near-jsonrpc-client = { path = "../../chain/jsonrpc/client" }
-near = { path = "../../near" }
+neard = { path = "../../neard" }
 near-runtime-fees = { path = "../../runtime/near-runtime-fees" }
 
 reqwest = { version = "0.10", features = ["rustls-tls", "blocking", "json"] }

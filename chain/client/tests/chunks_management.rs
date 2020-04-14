@@ -119,7 +119,7 @@ fn chunks_produced_and_distributed_common(
             false,
             5,
             true,
-            false,
+            vec![false; validators.iter().map(|x| x.len()).sum()],
             Arc::new(RwLock::new(Box::new(move |from_whom: String, msg: &NetworkRequests| {
                 match msg {
                     NetworkRequests::Block { block } => {
@@ -222,13 +222,13 @@ fn chunks_produced_and_distributed_common(
             let connectors_ = connectors.write().unwrap();
             connectors_[0]
                 .0
-                .do_send(NetworkClientMessages::Transaction(SignedTransaction::empty(block_hash)));
+                .do_send(NetworkClientMessages::Transaction{transaction: SignedTransaction::empty(block_hash), is_forwarded:false});
             connectors_[1]
                 .0
-                .do_send(NetworkClientMessages::Transaction(SignedTransaction::empty(block_hash)));
+                .do_send(NetworkClientMessages::Transaction{transaction: SignedTransaction::empty(block_hash), is_forwarded:false});
             connectors_[2]
                 .0
-                .do_send(NetworkClientMessages::Transaction(SignedTransaction::empty(block_hash)));
+                .do_send(NetworkClientMessages::Transaction{transaction:SignedTransaction::empty(block_hash), is_forwarded:false});
             future::ready(())
         }));
     })
@@ -293,7 +293,6 @@ fn store_partial_encoded_chunk_sanity() {
             0,
             0,
             0,
-            0,
             CryptoHash::default(),
             CryptoHash::default(),
             vec![],
@@ -339,7 +338,6 @@ fn store_partial_encoded_chunk_sanity() {
         0,
         0,
         0,
-        0,
         CryptoHash::default(),
         CryptoHash::default(),
         vec![],
@@ -371,7 +369,6 @@ fn store_partial_encoded_chunk_sanity() {
         1,
         2,
         1,
-        0,
         0,
         0,
         0,

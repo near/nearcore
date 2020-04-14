@@ -1,5 +1,3 @@
-cargo-features = ["profile-overrides"]
-
 [package]
 name = "nearcore"
 version = "0.1.0"
@@ -31,7 +29,7 @@ members = [
     "test-utils/testlib",
     "test-utils/loadtester",
     "test-utils/state-viewer",
-    "near/",
+    "neard/",
     "tools/rpctypegen/core",
     "tools/rpctypegen/macro",
     "genesis-tools/genesis-csv-to-json",
@@ -66,7 +64,7 @@ node-runtime = { path = "./runtime/runtime" }
 near-jsonrpc = { path = "./chain/jsonrpc" }
 near-network = { path = "./chain/network" }
 
-near = { path = "./near"}
+neard = { path = "./neard"}
 
 testlib = { path = "./test-utils/testlib" }
 
@@ -80,24 +78,24 @@ lto = true
 codegen-units = 1 # Use only 1 codegen-unit to enable full optimizations.
 overflow-checks = true
 
-[profile.dev.overrides.hex]
+[profile.dev.package.hex]
 opt-level = 3 # BLS library is too slow to use in debug
 
-[profile.dev.overrides.ring]
+[profile.dev.package.ring]
 opt-level = 3 # BLS library is too slow to use in debug
 
-[profile.dev.overrides.rand]
+[profile.dev.package.rand]
 opt-level = 3 # BLS library is too slow to use in debug
 
-[profile.dev.overrides.bs58]
+[profile.dev.package.bs58]
 opt-level = 3 # bs58 library is too slow to use in debug
 
 [features]
-expensive_tests = []
+expensive_tests = ["neard/expensive_tests"]
 regression_tests = []
 old_tests = []
-adversarial = ["near/adversarial", "near-jsonrpc/adversarial"]
-metric_recorder = ["near/metric_recorder"]
+adversarial = ["neard/adversarial", "near-jsonrpc/adversarial"]
+metric_recorder = ["neard/metric_recorder"]
 
 [patch.crates-io]
 actix-rt = { git = "https://github.com/actix/actix-net", rev="602db1779eb51d60e0fe5a33d725d1d7fdf540fd" }

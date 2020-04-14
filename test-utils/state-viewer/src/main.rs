@@ -1,128 +1,30 @@
 use std::collections::HashMap;
-use std::convert::TryFrom;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use ansi_term::Color::Red;
-use borsh::BorshDeserialize;
 use clap::{App, Arg, SubCommand};
 
-use near::{get_default_home, get_store_path, load_config, NearConfig, NightshadeRuntime};
-use near_chain::{ChainStore, ChainStoreAccess, DoomslugThresholdMode, RuntimeAdapter};
-use near_chain_configs::Genesis;
-use near_crypto::PublicKey;
+use near_chain::{ChainStore, ChainStoreAccess, RuntimeAdapter};
 use near_network::peer_store::PeerStore;
-use near_primitives::account::{AccessKey, Account};
-use near_primitives::hash::{hash, CryptoHash};
-use near_primitives::receipt::{Receipt, ReceivedData};
-use near_primitives::serialize::{from_base64, to_base, to_base64};
+use near_primitives::block::BlockHeader;
+use near_primitives::hash::CryptoHash;
+use near_primitives::serialize::to_base;
 use near_primitives::state_record::StateRecord;
 use near_primitives::test_utils::init_integration_logger;
 use near_primitives::types::{BlockHeight, StateRoot};
-use near_primitives::utils::{col, ACCOUNT_DATA_SEPARATOR};
 use near_store::test_utils::create_test_store;
 use near_store::{create_store, Store, TrieIterator};
+use neard::{get_default_home, get_store_path, load_config, NearConfig, NightshadeRuntime};
+use state_dump::state_dump;
 
-fn to_printable(blob: &[u8]) -> String {
-    if blob.len() > 60 {
-        format!("{} bytes, hash: {}", blob.len(), hash(blob))
-    } else {
-        let ugly = blob.iter().any(|&x| x < b' ');
-        if ugly {
-            return format!("0x{}", hex::encode(blob));
-        }
-        match String::from_utf8(blob.to_vec()) {
-            Ok(v) => v,
-            Err(_e) => format!("0x{}", hex::encode(blob)),
-        }
-    }
-}
-
-fn kv_to_state_record(key: Vec<u8>, value: Vec<u8>) -> Option<StateRecord> {
-    let column = &key[0..1];
-    match column {
-        col::ACCOUNT => {
-            let separator = (1..key.len()).find(|&x| key[x] == ACCOUNT_DATA_SEPARATOR[0]);
-            if separator.is_some() {
-                Some(StateRecord::Data { key: to_base64(&key), value: to_base64(&value) })
-            } else {
-                Some(StateRecord::Account {
-                    account_id: String::from_utf8(key[1..].to_vec()).unwrap(),
-                    account: Account::try_from_slice(&value).unwrap().into(),
-                })
-            }
-        }
-        col::CODE => Some(StateRecord::Contract {
-            account_id: String::from_utf8(key[1..].to_vec()).unwrap(),
-            code: to_base64(&value),
-        }),
-        col::ACCESS_KEY => {
-            let separator = (1..key.len()).find(|&x| key[x] == col::ACCESS_KEY[0]).unwrap();
-            let access_key = AccessKey::try_from_slice(&value).unwrap();
-            let account_id = String::from_utf8(key[1..separator].to_vec()).unwrap();
-            let public_key = PublicKey::try_from_slice(&key[(separator + 1)..]).unwrap();
-            Some(StateRecord::AccessKey { account_id, public_key, access_key: access_key.into() })
-        }
-        col::RECEIVED_DATA => {
-            let data = ReceivedData::try_from_slice(&value).unwrap().data;
-            let separator = (1..key.len()).find(|&x| key[x] == ACCOUNT_DATA_SEPARATOR[0]).unwrap();
-            let account_id = String::from_utf8(key[1..separator].to_vec()).unwrap();
-            let data_id = CryptoHash::try_from(&key[(separator + 1)..]).unwrap();
-            Some(StateRecord::ReceivedData { account_id, data_id, data })
-        }
-        col::POSTPONED_RECEIPT_ID => None,
-        col::PENDING_DATA_COUNT => None,
-        col::POSTPONED_RECEIPT => {
-            let receipt = Receipt::try_from_slice(&value).unwrap();
-            Some(StateRecord::PostponedReceipt(Box::new(receipt.into())))
-        }
-        _ => unreachable!(),
-    }
-}
-
-fn print_state_entry(key: Vec<u8>, value: Vec<u8>) {
-    match kv_to_state_record(key, value) {
-        Some(StateRecord::Account { account_id, account }) => {
-            println!("Account {:?}: {:?}", account_id, account)
-        }
-        Some(StateRecord::Data { key, value }) => {
-            let key = from_base64(&key).unwrap();
-            let separator = (1..key.len()).find(|&x| key[x] == ACCOUNT_DATA_SEPARATOR[0]).unwrap();
-            let account_id = to_printable(&key[1..separator]);
-            let contract_key = to_printable(&key[(separator + 1)..]);
-            println!(
-                "Storage {:?},{:?}: {:?}",
-                account_id,
-                contract_key,
-                to_printable(&from_base64(&value).unwrap())
-            );
-        }
-        Some(StateRecord::Contract { account_id, code: _ }) => {
-            println!("Code for {:?}: ...", account_id)
-        }
-        Some(StateRecord::AccessKey { account_id, public_key, access_key }) => {
-            println!("Access key {:?},{:?}: {:?}", account_id, public_key, access_key)
-        }
-        Some(StateRecord::ReceivedData { account_id, data_id, data }) => {
-            println!(
-                "Received data {:?},{:?}: {:?}",
-                account_id,
-                data_id,
-                data.map(|v| to_printable(&v))
-            );
-        }
-        Some(StateRecord::PostponedReceipt(receipt)) => {
-            println!("Postponed receipt {:?}", receipt);
-        }
-        None => (),
-    }
-}
+mod state_dump;
 
 fn load_trie(
     store: Arc<Store>,
     home_dir: &Path,
     near_config: &NearConfig,
-) -> (NightshadeRuntime, Vec<StateRoot>, BlockHeight) {
+) -> (NightshadeRuntime, Vec<StateRoot>, BlockHeader) {
     let mut chain_store = ChainStore::new(store.clone(), near_config.genesis.config.genesis_height);
 
     let runtime = NightshadeRuntime::new(
@@ -138,7 +40,7 @@ fn load_trie(
     for chunk in last_block.chunks.iter() {
         state_roots.push(chunk.inner.prev_state_root.clone());
     }
-    (runtime, state_roots, last_block.header.inner_lite.height)
+    (runtime, state_roots, last_block.header)
 }
 
 pub fn format_hash(h: CryptoHash) -> String {
@@ -244,7 +146,6 @@ fn replay_chain(
                     header.inner_rest.validator_proposals,
                     vec![],
                     header.inner_rest.chunk_mask,
-                    header.inner_rest.rent_paid,
                     header.inner_rest.validator_reward,
                     header.inner_rest.total_supply,
                 )
@@ -319,37 +220,28 @@ fn main() {
             }
         }
         ("state", Some(_args)) => {
-            let (runtime, state_roots, height) = load_trie(store, &home_dir, &near_config);
-            println!("Storage roots are {:?}, block height is {}", state_roots, height);
+            let (runtime, state_roots, header) = load_trie(store, &home_dir, &near_config);
+            println!(
+                "Storage roots are {:?}, block height is {}",
+                state_roots, header.inner_lite.height
+            );
             for state_root in state_roots {
                 let trie = TrieIterator::new(&runtime.trie, &state_root).unwrap();
                 for item in trie {
                     let (key, value) = item.unwrap();
-                    print_state_entry(key, value);
+                    if let Some(state_record) = StateRecord::from_raw_key_value(key, value) {
+                        println!("{}", state_record);
+                    }
                 }
             }
         }
         ("dump_state", Some(_args)) => {
-            let (runtime, state_roots, height) = load_trie(store.clone(), home_dir, &near_config);
+            let (runtime, state_roots, header) = load_trie(store.clone(), home_dir, &near_config);
+            let height = header.inner_lite.height;
             let home_dir = PathBuf::from(&home_dir);
 
-            println!("Generating genesis from state data");
-            let genesis_height = height + 1;
-
-            let mut records = vec![];
-            for state_root in &state_roots {
-                let trie = TrieIterator::new(&runtime.trie, &state_root).unwrap();
-                for item in trie {
-                    let (key, value) = item.unwrap();
-                    if let Some(sr) = kv_to_state_record(key, value) {
-                        records.push(sr);
-                    }
-                }
-            }
-
-            let mut genesis_config = near_config.genesis.config.clone();
-            genesis_config.genesis_height = genesis_height;
-            let genesis = Arc::new(Genesis::new(genesis_config, records.into()));
+            let new_genesis =
+                state_dump(runtime, state_roots.clone(), header, &near_config.genesis.config);
 
             let output_path = home_dir.join(Path::new("output.json"));
             println!(
@@ -358,7 +250,7 @@ fn main() {
                 height,
                 output_path.display(),
             );
-            genesis.to_file(&output_path);
+            new_genesis.to_file(&output_path);
         }
         ("chain", Some(args)) => {
             let start_index =

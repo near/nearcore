@@ -1,17 +1,22 @@
 #!/bin/bash
 set -euo pipefail
 
-branch=${BUILDKITE_BRANCH}
-commit=${BUILDKITE_COMMIT}
+branch=${BUILDKITE_BRANCH:-${GITHUB_REF##*/}}
+commit=${BUILDKITE_COMMIT:-${GITHUB_SHA}}
+if [[ ${commit} == "HEAD" ]]; then
+    commit=$(git rev-parse HEAD)
+fi
 os=$(uname)
 
-cargo build -p near --release
-cargo build -p keypair-generator --release
-cargo build -p genesis-csv-to-json --release
+make release
 
-aws s3 cp --acl public-read target/release/near s3://build.nearprotocol.com/nearcore/${os}/${branch}/near
-aws s3 cp --acl public-read target/release/near s3://build.nearprotocol.com/nearcore/${os}/${branch}/${commit}/near
-aws s3 cp --acl public-read target/release/keypair-generator s3://build.nearprotocol.com/nearcore/${os}/${branch}/keypair-generator
-aws s3 cp --acl public-read target/release/keypair-generator s3://build.nearprotocol.com/nearcore/${os}/${branch}/${commit}/keypair-generator
-aws s3 cp --acl public-read target/release/genesis-csv-to-json s3://build.nearprotocol.com/nearcore/${os}/${branch}/genesis-csv-to-json
-aws s3 cp --acl public-read target/release/genesis-csv-to-json s3://build.nearprotocol.com/nearcore/${os}/${branch}/${commit}/genesis-csv-to-json
+function upload_binary {
+    aws s3 cp --acl public-read target/release/$1 s3://build.nearprotocol.com/nearcore/${os}/${branch}/$1
+    aws s3 cp --acl public-read target/release/$1 s3://build.nearprotocol.com/nearcore/${os}/${branch}/${commit}/$1
+}
+
+upload_binary near
+upload_binary keypair-generator
+upload_binary genesis-csv-to-json
+upload_binary near-vm-runner-standalone
+upload_binary state-viewer

@@ -63,7 +63,7 @@ impl PeerInfo {
 
 // Note, `Display` automatically implements `ToString` which must be reciprocal to `FromStr`.
 impl fmt::Display for PeerInfo {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.id)?;
         if let Some(addr) = &self.addr {
             write!(f, "@{}", addr)?;
@@ -412,7 +412,7 @@ pub enum PeerMessage {
 }
 
 impl fmt::Display for PeerMessage {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             PeerMessage::Handshake(_) => f.write_str("Handshake"),
             PeerMessage::HandshakeFailure(_, _) => f.write_str("HandshakeFailure"),
@@ -768,6 +768,15 @@ pub enum KnownPeerStatus {
     Banned(ReasonForBan, u64),
 }
 
+impl KnownPeerStatus {
+    pub fn is_banned(&self) -> bool {
+        match self {
+            KnownPeerStatus::Banned(_, _) => true,
+            _ => false,
+        }
+    }
+}
+
 /// Information node stores about known peers.
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Debug)]
 pub struct KnownPeerState {
@@ -864,6 +873,7 @@ pub enum ConsolidateResponse {
 #[rtype(result = "()")]
 pub struct Unregister {
     pub peer_id: PeerId,
+    pub peer_type: PeerType,
 }
 
 pub struct PeerList {
@@ -928,6 +938,8 @@ pub enum ReasonForBan {
     InvalidEdge = 10,
 }
 
+/// Banning signal sent from Peer instance to PeerManager
+/// just before Peer instance is stopped.
 #[derive(Message)]
 #[rtype(result = "()")]
 pub struct Ban {
@@ -1042,7 +1054,7 @@ pub enum PeerManagerRequest {
     UnregisterPeer,
 }
 
-/// Combines peer address info and chain information.
+/// Combines peer address info, chain and edge information.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct FullPeerInfo {
     pub peer_info: PeerInfo,
@@ -1120,9 +1132,11 @@ pub struct StateResponseInfo {
 #[derive(Debug)]
 pub enum NetworkAdversarialMessage {
     AdvProduceBlocks(u64, bool),
+    AdvSwitchToHeight(u64),
     AdvDisableHeaderSync,
     AdvDisableDoomslug,
     AdvGetSavedBlocks,
+    AdvCheckRefMap,
     AdvSetSyncInfo(u64, u64),
 }
 
@@ -1134,7 +1148,10 @@ pub enum NetworkClientMessages {
     Adversarial(NetworkAdversarialMessage),
 
     /// Received transaction.
-    Transaction(SignedTransaction),
+    Transaction {
+        transaction: SignedTransaction,
+        is_forwarded: bool,
+    },
     /// Received block, possibly requested.
     Block(Block, PeerId, bool),
     /// Received list of headers for syncing.
@@ -1161,7 +1178,7 @@ pub enum NetworkClientMessages {
 pub enum NetworkClientResponses {
     /// Adv controls.
     #[cfg(feature = "adversarial")]
-    AdvU64(u64),
+    AdvResult(u64),
 
     /// No response.
     NoResponse,

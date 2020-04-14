@@ -8,6 +8,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
+use num_rational::Rational;
 use serde::{Deserialize, Serialize};
 use smart_default::SmartDefault;
 
@@ -58,19 +59,20 @@ pub struct GenesisConfig {
     /// Criterion for kicking out chunk producers (this is a number between 0 and 100)
     pub chunk_producer_kickout_threshold: u8,
     /// Gas price adjustment rate
-    pub gas_price_adjustment_rate: u8,
+    #[default(Rational::from_integer(0))]
+    pub gas_price_adjustment_rate: Rational,
     /// Runtime configuration (mostly economics constants).
     pub runtime_config: RuntimeConfig,
     /// List of initial validators.
     pub validators: Vec<AccountInfo>,
     /// Number of blocks for which a given transaction is valid
     pub transaction_validity_period: NumBlocks,
-    /// Developer reward percentage (this is a number between 0 and 100)
-    pub developer_reward_percentage: u8,
-    /// Protocol treasury percentage (this is a number between 0 and 100)
-    pub protocol_reward_percentage: u8,
-    /// Maximum inflation on the total supply every epoch (this is a number between 0 and 100)
-    pub max_inflation_rate: u8,
+    /// Protocol treasury rate
+    #[default(Rational::from_integer(0))]
+    pub protocol_reward_rate: Rational,
+    /// Maximum inflation on the total supply every epoch.
+    #[default(Rational::from_integer(0))]
+    pub max_inflation_rate: Rational,
     /// Total supply of tokens at genesis.
     #[serde(with = "u128_dec_format", skip_deserializing)]
     pub total_supply: Balance,
@@ -94,7 +96,7 @@ pub struct GenesisConfig {
     Serialize,
     Deserialize,
 )]
-pub struct GenesisRecords(Vec<StateRecord>);
+pub struct GenesisRecords(pub Vec<StateRecord>);
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Genesis {
