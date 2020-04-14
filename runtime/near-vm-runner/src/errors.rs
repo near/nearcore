@@ -81,7 +81,7 @@ impl IntoVMError for wasmer_runtime::error::RuntimeError {
             // (at least for a single-pass backend)
             // https://github.com/wasmerio/wasmer/issues/1338
             eprintln!(
-                "Bad error case! Output might be is non-deterministic {:?} {:?}",
+                "Bad error case! Output might be non-deterministic {:?} {:?}",
                 data.type_id(),
                 self.to_string()
             );
