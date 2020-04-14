@@ -64,7 +64,6 @@ impl IntoVMError for wasmer_runtime::error::ResolveError {
 
 impl IntoVMError for wasmer_runtime::error::RuntimeError {
     fn into_vm_error(self) -> VMError {
-        use wasmer_runtime::ExceptionCode;
         let data = &*self.0;
 
         if let Some(err) = data.downcast_ref::<VMLogicError>() {
@@ -82,19 +81,11 @@ impl IntoVMError for wasmer_runtime::error::RuntimeError {
             // (at least for a single-pass backend)
             // https://github.com/wasmerio/wasmer/issues/1338
             eprintln!(
-                "Bad error case! Output is non-deterministic {:?} {:?}",
+                "Bad error case! Output might be is non-deterministic {:?} {:?}",
                 data.type_id(),
                 self.to_string()
             );
-            if let Some(_) = data.downcast_ref::<ExceptionCode>() {
-                VMError::FunctionCallError(FunctionCallError::WasmTrap { msg: format!("{}", self) })
-            } else if let Some(_) = data.downcast_ref::<String>() {
-                VMError::FunctionCallError(FunctionCallError::WasmTrap { msg: format!("{}", self) })
-            } else if let Some(_) = data.downcast_ref::<&str>() {
-                VMError::FunctionCallError(FunctionCallError::WasmTrap { msg: format!("{}", self) })
-            } else {
-                VMError::FunctionCallError(FunctionCallError::WasmTrap { msg: "unknown".into() })
-            }
+            VMError::FunctionCallError(FunctionCallError::WasmTrap { msg: "unknown".into() })
         }
     }
 }
