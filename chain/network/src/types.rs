@@ -768,6 +768,15 @@ pub enum KnownPeerStatus {
     Banned(ReasonForBan, u64),
 }
 
+impl KnownPeerStatus {
+    pub fn is_banned(&self) -> bool {
+        match self {
+            KnownPeerStatus::Banned(_, _) => true,
+            _ => false,
+        }
+    }
+}
+
 /// Information node stores about known peers.
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Debug)]
 pub struct KnownPeerState {
@@ -929,6 +938,8 @@ pub enum ReasonForBan {
     InvalidEdge = 10,
 }
 
+/// Banning signal sent from Peer instance to PeerManager
+/// just before Peer instance is stopped.
 #[derive(Message)]
 #[rtype(result = "()")]
 pub struct Ban {
