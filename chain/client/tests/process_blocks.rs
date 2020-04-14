@@ -5,7 +5,7 @@ use std::sync::{Arc, RwLock};
 use actix::System;
 use futures::{future, FutureExt};
 
-use near_chain::chain::NUM_EPOCHS_TO_KEEP_STORE_DATA;
+use near_chain::chain::{check_refcount_map, NUM_EPOCHS_TO_KEEP_STORE_DATA};
 use near_chain::{Block, ChainGenesis, ChainStoreAccess, ErrorKind, Provenance, RuntimeAdapter};
 use near_chain_configs::Genesis;
 use near_chunks::{ChunkStatus, ShardsManager};
@@ -34,6 +34,7 @@ use near_primitives::utils::to_timestamp;
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
 use near_store::test_utils::create_test_store;
 use neard::config::GenesisExt;
+use num_rational::Rational;
 
 /// Runs block producing client and stops after network mock received two blocks.
 #[test]
@@ -166,7 +167,7 @@ fn receive_network_block() {
                     EpochId(last_block.header.next_epoch_id.clone())
                 },
                 vec![],
-                0,
+                Rational::from_integer(0),
                 0,
                 None,
                 vec![],
@@ -230,7 +231,7 @@ fn receive_network_block_header() {
                     EpochId(last_block.header.next_epoch_id.clone())
                 },
                 vec![],
-                0,
+                Rational::from_integer(0),
                 0,
                 None,
                 vec![],
@@ -315,7 +316,7 @@ fn produce_block_with_approvals() {
                     EpochId(last_block.header.next_epoch_id.clone())
                 },
                 vec![],
-                0,
+                Rational::from_integer(0),
                 0,
                 Some(0),
                 vec![],
@@ -468,7 +469,7 @@ fn invalid_blocks() {
                     EpochId(last_block.header.next_epoch_id.clone())
                 },
                 vec![],
-                0,
+                Rational::from_integer(0),
                 0,
                 Some(0),
                 vec![],
@@ -499,7 +500,7 @@ fn invalid_blocks() {
                     EpochId(last_block.header.next_epoch_id.clone())
                 },
                 vec![],
-                0,
+                Rational::from_integer(0),
                 0,
                 Some(0),
                 vec![],
@@ -829,7 +830,7 @@ fn test_minimum_gas_price() {
     let min_gas_price = 100;
     let mut chain_genesis = ChainGenesis::test();
     chain_genesis.min_gas_price = min_gas_price;
-    chain_genesis.gas_price_adjustment_rate = 10;
+    chain_genesis.gas_price_adjustment_rate = Rational::new(1, 10);
     let mut env = TestEnv::new(chain_genesis, 1, 1);
     for i in 1..=100 {
         env.produce_block(0, i);
@@ -876,6 +877,7 @@ fn test_gc_with_epoch_length_common(epoch_length: NumBlocks) {
                 .is_ok());
         }
     }
+    assert!(check_refcount_map(&mut env.clients[0].chain).is_ok());
 }
 
 #[test]
@@ -932,6 +934,7 @@ fn test_gc_long_epoch() {
             .get_all_block_hashes_by_height(block.header.inner_lite.height)
             .is_ok());
     }
+    assert!(check_refcount_map(&mut env.clients[0].chain).is_ok());
 }
 
 #[test]
@@ -957,6 +960,7 @@ fn test_gc_block_skips() {
             env.produce_block(0, i);
         }
     }
+    assert!(check_refcount_map(&mut env.clients[0].chain).is_ok());
 }
 
 #[test]
@@ -1047,12 +1051,19 @@ fn test_gc_tail_update() {
     let headers = blocks.clone().into_iter().map(|b| b.header).collect::<Vec<_>>();
     env.clients[1].sync_block_headers(headers).unwrap();
     // simulate save sync hash block
+    let prev_sync_block = blocks[blocks.len() - 3].clone();
     let sync_block = blocks[blocks.len() - 2].clone();
+    env.clients[1].chain.reset_data_pre_state_sync(sync_block.hash()).unwrap();
     env.clients[1].chain.save_block(&sync_block).unwrap();
     env.clients[1]
         .chain
         .reset_heads_post_state_sync(&None, sync_block.hash(), |_| {}, |_| {}, |_| {})
         .unwrap();
     env.process_block(1, blocks.pop().unwrap(), Provenance::NONE);
-    assert_eq!(env.clients[1].chain.store().tail().unwrap(), epoch_length);
+    assert_eq!(
+        env.clients[1].chain.store().tail().unwrap(),
+        prev_sync_block.header.inner_lite.height
+    );
+    assert!(check_refcount_map(&mut env.clients[0].chain).is_ok());
+    assert!(check_refcount_map(&mut env.clients[1].chain).is_ok());
 }

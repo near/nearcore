@@ -278,10 +278,30 @@ impl PeerManagerActor {
     }
 
     /// Add peer to ban list.
+    /// This function should only be called after Peer instance is stopped.
+    /// Note: Use `try_ban_peer` if there might be a Peer instance still active.
     fn ban_peer(&mut self, ctx: &mut Context<Self>, peer_id: &PeerId, ban_reason: ReasonForBan) {
         info!(target: "network", "Banning peer {:?} for {:?}", peer_id, ban_reason);
         self.remove_active_peer(ctx, peer_id, None);
         unwrap_or_error!(self.peer_store.peer_ban(peer_id, ban_reason), "Failed to save peer data");
+    }
+
+    /// Ban peer. Stop peer instance if it is still active,
+    /// and then mark peer as banned in the peer store.
+    pub(crate) fn try_ban_peer(
+        &mut self,
+        ctx: &mut Context<Self>,
+        peer_id: &PeerId,
+        ban_reason: ReasonForBan,
+    ) {
+        if let Some(peer) = self.active_peers.get(&peer_id) {
+            let _ = peer.addr.do_send(PeerManagerRequest::BanPeer(ban_reason));
+        } else {
+            warn!(target: "network", "Try to ban a disconnected peer for {:?}: {:?}", ban_reason, peer_id);
+            // Call `ban_peer` in peer manager to trigger action that persists information
+            // of ban in disk.
+            self.ban_peer(ctx, &peer_id, ban_reason);
+        }
     }
 
     /// Connects peer with given TcpStream and optional information if it's outbound.
@@ -958,15 +978,7 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                 }
             }
             NetworkRequests::BanPeer { peer_id, ban_reason } => {
-                if let Some(peer) = self.active_peers.get(&peer_id) {
-                    let _ = peer.addr.do_send(PeerManagerRequest::BanPeer(ban_reason));
-                } else {
-                    warn!(target: "network", "Try to ban a disconnected peer for {:?}: {:?}", ban_reason, peer_id);
-                    // Call `ban_peer` in peer manager to trigger action that persists information
-                    // of ban in disk.
-                    self.ban_peer(ctx, &peer_id, ban_reason);
-                }
-
+                self.try_ban_peer(ctx, &peer_id, ban_reason);
                 NetworkResponses::NoResponse
             }
             NetworkRequests::AnnounceAccount(announce_account) => {
@@ -1284,6 +1296,11 @@ impl Handler<Consolidate> for PeerManagerActor {
         // Check if this is a blacklisted peer.
         if msg.peer_info.addr.as_ref().map_or(true, |addr| self.is_blacklisted(addr)) {
             debug!(target: "network", "Dropping connection from blacklisted peer or unknown address: {:?}", msg.peer_info);
+            return ConsolidateResponse::Reject;
+        }
+
+        if self.peer_store.is_banned(&msg.peer_info.id) {
+            debug!(target: "network", "Dropping connection from banned peer: {:?}", msg.peer_info.id);
             return ConsolidateResponse::Reject;
         }
 

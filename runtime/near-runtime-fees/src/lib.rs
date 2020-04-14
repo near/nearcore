@@ -3,14 +3,10 @@
 //! * sir -- sender is receiver. Receipts that are directed by an account to itself are guaranteed
 //!   to not be cross-shard which is cheaper than cross-shard. Conversely, when sender is not a
 //!   receiver it might or might not be a cross-shard communication.
+use num_rational::Rational;
 use serde::{Deserialize, Serialize};
-pub type Gas = u64;
 
-#[derive(Debug, Serialize, Deserialize, Clone, Hash, PartialEq, Eq)]
-pub struct Fraction {
-    pub numerator: u64,
-    pub denominator: u64,
-}
+pub type Gas = u64;
 
 /// Costs associated with an object that can only be sent over the network (and executed
 /// by the receiver).
@@ -52,7 +48,7 @@ pub struct RuntimeFeesConfig {
     pub storage_usage_config: StorageUsageConfig,
 
     /// Fraction of the burnt gas to reward to the contract account for execution.
-    pub burnt_gas_reward: Fraction,
+    pub burnt_gas_reward: Rational,
 }
 
 /// Describes the cost of creating a data receipt, `DataReceipt`.
@@ -187,7 +183,7 @@ impl Default for RuntimeFeesConfig {
                 num_bytes_account: 100,
                 num_extra_bytes_record: 40,
             },
-            burnt_gas_reward: Fraction { numerator: 3, denominator: 10 },
+            burnt_gas_reward: Rational::new(3, 10),
         }
     }
 }
@@ -221,7 +217,7 @@ impl RuntimeFeesConfig {
                 num_bytes_account: 0,
                 num_extra_bytes_record: 0,
             },
-            burnt_gas_reward: Fraction { numerator: 0, denominator: 1 },
+            burnt_gas_reward: Rational::from_integer(0),
         }
     }
 }

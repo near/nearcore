@@ -7,9 +7,9 @@ use near_client::test_utils::setup_no_network_with_validity_period;
 use near_client::ViewClientActor;
 use near_jsonrpc::{start_http, RpcConfig};
 use near_network::test_utils::open_port;
+use near_primitives::account::Account;
 use near_primitives::state_record::StateRecord;
 use near_primitives::types::NumBlocks;
-use near_primitives::views::AccountView;
 
 lazy_static::lazy_static! {
     pub static ref TEST_GENESIS_CONFIG: GenesisConfig =
@@ -34,12 +34,11 @@ pub fn start_all_with_validity_period(
     let records = (0_u128..200)
         .map(|x| StateRecord::Account {
             account_id: format!("account-{}", x),
-            account: AccountView {
+            account: Account {
                 amount: x * 1_000_000,
                 locked: 0,
                 code_hash: Default::default(),
-                storage_usage: Default::default(),
-                storage_paid_at: 0,
+                storage_usage: 100,
             },
         })
         .collect::<Vec<_>>();

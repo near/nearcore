@@ -33,6 +33,7 @@ near-chain = { path = "../chain" }
 [dev-dependencies]
 tempdir = "0.3.7"
 bencher = "0.1.5"
+num-rational = "0.2.4"
 
 near-client = { path = "../client" }
 near-telemetry = { path = "../telemetry" }

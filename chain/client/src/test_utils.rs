@@ -38,6 +38,7 @@ use near_telemetry::TelemetryActor;
 
 use crate::{Client, ClientActor, SyncStatus, ViewClientActor};
 use near_network::test_utils::MockNetworkAdapter;
+use num_rational::Rational;
 
 pub type NetworkMock = Mocker<PeerManagerActor>;
 
@@ -72,8 +73,8 @@ pub fn setup(
         1_000_000,
         100,
         1_000_000_000,
-        0,
-        0,
+        Rational::from_integer(0),
+        Rational::from_integer(0),
         transaction_validity_period,
         epoch_length,
     );
