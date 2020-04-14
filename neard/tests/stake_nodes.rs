@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use actix::{Actor, Addr, System};
 use futures::{future, FutureExt};
+use num_rational::Rational;
 use rand::Rng;
 use tempdir::TempDir;
 
@@ -48,7 +49,7 @@ fn init_test_staking(
     genesis.config.block_producer_kickout_threshold = 20;
     genesis.config.chunk_producer_kickout_threshold = 20;
     if !enable_rewards {
-        genesis.config.max_inflation_rate = 0;
+        genesis.config.max_inflation_rate = Rational::from_integer(0);
         genesis.config.min_gas_price = 0;
     }
     let genesis = Arc::new(genesis);
@@ -468,9 +469,9 @@ fn test_inflation() {
                     let header_view = res.unwrap().unwrap().header;
                     if header_view.height > epoch_length && header_view.height < epoch_length * 2 {
                         let inflation = initial_total_supply
-                            * max_inflation_rate as u128
                             * epoch_length as u128
-                            / (100 * num_blocks_per_year as u128);
+                            * *max_inflation_rate.numer() as u128
+                            / (num_blocks_per_year as u128 * *max_inflation_rate.denom() as u128);
                         if header_view.total_supply == initial_total_supply + inflation {
                             done2_copy2.store(true, Ordering::SeqCst);
                         }

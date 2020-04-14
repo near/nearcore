@@ -1,12 +1,10 @@
 use near_crypto::{InMemorySigner, KeyType};
-use near_primitives::account::AccessKey;
+use near_primitives::account::{AccessKey, Account};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::Receipt;
-use near_primitives::serialize::to_base64;
 use near_primitives::state_record::StateRecord;
 use near_primitives::transaction::{ExecutionOutcomeWithId, SignedTransaction};
 use near_primitives::types::{Balance, MerkleHash};
-use near_primitives::views::AccountView;
 use near_store::test_utils::create_trie;
 use near_store::{Trie, TrieUpdate};
 use node_runtime::{ApplyState, Runtime};
@@ -139,12 +137,11 @@ impl RuntimeGroup {
             if i < num_existing_accounts {
                 state_records.push(StateRecord::Account {
                     account_id: account_id.to_string(),
-                    account: AccountView {
+                    account: Account {
                         amount: TESTING_INIT_BALANCE,
                         locked: TESTING_INIT_STAKE,
-                        code_hash: code_hash.clone().into(),
+                        code_hash,
                         storage_usage: 0,
-                        storage_paid_at: 0,
                     },
                 });
                 state_records.push(StateRecord::AccessKey {
@@ -153,7 +150,7 @@ impl RuntimeGroup {
                     access_key: AccessKey::full_access().into(),
                 });
                 state_records
-                    .push(StateRecord::Contract { account_id, code: to_base64(contract_code) });
+                    .push(StateRecord::Contract { account_id, code: contract_code.to_vec() });
             }
             signers.push(signer);
         }

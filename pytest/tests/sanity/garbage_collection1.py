@@ -39,7 +39,7 @@ start_time = time.time()
 
 node1_height = 0
 while True:
-    assert time.time() - start_time < TIMEOUT, "Block sync timed out"
+    assert time.time() - start_time < TIMEOUT, "Block sync timed out, phase 1"
     status = nodes[1].get_status()
     node1_height = status['sync_info']['latest_block_height']
     validators = nodes[0].validators()
@@ -57,7 +57,7 @@ node0_height = status['sync_info']['latest_block_height']
 
 node2_height = 0
 while True:
-    assert time.time() - start_time < TIMEOUT, "Block sync timed out"
+    assert time.time() - start_time < TIMEOUT, "Block sync timed out, phase 2"
     status = nodes[2].get_status()
     node2_height = status['sync_info']['latest_block_height']
     if node2_height >= node0_height:

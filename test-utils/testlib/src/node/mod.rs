@@ -7,7 +7,6 @@ use std::sync::RwLock;
 use near_chain_configs::Genesis;
 use near_crypto::{InMemorySigner, Signer};
 use near_jsonrpc::ServerError;
-use near_primitives::serialize::to_base64;
 use near_primitives::state_record::StateRecord;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, Balance, NumSeats};
@@ -22,6 +21,7 @@ pub use crate::node::process_node::ProcessNode;
 pub use crate::node::runtime_node::RuntimeNode;
 pub use crate::node::thread_node::ThreadNode;
 use crate::user::{AsyncUser, User};
+use num_rational::Rational;
 
 mod process_node;
 mod runtime_node;
@@ -152,10 +152,10 @@ pub fn create_nodes(num_nodes: usize, prefix: &str) -> Vec<NodeConfig> {
 pub fn create_nodes_from_seeds(seeds: Vec<String>) -> Vec<NodeConfig> {
     let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     path.push("../../runtime/near-vm-runner/tests/res/test_contract_rs.wasm");
-    let code = to_base64(&fs::read(path).unwrap());
+    let code = fs::read(path).unwrap();
     let (configs, validator_signers, network_signers, mut genesis) =
         create_testnet_configs_from_seeds(seeds.clone(), 1, 0, true, false);
-    genesis.config.gas_price_adjustment_rate = 0;
+    genesis.config.gas_price_adjustment_rate = Rational::from_integer(0);
     let records = genesis.records.as_mut();
     for seed in seeds {
         records.push(StateRecord::Contract { account_id: seed, code: code.clone() });

@@ -41,6 +41,7 @@ use crate::error::{Error, ErrorKind};
 use crate::store::ChainStoreAccess;
 use crate::types::ApplyTransactionResult;
 use crate::{BlockHeader, DoomslugThresholdMode, RuntimeAdapter};
+use num_rational::Rational;
 
 #[derive(
     BorshSerialize, BorshDeserialize, Serialize, Hash, PartialEq, Eq, Ord, PartialOrd, Clone, Debug,
@@ -923,8 +924,8 @@ pub fn setup_with_tx_validity_period(
             1_000_000,
             100,
             1_000_000_000,
-            0,
-            0,
+            Rational::from_integer(0),
+            Rational::from_integer(0),
             tx_validity_period,
             10,
         ),
@@ -962,8 +963,8 @@ pub fn setup_with_validators(
             1_000_000,
             100,
             1_000_000_000,
-            0,
-            0,
+            Rational::from_integer(0),
+            Rational::from_integer(0),
             tx_validity_period,
             epoch_length,
         ),
@@ -1079,8 +1080,8 @@ impl ChainGenesis {
             gas_limit: 1_000_000,
             min_gas_price: 0,
             total_supply: 1_000_000_000,
-            max_inflation_rate: 0,
-            gas_price_adjustment_rate: 0,
+            max_inflation_rate: Rational::from_integer(0),
+            gas_price_adjustment_rate: Rational::from_integer(0),
             transaction_validity_period: 100,
             epoch_length: 5,
         }
@@ -1116,7 +1117,7 @@ pub fn new_block_no_epoch_switches(
         epoch_id,
         next_epoch_id,
         approvals,
-        0,
+        Rational::from_integer(0),
         0,
         Some(0),
         vec![],
