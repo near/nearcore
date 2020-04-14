@@ -14,7 +14,8 @@ use near_chain_configs::ClientConfig;
 use near_client::{ClientActor, ViewClientActor};
 use near_crypto::KeyType;
 use near_network::test_utils::{
-    convert_boot_nodes, expected_routing_tables, open_port, GetInfo, StopSignal, WaitOrTimeout,
+    convert_boot_nodes, expected_routing_tables, open_port, BanPeerSignal, GetInfo, StopSignal,
+    WaitOrTimeout,
 };
 use near_network::types::{OutboundTcpConnect, ROUTED_MESSAGE_TTL};
 use near_network::utils::blacklist_from_vec;
@@ -362,6 +363,7 @@ struct TestConfig {
     boot_nodes: Vec<usize>,
     blacklist: HashSet<Option<usize>>,
     outbound_disabled: bool,
+    ban_window: Duration,
 }
 
 impl TestConfig {
@@ -372,6 +374,7 @@ impl TestConfig {
             boot_nodes: vec![],
             blacklist: HashSet::new(),
             outbound_disabled: true,
+            ban_window: Duration::from_secs(1),
         }
     }
 }
@@ -432,6 +435,12 @@ impl Runner {
         self.apply_all(move |test_config| {
             test_config.max_peer = max_peer;
         });
+        self
+    }
+
+    /// Set ban window range.
+    pub fn ban_window(mut self, ban_window: Duration) -> Self {
+        self.apply_all(move |test_config| test_config.ban_window = ban_window);
         self
     }
 
@@ -502,6 +511,7 @@ impl Runner {
         let mut network_config =
             NetworkConfig::from_seed(accounts_id[node_id].as_str(), ports[node_id].clone());
 
+        network_config.ban_window = test_config.ban_window;
         network_config.max_peer = test_config.max_peer;
         network_config.ttl_account_id_router = Duration::from_secs(5);
         network_config.routed_message_ttl = test_config.routed_message_ttl;
@@ -646,6 +656,30 @@ pub fn restart(node_id: usize) -> ActionFn {
             actix::spawn(
                 runner
                     .send(StartNode(node_id))
+                    .map_err(|_| ())
+                    .and_then(move |_| {
+                        flag.store(true, Ordering::Relaxed);
+                        future::ok(())
+                    })
+                    .map(drop),
+            );
+        },
+    )
+}
+
+pub fn ban_peer(target_peer: usize, banned_peer: usize) -> ActionFn {
+    Box::new(
+        move |info: SharedRunningInfo,
+              flag: Arc<AtomicBool>,
+              _ctx: &mut Context<WaitOrTimeout>,
+              _runner| {
+            let info = info.read().unwrap();
+            let banned_peer_id = info.peers_info[banned_peer].id.clone();
+            actix::spawn(
+                info.pm_addr
+                    .get(target_peer)
+                    .unwrap()
+                    .send(BanPeerSignal::new(banned_peer_id))
                     .map_err(|_| ())
                     .and_then(move |_| {
                         flag.store(true, Ordering::Relaxed);

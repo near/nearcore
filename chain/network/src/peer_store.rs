@@ -55,6 +55,12 @@ impl PeerStore {
         self.peer_states.is_empty()
     }
 
+    pub fn is_banned(&self, peer_id: &PeerId) -> bool {
+        self.peer_states
+            .get(&peer_id)
+            .map_or(false, |known_peer_state| known_peer_state.status.is_banned())
+    }
+
     pub fn peer_connected(
         &mut self,
         peer_info: &FullPeerInfo,
