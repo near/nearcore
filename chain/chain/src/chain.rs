@@ -37,7 +37,9 @@ use near_store::{ColStateHeaders, ColStateParts, Trie};
 use crate::error::{Error, ErrorKind};
 use crate::finality::{ApprovalVerificationError, FinalityGadget, FinalityGadgetQuorums};
 use crate::lightclient::get_epoch_block_producers_view;
-use crate::store::{ChainStore, ChainStoreAccess, ChainStoreUpdate, ShardInfo, StateSyncInfo};
+use crate::store::{
+    ChainStore, ChainStoreAccess, ChainStoreUpdate, GCMode, ShardInfo, StateSyncInfo,
+};
 use crate::types::{
     AcceptedBlock, ApplyTransactionResult, Block, BlockHeader, BlockStatus, BlockSyncResponse,
     Provenance, ReceiptList, ReceiptProofResponse, ReceiptResponse, RootProof, RuntimeAdapter,
@@ -545,23 +547,32 @@ impl Chain {
     // ===
     //
     // Prerequisites, guaranteed by the System:
-    // 1. Genesis is always on the Canonical Chain, only one Genesis exists and its height is `genesis_height`,
-    //    and no block with height lower than `genesis_height` exists.
-    // 2. If block A is ancestor of block B, height of A is strictly less then height of B.
-    // 3. (Property 1). An oldest block where fork is happened has the least height among all blocks on the fork.
-    // 4. (Property 2). An oldest block where fork is happened is never affected by Canonical Chain Switching
-    //    and always stays on Canonical Chain.
+    // 1. Genesis block is available and should not be removed by GC.
+    // 2. No block in storage except Genesis has height lower or equal to `genesis_height`.
+    // 3. There is known lowest block height (Tail) came from Genesis or State Sync.
+    //    a. Tail is always on the Canonical Chain.
+    //    b. Only one Tail exists.
+    //    c. Tail's height is higher than or equal to `genesis_height`,
+    // 4. There is a known highest block height (Head).
+    //    a. Head is always on the Canonical Chain.
+    // 5. All blocks in the storage have heights in range [Tail; Head].
+    //    a. All forks end up on height of Head or lower.
+    // 6. If block A is ancestor of block B, height of A is strictly less then height of B.
+    // 7. (Property 1). A block with the lowest height among all the blocks at which the fork has started,
+    //    i.e. all the blocks with the outgoing degree 2 or more,
+    //    has the least height among all blocks on the fork.
+    // 8. (Property 2). The oldest block where the fork happened is never affected
+    //    by Canonical Chain Switching and always stays on Canonical Chain.
     //
     // Overall:
     // 1. GC procedure is handled by `clear_data()` function.
-    // 2. `clear_data()` runs GC process for all blocks from the lowest known block height (tail).
-    // 3. `clear_data()` contains of four parts:
-    //    a. Block Reference Map creating, if it not exists
-    //    b. Define clearing height as `height`; the highest height for which we want to clear the data
-    //    c. Forks Clearing at height `height` down to tail.
-    //    d. Canonical Chain Clearing from tail up to height `height`
+    // 2. `clear_data()` runs GC process for all blocks from the Tail to GC Stop Height provided by Epoch Manager.
+    // 3. `clear_data()` executes separately:
+    //    a. Forks Clearing runs for each height from Tail up to GC Stop Height.
+    //    b. Canonical Chain Clearing from (Tail + 1) up to GC Stop Height.
     // 4. Before actual clearing is started, Block Reference Map should be built.
-    // 5. It's recommended to execute `clear_data()` every time when block at new height is added.
+    // 5. `clear_data()` executes every time when block at new height is added.
+    // 6. In case of State Sync, State Sync Clearing happens.
     //
     // Forks Clearing:
     // 1. Any fork which ends up on height `height` INCLUSIVELY and earlier will be completely deleted
@@ -578,9 +589,10 @@ impl Chain {
     // 2. If Forks Clearing ended up on the Canonical Chain, the block may be unlocked
     //    for the Canonical Chain Clearing. There is no other reason to unlock the block exists.
     // 3. All the unlocked blocks will be completely deleted
-    //    from the tail up to the height `height` EXCLUSIVELY.
-    // 4. (Property 3, GC invariant). There is always only one block with the lowest height (tail)
-    //    (based on property 1) and it's always on the Canonical Chain (based on property 2).
+    //    from the Tail up to GC Stop Height EXCLUSIVELY.
+    // 4. (Property 3, GC invariant). Tail can be shifted safely to the height of the
+    //    earliest existing block. There is always only one Tail (based on property 1)
+    //    and it's always on the Canonical Chain (based on property 2).
     //
     // Example:
     //
@@ -598,6 +610,14 @@ impl Chain {
     //    Then Canonical Chain Clearing will delete blocks A and B as unlocked.
     //    Block C is the only block of height 103 remains on the Canonical Chain (invariant).
     //
+    // State Sync Clearing:
+    // 1. Executing State Sync means that no data in the storage is useful for block processing
+    //    and should be removed completely.
+    // 2. The Tail should be set to the block preceding Sync Block.
+    // 3. All the data preceding new Tail is deleted in State Sync Clearing
+    //    and the Trie is updated with having only Genesis data.
+    // 4. State Sync Clearing happens in `reset_data_pre_state_sync()`.
+    //
     pub fn clear_data(&mut self, trie: Arc<Trie>) -> Result<(), Error> {
         let mut chain_store_update = self.store.store_update();
         let head = chain_store_update.head()?;
@@ -611,11 +631,9 @@ impl Chain {
         }
         // To avoid network slowdown, we limit the number of heights to clear per GC execution
         gc_stop_height = min(gc_stop_height, tail + MAX_HEIGHTS_TO_CLEAR);
+
         // Forks Cleaning
         for height in tail..gc_stop_height {
-            if height == chain_store_update.get_genesis_height() {
-                continue;
-            }
             chain_store_update.clear_forks_data(trie.clone(), height)?;
         }
 
@@ -629,17 +647,19 @@ impl Chain {
                 if let Some(block_hash) = blocks_current_height.first() {
                     let prev_hash = chain_store_update.get_block_header(block_hash)?.prev_hash;
                     let prev_block_refcount = *chain_store_update.get_block_refcount(&prev_hash)?;
-                    // break when there is a fork
                     if prev_block_refcount > 1 {
+                        // Block of `prev_hash` starts a Fork, stopping
                         break;
-                    } else if prev_block_refcount == 0 {
+                    } else if prev_block_refcount == 1 {
+                        debug_assert_eq!(blocks_current_height.len(), 1);
+                        chain_store_update
+                            .clear_block_data(*block_hash, GCMode::Canonical(trie.clone()))?;
+                    } else {
                         return Err(ErrorKind::GCError(
                             "block on canonical chain shouldn't have refcount 0".into(),
                         )
                         .into());
                     }
-                    debug_assert_eq!(blocks_current_height.len(), 1);
-                    chain_store_update.clear_block_data(trie.clone(), *block_hash, false)?;
                 }
             }
             chain_store_update.update_tail(height);
@@ -935,6 +955,43 @@ impl Chain {
             (true, false) => BlockStatus::Reorg(old_hash.unwrap()),
             (false, _) => BlockStatus::Fork,
         }
+    }
+
+    pub fn reset_data_pre_state_sync(&mut self, sync_hash: CryptoHash) -> Result<(), Error> {
+        // Get header we were syncing into.
+        let header = self.get_block_header(&sync_hash)?;
+        let hash = header.prev_hash;
+        let prev_header = self.get_block_header(&hash)?;
+        let tip = Tip::from_header(prev_header);
+        let mut chain_store_update = self.mut_store().store_update();
+
+        // GC all the data from current tail up to `tip.height`
+        let new_tail = tip.height;
+        let tail = chain_store_update.tail()?;
+        for height in tail..new_tail {
+            if let Ok(blocks_current_height) =
+                chain_store_update.get_all_block_hashes_by_height(height)
+            {
+                let blocks_current_height =
+                    blocks_current_height.values().flatten().cloned().collect::<Vec<_>>();
+                for block_hash in blocks_current_height {
+                    chain_store_update.clear_block_data(block_hash, GCMode::StateSync)?;
+                }
+            }
+        }
+
+        // Clear all Trie data
+        chain_store_update.clear_state_data();
+
+        chain_store_update.update_tail(new_tail);
+
+        chain_store_update.commit()?;
+
+        // Fill the Trie with Genesis state
+        let (_, state_store_update, _) = self.runtime_adapter.genesis_state();
+        state_store_update.commit()?;
+
+        Ok(())
     }
 
     /// Set the new head after state sync was completed if it is indeed newer.
