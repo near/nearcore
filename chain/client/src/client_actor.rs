@@ -86,8 +86,8 @@ fn wait_until_genesis(genesis_time: &DateTime<Utc>) {
             break;
         }
         info!(target: "near", "Waiting until genesis: {}d {}h {}m {}s", duration.num_days(),
-              (duration.num_hours() / (60 * 60) % 24),
-              (duration.num_minutes() / 60 % 60),
+              (duration.num_hours() % 24),
+              (duration.num_minutes() % 60),
               (duration.num_seconds() % 60));
         let wait =
             std::cmp::min(Duration::from_secs(10), Duration::from_secs(chrono_seconds as u64));
