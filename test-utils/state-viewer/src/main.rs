@@ -25,6 +25,15 @@ fn load_trie(
     home_dir: &Path,
     near_config: &NearConfig,
 ) -> (NightshadeRuntime, Vec<StateRoot>, BlockHeader) {
+    load_trie_stop_at_height(store, home_dir, near_config, None)
+}
+
+fn load_trie_stop_at_height(
+    store: Arc<Store>,
+    home_dir: &Path,
+    near_config: &NearConfig,
+    stop_height: Option<BlockHeight>,
+) -> (NightshadeRuntime, Vec<StateRoot>, BlockHeader) {
     let mut chain_store = ChainStore::new(store.clone(), near_config.genesis.config.genesis_height);
 
     let runtime = NightshadeRuntime::new(
@@ -35,11 +44,38 @@ fn load_trie(
         near_config.client_config.tracked_shards.clone(),
     );
     let head = chain_store.head().unwrap();
-    let last_block = chain_store.get_block(&head.last_block_hash).unwrap().clone();
-    let mut state_roots = vec![];
-    for chunk in last_block.chunks.iter() {
-        state_roots.push(chunk.inner.prev_state_root.clone());
-    }
+    let last_block = match stop_height {
+        Some(height) => {
+            // find the first final block whose height is at least `height`.
+            let mut cur_height = height + 1;
+            loop {
+                if cur_height >= head.height {
+                    panic!("No final block with height >= {} exists", height);
+                }
+                let cur_block_hash = match chain_store.get_block_hash_by_height(cur_height) {
+                    Ok(hash) => hash,
+                    Err(_) => {
+                        cur_height += 1;
+                        continue;
+                    }
+                };
+                let last_final_block_hash = chain_store
+                    .get_block_header(&cur_block_hash)
+                    .unwrap()
+                    .inner_rest
+                    .last_quorum_pre_commit;
+                let last_final_block = chain_store.get_block(&last_final_block_hash).unwrap();
+                if last_final_block.header.inner_lite.height >= height {
+                    break last_final_block.clone();
+                } else {
+                    cur_height += 1;
+                    continue;
+                }
+            }
+        }
+        None => chain_store.get_block(&head.last_block_hash).unwrap().clone(),
+    };
+    let state_roots = last_block.chunks.iter().map(|chunk| chunk.inner.prev_state_root).collect();
     (runtime, state_roots, last_block.header)
 }
 
@@ -168,7 +204,14 @@ fn main() {
         )
         .subcommand(SubCommand::with_name("peers"))
         .subcommand(SubCommand::with_name("state"))
-        .subcommand(SubCommand::with_name("dump_state"))
+        .subcommand(
+            SubCommand::with_name("dump_state").arg(
+                Arg::with_name("height")
+                    .long("height")
+                    .help("Desired stop height of state dump")
+                    .takes_value(true),
+            ),
+        )
         .subcommand(
             SubCommand::with_name("chain")
                 .arg(
@@ -235,8 +278,10 @@ fn main() {
                 }
             }
         }
-        ("dump_state", Some(_args)) => {
-            let (runtime, state_roots, header) = load_trie(store.clone(), home_dir, &near_config);
+        ("dump_state", Some(args)) => {
+            let height = args.value_of("height").map(|s| s.parse::<u64>().unwrap());
+            let (runtime, state_roots, header) =
+                load_trie_stop_at_height(store.clone(), home_dir, &near_config, height);
             let height = header.inner_lite.height;
             let home_dir = PathBuf::from(&home_dir);
 
