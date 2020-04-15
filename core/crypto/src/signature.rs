@@ -677,6 +677,9 @@ mod tests {
             pk,
             serde_json::from_str("\"DcA2MzgpJbrUATQLLceocVckhhAqrkingax4oJ9kZ847\"").unwrap()
         );
+        let pk_str: String = pk.to_string();
+        let pk2: PublicKey = pk_str.try_into().unwrap();
+        assert_eq!(pk, pk2);
 
         let expected = "\"ed25519:3KyUuch8pYP47krBq4DosFEVBMR5wDTMQ8AThzM8kAEcBQEpsPdYTZ2FPX5ZnSoLrerjwg66hwwJaW1wHzprd5k3\"";
         assert_eq!(serde_json::to_string(&sk).unwrap(), expected);
@@ -686,6 +689,9 @@ mod tests {
         let expected = "\"ed25519:3s1dvZdQtcAjBksMHFrysqvF63wnyMHPA4owNQmCJZ2EBakZEKdtMsLqrHdKWQjJbSRN6kRknN2WdwSBLWGCokXj\"";
         assert_eq!(serde_json::to_string(&signature).unwrap(), expected);
         assert_eq!(signature, serde_json::from_str(expected).unwrap());
+        let signature_str: String = signature.to_string();
+        let signature2: Signature = signature_str.try_into().unwrap();
+        assert_eq!(signature, signature2);
     }
 
     #[test]
@@ -698,6 +704,9 @@ mod tests {
         let expected = "\"secp256k1:BtJtBjukUQbcipnS78adSwUKE38sdHnk7pTNZH7miGXfodzUunaAcvY43y37nm7AKbcTQycvdgUzFNWsd7dgPZZ\"";
         assert_eq!(serde_json::to_string(&pk).unwrap(), expected);
         assert_eq!(pk, serde_json::from_str(expected).unwrap());
+        let pk_str: String = pk.to_string();
+        let pk2: PublicKey = pk_str.try_into().unwrap();
+        assert_eq!(pk, pk2);
 
         let expected = "\"secp256k1:9ZNzLxNff6ohoFFGkbfMBAFpZgD7EPoWeiuTpPAeeMRV\"";
         assert_eq!(serde_json::to_string(&sk).unwrap(), expected);
@@ -707,6 +716,9 @@ mod tests {
         let expected = "\"secp256k1:7iA75xRmHw17MbUkSpHxBHFVTuJW6jngzbuJPJutwb3EAwVw21wrjpMHU7fFTAqH7D3YEma8utCdvdtsqcAWqnC7r\"";
         assert_eq!(serde_json::to_string(&signature).unwrap(), expected);
         assert_eq!(signature, serde_json::from_str(expected).unwrap());
+        let signature_str: String = signature.to_string();
+        let signature2: Signature = signature_str.try_into().unwrap();
+        assert_eq!(signature, signature2);
     }
 
     #[test]
