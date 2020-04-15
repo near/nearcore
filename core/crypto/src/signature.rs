@@ -602,49 +602,51 @@ impl serde::Serialize for Signature {
     }
 }
 
+impl TryFrom<String> for Signature {
+    type Error = Box<dyn std::error::Error>;
+
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        Self::try_from(value.as_str())
+    }
+}
+
+impl TryFrom<&str> for Signature {
+    type Error = Box<dyn std::error::Error>;
+
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        let (sig_type, sig_data) = split_key_type_data(&value)?;
+        match sig_type {
+            KeyType::ED25519 => {
+                let mut array = [0; ed25519_dalek::SIGNATURE_LENGTH];
+                let length = bs58::decode(sig_data).into(&mut array[..])?;
+                if length != ed25519_dalek::SIGNATURE_LENGTH {
+                    return Err(format!("Invalid length {} of ED25519 signature", length).into());
+                }
+                Ok(Signature::ED25519(
+                    ed25519_dalek::Signature::from_bytes(&array)
+                        .map_err(|e| format!("Invalid ED25519 signature: {}", e.to_string()))?,
+                ))
+            }
+            _ => {
+                let mut array = [0; 65];
+                let length = bs58::decode(sig_data).into(&mut array[..])?;
+                if length != 65 {
+                    return Err(format!("Invalid length {} of SECP256K1 signature", length).into());
+                }
+                Ok(Signature::SECP256K1(Secp256K1Signature(array)))
+            }
+        }
+    }
+}
+
 impl<'de> serde::Deserialize<'de> for Signature {
     fn deserialize<D>(deserializer: D) -> Result<Self, <D as serde::Deserializer<'de>>::Error>
     where
         D: serde::Deserializer<'de>,
     {
         let s = <String as serde::Deserialize>::deserialize(deserializer)?;
-        let (key_type, key_data) =
-            split_key_type_data(&s).map_err(|err| serde::de::Error::custom(err.to_string()))?;
-        match key_type {
-            KeyType::ED25519 => {
-                let mut array = [0; ed25519_dalek::SIGNATURE_LENGTH];
-                let length = bs58::decode(key_data)
-                    .into(&mut array[..])
-                    .map_err(|err| serde::de::Error::custom(err.to_string()))?;
-                if length != ed25519_dalek::SIGNATURE_LENGTH {
-                    return Err(serde::de::Error::custom(format!(
-                        "Invalid length {} of ED25519 signature",
-                        length,
-                    )));
-                }
-                Ok(Signature::ED25519(ed25519_dalek::Signature::from_bytes(&array).map_err(
-                    |e| {
-                        serde::de::Error::custom(format!(
-                            "Invalid ED25519 signature: {}",
-                            e.to_string(),
-                        ))
-                    },
-                )?))
-            }
-            _ => {
-                let mut array = [0; 65];
-                let length = bs58::decode(key_data)
-                    .into(&mut array[..])
-                    .map_err(|err| serde::de::Error::custom(err.to_string()))?;
-                if length != 65 {
-                    return Err(serde::de::Error::custom(format!(
-                        "Invalid length {} of SECP256K1 signature",
-                        length
-                    )));
-                }
-                Ok(Signature::SECP256K1(Secp256K1Signature(array)))
-            }
-        }
+        s.try_into()
+            .map_err(|err: Box<dyn std::error::Error>| serde::de::Error::custom(err.to_string()))
     }
 }
 
@@ -675,6 +677,9 @@ mod tests {
             pk,
             serde_json::from_str("\"DcA2MzgpJbrUATQLLceocVckhhAqrkingax4oJ9kZ847\"").unwrap()
         );
+        let pk_str: String = pk.to_string();
+        let pk2: PublicKey = pk_str.try_into().unwrap();
+        assert_eq!(pk, pk2);
 
         let expected = "\"ed25519:3KyUuch8pYP47krBq4DosFEVBMR5wDTMQ8AThzM8kAEcBQEpsPdYTZ2FPX5ZnSoLrerjwg66hwwJaW1wHzprd5k3\"";
         assert_eq!(serde_json::to_string(&sk).unwrap(), expected);
@@ -684,6 +689,9 @@ mod tests {
         let expected = "\"ed25519:3s1dvZdQtcAjBksMHFrysqvF63wnyMHPA4owNQmCJZ2EBakZEKdtMsLqrHdKWQjJbSRN6kRknN2WdwSBLWGCokXj\"";
         assert_eq!(serde_json::to_string(&signature).unwrap(), expected);
         assert_eq!(signature, serde_json::from_str(expected).unwrap());
+        let signature_str: String = signature.to_string();
+        let signature2: Signature = signature_str.try_into().unwrap();
+        assert_eq!(signature, signature2);
     }
 
     #[test]
@@ -696,6 +704,9 @@ mod tests {
         let expected = "\"secp256k1:BtJtBjukUQbcipnS78adSwUKE38sdHnk7pTNZH7miGXfodzUunaAcvY43y37nm7AKbcTQycvdgUzFNWsd7dgPZZ\"";
         assert_eq!(serde_json::to_string(&pk).unwrap(), expected);
         assert_eq!(pk, serde_json::from_str(expected).unwrap());
+        let pk_str: String = pk.to_string();
+        let pk2: PublicKey = pk_str.try_into().unwrap();
+        assert_eq!(pk, pk2);
 
         let expected = "\"secp256k1:9ZNzLxNff6ohoFFGkbfMBAFpZgD7EPoWeiuTpPAeeMRV\"";
         assert_eq!(serde_json::to_string(&sk).unwrap(), expected);
@@ -705,6 +716,9 @@ mod tests {
         let expected = "\"secp256k1:7iA75xRmHw17MbUkSpHxBHFVTuJW6jngzbuJPJutwb3EAwVw21wrjpMHU7fFTAqH7D3YEma8utCdvdtsqcAWqnC7r\"";
         assert_eq!(serde_json::to_string(&signature).unwrap(), expected);
         assert_eq!(signature, serde_json::from_str(expected).unwrap());
+        let signature_str: String = signature.to_string();
+        let signature2: Signature = signature_str.try_into().unwrap();
+        assert_eq!(signature, signature2);
     }
 
     #[test]
