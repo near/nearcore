@@ -972,7 +972,7 @@ fn test_tx_forwarding() {
     let genesis_hash = genesis_block.hash();
     // forward to 2 chunk producers
     env.clients[0].process_tx(SignedTransaction::empty(genesis_hash), false);
-    assert_eq!(env.network_adapters[0].requests.read().unwrap().len(), 2);
+    assert_eq!(env.network_adapters[0].requests.read().unwrap().len(), 4);
 }
 
 #[test]
