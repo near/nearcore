@@ -29,7 +29,7 @@ use near_store::Store;
 use crate::codec::Codec;
 use crate::metrics;
 use crate::peer::Peer;
-use crate::peer_store::{PeerStore, VerificationLevel};
+use crate::peer_store::{PeerStore, TrustLevel};
 #[cfg(feature = "metric_recorder")]
 use crate::recorder::{MetricRecorder, PeerMessageMetadata};
 use crate::routing::{Edge, EdgeInfo, EdgeType, ProcessEdgeResult, RoutingTable};
@@ -417,7 +417,7 @@ impl PeerManagerActor {
 
     /// Get a random peer we are not connected to from the known list.
     fn sample_random_peer(&self, ignore_list: &HashSet<PeerId>) -> Option<PeerInfo> {
-        let unconnected_peers = self.peer_store.unconnected_peers(ignore_list, &self.peer_id);
+        let unconnected_peers = self.peer_store.unconnected_peers(ignore_list);
         unconnected_peers.choose(&mut rand::thread_rng()).cloned()
     }
 
@@ -580,7 +580,9 @@ impl PeerManagerActor {
         }
 
         if self.is_outbound_bootstrap_needed() {
-            if let Some(peer_info) = self.sample_random_peer(&self.outgoing_peers) {
+            let mut ignore_list = self.outgoing_peers.clone();
+            ignore_list.insert(self.peer_id.clone());
+            if let Some(peer_info) = self.sample_random_peer(&ignore_list) {
                 self.outgoing_peers.insert(peer_info.id.clone());
                 ctx.notify(OutboundTcpConnect { peer_info });
             } else {
@@ -1397,7 +1399,7 @@ impl Handler<PeersResponse> for PeerManagerActor {
         unwrap_or_error!(
             self.peer_store.add_peers(
                 msg.peers.into_iter().filter(|peer_info| peer_info.id != self.peer_id).collect(),
-                VerificationLevel::Indirect,
+                TrustLevel::Indirect,
             ),
             "Fail to update peer store"
         );
@@ -1465,9 +1467,7 @@ impl Handler<PeerRequest> for PeerManagerActor {
                 PeerResponse::NoResponse
             }
             PeerRequest::UpdatePeerInfo(peer_info) => {
-                if let Err(err) =
-                    self.peer_store.add_peers(vec![peer_info], VerificationLevel::Direct)
-                {
+                if let Err(err) = self.peer_store.add_peers(vec![peer_info], TrustLevel::Direct) {
                     error!(target: "network", "Fail to update peer store: {}", err);
                 }
                 PeerResponse::NoResponse
