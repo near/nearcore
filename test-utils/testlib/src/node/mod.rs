@@ -21,6 +21,7 @@ pub use crate::node::process_node::ProcessNode;
 pub use crate::node::runtime_node::RuntimeNode;
 pub use crate::node::thread_node::ThreadNode;
 use crate::user::{AsyncUser, User};
+use near_primitives::contract::ContractCode;
 use num_rational::Rational;
 
 mod process_node;
@@ -156,9 +157,22 @@ pub fn create_nodes_from_seeds(seeds: Vec<String>) -> Vec<NodeConfig> {
     let (configs, validator_signers, network_signers, mut genesis) =
         create_testnet_configs_from_seeds(seeds.clone(), 1, 0, true, false);
     genesis.config.gas_price_adjustment_rate = Rational::from_integer(0);
-    let records = genesis.records.as_mut();
     for seed in seeds {
-        records.push(StateRecord::Contract { account_id: seed, code: code.clone() });
+        let mut is_account_record_found = false;
+        for record in genesis.records.as_mut() {
+            if let StateRecord::Account { account_id: record_account_id, ref mut account } = record
+            {
+                if *record_account_id == seed {
+                    is_account_record_found = true;
+                    account.code_hash = ContractCode::new(code.clone()).get_hash();
+                }
+            }
+        }
+        assert!(is_account_record_found);
+        genesis
+            .records
+            .as_mut()
+            .push(StateRecord::Contract { account_id: seed, code: code.clone() });
     }
     near_configs_to_node_configs(configs, validator_signers, network_signers, genesis)
 }
