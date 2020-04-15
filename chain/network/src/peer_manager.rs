@@ -1397,9 +1397,8 @@ impl Handler<PeersResponse> for PeerManagerActor {
 
     fn handle(&mut self, msg: PeersResponse, _ctx: &mut Self::Context) {
         unwrap_or_error!(
-            self.peer_store.add_peers(
-                msg.peers.into_iter().filter(|peer_info| peer_info.id != self.peer_id).collect(),
-                TrustLevel::Indirect,
+            self.peer_store.add_indirect_peers(
+                msg.peers.into_iter().filter(|peer_info| peer_info.id != self.peer_id).collect()
             ),
             "Fail to update peer store"
         );
@@ -1467,7 +1466,7 @@ impl Handler<PeerRequest> for PeerManagerActor {
                 PeerResponse::NoResponse
             }
             PeerRequest::UpdatePeerInfo(peer_info) => {
-                if let Err(err) = self.peer_store.add_peers(vec![peer_info], TrustLevel::Direct) {
+                if let Err(err) = self.peer_store.add_trusted_peer(peer_info, TrustLevel::Direct) {
                     error!(target: "network", "Fail to update peer store: {}", err);
                 }
                 PeerResponse::NoResponse

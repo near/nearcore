@@ -29,15 +29,15 @@ pub enum TrustLevel {
 #[derive(Debug, Clone)]
 struct VerifiedPeer {
     peer_id: PeerId,
-    verified: TrustLevel,
+    trust_level: TrustLevel,
 }
 
 impl VerifiedPeer {
     fn new(peer_id: PeerId) -> Self {
-        Self { peer_id, verified: TrustLevel::Indirect }
+        Self { peer_id, trust_level: TrustLevel::Indirect }
     }
     fn signed(peer_id: PeerId) -> Self {
-        Self { peer_id, verified: TrustLevel::Signed }
+        Self { peer_id, trust_level: TrustLevel::Signed }
     }
 }
 
@@ -65,7 +65,7 @@ impl PeerStore {
                     if addr_peers.contains_key(&peer_addr) {
                         // There is already a different peer_id with this address, so don't reuse this address.
                         error!(target: "network", "Two boot nodes have the same address {:?}", peer_addr);
-                        peer_info.addr.take();
+                        peer_info.addr = None;
                     } else {
                         addr_peers.insert(peer_addr, VerifiedPeer::signed(peer_info.id.clone()));
                     }
@@ -89,7 +89,7 @@ impl PeerStore {
             if let Some(peer_addr) = peer_state.peer_info.addr.clone() {
                 if addr_peers.contains_key(&peer_addr) {
                     // There is a boot node with this address.
-                    peer_state.peer_info.addr.take();
+                    peer_state.peer_info.addr = None;
                 } else {
                     addr_peers
                         .insert(peer_addr, VerifiedPeer::new(peer_state.peer_info.id.clone()));
@@ -119,7 +119,7 @@ impl PeerStore {
         &mut self,
         peer_info: &PeerInfo,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        self.add_peers(vec![peer_info.clone()], TrustLevel::Signed)?;
+        self.add_trusted_peer(peer_info.clone(), TrustLevel::Signed)?;
         let entry = self.peer_states.get_mut(&peer_info.id).unwrap();
         entry.last_seen = to_timestamp(Utc::now());
         entry.status = KnownPeerStatus::Connected;
@@ -249,126 +249,114 @@ impl PeerStore {
         }
     }
 
+    /// Create new pair between peer_info.id and peer_addr removing
+    /// old pairs if necessary.
+    fn update_peer_info(
+        &mut self,
+        peer_info: PeerInfo,
+        peer_addr: SocketAddr,
+        trust_level: TrustLevel,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let mut touch_other = None;
+
+        // If there is a peer associated with current address remove the address from it.
+        if let Some(verified_peer) = self.addr_peers.remove(&peer_addr) {
+            self.peer_states.entry(verified_peer.peer_id).and_modify(|peer_state| {
+                peer_state.peer_info.addr = None;
+                touch_other = Some(peer_state.peer_info.id.clone());
+            });
+        }
+
+        // If this peer already has an address, remove that pair from the index.
+        if let Some(peer_state) = self.peer_states.get_mut(&peer_info.id) {
+            if let Some(cur_addr) = peer_state.peer_info.addr.take() {
+                self.addr_peers.remove(&cur_addr);
+            }
+        }
+
+        // Add new address
+        self.addr_peers
+            .insert(peer_addr.clone(), VerifiedPeer { peer_id: peer_info.id.clone(), trust_level });
+
+        // Update peer_id addr
+        self.peer_states
+            .entry(peer_info.id.clone())
+            .and_modify(|peer_state| peer_state.peer_info.addr = Some(peer_addr))
+            .or_insert_with(|| KnownPeerState::new(peer_info.clone()));
+
+        self.touch(&peer_info.id)?;
+        if let Some(touch_other) = touch_other {
+            self.touch(&touch_other)?;
+        }
+        Ok(())
+    }
+
     /// Add list of peers into store.
     /// When verified is true is because we establish direct connection with such peer and know
     /// for sure its identity. If we receive a list of peers from another node in the network
     /// by default all of them are unverified.
-    pub fn add_peers(
+    fn add_peer(
         &mut self,
-        peers: Vec<PeerInfo>,
-        verified: TrustLevel,
+        peer_info: PeerInfo,
+        trust_level: TrustLevel,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        for peer_info in peers.into_iter() {
-            let mut to_touch = None;
-
-            if let Some(peer_addr) = peer_info.addr {
-                match verified {
-                    TrustLevel::Signed => {
-                        // If there is a peer associated with current address remove the address from it.
-                        if let Some(verified_peer) = self.addr_peers.remove(&peer_addr) {
-                            self.peer_states.entry(verified_peer.peer_id).and_modify(
-                                |peer_state| {
-                                    peer_state.peer_info.addr.take();
-                                    to_touch = Some(peer_state.peer_info.id.clone());
-                                },
-                            );
-                        }
-
-                        if let Some(peer_state) = self.peer_states.get_mut(&peer_info.id) {
-                            if let Some(cur_addr) = peer_state.peer_info.addr.take() {
-                                self.addr_peers.remove(&cur_addr);
-                            }
-                        }
-
-                        // Add new address
-                        self.addr_peers.insert(
-                            peer_addr.clone(),
-                            VerifiedPeer {
-                                peer_id: peer_info.id.clone(),
-                                verified: TrustLevel::Signed,
-                            },
-                        );
-
-                        // Update peer_id addr
-                        self.peer_states
-                            .entry(peer_info.id.clone())
-                            .and_modify(|peer_state| peer_state.peer_info.addr = Some(peer_addr))
-                            .or_insert_with(|| KnownPeerState::new(peer_info));
-                    }
-                    TrustLevel::Direct => {
-                        // Remove peer pointing to this address if it exists.
-                        if let Some(verified_peer) = self.addr_peers.remove(&peer_addr) {
-                            self.peer_states.entry(verified_peer.peer_id).and_modify(
-                                |peer_state| {
-                                    peer_state.peer_info.addr.take();
-                                    to_touch = Some(peer_state.peer_info.id.clone());
-                                },
-                            );
-                        }
-
-                        // If this peer already exists with a signed connection ignore this update.
-                        // Warning: This is a problem for nodes that changes its address without changing peer_id.
-                        //          It is recommended to change peer_id if address is changed.
-                        if self.peer_states.get(&peer_info.id).map_or(false, |peer_state| {
-                            peer_state.peer_info.addr.map_or(false, |current_addr| {
-                                self.addr_peers.get(&current_addr).map_or(false, |verified_peer| {
-                                    verified_peer.verified == TrustLevel::Signed
-                                })
-                            })
-                        }) {
-                            continue;
-                        }
-
-                        if let Some(peer_state) = self.peer_states.get_mut(&peer_info.id) {
-                            if let Some(cur_addr) = peer_state.peer_info.addr.take() {
-                                self.addr_peers.remove(&cur_addr);
-                            }
-                        }
-
-                        // Add new address
-                        self.addr_peers.insert(
-                            peer_addr.clone(),
-                            VerifiedPeer {
-                                peer_id: peer_info.id.clone(),
-                                verified: TrustLevel::Direct,
-                            },
-                        );
-
-                        // Update peer_id addr
-                        self.peer_states
-                            .entry(peer_info.id.clone())
-                            .and_modify(|peer_state| peer_state.peer_info.addr = Some(peer_addr))
-                            .or_insert_with(|| KnownPeerState::new(peer_info));
-                    }
-                    TrustLevel::Indirect => {
-                        if !self.peer_states.contains_key(&peer_info.id)
-                            && !self.addr_peers.contains_key(&peer_addr)
-                        {
-                            self.addr_peers.insert(
-                                peer_addr.clone(),
-                                VerifiedPeer {
-                                    peer_id: peer_info.id.clone(),
-                                    verified: TrustLevel::Indirect,
-                                },
-                            );
-                            self.peer_states
-                                .insert(peer_info.id.clone(), KnownPeerState::new(peer_info));
-                        }
-                    }
+        if let Some(peer_addr) = peer_info.addr {
+            match trust_level {
+                TrustLevel::Signed => {
+                    self.update_peer_info(peer_info, peer_addr, TrustLevel::Signed)?;
                 }
-            } else {
-                // If doesn't have the address attached it is not verified and we add it
-                // only if it is unknown to us.
-                if !self.peer_states.contains_key(&peer_info.id) {
-                    self.peer_states.insert(peer_info.id.clone(), KnownPeerState::new(peer_info));
+                TrustLevel::Direct => {
+                    // If this peer already exists with a signed connection ignore this update.
+                    // Warning: This is a problem for nodes that changes its address without changing peer_id.
+                    //          It is recommended to change peer_id if address is changed.
+                    if self.peer_states.get(&peer_info.id).map_or(false, |peer_state| {
+                        peer_state.peer_info.addr.map_or(false, |current_addr| {
+                            self.addr_peers.get(&current_addr).map_or(false, |verified_peer| {
+                                verified_peer.trust_level == TrustLevel::Signed
+                            })
+                        })
+                    }) {
+                        return Ok(());
+                    }
+
+                    self.update_peer_info(peer_info, peer_addr, TrustLevel::Direct)?;
+                }
+                TrustLevel::Indirect => {
+                    // We should only update an Indirect connection if we don't know anything about the peer
+                    // or about the address.
+                    if !self.peer_states.contains_key(&peer_info.id)
+                        && !self.addr_peers.contains_key(&peer_addr)
+                    {
+                        self.update_peer_info(peer_info, peer_addr, TrustLevel::Indirect)?;
+                    }
                 }
             }
-
-            if let Some(to_touch) = to_touch {
-                self.touch(&to_touch)?;
+        } else {
+            // If doesn't have the address attached it is not verified and we add it
+            // only if it is unknown to us.
+            if !self.peer_states.contains_key(&peer_info.id) {
+                self.peer_states.insert(peer_info.id.clone(), KnownPeerState::new(peer_info));
             }
         }
         Ok(())
+    }
+
+    pub fn add_indirect_peers(
+        &mut self,
+        peers: Vec<PeerInfo>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        for peer_info in peers {
+            self.add_peer(peer_info, TrustLevel::Indirect)?;
+        }
+        Ok(())
+    }
+
+    pub fn add_trusted_peer(
+        &mut self,
+        peer_info: PeerInfo,
+        trust_level: TrustLevel,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        self.add_peer(peer_info, trust_level)
     }
 }
 
@@ -437,7 +425,7 @@ mod test {
                     && peer_store
                         .addr_peers
                         .get(&addr)
-                        .map_or(false, |verified| verified.verified == level)
+                        .map_or(false, |verified| verified.trust_level == level)
             } else {
                 peer_info.addr.is_none()
             }
@@ -477,7 +465,7 @@ mod test {
         assert!(check_exist(&peer_store, &peers_id[0], Some((addr, TrustLevel::Signed))));
 
         let peer_ba = get_peer_info(peers_id[1].clone(), Some(addr));
-        peer_store.add_peers(vec![peer_ba], TrustLevel::Direct).unwrap();
+        peer_store.add_peer(peer_ba, TrustLevel::Direct).unwrap();
 
         assert!(check_exist(&peer_store, &peers_id[0], None));
         assert!(check_exist(&peer_store, &peers_id[1], Some((addr, TrustLevel::Direct))));
@@ -500,7 +488,7 @@ mod test {
         assert!(check_exist(&peer_store, &peers_id[0], Some((addrs[0], TrustLevel::Signed))));
 
         let peer_ba = get_peer_info(peers_id[0].clone(), Some(addrs[1]));
-        peer_store.add_peers(vec![peer_ba], TrustLevel::Direct).unwrap();
+        peer_store.add_peer(peer_ba, TrustLevel::Direct).unwrap();
         assert!(check_exist(&peer_store, &peers_id[0], Some((addrs[0], TrustLevel::Signed))));
         assert!(check_integrity(&peer_store));
     }
@@ -523,7 +511,7 @@ mod test {
 
         // Create direct connection B - #B
         let peer_11 = get_peer_info(peers_id[1].clone(), Some(addrs[1]));
-        peer_store.add_peers(vec![peer_11.clone()], TrustLevel::Direct).unwrap();
+        peer_store.add_peer(peer_11.clone(), TrustLevel::Direct).unwrap();
         assert!(check_exist(&peer_store, &peers_id[1], Some((addrs[1], TrustLevel::Direct))));
         assert!(check_integrity(&peer_store));
 
@@ -534,7 +522,7 @@ mod test {
 
         // Create indirect connection C - #C
         let peer_22 = get_peer_info(peers_id[2].clone(), Some(addrs[2]));
-        peer_store.add_peers(vec![peer_22.clone()], TrustLevel::Indirect).unwrap();
+        peer_store.add_peer(peer_22.clone(), TrustLevel::Indirect).unwrap();
         assert!(check_exist(&peer_store, &peers_id[2], Some((addrs[2], TrustLevel::Indirect))));
         assert!(check_integrity(&peer_store));
 
@@ -553,24 +541,24 @@ mod test {
 
         // Create indirect connection D - #D
         let peer_33 = get_peer_info(peers_id[3].clone(), Some(addrs[3]));
-        peer_store.add_peers(vec![peer_33], TrustLevel::Indirect).unwrap();
+        peer_store.add_peer(peer_33, TrustLevel::Indirect).unwrap();
         assert!(check_exist(&peer_store, &peers_id[3], Some((addrs[3], TrustLevel::Indirect))));
         assert!(check_integrity(&peer_store));
 
         // Try to create indirect connection A - #X but fails since A - #A exists
         let peer_04 = get_peer_info(peers_id[0].clone(), Some(addrs[4]));
-        peer_store.add_peers(vec![peer_04], TrustLevel::Indirect).unwrap();
+        peer_store.add_peer(peer_04, TrustLevel::Indirect).unwrap();
         assert!(check_exist(&peer_store, &peers_id[0], Some((addrs[0], TrustLevel::Signed))));
         assert!(check_integrity(&peer_store));
 
         // Try to create indirect connection X - #D but fails since D - #D exists
         let peer_43 = get_peer_info(peers_id[4].clone(), Some(addrs[3]));
-        peer_store.add_peers(vec![peer_43.clone()], TrustLevel::Indirect).unwrap();
+        peer_store.add_peer(peer_43.clone(), TrustLevel::Indirect).unwrap();
         assert!(check_exist(&peer_store, &peers_id[3], Some((addrs[3], TrustLevel::Indirect))));
         assert!(check_integrity(&peer_store));
 
         // Create Direct connection X - #D and succeed removing connection D - #D
-        peer_store.add_peers(vec![peer_43], TrustLevel::Direct).unwrap();
+        peer_store.add_peer(peer_43, TrustLevel::Direct).unwrap();
         assert!(check_exist(&peer_store, &peers_id[4], Some((addrs[3], TrustLevel::Direct))));
         // D should still exist, but without any addr
         assert!(check_exist(&peer_store, &peers_id[3], None));
@@ -578,7 +566,7 @@ mod test {
 
         // Try to create indirect connection A - #T but fails since A - #A (signed) exists
         let peer_05 = get_peer_info(peers_id[0].clone(), Some(addrs[5]));
-        peer_store.add_peers(vec![peer_05], TrustLevel::Direct).unwrap();
+        peer_store.add_peer(peer_05, TrustLevel::Direct).unwrap();
         assert!(check_exist(&peer_store, &peers_id[0], Some((addrs[0], TrustLevel::Signed))));
         assert!(check_integrity(&peer_store));
 
