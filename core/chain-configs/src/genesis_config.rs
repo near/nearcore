@@ -192,7 +192,6 @@ impl Genesis {
             &std::fs::read_to_string(path).expect("Could not read genesis file."),
         )
         .expect("Failed to deserialize the genesis records.");
-        genesis.config.total_supply = get_initial_supply(&genesis.records.as_ref());
         genesis
     }
 
