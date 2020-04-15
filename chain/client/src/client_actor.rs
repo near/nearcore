@@ -1080,7 +1080,9 @@ impl ClientActor {
                     })
                     .collect();
 
-                unwrap_or_run_later!(self.client.chain.reset_data_pre_state_sync(sync_hash));
+                if !self.client.config.archive {
+                    unwrap_or_run_later!(self.client.chain.reset_data_pre_state_sync(sync_hash));
+                }
 
                 match unwrap_or_run_later!(self.client.state_sync.run(
                     &me,
