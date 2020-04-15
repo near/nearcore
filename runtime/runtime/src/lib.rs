@@ -1166,8 +1166,10 @@ impl Runtime {
                     state_update.set(TrieKey::ContractData { key: data_key, account_id }, value);
                 }
                 StateRecord::Contract { account_id, code } => {
+                    let acc = get_account(&state_update, &account_id).expect("Failed to read state").expect("Code state record should be preceded by the corresponding account record");
                     let code = ContractCode::new(code);
                     set_code(&mut state_update, account_id, &code);
+                    assert_eq!(code.get_hash(), acc.code_hash);
                 }
                 StateRecord::AccessKey { account_id, public_key, access_key } => {
                     set_access_key(&mut state_update, account_id, public_key, &access_key);
