@@ -17,7 +17,7 @@ TWENTY_FIVE = 25
 
 config = load_config()
 # give more stake to the bootnode so that it can produce the blocks alone
-near_root, node_dirs = init_cluster(2, 1, 2, config, [["min_gas_price", 0], ["max_inflation_rate", 0], ["epoch_length", 7], ["block_producer_kickout_threshold", 80], ["validators", 0, "amount", "60000000000000000000000000000000"], ["records", 0, "Account", "account", "locked", "60000000000000000000000000000000"]], {2: {"tracked_shards": [0, 1]}})
+near_root, node_dirs = init_cluster(2, 1, 2, config, [["min_gas_price", 0], ["max_inflation_rate", [0, 1]], ["epoch_length", 7], ["block_producer_kickout_threshold", 80], ["validators", 0, "amount", "60000000000000000000000000000000"], ["records", 0, "Account", "account", "locked", "60000000000000000000000000000000"]], {2: {"tracked_shards": [0, 1]}})
 
 started = time.time()
 
