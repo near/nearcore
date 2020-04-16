@@ -28,9 +28,7 @@ use near_primitives::sharding::{
     EncodedShardChunk, PartialEncodedChunk, ReedSolomonWrapper, ShardChunkHeader,
 };
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{
-    AccountId, BlockHeight, ChunkExtra, EpochId, ShardId, ValidatorStake,
-};
+use near_primitives::types::{AccountId, ApprovalStake, BlockHeight, ChunkExtra, EpochId, ShardId};
 use near_primitives::unwrap_or_return;
 use near_primitives::utils::to_timestamp;
 use near_primitives::validator_signer::ValidatorSigner;
@@ -330,18 +328,13 @@ impl Client {
 
         let approvals = self
             .runtime_adapter
-            .get_epoch_block_producers_ordered(&epoch_id, &prev_hash)?
+            .get_epoch_block_approvers_ordered(&prev_hash)?
             .into_iter()
-            .map(|(ValidatorStake { account_id, .. }, _)| {
+            .map(|ApprovalStake { account_id, .. }| {
                 approvals_map.remove(&account_id).map(|x| x.signature)
             })
             .collect();
 
-        println!(
-            "{:?}\n{:?}",
-            self.runtime_adapter.get_epoch_block_producers_ordered(&epoch_id, &prev_hash)?,
-            approvals_map
-        );
         debug_assert_eq!(approvals_map.len(), 0);
 
         let next_epoch_id = self
@@ -955,18 +948,40 @@ impl Client {
             }
         };
 
-        let next_epoch_id = match self.runtime_adapter.get_epoch_id_from_prev_block(&parent_hash) {
-            Err(e) => {
-                process_error(e, approval, &mut self.pending_approvals);
-                return;
-            }
-            Ok(next_epoch_id) => next_epoch_id,
-        };
+        let next_block_epoch_id =
+            match self.runtime_adapter.get_epoch_id_from_prev_block(&parent_hash) {
+                Err(e) => {
+                    process_error(e, approval, &mut self.pending_approvals);
+                    return;
+                }
+                Ok(next_epoch_id) => next_epoch_id,
+            };
 
         if !is_ours {
             // Check signature is correct for given validator.
+            // Note that on the epoch boundary the blocks contain approvals from both the current
+            // and the next epoch. Here we try to fetch the validator for the epoch of the next block,
+            // if we succeed, it must use the key from that epoch, and thus we use the epoch of the
+            // next block below when verifying the signature. Otherwise, if the block producer doesn't
+            // exist in the epoch of the next block, we use the epoch after next to validate the
+            // signature. We don't care here if the block is actually on the epochs boundary yet,
+            // `Doomslug::on_approval_message` below will handle it.
+            let validator_epoch_id = match self.runtime_adapter.get_validator_by_account_id(
+                &next_block_epoch_id,
+                &parent_hash,
+                account_id,
+            ) {
+                Ok(_) => next_block_epoch_id.clone(),
+                Err(e) if e.kind() == ErrorKind::NotAValidator => {
+                    match self.runtime_adapter.get_next_epoch_id_from_prev_block(&parent_hash) {
+                        Ok(next_block_next_epoch_id) => next_block_next_epoch_id,
+                        Err(_) => return,
+                    }
+                }
+                _ => return,
+            };
             match self.runtime_adapter.verify_validator_signature(
-                &next_epoch_id,
+                &validator_epoch_id,
                 &parent_hash,
                 account_id,
                 Approval::get_data_for_sig(inner, *target_height).as_ref(),
@@ -978,7 +993,7 @@ impl Client {
         }
 
         let is_block_producer =
-            match self.runtime_adapter.get_block_producer(&next_epoch_id, *target_height) {
+            match self.runtime_adapter.get_block_producer(&next_block_epoch_id, *target_height) {
                 Err(_) => false,
                 Ok(target_block_producer) => {
                     Some(&target_block_producer)
@@ -1002,19 +1017,14 @@ impl Client {
             };
         }
 
-        let block_producer_stakes = match self
-            .runtime_adapter
-            .get_epoch_block_producers_ordered(&next_epoch_id, &parent_hash)
-        {
-            Ok(block_producer_stakes) => block_producer_stakes,
-            Err(err) => {
-                error!(target: "client", "Block approval error: {}", err);
-                return;
-            }
-        };
-
         let block_producer_stakes =
-            block_producer_stakes.into_iter().map(|x| x.0).collect::<Vec<_>>();
+            match self.runtime_adapter.get_epoch_block_approvers_ordered(&parent_hash) {
+                Ok(block_producer_stakes) => block_producer_stakes,
+                Err(err) => {
+                    error!(target: "client", "Block approval error: {}", err);
+                    return;
+                }
+            };
 
         self.doomslug.on_approval_message(Instant::now(), &approval, &block_producer_stakes);
     }

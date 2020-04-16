@@ -1004,9 +1004,10 @@ pub struct NextEpochValidatorInfo {
 
 #[derive(Serialize, Debug, Clone, BorshDeserialize, BorshSerialize)]
 pub struct LightClientBlockView {
+    pub prev_block_hash: CryptoHash,
+    pub next_block_inner_hash: CryptoHash,
     pub inner_lite: BlockHeaderInnerLiteView,
     pub inner_rest_hash: CryptoHash,
-    pub next_block_hash: CryptoHash,
     pub next_bps: Option<Vec<ValidatorStakeView>>,
     pub approvals_next: Vec<Option<Signature>>,
     pub approvals_after_next: Vec<Option<Signature>>,

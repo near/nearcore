@@ -63,7 +63,7 @@ fn load_trie_stop_at_height(
                     .get_block_header(&cur_block_hash)
                     .unwrap()
                     .inner_rest
-                    .last_quorum_pre_commit;
+                    .last_final_block;
                 let last_final_block = chain_store.get_block(&last_final_block_hash).unwrap();
                 if last_final_block.header.inner_lite.height >= height {
                     break last_final_block.clone();

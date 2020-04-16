@@ -29,8 +29,8 @@ use near_primitives::state_record::StateRecord;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::trie_key::trie_key_parsers;
 use near_primitives::types::{
-    AccountId, Balance, BlockHeight, EpochHeight, EpochId, Gas, MerkleHash, NumShards, ShardId,
-    StateChangeCause, StateRoot, StateRootNode, ValidatorStake, ValidatorStats,
+    AccountId, ApprovalStake, Balance, BlockHeight, EpochHeight, EpochId, Gas, MerkleHash,
+    NumShards, ShardId, StateChangeCause, StateRoot, StateRootNode, ValidatorStake, ValidatorStats,
 };
 use near_primitives::views::{
     AccessKeyInfoView, CallResult, EpochValidatorInfo, QueryError, QueryRequest, QueryResponse,
@@ -586,16 +586,14 @@ impl RuntimeAdapter for NightshadeRuntime {
 
     fn verify_approval(
         &self,
-        epoch_id: &EpochId,
         prev_block_hash: &CryptoHash,
         prev_block_height: BlockHeight,
         block_height: BlockHeight,
         approvals: &[Option<Signature>],
     ) -> Result<bool, Error> {
         let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
-        let info = epoch_manager
-            .get_all_block_producers_ordered(epoch_id, prev_block_hash)
-            .map_err(Error::from)?;
+        let info =
+            epoch_manager.get_all_block_approvers_ordered(prev_block_hash).map_err(Error::from)?;
         if approvals.len() > info.len() {
             return Ok(false);
         }
@@ -609,12 +607,10 @@ impl RuntimeAdapter for NightshadeRuntime {
             block_height,
         );
 
-        for ((validator, is_slashed), may_be_signature) in info.into_iter().zip(approvals.iter()) {
-            if !is_slashed {
-                if let Some(signature) = may_be_signature {
-                    if !signature.verify(message_to_sign.as_ref(), &validator.public_key) {
-                        return Ok(false);
-                    }
+        for (validator, may_be_signature) in info.into_iter().zip(approvals.iter()) {
+            if let Some(signature) = may_be_signature {
+                if !signature.verify(message_to_sign.as_ref(), &validator.public_key) {
+                    return Ok(false);
                 }
             }
         }
@@ -630,6 +626,14 @@ impl RuntimeAdapter for NightshadeRuntime {
         epoch_manager
             .get_all_block_producers_ordered(epoch_id, last_known_block_hash)
             .map_err(Error::from)
+    }
+
+    fn get_epoch_block_approvers_ordered(
+        &self,
+        parent_hash: &CryptoHash,
+    ) -> Result<Vec<ApprovalStake>, Error> {
+        let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
+        epoch_manager.get_all_block_approvers_ordered(parent_hash).map_err(Error::from)
     }
 
     fn get_block_producer(

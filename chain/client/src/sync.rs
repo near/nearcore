@@ -882,6 +882,7 @@ mod test {
     use super::*;
     use near_primitives::types::EpochId;
     use near_primitives::validator_signer::InMemoryValidatorSigner;
+    use num_rational::Ratio;
 
     #[test]
     fn test_get_locator_heights() {
@@ -1046,7 +1047,7 @@ mod test {
                 epoch_id,
                 next_epoch_id,
                 approvals,
-                0,
+                Ratio::new(0, 1),
                 0,
                 Some(0),
                 vec![],

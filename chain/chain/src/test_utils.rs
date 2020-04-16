@@ -22,8 +22,8 @@ use near_primitives::transaction::{
     TransferAction,
 };
 use near_primitives::types::{
-    AccountId, Balance, BlockHeight, EpochId, Gas, Nonce, NumBlocks, ShardId, StateRoot,
-    StateRootNode, ValidatorStake, ValidatorStats,
+    AccountId, ApprovalStake, Balance, BlockHeight, EpochId, Gas, Nonce, NumBlocks, ShardId,
+    StateRoot, StateRootNode, ValidatorStake, ValidatorStats,
 };
 use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_primitives::views::{
@@ -70,6 +70,7 @@ pub struct KeyValueRuntime {
 
     headers_cache: RwLock<HashMap<CryptoHash, BlockHeader>>,
     hash_to_epoch: RwLock<HashMap<CryptoHash, EpochId>>,
+    hash_to_next_epoch_approvals_req: RwLock<HashMap<CryptoHash, bool>>,
     hash_to_next_epoch: RwLock<HashMap<CryptoHash, EpochId>>,
     hash_to_valset: RwLock<HashMap<EpochId, u64>>,
     epoch_start: RwLock<HashMap<CryptoHash, u64>>,
@@ -154,6 +155,7 @@ impl KeyValueRuntime {
             state_size: RwLock::new(state_size),
             headers_cache: RwLock::new(HashMap::new()),
             hash_to_epoch: RwLock::new(HashMap::new()),
+            hash_to_next_epoch_approvals_req: RwLock::new(HashMap::new()),
             hash_to_next_epoch: RwLock::new(map_with_default_hash1),
             hash_to_valset: RwLock::new(map_with_default_hash3.clone()),
             epoch_start: RwLock::new(map_with_default_hash2.clone()),
@@ -188,6 +190,8 @@ impl KeyValueRuntime {
             .ok_or_else(|| ErrorKind::DBNotFoundErr(to_base(&prev_hash)))?;
 
         let mut hash_to_epoch = self.hash_to_epoch.write().unwrap();
+        let mut hash_to_next_epoch_approvals_req =
+            self.hash_to_next_epoch_approvals_req.write().unwrap();
         let mut hash_to_next_epoch = self.hash_to_next_epoch.write().unwrap();
         let mut hash_to_valset = self.hash_to_valset.write().unwrap();
         let mut epoch_start_map = self.epoch_start.write().unwrap();
@@ -202,8 +206,23 @@ impl KeyValueRuntime {
 
         let prev_epoch_start = *epoch_start_map.get(&prev_prev_hash).unwrap();
 
+        let last_final_height =
+            if prev_block_header.inner_rest.last_final_block == CryptoHash::default() {
+                0
+            } else {
+                self.get_block_header(&prev_block_header.inner_rest.last_final_block)
+                    .unwrap()
+                    .unwrap()
+                    .inner_lite
+                    .height
+            };
+
         let increment_epoch = prev_prev_hash == CryptoHash::default() // genesis is in its own epoch
-            || prev_block_header.inner_lite.height - prev_epoch_start >= self.epoch_length;
+            || last_final_height + 3 >= prev_epoch_start + self.epoch_length;
+
+        let needs_next_epoch_approvals = !increment_epoch
+            && last_final_height + 3 < prev_epoch_start + self.epoch_length
+            && prev_block_header.inner_lite.height + 3 >= prev_epoch_start + self.epoch_length;
 
         let (epoch, next_epoch, valset, epoch_start) = if increment_epoch {
             let new_valset = match prev_valset {
@@ -214,7 +233,7 @@ impl KeyValueRuntime {
                 prev_next_epoch.clone(),
                 EpochId(prev_hash),
                 new_valset,
-                prev_block_header.inner_lite.height,
+                prev_block_header.inner_lite.height + 1,
             )
         } else {
             (
@@ -227,6 +246,7 @@ impl KeyValueRuntime {
 
         hash_to_next_epoch.insert(prev_hash, next_epoch.clone());
         hash_to_epoch.insert(prev_hash, epoch.clone());
+        hash_to_next_epoch_approvals_req.insert(prev_hash.clone(), needs_next_epoch_approvals);
         hash_to_valset.insert(epoch.clone(), valset);
         hash_to_valset.insert(next_epoch.clone(), valset + 1);
         epoch_start_map.insert(prev_hash, epoch_start);
@@ -302,7 +322,6 @@ impl RuntimeAdapter for KeyValueRuntime {
 
     fn verify_approval(
         &self,
-        _epoch_id: &EpochId,
         _prev_block_hash: &CryptoHash,
         _prev_block_height: BlockHeight,
         _block_height: BlockHeight,
@@ -318,6 +337,30 @@ impl RuntimeAdapter for KeyValueRuntime {
     ) -> Result<Vec<(ValidatorStake, bool)>, Error> {
         let validators = &self.validators[self.get_valset_for_epoch(epoch_id)?];
         Ok(validators.iter().map(|x| (x.clone(), false)).collect())
+    }
+
+    fn get_epoch_block_approvers_ordered(
+        &self,
+        parent_hash: &CryptoHash,
+    ) -> Result<Vec<ApprovalStake>, Error> {
+        let (_cur_epoch, cur_valset, next_epoch) =
+            self.get_epoch_and_valset(parent_hash.clone())?;
+        let mut validators = self.validators[cur_valset]
+            .iter()
+            .map(|x| x.get_approval_stake(false))
+            .collect::<Vec<_>>();
+        if *self.hash_to_next_epoch_approvals_req.write().unwrap().get(parent_hash).unwrap() {
+            let validators_copy = validators.clone();
+            validators.extend(
+                self.validators[self.get_valset_for_epoch(&next_epoch)?]
+                    .iter()
+                    .filter(|x| {
+                        !validators_copy.iter().any(|entry| entry.account_id == x.account_id)
+                    })
+                    .map(|x| x.get_approval_stake(true)),
+            );
+        }
+        Ok(validators)
     }
 
     fn get_block_producer(

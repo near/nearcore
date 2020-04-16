@@ -2894,7 +2894,6 @@ impl<'a> ChainUpdate<'a> {
         if *provenance != Provenance::PRODUCED {
             // first verify aggregated signature
             if !self.runtime_adapter.verify_approval(
-                &header.inner_lite.epoch_id,
                 &prev_header.hash,
                 prev_header.inner_lite.height,
                 header.inner_lite.height,
@@ -2907,9 +2906,9 @@ impl<'a> ChainUpdate<'a> {
 
             let stakes = self
                 .runtime_adapter
-                .get_epoch_block_producers_ordered(&header.inner_lite.epoch_id, &header.prev_hash)?
+                .get_epoch_block_approvers_ordered(&header.prev_hash)?
                 .iter()
-                .map(|x| x.0.stake)
+                .map(|x| (x.stake_this_epoch, x.stake_next_epoch))
                 .collect();
             if !Doomslug::can_approved_block_be_produced(
                 self.doomslug_threshold_mode,

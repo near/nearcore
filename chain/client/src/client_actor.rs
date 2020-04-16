@@ -609,11 +609,6 @@ impl ClientActor {
         let epoch_id =
             self.client.runtime_adapter.get_epoch_id_from_prev_block(&head.last_block_hash)?;
 
-        // println!(
-        //     "MOO {:?} -> {}",
-        //     self.client.validator_signer.as_ref().map(|bp| bp.validator_id()),
-        //     self.client.doomslug.get_largest_height_crossing_threshold()
-        // );
         for height in
             latest_known.height + 1..=self.client.doomslug.get_largest_height_crossing_threshold()
         {
@@ -632,21 +627,10 @@ impl ClientActor {
                     height,
                     have_all_chunks,
                 ) {
-                    println!(
-                        "MOO {:?} I'm a BP for {} and ready to produce a block",
-                        self.client.validator_signer.as_ref().map(|bp| bp.validator_id()),
-                        height
-                    );
                     if let Err(err) = self.produce_block(height) {
                         // If there is an error, report it and let it retry on the next loop step.
                         error!(target: "client", "Block production failed: {:?}", err);
                     }
-                } else {
-                    println!(
-                        "MOO {:?} I'm a BP for {} and NOT ready to produce a block",
-                        self.client.validator_signer.as_ref().map(|bp| bp.validator_id()),
-                        height
-                    );
                 }
             }
         }
@@ -714,8 +698,10 @@ impl ClientActor {
             let gas_used = Block::compute_gas_used(&block.chunks, block.header.inner_lite.height);
             let gas_limit = Block::compute_gas_limit(&block.chunks, block.header.inner_lite.height);
 
+            let last_final_hash = block.header.inner_rest.last_final_block;
+
             self.info_helper.block_processed(gas_used, gas_limit);
-            self.check_send_announce_account(accepted_block.hash);
+            self.check_send_announce_account(last_final_hash);
         }
     }
 

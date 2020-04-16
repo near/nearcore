@@ -50,6 +50,10 @@ pub fn create_light_client_block_view(
 
     let next_block_hash = chain_store.get_next_block_hash(&block_header.hash())?.clone();
     let next_block_header = chain_store.get_block_header(&next_block_hash)?;
+    let next_block_inner_hash = BlockHeader::compute_inner_hash(
+        &next_block_header.inner_lite,
+        &next_block_header.inner_rest,
+    );
     let approvals_next = next_block_header.inner_rest.approvals.clone();
 
     let after_next_block_hash = chain_store.get_next_block_hash(&next_block_hash)?.clone();
@@ -57,9 +61,10 @@ pub fn create_light_client_block_view(
     let approvals_after_next = after_next_block_header.inner_rest.approvals.clone();
 
     Ok(LightClientBlockView {
+        prev_block_hash: block_header.prev_hash,
+        next_block_inner_hash,
         inner_lite: inner_lite_view,
         inner_rest_hash,
-        next_block_hash,
         next_bps: next_block_producers,
         approvals_next,
         approvals_after_next,

@@ -11,7 +11,7 @@ mod tests {
     use near_crypto::{KeyType, SecretKey};
     use near_primitives::block::Approval;
     use near_primitives::hash::{hash, CryptoHash};
-    use near_primitives::types::{BlockHeight, ValidatorStake};
+    use near_primitives::types::{ApprovalStake, BlockHeight};
     use near_primitives::validator_signer::InMemoryValidatorSigner;
 
     fn block_hash(height: BlockHeight, ord: usize) -> CryptoHash {
@@ -42,9 +42,10 @@ mod tests {
             vec!["test1", "test2", "test3", "test4", "test5", "test6", "test7", "test8"];
         let stakes = account_ids
             .iter()
-            .map(|account_id| ValidatorStake {
+            .map(|account_id| ApprovalStake {
                 account_id: account_id.to_string(),
-                stake: 1,
+                stake_this_epoch: 1,
+                stake_next_epoch: 1,
                 public_key: SecretKey::from_seed(KeyType::ED25519, account_id).public_key(),
             })
             .collect::<Vec<_>>();

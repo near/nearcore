@@ -8,8 +8,8 @@ use log::{debug, warn};
 
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{
-    AccountId, Balance, BlockChunkValidatorStats, BlockHeight, EpochId, ShardId, ValidatorId,
-    ValidatorKickoutReason, ValidatorStake, ValidatorStats,
+    AccountId, ApprovalStake, Balance, BlockChunkValidatorStats, BlockHeight, EpochId, ShardId,
+    ValidatorId, ValidatorKickoutReason, ValidatorStake, ValidatorStats,
 };
 use near_primitives::views::{
     CurrentEpochValidatorInfo, EpochValidatorInfo, NextEpochValidatorInfo, ValidatorKickoutView,
@@ -494,6 +494,49 @@ impl EpochManager {
         Ok(result)
     }
 
+    pub fn get_all_block_approvers_ordered(
+        &mut self,
+        parent_hash: &CryptoHash,
+    ) -> Result<Vec<ApprovalStake>, EpochError> {
+        let current_epoch_id = self.get_epoch_id_from_prev_block(parent_hash)?;
+        let next_epoch_id = self.get_next_epoch_id_from_prev_block(parent_hash)?;
+
+        let mut settlement =
+            self.get_all_block_producers_settlement(&current_epoch_id, parent_hash)?;
+
+        let settlement_epoch_boundary = settlement.len();
+
+        let block_info = self.get_block_info(parent_hash)?.clone();
+        if self.next_block_need_approvals_from_next_epoch(&block_info)? {
+            settlement.extend(
+                self.get_all_block_producers_settlement(&next_epoch_id, parent_hash)?
+                    .iter()
+                    .cloned(),
+            );
+        }
+
+        let mut result = vec![];
+        let mut validators: HashMap<AccountId, usize> = HashMap::default();
+        for (ord, (validator_stake, is_slashed)) in settlement.into_iter().enumerate() {
+            if !is_slashed {
+                match validators.get(&validator_stake.account_id) {
+                    None => {
+                        validators.insert(validator_stake.account_id.clone(), result.len());
+                        result.push(
+                            validator_stake.get_approval_stake(ord >= settlement_epoch_boundary),
+                        );
+                    }
+                    Some(old_ord) => {
+                        if ord >= settlement_epoch_boundary {
+                            result[*old_ord].stake_next_epoch = validator_stake.stake;
+                        };
+                    }
+                };
+            }
+        }
+        Ok(result)
+    }
+
     /// For given epoch_id, height and shard_id returns validator that is chunk producer.
     pub fn get_chunk_producer_info(
         &mut self,
@@ -889,7 +932,22 @@ impl EpochManager {
         }
         let estimated_next_epoch_start =
             self.get_block_info(&block_info.epoch_first_block)?.height + self.config.epoch_length;
-        Ok(block_info.height + 1 >= estimated_next_epoch_start)
+        Ok(block_info.last_finalized_height + 3 >= estimated_next_epoch_start)
+    }
+
+    /// Returns true, if given current block info, next block must include the approvals from the next
+    /// epoch (in addition to the approvals from the current epoch)
+    fn next_block_need_approvals_from_next_epoch(
+        &mut self,
+        block_info: &BlockInfo,
+    ) -> Result<bool, EpochError> {
+        if self.is_next_block_in_next_epoch(block_info)? {
+            return Ok(false);
+        }
+        let estimated_next_epoch_start =
+            self.get_block_info(&block_info.epoch_first_block)?.height + self.config.epoch_length;
+        Ok(block_info.last_finalized_height + 3 < estimated_next_epoch_start
+            && block_info.height + 3 >= estimated_next_epoch_start)
     }
 
     /// Returns epoch id for the next epoch (T+1), given an block info in current epoch (T).
