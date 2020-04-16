@@ -74,7 +74,7 @@ pub struct GenesisConfig {
     #[default(Rational::from_integer(0))]
     pub max_inflation_rate: Rational,
     /// Total supply of tokens at genesis.
-    #[serde(with = "u128_dec_format", skip_deserializing)]
+    #[serde(with = "u128_dec_format")]
     pub total_supply: Balance,
     /// Expected number of blocks per year
     pub num_blocks_per_year: NumBlocks,
