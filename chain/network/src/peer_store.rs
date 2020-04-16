@@ -59,18 +59,18 @@ impl PeerStore {
         let mut peer_states = HashMap::default();
         let mut addr_peers = HashMap::default();
 
-        for mut peer_info in boot_nodes.iter().cloned() {
+        for peer_info in boot_nodes.iter().cloned() {
             if !peer_states.contains_key(&peer_info.id) {
                 if let Some(peer_addr) = peer_info.addr.clone() {
                     if addr_peers.contains_key(&peer_addr) {
-                        // There is already a different peer_id with this address, so don't reuse this address.
+                        // There is already a different peer_id with this address.
                         error!(target: "network", "Two boot nodes have the same address {:?}", peer_addr);
-                        peer_info.addr = None;
                     } else {
                         addr_peers.insert(peer_addr, VerifiedPeer::signed(peer_info.id.clone()));
+                        peer_states
+                            .insert(peer_info.id.clone(), KnownPeerState::new(peer_info.clone()));
                     }
                 }
-                peer_states.insert(peer_info.id.clone(), KnownPeerState::new(peer_info.clone()));
             }
         }
 
@@ -86,17 +86,21 @@ impl PeerStore {
                 _ => peer_state.status = KnownPeerStatus::NotConnected,
             };
 
-            if let Some(peer_addr) = peer_state.peer_info.addr.clone() {
-                if addr_peers.contains_key(&peer_addr) {
-                    // There is a boot node with this address.
-                    peer_state.peer_info.addr = None;
-                } else {
-                    addr_peers
-                        .insert(peer_addr, VerifiedPeer::new(peer_state.peer_info.id.clone()));
+            if let Some(current_peer_state) = peer_states.get_mut(&peer_id) {
+                // This peer is a boot node and was already added so skip.
+                if peer_state.status.is_banned() {
+                    current_peer_state.status = peer_state.status;
                 }
+                continue;
             }
 
-            peer_states.insert(peer_id, peer_state);
+            if let Some(peer_addr) = peer_state.peer_info.addr.clone() {
+                if !addr_peers.contains_key(&peer_addr) {
+                    addr_peers
+                        .insert(peer_addr, VerifiedPeer::new(peer_state.peer_info.id.clone()));
+                    peer_states.insert(peer_id, peer_state);
+                }
+            }
         }
         Ok(PeerStore { store, peer_states, addr_peers })
     }
@@ -360,9 +364,6 @@ impl PeerStore {
     }
 }
 
-// TODO(Marx): Remove ASL comments
-// TODO(MarX): Test all this.
-
 #[cfg(test)]
 mod test {
     use tempdir;
@@ -373,10 +374,22 @@ mod test {
 
     use super::*;
 
-    fn gen_peer_info() -> PeerInfo {
+    fn get_peer_id(seed: String) -> PeerId {
+        SecretKey::from_seed(KeyType::ED25519, seed.as_str()).public_key().into()
+    }
+
+    fn get_addr(port: u8) -> SocketAddr {
+        format!("127.0.0.1:{}", port).parse().unwrap()
+    }
+
+    fn get_peer_info(peer_id: PeerId, addr: Option<SocketAddr>) -> PeerInfo {
+        PeerInfo { id: peer_id, addr, account_id: None }
+    }
+
+    fn gen_peer_info(port: u8) -> PeerInfo {
         PeerInfo {
             id: PeerId::from(SecretKey::from_random(KeyType::ED25519).public_key()),
-            addr: None,
+            addr: Some(get_addr(port)),
             account_id: None,
         }
     }
@@ -384,8 +397,8 @@ mod test {
     #[test]
     fn ban_store() {
         let tmp_dir = tempdir::TempDir::new("_test_store_ban").unwrap();
-        let peer_info_a = gen_peer_info();
-        let peer_info_to_ban = gen_peer_info();
+        let peer_info_a = gen_peer_info(0);
+        let peer_info_to_ban = gen_peer_info(1);
         let boot_nodes = vec![peer_info_a.clone(), peer_info_to_ban.clone()];
         {
             let store = create_store(tmp_dir.path().to_str().unwrap());
@@ -399,18 +412,6 @@ mod test {
             let peer_store_new = PeerStore::new(store_new, &boot_nodes).unwrap();
             assert_eq!(peer_store_new.healthy_peers(3).iter().count(), 1);
         }
-    }
-
-    fn get_peer_id(seed: String) -> PeerId {
-        SecretKey::from_seed(KeyType::ED25519, seed.as_str()).public_key().into()
-    }
-
-    fn get_addr(port: u8) -> SocketAddr {
-        format!("127.0.0.1:{}", port).parse().unwrap()
-    }
-
-    fn get_peer_info(peer_id: PeerId, addr: Option<SocketAddr>) -> PeerInfo {
-        PeerInfo { id: peer_id, addr, account_id: None }
     }
 
     fn check_exist(
