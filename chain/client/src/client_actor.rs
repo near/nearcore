@@ -1081,7 +1081,8 @@ impl ClientActor {
                     .collect();
 
                 if !self.client.config.archive {
-                    unwrap_or_run_later!(self.client.chain.reset_data_pre_state_sync(sync_hash));
+                    // TODO #2464 enable it
+                    //unwrap_or_run_later!(self.client.chain.reset_data_pre_state_sync(sync_hash));
                 }
 
                 match unwrap_or_run_later!(self.client.state_sync.run(
