@@ -41,7 +41,6 @@ impl SentReceived {
     }
 }
 
-// TODO(MarX): Use more compact debug. Right now it will print all known hashes.
 #[derive(Default, Debug, Deserialize, Clone)]
 struct HashAggregator {
     total: usize,
