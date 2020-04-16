@@ -78,9 +78,9 @@ impl TryFrom<String> for CurveType {
 /// Public key in a binary format with string serialization.
 /// e.g. `ed25519:3tysLvy7KGoE8pznUgXvSHa4vYyGvrDZFcT8jgb8PEQ6`
 #[derive(Clone, PartialEq, PartialOrd, Ord, Eq)]
-pub struct StrPublicKey(pub Vec<u8>);
+pub struct Base58PublicKey(pub Vec<u8>);
 
-impl StrPublicKey {
+impl Base58PublicKey {
     fn split_key_type_data(value: &str) -> Result<(CurveType, &str), Box<dyn std::error::Error>> {
         if let Some(idx) = value.find(':') {
             let (prefix, key_data) = value.split_at(idx);
@@ -92,13 +92,13 @@ impl StrPublicKey {
     }
 }
 
-impl From<StrPublicKey> for Vec<u8> {
-    fn from(v: StrPublicKey) -> Vec<u8> {
+impl From<Base58PublicKey> for Vec<u8> {
+    fn from(v: Base58PublicKey) -> Vec<u8> {
         v.0
     }
 }
 
-impl TryFrom<Vec<u8>> for StrPublicKey {
+impl TryFrom<Vec<u8>> for Base58PublicKey {
     type Error = Box<dyn std::error::Error>;
 
     fn try_from(v: Vec<u8>) -> Result<Self, Self::Error> {
@@ -110,7 +110,7 @@ impl TryFrom<Vec<u8>> for StrPublicKey {
     }
 }
 
-impl serde::Serialize for StrPublicKey {
+impl serde::Serialize for Base58PublicKey {
     fn serialize<S>(
         &self,
         serializer: S,
@@ -122,7 +122,7 @@ impl serde::Serialize for StrPublicKey {
     }
 }
 
-impl<'de> serde::Deserialize<'de> for StrPublicKey {
+impl<'de> serde::Deserialize<'de> for Base58PublicKey {
     fn deserialize<D>(deserializer: D) -> Result<Self, <D as serde::Deserializer<'de>>::Error>
     where
         D: serde::Deserializer<'de>,
@@ -133,8 +133,8 @@ impl<'de> serde::Deserialize<'de> for StrPublicKey {
     }
 }
 
-impl From<&StrPublicKey> for String {
-    fn from(str_public_key: &StrPublicKey) -> Self {
+impl From<&Base58PublicKey> for String {
+    fn from(str_public_key: &Base58PublicKey) -> Self {
         match str_public_key.0[0] {
             0 => "ed25519:".to_string() + &bs58::encode(&str_public_key.0[1..]).into_string(),
             1 => "secp256k1:".to_string() + &bs58::encode(&str_public_key.0[1..]).into_string(),
@@ -143,7 +143,7 @@ impl From<&StrPublicKey> for String {
     }
 }
 
-impl TryFrom<String> for StrPublicKey {
+impl TryFrom<String> for Base58PublicKey {
     type Error = Box<dyn std::error::Error>;
 
     fn try_from(value: String) -> Result<Self, Self::Error> {
@@ -151,11 +151,11 @@ impl TryFrom<String> for StrPublicKey {
     }
 }
 
-impl TryFrom<&str> for StrPublicKey {
+impl TryFrom<&str> for Base58PublicKey {
     type Error = Box<dyn std::error::Error>;
 
     fn try_from(value: &str) -> Result<Self, Self::Error> {
-        let (key_type, key_data) = StrPublicKey::split_key_type_data(&value)?;
+        let (key_type, key_data) = Base58PublicKey::split_key_type_data(&value)?;
         let expected_length = match key_type {
             CurveType::ED25519 => 32,
             CurveType::SECP256K1 => 64,
