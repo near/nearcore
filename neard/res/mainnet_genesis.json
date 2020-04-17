@@ -189,7 +189,22 @@
   },
   "validators": [
     {
-      "account_id": "nfval1.near",
+      "account_id": "nfvalidator1.near",
+      "public_key": "ed25519:9BmAFNRTa5mRRXpSAm6MxSEeqRASDGNh2FuuwZ4gyxTw",
+      "amount": "50000000000000000000000000000"
+    },
+    {
+      "account_id": "nfvalidator2.near",
+      "public_key": "ed25519:9BmAFNRTa5mRRXpSAm6MxSEeqRASDGNh2FuuwZ4gyxTw",
+      "amount": "50000000000000000000000000000"
+    },
+    {
+      "account_id": "nfvalidator3.near",
+      "public_key": "ed25519:9BmAFNRTa5mRRXpSAm6MxSEeqRASDGNh2FuuwZ4gyxTw",
+      "amount": "50000000000000000000000000000"
+    },
+    {
+      "account_id": "nfvalidator4.near",
       "public_key": "ed25519:9BmAFNRTa5mRRXpSAm6MxSEeqRASDGNh2FuuwZ4gyxTw",
       "amount": "50000000000000000000000000000"
     }
@@ -290,7 +305,7 @@
       "Account": {
         "account_id": "foundation.near",
         "account": {
-          "amount": "649939980000000000000000000000000",
+          "amount": "649789980000000000000000000000000",
           "locked": "0",
           "code_hash": "11111111111111111111111111111111",
           "storage_usage": 100
@@ -309,7 +324,7 @@
     },
     {
       "Account": {
-        "account_id": "nfval1.near",
+        "account_id": "nfvalidator1.near",
         "account": {
           "amount": "0",
           "locked": "50000000000000000000000000000",
@@ -320,7 +335,70 @@
     },
     {
       "AccessKey": {
-        "account_id": "nfval1.near",
+        "account_id": "nfvalidator1.near",
+        "public_key": "ed25519:546XB2oHhj7PzUKHiH9Xve3Ze5q1JiW2WTh6abXFED3c",
+        "access_key": {
+          "nonce": 0,
+          "permission": "FullAccess"
+        }
+      }
+    },
+    {
+      "Account": {
+        "account_id": "nfvalidator2.near",
+        "account": {
+          "amount": "0",
+          "locked": "50000000000000000000000000000",
+          "code_hash": "11111111111111111111111111111111",
+          "storage_usage": 100
+        }
+      }
+    },
+    {
+      "AccessKey": {
+        "account_id": "nfvalidator2.near",
+        "public_key": "ed25519:546XB2oHhj7PzUKHiH9Xve3Ze5q1JiW2WTh6abXFED3c",
+        "access_key": {
+          "nonce": 0,
+          "permission": "FullAccess"
+        }
+      }
+    },
+    {
+      "Account": {
+        "account_id": "nfvalidator3.near",
+        "account": {
+          "amount": "0",
+          "locked": "50000000000000000000000000000",
+          "code_hash": "11111111111111111111111111111111",
+          "storage_usage": 100
+        }
+      }
+    },
+    {
+      "AccessKey": {
+        "account_id": "nfvalidator3.near",
+        "public_key": "ed25519:546XB2oHhj7PzUKHiH9Xve3Ze5q1JiW2WTh6abXFED3c",
+        "access_key": {
+          "nonce": 0,
+          "permission": "FullAccess"
+        }
+      }
+    },
+    {
+      "Account": {
+        "account_id": "nfvalidator4.near",
+        "account": {
+          "amount": "0",
+          "locked": "50000000000000000000000000000",
+          "code_hash": "11111111111111111111111111111111",
+          "storage_usage": 100
+        }
+      }
+    },
+    {
+      "AccessKey": {
+        "account_id": "nfvalidator4.near",
         "public_key": "ed25519:546XB2oHhj7PzUKHiH9Xve3Ze5q1JiW2WTh6abXFED3c",
         "access_key": {
           "nonce": 0,
