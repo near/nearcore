@@ -819,9 +819,14 @@ impl RuntimeAdapter for NightshadeRuntime {
         Ok(epoch_start_height)
     }
 
-    fn get_epoch_inflation(&self, epoch_id: &EpochId) -> Result<Balance, Error> {
+    fn is_epoch_exists(&self, epoch_id: &EpochId) -> bool {
         let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
-        Ok(epoch_manager.get_epoch_inflation(epoch_id)?)
+        epoch_manager.get_epoch_info(epoch_id).is_ok()
+    }
+
+    fn get_epoch_minted_amount(&self, epoch_id: &EpochId) -> Result<Balance, Error> {
+        let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
+        Ok(epoch_manager.get_epoch_info(epoch_id)?.minted_amount)
     }
 
     fn push_final_block_back_if_needed(

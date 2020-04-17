@@ -61,14 +61,14 @@ pub struct EpochInfo {
     pub fishermen: Vec<ValidatorStake>,
     /// Fisherman account id to index of proposal.
     pub fishermen_to_index: HashMap<AccountId, ValidatorId>,
-    /// New stake for validators
+    /// New stake for validators.
     pub stake_change: BTreeMap<AccountId, Balance>,
-    /// Validator reward for the epoch
+    /// Validator reward for the epoch.
     pub validator_reward: HashMap<AccountId, Balance>,
-    /// Total inflation in the epoch
-    pub inflation: Balance,
-    /// Validators who are kicked out in this epoch
+    /// Validators who are kicked out in this epoch.
     pub validator_kickout: HashMap<AccountId, ValidatorKickoutReason>,
+    /// Total minted tokens in the epoch.
+    pub minted_amount: Balance,
 }
 
 /// Information per each block.

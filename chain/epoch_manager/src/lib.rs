@@ -823,10 +823,6 @@ impl EpochManager {
         })
     }
 
-    pub fn get_epoch_inflation(&mut self, epoch_id: &EpochId) -> Result<Balance, EpochError> {
-        Ok(self.get_epoch_info(epoch_id)?.inflation)
-    }
-
     /// Compare two epoch ids based on their start height. This works because finality gadget
     /// guarantees that we cannot have two different epochs on two forks
     pub fn compare_epoch_id(

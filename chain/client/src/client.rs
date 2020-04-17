@@ -385,13 +385,15 @@ impl Client {
 
         let prev_header = &prev_block.header;
 
-        let inflation = if self.runtime_adapter.is_next_block_epoch_start(&head.last_block_hash)? {
-            let next_epoch_id =
-                self.runtime_adapter.get_next_epoch_id_from_prev_block(&head.last_block_hash)?;
-            Some(self.runtime_adapter.get_epoch_inflation(&next_epoch_id)?)
-        } else {
-            None
-        };
+        let minted_amount =
+            if self.runtime_adapter.is_next_block_epoch_start(&head.last_block_hash)? {
+                let next_epoch_id = self
+                    .runtime_adapter
+                    .get_next_epoch_id_from_prev_block(&head.last_block_hash)?;
+                Some(self.runtime_adapter.get_epoch_minted_amount(&next_epoch_id)?)
+            } else {
+                None
+            };
 
         // Get all the current challenges.
         // TODO(2445): Enable challenges when they are working correctly.
@@ -406,7 +408,7 @@ impl Client {
             approvals,
             gas_price_adjustment_rate,
             min_gas_price,
-            inflation,
+            minted_amount,
             prev_block_extra.challenges_result,
             vec![],
             &*validator_signer,

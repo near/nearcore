@@ -477,7 +477,7 @@ impl Block {
         approvals: Vec<Approval>,
         gas_price_adjustment_rate: Rational,
         min_gas_price: Balance,
-        inflation: Option<Balance>,
+        minted_amount: Option<Balance>,
         challenges_result: ChallengesResult,
         challenges: Challenges,
         signer: &dyn ValidatorSigner,
@@ -516,7 +516,7 @@ impl Block {
         let new_gas_price = std::cmp::max(new_gas_price, min_gas_price);
 
         let new_total_supply =
-            prev.inner_rest.total_supply + inflation.unwrap_or(0) - balance_burnt;
+            prev.inner_rest.total_supply + minted_amount.unwrap_or(0) - balance_burnt;
 
         let now = to_timestamp(Utc::now());
         let time =

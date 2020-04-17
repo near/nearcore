@@ -39,7 +39,7 @@ pub fn epoch_info(
     stake_change: BTreeMap<AccountId, Balance>,
     validator_kickout: Vec<(&str, ValidatorKickoutReason)>,
     validator_reward: HashMap<AccountId, Balance>,
-    inflation: u128,
+    minted_amount: Balance,
 ) -> EpochInfo {
     accounts.sort();
     let validator_to_index = accounts.iter().enumerate().fold(HashMap::new(), |mut acc, (i, x)| {
@@ -71,8 +71,8 @@ pub fn epoch_info(
         fishermen_to_index,
         stake_change,
         validator_reward,
-        inflation,
         validator_kickout,
+        minted_amount,
     }
 }
 

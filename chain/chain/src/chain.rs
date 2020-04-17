@@ -2683,8 +2683,7 @@ impl<'a> ChainUpdate<'a> {
 
         // Check that we know the epoch of the block before we try to get the header
         // (so that a block from unknown epoch doesn't get marked as an orphan)
-        if let Err(_) = self.runtime_adapter.get_epoch_inflation(&block.header.inner_lite.epoch_id)
-        {
+        if !self.runtime_adapter.is_epoch_exists(&block.header.inner_lite.epoch_id) {
             return Err(ErrorKind::EpochOutOfBounds.into());
         }
 

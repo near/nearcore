@@ -840,7 +840,11 @@ impl RuntimeAdapter for KeyValueRuntime {
         Ok(block_height.saturating_sub(NUM_EPOCHS_TO_KEEP_STORE_DATA * self.epoch_length))
     }
 
-    fn get_epoch_inflation(&self, _epoch_id: &EpochId) -> Result<u128, Error> {
+    fn is_epoch_exists(&self, _epoch_id: &EpochId) -> bool {
+        true
+    }
+
+    fn get_epoch_minted_amount(&self, _epoch_id: &EpochId) -> Result<Balance, Error> {
         Ok(0)
     }
 

@@ -1,5 +1,4 @@
 use ethereum_types::U256;
-use std::cmp::max;
 use std::collections::HashMap;
 
 use near_primitives::types::{AccountId, Balance, BlockChunkValidatorStats};
@@ -16,31 +15,29 @@ pub struct RewardCalculator {
 
 impl RewardCalculator {
     /// Calculate validator reward for an epoch based on their block and chunk production stats.
+    /// Returns map of validators with their rewards and amount of newly minted tokens including to protocol's treasury.
     pub fn calculate_reward(
         &self,
         validator_block_chunk_stats: HashMap<AccountId, BlockChunkValidatorStats>,
         validator_stake: &HashMap<AccountId, Balance>,
-        total_validator_reward: Balance,
+        _total_validator_reward: Balance,
         total_supply: Balance,
     ) -> (HashMap<AccountId, Balance>, Balance) {
         let mut res = HashMap::new();
         let num_validators = validator_block_chunk_stats.len();
-        let max_inflation = (U256::from(*self.max_inflation_rate.numer() as u64)
+        let epoch_total_reward = (U256::from(*self.max_inflation_rate.numer() as u64)
             * U256::from(total_supply)
             * U256::from(self.epoch_length)
             / (U256::from(self.num_blocks_per_year)
                 * U256::from(*self.max_inflation_rate.denom() as u64)))
         .as_u128();
-        let epoch_fee = total_validator_reward;
-        let inflation = if max_inflation > epoch_fee { max_inflation - epoch_fee } else { 0 };
-        let epoch_total_reward = max(max_inflation, epoch_fee);
         let epoch_protocol_treasury = (U256::from(epoch_total_reward)
             * U256::from(*self.protocol_reward_percentage.numer() as u64)
             / U256::from(*self.protocol_reward_percentage.denom() as u64))
         .as_u128();
         res.insert(self.protocol_treasury_account.clone(), epoch_protocol_treasury);
         if num_validators == 0 {
-            return (res, inflation);
+            return (res, epoch_total_reward);
         }
         let epoch_validator_reward = epoch_total_reward - epoch_protocol_treasury;
         let total_stake: Balance = validator_stake.values().sum();
@@ -64,7 +61,7 @@ impl RewardCalculator {
             };
             res.insert(account_id, reward);
         }
-        (res, inflation)
+        (res, epoch_total_reward)
     }
 }
 
