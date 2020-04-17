@@ -245,18 +245,22 @@ impl JsonRpcHandler {
     ) -> Result<Value, RpcError> {
         timeout(self.polling_config.polling_timeout, async {
             loop {
-                let final_tx = self
+                let tx_status_result = self
                     .view_client_addr
                     .send(TxStatus { tx_hash, signer_account_id: account_id.clone() })
                     .await;
-                if let Ok(Ok(Some(ref tx_result))) = final_tx {
-                    match tx_result.status {
+                match tx_status_result {
+                    Ok(Ok(Some(ref tx_result))) => match tx_result.status {
                         FinalExecutionStatus::Started | FinalExecutionStatus::NotStarted => {}
                         FinalExecutionStatus::Failure(_)
                         | FinalExecutionStatus::SuccessValue(_) => {
-                            break jsonify(final_tx);
+                            break jsonify(tx_status_result);
                         }
+                    },
+                    Ok(Err(ref _err)) => {
+                        break jsonify(tx_status_result);
                     }
+                    _ => {}
                 }
                 let _ = delay_for(self.polling_config.polling_interval).await;
             }

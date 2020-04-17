@@ -54,6 +54,8 @@ pub struct ViewClientActor {
     #[cfg(feature = "adversarial")]
     pub adv_sync_info: Option<(u64, u64)>,
 
+    /// Validator account (if present).
+    validator_account_id: Option<AccountId>,
     chain: Chain,
     runtime_adapter: Arc<dyn RuntimeAdapter>,
     network_adapter: Arc<dyn NetworkAdapter>,
@@ -72,6 +74,7 @@ pub struct ViewClientActor {
 
 impl ViewClientActor {
     pub fn new(
+        validator_account_id: Option<AccountId>,
         chain_genesis: &ChainGenesis,
         runtime_adapter: Arc<dyn RuntimeAdapter>,
         network_adapter: Arc<dyn NetworkAdapter>,
@@ -87,6 +90,7 @@ impl ViewClientActor {
             adv_disable_doomslug: false,
             #[cfg(feature = "adversarial")]
             adv_sync_info: None,
+            validator_account_id,
             chain,
             runtime_adapter,
             network_adapter,
@@ -213,64 +217,87 @@ impl ViewClientActor {
             self.tx_status_requests.cache_remove(&tx_hash);
             return Ok(Some(res));
         }
-        let has_tx_result = match self.chain.get_execution_outcome(&tx_hash) {
-            Ok(_) => true,
-            Err(e) => match e.kind() {
-                ErrorKind::DBNotFoundErr(_) => false,
-                _ => {
-                    warn!(target: "client", "Error trying to get transaction result: {}", e.to_string());
-                    false
-                }
-            },
-        };
         let head = self.chain.head().map_err(|e| e.to_string())?.clone();
-        if has_tx_result {
-            let tx_result = self.chain.get_final_transaction_result(&tx_hash)?;
-            match tx_result.status {
-                FinalExecutionStatus::NotStarted | FinalExecutionStatus::Started => {
-                    for receipt_view in tx_result.receipts_outcome.iter() {
-                        let dst_shard_id = *self
-                            .chain
-                            .get_shard_id_for_receipt_id(&receipt_view.id)
-                            .map_err(|e| e.to_string())?;
-                        if self.chain.get_chunk_extra(&head.last_block_hash, dst_shard_id).is_err()
-                        {
-                            if Self::need_request(
-                                receipt_view.id,
-                                &mut self.receipt_outcome_requests,
-                            ) {
-                                let validator = self
+        let target_shard_id = self.runtime_adapter.account_id_to_shard_id(&signer_account_id);
+        // Check if we are tracking this shard.
+        println!(
+            "Shard: {}, care: {}",
+            target_shard_id,
+            self.runtime_adapter.cares_about_shard(
+                self.validator_account_id.as_ref(),
+                &head.last_block_hash,
+                target_shard_id,
+                true,
+            )
+        );
+        if self.runtime_adapter.cares_about_shard(
+            self.validator_account_id.as_ref(),
+            &head.last_block_hash,
+            target_shard_id,
+            true,
+        ) {
+            match self.chain.get_final_transaction_result(&tx_hash) {
+                Ok(tx_result) => {
+                    match tx_result.status {
+                        FinalExecutionStatus::NotStarted | FinalExecutionStatus::Started => {
+                            for receipt_view in tx_result.receipts_outcome.iter() {
+                                let dst_shard_id = *self
                                     .chain
-                                    .find_validator_for_forwarding(dst_shard_id)
+                                    .get_shard_id_for_receipt_id(&receipt_view.id)
                                     .map_err(|e| e.to_string())?;
-                                self.network_adapter.do_send(
-                                    NetworkRequests::ReceiptOutComeRequest(
-                                        validator,
+                                if self
+                                    .chain
+                                    .get_chunk_extra(&head.last_block_hash, dst_shard_id)
+                                    .is_err()
+                                {
+                                    if Self::need_request(
                                         receipt_view.id,
-                                    ),
-                                );
+                                        &mut self.receipt_outcome_requests,
+                                    ) {
+                                        let validator = self
+                                            .chain
+                                            .find_validator_for_forwarding(dst_shard_id)
+                                            .map_err(|e| e.to_string())?;
+                                        self.network_adapter.do_send(
+                                            NetworkRequests::ReceiptOutComeRequest(
+                                                validator,
+                                                receipt_view.id,
+                                            ),
+                                        );
+                                    }
+                                }
                             }
                         }
+                        FinalExecutionStatus::SuccessValue(_)
+                        | FinalExecutionStatus::Failure(_) => {}
                     }
+                    return Ok(Some(tx_result));
                 }
-                FinalExecutionStatus::SuccessValue(_) | FinalExecutionStatus::Failure(_) => {}
+                Err(e) => match e.kind() {
+                    ErrorKind::DBNotFoundErr(_) => {
+                        return Err(format!("Transaction {} doesn't exist.", tx_hash))
+                    }
+                    _ => {
+                        warn!(target: "client", "Error trying to get transaction result: {}", e.to_string());
+                        return Err(format!("Fetching transaction {} failed.", tx_hash));
+                    }
+                },
             }
-            return Ok(Some(tx_result));
+        } else {
+            if Self::need_request(tx_hash, &mut self.tx_status_requests) {
+                let target_shard_id =
+                    self.runtime_adapter.account_id_to_shard_id(&signer_account_id);
+                let validator = self
+                    .chain
+                    .find_validator_for_forwarding(target_shard_id)
+                    .map_err(|e| e.to_string())?;
+                self.network_adapter.do_send(NetworkRequests::TxStatus(
+                    validator,
+                    signer_account_id,
+                    tx_hash,
+                ));
+            }
         }
-
-        if Self::need_request(tx_hash, &mut self.tx_status_requests) {
-            let target_shard_id = self.runtime_adapter.account_id_to_shard_id(&signer_account_id);
-            let validator = self
-                .chain
-                .find_validator_for_forwarding(target_shard_id)
-                .map_err(|e| e.to_string())?;
-            self.network_adapter.do_send(NetworkRequests::TxStatus(
-                validator,
-                signer_account_id,
-                tx_hash,
-            ));
-        }
-
         Ok(None)
     }
 
