@@ -1,6 +1,8 @@
+pub use runner::*;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 
+mod runner;
 use actix::actors::mocker::Mocker;
 use actix::Actor;
 use actix::System;
@@ -183,4 +185,30 @@ fn peer_recover() {
         .start();
     })
     .unwrap();
+}
+
+/// Create two nodes A and B and connect them.
+/// Stop node B, change its identity (PeerId) and spawn it again.
+/// B knows nothing about A (since store is wiped) and A knows old information from B.
+/// A should learn new information from B and connect with it.
+#[test]
+fn check_connection_with_new_identity() {
+    let mut runner = Runner::new(2, 2).enable_outbound();
+
+    // This is needed, because even if outbound is enabled, there is no booting nodes,
+    // so A and B doesn't know each other yet.
+    runner.push(Action::AddEdge(0, 1));
+
+    runner.push(Action::CheckRoutingTable(0, vec![(1, vec![1])]));
+    runner.push(Action::CheckRoutingTable(1, vec![(0, vec![0])]));
+
+    runner.push(Action::Stop(1));
+    runner.push_action(change_account_id(1, "far".to_string()));
+    runner.push(Action::CheckRoutingTable(0, vec![]));
+    runner.push_action(restart(1));
+
+    runner.push(Action::CheckRoutingTable(0, vec![(1, vec![1])]));
+    runner.push(Action::CheckRoutingTable(1, vec![(0, vec![0])]));
+
+    start_test(runner);
 }
