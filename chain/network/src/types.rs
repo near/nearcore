@@ -159,6 +159,8 @@ pub struct Handshake {
     pub version: u32,
     /// Sender's peer id.
     pub peer_id: PeerId,
+    /// Receiver's peer id.
+    pub target_peer_id: PeerId,
     /// Sender's listening addr.
     pub listen_port: Option<u16>,
     /// Peer's chain information.
@@ -170,11 +172,19 @@ pub struct Handshake {
 impl Handshake {
     pub fn new(
         peer_id: PeerId,
+        target_peer_id: PeerId,
         listen_port: Option<u16>,
         chain_info: PeerChainInfo,
         edge_info: EdgeInfo,
     ) -> Self {
-        Handshake { version: PROTOCOL_VERSION, peer_id, listen_port, chain_info, edge_info }
+        Handshake {
+            version: PROTOCOL_VERSION,
+            peer_id,
+            target_peer_id,
+            listen_port,
+            chain_info,
+            edge_info,
+        }
     }
 }
 
@@ -190,6 +200,7 @@ pub struct AnnounceAccountRoute {
 pub enum HandshakeFailureReason {
     ProtocolVersionMismatch(u32),
     GenesisMismatch(GenesisId),
+    InvalidTarget,
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Serialize, PartialEq, Eq, Clone, Debug)]
@@ -760,7 +771,7 @@ impl FromStr for PatternAddr {
 }
 
 /// Status of the known peers.
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Eq, PartialEq, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Eq, PartialEq, Debug, Clone)]
 pub enum KnownPeerStatus {
     Unknown,
     NotConnected,
@@ -778,7 +789,7 @@ impl KnownPeerStatus {
 }
 
 /// Information node stores about known peers.
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone)]
 pub struct KnownPeerState {
     pub peer_info: PeerInfo,
     pub status: KnownPeerStatus,
@@ -884,6 +895,7 @@ pub struct PeerList {
 pub enum PeerRequest {
     UpdateEdge((PeerId, u64)),
     RouteBack(RoutedMessageBody, CryptoHash),
+    UpdatePeerInfo(PeerInfo),
 }
 
 impl Message for PeerRequest {

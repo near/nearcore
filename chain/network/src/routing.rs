@@ -9,8 +9,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use byteorder::LittleEndian;
 use byteorder::WriteBytesExt;
 use cached::{Cached, SizedCache};
-use log::warn;
-use log::{debug, trace};
+use log::{debug, trace, warn};
 
 use near_crypto::{SecretKey, Signature};
 use near_metrics;

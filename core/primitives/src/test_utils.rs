@@ -1,6 +1,7 @@
+use std::env;
 use std::sync::{Mutex, Once};
 
-use log::LevelFilter;
+use tracing_subscriber::EnvFilter;
 
 use lazy_static::lazy_static;
 use near_crypto::{EmptySigner, PublicKey, Signer};
@@ -28,42 +29,47 @@ where
     f();
 }
 
-pub fn init_test_logger() {
-    let _ = env_logger::Builder::new()
-        .filter_module("tokio_reactor", LevelFilter::Info)
-        .filter_module("tokio_core", LevelFilter::Info)
-        .filter_module("hyper", LevelFilter::Info)
-        .filter(None, LevelFilter::Debug)
+fn setup_subscriber_from_filter(mut env_filter: EnvFilter) {
+    if let Ok(rust_log) = env::var("RUST_LOG") {
+        for directive in rust_log.split(',').filter_map(|s| match s.parse() {
+            Ok(directive) => Some(directive),
+            Err(err) => {
+                eprintln!("Ignoring directive `{}`: {}", s, err);
+                None
+            }
+        }) {
+            env_filter = env_filter.add_directive(directive);
+        }
+    }
+
+    let _ = tracing_subscriber::fmt::Subscriber::builder()
+        .with_env_filter(env_filter)
+        .with_writer(std::io::stderr)
         .try_init();
+}
+
+pub fn init_test_logger() {
+    let env_filter = EnvFilter::new("tokio_reactor=info,tokio_core=info,hyper=info,debug");
+    setup_subscriber_from_filter(env_filter);
     init_stop_on_panic();
 }
 
 pub fn init_test_logger_allow_panic() {
-    let _ = env_logger::Builder::new()
-        .filter_module("tokio_reactor", LevelFilter::Info)
-        .filter_module("tokio_core", LevelFilter::Info)
-        .filter_module("hyper", LevelFilter::Info)
-        .filter(None, LevelFilter::Debug)
-        .try_init();
+    let env_filter = EnvFilter::new("tokio_reactor=info,tokio_core=info,hyper=info,debug");
+    setup_subscriber_from_filter(env_filter);
 }
 
 pub fn init_test_module_logger(module: &str) {
-    let _ = env_logger::Builder::new()
-        .filter_module("tokio_reactor", LevelFilter::Info)
-        .filter_module("tokio_core", LevelFilter::Info)
-        .filter_module("hyper", LevelFilter::Info)
-        .filter_module("cranelift_wasm", LevelFilter::Warn)
-        .filter_module(module, LevelFilter::Info)
-        .filter(None, LevelFilter::Info)
-        .try_init();
+    let env_filter =
+        EnvFilter::new("tokio_reactor=info,tokio_core=info,hyper=info,cranelift_wasm=warn,info")
+            .add_directive(format!("{}=info", module).parse().unwrap());
+    setup_subscriber_from_filter(env_filter);
     init_stop_on_panic();
 }
 
 pub fn init_integration_logger() {
-    let _ = env_logger::Builder::new()
-        .filter(None, LevelFilter::Info)
-        .filter(Some("actix_web"), LevelFilter::Warn)
-        .try_init();
+    let env_filter = EnvFilter::new("actix_web=warn,info");
+    setup_subscriber_from_filter(env_filter);
     init_stop_on_panic();
 }
 
