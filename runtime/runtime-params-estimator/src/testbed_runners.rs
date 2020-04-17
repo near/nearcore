@@ -8,7 +8,6 @@ use near_primitives::transaction::{Action, SignedTransaction};
 use rand::Rng;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
-use std::time::Instant;
 
 /// Get account id from its index.
 pub fn get_account_id(account_index: usize) -> String {
@@ -89,6 +88,44 @@ pub fn measure_actions(
     measure_transactions(metric, measurements, config, testbed, &mut f, false)
 }
 
+// TODO: super-ugly, can achieve the same via higher-level wrappers over POSIX read().
+#[inline(always)]
+pub unsafe fn syscall3(mut n: usize, a1: usize, a2: usize, a3: usize) -> usize {
+    asm!("syscall"
+         : "+{rax}"(n)
+         : "{rdi}"(a1) "{rsi}"(a2) "{rdx}"(a3)
+         : "rcx", "r11", "memory"
+         : "volatile");
+    n
+}
+
+const CATCH_BASE: usize = 0xcafebabe;
+
+fn start_count_instructions() {
+    let mut buf: i8 = 0;
+    unsafe {
+        syscall3(
+            0, /* sys_read */
+            CATCH_BASE,
+            std::mem::transmute::<*mut i8, usize>(&mut buf),
+            1,
+        );
+    }
+}
+
+fn end_count_instructions() -> u64 {
+    let mut result: u64 = 0;
+    unsafe {
+        syscall3(
+            0, /* sys_read */
+            CATCH_BASE + 1,
+            std::mem::transmute::<*mut u64, usize>(&mut result),
+            8,
+        );
+    }
+    result
+}
+
 /// Measure the speed of the transactions, given a transactions-generator function.
 /// Returns testbed so that it can be reused.
 pub fn measure_transactions<F>(
@@ -138,10 +175,10 @@ where
     for block_size in config.block_sizes.clone() {
         for _ in 0..config.iter_per_block {
             let block: Vec<_> = (0..block_size).map(|_| (*f)()).collect();
-            let start_time = Instant::now();
+            start_count_instructions();
             testbed.process_block(&block, allow_failures);
-            let end_time = Instant::now();
-            measurements.record_measurement(metric.clone(), block_size, end_time - start_time);
+            let end_count = end_count_instructions();
+            measurements.record_measurement(metric.clone(), block_size, end_count);
             bar.inc(block_size as _);
             bar.set_message(format!("Block size: {}", block_size).as_str());
         }

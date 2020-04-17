@@ -1,5 +1,6 @@
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
+use std::convert::TryInto;
 
 use rand::seq::SliceRandom;
 use rand::{Rng, SeedableRng};
@@ -189,7 +190,10 @@ pub fn run(mut config: Config) -> RuntimeConfig {
             account_id,
             other_account_id,
             &signer,
-            vec![Action::CreateAccount(CreateAccountAction {})],
+            vec![
+                Action::CreateAccount(CreateAccountAction {}),
+                Action::Transfer(TransferAction { deposit: 10u128.pow(26) }),
+            ],
             CryptoHash::default(),
         )
     };
@@ -322,15 +326,14 @@ pub fn run(mut config: Config) -> RuntimeConfig {
     measure_transactions(Metric::ActionDeleteAccessKey, &mut m, &config, None, &mut f, false);
 
     // Measure the speed of staking.
+    let public_key: PublicKey =
+        "22skMptHjFWNyuEWY22ftn2AbLPSYpmYwGJRGwpNHbTV".to_string().try_into().unwrap();
     measure_actions(
         Metric::ActionStake,
         &mut m,
         &config,
         None,
-        vec![Action::Stake(StakeAction {
-            stake: 1,
-            public_key: PublicKey::empty(KeyType::ED25519),
-        })],
+        vec![Action::Stake(StakeAction { stake: 1, public_key: public_key })],
         true,
         true,
     );
@@ -418,6 +421,7 @@ pub fn run(mut config: Config) -> RuntimeConfig {
 
     config.block_sizes = vec![2];
 
+    // When adding new functions do not forget to rebuild the test contract by running `test-contract/build.sh`.
     let v = calls_helper! {
     cpu_ram_soak_test => cpu_ram_soak_test,
     base_1M => base_1M,

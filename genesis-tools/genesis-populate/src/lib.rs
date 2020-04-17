@@ -17,7 +17,9 @@ use near_primitives::block::genesis_chunks;
 use near_primitives::contract::ContractCode;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::state_record::StateRecord;
-use near_primitives::types::{AccountId, Balance, ChunkExtra, EpochId, ShardId, StateRoot};
+use near_primitives::types::{
+    AccountId, Balance, ChunkExtra, EpochId, ShardId, StateChangeCause, StateRoot,
+};
 use near_store::{
     create_store, get_account, set_access_key, set_account, set_code, ColState, Store, TrieUpdate,
 };
@@ -168,6 +170,7 @@ impl GenesisBuilder {
             set_account(&mut state_update, account_id, &account);
         }
         let trie = state_update.trie.clone();
+        state_update.commit(StateChangeCause::InitialState);
         let (store_update, root) = state_update.finalize()?.0.into(trie)?;
         store_update.commit()?;
 
