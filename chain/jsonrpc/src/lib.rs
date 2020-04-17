@@ -257,7 +257,7 @@ impl JsonRpcHandler {
                             break jsonify(tx_status_result.map(|x| x.map_err(|x| x.into())));
                         }
                     },
-                    Ok(Err(ref _err)) => {
+                    Ok(Err(_)) => {
                         break jsonify(tx_status_result.map(|x| x.map_err(|x| x.into())));
                     }
                     _ => {}
