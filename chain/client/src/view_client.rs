@@ -34,7 +34,7 @@ use near_primitives::views::{
     StateChangesView,
 };
 
-use crate::types::{Error, GetBlock, GetGasPrice, Query, TxStatus};
+use crate::types::{Error, GetBlock, GetGasPrice, Query, TxStatus, TxStatusError};
 use crate::{
     sync, GetChunk, GetNextLightClientBlock, GetStateChanges, GetStateChangesInBlock,
     GetValidatorInfo,
@@ -212,24 +212,14 @@ impl ViewClientActor {
         &mut self,
         tx_hash: CryptoHash,
         signer_account_id: AccountId,
-    ) -> Result<Option<FinalExecutionOutcomeView>, String> {
+    ) -> Result<Option<FinalExecutionOutcomeView>, TxStatusError> {
         if let Some(res) = self.tx_status_response.cache_remove(&tx_hash) {
             self.tx_status_requests.cache_remove(&tx_hash);
             return Ok(Some(res));
         }
-        let head = self.chain.head().map_err(|e| e.to_string())?.clone();
+        let head = self.chain.head().map_err(|e| TxStatusError::ChainError(e))?.clone();
         let target_shard_id = self.runtime_adapter.account_id_to_shard_id(&signer_account_id);
         // Check if we are tracking this shard.
-        println!(
-            "Shard: {}, care: {}",
-            target_shard_id,
-            self.runtime_adapter.cares_about_shard(
-                self.validator_account_id.as_ref(),
-                &head.last_block_hash,
-                target_shard_id,
-                true,
-            )
-        );
         if self.runtime_adapter.cares_about_shard(
             self.validator_account_id.as_ref(),
             &head.last_block_hash,
@@ -244,7 +234,7 @@ impl ViewClientActor {
                                 let dst_shard_id = *self
                                     .chain
                                     .get_shard_id_for_receipt_id(&receipt_view.id)
-                                    .map_err(|e| e.to_string())?;
+                                    .map_err(|e| TxStatusError::ChainError(e))?;
                                 if self
                                     .chain
                                     .get_chunk_extra(&head.last_block_hash, dst_shard_id)
@@ -257,7 +247,7 @@ impl ViewClientActor {
                                         let validator = self
                                             .chain
                                             .find_validator_for_forwarding(dst_shard_id)
-                                            .map_err(|e| e.to_string())?;
+                                            .map_err(|e| TxStatusError::ChainError(e))?;
                                         self.network_adapter.do_send(
                                             NetworkRequests::ReceiptOutComeRequest(
                                                 validator,
@@ -275,11 +265,11 @@ impl ViewClientActor {
                 }
                 Err(e) => match e.kind() {
                     ErrorKind::DBNotFoundErr(_) => {
-                        return Err(format!("Transaction {} doesn't exist.", tx_hash))
+                        return Err(TxStatusError::MissingTransaction(tx_hash))
                     }
                     _ => {
                         warn!(target: "client", "Error trying to get transaction result: {}", e.to_string());
-                        return Err(format!("Fetching transaction {} failed.", tx_hash));
+                        return Err(TxStatusError::ChainError(e));
                     }
                 },
             }
@@ -290,7 +280,7 @@ impl ViewClientActor {
                 let validator = self
                     .chain
                     .find_validator_for_forwarding(target_shard_id)
-                    .map_err(|e| e.to_string())?;
+                    .map_err(|e| TxStatusError::ChainError(e))?;
                 self.network_adapter.do_send(NetworkRequests::TxStatus(
                     validator,
                     signer_account_id,
@@ -447,7 +437,7 @@ impl Handler<GetChunk> for ViewClientActor {
 }
 
 impl Handler<TxStatus> for ViewClientActor {
-    type Result = Result<Option<FinalExecutionOutcomeView>, String>;
+    type Result = Result<Option<FinalExecutionOutcomeView>, TxStatusError>;
 
     fn handle(&mut self, msg: TxStatus, _: &mut Context<Self>) -> Self::Result {
         self.get_tx_status(msg.tx_hash, msg.signer_account_id)

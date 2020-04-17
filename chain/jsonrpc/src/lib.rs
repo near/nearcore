@@ -22,7 +22,7 @@ use near_chain_configs::Genesis;
 use near_client::{
     ClientActor, GetBlock, GetChunk, GetGasPrice, GetNetworkInfo, GetNextLightClientBlock,
     GetStateChanges, GetStateChangesInBlock, GetValidatorInfo, Query, Status, TxStatus,
-    ViewClientActor,
+    TxStatusError, ViewClientActor,
 };
 use near_crypto::PublicKey;
 pub use near_jsonrpc_client as client;
@@ -238,6 +238,37 @@ impl JsonRpcHandler {
         Ok(Value::String(hash))
     }
 
+    async fn tx_fetch(
+        &self,
+        tx_hash: CryptoHash,
+        account_id: AccountId,
+    ) -> Result<Value, RpcError> {
+        timeout(self.polling_config.polling_timeout, async {
+            loop {
+                let tx_status_result = self
+                    .view_client_addr
+                    .send(TxStatus { tx_hash, signer_account_id: account_id.clone() })
+                    .await;
+                match tx_status_result {
+                    Ok(Ok(Some(ref tx_result))) => match tx_result.status {
+                        FinalExecutionStatus::Started | FinalExecutionStatus::NotStarted => {}
+                        FinalExecutionStatus::Failure(_)
+                        | FinalExecutionStatus::SuccessValue(_) => {
+                            break jsonify(tx_status_result.map(|x| x.map_err(|x| x.into())));
+                        }
+                    },
+                    Ok(Err(ref _err)) => {
+                        break jsonify(tx_status_result.map(|x| x.map_err(|x| x.into())));
+                    }
+                    _ => {}
+                }
+                let _ = delay_for(self.polling_config.polling_interval).await;
+            }
+        })
+        .await
+        .map_err(|_| timeout_err())?
+    }
+
     async fn tx_polling(
         &self,
         tx_hash: CryptoHash,
@@ -254,12 +285,17 @@ impl JsonRpcHandler {
                         FinalExecutionStatus::Started | FinalExecutionStatus::NotStarted => {}
                         FinalExecutionStatus::Failure(_)
                         | FinalExecutionStatus::SuccessValue(_) => {
-                            break jsonify(tx_status_result);
+                            break jsonify(tx_status_result.map(|x| x.map_err(|x| x.into())));
                         }
                     },
-                    Ok(Err(ref _err)) => {
-                        break jsonify(tx_status_result);
-                    }
+                    Ok(Err(ref err)) => match err {
+                        // If we hit a chain error, we return to the user.
+                        TxStatusError::ChainError(_) => {
+                            break jsonify(tx_status_result.map(|x| x.map_err(|x| x.into())))
+                        }
+                        // If transaction is missing, keep polling.
+                        TxStatusError::MissingTransaction(_) => {}
+                    },
                     _ => {}
                 }
                 let _ = delay_for(self.polling_config.polling_interval).await;
@@ -424,7 +460,7 @@ impl JsonRpcHandler {
             return Err(RpcError::invalid_params(format!("Invalid account id: {}", account_id)));
         }
 
-        self.tx_polling(tx_hash, account_id).await
+        self.tx_fetch(tx_hash, account_id).await
     }
 
     async fn block(&self, params: Option<Value>) -> Result<Value, RpcError> {

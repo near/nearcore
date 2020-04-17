@@ -233,8 +233,24 @@ pub struct TxStatus {
     pub signer_account_id: AccountId,
 }
 
+pub enum TxStatusError {
+    ChainError(near_chain::Error),
+    MissingTransaction(CryptoHash),
+}
+
+impl From<TxStatusError> for String {
+    fn from(error: TxStatusError) -> Self {
+        match error {
+            TxStatusError::ChainError(err) => format!("Chain error: {}", err),
+            TxStatusError::MissingTransaction(tx_hash) => {
+                format!("Transaction {} doesn't exist", tx_hash)
+            }
+        }
+    }
+}
+
 impl Message for TxStatus {
-    type Result = Result<Option<FinalExecutionOutcomeView>, String>;
+    type Result = Result<Option<FinalExecutionOutcomeView>, TxStatusError>;
 }
 
 pub struct GetValidatorInfo {

@@ -195,7 +195,7 @@ fn test_tx_status_missing_tx() {
         match client.tx(to_base(&CryptoHash::default()), "test1".to_string()).await {
             Err(e) => {
                 let s = serde_json::to_string(&e.data.unwrap()).unwrap();
-                assert_eq!(s, "\"Transaction 11111111111111111111111111111111 doesn't exist.\"");
+                assert_eq!(s, "\"Transaction 11111111111111111111111111111111 doesn't exist\"");
             }
             Ok(_) => panic!("transaction should not succeed"),
         }
