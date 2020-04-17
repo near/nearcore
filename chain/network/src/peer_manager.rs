@@ -581,14 +581,12 @@ impl PeerManagerActor {
     }
 
     /// Select one peer and send signal to stop connection to it gracefully.
-    ///
     /// Selection process:
     ///     Create a safe set of peers, and among the remaining peers select one at random.
     ///     If the number of outbound connections is less or equal than minimum_outbound_connections,
     ///         add all outbound connections to the safe set.
-    ///
-    ///     While the length of the safe set is less than `safe_set_size`:
-    ///         Among all the peers we have received a message within the last `peer_recent_time_window`,
+    ///     While the length of the safe set is less than safe_set_size:
+    ///         Among all the peers we have received a message within the last peer_recent_time_window,
     ///             find the one we connected earlier and add it to the safe set.
     ///         else break
     fn try_stop_active_connection(&self) {
