@@ -21,7 +21,13 @@ consensus_config = {"consensus": {"min_block_production_delay": {"secs": 0, "nan
 
 nodes = start_cluster(
     3, 0, 1, None,
-    [["epoch_length", 10], ["num_block_producer_seats_per_shard", [5]], ["validators", 0, "amount", "60000000000000000000000000000000"], ["records", 0, "Account", "account", "locked", "60000000000000000000000000000000"]],
+    [
+        ["epoch_length", 10],
+        ["num_block_producer_seats_per_shard", [5]],
+        ["validators", 0, "amount", "60000000000000000000000000000000"],
+        ["records", 0, "Account", "account", "locked", "60000000000000000000000000000000"],
+        ["total_supply", "4010000000000000000000000000000000"]
+    ],
     {0: consensus_config, 1: consensus_config, 2: consensus_config}
 )
 
