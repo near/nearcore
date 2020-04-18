@@ -397,8 +397,8 @@ impl PeerManagerActor {
             self.num_active_outgoing_peers() + self.outgoing_peers.len();
 
         (total_connections < self.config.ideal_connections_lo as usize
-            || total_connections < self.config.max_peer as usize
-                && potential_outgoing_connections < self.config.minimum_outbound_peers as usize)
+            || (total_connections < self.config.max_peer as usize
+                && potential_outgoing_connections < self.config.minimum_outbound_peers as usize))
             && !self.config.outbound_disabled
     }
 
