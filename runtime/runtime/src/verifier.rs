@@ -440,6 +440,7 @@ mod tests {
             block_index: 0,
             epoch_length: 3,
             epoch_height: 0,
+            validators: Default::default(),
             gas_price: 100,
             block_timestamp: 100,
             gas_limit: Some(gas_limit),

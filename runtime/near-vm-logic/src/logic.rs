@@ -609,6 +609,37 @@ impl<'a> VMLogic<'a> {
         Ok(self.context.epoch_height)
     }
 
+    /// Returns the stake of an account, if the account is currently a validator. Otherwise returns 0.
+    ///
+    /// # Cost
+    ///
+    /// For not nul-terminated account id:
+    /// `base + read_memory_base + read_memory_byte * num_bytes + utf8_decoding_base + utf8_decoding_byte * num_bytes + memory_write_base + memory_write_size * 16`
+    ///
+    /// For nul-terminated account id :
+    /// `base + (read_memory_base + read_memory_byte) * num_bytes + utf8_decoding_base + utf8_decoding_byte * num_bytes + memory_write_base + memory_write_size * 16`
+    pub fn validator_stake(
+        &mut self,
+        account_len: u64,
+        account_ptr: u64,
+        stake_ptr: u64,
+    ) -> Result<()> {
+        self.gas_counter.pay_base(base)?;
+        let account_id = self.get_utf8_string(account_len, account_ptr)?;
+        let balance = *self.context.validators.get(&account_id).unwrap_or(&0);
+        self.memory_set_u128(stake_ptr, balance)
+    }
+
+    /// Returns the total validator stake of the current epoch.
+    ///
+    /// # Cost
+    ///
+    /// `base + memory_write_base + memory_write_size * 16`
+    pub fn validator_total_stake(&mut self, stake_ptr: u64) -> Result<()> {
+        self.gas_counter.pay_base(base)?;
+        self.memory_set_u128(stake_ptr, self.context.epoch_total_stake)
+    }
+
     /// Returns the number of bytes used by the contract if it was saved to the trie as of the
     /// invocation. This includes:
     /// * The data written with storage_* functions during current and previous execution;

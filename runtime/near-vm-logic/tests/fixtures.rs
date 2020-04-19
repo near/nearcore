@@ -11,6 +11,8 @@ pub fn get_context(input: Vec<u8>, is_view: bool) -> VMContext {
         block_index: 0,
         block_timestamp: 0,
         epoch_height: 0,
+        validators: Default::default(),
+        epoch_total_stake: 0,
         account_balance: 100,
         storage_usage: 0,
         account_locked_balance: 0,

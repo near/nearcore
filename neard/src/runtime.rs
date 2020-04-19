@@ -210,6 +210,27 @@ impl NightshadeRuntime {
         (self.store.clone(), store_update, state_roots)
     }
 
+    fn get_epoch_validators(
+        &self,
+        epoch_id: &EpochId,
+        last_block_hash: &CryptoHash,
+    ) -> Result<HashMap<AccountId, Balance>, Error> {
+        let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
+        let slashed = epoch_manager.get_slashed_validators(last_block_hash)?.clone();
+        let epoch_info = epoch_manager.get_epoch_info(&epoch_id)?;
+        Ok(epoch_info
+            .validators
+            .iter()
+            .filter_map(|info| {
+                if slashed.contains_key(&info.account_id) {
+                    None
+                } else {
+                    Some((info.account_id.clone(), info.stake))
+                }
+            })
+            .collect::<HashMap<_, _>>())
+    }
+
     /// Processes state update.
     fn process_state_update(
         &self,
@@ -294,11 +315,17 @@ impl NightshadeRuntime {
         };
 
         let epoch_height = self.get_epoch_height_from_prev_block(prev_block_hash)?;
+        let epoch_id = {
+            let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
+            epoch_manager.get_block_info(block_hash)?.epoch_id.clone()
+        };
+        let epoch_validators = self.get_epoch_validators(&epoch_id, block_hash)?;
 
         let apply_state = ApplyState {
             block_index: block_height,
             epoch_length: self.genesis.config.epoch_length,
             epoch_height,
+            validators: epoch_validators,
             gas_price,
             block_timestamp,
             gas_limit: Some(gas_limit),
@@ -442,9 +469,10 @@ impl RuntimeAdapter for NightshadeRuntime {
             epoch_length: self.genesis.config.epoch_length,
             gas_price,
             block_timestamp,
-            // NOTE: verify transaction doesn't use gas limit or epoch id
+            // NOTE: verify transaction doesn't use the following fields
             gas_limit: None,
             epoch_height: 0,
+            validators: Default::default(),
         };
 
         match verify_and_charge_transaction(
@@ -480,6 +508,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             epoch_length: self.genesis.config.epoch_length,
             // Not used in this function.
             epoch_height: 0,
+            validators: Default::default(),
             gas_price,
             block_timestamp,
             gas_limit: Some(gas_limit),
@@ -971,13 +1000,17 @@ impl RuntimeAdapter for NightshadeRuntime {
             }
             QueryRequest::CallFunction { account_id, method_name, args } => {
                 let mut logs = vec![];
-                let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
-                let epoch_height = epoch_manager.get_epoch_info(&epoch_id)?.epoch_height;
+                let epoch_height = {
+                    let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
+                    epoch_manager.get_epoch_info(&epoch_id)?.epoch_height
+                };
+                let epoch_validators = self.get_epoch_validators(epoch_id, block_hash)?;
                 match self.call_function(
                     *state_root,
                     block_height,
                     block_timestamp,
                     epoch_height,
+                    epoch_validators,
                     account_id,
                     method_name,
                     args.as_ref(),
@@ -1165,6 +1198,7 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
         height: BlockHeight,
         block_timestamp: u64,
         epoch_height: EpochHeight,
+        epoch_validators: HashMap<AccountId, Balance>,
         contract_id: &AccountId,
         method_name: &str,
         args: &[u8],
@@ -1176,6 +1210,7 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
             height,
             block_timestamp,
             epoch_height,
+            epoch_validators,
             contract_id,
             method_name,
             args,

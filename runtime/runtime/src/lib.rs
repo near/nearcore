@@ -61,6 +61,8 @@ pub struct ApplyState {
     pub epoch_length: BlockHeightDelta,
     /// Current epoch height
     pub epoch_height: EpochHeight,
+    /// Current epoch validator and their stake
+    pub validators: HashMap<AccountId, Balance>,
     /// Price for the gas.
     pub gas_price: Balance,
     /// The current block timestamp (number of non-leap-nanoseconds since January 1, 1970 0:00:00 UTC).
@@ -1347,6 +1349,7 @@ mod tests {
             block_index: 0,
             epoch_length: 3,
             epoch_height: 0,
+            validators: Default::default(),
             gas_price: GAS_PRICE,
             block_timestamp: 100,
             gas_limit: Some(gas_limit),

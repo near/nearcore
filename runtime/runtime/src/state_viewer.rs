@@ -9,8 +9,8 @@ use near_primitives::account::{AccessKey, Account};
 use near_primitives::hash::CryptoHash;
 use near_primitives::serialize::to_base64;
 use near_primitives::trie_key::trie_key_parsers;
-use near_primitives::types::EpochHeight;
 use near_primitives::types::{AccountId, BlockHeight};
+use near_primitives::types::{Balance, EpochHeight};
 use near_primitives::utils::is_valid_account_id;
 use near_primitives::views::{StateItem, ViewStateResult};
 use near_runtime_fees::RuntimeFeesConfig;
@@ -19,6 +19,7 @@ use near_vm_logic::{ReturnData, VMConfig, VMContext};
 
 use crate::actions::get_code_with_cache;
 use crate::ext::RuntimeExt;
+use std::collections::HashMap;
 
 pub struct TrieViewer {}
 
@@ -89,6 +90,7 @@ impl TrieViewer {
         block_height: BlockHeight,
         block_timestamp: u64,
         epoch_height: EpochHeight,
+        epoch_validators: HashMap<AccountId, Balance>,
         contract_id: &AccountId,
         method_name: &str,
         args: &[u8],
@@ -127,6 +129,8 @@ impl TrieViewer {
                 block_index: block_height,
                 block_timestamp,
                 epoch_height,
+                epoch_total_stake: epoch_validators.iter().map(|(_, s)| s).sum(),
+                validators: epoch_validators,
                 account_balance: account.amount,
                 account_locked_balance: account.locked,
                 storage_usage: account.storage_usage,
@@ -194,6 +198,7 @@ mod tests {
             1,
             1,
             0,
+            HashMap::default(),
             &AccountId::from("test.contract"),
             "run_test",
             &[],
@@ -213,6 +218,7 @@ mod tests {
             1,
             1,
             0,
+            HashMap::default(),
             &"bad!contract".to_string(),
             "run_test",
             &[],
@@ -236,6 +242,7 @@ mod tests {
             1,
             1,
             0,
+            HashMap::default(),
             &AccountId::from("test.contract"),
             "run_test_with_storage_change",
             &[],
@@ -258,6 +265,7 @@ mod tests {
             1,
             1,
             0,
+            HashMap::default(),
             &AccountId::from("test.contract"),
             "sum_with_input",
             &args,
@@ -333,6 +341,7 @@ mod tests {
                 1,
                 1,
                 0,
+                HashMap::default(),
                 &AccountId::from("test.contract"),
                 "panic_after_logging",
                 &[],

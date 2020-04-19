@@ -25,6 +25,7 @@ fn setup(
         predecessor_account_id: "carol".to_owned(),
         input,
         epoch_height: 0,
+        validators: Default::default(),
         block_index: 0,
         block_timestamp: 0,
         account_balance: 0,
@@ -35,6 +36,7 @@ fn setup(
         random_seed: vec![0, 1, 2],
         is_view: false,
         output_data_receivers: vec![],
+        epoch_total_stake: 0,
     };
     let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     path.push("tests/res/test_contract_rs.wasm");

@@ -136,6 +136,8 @@ pub(crate) fn action_function_call(
         block_index: apply_state.block_index,
         block_timestamp: apply_state.block_timestamp,
         epoch_height: apply_state.epoch_height,
+        validators: apply_state.validators.clone(),
+        epoch_total_stake: apply_state.validators.iter().map(|(_, s)| s).sum(),
         account_balance: account.amount,
         account_locked_balance: account.locked,
         storage_usage: account.storage_usage,

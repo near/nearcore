@@ -114,6 +114,7 @@ impl RuntimeUser {
             block_timestamp: 0,
             epoch_length: client.epoch_length,
             epoch_height: 0,
+            validators: Default::default(),
             gas_price: MIN_GAS_PRICE,
             gas_limit: None,
         }

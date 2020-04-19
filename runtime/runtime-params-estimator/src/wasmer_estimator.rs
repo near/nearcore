@@ -21,6 +21,8 @@ fn create_context(input: Vec<u8>) -> VMContext {
         block_index: 10,
         block_timestamp: 42,
         epoch_height: 0,
+        validators: Default::default(),
+        epoch_total_stake: 0,
         account_balance: 2u128,
         account_locked_balance: 1u128,
         storage_usage: 12,

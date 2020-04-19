@@ -2,6 +2,8 @@ use near_crypto::PublicKey;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::types::{AccountId, BlockHeight, EpochHeight, MerkleHash};
 use near_primitives::views::ViewStateResult;
+use near_vm_logic::types::Balance;
+use std::collections::HashMap;
 
 /// Adapter for querying runtime.
 pub trait ViewRuntimeAdapter {
@@ -17,6 +19,7 @@ pub trait ViewRuntimeAdapter {
         height: BlockHeight,
         block_timestamp: u64,
         epoch_height: EpochHeight,
+        epoch_validators: HashMap<AccountId, Balance>,
         contract_id: &AccountId,
         method_name: &str,
         args: &[u8],

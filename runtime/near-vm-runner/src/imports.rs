@@ -57,6 +57,8 @@ wrapped_imports! {
     block_index<[] -> [u64]>,
     block_timestamp<[] -> [u64]>,
     epoch_height<[] -> [u64]>,
+    validator_stake<[account_len: u64, account_ptr: u64, stake_ptr: u64] -> []>,
+    validator_total_stake<[stake_ptr: u64] -> []>,
     storage_usage<[] -> [u64]>,
     // #################
     // # Economics API #
