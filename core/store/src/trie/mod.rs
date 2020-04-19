@@ -959,9 +959,7 @@ impl Trie {
                     root_node = self.insert(&mut memory, root_node, key, arr)?;
                 }
                 None => {
-                    root_node = match self.delete(&mut memory, root_node, key)? {
-                        (value, _) => value,
-                    };
+                    root_node = self.delete(&mut memory, root_node, key)?;
                 }
             }
         }
