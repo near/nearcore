@@ -15,7 +15,7 @@ QEMU_PLUGIN_EXPORT int qemu_plugin_version = QEMU_PLUGIN_VERSION;
 #define CATCH_BASE 0xcafebabe
 
 static uint64_t insn_count = 0;
-static pthread_t counting = false;
+static bool counting = false;
 static pthread_t counting_for = 0;
 static bool on_every_close = false;
 

@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
+#include <pthread.h>
 
 #define CATCH_BASE 0xcafebabe
 
@@ -20,17 +21,42 @@ static void end_counting() {
 
 int global = 0;
 
+typedef struct {
+    int delay;
+} ThreadArg;
+
+static void* thread_fn(void* varg)  {
+    ThreadArg* arg = varg;
+    usleep(arg->delay);
+    free(arg);
+    return NULL;
+}
+
 int main(int argc, char** argv) {
     int i;
     int repeat = 100;
+#define THREAD_NUM 10
+    pthread_t threads[THREAD_NUM];
 
     if (argc > 1) {
         repeat = atoi(argv[1]);
     }
+
+    for (i = 0; i < THREAD_NUM; i++) {
+        ThreadArg* arg = calloc(sizeof(ThreadArg), 1);
+        arg->delay = i * 100;
+        pthread_create(threads + i, NULL, thread_fn, arg);
+    }
+
     start_counting();
     for (i = 0; i < repeat; i++) {
         global += i;
     }
     end_counting();
+
+    for (i = 0; i < THREAD_NUM; i++) {
+        pthread_join(threads[i], NULL);
+    }
+
     return 0;
 }

@@ -16,7 +16,7 @@ libcounter.so: counter.o
 	$(CC) -shared -Wl,-soname,$@ -o $@ $^
 
 test_binary: test.o
-	$(CC) $(CFLAGS) $^ -o $@
+	$(CC) $(CFLAGS) $^ -o $@ -lpthread
 
 test: test_binary
 	/host/qemu-linux/bin/qemu-x86_64 -d plugin -plugin file=/host/qemu-linux/plugins/libcounter.so ./test_binary
