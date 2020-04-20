@@ -116,7 +116,17 @@ impl ProcessNode {
     /// Side effect: writes chain spec file
     pub fn get_start_node_command(&self) -> Command {
         let mut command = Command::new("cargo");
-        command.args(&["run", "-p", "near", "--", "--home", &self.work_dir, "run"]);
+        command.args(&[
+            "run",
+            "-p",
+            "neard",
+            "--bin",
+            "neard",
+            "--",
+            "--home",
+            &self.work_dir,
+            "run",
+        ]);
         command
     }
 }
