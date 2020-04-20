@@ -7,6 +7,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use cached::{Cached, SizedCache};
 use chrono::Utc;
 use serde::Serialize;
+use tracing::debug;
 
 use near_primitives::block::{Approval, BlockScore};
 use near_primitives::errors::InvalidTxError;
@@ -546,10 +547,44 @@ impl ChainStoreAccess for ChainStore {
 
     /// Get full block.
     fn get_block(&mut self, h: &CryptoHash) -> Result<&Block, Error> {
-        option_to_not_found(
+        let block_result = option_to_not_found(
             read_with_cache(&*self.store, ColBlock, &mut self.blocks, h.as_ref()),
             &format!("BLOCK: {}", h),
-        )
+        );
+        match block_result {
+            Ok(block) => Ok(block),
+            Err(e) => match e.kind() {
+                ErrorKind::DBNotFoundErr(_) => {
+                    let block_header_result = read_with_cache(
+                        &*self.store,
+                        ColBlockHeader,
+                        &mut self.headers,
+                        h.as_ref(),
+                    );
+                    match block_header_result {
+                        Ok(Some(_)) => Err(ErrorKind::BlockMissing(h.clone()).into()),
+                        Ok(None) => Err(e),
+                        Err(header_error) => {
+                            debug_assert!(
+                                false,
+                                "If the block was not found, the block header may either \
+                                exist or not found as well, instead the error was returned {:?}",
+                                header_error
+                            );
+                            debug!(
+                                target: "store",
+                                "If the block was not found, the block header may either \
+                                exist or not found as well, instead the error was returned {:?}. \
+                                This is not expected to happen, but it is not a fatal error.",
+                                header_error
+                            );
+                            Err(e)
+                        }
+                    }
+                }
+                _ => Err(e),
+            },
+        }
     }
 
     /// Get full chunk.
