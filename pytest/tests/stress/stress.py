@@ -36,7 +36,7 @@ from network import init_network_pillager, stop_network, resume_network
 sys.stdout = Unbuffered(sys.stdout)
 
 TIMEOUT = 1500 # after how much time to shut down the test
-TIMEOUT_SHUTDOWN = 120 # time to wait after the shutdown was initiated before 
+TIMEOUT_SHUTDOWN = 120 # time to wait after the shutdown was initiated before
 MAX_STAKE = int(1e26)
 EPOCH_LENGTH = 20
 
@@ -110,7 +110,7 @@ def monkey_node_set(stopped, error, nodes, nonces):
                 print("Node set: stopping%s node %s" % (" and wiping" if wipe else "", i))
             nodes_stopped[i] = not nodes_stopped[i]
             change_status_at[i] = get_future_time()
-                    
+
 @stress_process
 def monkey_node_restart(stopped, error, nodes, nonces):
     heights_after_restart = [0 for _ in nodes]
@@ -169,7 +169,7 @@ def monkey_transactions(stopped, error, nodes, nonces):
     min_balances = [x - MAX_STAKE for x in expected_balances]
     total_supply = (sum(expected_balances))
     print("TOTAL SUPPLY: %s" % total_supply)
-    
+
     last_iter_switch = time.time()
     mode = 0 # 0 = send more tx, 1 = wait for balances
     tx_count = 0
@@ -284,7 +284,7 @@ def monkey_transactions(stopped, error, nodes, nonces):
                 mode = 0
                 rolling_tolerance = tx_tolerance
                 last_tx_set = []
-            
+
         if mode == 1: time.sleep(1)
         elif mode == 0: time.sleep(0.1)
 
@@ -320,7 +320,7 @@ def monkey_staking(stopped, error, nodes, nonces):
             nonce_val.value = nonce_val.value + 1
 
         time.sleep(1)
-        
+
 
 @stress_process
 def blocks_tracker(stopped, error, nodes, nonces):
@@ -400,10 +400,10 @@ def blocks_tracker(stopped, error, nodes, nonces):
                 except KeyError as e:
                     # some blocks were missing in the mapping, so do our best estimate
                     divergence = initial_smaller_height - min(h1, h2)
-                    
+
                 if divergence > largest_divergence:
                     largest_divergence = divergence
-                        
+
     print("=== BLOCK TRACKER SUMMARY ===")
     print("Largest height:     %s" % largest_height)
     print("Largest divergence: %s" % largest_divergence)
@@ -427,7 +427,7 @@ def doit(s, n, N, k, monkeys, timeout):
         # make all the observers track all the shards
         local_config_changes[i] = {"tracked_shards": list(range(s))}
 
-    near_root, node_dirs = init_cluster(N, k + 1, s, config, [["min_gas_price", 0], ["max_inflation_rate", 0], ["epoch_length", EPOCH_LENGTH], ["block_producer_kickout_threshold", 70]], local_config_changes)
+    near_root, node_dirs = init_cluster(N, k + 1, s, config, [["min_gas_price", 0], ["max_inflation_rate", [0, 1]], ["epoch_length", EPOCH_LENGTH], ["block_producer_kickout_threshold", 70]], local_config_changes)
 
     started = time.time()
 
@@ -488,7 +488,7 @@ def doit(s, n, N, k, monkeys, timeout):
     while time.time() - started < timeout:
         check_errors()
         time.sleep(1)
-    
+
     print("")
     print("==========================================")
     print("# TIMEOUT IS HIT, SHUTTING DOWN THE TEST #")

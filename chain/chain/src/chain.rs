@@ -20,9 +20,7 @@ use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{
     ChunkHash, ChunkHashHeight, ReceiptProof, ShardChunk, ShardChunkHeader, ShardProof,
 };
-use near_primitives::transaction::{
-    ExecutionOutcome, ExecutionOutcomeWithId, ExecutionOutcomeWithIdAndProof, ExecutionStatus,
-};
+use near_primitives::transaction::ExecutionOutcomeWithIdAndProof;
 use near_primitives::types::{
     AccountId, Balance, BlockExtra, BlockHeight, BlockHeightDelta, ChunkExtra, EpochId, Gas,
     NumBlocks, ShardId, StateHeaderKey, ValidatorStake,
@@ -1932,30 +1930,17 @@ impl Chain {
     pub fn get_transaction_execution_result(
         &mut self,
         hash: &CryptoHash,
-    ) -> Result<ExecutionOutcomeWithIdView, String> {
+    ) -> Result<ExecutionOutcomeWithIdView, Error> {
         match self.get_execution_outcome(hash) {
             Ok(result) => Ok(result.clone().into()),
-            Err(err) => match err.kind() {
-                ErrorKind::DBNotFoundErr(_) => Ok(ExecutionOutcomeWithIdAndProof {
-                    outcome_with_id: ExecutionOutcomeWithId {
-                        id: *hash,
-                        outcome: ExecutionOutcome {
-                            status: ExecutionStatus::Unknown,
-                            ..Default::default()
-                        },
-                    },
-                    ..Default::default()
-                }
-                .into()),
-                _ => Err(err.to_string()),
-            },
+            Err(err) => return Err(err),
         }
     }
 
     fn get_recursive_transaction_results(
         &mut self,
         hash: &CryptoHash,
-    ) -> Result<Vec<ExecutionOutcomeWithIdView>, String> {
+    ) -> Result<Vec<ExecutionOutcomeWithIdView>, Error> {
         let outcome = self.get_transaction_execution_result(hash)?;
         let receipt_ids = outcome.outcome.receipt_ids.clone();
         let mut transactions = vec![outcome];
@@ -1969,7 +1954,7 @@ impl Chain {
     pub fn get_final_transaction_result(
         &mut self,
         hash: &CryptoHash,
-    ) -> Result<FinalExecutionOutcomeView, String> {
+    ) -> Result<FinalExecutionOutcomeView, Error> {
         let mut outcomes = self.get_recursive_transaction_results(hash)?;
         let mut looking_for_id = (*hash).into();
         let num_outcomes = outcomes.len();
@@ -2001,9 +1986,8 @@ impl Chain {
         let receipts = outcomes.split_off(1);
         let transaction = self
             .store
-            .get_transaction(hash)
-            .map_err(|e| e.to_string())?
-            .ok_or_else(|| format!("Transaction {} is not found", hash))?
+            .get_transaction(hash)?
+            .ok_or_else(|| ErrorKind::DBNotFoundErr(format!("Transaction {} is not found", hash)))?
             .clone()
             .into();
         Ok(FinalExecutionOutcomeView {
