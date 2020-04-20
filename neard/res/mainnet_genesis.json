@@ -1,7 +1,7 @@
 {
   "config_version": 1,
   "protocol_version": 7,
-  "genesis_time": "2020-04-22T00:00:00.000000000Z",
+  "genesis_time": "2020-04-22T18:00:00.000000000Z",
   "chain_id": "mainnet",
   "genesis_height": 0,
   "num_block_producer_seats": 100,
@@ -190,27 +190,27 @@
   "validators": [
     {
       "account_id": "nfvalidator1.near",
-      "public_key": "ed25519:9BmAFNRTa5mRRXpSAm6MxSEeqRASDGNh2FuuwZ4gyxTw",
+      "public_key": "ed25519:14pWWRutZtGFKX4B8q89KVFaUWY1Cqu1JcqYXhCDeFh1",
       "amount": "50000000000000000000000000000"
     },
     {
       "account_id": "nfvalidator2.near",
-      "public_key": "ed25519:9BmAFNRTa5mRRXpSAm6MxSEeqRASDGNh2FuuwZ4gyxTw",
+      "public_key": "ed25519:BwZk4bkYJxo79P2vSRw2uk1nfiqEfVkHvr5p8eVsqASC",
       "amount": "50000000000000000000000000000"
     },
     {
       "account_id": "nfvalidator3.near",
-      "public_key": "ed25519:9BmAFNRTa5mRRXpSAm6MxSEeqRASDGNh2FuuwZ4gyxTw",
+      "public_key": "ed25519:DMz11tmPvhdqpi7CzP2JULeeSE8SxYRD8pys5nKke4FS",
       "amount": "50000000000000000000000000000"
     },
     {
       "account_id": "nfvalidator4.near",
-      "public_key": "ed25519:9BmAFNRTa5mRRXpSAm6MxSEeqRASDGNh2FuuwZ4gyxTw",
+      "public_key": "ed25519:Fi3CQDHJoviKazVR27YmfFzWcFnvmoPBKEDd9ouq5Tjx",
       "amount": "50000000000000000000000000000"
     }
   ],
   "transaction_validity_period": 86400,
-  "protocol_reward_rate": [1, 10],
+  "protocol_reward_rate": [0, 10],
   "max_inflation_rate": [0, 10],
   "total_supply": "1000000000000000000000000000000000",
   "num_blocks_per_year": 31536000,
@@ -231,7 +231,7 @@
     {
       "AccessKey": {
         "account_id": "near",
-        "public_key": "ed25519:546XB2oHhj7PzUKHiH9Xve3Ze5q1JiW2WTh6abXFED3c",
+        "public_key": "ed25519:5zset1JX4qp4PcR3N9KDSY6ATdgkrbBW5wFBGWC4ZjnU",
         "access_key": {
           "nonce": 0,
           "permission": "FullAccess"
@@ -252,7 +252,7 @@
     {
       "AccessKey": {
         "account_id": "registrar",
-        "public_key": "ed25519:546XB2oHhj7PzUKHiH9Xve3Ze5q1JiW2WTh6abXFED3c",
+        "public_key": "ed25519:Fm9g4GQeQrnwknCVexuPvn3owgrYvMbZhPRoXKpj2wX6",
         "access_key": {
           "nonce": 0,
           "permission": "FullAccess"
@@ -273,7 +273,7 @@
     {
       "AccessKey": {
         "account_id": "treasury.near",
-        "public_key": "ed25519:546XB2oHhj7PzUKHiH9Xve3Ze5q1JiW2WTh6abXFED3c",
+        "public_key": "ed25519:CzAXM8NcumuHPYJYnjq5tUX5v92GHdbYZfmfKFwDNzBZ",
         "access_key": {
           "nonce": 0,
           "permission": "FullAccess"
@@ -284,7 +284,7 @@
       "Account": {
         "account_id": "contributors.near",
         "account": {
-          "amount": "350000000000000000000000000000000",
+          "amount": "418000000000000000000000000000000",
           "locked": "0",
           "code_hash": "11111111111111111111111111111111",
           "storage_usage": 100
@@ -294,7 +294,7 @@
     {
       "AccessKey": {
         "account_id": "contributors.near",
-        "public_key": "ed25519:546XB2oHhj7PzUKHiH9Xve3Ze5q1JiW2WTh6abXFED3c",
+        "public_key": "ed25519:BCCMGbV9FzTMTcwS67QCW1TrTmjuwFR1SrFPiG744kio",
         "access_key": {
           "nonce": 0,
           "permission": "FullAccess"
@@ -305,7 +305,7 @@
       "Account": {
         "account_id": "foundation.near",
         "account": {
-          "amount": "649789980000000000000000000000000",
+          "amount": "581789980000000000000000000000000",
           "locked": "0",
           "code_hash": "11111111111111111111111111111111",
           "storage_usage": 100
@@ -315,7 +315,7 @@
     {
       "AccessKey": {
         "account_id": "foundation.near",
-        "public_key": "ed25519:546XB2oHhj7PzUKHiH9Xve3Ze5q1JiW2WTh6abXFED3c",
+        "public_key": "ed25519:GmtTh6yhWz6BmkA9AfnoQESKanDbBJDGfWVpW5wq9Uz",
         "access_key": {
           "nonce": 0,
           "permission": "FullAccess"
@@ -336,7 +336,7 @@
     {
       "AccessKey": {
         "account_id": "nfvalidator1.near",
-        "public_key": "ed25519:546XB2oHhj7PzUKHiH9Xve3Ze5q1JiW2WTh6abXFED3c",
+        "public_key": "ed25519:Fd2TW6TtTDL5hiY58pbTVYfTBSNyWLgHGxiD9mcHgQ92",
         "access_key": {
           "nonce": 0,
           "permission": "FullAccess"
@@ -357,7 +357,7 @@
     {
       "AccessKey": {
         "account_id": "nfvalidator2.near",
-        "public_key": "ed25519:546XB2oHhj7PzUKHiH9Xve3Ze5q1JiW2WTh6abXFED3c",
+        "public_key": "ed25519:4rg9rmbxuSM7bX8z8989LTmBiM6JNnE4w9LZ8KkuCcfq",
         "access_key": {
           "nonce": 0,
           "permission": "FullAccess"
@@ -378,7 +378,7 @@
     {
       "AccessKey": {
         "account_id": "nfvalidator3.near",
-        "public_key": "ed25519:546XB2oHhj7PzUKHiH9Xve3Ze5q1JiW2WTh6abXFED3c",
+        "public_key": "ed25519:EVyX7KE6e2KD3CzpoN1kvzJATsS5KxkjbMCCYHbM3vRr",
         "access_key": {
           "nonce": 0,
           "permission": "FullAccess"
@@ -399,7 +399,7 @@
     {
       "AccessKey": {
         "account_id": "nfvalidator4.near",
-        "public_key": "ed25519:546XB2oHhj7PzUKHiH9Xve3Ze5q1JiW2WTh6abXFED3c",
+        "public_key": "ed25519:CrLQzMvfSDWnTYzfbEzcJ3hdetnpYdsQnvbhuzwHBtAG",
         "access_key": {
           "nonce": 0,
           "permission": "FullAccess"
