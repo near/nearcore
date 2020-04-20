@@ -7,6 +7,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use cached::{Cached, SizedCache};
 use chrono::Utc;
 use serde::Serialize;
+use tracing::debug;
 
 use near_primitives::block::{Approval, BlockScore};
 use near_primitives::errors::InvalidTxError;
@@ -564,10 +565,20 @@ impl ChainStoreAccess for ChainStore {
                         Ok(Some(_)) => Err(ErrorKind::BlockMissing(h.clone()).into()),
                         Ok(None) => Err(e),
                         Err(header_error) => {
-                            unreachable!(
-                                "If the block was not found, the block header may either exist or not found as well, but {:?}",
+                            debug_assert!(
+                                false,
+                                "If the block was not found, the block header may either \
+                                exist or not found as well, instead the error was returned {:?}",
                                 header_error
                             );
+                            debug!(
+                                target: "store",
+                                "If the block was not found, the block header may either \
+                                exist or not found as well, instead the error was returned {:?}. \
+                                This is not expected to happen, but it is not a fatal error.",
+                                header_error
+                            );
+                            Err(e)
                         }
                     }
                 }
