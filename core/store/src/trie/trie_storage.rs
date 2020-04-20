@@ -6,7 +6,7 @@ use cached::{Cached, SizedCache};
 
 use near_primitives::hash::CryptoHash;
 
-use crate::trie::{RcTrieNode, POISONED_LOCK_ERR};
+use crate::trie::{decode_trie_node_with_rc, POISONED_LOCK_ERR};
 use crate::{ColState, StorageError, Store};
 
 pub trait TrieStorage: Send + Sync {
@@ -85,8 +85,8 @@ impl TrieCachingStorage {
     fn vec_to_rc(val: &Option<Vec<u8>>) -> Result<u32, StorageError> {
         val.as_ref()
             .map(|vec| {
-                RcTrieNode::decode_raw(&vec).map(|(_bytes, rc)| rc).map_err(|_| {
-                    StorageError::StorageInconsistentState("RcTrieNode decode failed".to_string())
+                decode_trie_node_with_rc(&vec).map(|(_bytes, rc)| rc).map_err(|_| {
+                    StorageError::StorageInconsistentState("Decode node with RC failed".to_string())
                 })
             })
             .unwrap_or_else(|| Ok(0))
@@ -95,8 +95,8 @@ impl TrieCachingStorage {
     fn vec_to_bytes(val: &Option<Vec<u8>>) -> Result<Vec<u8>, StorageError> {
         val.as_ref()
             .map(|vec| {
-                RcTrieNode::decode_raw(&vec).map(|(bytes, _rc)| bytes.to_vec()).map_err(|_| {
-                    StorageError::StorageInconsistentState("RcTrieNode decode failed".to_string())
+                decode_trie_node_with_rc(&vec).map(|(bytes, _rc)| bytes.to_vec()).map_err(|_| {
+                    StorageError::StorageInconsistentState("Decode node with RC failed".to_string())
                 })
             })
             // not StorageError::TrieNodeMissing because it's only for TrieMemoryPartialStorage

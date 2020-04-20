@@ -77,10 +77,14 @@ impl NetworkConfig {
     }
 }
 
+pub fn peer_id_from_seed(seed: &str) -> PeerId {
+    SecretKey::from_seed(KeyType::ED25519, seed).public_key().into()
+}
+
 pub fn convert_boot_nodes(boot_nodes: Vec<(&str, u16)>) -> Vec<PeerInfo> {
     let mut result = vec![];
     for (peer_seed, port) in boot_nodes {
-        let id = SecretKey::from_seed(KeyType::ED25519, peer_seed).public_key();
+        let id = peer_id_from_seed(peer_seed);
         result.push(PeerInfo::new(id.into(), format!("127.0.0.1:{}", port).parse().unwrap()))
     }
     result

@@ -201,6 +201,14 @@ fn default_header_sync_expected_height_per_second() -> u64 {
     10
 }
 
+fn default_sync_check_period() -> Duration {
+    Duration::from_secs(10)
+}
+
+fn default_sync_step_period() -> Duration {
+    Duration::from_millis(10)
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Consensus {
     /// Minimum number of peers to start syncing.
@@ -240,6 +248,12 @@ pub struct Consensus {
     /// Expected increase of header head weight per second during header sync
     #[serde(default = "default_header_sync_expected_height_per_second")]
     pub header_sync_expected_height_per_second: u64,
+    /// How frequently we check whether we need to sync
+    #[serde(default = "default_sync_check_period")]
+    pub sync_check_period: Duration,
+    /// During sync the time we wait before reentering the sync loop
+    #[serde(default = "default_sync_step_period")]
+    pub sync_step_period: Duration,
 }
 
 impl Default for Consensus {
@@ -262,6 +276,8 @@ impl Default for Consensus {
             header_sync_stall_ban_timeout: default_header_sync_stall_ban_timeout(),
             header_sync_expected_height_per_second: default_header_sync_expected_height_per_second(
             ),
+            sync_check_period: default_sync_check_period(),
+            sync_step_period: default_sync_step_period(),
         }
     }
 }
@@ -433,8 +449,8 @@ impl NearConfig {
                 reduce_wait_for_missing_block: config.consensus.reduce_wait_for_missing_block,
                 block_expected_weight: 1000,
                 skip_sync_wait: config.network.skip_sync_wait,
-                sync_check_period: Duration::from_secs(10),
-                sync_step_period: Duration::from_millis(10),
+                sync_check_period: config.consensus.sync_check_period,
+                sync_step_period: config.consensus.sync_step_period,
                 sync_height_threshold: 1,
                 header_sync_initial_timeout: config.consensus.header_sync_initial_timeout,
                 header_sync_progress_timeout: config.consensus.header_sync_progress_timeout,

@@ -74,7 +74,7 @@ pub struct GenesisConfig {
     #[default(Rational::from_integer(0))]
     pub max_inflation_rate: Rational,
     /// Total supply of tokens at genesis.
-    #[serde(with = "u128_dec_format", skip_deserializing)]
+    #[serde(with = "u128_dec_format")]
     pub total_supply: Balance,
     /// Expected number of blocks per year
     pub num_blocks_per_year: NumBlocks,
@@ -188,12 +188,8 @@ impl Genesis {
 
     /// Reads Genesis from a single file.
     pub fn from_file<P: AsRef<Path>>(path: P) -> Self {
-        let mut genesis: Self = serde_json::from_str(
-            &std::fs::read_to_string(path).expect("Could not read genesis file."),
-        )
-        .expect("Failed to deserialize the genesis records.");
-        genesis.config.total_supply = get_initial_supply(&genesis.records.as_ref());
-        genesis
+        serde_json::from_str(&std::fs::read_to_string(path).expect("Could not read genesis file."))
+            .expect("Failed to deserialize the genesis records.")
     }
 
     /// Reads Genesis from config and records files.

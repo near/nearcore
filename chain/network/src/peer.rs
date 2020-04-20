@@ -242,6 +242,11 @@ impl Peer {
     }
 
     fn send_handshake(&mut self, ctx: &mut Context<Peer>) {
+        if self.peer_id().is_none() {
+            error!(target: "network", "Sending handshake to an unknown peer");
+            return;
+        }
+
         self.view_client_addr
             .send(NetworkViewClientMessages::GetChainInfo)
             .into_actor(self)
@@ -254,6 +259,7 @@ impl Peer {
                 }) => {
                     let handshake = Handshake::new(
                         act.node_id(),
+                        act.peer_id().unwrap(),
                         act.node_info.addr_port(),
                         PeerChainInfo { genesis_id, height, score, tracked_shards },
                         act.edge_info.as_ref().unwrap().clone(),
@@ -577,6 +583,10 @@ impl StreamHandler<Vec<u8>> for Peer {
                     HandshakeFailureReason::ProtocolVersionMismatch(version) => {
                         error!(target: "network", "Unable to connect to a node ({}) due to a network protocol version mismatch. Our version: {}, their: {}", peer_info, PROTOCOL_VERSION, version);
                     }
+                    HandshakeFailureReason::InvalidTarget => {
+                        debug!(target: "network", "Peer found was not what expected. Updating peer info with {:?}", peer_info);
+                        self.peer_manager_addr.do_send(PeerRequest::UpdatePeerInfo(peer_info));
+                    }
                 }
                 ctx.stop();
             }
@@ -597,20 +607,28 @@ impl StreamHandler<Vec<u8>> for Peer {
 
                 if handshake.version != PROTOCOL_VERSION {
                     info!(target: "network", "Received connection from node with different network protocol version.");
-                    ctx.address().do_send(SendMessage {
-                        message: PeerMessage::HandshakeFailure(
-                            self.node_info.clone(),
-                            HandshakeFailureReason::ProtocolVersionMismatch(PROTOCOL_VERSION),
-                        ),
-                    });
+                    self.send_message(PeerMessage::HandshakeFailure(
+                        self.node_info.clone(),
+                        HandshakeFailureReason::ProtocolVersionMismatch(PROTOCOL_VERSION),
+                    ));
                     return;
                     // Connection will be closed by a handshake timeout
                 }
 
                 if handshake.peer_id == self.node_info.id {
-                    warn!(target: "network", "Received info about itself. Disconnecting this peer.");
+                    debug!(target: "network", "Received info about itself. Disconnecting this peer.");
                     ctx.stop();
                     return;
+                }
+
+                if handshake.target_peer_id != self.node_info.id {
+                    debug!(target: "network", "Received handshake from {:?} to {:?} but I am {:?}", handshake.peer_id, handshake.target_peer_id, self.node_info.id);
+                    self.send_message(PeerMessage::HandshakeFailure(
+                        self.node_info.clone(),
+                        HandshakeFailureReason::InvalidTarget,
+                    ));
+                    return;
+                    // Connection will be closed by a handshake timeout
                 }
 
                 // Verify signature of the new edge in handshake.
@@ -720,8 +738,10 @@ impl StreamHandler<Vec<u8>> for Peer {
             (_, PeerStatus::Ready, PeerMessage::PeersRequest) => {
                 self.peer_manager_addr.send(PeersRequest {}).into_actor(self).then(|res, act, _ctx| {
                     if let Ok(peers) = res {
-                        debug!(target: "network", "Peers request from {}: sending {} peers.", act.peer_info, peers.peers.len());
-                        act.send_message(PeerMessage::PeersResponse(peers.peers));
+                        if !peers.peers.is_empty() {
+                            debug!(target: "network", "Peers request from {}: sending {} peers.", act.peer_info, peers.peers.len());
+                            act.send_message(PeerMessage::PeersResponse(peers.peers));
+                        }
                     }
                     actix::fut::ready(())
                 }).spawn(ctx);

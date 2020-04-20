@@ -14,7 +14,7 @@ benchmarking, loadtesting, and estimating system parameters.
 
 To start node with 20k accounts first create configs:
 ```bash
-cargo run --package near --bin near -- init --chain-id= --test-seed=alice.near --account-id=test.near --fast
+cargo run --package neard --bin neard -- init --chain-id= --test-seed=alice.near --account-id=test.near --fast
 ```
 
 Then create state dump with home many accounts you want:
@@ -27,5 +27,5 @@ use `--home` on all commands here to specify an absolute path to a home director
 
 Then start a single local node:
 ```bash
-cargo run --package near --bin near -- run --boot-nodes=
+cargo run --package neard --bin neard -- run --boot-nodes=
 ```
