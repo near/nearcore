@@ -1,7 +1,6 @@
 use std::collections::{HashMap, HashSet};
 use std::convert::{Into, TryFrom, TryInto};
 use std::fmt;
-use std::fmt::Write;
 use std::net::{AddrParseError, IpAddr, SocketAddr};
 use std::str::FromStr;
 use std::sync::RwLock;
@@ -14,6 +13,7 @@ use chrono::{DateTime, Utc};
 use futures::{future::BoxFuture, FutureExt};
 use serde_derive::{Deserialize, Serialize};
 use tokio::net::TcpStream;
+use tracing::{error, warn};
 
 use near_chain::types::ShardStateSyncResponse;
 use near_chain::{Block, BlockHeader};
@@ -760,60 +760,48 @@ pub struct NetworkConfig {
 }
 
 impl NetworkConfig {
-    pub fn verify(&self) -> Result<(), String> {
-        let mut s = String::new();
+    pub fn verify(&self) {
+        let mut some_error = false;
 
-        if self.ideal_connections_lo > self.ideal_connections_hi {
-            writeln!(
-                s,
-                "Invalid IDEAL_CONNECTIONS values. LO({}) > HI({})",
-                self.ideal_connections_lo, self.ideal_connections_hi
-            )
-            .unwrap();
-        } else if self.ideal_connections_lo + 1 >= self.ideal_connections_hi {
-            writeln!(
-                s,
-                "Inestable IDEAL_CONNECTIONS values. LO({}) + 1 >= HI({})",
-                self.ideal_connections_lo, self.ideal_connections_hi
-            )
-            .unwrap();
+        if self.ideal_connections_lo + 1 >= self.ideal_connections_hi {
+            error!(target: "network",
+            "Invalid IDEAL_CONNECTIONS values. LO({}) > HI({})",
+            self.ideal_connections_lo, self.ideal_connections_hi);
+            some_error = true;
         }
 
         if self.ideal_connections_hi >= self.max_peer {
-            writeln!(
-                s,
+            error!(target: "network",
                 "Inestable IDEAL_CONNECTIONS_HI({}) compared with MAX_PEERS({})",
                 self.ideal_connections_hi, self.max_peer
-            )
-            .unwrap();
+            );
+            some_error = true;
         }
 
         if self.outbound_disabled {
-            writeln!(s, "Outbound connections are disabled",).unwrap();
+            warn!(target: "network", "Outbound connections are disabled");
         }
 
         if self.safe_set_size <= self.minimum_outbound_peers {
-            writeln!(
-                s,
+            error!(target: "network",
                 "SAFE_SET_SIZE({}) must be larger than MINIMUM_OUTBOUND_PEERS({})",
-                self.safe_set_size, self.minimum_outbound_peers
-            )
-            .unwrap();
+                self.safe_set_size,
+                self.minimum_outbound_peers
+            );
+            some_error = true;
         }
 
         if UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE * 2 > self.peer_recent_time_window {
-            writeln!(
-                s,
+            error!(
+                target: "network",
                 "Very short PEER_RECENT_TIME_WINDOW({}). It should be at least twice UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE({})",
                 self.peer_recent_time_window.as_secs(), UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE.as_secs()
-            )
-            .unwrap();
+            );
+            some_error = true;
         }
 
-        if s.is_empty() {
-            Ok(())
-        } else {
-            Err(s)
+        if some_error {
+            panic!("Invalid network configuration. See logs for more details.");
         }
     }
 }

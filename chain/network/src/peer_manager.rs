@@ -120,10 +120,6 @@ impl PeerManagerActor {
         debug!(target: "network", "Found known peers: {} (boot nodes={})", peer_store.len(), config.boot_nodes.len());
         debug!(target: "network", "Blacklist: {:?}", config.blacklist);
 
-        if let Err(err) = config.verify() {
-            error!(target: "network", "Network configuration error: {}", err);
-        }
-
         let me: PeerId = config.public_key.clone().into();
 
         Ok(PeerManagerActor {
