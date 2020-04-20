@@ -20,9 +20,7 @@ use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{
     ChunkHash, ChunkHashHeight, ReceiptProof, ShardChunk, ShardChunkHeader, ShardProof,
 };
-use near_primitives::transaction::{
-    ExecutionOutcome, ExecutionOutcomeWithId, ExecutionOutcomeWithIdAndProof, ExecutionStatus,
-};
+use near_primitives::transaction::ExecutionOutcomeWithIdAndProof;
 use near_primitives::types::{
     AccountId, Balance, BlockExtra, BlockHeight, BlockHeightDelta, ChunkExtra, EpochId, Gas,
     NumBlocks, ShardId, StateHeaderKey, ValidatorStake,
@@ -67,9 +65,6 @@ const ACCEPTABLE_TIME_DIFFERENCE: i64 = 12 * 10;
 
 /// Over this block height delta in advance if we are not chunk producer - route tx to upcoming validators.
 pub const TX_ROUTING_HEIGHT_HORIZON: BlockHeightDelta = 4;
-
-/// We choose this number of chunk producers to forward transactions to, if necessary.
-pub const NUM_CHUNK_PRODUCERS_TO_FORWARD_TX: u64 = 2;
 
 /// Private constant for 1 NEAR (copy from near/config.rs) used for reporting.
 const NEAR_BASE: Balance = 1_000_000_000_000_000_000_000_000;
@@ -895,9 +890,11 @@ impl Chain {
             hashes.push(header.hash());
             current = self.get_previous_header(&header).map(|h| h.clone());
         }
+        let next_epoch_id =
+            self.get_block_header(&block_head.last_block_hash)?.inner_lite.next_epoch_id.clone();
 
-        // Don't run State Sync if epochs are the same
-        if block_head.epoch_id != header_head.epoch_id {
+        // Don't run State Sync if header head is not more than one epoch ahead.
+        if block_head.epoch_id != header_head.epoch_id && next_epoch_id != header_head.epoch_id {
             let sync_head = self.sync_head()?;
             if oldest_height < sync_head.height.saturating_sub(block_fetch_horizon) {
                 // Epochs are different and we are too far from horizon, State Sync is needed
@@ -1933,30 +1930,17 @@ impl Chain {
     pub fn get_transaction_execution_result(
         &mut self,
         hash: &CryptoHash,
-    ) -> Result<ExecutionOutcomeWithIdView, String> {
+    ) -> Result<ExecutionOutcomeWithIdView, Error> {
         match self.get_execution_outcome(hash) {
             Ok(result) => Ok(result.clone().into()),
-            Err(err) => match err.kind() {
-                ErrorKind::DBNotFoundErr(_) => Ok(ExecutionOutcomeWithIdAndProof {
-                    outcome_with_id: ExecutionOutcomeWithId {
-                        id: *hash,
-                        outcome: ExecutionOutcome {
-                            status: ExecutionStatus::Unknown,
-                            ..Default::default()
-                        },
-                    },
-                    ..Default::default()
-                }
-                .into()),
-                _ => Err(err.to_string()),
-            },
+            Err(err) => return Err(err),
         }
     }
 
     fn get_recursive_transaction_results(
         &mut self,
         hash: &CryptoHash,
-    ) -> Result<Vec<ExecutionOutcomeWithIdView>, String> {
+    ) -> Result<Vec<ExecutionOutcomeWithIdView>, Error> {
         let outcome = self.get_transaction_execution_result(hash)?;
         let receipt_ids = outcome.outcome.receipt_ids.clone();
         let mut transactions = vec![outcome];
@@ -1970,7 +1954,7 @@ impl Chain {
     pub fn get_final_transaction_result(
         &mut self,
         hash: &CryptoHash,
-    ) -> Result<FinalExecutionOutcomeView, String> {
+    ) -> Result<FinalExecutionOutcomeView, Error> {
         let mut outcomes = self.get_recursive_transaction_results(hash)?;
         let mut looking_for_id = (*hash).into();
         let num_outcomes = outcomes.len();
@@ -2002,9 +1986,8 @@ impl Chain {
         let receipts = outcomes.split_off(1);
         let transaction = self
             .store
-            .get_transaction(hash)
-            .map_err(|e| e.to_string())?
-            .ok_or_else(|| format!("Transaction {} is not found", hash))?
+            .get_transaction(hash)?
+            .ok_or_else(|| ErrorKind::DBNotFoundErr(format!("Transaction {} is not found", hash)))?
             .clone()
             .into();
         Ok(FinalExecutionOutcomeView {

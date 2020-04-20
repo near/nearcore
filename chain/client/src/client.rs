@@ -9,7 +9,7 @@ use cached::{Cached, SizedCache};
 use chrono::Utc;
 use log::{debug, error, info, warn};
 
-use near_chain::chain::{NUM_CHUNK_PRODUCERS_TO_FORWARD_TX, TX_ROUTING_HEIGHT_HORIZON};
+use near_chain::chain::TX_ROUTING_HEIGHT_HORIZON;
 use near_chain::test_utils::format_hash;
 use near_chain::types::{AcceptedBlock, LatestKnown, ReceiptResponse};
 use near_chain::{
@@ -1060,12 +1060,11 @@ impl Client {
         let shard_id = self.runtime_adapter.account_id_to_shard_id(&tx.transaction.signer_id);
 
         let mut validators = HashSet::new();
-        for i in 0..NUM_CHUNK_PRODUCERS_TO_FORWARD_TX {
-            let validator = self.chain.find_chunk_producer_for_forwarding(
-                epoch_id,
-                shard_id,
-                TX_ROUTING_HEIGHT_HORIZON * (i + 1),
-            )?;
+        for horizon in
+            (2..=TX_ROUTING_HEIGHT_HORIZON).chain(vec![TX_ROUTING_HEIGHT_HORIZON * 2].into_iter())
+        {
+            let validator =
+                self.chain.find_chunk_producer_for_forwarding(epoch_id, shard_id, horizon)?;
             validators.insert(validator);
         }
 

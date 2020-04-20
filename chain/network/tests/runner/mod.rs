@@ -14,8 +14,8 @@ use near_chain_configs::ClientConfig;
 use near_client::{ClientActor, ViewClientActor};
 use near_crypto::KeyType;
 use near_network::test_utils::{
-    convert_boot_nodes, expected_routing_tables, open_port, BanPeerSignal, GetInfo, StopSignal,
-    WaitOrTimeout,
+    convert_boot_nodes, expected_routing_tables, open_port, peer_id_from_seed, BanPeerSignal,
+    GetInfo, StopSignal, WaitOrTimeout,
 };
 use near_network::types::{OutboundTcpConnect, ROUTED_MESSAGE_TTL};
 use near_network::utils::blacklist_from_vec;
@@ -89,6 +89,7 @@ pub fn setup_network_node(
         .unwrap()
         .start();
         let view_client_actor = ViewClientActor::new(
+            config.account_id.clone(),
             &chain_genesis,
             runtime.clone(),
             network_adapter.clone(),
@@ -606,15 +607,32 @@ impl Actor for Runner {
 
 #[derive(Message)]
 #[rtype(result = "()")]
-struct StartNode(usize);
+enum RunnerMessage {
+    StartNode(usize),
+    ChangeAccountId(usize, String),
+}
 
-impl Handler<StartNode> for Runner {
+impl Handler<RunnerMessage> for Runner {
     type Result = ();
-    fn handle(&mut self, msg: StartNode, _ctx: &mut Self::Context) -> Self::Result {
-        let node_id = msg.0;
-        let pm = self.setup_node(node_id);
-        let info = self.info.as_ref().cloned().unwrap();
-        (*info.write().unwrap()).pm_addr[node_id] = pm;
+    fn handle(&mut self, msg: RunnerMessage, _ctx: &mut Self::Context) -> Self::Result {
+        match msg {
+            RunnerMessage::StartNode(node_id) => {
+                let pm = self.setup_node(node_id);
+                let info = self.info.as_ref().cloned().unwrap();
+                let mut write_info = info.write().unwrap();
+                write_info.pm_addr[node_id] = pm;
+            }
+            RunnerMessage::ChangeAccountId(node_id, account_id) => {
+                self.accounts_id.as_mut().unwrap()[node_id] = account_id.clone();
+                let info = self.info.as_ref().cloned().unwrap();
+                let mut write_info = info.write().unwrap();
+
+                write_info.peers_info[node_id].id = peer_id_from_seed(account_id.as_str());
+                if write_info.peers_info[node_id].account_id.is_some() {
+                    write_info.peers_info[node_id].account_id = Some(account_id);
+                }
+            }
+        }
     }
 }
 
@@ -646,7 +664,7 @@ pub fn check_expected_connections(node_id: usize, expected_connections: usize) -
     )
 }
 
-// Restart a node that was already stopped
+/// Restart a node that was already stopped.
 pub fn restart(node_id: usize) -> ActionFn {
     Box::new(
         move |_info: SharedRunningInfo,
@@ -655,7 +673,7 @@ pub fn restart(node_id: usize) -> ActionFn {
               runner: Addr<Runner>| {
             actix::spawn(
                 runner
-                    .send(StartNode(node_id))
+                    .send(RunnerMessage::StartNode(node_id))
                     .map_err(|_| ())
                     .and_then(move |_| {
                         flag.store(true, Ordering::Relaxed);
@@ -667,6 +685,7 @@ pub fn restart(node_id: usize) -> ActionFn {
     )
 }
 
+/// Ban peer `banned_peer` from perspective of `target_peer`.
 pub fn ban_peer(target_peer: usize, banned_peer: usize) -> ActionFn {
     Box::new(
         move |info: SharedRunningInfo,
@@ -680,6 +699,28 @@ pub fn ban_peer(target_peer: usize, banned_peer: usize) -> ActionFn {
                     .get(target_peer)
                     .unwrap()
                     .send(BanPeerSignal::new(banned_peer_id))
+                    .map_err(|_| ())
+                    .and_then(move |_| {
+                        flag.store(true, Ordering::Relaxed);
+                        future::ok(())
+                    })
+                    .map(drop),
+            );
+        },
+    )
+}
+
+/// Change account id from a stopped peer. Notice this will also change its peer id, since
+/// peer_id is derived from account id with NetworkConfig::from_seed
+pub fn change_account_id(node_id: usize, account_id: String) -> ActionFn {
+    Box::new(
+        move |_info: SharedRunningInfo,
+              flag: Arc<AtomicBool>,
+              _ctx: &mut Context<WaitOrTimeout>,
+              runner: Addr<Runner>| {
+            actix::spawn(
+                runner
+                    .send(RunnerMessage::ChangeAccountId(node_id, account_id.clone()))
                     .map_err(|_| ())
                     .and_then(move |_| {
                         flag.store(true, Ordering::Relaxed);

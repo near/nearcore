@@ -1080,7 +1080,9 @@ impl ClientActor {
                     })
                     .collect();
 
-                unwrap_or_run_later!(self.client.chain.reset_data_pre_state_sync(sync_hash));
+                if !self.client.config.archive {
+                    unwrap_or_run_later!(self.client.chain.reset_data_pre_state_sync(sync_hash));
+                }
 
                 match unwrap_or_run_later!(self.client.state_sync.run(
                     &me,
@@ -1151,7 +1153,7 @@ impl ClientActor {
 
     /// Periodically log summary.
     fn log_summary(&self, ctx: &mut Context<Self>) {
-        ctx.run_later(self.client.config.log_summary_period, move |act, ctx| {
+        ctx.run_interval(self.client.config.log_summary_period, move |act, _ctx| {
             let head = unwrap_or_return!(act.client.chain.head());
             let validators = unwrap_or_return!(act
                 .client
@@ -1194,8 +1196,6 @@ impl ClientActor {
                 is_fishermen,
                 num_validators,
             );
-
-            act.log_summary(ctx);
         });
     }
 }

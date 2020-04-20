@@ -29,7 +29,7 @@ use near_store::Store;
 use crate::codec::Codec;
 use crate::metrics;
 use crate::peer::Peer;
-use crate::peer_store::PeerStore;
+use crate::peer_store::{PeerStore, TrustLevel};
 #[cfg(feature = "metric_recorder")]
 use crate::recorder::{MetricRecorder, PeerMessageMetadata};
 use crate::routing::{Edge, EdgeInfo, EdgeType, ProcessEdgeResult, RoutingTable};
@@ -170,7 +170,7 @@ impl PeerManagerActor {
             self.outgoing_peers.remove(&full_peer_info.peer_info.id);
         }
         unwrap_or_error!(
-            self.peer_store.peer_connected(&full_peer_info),
+            self.peer_store.peer_connected(&full_peer_info.peer_info),
             "Failed to save peer data"
         );
 
@@ -580,7 +580,9 @@ impl PeerManagerActor {
         }
 
         if self.is_outbound_bootstrap_needed() {
-            if let Some(peer_info) = self.sample_random_peer(&self.outgoing_peers) {
+            let mut ignore_list = self.outgoing_peers.clone();
+            ignore_list.insert(self.peer_id.clone());
+            if let Some(peer_info) = self.sample_random_peer(&ignore_list) {
                 self.outgoing_peers.insert(peer_info.id.clone());
                 ctx.notify(OutboundTcpConnect { peer_info });
             } else {
@@ -1309,6 +1311,7 @@ impl Handler<Consolidate> for PeerManagerActor {
             debug!(target: "network", "Dropping handshake (Active Peer). {:?} {:?}", self.peer_id, msg.peer_info.id);
             return ConsolidateResponse::Reject;
         }
+
         // This is incoming connection but we have this peer already in outgoing.
         // This only happens when both of us connect at the same time, break tie using higher peer id.
         if msg.peer_type == PeerType::Inbound && self.outgoing_peers.contains(&msg.peer_info.id) {
@@ -1393,8 +1396,11 @@ impl Handler<PeersResponse> for PeerManagerActor {
     type Result = ();
 
     fn handle(&mut self, msg: PeersResponse, _ctx: &mut Self::Context) {
-        self.peer_store.add_peers(
-            msg.peers.into_iter().filter(|peer_info| peer_info.id != self.peer_id).collect(),
+        unwrap_or_error!(
+            self.peer_store.add_indirect_peers(
+                msg.peers.into_iter().filter(|peer_info| peer_info.id != self.peer_id).collect()
+            ),
+            "Fail to update peer store"
         );
     }
 }
@@ -1457,6 +1463,12 @@ impl Handler<PeerRequest> for PeerManagerActor {
                     ctx,
                     RawRoutedMessage { target: AccountOrPeerIdOrHash::Hash(target), body },
                 );
+                PeerResponse::NoResponse
+            }
+            PeerRequest::UpdatePeerInfo(peer_info) => {
+                if let Err(err) = self.peer_store.add_trusted_peer(peer_info, TrustLevel::Direct) {
+                    error!(target: "network", "Fail to update peer store: {}", err);
+                }
                 PeerResponse::NoResponse
             }
         }

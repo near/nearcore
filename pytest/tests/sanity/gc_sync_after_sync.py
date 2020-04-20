@@ -21,7 +21,13 @@ consensus_config = {"consensus": {"min_block_production_delay": {"secs": 0, "nan
 
 nodes = start_cluster(
     3, 0, 1, None,
-    [["epoch_length", 10], ["num_block_producer_seats_per_shard", [5]], ["validators", 0, "amount", "60000000000000000000000000000000"], ["records", 0, "Account", "account", "locked", "60000000000000000000000000000000"]],
+    [
+        ["epoch_length", 10],
+        ["num_block_producer_seats_per_shard", [5]],
+        ["validators", 0, "amount", "60000000000000000000000000000000"],
+        ["records", 0, "Account", "account", "locked", "60000000000000000000000000000000"],
+        ["total_supply", "4010000000000000000000000000000000"]
+    ],
     {0: consensus_config, 1: consensus_config, 2: consensus_config}
 )
 
@@ -84,8 +90,8 @@ while True:
 # all fresh data should be synced
 blocks_count = 0
 for height in range(node1_height - 10, node1_height):
-    block0 = nodes[0].json_rpc('block', [height])
-    block1 = nodes[1].json_rpc('block', [height])
+    block0 = nodes[0].json_rpc('block', [height], timeout=15)
+    block1 = nodes[1].json_rpc('block', [height], timeout=15)
     assert block0 == block1
     if 'result' in block0:
         blocks_count += 1
@@ -95,8 +101,8 @@ time.sleep(1)
 # all old data should be GCed
 blocks_count = 0
 for height in range(1, 30):
-    block0 = nodes[0].json_rpc('block', [height])
-    block1 = nodes[1].json_rpc('block', [height])
+    block0 = nodes[0].json_rpc('block', [height], timeout=15)
+    block1 = nodes[1].json_rpc('block', [height], timeout=15)
     assert block0 == block1
     if 'result' in block0:
         blocks_count += 1
@@ -105,7 +111,7 @@ assert blocks_count == 0
 # all data after first sync should be GCed
 blocks_count = 0
 for height in range(60, 80):
-    block1 = nodes[1].json_rpc('block', [height])
+    block1 = nodes[1].json_rpc('block', [height], timeout=15)
     if 'result' in block1:
         blocks_count += 1
 assert blocks_count == 0
@@ -113,7 +119,7 @@ assert blocks_count == 0
 # all data before second sync should be GCed
 blocks_count = 0
 for height in range(130, 150):
-    block1 = nodes[1].json_rpc('block', [height])
+    block1 = nodes[1].json_rpc('block', [height], timeout=15)
     if 'result' in block1:
         blocks_count += 1
 assert blocks_count == 0
