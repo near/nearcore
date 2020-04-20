@@ -1,4 +1,4 @@
-use near_vm_errors::{CompilationError, FunctionCallError, MethodResolveError, VMError};
+use near_vm_errors::{CompilationError, FunctionCallError, MethodResolveError, TrapKind, VMError};
 use near_vm_logic::VMLogicError;
 
 pub trait IntoVMError {
@@ -64,6 +64,7 @@ impl IntoVMError for wasmer_runtime::error::ResolveError {
 
 impl IntoVMError for wasmer_runtime::error::RuntimeError {
     fn into_vm_error(self) -> VMError {
+        use wasmer_runtime::ExceptionCode;
         let data = &*self.0;
 
         if let Some(err) = data.downcast_ref::<VMLogicError>() {
@@ -76,6 +77,28 @@ impl IntoVMError for wasmer_runtime::error::RuntimeError {
                     VMError::InconsistentStateError(e.clone())
                 }
             }
+        } else if let Some(err) = data.downcast_ref::<ExceptionCode>() {
+            use wasmer_runtime::ExceptionCode::*;
+            match err {
+                Unreachable => {
+                    VMError::FunctionCallError(FunctionCallError::WasmTrap(TrapKind::Unreachable))
+                }
+                IncorrectCallIndirectSignature => VMError::FunctionCallError(
+                    FunctionCallError::WasmTrap(TrapKind::IncorrectCallIndirectSignature),
+                ),
+                MemoryOutOfBounds => VMError::FunctionCallError(FunctionCallError::WasmTrap(
+                    TrapKind::MemoryOutOfBounds,
+                )),
+                CallIndirectOOB => VMError::FunctionCallError(FunctionCallError::WasmTrap(
+                    TrapKind::CallIndirectOOB,
+                )),
+                IllegalArithmetic => VMError::FunctionCallError(FunctionCallError::WasmTrap(
+                    TrapKind::IllegalArithmetic,
+                )),
+                MisalignedAtomicAccess => VMError::FunctionCallError(FunctionCallError::WasmTrap(
+                    TrapKind::MisalignedAtomicAccess,
+                )),
+            }
         } else {
             // TODO: Wasmer provides no way to distingush runtime Internal Wasmer errors or host panics
             // (at least for a single-pass backend)
@@ -85,7 +108,7 @@ impl IntoVMError for wasmer_runtime::error::RuntimeError {
                 data.type_id(),
                 self.to_string()
             );
-            VMError::FunctionCallError(FunctionCallError::WasmTrap { msg: "unknown".into() })
+            VMError::FunctionCallError(FunctionCallError::WasmUnknownError)
         }
     }
 }

@@ -49,13 +49,6 @@
         "size": ""
       }
     },
-    "Deprecated": {
-      "name": "Deprecated",
-      "subtypes": [],
-      "props": {
-        "method_name": ""
-      }
-    },
     "Deserialization": {
       "name": "Deserialization",
       "subtypes": [],
@@ -73,6 +66,7 @@
         "LinkError",
         "MethodResolveError",
         "WasmTrap",
+        "WasmUnknownError",
         "HostError"
       ],
       "props": {}
@@ -428,6 +422,7 @@
         "processed_delayed_receipts_balance": "",
         "total_balance_burnt": "",
         "total_balance_slashed": "",
+        "total_rent_paid": "",
         "total_validator_reward": ""
       }
     },
@@ -444,13 +439,12 @@
         "predecessor_id": ""
       }
     },
-    "CreateAccountOnlyByRegistrar": {
-      "name": "CreateAccountOnlyByRegistrar",
+    "DeleteAccountHasRent": {
+      "name": "DeleteAccountHasRent",
       "subtypes": [],
       "props": {
         "account_id": "",
-        "predecessor_id": "",
-        "registrar_account_id": ""
+        "balance": ""
       }
     },
     "DeleteAccountStaking": {
@@ -540,14 +534,6 @@
       ],
       "props": {}
     },
-    "LackBalanceForState": {
-      "name": "LackBalanceForState",
-      "subtypes": [],
-      "props": {
-        "account_id": "",
-        "amount": ""
-      }
-    },
     "MethodNameMismatch": {
       "name": "MethodNameMismatch",
       "subtypes": [],
@@ -580,6 +566,14 @@
       "props": {
         "ak_receiver": "",
         "tx_receiver": ""
+      }
+    },
+    "RentUnpaid": {
+      "name": "RentUnpaid",
+      "subtypes": [],
+      "props": {
+        "account_id": "",
+        "amount": ""
       }
     },
     "RequiresFullAccess": {
@@ -619,13 +613,6 @@
       ],
       "props": {}
     },
-    "UnsuitableStakingKey": {
-      "name": "UnsuitableStakingKey",
-      "subtypes": [],
-      "props": {
-        "public_key": ""
-      }
-    },
     "Closed": {
       "name": "Closed",
       "subtypes": [],
@@ -644,6 +631,89 @@
       "name": "Timeout",
       "subtypes": [],
       "props": {}
+    },
+    "CallIndirectOOB": {
+      "name": "CallIndirectOOB",
+      "subtypes": [],
+      "props": {}
+    },
+    "Deprecated": {
+      "name": "Deprecated",
+      "subtypes": [],
+      "props": {
+        "method_name": ""
+      }
+    },
+    "IllegalArithmetic": {
+      "name": "IllegalArithmetic",
+      "subtypes": [],
+      "props": {}
+    },
+    "IncorrectCallIndirectSignature": {
+      "name": "IncorrectCallIndirectSignature",
+      "subtypes": [],
+      "props": {}
+    },
+    "MemoryOutOfBounds": {
+      "name": "MemoryOutOfBounds",
+      "subtypes": [],
+      "props": {}
+    },
+    "MisalignedAtomicAccess": {
+      "name": "MisalignedAtomicAccess",
+      "subtypes": [],
+      "props": {}
+    },
+    "Trap": {
+      "name": "Trap",
+      "subtypes": [
+        "Unreachable",
+        "IncorrectCallIndirectSignature",
+        "MemoryOutOfBounds",
+        "CallIndirectOOB",
+        "IllegalArithmetic",
+        "MisalignedAtomicAccess"
+      ],
+      "props": {}
+    },
+    "Unreachable": {
+      "name": "Unreachable",
+      "subtypes": [],
+      "props": {}
+    },
+    "WasmUnknown": {
+      "name": "WasmUnknown",
+      "subtypes": [],
+      "props": {}
+    },
+    "WasmUnknownError": {
+      "name": "WasmUnknownError",
+      "subtypes": [],
+      "props": {}
+    },
+    "CreateAccountOnlyByRegistrar": {
+      "name": "CreateAccountOnlyByRegistrar",
+      "subtypes": [],
+      "props": {
+        "account_id": "",
+        "predecessor_id": "",
+        "registrar_account_id": ""
+      }
+    },
+    "LackBalanceForState": {
+      "name": "LackBalanceForState",
+      "subtypes": [],
+      "props": {
+        "account_id": "",
+        "amount": ""
+      }
+    },
+    "UnsuitableStakingKey": {
+      "name": "UnsuitableStakingKey",
+      "subtypes": [],
+      "props": {
+        "public_key": ""
+      }
     }
   }
 }
