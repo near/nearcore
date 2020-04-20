@@ -68,6 +68,7 @@ pub fn start_with_config(
     let node_id = config.network_config.public_key.clone().into();
     let network_adapter = Arc::new(NetworkRecipient::new());
     let view_client = ViewClientActor::new(
+        config.validator_signer.as_ref().map(|signer| signer.validator_id().clone()),
         &chain_genesis,
         runtime.clone(),
         network_adapter.clone(),

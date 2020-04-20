@@ -97,6 +97,7 @@ pub fn setup(
         archive,
     );
     let view_client = ViewClientActor::new(
+        Some(signer.validator_id().clone()),
         &chain_genesis,
         runtime.clone(),
         network_adapter.clone(),

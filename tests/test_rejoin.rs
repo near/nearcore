@@ -16,7 +16,7 @@ mod test {
 
     fn warmup() {
         Command::new("cargo")
-            .args(&["build", "-p", "near"])
+            .args(&["build", "-p", "neard"])
             .spawn()
             .expect("warmup failed")
             .wait()
