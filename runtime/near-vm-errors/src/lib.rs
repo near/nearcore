@@ -26,7 +26,7 @@ pub enum FunctionCallError {
     /// Import/export resolve error
     MethodResolveError(MethodResolveError),
     /// A trap happened during execution of a binary
-    WasmTrap(TrapKind),
+    WasmTrap(WasmTrap),
     WasmUnknownError,
     HostError(HostError),
 }
@@ -34,7 +34,7 @@ pub enum FunctionCallError {
 #[derive(
     Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, Deserialize, Serialize, RpcError,
 )]
-pub enum TrapKind {
+pub enum WasmTrap {
     /// An `unreachable` opcode was executed.
     Unreachable,
     /// Call indirect incorrect signature trap.
@@ -231,19 +231,19 @@ impl fmt::Display for FunctionCallError {
     }
 }
 
-impl fmt::Display for TrapKind {
+impl fmt::Display for WasmTrap {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         match self {
-            TrapKind::Unreachable => write!(f, "An `unreachable` opcode was executed."),
-            TrapKind::IncorrectCallIndirectSignature => {
+            WasmTrap::Unreachable => write!(f, "An `unreachable` opcode was executed."),
+            WasmTrap::IncorrectCallIndirectSignature => {
                 write!(f, "Call indirect incorrect signature trap.")
             }
-            TrapKind::MemoryOutOfBounds => write!(f, "Memory out of bounds trap."),
-            TrapKind::CallIndirectOOB => write!(f, "Call indirect out of bounds trap."),
-            TrapKind::IllegalArithmetic => {
+            WasmTrap::MemoryOutOfBounds => write!(f, "Memory out of bounds trap."),
+            WasmTrap::CallIndirectOOB => write!(f, "Call indirect out of bounds trap."),
+            WasmTrap::IllegalArithmetic => {
                 write!(f, "An arithmetic exception, e.g. divided by zero.")
             }
-            TrapKind::MisalignedAtomicAccess => write!(f, "Misaligned atomic access trap."),
+            WasmTrap::MisalignedAtomicAccess => write!(f, "Misaligned atomic access trap."),
         }
     }
 }

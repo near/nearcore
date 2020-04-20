@@ -1,4 +1,4 @@
-use near_vm_errors::{CompilationError, FunctionCallError, MethodResolveError, TrapKind, VMError};
+use near_vm_errors::{CompilationError, FunctionCallError, MethodResolveError, VMError, WasmTrap};
 use near_vm_logic::VMLogicError;
 
 pub trait IntoVMError {
@@ -81,22 +81,22 @@ impl IntoVMError for wasmer_runtime::error::RuntimeError {
             use wasmer_runtime::ExceptionCode::*;
             match err {
                 Unreachable => {
-                    VMError::FunctionCallError(FunctionCallError::WasmTrap(TrapKind::Unreachable))
+                    VMError::FunctionCallError(FunctionCallError::WasmTrap(WasmTrap::Unreachable))
                 }
                 IncorrectCallIndirectSignature => VMError::FunctionCallError(
-                    FunctionCallError::WasmTrap(TrapKind::IncorrectCallIndirectSignature),
+                    FunctionCallError::WasmTrap(WasmTrap::IncorrectCallIndirectSignature),
                 ),
                 MemoryOutOfBounds => VMError::FunctionCallError(FunctionCallError::WasmTrap(
-                    TrapKind::MemoryOutOfBounds,
+                    WasmTrap::MemoryOutOfBounds,
                 )),
                 CallIndirectOOB => VMError::FunctionCallError(FunctionCallError::WasmTrap(
-                    TrapKind::CallIndirectOOB,
+                    WasmTrap::CallIndirectOOB,
                 )),
                 IllegalArithmetic => VMError::FunctionCallError(FunctionCallError::WasmTrap(
-                    TrapKind::IllegalArithmetic,
+                    WasmTrap::IllegalArithmetic,
                 )),
                 MisalignedAtomicAccess => VMError::FunctionCallError(FunctionCallError::WasmTrap(
-                    TrapKind::MisalignedAtomicAccess,
+                    WasmTrap::MisalignedAtomicAccess,
                 )),
             }
         } else {
