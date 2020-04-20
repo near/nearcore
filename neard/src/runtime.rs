@@ -89,6 +89,8 @@ impl NightshadeRuntime {
             block_producer_kickout_threshold: genesis.config.block_producer_kickout_threshold,
             chunk_producer_kickout_threshold: genesis.config.chunk_producer_kickout_threshold,
             fishermen_threshold: genesis.config.fishermen_threshold,
+            online_min_threshold: genesis.config.online_min_threshold,
+            online_max_threshold: genesis.config.online_max_threshold,
         };
         let reward_calculator = RewardCalculator {
             max_inflation_rate: genesis.config.max_inflation_rate,
@@ -96,6 +98,8 @@ impl NightshadeRuntime {
             epoch_length: genesis.config.epoch_length,
             protocol_reward_percentage: genesis.config.protocol_reward_rate,
             protocol_treasury_account: genesis.config.protocol_treasury_account.to_string(),
+            online_max_threshold: genesis.config.online_max_threshold,
+            online_min_threshold: genesis.config.online_min_threshold,
         };
         let epoch_manager = Arc::new(RwLock::new(
             EpochManager::new(

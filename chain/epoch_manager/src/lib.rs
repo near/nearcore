@@ -1667,6 +1667,8 @@ mod tests {
             epoch_length,
             protocol_reward_percentage: Rational::new(1, 10),
             protocol_treasury_account: "near".to_string(),
+            online_min_threshold: Rational::new(90, 100),
+            online_max_threshold: Rational::new(99, 100),
         };
         let mut epoch_manager = setup_epoch_manager(
             validators,
@@ -1789,6 +1791,8 @@ mod tests {
             epoch_length,
             protocol_reward_percentage: Rational::new(1, 10),
             protocol_treasury_account: "near".to_string(),
+            online_min_threshold: Rational::new(90, 100),
+            online_max_threshold: Rational::new(99, 100),
         };
         let mut epoch_manager = setup_epoch_manager(
             validators,
@@ -1930,6 +1934,8 @@ mod tests {
             epoch_length,
             protocol_reward_percentage: Rational::new(1, 10),
             protocol_treasury_account: "near".to_string(),
+            online_min_threshold: Rational::new(90, 100),
+            online_max_threshold: Rational::new(99, 100),
         };
         let mut epoch_manager = setup_epoch_manager(
             validators,

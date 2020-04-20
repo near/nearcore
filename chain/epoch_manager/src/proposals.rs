@@ -205,6 +205,8 @@ pub fn proposals_to_epoch_info(
 
 #[cfg(test)]
 mod tests {
+    use num_rational::Rational;
+
     use crate::test_utils::{change_stake, epoch_config, epoch_info, stake};
 
     use super::*;
@@ -254,7 +256,9 @@ mod tests {
                     avg_hidden_validator_seats_per_shard: vec![6, 2, 2, 2, 2],
                     block_producer_kickout_threshold: 90,
                     chunk_producer_kickout_threshold: 60,
-                    fishermen_threshold: 10
+                    fishermen_threshold: 10,
+                    online_min_threshold: Rational::new(90, 100),
+                    online_max_threshold: Rational::new(99, 100),
                 },
                 [0; 32],
                 &EpochInfo::default(),

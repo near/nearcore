@@ -99,6 +99,8 @@ pub fn epoch_config(
         block_producer_kickout_threshold,
         chunk_producer_kickout_threshold,
         fishermen_threshold,
+        online_min_threshold: Rational::new(90, 100),
+        online_max_threshold: Rational::new(99, 100),
     }
 }
 
@@ -115,6 +117,8 @@ pub fn default_reward_calculator() -> RewardCalculator {
         epoch_length: 1,
         protocol_reward_percentage: Rational::from_integer(0),
         protocol_treasury_account: "near".to_string(),
+        online_min_threshold: Rational::new(90, 100),
+        online_max_threshold: Rational::new(99, 100),
     }
 }
 

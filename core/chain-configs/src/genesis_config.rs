@@ -58,6 +58,12 @@ pub struct GenesisConfig {
     pub block_producer_kickout_threshold: u8,
     /// Criterion for kicking out chunk producers (this is a number between 0 and 100)
     pub chunk_producer_kickout_threshold: u8,
+    /// Online minimum threshold below which validator doesn't receive reward.
+    #[default(Rational::new(90, 100))]
+    pub online_min_threshold: Rational,
+    /// Online maximum threshold above which validator gets full reward.
+    #[default(Rational::new(99, 100))]
+    pub online_max_threshold: Rational,
     /// Gas price adjustment rate
     #[default(Rational::from_integer(0))]
     pub gas_price_adjustment_rate: Rational,

@@ -11,6 +11,8 @@ pub struct RewardCalculator {
     pub epoch_length: u64,
     pub protocol_reward_percentage: Rational,
     pub protocol_treasury_account: AccountId,
+    pub online_min_threshold: Rational,
+    pub online_max_threshold: Rational,
 }
 
 impl RewardCalculator {
@@ -36,9 +38,10 @@ impl RewardCalculator {
         .as_u128();
         res.insert(self.protocol_treasury_account.clone(), epoch_protocol_treasury);
         if num_validators == 0 {
-            return (res, epoch_total_reward);
+            return (res, 0);
         }
         let epoch_validator_reward = epoch_total_reward - epoch_protocol_treasury;
+        let mut epoch_actual_reward = epoch_protocol_treasury;
         let total_stake: Balance = validator_stake.values().sum();
         for (account_id, stats) in validator_block_chunk_stats {
             let reward = if stats.block_stats.expected == 0 || stats.chunk_stats.expected == 0 {
@@ -59,8 +62,9 @@ impl RewardCalculator {
                 .as_u128()
             };
             res.insert(account_id, reward);
+            epoch_actual_reward += reward;
         }
-        (res, epoch_total_reward)
+        (res, epoch_actual_reward)
     }
 }
 
@@ -71,35 +75,42 @@ mod tests {
     use num_rational::Rational;
     use std::collections::HashMap;
 
-    /// Test reward calculation with when validators are not fully online.
+    /// Test reward calculation when validators are not fully online.
     #[test]
-    fn test_reward_validator_half_required_online() {
+    fn test_reward_validator_different_online() {
         let reward_calculator = RewardCalculator {
             max_inflation_rate: Rational::new(1, 100),
-            num_blocks_per_year: 100,
-            epoch_length: 100,
+            num_blocks_per_year: 1000,
+            epoch_length: 1000,
             protocol_reward_percentage: Rational::new(0, 10),
             protocol_treasury_account: "near".to_string(),
+            online_min_threshold: Rational::new(9, 10),
+            online_max_threshold: Rational::new(9, 10),
         };
         let validator_block_chunk_stats = vec![(
             "test".to_string(),
             BlockChunkValidatorStats {
-                block_stats: ValidatorStats { produced: 43200, expected: 43200 },
-                chunk_stats: ValidatorStats { produced: 345600, expected: 345600 },
+                block_stats: ValidatorStats { produced: 945, expected: 1000 },
+                chunk_stats: ValidatorStats { produced: 945, expected: 1000 },
             },
         )]
         .into_iter()
         .collect::<HashMap<_, _>>();
-        let validator_stake = vec![("test".to_string(), 500_000 * 10_u128.pow(24))]
-            .into_iter()
-            .collect::<HashMap<_, _>>();
-        // some hypothetical large total supply (100b)
-        let total_supply = 100_000_000_000 * 10_u128.pow(24);
-        reward_calculator.calculate_reward(
+        let validator_stake =
+            vec![("test".to_string(), 500_000)].into_iter().collect::<HashMap<_, _>>();
+        let total_supply = 1_000_000_000;
+        let result = reward_calculator.calculate_reward(
             validator_block_chunk_stats,
             &validator_stake,
             total_supply,
         );
+        assert_eq!(
+            result.0,
+            vec![("near".to_string(), 0), ("test".to_string(), 9_450_000u128)]
+                .into_iter()
+                .collect()
+        );
+        assert_eq!(result.1, 9_450_000u128);
     }
 
     /// Test that under an extreme setting (total supply 100b, epoch length half a day),
@@ -113,6 +124,8 @@ mod tests {
             epoch_length: 60 * 60 * 12,
             protocol_reward_percentage: Rational::new(1, 10),
             protocol_treasury_account: "near".to_string(),
+            online_min_threshold: Rational::new(9, 10),
+            online_max_threshold: Rational::new(9, 10),
         };
         let validator_block_chunk_stats = vec![(
             "test".to_string(),

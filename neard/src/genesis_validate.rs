@@ -1,5 +1,6 @@
 use near_chain_configs::Genesis;
 use near_primitives::state_record::StateRecord;
+use num_rational::Rational;
 use std::collections::{HashMap, HashSet};
 
 /// Validate genesis config and records. Panics if genesis is ill-formed.
@@ -63,6 +64,18 @@ pub fn validate_genesis(genesis: &Genesis) {
             account_id
         );
     }
+    assert!(
+        genesis.config.online_max_threshold > genesis.config.online_min_threshold,
+        "Online max threshold smaller than min threshold"
+    );
+    assert!(
+        genesis.config.online_max_threshold < Rational::from_integer(1),
+        "Online max threshold must be less than 1"
+    );
+    assert!(
+        genesis.config.gas_price_adjustment_rate < Rational::from_integer(1),
+        "Gas price adjustment rate must be less than 1"
+    );
 }
 
 #[cfg(test)]

@@ -2,9 +2,9 @@ use std::collections::{BTreeMap, HashMap};
 use std::fmt;
 
 use borsh::{BorshDeserialize, BorshSerialize};
+use num_rational::Rational;
 use serde::Serialize;
 
-use crate::EpochManager;
 use near_primitives::challenge::SlashedValidator;
 use near_primitives::hash::CryptoHash;
 use near_primitives::serialize::to_base;
@@ -13,6 +13,8 @@ use near_primitives::types::{
     EpochId, NumSeats, NumShards, ShardId, ValidatorId, ValidatorKickoutReason, ValidatorStake,
     ValidatorStats,
 };
+
+use crate::EpochManager;
 
 pub type RngSeed = [u8; 32];
 
@@ -34,6 +36,10 @@ pub struct EpochConfig {
     pub block_producer_kickout_threshold: u8,
     /// Criterion for kicking out chunk producers.
     pub chunk_producer_kickout_threshold: u8,
+    /// Online minimum threshold below which validator doesn't receive reward.
+    pub online_min_threshold: Rational,
+    /// Online maximum threshold above which validator gets full reward.
+    pub online_max_threshold: Rational,
     /// Stake threshold for becoming a fisherman.
     pub fishermen_threshold: Balance,
 }

@@ -251,6 +251,8 @@ mod tests {
             block_producer_kickout_threshold: 90,
             chunk_producer_kickout_threshold: 60,
             fishermen_threshold: 0,
+            online_max_threshold: Rational::from_integer(1),
+            online_min_threshold: Rational::new(90, 100),
         };
         let reward_calculator = RewardCalculator {
             max_inflation_rate: Rational::from_integer(0),
@@ -258,6 +260,8 @@ mod tests {
             epoch_length: 1,
             protocol_reward_percentage: Rational::from_integer(0),
             protocol_treasury_account: "".to_string(),
+            online_max_threshold: initial_epoch_config.online_max_threshold,
+            online_min_threshold: initial_epoch_config.online_min_threshold,
         };
         Arc::new(RwLock::new(
             EpochManager::new(

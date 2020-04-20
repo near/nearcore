@@ -12,10 +12,7 @@ use neard::config::GenesisExt;
 use num_rational::Rational;
 use testlib::fees_utils::FeeHelper;
 
-/// Test that node mints and burns tokens correctly as blocks become full.
-/// This combines Client & NightshadeRuntime to also test EpochManager.
-#[test]
-fn test_burn_mint() {
+fn setup_env() -> TestEnv {
     init_integration_logger();
     let store1 = create_test_store();
     let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
@@ -36,7 +33,15 @@ fn test_burn_mint() {
         vec![],
         vec![],
     ))];
-    let mut env = TestEnv::new_with_runtime(ChainGenesis::from(&arc_genesis), 1, 1, runtimes);
+    let env = TestEnv::new_with_runtime(ChainGenesis::from(&arc_genesis), 1, 1, runtimes);
+    env
+}
+
+/// Test that node mints and burns tokens correctly as blocks become full.
+/// This combines Client & NightshadeRuntime to also test EpochManager.
+#[test]
+fn test_burn_mint() {
+    let mut env = setup_env();
     let signer = InMemorySigner::from_seed("test0", KeyType::ED25519, "test0");
     let genesis_hash = env.clients[0].chain.genesis().hash();
     env.clients[0].process_tx(
