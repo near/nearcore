@@ -128,9 +128,6 @@ pub enum ErrorKind {
     /// Invalid Gas Used
     #[fail(display = "Invalid Gas Used")]
     InvalidGasUsed,
-    /// Invalid Validator Reward
-    #[fail(display = "Invalid Validator Reward")]
-    InvalidReward,
     /// Invalid Balance Burnt
     #[fail(display = "Invalid Balance Burnt")]
     InvalidBalanceBurnt,
@@ -249,7 +246,6 @@ impl Error {
             | ErrorKind::InvalidGasLimit
             | ErrorKind::InvalidGasPrice
             | ErrorKind::InvalidGasUsed
-            | ErrorKind::InvalidReward
             | ErrorKind::InvalidBalanceBurnt
             | ErrorKind::InvalidShardId(_)
             | ErrorKind::InvalidStateRequest(_)

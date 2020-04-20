@@ -472,11 +472,11 @@ pub struct BalanceMismatchError {
     #[serde(with = "u128_dec_format")]
     pub final_postponed_receipts_balance: Balance,
     #[serde(with = "u128_dec_format")]
-    pub total_validator_reward: Balance,
+    pub tx_burnt_amount: Balance,
     #[serde(with = "u128_dec_format")]
-    pub total_balance_burnt: Balance,
+    pub slashed_burnt_amount: Balance,
     #[serde(with = "u128_dec_format")]
-    pub total_balance_slashed: Balance,
+    pub other_burnt_amount: Balance,
 }
 
 impl Display for BalanceMismatchError {
@@ -493,9 +493,9 @@ impl Display for BalanceMismatchError {
             .saturating_add(self.outgoing_receipts_balance)
             .saturating_add(self.new_delayed_receipts_balance)
             .saturating_add(self.final_postponed_receipts_balance)
-            .saturating_add(self.total_validator_reward)
-            .saturating_add(self.total_balance_burnt)
-            .saturating_add(self.total_balance_slashed);
+            .saturating_add(self.tx_burnt_amount)
+            .saturating_add(self.slashed_burnt_amount)
+            .saturating_add(self.other_burnt_amount);
         write!(
             f,
             "Balance Mismatch Error. The input balance {} doesn't match output balance {}\n\
@@ -510,9 +510,9 @@ impl Display for BalanceMismatchError {
              \tOutgoing receipts balance sum: {}\n\
              \tNew delayed receipts balance sum: {}\n\
              \tFinal postponed receipts balance sum: {}\n\
-             \tTotal validators reward: {}\n\
-             \tTotal balance burnt: {}\n\
-             \tTotal balance slashed: {}",
+             \tTx fees burnt amount: {}\n\
+             \tSlashed amount: {}\n\
+             \tOther burnt amount: {}",
             initial_balance,
             final_balance,
             self.incoming_validator_rewards,
@@ -524,9 +524,9 @@ impl Display for BalanceMismatchError {
             self.outgoing_receipts_balance,
             self.new_delayed_receipts_balance,
             self.final_postponed_receipts_balance,
-            self.total_validator_reward,
-            self.total_balance_burnt,
-            self.total_balance_slashed,
+            self.tx_burnt_amount,
+            self.slashed_burnt_amount,
+            self.other_burnt_amount,
         )
     }
 }

@@ -524,7 +524,6 @@ impl Client {
             shard_id,
             chunk_extra.gas_used,
             chunk_extra.gas_limit,
-            chunk_extra.validator_reward,
             chunk_extra.balance_burnt,
             chunk_extra.validator_proposals.clone(),
             transactions,

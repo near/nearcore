@@ -163,10 +163,11 @@ pub fn verify_and_charge_transaction(
     set_access_key(state_update, signer_id.clone(), transaction.public_key.clone(), &access_key);
     set_account(state_update, signer_id.clone(), &signer);
 
-    let validator_reward = safe_gas_to_balance(apply_state.gas_price, gas_burnt)
+    let burnt_amount = safe_gas_to_balance(apply_state.gas_price, gas_burnt)
         .map_err(|_| InvalidTxError::CostOverflow)?;
 
-    Ok(VerificationResult { gas_burnt, gas_used, validator_reward })
+    println!("{} {} {} {}", apply_state.gas_price, gas_burnt, gas_used, burnt_amount);
+    Ok(VerificationResult { gas_burnt, gas_used, burnt_amount })
 }
 
 /// Validates a given receipt. Checks validity of the predecessor and receiver account IDs and
@@ -477,7 +478,7 @@ mod tests {
         assert!(verification_result.gas_used > verification_result.gas_burnt);
         // All burned gas goes to the validators at current gas price
         assert_eq!(
-            verification_result.validator_reward,
+            verification_result.burnt_amount,
             Balance::from(verification_result.gas_burnt) * apply_state.gas_price
         );
 

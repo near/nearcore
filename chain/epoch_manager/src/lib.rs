@@ -200,7 +200,6 @@ impl EpochManager {
         let mut validator_kickout = HashMap::new();
         let block_validator_tracker = last_block_info.block_tracker.clone();
         let chunk_validator_tracker = last_block_info.shard_tracker.clone();
-        let total_validator_reward = last_block_info.total_validator_reward;
 
         // Gather slashed validators and add them to kick out first.
         let slashed_validators = last_block_info.slashed.clone();
@@ -249,7 +248,6 @@ impl EpochManager {
             all_proposals,
             validator_kickout,
             validator_block_chunk_stats,
-            total_validator_reward,
         })
     }
 
@@ -286,7 +284,6 @@ impl EpochManager {
             all_proposals,
             validator_kickout,
             validator_block_chunk_stats,
-            total_validator_reward,
         } = self.collect_blocks_info(&block_info, last_block_hash)?;
         let epoch_id = self.get_epoch_id(last_block_hash)?;
         let epoch_info = self.get_epoch_info(&epoch_id)?;
@@ -301,7 +298,6 @@ impl EpochManager {
         let (validator_reward, inflation) = self.reward_calculator.calculate_reward(
             validator_block_chunk_stats,
             &validator_stake,
-            total_validator_reward,
             block_info.total_supply,
         );
         let next_next_epoch_info = match proposals_to_epoch_info(
@@ -401,13 +397,8 @@ impl EpochManager {
                     }
                 }
 
-                let BlockInfo {
-                    block_tracker,
-                    mut all_proposals,
-                    shard_tracker,
-                    total_validator_reward,
-                    ..
-                } = prev_block_info;
+                let BlockInfo { block_tracker, mut all_proposals, shard_tracker, .. } =
+                    prev_block_info;
 
                 // Update block produced/expected tracker.
                 block_info.update_block_tracker(
@@ -422,7 +413,6 @@ impl EpochManager {
                 // accumulate values
                 if is_epoch_start {
                     block_info.all_proposals = block_info.proposals.clone();
-                    block_info.total_validator_reward = block_info.validator_reward;
                     self.save_epoch_start(
                         &mut store_update,
                         &block_info.epoch_id,
@@ -431,8 +421,6 @@ impl EpochManager {
                 } else {
                     all_proposals.extend(block_info.proposals.clone());
                     block_info.all_proposals = all_proposals;
-                    block_info.total_validator_reward +=
-                        total_validator_reward + block_info.validator_reward;
                 }
 
                 // Save current block info.
@@ -1428,7 +1416,6 @@ mod tests {
                     vec![],
                     vec![],
                     vec![SlashedValidator::new("test1".to_string(), false)],
-                    0,
                     DEFAULT_TOTAL_SUPPLY,
                 ),
                 [0; 32],
@@ -1515,7 +1502,6 @@ mod tests {
                         SlashedValidator::new("test1".to_string(), true),
                         SlashedValidator::new("test1".to_string(), false),
                     ],
-                    0,
                     DEFAULT_TOTAL_SUPPLY,
                 ),
                 [0; 32],
@@ -1542,7 +1528,6 @@ mod tests {
                     vec![],
                     vec![],
                     vec![SlashedValidator::new("test1".to_string(), true)],
-                    0,
                     DEFAULT_TOTAL_SUPPLY,
                 ),
                 [0; 32],
@@ -1602,7 +1587,6 @@ mod tests {
                     vec![],
                     vec![],
                     vec![SlashedValidator::new("test1".to_string(), true)],
-                    0,
                     DEFAULT_TOTAL_SUPPLY,
                 ),
                 [0; 32],
@@ -1630,7 +1614,6 @@ mod tests {
                     vec![],
                     vec![],
                     vec![SlashedValidator::new("test1".to_string(), true)],
-                    0,
                     DEFAULT_TOTAL_SUPPLY,
                 ),
                 [0; 32],
@@ -1710,12 +1693,10 @@ mod tests {
                     proposals: vec![],
                     chunk_mask: vec![true],
                     slashed: Default::default(),
-                    validator_reward: 0,
                     total_supply,
                     block_tracker: Default::default(),
                     shard_tracker: Default::default(),
                     all_proposals: vec![],
-                    total_validator_reward: 0,
                 },
                 rng_seed,
             )
@@ -1732,12 +1713,10 @@ mod tests {
                     proposals: vec![],
                     chunk_mask: vec![true],
                     slashed: Default::default(),
-                    validator_reward: 10,
                     total_supply,
                     block_tracker: Default::default(),
                     shard_tracker: Default::default(),
                     all_proposals: vec![],
-                    total_validator_reward: 0,
                 },
                 rng_seed,
             )
@@ -1754,12 +1733,10 @@ mod tests {
                     proposals: vec![],
                     chunk_mask: vec![true],
                     slashed: Default::default(),
-                    validator_reward: 10,
                     total_supply,
                     block_tracker: Default::default(),
                     shard_tracker: Default::default(),
                     all_proposals: vec![],
-                    total_validator_reward: 0,
                 },
                 rng_seed,
             )
@@ -1777,7 +1754,6 @@ mod tests {
         let (validator_reward, inflation) = reward_calculator.calculate_reward(
             validator_online_ratio,
             &validator_stakes,
-            20,
             total_supply,
         );
         let test2_reward = *validator_reward.get("test2").unwrap();
@@ -1839,12 +1815,10 @@ mod tests {
                     proposals: vec![],
                     chunk_mask: vec![true],
                     slashed: Default::default(),
-                    validator_reward: 0,
                     total_supply,
                     block_tracker: Default::default(),
                     shard_tracker: Default::default(),
                     all_proposals: vec![],
-                    total_validator_reward: 0,
                 },
                 rng_seed,
             )
@@ -1861,12 +1835,10 @@ mod tests {
                     proposals: vec![],
                     chunk_mask: vec![true],
                     slashed: Default::default(),
-                    validator_reward: 10,
                     total_supply,
                     block_tracker: Default::default(),
                     shard_tracker: Default::default(),
                     all_proposals: vec![],
-                    total_validator_reward: 0,
                 },
                 rng_seed,
             )
@@ -1883,12 +1855,10 @@ mod tests {
                     proposals: vec![],
                     chunk_mask: vec![true],
                     slashed: Default::default(),
-                    validator_reward: 10,
                     total_supply,
                     block_tracker: Default::default(),
                     shard_tracker: Default::default(),
                     all_proposals: vec![],
-                    total_validator_reward: 0,
                 },
                 rng_seed,
             )
@@ -1914,7 +1884,6 @@ mod tests {
         let (validator_reward, inflation) = reward_calculator.calculate_reward(
             validator_online_ratio,
             &validators_stakes,
-            20,
             total_supply,
         );
         let test1_reward = *validator_reward.get("test1").unwrap();
@@ -1987,12 +1956,10 @@ mod tests {
                     proposals: vec![],
                     chunk_mask: vec![],
                     slashed: Default::default(),
-                    validator_reward: 0,
                     total_supply,
                     block_tracker: Default::default(),
                     shard_tracker: Default::default(),
                     all_proposals: vec![],
-                    total_validator_reward: 0,
                 },
                 rng_seed,
             )
@@ -2009,12 +1976,10 @@ mod tests {
                     proposals: vec![],
                     chunk_mask: vec![true, false],
                     slashed: Default::default(),
-                    validator_reward: 10,
                     total_supply,
                     block_tracker: Default::default(),
                     shard_tracker: Default::default(),
                     all_proposals: vec![],
-                    total_validator_reward: 0,
                 },
                 rng_seed,
             )
@@ -2031,12 +1996,10 @@ mod tests {
                     proposals: vec![],
                     chunk_mask: vec![true, true],
                     slashed: Default::default(),
-                    validator_reward: 10,
                     total_supply,
                     block_tracker: Default::default(),
                     shard_tracker: Default::default(),
                     all_proposals: vec![],
-                    total_validator_reward: 0,
                 },
                 rng_seed,
             )
@@ -2055,7 +2018,6 @@ mod tests {
         let (validator_reward, inflation) = reward_calculator.calculate_reward(
             validator_online_ratio,
             &validators_stakes,
-            20,
             total_supply,
         );
         let test2_reward = *validator_reward.get("test2").unwrap();
@@ -2152,12 +2114,10 @@ mod tests {
                     proposals: vec![],
                     chunk_mask: vec![],
                     slashed: Default::default(),
-                    validator_reward: 0,
                     total_supply,
                     block_tracker: Default::default(),
                     shard_tracker: Default::default(),
                     all_proposals: vec![],
-                    total_validator_reward: 0,
                 },
                 rng_seed,
             )
@@ -2174,12 +2134,10 @@ mod tests {
                     proposals: vec![],
                     chunk_mask: vec![true, true, true],
                     slashed: Default::default(),
-                    validator_reward: 0,
                     total_supply,
                     block_tracker: Default::default(),
                     shard_tracker: Default::default(),
                     all_proposals: vec![],
-                    total_validator_reward: 0,
                 },
                 rng_seed,
             )
@@ -2196,12 +2154,10 @@ mod tests {
                     proposals: vec![],
                     chunk_mask: vec![true, true, true],
                     slashed: Default::default(),
-                    validator_reward: 0,
                     total_supply,
                     block_tracker: Default::default(),
                     shard_tracker: Default::default(),
                     all_proposals: vec![],
-                    total_validator_reward: 0,
                 },
                 rng_seed,
             )
@@ -2355,12 +2311,10 @@ mod tests {
                 proposals: vec![],
                 chunk_mask: vec![true, true, true, false],
                 slashed: Default::default(),
-                validator_reward: 0,
                 total_supply,
                 block_tracker: Default::default(),
                 shard_tracker: Default::default(),
                 all_proposals: vec![],
-                total_validator_reward: 0,
             },
             rng_seed,
         )
@@ -2376,12 +2330,10 @@ mod tests {
                 proposals: vec![],
                 chunk_mask: vec![true, true, true, false],
                 slashed: Default::default(),
-                validator_reward: 0,
                 total_supply,
                 block_tracker: Default::default(),
                 shard_tracker: Default::default(),
                 all_proposals: vec![],
-                total_validator_reward: 0,
             },
             rng_seed,
         )
@@ -2397,12 +2349,10 @@ mod tests {
                 proposals: vec![],
                 chunk_mask: vec![true, true, true, true],
                 slashed: Default::default(),
-                validator_reward: 0,
                 total_supply,
                 block_tracker: Default::default(),
                 shard_tracker: Default::default(),
                 all_proposals: vec![],
-                total_validator_reward: 0,
             },
             rng_seed,
         )

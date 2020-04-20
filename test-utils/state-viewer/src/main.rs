@@ -182,7 +182,6 @@ fn replay_chain(
                     header.inner_rest.validator_proposals,
                     vec![],
                     header.inner_rest.chunk_mask,
-                    header.inner_rest.validator_reward,
                     header.inner_rest.total_supply,
                 )
                 .unwrap();

@@ -425,8 +425,6 @@ pub struct ChunkExtra {
     pub gas_used: Gas,
     /// Gas limit, allows to increase or decrease limit based on expected time vs real time for computing the chunk.
     pub gas_limit: Gas,
-    /// Total validation execution reward after processing the current chunk.
-    pub validator_reward: Balance,
     /// Total balance burnt after processing the current chunk.
     pub balance_burnt: Balance,
 }
@@ -438,7 +436,6 @@ impl ChunkExtra {
         validator_proposals: Vec<ValidatorStake>,
         gas_used: Gas,
         gas_limit: Gas,
-        validator_reward: Balance,
         balance_burnt: Balance,
     ) -> Self {
         Self {
@@ -447,7 +444,6 @@ impl ChunkExtra {
             validator_proposals,
             gas_used,
             gas_limit,
-            validator_reward,
             balance_burnt,
         }
     }

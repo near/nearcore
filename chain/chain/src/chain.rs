@@ -320,7 +320,6 @@ impl Chain {
                         vec![],
                         vec![],
                         vec![],
-                        0,
                         chain_genesis.total_supply,
                     )?;
                     store_update.save_block_header(genesis.header.clone());
@@ -341,7 +340,6 @@ impl Chain {
                                 vec![],
                                 0,
                                 chain_genesis.gas_limit,
-                                0,
                                 0,
                             ),
                         );
@@ -834,7 +832,6 @@ impl Chain {
                     header.inner_rest.validator_proposals.clone(),
                     vec![],
                     header.inner_rest.chunk_mask.clone(),
-                    header.inner_rest.validator_reward,
                     header.inner_rest.total_supply,
                 )?;
             }
@@ -2580,7 +2577,6 @@ impl<'a> ChainUpdate<'a> {
                             apply_result.validator_proposals,
                             apply_result.total_gas_burnt,
                             gas_limit,
-                            apply_result.total_validator_reward,
                             apply_result.total_balance_burnt,
                         ),
                     );
@@ -2807,7 +2803,6 @@ impl<'a> ChainUpdate<'a> {
             block.header.inner_rest.validator_proposals.clone(),
             block.header.inner_rest.challenges_result.clone(),
             block.header.inner_rest.chunk_mask.clone(),
-            block.header.inner_rest.validator_reward,
             block.header.inner_rest.total_supply,
         )?;
 
@@ -3283,7 +3278,6 @@ impl<'a> ChainUpdate<'a> {
             apply_result.validator_proposals,
             apply_result.total_gas_burnt,
             gas_limit,
-            apply_result.total_validator_reward,
             apply_result.total_balance_burnt,
         );
         self.chain_store_update.save_chunk_extra(&block_header.hash, shard_id, chunk_extra);

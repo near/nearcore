@@ -337,6 +337,13 @@ impl NightshadeRuntime {
         }
         let total_gas_burnt =
             apply_result.outcomes.iter().map(|tx_result| tx_result.outcome.gas_burnt).sum();
+        println!(
+            "Total gas burnt: {}, total balance burnt: {}",
+            total_gas_burnt,
+            apply_result.stats.tx_burnt_amount
+                + apply_result.stats.other_burnt_amount
+                + apply_result.stats.slashed_burnt_amount
+        );
 
         let result = ApplyTransactionResult {
             trie_changes: WrappedTrieChanges::new(
@@ -350,9 +357,9 @@ impl NightshadeRuntime {
             receipt_result,
             validator_proposals: apply_result.validator_proposals,
             total_gas_burnt,
-            total_validator_reward: apply_result.stats.total_validator_reward,
-            total_balance_burnt: apply_result.stats.total_balance_burnt
-                + apply_result.stats.total_balance_slashed,
+            total_balance_burnt: apply_result.stats.tx_burnt_amount
+                + apply_result.stats.other_burnt_amount
+                + apply_result.stats.slashed_burnt_amount,
             proof: trie.recorded_storage(),
         };
 
@@ -848,7 +855,6 @@ impl RuntimeAdapter for NightshadeRuntime {
         proposals: Vec<ValidatorStake>,
         slashed_validators: Vec<SlashedValidator>,
         chunk_mask: Vec<bool>,
-        validator_reward: Balance,
         total_supply: Balance,
     ) -> Result<(), Error> {
         // Check that genesis block doesn't have any proposals.
@@ -863,7 +869,6 @@ impl RuntimeAdapter for NightshadeRuntime {
             proposals,
             chunk_mask,
             slashed_validators,
-            validator_reward,
             total_supply,
         );
         let rng_seed = (rng_seed.0).0;
@@ -1375,7 +1380,6 @@ mod test {
                     vec![],
                     vec![],
                     vec![],
-                    0,
                     genesis_total_supply,
                 )
                 .unwrap();
@@ -1442,7 +1446,6 @@ mod test {
                     self.last_proposals.clone(),
                     challenges_result,
                     chunk_mask,
-                    0,
                     self.runtime.genesis.config.total_supply,
                 )
                 .unwrap();
@@ -1852,7 +1855,6 @@ mod test {
                     new_env.last_proposals.clone(),
                     vec![],
                     vec![true],
-                    0,
                     new_env.runtime.genesis.config.total_supply,
                 )
                 .unwrap();

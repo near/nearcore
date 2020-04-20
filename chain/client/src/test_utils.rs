@@ -29,9 +29,10 @@ use near_primitives::block::{Block, GenesisId, ScoreAndHeight};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{
-    AccountId, BlockHeight, BlockHeightDelta, NumBlocks, NumSeats, NumShards,
+    AccountId, Balance, BlockHeight, BlockHeightDelta, NumBlocks, NumSeats, NumShards,
 };
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
+use near_primitives::views::{QueryRequest, QueryResponseKind};
 use near_store::test_utils::create_test_store;
 use near_store::Store;
 use near_telemetry::TelemetryActor;
@@ -921,6 +922,26 @@ impl TestEnv {
             self.clients[id].chain.head().unwrap().last_block_hash,
         );
         self.clients[id].process_tx(tx, false)
+    }
+
+    pub fn query_balance(&mut self, account_id: AccountId) -> Balance {
+        let head = self.clients[0].chain.head().unwrap();
+        let last_block = self.clients[0].chain.get_block(&head.last_block_hash).unwrap().clone();
+        let response = self.clients[0]
+            .runtime_adapter
+            .query(
+                &last_block.chunks[0].inner.prev_state_root,
+                4,
+                last_block.header.inner_lite.timestamp,
+                &last_block.header.hash,
+                &last_block.header.inner_lite.epoch_id,
+                &QueryRequest::ViewAccount { account_id },
+            )
+            .unwrap();
+        match response.kind {
+            QueryResponseKind::ViewAccount(account_view) => account_view.amount,
+            _ => panic!("Wrong return value"),
+        }
     }
 
     pub fn restart(&mut self, id: usize) {

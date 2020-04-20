@@ -59,8 +59,6 @@ pub struct BlockHeaderInnerRest {
     pub chunk_mask: Vec<bool>,
     /// Gas price. Same for all chunks
     pub gas_price: Balance,
-    /// Sum of all validator reward across all chunks.
-    pub validator_reward: Balance,
     /// Total supply of tokens in the system
     pub total_supply: Balance,
     /// List of challenges result from previous block.
@@ -115,7 +113,6 @@ impl BlockHeaderInnerRest {
         validator_proposals: Vec<ValidatorStake>,
         chunk_mask: Vec<bool>,
         gas_price: Balance,
-        validator_reward: Balance,
         total_supply: Balance,
         challenges_result: ChallengesResult,
         last_quorum_pre_vote: CryptoHash,
@@ -134,7 +131,6 @@ impl BlockHeaderInnerRest {
             validator_proposals,
             chunk_mask,
             gas_price,
-            validator_reward,
             total_supply,
             challenges_result,
             last_quorum_pre_vote,
@@ -271,7 +267,6 @@ impl BlockHeader {
         epoch_id: EpochId,
         next_epoch_id: EpochId,
         gas_price: Balance,
-        validator_reward: Balance,
         total_supply: Balance,
         challenges_result: ChallengesResult,
         signer: &dyn ValidatorSigner,
@@ -301,7 +296,6 @@ impl BlockHeader {
             validator_proposals,
             chunk_mask,
             gas_price,
-            validator_reward,
             total_supply,
             challenges_result,
             last_quorum_pre_vote,
@@ -346,7 +340,6 @@ impl BlockHeader {
             vec![],
             vec![],
             initial_gas_price,
-            0,
             initial_total_supply,
             vec![],
             CryptoHash::default(),
@@ -417,7 +410,6 @@ pub fn genesis_chunks(
                 &mut rs,
                 0,
                 initial_gas_limit,
-                0,
                 0,
                 CryptoHash::default(),
                 vec![],
@@ -492,7 +484,6 @@ impl Block {
         let mut gas_used = 0;
         // This computation of chunk_mask relies on the fact that chunks are ordered by shard_id.
         let mut chunk_mask = vec![];
-        let mut validator_reward = 0;
         let mut balance_burnt = 0;
         let mut gas_limit = 0;
         for chunk in chunks.iter() {
@@ -500,7 +491,6 @@ impl Block {
                 validator_proposals.extend_from_slice(&chunk.inner.validator_proposals);
                 gas_used += chunk.inner.gas_used;
                 gas_limit += chunk.inner.gas_limit;
-                validator_reward += chunk.inner.validator_reward;
                 balance_burnt += chunk.inner.balance_burnt;
                 chunk_mask.push(true);
             } else {
@@ -545,7 +535,6 @@ impl Block {
                 epoch_id,
                 next_epoch_id,
                 new_gas_price,
-                validator_reward,
                 new_total_supply,
                 challenges_result,
                 signer,

@@ -20,7 +20,6 @@ impl RewardCalculator {
         &self,
         validator_block_chunk_stats: HashMap<AccountId, BlockChunkValidatorStats>,
         validator_stake: &HashMap<AccountId, Balance>,
-        _total_validator_reward: Balance,
         total_supply: Balance,
     ) -> (HashMap<AccountId, Balance>, Balance) {
         let mut res = HashMap::new();
@@ -72,6 +71,37 @@ mod tests {
     use num_rational::Rational;
     use std::collections::HashMap;
 
+    /// Test reward calculation with when validators are not fully online.
+    #[test]
+    fn test_reward_validator_half_required_online() {
+        let reward_calculator = RewardCalculator {
+            max_inflation_rate: Rational::new(1, 100),
+            num_blocks_per_year: 100,
+            epoch_length: 100,
+            protocol_reward_percentage: Rational::new(0, 10),
+            protocol_treasury_account: "near".to_string(),
+        };
+        let validator_block_chunk_stats = vec![(
+            "test".to_string(),
+            BlockChunkValidatorStats {
+                block_stats: ValidatorStats { produced: 43200, expected: 43200 },
+                chunk_stats: ValidatorStats { produced: 345600, expected: 345600 },
+            },
+        )]
+        .into_iter()
+        .collect::<HashMap<_, _>>();
+        let validator_stake = vec![("test".to_string(), 500_000 * 10_u128.pow(24))]
+            .into_iter()
+            .collect::<HashMap<_, _>>();
+        // some hypothetical large total supply (100b)
+        let total_supply = 100_000_000_000 * 10_u128.pow(24);
+        reward_calculator.calculate_reward(
+            validator_block_chunk_stats,
+            &validator_stake,
+            total_supply,
+        );
+    }
+
     /// Test that under an extreme setting (total supply 100b, epoch length half a day),
     /// reward calculation will not overflow.
     #[test]
@@ -101,7 +131,6 @@ mod tests {
         reward_calculator.calculate_reward(
             validator_block_chunk_stats,
             &validator_stake,
-            10_u128.pow(24),
             total_supply,
         );
     }
