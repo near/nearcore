@@ -236,6 +236,8 @@ pub struct TxStatus {
 pub enum TxStatusError {
     ChainError(near_chain::Error),
     MissingTransaction(CryptoHash),
+    InternalError,
+    TimeoutError,
 }
 
 impl From<TxStatusError> for String {
@@ -245,6 +247,8 @@ impl From<TxStatusError> for String {
             TxStatusError::MissingTransaction(tx_hash) => {
                 format!("Transaction {} doesn't exist", tx_hash)
             }
+            TxStatusError::InternalError => format!("Internal error"),
+            TxStatusError::TimeoutError => format!("Timeout error"),
         }
     }
 }
