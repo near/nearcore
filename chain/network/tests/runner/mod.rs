@@ -89,6 +89,7 @@ pub fn setup_network_node(
         .unwrap()
         .start();
         let view_client_actor = ViewClientActor::new(
+            config.account_id.clone(),
             &chain_genesis,
             runtime.clone(),
             network_adapter.clone(),
