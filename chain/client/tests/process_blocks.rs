@@ -33,7 +33,8 @@ use near_primitives::types::{BlockHeight, EpochId, MerkleHash, NumBlocks};
 use near_primitives::utils::to_timestamp;
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
 use near_store::test_utils::create_test_store;
-use neard::config::GenesisExt;
+use neard::config::{GenesisExt, TESTING_INIT_BALANCE};
+use neard::NEAR_BASE;
 use num_rational::Rational;
 
 /// Runs block producing client and stops after network mock received two blocks.
@@ -1075,4 +1076,80 @@ fn test_gc_tail_update() {
     );
     assert!(check_refcount_map(&mut env.clients[0].chain).is_ok());
     assert!(check_refcount_map(&mut env.clients[1].chain).is_ok());
+}
+
+/// Test that transaction does not become invalid when there is some gas price change.
+#[test]
+fn test_gas_price_change() {
+    init_test_logger();
+    let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
+    let target_num_tokens_left = NEAR_BASE / 10 + 1;
+    let send_money_total_gas = genesis
+        .config
+        .runtime_config
+        .transaction_costs
+        .action_creation_config
+        .transfer_cost
+        .send_fee(false)
+        + genesis
+            .config
+            .runtime_config
+            .transaction_costs
+            .action_receipt_creation_config
+            .send_fee(false)
+        + genesis
+            .config
+            .runtime_config
+            .transaction_costs
+            .action_creation_config
+            .transfer_cost
+            .exec_fee()
+        + genesis.config.runtime_config.transaction_costs.action_receipt_creation_config.exec_fee();
+    let min_gas_price = target_num_tokens_left / send_money_total_gas as u128;
+    let gas_limit = 1000000000000;
+    let gas_price_adjustment_rate = Rational::new(1, 10);
+
+    genesis.config.min_gas_price = min_gas_price;
+    genesis.config.gas_limit = gas_limit;
+    genesis.config.gas_price_adjustment_rate = gas_price_adjustment_rate;
+    genesis.config.runtime_config.storage_amount_per_byte = 0;
+    let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![Arc::new(neard::NightshadeRuntime::new(
+        Path::new("."),
+        create_test_store(),
+        Arc::new(genesis),
+        vec![],
+        vec![],
+    ))];
+    let mut chain_genesis = ChainGenesis::test();
+    chain_genesis.min_gas_price = min_gas_price;
+    chain_genesis.gas_price_adjustment_rate = gas_price_adjustment_rate;
+    chain_genesis.gas_limit = gas_limit;
+    let mut env = TestEnv::new_with_runtime(chain_genesis, 1, 1, runtimes);
+    let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
+    let genesis_hash = genesis_block.hash();
+    let signer = InMemorySigner::from_seed("test1", KeyType::ED25519, "test1");
+    let tx = SignedTransaction::send_money(
+        1,
+        "test1".to_string(),
+        "test0".to_string(),
+        &signer,
+        TESTING_INIT_BALANCE
+            - target_num_tokens_left
+            - send_money_total_gas as u128 * min_gas_price,
+        genesis_hash,
+    );
+    env.clients[0].process_tx(tx, false);
+    env.produce_block(0, 1);
+    let tx = SignedTransaction::send_money(
+        2,
+        "test1".to_string(),
+        "test0".to_string(),
+        &signer,
+        1,
+        genesis_hash,
+    );
+    env.clients[0].process_tx(tx, false);
+    for i in 2..=4 {
+        env.produce_block(0, i);
+    }
 }

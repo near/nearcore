@@ -144,7 +144,6 @@ fn create_chunk(
             last_block.chunks[0].clone(),
             2,
             0,
-            0,
         )
         .unwrap()
         .unwrap();
