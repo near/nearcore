@@ -4,6 +4,8 @@ import platform.posix.*
 import kotlinx.cinterop.*
 
 fun format2(d: Double): String {
+    if (d == Double.NaN || d == Double.NEGATIVE_INFINITY || d == Double.POSITIVE_INFINITY)
+        return "n/a"
     val dmul = (d * 100.0).toInt()
     return "${dmul/100}.${dmul%100}"
 }
