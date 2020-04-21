@@ -19,8 +19,8 @@ use near_store::{ColBlockInfo, ColEpochInfo, ColEpochStart, Store, StoreUpdate};
 use crate::proposals::proposals_to_epoch_info;
 pub use crate::reward_calculator::RewardCalculator;
 use crate::types::EpochError::EpochOutOfBounds;
-pub use crate::types::{BlockInfo, EpochConfig, EpochError, EpochInfo, RngSeed};
-use crate::types::{EpochSummary, SlashState};
+use crate::types::EpochSummary;
+pub use crate::types::{BlockInfo, EpochConfig, EpochError, EpochInfo, RngSeed, SlashState};
 
 mod proposals;
 mod reward_calculator;
@@ -1039,8 +1039,13 @@ impl EpochManager {
 
 #[cfg(test)]
 mod tests {
+    use std::iter::FromIterator;
+
+    use num_rational::Rational;
+
     use near_primitives::challenge::SlashedValidator;
     use near_primitives::hash::hash;
+    use near_primitives::types::ValidatorKickoutReason::NotEnoughBlocks;
     use near_store::test_utils::create_test_store;
 
     use crate::test_utils::{
@@ -1050,9 +1055,6 @@ mod tests {
     };
 
     use super::*;
-    use near_primitives::types::ValidatorKickoutReason::NotEnoughBlocks;
-    use num_rational::Rational;
-    use std::iter::FromIterator;
 
     #[test]
     fn test_stake_validator() {
