@@ -11,6 +11,7 @@ borsh = "0.6.1"
 
 near-chain-configs = { path = "../../core/chain-configs" }
 near-crypto = { path = "../../core/crypto" }
+near-env = {path = "../../env"}
 near-primitives = { path = "../../core/primitives" }
 near-store = { path = "../../core/store" }
 node-runtime = { path = "../../runtime/runtime" }
@@ -19,7 +20,6 @@ near-network = { path = "../../chain/network" }
 neard = { path = "../../neard" }
 
 [dev-dependencies]
-near-env = {path = "../../env"}
 testlib = { path = "../../test-utils/testlib" }
 near-client = { path = "../../chain/client" }
 serde_json = "1.0"

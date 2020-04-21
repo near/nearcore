@@ -22,7 +22,12 @@ pub struct Account {
 
 impl Account {
     pub fn new(amount: Balance, code_hash: CryptoHash) -> Self {
-        Account { amount, locked: 0, code_hash, storage_usage: std::mem::size_of::<Account>() as u64 }
+        Account {
+            amount,
+            locked: 0,
+            code_hash,
+            storage_usage: std::mem::size_of::<Account>() as u64,
+        }
     }
 }
 
