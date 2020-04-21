@@ -217,7 +217,7 @@ impl Runtime {
         match verify_and_charge_transaction(
             &self.config,
             state_update,
-            apply_state,
+            apply_state.gas_price,
             signed_transaction,
         ) {
             Ok(verification_result) => {
