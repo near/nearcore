@@ -136,7 +136,8 @@ pub const GENESIS_CONFIG_FILENAME: &str = "genesis.json";
 pub const NODE_KEY_FILE: &str = "node_key.json";
 pub const VALIDATOR_KEY_FILE: &str = "validator_key.json";
 
-pub const DEFAULT_TELEMETRY_URL: &str = "https://explorer.nearprotocol.com/api/nodes";
+pub const MAINNET_TELEMETRY_URL: &str = "https://explorer.nearprotocol.com/api/nodes";
+pub const NETWORK_TELEMETRY_URL: &str = "https://explorer.{}.nearprotocol.com/api/nodes";
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Network {
@@ -589,15 +590,31 @@ pub fn init_configs(
         .unwrap_or_else(random_chain_id);
     match chain_id.as_ref() {
         "mainnet" => {
-            // TODO:
-            unimplemented!();
+            if test_seed.is_some() {
+                panic!("Test seed is not supported for MainNet");
+            }
+            let mut config = Config::default();
+            config.telemetry.endpoints.push(MAINNET_TELEMETRY_URL.to_string());
+            config.write_to_file(&dir.join(CONFIG_FILENAME));
+
+            let genesis: Genesis = serde_json::from_str(
+                &std::str::from_utf8(include_bytes!("../res/mainnet_genesis.json"))
+                    .expect("Failed to convert genesis file into string"),
+            )
+            .expect("Failed to deserialize MainNet genesis");
+
+            let network_signer = InMemorySigner::from_random("".to_string(), KeyType::ED25519);
+            network_signer.write_to_file(&dir.join(config.node_key_file));
+
+            genesis.to_file(&dir.join(config.genesis_file));
+            info!(target: "near", "Generated MainNet genesis file in {}", dir.to_str().unwrap());
         }
         "testnet" | "betanet" | "devnet" => {
             if test_seed.is_some() {
                 panic!("Test seed is not supported for official TestNet");
             }
             let mut config = Config::default();
-            config.telemetry.endpoints.push(DEFAULT_TELEMETRY_URL.to_string());
+            config.telemetry.endpoints.push(NETWORK_TELEMETRY_URL.replace("{}", &chain_id));
             config.write_to_file(&dir.join(CONFIG_FILENAME));
 
             // If account id was given, create new key pair for this validator.
@@ -616,10 +633,10 @@ pub fn init_configs(
             let mut genesis = Genesis::from_file(
                 genesis.expect(&format!("Genesis file is required for {}.", &chain_id)),
             );
-            genesis.config.chain_id = chain_id;
+            genesis.config.chain_id = chain_id.clone();
 
             genesis.to_file(&dir.join(config.genesis_file));
-            info!(target: "near", "Generated node key and genesis file in {}", dir.to_str().unwrap());
+            info!(target: "near", "Generated for {} network node key and genesis file in {}", chain_id, dir.to_str().unwrap());
         }
         _ => {
             // Create new configuration, key files and genesis for one validator.
