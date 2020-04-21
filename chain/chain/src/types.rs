@@ -134,8 +134,6 @@ pub trait RuntimeAdapter: Send + Sync {
     /// `RuntimeError::StorageError`.
     fn validate_tx(
         &self,
-        block_height: BlockHeight,
-        block_timestamp: u64,
         gas_price: Balance,
         state_root: StateRoot,
         transaction: &SignedTransaction,
@@ -150,8 +148,6 @@ pub trait RuntimeAdapter: Send + Sync {
     /// `RuntimeError::StorageError`.
     fn prepare_transactions(
         &self,
-        block_height: BlockHeight,
-        block_timestamp: u64,
         gas_price: Balance,
         gas_limit: Gas,
         state_root: StateRoot,

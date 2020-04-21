@@ -1,0 +1,410 @@
+{
+  "config_version": 1,
+  "protocol_version": 7,
+  "genesis_time": "2020-04-22T18:00:00.000000000Z",
+  "chain_id": "mainnet",
+  "genesis_height": 0,
+  "num_block_producer_seats": 100,
+  "num_block_producer_seats_per_shard": [
+    100
+  ],
+  "avg_hidden_validator_seats_per_shard": [
+    0
+  ],
+  "dynamic_resharding": false,
+  "epoch_length": 43200,
+  "gas_limit": 1000000000000000,
+  "min_gas_price": "100000",
+  "block_producer_kickout_threshold": 90,
+  "chunk_producer_kickout_threshold": 60,
+  "gas_price_adjustment_rate": [1, 100],
+  "runtime_config": {
+    "storage_amount_per_byte": "100000000000000000000",
+    "transaction_costs": {
+      "action_receipt_creation_config": {
+        "send_sir": 924119500000,
+        "send_not_sir": 924119500000,
+        "execution": 924119500000
+      },
+      "data_receipt_creation_config": {
+        "base_cost": {
+          "send_sir": 539890689500,
+          "send_not_sir": 539890689500,
+          "execution": 539890689500
+        },
+        "cost_per_byte": {
+          "send_sir": 14234654,
+          "send_not_sir": 14234654,
+          "execution": 14234654
+        }
+      },
+      "action_creation_config": {
+        "create_account_cost": {
+          "send_sir": 0,
+          "send_not_sir": 0,
+          "execution": 0
+        },
+        "deploy_contract_cost": {
+          "send_sir": 513359000000,
+          "send_not_sir": 513359000000,
+          "execution": 513359000000
+        },
+        "deploy_contract_cost_per_byte": {
+          "send_sir": 27106233,
+          "send_not_sir": 27106233,
+          "execution": 27106233
+        },
+        "function_call_cost": {
+          "send_sir": 1367372500000,
+          "send_not_sir": 1367372500000,
+          "execution": 1367372500000
+        },
+        "function_call_cost_per_byte": {
+          "send_sir": 2354953,
+          "send_not_sir": 2354953,
+          "execution": 2354953
+        },
+        "transfer_cost": {
+          "send_sir": 13025000000,
+          "send_not_sir": 13025000000,
+          "execution": 13025000000
+        },
+        "stake_cost": {
+          "send_sir": 0,
+          "send_not_sir": 0,
+          "execution": 0
+        },
+        "add_key_cost": {
+          "full_access_cost": {
+            "send_sir": 0,
+            "send_not_sir": 0,
+            "execution": 0
+          },
+          "function_call_cost": {
+            "send_sir": 0,
+            "send_not_sir": 0,
+            "execution": 0
+          },
+          "function_call_cost_per_byte": {
+            "send_sir": 37538150,
+            "send_not_sir": 37538150,
+            "execution": 37538150
+          }
+        },
+        "delete_key_cost": {
+          "send_sir": 0,
+          "send_not_sir": 0,
+          "execution": 0
+        },
+        "delete_account_cost": {
+          "send_sir": 454830000000,
+          "send_not_sir": 454830000000,
+          "execution": 454830000000
+        }
+      },
+      "storage_usage_config": {
+        "num_bytes_account": 100,
+        "num_extra_bytes_record": 40
+      },
+      "burnt_gas_reward": [3, 10]
+    },
+    "wasm_config": {
+      "ext_costs": {
+        "base": 126224222,
+        "read_memory_base": 1629369577,
+        "read_memory_byte": 123816,
+        "write_memory_base": 76445225,
+        "write_memory_byte": 809907,
+        "read_register_base": 639340699,
+        "read_register_byte": 63637,
+        "write_register_base": 0,
+        "write_register_byte": 0,
+        "utf8_decoding_base": 0,
+        "utf8_decoding_byte": 591904,
+        "utf16_decoding_base": 0,
+        "utf16_decoding_byte": 9095538,
+        "sha256_base": 710092630,
+        "sha256_byte": 5536829,
+        "keccak256_base": 710092630,
+        "keccak256_byte": 5536829,
+        "keccak512_base": 1420185260,
+        "keccak512_byte": 11073658,
+        "log_base": 0,
+        "log_byte": 0,
+        "storage_write_base": 21058769282,
+        "storage_write_key_byte": 23447086,
+        "storage_write_value_byte": 9437547,
+        "storage_write_evicted_byte": 0,
+        "storage_read_base": 19352220621,
+        "storage_read_key_byte": 4792496,
+        "storage_read_value_byte": 139743,
+        "storage_remove_base": 109578968621,
+        "storage_remove_key_byte": 9512022,
+        "storage_remove_ret_value_byte": 0,
+        "storage_has_key_base": 20019912030,
+        "storage_has_key_byte": 4647597,
+        "storage_iter_create_prefix_base": 28443562030,
+        "storage_iter_create_prefix_byte": 442354,
+        "storage_iter_create_range_base": 25804628282,
+        "storage_iter_create_from_byte": 429608,
+        "storage_iter_create_to_byte": 1302886,
+        "storage_iter_next_base": 24213271567,
+        "storage_iter_next_key_byte": 0,
+        "storage_iter_next_value_byte": 1343211668,
+        "touching_trie_node": 1,
+        "promise_and_base": 0,
+        "promise_and_per_promise": 672136,
+        "promise_return": 34854215
+      },
+      "grow_mem_cost": 1,
+      "regular_op_cost": 3856371,
+      "limit_config": {
+        "max_gas_burnt": 200000000000000,
+        "max_gas_burnt_view": 200000000000000,
+        "max_stack_height": 16384,
+        "initial_memory_pages": 1024,
+        "max_memory_pages": 2048,
+        "registers_memory_limit": 1073741824,
+        "max_register_size": 104857600,
+        "max_number_registers": 100,
+        "max_number_logs": 100,
+        "max_total_log_length": 16384,
+        "max_total_prepaid_gas": 10000000000000000,
+        "max_actions_per_receipt": 100,
+        "max_number_bytes_method_names": 2000,
+        "max_length_method_name": 256,
+        "max_arguments_length": 4194304,
+        "max_length_returned_data": 4194304,
+        "max_contract_size": 4194304,
+        "max_length_storage_key": 4194304,
+        "max_length_storage_value": 4194304,
+        "max_promises_per_function_call_action": 1024,
+        "max_number_input_data_dependencies": 128
+      }
+    },
+    "account_creation_config": {
+      "min_allowed_top_level_account_length": 32,
+      "registrar_account_id": "registrar"
+    }
+  },
+  "validators": [
+    {
+      "account_id": "nfvalidator1.near",
+      "public_key": "ed25519:14pWWRutZtGFKX4B8q89KVFaUWY1Cqu1JcqYXhCDeFh1",
+      "amount": "50000000000000000000000000000"
+    },
+    {
+      "account_id": "nfvalidator2.near",
+      "public_key": "ed25519:BwZk4bkYJxo79P2vSRw2uk1nfiqEfVkHvr5p8eVsqASC",
+      "amount": "50000000000000000000000000000"
+    },
+    {
+      "account_id": "nfvalidator3.near",
+      "public_key": "ed25519:DMz11tmPvhdqpi7CzP2JULeeSE8SxYRD8pys5nKke4FS",
+      "amount": "50000000000000000000000000000"
+    },
+    {
+      "account_id": "nfvalidator4.near",
+      "public_key": "ed25519:Fi3CQDHJoviKazVR27YmfFzWcFnvmoPBKEDd9ouq5Tjx",
+      "amount": "50000000000000000000000000000"
+    }
+  ],
+  "transaction_validity_period": 86400,
+  "protocol_reward_rate": [0, 10],
+  "max_inflation_rate": [0, 10],
+  "total_supply": "1000000000000000000000000000000000",
+  "num_blocks_per_year": 31536000,
+  "protocol_treasury_account": "treasury.near",
+  "fishermen_threshold": "340282366920938463463374607431768211455",
+  "records": [
+    {
+      "Account": {
+        "account_id": "near",
+        "account": {
+          "amount": "10000000000000000000000000000",
+          "locked": "0",
+          "code_hash": "11111111111111111111111111111111",
+          "storage_usage": 100
+        }
+      }
+    },
+    {
+      "AccessKey": {
+        "account_id": "near",
+        "public_key": "ed25519:5zset1JX4qp4PcR3N9KDSY6ATdgkrbBW5wFBGWC4ZjnU",
+        "access_key": {
+          "nonce": 0,
+          "permission": "FullAccess"
+        }
+      }
+    },
+    {
+      "Account": {
+        "account_id": "registrar",
+        "account": {
+          "amount": "10000000000000000000000000",
+          "locked": "0",
+          "code_hash": "11111111111111111111111111111111",
+          "storage_usage": 100
+        }
+      }
+    },
+    {
+      "AccessKey": {
+        "account_id": "registrar",
+        "public_key": "ed25519:Fm9g4GQeQrnwknCVexuPvn3owgrYvMbZhPRoXKpj2wX6",
+        "access_key": {
+          "nonce": 0,
+          "permission": "FullAccess"
+        }
+      }
+    },
+    {
+      "Account": {
+        "account_id": "treasury.near",
+        "account": {
+          "amount": "10000000000000000000000000",
+          "locked": "0",
+          "code_hash": "11111111111111111111111111111111",
+          "storage_usage": 100
+        }
+      }
+    },
+    {
+      "AccessKey": {
+        "account_id": "treasury.near",
+        "public_key": "ed25519:CzAXM8NcumuHPYJYnjq5tUX5v92GHdbYZfmfKFwDNzBZ",
+        "access_key": {
+          "nonce": 0,
+          "permission": "FullAccess"
+        }
+      }
+    },
+    {
+      "Account": {
+        "account_id": "contributors.near",
+        "account": {
+          "amount": "418000000000000000000000000000000",
+          "locked": "0",
+          "code_hash": "11111111111111111111111111111111",
+          "storage_usage": 100
+        }
+      }
+    },
+    {
+      "AccessKey": {
+        "account_id": "contributors.near",
+        "public_key": "ed25519:BCCMGbV9FzTMTcwS67QCW1TrTmjuwFR1SrFPiG744kio",
+        "access_key": {
+          "nonce": 0,
+          "permission": "FullAccess"
+        }
+      }
+    },
+    {
+      "Account": {
+        "account_id": "foundation.near",
+        "account": {
+          "amount": "581789980000000000000000000000000",
+          "locked": "0",
+          "code_hash": "11111111111111111111111111111111",
+          "storage_usage": 100
+        }
+      }
+    },
+    {
+      "AccessKey": {
+        "account_id": "foundation.near",
+        "public_key": "ed25519:GmtTh6yhWz6BmkA9AfnoQESKanDbBJDGfWVpW5wq9Uz",
+        "access_key": {
+          "nonce": 0,
+          "permission": "FullAccess"
+        }
+      }
+    },
+    {
+      "Account": {
+        "account_id": "nfvalidator1.near",
+        "account": {
+          "amount": "0",
+          "locked": "50000000000000000000000000000",
+          "code_hash": "11111111111111111111111111111111",
+          "storage_usage": 100
+        }
+      }
+    },
+    {
+      "AccessKey": {
+        "account_id": "nfvalidator1.near",
+        "public_key": "ed25519:Fd2TW6TtTDL5hiY58pbTVYfTBSNyWLgHGxiD9mcHgQ92",
+        "access_key": {
+          "nonce": 0,
+          "permission": "FullAccess"
+        }
+      }
+    },
+    {
+      "Account": {
+        "account_id": "nfvalidator2.near",
+        "account": {
+          "amount": "0",
+          "locked": "50000000000000000000000000000",
+          "code_hash": "11111111111111111111111111111111",
+          "storage_usage": 100
+        }
+      }
+    },
+    {
+      "AccessKey": {
+        "account_id": "nfvalidator2.near",
+        "public_key": "ed25519:4rg9rmbxuSM7bX8z8989LTmBiM6JNnE4w9LZ8KkuCcfq",
+        "access_key": {
+          "nonce": 0,
+          "permission": "FullAccess"
+        }
+      }
+    },
+    {
+      "Account": {
+        "account_id": "nfvalidator3.near",
+        "account": {
+          "amount": "0",
+          "locked": "50000000000000000000000000000",
+          "code_hash": "11111111111111111111111111111111",
+          "storage_usage": 100
+        }
+      }
+    },
+    {
+      "AccessKey": {
+        "account_id": "nfvalidator3.near",
+        "public_key": "ed25519:EVyX7KE6e2KD3CzpoN1kvzJATsS5KxkjbMCCYHbM3vRr",
+        "access_key": {
+          "nonce": 0,
+          "permission": "FullAccess"
+        }
+      }
+    },
+    {
+      "Account": {
+        "account_id": "nfvalidator4.near",
+        "account": {
+          "amount": "0",
+          "locked": "50000000000000000000000000000",
+          "code_hash": "11111111111111111111111111111111",
+          "storage_usage": 100
+        }
+      }
+    },
+    {
+      "AccessKey": {
+        "account_id": "nfvalidator4.near",
+        "public_key": "ed25519:CrLQzMvfSDWnTYzfbEzcJ3hdetnpYdsQnvbhuzwHBtAG",
+        "access_key": {
+          "nonce": 0,
+          "permission": "FullAccess"
+        }
+      }
+    }
+  ]
+}

@@ -2,7 +2,7 @@ use crate::actions::get_insufficient_storage_stake;
 use crate::config::{
     safe_gas_to_balance, total_prepaid_gas, tx_cost, RuntimeConfig, TransactionCost,
 };
-use crate::{ApplyState, VerificationResult};
+use crate::VerificationResult;
 use near_primitives::account::AccessKeyPermission;
 use near_primitives::errors::{
     ActionsValidationError, InvalidAccessKeyError, InvalidTxError, ReceiptValidationError,
@@ -15,6 +15,7 @@ use near_primitives::transaction::{
 };
 use near_primitives::utils::is_valid_account_id;
 use near_store::{get_access_key, get_account, set_access_key, set_account, TrieUpdate};
+use near_vm_logic::types::Balance;
 use near_vm_logic::VMLimitConfig;
 
 /// Verifies the signed transaction on top of given state, charges transaction fees
@@ -22,7 +23,7 @@ use near_vm_logic::VMLimitConfig;
 pub fn verify_and_charge_transaction(
     config: &RuntimeConfig,
     state_update: &mut TrieUpdate,
-    apply_state: &ApplyState,
+    gas_price: Balance,
     signed_transaction: &SignedTransaction,
 ) -> Result<VerificationResult, RuntimeError> {
     let transaction = &signed_transaction.transaction;
@@ -79,7 +80,7 @@ pub fn verify_and_charge_transaction(
     access_key.nonce = transaction.nonce;
 
     let TransactionCost { gas_burnt, gas_used, total_cost } =
-        tx_cost(&config.transaction_costs, &transaction, apply_state.gas_price, sender_is_receiver)
+        tx_cost(&config.transaction_costs, &transaction, gas_price, sender_is_receiver)
             .map_err(|_| InvalidTxError::CostOverflow)?;
 
     signer.amount =
@@ -163,8 +164,8 @@ pub fn verify_and_charge_transaction(
     set_access_key(state_update, signer_id.clone(), transaction.public_key.clone(), &access_key);
     set_account(state_update, signer_id.clone(), &signer);
 
-    let validator_reward = safe_gas_to_balance(apply_state.gas_price, gas_burnt)
-        .map_err(|_| InvalidTxError::CostOverflow)?;
+    let validator_reward =
+        safe_gas_to_balance(gas_price, gas_burnt).map_err(|_| InvalidTxError::CostOverflow)?;
 
     Ok(VerificationResult { gas_burnt, gas_used, validator_reward })
 }
@@ -383,7 +384,7 @@ mod tests {
     use near_primitives::transaction::{
         CreateAccountAction, DeleteKeyAction, StakeAction, TransferAction,
     };
-    use near_primitives::types::{AccountId, Balance, Gas, MerkleHash, StateChangeCause};
+    use near_primitives::types::{AccountId, Balance, MerkleHash, StateChangeCause};
     use near_store::test_utils::create_trie;
     use std::sync::Arc;
     use testlib::runtime_utils::{alice_account, bob_account, eve_dot_alice_account};
@@ -397,19 +398,14 @@ mod tests {
     fn setup_common(
         initial_balance: Balance,
         initial_locked: Balance,
-        gas_limit: Gas,
         access_key: Option<AccessKey>,
-    ) -> (Arc<InMemorySigner>, TrieUpdate, ApplyState) {
-        setup_accounts(
-            vec![(alice_account(), initial_balance, initial_locked, access_key)],
-            gas_limit,
-        )
+    ) -> (Arc<InMemorySigner>, TrieUpdate, Balance) {
+        setup_accounts(vec![(alice_account(), initial_balance, initial_locked, access_key)])
     }
 
     fn setup_accounts(
         accounts: Vec<(AccountId, Balance, Balance, Option<AccessKey>)>,
-        gas_limit: Gas,
-    ) -> (Arc<InMemorySigner>, TrieUpdate, ApplyState) {
+    ) -> (Arc<InMemorySigner>, TrieUpdate, Balance) {
         let trie = create_trie();
         let root = MerkleHash::default();
 
@@ -436,15 +432,7 @@ mod tests {
         let (store_update, root) = trie_changes.into(trie.clone()).unwrap();
         store_update.commit().unwrap();
 
-        let apply_state = ApplyState {
-            block_index: 0,
-            epoch_length: 3,
-            epoch_height: 0,
-            gas_price: 100,
-            block_timestamp: 100,
-            gas_limit: Some(gas_limit),
-        };
-        (signer, TrieUpdate::new(trie.clone(), root), apply_state)
+        (signer, TrieUpdate::new(trie.clone(), root), 100)
     }
 
     // Transactions
@@ -452,15 +440,14 @@ mod tests {
     #[test]
     fn test_validate_transaction_valid() {
         let config = RuntimeConfig::default();
-        let (signer, mut state_update, mut apply_state) =
-            setup_common(TESTING_INIT_BALANCE, 0, 10_000_000, Some(AccessKey::full_access()));
-        apply_state.block_index = 5;
+        let (signer, mut state_update, gas_price) =
+            setup_common(TESTING_INIT_BALANCE, 0, Some(AccessKey::full_access()));
 
         let deposit = 100;
         let verification_result = verify_and_charge_transaction(
             &config,
             &mut state_update,
-            &apply_state,
+            gas_price,
             &SignedTransaction::send_money(
                 1,
                 alice_account(),
@@ -478,7 +465,7 @@ mod tests {
         // All burned gas goes to the validators at current gas price
         assert_eq!(
             verification_result.validator_reward,
-            Balance::from(verification_result.gas_burnt) * apply_state.gas_price
+            Balance::from(verification_result.gas_burnt) * gas_price
         );
 
         let account = get_account(&state_update, &alice_account()).unwrap().unwrap();
@@ -486,7 +473,7 @@ mod tests {
         assert_eq!(
             account.amount,
             TESTING_INIT_BALANCE
-                - Balance::from(verification_result.gas_used) * apply_state.gas_price
+                - Balance::from(verification_result.gas_used) * gas_price
                 - deposit
         );
 
@@ -498,15 +485,15 @@ mod tests {
     #[test]
     fn test_validate_transaction_invalid_signer_id() {
         let config = RuntimeConfig::default();
-        let (signer, mut state_update, apply_state) =
-            setup_common(TESTING_INIT_BALANCE, 0, 10_000_000, Some(AccessKey::full_access()));
+        let (signer, mut state_update, gas_price) =
+            setup_common(TESTING_INIT_BALANCE, 0, Some(AccessKey::full_access()));
 
         let invalid_account_id = "WHAT?".to_string();
         assert_eq!(
             verify_and_charge_transaction(
                 &config,
                 &mut state_update,
-                &apply_state,
+                gas_price,
                 &SignedTransaction::send_money(
                     1,
                     invalid_account_id.clone(),
@@ -526,15 +513,15 @@ mod tests {
     #[test]
     fn test_validate_transaction_invalid_receiver_id() {
         let config = RuntimeConfig::default();
-        let (signer, mut state_update, apply_state) =
-            setup_common(TESTING_INIT_BALANCE, 0, 10_000_000, Some(AccessKey::full_access()));
+        let (signer, mut state_update, gas_price) =
+            setup_common(TESTING_INIT_BALANCE, 0, Some(AccessKey::full_access()));
 
         let invalid_account_id = "WHAT?".to_string();
         assert_eq!(
             verify_and_charge_transaction(
                 &config,
                 &mut state_update,
-                &apply_state,
+                gas_price,
                 &SignedTransaction::send_money(
                     1,
                     alice_account(),
@@ -554,8 +541,8 @@ mod tests {
     #[test]
     fn test_validate_transaction_invalid_signature() {
         let config = RuntimeConfig::default();
-        let (signer, mut state_update, apply_state) =
-            setup_common(TESTING_INIT_BALANCE, 0, 10_000_000, Some(AccessKey::full_access()));
+        let (signer, mut state_update, gas_price) =
+            setup_common(TESTING_INIT_BALANCE, 0, Some(AccessKey::full_access()));
 
         let mut tx = SignedTransaction::send_money(
             1,
@@ -568,7 +555,7 @@ mod tests {
         tx.signature = signer.sign(CryptoHash::default().as_ref());
 
         assert_eq!(
-            verify_and_charge_transaction(&config, &mut state_update, &apply_state, &tx)
+            verify_and_charge_transaction(&config, &mut state_update, gas_price, &tx)
                 .expect_err("expected an error"),
             RuntimeError::InvalidTxError(InvalidTxError::InvalidSignature)
         );
@@ -577,14 +564,13 @@ mod tests {
     #[test]
     fn test_validate_transaction_invalid_access_key_not_found() {
         let config = RuntimeConfig::default();
-        let (bad_signer, mut state_update, apply_state) =
-            setup_common(TESTING_INIT_BALANCE, 0, 10_000_000, None);
+        let (bad_signer, mut state_update, gas_price) = setup_common(TESTING_INIT_BALANCE, 0, None);
 
         assert_eq!(
             verify_and_charge_transaction(
                 &config,
                 &mut state_update,
-                &apply_state,
+                gas_price,
                 &SignedTransaction::send_money(
                     1,
                     alice_account(),
@@ -607,8 +593,8 @@ mod tests {
     #[test]
     fn test_validate_transaction_invalid_bad_action() {
         let mut config = RuntimeConfig::default();
-        let (signer, mut state_update, apply_state) =
-            setup_common(TESTING_INIT_BALANCE, 0, 10_000_000, Some(AccessKey::full_access()));
+        let (signer, mut state_update, gas_price) =
+            setup_common(TESTING_INIT_BALANCE, 0, Some(AccessKey::full_access()));
 
         config.wasm_config.limit_config.max_total_prepaid_gas = 100;
 
@@ -616,7 +602,7 @@ mod tests {
             verify_and_charge_transaction(
                 &config,
                 &mut state_update,
-                &apply_state,
+                gas_price,
                 &SignedTransaction::from_actions(
                     1,
                     alice_account(),
@@ -644,14 +630,14 @@ mod tests {
     #[test]
     fn test_validate_transaction_invalid_bad_signer() {
         let config = RuntimeConfig::default();
-        let (signer, mut state_update, apply_state) =
-            setup_common(TESTING_INIT_BALANCE, 0, 10_000_000, Some(AccessKey::full_access()));
+        let (signer, mut state_update, gas_price) =
+            setup_common(TESTING_INIT_BALANCE, 0, Some(AccessKey::full_access()));
 
         assert_eq!(
             verify_and_charge_transaction(
                 &config,
                 &mut state_update,
-                &apply_state,
+                gas_price,
                 &SignedTransaction::send_money(
                     1,
                     bob_account(),
@@ -671,10 +657,9 @@ mod tests {
     #[test]
     fn test_validate_transaction_invalid_bad_nonce() {
         let config = RuntimeConfig::default();
-        let (signer, mut state_update, apply_state) = setup_common(
+        let (signer, mut state_update, gas_price) = setup_common(
             TESTING_INIT_BALANCE,
             0,
-            10_000_000,
             Some(AccessKey { nonce: 2, permission: AccessKeyPermission::FullAccess }),
         );
 
@@ -682,7 +667,7 @@ mod tests {
             verify_and_charge_transaction(
                 &config,
                 &mut state_update,
-                &apply_state,
+                gas_price,
                 &SignedTransaction::send_money(
                     1,
                     alice_account(),
@@ -700,14 +685,14 @@ mod tests {
     #[test]
     fn test_validate_transaction_invalid_balance_overflow() {
         let config = RuntimeConfig::default();
-        let (signer, mut state_update, apply_state) =
-            setup_common(TESTING_INIT_BALANCE, 0, 10_000_000, Some(AccessKey::full_access()));
+        let (signer, mut state_update, gas_price) =
+            setup_common(TESTING_INIT_BALANCE, 0, Some(AccessKey::full_access()));
 
         assert_eq!(
             verify_and_charge_transaction(
                 &config,
                 &mut state_update,
-                &apply_state,
+                gas_price,
                 &SignedTransaction::send_money(
                     1,
                     alice_account(),
@@ -725,13 +710,13 @@ mod tests {
     #[test]
     fn test_validate_transaction_invalid_not_enough_balance() {
         let config = RuntimeConfig::default();
-        let (signer, mut state_update, apply_state) =
-            setup_common(TESTING_INIT_BALANCE, 0, 10_000_000, Some(AccessKey::full_access()));
+        let (signer, mut state_update, gas_price) =
+            setup_common(TESTING_INIT_BALANCE, 0, Some(AccessKey::full_access()));
 
         let err = verify_and_charge_transaction(
             &config,
             &mut state_update,
-            &apply_state,
+            gas_price,
             &SignedTransaction::send_money(
                 1,
                 alice_account(),
@@ -759,10 +744,9 @@ mod tests {
     #[test]
     fn test_validate_transaction_invalid_not_enough_allowance() {
         let config = RuntimeConfig::default();
-        let (signer, mut state_update, apply_state) = setup_common(
+        let (signer, mut state_update, gas_price) = setup_common(
             TESTING_INIT_BALANCE,
             0,
-            10_000_000,
             Some(AccessKey {
                 nonce: 0,
                 permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
@@ -776,7 +760,7 @@ mod tests {
         let err = verify_and_charge_transaction(
             &config,
             &mut state_update,
-            &apply_state,
+            gas_price,
             &SignedTransaction::from_actions(
                 1,
                 alice_account(),
@@ -813,14 +797,14 @@ mod tests {
         config.storage_amount_per_byte = 10_000_000;
         let initial_balance = 1_000_000_000;
         let transfer_amount = 950_000_000;
-        let (signer, mut state_update, apply_state) =
-            setup_common(initial_balance, 0, 10_000_000, Some(AccessKey::full_access()));
+        let (signer, mut state_update, gas_price) =
+            setup_common(initial_balance, 0, Some(AccessKey::full_access()));
 
         assert_eq!(
             verify_and_charge_transaction(
                 &config,
                 &mut state_update,
-                &apply_state,
+                gas_price,
                 &SignedTransaction::send_money(
                     1,
                     alice_account(),
@@ -842,10 +826,9 @@ mod tests {
     #[test]
     fn test_validate_transaction_invalid_actions_for_function_call() {
         let config = RuntimeConfig::default();
-        let (signer, mut state_update, apply_state) = setup_common(
+        let (signer, mut state_update, gas_price) = setup_common(
             TESTING_INIT_BALANCE,
             0,
-            10_000_000,
             Some(AccessKey {
                 nonce: 0,
                 permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
@@ -860,7 +843,7 @@ mod tests {
             verify_and_charge_transaction(
                 &config,
                 &mut state_update,
-                &apply_state,
+                gas_price,
                 &SignedTransaction::from_actions(
                     1,
                     alice_account(),
@@ -888,7 +871,7 @@ mod tests {
             verify_and_charge_transaction(
                 &config,
                 &mut state_update,
-                &apply_state,
+                gas_price,
                 &SignedTransaction::from_actions(
                     1,
                     alice_account(),
@@ -908,7 +891,7 @@ mod tests {
             verify_and_charge_transaction(
                 &config,
                 &mut state_update,
-                &apply_state,
+                gas_price,
                 &SignedTransaction::from_actions(
                     1,
                     alice_account(),
@@ -928,10 +911,9 @@ mod tests {
     #[test]
     fn test_validate_transaction_invalid_receiver_for_function_call() {
         let config = RuntimeConfig::default();
-        let (signer, mut state_update, apply_state) = setup_common(
+        let (signer, mut state_update, gas_price) = setup_common(
             TESTING_INIT_BALANCE,
             0,
-            10_000_000,
             Some(AccessKey {
                 nonce: 0,
                 permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
@@ -946,7 +928,7 @@ mod tests {
             verify_and_charge_transaction(
                 &config,
                 &mut state_update,
-                &apply_state,
+                gas_price,
                 &SignedTransaction::from_actions(
                     1,
                     alice_account(),
@@ -974,10 +956,9 @@ mod tests {
     #[test]
     fn test_validate_transaction_invalid_method_name_for_function_call() {
         let config = RuntimeConfig::default();
-        let (signer, mut state_update, apply_state) = setup_common(
+        let (signer, mut state_update, gas_price) = setup_common(
             TESTING_INIT_BALANCE,
             0,
-            10_000_000,
             Some(AccessKey {
                 nonce: 0,
                 permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
@@ -992,7 +973,7 @@ mod tests {
             verify_and_charge_transaction(
                 &config,
                 &mut state_update,
-                &apply_state,
+                gas_price,
                 &SignedTransaction::from_actions(
                     1,
                     alice_account(),
@@ -1017,10 +998,9 @@ mod tests {
     #[test]
     fn test_validate_transaction_deposit_with_function_call() {
         let config = RuntimeConfig::default();
-        let (signer, mut state_update, apply_state) = setup_common(
+        let (signer, mut state_update, gas_price) = setup_common(
             TESTING_INIT_BALANCE,
             0,
-            10_000_000,
             Some(AccessKey {
                 nonce: 0,
                 permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
@@ -1035,7 +1015,7 @@ mod tests {
             verify_and_charge_transaction(
                 &config,
                 &mut state_update,
-                &apply_state,
+                gas_price,
                 &SignedTransaction::from_actions(
                     1,
                     alice_account(),

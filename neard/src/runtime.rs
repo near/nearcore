@@ -430,27 +430,16 @@ impl RuntimeAdapter for NightshadeRuntime {
 
     fn validate_tx(
         &self,
-        block_height: BlockHeight,
-        block_timestamp: u64,
         gas_price: Balance,
         state_root: StateRoot,
         transaction: &SignedTransaction,
     ) -> Result<Option<InvalidTxError>, Error> {
         let mut state_update = TrieUpdate::new(self.trie.clone(), state_root);
-        let apply_state = ApplyState {
-            block_index: block_height,
-            epoch_length: self.genesis.config.epoch_length,
-            gas_price,
-            block_timestamp,
-            // NOTE: verify transaction doesn't use gas limit or epoch id
-            gas_limit: None,
-            epoch_height: 0,
-        };
 
         match verify_and_charge_transaction(
             &self.runtime.config,
             &mut state_update,
-            &apply_state,
+            gas_price,
             &transaction,
         ) {
             Ok(_) => Ok(None),
@@ -465,8 +454,6 @@ impl RuntimeAdapter for NightshadeRuntime {
 
     fn prepare_transactions(
         &self,
-        block_height: BlockHeight,
-        block_timestamp: u64,
         gas_price: Balance,
         gas_limit: Gas,
         state_root: StateRoot,
@@ -475,15 +462,6 @@ impl RuntimeAdapter for NightshadeRuntime {
         chain_validate: &mut dyn FnMut(&SignedTransaction) -> bool,
     ) -> Result<Vec<SignedTransaction>, Error> {
         let mut state_update = TrieUpdate::new(self.trie.clone(), state_root);
-        let apply_state = ApplyState {
-            block_index: block_height,
-            epoch_length: self.genesis.config.epoch_length,
-            // Not used in this function.
-            epoch_height: 0,
-            gas_price,
-            block_timestamp,
-            gas_limit: Some(gas_limit),
-        };
 
         // Total amount of gas burnt for converting transactions towards receipts.
         let mut total_gas_burnt = 0;
@@ -504,7 +482,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                         match verify_and_charge_transaction(
                             &self.runtime.config,
                             &mut state_update,
-                            &apply_state,
+                            gas_price,
                             &tx,
                         ) {
                             Ok(verification_result) => {
