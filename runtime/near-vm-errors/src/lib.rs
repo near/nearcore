@@ -17,11 +17,36 @@ pub enum VMError {
     Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, Deserialize, Serialize, RpcError,
 )]
 pub enum FunctionCallError {
+    /// Wasm compilation error
     CompilationError(CompilationError),
-    LinkError { msg: String },
+    /// Wasm binary env link error
+    LinkError {
+        msg: String,
+    },
+    /// Import/export resolve error
     MethodResolveError(MethodResolveError),
-    WasmTrap { msg: String },
+    /// A trap happened during execution of a binary
+    WasmTrap(WasmTrap),
+    WasmUnknownError,
     HostError(HostError),
+}
+/// A kind of a trap happened during execution of a binary
+#[derive(
+    Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, Deserialize, Serialize, RpcError,
+)]
+pub enum WasmTrap {
+    /// An `unreachable` opcode was executed.
+    Unreachable,
+    /// Call indirect incorrect signature trap.
+    IncorrectCallIndirectSignature,
+    /// Memory out of bounds trap.
+    MemoryOutOfBounds,
+    /// Call indirect out of bounds trap.
+    CallIndirectOOB,
+    /// An arithmetic exception, e.g. divided by zero.
+    IllegalArithmetic,
+    /// Misaligned atomic access trap.
+    MisalignedAtomicAccess,
 }
 
 #[derive(
@@ -198,7 +223,27 @@ impl fmt::Display for FunctionCallError {
             FunctionCallError::MethodResolveError(e) => e.fmt(f),
             FunctionCallError::HostError(e) => e.fmt(f),
             FunctionCallError::LinkError { msg } => write!(f, "{}", msg),
-            FunctionCallError::WasmTrap { msg } => write!(f, "WebAssembly trap: {}", msg),
+            FunctionCallError::WasmTrap(trap) => write!(f, "WebAssembly trap: {}", trap),
+            FunctionCallError::WasmUnknownError => {
+                write!(f, "Unknown error during Wasm contract execution")
+            }
+        }
+    }
+}
+
+impl fmt::Display for WasmTrap {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        match self {
+            WasmTrap::Unreachable => write!(f, "An `unreachable` opcode was executed."),
+            WasmTrap::IncorrectCallIndirectSignature => {
+                write!(f, "Call indirect incorrect signature trap.")
+            }
+            WasmTrap::MemoryOutOfBounds => write!(f, "Memory out of bounds trap."),
+            WasmTrap::CallIndirectOOB => write!(f, "Call indirect out of bounds trap."),
+            WasmTrap::IllegalArithmetic => {
+                write!(f, "An arithmetic exception, e.g. divided by zero.")
+            }
+            WasmTrap::MisalignedAtomicAccess => write!(f, "Misaligned atomic access trap."),
         }
     }
 }

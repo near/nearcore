@@ -131,9 +131,7 @@ fn test_trap_contract() {
         make_simple_contract_call(&trap_contract(), b"hello"),
         (
             Some(vm_outcome_with_gas(3856371)),
-            Some(VMError::FunctionCallError(FunctionCallError::WasmTrap {
-                msg: "unknown".to_string()
-            }))
+            Some(VMError::FunctionCallError(FunctionCallError::WasmUnknownError))
         )
     );
 }
@@ -157,9 +155,7 @@ fn test_trap_initializer() {
         make_simple_contract_call(&trap_initializer(), b"hello"),
         (
             Some(vm_outcome_with_gas(3856371)),
-            Some(VMError::FunctionCallError(FunctionCallError::WasmTrap {
-                msg: "unknown".to_string()
-            }))
+            Some(VMError::FunctionCallError(FunctionCallError::WasmUnknownError))
         )
     );
 }
@@ -257,9 +253,7 @@ fn test_stack_overflow() {
         make_simple_contract_call(&stack_overflow(), b"hello"),
         (
             Some(vm_outcome_with_gas(63182782464)),
-            Some(VMError::FunctionCallError(FunctionCallError::WasmTrap {
-                msg: "unknown".to_string()
-            }))
+            Some(VMError::FunctionCallError(FunctionCallError::WasmUnknownError))
         )
     );
 }
