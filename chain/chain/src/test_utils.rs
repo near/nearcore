@@ -440,8 +440,6 @@ impl RuntimeAdapter for KeyValueRuntime {
 
     fn validate_tx(
         &self,
-        _block_height: BlockHeight,
-        _block_timestamp: u64,
         _gas_price: Balance,
         _state_update: StateRoot,
         _transaction: &SignedTransaction,
@@ -451,8 +449,6 @@ impl RuntimeAdapter for KeyValueRuntime {
 
     fn prepare_transactions(
         &self,
-        _block_height: BlockHeight,
-        _block_timestamp: u64,
         _gas_price: Balance,
         _gas_limit: Gas,
         _state_root: StateRoot,

@@ -432,7 +432,6 @@ impl Client {
         epoch_id: &EpochId,
         last_header: ShardChunkHeader,
         next_height: BlockHeight,
-        prev_block_timestamp: u64,
         shard_id: ShardId,
     ) -> Result<Option<(EncodedShardChunk, Vec<MerklePath>, Vec<Receipt>)>, Error> {
         let validator_signer = self
@@ -476,13 +475,7 @@ impl Client {
 
         let prev_block_header = self.chain.get_block_header(&prev_block_hash)?.clone();
 
-        let transactions = self.prepare_transactions(
-            next_height,
-            prev_block_timestamp,
-            shard_id,
-            &chunk_extra,
-            &prev_block_header,
-        );
+        let transactions = self.prepare_transactions(shard_id, &chunk_extra, &prev_block_header);
 
         let num_filtered_transactions = transactions.len();
 
@@ -551,8 +544,6 @@ impl Client {
     /// Prepares an ordered list of valid transactions from the pool up the limits.
     fn prepare_transactions(
         &mut self,
-        next_height: BlockHeight,
-        prev_block_timestamp: u64,
         shard_id: ShardId,
         chunk_extra: &ChunkExtra,
         prev_block_header: &BlockHeader,
@@ -562,8 +553,6 @@ impl Client {
             let transaction_validity_period = chain.transaction_validity_period;
             runtime_adapter
                 .prepare_transactions(
-                    next_height,
-                    prev_block_timestamp,
                     prev_block_header.inner_rest.gas_price,
                     chunk_extra.gas_limit,
                     chunk_extra.state_root.clone(),
@@ -880,7 +869,6 @@ impl Client {
                             &epoch_id,
                             block.chunks[shard_id as usize].clone(),
                             block.header.inner_lite.height + 1,
-                            block.header.inner_lite.timestamp,
                             shard_id,
                         ) {
                             Ok(Some((encoded_chunk, merkle_paths, receipts))) => self
@@ -1164,13 +1152,7 @@ impl Client {
             };
             if let Some(err) = self
                 .runtime_adapter
-                .validate_tx(
-                    head.height + 1,
-                    cur_block_header.inner_lite.timestamp,
-                    gas_price,
-                    state_root,
-                    &tx,
-                )
+                .validate_tx(gas_price, state_root, &tx)
                 .expect("no storage errors")
             {
                 debug!(target: "client", "Invalid tx: {:?}", err);
