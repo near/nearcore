@@ -75,15 +75,23 @@ pub struct ClientActor {
     info_helper: InfoHelper,
 }
 
+/// Blocks the program until given genesis time arrives.
 fn wait_until_genesis(genesis_time: &DateTime<Utc>) {
-    let now = Utc::now();
-    //get chrono::Duration::num_seconds() by deducting genesis_time from now
-    let chrono_seconds = genesis_time.signed_duration_since(now).num_seconds();
-    //check if number of seconds in chrono::Duration larger than zero
-    if chrono_seconds > 0 {
-        info!(target: "near", "Waiting until genesis: {}", chrono_seconds);
-        let seconds = Duration::from_secs(chrono_seconds as u64);
-        thread::sleep(seconds);
+    loop {
+        // Get chrono::Duration::num_seconds() by deducting genesis_time from now.
+        let duration = genesis_time.signed_duration_since(Utc::now());
+        let chrono_seconds = duration.num_seconds();
+        // Check if number of seconds in chrono::Duration larger than zero.
+        if chrono_seconds <= 0 {
+            break;
+        }
+        info!(target: "near", "Waiting until genesis: {}d {}h {}m {}s", duration.num_days(),
+              (duration.num_hours() % 24),
+              (duration.num_minutes() % 60),
+              (duration.num_seconds() % 60));
+        let wait =
+            std::cmp::min(Duration::from_secs(10), Duration::from_secs(chrono_seconds as u64));
+        thread::sleep(wait);
     }
 }
 
