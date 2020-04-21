@@ -10,18 +10,18 @@ use near_chain::{Block, Chain};
 use near_chain_configs::Genesis;
 use near_client::{ClientActor, GetBlock};
 use near_crypto::{InMemorySigner, KeyType};
+use near_env::init_integration_logger;
 use near_network::test_utils::{convert_boot_nodes, open_port, WaitOrTimeout};
 use near_network::{NetworkClientMessages, PeerInfo};
 use near_primitives::block::Approval;
 use near_primitives::hash::CryptoHash;
-use near_primitives::test_utils::{heavy_test, init_integration_logger};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{BlockHeightDelta, EpochId, ValidatorStake};
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
 use neard::config::{GenesisExt, TESTING_INIT_STAKE};
 use neard::{load_test_config, start_with_config};
 use num_rational::Rational;
-use testlib::genesis_block;
+use testlib::{genesis_block, test_helpers::heavy_test};
 
 // This assumes that there is no height skipped. Otherwise epoch hash calculation will be wrong.
 fn add_blocks(

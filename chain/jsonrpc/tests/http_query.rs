@@ -1,8 +1,8 @@
 use actix::System;
 use futures::{future, FutureExt};
 
+use near_env::init_test_logger;
 use near_jsonrpc::client::new_http_client;
-use near_primitives::test_utils::init_test_logger;
 
 mod test_utils;
 

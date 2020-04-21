@@ -721,6 +721,82 @@ impl Block {
     }
 }
 
+impl Block {
+    pub fn empty_with_epoch(
+        prev: &Block,
+        height: BlockHeight,
+        epoch_id: EpochId,
+        next_epoch_id: EpochId,
+        next_bp_hash: CryptoHash,
+        signer: &dyn ValidatorSigner,
+    ) -> Self {
+        Self::empty_with_approvals(
+            prev,
+            height,
+            epoch_id,
+            next_epoch_id,
+            vec![],
+            signer,
+            next_bp_hash,
+        )
+    }
+
+    pub fn empty_with_height(
+        prev: &Block,
+        height: BlockHeight,
+        signer: &dyn ValidatorSigner,
+    ) -> Self {
+        Self::empty_with_epoch(
+            prev,
+            height,
+            prev.header.inner_lite.epoch_id.clone(),
+            if prev.header.prev_hash == CryptoHash::default() {
+                EpochId(prev.hash())
+            } else {
+                prev.header.inner_lite.next_epoch_id.clone()
+            },
+            prev.header.inner_lite.next_bp_hash,
+            signer,
+        )
+    }
+
+    pub fn empty(prev: &Block, signer: &dyn ValidatorSigner) -> Self {
+        Self::empty_with_height(prev, prev.header.inner_lite.height + 1, signer)
+    }
+
+    /// This is not suppose to be used outside of chain tests, because this doesn't refer to correct chunks.
+    /// Done because chain tests don't have a good way to store chunks right now.
+    pub fn empty_with_approvals(
+        prev: &Block,
+        height: BlockHeight,
+        epoch_id: EpochId,
+        next_epoch_id: EpochId,
+        approvals: Vec<Approval>,
+        signer: &dyn ValidatorSigner,
+        next_bp_hash: CryptoHash,
+    ) -> Self {
+        Block::produce(
+            &prev.header,
+            height,
+            prev.chunks.clone(),
+            epoch_id,
+            next_epoch_id,
+            approvals,
+            Rational::from_integer(0),
+            0,
+            Some(0),
+            vec![],
+            vec![],
+            signer,
+            0.into(),
+            CryptoHash::default(),
+            CryptoHash::default(),
+            CryptoHash::default(),
+            next_bp_hash,
+        )
+    }
+}
+
 /// The score is defined as the height of the last block with quorum pre-vote
 /// We have a separate type to ensure that the height is never assigned to score and vice versa
 #[derive(

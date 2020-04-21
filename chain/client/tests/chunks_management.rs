@@ -11,15 +11,15 @@ use near_chain::ChainGenesis;
 use near_client::test_utils::{setup_mock_all_validators, TestEnv};
 use near_client::{ClientActor, GetBlock, ViewClientActor};
 use near_crypto::KeyType;
+use near_env::{init_integration_logger, init_test_logger};
 use near_network::types::PartialEncodedChunkRequestMsg;
 use near_network::{NetworkClientMessages, NetworkRequests, NetworkResponses, PeerInfo};
 use near_primitives::block::BlockHeader;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::sharding::{PartialEncodedChunk, ShardChunkHeader};
-use near_primitives::test_utils::init_integration_logger;
-use near_primitives::test_utils::{heavy_test, init_test_logger};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::validator_signer::InMemoryValidatorSigner;
+use testlib::test_helpers::heavy_test;
 
 #[test]
 fn chunks_produced_and_distributed_all_in_all_shards() {

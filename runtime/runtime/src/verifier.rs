@@ -380,7 +380,6 @@ mod tests {
     use near_primitives::account::{AccessKey, Account, FunctionCallPermission};
     use near_primitives::hash::{hash, CryptoHash};
     use near_primitives::receipt::DataReceiver;
-    use near_primitives::test_utils::ACCOUNT_SIZE_BYTES;
     use near_primitives::transaction::{
         CreateAccountAction, DeleteKeyAction, StakeAction, TransferAction,
     };
@@ -817,7 +816,8 @@ mod tests {
             .expect_err("expected an error"),
             RuntimeError::InvalidTxError(InvalidTxError::LackBalanceForState {
                 signer_id: alice_account(),
-                amount: Balance::from(ACCOUNT_SIZE_BYTES) * config.storage_amount_per_byte
+                amount: Balance::from(std::mem::size_of::<Account>() as u64)
+                    * config.storage_amount_per_byte
                     - (initial_balance - transfer_amount)
             })
         );

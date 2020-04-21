@@ -19,6 +19,8 @@ near-network = { path = "../../chain/network" }
 neard = { path = "../../neard" }
 
 [dev-dependencies]
+near-env = {path = "../../env"}
+testlib = { path = "../../test-utils/testlib" }
 near-client = { path = "../../chain/client" }
 serde_json = "1.0"
 

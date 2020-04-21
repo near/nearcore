@@ -1,7 +1,7 @@
 use near_chain::test_utils::setup;
 use near_chain::{Block, ChainStoreAccess, ErrorKind, Provenance};
+use near_env::init_test_logger;
 use near_primitives::hash::CryptoHash;
-use near_primitives::test_utils::init_test_logger;
 use num_rational::Rational;
 
 #[test]
