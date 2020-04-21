@@ -17,7 +17,7 @@
   "min_gas_price": "100000",
   "block_producer_kickout_threshold": 90,
   "chunk_producer_kickout_threshold": 60,
-  "gas_price_adjustment_rate": [1, 100],
+  "gas_price_adjustment_rate": 1,
   "runtime_config": {
     "storage_amount_per_byte": "100000000000000000000",
     "transaction_costs": {
@@ -106,7 +106,10 @@
         "num_bytes_account": 100,
         "num_extra_bytes_record": 40
       },
-      "burnt_gas_reward": [3, 10]
+      "burnt_gas_reward": {
+        "numerator": 3,
+        "denominator": 10
+      }
     },
     "wasm_config": {
       "ext_costs": {
@@ -210,8 +213,9 @@
     }
   ],
   "transaction_validity_period": 86400,
-  "protocol_reward_rate": [0, 10],
-  "max_inflation_rate": [0, 10],
+  "protocol_reward_percentage": 0,
+  "developer_reward_percentage": 30,
+  "max_inflation_rate": 0,
   "total_supply": "1000000000000000000000000000000000",
   "num_blocks_per_year": 31536000,
   "protocol_treasury_account": "treasury.near",

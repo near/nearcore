@@ -2519,7 +2519,7 @@ impl<'a> ChainUpdate<'a> {
                             &receipts,
                             &chunk.transactions,
                             &chunk.header.inner.validator_proposals,
-                            block.header.inner_rest.gas_price,
+                            prev_block.header.inner_rest.gas_price,
                             chunk.header.inner.gas_limit,
                             &block.header.inner_rest.challenges_result,
                         )
