@@ -172,10 +172,5 @@ pub fn test_out_of_memory() {
         &fees,
         &promise_results,
     );
-    assert_eq!(
-        result.1,
-        Some(VMError::FunctionCallError(FunctionCallError::WasmTrap {
-            msg: "unknown".to_string()
-        }))
-    );
+    assert_eq!(result.1, Some(VMError::FunctionCallError(FunctionCallError::WasmUnknownError)));
 }
