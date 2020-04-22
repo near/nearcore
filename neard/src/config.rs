@@ -119,6 +119,18 @@ pub const NUM_BLOCK_PRODUCER_SEATS: NumSeats = 50;
 /// How much height horizon to give to consider peer up to date.
 pub const HIGHEST_PEER_HORIZON: u64 = 5;
 
+/// Minimum outbound connections a peer should have to avoid eclipse attacks.
+pub const MINIMUM_OUTBOUND_CONNECTIONS: u32 = 5;
+/// Lower bound of the ideal number of connections.
+pub const IDEAL_CONNECTIONS_LO: u32 = 30;
+/// Upper bound of the ideal number of connections.
+pub const IDEAL_CONNECTIONS_HI: u32 = 35;
+/// Peers which last message is was within this period of time are considered active recent peers.
+pub const PEER_RECENT_TIME_WINDOW: Duration = Duration::from_secs(600);
+/// Number of peers to keep while removing a connection.
+/// Used to avoid disconnecting from peers we have been connected since long time.
+pub const SAFE_SET_SIZE: u32 = 20;
+
 pub const CONFIG_FILENAME: &str = "config.json";
 pub const GENESIS_CONFIG_FILENAME: &str = "genesis.json";
 pub const NODE_KEY_FILE: &str = "node_key.json";
@@ -499,6 +511,11 @@ impl NearConfig {
                 reconnect_delay: config.network.reconnect_delay,
                 bootstrap_peers_period: Duration::from_secs(60),
                 max_peer: config.network.max_peers,
+                minimum_outbound_peers: MINIMUM_OUTBOUND_CONNECTIONS,
+                ideal_connections_lo: IDEAL_CONNECTIONS_LO,
+                ideal_connections_hi: IDEAL_CONNECTIONS_HI,
+                peer_recent_time_window: PEER_RECENT_TIME_WINDOW,
+                safe_set_size: SAFE_SET_SIZE,
                 ban_window: config.network.ban_window,
                 max_send_peers: 512,
                 peer_expiration_duration: Duration::from_secs(7 * 24 * 60 * 60),
