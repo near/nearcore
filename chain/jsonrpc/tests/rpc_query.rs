@@ -5,9 +5,9 @@ use futures::{future, FutureExt};
 
 use near_chain_configs::PROTOCOL_VERSION;
 use near_crypto::{KeyType, PublicKey, Signature};
-use near_env::init_test_logger;
 use near_jsonrpc::client::new_client;
 use near_jsonrpc_client::ChunkId;
+use near_logger_utils::init_test_logger;
 use near_network::test_utils::WaitOrTimeout;
 use near_primitives::account::{AccessKey, AccessKeyPermission};
 use near_primitives::hash::CryptoHash;

@@ -34,7 +34,7 @@ near-chunks = { path = "../chunks" }
 near-telemetry = { path = "../telemetry" }
 
 [dev-dependencies]
-near-env = { path = "../../env" }
+near-logger-utils = { path = "../../test-utils/logger" }
 testlib = { path = "../../test-utils/testlib" }
 neard = { path = "../../neard" }
 

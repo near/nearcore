@@ -5,7 +5,7 @@ use futures::{future, FutureExt};
 use tempdir::TempDir;
 
 use near_client::{GetBlock, GetChunk};
-use near_env::init_integration_logger;
+use near_logger_utils::init_integration_logger;
 use near_network::test_utils::WaitOrTimeout;
 use near_primitives::hash::CryptoHash;
 use testlib::{start_nodes, test_helpers::heavy_test};

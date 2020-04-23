@@ -15,7 +15,7 @@ use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
 use near_client::Client;
 use near_crypto::{InMemorySigner, KeyType, Signer};
-use near_env::init_test_logger;
+use near_logger_utils::init_test_logger;
 use near_network::test_utils::MockNetworkAdapter;
 use near_network::NetworkRequests;
 use near_primitives::challenge::{

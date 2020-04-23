@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use near_chain_configs::Genesis;
 use near_crypto::{InMemorySigner, KeyType};
-use near_env::init_integration_logger;
+use near_logger_utils::init_integration_logger;
 use near_network::test_utils::open_port;
 use near_primitives::account::AccessKey;
 use near_primitives::errors::{InvalidAccessKeyError, InvalidTxError};

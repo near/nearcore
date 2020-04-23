@@ -11,7 +11,7 @@ use near_chain::ChainGenesis;
 use near_client::test_utils::{setup_mock_all_validators, TestEnv};
 use near_client::{ClientActor, GetBlock, ViewClientActor};
 use near_crypto::KeyType;
-use near_env::{init_integration_logger, init_test_logger};
+use near_logger_utils::{init_integration_logger, init_test_logger};
 use near_network::types::PartialEncodedChunkRequestMsg;
 use near_network::{NetworkClientMessages, NetworkRequests, NetworkResponses, PeerInfo};
 use near_primitives::block::BlockHeader;

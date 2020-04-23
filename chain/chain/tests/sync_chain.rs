@@ -1,6 +1,6 @@
 use near_chain::test_utils::setup;
 use near_chain::Block;
-use near_env::init_test_logger;
+use near_logger_utils::init_test_logger;
 
 #[test]
 fn chain_sync_headers() {

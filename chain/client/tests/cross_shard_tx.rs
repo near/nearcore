@@ -6,7 +6,7 @@ use futures::{future, FutureExt};
 
 use near_client::test_utils::setup_mock_all_validators;
 use near_client::{ClientActor, Query, ViewClientActor};
-use near_env::init_test_logger;
+use near_logger_utils::init_test_logger;
 use near_network::{NetworkRequests, NetworkResponses, PeerInfo};
 use near_primitives::types::BlockIdOrFinality;
 use near_primitives::views::{QueryRequest, QueryResponseKind::ViewAccount};
@@ -87,7 +87,7 @@ mod tests {
     use near_client::test_utils::setup_mock_all_validators;
     use near_client::{ClientActor, Query, ViewClientActor};
     use near_crypto::{InMemorySigner, KeyType};
-    use near_env::init_test_logger;
+    use near_logger_utils::init_test_logger;
     use near_network::{
         NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkResponses, PeerInfo,
     };

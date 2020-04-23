@@ -5,8 +5,8 @@ use borsh::BorshSerialize;
 use futures::{future, FutureExt, TryFutureExt};
 
 use near_crypto::{InMemorySigner, KeyType};
-use near_env::{init_integration_logger, init_test_logger};
 use near_jsonrpc::client::new_client;
+use near_logger_utils::{init_integration_logger, init_test_logger};
 use near_network::test_utils::WaitOrTimeout;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::serialize::{to_base, to_base64};

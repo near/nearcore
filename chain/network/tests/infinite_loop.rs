@@ -7,7 +7,7 @@ use actix::{Actor, System};
 use futures::{future, FutureExt};
 
 use near_client::ClientActor;
-use near_env::init_integration_logger;
+use near_logger_utils::init_integration_logger;
 use near_network::test_utils::{convert_boot_nodes, open_port, GetInfo, WaitOrTimeout};
 use near_network::types::{NetworkViewClientMessages, NetworkViewClientResponses, SyncData};
 use near_network::{NetworkClientResponses, NetworkConfig, NetworkRequests, PeerManagerActor};

@@ -12,7 +12,7 @@ members = [
     "core/runtime-configs",
     "core/store",
     "core/metrics",
-    "env",
+    "utils/actix",
     "runtime/runtime",
     "runtime/near-runtime-fees",
     "runtime/near-vm-logic",
@@ -48,7 +48,7 @@ serde_json = "1.0.0"
 reqwest = "0.10"
 futures = "0.3"
 
-near-env = { path = "./env" }
+near-logger-utils = { path = "./test-utils/logger" }
 near-chain-configs = { path = "./core/chain-configs" }
 near-crypto = { path = "./core/crypto" }
 near-primitives = { path = "./core/primitives" }
