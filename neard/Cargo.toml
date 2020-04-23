@@ -44,6 +44,7 @@ near-epoch-manager = { path = "../chain/epoch_manager" }
 
 [dev-dependencies]
 tempdir = "0.3"
+near-logger-utils = { path = "../test-utils/logger" }
 testlib = { path = "../test-utils/testlib" }
 
 [features]
