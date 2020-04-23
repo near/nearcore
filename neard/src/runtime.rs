@@ -8,7 +8,7 @@ use std::sync::{Arc, RwLock};
 
 use borsh::ser::BorshSerialize;
 use borsh::BorshDeserialize;
-use log::debug;
+use log::{debug, error, warn};
 
 use crate::shard_tracker::{account_id_to_shard_id, ShardTracker};
 use near_chain::chain::NUM_EPOCHS_TO_KEEP_STORE_DATA;
@@ -383,7 +383,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         };
         if has_dump {
             if has_records {
-                log::warn!("Found both records in genesis config and the state dump file. Will ignore the records.");
+                warn!(target: "runtime", "Found both records in genesis config and the state dump file. Will ignore the records.");
             }
             self.genesis_state_from_dump()
         } else if has_records {
@@ -1042,11 +1042,18 @@ impl RuntimeAdapter for NightshadeRuntime {
 
     fn obtain_state_part(&self, state_root: &StateRoot, part_id: u64, num_parts: u64) -> Vec<u8> {
         assert!(part_id < num_parts);
-        self.trie
-            .get_trie_nodes_for_part(part_id, num_parts, state_root)
-            .expect("storage should not fail")
-            .try_to_vec()
-            .expect("serializer should not fail")
+        match self.trie.get_trie_nodes_for_part(part_id, num_parts, state_root) {
+            Ok(partial_state) => partial_state,
+            Err(e) => {
+                error!(target: "runtime",
+                    "Can't get_trie_nodes_for_part for {:?}, part_id {:?}, num_parts {:?}, {:?}",
+                    state_root, part_id, num_parts, e
+                );
+                panic!("RuntimeError::StorageInconsistentState, {:?}", e)
+            }
+        }
+        .try_to_vec()
+        .expect("serializer should not fail")
     }
 
     fn validate_state_part(
