@@ -33,15 +33,17 @@ use near_store::{
     ColChunkExtra, ColChunkPerHeightShard, ColChunks, ColEpochLightClientBlocks,
     ColIncomingReceipts, ColInvalidChunks, ColLastBlockWithNewChunk, ColNextBlockHashes,
     ColNextBlockWithNewChunk, ColOutgoingReceipts, ColPartialChunks, ColReceiptIdToShardId,
-    ColState, ColStateChanges, ColStateDlInfos, ColStateHeaders, ColTransactionResult,
-    ColTransactions, ColTrieChanges, KeyForStateChanges, ShardTries, Store, StoreUpdate,
-    TrieChanges, WrappedTrieChanges, HEADER_HEAD_KEY, HEAD_KEY, LARGEST_TARGET_HEIGHT_KEY,
-    LATEST_KNOWN_KEY, SYNC_HEAD_KEY, TAIL_KEY,
+    ColState, ColStateChanges, ColStateDlInfos, ColStateHeaders, ColStateNumParts, ColStateParts,
+    ColTransactionResult, ColTransactions, ColTrieChanges, KeyForStateChanges, ShardTries, Store,
+    StoreUpdate, TrieChanges, WrappedTrieChanges, HEADER_HEAD_KEY, HEAD_KEY,
+    LARGEST_TARGET_HEIGHT_KEY, LATEST_KNOWN_KEY, SYNC_HEAD_KEY, TAIL_KEY,
 };
 
 use crate::byzantine_assert;
 use crate::error::{Error, ErrorKind};
-use crate::types::{Block, BlockHeader, LatestKnown, ReceiptProofResponse, ReceiptResponse, Tip};
+use crate::types::{
+    Block, BlockHeader, LatestKnown, ReceiptProofResponse, ReceiptResponse, StatePartKey, Tip,
+};
 
 /// lru cache size
 const CACHE_SIZE: usize = 100;
@@ -1838,6 +1840,7 @@ impl<'a> ChainStoreUpdate<'a> {
             self.merge(store_update);
             return Ok(());
         }
+        let block_hash_ref = block_hash.as_ref();
 
         // 2. Delete shard_id-indexed data (shards, receipts, transactions)
         for shard_id in 0..block.header.inner_rest.chunk_mask.len() as ShardId {
@@ -1866,7 +1869,13 @@ impl<'a> ChainStoreUpdate<'a> {
             let key = StateHeaderKey(shard_id, block_hash).try_to_vec()?;
             store_update.delete(ColStateHeaders, &key);
             // 2f. Delete from ColStateParts
-            // Already done, check chain.clear_downloaded_parts()
+            // For incoming State Parts it's done in chain.clear_downloaded_parts()
+            // The following code is for outgoing State Parts
+            let num_parts = self.store().get_ser(ColStateNumParts, block_hash_ref)?.unwrap_or(0u64);
+            for part_id in 0..num_parts {
+                let key = StatePartKey(block_hash, shard_id, part_id).try_to_vec()?;
+                store_update.delete(ColStateParts, &key);
+            }
         }
         for chunk_header in block.chunks {
             if let Ok(chunk) = self.get_chunk_clone_from_header(&chunk_header) {
@@ -1902,8 +1911,6 @@ impl<'a> ChainStoreUpdate<'a> {
         }
 
         // 4. Delete block_hash-indexed data
-        //let chunk_header_hash = chunk_header.hash.clone().into();
-        let block_hash_ref = block_hash.as_ref();
         // 4a. Delete block (ColBlock)
         store_update.delete(ColBlock, block_hash_ref);
         self.chain_store.blocks.cache_remove(&block_hash.into());
@@ -1930,6 +1937,8 @@ impl<'a> ChainStoreUpdate<'a> {
         // 4h. Delete from ColBlockRefCount
         store_update.delete(ColBlockRefCount, block_hash_ref);
         self.chain_store.block_refcounts.cache_remove(&block_hash.into());
+        // 4j. Delete from ColStateNumParts
+        store_update.delete(ColStateNumParts, block_hash_ref);
 
         match gc_mode {
             GCMode::Fork(_) => {
