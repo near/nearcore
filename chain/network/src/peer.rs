@@ -1,7 +1,7 @@
 use std::cmp::max;
 use std::io;
 use std::net::SocketAddr;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use actix::io::{FramedWrite, WriteHandler};
 use actix::{
@@ -29,6 +29,7 @@ use crate::types::{
     NetworkViewClientResponses, PeerChainInfo, PeerInfo, PeerManagerRequest, PeerMessage,
     PeerRequest, PeerResponse, PeerStatsResult, PeerStatus, PeerType, PeersRequest, PeersResponse,
     QueryPeerStats, ReasonForBan, RoutedMessageBody, RoutedMessageFrom, SendMessage, Unregister,
+    UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE,
 };
 use crate::PeerManagerActor;
 use crate::{metrics, NetworkResponses};
@@ -37,7 +38,6 @@ type WriteHalf = tokio::io::WriteHalf<tokio::net::TcpStream>;
 
 /// Maximum number of requests and responses to track.
 const MAX_TRACK_SIZE: usize = 30;
-
 /// Maximum number of messages per minute from single peer.
 // TODO: current limit is way to high due to us sending lots of messages during sync.
 const MAX_PEER_MSG_PER_MIN: u64 = std::u64::MAX;
@@ -154,6 +154,8 @@ pub struct Peer {
     chain_info: PeerChainInfo,
     /// Edge information needed to build the real edge. This is relevant for handshake.
     edge_info: Option<EdgeInfo>,
+    /// Last time an update of received message was sent to PeerManager
+    last_time_received_message_update: Instant,
 }
 
 impl Peer {
@@ -184,6 +186,7 @@ impl Peer {
             genesis_id: Default::default(),
             chain_info: Default::default(),
             edge_info,
+            last_time_received_message_update: Instant::now(),
         }
     }
 
@@ -498,6 +501,21 @@ impl Peer {
             })
             .spawn(ctx);
     }
+
+    /// Hook called on every valid message received from this peer from the network.
+    fn on_receive_message(&mut self) {
+        if let Some(peer_id) = self.peer_id() {
+            if self.last_time_received_message_update.elapsed()
+                > UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE
+            {
+                self.last_time_received_message_update = Instant::now();
+                self.peer_manager_addr.do_send(PeerRequest::ReceivedMessage(
+                    peer_id,
+                    self.last_time_received_message_update,
+                ));
+            }
+        }
+    }
 }
 
 impl Actor for Peer {
@@ -558,6 +576,8 @@ impl StreamHandler<Vec<u8>> for Peer {
                 return;
             }
         };
+
+        self.on_receive_message();
 
         #[cfg(feature = "metric_recorder")]
         {
