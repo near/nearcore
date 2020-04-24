@@ -858,7 +858,7 @@ fn test_gc_with_epoch_length_common(epoch_length: NumBlocks) {
 
 #[test]
 fn test_gc_with_epoch_length() {
-    for i in 2..20 {
+    for i in 3..20 {
         test_gc_with_epoch_length_common(i);
     }
 }

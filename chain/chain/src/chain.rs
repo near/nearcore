@@ -2733,20 +2733,18 @@ impl<'a> ChainUpdate<'a> {
         let res = self.update_head(block)?;
 
         if res.is_some() {
-            // Some tests do not set finality-related fields, make them also not create the light
-            // client block.
-            if block.header.inner_rest.last_final_block != CryptoHash::default() {
-                // On the epoch switch record the epoch light client block
-                // Note that we only do it if `res.is_some()`, i.e. if the current block is the head.
-                // This is necessary because the computation of the light client block relies on
-                // `ColNextBlockHash`-es populated, and they are only populated for the canonical
-                // chain. We need to be careful to avoid a situation when the first block of the epoch
-                // never becomes a tip of the canonical chain.
-                // Presently the epoch boundary is deinfed by the height, and the fork choice rule
-                // is also just height, so the very first block to cross the epoch end is guaranteed
-                // to be the head of the chain, and result in the light client block produced.
-                if block.header.inner_lite.epoch_id != prev_epoch_id {
-                    let prev = self.get_previous_header(&block.header)?.clone();
+            // On the epoch switch record the epoch light client block
+            // Note that we only do it if `res.is_some()`, i.e. if the current block is the head.
+            // This is necessary because the computation of the light client block relies on
+            // `ColNextBlockHash`-es populated, and they are only populated for the canonical
+            // chain. We need to be careful to avoid a situation when the first block of the epoch
+            // never becomes a tip of the canonical chain.
+            // Presently the epoch boundary is deinfed by the height, and the fork choice rule
+            // is also just height, so the very first block to cross the epoch end is guaranteed
+            // to be the head of the chain, and result in the light client block produced.
+            if block.header.inner_lite.epoch_id != prev_epoch_id {
+                let prev = self.get_previous_header(&block.header)?.clone();
+                if prev.inner_rest.last_final_block != CryptoHash::default() {
                     let light_client_block = self.create_light_client_block(&prev)?;
                     self.chain_store_update
                         .save_epoch_light_client_block(&prev_epoch_id.0, light_client_block);
