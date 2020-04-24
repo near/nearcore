@@ -9,19 +9,19 @@ clap = "2.32"
 log = "0.4"
 env_logger = "0.7"
 rand = "0.7"
-hex = "0.4"
 futures = "0.3"
 tokio = { version = "0.2", features = ["full"] }
-serde_json = "1.0.0"
+serde_json = "1"
 reqwest = { version = "0.10", features = ["rustls-tls", "blocking", "json"] }
 git-version = "0.3.2"
 byteorder = "1.2"
+
 borsh = "0.6.1"
 
 near-crypto = { path = "../../core/crypto" }
 near-primitives = { path = "../../core/primitives" }
 node-runtime = { path = "../../runtime/runtime" }
 near-store = { path = "../../core/store" }
-testlib = { path = "../testlib" }
-neard = { path = "../../neard" }
 near-jsonrpc = { path = "../../chain/jsonrpc" }
+neard = { path = "../../neard" }
+testlib = { path = "../testlib" }

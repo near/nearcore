@@ -16,7 +16,7 @@ use near_primitives::types::{BlockId, BlockIdOrFinality, Finality, ShardId};
 use near_primitives::views::{QueryRequest, QueryResponseKind};
 
 #[macro_use]
-mod test_utils;
+pub mod test_utils;
 
 /// Retrieve blocks via json rpc
 #[test]

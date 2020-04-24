@@ -6,7 +6,6 @@ use actix::{Actor, Addr, System};
 use futures::{future, FutureExt};
 use num_rational::Rational;
 use rand::Rng;
-use tempdir::TempDir;
 
 use near_chain_configs::Genesis;
 use near_client::{ClientActor, GetBlock, Query, Status, ViewClientActor};
@@ -88,7 +87,9 @@ fn test_stake_nodes() {
         let system = System::new("NEAR");
         let num_nodes = 2;
         let dirs = (0..num_nodes)
-            .map(|i| TempDir::new(&format!("stake_node_{}", i)).unwrap())
+            .map(|i| {
+                tempfile::Builder::new().prefix(&format!("stake_node_{}", i)).tempdir().unwrap()
+            })
             .collect::<Vec<_>>();
         let test_nodes = init_test_staking(
             dirs.iter().map(|dir| dir.path()).collect::<Vec<_>>(),
@@ -155,7 +156,12 @@ fn test_validator_kickout() {
         let system = System::new("NEAR");
         let num_nodes = 4;
         let dirs = (0..num_nodes)
-            .map(|i| TempDir::new(&format!("validator_kickout_{}", i)).unwrap())
+            .map(|i| {
+                tempfile::Builder::new()
+                    .prefix(&format!("validator_kickout_{}", i))
+                    .tempdir()
+                    .unwrap()
+            })
             .collect::<Vec<_>>();
         let test_nodes = init_test_staking(
             dirs.iter().map(|dir| dir.path()).collect::<Vec<_>>(),
@@ -300,7 +306,9 @@ fn test_validator_join() {
         let system = System::new("NEAR");
         let num_nodes = 4;
         let dirs = (0..num_nodes)
-            .map(|i| TempDir::new(&format!("validator_join_{}", i)).unwrap())
+            .map(|i| {
+                tempfile::Builder::new().prefix(&format!("validator_join_{}", i)).tempdir().unwrap()
+            })
             .collect::<Vec<_>>();
         let test_nodes = init_test_staking(
             dirs.iter().map(|dir| dir.path()).collect::<Vec<_>>(),
@@ -437,7 +445,9 @@ fn test_inflation() {
         let system = System::new("NEAR");
         let num_nodes = 1;
         let dirs = (0..num_nodes)
-            .map(|i| TempDir::new(&format!("stake_node_{}", i)).unwrap())
+            .map(|i| {
+                tempfile::Builder::new().prefix(&format!("stake_node_{}", i)).tempdir().unwrap()
+            })
             .collect::<Vec<_>>();
         let epoch_length = 10;
         let test_nodes = init_test_staking(

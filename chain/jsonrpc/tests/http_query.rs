@@ -4,7 +4,7 @@ use futures::{future, FutureExt};
 use near_jsonrpc::client::new_http_client;
 use near_primitives::test_utils::init_test_logger;
 
-mod test_utils;
+pub mod test_utils;
 
 /// Retrieve client status via HTTP GET.
 #[test]

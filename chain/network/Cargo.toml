@@ -6,22 +6,21 @@ edition = "2018"
 
 [dependencies]
 bytes = "0.5"
-actix = "0.9.0"
+actix = "0.9"
 log = "0.4"
 tokio = { version = "0.2", features = ["full"] }
 tokio-util = { version = "0.2", features = ["codec"] }
 futures = "0.3"
 chrono = { version = "0.4.4", features = ["serde"] }
-serde = "1.0"
-serde_derive = "1.0"
-serde_json = "1.0"
+serde = { version = "1", features = [ "derive" ] }
+serde_json = "1"
 rand = "0.7"
 byteorder = "1.2"
 lazy_static = "1.4"
 tracing = "0.1.13"
 
 borsh = "0.6.1"
-cached = "0.12.0"
+cached = "0.12"
 
 near-chain-configs = { path = "../../core/chain-configs" }
 near-crypto = { path = "../../core/crypto" }
@@ -31,7 +30,7 @@ near-metrics = { path = "../../core/metrics" }
 near-chain = { path = "../chain" }
 
 [dev-dependencies]
-tempdir = "0.3.7"
+tempfile = "3"
 bencher = "0.1.5"
 num-rational = "0.2.4"
 

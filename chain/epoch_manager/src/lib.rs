@@ -3,8 +3,8 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
 
 use cached::{Cached, SizedCache};
-use ethereum_types::U256;
 use log::{debug, warn};
+use primitive_types::U256;
 
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{
