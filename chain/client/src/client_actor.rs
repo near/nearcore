@@ -67,8 +67,6 @@ pub struct ClientActor {
     /// Identity that represents this Client at the network level.
     /// It is used as part of the messages that identify this client.
     node_id: PeerId,
-    /// Last height we announced our accounts as validators.
-    last_validator_announce_height: Option<BlockHeight>,
     /// Last time we announced our accounts as validators.
     last_validator_announce_time: Option<Instant>,
     /// Info helper.
@@ -141,7 +139,6 @@ impl ClientActor {
                 #[cfg(feature = "metric_recorder")]
                 metric_recorder: MetricRecorder::default(),
             },
-            last_validator_announce_height: None,
             last_validator_announce_time: None,
             info_helper,
         })
@@ -562,19 +559,7 @@ impl ClientActor {
             }
         }
 
-        let epoch_start_height = unwrap_or_return!(
-            self.client.runtime_adapter.get_epoch_start_height(&prev_block_hash),
-            ()
-        );
-
-        debug!(target: "client", "Check announce account for {}, epoch start height: {}, {:?}", validator_signer.validator_id(), epoch_start_height, self.last_validator_announce_height);
-
-        if let Some(last_validator_announce_height) = self.last_validator_announce_height {
-            if last_validator_announce_height >= epoch_start_height {
-                // This announcement was already done!
-                return;
-            }
-        }
+        debug!(target: "client", "Check announce account for {}, last announce time {:?}", validator_signer.validator_id(), self.last_validator_announce_time);
 
         // Announce AccountId if client is becoming a validator soon.
         let next_epoch_id = unwrap_or_return!(self
@@ -592,7 +577,6 @@ impl ClientActor {
                 &validator_stake.account_id == validator_signer.validator_id()
             }) {
                 debug!(target: "client", "Sending announce account for {}", validator_signer.validator_id());
-                self.last_validator_announce_height = Some(epoch_start_height);
                 self.last_validator_announce_time = Some(now);
                 let signature = self.sign_announce_account(&next_epoch_id).unwrap();
 
