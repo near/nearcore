@@ -473,8 +473,10 @@ pub struct Tip {
     pub prev_block_hash: CryptoHash,
     /// The score on that fork
     pub score: BlockScore,
-    /// Previous epoch id. Used for getting validator info.
+    /// Current epoch id. Used for getting validator info.
     pub epoch_id: EpochId,
+    /// Next epoch id.
+    pub next_epoch_id: EpochId,
 }
 
 impl Tip {
@@ -486,6 +488,7 @@ impl Tip {
             prev_block_hash: header.prev_hash,
             score: header.inner_rest.score,
             epoch_id: header.inner_lite.epoch_id.clone(),
+            next_epoch_id: header.inner_lite.next_epoch_id.clone(),
         }
     }
 
