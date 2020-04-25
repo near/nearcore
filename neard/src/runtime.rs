@@ -1367,6 +1367,7 @@ mod test {
                     height: 0,
                     epoch_id: EpochId::default(),
                     score: 0.into(),
+                    next_epoch_id: Default::default(),
                 },
                 state_roots,
                 last_receipts: HashMap::default(),
@@ -1434,6 +1435,7 @@ mod test {
                 height: self.head.height + 1,
                 epoch_id: self.runtime.get_epoch_id_from_prev_block(&new_hash).unwrap(),
                 score: self.head.score,
+                next_epoch_id: self.runtime.get_next_epoch_id_from_prev_block(&new_hash).unwrap(),
             };
         }
 

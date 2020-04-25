@@ -474,17 +474,9 @@ impl Client {
             .clone();
 
         let prev_block_header = self.chain.get_block_header(&prev_block_hash)?.clone();
-
         let transactions = self.prepare_transactions(shard_id, &chunk_extra, &prev_block_header);
-
         let num_filtered_transactions = transactions.len();
-
         let (tx_root, _) = merklize(&transactions);
-        debug!(
-            "Creating a chunk with {} filtered transactions for shard {}",
-            num_filtered_transactions, shard_id
-        );
-
         let ReceiptResponse(_, outgoing_receipts) = self.chain.get_outgoing_receipts_for_shard(
             prev_block_hash,
             shard_id,
@@ -1046,6 +1038,8 @@ impl Client {
     /// Forwards given transaction to upcoming validators.
     fn forward_tx(&self, epoch_id: &EpochId, tx: &SignedTransaction) -> Result<(), Error> {
         let shard_id = self.runtime_adapter.account_id_to_shard_id(&tx.transaction.signer_id);
+        let head = self.chain.head()?;
+        let maybe_next_epoch_id = self.get_next_epoch_id_if_at_boundary(&head)?;
 
         let mut validators = HashSet::new();
         for horizon in
@@ -1054,12 +1048,21 @@ impl Client {
             let validator =
                 self.chain.find_chunk_producer_for_forwarding(epoch_id, shard_id, horizon)?;
             validators.insert(validator);
+            if let Some(next_epoch_id) = &maybe_next_epoch_id {
+                let validator = self.chain.find_chunk_producer_for_forwarding(
+                    next_epoch_id,
+                    shard_id,
+                    horizon,
+                )?;
+                validators.insert(validator);
+            }
         }
 
         for validator in validators {
             debug!(target: "client",
-                   "I'm {:?}, routing a transaction to {}, shard_id = {}",
+                   "I'm {:?}, routing a transaction {:?} to {}, shard_id = {}",
                    self.validator_signer.as_ref().map(|bp| bp.validator_id()),
+                   tx,
                    validator,
                    shard_id
             );
@@ -1083,6 +1086,21 @@ impl Client {
         })
     }
 
+    /// If we are close to epoch boundary, return next epoch id, otherwise return None.
+    fn get_next_epoch_id_if_at_boundary(&self, head: &Tip) -> Result<Option<EpochId>, Error> {
+        let next_epoch_estimated_height =
+            self.runtime_adapter.get_epoch_start_height(&head.last_block_hash)?
+                + self.config.epoch_length;
+
+        let epoch_boundary_possible =
+            head.height + TX_ROUTING_HEIGHT_HORIZON >= next_epoch_estimated_height;
+        if epoch_boundary_possible {
+            Ok(Some(self.runtime_adapter.get_next_epoch_id_from_prev_block(&head.last_block_hash)?))
+        } else {
+            Ok(None)
+        }
+    }
+
     /// If we're a validator in one of the next few chunks, but epoch switch could happen soon,
     /// we forward to a validator from next epoch.
     fn possibly_forward_tx_to_next_epoch(&mut self, tx: &SignedTransaction) -> Result<(), Error> {
@@ -1092,16 +1110,7 @@ impl Client {
         if next_epoch_started {
             return Ok(());
         }
-        let next_epoch_estimated_height =
-            self.runtime_adapter.get_epoch_start_height(&head.last_block_hash)?
-                + self.config.epoch_length;
-
-        let epoch_boundary_possible =
-            head.height + TX_ROUTING_HEIGHT_HORIZON >= next_epoch_estimated_height;
-
-        if epoch_boundary_possible {
-            let next_epoch_id =
-                self.runtime_adapter.get_next_epoch_id_from_prev_block(&head.last_block_hash)?;
+        if let Some(next_epoch_id) = self.get_next_epoch_id_if_at_boundary(&head)? {
             self.forward_tx(&next_epoch_id, tx)?;
         }
         Ok(())
@@ -1163,9 +1172,10 @@ impl Client {
                 // If I'm not an active validator I should forward tx to next validators.
                 debug!(
                     target: "client",
-                    "Recording a transaction. I'm {:?}, {}",
+                    "Recording a transaction. I'm {:?}, {} is_forwarded: {}",
                     me,
-                    shard_id
+                    shard_id,
+                    is_forwarded
                 );
                 let new_transaction = self.shards_mgr.insert_transaction(shard_id, tx.clone());
 
@@ -1211,7 +1221,12 @@ impl Client {
                 head.height + i,
                 shard_id,
             )?;
-            if &chunk_producer == account_id {
+            let next_epoch_chunk_producer = self.runtime_adapter.get_chunk_producer(
+                &head.next_epoch_id,
+                head.height + i,
+                shard_id,
+            )?;
+            if &chunk_producer == account_id || &next_epoch_chunk_producer == account_id {
                 return Ok(true);
             }
         }

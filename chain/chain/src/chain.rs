@@ -1931,10 +1931,7 @@ impl Chain {
         &mut self,
         hash: &CryptoHash,
     ) -> Result<ExecutionOutcomeWithIdView, Error> {
-        match self.get_execution_outcome(hash) {
-            Ok(result) => Ok(result.clone().into()),
-            Err(err) => return Err(err),
-        }
+        self.get_execution_outcome(hash).map(|r| r.clone().into())
     }
 
     fn get_recursive_transaction_results(

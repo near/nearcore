@@ -208,6 +208,28 @@ impl ViewClientActor {
         }
     }
 
+    fn request_receipt_outcome(
+        &mut self,
+        receipt_id: CryptoHash,
+        last_block_hash: &CryptoHash,
+    ) -> Result<(), TxStatusError> {
+        let dst_shard_id = *self
+            .chain
+            .get_shard_id_for_receipt_id(&receipt_id)
+            .map_err(|e| TxStatusError::ChainError(e))?;
+        if self.chain.get_chunk_extra(last_block_hash, dst_shard_id).is_err() {
+            if Self::need_request(receipt_id, &mut self.receipt_outcome_requests) {
+                let validator = self
+                    .chain
+                    .find_validator_for_forwarding(dst_shard_id)
+                    .map_err(|e| TxStatusError::ChainError(e))?;
+                self.network_adapter
+                    .do_send(NetworkRequests::ReceiptOutComeRequest(validator, receipt_id));
+            }
+        }
+        Ok(())
+    }
+
     fn get_tx_status(
         &mut self,
         tx_hash: CryptoHash,
@@ -231,31 +253,10 @@ impl ViewClientActor {
                     match tx_result.status {
                         FinalExecutionStatus::NotStarted | FinalExecutionStatus::Started => {
                             for receipt_view in tx_result.receipts_outcome.iter() {
-                                let dst_shard_id = *self
-                                    .chain
-                                    .get_shard_id_for_receipt_id(&receipt_view.id)
-                                    .map_err(|e| TxStatusError::ChainError(e))?;
-                                if self
-                                    .chain
-                                    .get_chunk_extra(&head.last_block_hash, dst_shard_id)
-                                    .is_err()
-                                {
-                                    if Self::need_request(
-                                        receipt_view.id,
-                                        &mut self.receipt_outcome_requests,
-                                    ) {
-                                        let validator = self
-                                            .chain
-                                            .find_validator_for_forwarding(dst_shard_id)
-                                            .map_err(|e| TxStatusError::ChainError(e))?;
-                                        self.network_adapter.do_send(
-                                            NetworkRequests::ReceiptOutComeRequest(
-                                                validator,
-                                                receipt_view.id,
-                                            ),
-                                        );
-                                    }
-                                }
+                                self.request_receipt_outcome(
+                                    receipt_view.id,
+                                    &head.last_block_hash,
+                                )?;
                             }
                         }
                         FinalExecutionStatus::SuccessValue(_)
@@ -265,7 +266,14 @@ impl ViewClientActor {
                 }
                 Err(e) => match e.kind() {
                     ErrorKind::DBNotFoundErr(_) => {
-                        return Err(TxStatusError::MissingTransaction(tx_hash))
+                        if let Ok(execution_outcome) =
+                            self.chain.get_transaction_execution_result(&tx_hash)
+                        {
+                            for receipt_id in execution_outcome.outcome.receipt_ids {
+                                self.request_receipt_outcome(receipt_id, &head.last_block_hash)?;
+                            }
+                        }
+                        return Err(TxStatusError::MissingTransaction(tx_hash));
                     }
                     _ => {
                         warn!(target: "client", "Error trying to get transaction result: {}", e.to_string());
@@ -281,6 +289,7 @@ impl ViewClientActor {
                     .chain
                     .find_validator_for_forwarding(target_shard_id)
                     .map_err(|e| TxStatusError::ChainError(e))?;
+
                 self.network_adapter.do_send(NetworkRequests::TxStatus(
                     validator,
                     signer_account_id,

@@ -1,9 +1,12 @@
+use std::collections::HashSet;
+use std::iter::FromIterator;
 use std::path::Path;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, RwLock};
 
 use actix::System;
 use futures::{future, FutureExt};
+use num_rational::Rational;
 
 use near_chain::chain::{check_refcount_map, NUM_EPOCHS_TO_KEEP_STORE_DATA};
 use near_chain::{Block, ChainGenesis, ChainStoreAccess, ErrorKind, Provenance, RuntimeAdapter};
@@ -33,9 +36,8 @@ use near_primitives::types::{BlockHeight, EpochId, MerkleHash, NumBlocks};
 use near_primitives::utils::to_timestamp;
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
 use near_store::test_utils::create_test_store;
-use neard::config::{GenesisExt, TESTING_INIT_BALANCE};
+use neard::config::{GenesisExt, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use neard::NEAR_BASE;
-use num_rational::Rational;
 
 /// Runs block producing client and stops after network mock received two blocks.
 #[test]
@@ -994,6 +996,73 @@ fn test_tx_forwarding_no_double_forwarding() {
     let genesis_hash = genesis_block.hash();
     env.clients[0].process_tx(SignedTransaction::empty(genesis_hash), true);
     assert!(env.network_adapters[0].requests.read().unwrap().is_empty());
+}
+
+#[test]
+fn test_tx_forward_around_epoch_boundary() {
+    let epoch_length = 4;
+    let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
+    genesis.config.num_block_producer_seats = 2;
+    genesis.config.num_block_producer_seats_per_shard = vec![2];
+    genesis.config.epoch_length = epoch_length;
+    let create_runtime = |store| -> neard::NightshadeRuntime {
+        neard::NightshadeRuntime::new(
+            Path::new("."),
+            store,
+            Arc::new(genesis.clone()),
+            vec![],
+            vec![],
+        )
+    };
+    let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![
+        Arc::new(create_runtime(create_test_store())),
+        Arc::new(create_runtime(create_test_store())),
+        Arc::new(create_runtime(create_test_store())),
+    ];
+    let mut chain_genesis = ChainGenesis::test();
+    chain_genesis.epoch_length = epoch_length;
+    chain_genesis.gas_limit = genesis.config.gas_limit;
+    let mut env = TestEnv::new_with_runtime(chain_genesis, 3, 2, runtimes);
+    let genesis_hash = env.clients[0].chain.genesis().hash();
+    let signer = InMemorySigner::from_seed("test1", KeyType::ED25519, "test1");
+    let tx = SignedTransaction::stake(
+        1,
+        "test1".to_string(),
+        &signer,
+        TESTING_INIT_STAKE,
+        signer.public_key.clone(),
+        genesis_hash,
+    );
+    env.clients[0].process_tx(tx, false);
+
+    for i in 1..epoch_length * 2 {
+        let block = env.clients[0].produce_block(i).unwrap().unwrap();
+        for j in 0..3 {
+            if j != 1 {
+                let provenance = if j == 0 { Provenance::PRODUCED } else { Provenance::NONE };
+                env.process_block(j, block.clone(), provenance);
+            }
+        }
+    }
+    let tx = SignedTransaction::send_money(
+        1,
+        "test1".to_string(),
+        "test0".to_string(),
+        &signer,
+        1,
+        genesis_hash,
+    );
+    env.clients[2].process_tx(tx, false);
+    let mut accounts_to_forward = HashSet::new();
+    for request in env.network_adapters[2].requests.read().unwrap().iter() {
+        if let NetworkRequests::ForwardTx(account_id, _) = request {
+            accounts_to_forward.insert(account_id.clone());
+        }
+    }
+    assert_eq!(
+        accounts_to_forward,
+        HashSet::from_iter(vec!["test0".to_string(), "test1".to_string()])
+    );
 }
 
 /// Blocks that have already been gc'ed should not be accepted again.
