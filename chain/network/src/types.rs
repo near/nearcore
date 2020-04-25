@@ -1227,7 +1227,10 @@ pub enum NetworkClientMessages {
     /// Received transaction.
     Transaction {
         transaction: SignedTransaction,
+        /// Whether the transaction is forwarded from other nodes.
         is_forwarded: bool,
+        /// Whether the transaction needs to be submitted.
+        check_only: bool,
     },
     /// Received block, possibly requested.
     Block(Block, PeerId, bool),

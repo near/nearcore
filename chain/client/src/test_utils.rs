@@ -920,7 +920,7 @@ impl TestEnv {
             100,
             self.clients[id].chain.head().unwrap().last_block_hash,
         );
-        self.clients[id].process_tx(tx, false)
+        self.clients[id].process_tx(tx, false, false)
     }
 
     pub fn restart(&mut self, id: usize) {

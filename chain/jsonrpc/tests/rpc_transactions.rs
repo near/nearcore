@@ -201,3 +201,28 @@ fn test_tx_status_missing_tx() {
         }
     });
 }
+
+#[test]
+fn test_check_invalid_tx() {
+    test_with_client!(test_utils::NodeType::Validator, client, async move {
+        let signer = InMemorySigner::from_seed("test1", KeyType::ED25519, "test1");
+        // invalid base hash
+        let tx = SignedTransaction::send_money(
+            1,
+            "test1".to_string(),
+            "test2".to_string(),
+            &signer,
+            100,
+            hash(&[1]),
+        );
+        let bytes = tx.try_to_vec().unwrap();
+        match client.EXPERIMENTAL_check_tx(to_base64(&bytes)).await {
+            Err(e) => {
+                let s = serde_json::to_string(&e.data.unwrap()).unwrap();
+                println!("{}", s);
+                assert_eq!(s, "{\"TxExecutionError\":{\"InvalidTxError\":\"Expired\"}}");
+            }
+            Ok(_) => panic!("transaction should not succeed"),
+        }
+    });
+}

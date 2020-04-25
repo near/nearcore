@@ -129,6 +129,7 @@ pub enum ServerError {
     TxExecutionError(TxExecutionError),
     Timeout,
     Closed,
+    InternalError,
 }
 
 impl Display for ServerError {
@@ -137,6 +138,7 @@ impl Display for ServerError {
             ServerError::TxExecutionError(e) => write!(f, "ServerError: {}", e),
             ServerError::Timeout => write!(f, "ServerError: Timeout"),
             ServerError::Closed => write!(f, "ServerError: Closed"),
+            ServerError::InternalError => write!(f, "ServerError: Internal Error"),
         }
     }
 }
@@ -208,7 +210,9 @@ impl JsonRpcHandler {
 
         match request.method.as_ref() {
             "broadcast_tx_async" => self.send_tx_async(request.params).await,
+            "EXPERIMENTAL_broadcast_tx_sync" => self.send_tx_sync(request.params).await,
             "broadcast_tx_commit" => self.send_tx_commit(request.params).await,
+            "EXPERIMENTAL_check_tx" => self.check_tx(request.params).await,
             "validators" => self.validators(request.params).await,
             "query" => self.query(request.params).await,
             "health" => self.health().await,
@@ -230,11 +234,11 @@ impl JsonRpcHandler {
     async fn send_tx_async(&self, params: Option<Value>) -> Result<Value, RpcError> {
         let tx = parse_tx(params)?;
         let hash = (&tx.get_hash()).to_base();
-        actix::spawn(
-            self.client_addr
-                .send(NetworkClientMessages::Transaction { transaction: tx, is_forwarded: false })
-                .map(drop),
-        );
+        self.client_addr.do_send(NetworkClientMessages::Transaction {
+            transaction: tx,
+            is_forwarded: false,
+            check_only: false,
+        });
         Ok(Value::String(hash))
     }
 
@@ -283,16 +287,68 @@ impl JsonRpcHandler {
         .map_err(|_| timeout_err())?
     }
 
+    async fn send_tx(
+        &self,
+        tx: SignedTransaction,
+        check_only: bool,
+    ) -> Result<NetworkClientResponses, RpcError> {
+        Ok(self
+            .client_addr
+            .send(NetworkClientMessages::Transaction {
+                transaction: tx,
+                is_forwarded: false,
+                check_only,
+            })
+            .map_err(|err| RpcError::server_error(Some(ServerError::from(err))))
+            .await?)
+    }
+
+    async fn send_tx_sync(&self, params: Option<Value>) -> Result<Value, RpcError> {
+        self.send_or_check_tx(params, false).await
+    }
+
+    async fn check_tx(&self, params: Option<Value>) -> Result<Value, RpcError> {
+        self.send_or_check_tx(params, true).await
+    }
+
+    async fn send_or_check_tx(
+        &self,
+        params: Option<Value>,
+        check_only: bool,
+    ) -> Result<Value, RpcError> {
+        let tx = parse_tx(params)?;
+        let tx_hash = (&tx.get_hash()).to_base();
+        match self.send_tx(tx, check_only).await? {
+            NetworkClientResponses::ValidTx => {
+                if check_only {
+                    Ok(Value::Null)
+                } else {
+                    Ok(Value::String(tx_hash))
+                }
+            }
+            NetworkClientResponses::RequestRouted => {
+                if check_only {
+                    Ok(Value::String("Node doesn't track this shard. Cannot determine whether the transaction is valid".to_string()))
+                } else {
+                    Ok(Value::String("Transaction is routed".to_string()))
+                }
+            }
+            NetworkClientResponses::InvalidTx(err) => {
+                Err(RpcError::server_error(Some(ServerError::TxExecutionError(err.into()))))
+            }
+            NetworkClientResponses::NoResponse => {
+                // this is only possible if something went wrong with the node internally.
+                Err(RpcError::server_error(Some(ServerError::InternalError)))
+            }
+            _ => unreachable!(),
+        }
+    }
+
     async fn send_tx_commit(&self, params: Option<Value>) -> Result<Value, RpcError> {
         let tx = parse_tx(params)?;
         let tx_hash = tx.get_hash();
         let signer_account_id = tx.transaction.signer_id.clone();
-        let result = self
-            .client_addr
-            .send(NetworkClientMessages::Transaction { transaction: tx, is_forwarded: false })
-            .map_err(|err| RpcError::server_error(Some(ServerError::from(err))))
-            .await?;
-        match result {
+        match self.send_tx(tx, false).await? {
             NetworkClientResponses::ValidTx | NetworkClientResponses::RequestRouted => {
                 self.tx_polling(tx_hash, signer_account_id).await
             }

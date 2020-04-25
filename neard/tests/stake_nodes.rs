@@ -110,7 +110,11 @@ fn test_stake_nodes() {
         actix::spawn(
             test_nodes[0]
                 .client
-                .send(NetworkClientMessages::Transaction { transaction: tx, is_forwarded: false })
+                .send(NetworkClientMessages::Transaction {
+                    transaction: tx,
+                    is_forwarded: false,
+                    check_only: false,
+                })
                 .map(drop),
         );
 
@@ -191,6 +195,7 @@ fn test_validator_kickout() {
                     .send(NetworkClientMessages::Transaction {
                         transaction: stake_transaction,
                         is_forwarded: false,
+                        check_only: false,
                     })
                     .map(drop),
             );
@@ -343,6 +348,7 @@ fn test_validator_join() {
                 .send(NetworkClientMessages::Transaction {
                     transaction: unstake_transaction,
                     is_forwarded: false,
+                    check_only: false,
                 })
                 .map(drop),
         );
@@ -352,6 +358,7 @@ fn test_validator_join() {
                 .send(NetworkClientMessages::Transaction {
                     transaction: stake_transaction,
                     is_forwarded: false,
+                    check_only: false,
                 })
                 .map(drop),
         );

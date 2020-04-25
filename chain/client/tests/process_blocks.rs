@@ -123,6 +123,7 @@ fn produce_blocks_with_tx() {
             client.do_send(NetworkClientMessages::Transaction {
                 transaction: SignedTransaction::empty(block_hash),
                 is_forwarded: false,
+                check_only: false,
             });
             future::ready(())
         }))
@@ -655,7 +656,7 @@ fn test_process_invalid_tx() {
     );
     produce_blocks(&mut client, 12);
     assert_eq!(
-        client.process_tx(tx, false),
+        client.process_tx(tx, false, false),
         NetworkClientResponses::InvalidTx(InvalidTxError::Expired)
     );
     let tx2 = SignedTransaction::new(
@@ -670,7 +671,7 @@ fn test_process_invalid_tx() {
         },
     );
     assert_eq!(
-        client.process_tx(tx2, false),
+        client.process_tx(tx2, false, false),
         NetworkClientResponses::InvalidTx(InvalidTxError::Expired)
     );
 }
@@ -983,7 +984,7 @@ fn test_tx_forwarding() {
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
     let genesis_hash = genesis_block.hash();
     // forward to 2 chunk producers
-    env.clients[0].process_tx(SignedTransaction::empty(genesis_hash), false);
+    env.clients[0].process_tx(SignedTransaction::empty(genesis_hash), false, false);
     assert_eq!(env.network_adapters[0].requests.read().unwrap().len(), 4);
 }
 
@@ -994,7 +995,7 @@ fn test_tx_forwarding_no_double_forwarding() {
     let mut env = TestEnv::new(chain_genesis, 50, 50);
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
     let genesis_hash = genesis_block.hash();
-    env.clients[0].process_tx(SignedTransaction::empty(genesis_hash), true);
+    env.clients[0].process_tx(SignedTransaction::empty(genesis_hash), true, false);
     assert!(env.network_adapters[0].requests.read().unwrap().is_empty());
 }
 
@@ -1033,7 +1034,7 @@ fn test_tx_forward_around_epoch_boundary() {
         signer.public_key.clone(),
         genesis_hash,
     );
-    env.clients[0].process_tx(tx, false);
+    env.clients[0].process_tx(tx, false, false);
 
     for i in 1..epoch_length * 2 {
         let block = env.clients[0].produce_block(i).unwrap().unwrap();
@@ -1052,7 +1053,7 @@ fn test_tx_forward_around_epoch_boundary() {
         1,
         genesis_hash,
     );
-    env.clients[2].process_tx(tx, false);
+    env.clients[2].process_tx(tx, false, false);
     let mut accounts_to_forward = HashSet::new();
     for request in env.network_adapters[2].requests.read().unwrap().iter() {
         if let NetworkRequests::ForwardTx(account_id, _) = request {
@@ -1207,7 +1208,7 @@ fn test_gas_price_change() {
             - send_money_total_gas as u128 * min_gas_price,
         genesis_hash,
     );
-    env.clients[0].process_tx(tx, false);
+    env.clients[0].process_tx(tx, false, false);
     env.produce_block(0, 1);
     let tx = SignedTransaction::send_money(
         2,
@@ -1217,7 +1218,7 @@ fn test_gas_price_change() {
         1,
         genesis_hash,
     );
-    env.clients[0].process_tx(tx, false);
+    env.clients[0].process_tx(tx, false, false);
     for i in 2..=4 {
         env.produce_block(0, i);
     }

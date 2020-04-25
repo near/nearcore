@@ -256,8 +256,8 @@ impl Handler<NetworkClientMessages> for ClientActor {
                     _ => panic!("invalid adversary message"),
                 };
             }
-            NetworkClientMessages::Transaction { transaction, is_forwarded } => {
-                self.client.process_tx(transaction, is_forwarded)
+            NetworkClientMessages::Transaction { transaction, is_forwarded, check_only } => {
+                self.client.process_tx(transaction, is_forwarded, check_only)
             }
             NetworkClientMessages::Block(block, peer_id, was_requested) => {
                 let blocks_at_height = self
