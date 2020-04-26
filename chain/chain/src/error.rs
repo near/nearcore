@@ -106,7 +106,7 @@ pub enum ErrorKind {
     /// The block doesn't have approvals from 50% of the block producers
     #[fail(display = "Not enough approvals")]
     NotEnoughApprovals,
-    /// The information about the last doomslug final block is incorrect
+    /// The information about the last final block is incorrect
     #[fail(display = "Invalid finality info")]
     InvalidFinalityInfo,
     /// Invalid validator proposals in the block.
