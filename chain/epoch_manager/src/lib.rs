@@ -743,6 +743,7 @@ impl EpochManager {
         let epoch_id = self.get_epoch_id(block_hash)?;
         let slashed = self.get_slashed_validators(block_hash)?.clone();
         let cur_epoch_info = self.get_epoch_info(&epoch_id)?.clone();
+        let epoch_start_height = self.get_epoch_start_height(block_hash)?;
         let mut validator_to_shard = (0..cur_epoch_info.validators.len())
             .map(|_| HashSet::default())
             .collect::<Vec<HashSet<ShardId>>>();
@@ -820,6 +821,7 @@ impl EpochManager {
             next_fishermen: next_fishermen.into_iter().map(Into::into).collect(),
             current_proposals: current_proposals.into_iter().map(Into::into).collect(),
             prev_epoch_kickout,
+            epoch_start_height,
         })
     }
 

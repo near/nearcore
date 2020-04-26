@@ -848,6 +848,7 @@ impl RuntimeAdapter for KeyValueRuntime {
             next_fishermen: vec![],
             current_proposals: vec![],
             prev_epoch_kickout: vec![],
+            epoch_start_height: 0,
         })
     }
 
