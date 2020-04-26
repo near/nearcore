@@ -2739,7 +2739,7 @@ impl<'a> ChainUpdate<'a> {
             // `ColNextBlockHash`-es populated, and they are only populated for the canonical
             // chain. We need to be careful to avoid a situation when the first block of the epoch
             // never becomes a tip of the canonical chain.
-            // Presently the epoch boundary is deinfed by the height, and the fork choice rule
+            // Presently the epoch boundary is defined by the height, and the fork choice rule
             // is also just height, so the very first block to cross the epoch end is guaranteed
             // to be the head of the chain, and result in the light client block produced.
             if block.header.inner_lite.epoch_id != prev_epoch_id {
