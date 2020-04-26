@@ -196,8 +196,7 @@ impl DoomslugApprovalsTracker {
     /// `ReadySince` if the block has enough approvals to pass the threshold, and since when it
     ///     does
     fn get_block_production_readiness(&mut self, now: Instant) -> DoomslugBlockProductionReadiness {
-        if ((self.approved_stake_this_epoch > self.total_stake_this_epoch * 2 / 3
-            || self.total_stake_this_epoch == 0)
+        if (self.approved_stake_this_epoch > self.total_stake_this_epoch * 2 / 3
             && (self.approved_stake_next_epoch > self.total_stake_next_epoch * 2 / 3
                 || self.total_stake_next_epoch == 0))
             || self.threshold_mode == DoomslugThresholdMode::NoApprovals
