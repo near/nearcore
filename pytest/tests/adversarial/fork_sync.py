@@ -22,7 +22,7 @@ cur_height = 0
 fork1_height = 0
 fork2_height = 0
 
-for i in range(2, 4):
+for i in range(0, 4):
     res = nodes[i].json_rpc('adv_disable_doomslug', [])
     assert 'result' in res, res
 
