@@ -56,34 +56,36 @@ pub enum DBCol {
     ColBlockExtra = 19,
     /// Store hash of a block per each height, to detect double signs.
     ColBlockPerHeight = 20,
-    ColStateParts = 21,
-    ColEpochStart = 22,
+    ColLastApprovalPerAccount = 21,
+    ColMyLastApprovalsPerChain = 22,
+    ColStateParts = 23,
+    ColEpochStart = 24,
     /// Map account_id to announce_account
-    ColAccountAnnouncements = 23,
+    ColAccountAnnouncements = 25,
     /// Next block hashes in the sequence of the canonical chain blocks
-    ColNextBlockHashes = 24,
+    ColNextBlockHashes = 26,
     /// `LightClientBlock`s corresponding to the last final block of each completed epoch
-    ColEpochLightClientBlocks = 25,
-    ColReceiptIdToShardId = 26,
-    ColNextBlockWithNewChunk = 27,
-    ColLastBlockWithNewChunk = 28,
+    ColEpochLightClientBlocks = 27,
+    ColReceiptIdToShardId = 28,
+    ColNextBlockWithNewChunk = 29,
+    ColLastBlockWithNewChunk = 30,
     /// Map each saved peer on disk with its component id.
-    ColPeerComponent = 29,
+    ColPeerComponent = 31,
     /// Map component id with all edges in this component.
-    ColComponentEdges = 30,
+    ColComponentEdges = 32,
     /// Biggest nonce used.
-    LastComponentNonce = 31,
+    LastComponentNonce = 33,
     /// Transactions
-    ColTransactions = 32,
-    ColChunkPerHeightShard = 33,
+    ColTransactions = 34,
+    ColChunkPerHeightShard = 35,
     /// Changes to key-values that we have recorded.
-    ColStateChanges = 34,
-    ColBlockRefCount = 35,
-    ColTrieChanges = 36,
+    ColStateChanges = 36,
+    ColBlockRefCount = 37,
+    ColTrieChanges = 38,
 }
 
 // Do not move this line from enum DBCol
-const NUM_COLS: usize = 37;
+const NUM_COLS: usize = 39;
 
 impl std::fmt::Display for DBCol {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
@@ -109,6 +111,8 @@ impl std::fmt::Display for DBCol {
             Self::ColInvalidChunks => "invalid chunks",
             Self::ColBlockExtra => "extra block information",
             Self::ColBlockPerHeight => "hash of block per height",
+            Self::ColLastApprovalPerAccount => "last approval per account",
+            Self::ColMyLastApprovalsPerChain => "my last approval per chain",
             Self::ColStateParts => "state parts",
             Self::ColEpochStart => "epoch start",
             Self::ColAccountAnnouncements => "account announcements",

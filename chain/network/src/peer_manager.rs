@@ -402,28 +402,29 @@ impl PeerManagerActor {
         self.active_peers.len() + self.outgoing_peers.len() < self.config.max_peer as usize
     }
 
-    /// Returns single random peer with close to the highest height
+    /// Returns single random peer with the highest score/height
     fn highest_height_peers(&self) -> Vec<FullPeerInfo> {
-        // This finds max height among peers, and returns one peer close to such height.
-        let max_height = match self
+        // This finds max of score and height and returns such peer.
+        let max_score_and_height = match self
             .active_peers
             .values()
-            .map(|active_peers| active_peers.full_peer_info.chain_info.height)
+            .map(|active_peers| active_peers.full_peer_info.chain_info.score_and_height())
             .max()
         {
-            Some(height) => height,
+            Some(score_and_height) => score_and_height,
             None => return vec![],
         };
         // Find all peers whose height is within `highest_peer_horizon` from max height peer(s).
         self.active_peers
             .values()
             .filter_map(|active_peer| {
-                if active_peer.full_peer_info.chain_info.height + self.config.highest_peer_horizon
-                    >= max_height
-                {
-                    Some(active_peer.full_peer_info.clone())
-                } else {
+                if max_score_and_height.beyond_threshold(
+                    &active_peer.full_peer_info.chain_info.score_and_height(),
+                    self.config.highest_peer_horizon,
+                ) {
                     None
+                } else {
+                    Some(active_peer.full_peer_info.clone())
                 }
             })
             .collect::<Vec<_>>()

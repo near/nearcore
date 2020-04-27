@@ -91,7 +91,6 @@ fn chunks_produced_and_distributed_common(
         let heights1 = heights.clone();
 
         let height_to_hash = Arc::new(RwLock::new(HashMap::new()));
-        let height_to_epoch = Arc::new(RwLock::new(HashMap::new()));
 
         let check_height =
             move |hash: CryptoHash, height| match heights1.write().unwrap().entry(hash.clone()) {
@@ -103,8 +102,9 @@ fn chunks_produced_and_distributed_common(
                 }
             };
 
-        let validators = vec![vec!["test1", "test2", "test3", "test4"],vec!["test5", "test6", "test7", "test8"]];
-        let key_pairs = (0..8).map(|_| PeerInfo::random()).collect::<Vec<_>>();
+        let validators = vec![vec!["test1", "test2", "test3", "test4"]];
+        let key_pairs =
+            vec![PeerInfo::random(), PeerInfo::random(), PeerInfo::random(), PeerInfo::random()];
 
         let mut partial_chunk_msgs = 0;
         let mut partial_chunk_request_msgs = 0;
@@ -126,16 +126,11 @@ fn chunks_produced_and_distributed_common(
                         check_height(block.hash(), block.header.inner_lite.height);
                         check_height(block.header.prev_hash, block.header.inner_lite.height - 1);
 
-                        let h = block.header.inner_lite.height;
-
                         let mut height_to_hash = height_to_hash.write().unwrap();
-                        height_to_hash.insert(h, block.hash());
-
-                        let mut height_to_epoch = height_to_epoch.write().unwrap();
-                        height_to_epoch.insert(h, block.header.inner_lite.epoch_id.clone());
+                        height_to_hash.insert(block.header.inner_lite.height, block.hash());
 
                         println!(
-                            "[{:?}]: BLOCK {} HEIGHT {}; HEADER HEIGHTS: {} / {} / {} / {};\nAPPROVALS: {:?}",
+                            "[{:?}]: BLOCK {} HEIGHT {}; HEADER HEIGHTS: {} / {} / {} / {}; QUORUMS: {} / {}\nAPPROVALS: {:?}",
                             Instant::now(),
                             block.hash(),
                             block.header.inner_lite.height,
@@ -143,25 +138,21 @@ fn chunks_produced_and_distributed_common(
                             block.chunks[1].inner.height_created,
                             block.chunks[2].inner.height_created,
                             block.chunks[3].inner.height_created,
+                            block.header.inner_rest.last_quorum_pre_vote,
+                            block.header.inner_rest.last_quorum_pre_commit,
                             block.header.inner_rest.approvals,
                         );
 
+                        // Make sure blocks are finalized. 6 is the epoch boundary.
+                        let h = block.header.inner_lite.height;
                         if h > 1 {
-                            // Make sure doomslug finality is computed correctly.
                             assert_eq!(block.header.inner_rest.last_ds_final_block, *height_to_hash.get(&(h - 1)).unwrap());
-
-                            // Make sure epoch length actually corresponds to the desired epoch length
-                            // The switches are expected at 0->1, 5->6 and 10->11
-                            let prev_epoch_id = height_to_epoch.get(&(h - 1)).unwrap().clone();
-                            assert_eq!(block.header.inner_lite.epoch_id == prev_epoch_id, h % 5 != 1);
-
-                            // Make sure that the blocks leading to the epoch switch have twice as
-                            // many approval slots
-                            assert_eq!(block.header.inner_rest.approvals.len() == 8, h % 5 == 0 || h % 5 == 4);
                         }
-                        if h > 2 {
-                            // Make sure BFT finality is computed correctly
-                            assert_eq!(block.header.inner_rest.last_final_block, *height_to_hash.get(&(h - 2)).unwrap());
+                        if h > 1 && h != 6 {
+                            assert_eq!(block.header.inner_rest.last_quorum_pre_vote, *height_to_hash.get(&(h - 1)).unwrap());
+                        }
+                        if h > 2 && (h != 6 && h != 7) {
+                            assert_eq!(block.header.inner_rest.last_quorum_pre_commit, *height_to_hash.get(&(h - 2)).unwrap());
                         }
 
                         if block.header.inner_lite.height > 1 {
@@ -178,7 +169,7 @@ fn chunks_produced_and_distributed_common(
                             }
                         }
 
-                        if block.header.inner_lite.height >= 12 {
+                        if block.header.inner_lite.height >= 8 {
                             println!("PREV BLOCK HASH: {}", block.header.prev_hash);
                             println!(
                                 "STATS: responses: {} requests: {}",

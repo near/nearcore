@@ -540,11 +540,11 @@ impl JsonRpcHandler {
 #[cfg(feature = "adversarial")]
 impl JsonRpcHandler {
     async fn adv_set_sync_info(&self, params: Option<Value>) -> Result<Value, RpcError> {
-        let height = parse_params::<u64>(params)?;
+        let (height, score) = parse_params::<(u64, u64)>(params)?;
         actix::spawn(
             self.view_client_addr
                 .send(NetworkViewClientMessages::Adversarial(
-                    NetworkAdversarialMessage::AdvSetSyncInfo(height),
+                    NetworkAdversarialMessage::AdvSetSyncInfo(height, score),
                 ))
                 .map(|_| ()),
         );

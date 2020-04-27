@@ -34,7 +34,7 @@ pub fn genesis_header(genesis: Arc<Genesis>) -> BlockHeader {
     let chain_genesis = ChainGenesis::from(&genesis);
     let runtime =
         Arc::new(NightshadeRuntime::new(dir.path(), store.clone(), genesis, vec![], vec![]));
-    let chain = Chain::new(runtime, &chain_genesis, DoomslugThresholdMode::TwoThirds).unwrap();
+    let chain = Chain::new(runtime, &chain_genesis, DoomslugThresholdMode::HalfStake).unwrap();
     chain.genesis().clone()
 }
 
@@ -45,7 +45,7 @@ pub fn genesis_block(genesis: Arc<Genesis>) -> Block {
     let chain_genesis = ChainGenesis::from(&genesis);
     let runtime =
         Arc::new(NightshadeRuntime::new(dir.path(), store.clone(), genesis, vec![], vec![]));
-    let mut chain = Chain::new(runtime, &chain_genesis, DoomslugThresholdMode::TwoThirds).unwrap();
+    let mut chain = Chain::new(runtime, &chain_genesis, DoomslugThresholdMode::HalfStake).unwrap();
     chain.get_block(&chain.genesis().hash()).unwrap().clone()
 }
 

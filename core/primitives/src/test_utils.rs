@@ -4,10 +4,10 @@ use std::sync::{Mutex, Once};
 use tracing_subscriber::EnvFilter;
 
 use lazy_static::lazy_static;
-use near_crypto::{EmptySigner, PublicKey, Signature, Signer};
+use near_crypto::{EmptySigner, PublicKey, Signer};
 
 use crate::account::{AccessKey, AccessKeyPermission, Account};
-use crate::block::Block;
+use crate::block::{Approval, Block};
 use crate::hash::CryptoHash;
 use crate::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, SignedTransaction, StakeAction,
@@ -231,7 +231,7 @@ impl Block {
         height: BlockHeight,
         epoch_id: EpochId,
         next_epoch_id: EpochId,
-        approvals: Vec<Option<Signature>>,
+        approvals: Vec<Approval>,
         signer: &dyn ValidatorSigner,
         next_bp_hash: CryptoHash,
     ) -> Self {
@@ -248,6 +248,10 @@ impl Block {
             vec![],
             vec![],
             signer,
+            0.into(),
+            CryptoHash::default(),
+            CryptoHash::default(),
+            CryptoHash::default(),
             next_bp_hash,
         )
     }

@@ -46,6 +46,9 @@ pub enum ErrorKind {
     /// Invalid block confirmation signature.
     #[fail(display = "Invalid Block Confirmation Signature")]
     InvalidBlockConfirmation,
+    /// Invalid block score.
+    #[fail(display = "Invalid Block Score")]
+    InvalidBlockScore,
     /// Invalid state root hash.
     #[fail(display = "Invalid State Root Hash")]
     InvalidStateRoot,
@@ -103,12 +106,15 @@ pub enum ErrorKind {
     /// `next_bps_hash` doens't correspond to the actual next block producers set
     #[fail(display = "Invalid Next BP Hash")]
     InvalidNextBPHash,
+    /// Invalid quorum_pre_vote or quorum_pre_commit
+    #[fail(display = "Invalid Finality Info")]
+    InvalidFinalityInfo,
     /// The block doesn't have approvals from 50% of the block producers
     #[fail(display = "Not enough approvals")]
     NotEnoughApprovals,
-    /// The information about the last final block is incorrect
-    #[fail(display = "Invalid finality info")]
-    InvalidFinalityInfo,
+    /// The information about the last doomslug final block is incorrect
+    #[fail(display = "Invalid doomslug finality info")]
+    InvalidDoomslugFinalityInfo,
     /// Invalid validator proposals in the block.
     #[fail(display = "Invalid Validator Proposals")]
     InvalidValidatorProposals,
@@ -221,6 +227,7 @@ impl Error {
             | ErrorKind::InvalidBlockHeight
             | ErrorKind::InvalidBlockProposer
             | ErrorKind::InvalidBlockConfirmation
+            | ErrorKind::InvalidBlockScore
             | ErrorKind::InvalidChunk
             | ErrorKind::InvalidChunkProofs(_)
             | ErrorKind::InvalidChunkState(_)
@@ -239,8 +246,9 @@ impl Error {
             | ErrorKind::IncorrectNumberOfChunkHeaders
             | ErrorKind::InvalidEpochHash
             | ErrorKind::InvalidNextBPHash
-            | ErrorKind::NotEnoughApprovals
             | ErrorKind::InvalidFinalityInfo
+            | ErrorKind::NotEnoughApprovals
+            | ErrorKind::InvalidDoomslugFinalityInfo
             | ErrorKind::InvalidValidatorProposals
             | ErrorKind::InvalidSignature
             | ErrorKind::InvalidApprovals
