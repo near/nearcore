@@ -1,6 +1,5 @@
 use actix::{Actor, System};
 use futures::{future, FutureExt};
-use tempdir::TempDir;
 
 use near_client::GetBlock;
 use near_network::test_utils::WaitOrTimeout;
@@ -21,7 +20,10 @@ fn run_nodes(
     let system = System::new("NEAR");
     let dirs = (0..num_nodes)
         .map(|i| {
-            TempDir::new(&format!("run_nodes_{}_{}_{}", num_nodes, num_validators, i)).unwrap()
+            tempfile::Builder::new()
+                .prefix(&format!("run_nodes_{}_{}_{}", num_nodes, num_validators, i))
+                .tempdir()
+                .unwrap()
         })
         .collect::<Vec<_>>();
     let (_, _, clients) =

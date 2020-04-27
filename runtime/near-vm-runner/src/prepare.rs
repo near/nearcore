@@ -4,6 +4,7 @@
 use parity_wasm::builder;
 use parity_wasm::elements::{self, External, MemorySection, Type};
 use pwasm_utils::{self, rules};
+use wasmer_runtime_core::wasmparser;
 
 use near_vm_errors::PrepareError;
 use near_vm_logic::VMConfig;

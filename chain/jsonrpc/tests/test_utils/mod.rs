@@ -13,10 +13,9 @@ use near_primitives::types::NumBlocks;
 
 lazy_static::lazy_static! {
     pub static ref TEST_GENESIS_CONFIG: GenesisConfig =
-        GenesisConfig::from_json(include_str!("../../../neard/res/genesis_config.json"));
+        GenesisConfig::from_json(include_str!("../../../../neard/res/genesis_config.json"));
 }
 
-#[allow(dead_code)] // Suppress Rustc warnings even though these variants are used.
 pub enum NodeType {
     Validator,
     NonValidator,

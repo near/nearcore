@@ -11,7 +11,7 @@ use actix::{Actor, Addr, MailboxError, Message, Recipient};
 use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::{DateTime, Utc};
 use futures::{future::BoxFuture, FutureExt};
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use tokio::net::TcpStream;
 use tracing::{error, warn};
 
