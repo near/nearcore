@@ -18,8 +18,11 @@ is the pure function of Docker image used, Rust compiler version and the NEAR im
 ## Usage
 
 We build and run the cost estimator in the Docker container to make sure config is fully reproducible.
+Please make sure that Docker is given at least 4G of RAM, as running under emulator is rather resouce consuming.
 First fetch appropriate base image, with `docker pull rust`.
 Then create a Docker image with `build.sh`, it will create a Docker image with additional build deps.
+
+Set `HOST_DIR` environment variable to local folder where relevant sources are present. It will be mounted under
 
 Start container and build estimator with:
 
@@ -53,7 +56,7 @@ To build QEMU use:
     ./configure --disable-system --enable-user --enable-plugins  --prefix=/host/qemu-linux --target-list=x86_64-linux-user
     make && make install
 
-Then build the QEMU's JIT plugin:
+Then build and test the QEMU's JIT plugin:
 
     cd /host/nearcore/runtime/runtime-params-estimator/emu-cost/counter_plugin
     make QEMU_DIR=/host/qemu

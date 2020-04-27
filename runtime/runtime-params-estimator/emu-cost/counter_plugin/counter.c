@@ -61,6 +61,8 @@ static void vcpu_syscall(qemu_plugin_id_t id, unsigned int vcpu_index,
             case CATCH_BASE + 1: {
                 counting = false;
                 counting_for = 0;
+                // If read syscall passes buffer size (third syscall argument) equal to 8 we assume it is interested
+                // in getting back the actual number of executed instructions.
                 if (a3 == 8) {
                     // In case of user emulation in QEMU, addresses are 1:1 translated, so we can tell the caller
                     // number of executed instructions by just writing into the buffer argument of read.
