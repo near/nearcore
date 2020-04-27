@@ -186,7 +186,16 @@ pub fn record_block_with_slashes(
     epoch_manager
         .record_block_info(
             &cur_h,
-            BlockInfo::new(height, 0, prev_h, proposals, vec![], slashed, 0, DEFAULT_TOTAL_SUPPLY),
+            BlockInfo::new(
+                height,
+                height.saturating_sub(2),
+                prev_h,
+                proposals,
+                vec![],
+                slashed,
+                0,
+                DEFAULT_TOTAL_SUPPLY,
+            ),
             [0; 32],
         )
         .unwrap()
