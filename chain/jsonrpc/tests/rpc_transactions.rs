@@ -15,7 +15,7 @@ use near_primitives::types::BlockIdOrFinality;
 use near_primitives::views::FinalExecutionStatus;
 
 #[macro_use]
-mod test_utils;
+pub mod test_utils;
 
 /// Test sending transaction via json rpc without waiting.
 #[test]

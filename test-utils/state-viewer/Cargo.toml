@@ -5,9 +5,10 @@ authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2018"
 
 [dependencies]
-clap = "2.32.0"
-ansi_term = "0.12.0"
-borsh = "0.6.1"
+clap = "2.33"
+ansi_term = "0.11"
+
+borsh = "0.5.0"
 
 near-chain-configs = { path = "../../core/chain-configs" }
 near-crypto = { path = "../../core/crypto" }
@@ -19,6 +20,6 @@ near-network = { path = "../../chain/network" }
 neard = { path = "../../neard" }
 
 [dev-dependencies]
-near-client = { path = "../../chain/client" }
-serde_json = "1.0"
+serde_json = "1"
 
+near-client = { path = "../../chain/client" }

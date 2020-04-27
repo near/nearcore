@@ -1,10 +1,12 @@
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
+
+use wabt::Wat2Wasm;
+
 use near_runtime_fees::RuntimeFeesConfig;
 use near_vm_logic::mocks::mock_external::MockedExternal;
 use near_vm_logic::{VMConfig, VMContext, VMOutcome};
 use near_vm_runner::{run, VMError};
-use std::collections::hash_map::DefaultHasher;
-use std::hash::{Hash, Hasher};
-use wabt::Wat2Wasm;
 
 pub const CURRENT_ACCOUNT_ID: &str = "alice";
 pub const SIGNER_ACCOUNT_ID: &str = "bob";
@@ -51,7 +53,6 @@ pub fn make_simple_contract_call_with_gas(
     run(code_hash, code, method_name, &mut fake_external, context, &config, &fees, &promise_results)
 }
 
-#[allow(dead_code)]
 pub fn make_simple_contract_call(
     code: &[u8],
     method_name: &[u8],
@@ -59,7 +60,6 @@ pub fn make_simple_contract_call(
     make_simple_contract_call_with_gas(code, method_name, 10u64.pow(14))
 }
 
-#[allow(dead_code)]
 pub fn wat2wasm_no_validate(wat: &str) -> Vec<u8> {
     Wat2Wasm::new().validate(false).convert(wat).unwrap().as_ref().to_vec()
 }

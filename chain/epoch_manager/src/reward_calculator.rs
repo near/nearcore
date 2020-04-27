@@ -1,9 +1,10 @@
-use ethereum_types::U256;
 use std::cmp::max;
 use std::collections::HashMap;
 
-use near_primitives::types::{AccountId, Balance, BlockChunkValidatorStats};
 use num_rational::Rational;
+use primitive_types::U256;
+
+use near_primitives::types::{AccountId, Balance, BlockChunkValidatorStats};
 
 #[derive(Clone)]
 pub struct RewardCalculator {

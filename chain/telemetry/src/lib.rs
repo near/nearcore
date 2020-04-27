@@ -3,7 +3,7 @@ use std::time::Duration;
 use actix::{Actor, Addr, Context, Handler, Message};
 use actix_web::client::{Client, Connector};
 use futures::FutureExt;
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use tracing::info;
 
 /// Timeout for establishing connection.
