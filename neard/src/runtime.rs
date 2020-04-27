@@ -1978,7 +1978,8 @@ mod test {
                     stake: 0
                 }
                 .into()],
-                prev_epoch_kickout: Default::default()
+                prev_epoch_kickout: Default::default(),
+                epoch_start_height: 1
             }
         );
         env.step_default(vec![]);
@@ -2004,7 +2005,8 @@ mod test {
                 account_id: "test1".to_string(),
                 reason: ValidatorKickoutReason::Unstaked
             }]
-        )
+        );
+        assert_eq!(response.epoch_start_height, 3);
     }
 
     #[test]
