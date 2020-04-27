@@ -20,7 +20,7 @@ use near_chain::{Block, BlockHeader};
 use near_chain_configs::PROTOCOL_VERSION;
 use near_crypto::{PublicKey, SecretKey, Signature};
 use near_metrics;
-use near_primitives::block::{Approval, ApprovalMessage, BlockScore, GenesisId, ScoreAndHeight};
+use near_primitives::block::{Approval, ApprovalMessage, GenesisId};
 use near_primitives::challenge::Challenge;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::{hash, CryptoHash};
@@ -126,16 +126,8 @@ pub struct PeerChainInfo {
     pub genesis_id: GenesisId,
     /// Last known chain height of the peer.
     pub height: BlockHeight,
-    /// Last known chain score of the peer.
-    pub score: BlockScore,
     /// Shards that the peer is tracking
     pub tracked_shards: Vec<ShardId>,
-}
-
-impl PeerChainInfo {
-    pub fn score_and_height(&self) -> ScoreAndHeight {
-        ScoreAndHeight { score: self.score, height: self.height }
-    }
 }
 
 /// Peer type.
@@ -1214,7 +1206,7 @@ pub enum NetworkAdversarialMessage {
     AdvDisableDoomslug,
     AdvGetSavedBlocks,
     AdvCheckRefMap,
-    AdvSetSyncInfo(u64, u64),
+    AdvSetSyncInfo(u64),
 }
 
 #[derive(Debug)]
@@ -1329,12 +1321,7 @@ pub enum NetworkViewClientResponses {
     /// Headers response.
     BlockHeaders(Vec<BlockHeader>),
     /// Chain information.
-    ChainInfo {
-        genesis_id: GenesisId,
-        height: BlockHeight,
-        score: BlockScore,
-        tracked_shards: Vec<ShardId>,
-    },
+    ChainInfo { genesis_id: GenesisId, height: BlockHeight, tracked_shards: Vec<ShardId> },
     /// Response to state request.
     StateResponse(StateResponseInfo),
     /// Valid announce accounts.
