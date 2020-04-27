@@ -1198,8 +1198,7 @@ impl Client {
                 }
             }
         } else if check_only {
-            // this response indicates that the node doesn't track the shard
-            Ok(NetworkClientResponses::RequestRouted)
+            Ok(NetworkClientResponses::DoesNotTrackShard)
         } else {
             if is_forwarded {
                 // received forwarded transaction but we are not tracking the shard
