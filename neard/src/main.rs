@@ -188,7 +188,9 @@ fn main() {
                 near_config.rpc_config.addr = rpc_addr.to_string();
             }
             if let Some(telemetry_url) = args.value_of("telemetry-url") {
-                near_config.telemetry_config.endpoints.push(telemetry_url.to_string());
+                if !telemetry_url.is_empty() {
+                    near_config.telemetry_config.endpoints.push(telemetry_url.to_string());
+                }
             }
             if args.is_present("archive") {
                 near_config.client_config.archive = true;
