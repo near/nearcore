@@ -55,7 +55,7 @@ const BLOCK_HORIZON: u64 = 500;
 pub struct ClientActor {
     /// Adversarial controls
     #[cfg(feature = "adversarial")]
-    pub adv_sync_info: Option<(u64, u64)>,
+    pub adv_sync_height: Option<u64>,
     #[cfg(feature = "adversarial")]
     pub adv_disable_header_sync: bool,
     #[cfg(feature = "adversarial")]
@@ -67,8 +67,6 @@ pub struct ClientActor {
     /// Identity that represents this Client at the network level.
     /// It is used as part of the messages that identify this client.
     node_id: PeerId,
-    /// Last height we announced our accounts as validators.
-    last_validator_announce_height: Option<BlockHeight>,
     /// Last time we announced our accounts as validators.
     last_validator_announce_time: Option<Instant>,
     /// Info helper.
@@ -122,7 +120,7 @@ impl ClientActor {
 
         Ok(ClientActor {
             #[cfg(feature = "adversarial")]
-            adv_sync_info: None,
+            adv_sync_height: None,
             #[cfg(feature = "adversarial")]
             adv_disable_header_sync: false,
             #[cfg(feature = "adversarial")]
@@ -141,7 +139,6 @@ impl ClientActor {
                 #[cfg(feature = "metric_recorder")]
                 metric_recorder: MetricRecorder::default(),
             },
-            last_validator_announce_height: None,
             last_validator_announce_time: None,
             info_helper,
         })
@@ -229,8 +226,7 @@ impl Handler<NetworkClientMessages> for ClientActor {
                     NetworkAdversarialMessage::AdvSwitchToHeight(height) => {
                         info!(target: "adversary", "Switching to height {:?}", height);
                         let mut chain_store_update = self.client.chain.mut_store().store_update();
-                        chain_store_update.save_largest_skipped_height(&height);
-                        chain_store_update.save_largest_approved_height(&height);
+                        chain_store_update.save_largest_target_height(&height);
                         chain_store_update
                             .adv_save_latest_known(height)
                             .expect("adv method should not fail");
@@ -562,19 +558,7 @@ impl ClientActor {
             }
         }
 
-        let epoch_start_height = unwrap_or_return!(
-            self.client.runtime_adapter.get_epoch_start_height(&prev_block_hash),
-            ()
-        );
-
-        debug!(target: "client", "Check announce account for {}, epoch start height: {}, {:?}", validator_signer.validator_id(), epoch_start_height, self.last_validator_announce_height);
-
-        if let Some(last_validator_announce_height) = self.last_validator_announce_height {
-            if last_validator_announce_height >= epoch_start_height {
-                // This announcement was already done!
-                return;
-            }
-        }
+        debug!(target: "client", "Check announce account for {}, last announce time {:?}", validator_signer.validator_id(), self.last_validator_announce_time);
 
         // Announce AccountId if client is becoming a validator soon.
         let next_epoch_id = unwrap_or_return!(self
@@ -592,7 +576,6 @@ impl ClientActor {
                 &validator_stake.account_id == validator_signer.validator_id()
             }) {
                 debug!(target: "client", "Sending announce account for {}", validator_signer.validator_id());
-                self.last_validator_announce_height = Some(epoch_start_height);
                 self.last_validator_announce_time = Some(now);
                 let signature = self.sign_announce_account(&next_epoch_id).unwrap();
 
@@ -715,8 +698,10 @@ impl ClientActor {
             let gas_used = Block::compute_gas_used(&block.chunks, block.header.inner_lite.height);
             let gas_limit = Block::compute_gas_limit(&block.chunks, block.header.inner_lite.height);
 
+            let last_final_hash = block.header.inner_rest.last_final_block;
+
             self.info_helper.block_processed(gas_used, gas_limit);
-            self.check_send_announce_account(accepted_block.hash);
+            self.check_send_announce_account(last_final_hash);
         }
     }
 
@@ -860,27 +845,23 @@ impl ClientActor {
         };
 
         if is_syncing {
-            if full_peer_info.chain_info.score_and_height() <= head.score_and_height() {
-                info!(target: "client", "Sync: synced at {} @ {:?} [{}], {}, highest height peer: {} @ {:?}",
-                      head.height, head.score, format_hash(head.last_block_hash),
-                    full_peer_info.peer_info.id,
-                    full_peer_info.chain_info.height, full_peer_info.chain_info.score
+            if full_peer_info.chain_info.height <= head.height {
+                info!(target: "client", "Sync: synced at {} [{}], {}, highest height peer: {}",
+                      head.height, format_hash(head.last_block_hash),
+                      full_peer_info.peer_info.id, full_peer_info.chain_info.height
                 );
                 is_syncing = false;
             }
         } else {
-            if full_peer_info.chain_info.score_and_height().beyond_threshold(
-                &head.score_and_height(),
-                self.client.config.sync_height_threshold,
-            ) {
+            if full_peer_info.chain_info.height
+                > head.height + self.client.config.sync_height_threshold
+            {
                 info!(
                     target: "client",
-                    "Sync: height/score: {}/{}, peer id/height//score: {}/{}/{}, enabling sync",
+                    "Sync: height: {}, peer id/height: {}/{}, enabling sync",
                     head.height,
-                    head.score,
                     full_peer_info.peer_info.id,
                     full_peer_info.chain_info.height,
-                    full_peer_info.chain_info.score,
                 );
                 is_syncing = true;
             }
@@ -973,26 +954,19 @@ impl ClientActor {
 
         let approvals = self.client.doomslug.process_timer(Instant::now());
 
-        // Important to save the largest skipped and endorsed heights before sending approvals, so
+        // Important to save the largest approval target height before sending approvals, so
         // that if the node crashes in the meantime, we cannot get slashed on recovery
         let mut chain_store_update = self.client.chain.mut_store().store_update();
         chain_store_update
-            .save_largest_skipped_height(&self.client.doomslug.get_largest_skipped_height());
-        chain_store_update
-            .save_largest_endorsed_height(&self.client.doomslug.get_largest_endorsed_height());
+            .save_largest_target_height(&self.client.doomslug.get_largest_target_height());
 
         match chain_store_update.commit() {
             Ok(_) => {
                 for approval in approvals {
-                    // `Chain::process_approval` updates metrics related to the finality gadget.
-                    // Don't send the approval if such an update failed
-                    if let Ok(_) = self.client.chain.process_approval(
-                        &self.client.validator_signer.as_ref().map(|x| x.validator_id().clone()),
-                        &approval,
-                    ) {
-                        if let Err(e) = self.client.send_approval(approval) {
-                            error!("Error while sending an approval {:?}", e);
-                        }
+                    if let Err(e) =
+                        self.client.send_approval(&self.client.doomslug.get_tip().0, approval)
+                    {
+                        error!("Error while sending an approval {:?}", e);
                     }
                 }
             }

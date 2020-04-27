@@ -5,7 +5,9 @@ use borsh::BorshSerialize;
 
 use near_crypto::{InMemorySigner, KeyType, PublicKey, Signature, Signer};
 
-use crate::block::{Approval, BlockHeader, BlockHeaderInnerLite, BlockHeaderInnerRest};
+use crate::block::{
+    Approval, ApprovalInner, BlockHeader, BlockHeaderInnerLite, BlockHeaderInnerRest,
+};
 use crate::challenge::ChallengeBody;
 use crate::hash::{hash, CryptoHash};
 use crate::network::{AnnounceAccount, PeerId};
@@ -39,13 +41,7 @@ pub trait ValidatorSigner: Sync + Send {
     ) -> (ChunkHash, Signature);
 
     /// Signs approval of given parent hash and reference hash.
-    fn sign_approval(
-        &self,
-        parent_hash: &CryptoHash,
-        reference_hash: &Option<CryptoHash>,
-        target_height: BlockHeight,
-        is_endorsement: bool,
-    ) -> Signature;
+    fn sign_approval(&self, inner: &ApprovalInner, target_height: BlockHeight) -> Signature;
 
     /// Signs challenge body.
     fn sign_challenge(&self, challenge_body: &ChallengeBody) -> (CryptoHash, Signature);
@@ -105,13 +101,7 @@ impl ValidatorSigner for EmptyValidatorSigner {
         (hash, Signature::default())
     }
 
-    fn sign_approval(
-        &self,
-        _parent_hash: &CryptoHash,
-        _reference_hash: &Option<CryptoHash>,
-        _target_height: BlockHeight,
-        _is_endorsement: bool,
-    ) -> Signature {
+    fn sign_approval(&self, _inner: &ApprovalInner, _target_height: BlockHeight) -> Signature {
         Signature::default()
     }
 
@@ -208,19 +198,8 @@ impl ValidatorSigner for InMemoryValidatorSigner {
         (hash, signature)
     }
 
-    fn sign_approval(
-        &self,
-        parent_hash: &CryptoHash,
-        reference_hash: &Option<CryptoHash>,
-        target_height: BlockHeight,
-        is_endorsement: bool,
-    ) -> Signature {
-        self.signer.sign(&Approval::get_data_for_sig(
-            parent_hash,
-            reference_hash,
-            target_height,
-            is_endorsement,
-        ))
+    fn sign_approval(&self, inner: &ApprovalInner, target_height: BlockHeight) -> Signature {
+        self.signer.sign(&Approval::get_data_for_sig(&inner, target_height))
     }
 
     fn sign_challenge(&self, challenge_body: &ChallengeBody) -> (CryptoHash, Signature) {
