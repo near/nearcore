@@ -3,13 +3,13 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
 
 use cached::{Cached, SizedCache};
-use ethereum_types::U256;
 use log::{debug, warn};
+use primitive_types::U256;
 
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{
-    AccountId, Balance, BlockChunkValidatorStats, BlockHeight, EpochId, ShardId, ValidatorId,
-    ValidatorKickoutReason, ValidatorStake, ValidatorStats,
+    AccountId, ApprovalStake, Balance, BlockChunkValidatorStats, BlockHeight, EpochId, ShardId,
+    ValidatorId, ValidatorKickoutReason, ValidatorStake, ValidatorStats,
 };
 use near_primitives::views::{
     CurrentEpochValidatorInfo, EpochValidatorInfo, NextEpochValidatorInfo, ValidatorKickoutView,
@@ -494,6 +494,49 @@ impl EpochManager {
         Ok(result)
     }
 
+    pub fn get_all_block_approvers_ordered(
+        &mut self,
+        parent_hash: &CryptoHash,
+    ) -> Result<Vec<ApprovalStake>, EpochError> {
+        let current_epoch_id = self.get_epoch_id_from_prev_block(parent_hash)?;
+        let next_epoch_id = self.get_next_epoch_id_from_prev_block(parent_hash)?;
+
+        let mut settlement =
+            self.get_all_block_producers_settlement(&current_epoch_id, parent_hash)?;
+
+        let settlement_epoch_boundary = settlement.len();
+
+        let block_info = self.get_block_info(parent_hash)?.clone();
+        if self.next_block_need_approvals_from_next_epoch(&block_info)? {
+            settlement.extend(
+                self.get_all_block_producers_settlement(&next_epoch_id, parent_hash)?
+                    .iter()
+                    .cloned(),
+            );
+        }
+
+        let mut result = vec![];
+        let mut validators: HashMap<AccountId, usize> = HashMap::default();
+        for (ord, (validator_stake, is_slashed)) in settlement.into_iter().enumerate() {
+            if !is_slashed {
+                match validators.get(&validator_stake.account_id) {
+                    None => {
+                        validators.insert(validator_stake.account_id.clone(), result.len());
+                        result.push(
+                            validator_stake.get_approval_stake(ord >= settlement_epoch_boundary),
+                        );
+                    }
+                    Some(old_ord) => {
+                        if ord >= settlement_epoch_boundary {
+                            result[*old_ord].stake_next_epoch = validator_stake.stake;
+                        };
+                    }
+                };
+            }
+        }
+        Ok(result)
+    }
+
     /// For given epoch_id, height and shard_id returns validator that is chunk producer.
     pub fn get_chunk_producer_info(
         &mut self,
@@ -743,6 +786,7 @@ impl EpochManager {
         let epoch_id = self.get_epoch_id(block_hash)?;
         let slashed = self.get_slashed_validators(block_hash)?.clone();
         let cur_epoch_info = self.get_epoch_info(&epoch_id)?.clone();
+        let epoch_start_height = self.get_epoch_start_height(block_hash)?;
         let mut validator_to_shard = (0..cur_epoch_info.validators.len())
             .map(|_| HashSet::default())
             .collect::<Vec<HashSet<ShardId>>>();
@@ -820,6 +864,7 @@ impl EpochManager {
             next_fishermen: next_fishermen.into_iter().map(Into::into).collect(),
             current_proposals: current_proposals.into_iter().map(Into::into).collect(),
             prev_epoch_kickout,
+            epoch_start_height,
         })
     }
 
@@ -881,36 +926,6 @@ impl EpochManager {
             as usize]
     }
 
-    /// The epoch switches when a block at a particular height gets final. We cannot allow blocks
-    /// beyond that height in the current epoch to get final, otherwise the safety of the finality
-    /// gadget can get violated.
-    pub fn push_final_block_back_if_needed(
-        &mut self,
-        parent_hash: CryptoHash,
-        mut last_final_hash: CryptoHash,
-    ) -> Result<CryptoHash, EpochError> {
-        if last_final_hash == CryptoHash::default() {
-            return Ok(last_final_hash);
-        }
-
-        let block_info = self.get_block_info(&parent_hash)?;
-        let epoch_first_block = block_info.epoch_first_block;
-        let estimated_next_epoch_start =
-            self.get_block_info(&epoch_first_block)?.height + self.config.epoch_length;
-
-        loop {
-            let block_info = self.get_block_info(&last_final_hash)?;
-            let prev_hash = block_info.prev_hash;
-            let prev_block_info = self.get_block_info(&prev_hash)?;
-            // See `is_next_block_in_next_epoch` for details on ` + 3`
-            if prev_block_info.height + 3 >= estimated_next_epoch_start {
-                last_final_hash = prev_hash;
-            } else {
-                return Ok(last_final_hash);
-            }
-        }
-    }
-
     /// Returns true, if given current block info, next block supposed to be in the next epoch.
     #[allow(clippy::wrong_self_convention)]
     fn is_next_block_in_next_epoch(&mut self, block_info: &BlockInfo) -> Result<bool, EpochError> {
@@ -919,14 +934,29 @@ impl EpochManager {
         }
         let estimated_next_epoch_start =
             self.get_block_info(&block_info.epoch_first_block)?.height + self.config.epoch_length;
-        // Say the epoch length is 10, and say all the blocks have all the approvals.
-        // Say the first block of a particular epoch has height 111. We want the block 121 to be
-        //     the first block of the next epoch. For 121 to be the next block, the current block
-        //     has height 120, 119 has the quorum pre-commit and 118 is finalized.
-        // 121 - 118 = 3, hence the `last_finalized_height + 3`
-        Ok((block_info.last_finalized_height + 3 >= estimated_next_epoch_start
-            || self.config.num_block_producer_seats < 4)
-            && block_info.height + 1 >= estimated_next_epoch_start)
+
+        if self.config.epoch_length <= 3 {
+            // This is here to make epoch_manager tests pass. Needs to be removed, tracked in
+            // https://github.com/nearprotocol/nearcore/issues/2522
+            return Ok(block_info.height + 1 >= estimated_next_epoch_start);
+        }
+
+        Ok(block_info.last_finalized_height + 3 >= estimated_next_epoch_start)
+    }
+
+    /// Returns true, if given current block info, next block must include the approvals from the next
+    /// epoch (in addition to the approvals from the current epoch)
+    fn next_block_need_approvals_from_next_epoch(
+        &mut self,
+        block_info: &BlockInfo,
+    ) -> Result<bool, EpochError> {
+        if self.is_next_block_in_next_epoch(block_info)? {
+            return Ok(false);
+        }
+        let estimated_next_epoch_start =
+            self.get_block_info(&block_info.epoch_first_block)?.height + self.config.epoch_length;
+        Ok(block_info.last_finalized_height + 3 < estimated_next_epoch_start
+            && block_info.height + 3 >= estimated_next_epoch_start)
     }
 
     /// Returns epoch id for the next epoch (T+1), given an block info in current epoch (T).

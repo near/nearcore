@@ -57,10 +57,6 @@ fn test_verify_block_double_sign_challenge() {
         vec![],
         vec![],
         &signer,
-        0.into(),
-        CryptoHash::default(),
-        CryptoHash::default(),
-        CryptoHash::default(),
         b1.header.inner_lite.next_bp_hash.clone(),
     );
     let epoch_id = b1.header.inner_lite.epoch_id.clone();
@@ -200,10 +196,6 @@ fn create_chunk(
         vec![],
         vec![],
         &*client.validator_signer.as_ref().unwrap().clone(),
-        0.into(),
-        CryptoHash::default(),
-        CryptoHash::default(),
-        CryptoHash::default(),
         last_block.header.inner_lite.next_bp_hash,
     );
     (chunk, merkle_paths, receipts, block)
@@ -445,10 +437,6 @@ fn test_verify_chunk_invalid_state_challenge() {
         vec![],
         vec![],
         &validator_signer,
-        0.into(),
-        CryptoHash::default(),
-        CryptoHash::default(),
-        CryptoHash::default(),
         last_block.header.inner_lite.next_bp_hash,
     );
 

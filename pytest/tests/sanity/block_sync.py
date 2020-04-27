@@ -18,8 +18,8 @@ consensus_config1 = {"consensus": {"min_block_production_delay": {"secs": 100, "
 nodes = start_cluster(
     2, 0, 4, None,
     [
-        ["epoch_length", 100], ["validators", 0, "amount", "60000000000000000000000000000000"], ["records", 0, "Account", "account", "locked", "60000000000000000000000000000000"],
-        ["total_supply", "3010000000000000000000000000000000"]
+        ["epoch_length", 100], ["validators", 0, "amount", "110000000000000000000000000000000"], ["records", 0, "Account", "account", "locked", "110000000000000000000000000000000"],
+        ["total_supply", "3060000000000000000000000000000000"]
     ],
     {0: consensus_config0, 1: consensus_config1}
 )
