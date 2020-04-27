@@ -8,7 +8,6 @@ use std::sync::Arc;
 
 use borsh::BorshSerialize;
 use indicatif::{ProgressBar, ProgressStyle};
-use tempdir::TempDir;
 
 use near_chain::{Block, Chain, ChainStore, RuntimeAdapter, Tip};
 use near_chain_configs::Genesis;
@@ -34,7 +33,7 @@ pub struct GenesisBuilder {
     home_dir: PathBuf,
     // We hold this temporary directory to avoid deletion through deallocation.
     #[allow(dead_code)]
-    tmpdir: TempDir,
+    tmpdir: tempfile::TempDir,
     genesis: Arc<Genesis>,
     store: Arc<Store>,
     runtime: NightshadeRuntime,
@@ -56,7 +55,7 @@ impl GenesisBuilder {
         genesis: Arc<Genesis>,
         store: Arc<Store>,
     ) -> Self {
-        let tmpdir = TempDir::new("storage").unwrap();
+        let tmpdir = tempfile::Builder::new().prefix("storage").tempdir().unwrap();
         let runtime = NightshadeRuntime::new(
             tmpdir.path(),
             store.clone(),

@@ -1212,7 +1212,7 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
 mod test {
     use std::collections::BTreeSet;
 
-    use tempdir::TempDir;
+    use num_rational::Rational;
 
     use near_chain::{ReceiptResult, Tip};
     use near_crypto::{InMemorySigner, KeyType, Signer};
@@ -1232,7 +1232,6 @@ mod test {
     use crate::get_store_path;
 
     use super::*;
-    use num_rational::Rational;
 
     fn stake(
         nonce: Nonce,
@@ -1309,7 +1308,7 @@ mod test {
             initial_tracked_shards: Vec<ShardId>,
             has_reward: bool,
         ) -> Self {
-            let dir = TempDir::new(prefix).unwrap();
+            let dir = tempfile::Builder::new().prefix(prefix).tempdir().unwrap();
             let store = create_store(&get_store_path(dir.path()));
             let all_validators = validators.iter().fold(BTreeSet::new(), |acc, x| {
                 acc.union(&x.iter().map(|x| x.as_str()).collect()).cloned().collect()

@@ -5,7 +5,8 @@ authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2018"
 
 [dependencies]
-near-crypto = { path = "../../core/crypto" }
-near-primitives = { path = "../../core/primitives" }
 rand = "0.7"
 borsh = "0.6.1"
+
+near-crypto = { path = "../../core/crypto" }
+near-primitives = { path = "../../core/primitives" }

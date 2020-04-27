@@ -9,7 +9,7 @@ borsh = "0.6.1"
 byteorder = "1.2"
 indicatif = "0.13.0"
 clap = "2.33.0"
-tempdir = "0.3"
+tempfile = "3"
 
 neard = { path = "../../neard" }
 near-chain-configs = { path = "../../core/chain-configs" }
