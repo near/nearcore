@@ -1,11 +1,13 @@
-use near_rpc_error_core::{parse_error_type, ErrorType};
+use std::cell::RefCell;
+use std::collections::BTreeMap;
+
 use proc_macro::TokenStream;
 use serde::{Deserialize, Serialize};
 #[cfg(feature = "dump_errors_schema")]
 use serde_json::Value;
-use std::cell::RefCell;
-use std::collections::BTreeMap;
 use syn::{parse_macro_input, DeriveInput};
+
+use near_rpc_error_core::{parse_error_type, ErrorType};
 
 thread_local!(static SCHEMA: RefCell<Schema> = RefCell::new(Schema::default()));
 

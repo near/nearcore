@@ -1,7 +1,6 @@
 use actix::{Actor, System};
 use borsh::BorshSerialize;
 use futures::{future, FutureExt, TryFutureExt};
-use tempdir::TempDir;
 
 use near_client::{GetBlock, TxStatus};
 use near_crypto::{InMemorySigner, KeyType};
@@ -24,7 +23,9 @@ fn test_tx_propagation() {
         let system = System::new("NEAR");
         let num_nodes = 4;
         let dirs = (0..num_nodes)
-            .map(|i| TempDir::new(&format!("tx_propagation{}", i)).unwrap())
+            .map(|i| {
+                tempfile::Builder::new().prefix(&format!("tx_propagation{}", i)).tempdir().unwrap()
+            })
             .collect::<Vec<_>>();
         let (genesis_config, rpc_addrs, clients) = start_nodes(4, &dirs, 2, 2, 10, 0);
         let view_client = clients[0].1.clone();
@@ -101,7 +102,9 @@ fn test_tx_propagation_through_rpc() {
         let system = System::new("NEAR");
         let num_nodes = 4;
         let dirs = (0..num_nodes)
-            .map(|i| TempDir::new(&format!("tx_propagation{}", i)).unwrap())
+            .map(|i| {
+                tempfile::Builder::new().prefix(&format!("tx_propagation{}", i)).tempdir().unwrap()
+            })
             .collect::<Vec<_>>();
         let (genesis_config, rpc_addrs, clients) = start_nodes(4, &dirs, 2, 2, 10, 0);
         let view_client = clients[0].1.clone();
@@ -164,7 +167,9 @@ fn test_tx_status_with_light_client() {
         let system = System::new("NEAR");
         let num_nodes = 4;
         let dirs = (0..num_nodes)
-            .map(|i| TempDir::new(&format!("tx_propagation{}", i)).unwrap())
+            .map(|i| {
+                tempfile::Builder::new().prefix(&format!("tx_propagation{}", i)).tempdir().unwrap()
+            })
             .collect::<Vec<_>>();
         let (genesis_config, rpc_addrs, clients) = start_nodes(4, &dirs, 2, 2, 10, 0);
         let view_client = clients[0].1.clone();
@@ -235,7 +240,9 @@ fn test_tx_status_with_light_client1() {
         let system = System::new("NEAR");
         let num_nodes = 4;
         let dirs = (0..num_nodes)
-            .map(|i| TempDir::new(&format!("tx_propagation{}", i)).unwrap())
+            .map(|i| {
+                tempfile::Builder::new().prefix(&format!("tx_propagation{}", i)).tempdir().unwrap()
+            })
             .collect::<Vec<_>>();
         let (genesis_config, rpc_addrs, clients) = start_nodes(4, &dirs, 2, 2, 10, 0);
         let view_client = clients[0].1.clone();
@@ -304,7 +311,9 @@ fn test_rpc_routing() {
         let system = System::new("NEAR");
         let num_nodes = 4;
         let dirs = (0..num_nodes)
-            .map(|i| TempDir::new(&format!("tx_propagation{}", i)).unwrap())
+            .map(|i| {
+                tempfile::Builder::new().prefix(&format!("tx_propagation{}", i)).tempdir().unwrap()
+            })
             .collect::<Vec<_>>();
         let (_, rpc_addrs, clients) = start_nodes(4, &dirs, 2, 2, 10, 0);
         let view_client = clients[0].1.clone();
@@ -351,7 +360,9 @@ fn test_rpc_routing_error() {
         let system = System::new("NEAR");
         let num_nodes = 4;
         let dirs = (0..num_nodes)
-            .map(|i| TempDir::new(&format!("tx_propagation{}", i)).unwrap())
+            .map(|i| {
+                tempfile::Builder::new().prefix(&format!("tx_propagation{}", i)).tempdir().unwrap()
+            })
             .collect::<Vec<_>>();
         let (_, rpc_addrs, clients) = start_nodes(4, &dirs, 2, 2, 10, 0);
         let view_client = clients[0].1.clone();
@@ -392,7 +403,9 @@ fn test_get_validator_info_rpc() {
         let system = System::new("NEAR");
         let num_nodes = 1;
         let dirs = (0..num_nodes)
-            .map(|i| TempDir::new(&format!("tx_propagation{}", i)).unwrap())
+            .map(|i| {
+                tempfile::Builder::new().prefix(&format!("tx_propagation{}", i)).tempdir().unwrap()
+            })
             .collect::<Vec<_>>();
         let (_, rpc_addrs, clients) = start_nodes(1, &dirs, 1, 0, 10, 0);
         let view_client = clients[0].1.clone();

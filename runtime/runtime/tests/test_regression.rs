@@ -2,10 +2,14 @@
 //! * Creates 1_000_000 random transactions between these accounts;
 //! * Processes 10_000 transactions per block.
 
-pub mod runtime_group_tools;
-use runtime_group_tools::StandaloneRuntime;
+use std::collections::HashSet;
+use std::sync::Arc;
+use std::time::Instant;
 
 use indicatif::{ProgressBar, ProgressStyle};
+use rand::seq::SliceRandom;
+use rand::Rng;
+
 use near_crypto::{InMemorySigner, KeyType};
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::contract::ContractCode;
@@ -20,12 +24,9 @@ use near_store::{
     create_store, get_account, set_access_key, set_account, set_code, Trie, TrieUpdate,
 };
 use near_vm_logic::types::Balance;
-use rand::seq::SliceRandom;
-use rand::Rng;
-use std::collections::HashSet;
-use std::sync::Arc;
-use std::time::Instant;
-use tempdir::TempDir;
+
+pub mod runtime_group_tools;
+use runtime_group_tools::StandaloneRuntime;
 
 const DISPLAY_PROGRESS_BAR: bool = false;
 
@@ -62,7 +63,7 @@ fn get_account_id(account_index: usize) -> String {
 
 fn template_test(transaction_type: TransactionType, db_type: DataBaseType, expected_avg_tps: u64) {
     // Create runtime with no records in the trie.
-    let tmpdir = TempDir::new("storage").unwrap();
+    let tmpdir = tempfile::Builder::new().prefix("storage").tempdir().unwrap();
     let trie = match db_type {
         DataBaseType::Disk => {
             let store = create_store(tmpdir.path().to_str().unwrap());

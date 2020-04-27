@@ -9,7 +9,8 @@ use std::time::Duration;
 use chrono::Utc;
 use lazy_static::lazy_static;
 use log::info;
-use serde_derive::{Deserialize, Serialize};
+use num_rational::Rational;
+use serde::{Deserialize, Serialize};
 
 use near_chain_configs::{
     ClientConfig, Genesis, GenesisConfig, GENESIS_CONFIG_VERSION, PROTOCOL_VERSION,
@@ -30,7 +31,6 @@ use near_primitives::utils::{generate_random_string, get_num_seats_per_shard};
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
 use near_runtime_configs::RuntimeConfig;
 use near_telemetry::TelemetryConfig;
-use num_rational::Rational;
 
 /// Initial balance used in tests.
 pub const TESTING_INIT_BALANCE: Balance = 1_000_000_000 * NEAR_BASE;

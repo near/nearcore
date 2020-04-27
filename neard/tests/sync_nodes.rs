@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use actix::{Actor, Addr, System};
 use futures::{future, FutureExt};
-use tempdir::TempDir;
+use num_rational::Rational;
 
 use near_chain::{Block, Chain};
 use near_chain_configs::Genesis;
@@ -19,7 +19,6 @@ use near_primitives::types::{BlockHeightDelta, EpochId, ValidatorStake};
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
 use neard::config::{GenesisExt, TESTING_INIT_STAKE};
 use neard::{load_test_config, start_with_config};
-use num_rational::Rational;
 use testlib::genesis_block;
 
 // This assumes that there is no height skipped. Otherwise epoch hash calculation will be wrong.
@@ -102,13 +101,13 @@ fn sync_nodes() {
 
         let system = System::new("NEAR");
 
-        let dir1 = TempDir::new("sync_nodes_1").unwrap();
+        let dir1 = tempfile::Builder::new().prefix("sync_nodes_1").tempdir().unwrap();
         let (client1, _) = start_with_config(dir1.path(), near1);
 
         let signer = InMemoryValidatorSigner::from_seed("other", KeyType::ED25519, "other");
         let _ = add_blocks(vec![genesis_block], client1, 13, genesis.config.epoch_length, &signer);
 
-        let dir2 = TempDir::new("sync_nodes_2").unwrap();
+        let dir2 = tempfile::Builder::new().prefix("sync_nodes_2").tempdir().unwrap();
         let (_, view_client2) = start_with_config(dir2.path(), near2);
 
         WaitOrTimeout::new(
@@ -152,10 +151,10 @@ fn sync_after_sync_nodes() {
 
         let system = System::new("NEAR");
 
-        let dir1 = TempDir::new("sync_nodes_1").unwrap();
+        let dir1 = tempfile::Builder::new().prefix("sync_nodes_1").tempdir().unwrap();
         let (client1, _) = start_with_config(dir1.path(), near1);
 
-        let dir2 = TempDir::new("sync_nodes_2").unwrap();
+        let dir2 = tempfile::Builder::new().prefix("sync_nodes_2").tempdir().unwrap();
         let (_, view_client2) = start_with_config(dir2.path(), near2);
 
         let signer = InMemoryValidatorSigner::from_seed("other", KeyType::ED25519, "other");
@@ -224,8 +223,8 @@ fn sync_state_stake_change() {
 
         let system = System::new("NEAR");
 
-        let dir1 = TempDir::new("sync_state_stake_change_1").unwrap();
-        let dir2 = TempDir::new("sync_state_stake_change_2").unwrap();
+        let dir1 = tempfile::Builder::new().prefix("sync_state_stake_change_1").tempdir().unwrap();
+        let dir2 = tempfile::Builder::new().prefix("sync_state_stake_change_2").tempdir().unwrap();
         let (client1, view_client1) = start_with_config(dir1.path(), near1.clone());
 
         let genesis_hash = genesis_block(genesis).hash();

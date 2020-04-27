@@ -5,33 +5,24 @@ authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2018"
 
 [dependencies]
-ansi_term = "0.12"
-actix = "0.9.0"
-actix-web = "2.0.0"
-actix-cors = "0.2.0"
+actix = "0.9"
+actix-web = "2"
+actix-cors = "0.2"
 tokio = { version = "0.2", features = ["full"] }
-base64 = "0.11"
-bytes = "0.5"
 futures = "0.3"
-chrono = { version = "0.4.4", features = ["serde"] }
 lazy_static = "1.4"
-log = "0.4"
-prometheus = "^0.7"
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
+prometheus = "0.8"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 validator = "0.10"
-uuid = { version = "~0.8", features = ["v4"] }
 borsh = "0.6.1"
 
 near-chain-configs = { path = "../../core/chain-configs" }
 near-crypto = { path = "../../core/crypto" }
 near-primitives = { path = "../../core/primitives" }
-near-store = { path = "../../core/store" }
 near-metrics = { path = "../../core/metrics" }
-near-chain = { path = "../chain" }
 near-client = { path = "../client" }
 near-network = { path = "../network" }
-near-pool = { path = "../pool" }
 near-jsonrpc-client = { path = "client" }
 near-rpc-error-macro = { path = "../../tools/rpctypegen/macro" }
 
