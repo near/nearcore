@@ -21,7 +21,7 @@ use near_network::types::{
     NetworkViewClientMessages, NetworkViewClientResponses, ReasonForBan, StateResponseInfo,
 };
 use near_network::{NetworkAdapter, NetworkRequests};
-use near_primitives::block::{BlockHeader, BlockScore, GenesisId};
+use near_primitives::block::{BlockHeader, GenesisId};
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::verify_path;
 use near_primitives::network::AnnounceAccount;
@@ -52,7 +52,7 @@ pub struct ViewClientActor {
     #[cfg(feature = "adversarial")]
     pub adv_disable_doomslug: bool,
     #[cfg(feature = "adversarial")]
-    pub adv_sync_info: Option<(u64, u64)>,
+    pub adv_sync_height: Option<u64>,
 
     /// Validator account (if present).
     validator_account_id: Option<AccountId>,
@@ -82,14 +82,14 @@ impl ViewClientActor {
     ) -> Result<Self, Error> {
         // TODO: should we create shared ChainStore that is passed to both Client and ViewClient?
         let chain =
-            Chain::new(runtime_adapter.clone(), chain_genesis, DoomslugThresholdMode::HalfStake)?;
+            Chain::new(runtime_adapter.clone(), chain_genesis, DoomslugThresholdMode::TwoThirds)?;
         Ok(ViewClientActor {
             #[cfg(feature = "adversarial")]
             adv_disable_header_sync: false,
             #[cfg(feature = "adversarial")]
             adv_disable_doomslug: false,
             #[cfg(feature = "adversarial")]
-            adv_sync_info: None,
+            adv_sync_height: None,
             validator_account_id,
             chain,
             runtime_adapter,
@@ -131,7 +131,7 @@ impl ViewClientActor {
         match finality {
             Finality::None => Ok(head_header.hash),
             Finality::DoomSlug => Ok(head_header.inner_rest.last_ds_final_block),
-            Finality::NFG => Ok(head_header.inner_rest.last_quorum_pre_commit),
+            Finality::Final => Ok(head_header.inner_rest.last_final_block),
         }
     }
 
@@ -341,15 +341,15 @@ impl ViewClientActor {
             .map_err(|e| e.into())
     }
 
-    fn get_height_and_score(&self, head: &Tip) -> (BlockHeight, BlockScore) {
+    fn get_height(&self, head: &Tip) -> BlockHeight {
         #[cfg(feature = "adversarial")]
         {
-            if let Some((height, score)) = self.adv_sync_info {
-                return (height, BlockScore::from(score));
+            if let Some(height) = self.adv_sync_height {
+                return height;
             }
         }
 
-        (head.height, head.score)
+        head.height
     }
 }
 
@@ -554,9 +554,9 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
                         self.chain.adv_disable_doomslug();
                         NetworkViewClientResponses::NoResponse
                     }
-                    NetworkAdversarialMessage::AdvSetSyncInfo(height, score) => {
-                        info!(target: "adversary", "Setting adversarial stats: ({}, {})", height, score);
-                        self.adv_sync_info = Some((height, score));
+                    NetworkAdversarialMessage::AdvSetSyncInfo(height) => {
+                        info!(target: "adversary", "Setting adversarial sync height: {}", height);
+                        self.adv_sync_height = Some(height);
                         NetworkViewClientResponses::NoResponse
                     }
                     NetworkAdversarialMessage::AdvDisableHeaderSync => {
@@ -567,8 +567,7 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
                     NetworkAdversarialMessage::AdvSwitchToHeight(height) => {
                         info!(target: "adversary", "Switching to height");
                         let mut chain_store_update = self.chain.mut_store().store_update();
-                        chain_store_update.save_largest_skipped_height(&height);
-                        chain_store_update.save_largest_approved_height(&height);
+                        chain_store_update.save_largest_target_height(&height);
                         chain_store_update
                             .adv_save_latest_known(height)
                             .expect("adv method should not fail");
@@ -671,7 +670,7 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
             }
             NetworkViewClientMessages::GetChainInfo => match self.chain.head() {
                 Ok(head) => {
-                    let (height, score) = self.get_height_and_score(&head);
+                    let height = self.get_height(&head);
 
                     NetworkViewClientResponses::ChainInfo {
                         genesis_id: GenesisId {
@@ -679,7 +678,6 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
                             hash: self.chain.genesis().hash(),
                         },
                         height,
-                        score,
                         tracked_shards: self.config.tracked_shards.clone(),
                     }
                 }

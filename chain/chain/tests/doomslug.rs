@@ -11,11 +11,11 @@ mod tests {
     use near_crypto::{KeyType, SecretKey};
     use near_primitives::block::Approval;
     use near_primitives::hash::{hash, CryptoHash};
-    use near_primitives::types::{BlockHeight, ValidatorStake};
+    use near_primitives::types::{ApprovalStake, BlockHeight};
     use near_primitives::validator_signer::InMemoryValidatorSigner;
 
-    fn block_hash(height: BlockHeight) -> CryptoHash {
-        hash(height.to_le_bytes().as_ref())
+    fn block_hash(height: BlockHeight, ord: usize) -> CryptoHash {
+        hash(([height.to_le_bytes(), ord.to_le_bytes()].concat()).as_ref())
     }
 
     fn get_msg_delivery_time(now: Instant, gst: Instant, delta: Duration) -> Instant {
@@ -31,7 +31,7 @@ mod tests {
     /// # Arguments
     /// * `time_to_gst` - number of milliseconds before global stabilization time
     /// * `delta`       - max message delay
-    /// * `height_goal` - the appearance of a block at this (or heigher) height with doomslug finality
+    /// * `height_goal` - the appearance of a block at this (or higher) height with finality
     ///                   will end the test
     fn one_iter(
         time_to_gst: Duration,
@@ -42,9 +42,10 @@ mod tests {
             vec!["test1", "test2", "test3", "test4", "test5", "test6", "test7", "test8"];
         let stakes = account_ids
             .iter()
-            .map(|account_id| ValidatorStake {
+            .map(|account_id| ApprovalStake {
                 account_id: account_id.to_string(),
-                stake: 1,
+                stake_this_epoch: 1,
+                stake_next_epoch: 1,
                 public_key: SecretKey::from_seed(KeyType::ED25519, account_id).public_key(),
             })
             .collect::<Vec<_>>();
@@ -63,13 +64,12 @@ mod tests {
             .map(|signer| {
                 Doomslug::new(
                     0,
-                    0,
                     Duration::from_millis(200),
                     Duration::from_millis(1000),
                     Duration::from_millis(100),
                     delta * 20, // some arbitrary number larger than delta * 6
                     Some(signer.clone()),
-                    DoomslugThresholdMode::HalfStake,
+                    DoomslugThresholdMode::TwoThirds,
                 )
             })
             .collect::<Vec<_>>();
@@ -79,20 +79,20 @@ mod tests {
 
         let gst = now + time_to_gst;
         let mut approval_queue: Vec<(Approval, Instant)> = vec![];
-        let mut block_queue: Vec<(BlockHeight, usize, BlockHeight, Instant)> = vec![];
+        let mut block_queue: Vec<(BlockHeight, usize, BlockHeight, Instant, CryptoHash)> = vec![];
         let mut largest_produced_height: BlockHeight = 1;
         let mut chain_lengths = HashMap::new();
-        let mut hash_to_block_info: HashMap<CryptoHash, (BlockHeight, BlockHeight)> =
+        let mut hash_to_block_info: HashMap<CryptoHash, (BlockHeight, BlockHeight, CryptoHash)> =
             HashMap::new();
         let mut hash_to_prev_hash: HashMap<CryptoHash, CryptoHash> = HashMap::new();
 
-        let mut blocks_with_doomslug_finality: Vec<BlockHeight> = vec![];
+        let mut blocks_with_finality: Vec<(CryptoHash, BlockHeight)> = vec![];
 
-        chain_lengths.insert(block_hash(1), 1);
+        chain_lengths.insert(block_hash(1, 0), 1);
 
         for ds in doomslugs.iter_mut() {
-            ds.set_tip(now, block_hash(1), None, 1, 1);
-            hash_to_block_info.insert(block_hash(1), (1, 1));
+            ds.set_tip(now, block_hash(1, 0), 1, 1);
+            hash_to_block_info.insert(block_hash(1, 0), (1, 1, block_hash(1, 0)));
         }
 
         let mut is_done = false;
@@ -102,19 +102,14 @@ mod tests {
             let mut new_block_queue = vec![];
 
             // 1. Process approvals
-            for mut approval in approval_queue.into_iter() {
+            for approval in approval_queue.into_iter() {
                 if approval.1 > now {
                     new_approval_queue.push(approval);
                 } else {
                     let me = (approval.0.target_height % 8) as usize;
 
-                    // Make test1 be malicious and always send skips
-                    if approval.0.account_id == "test1" {
-                        approval.0.is_endorsement = false;
-                    }
-
-                    // Make test2 be offline and never send approvals
-                    if approval.0.account_id == "test2" {
+                    // Make test1 and test2 be offline and never send approvals
+                    if approval.0.account_id == "test1" || approval.0.account_id == "test2" {
                         continue;
                     }
 
@@ -136,7 +131,7 @@ mod tests {
                     let ds = &mut doomslugs[block.1 as usize];
                     if block.0 as BlockHeight > ds.get_tip().1 {
                         // Accept all the blocks from the tip till this block
-                        let mut block_infos = vec![(block.0, block.2)];
+                        let mut block_infos = vec![(block.0, block.2, block.4)];
                         for block_index in 0..50 {
                             if block_index == 49 {
                                 assert!(false);
@@ -144,7 +139,7 @@ mod tests {
 
                             let last_block = block_infos.last().unwrap();
                             let prev_block_info = hash_to_block_info
-                                .get(&hash_to_prev_hash.get(&block_hash(last_block.0)).unwrap())
+                                .get(&hash_to_prev_hash.get(&last_block.2).unwrap())
                                 .unwrap();
 
                             if prev_block_info.0 as BlockHeight <= ds.get_tip().1 {
@@ -154,13 +149,14 @@ mod tests {
                         }
 
                         for block_info in block_infos.into_iter().rev() {
-                            ds.set_tip(
-                                now,
-                                block_hash(block_info.0),
-                                None,
-                                block_info.0 as BlockHeight,
-                                block_info.1,
-                            );
+                            if block_info.0 > ds.get_tip().1 {
+                                ds.set_tip(
+                                    now,
+                                    block_info.2,
+                                    block_info.0 as BlockHeight,
+                                    block_info.1,
+                                );
+                            }
                         }
                     }
                 }
@@ -175,73 +171,102 @@ mod tests {
             }
 
             // 4. Produce blocks
-            'outer: for ds in doomslugs.iter_mut() {
+            'outer: for (bp_ord, ds) in doomslugs.iter_mut().enumerate() {
                 for target_height in
                     (ds.get_tip().1 + 1)..=ds.get_largest_height_crossing_threshold()
                 {
                     if ds.ready_to_produce_block(now, target_height, true) {
-                        let parent_hash = ds.get_tip().0;
+                        let num_blocks_to_produce = if bp_ord < 3 { 2 } else { 1 };
 
-                        let is_ds_final = ds.is_prev_block_ds_final(parent_hash, target_height);
+                        for block_ord in 0..num_blocks_to_produce {
+                            let parent_hash = if (bp_ord == 1 || bp_ord == 2)
+                                && target_height == ds.get_tip().1 + 1
+                                && target_height > 2
+                                && thread_rng().gen_bool(0.5)
+                            {
+                                // For the second and third malicious actor occasionally create blocks
+                                // with different parents
+                                block_hash(target_height - 1, thread_rng().gen_range(0, 2))
+                            } else {
+                                ds.get_tip().0
+                            };
 
-                        let last_ds_final_height = if is_ds_final {
-                            target_height
-                        } else {
-                            hash_to_block_info.get(&parent_hash).unwrap().1
-                        };
+                            let prev_height = hash_to_block_info.get(&parent_hash).unwrap().0;
+                            let prev_prev_height = if prev_height <= 1 {
+                                0
+                            } else {
+                                let prev_prev_hash = hash_to_prev_hash.get(&parent_hash).unwrap();
+                                hash_to_block_info.get(&prev_prev_hash).unwrap().0
+                            };
 
-                        if target_height >= 512 {
-                            println!("Largest produced_height: {}", largest_produced_height);
-                            for ds in doomslugs.iter() {
-                                println!(
-                                    "  - tip: ({:?}), ds_final_height: {}, timer height: {}",
-                                    ds.get_tip(),
-                                    ds.get_largest_height_with_doomslug_finality(),
-                                    ds.get_timer_height()
+                            let is_final = target_height == prev_height + 1
+                                && prev_height == prev_prev_height + 1;
+
+                            let last_final_height = if is_final {
+                                target_height - 2
+                            } else {
+                                hash_to_block_info.get(&parent_hash).unwrap().1
+                            };
+
+                            if target_height >= 2048 {
+                                println!("Largest produced_height: {}", largest_produced_height);
+                                for ds in doomslugs.iter() {
+                                    println!(
+                                        "  - tip: ({:?}), final_height: {}, timer height: {}",
+                                        ds.get_tip(),
+                                        ds.get_largest_final_height(),
+                                        ds.get_timer_height()
+                                    );
+                                }
+                                assert!(false);
+                                break 'outer;
+                            }
+                            let block_hash = block_hash(target_height, block_ord);
+                            for whom in 0..8 {
+                                let block_info = (
+                                    target_height,
+                                    whom,
+                                    last_final_height,
+                                    get_msg_delivery_time(now, gst, delta),
+                                    block_hash,
+                                );
+                                block_queue.push(block_info);
+                            }
+
+                            hash_to_block_info
+                                .insert(block_hash, (target_height, last_final_height, block_hash));
+                            hash_to_prev_hash.insert(block_hash, parent_hash);
+
+                            assert!(chain_lengths.get(&block_hash).is_none());
+                            let prev_length = *chain_lengths.get(&ds.get_tip().0).unwrap();
+                            chain_lengths.insert(block_hash, prev_length + 1);
+
+                            if is_final && target_height != 2 {
+                                blocks_with_finality.push((
+                                    hash_to_prev_hash.get(&parent_hash).unwrap().clone(),
+                                    target_height - 2,
+                                ));
+                            }
+
+                            if target_height > largest_produced_height {
+                                largest_produced_height = target_height;
+                            }
+                            if target_height >= height_goal && is_final {
+                                assert!(prev_length + 1 > 20); // make sure we actually built some chain
+                                is_done = true;
+                            }
+
+                            // Accept our own block (only accept the last if are maliciously producing multiple,
+                            // so that `ds.get_tip(...)` doesn't return the new block on the next iteration)
+                            if block_ord + 1 == num_blocks_to_produce {
+                                ds.set_tip(
+                                    now,
+                                    block_hash,
+                                    target_height as BlockHeight,
+                                    last_final_height,
                                 );
                             }
-                            assert!(false);
-                            break 'outer;
                         }
-                        let block_hash = block_hash(target_height);
-                        for whom in 0..8 {
-                            let block_info = (
-                                target_height,
-                                whom,
-                                last_ds_final_height,
-                                get_msg_delivery_time(now, gst, delta),
-                            );
-                            block_queue.push(block_info);
-                        }
-
-                        hash_to_block_info
-                            .insert(block_hash, (target_height, last_ds_final_height));
-                        hash_to_prev_hash.insert(block_hash, parent_hash);
-
-                        assert!(chain_lengths.get(&block_hash).is_none());
-                        let prev_length = *chain_lengths.get(&ds.get_tip().0).unwrap();
-                        chain_lengths.insert(block_hash, prev_length + 1);
-
-                        if is_ds_final {
-                            blocks_with_doomslug_finality.push(target_height - 1);
-                        }
-
-                        if target_height > largest_produced_height {
-                            largest_produced_height = target_height;
-                        }
-                        if target_height >= height_goal && is_ds_final {
-                            assert!(prev_length + 1 > 20); // make sure we actually built some chain
-                            is_done = true;
-                        }
-
-                        // Accept our own block
-                        ds.set_tip(
-                            now,
-                            block_hash,
-                            None,
-                            target_height as BlockHeight,
-                            last_ds_final_height,
-                        );
                     }
                 }
             }
@@ -268,23 +293,23 @@ mod tests {
 
         // We successfully got to the `height_goal`. Check that all the blocks are building only on
         // doomslug final blocks
-        for (block_hash, (block_height, _)) in hash_to_block_info.iter() {
-            let mut seen_heights = HashSet::new();
+        for (block_hash, (block_height, _, _)) in hash_to_block_info.iter() {
+            let mut seen_hashes = HashSet::new();
             let mut block_hash = block_hash.clone();
-            seen_heights.insert(*block_height);
+            seen_hashes.insert(block_hash);
 
             loop {
                 match hash_to_prev_hash.get(&block_hash) {
                     None => break,
                     Some(prev_block_hash) => {
                         block_hash = *prev_block_hash;
-                        seen_heights.insert(hash_to_block_info.get(&block_hash).unwrap().0);
+                        seen_hashes.insert(block_hash);
                     }
                 }
             }
 
-            for height in blocks_with_doomslug_finality.iter() {
-                assert!(*height > *block_height || seen_heights.contains(height));
+            for (block_hash, height) in blocks_with_finality.iter() {
+                assert!(*height >= *block_height || seen_hashes.contains(block_hash));
             }
         }
 
@@ -294,9 +319,9 @@ mod tests {
     #[test]
     fn test_fuzzy_doomslug_liveness_and_safety() {
         for (time_to_gst_millis, height_goal) in
-            &[(0, 100), (1000, 100), (10000, 100), (100000, 200), (500000, 300)]
+            &[(0, 200), (1000, 200), (10000, 300), (100000, 400), (500000, 500)]
         {
-            for delta in &[100, 300, 500, 1000, 2000] {
+            for delta in &[100, 300, 500, 1000, 2000, 4000] {
                 println!(
                     "Staring set of tests. Time to GST: {}, delta: {}",
                     time_to_gst_millis, delta
