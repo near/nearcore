@@ -79,8 +79,8 @@ expensive --timeout=4800 near-client cross_shard_tx tests::test_cross_shard_tx_w
 expensive --timeout=4800 near-client cross_shard_tx tests::test_cross_shard_tx_with_validator_rotation_2
 
 # consensus tests
-expensive --timeout=900 near-chain doomslug tests::test_fuzzy_doomslug_liveness_and_safety
-expensive --timeout=350 near-client consensus tests::test_consensus_with_epoch_switches
+expensive --timeout=1500 near-chain doomslug tests::test_fuzzy_doomslug_liveness_and_safety
+expensive --timeout=500 near-client consensus tests::test_consensus_with_epoch_switches
 
 # state sync tests
 expensive neard sync_state_nodes sync_state_nodes_multishard
