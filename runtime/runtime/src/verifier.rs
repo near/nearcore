@@ -380,13 +380,14 @@ mod tests {
     use near_primitives::account::{AccessKey, Account, FunctionCallPermission};
     use near_primitives::hash::{hash, CryptoHash};
     use near_primitives::receipt::DataReceiver;
+    use near_primitives::test_utils::account_new;
     use near_primitives::transaction::{
         CreateAccountAction, DeleteKeyAction, StakeAction, TransferAction,
     };
     use near_primitives::types::{AccountId, Balance, MerkleHash, StateChangeCause};
     use near_store::test_utils::create_trie;
     use std::sync::Arc;
-    use testlib::runtime_utils::{account_new, alice_account, bob_account, eve_dot_alice_account};
+    use testlib::runtime_utils::{alice_account, bob_account, eve_dot_alice_account};
 
     /// Initial balance used in tests.
     const TESTING_INIT_BALANCE: Balance = 1_000_000_000 * NEAR_BASE;

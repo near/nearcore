@@ -14,10 +14,6 @@ use near_store::{Trie, TrieUpdate};
 use neard::config::GenesisExt;
 use node_runtime::{state_viewer::TrieViewer, Runtime};
 
-pub fn account_new(amount: Balance, code_hash: CryptoHash) -> Account {
-    Account { amount, locked: 0, code_hash, storage_usage: std::mem::size_of::<Account>() as u64 }
-}
-
 pub fn alice_account() -> AccountId {
     "alice.near".to_string()
 }

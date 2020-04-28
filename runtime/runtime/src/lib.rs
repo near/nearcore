@@ -1272,10 +1272,11 @@ mod tests {
     use near_crypto::{InMemorySigner, KeyType, Signer};
     use near_primitives::errors::ReceiptValidationError;
     use near_primitives::hash::hash;
+    use near_primitives::test_utils::account_new;
     use near_primitives::transaction::TransferAction;
     use near_primitives::types::MerkleHash;
     use near_store::test_utils::create_trie;
-    use testlib::runtime_utils::{account_new, alice_account, bob_account};
+    use testlib::runtime_utils::{alice_account, bob_account};
 
     const GAS_PRICE: Balance = 5000;
 
