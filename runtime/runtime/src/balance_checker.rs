@@ -219,7 +219,6 @@ mod tests {
     use super::*;
     use crate::ApplyStats;
     use near_crypto::{InMemorySigner, KeyType};
-    use near_primitives::account::Account;
     use near_primitives::hash::{hash, CryptoHash};
     use near_primitives::receipt::ActionReceipt;
     use near_primitives::transaction::{Action, TransferAction};

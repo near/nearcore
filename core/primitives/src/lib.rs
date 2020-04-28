@@ -20,6 +20,7 @@ pub mod serialize;
 pub mod sharding;
 pub mod state_record;
 pub mod telemetry;
+pub mod test_utils;
 pub mod transaction;
 pub mod trie_key;
 pub mod types;
