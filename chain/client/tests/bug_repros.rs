@@ -100,6 +100,7 @@ fn repro_1183() {
                                         block.header.prev_hash,
                                     ),
                                     is_forwarded: false,
+                                    check_only: false,
                                 });
                             nonce_delta += 1
                         }

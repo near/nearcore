@@ -121,6 +121,7 @@ mod tests {
                         block_hash,
                     ),
                     is_forwarded: false,
+                    check_only: false,
                 })
                 .then(move |x| {
                     match x.unwrap() {

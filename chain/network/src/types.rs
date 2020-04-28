@@ -1219,7 +1219,10 @@ pub enum NetworkClientMessages {
     /// Received transaction.
     Transaction {
         transaction: SignedTransaction,
+        /// Whether the transaction is forwarded from other nodes.
         is_forwarded: bool,
+        /// Whether the transaction needs to be submitted.
+        check_only: bool,
     },
     /// Received block, possibly requested.
     Block(Block, PeerId, bool),
@@ -1257,6 +1260,9 @@ pub enum NetworkClientResponses {
     InvalidTx(InvalidTxError),
     /// The request is routed to other shards
     RequestRouted,
+    /// The node being queried does not track the shard needed and therefore cannot provide userful
+    /// response.
+    DoesNotTrackShard,
     /// Ban peer for malicious behavior.
     Ban { ban_reason: ReasonForBan },
 }

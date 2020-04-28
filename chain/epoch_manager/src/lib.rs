@@ -132,6 +132,7 @@ impl EpochManager {
                 .get(&(i as u64))
                 .unwrap_or_else(|| &ValidatorStats { expected: 0, produced: 0 });
             // Note, validator_kickout_threshold is 0..100, so we use * 100 to keep this in integer space.
+            println!("account {} stat {:?}", account_id, block_stats);
             if block_stats.produced * 100
                 < u64::from(block_producer_kickout_threshold) * block_stats.expected
             {
@@ -153,16 +154,14 @@ impl EpochManager {
             if chunk_stats.produced * 100
                 < u64::from(chunk_producer_kickout_threshold) * chunk_stats.expected
             {
-                validator_kickout.insert(
-                    account_id.clone(),
+                validator_kickout.entry(account_id.clone()).or_insert_with(|| {
                     ValidatorKickoutReason::NotEnoughChunks {
                         produced: chunk_stats.produced,
                         expected: chunk_stats.expected,
-                    },
-                );
+                    }
+                });
             }
 
-            // Given the number of blocks we plan to have in one epoch, the following code should not overflow
             let is_already_kicked_out = prev_validator_kickout.contains_key(&account_id);
             if !validator_kickout.contains_key(&account_id) {
                 validator_block_chunk_stats.insert(
@@ -417,6 +416,7 @@ impl EpochManager {
                 );
                 block_info.update_shard_tracker(
                     &epoch_info,
+                    prev_block_info.height,
                     if is_epoch_start { HashMap::default() } else { shard_tracker },
                 );
                 // accumulate values
@@ -2249,6 +2249,71 @@ mod tests {
                 vec![("test2", stake_amount), ("test3", stake_amount)],
                 vec![0, 1, 0],
                 vec![vec![0], vec![1], vec![0]],
+                vec![],
+                vec![],
+                change_stake(vec![("test1", 0), ("test2", stake_amount), ("test3", stake_amount)]),
+                vec![(
+                    "test1",
+                    ValidatorKickoutReason::NotEnoughBlocks { produced: 0, expected: 1 }
+                )],
+                reward(vec![("test2", 0), ("test3", 0), ("near", 0)]),
+                0
+            )
+        );
+    }
+
+    #[test]
+    fn test_expected_chunks_prev_block_not_produced() {
+        let stake_amount = 1_000_000;
+        let validators =
+            vec![("test1", stake_amount), ("test2", stake_amount), ("test3", stake_amount)];
+        let epoch_length = 3;
+        let total_supply = stake_amount * validators.len() as u128;
+        let mut epoch_manager = setup_epoch_manager(
+            validators,
+            epoch_length,
+            1,
+            3,
+            0,
+            90,
+            90,
+            0,
+            default_reward_calculator(),
+        );
+        let rng_seed = [0; 32];
+        let h = hash_range(5);
+        record_block(&mut epoch_manager, Default::default(), h[0], 0, vec![]);
+        record_block(&mut epoch_manager, h[0], h[1], 1, vec![]);
+
+        epoch_manager
+            .record_block_info(
+                &h[3],
+                BlockInfo {
+                    height: 3,
+                    last_finalized_height: 1,
+                    prev_hash: h[1],
+                    epoch_first_block: h[1],
+                    epoch_id: Default::default(),
+                    proposals: vec![],
+                    chunk_mask: vec![false],
+                    slashed: Default::default(),
+                    validator_reward: 0,
+                    total_supply,
+                    block_tracker: Default::default(),
+                    shard_tracker: Default::default(),
+                    all_proposals: vec![],
+                    total_validator_reward: 0,
+                },
+                rng_seed,
+            )
+            .unwrap();
+        assert_eq!(
+            epoch_manager.get_epoch_info(&EpochId(h[3])).unwrap(),
+            &epoch_info(
+                2,
+                vec![("test2", stake_amount), ("test3", stake_amount)],
+                vec![0, 1, 0],
+                vec![vec![0, 1, 0]],
                 vec![],
                 vec![],
                 change_stake(vec![("test1", 0), ("test2", stake_amount), ("test3", stake_amount)]),
