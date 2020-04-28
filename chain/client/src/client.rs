@@ -1175,12 +1175,15 @@ impl Client {
                     shard_id,
                     is_forwarded
                 );
-                let new_transaction = self.shards_mgr.insert_transaction(shard_id, tx.clone());
+                self.shards_mgr.insert_transaction(shard_id, tx.clone());
 
+                // Active validator:
+                //   possibly forward to next epoch validators
+                // Not active validator:
+                //   forward to current epoch validators,
+                //   possibly forward to next epoch validators
                 if active_validator {
-                    // Don't forward to next epoch validators if we've already seen the tx.
-                    // This is to prevent forwarding loops.
-                    if new_transaction && !is_forwarded {
+                    if !is_forwarded {
                         self.possibly_forward_tx_to_next_epoch(tx)?;
                     }
                     Ok(NetworkClientResponses::ValidTx)
@@ -1205,7 +1208,7 @@ impl Client {
         }
     }
 
-    /// Determine if I am a validator in next few blocks for specified shard.
+    /// Determine if I am a validator in next few blocks for specified shard, assuming epoch doesn't change.
     fn active_validator(&self, shard_id: ShardId) -> Result<bool, Error> {
         let head = self.chain.head()?;
 
@@ -1221,12 +1224,7 @@ impl Client {
                 head.height + i,
                 shard_id,
             )?;
-            let next_epoch_chunk_producer = self.runtime_adapter.get_chunk_producer(
-                &head.next_epoch_id,
-                head.height + i,
-                shard_id,
-            )?;
-            if &chunk_producer == account_id || &next_epoch_chunk_producer == account_id {
+            if &chunk_producer == account_id {
                 return Ok(true);
             }
         }
