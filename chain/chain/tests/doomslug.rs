@@ -179,17 +179,7 @@ mod tests {
                         let num_blocks_to_produce = if bp_ord < 3 { 2 } else { 1 };
 
                         for block_ord in 0..num_blocks_to_produce {
-                            let parent_hash = if (bp_ord == 1 || bp_ord == 2)
-                                && target_height == ds.get_tip().1 + 1
-                                && target_height > 2
-                                && thread_rng().gen_bool(0.5)
-                            {
-                                // For the second and third malicious actor occasionally create blocks
-                                // with different parents
-                                block_hash(target_height - 1, thread_rng().gen_range(0, 2))
-                            } else {
-                                ds.get_tip().0
-                            };
+                            let parent_hash = ds.get_tip().0;
 
                             let prev_height = hash_to_block_info.get(&parent_hash).unwrap().0;
                             let prev_prev_height = if prev_height <= 1 {
