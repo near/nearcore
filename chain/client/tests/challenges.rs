@@ -377,6 +377,7 @@ fn test_verify_chunk_invalid_state_challenge() {
             genesis_hash,
         ),
         false,
+        false,
     );
     env.produce_block(0, 2);
 
@@ -650,7 +651,7 @@ fn test_fishermen_challenge() {
         signer.public_key(),
         genesis_hash,
     );
-    env.clients[0].process_tx(stake_transaction, false);
+    env.clients[0].process_tx(stake_transaction, false, false);
     for i in 1..=11 {
         env.produce_block(0, i);
     }
