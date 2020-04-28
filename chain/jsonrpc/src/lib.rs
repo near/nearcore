@@ -34,7 +34,11 @@ use near_network::types::{NetworkAdversarialMessage, NetworkViewClientMessages};
 use near_network::{NetworkClientMessages, NetworkClientResponses};
 use near_primitives::errors::{InvalidTxError, TxExecutionError};
 use near_primitives::hash::CryptoHash;
-use near_primitives::rpc::{RpcGenesisRecordsRequest, RpcQueryRequest, RpcStateChangesInBlockRequest, RpcStateChangesInBlockResponse, RpcStateChangesRequest, RpcStateChangesResponse, RpcBroadcastTxSyncResponse};
+use near_primitives::rpc::{
+    RpcBroadcastTxSyncResponse, RpcGenesisRecordsRequest, RpcQueryRequest,
+    RpcStateChangesInBlockRequest, RpcStateChangesInBlockResponse, RpcStateChangesRequest,
+    RpcStateChangesResponse,
+};
 use near_primitives::serialize::{from_base, from_base64, BaseEncode};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockId, BlockIdOrFinality, MaybeBlockId};
@@ -320,14 +324,20 @@ impl JsonRpcHandler {
                 if check_only {
                     Ok(Value::Null)
                 } else {
-                    jsonify(Ok(Ok(RpcBroadcastTxSyncResponse { transaction_hash: tx_hash, is_routed: false })))
+                    jsonify(Ok(Ok(RpcBroadcastTxSyncResponse {
+                        transaction_hash: tx_hash,
+                        is_routed: false,
+                    })))
                 }
             }
             NetworkClientResponses::RequestRouted => {
                 if check_only {
                     Err(RpcError::server_error(Some("Node doesn't track this shard. Cannot determine whether the transaction is valid".to_string())))
                 } else {
-                    jsonify(Ok(Ok(RpcBroadcastTxSyncResponse { transaction_hash: tx_hash, is_routed: true })))
+                    jsonify(Ok(Ok(RpcBroadcastTxSyncResponse {
+                        transaction_hash: tx_hash,
+                        is_routed: true,
+                    })))
                 }
             }
             NetworkClientResponses::InvalidTx(err) => {
