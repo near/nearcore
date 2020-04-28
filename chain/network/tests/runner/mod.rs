@@ -365,6 +365,9 @@ struct TestConfig {
     blacklist: HashSet<Option<usize>>,
     outbound_disabled: bool,
     ban_window: Duration,
+    ideal_connections: Option<(u32, u32)>,
+    minimum_outbound_peers: Option<u32>,
+    safe_set_size: Option<u32>,
 }
 
 impl TestConfig {
@@ -376,6 +379,9 @@ impl TestConfig {
             blacklist: HashSet::new(),
             outbound_disabled: true,
             ban_window: Duration::from_secs(1),
+            ideal_connections: None,
+            minimum_outbound_peers: None,
+            safe_set_size: None,
         }
     }
 }
@@ -428,6 +434,31 @@ impl Runner {
     pub fn use_boot_nodes(mut self, boot_nodes: Vec<usize>) -> Self {
         self.apply_all(move |test_config| {
             test_config.boot_nodes = boot_nodes.clone();
+        });
+        self
+    }
+
+    pub fn ideal_connections(
+        mut self,
+        ideal_connections_lo: u32,
+        ideal_connections_hi: u32,
+    ) -> Self {
+        self.apply_all(move |test_config| {
+            test_config.ideal_connections = Some((ideal_connections_lo, ideal_connections_hi));
+        });
+        self
+    }
+
+    pub fn minimum_outbound_peers(mut self, minimum_outbound_peers: u32) -> Self {
+        self.apply_all(move |test_config| {
+            test_config.minimum_outbound_peers = Some(minimum_outbound_peers);
+        });
+        self
+    }
+
+    pub fn safe_set_size(mut self, safe_set_size: u32) -> Self {
+        self.apply_all(move |test_config| {
+            test_config.minimum_outbound_peers = Some(safe_set_size);
         });
         self
     }
@@ -519,6 +550,15 @@ impl Runner {
         network_config.blacklist = blacklist;
         network_config.outbound_disabled = test_config.outbound_disabled;
         network_config.boot_nodes = boot_nodes;
+
+        network_config.ideal_connections_lo =
+            test_config.ideal_connections.map_or(network_config.ideal_connections_lo, |(lo, _)| lo);
+        network_config.ideal_connections_hi =
+            test_config.ideal_connections.map_or(network_config.ideal_connections_hi, |(_, hi)| hi);
+        network_config.safe_set_size =
+            test_config.safe_set_size.unwrap_or(network_config.safe_set_size);
+        network_config.minimum_outbound_peers =
+            test_config.minimum_outbound_peers.unwrap_or(network_config.minimum_outbound_peers);
 
         setup_network_node(
             accounts_id[node_id].clone(),
@@ -653,7 +693,6 @@ pub fn check_expected_connections(node_id: usize, expected_connections: usize) -
                     .map_err(|_| ())
                     .and_then(move |res| {
                         if res.num_active_peers >= expected_connections {
-                            println!("Total connections: {} {}", node_id, res.num_active_peers,);
                             flag.store(true, Ordering::Relaxed);
                         }
                         future::ok(())

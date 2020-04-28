@@ -16,7 +16,7 @@ use near_primitives::types::{BlockId, BlockIdOrFinality, Finality, ShardId};
 use near_primitives::views::{QueryRequest, QueryResponseKind};
 
 #[macro_use]
-mod test_utils;
+pub mod test_utils;
 
 /// Retrieve blocks via json rpc
 #[test]
@@ -74,7 +74,7 @@ fn test_block_query() {
         }
         // no doomslug final or nfg final block
         assert!(client.block(BlockIdOrFinality::Finality(Finality::DoomSlug)).await.is_err());
-        assert!(client.block(BlockIdOrFinality::Finality(Finality::NFG)).await.is_err());
+        assert!(client.block(BlockIdOrFinality::Finality(Finality::Final)).await.is_err());
     });
 }
 
@@ -199,7 +199,7 @@ fn test_query_account() {
             .await;
         let non_finalized_query_response_2 = client
             .query(RpcQueryRequest {
-                block_id_or_finality: BlockIdOrFinality::Finality(Finality::NFG),
+                block_id_or_finality: BlockIdOrFinality::Finality(Finality::Final),
                 request: QueryRequest::ViewAccount { account_id: "test".to_string() },
             })
             .await;

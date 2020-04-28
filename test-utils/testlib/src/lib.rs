@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use actix::Addr;
-use tempdir::TempDir;
+use tempfile::{tempdir, TempDir};
 
 use near_chain::{Chain, ChainGenesis, DoomslugThresholdMode};
 use near_chain_configs::Genesis;
@@ -29,23 +29,23 @@ pub fn genesis_hash(genesis: Arc<Genesis>) -> CryptoHash {
 
 /// Utility to generate genesis header from config for testing purposes.
 pub fn genesis_header(genesis: Arc<Genesis>) -> BlockHeader {
-    let dir = TempDir::new("unused").unwrap();
+    let dir = tempdir().unwrap();
     let store = create_test_store();
     let chain_genesis = ChainGenesis::from(&genesis);
     let runtime =
         Arc::new(NightshadeRuntime::new(dir.path(), store.clone(), genesis, vec![], vec![]));
-    let chain = Chain::new(runtime, &chain_genesis, DoomslugThresholdMode::HalfStake).unwrap();
+    let chain = Chain::new(runtime, &chain_genesis, DoomslugThresholdMode::TwoThirds).unwrap();
     chain.genesis().clone()
 }
 
 /// Utility to generate genesis header from config for testing purposes.
 pub fn genesis_block(genesis: Arc<Genesis>) -> Block {
-    let dir = TempDir::new("unused").unwrap();
+    let dir = tempdir().unwrap();
     let store = create_test_store();
     let chain_genesis = ChainGenesis::from(&genesis);
     let runtime =
         Arc::new(NightshadeRuntime::new(dir.path(), store.clone(), genesis, vec![], vec![]));
-    let mut chain = Chain::new(runtime, &chain_genesis, DoomslugThresholdMode::HalfStake).unwrap();
+    let mut chain = Chain::new(runtime, &chain_genesis, DoomslugThresholdMode::TwoThirds).unwrap();
     chain.get_block(&chain.genesis().hash()).unwrap().clone()
 }
 

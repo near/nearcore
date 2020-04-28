@@ -61,4 +61,5 @@ hash_2 = status2['sync_info']['latest_block_hash']
 hash_2 = base58.b58decode(hash_2.encode('utf8'))
 tx2 = sign_function_call_tx(nodes[0].signer_key, nodes[0].signer_key.account_id, 'log_something', [], 100000000000, 100000000000, 62, hash_2)
 res = nodes[1].send_tx_and_wait(tx2, 10)
+print(res)
 assert res['result']['receipts_outcome'][0]['outcome']['logs'][0] == 'hello'

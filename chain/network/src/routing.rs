@@ -6,9 +6,9 @@ use std::time::{Duration, Instant};
 use serde::Serialize;
 
 use borsh::{BorshDeserialize, BorshSerialize};
-use byteorder::LittleEndian;
-use byteorder::WriteBytesExt;
+use byteorder::{LittleEndian, WriteBytesExt};
 use cached::{Cached, SizedCache};
+use chrono;
 use log::{debug, trace, warn};
 
 use near_crypto::{SecretKey, Signature};
@@ -253,7 +253,7 @@ pub struct RoutingTable {
     /// Hash of messages that requires routing back to respective previous hop.
     pub route_back: SizedCache<CryptoHash, PeerId>,
     /// Last time a peer with reachable through active edges.
-    pub peer_last_time_reachable: HashMap<PeerId, Instant>,
+    pub peer_last_time_reachable: HashMap<PeerId, chrono::DateTime<chrono::Utc>>,
     /// Access to store on disk
     store: Arc<Store>,
     /// Current view of the network. Nodes are Peers and edges are active connections.
@@ -452,7 +452,8 @@ impl RoutingTable {
                             if cur_nonce == nonce {
                                 self.peer_last_time_reachable.insert(
                                     peer_id.clone(),
-                                    Instant::now().sub(Duration::from_secs(SAVE_PEERS_MAX_TIME)),
+                                    chrono::Utc::now()
+                                        .sub(chrono::Duration::seconds(SAVE_PEERS_MAX_TIME as i64)),
                                 );
                                 update
                                     .delete(ColPeerComponent, Vec::from(peer_id.clone()).as_ref());
@@ -467,7 +468,7 @@ impl RoutingTable {
                 warn!(target: "network", "Error removing network component from store. {:?}", e);
             }
         } else {
-            self.peer_last_time_reachable.insert(peer_id.clone(), Instant::now());
+            self.peer_last_time_reachable.insert(peer_id.clone(), chrono::Utc::now());
         }
     }
 
@@ -612,14 +613,16 @@ impl RoutingTable {
     }
 
     fn try_save_edges(&mut self) {
-        let now = Instant::now();
+        let now = chrono::Utc::now();
         let mut oldest_time = now;
         let to_save = self
             .peer_last_time_reachable
             .iter()
             .filter_map(|(peer_id, last_time)| {
                 oldest_time = std::cmp::min(oldest_time, *last_time);
-                if now.duration_since(*last_time).as_secs() >= SAVE_PEERS_AFTER_TIME {
+                if now.signed_duration_since(*last_time).num_seconds()
+                    >= SAVE_PEERS_AFTER_TIME as i64
+                {
                     Some(peer_id.clone())
                 } else {
                     None
@@ -629,7 +632,7 @@ impl RoutingTable {
 
         // Save nodes on disk and remove from memory only if elapsed time from oldest peer
         // is greater than `SAVE_PEERS_MAX_TIME`
-        if now.duration_since(oldest_time).as_secs() < SAVE_PEERS_MAX_TIME {
+        if now.signed_duration_since(oldest_time).num_seconds() < SAVE_PEERS_MAX_TIME as i64 {
             return;
         }
 
@@ -677,7 +680,7 @@ impl RoutingTable {
 
         self.peer_forwarding = self.raw_graph.calculate_distance();
 
-        let now = Instant::now();
+        let now = chrono::Utc::now();
         for peer in self.peer_forwarding.keys() {
             self.peer_last_time_reachable.insert(peer.clone(), now);
         }

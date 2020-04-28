@@ -63,7 +63,7 @@ fn load_trie_stop_at_height(
                     .get_block_header(&cur_block_hash)
                     .unwrap()
                     .inner_rest
-                    .last_quorum_pre_commit;
+                    .last_final_block;
                 let last_final_block = chain_store.get_block(&last_final_block_hash).unwrap();
                 if last_final_block.header.inner_lite.height >= height {
                     break last_final_block.clone();
@@ -176,9 +176,7 @@ fn replay_chain(
                     header.hash(),
                     header.inner_rest.random_value,
                     header.inner_lite.height,
-                    chain_store
-                        .get_block_height(&header.inner_rest.last_quorum_pre_commit)
-                        .unwrap(),
+                    chain_store.get_block_height(&header.inner_rest.last_final_block).unwrap(),
                     header.inner_rest.validator_proposals,
                     vec![],
                     header.inner_rest.chunk_mask,

@@ -1,7 +1,7 @@
-use near_crypto::{EmptySigner, PublicKey, Signer};
+use near_crypto::{EmptySigner, PublicKey, Signature, Signer};
 
-use crate::account::{AccessKey, AccessKeyPermission};
-use crate::block::{Approval, Block};
+use crate::account::{AccessKey, AccessKeyPermission, Account};
+use crate::block::Block;
 use crate::hash::CryptoHash;
 use crate::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, SignedTransaction, StakeAction,
@@ -177,7 +177,7 @@ impl Block {
         height: BlockHeight,
         epoch_id: EpochId,
         next_epoch_id: EpochId,
-        approvals: Vec<Approval>,
+        approvals: Vec<Option<Signature>>,
         signer: &dyn ValidatorSigner,
         next_bp_hash: CryptoHash,
     ) -> Self {
@@ -194,10 +194,6 @@ impl Block {
             vec![],
             vec![],
             signer,
-            0.into(),
-            CryptoHash::default(),
-            CryptoHash::default(),
-            CryptoHash::default(),
             next_bp_hash,
         )
     }

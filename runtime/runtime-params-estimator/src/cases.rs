@@ -1,5 +1,6 @@
 use std::cell::RefCell;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
+use std::convert::TryInto;
 
 use rand::seq::SliceRandom;
 use rand::{Rng, SeedableRng};
@@ -131,23 +132,6 @@ pub enum Metric {
     storage_has_key_10b_key_10b_value_1k,
     storage_has_key_10kib_key_10b_value_1k,
     storage_has_key_10b_key_10kib_value_1k,
-    storage_iter_prefix_10b_1k,
-    storage_iter_prefix_10kib_1k,
-    storage_iter_range_10b_from_10b_to_1k,
-    storage_iter_range_10kib_from_10b_to_1k,
-    storage_iter_range_10b_from_10kib_to_1k,
-
-    storage_next_10b_from_10b_to_1k_10b_key_10b_value,
-    storage_next_10kib_from_10b_to_1k_10b_key_10b_value,
-    storage_next_10b_from_10kib_to_1k_10b_key_10b_value,
-
-    storage_next_10b_from_10b_to_1k_10kib_key_10b_value,
-    storage_next_10kib_from_10b_to_1k_10kib_key_10b_value,
-    storage_next_10b_from_10kib_to_1k_10kib_key_10b_value,
-
-    storage_next_10b_from_10b_to_1k_10b_key_10kib_value,
-    storage_next_10kib_from_10b_to_1k_10b_key_10kib_value,
-    storage_next_10b_from_10kib_to_1k_10b_key_10kib_value,
 
     promise_and_100k,
     promise_and_100k_on_1k_and,
@@ -160,7 +144,7 @@ pub enum Metric {
 }
 
 pub fn run(mut config: Config) -> RuntimeConfig {
-    let mut m = Measurements::new();
+    let mut m = Measurements::new(&config.metric);
     config.block_sizes = vec![100];
     // Measure the speed of processing empty receipts.
     measure_actions(Metric::Receipt, &mut m, &config, None, vec![], false, false);
@@ -189,7 +173,10 @@ pub fn run(mut config: Config) -> RuntimeConfig {
             account_id,
             other_account_id,
             &signer,
-            vec![Action::CreateAccount(CreateAccountAction {})],
+            vec![
+                Action::CreateAccount(CreateAccountAction {}),
+                Action::Transfer(TransferAction { deposit: 10u128.pow(26) }),
+            ],
             CryptoHash::default(),
         )
     };
@@ -322,15 +309,14 @@ pub fn run(mut config: Config) -> RuntimeConfig {
     measure_transactions(Metric::ActionDeleteAccessKey, &mut m, &config, None, &mut f, false);
 
     // Measure the speed of staking.
+    let public_key: PublicKey =
+        "22skMptHjFWNyuEWY22ftn2AbLPSYpmYwGJRGwpNHbTV".to_string().try_into().unwrap();
     measure_actions(
         Metric::ActionStake,
         &mut m,
         &config,
         None,
-        vec![Action::Stake(StakeAction {
-            stake: 1,
-            public_key: PublicKey::empty(KeyType::ED25519),
-        })],
+        vec![Action::Stake(StakeAction { stake: 1, public_key: public_key })],
         true,
         true,
     );
@@ -418,6 +404,7 @@ pub fn run(mut config: Config) -> RuntimeConfig {
 
     config.block_sizes = vec![2];
 
+    // When adding new functions do not forget to rebuild the test contract by running `test-contract/build.sh`.
     let v = calls_helper! {
     cpu_ram_soak_test => cpu_ram_soak_test,
     base_1M => base_1M,
@@ -446,29 +433,15 @@ pub fn run(mut config: Config) -> RuntimeConfig {
     storage_write_10b_key_10b_value_1k => storage_write_10b_key_10b_value_1k,
     storage_read_10b_key_10b_value_1k => storage_read_10b_key_10b_value_1k,
     storage_has_key_10b_key_10b_value_1k => storage_has_key_10b_key_10b_value_1k,
-    storage_iter_prefix_10b_1k => storage_iter_prefix_10b_1k,
-    storage_iter_range_10b_from_10b_to_1k => storage_iter_range_10b_from_10b_to_1k,
-    storage_next_10b_from_10b_to_1k_10b_key_10b_value =>   storage_next_10b_from_10b_to_1k,
-    storage_next_10kib_from_10b_to_1k_10b_key_10b_value =>   storage_next_10kib_from_10b_to_1k,
-    storage_next_10b_from_10kib_to_1k_10b_key_10b_value =>   storage_next_10b_from_10kib_to_1k,
     storage_remove_10b_key_10b_value_1k => storage_remove_10b_key_10b_value_1k,
     storage_write_10kib_key_10b_value_1k => storage_write_10kib_key_10b_value_1k,
     storage_read_10kib_key_10b_value_1k => storage_read_10kib_key_10b_value_1k,
     storage_has_key_10kib_key_10b_value_1k => storage_has_key_10kib_key_10b_value_1k,
-    storage_iter_prefix_10kib_1k => storage_iter_prefix_10kib_1k,
-    storage_iter_range_10kib_from_10b_to_1k => storage_iter_range_10kib_from_10b_to_1k,
-    storage_iter_range_10b_from_10kib_to_1k => storage_iter_range_10b_from_10kib_to_1k,
-    storage_next_10b_from_10b_to_1k_10kib_key_10b_value =>   storage_next_10b_from_10b_to_1k ,
-    storage_next_10kib_from_10b_to_1k_10kib_key_10b_value =>   storage_next_10kib_from_10b_to_1k,
-    storage_next_10b_from_10kib_to_1k_10kib_key_10b_value =>   storage_next_10b_from_10kib_to_1k ,
     storage_remove_10kib_key_10b_value_1k => storage_remove_10kib_key_10b_value_1k,
     storage_write_10b_key_10kib_value_1k => storage_write_10b_key_10kib_value_1k,
     storage_write_10b_key_10kib_value_1k_evict => storage_write_10b_key_10kib_value_1k,
     storage_read_10b_key_10kib_value_1k => storage_read_10b_key_10kib_value_1k,
     storage_has_key_10b_key_10kib_value_1k => storage_has_key_10b_key_10kib_value_1k,
-    storage_next_10b_from_10b_to_1k_10b_key_10kib_value =>      storage_next_10b_from_10b_to_1k,
-    storage_next_10kib_from_10b_to_1k_10b_key_10kib_value =>   storage_next_10kib_from_10b_to_1k ,
-    storage_next_10b_from_10kib_to_1k_10b_key_10kib_value =>   storage_next_10b_from_10kib_to_1k ,
     storage_remove_10b_key_10kib_value_1k =>   storage_remove_10b_key_10kib_value_1k ,
     promise_and_100k => promise_and_100k,
     promise_and_100k_on_1k_and => promise_and_100k_on_1k_and,
@@ -545,57 +518,66 @@ fn get_runtime_fees_config(measurement: &Measurements) -> RuntimeFeesConfig {
     }
 }
 
+fn cost_as_gas(pure: &BTreeMap<ExtCosts, f64>, cost: ExtCosts) -> u64 {
+    match pure.get(&cost) {
+        Some(value) => f64_to_gas(*value),
+        None => panic!("cost {} not found", cost as u32),
+    }
+}
+
 fn get_ext_costs_config(measurement: &Measurements) -> ExtCostsConfig {
     let mut generator = ExtCostsGenerator::new(measurement);
     let pure = generator.compute();
     use ExtCosts::*;
     ExtCostsConfig {
-        base: f64_to_gas(pure[&base]),
-        read_memory_base: f64_to_gas(pure[&read_memory_base]),
-        read_memory_byte: f64_to_gas(pure[&read_memory_byte]),
-        write_memory_base: f64_to_gas(pure[&write_memory_base]),
-        write_memory_byte: f64_to_gas(pure[&write_memory_byte]),
-        read_register_base: f64_to_gas(pure[&read_register_base]),
-        read_register_byte: f64_to_gas(pure[&read_register_byte]),
-        write_register_base: f64_to_gas(pure[&write_register_base]),
-        write_register_byte: f64_to_gas(pure[&write_register_byte]),
-        utf8_decoding_base: f64_to_gas(pure[&utf8_decoding_base]),
-        utf8_decoding_byte: f64_to_gas(pure[&utf8_decoding_byte]),
-        utf16_decoding_base: f64_to_gas(pure[&utf16_decoding_base]),
-        utf16_decoding_byte: f64_to_gas(pure[&utf16_decoding_byte]),
-        sha256_base: f64_to_gas(pure[&sha256_base]),
-        sha256_byte: f64_to_gas(pure[&sha256_byte]),
-        keccak256_base: f64_to_gas(pure[&keccak256_base]),
-        keccak256_byte: f64_to_gas(pure[&keccak256_byte]),
-        keccak512_base: f64_to_gas(pure[&keccak512_base]),
-        keccak512_byte: f64_to_gas(pure[&keccak512_byte]),
-        log_base: f64_to_gas(pure[&log_base]),
-        log_byte: f64_to_gas(pure[&log_byte]),
-        storage_write_base: f64_to_gas(pure[&storage_write_base]),
-        storage_write_key_byte: f64_to_gas(pure[&storage_write_key_byte]),
-        storage_write_value_byte: f64_to_gas(pure[&storage_write_value_byte]),
-        storage_write_evicted_byte: f64_to_gas(pure[&storage_write_evicted_byte]),
-        storage_read_base: f64_to_gas(pure[&storage_read_base]),
-        storage_read_key_byte: f64_to_gas(pure[&storage_read_key_byte]),
-        storage_read_value_byte: f64_to_gas(pure[&storage_read_value_byte]),
-        storage_remove_base: f64_to_gas(pure[&storage_remove_base]),
-        storage_remove_key_byte: f64_to_gas(pure[&storage_remove_key_byte]),
-        storage_remove_ret_value_byte: f64_to_gas(pure[&storage_remove_ret_value_byte]),
-        storage_has_key_base: f64_to_gas(pure[&storage_has_key_base]),
-        storage_has_key_byte: f64_to_gas(pure[&storage_has_key_byte]),
-        storage_iter_create_prefix_base: f64_to_gas(pure[&storage_iter_create_prefix_base]),
-        storage_iter_create_prefix_byte: f64_to_gas(pure[&storage_iter_create_prefix_byte]),
-        storage_iter_create_range_base: f64_to_gas(pure[&storage_iter_create_range_base]),
-        storage_iter_create_from_byte: f64_to_gas(pure[&storage_iter_create_from_byte]),
-        storage_iter_create_to_byte: f64_to_gas(pure[&storage_iter_create_to_byte]),
-        storage_iter_next_base: f64_to_gas(pure[&storage_iter_next_base]),
-        storage_iter_next_key_byte: f64_to_gas(pure[&storage_iter_next_key_byte]),
-        storage_iter_next_value_byte: f64_to_gas(pure[&storage_iter_next_value_byte]),
+        base: cost_as_gas(&pure, base),
+        read_memory_base: cost_as_gas(&pure, read_memory_base),
+        read_memory_byte: cost_as_gas(&pure, read_memory_byte),
+        write_memory_base: cost_as_gas(&pure, write_memory_base),
+        write_memory_byte: cost_as_gas(&pure, write_memory_byte),
+        read_register_base: cost_as_gas(&pure, read_register_base),
+        read_register_byte: cost_as_gas(&pure, read_register_byte),
+        write_register_base: cost_as_gas(&pure, write_register_base),
+        write_register_byte: cost_as_gas(&pure, write_register_byte),
+        utf8_decoding_base: cost_as_gas(&pure, utf8_decoding_base),
+        utf8_decoding_byte: cost_as_gas(&pure, utf8_decoding_byte),
+        utf16_decoding_base: cost_as_gas(&pure, utf16_decoding_base),
+        utf16_decoding_byte: cost_as_gas(&pure, utf16_decoding_byte),
+        sha256_base: cost_as_gas(&pure, sha256_base),
+        sha256_byte: cost_as_gas(&pure, sha256_byte),
+        keccak256_base: cost_as_gas(&pure, keccak256_base),
+        keccak256_byte: cost_as_gas(&pure, keccak256_byte),
+        keccak512_base: cost_as_gas(&pure, keccak512_base),
+        keccak512_byte: cost_as_gas(&pure, keccak512_byte),
+        log_base: cost_as_gas(&pure, log_base),
+        log_byte: cost_as_gas(&pure, log_byte),
+        storage_write_base: cost_as_gas(&pure, storage_write_base),
+        storage_write_key_byte: cost_as_gas(&pure, storage_write_key_byte),
+        storage_write_value_byte: cost_as_gas(&pure, storage_write_value_byte),
+        storage_write_evicted_byte: cost_as_gas(&pure, storage_write_evicted_byte),
+        storage_read_base: cost_as_gas(&pure, storage_read_base),
+        storage_read_key_byte: cost_as_gas(&pure, storage_read_key_byte),
+        storage_read_value_byte: cost_as_gas(&pure, storage_read_value_byte),
+        storage_remove_base: cost_as_gas(&pure, storage_remove_base),
+        storage_remove_key_byte: cost_as_gas(&pure, storage_remove_key_byte),
+        storage_remove_ret_value_byte: cost_as_gas(&pure, storage_remove_ret_value_byte),
+        storage_has_key_base: cost_as_gas(&pure, storage_has_key_base),
+        storage_has_key_byte: cost_as_gas(&pure, storage_has_key_byte),
+        // TODO: storage_iter_* operations below are deprecated, so just hardcode zero price,
+        // and remove those operations ASAP.
+        storage_iter_create_prefix_base: 0,
+        storage_iter_create_prefix_byte: 0,
+        storage_iter_create_range_base: 0,
+        storage_iter_create_from_byte: 0,
+        storage_iter_create_to_byte: 0,
+        storage_iter_next_base: 0,
+        storage_iter_next_key_byte: 0,
+        storage_iter_next_value_byte: 0,
         // TODO: Actually compute it once our storage is complete.
         touching_trie_node: 1,
-        promise_and_base: f64_to_gas(pure[&promise_and_base]),
-        promise_and_per_promise: f64_to_gas(pure[&promise_and_per_promise]),
-        promise_return: f64_to_gas(pure[&promise_return]),
+        promise_and_base: cost_as_gas(&pure, promise_and_base),
+        promise_and_per_promise: cost_as_gas(&pure, promise_and_per_promise),
+        promise_return: cost_as_gas(&pure, promise_return),
     }
 }
 

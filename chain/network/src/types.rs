@@ -4,22 +4,23 @@ use std::fmt;
 use std::net::{AddrParseError, IpAddr, SocketAddr};
 use std::str::FromStr;
 use std::sync::RwLock;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use actix::dev::{MessageResponse, ResponseChannel};
 use actix::{Actor, Addr, MailboxError, Message, Recipient};
 use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::{DateTime, Utc};
 use futures::{future::BoxFuture, FutureExt};
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use tokio::net::TcpStream;
+use tracing::{error, warn};
 
 use near_chain::types::ShardStateSyncResponse;
 use near_chain::{Block, BlockHeader};
 use near_chain_configs::PROTOCOL_VERSION;
 use near_crypto::{PublicKey, SecretKey, Signature};
 use near_metrics;
-use near_primitives::block::{Approval, ApprovalMessage, BlockScore, GenesisId, ScoreAndHeight};
+use near_primitives::block::{Approval, ApprovalMessage, GenesisId};
 use near_primitives::challenge::Challenge;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::{hash, CryptoHash};
@@ -40,6 +41,10 @@ use crate::routing::{Edge, EdgeInfo, RoutingTableInfo};
 /// This is used to avoid infinite loop because of inconsistent view of the network
 /// by different nodes.
 pub const ROUTED_MESSAGE_TTL: u8 = 100;
+/// On every message from peer don't update `last_time_received_message`
+/// but wait some "small" timeout between updates to avoid a lot of messages between
+/// Peer and PeerManager.
+pub const UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE: Duration = Duration::from_secs(60);
 
 /// Peer information.
 #[derive(BorshSerialize, BorshDeserialize, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -121,16 +126,8 @@ pub struct PeerChainInfo {
     pub genesis_id: GenesisId,
     /// Last known chain height of the peer.
     pub height: BlockHeight,
-    /// Last known chain score of the peer.
-    pub score: BlockScore,
     /// Shards that the peer is tracking
     pub tracked_shards: Vec<ShardId>,
-}
-
-impl PeerChainInfo {
-    pub fn score_and_height(&self) -> ScoreAndHeight {
-        ScoreAndHeight { score: self.score, height: self.height }
-    }
 }
 
 /// Peer type.
@@ -709,12 +706,24 @@ pub struct NetworkConfig {
     pub handshake_timeout: Duration,
     pub reconnect_delay: Duration,
     pub bootstrap_peers_period: Duration,
+    /// Maximum number of active peers. Hard limit.
     pub max_peer: u32,
+    /// Minimum outbound connections a peer should have to avoid eclipse attacks.
+    pub minimum_outbound_peers: u32,
+    /// Lower bound of the ideal number of connections.
+    pub ideal_connections_lo: u32,
+    /// Upper bound of the ideal number of connections.
+    pub ideal_connections_hi: u32,
+    /// Peers which last message is was within this period of time are considered active recent peers.
+    pub peer_recent_time_window: Duration,
+    /// Number of peers to keep while removing a connection.
+    /// Used to avoid disconnecting from peers we have been connected since long time.
+    pub safe_set_size: u32,
     /// Duration of the ban for misbehaving peers.
     pub ban_window: Duration,
     /// Remove expired peers.
     pub peer_expiration_duration: Duration,
-    /// Maximum number of peer addresses we should ever send.
+    /// Maximum number of peer addresses we should ever send on PeersRequest.
     pub max_send_peers: u32,
     /// Duration for checking on stats from the peers.
     pub peer_stats_period: Duration,
@@ -740,6 +749,53 @@ pub struct NetworkConfig {
     /// are satisfied.
     /// This flag should be ALWAYS FALSE. Only set to true for testing purposes.
     pub outbound_disabled: bool,
+}
+
+impl NetworkConfig {
+    pub fn verify(&self) {
+        let mut some_error = false;
+
+        if self.ideal_connections_lo + 1 >= self.ideal_connections_hi {
+            error!(target: "network",
+            "Invalid IDEAL_CONNECTIONS values. LO({}) > HI({})",
+            self.ideal_connections_lo, self.ideal_connections_hi);
+            some_error = true;
+        }
+
+        if self.ideal_connections_hi >= self.max_peer {
+            error!(target: "network",
+                "Inestable IDEAL_CONNECTIONS_HI({}) compared with MAX_PEERS({})",
+                self.ideal_connections_hi, self.max_peer
+            );
+            some_error = true;
+        }
+
+        if self.outbound_disabled {
+            warn!(target: "network", "Outbound connections are disabled");
+        }
+
+        if self.safe_set_size <= self.minimum_outbound_peers {
+            error!(target: "network",
+                "SAFE_SET_SIZE({}) must be larger than MINIMUM_OUTBOUND_PEERS({})",
+                self.safe_set_size,
+                self.minimum_outbound_peers
+            );
+            some_error = true;
+        }
+
+        if UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE * 2 > self.peer_recent_time_window {
+            error!(
+                target: "network",
+                "Very short PEER_RECENT_TIME_WINDOW({}). It should be at least twice UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE({})",
+                self.peer_recent_time_window.as_secs(), UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE.as_secs()
+            );
+            some_error = true;
+        }
+
+        if some_error {
+            panic!("Invalid network configuration. See logs for more details.");
+        }
+    }
 }
 
 /// Used to match a socket addr by IP:Port or only by IP
@@ -896,6 +952,7 @@ pub enum PeerRequest {
     UpdateEdge((PeerId, u64)),
     RouteBack(RoutedMessageBody, CryptoHash),
     UpdatePeerInfo(PeerInfo),
+    ReceivedMessage(PeerId, Instant),
 }
 
 impl Message for PeerRequest {
@@ -1149,7 +1206,7 @@ pub enum NetworkAdversarialMessage {
     AdvDisableDoomslug,
     AdvGetSavedBlocks,
     AdvCheckRefMap,
-    AdvSetSyncInfo(u64, u64),
+    AdvSetSyncInfo(u64),
 }
 
 #[derive(Debug)]
@@ -1162,7 +1219,10 @@ pub enum NetworkClientMessages {
     /// Received transaction.
     Transaction {
         transaction: SignedTransaction,
+        /// Whether the transaction is forwarded from other nodes.
         is_forwarded: bool,
+        /// Whether the transaction needs to be submitted.
+        check_only: bool,
     },
     /// Received block, possibly requested.
     Block(Block, PeerId, bool),
@@ -1200,6 +1260,9 @@ pub enum NetworkClientResponses {
     InvalidTx(InvalidTxError),
     /// The request is routed to other shards
     RequestRouted,
+    /// The node being queried does not track the shard needed and therefore cannot provide userful
+    /// response.
+    DoesNotTrackShard,
     /// Ban peer for malicious behavior.
     Ban { ban_reason: ReasonForBan },
 }
@@ -1264,12 +1327,7 @@ pub enum NetworkViewClientResponses {
     /// Headers response.
     BlockHeaders(Vec<BlockHeader>),
     /// Chain information.
-    ChainInfo {
-        genesis_id: GenesisId,
-        height: BlockHeight,
-        score: BlockScore,
-        tracked_shards: Vec<ShardId>,
-    },
+    ChainInfo { genesis_id: GenesisId, height: BlockHeight, tracked_shards: Vec<ShardId> },
     /// Response to state request.
     StateResponse(StateResponseInfo),
     /// Valid announce accounts.

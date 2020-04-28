@@ -5,16 +5,16 @@ authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2018"
 
 [dependencies]
-borsh = "0.6.1"
-indicatif = {version = "0.13.0", features = ["with_rayon"]}
-rayon = "1.1"
-tempdir = "0.3.7"
+indicatif = "0.14"
+tempfile = "3"
 rand = "0.7.2"
-rand_xorshift = "0.2.0"
+rand_xorshift = "0.2"
 gnuplot = "0.0.32"
-serde_json = "1.0.40"
+serde_json = "1"
 csv = "1.1.1"
-clap = "2.33.0"
+clap = "2.33"
+
+borsh = "0.6.1"
 
 near-runtime-fees = { path = "../../runtime/near-runtime-fees" }
 near-crypto = { path = "../../core/crypto" }
@@ -24,4 +24,3 @@ node-runtime = { path = "../../runtime/runtime" , features = ["costs_counting", 
 near-store = { path = "../../core/store" }
 near-primitives = { path = "../../core/primitives" }
 neard = { path = "../../neard" }
-

@@ -96,6 +96,8 @@ pub fn start_with_config(
         view_client.clone(),
     );
 
+    config.network_config.verify();
+
     let network_actor = PeerManagerActor::new(
         store.clone(),
         config.network_config,
