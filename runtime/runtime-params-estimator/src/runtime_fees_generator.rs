@@ -50,20 +50,20 @@ impl RuntimeFeesGenerator {
         );
         res.insert(
             ReceiptFeesFloat::ActionCreateAccount,
-            self.aggregated[&Metric::ActionCreateAccount].upper() as f64
-                - self.aggregated[&Metric::Receipt].upper() as f64,
+            (self.aggregated[&Metric::ActionCreateAccount].upper() as i64
+                - self.aggregated[&Metric::Receipt].upper() as i64) as f64,
         );
         res.insert(
             ReceiptFeesFloat::ActionDeployContractBase,
             // TODO: This is a base cost, so we should not be charging for bytes here.
             // We ignore the fact that this includes 10K contract.
-            self.aggregated[&Metric::ActionDeploy10K].upper() as f64
-                - self.aggregated[&Metric::Receipt].upper() as f64,
+            (self.aggregated[&Metric::ActionDeploy10K].upper() as i64
+                - self.aggregated[&Metric::Receipt].upper() as i64) as f64,
         );
         res.insert(
             ReceiptFeesFloat::ActionDeployContractPerByte,
-            (self.aggregated[&Metric::ActionDeploy1M].upper() as f64
-                - self.aggregated[&Metric::ActionDeploy100K].upper() as f64)
+            ((self.aggregated[&Metric::ActionDeploy1M].upper() as i64
+                - self.aggregated[&Metric::ActionDeploy100K].upper() as i64) as f64)
                 / (1024f64 * 1024f64 - 100f64 * 1024f64),
         );
         res.insert(
@@ -73,46 +73,47 @@ impl RuntimeFeesGenerator {
         );
         res.insert(
             ReceiptFeesFloat::ActionFunctionCallPerByte,
-            (self.aggregated[&Metric::noop_1MiB].upper() - self.aggregated[&Metric::noop].upper())
-                as f64
+            (self.aggregated[&Metric::noop_1MiB].upper() as i64
+                - self.aggregated[&Metric::noop].upper() as i64) as f64
                 / (1024f64 * 1024f64),
         );
         res.insert(
             ReceiptFeesFloat::ActionTransfer,
-            self.aggregated[&Metric::ActionTransfer].upper() as f64
-                - self.aggregated[&Metric::Receipt].upper() as f64,
+            (self.aggregated[&Metric::ActionTransfer].upper() as i64
+                - self.aggregated[&Metric::Receipt].upper() as i64) as f64,
         );
         res.insert(
             ReceiptFeesFloat::ActionStake,
-            self.aggregated[&Metric::ActionStake].upper() as f64
-                - self.aggregated[&Metric::Receipt].upper() as f64,
+            (self.aggregated[&Metric::ActionStake].upper() as i64
+                - self.aggregated[&Metric::Receipt].upper() as i64) as f64,
         );
         res.insert(
             ReceiptFeesFloat::ActionAddFullAccessKey,
-            self.aggregated[&Metric::ActionAddFullAccessKey].upper() as f64
-                - self.aggregated[&Metric::Receipt].upper() as f64,
+            (self.aggregated[&Metric::ActionAddFullAccessKey].upper() as i64
+                - self.aggregated[&Metric::Receipt].upper() as i64) as f64,
         );
         res.insert(
             ReceiptFeesFloat::ActionAddFunctionAccessKeyBase,
-            self.aggregated[&Metric::ActionAddFunctionAccessKey1Method].upper() as f64
-                - self.aggregated[&Metric::Receipt].upper() as f64,
+            (self.aggregated[&Metric::ActionAddFunctionAccessKey1Method].upper() as i64
+                - self.aggregated[&Metric::Receipt].upper() as i64) as f64,
         );
         res.insert(
             ReceiptFeesFloat::ActionAddFunctionAccessKeyPerByte,
             // These are 1k methods each 10bytes long.
-            (self.aggregated[&Metric::ActionAddFunctionAccessKey1000Methods].upper() as f64
-                - self.aggregated[&Metric::ActionAddFunctionAccessKey1Method].upper() as f64)
+            (self.aggregated[&Metric::ActionAddFunctionAccessKey1000Methods].upper() as i64
+                - self.aggregated[&Metric::ActionAddFunctionAccessKey1Method].upper() as i64)
+                as f64
                 / (1000f64 * 10f64),
         );
         res.insert(
             ReceiptFeesFloat::ActionDeleteKey,
-            self.aggregated[&Metric::ActionDeleteAccessKey].upper() as f64
-                - self.aggregated[&Metric::Receipt].upper() as f64,
+            (self.aggregated[&Metric::ActionDeleteAccessKey].upper() as i64
+                - self.aggregated[&Metric::Receipt].upper() as i64) as f64,
         );
         res.insert(
             ReceiptFeesFloat::ActionDeleteAccount,
-            self.aggregated[&Metric::ActionDeleteAccount].upper() as f64
-                - self.aggregated[&Metric::Receipt].upper() as f64,
+            (self.aggregated[&Metric::ActionDeleteAccount].upper() as i64
+                - self.aggregated[&Metric::Receipt].upper() as i64) as f64,
         );
         res
     }
