@@ -2392,6 +2392,7 @@ dependencies = [
  "near-crypto 0.1.0",
  "near-epoch-manager 0.0.1",
  "near-jsonrpc 0.1.0",
+ "near-logger-utils 0.1.0",
  "near-network 0.1.0",
  "near-pool 0.1.0",
  "near-primitives 0.1.0",

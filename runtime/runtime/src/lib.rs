@@ -1275,7 +1275,7 @@ mod tests {
     use near_primitives::transaction::TransferAction;
     use near_primitives::types::MerkleHash;
     use near_store::test_utils::create_trie;
-    use testlib::runtime_utils::{alice_account, bob_account};
+    use testlib::runtime_utils::{account_new, alice_account, bob_account};
 
     const GAS_PRICE: Balance = 5000;
 
@@ -1287,7 +1287,7 @@ mod tests {
     fn test_get_and_set_accounts() {
         let trie = create_trie();
         let mut state_update = TrieUpdate::new(trie, MerkleHash::default());
-        let test_account = Account::new(to_yocto(10), hash(&[]));
+        let test_account = account_new(to_yocto(10), hash(&[]));
         let account_id = bob_account();
         set_account(&mut state_update, account_id.clone(), &test_account);
         let get_res = get_account(&state_update, &account_id).unwrap().unwrap();
@@ -1299,7 +1299,7 @@ mod tests {
         let trie = create_trie();
         let root = MerkleHash::default();
         let mut state_update = TrieUpdate::new(trie.clone(), root);
-        let test_account = Account::new(to_yocto(10), hash(&[]));
+        let test_account = account_new(to_yocto(10), hash(&[]));
         let account_id = bob_account();
         set_account(&mut state_update, account_id.clone(), &test_account);
         state_update.commit(StateChangeCause::InitialState);
@@ -1329,7 +1329,7 @@ mod tests {
             Arc::new(InMemorySigner::from_seed(&account_id, KeyType::ED25519, &account_id));
 
         let mut initial_state = TrieUpdate::new(trie.clone(), root);
-        let mut initial_account = Account::new(initial_balance, hash(&[]));
+        let mut initial_account = account_new(initial_balance, hash(&[]));
         initial_account.locked = initial_locked;
         set_account(&mut initial_state, account_id.clone(), &initial_account);
         set_access_key(

@@ -386,7 +386,7 @@ mod tests {
     use near_primitives::types::{AccountId, Balance, MerkleHash, StateChangeCause};
     use near_store::test_utils::create_trie;
     use std::sync::Arc;
-    use testlib::runtime_utils::{alice_account, bob_account, eve_dot_alice_account};
+    use testlib::runtime_utils::{account_new, alice_account, bob_account, eve_dot_alice_account};
 
     /// Initial balance used in tests.
     const TESTING_INIT_BALANCE: Balance = 1_000_000_000 * NEAR_BASE;
@@ -414,7 +414,7 @@ mod tests {
 
         let mut initial_state = TrieUpdate::new(trie.clone(), root);
         for (account_id, initial_balance, initial_locked, access_key) in accounts {
-            let mut initial_account = Account::new(initial_balance, hash(&[]));
+            let mut initial_account = account_new(initial_balance, hash(&[]));
             initial_account.locked = initial_locked;
             set_account(&mut initial_state, account_id.clone(), &initial_account);
             if let Some(access_key) = access_key {
