@@ -22,11 +22,12 @@ Please make sure that Docker is given at least 4G of RAM, as running under emula
 First fetch appropriate base image, with `docker pull rust`.
 Then create a Docker image with `build.sh`, it will create a Docker image with additional build deps.
 
-Set `HOST_DIR` environment variable to local folder where relevant sources are present. It will be mounted under
+Set `HOST_DIR` environment variable to local folder where relevant sources are present.
+It will be mounted under `/host` in the Docker container.
 
 Start container and build estimator with:
 
-    ./run.sh
+    host> ./run.sh
     docker> cd /host/nearcore/runtime/runtime-params-estimator
     docker> cargo run --release --package neard --bin neard -- --home /tmp/data init --chain-id= --test-seed=alice.near --account-id=test.near --fast
     docker> cargo run --release --package genesis-populate --bin genesis-populate -- --additional-accounts-num=200000 --home /tmp/data

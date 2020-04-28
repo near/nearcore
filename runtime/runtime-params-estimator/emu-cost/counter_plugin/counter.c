@@ -15,13 +15,12 @@ QEMU_PLUGIN_EXPORT int qemu_plugin_version = QEMU_PLUGIN_VERSION;
 #define CATCH_BASE 0xcafebabe
 
 static uint64_t insn_count = 0;
-static bool counting = false;
 static pthread_t counting_for = 0;
 static bool on_every_close = false;
 
 static void vcpu_insn_exec_before(unsigned int cpu_index, void *udata)
 {
-    if (counting && pthread_self() == counting_for)
+    if (pthread_self() == counting_for)
         insn_count++;
 }
 
@@ -54,12 +53,10 @@ static void vcpu_syscall(qemu_plugin_id_t id, unsigned int vcpu_index,
         switch (a1)
         {
             case CATCH_BASE + 0:
-                counting = true;
                 counting_for = pthread_self();
                 insn_count = 0;
                 break;
             case CATCH_BASE + 1: {
-                counting = false;
                 counting_for = 0;
                 // If read syscall passes buffer size (third syscall argument) equal to 8 we assume it is interested
                 // in getting back the actual number of executed instructions.
@@ -88,7 +85,6 @@ QEMU_PLUGIN_EXPORT int qemu_plugin_install(qemu_plugin_id_t id,
     for (i = 0; i < argc; i++) {
         if (!strcmp(argv[i], "on_every_close")) {
             on_every_close = true;
-            counting = true;
             counting_for = pthread_self();
         }
     }

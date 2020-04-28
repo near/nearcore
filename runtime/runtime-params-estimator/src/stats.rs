@@ -1,4 +1,5 @@
 use crate::cases::Metric;
+use crate::testbed_runners::GasMetric;
 use gnuplot::{AxesCommon, Caption, Color, DotDotDash, Figure, Graph, LineStyle, PointSymbol};
 use near_vm_logic::ExtCosts;
 use rand::Rng;
@@ -8,14 +9,15 @@ use std::path::Path;
 type ExecutionCost = u64;
 
 /// Stores measurements per block.
-#[derive(Default, Clone)]
+#[derive(Clone)]
 pub struct Measurements {
     data: BTreeMap<Metric, Vec<(usize, ExecutionCost, HashMap<ExtCosts, u64>)>>,
+    gas_metric: GasMetric,
 }
 
 impl Measurements {
-    pub fn new() -> Self {
-        Self::default()
+    pub fn new(gas_metric: &GasMetric) -> Self {
+        Self { data: BTreeMap::new(), gas_metric: gas_metric.clone() }
     }
 
     pub fn record_measurement(
@@ -26,7 +28,21 @@ impl Measurements {
     ) {
         let ext_costs = node_runtime::EXT_COSTS_COUNTER
             .with(|f| f.borrow_mut().drain().collect::<HashMap<_, _>>());
-        self.data.entry(metric).or_insert_with(Vec::new).push((block_size, block_cost, ext_costs));
+        let normalized = self.normalize(block_cost);
+        self.data.entry(metric).or_insert_with(Vec::new).push((
+            block_size,
+            normalized,
+            ext_costs,
+        ));
+    }
+
+    pub fn normalize(&self, cost: u64) -> u64 {
+        match self.gas_metric {
+            GasMetric::Time => cost,
+            // We use factor of 8 to approximately match the price of SHA256 operation between
+            // time-based and icount-based metric as measured on 3.2Ghz Core i5.
+            GasMetric::ICount => cost / 8,
+        }
     }
 
     pub fn aggregate(&self) -> BTreeMap<Metric, DataStats> {

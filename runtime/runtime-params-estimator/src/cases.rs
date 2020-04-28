@@ -144,7 +144,7 @@ pub enum Metric {
 }
 
 pub fn run(mut config: Config) -> RuntimeConfig {
-    let mut m = Measurements::new();
+    let mut m = Measurements::new(&config.metric);
     config.block_sizes = vec![100];
     // Measure the speed of processing empty receipts.
     measure_actions(Metric::Receipt, &mut m, &config, None, vec![], false, false);
