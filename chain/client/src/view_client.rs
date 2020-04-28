@@ -213,20 +213,19 @@ impl ViewClientActor {
         receipt_id: CryptoHash,
         last_block_hash: &CryptoHash,
     ) -> Result<(), TxStatusError> {
-        let dst_shard_id = *self
-            .chain
-            .get_shard_id_for_receipt_id(&receipt_id)
-            .map_err(|e| TxStatusError::ChainError(e))?;
-        if self.chain.get_chunk_extra(last_block_hash, dst_shard_id).is_err() {
-            if Self::need_request(receipt_id, &mut self.receipt_outcome_requests) {
-                let validator = self
-                    .chain
-                    .find_validator_for_forwarding(dst_shard_id)
-                    .map_err(|e| TxStatusError::ChainError(e))?;
-                self.network_adapter
-                    .do_send(NetworkRequests::ReceiptOutComeRequest(validator, receipt_id));
+        if let Ok(&dst_shard_id) = self.chain.get_shard_id_for_receipt_id(&receipt_id) {
+            if self.chain.get_chunk_extra(last_block_hash, dst_shard_id).is_err() {
+                if Self::need_request(receipt_id, &mut self.receipt_outcome_requests) {
+                    let validator = self
+                        .chain
+                        .find_validator_for_forwarding(dst_shard_id)
+                        .map_err(|e| TxStatusError::ChainError(e))?;
+                    self.network_adapter
+                        .do_send(NetworkRequests::ReceiptOutComeRequest(validator, receipt_id));
+                }
             }
         }
+
         Ok(())
     }
 
