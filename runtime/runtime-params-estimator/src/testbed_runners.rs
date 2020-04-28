@@ -7,7 +7,9 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::{Action, SignedTransaction};
 use rand::Rng;
 use std::collections::{HashMap, HashSet};
+use std::convert::TryInto;
 use std::path::PathBuf;
+use std::time::Instant;
 
 /// Get account id from its index.
 pub fn get_account_id(account_index: usize) -> String {
@@ -23,6 +25,14 @@ fn warmup_total_transactions(config: &Config) -> usize {
     config.block_sizes.iter().sum::<usize>() * config.warmup_iters_per_block
 }
 
+#[derive(Debug, Clone)]
+pub enum GasMetric {
+    // If we measure gas in number of executed instructions, must run under simulator.
+    ICount,
+    // If we measure gas in elapsed time.
+    Time,
+}
+
 /// Configuration which we use to run measurements.
 #[derive(Debug, Clone)]
 pub struct Config {
@@ -36,6 +46,8 @@ pub struct Config {
     pub block_sizes: Vec<usize>,
     /// Where state dump is located in case we need to create a testbed.
     pub state_dump_path: String,
+    /// Metric used for counting.
+    pub metric: GasMetric,
 }
 
 /// Measure the speed of transactions containing certain simple actions.
@@ -101,7 +113,12 @@ pub unsafe fn syscall3(mut n: usize, a1: usize, a2: usize, a3: usize) -> usize {
 
 const CATCH_BASE: usize = 0xcafebabe;
 
-fn start_count_instructions() {
+enum Consumed {
+    Instant(Instant),
+    None,
+}
+
+fn start_count_instructions() -> Consumed {
     let mut buf: i8 = 0;
     unsafe {
         syscall3(
@@ -111,6 +128,7 @@ fn start_count_instructions() {
             1,
         );
     }
+    Consumed::None
 }
 
 fn end_count_instructions() -> u64 {
@@ -124,6 +142,31 @@ fn end_count_instructions() -> u64 {
         );
     }
     result
+}
+
+fn start_count_time() -> Consumed {
+    Consumed::Instant(Instant::now())
+}
+
+fn end_count_time(consumed: &Consumed) -> u64 {
+    match *consumed {
+        Consumed::Instant(instant) => instant.elapsed().as_nanos().try_into().unwrap(),
+        Consumed::None => panic!("Must not be so"),
+    }
+}
+
+fn start_count(metric: &GasMetric) -> Consumed {
+    return match *metric {
+        GasMetric::ICount => start_count_instructions(),
+        GasMetric::Time => start_count_time(),
+    };
+}
+
+fn end_count(metric: &GasMetric, consumed: &Consumed) -> u64 {
+    return match metric {
+        GasMetric::ICount => end_count_instructions(),
+        GasMetric::Time => end_count_time(consumed),
+    };
 }
 
 /// Measure the speed of the transactions, given a transactions-generator function.
@@ -175,10 +218,10 @@ where
     for block_size in config.block_sizes.clone() {
         for _ in 0..config.iter_per_block {
             let block: Vec<_> = (0..block_size).map(|_| (*f)()).collect();
-            start_count_instructions();
+            let start = start_count(&config.metric);
             testbed.process_block(&block, allow_failures);
-            let end_count = end_count_instructions();
-            measurements.record_measurement(metric.clone(), block_size, end_count);
+            let measured = end_count(&config.metric, &start);
+            measurements.record_measurement(metric.clone(), block_size, measured);
             bar.inc(block_size as _);
             bar.set_message(format!("Block size: {}", block_size).as_str());
         }
