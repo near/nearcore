@@ -1072,8 +1072,9 @@ impl Client {
         &mut self,
         tx: SignedTransaction,
         is_forwarded: bool,
+        check_only: bool,
     ) -> NetworkClientResponses {
-        unwrap_or_return!(self.process_tx_internal(&tx, is_forwarded), {
+        unwrap_or_return!(self.process_tx_internal(&tx, is_forwarded, check_only), {
             let me = self.validator_signer.as_ref().map(|vs| vs.validator_id());
             warn!(target: "client", "I'm: {:?} Dropping tx: {:?}", me, tx);
             NetworkClientResponses::NoResponse
@@ -1115,6 +1116,7 @@ impl Client {
         &mut self,
         tx: &SignedTransaction,
         is_forwarded: bool,
+        check_only: bool,
     ) -> Result<NetworkClientResponses, Error> {
         let head = self.chain.head()?;
         let me = self.validator_signer.as_ref().map(|vs| vs.validator_id());
@@ -1160,6 +1162,8 @@ impl Client {
             {
                 debug!(target: "client", "Invalid tx: {:?}", err);
                 Ok(NetworkClientResponses::InvalidTx(err))
+            } else if check_only {
+                Ok(NetworkClientResponses::ValidTx)
             } else {
                 let active_validator = self.active_validator(shard_id)?;
 
@@ -1187,6 +1191,8 @@ impl Client {
                     Ok(NetworkClientResponses::NoResponse)
                 }
             }
+        } else if check_only {
+            Ok(NetworkClientResponses::DoesNotTrackShard)
         } else {
             if is_forwarded {
                 // received forwarded transaction but we are not tracking the shard

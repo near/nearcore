@@ -242,6 +242,7 @@ fn sync_state_stake_change() {
                 .send(NetworkClientMessages::Transaction {
                     transaction: unstake_transaction,
                     is_forwarded: false,
+                    check_only: false,
                 })
                 .map(drop),
         );
