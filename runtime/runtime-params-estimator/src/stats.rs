@@ -29,11 +29,7 @@ impl Measurements {
         let ext_costs = node_runtime::EXT_COSTS_COUNTER
             .with(|f| f.borrow_mut().drain().collect::<HashMap<_, _>>());
         let normalized = self.normalize(block_cost);
-        self.data.entry(metric).or_insert_with(Vec::new).push((
-            block_size,
-            normalized,
-            ext_costs,
-        ));
+        self.data.entry(metric).or_insert_with(Vec::new).push((block_size, normalized, ext_costs));
     }
 
     pub fn normalize(&self, cost: u64) -> u64 {

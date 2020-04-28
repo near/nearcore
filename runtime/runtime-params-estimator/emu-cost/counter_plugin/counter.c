@@ -16,11 +16,14 @@ QEMU_PLUGIN_EXPORT int qemu_plugin_version = QEMU_PLUGIN_VERSION;
 
 static uint64_t insn_count = 0;
 static pthread_t counting_for = 0;
+static bool counting = false;
+static bool count_per_thread = false;
 static bool on_every_close = false;
 
 static void vcpu_insn_exec_before(unsigned int cpu_index, void *udata)
 {
-    if (pthread_self() == counting_for)
+    if (!counting) return;
+    if (!count_per_thread || pthread_self() == counting_for)
         insn_count++;
 }
 
@@ -53,11 +56,14 @@ static void vcpu_syscall(qemu_plugin_id_t id, unsigned int vcpu_index,
         switch (a1)
         {
             case CATCH_BASE + 0:
-                counting_for = pthread_self();
+                counting = true;
+                if (count_per_thread)
+                    counting_for = pthread_self();
                 insn_count = 0;
                 break;
             case CATCH_BASE + 1: {
                 counting_for = 0;
+                counting = false;
                 // If read syscall passes buffer size (third syscall argument) equal to 8 we assume it is interested
                 // in getting back the actual number of executed instructions.
                 if (a3 == 8) {
@@ -85,6 +91,11 @@ QEMU_PLUGIN_EXPORT int qemu_plugin_install(qemu_plugin_id_t id,
     for (i = 0; i < argc; i++) {
         if (!strcmp(argv[i], "on_every_close")) {
             on_every_close = true;
+            counting_for = pthread_self();
+        }
+        if (!strcmp(argv[i], "count_per_thread")) {
+            qemu_plugin_outs("count per thread\n");
+            count_per_thread = true;
             counting_for = pthread_self();
         }
     }

@@ -20,6 +20,7 @@ static void end_counting() {
 }
 
 int global = 0;
+int started = 0;
 
 typedef struct {
     int delay;
@@ -27,7 +28,11 @@ typedef struct {
 
 static void* thread_fn(void* varg)  {
     ThreadArg* arg = varg;
-    usleep(arg->delay);
+    int i;
+    __sync_fetch_and_add(&started, 1);
+    for (i = 0; i < arg->delay * 1000; i++) {
+        global += i;
+    }
     free(arg);
     return NULL;
 }
@@ -47,6 +52,8 @@ int main(int argc, char** argv) {
         arg->delay = i * 100;
         pthread_create(threads + i, NULL, thread_fn, arg);
     }
+
+    while (__sync_fetch_and_add(&started, 0) < THREAD_NUM) {}
 
     start_counting();
     for (i = 0; i < repeat; i++) {
