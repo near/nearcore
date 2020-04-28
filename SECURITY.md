@@ -3,11 +3,11 @@
 Reference client for NEAR is held to highest security standard.
 This document defines the policy how to report vulnerabilities and receive updates when security patches are released.
 
-If you have any suggestions or comments about the security policy, please contact [NEAR Security Team](mailto:security@nearprotocol.com).
+If you have any suggestions or comments about the security policy, please email the [NEAR Security Team](mailto:security@nearprotocol.com) at security@nearprotocol.com
 
 ## Reporting a vulnerability
 
-All security issues and questions should be reported by sending email to [NEAR Security Team](mailto:security@nearprotocol.com).
+All security issues and questions should be reported by sending email to [NEAR Security Team](mailto:security@nearprotocol.com) at security@nearprotocol.com.
 This will be acknowledged within 24 hours by the NEAR Security Team and kick of review process.
 You will receive a more detailed response to the email within 72 hours indicating perceived severity and the next steps in handling your report.
 
