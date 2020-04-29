@@ -11,7 +11,7 @@ mod tests {
     use near_primitives::types::{NumBlocks, StateRoot};
     use near_primitives::validator_signer::InMemoryValidatorSigner;
     use near_store::test_utils::{create_test_store, gen_changes};
-    use near_store::{Trie, WrappedTrieChanges};
+    use near_store::{ShardTries, Trie, WrappedTrieChanges};
 
     fn get_chain() -> Chain {
         get_chain_with_epoch_length(10)
@@ -38,7 +38,7 @@ mod tests {
     fn do_fork(
         mut prev_block: Block,
         mut prev_state_root: StateRoot,
-        trie: Arc<Trie>,
+        tries: Arc<ShardTries>,
         chain: &mut Chain,
         num_blocks: u64,
         states: &mut Vec<(Block, StateRoot, Vec<(Vec<u8>, Option<Vec<u8>>)>)>,
@@ -63,18 +63,18 @@ mod tests {
 
             let trie_changes_data = gen_changes(&mut rng, max_changes);
             let state_root = prev_state_root;
+            let trie = tries.get_trie_for_shard(0);
             let trie_changes = trie.update(&state_root, trie_changes_data.iter().cloned()).unwrap();
             if verbose {
                 println!("state new {:?} {:?}", block.header.inner_lite.height, trie_changes_data);
             }
 
-            let (trie_store_update, new_root) =
-                trie_changes.clone().into_no_deletions(trie.clone()).unwrap();
+            let new_root = trie_changes.new_root;
             states.push((block.clone(), new_root.clone(), trie_changes_data.clone()));
-            store_update.merge(trie_store_update);
 
             let wrapped_trie_changes = WrappedTrieChanges::new(
-                trie.clone(),
+                tries.clone(),
+                0,
                 trie_changes,
                 Default::default(),
                 block.hash(),
@@ -105,7 +105,8 @@ mod tests {
 
         // Init Chain 1
         let mut chain1 = get_chain();
-        let trie1 = chain1.runtime_adapter.get_trie().clone();
+        let tries1 = chain1.runtime_adapter.get_tries();
+        let trie1 = tries1.get_trie_for_shard(0);
         let genesis1 = chain1.get_block_by_height(0).unwrap().clone();
         let mut states1 = vec![];
         states1.push((genesis1.clone(), Trie::empty_root(), vec![]));
@@ -115,7 +116,7 @@ mod tests {
             do_fork(
                 source_block1.clone(),
                 state_root1,
-                trie1.clone(),
+                tries1.clone(),
                 &mut chain1,
                 simple_chain.length,
                 &mut states1,
@@ -126,7 +127,7 @@ mod tests {
 
         assert!(check_refcount_map(&mut chain1).is_ok());
         // GC execution
-        let clear_data = chain1.clear_data(trie1.clone());
+        let clear_data = chain1.clear_data(tries1.clone());
         if clear_data.is_err() {
             println!("clear data failed = {:?}", clear_data);
             assert!(false);
@@ -134,7 +135,8 @@ mod tests {
         assert!(check_refcount_map(&mut chain1).is_ok());
 
         let mut chain2 = get_chain();
-        let trie2 = chain2.runtime_adapter.get_trie().clone();
+        let tries2 = chain2.runtime_adapter.get_tries();
+        let trie2 = tries2.get_trie_for_shard(0);
 
         // Find gc_height
         let mut gc_height = simple_chains[0].length - 51;
@@ -174,13 +176,13 @@ mod tests {
                 // i == gc_height is the only height should be processed here
                 if block1.header.inner_lite.height > gc_height || i == gc_height {
                     let (trie_store_update2, new_root2) =
-                        trie_changes2.clone().into_no_deletions(trie2.clone()).unwrap();
+                        trie_changes2.clone().into_no_deletions(tries2.clone(), 0).unwrap();
                     state_root2 = new_root2;
                     assert_eq!(state_root1, state_root2);
                     store_update2.merge(trie_store_update2);
                 } else {
                     let (trie_store_update2, new_root2) =
-                        trie_changes2.clone().into(trie2.clone()).unwrap();
+                        trie_changes2.clone().into(tries2.clone(), 0).unwrap();
                     state_root2 = new_root2;
                     store_update2.merge(trie_store_update2);
                 }

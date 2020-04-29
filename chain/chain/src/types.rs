@@ -20,7 +20,7 @@ use near_primitives::types::{
     StateRootNode, ValidatorStake, ValidatorStats,
 };
 use near_primitives::views::{EpochValidatorInfo, QueryRequest, QueryResponse};
-use near_store::{PartialStorage, Store, StoreUpdate, Trie, WrappedTrieChanges};
+use near_store::{PartialStorage, ShardTries, Store, StoreUpdate, Trie, WrappedTrieChanges};
 
 use crate::error::Error;
 
@@ -112,8 +112,10 @@ pub trait RuntimeAdapter: Send + Sync {
     /// StoreUpdate can be discarded if the chain past the genesis.
     fn genesis_state(&self) -> (Arc<Store>, StoreUpdate, Vec<StateRoot>);
 
+    fn get_tries(&self) -> Arc<ShardTries>;
+
     /// Returns trie.
-    fn get_trie(&self) -> Arc<Trie>;
+    fn get_trie_for_shard(&self, shard_id: ShardId) -> Arc<Trie>;
 
     /// Verify block producer validity
     fn verify_block_signature(&self, header: &BlockHeader) -> Result<(), Error>;
@@ -149,6 +151,7 @@ pub trait RuntimeAdapter: Send + Sync {
         &self,
         gas_price: Balance,
         gas_limit: Gas,
+        shard_id: ShardId,
         state_root: StateRoot,
         max_number_of_transactions: usize,
         pool_iterator: &mut dyn PoolIterator,
@@ -387,6 +390,7 @@ pub trait RuntimeAdapter: Send + Sync {
     /// Query runtime with given `path` and `data`.
     fn query(
         &self,
+        shard_id: ShardId,
         state_root: &StateRoot,
         block_height: BlockHeight,
         block_timestamp: u64,
@@ -398,7 +402,13 @@ pub trait RuntimeAdapter: Send + Sync {
     fn get_validator_info(&self, block_hash: &CryptoHash) -> Result<EpochValidatorInfo, Error>;
 
     /// Get the part of the state from given state root.
-    fn obtain_state_part(&self, state_root: &StateRoot, part_id: u64, num_parts: u64) -> Vec<u8>;
+    fn obtain_state_part(
+        &self,
+        shard_id: ShardId,
+        state_root: &StateRoot,
+        part_id: u64,
+        num_parts: u64,
+    ) -> Vec<u8>;
 
     /// Validate state part that expected to be given state root with provided data.
     /// Returns false if the resulting part doesn't match the expected one.
@@ -411,12 +421,17 @@ pub trait RuntimeAdapter: Send + Sync {
     ) -> bool;
 
     /// Should be executed after accepting all the parts to set up a new state.
-    fn confirm_state(&self, state_root: &StateRoot, parts: &Vec<Vec<u8>>) -> Result<(), Error>;
+    fn confirm_state(
+        &self,
+        shard_id: ShardId,
+        state_root: &StateRoot,
+        parts: &Vec<Vec<u8>>,
+    ) -> Result<(), Error>;
 
     /// Returns StateRootNode of a state.
     /// Panics if requested hash is not in storage.
     /// Never returns Error
-    fn get_state_root_node(&self, state_root: &StateRoot) -> StateRootNode;
+    fn get_state_root_node(&self, shard_id: ShardId, state_root: &StateRoot) -> StateRootNode;
 
     /// Validate StateRootNode of a state.
     fn validate_state_root_node(

@@ -22,7 +22,7 @@ use near_primitives::types::AccountId;
 use crate::db::{DBOp, DBTransaction, Database, RocksDB};
 pub use crate::trie::{
     iterator::TrieIterator, update::TrieUpdate, update::TrieUpdateIterator,
-    update::TrieUpdateValuePtr, KeyForStateChanges, PartialStorage, Trie, TrieChanges,
+    update::TrieUpdateValuePtr, KeyForStateChanges, PartialStorage, ShardTries, Trie, TrieChanges,
     WrappedTrieChanges,
 };
 
@@ -129,7 +129,7 @@ pub struct StoreUpdate {
     storage: Arc<dyn Database>,
     transaction: DBTransaction,
     /// Optionally has reference to the trie to clear cache on the commit.
-    trie: Option<Arc<Trie>>,
+    trie: Option<Arc<ShardTries>>,
 }
 
 impl StoreUpdate {
@@ -138,7 +138,7 @@ impl StoreUpdate {
         StoreUpdate { storage, transaction, trie: None }
     }
 
-    pub fn new_with_trie(storage: Arc<dyn Database>, trie: Arc<Trie>) -> Self {
+    pub fn new_with_trie(storage: Arc<dyn Database>, trie: Arc<ShardTries>) -> Self {
         let transaction = storage.transaction();
         StoreUpdate { storage, transaction, trie: Some(trie) }
     }
@@ -164,15 +164,17 @@ impl StoreUpdate {
 
     /// Merge another store update into this one.
     pub fn merge(&mut self, other: StoreUpdate) {
-        if self.trie.is_none() {
-            if let Some(trie) = other.trie {
-                assert_eq!(
-                    trie.storage.as_caching_storage().unwrap().store.storage.as_ref() as *const _,
-                    self.storage.as_ref() as *const _
-                );
+        if let Some(trie) = other.trie {
+            if self.trie.is_none() {
                 self.trie = Some(trie);
+            } else {
+                debug_assert_eq!(
+                    self.trie.as_ref().unwrap().as_ref() as *const _,
+                    trie.as_ref() as *const _
+                );
             }
         }
+
         self.merge_transaction(other.transaction);
     }
 
@@ -187,9 +189,34 @@ impl StoreUpdate {
     }
 
     pub fn commit(self) -> Result<(), io::Error> {
+        debug_assert!(
+            self.transaction.ops.len()
+                == self
+                    .transaction
+                    .ops
+                    .iter()
+                    .map(|op| match op {
+                        DBOp::Insert { col, key, .. } => {
+                            (*col as u8, key)
+                        }
+                        DBOp::Delete { col, key } => {
+                            (*col as u8, key)
+                        }
+                    })
+                    .collect::<std::collections::HashSet<_>>()
+                    .len(),
+            "Transaction overwrites itself: {:?}",
+            self
+        );
         if let Some(trie) = self.trie {
             assert_eq!(
-                trie.storage.as_caching_storage().unwrap().store.storage.as_ref() as *const _,
+                trie.get_trie_for_shard(0)
+                    .storage
+                    .as_caching_storage()
+                    .unwrap()
+                    .store
+                    .storage
+                    .as_ref() as *const _,
                 self.storage.as_ref() as *const _
             );
             trie.update_cache(&self.transaction)?;

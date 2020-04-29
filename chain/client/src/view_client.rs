@@ -172,6 +172,7 @@ impl ViewClientActor {
                 let state_root = chunk_extra.state_root;
                 self.runtime_adapter
                     .query(
+                        shard_id,
                         &state_root,
                         header.inner_lite.height,
                         header.inner_lite.timestamp,

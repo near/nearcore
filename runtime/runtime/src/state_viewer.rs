@@ -268,8 +268,8 @@ mod tests {
 
     #[test]
     fn test_view_state() {
-        let (_, trie, root) = get_runtime_and_trie();
-        let mut state_update = TrieUpdate::new(trie.clone(), root);
+        let (_, tries, root) = get_runtime_and_trie();
+        let mut state_update = tries.new_trie_update(0, root);
         state_update.set(
             TrieKey::ContractData { account_id: alice_account(), key: b"test123".to_vec() },
             b"123".to_vec(),
@@ -287,10 +287,11 @@ mod tests {
             b"321".to_vec(),
         );
         state_update.commit(StateChangeCause::InitialState);
-        let (db_changes, new_root) = state_update.finalize().unwrap().0.into(trie.clone()).unwrap();
+        let (db_changes, new_root) =
+            state_update.finalize().unwrap().0.into(tries.clone(), 0).unwrap();
         db_changes.commit().unwrap();
 
-        let state_update = TrieUpdate::new(trie, new_root);
+        let state_update = tries.new_trie_update(0, new_root);
         let trie_viewer = TrieViewer::new();
         let result = trie_viewer.view_state(&state_update, &alice_account(), b"").unwrap();
         assert_eq!(result.proof, Vec::<String>::new());

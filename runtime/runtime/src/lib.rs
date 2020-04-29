@@ -17,14 +17,14 @@ use near_primitives::transaction::{
 };
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{
-    AccountId, Balance, BlockHeight, BlockHeightDelta, EpochHeight, Gas, Nonce,
-    RawStateChangesWithTrieKey, StateChangeCause, StateRoot, ValidatorStake,
+    AccountId, Balance, BlockHeight, BlockHeightDelta, EpochHeight, Gas, MerkleHash, Nonce,
+    RawStateChangesWithTrieKey, ShardId, StateChangeCause, StateRoot, ValidatorStake,
 };
 use near_primitives::utils::{create_nonce_with_nonce, system_account};
 use near_store::{
     get, get_account, get_postponed_receipt, get_received_data, remove_postponed_receipt, set,
-    set_access_key, set_account, set_code, set_postponed_receipt, set_received_data, StorageError,
-    StoreUpdate, Trie, TrieChanges, TrieUpdate,
+    set_access_key, set_account, set_code, set_postponed_receipt, set_received_data, ShardTries,
+    StorageError, StoreUpdate, Trie, TrieChanges, TrieUpdate,
 };
 use near_vm_logic::types::PromiseResult;
 use near_vm_logic::ReturnData;
@@ -1151,10 +1151,12 @@ impl Runtime {
     /// Balances are account, publickey, initial_balance, initial_tx_stake
     pub fn apply_genesis_state(
         &self,
-        mut state_update: TrieUpdate,
+        tries: Arc<ShardTries>,
+        shard_id: ShardId,
         validators: &[(AccountId, PublicKey, Balance)],
         records: &[StateRecord],
     ) -> (StoreUpdate, StateRoot) {
+        let mut state_update = tries.new_trie_update(shard_id, MerkleHash::default());
         let mut postponed_receipts: Vec<Receipt> = vec![];
         let mut delayed_receipts_indices = DelayedReceiptIndices::default();
         for record in records {
@@ -1253,13 +1255,12 @@ impl Runtime {
             account.locked = *amount;
             set_account(&mut state_update, account_id.clone(), &account);
         }
-        let trie = state_update.trie.clone();
         state_update.commit(StateChangeCause::InitialState);
         let (store_update, state_root) = state_update
             .finalize()
             .expect("Genesis state update failed")
             .0
-            .into(trie)
+            .into(tries, shard_id)
             .expect("Genesis state update failed");
         (store_update, state_root)
     }
@@ -1275,7 +1276,7 @@ mod tests {
     use near_primitives::test_utils::account_new;
     use near_primitives::transaction::TransferAction;
     use near_primitives::types::MerkleHash;
-    use near_store::test_utils::create_trie;
+    use near_store::test_utils::create_tries;
     use testlib::runtime_utils::{alice_account, bob_account};
 
     const GAS_PRICE: Balance = 5000;
@@ -1286,8 +1287,8 @@ mod tests {
 
     #[test]
     fn test_get_and_set_accounts() {
-        let trie = create_trie();
-        let mut state_update = TrieUpdate::new(trie, MerkleHash::default());
+        let tries = create_tries();
+        let mut state_update = tries.new_trie_update(0, MerkleHash::default());
         let test_account = account_new(to_yocto(10), hash(&[]));
         let account_id = bob_account();
         set_account(&mut state_update, account_id.clone(), &test_account);
@@ -1297,17 +1298,17 @@ mod tests {
 
     #[test]
     fn test_get_account_from_trie() {
-        let trie = create_trie();
+        let tries = create_tries();
         let root = MerkleHash::default();
-        let mut state_update = TrieUpdate::new(trie.clone(), root);
+        let mut state_update = tries.new_trie_update(0, root);
         let test_account = account_new(to_yocto(10), hash(&[]));
         let account_id = bob_account();
         set_account(&mut state_update, account_id.clone(), &test_account);
         state_update.commit(StateChangeCause::InitialState);
         let (store_update, new_root) =
-            state_update.finalize().unwrap().0.into(trie.clone()).unwrap();
+            state_update.finalize().unwrap().0.into(tries.clone(), 0).unwrap();
         store_update.commit().unwrap();
-        let new_state_update = TrieUpdate::new(trie.clone(), new_root);
+        let new_state_update = tries.new_trie_update(0, new_root);
         let get_res = get_account(&new_state_update, &account_id).unwrap().unwrap();
         assert_eq!(test_account, get_res);
     }
@@ -1320,8 +1321,8 @@ mod tests {
         initial_balance: Balance,
         initial_locked: Balance,
         gas_limit: Gas,
-    ) -> (Runtime, Arc<Trie>, CryptoHash, ApplyState, Arc<InMemorySigner>) {
-        let trie = create_trie();
+    ) -> (Runtime, Arc<ShardTries>, CryptoHash, ApplyState, Arc<InMemorySigner>) {
+        let tries = create_tries();
         let root = MerkleHash::default();
         let runtime = Runtime::new(RuntimeConfig::default());
 
@@ -1329,7 +1330,7 @@ mod tests {
         let signer =
             Arc::new(InMemorySigner::from_seed(&account_id, KeyType::ED25519, &account_id));
 
-        let mut initial_state = TrieUpdate::new(trie.clone(), root);
+        let mut initial_state = tries.new_trie_update(0, root);
         let mut initial_account = account_new(initial_balance, hash(&[]));
         initial_account.locked = initial_locked;
         set_account(&mut initial_state, account_id.clone(), &initial_account);
@@ -1341,7 +1342,7 @@ mod tests {
         );
         initial_state.commit(StateChangeCause::InitialState);
         let trie_changes = initial_state.finalize().unwrap().0;
-        let (store_update, root) = trie_changes.into(trie.clone()).unwrap();
+        let (store_update, root) = trie_changes.into(tries.clone(), 0).unwrap();
         store_update.commit().unwrap();
 
         let apply_state = ApplyState {
@@ -1353,14 +1354,14 @@ mod tests {
             gas_limit: Some(gas_limit),
         };
 
-        (runtime, trie, root, apply_state, signer)
+        (runtime, tries, root, apply_state, signer)
     }
 
     #[test]
     fn test_apply_no_op() {
-        let (runtime, trie, root, apply_state, _) =
+        let (runtime, tries, root, apply_state, _) =
             setup_runtime(to_yocto(1_000_000), 0, 10u64.pow(15));
-        runtime.apply(trie, root, &None, &apply_state, &[], &[]).unwrap();
+        runtime.apply(tries.get_trie_for_shard(0), root, &None, &apply_state, &[], &[]).unwrap();
     }
 
     #[test]
@@ -1368,7 +1369,7 @@ mod tests {
         let initial_locked = to_yocto(500_000);
         let reward = to_yocto(10_000_000);
         let small_refund = to_yocto(500);
-        let (runtime, trie, root, apply_state, _) =
+        let (runtime, tries, root, apply_state, _) =
             setup_runtime(to_yocto(1_000_000), initial_locked, 10u64.pow(15));
 
         let validator_accounts_update = ValidatorAccountsUpdate {
@@ -1381,7 +1382,7 @@ mod tests {
 
         runtime
             .apply(
-                trie,
+                tries.get_trie_for_shard(0),
                 root,
                 &Some(validator_accounts_update),
                 &apply_state,
@@ -1397,7 +1398,7 @@ mod tests {
         let initial_locked = to_yocto(500_000);
         let small_transfer = to_yocto(10_000);
         let gas_limit = 1;
-        let (runtime, trie, mut root, apply_state, _) =
+        let (runtime, tries, mut root, apply_state, _) =
             setup_runtime(initial_balance, initial_locked, gas_limit);
 
         let n = 10;
@@ -1406,12 +1407,14 @@ mod tests {
         // Checking n receipts delayed by 1 + 3 extra
         for i in 1..=n + 3 {
             let prev_receipts: &[Receipt] = if i == 1 { &receipts } else { &[] };
-            let apply_result =
-                runtime.apply(trie.clone(), root, &None, &apply_state, prev_receipts, &[]).unwrap();
-            let (store_update, new_root) = apply_result.trie_changes.into(trie.clone()).unwrap();
+            let apply_result = runtime
+                .apply(tries.get_trie_for_shard(0), root, &None, &apply_state, prev_receipts, &[])
+                .unwrap();
+            let (store_update, new_root) =
+                apply_result.trie_changes.into(tries.clone(), 0).unwrap();
             root = new_root;
             store_update.commit().unwrap();
-            let state = TrieUpdate::new(trie.clone(), root);
+            let state = tries.new_trie_update(0, root);
             let account = get_account(&state, &alice_account()).unwrap().unwrap();
             let capped_i = std::cmp::min(i, n);
             assert_eq!(
@@ -1428,7 +1431,7 @@ mod tests {
         let initial_balance = to_yocto(1_000_000);
         let initial_locked = to_yocto(500_000);
         let small_transfer = to_yocto(10_000);
-        let (runtime, trie, mut root, mut apply_state, _) =
+        let (runtime, tries, mut root, mut apply_state, _) =
             setup_runtime(initial_balance, initial_locked, 1);
 
         let receipt_gas_cost =
@@ -1443,12 +1446,14 @@ mod tests {
         // Every time we'll process 3 receipts, so we need n / 3 rounded up. Then we do 3 extra.
         for i in 1..=n / 3 + 3 {
             let prev_receipts: &[Receipt] = receipt_chunks.next().unwrap_or_default();
-            let apply_result =
-                runtime.apply(trie.clone(), root, &None, &apply_state, prev_receipts, &[]).unwrap();
-            let (store_update, new_root) = apply_result.trie_changes.into(trie.clone()).unwrap();
+            let apply_result = runtime
+                .apply(tries.get_trie_for_shard(0), root, &None, &apply_state, prev_receipts, &[])
+                .unwrap();
+            let (store_update, new_root) =
+                apply_result.trie_changes.into(tries.clone(), 0).unwrap();
             root = new_root;
             store_update.commit().unwrap();
-            let state = TrieUpdate::new(trie.clone(), root);
+            let state = tries.new_trie_update(0, root);
             let account = get_account(&state, &alice_account()).unwrap().unwrap();
             let capped_i = std::cmp::min(i * 3, n);
             assert_eq!(
@@ -1465,7 +1470,7 @@ mod tests {
         let initial_balance = to_yocto(1_000_000);
         let initial_locked = to_yocto(500_000);
         let small_transfer = to_yocto(10_000);
-        let (runtime, trie, mut root, mut apply_state, _) =
+        let (runtime, tries, mut root, mut apply_state, _) =
             setup_runtime(initial_balance, initial_locked, 1);
 
         let receipt_gas_cost =
@@ -1489,12 +1494,14 @@ mod tests {
             apply_state.gas_limit = Some(num_receipts_per_block * receipt_gas_cost);
             let prev_receipts: &[Receipt] = receipt_chunks.next().unwrap_or_default();
             num_receipts_given += prev_receipts.len() as u64;
-            let apply_result =
-                runtime.apply(trie.clone(), root, &None, &apply_state, prev_receipts, &[]).unwrap();
-            let (store_update, new_root) = apply_result.trie_changes.into(trie.clone()).unwrap();
+            let apply_result = runtime
+                .apply(tries.get_trie_for_shard(0), root, &None, &apply_state, prev_receipts, &[])
+                .unwrap();
+            let (store_update, new_root) =
+                apply_result.trie_changes.into(tries.clone(), 0).unwrap();
             root = new_root;
             store_update.commit().unwrap();
-            let state = TrieUpdate::new(trie.clone(), root);
+            let state = tries.new_trie_update(0, root);
             num_receipts_processed += apply_result.outcomes.len() as u64;
             let account = get_account(&state, &alice_account()).unwrap().unwrap();
             assert_eq!(
@@ -1535,7 +1542,7 @@ mod tests {
         let initial_balance = to_yocto(1_000_000);
         let initial_locked = to_yocto(500_000);
         let small_transfer = to_yocto(10_000);
-        let (mut runtime, trie, root, mut apply_state, signer) =
+        let (mut runtime, tries, root, mut apply_state, signer) =
             setup_runtime(initial_balance, initial_locked, 1);
 
         let receipt_exec_gas_fee = 1000;
@@ -1568,7 +1575,7 @@ mod tests {
         // The new delayed queue is TX#3, R#0, R#1.
         let apply_result = runtime
             .apply(
-                trie.clone(),
+                tries.get_trie_for_shard(0),
                 root,
                 &None,
                 &apply_state,
@@ -1576,7 +1583,7 @@ mod tests {
                 &local_transactions[0..4],
             )
             .unwrap();
-        let (store_update, root) = apply_result.trie_changes.into(trie.clone()).unwrap();
+        let (store_update, root) = apply_result.trie_changes.into(tries.clone(), 0).unwrap();
         store_update.commit().unwrap();
 
         assert_eq!(
@@ -1599,7 +1606,7 @@ mod tests {
         // The new delayed queue is R#1, R#2
         let apply_result = runtime
             .apply(
-                trie.clone(),
+                tries.get_trie_for_shard(0),
                 root,
                 &None,
                 &apply_state,
@@ -1607,7 +1614,7 @@ mod tests {
                 &local_transactions[4..5],
             )
             .unwrap();
-        let (store_update, root) = apply_result.trie_changes.into(trie.clone()).unwrap();
+        let (store_update, root) = apply_result.trie_changes.into(tries.clone(), 0).unwrap();
         store_update.commit().unwrap();
 
         assert_eq!(
@@ -1627,7 +1634,7 @@ mod tests {
         // The new delayed queue is R#1, R#2, TX#8, R#3
         let apply_result = runtime
             .apply(
-                trie.clone(),
+                tries.get_trie_for_shard(0),
                 root,
                 &None,
                 &apply_state,
@@ -1635,7 +1642,7 @@ mod tests {
                 &local_transactions[5..9],
             )
             .unwrap();
-        let (store_update, root) = apply_result.trie_changes.into(trie.clone()).unwrap();
+        let (store_update, root) = apply_result.trie_changes.into(tries.clone(), 0).unwrap();
         store_update.commit().unwrap();
 
         assert_eq!(
@@ -1656,9 +1663,10 @@ mod tests {
         // We process R#1, R#2, TX#8.
         // R#4 is added to delayed queue.
         // The new delayed queue is R#3, R#4
-        let apply_result =
-            runtime.apply(trie.clone(), root, &None, &apply_state, &receipts[4..5], &[]).unwrap();
-        let (store_update, root) = apply_result.trie_changes.into(trie.clone()).unwrap();
+        let apply_result = runtime
+            .apply(tries.get_trie_for_shard(0), root, &None, &apply_state, &receipts[4..5], &[])
+            .unwrap();
+        let (store_update, root) = apply_result.trie_changes.into(tries.clone(), 0).unwrap();
         store_update.commit().unwrap();
 
         assert_eq!(
@@ -1674,8 +1682,9 @@ mod tests {
         // STEP #5. Pass no new TXs and 1 receipt R#5.
         // We process R#3, R#4, R#5.
         // The new delayed queue is empty.
-        let apply_result =
-            runtime.apply(trie.clone(), root, &None, &apply_state, &receipts[5..6], &[]).unwrap();
+        let apply_result = runtime
+            .apply(tries.get_trie_for_shard(0), root, &None, &apply_state, &receipts[5..6], &[])
+            .unwrap();
 
         assert_eq!(
             apply_result.outcomes.iter().map(|o| o.id).collect::<Vec<_>>(),
@@ -1694,7 +1703,7 @@ mod tests {
         let initial_locked = to_yocto(500_000);
         let small_transfer = to_yocto(10_000);
         let gas_limit = 1;
-        let (runtime, trie, root, apply_state, _) =
+        let (runtime, tries, root, apply_state, _) =
             setup_runtime(initial_balance, initial_locked, gas_limit);
 
         let n = 1;
@@ -1702,8 +1711,10 @@ mod tests {
         let invalid_account_id = "Invalid".to_string();
         receipts.get_mut(0).unwrap().predecessor_id = invalid_account_id.clone();
 
-        let err =
-            runtime.apply(trie.clone(), root, &None, &apply_state, &receipts, &[]).err().unwrap();
+        let err = runtime
+            .apply(tries.get_trie_for_shard(0), root, &None, &apply_state, &receipts, &[])
+            .err()
+            .unwrap();
         assert_eq!(
             err,
             RuntimeError::ReceiptValidationError(ReceiptValidationError::InvalidPredecessorId {
@@ -1718,7 +1729,7 @@ mod tests {
         let initial_locked = to_yocto(500_000);
         let small_transfer = to_yocto(10_000);
         let gas_limit = 1;
-        let (runtime, trie, root, apply_state, _) =
+        let (runtime, tries, root, apply_state, _) =
             setup_runtime(initial_balance, initial_locked, gas_limit);
 
         let n = 1;
@@ -1727,17 +1738,20 @@ mod tests {
         invalid_receipt.predecessor_id = invalid_account_id.clone();
 
         // Saving invalid receipt to the delayed receipts.
-        let mut state_update = TrieUpdate::new(trie.clone(), root);
+        let mut state_update = tries.new_trie_update(0, root);
         let mut delayed_receipts_indices = DelayedReceiptIndices::default();
         Runtime::delay_receipt(&mut state_update, &mut delayed_receipts_indices, &invalid_receipt)
             .unwrap();
         set(&mut state_update, TrieKey::DelayedReceiptIndices, &delayed_receipts_indices);
         state_update.commit(StateChangeCause::UpdatedDelayedReceipts);
         let trie_changes = state_update.finalize().unwrap().0;
-        let (store_update, root) = trie_changes.into(trie.clone()).unwrap();
+        let (store_update, root) = trie_changes.into(tries.clone(), 0).unwrap();
         store_update.commit().unwrap();
 
-        let err = runtime.apply(trie.clone(), root, &None, &apply_state, &[], &[]).err().unwrap();
+        let err = runtime
+            .apply(tries.get_trie_for_shard(0), root, &None, &apply_state, &[], &[])
+            .err()
+            .unwrap();
         assert_eq!(
             err,
             RuntimeError::StorageError(StorageError::StorageInconsistentState(format!(

@@ -5,8 +5,7 @@ use rand::seq::SliceRandom;
 use rand::Rng;
 
 use crate::db::TestDB;
-use crate::trie::Trie;
-use crate::Store;
+use crate::{ShardTries, Store};
 
 /// Creates an in-memory database.
 pub fn create_test_store() -> Arc<Store> {
@@ -15,9 +14,9 @@ pub fn create_test_store() -> Arc<Store> {
 }
 
 /// Creates a Trie using an in-memory database.
-pub fn create_trie() -> Arc<Trie> {
+pub fn create_tries() -> Arc<ShardTries> {
     let store = create_test_store();
-    Arc::new(Trie::new(store))
+    Arc::new(ShardTries::new(store, 1))
 }
 
 pub fn gen_changes(rng: &mut impl Rng, max_size: usize) -> Vec<(Vec<u8>, Option<Vec<u8>>)> {

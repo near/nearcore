@@ -4,7 +4,7 @@ extern crate bencher;
 use bencher::Bencher;
 use rand::random;
 
-use near_store::test_utils::create_trie;
+use near_store::test_utils::create_tries;
 use near_store::Trie;
 
 fn rand_bytes() -> Vec<u8> {
@@ -12,7 +12,8 @@ fn rand_bytes() -> Vec<u8> {
 }
 
 fn trie_lookup(bench: &mut Bencher) {
-    let trie = create_trie();
+    let tries = create_tries();
+    let trie = tries.get_trie_for_shard(0);
     let root = Trie::empty_root();
     let mut changes = vec![];
     for _ in 0..100 {
@@ -20,7 +21,7 @@ fn trie_lookup(bench: &mut Bencher) {
     }
     let other_changes = changes.clone();
     let (state_update, root) =
-        trie.update(&root, changes.drain(..)).unwrap().into(trie.clone()).unwrap();
+        trie.update(&root, changes.drain(..)).unwrap().into(tries.clone(), 0).unwrap();
     state_update.commit().expect("Failed to commit");
 
     bench.iter(|| {
@@ -33,7 +34,8 @@ fn trie_lookup(bench: &mut Bencher) {
 }
 
 fn trie_update(bench: &mut Bencher) {
-    let trie = create_trie();
+    let tries = create_tries();
+    let trie = tries.get_trie_for_shard(0);
     let root = Trie::empty_root();
     let mut changes = vec![];
     for _ in 0..100 {

@@ -30,7 +30,7 @@ use near_primitives::views::{
     ExecutionOutcomeWithIdView, ExecutionStatusView, FinalExecutionOutcomeView,
     FinalExecutionStatus, LightClientBlockView,
 };
-use near_store::{ColStateHeaders, ColStateParts, Trie};
+use near_store::{ColStateHeaders, ColStateParts, ShardTries};
 
 use crate::error::{Error, ErrorKind};
 use crate::lightclient::get_epoch_block_producers_view;
@@ -537,7 +537,7 @@ impl Chain {
     //    and the Trie is updated with having only Genesis data.
     // 4. State Sync Clearing happens in `reset_data_pre_state_sync()`.
     //
-    pub fn clear_data(&mut self, trie: Arc<Trie>) -> Result<(), Error> {
+    pub fn clear_data(&mut self, trie: Arc<ShardTries>) -> Result<(), Error> {
         let head = self.store.head()?;
         let tail = self.store.tail()?;
         let mut gc_stop_height = self.runtime_adapter.get_gc_stop_height(&head.last_block_hash)?;
@@ -587,7 +587,11 @@ impl Chain {
         Ok(())
     }
 
-    pub fn clear_forks_data(&mut self, trie: Arc<Trie>, height: BlockHeight) -> Result<(), Error> {
+    pub fn clear_forks_data(
+        &mut self,
+        trie: Arc<ShardTries>,
+        height: BlockHeight,
+    ) -> Result<(), Error> {
         if let Ok(blocks_current_height) = self.store.get_all_block_hashes_by_height(height) {
             let blocks_current_height =
                 blocks_current_height.values().flatten().cloned().collect::<Vec<_>>();
@@ -1428,7 +1432,7 @@ impl Chain {
         }
 
         let state_root_node =
-            self.runtime_adapter.get_state_root_node(&chunk_header.inner.prev_state_root);
+            self.runtime_adapter.get_state_root_node(shard_id, &chunk_header.inner.prev_state_root);
 
         Ok(ShardStateSyncResponseHeader {
             chunk,
@@ -1473,13 +1477,14 @@ impl Chain {
             return Err(ErrorKind::InvalidStateRequest("shard_id out of bounds".into()).into());
         }
         let state_root = sync_prev_block.chunks[shard_id as usize].inner.prev_state_root.clone();
-        let state_root_node = self.runtime_adapter.get_state_root_node(&state_root);
+        let state_root_node = self.runtime_adapter.get_state_root_node(shard_id, &state_root);
         let num_parts = Self::get_num_state_parts(state_root_node.memory_usage);
 
         if part_id >= num_parts {
             return Err(ErrorKind::InvalidStateRequest("part_id out of bound".to_string()).into());
         }
-        let state_part = self.runtime_adapter.obtain_state_part(&state_root, part_id, num_parts);
+        let state_part =
+            self.runtime_adapter.obtain_state_part(shard_id, &state_root, part_id, num_parts);
 
         Ok(state_part)
     }
@@ -1722,7 +1727,7 @@ impl Chain {
         }
 
         // Confirm that state matches the parts we received
-        self.runtime_adapter.confirm_state(&state_root, &parts)?;
+        self.runtime_adapter.confirm_state(shard_id, &state_root, &parts)?;
 
         // Applying the chunk starts here
         let mut chain_update = ChainUpdate::new(

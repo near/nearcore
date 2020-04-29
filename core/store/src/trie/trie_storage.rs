@@ -8,6 +8,7 @@ use near_primitives::hash::CryptoHash;
 
 use crate::trie::{decode_trie_node_with_rc, POISONED_LOCK_ERR};
 use crate::{ColState, StorageError, Store};
+use near_primitives::types::ShardId;
 
 pub trait TrieStorage: Send + Sync {
     /// Get bytes of a serialized TrieNode.
@@ -74,12 +75,17 @@ impl TrieStorage for TrieMemoryPartialStorage {
 pub struct TrieCachingStorage {
     pub(crate) store: Arc<Store>,
     pub(crate) cache: Arc<Mutex<SizedCache<CryptoHash, Option<Vec<u8>>>>>,
+    pub(crate) shard_id: ShardId,
 }
 
 impl TrieCachingStorage {
-    pub fn new(store: Arc<Store>) -> TrieCachingStorage {
+    pub fn new(store: Arc<Store>, shard_id: ShardId) -> TrieCachingStorage {
         // TODO defend from huge values in cache
-        TrieCachingStorage { store, cache: Arc::new(Mutex::new(SizedCache::with_size(10000))) }
+        TrieCachingStorage {
+            store,
+            cache: Arc::new(Mutex::new(SizedCache::with_size(10000))),
+            shard_id,
+        }
     }
 
     fn vec_to_rc(val: &Option<Vec<u8>>) -> Result<u32, StorageError> {
@@ -113,9 +119,12 @@ impl TrieCachingStorage {
         if let Some(val) = (*guard).cache_get(hash) {
             Self::vec_to_rc(val)
         } else {
+            let mut key = Vec::with_capacity(40);
+            key.extend_from_slice(&u64::to_le_bytes(self.shard_id));
+            key.extend_from_slice(hash.as_ref());
             let val = self
                 .store
-                .get(ColState, hash.as_ref())
+                .get(ColState, key.as_ref())
                 .map_err(|_| StorageError::StorageInternalError)?;
             let rc = Self::vec_to_rc(&val);
             (*guard).cache_set(*hash, val);
@@ -130,9 +139,12 @@ impl TrieStorage for TrieCachingStorage {
         if let Some(val) = (*guard).cache_get(hash) {
             Self::vec_to_bytes(val)
         } else {
+            let mut key = Vec::with_capacity(40);
+            key.extend_from_slice(&u64::to_le_bytes(self.shard_id));
+            key.extend_from_slice(hash.as_ref());
             let val = self
                 .store
-                .get(ColState, hash.as_ref())
+                .get(ColState, key.as_ref())
                 .map_err(|_| StorageError::StorageInternalError)?;
             let raw_node = Self::vec_to_bytes(&val);
             (*guard).cache_set(*hash, val);
