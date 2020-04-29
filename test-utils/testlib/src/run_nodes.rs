@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use clap::{App, Arg};
 
-use near_primitives::test_utils::init_integration_logger;
+use near_logger_utils::init_integration_logger;
 use testlib::node::{create_nodes, Node, NodeConfig};
 
 fn main() {

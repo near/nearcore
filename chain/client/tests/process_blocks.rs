@@ -16,6 +16,7 @@ use near_client::test_utils::setup_mock_all_validators;
 use near_client::test_utils::{setup_client, setup_mock, TestEnv};
 use near_client::{Client, GetBlock};
 use near_crypto::{InMemorySigner, KeyType, Signature, Signer};
+use near_logger_utils::init_test_logger;
 #[cfg(feature = "metric_recorder")]
 use near_network::recorder::MetricRecorder;
 use near_network::routing::EdgeInfo;
@@ -30,7 +31,6 @@ use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::merklize;
 use near_primitives::sharding::{EncodedShardChunk, ReedSolomonWrapper};
-use near_primitives::test_utils::init_test_logger;
 use near_primitives::transaction::{SignedTransaction, Transaction};
 use near_primitives::types::{BlockHeight, EpochId, MerkleHash, NumBlocks};
 use near_primitives::utils::to_timestamp;

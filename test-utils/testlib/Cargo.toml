@@ -22,6 +22,7 @@ num-rational = "0.2.4"
 
 borsh = "0.6.1"
 
+near-logger-utils = { path = "../../test-utils/logger" }
 near-chain-configs = { path = "../../core/chain-configs" }
 near-crypto = { path = "../../core/crypto" }
 near-primitives = { path = "../../core/primitives" }
