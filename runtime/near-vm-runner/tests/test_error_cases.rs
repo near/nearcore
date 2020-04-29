@@ -228,7 +228,7 @@ fn test_guest_panic() {
     assert_eq!(
         make_simple_contract_call(&guest_panic(), b"hello"),
         (
-            Some(vm_outcome_with_gas(130080593)),
+            Some(vm_outcome_with_gas(269143626)),
             Some(VMError::FunctionCallError(FunctionCallError::HostError(HostError::GuestPanic {
                 panic_msg: "explicit guest panic".to_string()
             })))
