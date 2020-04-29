@@ -8,7 +8,7 @@ use near_chain_configs::Genesis;
 use near_primitives::account::Account;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::state_record::StateRecord;
-use near_primitives::types::{AccountId, Balance, MerkleHash, StateRoot};
+use near_primitives::types::{AccountId, MerkleHash, StateRoot};
 use near_store::test_utils::create_trie;
 use near_store::{Trie, TrieUpdate};
 use neard::config::GenesisExt;
