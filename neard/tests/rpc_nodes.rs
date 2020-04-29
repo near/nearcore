@@ -5,14 +5,14 @@ use futures::{future, FutureExt, TryFutureExt};
 use near_client::{GetBlock, TxStatus};
 use near_crypto::{InMemorySigner, KeyType};
 use near_jsonrpc::client::new_client;
+use near_logger_utils::init_integration_logger;
 use near_network::test_utils::WaitOrTimeout;
 use near_primitives::serialize::to_base64;
-use near_primitives::test_utils::{heavy_test, init_integration_logger};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::BlockId;
 use near_primitives::views::{FinalExecutionStatus, QueryResponseKind};
 use neard::config::TESTING_INIT_BALANCE;
-use testlib::{genesis_block, start_nodes};
+use testlib::{genesis_block, start_nodes, test_helpers::heavy_test};
 
 /// Starts 2 validators and 2 light clients (not tracking anything).
 /// Sends tx to first light client and checks that a node can return tx status.

@@ -3,10 +3,9 @@ use futures::{future, FutureExt};
 
 use near_client::GetBlock;
 use near_network::test_utils::WaitOrTimeout;
-use near_primitives::test_utils::heavy_test;
 use near_primitives::types::{BlockHeightDelta, NumSeats, NumShards};
 use rand::{thread_rng, Rng};
-use testlib::start_nodes;
+use testlib::{start_nodes, test_helpers::heavy_test};
 
 fn run_nodes(
     num_shards: NumShards,

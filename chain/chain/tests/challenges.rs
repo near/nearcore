@@ -1,6 +1,6 @@
 use near_chain::test_utils::setup;
 use near_chain::{Block, ErrorKind, Provenance};
-use near_primitives::test_utils::init_test_logger;
+use near_logger_utils::init_test_logger;
 
 #[test]
 fn challenges_new_head_prev() {

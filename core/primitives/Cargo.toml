@@ -27,8 +27,6 @@ jemallocator = { version = "0.3", optional = true }
 actix = "0.9"
 hex = "0.4"
 num-rational = "0.2.4"
-tracing = "0.1.13"
-tracing-subscriber = "0.2.4"
 
 borsh = "0.6.1"
 
