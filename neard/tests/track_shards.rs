@@ -4,10 +4,10 @@ use actix::{Actor, System};
 use futures::{future, FutureExt};
 
 use near_client::{GetBlock, GetChunk};
+use near_logger_utils::init_integration_logger;
 use near_network::test_utils::WaitOrTimeout;
 use near_primitives::hash::CryptoHash;
-use near_primitives::test_utils::{heavy_test, init_integration_logger};
-use testlib::start_nodes;
+use testlib::{start_nodes, test_helpers::heavy_test};
 
 #[test]
 fn track_shards() {

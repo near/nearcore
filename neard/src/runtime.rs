@@ -1216,7 +1216,7 @@ mod test {
 
     use near_chain::{ReceiptResult, Tip};
     use near_crypto::{InMemorySigner, KeyType, Signer};
-    use near_primitives::test_utils::init_test_logger;
+    use near_logger_utils::init_test_logger;
     use near_primitives::transaction::{Action, CreateAccountAction, StakeAction};
     use near_primitives::types::{BlockHeightDelta, Nonce, ValidatorId, ValidatorKickoutReason};
     use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};

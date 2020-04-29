@@ -5,9 +5,9 @@ mod tests {
     use near_chain::Block;
     use near_client::test_utils::setup_mock_all_validators;
     use near_client::{ClientActor, ViewClientActor};
+    use near_logger_utils::init_integration_logger;
     use near_network::{NetworkClientMessages, NetworkRequests, NetworkResponses, PeerInfo};
     use near_primitives::block::{Approval, ApprovalInner};
-    use near_primitives::test_utils::init_integration_logger;
     use near_primitives::types::BlockHeight;
     use rand::{thread_rng, Rng};
     use std::collections::{BTreeMap, HashMap, HashSet};

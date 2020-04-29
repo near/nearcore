@@ -30,6 +30,7 @@ near-metrics = { path = "../../core/metrics" }
 near-chain = { path = "../chain" }
 
 [dev-dependencies]
+near-logger-utils = {path = "../../test-utils/logger"}
 tempfile = "3"
 bencher = "0.1.5"
 num-rational = "0.2.4"

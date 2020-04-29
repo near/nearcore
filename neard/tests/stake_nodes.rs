@@ -10,16 +10,16 @@ use rand::Rng;
 use near_chain_configs::Genesis;
 use near_client::{ClientActor, GetBlock, Query, Status, ViewClientActor};
 use near_crypto::{InMemorySigner, KeyType};
+use near_logger_utils::init_integration_logger;
 use near_network::test_utils::{convert_boot_nodes, open_port, WaitOrTimeout};
 use near_network::NetworkClientMessages;
 use near_primitives::hash::CryptoHash;
-use near_primitives::test_utils::{heavy_test, init_integration_logger};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockHeightDelta, BlockIdOrFinality, NumSeats};
 use near_primitives::views::{QueryRequest, QueryResponseKind, ValidatorInfo};
 use neard::config::{GenesisExt, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use neard::{load_test_config, start_with_config, NearConfig};
-use testlib::genesis_hash;
+use testlib::{genesis_hash, test_helpers::heavy_test};
 
 #[derive(Clone)]
 struct TestNode {

@@ -19,6 +19,7 @@ borsh = "0.6.1"
 
 near-chain-configs = { path = "../../core/chain-configs" }
 near-crypto = { path = "../../core/crypto" }
+near-logger-utils = { path = "../../test-utils/logger" }
 near-primitives = { path = "../../core/primitives" }
 near-metrics = { path = "../../core/metrics" }
 near-client = { path = "../client" }
