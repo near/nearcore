@@ -386,7 +386,7 @@ impl PeerManagerActor {
     /// Check if it is needed to create a new outbound connection.
     /// If the number of active connections is less than `ideal_connections_lo` or
     /// (the number of outgoing connections is less than `minimum_outbound_peers`
-    ///     and the total connections is less than `max_peers`)
+    ///     and the total connections is less than `max_peer`)
     fn is_outbound_bootstrap_needed(&self) -> bool {
         let total_connections = self.active_peers.len() + self.outgoing_peers.len();
         let potential_outgoing_connections =
