@@ -15,7 +15,7 @@ This crate implements the specification of the interface that Near blockchain ex
 [target.'cfg(windows)'.dependencies]
 wasmer-runtime = { version = "0.13.1", default-features = true }
 
-[target.'cfg(not(windows)'.dependencies]
+[target.'cfg(not(windows))'.dependencies]
 wasmer-runtime = { version = "0.13.1", features = ["default-backend-singlepass"], default-features = false }
 
 [dependencies]
