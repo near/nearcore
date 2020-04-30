@@ -1211,6 +1211,7 @@ impl Client {
     /// Determine if I am a validator in next few blocks for specified shard, assuming epoch doesn't change.
     fn active_validator(&self, shard_id: ShardId) -> Result<bool, Error> {
         let head = self.chain.head()?;
+        let epoch_id = self.runtime_adapter.get_epoch_id_from_prev_block(&head.last_block_hash)?;
 
         let account_id = if let Some(vs) = self.validator_signer.as_ref() {
             vs.validator_id()
@@ -1219,11 +1220,8 @@ impl Client {
         };
 
         for i in 1..=TX_ROUTING_HEIGHT_HORIZON {
-            let chunk_producer = self.runtime_adapter.get_chunk_producer(
-                &head.epoch_id,
-                head.height + i,
-                shard_id,
-            )?;
+            let chunk_producer =
+                self.runtime_adapter.get_chunk_producer(&epoch_id, head.height + i, shard_id)?;
             if &chunk_producer == account_id {
                 return Ok(true);
             }
