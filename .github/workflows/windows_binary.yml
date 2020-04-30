@@ -16,7 +16,7 @@ jobs:
         rust-version: nightly-2020-03-19
     - uses: actions/checkout@master
     - uses: chrislennon/action-aws-cli@v1.1
-    - run: python3 scripts/binary-release-windows.py
+    - run: python scripts/binary-release-windows.py
       env:
         AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
         AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
