@@ -1052,6 +1052,9 @@ impl Client {
             }
         }
 
+        if let Some(account_id) = self.validator_signer.as_ref().map(|bp| bp.validator_id()) {
+            validators.remove(account_id);
+        }
         for validator in validators {
             debug!(target: "client",
                    "I'm {:?}, routing a transaction {:?} to {}, shard_id = {}",
@@ -1083,6 +1086,11 @@ impl Client {
 
     /// If we are close to epoch boundary, return next epoch id, otherwise return None.
     fn get_next_epoch_id_if_at_boundary(&self, head: &Tip) -> Result<Option<EpochId>, Error> {
+        let next_epoch_started =
+            self.runtime_adapter.is_next_block_epoch_start(&head.last_block_hash)?;
+        if next_epoch_started {
+            return Ok(None);
+        }
         let next_epoch_estimated_height =
             self.runtime_adapter.get_epoch_start_height(&head.last_block_hash)?
                 + self.config.epoch_length;
@@ -1100,11 +1108,6 @@ impl Client {
     /// we forward to a validator from next epoch.
     fn possibly_forward_tx_to_next_epoch(&mut self, tx: &SignedTransaction) -> Result<(), Error> {
         let head = self.chain.head()?;
-        let next_epoch_started =
-            self.runtime_adapter.is_next_block_epoch_start(&head.last_block_hash)?;
-        if next_epoch_started {
-            return Ok(());
-        }
         if let Some(next_epoch_id) = self.get_next_epoch_id_if_at_boundary(&head)? {
             self.forward_tx(&next_epoch_id, tx)?;
         }
