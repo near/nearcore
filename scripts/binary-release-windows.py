@@ -1,7 +1,7 @@
 import subprocess
 import os
 
-uname = os.uname()[0]
+uname = 'Windows'
 branch = os.environ.get('GITHUB_REF').split('/')[-1]
 commit = os.environ.get('GITHUB_SHA')
 
