@@ -8,7 +8,7 @@ mod runner;
 /// a connection among them.
 #[test]
 fn churn_attack() {
-    let mut runner = Runner::new(4, 4).enable_outbound().max_peer(2);
+    let mut runner = Runner::new(4, 4).enable_outbound().max_num_peers(2);
 
     runner.push(Action::AddEdge(0, 1));
     runner.push(Action::AddEdge(2, 3));

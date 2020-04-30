@@ -225,8 +225,8 @@ fn blacklist_all() {
 /// Spawn 4 nodes with max peers required equal 2. Connect first three peers in a triangle.
 /// Try to connect peer3 to peer0 and see it fail since first three peer are at max capacity.
 #[test]
-fn max_peer_limit() {
-    let mut runner = Runner::new(4, 4).max_peer(2).enable_outbound();
+fn max_num_peers_limit() {
+    let mut runner = Runner::new(4, 4).max_num_peers(2).enable_outbound();
 
     runner.push(Action::AddEdge(0, 1));
     runner.push(Action::AddEdge(1, 2));

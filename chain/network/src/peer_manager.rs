@@ -386,20 +386,20 @@ impl PeerManagerActor {
     /// Check if it is needed to create a new outbound connection.
     /// If the number of active connections is less than `ideal_connections_lo` or
     /// (the number of outgoing connections is less than `minimum_outbound_peers`
-    ///     and the total connections is less than `max_peer`)
+    ///     and the total connections is less than `max_num_peers`)
     fn is_outbound_bootstrap_needed(&self) -> bool {
         let total_connections = self.active_peers.len() + self.outgoing_peers.len();
         let potential_outgoing_connections =
             self.num_active_outgoing_peers() + self.outgoing_peers.len();
 
         (total_connections < self.config.ideal_connections_lo as usize
-            || (total_connections < self.config.max_peer as usize
+            || (total_connections < self.config.max_num_peers as usize
                 && potential_outgoing_connections < self.config.minimum_outbound_peers as usize))
             && !self.config.outbound_disabled
     }
 
     fn is_inbound_allowed(&self) -> bool {
-        self.active_peers.len() + self.outgoing_peers.len() < self.config.max_peer as usize
+        self.active_peers.len() + self.outgoing_peers.len() < self.config.max_num_peers as usize
     }
 
     /// Returns single random peer with close to the highest height
@@ -919,7 +919,7 @@ impl PeerManagerActor {
                 .map(|a| a.full_peer_info.clone())
                 .collect::<Vec<_>>(),
             num_active_peers: self.num_active_peers(),
-            peer_max_count: self.config.max_peer,
+            peer_max_count: self.config.max_num_peers,
             highest_height_peers: self.highest_height_peers(),
             sent_bytes_per_sec,
             received_bytes_per_sec,

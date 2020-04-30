@@ -140,6 +140,32 @@ lazy_static! {
     pub static ref MAX_INFLATION_RATE: Rational = Rational::new(5, 100);
 }
 
+/// Maximum number of active peers. Hard limit.
+fn default_max_num_peers() -> u32 {
+    40
+}
+/// Minimum outbound connections a peer should have to avoid eclipse attacks.
+fn default_minimum_outbound_connections() -> u32 {
+    5
+}
+/// Lower bound of the ideal number of connections.
+fn default_ideal_connections_lo() -> u32 {
+    30
+}
+/// Upper bound of the ideal number of connections.
+fn default_ideal_connections_hi() -> u32 {
+    35
+}
+/// Peers which last message is was within this period of time are considered active recent peers.
+fn default_peer_recent_time_window() -> u64 {
+    600
+}
+/// Number of peers to keep while removing a connection.
+/// Used to avoid disconnecting from peers we have been connected since long time.
+fn default_safe_set_size() -> u32 {
+    20
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Network {
     /// Address to listen for incoming connections.
@@ -150,17 +176,23 @@ pub struct Network {
     /// Comma separated list of nodes to connect to.
     pub boot_nodes: String,
     /// Maximum number of active peers. Hard limit.
-    pub max_peers: u32,
+    #[serde(default = "default_max_num_peers")]
+    pub max_num_peers: u32,
     /// Minimum outbound connections a peer should have to avoid eclipse attacks.
+    #[serde(default = "default_minimum_outbound_connections")]
     pub minimum_outbound_peers: u32,
     /// Lower bound of the ideal number of connections.
+    #[serde(default = "default_ideal_connections_lo")]
     pub ideal_connections_lo: u32,
     /// Upper bound of the ideal number of connections.
+    #[serde(default = "default_ideal_connections_hi")]
     pub ideal_connections_hi: u32,
     /// Peers which last message is was within this period of time are considered active recent peers (in seconds).
+    #[serde(default = "default_peer_recent_time_window")]
     pub peer_recent_time_window: u64,
     /// Number of peers to keep while removing a connection.
     /// Used to avoid disconnecting from peers we have been connected since long time.
+    #[serde(default = "default_safe_set_size")]
     pub safe_set_size: u32,
     /// Handshake timeout.
     pub handshake_timeout: Duration,
@@ -182,7 +214,7 @@ impl Default for Network {
             addr: "0.0.0.0:24567".to_string(),
             external_address: "".to_string(),
             boot_nodes: "".to_string(),
-            max_peers: 40,
+            max_num_peers: 40,
             minimum_outbound_peers: 5,
             ideal_connections_lo: 30,
             ideal_connections_hi: 35,
@@ -514,7 +546,7 @@ impl NearConfig {
                 handshake_timeout: config.network.handshake_timeout,
                 reconnect_delay: config.network.reconnect_delay,
                 bootstrap_peers_period: Duration::from_secs(60),
-                max_peer: config.network.max_peers,
+                max_num_peers: config.network.max_num_peers,
                 minimum_outbound_peers: config.network.minimum_outbound_peers,
                 ideal_connections_lo: config.network.ideal_connections_lo,
                 ideal_connections_hi: config.network.ideal_connections_hi,
