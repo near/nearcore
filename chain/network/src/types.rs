@@ -707,7 +707,7 @@ pub struct NetworkConfig {
     pub reconnect_delay: Duration,
     pub bootstrap_peers_period: Duration,
     /// Maximum number of active peers. Hard limit.
-    pub max_peer: u32,
+    pub max_num_peers: u32,
     /// Minimum outbound connections a peer should have to avoid eclipse attacks.
     pub minimum_outbound_peers: u32,
     /// Lower bound of the ideal number of connections.
@@ -753,47 +753,37 @@ pub struct NetworkConfig {
 
 impl NetworkConfig {
     pub fn verify(&self) {
-        let mut some_error = false;
-
         if self.ideal_connections_lo + 1 >= self.ideal_connections_hi {
             error!(target: "network",
-            "Invalid IDEAL_CONNECTIONS values. LO({}) > HI({})",
+            "Invalid ideal_connections values. lo({}) > hi({}).",
             self.ideal_connections_lo, self.ideal_connections_hi);
-            some_error = true;
         }
 
-        if self.ideal_connections_hi >= self.max_peer {
+        if self.ideal_connections_hi >= self.max_num_peers {
             error!(target: "network",
-                "Inestable IDEAL_CONNECTIONS_HI({}) compared with MAX_PEERS({})",
-                self.ideal_connections_hi, self.max_peer
+                "max_num_peers({}) is below ideal_connections_hi({}) which may lead to connection saturation and declining new connections.",
+                self.max_num_peers, self.ideal_connections_hi
             );
-            some_error = true;
         }
 
         if self.outbound_disabled {
-            warn!(target: "network", "Outbound connections are disabled");
+            warn!(target: "network", "Outbound connections are disabled.");
         }
 
         if self.safe_set_size <= self.minimum_outbound_peers {
             error!(target: "network",
-                "SAFE_SET_SIZE({}) must be larger than MINIMUM_OUTBOUND_PEERS({})",
+                "safe_set_size({}) must be larger than minimum_outbound_peers({}).",
                 self.safe_set_size,
                 self.minimum_outbound_peers
             );
-            some_error = true;
         }
 
         if UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE * 2 > self.peer_recent_time_window {
             error!(
                 target: "network",
-                "Very short PEER_RECENT_TIME_WINDOW({}). It should be at least twice UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE({})",
+                "Very short peer_recent_time_window({}). it should be at least twice update_interval_last_time_received_message({}).",
                 self.peer_recent_time_window.as_secs(), UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE.as_secs()
             );
-            some_error = true;
-        }
-
-        if some_error {
-            panic!("Invalid network configuration. See logs for more details.");
         }
     }
 }
