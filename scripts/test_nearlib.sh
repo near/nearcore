@@ -29,6 +29,6 @@ yarn doc
 # yarn && yarn test
 
 # Run create-near-app tests
-cd ../create-near-app
-yarn && yarn test
+# cd ../create-near-app
+# yarn && yarn test
 
