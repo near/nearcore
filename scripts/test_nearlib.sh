@@ -8,33 +8,27 @@ trap 'pkill -15 -P $NEAR_PID' 0
 
 #./scripts/build_wasm.sh
 
-function get_nearlib_nearshell_release {
-    rm -rf nearlib_release_test near-shell nearlib
-    mkdir nearlib_release_test
-    cd nearlib_release_test
+rm -rf near-api-js near-shell create-near-app
+git clone https://github.com/near/near-api-js.git
+git clone https://github.com/near/near-shell.git
+git clone https://github.com/near/create-near-app.git
 
-    yarn add nearlib near-shell
+# Make sure to use local nearcore for tests
+export NODE_ENV=local
 
-    mv node_modules/nearlib ..
-    mv node_modules/near-shell ..
-    cd ..
-}
-
-function get_nearlib_nearshell_git {
-    rm -rf nearlib
-    git clone https://github.com/nearprotocol/nearlib.git nearlib
-}
-
-if [ -z "${NEARLIB_RELEASE}" ]; then
-    get_nearlib_nearshell_git
-else
-    get_nearlib_nearshell_release
-fi
-
-# Run nearlib tests
-cd nearlib
+# Run near-api-js tests
+cd near-api-js
 yarn
 yarn build
 ../scripts/waitonserver.sh
 yarn test
 yarn doc
+
+# Run near-shell tests
+# cd ../near-shell
+# yarn && yarn test
+
+# Run create-near-app tests
+# cd ../create-near-app
+# yarn && yarn test
+
