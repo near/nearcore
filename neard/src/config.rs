@@ -157,8 +157,8 @@ fn default_ideal_connections_hi() -> u32 {
     35
 }
 /// Peers which last message is was within this period of time are considered active recent peers.
-fn default_peer_recent_time_window() -> u64 {
-    600
+fn default_peer_recent_time_window() -> Duration {
+    Duration::from_secs(600)
 }
 /// Number of peers to keep while removing a connection.
 /// Used to avoid disconnecting from peers we have been connected since long time.
@@ -189,7 +189,7 @@ pub struct Network {
     pub ideal_connections_hi: u32,
     /// Peers which last message is was within this period of time are considered active recent peers (in seconds).
     #[serde(default = "default_peer_recent_time_window")]
-    pub peer_recent_time_window: u64,
+    pub peer_recent_time_window: Duration,
     /// Number of peers to keep while removing a connection.
     /// Used to avoid disconnecting from peers we have been connected since long time.
     #[serde(default = "default_safe_set_size")]
@@ -214,12 +214,12 @@ impl Default for Network {
             addr: "0.0.0.0:24567".to_string(),
             external_address: "".to_string(),
             boot_nodes: "".to_string(),
-            max_num_peers: 40,
-            minimum_outbound_peers: 5,
-            ideal_connections_lo: 30,
-            ideal_connections_hi: 35,
-            peer_recent_time_window: 600,
-            safe_set_size: 20,
+            max_num_peers: default_max_num_peers(),
+            minimum_outbound_peers: default_minimum_outbound_connections(),
+            ideal_connections_lo: default_ideal_connections_lo(),
+            ideal_connections_hi: default_ideal_connections_hi(),
+            peer_recent_time_window: default_peer_recent_time_window(),
+            safe_set_size: default_safe_set_size(),
             handshake_timeout: Duration::from_secs(20),
             reconnect_delay: Duration::from_secs(60),
             skip_sync_wait: false,
@@ -550,9 +550,7 @@ impl NearConfig {
                 minimum_outbound_peers: config.network.minimum_outbound_peers,
                 ideal_connections_lo: config.network.ideal_connections_lo,
                 ideal_connections_hi: config.network.ideal_connections_hi,
-                peer_recent_time_window: Duration::from_secs(
-                    config.network.peer_recent_time_window,
-                ),
+                peer_recent_time_window: config.network.peer_recent_time_window,
                 safe_set_size: config.network.safe_set_size,
                 ban_window: config.network.ban_window,
                 max_send_peers: 512,
