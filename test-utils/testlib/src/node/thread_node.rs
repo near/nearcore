@@ -20,7 +20,7 @@ pub struct ThreadNode {
     pub config: NearConfig,
     pub state: ThreadNodeState,
     pub signer: Arc<InMemorySigner>,
-    pub dir: tempdir::TempDir,
+    pub dir: tempfile::TempDir,
 }
 
 fn start_thread(config: NearConfig, path: PathBuf) -> ShutdownableThread {
@@ -94,7 +94,7 @@ impl ThreadNode {
             config,
             state: ThreadNodeState::Stopped,
             signer,
-            dir: tempdir::TempDir::new("thread_node").unwrap(),
+            dir: tempfile::Builder::new().prefix("thread_node").tempdir().unwrap(),
         }
     }
 }

@@ -5,7 +5,7 @@ use std::hash::{Hash, Hasher};
 use borsh::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
 
-use near_crypto::{PublicKey, Signature, Signer};
+use near_crypto::{PublicKey, Signature};
 
 use crate::account::AccessKey;
 use crate::errors::TxExecutionError;
@@ -173,25 +173,6 @@ impl SignedTransaction {
     pub fn get_hash(&self) -> CryptoHash {
         self.hash
     }
-
-    pub fn from_actions(
-        nonce: Nonce,
-        signer_id: AccountId,
-        receiver_id: AccountId,
-        signer: &dyn Signer,
-        actions: Vec<Action>,
-        block_hash: CryptoHash,
-    ) -> Self {
-        Transaction {
-            nonce,
-            signer_id,
-            public_key: signer.public_key(),
-            receiver_id,
-            block_hash,
-            actions,
-        }
-        .sign(signer)
-    }
 }
 
 impl Hash for SignedTransaction {
@@ -346,7 +327,7 @@ mod tests {
 
     use borsh::BorshDeserialize;
 
-    use near_crypto::{InMemorySigner, KeyType, Signature};
+    use near_crypto::{InMemorySigner, KeyType, Signature, Signer};
 
     use crate::account::{AccessKeyPermission, FunctionCallPermission};
     use crate::serialize::to_base;

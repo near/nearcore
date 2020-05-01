@@ -257,14 +257,13 @@ impl Peer {
                 Ok(NetworkViewClientResponses::ChainInfo {
                     genesis_id,
                     height,
-                    score,
                     tracked_shards,
                 }) => {
                     let handshake = Handshake::new(
                         act.node_id(),
                         act.peer_id().unwrap(),
                         act.node_info.addr_port(),
-                        PeerChainInfo { genesis_id, height, score, tracked_shards },
+                        PeerChainInfo { genesis_id, height, tracked_shards },
                         act.edge_info.as_ref().unwrap().clone(),
                     );
                     act.send_message(PeerMessage::Handshake(handshake));
@@ -411,12 +410,15 @@ impl Peer {
                 self.tracker.push_received(block_hash);
                 self.chain_info.height =
                     max(self.chain_info.height, block.header.inner_lite.height);
-                self.chain_info.score = max(self.chain_info.score, block.header.inner_rest.score);
                 NetworkClientMessages::Block(block, peer_id, self.tracker.has_request(block_hash))
             }
             PeerMessage::Transaction(transaction) => {
                 near_metrics::inc_counter(&metrics::PEER_TRANSACTION_RECEIVED_TOTAL);
-                NetworkClientMessages::Transaction { transaction, is_forwarded: false }
+                NetworkClientMessages::Transaction {
+                    transaction,
+                    is_forwarded: false,
+                    check_only: false,
+                }
             }
             PeerMessage::BlockHeaders(headers) => {
                 NetworkClientMessages::BlockHeaders(headers, peer_id)
@@ -430,7 +432,11 @@ impl Peer {
                         NetworkClientMessages::BlockApproval(approval, peer_id)
                     }
                     RoutedMessageBody::ForwardTx(transaction) => {
-                        NetworkClientMessages::Transaction { transaction, is_forwarded: true }
+                        NetworkClientMessages::Transaction {
+                            transaction,
+                            is_forwarded: true,
+                            check_only: false,
+                        }
                     }
 
                     RoutedMessageBody::StateResponse(info) => {

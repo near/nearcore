@@ -366,8 +366,6 @@ impl PeerStore {
 
 #[cfg(test)]
 mod test {
-    use tempdir;
-
     use near_crypto::{KeyType, SecretKey};
     use near_store::create_store;
     use near_store::test_utils::create_test_store;
@@ -396,7 +394,7 @@ mod test {
 
     #[test]
     fn ban_store() {
-        let tmp_dir = tempdir::TempDir::new("_test_store_ban").unwrap();
+        let tmp_dir = tempfile::Builder::new().prefix("_test_store_ban").tempdir().unwrap();
         let peer_info_a = gen_peer_info(0);
         let peer_info_to_ban = gen_peer_info(1);
         let boot_nodes = vec![peer_info_a.clone(), peer_info_to_ban.clone()];

@@ -380,7 +380,7 @@ mod tests {
     use near_primitives::account::{AccessKey, Account, FunctionCallPermission};
     use near_primitives::hash::{hash, CryptoHash};
     use near_primitives::receipt::DataReceiver;
-    use near_primitives::test_utils::ACCOUNT_SIZE_BYTES;
+    use near_primitives::test_utils::account_new;
     use near_primitives::transaction::{
         CreateAccountAction, DeleteKeyAction, StakeAction, TransferAction,
     };
@@ -415,7 +415,7 @@ mod tests {
 
         let mut initial_state = TrieUpdate::new(trie.clone(), root);
         for (account_id, initial_balance, initial_locked, access_key) in accounts {
-            let mut initial_account = Account::new(initial_balance, hash(&[]));
+            let mut initial_account = account_new(initial_balance, hash(&[]));
             initial_account.locked = initial_locked;
             set_account(&mut initial_state, account_id.clone(), &initial_account);
             if let Some(access_key) = access_key {
@@ -817,7 +817,8 @@ mod tests {
             .expect_err("expected an error"),
             RuntimeError::InvalidTxError(InvalidTxError::LackBalanceForState {
                 signer_id: alice_account(),
-                amount: Balance::from(ACCOUNT_SIZE_BYTES) * config.storage_amount_per_byte
+                amount: Balance::from(std::mem::size_of::<Account>() as u64)
+                    * config.storage_amount_per_byte
                     - (initial_balance - transfer_amount)
             })
         );

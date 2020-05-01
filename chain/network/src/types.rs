@@ -11,7 +11,7 @@ use actix::{Actor, Addr, MailboxError, Message, Recipient};
 use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::{DateTime, Utc};
 use futures::{future::BoxFuture, FutureExt};
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use tokio::net::TcpStream;
 use tracing::{error, warn};
 
@@ -20,7 +20,7 @@ use near_chain::{Block, BlockHeader};
 use near_chain_configs::PROTOCOL_VERSION;
 use near_crypto::{PublicKey, SecretKey, Signature};
 use near_metrics;
-use near_primitives::block::{Approval, ApprovalMessage, BlockScore, GenesisId, ScoreAndHeight};
+use near_primitives::block::{Approval, ApprovalMessage, GenesisId};
 use near_primitives::challenge::Challenge;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::{hash, CryptoHash};
@@ -126,16 +126,8 @@ pub struct PeerChainInfo {
     pub genesis_id: GenesisId,
     /// Last known chain height of the peer.
     pub height: BlockHeight,
-    /// Last known chain score of the peer.
-    pub score: BlockScore,
     /// Shards that the peer is tracking
     pub tracked_shards: Vec<ShardId>,
-}
-
-impl PeerChainInfo {
-    pub fn score_and_height(&self) -> ScoreAndHeight {
-        ScoreAndHeight { score: self.score, height: self.height }
-    }
 }
 
 /// Peer type.
@@ -1214,7 +1206,7 @@ pub enum NetworkAdversarialMessage {
     AdvDisableDoomslug,
     AdvGetSavedBlocks,
     AdvCheckRefMap,
-    AdvSetSyncInfo(u64, u64),
+    AdvSetSyncInfo(u64),
 }
 
 #[derive(Debug)]
@@ -1227,7 +1219,10 @@ pub enum NetworkClientMessages {
     /// Received transaction.
     Transaction {
         transaction: SignedTransaction,
+        /// Whether the transaction is forwarded from other nodes.
         is_forwarded: bool,
+        /// Whether the transaction needs to be submitted.
+        check_only: bool,
     },
     /// Received block, possibly requested.
     Block(Block, PeerId, bool),
@@ -1265,6 +1260,9 @@ pub enum NetworkClientResponses {
     InvalidTx(InvalidTxError),
     /// The request is routed to other shards
     RequestRouted,
+    /// The node being queried does not track the shard needed and therefore cannot provide userful
+    /// response.
+    DoesNotTrackShard,
     /// Ban peer for malicious behavior.
     Ban { ban_reason: ReasonForBan },
 }
@@ -1329,12 +1327,7 @@ pub enum NetworkViewClientResponses {
     /// Headers response.
     BlockHeaders(Vec<BlockHeader>),
     /// Chain information.
-    ChainInfo {
-        genesis_id: GenesisId,
-        height: BlockHeight,
-        score: BlockScore,
-        tracked_shards: Vec<ShardId>,
-    },
+    ChainInfo { genesis_id: GenesisId, height: BlockHeight, tracked_shards: Vec<ShardId> },
     /// Response to state request.
     StateResponse(StateResponseInfo),
     /// Valid announce accounts.

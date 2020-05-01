@@ -7,15 +7,14 @@ edition = "2018"
 
 [dependencies]
 # Changing this version will lead to change to the protocol, as will change how validators get shuffled.
-protocol_defining_rand = { package = "rand", version = "0.6.5" }
+protocol_defining_rand = { package = "rand", version = "0.6.5", default-features = false }
 log = "0.4"
-cached = "0.12.0"
+cached = "0.12"
 borsh = "0.6.1"
 rand = "0.7"
-serde = "1.0"
-serde_derive = "1.0"
-serde_json = "1.0"
-ethereum-types = "0.8.0"
+serde = { version = "1", features = [ "derive" ] }
+serde_json = "1"
+primitive-types = { version = "0.7", default-features = false }
 num-rational = "0.2.4"
 
 near-crypto = { path = "../../core/crypto" }

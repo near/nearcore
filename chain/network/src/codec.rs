@@ -68,7 +68,7 @@ pub fn bytes_to_peer_message(bytes: &[u8]) -> Result<PeerMessage, std::io::Error
 #[cfg(test)]
 mod test {
     use near_crypto::{KeyType, SecretKey};
-    use near_primitives::block::Approval;
+    use near_primitives::block::{Approval, ApprovalInner};
     use near_primitives::hash::CryptoHash;
     use near_primitives::network::AnnounceAccount;
     use near_primitives::types::EpochId;
@@ -100,7 +100,6 @@ mod test {
             chain_info: PeerChainInfo {
                 genesis_id: Default::default(),
                 height: 0,
-                score: 0.into(),
                 tracked_shards: vec![],
             },
             edge_info: EdgeInfo::default(),
@@ -150,10 +149,8 @@ mod test {
             ttl: 100,
             body: RoutedMessageBody::BlockApproval(Approval {
                 account_id: "test2".to_string(),
-                parent_hash: CryptoHash::default(),
-                reference_hash: Some(CryptoHash::default()),
+                inner: ApprovalInner::Endorsement(CryptoHash::default()),
                 target_height: 1,
-                is_endorsement: true,
                 signature: bls_signature,
             }),
         });

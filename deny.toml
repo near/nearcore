@@ -1,0 +1,38 @@
+targets = [
+    { triple = "x86_64-unknown-linux-musl" },
+    { triple = "x86_64-pc-windows-msvc" },
+    { triple = "x86_64-apple-darwin" },
+]
+
+[bans]
+multiple-versions = "deny"
+deny = [
+]
+skip = [
+    # actix 0.9.0 still uses it
+    { name = "tokio-util", version = "=0.2.0" },
+    # actix-server 1.0.2 still uses it
+    { name = "miow", version = "=0.2.1" },
+    # miow 0.6.21 still uses it
+    { name = "winapi", version = "=0.2.8" },
+
+    # crypto-mac 0.7.0 still uses it: https://github.com/RustCrypto/traits/issues/43
+    { name = "subtle", version = "=1.0.0" },
+
+    # wasmer-runtime-core v0.13.1 still uses it
+    { name = "smallvec", version = "=0.6.13" },
+    { name = "parking_lot", version = "=0.9.0" },
+    { name = "parking_lot_core", version = "=0.6.2" },
+    { name = "hex", version = "=0.3.2" },
+
+    # wabt 0.9.0 (dev dependency) still uses it
+    { name = "glob", version = "=0.2.11" },
+
+    # near-epoch-manager fixed the rand version to ensure protocol stability
+    { name = "rand", version = "=0.6.5" },
+    # rand 0.6.5 uses two versions of rand_core due to weird dependencies mismatch with rand_chacha
+    { name = "rand_core", version = "=0.3.1" },
+    { name = "rand_core", version = "=0.4.2" },
+    { name = "rand_chacha", version = "=0.1.1" },
+    { name = "autocfg", version = "=0.1.7" },
+]

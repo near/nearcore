@@ -121,7 +121,7 @@ mod test {
             signer.public_key.clone(),
             genesis_hash,
         );
-        env.clients[0].process_tx(tx, false);
+        env.clients[0].process_tx(tx, false, false);
         for i in 1..=epoch_length * 2 + 1 {
             env.produce_block(0, i);
         }
@@ -166,7 +166,7 @@ mod test {
             signer.public_key.clone(),
             genesis_hash,
         );
-        env.clients[0].process_tx(tx, false);
+        env.clients[0].process_tx(tx, false, false);
         for i in 1..=epoch_length + 1 {
             env.produce_block(0, i);
         }
@@ -227,7 +227,7 @@ mod test {
             1,
             genesis_hash,
         );
-        env.clients[0].process_tx(tx, false);
+        env.clients[0].process_tx(tx, false, false);
 
         let mut blocks = vec![];
         for i in 1..epoch_length {
@@ -276,7 +276,7 @@ mod test {
             signer.public_key.clone(),
             genesis_hash,
         );
-        env.clients[0].process_tx(tx, false);
+        env.clients[0].process_tx(tx, false, false);
         for i in 1..=epoch_length * 2 + 1 {
             env.produce_block(0, i);
         }

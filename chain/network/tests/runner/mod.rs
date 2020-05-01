@@ -13,6 +13,7 @@ use near_chain::ChainGenesis;
 use near_chain_configs::ClientConfig;
 use near_client::{ClientActor, ViewClientActor};
 use near_crypto::KeyType;
+use near_logger_utils::init_test_logger;
 use near_network::test_utils::{
     convert_boot_nodes, expected_routing_tables, open_port, peer_id_from_seed, BanPeerSignal,
     GetInfo, StopSignal, WaitOrTimeout,
@@ -22,7 +23,6 @@ use near_network::utils::blacklist_from_vec;
 use near_network::{
     NetworkConfig, NetworkRecipient, NetworkRequests, NetworkResponses, PeerInfo, PeerManagerActor,
 };
-use near_primitives::test_utils::init_test_logger;
 use near_primitives::types::{AccountId, ValidatorId};
 use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_store::test_utils::create_test_store;
