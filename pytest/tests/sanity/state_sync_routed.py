@@ -110,6 +110,10 @@ elif catch_up_height <= 30:
 tracker4.reset()
 assert tracker4.count("Consolidated connection with FullPeerInfo") == 2
 
+tracker4.reset()
+# Check that no message is dropped because a peer is disconnected
+assert tracker4.count("Reason Disconnected") == 0
+
 if mode == 'manytx':
     while ctx.get_balances() != ctx.expected_balances:
         assert time.time() - started < TIMEOUT

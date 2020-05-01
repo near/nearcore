@@ -327,17 +327,24 @@ impl RoutingTable {
             // nonce is greater than some threshold increase the lowest nonce to be at least
             // max nonce - threshold.
 
-            let (min_v, max_v) = routes.iter().fold((None, None), |(min_v, max_v), peer_id| {
-                let nonce = self.route_nonce.cache_get(&peer_id).cloned().unwrap_or(0usize);
-                let current = (nonce, peer_id.clone());
-                if min_v.is_none() || current < *min_v.as_ref().unwrap() {
-                    (Some(current), max_v)
-                } else if max_v.is_none() || *max_v.as_ref().unwrap() < current {
-                    (max_v, Some(current))
-                } else {
+            // Find node with min nonce and node with max nonce.
+            // If there are no routes both min_v and max_v will be None.
+            // If there is only one route max_v will be None.
+            let (min_v, max_v) =
+                routes.iter().fold((None, None), |(mut min_v, mut max_v), peer_id| {
+                    let nonce = self.route_nonce.cache_get(&peer_id).cloned().unwrap_or(0usize);
+                    let mut current = Some((nonce, peer_id.clone()));
+
+                    if min_v.is_none() || *current.as_ref().unwrap() < *min_v.as_ref().unwrap() {
+                        std::mem::swap(&mut min_v, &mut current);
+                    }
+
+                    if max_v.is_none() || (current.is_some() && max_v < current) {
+                        std::mem::swap(&mut max_v, &mut current);
+                    }
+
                     (min_v, max_v)
-                }
-            });
+                });
 
             let next_hop = match (min_v, max_v) {
                 (None, _) => {
