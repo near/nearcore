@@ -908,10 +908,6 @@ impl Chain {
 
         chain_store_update.commit()?;
 
-        // Fill the Trie with Genesis state
-        let (_, state_store_update, _) = self.runtime_adapter.genesis_state();
-        state_store_update.commit()?;
-
         Ok(())
     }
 
