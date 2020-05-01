@@ -12,13 +12,20 @@ use serde;
 use lazy_static::lazy_static;
 
 use crate::hash::{hash, CryptoHash};
-use crate::types::{AccountId, NumSeats, NumShards};
+use crate::types::{AccountId, NumSeats, NumShards, ShardId};
 
 pub const MIN_ACCOUNT_ID_LEN: usize = 2;
 pub const MAX_ACCOUNT_ID_LEN: usize = 64;
 
 /// Number of nano seconds in a second.
 const NS_IN_SECOND: u64 = 1_000_000_000;
+
+pub fn get_block_shard_id(block_hash: &CryptoHash, shard_id: ShardId) -> Vec<u8> {
+    let mut res = Vec::with_capacity(40);
+    res.extend_from_slice(block_hash.as_ref());
+    res.extend_from_slice(&shard_id.to_le_bytes());
+    res
+}
 
 pub fn create_nonce_with_nonce(base: &CryptoHash, salt: u64) -> CryptoHash {
     let mut nonce: Vec<u8> = base.as_ref().to_owned();
