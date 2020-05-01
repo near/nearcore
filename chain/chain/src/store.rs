@@ -1783,6 +1783,7 @@ impl<'a> ChainStoreUpdate<'a> {
                 assert!(false);
             }
             // Don't clean Genesis Block
+            self.merge(store_update);
             return Ok(());
         }
 
