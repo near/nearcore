@@ -95,6 +95,7 @@ impl StateRecord {
                 let receipt = Receipt::try_from_slice(&value).unwrap();
                 Some(StateRecord::DelayedReceipt(Box::new(receipt)))
             }
+            col::DELAYED_RECEIPT_INDICES => None,
             _ => unreachable!(),
         }
     }

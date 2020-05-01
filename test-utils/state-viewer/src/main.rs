@@ -6,12 +6,12 @@ use ansi_term::Color::Red;
 use clap::{App, Arg, SubCommand};
 
 use near_chain::{ChainStore, ChainStoreAccess, RuntimeAdapter};
+use near_logger_utils::init_integration_logger;
 use near_network::peer_store::PeerStore;
 use near_primitives::block::BlockHeader;
 use near_primitives::hash::CryptoHash;
 use near_primitives::serialize::to_base;
 use near_primitives::state_record::StateRecord;
-use near_primitives::test_utils::init_integration_logger;
 use near_primitives::types::{BlockHeight, StateRoot};
 use near_store::test_utils::create_test_store;
 use near_store::{create_store, Store, TrieIterator};
@@ -63,7 +63,7 @@ fn load_trie_stop_at_height(
                     .get_block_header(&cur_block_hash)
                     .unwrap()
                     .inner_rest
-                    .last_quorum_pre_commit;
+                    .last_final_block;
                 let last_final_block = chain_store.get_block(&last_final_block_hash).unwrap();
                 if last_final_block.header.inner_lite.height >= height {
                     break last_final_block.clone();
@@ -176,9 +176,7 @@ fn replay_chain(
                     header.hash(),
                     header.inner_rest.random_value,
                     header.inner_lite.height,
-                    chain_store
-                        .get_block_height(&header.inner_rest.last_quorum_pre_commit)
-                        .unwrap(),
+                    chain_store.get_block_height(&header.inner_rest.last_final_block).unwrap(),
                     header.inner_rest.validator_proposals,
                     vec![],
                     header.inner_rest.chunk_mask,

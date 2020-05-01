@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 use near_crypto::{PublicKey, Signature};
 
 use crate::account::{AccessKey, AccessKeyPermission, Account, FunctionCallPermission};
-use crate::block::{Approval, Block, BlockHeader, BlockHeaderInnerLite, BlockHeaderInnerRest};
+use crate::block::{Block, BlockHeader, BlockHeaderInnerLite, BlockHeaderInnerRest};
 use crate::challenge::{Challenge, ChallengesResult};
 use crate::errors::TxExecutionError;
 use crate::hash::{hash, CryptoHash};
@@ -322,7 +322,6 @@ pub struct BlockHeaderView {
     pub challenges_root: CryptoHash,
     pub timestamp: u64,
     pub random_value: CryptoHash,
-    pub score: u64,
     pub validator_proposals: Vec<ValidatorStakeView>,
     pub chunk_mask: Vec<bool>,
     #[serde(with = "u128_dec_format")]
@@ -335,11 +334,10 @@ pub struct BlockHeaderView {
     #[serde(with = "u128_dec_format")]
     pub total_supply: Balance,
     pub challenges_result: ChallengesResult,
-    pub last_quorum_pre_vote: CryptoHash,
-    pub last_quorum_pre_commit: CryptoHash,
+    pub last_final_block: CryptoHash,
     pub last_ds_final_block: CryptoHash,
     pub next_bp_hash: CryptoHash,
-    pub approvals: Vec<(AccountId, CryptoHash, Option<CryptoHash>, BlockHeight, bool, Signature)>,
+    pub approvals: Vec<Option<Signature>>,
     pub signature: Signature,
 }
 
@@ -360,7 +358,6 @@ impl From<BlockHeader> for BlockHeaderView {
             outcome_root: header.inner_lite.outcome_root,
             timestamp: header.inner_lite.timestamp,
             random_value: header.inner_rest.random_value,
-            score: header.inner_rest.score.to_num(),
             validator_proposals: header
                 .inner_rest
                 .validator_proposals
@@ -373,25 +370,10 @@ impl From<BlockHeader> for BlockHeaderView {
             validator_reward: header.inner_rest.validator_reward,
             total_supply: header.inner_rest.total_supply,
             challenges_result: header.inner_rest.challenges_result,
-            last_quorum_pre_vote: header.inner_rest.last_quorum_pre_vote,
-            last_quorum_pre_commit: header.inner_rest.last_quorum_pre_commit,
+            last_final_block: header.inner_rest.last_final_block,
             last_ds_final_block: header.inner_rest.last_ds_final_block,
             next_bp_hash: header.inner_lite.next_bp_hash,
-            approvals: header
-                .inner_rest
-                .approvals
-                .into_iter()
-                .map(|x| {
-                    (
-                        x.account_id,
-                        x.parent_hash,
-                        x.reference_hash,
-                        x.target_height,
-                        x.is_endorsement,
-                        x.signature,
-                    )
-                })
-                .collect(),
+            approvals: header.inner_rest.approvals.clone(),
             signature: header.signature,
         }
     }
@@ -417,7 +399,6 @@ impl From<BlockHeaderView> for BlockHeader {
                 chunks_included: view.chunks_included,
                 challenges_root: view.challenges_root,
                 random_value: view.random_value,
-                score: view.score.into(),
                 validator_proposals: view
                     .validator_proposals
                     .into_iter()
@@ -428,32 +409,9 @@ impl From<BlockHeaderView> for BlockHeader {
                 total_supply: view.total_supply,
                 challenges_result: view.challenges_result,
                 validator_reward: view.validator_reward,
-                last_quorum_pre_vote: view.last_quorum_pre_vote,
-                last_quorum_pre_commit: view.last_quorum_pre_commit,
+                last_final_block: view.last_final_block,
                 last_ds_final_block: view.last_ds_final_block,
-                approvals: view
-                    .approvals
-                    .into_iter()
-                    .map(
-                        |(
-                            account_id,
-                            parent_hash,
-                            reference_hash,
-                            target_height,
-                            is_endorsement,
-                            signature,
-                        )| {
-                            Approval {
-                                account_id,
-                                parent_hash,
-                                reference_hash,
-                                target_height,
-                                is_endorsement,
-                                signature,
-                            }
-                        },
-                    )
-                    .collect(),
+                approvals: view.approvals.clone(),
             },
             signature: view.signature,
             hash: CryptoHash::default(),
@@ -1015,6 +973,8 @@ pub struct EpochValidatorInfo {
     pub current_proposals: Vec<ValidatorStakeView>,
     /// Kickout in the previous epoch
     pub prev_epoch_kickout: Vec<ValidatorKickoutView>,
+    /// Epoch start height
+    pub epoch_start_height: BlockHeight,
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
@@ -1044,23 +1004,15 @@ pub struct NextEpochValidatorInfo {
     pub shards: Vec<ShardId>,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, BorshDeserialize, BorshSerialize)]
-pub struct LightClientApprovalView {
-    pub parent_hash: CryptoHash,
-    pub reference_hash: CryptoHash,
-    pub signature: Signature,
-}
-
 #[derive(Serialize, Debug, Clone, BorshDeserialize, BorshSerialize)]
 pub struct LightClientBlockView {
+    pub prev_block_hash: CryptoHash,
+    pub next_block_inner_hash: CryptoHash,
     pub inner_lite: BlockHeaderInnerLiteView,
     pub inner_rest_hash: CryptoHash,
     pub next_bps: Option<Vec<ValidatorStakeView>>,
-    pub qv_hash: CryptoHash,
-    pub future_inner_hashes: Vec<CryptoHash>,
-    pub qv_approvals: Vec<Option<LightClientApprovalView>>,
-    pub qc_approvals: Vec<Option<LightClientApprovalView>>,
-    pub prev_hash: CryptoHash,
+    pub approvals_next: Vec<Option<Signature>>,
+    pub approvals_after_next: Vec<Option<Signature>>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]

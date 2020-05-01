@@ -1,13 +1,7 @@
-use std::env;
-use std::sync::{Mutex, Once};
-
-use tracing_subscriber::EnvFilter;
-
-use lazy_static::lazy_static;
-use near_crypto::{EmptySigner, PublicKey, Signer};
+use near_crypto::{EmptySigner, PublicKey, Signature, Signer};
 
 use crate::account::{AccessKey, AccessKeyPermission, Account};
-use crate::block::{Approval, Block};
+use crate::block::Block;
 use crate::hash::CryptoHash;
 use crate::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, SignedTransaction, StakeAction,
@@ -17,75 +11,8 @@ use crate::types::{AccountId, Balance, BlockHeight, EpochId, Nonce};
 use crate::validator_signer::ValidatorSigner;
 use num_rational::Rational;
 
-lazy_static! {
-    static ref HEAVY_TESTS_LOCK: Mutex<()> = Mutex::new(());
-}
-
-pub fn heavy_test<F>(f: F)
-where
-    F: FnOnce() -> (),
-{
-    let _guard = HEAVY_TESTS_LOCK.lock();
-    f();
-}
-
-fn setup_subscriber_from_filter(mut env_filter: EnvFilter) {
-    if let Ok(rust_log) = env::var("RUST_LOG") {
-        for directive in rust_log.split(',').filter_map(|s| match s.parse() {
-            Ok(directive) => Some(directive),
-            Err(err) => {
-                eprintln!("Ignoring directive `{}`: {}", s, err);
-                None
-            }
-        }) {
-            env_filter = env_filter.add_directive(directive);
-        }
-    }
-
-    let _ = tracing_subscriber::fmt::Subscriber::builder()
-        .with_env_filter(env_filter)
-        .with_writer(std::io::stderr)
-        .try_init();
-}
-
-pub fn init_test_logger() {
-    let env_filter = EnvFilter::new("tokio_reactor=info,tokio_core=info,hyper=info,debug");
-    setup_subscriber_from_filter(env_filter);
-    init_stop_on_panic();
-}
-
-pub fn init_test_logger_allow_panic() {
-    let env_filter = EnvFilter::new("tokio_reactor=info,tokio_core=info,hyper=info,debug");
-    setup_subscriber_from_filter(env_filter);
-}
-
-pub fn init_test_module_logger(module: &str) {
-    let env_filter =
-        EnvFilter::new("tokio_reactor=info,tokio_core=info,hyper=info,cranelift_wasm=warn,info")
-            .add_directive(format!("{}=info", module).parse().unwrap());
-    setup_subscriber_from_filter(env_filter);
-    init_stop_on_panic();
-}
-
-pub fn init_integration_logger() {
-    let env_filter = EnvFilter::new("actix_web=warn,info");
-    setup_subscriber_from_filter(env_filter);
-    init_stop_on_panic();
-}
-
-static SET_PANIC_HOOK: Once = Once::new();
-
-/// This is a workaround to make actix/tokio runtime stop when a task panics.
-pub fn init_stop_on_panic() {
-    SET_PANIC_HOOK.call_once(|| {
-        let default_hook = std::panic::take_hook();
-        std::panic::set_hook(Box::new(move |info| {
-            default_hook(info);
-            if actix::System::is_set() {
-                actix::System::with_current(|sys| sys.stop_with_code(1));
-            }
-        }));
-    })
+pub fn account_new(amount: Balance, code_hash: CryptoHash) -> Account {
+    Account { amount, locked: 0, code_hash, storage_usage: std::mem::size_of::<Account>() as u64 }
 }
 
 impl Transaction {
@@ -96,6 +23,25 @@ impl Transaction {
 }
 
 impl SignedTransaction {
+    pub fn from_actions(
+        nonce: Nonce,
+        signer_id: AccountId,
+        receiver_id: AccountId,
+        signer: &dyn Signer,
+        actions: Vec<Action>,
+        block_hash: CryptoHash,
+    ) -> Self {
+        Transaction {
+            nonce,
+            signer_id,
+            public_key: signer.public_key(),
+            receiver_id,
+            block_hash,
+            actions,
+        }
+        .sign(signer)
+    }
+
     pub fn send_money(
         nonce: Nonce,
         signer_id: AccountId,
@@ -231,7 +177,7 @@ impl Block {
         height: BlockHeight,
         epoch_id: EpochId,
         next_epoch_id: EpochId,
-        approvals: Vec<Approval>,
+        approvals: Vec<Option<Signature>>,
         signer: &dyn ValidatorSigner,
         next_bp_hash: CryptoHash,
     ) -> Self {
@@ -248,20 +194,7 @@ impl Block {
             vec![],
             vec![],
             signer,
-            0.into(),
-            CryptoHash::default(),
-            CryptoHash::default(),
-            CryptoHash::default(),
             next_bp_hash,
         )
-    }
-}
-
-/// Size of account struct in bytes.
-pub const ACCOUNT_SIZE_BYTES: u64 = std::mem::size_of::<Account>() as u64;
-
-impl Account {
-    pub fn new(amount: Balance, code_hash: CryptoHash) -> Self {
-        Account { amount, locked: 0, code_hash, storage_usage: ACCOUNT_SIZE_BYTES }
     }
 }

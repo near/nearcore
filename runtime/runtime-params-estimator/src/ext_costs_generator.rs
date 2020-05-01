@@ -85,6 +85,12 @@ impl ExtCostsGenerator {
         self.extract(sha256_10b_10k, sha256_base, &[sha256_byte]);
         self.extract(sha256_10kib_10k, sha256_byte, &[]);
 
+        self.extract(keccak256_10b_10k, keccak256_base, &[keccak256_byte]);
+        self.extract(keccak256_10kib_10k, keccak256_byte, &[]);
+
+        self.extract(keccak512_10b_10k, keccak512_base, &[keccak512_byte]);
+        self.extract(keccak512_10kib_10k, keccak512_byte, &[]);
+
         // TODO: Redo storage costs once we have counting of nodes and we have size peek.
         self.extract(
             storage_write_10b_key_10b_value_1k,
@@ -130,40 +136,6 @@ impl ExtCostsGenerator {
             &[storage_has_key_byte],
         );
         self.extract(storage_has_key_10kib_key_10b_value_1k, storage_has_key_byte, &[]);
-
-        self.extract(
-            storage_iter_prefix_10b_1k,
-            storage_iter_create_prefix_base,
-            &[storage_iter_create_prefix_byte],
-        );
-        self.extract(storage_iter_prefix_10kib_1k, storage_iter_create_prefix_byte, &[]);
-        self.extract(
-            storage_iter_range_10b_from_10b_to_1k,
-            storage_iter_create_range_base,
-            &[storage_iter_create_from_byte, storage_iter_create_to_byte],
-        );
-        self.extract(
-            storage_iter_range_10kib_from_10b_to_1k,
-            storage_iter_create_from_byte,
-            &[storage_iter_create_to_byte],
-        );
-        self.extract(storage_iter_range_10b_from_10kib_to_1k, storage_iter_create_to_byte, &[]);
-
-        self.extract(
-            storage_next_10b_from_10b_to_1k_10b_key_10b_value,
-            storage_iter_next_base,
-            &[storage_iter_next_key_byte, storage_iter_next_value_byte],
-        );
-        self.extract(
-            storage_next_10kib_from_10b_to_1k_10b_key_10b_value,
-            storage_iter_next_key_byte,
-            &[storage_iter_next_value_byte],
-        );
-        self.extract(
-            storage_next_10b_from_10kib_to_1k_10b_key_10b_value,
-            storage_iter_next_value_byte,
-            &[],
-        );
 
         self.extract(promise_and_100k, promise_and_base, &[promise_and_per_promise]);
         self.extract(promise_and_100k_on_1k_and, promise_and_per_promise, &[]);

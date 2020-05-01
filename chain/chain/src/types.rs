@@ -7,7 +7,6 @@ use serde::Serialize;
 
 use near_crypto::Signature;
 use near_pool::types::PoolIterator;
-use near_primitives::block::{Approval, BlockScore, ScoreAndHeight};
 pub use near_primitives::block::{Block, BlockHeader};
 use near_primitives::challenge::{ChallengesResult, SlashedValidator};
 use near_primitives::errors::InvalidTxError;
@@ -17,8 +16,8 @@ use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{ReceiptProof, ShardChunk, ShardChunkHeader};
 use near_primitives::transaction::{ExecutionOutcomeWithId, SignedTransaction};
 use near_primitives::types::{
-    AccountId, Balance, BlockHeight, EpochId, Gas, MerkleHash, ShardId, StateRoot, StateRootNode,
-    ValidatorStake, ValidatorStats,
+    AccountId, ApprovalStake, Balance, BlockHeight, EpochId, Gas, MerkleHash, ShardId, StateRoot,
+    StateRootNode, ValidatorStake, ValidatorStats,
 };
 use near_primitives::views::{EpochValidatorInfo, QueryRequest, QueryResponse};
 use near_store::{PartialStorage, Store, StoreUpdate, Trie, WrappedTrieChanges};
@@ -134,8 +133,6 @@ pub trait RuntimeAdapter: Send + Sync {
     /// `RuntimeError::StorageError`.
     fn validate_tx(
         &self,
-        block_height: BlockHeight,
-        block_timestamp: u64,
         gas_price: Balance,
         state_root: StateRoot,
         transaction: &SignedTransaction,
@@ -150,8 +147,6 @@ pub trait RuntimeAdapter: Send + Sync {
     /// `RuntimeError::StorageError`.
     fn prepare_transactions(
         &self,
-        block_height: BlockHeight,
-        block_timestamp: u64,
         gas_price: Balance,
         gas_limit: Gas,
         state_root: StateRoot,
@@ -188,11 +183,12 @@ pub trait RuntimeAdapter: Send + Sync {
     fn verify_chunk_header_signature(&self, header: &ShardChunkHeader) -> Result<bool, Error>;
 
     /// Verify aggregated bls signature
-    fn verify_approval_signature(
+    fn verify_approval(
         &self,
-        epoch_id: &EpochId,
         prev_block_hash: &CryptoHash,
-        approvals: &[Approval],
+        prev_block_height: BlockHeight,
+        block_height: BlockHeight,
+        approvals: &[Option<Signature>],
     ) -> Result<bool, Error>;
 
     /// Epoch block producers ordered by their order in the proposals.
@@ -202,6 +198,11 @@ pub trait RuntimeAdapter: Send + Sync {
         epoch_id: &EpochId,
         last_known_block_hash: &CryptoHash,
     ) -> Result<Vec<(ValidatorStake, bool)>, Error>;
+
+    fn get_epoch_block_approvers_ordered(
+        &self,
+        parent_hash: &CryptoHash,
+    ) -> Result<Vec<ApprovalStake>, Error>;
 
     /// Block producers for given height for the main block. Return error if outside of known boundaries.
     fn get_block_producer(
@@ -299,12 +300,6 @@ pub trait RuntimeAdapter: Send + Sync {
 
     /// Get inflation for a certain epoch
     fn get_epoch_inflation(&self, epoch_id: &EpochId) -> Result<Balance, Error>;
-
-    fn push_final_block_back_if_needed(
-        &self,
-        parent_hash: CryptoHash,
-        last_final_hash: CryptoHash,
-    ) -> Result<CryptoHash, Error>;
 
     /// Add proposals for validators.
     fn add_validator_proposals(
@@ -466,7 +461,7 @@ pub struct LatestKnown {
 
 /// The tip of a fork. A handle to the fork ancestry from its leaf in the
 /// blockchain tree. References the max height and the latest and previous
-/// blocks for convenience and the score.
+/// blocks for convenience
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, PartialEq)]
 pub struct Tip {
     /// Height of the tip (max height of the fork)
@@ -475,10 +470,10 @@ pub struct Tip {
     pub last_block_hash: CryptoHash,
     /// Previous block
     pub prev_block_hash: CryptoHash,
-    /// The score on that fork
-    pub score: BlockScore,
-    /// Previous epoch id. Used for getting validator info.
+    /// Current epoch id. Used for getting validator info.
     pub epoch_id: EpochId,
+    /// Next epoch id.
+    pub next_epoch_id: EpochId,
 }
 
 impl Tip {
@@ -488,13 +483,9 @@ impl Tip {
             height: header.inner_lite.height,
             last_block_hash: header.hash(),
             prev_block_hash: header.prev_hash,
-            score: header.inner_rest.score,
             epoch_id: header.inner_lite.epoch_id.clone(),
+            next_epoch_id: header.inner_lite.next_epoch_id.clone(),
         }
-    }
-
-    pub fn score_and_height(&self) -> ScoreAndHeight {
-        ScoreAndHeight { score: self.score, height: self.height }
     }
 }
 
@@ -531,7 +522,7 @@ mod tests {
     use chrono::Utc;
 
     use near_crypto::KeyType;
-    use near_primitives::block::genesis_chunks;
+    use near_primitives::block::{genesis_chunks, Approval};
     use near_primitives::merkle::verify_path;
     use near_primitives::transaction::{ExecutionOutcome, ExecutionStatus};
     use near_primitives::validator_signer::InMemoryValidatorSigner;
@@ -556,7 +547,7 @@ mod tests {
         let b1 = Block::empty(&genesis, &signer);
         assert!(b1.header.verify_block_producer(&signer.public_key()));
         let other_signer = InMemoryValidatorSigner::from_seed("other2", KeyType::ED25519, "other2");
-        let approvals = vec![Approval::new(b1.hash(), Some(b1.hash()), 2, true, &other_signer)];
+        let approvals = vec![Some(Approval::new(b1.hash(), 1, 2, &other_signer).signature)];
         let b2 = Block::empty_with_approvals(
             &b1,
             2,

@@ -17,17 +17,16 @@ TWENTY_FIVE = 25
 
 config = load_config()
 # give more stake to the bootnode so that it can produce the blocks alone
-near_root, node_dirs = init_cluster(2, 1, 2, config, [["min_gas_price", 0], ["max_inflation_rate", [0, 1]], ["epoch_length", 7], ["block_producer_kickout_threshold", 80], ["validators", 0, "amount", "60000000000000000000000000000000"], ["records", 0, "Account", "account", "locked", "60000000000000000000000000000000"]], {2: {"tracked_shards": [0, 1]}})
+near_root, node_dirs = init_cluster(4, 1, 4, config, [["min_gas_price", 0], ["max_inflation_rate", [0, 1]], ["epoch_length", 7], ["block_producer_kickout_threshold", 40]], {4: {"tracked_shards": [0, 1, 2, 3]}})
 
 started = time.time()
 
 boot_node = spin_up_node(config, near_root, node_dirs[0], 0, None, None)
-#node1 = spin_up_node(config, near_root, node_dirs[1], 1, boot_node.node_key.pk, boot_node.addr())
-observer = spin_up_node(config, near_root, node_dirs[2], 2, boot_node.node_key.pk, boot_node.addr())
+node3 = spin_up_node(config, near_root, node_dirs[2], 2, boot_node.node_key.pk, boot_node.addr())
+node4 = spin_up_node(config, near_root, node_dirs[3], 3, boot_node.node_key.pk, boot_node.addr())
+observer = spin_up_node(config, near_root, node_dirs[4], 4, boot_node.node_key.pk, boot_node.addr())
 
-# It takes a while for test2 account to appear
-ctx = TxContext([0, 0, 0], [boot_node, None, observer])
-print('ha')
+ctx = TxContext([0, 0, 0, 0, 0], [boot_node, None, node3, node4, observer])
 initial_balances = ctx.get_balances()
 total_supply = sum(initial_balances)
 
@@ -62,8 +61,15 @@ while True:
 # 2. Spin up the second node and make sure it gets to 25 as well, and doesn't diverge
 node2 = spin_up_node(config, near_root, node_dirs[1], 1, boot_node.node_key.pk, boot_node.addr())
 
+status = boot_node.get_status()
+new_height = status['sync_info']['latest_block_height']
+seen_boot_heights.add(new_height)
+
 while True:
     assert time.time() - started < TIMEOUT
+
+    status = node2.get_status()
+    node2_height = status['sync_info']['latest_block_height']
 
     status = boot_node.get_status()
     new_height = status['sync_info']['latest_block_height']
@@ -73,10 +79,8 @@ while True:
         largest_height = new_height
         print(new_height)
 
-    status = node2.get_status()
-    new_height = status['sync_info']['latest_block_height']
-    if new_height > TWENTY_FIVE:
-        assert new_height in seen_boot_heights, "%s not in %s" % (new_height, seen_boot_heights)
+    if node2_height > TWENTY_FIVE:
+        assert node2_height in seen_boot_heights, "%s not in %s" % (node2_height, seen_boot_heights)
         break
 
     time.sleep(0.1)
@@ -106,17 +110,17 @@ print(get_validators())
 
 # The stake for node2 must be higher than that of boot_node, so that it can produce blocks
 # after the boot_node is brought down
-tx = sign_staking_tx(node2.signer_key, node2.validator_key, 70000000000000000000000000000000, 20, base58.b58decode(hash_.encode('utf8')))
+tx = sign_staking_tx(node2.signer_key, node2.validator_key, 50000000000000000000000000000000, 20, base58.b58decode(hash_.encode('utf8')))
 boot_node.send_tx(tx)
 
-assert(get_validators() == set(["test0"]))
+assert(get_validators() == set(["test0", "test2", "test3"])), get_validators()
 
 while True:
     if time.time() - started > TIMEOUT:
         print(get_validators())
         assert False
 
-    if get_validators() == set(["test0", "test1"]):
+    if get_validators() == set(["test0", "test1", "test2", "test3"]):
         break
 
     time.sleep(1)
@@ -127,8 +131,8 @@ ctx.next_nonce = 100
 status = node2.get_status()
 last_height = status['sync_info']['latest_block_height']
 
-ctx.nodes = [boot_node, node2, observer]
-ctx.act_to_val = [1, 1, 1]
+ctx.nodes = [boot_node, node2, node3, node4, observer]
+ctx.act_to_val = [1, 1, 1, 1, 1]
 
 boot_node.kill()
 seen_boot_heights = set()

@@ -5,11 +5,11 @@ use near_vm_logic::types::ReturnData;
 use near_vm_logic::{External, HostError, VMConfig, VMContext};
 use near_vm_runner::{run, VMError};
 
-mod utils;
+pub mod test_utils;
 
 fn create_context(input: &[u8]) -> VMContext {
     let input = input.to_vec();
-    crate::utils::create_context(input)
+    test_utils::create_context(input)
 }
 
 const TEST_CONTRACT: &'static [u8] = include_bytes!("../tests/res/test_contract_ts.wasm");

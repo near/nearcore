@@ -5,7 +5,7 @@ authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2018"
 
 [dependencies]
-serde = { version = "1.0", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
 
 near-primitives = { path = "../primitives" }
 near-runtime-fees = { path = "../../runtime/near-runtime-fees" }

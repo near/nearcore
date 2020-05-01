@@ -3,13 +3,13 @@ use std::time::Duration;
 
 use actix::{Actor, System};
 use futures::{future, FutureExt};
-use tempdir::TempDir;
 
 use near_chain_configs::Genesis;
 use near_client::GetBlock;
+use near_logger_utils::init_integration_logger;
 use near_network::test_utils::{convert_boot_nodes, open_port, WaitOrTimeout};
-use near_primitives::test_utils::{heavy_test, init_integration_logger};
 use neard::{config::GenesisExt, load_test_config, start_with_config};
+use testlib::test_helpers::heavy_test;
 
 /// One client is in front, another must sync to it using state (fast) sync.
 #[test]
@@ -25,7 +25,7 @@ fn sync_state_nodes() {
         near1.client_config.min_num_peers = 0;
         let system = System::new("NEAR");
 
-        let dir1 = TempDir::new("sync_nodes_1").unwrap();
+        let dir1 = tempfile::Builder::new().prefix("sync_nodes_1").tempdir().unwrap();
         let (_, view_client1) = start_with_config(dir1.path(), near1);
 
         let view_client2_holder = Arc::new(RwLock::new(None));
@@ -50,7 +50,10 @@ fn sync_state_nodes() {
                                     near2.network_config.boot_nodes =
                                         convert_boot_nodes(vec![("test1", port1)]);
 
-                                    let dir2 = TempDir::new("sync_nodes_2").unwrap();
+                                    let dir2 = tempfile::Builder::new()
+                                        .prefix("sync_nodes_2")
+                                        .tempdir()
+                                        .unwrap();
                                     let (_, view_client2) = start_with_config(dir2.path(), near2);
                                     *view_client2_holder2 = Some(view_client2);
                                 }
@@ -132,13 +135,13 @@ fn sync_state_nodes_multishard() {
         near4.client_config.max_block_production_delay =
             near1.client_config.max_block_production_delay;
 
-        let dir1 = TempDir::new("sync_nodes_1").unwrap();
+        let dir1 = tempfile::Builder::new().prefix("sync_nodes_1").tempdir().unwrap();
         let (_, view_client1) = start_with_config(dir1.path(), near1);
 
-        let dir3 = TempDir::new("sync_nodes_3").unwrap();
+        let dir3 = tempfile::Builder::new().prefix("sync_nodes_3").tempdir().unwrap();
         let (_, _) = start_with_config(dir3.path(), near3);
 
-        let dir4 = TempDir::new("sync_nodes_4").unwrap();
+        let dir4 = tempfile::Builder::new().prefix("sync_nodes_4").tempdir().unwrap();
         let (_, _) = start_with_config(dir4.path(), near4);
 
         let view_client2_holder = Arc::new(RwLock::new(None));
@@ -170,7 +173,10 @@ fn sync_state_nodes_multishard() {
                                         ("test4", port4),
                                     ]);
 
-                                    let dir2 = TempDir::new("sync_nodes_2").unwrap();
+                                    let dir2 = tempfile::Builder::new()
+                                        .prefix("sync_nodes_2")
+                                        .tempdir()
+                                        .unwrap();
                                     let (_, view_client2) = start_with_config(dir2.path(), near2);
                                     *view_client2_holder2 = Some(view_client2);
                                 }
@@ -240,9 +246,9 @@ fn sync_empty_state() {
         near1.client_config.min_block_production_delay = Duration::from_millis(200);
         near1.client_config.max_block_production_delay = Duration::from_millis(400);
 
-        let dir1 = TempDir::new("sync_nodes_1").unwrap();
+        let dir1 = tempfile::Builder::new().prefix("sync_nodes_1").tempdir().unwrap();
         let (_, view_client1) = start_with_config(dir1.path(), near1);
-        let dir2 = Arc::new(TempDir::new("sync_nodes_2").unwrap());
+        let dir2 = Arc::new(tempfile::Builder::new().prefix("sync_nodes_2").tempdir().unwrap());
 
         let view_client2_holder = Arc::new(RwLock::new(None));
 
