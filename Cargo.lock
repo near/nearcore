@@ -2183,6 +2183,7 @@ version = "0.1.0"
 dependencies = [
  "near-chain 0.1.0",
  "near-crypto 0.1.0",
+ "near-pool 0.1.0",
  "near-primitives 0.1.0",
  "near-runtime-configs 0.1.0",
  "near-store 0.1.0",

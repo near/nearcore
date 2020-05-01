@@ -1,26 +1,32 @@
-use near_chain::types::ApplyTransactionResult;
+use near_pool::{types::PoolIterator, TransactionPool};
 use near_primitives::{
     errors::RuntimeError,
     hash::CryptoHash,
     receipt::Receipt,
-    transaction::SignedTransaction,
-    types::{Balance, BlockHeight, Gas, StateChangeCause},
+    state_record::StateRecord,
+    transaction::{ExecutionOutcome, SignedTransaction},
+    types::{Balance, BlockHeight, Gas},
 };
 use near_runtime_configs::RuntimeConfig;
-use near_store::{Store, Trie, TrieUpdate, WrappedTrieChanges};
-use node_runtime::{verify_and_charge_transaction, ApplyState, Runtime};
+use near_store::{Store, Trie, TrieUpdate};
+use node_runtime::{ApplyState, Runtime};
+
 use std::collections::HashMap;
 use std::sync::Arc;
 
-struct GenesisConfig {
+#[derive(Debug, Default)]
+pub struct GenesisConfig {
     pub genesis_time: u64,
     pub gas_price: Balance,
     pub gas_limit: Gas,
     pub runtime_config: RuntimeConfig,
+    pub state_records: Vec<StateRecord>,
 }
+
+#[derive(Debug, Default, Clone)]
 struct Block {
     prev_block: Option<Box<Block>>,
-    state_root: CryptoHash,
+    pub state_root: CryptoHash,
     transactions: Vec<SignedTransaction>,
     receipts: Vec<Receipt>,
     block_height: BlockHeight,
@@ -31,7 +37,7 @@ struct Block {
 }
 
 impl Block {
-    pub fn genesis(genesis_config: GenesisConfig) -> Self {
+    pub fn genesis(genesis_config: &GenesisConfig) -> Self {
         Self {
             prev_block: None,
             state_root: CryptoHash::default(),
@@ -45,127 +51,144 @@ impl Block {
         }
     }
 
-    pub fn process(&mut self, runtime: &RuntimeStandalone) -> Result<Block, RuntimeError> {
-        let apply_state = ApplyState {
-            block_index: self.block_height,
-            epoch_length: 0, // TODO: support for epochs
-            epoch_height: self.block_height,
+    pub fn produce(&self, new_state_root: CryptoHash) -> Block {
+        Self {
             gas_price: self.gas_price,
-            block_timestamp: self.block_timestamp,
-            gas_limit: Some(self.gas_limit),
-        };
-
-        let apply_result = runtime.runtime().apply(
-            runtime.trie(),
-            self.state_root,
-            &None,
-            &apply_state,
-            &self.receipts,
-            &self.transactions,
-        )?;
-
-        let total_gas_burnt =
-            apply_result.outcomes.iter().map(|tx_result| tx_result.outcome.gas_burnt).sum();
-
-        let result = ApplyTransactionResult {
-            trie_changes: WrappedTrieChanges::new(
-                runtime.trie(),
-                apply_result.trie_changes,
-                apply_result.state_changes,
-                Default::default(),
-            ),
-            new_root: apply_result.state_root,
-            outcomes: apply_result.outcomes,
-            receipt_result: HashMap::new(), // no shard support
-            validator_proposals: apply_result.validator_proposals,
-            total_gas_burnt,
-            total_validator_reward: apply_result.stats.total_validator_reward,
-            total_balance_burnt: apply_result.stats.total_balance_burnt
-                + apply_result.stats.total_balance_slashed,
-            proof: None,
-        };
-        Ok(Block {})
-    }
-
-    pub fn add_tx(
-        &mut self,
-        runtime: &RuntimeStandalone,
-        tx: SignedTransaction,
-    ) -> Result<(), RuntimeError> {
-        let mut state_update = TrieUpdate::new(runtime.trie(), self.state_root);
-        let transactions_gas_limit = self.gas_limit / 2;
-
-        match verify_and_charge_transaction(
-            &runtime.runtime_config(),
-            &mut state_update,
-            self.gas_price,
-            &tx,
-        ) {
-            Ok(verification_result) => {
-                state_update.commit(StateChangeCause::NotWritableToDisk);
-                self.transactions.push(tx);
-                self.gas_burnt += verification_result.gas_burnt;
-                Ok(())
-            }
-            Err(RuntimeError::InvalidTxError(err)) => {
-                state_update.rollback();
-                Err(RuntimeError::InvalidTxError(err))
-            }
-            Err(RuntimeError::StorageError(err)) => {
-                panic!("Storage error: {:?}", err);
-            }
-            Err(err) => unreachable!("Unexpected RuntimeError error {:?}", err),
+            gas_limit: self.gas_limit,
+            block_timestamp: self.block_timestamp + 1,
+            prev_block: Some(Box::new(self.clone())),
+            state_root: new_state_root,
+            transactions: vec![],
+            receipts: vec![],
+            block_height: 1,
+            gas_burnt: 0,
         }
     }
 }
 
-struct RuntimeStandalone {
-    genesis: GenesisConfig,
-    // TODO: use the actual TransactionPool impl
-    tx_pool: Vec<SignedTransaction>,
-    cur_block: Arc<Block>,
+pub struct RuntimeStandalone {
+    tx_pool: TransactionPool,
+    transactions: HashMap<CryptoHash, SignedTransaction>,
+    outcomes: HashMap<CryptoHash, ExecutionOutcome>,
+    cur_block: Block,
     runtime: Runtime,
     trie: Arc<Trie>,
-    tx_db: HashMap<CryptoHash, SignedTransaction>,
+    receipts_pool: Vec<Receipt>,
 }
 
 impl RuntimeStandalone {
-    fn new(genesis: GenesisConfig, store: Arc<Store>) -> Self {
-        let genesis_block = Block::genesis(genesis);
+    pub fn new(genesis: GenesisConfig, store: Arc<Store>) -> Self {
+        let mut genesis_block = Block::genesis(&genesis);
+        let mut store_update = store.store_update();
+        let runtime = Runtime::new(genesis.runtime_config.clone());
+        let trie = Arc::new(Trie::new(store));
+        let trie_update = TrieUpdate::new(trie.clone(), CryptoHash::default());
+        let (s_update, state_root) =
+            runtime.apply_genesis_state(trie_update, &[], &genesis.state_records);
+        store_update.merge(s_update);
+        store_update.commit().unwrap();
+        genesis_block.state_root = state_root;
         Self {
-            trie: Arc::new(Trie::new(store)),
-            runtime: Runtime::new(genesis.runtime_config.clone()),
-            genesis,
+            trie,
+            runtime,
+            transactions: HashMap::new(),
+            outcomes: HashMap::new(),
             cur_block: genesis_block,
-            blocks: vec![genesis_block],
-            tx_pool: vec![],
+            tx_pool: TransactionPool::new(),
+            receipts_pool: vec![],
         }
     }
 
-    pub fn send_tx(&self, tx: SignedTransaction) {
-        self.tx_pool.push(tx);
-        self.tx_db.insert
+    pub fn run_tx(&mut self, mut tx: SignedTransaction) -> Result<ExecutionOutcome, RuntimeError> {
+        tx.init();
+        let tx_hash = tx.get_hash();
+        self.transactions.insert(tx_hash, tx.clone());
+        self.tx_pool.insert_transaction(tx);
+        self.process()?;
+        Ok(self
+            .outcomes
+            .get(&tx_hash)
+            .expect("successful self.process() guaranies to have outcome for a tx")
+            .clone())
     }
 
-    pub fn runtime_config(&self) -> RuntimeConfig {
-        self.genesis.runtime_config
+    pub fn process(&mut self) -> Result<(), RuntimeError> {
+        let apply_state = ApplyState {
+            block_index: self.cur_block.block_height,
+            epoch_length: 0, // TODO: support for epochs
+            epoch_height: self.cur_block.block_height,
+            gas_price: self.cur_block.gas_price,
+            block_timestamp: self.cur_block.block_timestamp,
+            gas_limit: Some(self.cur_block.gas_limit),
+        };
+
+        let apply_result = self.runtime.apply(
+            self.trie.clone(),
+            self.cur_block.state_root,
+            &None,
+            &apply_state,
+            &self.receipts_pool,
+            &Self::prepare_transactions(&mut self.tx_pool),
+        )?;
+        self.receipts_pool = vec![];
+        self.outcomes = apply_result
+            .outcomes
+            .iter()
+            .map(|outcome| (outcome.id, outcome.outcome.clone()))
+            .collect();
+
+        self.cur_block = self.cur_block.produce(apply_result.state_root);
+
+        Ok(())
     }
 
-    pub fn runtime(&self) -> &Runtime {
-        &self.runtime
+    fn prepare_transactions(tx_pool: &mut TransactionPool) -> Vec<SignedTransaction> {
+        let mut res = vec![];
+        let mut pool_iter = tx_pool.pool_iterator();
+        loop {
+            if let Some(iter) = pool_iter.next() {
+                if let Some(tx) = iter.next() {
+                    res.push(tx);
+                }
+            } else {
+                break;
+            }
+        }
+        res
     }
+}
 
-    pub fn trie(&self) -> Arc<Trie> {
-        self.trie.clone()
-    }
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use near_crypto::{InMemorySigner, KeyType, Signer};
+    use near_primitives::{account::AccessKey, test_utils::account_new};
+    use near_store::test_utils::create_test_store;
+    #[test]
+    fn should_work() {
+        let mut genesis = GenesisConfig::default();
+        let root_account = account_new(164438000000000000001000, CryptoHash::default());
+        let signer = InMemorySigner::from_seed("bob".into(), KeyType::ED25519, "test");
 
-    fn charge() {}
+        genesis
+            .state_records
+            .push(StateRecord::Account { account_id: "bob".into(), account: root_account });
+        genesis.state_records.push(StateRecord::AccessKey {
+            account_id: "bob".into(),
+            public_key: signer.public_key(),
+            access_key: AccessKey::full_access(),
+        });
 
-    fn create_block(&mut self) {
-        // self.blocks.
-    }
-
-    fn add_tx(&mut self, tx: SignedTransaction) {
-        self.tx_pool.push(tx);
+        let mut runtime = RuntimeStandalone::new(genesis, create_test_store());
+        let outcome = runtime.run_tx(SignedTransaction::create_account(
+            1,
+            "bob".into(),
+            "alice".into(),
+            100,
+            signer.public_key(),
+            &signer,
+            CryptoHash::default(),
+        ));
+        println!("{:?}", outcome);
     }
 }

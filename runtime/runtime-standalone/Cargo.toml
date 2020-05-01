@@ -6,6 +6,7 @@ edition = "2018"
 
 
 [dependencies]
+near-pool = { path = "../../chain/pool" }
 near-runtime-configs = { path = "../../core/runtime-configs" }
 near-chain = { path = "../../chain/chain" }
 near-store = { path = "../../core/store" }
