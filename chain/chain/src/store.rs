@@ -1739,15 +1739,6 @@ impl<'a> ChainStoreUpdate<'a> {
         mut block_hash: CryptoHash,
         gc_mode: GCMode,
     ) -> Result<(), Error> {
-        let header = self
-            .get_block_header(&block_hash)
-            .expect("block data is not expected to be already cleaned")
-            .clone();
-        if header.inner_lite.height == self.get_genesis_height() {
-            // Don't clean Genesis
-            return Ok(());
-        }
-
         let mut store_update = self.store().store_update();
 
         // 1. Apply revert insertions or deletions from ColTrieChanges for Trie
@@ -1791,6 +1782,7 @@ impl<'a> ChainStoreUpdate<'a> {
                 // Broken GC prerequisites found
                 assert!(false);
             }
+            // Don't clean Genesis Block
             return Ok(());
         }
 
