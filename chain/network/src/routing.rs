@@ -322,50 +322,34 @@ impl RoutingTable {
     /// from `source` to `peer_id`.
     pub fn find_route_from_peer_id(&mut self, peer_id: &PeerId) -> Result<PeerId, FindRouteError> {
         if let Some(routes) = self.peer_forwarding.get(&peer_id).cloned() {
+            if routes.is_empty() {
+                return Err(FindRouteError::Disconnected);
+            }
+
             // Strategy similar to Round Robin. Select node with least nonce and send it. Increase its
             // nonce by one. Additionally if the difference between the highest nonce and the lowest
             // nonce is greater than some threshold increase the lowest nonce to be at least
             // max nonce - threshold.
+            let nonce_peer = routes
+                .iter()
+                .map(|peer_id| {
+                    (self.route_nonce.cache_get(&peer_id).cloned().unwrap_or(0), peer_id)
+                })
+                .collect::<Vec<_>>();
 
-            // Find node with min nonce and node with max nonce.
-            // If there are no routes both min_v and max_v will be None.
-            // If there is only one route max_v will be None.
-            let (min_v, max_v) =
-                routes.iter().fold((None, None), |(mut min_v, mut max_v), peer_id| {
-                    let nonce = self.route_nonce.cache_get(&peer_id).cloned().unwrap_or(0usize);
-                    let mut current = Some((nonce, peer_id.clone()));
+            // Neighbor with minimum and maximum nonce respectively.
+            let min_v = nonce_peer.iter().min().cloned().unwrap();
+            let max_v = nonce_peer.into_iter().max().unwrap();
 
-                    if min_v.is_none() || *current.as_ref().unwrap() < *min_v.as_ref().unwrap() {
-                        std::mem::swap(&mut min_v, &mut current);
-                    }
+            if min_v.0 + ROUND_ROBIN_MAX_NONCE_DIFFERENCE_ALLOWED < max_v.0 {
+                self.route_nonce
+                    .cache_set(min_v.1.clone(), max_v.0 - ROUND_ROBIN_MAX_NONCE_DIFFERENCE_ALLOWED);
+            }
 
-                    if max_v.is_none() || (current.is_some() && max_v < current) {
-                        std::mem::swap(&mut max_v, &mut current);
-                    }
-
-                    (min_v, max_v)
-                });
-
-            let next_hop = match (min_v, max_v) {
-                (None, _) => {
-                    return Err(FindRouteError::Disconnected);
-                }
-                (Some(min_v), None) => min_v.1,
-                (Some(min_v), Some(max_v)) => {
-                    if min_v.0 + ROUND_ROBIN_MAX_NONCE_DIFFERENCE_ALLOWED < max_v.0 {
-                        self.route_nonce.cache_set(
-                            min_v.1.clone(),
-                            max_v.0 - ROUND_ROBIN_MAX_NONCE_DIFFERENCE_ALLOWED,
-                        );
-                    }
-                    min_v.1
-                }
-            };
-
+            let next_hop = min_v.1;
             let nonce = self.route_nonce.cache_get(&next_hop).cloned();
             self.route_nonce.cache_set(next_hop.clone(), nonce.map_or(1, |nonce| nonce + 1));
-
-            Ok(next_hop)
+            Ok(next_hop.clone())
         } else {
             Err(FindRouteError::PeerNotFound)
         }
