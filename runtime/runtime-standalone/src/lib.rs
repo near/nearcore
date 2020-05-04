@@ -4,7 +4,7 @@ use near_primitives::{
     hash::CryptoHash,
     receipt::Receipt,
     state_record::StateRecord,
-    transaction::{ExecutionOutcome, SignedTransaction},
+    transaction::{ExecutionOutcome, ExecutionStatus, SignedTransaction},
     types::{Balance, BlockHeight, Gas},
 };
 use near_runtime_configs::RuntimeConfig;
@@ -73,7 +73,7 @@ pub struct RuntimeStandalone {
     cur_block: Block,
     runtime: Runtime,
     trie: Arc<Trie>,
-    receipts_pool: Vec<Receipt>,
+    pending_receipts: Vec<Receipt>,
 }
 
 impl RuntimeStandalone {
@@ -95,7 +95,7 @@ impl RuntimeStandalone {
             outcomes: HashMap::new(),
             cur_block: genesis_block,
             tx_pool: TransactionPool::new(),
-            receipts_pool: vec![],
+            pending_receipts: vec![],
         }
     }
 
@@ -104,7 +104,7 @@ impl RuntimeStandalone {
         let tx_hash = tx.get_hash();
         self.transactions.insert(tx_hash, tx.clone());
         self.tx_pool.insert_transaction(tx);
-        self.process()?;
+        self.process_block()?;
         Ok(self
             .outcomes
             .get(&tx_hash)
@@ -112,14 +112,46 @@ impl RuntimeStandalone {
             .clone())
     }
 
-    pub fn process(&mut self) -> Result<(), RuntimeError> {
+    /// Processes blocks until the final value is produced
+    pub fn resolve_tx(
+        &mut self,
+        mut tx: SignedTransaction,
+    ) -> Result<ExecutionOutcome, RuntimeError> {
+        tx.init();
+        let mut tx_hash = tx.get_hash();
+        self.transactions.insert(tx_hash, tx.clone());
+        self.tx_pool.insert_transaction(tx);
+        loop {
+            self.process_block()?;
+            let outcome = self.outcomes.get(&tx_hash).unwrap();
+            match outcome.status {
+                ExecutionStatus::SuccessReceiptId(ref id) => tx_hash = *id,
+                ExecutionStatus::SuccessValue(_)
+                | ExecutionStatus::Failure(_)
+                | ExecutionStatus::Unknown => return Ok(outcome.clone()),
+            };
+        }
+    }
+
+    /// Processes all transactions and pending receipts until there is no pending_receipts left
+    pub fn run_all(&mut self) -> Result<(), RuntimeError> {
+        loop {
+            self.process_block()?;
+            if self.pending_receipts.len() == 0 {
+                return Ok(());
+            }
+        }
+    }
+
+    /// Processes one block. Populates outcomes and producining new pending_receipts.
+    pub fn process_block(&mut self) -> Result<(), RuntimeError> {
         let apply_state = ApplyState {
             block_index: self.cur_block.block_height,
             epoch_length: 0, // TODO: support for epochs
             epoch_height: self.cur_block.block_height,
             gas_price: self.cur_block.gas_price,
             block_timestamp: self.cur_block.block_timestamp,
-            gas_limit: Some(self.cur_block.gas_limit),
+            gas_limit: None,
         };
 
         let apply_result = self.runtime.apply(
@@ -127,19 +159,23 @@ impl RuntimeStandalone {
             self.cur_block.state_root,
             &None,
             &apply_state,
-            &self.receipts_pool,
+            &self.pending_receipts,
             &Self::prepare_transactions(&mut self.tx_pool),
         )?;
-        self.receipts_pool = vec![];
-        self.outcomes = apply_result
-            .outcomes
-            .iter()
-            .map(|outcome| (outcome.id, outcome.outcome.clone()))
-            .collect();
-
+        self.pending_receipts = apply_result.outgoing_receipts;
+        apply_result.outcomes.iter().for_each(|outcome| {
+            self.outcomes.insert(outcome.id, outcome.outcome.clone());
+        });
+        let (update, _) =
+            apply_result.trie_changes.into(self.trie.clone()).expect("Unexpected Storage error");
+        update.commit().expect("Unexpected io error");
         self.cur_block = self.cur_block.produce(apply_result.state_root);
 
         Ok(())
+    }
+
+    pub fn pending_receipts(&self) -> &[Receipt] {
+        &self.pending_receipts
     }
 
     fn prepare_transactions(tx_pool: &mut TransactionPool) -> Vec<SignedTransaction> {
@@ -164,31 +200,116 @@ mod tests {
     use near_crypto::{InMemorySigner, KeyType, Signer};
     use near_primitives::{account::AccessKey, test_utils::account_new};
     use near_store::test_utils::create_test_store;
-    #[test]
-    fn should_work() {
-        let mut genesis = GenesisConfig::default();
-        let root_account = account_new(164438000000000000001000, CryptoHash::default());
-        let signer = InMemorySigner::from_seed("bob".into(), KeyType::ED25519, "test");
 
-        genesis
-            .state_records
-            .push(StateRecord::Account { account_id: "bob".into(), account: root_account });
+    // Inits runtime with
+    fn init_runtime(signer: &InMemorySigner) -> RuntimeStandalone {
+        let mut genesis = GenesisConfig::default();
+        let root_account = account_new(std::u128::MAX, CryptoHash::default());
+
+        genesis.state_records.push(StateRecord::Account {
+            account_id: signer.account_id.clone(),
+            account: root_account,
+        });
         genesis.state_records.push(StateRecord::AccessKey {
-            account_id: "bob".into(),
+            account_id: signer.account_id.clone(),
             public_key: signer.public_key(),
             access_key: AccessKey::full_access(),
         });
 
-        let mut runtime = RuntimeStandalone::new(genesis, create_test_store());
+        RuntimeStandalone::new(genesis, create_test_store())
+    }
+
+    #[test]
+    fn single_block() {
+        let signer = InMemorySigner::from_seed("bob".into(), KeyType::ED25519, "test");
+
+        let mut runtime = init_runtime(&signer);
         let outcome = runtime.run_tx(SignedTransaction::create_account(
             1,
-            "bob".into(),
+            signer.account_id.clone(),
             "alice".into(),
             100,
             signer.public_key(),
             &signer,
             CryptoHash::default(),
         ));
-        println!("{:?}", outcome);
+        assert!(matches!(
+            outcome,
+            Ok(ExecutionOutcome { status: ExecutionStatus::SuccessReceiptId(_), .. })
+        ));
+    }
+
+    #[test]
+    fn run_all() {
+        let signer = InMemorySigner::from_seed("bob".into(), KeyType::ED25519, "test");
+        let mut runtime = init_runtime(&signer);
+        let outcome = runtime.resolve_tx(SignedTransaction::create_account(
+            1,
+            signer.account_id.clone(),
+            "alice".into(),
+            165437999999999999999000,
+            signer.public_key(),
+            &signer,
+            CryptoHash::default(),
+        ));
+        assert!(matches!(
+            outcome,
+            Ok(ExecutionOutcome { status: ExecutionStatus::SuccessValue(_), .. })
+        ));
+    }
+
+    #[test]
+    fn test_cross_contract_call() {
+        let signer = InMemorySigner::from_seed("bob".into(), KeyType::ED25519, "test");
+        let mut runtime = init_runtime(&signer);
+
+        assert!(matches!(
+            runtime.resolve_tx(SignedTransaction::create_contract(
+                1,
+                signer.account_id.clone(),
+                "status".into(),
+                include_bytes!("../contracts/status-message/res/status_message.wasm")
+                    .as_ref()
+                    .into(),
+                23082408900000000000001000,
+                signer.public_key(),
+                &signer,
+                CryptoHash::default(),
+            )),
+            Ok(ExecutionOutcome { status: ExecutionStatus::SuccessValue(_), .. })
+        ));
+
+        assert!(matches!(
+            runtime.resolve_tx(SignedTransaction::create_contract(
+                2,
+                signer.account_id.clone(),
+                "caller".into(),
+                include_bytes!(
+                    "../contracts/cross-contract-high-level/res/cross_contract_high_level.wasm"
+                )
+                .as_ref()
+                .into(),
+                23082408900000000000001000,
+                signer.public_key(),
+                &signer,
+                CryptoHash::default(),
+            )),
+            Ok(ExecutionOutcome { status: ExecutionStatus::SuccessValue(_), .. })
+        ));
+
+        assert!(matches!(
+            runtime.resolve_tx(SignedTransaction::call(
+                3,
+                signer.account_id.clone(),
+                "caller".into(),
+                &signer,
+                0,
+                "simple_call".into(),
+                "{\"account_id\": \"status\", \"message\": \"forwarded msg\"}".as_bytes().to_vec(),
+                10000000000000000,
+                CryptoHash::default(),
+            )),
+            Ok(ExecutionOutcome { status: ExecutionStatus::SuccessValue(_), .. })
+        ));
     }
 }
