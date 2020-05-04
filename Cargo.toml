@@ -39,6 +39,9 @@ members = [
     "tools/restaked"
 ]
 
+[dependencies]
+actix-rt = "=1.1.1"
+
 [dev-dependencies]
 actix = "0.9"
 lazy_static = "1.4"
