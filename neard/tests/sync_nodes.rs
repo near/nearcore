@@ -4,23 +4,22 @@ use std::time::Duration;
 
 use actix::{Actor, Addr, System};
 use futures::{future, FutureExt};
-use tempdir::TempDir;
+use num_rational::Rational;
 
 use near_chain::{Block, Chain};
 use near_chain_configs::Genesis;
 use near_client::{ClientActor, GetBlock};
 use near_crypto::{InMemorySigner, KeyType};
+use near_logger_utils::init_integration_logger;
 use near_network::test_utils::{convert_boot_nodes, open_port, WaitOrTimeout};
 use near_network::{NetworkClientMessages, PeerInfo};
 use near_primitives::block::Approval;
-use near_primitives::hash::CryptoHash;
-use near_primitives::test_utils::{heavy_test, init_integration_logger};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{BlockHeightDelta, EpochId, ValidatorStake};
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
 use neard::config::{GenesisExt, TESTING_INIT_STAKE};
 use neard::{load_test_config, start_with_config};
-use testlib::genesis_block;
+use testlib::{genesis_block, test_helpers::heavy_test};
 
 // This assumes that there is no height skipped. Otherwise epoch hash calculation will be wrong.
 fn add_blocks(
@@ -48,23 +47,21 @@ fn add_blocks(
             blocks[0].chunks.clone(),
             epoch_id,
             next_epoch_id,
-            vec![Approval::new(
-                prev.hash(),
-                None,
-                prev.header.inner_lite.height + 1,
-                false,
-                signer,
+            vec![Some(
+                Approval::new(
+                    prev.hash(),
+                    prev.header.inner_lite.height,
+                    prev.header.inner_lite.height + 1,
+                    signer,
+                )
+                .signature,
             )],
-            0,
+            Rational::from_integer(0),
             0,
             Some(0),
             vec![],
             vec![],
             signer,
-            0.into(),
-            CryptoHash::default(),
-            CryptoHash::default(),
-            CryptoHash::default(),
             Chain::compute_bp_hash_inner(&vec![ValidatorStake {
                 account_id: "other".to_string(),
                 public_key: signer.public_key(),
@@ -104,13 +101,13 @@ fn sync_nodes() {
 
         let system = System::new("NEAR");
 
-        let dir1 = TempDir::new("sync_nodes_1").unwrap();
+        let dir1 = tempfile::Builder::new().prefix("sync_nodes_1").tempdir().unwrap();
         let (client1, _) = start_with_config(dir1.path(), near1);
 
         let signer = InMemoryValidatorSigner::from_seed("other", KeyType::ED25519, "other");
         let _ = add_blocks(vec![genesis_block], client1, 13, genesis.config.epoch_length, &signer);
 
-        let dir2 = TempDir::new("sync_nodes_2").unwrap();
+        let dir2 = tempfile::Builder::new().prefix("sync_nodes_2").tempdir().unwrap();
         let (_, view_client2) = start_with_config(dir2.path(), near2);
 
         WaitOrTimeout::new(
@@ -154,10 +151,10 @@ fn sync_after_sync_nodes() {
 
         let system = System::new("NEAR");
 
-        let dir1 = TempDir::new("sync_nodes_1").unwrap();
+        let dir1 = tempfile::Builder::new().prefix("sync_nodes_1").tempdir().unwrap();
         let (client1, _) = start_with_config(dir1.path(), near1);
 
-        let dir2 = TempDir::new("sync_nodes_2").unwrap();
+        let dir2 = tempfile::Builder::new().prefix("sync_nodes_2").tempdir().unwrap();
         let (_, view_client2) = start_with_config(dir2.path(), near2);
 
         let signer = InMemoryValidatorSigner::from_seed("other", KeyType::ED25519, "other");
@@ -226,8 +223,8 @@ fn sync_state_stake_change() {
 
         let system = System::new("NEAR");
 
-        let dir1 = TempDir::new("sync_state_stake_change_1").unwrap();
-        let dir2 = TempDir::new("sync_state_stake_change_2").unwrap();
+        let dir1 = tempfile::Builder::new().prefix("sync_state_stake_change_1").tempdir().unwrap();
+        let dir2 = tempfile::Builder::new().prefix("sync_state_stake_change_2").tempdir().unwrap();
         let (client1, view_client1) = start_with_config(dir1.path(), near1.clone());
 
         let genesis_hash = genesis_block(genesis).hash();
@@ -245,6 +242,7 @@ fn sync_state_stake_change() {
                 .send(NetworkClientMessages::Transaction {
                     transaction: unstake_transaction,
                     is_forwarded: false,
+                    check_only: false,
                 })
                 .map(drop),
         );

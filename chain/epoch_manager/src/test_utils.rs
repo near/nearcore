@@ -12,6 +12,8 @@ use near_store::test_utils::create_test_store;
 use crate::types::{EpochConfig, EpochInfo, ValidatorWeight};
 use crate::RewardCalculator;
 use crate::{BlockInfo, EpochManager};
+use near_primitives::challenge::SlashedValidator;
+use num_rational::Rational;
 
 pub const DEFAULT_GAS_PRICE: u128 = 100;
 pub const DEFAULT_TOTAL_SUPPLY: u128 = 1_000_000_000_000;
@@ -109,11 +111,10 @@ pub fn stake(account_id: &str, amount: Balance) -> ValidatorStake {
 /// No-op reward calculator. Will produce no reward
 pub fn default_reward_calculator() -> RewardCalculator {
     RewardCalculator {
-        max_inflation_rate: 0,
+        max_inflation_rate: Rational::from_integer(0),
         num_blocks_per_year: 1,
         epoch_length: 1,
-        validator_reward_percentage: 0,
-        protocol_reward_percentage: 0,
+        protocol_reward_percentage: Rational::from_integer(0),
         protocol_treasury_account: "near".to_string(),
     }
 }
@@ -174,6 +175,34 @@ pub fn setup_default_epoch_manager(
     )
 }
 
+pub fn record_block_with_slashes(
+    epoch_manager: &mut EpochManager,
+    prev_h: CryptoHash,
+    cur_h: CryptoHash,
+    height: BlockHeight,
+    proposals: Vec<ValidatorStake>,
+    slashed: Vec<SlashedValidator>,
+) {
+    epoch_manager
+        .record_block_info(
+            &cur_h,
+            BlockInfo::new(
+                height,
+                height.saturating_sub(2),
+                prev_h,
+                proposals,
+                vec![],
+                slashed,
+                0,
+                DEFAULT_TOTAL_SUPPLY,
+            ),
+            [0; 32],
+        )
+        .unwrap()
+        .commit()
+        .unwrap();
+}
+
 pub fn record_block(
     epoch_manager: &mut EpochManager,
     prev_h: CryptoHash,
@@ -181,13 +210,5 @@ pub fn record_block(
     height: BlockHeight,
     proposals: Vec<ValidatorStake>,
 ) {
-    epoch_manager
-        .record_block_info(
-            &cur_h,
-            BlockInfo::new(height, 0, prev_h, proposals, vec![], vec![], 0, DEFAULT_TOTAL_SUPPLY),
-            [0; 32],
-        )
-        .unwrap()
-        .commit()
-        .unwrap();
+    record_block_with_slashes(epoch_manager, prev_h, cur_h, height, proposals, vec![]);
 }

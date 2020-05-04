@@ -14,13 +14,13 @@ mod tests {
     use near_client::test_utils::setup_mock_all_validators;
     use near_client::{ClientActor, Query, ViewClientActor};
     use near_crypto::{InMemorySigner, KeyType};
+    use near_logger_utils::init_integration_logger;
     use near_network::types::AccountOrPeerIdOrHash;
     use near_network::{NetworkClientMessages, NetworkRequests, NetworkResponses, PeerInfo};
     use near_primitives::hash::hash as hash_func;
     use near_primitives::hash::CryptoHash;
     use near_primitives::receipt::Receipt;
     use near_primitives::sharding::ChunkHash;
-    use near_primitives::test_utils::init_integration_logger;
     use near_primitives::transaction::SignedTransaction;
     use near_primitives::types::{BlockHeight, BlockHeightDelta, BlockIdOrFinality};
     use near_primitives::views::{QueryRequest, QueryResponseKind::ViewAccount};
@@ -69,6 +69,7 @@ mod tests {
                 nonce, from, to, &signer, amount, block_hash,
             ),
             is_forwarded: false,
+            check_only: false,
         });
     }
 

@@ -1,8 +1,9 @@
-use crate::utils::{make_simple_contract_call, wat2wasm_no_validate};
 use near_vm_errors::{CompilationError, FunctionCallError, PrepareError};
 use near_vm_runner::VMError;
 
-mod utils;
+pub mod test_utils;
+
+use self::test_utils::{make_simple_contract_call, wat2wasm_no_validate};
 
 fn initializer_wrong_signature_contract() -> Vec<u8> {
     wat2wasm_no_validate(

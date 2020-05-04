@@ -15,6 +15,11 @@
       "subtypes": [],
       "props": {}
     },
+    "CallIndirectOOB": {
+      "name": "CallIndirectOOB",
+      "subtypes": [],
+      "props": {}
+    },
     "CannotAppendActionToJointPromise": {
       "name": "CannotAppendActionToJointPromise",
       "subtypes": [],
@@ -73,6 +78,7 @@
         "LinkError",
         "MethodResolveError",
         "WasmTrap",
+        "WasmUnknownError",
         "HostError"
       ],
       "props": {}
@@ -133,6 +139,16 @@
         "ContractSizeExceeded",
         "Deprecated"
       ],
+      "props": {}
+    },
+    "IllegalArithmetic": {
+      "name": "IllegalArithmetic",
+      "subtypes": [],
+      "props": {}
+    },
+    "IncorrectCallIndirectSignature": {
+      "name": "IncorrectCallIndirectSignature",
+      "subtypes": [],
       "props": {}
     },
     "Instantiate": {
@@ -232,6 +248,11 @@
       "subtypes": [],
       "props": {}
     },
+    "MemoryOutOfBounds": {
+      "name": "MemoryOutOfBounds",
+      "subtypes": [],
+      "props": {}
+    },
     "MethodEmptyName": {
       "name": "MethodEmptyName",
       "subtypes": [],
@@ -259,6 +280,11 @@
     },
     "MethodUTF8Error": {
       "name": "MethodUTF8Error",
+      "subtypes": [],
+      "props": {}
+    },
+    "MisalignedAtomicAccess": {
+      "name": "MisalignedAtomicAccess",
       "subtypes": [],
       "props": {}
     },
@@ -331,6 +357,11 @@
         "limit": ""
       }
     },
+    "Unreachable": {
+      "name": "Unreachable",
+      "subtypes": [],
+      "props": {}
+    },
     "ValueLengthExceeded": {
       "name": "ValueLengthExceeded",
       "subtypes": [],
@@ -341,10 +372,20 @@
     },
     "WasmTrap": {
       "name": "WasmTrap",
+      "subtypes": [
+        "Unreachable",
+        "IncorrectCallIndirectSignature",
+        "MemoryOutOfBounds",
+        "CallIndirectOOB",
+        "IllegalArithmetic",
+        "MisalignedAtomicAccess"
+      ],
+      "props": {}
+    },
+    "WasmUnknownError": {
+      "name": "WasmUnknownError",
       "subtypes": [],
-      "props": {
-        "msg": ""
-      }
+      "props": {}
     },
     "WasmerCompileError": {
       "name": "WasmerCompileError",

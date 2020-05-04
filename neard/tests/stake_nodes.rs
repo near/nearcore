@@ -4,22 +4,22 @@ use std::sync::Arc;
 
 use actix::{Actor, Addr, System};
 use futures::{future, FutureExt};
+use num_rational::Rational;
 use rand::Rng;
-use tempdir::TempDir;
 
 use near_chain_configs::Genesis;
 use near_client::{ClientActor, GetBlock, Query, Status, ViewClientActor};
 use near_crypto::{InMemorySigner, KeyType};
+use near_logger_utils::init_integration_logger;
 use near_network::test_utils::{convert_boot_nodes, open_port, WaitOrTimeout};
 use near_network::NetworkClientMessages;
 use near_primitives::hash::CryptoHash;
-use near_primitives::test_utils::{heavy_test, init_integration_logger};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockHeightDelta, BlockIdOrFinality, NumSeats};
 use near_primitives::views::{QueryRequest, QueryResponseKind, ValidatorInfo};
 use neard::config::{GenesisExt, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use neard::{load_test_config, start_with_config, NearConfig};
-use testlib::genesis_hash;
+use testlib::{genesis_hash, test_helpers::heavy_test};
 
 #[derive(Clone)]
 struct TestNode {
@@ -48,7 +48,7 @@ fn init_test_staking(
     genesis.config.block_producer_kickout_threshold = 20;
     genesis.config.chunk_producer_kickout_threshold = 20;
     if !enable_rewards {
-        genesis.config.max_inflation_rate = 0;
+        genesis.config.max_inflation_rate = Rational::from_integer(0);
         genesis.config.min_gas_price = 0;
     }
     let genesis = Arc::new(genesis);
@@ -87,7 +87,9 @@ fn test_stake_nodes() {
         let system = System::new("NEAR");
         let num_nodes = 2;
         let dirs = (0..num_nodes)
-            .map(|i| TempDir::new(&format!("stake_node_{}", i)).unwrap())
+            .map(|i| {
+                tempfile::Builder::new().prefix(&format!("stake_node_{}", i)).tempdir().unwrap()
+            })
             .collect::<Vec<_>>();
         let test_nodes = init_test_staking(
             dirs.iter().map(|dir| dir.path()).collect::<Vec<_>>(),
@@ -109,7 +111,11 @@ fn test_stake_nodes() {
         actix::spawn(
             test_nodes[0]
                 .client
-                .send(NetworkClientMessages::Transaction { transaction: tx, is_forwarded: false })
+                .send(NetworkClientMessages::Transaction {
+                    transaction: tx,
+                    is_forwarded: false,
+                    check_only: false,
+                })
                 .map(drop),
         );
 
@@ -154,7 +160,12 @@ fn test_validator_kickout() {
         let system = System::new("NEAR");
         let num_nodes = 4;
         let dirs = (0..num_nodes)
-            .map(|i| TempDir::new(&format!("validator_kickout_{}", i)).unwrap())
+            .map(|i| {
+                tempfile::Builder::new()
+                    .prefix(&format!("validator_kickout_{}", i))
+                    .tempdir()
+                    .unwrap()
+            })
             .collect::<Vec<_>>();
         let test_nodes = init_test_staking(
             dirs.iter().map(|dir| dir.path()).collect::<Vec<_>>(),
@@ -190,6 +201,7 @@ fn test_validator_kickout() {
                     .send(NetworkClientMessages::Transaction {
                         transaction: stake_transaction,
                         is_forwarded: false,
+                        check_only: false,
                     })
                     .map(drop),
             );
@@ -299,7 +311,9 @@ fn test_validator_join() {
         let system = System::new("NEAR");
         let num_nodes = 4;
         let dirs = (0..num_nodes)
-            .map(|i| TempDir::new(&format!("validator_join_{}", i)).unwrap())
+            .map(|i| {
+                tempfile::Builder::new().prefix(&format!("validator_join_{}", i)).tempdir().unwrap()
+            })
             .collect::<Vec<_>>();
         let test_nodes = init_test_staking(
             dirs.iter().map(|dir| dir.path()).collect::<Vec<_>>(),
@@ -342,6 +356,7 @@ fn test_validator_join() {
                 .send(NetworkClientMessages::Transaction {
                     transaction: unstake_transaction,
                     is_forwarded: false,
+                    check_only: false,
                 })
                 .map(drop),
         );
@@ -351,6 +366,7 @@ fn test_validator_join() {
                 .send(NetworkClientMessages::Transaction {
                     transaction: stake_transaction,
                     is_forwarded: false,
+                    check_only: false,
                 })
                 .map(drop),
         );
@@ -436,7 +452,9 @@ fn test_inflation() {
         let system = System::new("NEAR");
         let num_nodes = 1;
         let dirs = (0..num_nodes)
-            .map(|i| TempDir::new(&format!("stake_node_{}", i)).unwrap())
+            .map(|i| {
+                tempfile::Builder::new().prefix(&format!("stake_node_{}", i)).tempdir().unwrap()
+            })
             .collect::<Vec<_>>();
         let epoch_length = 10;
         let test_nodes = init_test_staking(
@@ -468,9 +486,9 @@ fn test_inflation() {
                     let header_view = res.unwrap().unwrap().header;
                     if header_view.height > epoch_length && header_view.height < epoch_length * 2 {
                         let inflation = initial_total_supply
-                            * max_inflation_rate as u128
                             * epoch_length as u128
-                            / (100 * num_blocks_per_year as u128);
+                            * *max_inflation_rate.numer() as u128
+                            / (num_blocks_per_year as u128 * *max_inflation_rate.denom() as u128);
                         if header_view.total_supply == initial_total_supply + inflation {
                             done2_copy2.store(true, Ordering::SeqCst);
                         }

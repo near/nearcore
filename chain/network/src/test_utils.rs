@@ -14,7 +14,7 @@ use near_primitives::network::PeerId;
 use near_primitives::types::EpochId;
 use near_primitives::utils::index_to_bytes;
 
-use crate::types::{NetworkConfig, NetworkInfo, PeerInfo, ROUTED_MESSAGE_TTL};
+use crate::types::{NetworkConfig, NetworkInfo, PeerInfo, ReasonForBan, ROUTED_MESSAGE_TTL};
 use crate::{NetworkAdapter, NetworkRequests, NetworkResponses, PeerManagerActor};
 use futures::future::BoxFuture;
 use std::sync::{Arc, Mutex, RwLock};
@@ -61,7 +61,12 @@ impl NetworkConfig {
             handshake_timeout: Duration::from_secs(60),
             reconnect_delay: Duration::from_secs(60),
             bootstrap_peers_period: Duration::from_millis(100),
-            max_peer: 10,
+            max_num_peers: 10,
+            minimum_outbound_peers: 5,
+            ideal_connections_lo: 30,
+            ideal_connections_hi: 35,
+            peer_recent_time_window: Duration::from_secs(600),
+            safe_set_size: 20,
             ban_window: Duration::from_secs(1),
             peer_expiration_duration: Duration::from_secs(60 * 60),
             max_send_peers: 512,
@@ -77,10 +82,14 @@ impl NetworkConfig {
     }
 }
 
+pub fn peer_id_from_seed(seed: &str) -> PeerId {
+    SecretKey::from_seed(KeyType::ED25519, seed).public_key().into()
+}
+
 pub fn convert_boot_nodes(boot_nodes: Vec<(&str, u16)>) -> Vec<PeerInfo> {
     let mut result = vec![];
     for (peer_seed, port) in boot_nodes {
-        let id = SecretKey::from_seed(KeyType::ED25519, peer_seed).public_key();
+        let id = peer_id_from_seed(peer_seed);
         result.push(PeerInfo::new(id.into(), format!("127.0.0.1:{}", port).parse().unwrap()))
     }
     result
@@ -243,6 +252,28 @@ impl Handler<StopSignal> for PeerManagerActor {
         } else {
             ctx.stop();
         }
+    }
+}
+
+#[derive(Message)]
+#[rtype(result = "()")]
+pub struct BanPeerSignal {
+    pub peer_id: PeerId,
+    pub ban_reason: ReasonForBan,
+}
+
+impl BanPeerSignal {
+    pub fn new(peer_id: PeerId) -> Self {
+        Self { peer_id, ban_reason: ReasonForBan::None }
+    }
+}
+
+impl Handler<BanPeerSignal> for PeerManagerActor {
+    type Result = ();
+
+    fn handle(&mut self, msg: BanPeerSignal, ctx: &mut Self::Context) -> Self::Result {
+        debug!(target: "network", "Ban peer: {:?}", msg.peer_id);
+        self.try_ban_peer(ctx, &msg.peer_id, msg.ban_reason);
     }
 }
 

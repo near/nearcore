@@ -3,13 +3,13 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
 
 use cached::{Cached, SizedCache};
-use ethereum_types::U256;
 use log::{debug, warn};
+use primitive_types::U256;
 
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{
-    AccountId, Balance, BlockChunkValidatorStats, BlockHeight, EpochId, ShardId, ValidatorId,
-    ValidatorKickoutReason, ValidatorStake, ValidatorStats,
+    AccountId, ApprovalStake, Balance, BlockChunkValidatorStats, BlockHeight, EpochId, ShardId,
+    ValidatorId, ValidatorKickoutReason, ValidatorStake, ValidatorStats,
 };
 use near_primitives::views::{
     CurrentEpochValidatorInfo, EpochValidatorInfo, NextEpochValidatorInfo, ValidatorKickoutView,
@@ -19,8 +19,8 @@ use near_store::{ColBlockInfo, ColEpochInfo, ColEpochStart, Store, StoreUpdate};
 use crate::proposals::proposals_to_epoch_info;
 pub use crate::reward_calculator::RewardCalculator;
 use crate::types::EpochError::EpochOutOfBounds;
-pub use crate::types::{BlockInfo, EpochConfig, EpochError, EpochInfo, RngSeed};
-use crate::types::{EpochSummary, SlashState};
+use crate::types::EpochSummary;
+pub use crate::types::{BlockInfo, EpochConfig, EpochError, EpochInfo, RngSeed, SlashState};
 
 mod proposals;
 mod reward_calculator;
@@ -132,6 +132,7 @@ impl EpochManager {
                 .get(&(i as u64))
                 .unwrap_or_else(|| &ValidatorStats { expected: 0, produced: 0 });
             // Note, validator_kickout_threshold is 0..100, so we use * 100 to keep this in integer space.
+            println!("account {} stat {:?}", account_id, block_stats);
             if block_stats.produced * 100
                 < u64::from(block_producer_kickout_threshold) * block_stats.expected
             {
@@ -153,16 +154,14 @@ impl EpochManager {
             if chunk_stats.produced * 100
                 < u64::from(chunk_producer_kickout_threshold) * chunk_stats.expected
             {
-                validator_kickout.insert(
-                    account_id.clone(),
+                validator_kickout.entry(account_id.clone()).or_insert_with(|| {
                     ValidatorKickoutReason::NotEnoughChunks {
                         produced: chunk_stats.produced,
                         expected: chunk_stats.expected,
-                    },
-                );
+                    }
+                });
             }
 
-            // Given the number of blocks we plan to have in one epoch, the following code should not overflow
             let is_already_kicked_out = prev_validator_kickout.contains_key(&account_id);
             if !validator_kickout.contains_key(&account_id) {
                 validator_block_chunk_stats.insert(
@@ -417,6 +416,7 @@ impl EpochManager {
                 );
                 block_info.update_shard_tracker(
                     &epoch_info,
+                    prev_block_info.height,
                     if is_epoch_start { HashMap::default() } else { shard_tracker },
                 );
                 // accumulate values
@@ -489,6 +489,49 @@ impl EpochManager {
             if !validators.contains(&validator_stake.account_id) {
                 validators.insert(validator_stake.account_id.clone());
                 result.push((validator_stake, is_slashed));
+            }
+        }
+        Ok(result)
+    }
+
+    pub fn get_all_block_approvers_ordered(
+        &mut self,
+        parent_hash: &CryptoHash,
+    ) -> Result<Vec<ApprovalStake>, EpochError> {
+        let current_epoch_id = self.get_epoch_id_from_prev_block(parent_hash)?;
+        let next_epoch_id = self.get_next_epoch_id_from_prev_block(parent_hash)?;
+
+        let mut settlement =
+            self.get_all_block_producers_settlement(&current_epoch_id, parent_hash)?;
+
+        let settlement_epoch_boundary = settlement.len();
+
+        let block_info = self.get_block_info(parent_hash)?.clone();
+        if self.next_block_need_approvals_from_next_epoch(&block_info)? {
+            settlement.extend(
+                self.get_all_block_producers_settlement(&next_epoch_id, parent_hash)?
+                    .iter()
+                    .cloned(),
+            );
+        }
+
+        let mut result = vec![];
+        let mut validators: HashMap<AccountId, usize> = HashMap::default();
+        for (ord, (validator_stake, is_slashed)) in settlement.into_iter().enumerate() {
+            if !is_slashed {
+                match validators.get(&validator_stake.account_id) {
+                    None => {
+                        validators.insert(validator_stake.account_id.clone(), result.len());
+                        result.push(
+                            validator_stake.get_approval_stake(ord >= settlement_epoch_boundary),
+                        );
+                    }
+                    Some(old_ord) => {
+                        if ord >= settlement_epoch_boundary {
+                            result[*old_ord].stake_next_epoch = validator_stake.stake;
+                        };
+                    }
+                };
             }
         }
         Ok(result)
@@ -743,6 +786,7 @@ impl EpochManager {
         let epoch_id = self.get_epoch_id(block_hash)?;
         let slashed = self.get_slashed_validators(block_hash)?.clone();
         let cur_epoch_info = self.get_epoch_info(&epoch_id)?.clone();
+        let epoch_start_height = self.get_epoch_start_height(block_hash)?;
         let mut validator_to_shard = (0..cur_epoch_info.validators.len())
             .map(|_| HashSet::default())
             .collect::<Vec<HashSet<ShardId>>>();
@@ -820,6 +864,7 @@ impl EpochManager {
             next_fishermen: next_fishermen.into_iter().map(Into::into).collect(),
             current_proposals: current_proposals.into_iter().map(Into::into).collect(),
             prev_epoch_kickout,
+            epoch_start_height,
         })
     }
 
@@ -881,36 +926,6 @@ impl EpochManager {
             as usize]
     }
 
-    /// The epoch switches when a block at a particular height gets final. We cannot allow blocks
-    /// beyond that height in the current epoch to get final, otherwise the safety of the finality
-    /// gadget can get violated.
-    pub fn push_final_block_back_if_needed(
-        &mut self,
-        parent_hash: CryptoHash,
-        mut last_final_hash: CryptoHash,
-    ) -> Result<CryptoHash, EpochError> {
-        if last_final_hash == CryptoHash::default() {
-            return Ok(last_final_hash);
-        }
-
-        let block_info = self.get_block_info(&parent_hash)?;
-        let epoch_first_block = block_info.epoch_first_block;
-        let estimated_next_epoch_start =
-            self.get_block_info(&epoch_first_block)?.height + self.config.epoch_length;
-
-        loop {
-            let block_info = self.get_block_info(&last_final_hash)?;
-            let prev_hash = block_info.prev_hash;
-            let prev_block_info = self.get_block_info(&prev_hash)?;
-            // See `is_next_block_in_next_epoch` for details on ` + 3`
-            if prev_block_info.height + 3 >= estimated_next_epoch_start {
-                last_final_hash = prev_hash;
-            } else {
-                return Ok(last_final_hash);
-            }
-        }
-    }
-
     /// Returns true, if given current block info, next block supposed to be in the next epoch.
     #[allow(clippy::wrong_self_convention)]
     fn is_next_block_in_next_epoch(&mut self, block_info: &BlockInfo) -> Result<bool, EpochError> {
@@ -919,14 +934,29 @@ impl EpochManager {
         }
         let estimated_next_epoch_start =
             self.get_block_info(&block_info.epoch_first_block)?.height + self.config.epoch_length;
-        // Say the epoch length is 10, and say all the blocks have all the approvals.
-        // Say the first block of a particular epoch has height 111. We want the block 121 to be
-        //     the first block of the next epoch. For 121 to be the next block, the current block
-        //     has height 120, 119 has the quorum pre-commit and 118 is finalized.
-        // 121 - 118 = 3, hence the `last_finalized_height + 3`
-        Ok((block_info.last_finalized_height + 3 >= estimated_next_epoch_start
-            || self.config.num_block_producer_seats < 4)
-            && block_info.height + 1 >= estimated_next_epoch_start)
+
+        if self.config.epoch_length <= 3 {
+            // This is here to make epoch_manager tests pass. Needs to be removed, tracked in
+            // https://github.com/nearprotocol/nearcore/issues/2522
+            return Ok(block_info.height + 1 >= estimated_next_epoch_start);
+        }
+
+        Ok(block_info.last_finalized_height + 3 >= estimated_next_epoch_start)
+    }
+
+    /// Returns true, if given current block info, next block must include the approvals from the next
+    /// epoch (in addition to the approvals from the current epoch)
+    fn next_block_need_approvals_from_next_epoch(
+        &mut self,
+        block_info: &BlockInfo,
+    ) -> Result<bool, EpochError> {
+        if self.is_next_block_in_next_epoch(block_info)? {
+            return Ok(false);
+        }
+        let estimated_next_epoch_start =
+            self.get_block_info(&block_info.epoch_first_block)?.height + self.config.epoch_length;
+        Ok(block_info.last_finalized_height + 3 < estimated_next_epoch_start
+            && block_info.height + 3 >= estimated_next_epoch_start)
     }
 
     /// Returns epoch id for the next epoch (T+1), given an block info in current epoch (T).
@@ -1039,8 +1069,13 @@ impl EpochManager {
 
 #[cfg(test)]
 mod tests {
+    use std::iter::FromIterator;
+
+    use num_rational::Rational;
+
     use near_primitives::challenge::SlashedValidator;
     use near_primitives::hash::hash;
+    use near_primitives::types::ValidatorKickoutReason::NotEnoughBlocks;
     use near_store::test_utils::create_test_store;
 
     use crate::test_utils::{
@@ -1050,8 +1085,6 @@ mod tests {
     };
 
     use super::*;
-    use near_primitives::types::ValidatorKickoutReason::NotEnoughBlocks;
-    use std::iter::FromIterator;
 
     #[test]
     fn test_stake_validator() {
@@ -1682,11 +1715,10 @@ mod tests {
         let epoch_length = 2;
         let total_supply = stake_amount * validators.len() as u128;
         let reward_calculator = RewardCalculator {
-            max_inflation_rate: 5,
+            max_inflation_rate: Rational::new(5, 100),
             num_blocks_per_year: 50,
             epoch_length,
-            validator_reward_percentage: 60,
-            protocol_reward_percentage: 10,
+            protocol_reward_percentage: Rational::new(1, 10),
             protocol_treasury_account: "near".to_string(),
         };
         let mut epoch_manager = setup_epoch_manager(
@@ -1812,11 +1844,10 @@ mod tests {
         let epoch_length = 2;
         let total_supply = (stake_amount1 + stake_amount2) * validators.len() as u128;
         let reward_calculator = RewardCalculator {
-            max_inflation_rate: 5,
+            max_inflation_rate: Rational::new(5, 100),
             num_blocks_per_year: 50,
             epoch_length,
-            validator_reward_percentage: 60,
-            protocol_reward_percentage: 10,
+            protocol_reward_percentage: Rational::new(1, 10),
             protocol_treasury_account: "near".to_string(),
         };
         let mut epoch_manager = setup_epoch_manager(
@@ -1961,11 +1992,10 @@ mod tests {
         let epoch_length = 2;
         let total_supply = stake_amount * validators.len() as u128;
         let reward_calculator = RewardCalculator {
-            max_inflation_rate: 5,
+            max_inflation_rate: Rational::new(5, 100),
             num_blocks_per_year: 1_000_000,
             epoch_length,
-            validator_reward_percentage: 60,
-            protocol_reward_percentage: 10,
+            protocol_reward_percentage: Rational::new(1, 10),
             protocol_treasury_account: "near".to_string(),
         };
         let mut epoch_manager = setup_epoch_manager(
@@ -2219,6 +2249,71 @@ mod tests {
                 vec![("test2", stake_amount), ("test3", stake_amount)],
                 vec![0, 1, 0],
                 vec![vec![0], vec![1], vec![0]],
+                vec![],
+                vec![],
+                change_stake(vec![("test1", 0), ("test2", stake_amount), ("test3", stake_amount)]),
+                vec![(
+                    "test1",
+                    ValidatorKickoutReason::NotEnoughBlocks { produced: 0, expected: 1 }
+                )],
+                reward(vec![("test2", 0), ("test3", 0), ("near", 0)]),
+                0
+            )
+        );
+    }
+
+    #[test]
+    fn test_expected_chunks_prev_block_not_produced() {
+        let stake_amount = 1_000_000;
+        let validators =
+            vec![("test1", stake_amount), ("test2", stake_amount), ("test3", stake_amount)];
+        let epoch_length = 3;
+        let total_supply = stake_amount * validators.len() as u128;
+        let mut epoch_manager = setup_epoch_manager(
+            validators,
+            epoch_length,
+            1,
+            3,
+            0,
+            90,
+            90,
+            0,
+            default_reward_calculator(),
+        );
+        let rng_seed = [0; 32];
+        let h = hash_range(5);
+        record_block(&mut epoch_manager, Default::default(), h[0], 0, vec![]);
+        record_block(&mut epoch_manager, h[0], h[1], 1, vec![]);
+
+        epoch_manager
+            .record_block_info(
+                &h[3],
+                BlockInfo {
+                    height: 3,
+                    last_finalized_height: 1,
+                    prev_hash: h[1],
+                    epoch_first_block: h[1],
+                    epoch_id: Default::default(),
+                    proposals: vec![],
+                    chunk_mask: vec![false],
+                    slashed: Default::default(),
+                    validator_reward: 0,
+                    total_supply,
+                    block_tracker: Default::default(),
+                    shard_tracker: Default::default(),
+                    all_proposals: vec![],
+                    total_validator_reward: 0,
+                },
+                rng_seed,
+            )
+            .unwrap();
+        assert_eq!(
+            epoch_manager.get_epoch_info(&EpochId(h[3])).unwrap(),
+            &epoch_info(
+                2,
+                vec![("test2", stake_amount), ("test3", stake_amount)],
+                vec![0, 1, 0],
+                vec![vec![0, 1, 0]],
                 vec![],
                 vec![],
                 change_stake(vec![("test1", 0), ("test2", stake_amount), ("test3", stake_amount)]),

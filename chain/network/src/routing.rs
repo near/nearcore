@@ -6,11 +6,10 @@ use std::time::{Duration, Instant};
 use serde::Serialize;
 
 use borsh::{BorshDeserialize, BorshSerialize};
-use byteorder::LittleEndian;
-use byteorder::WriteBytesExt;
+use byteorder::{LittleEndian, WriteBytesExt};
 use cached::{Cached, SizedCache};
-use log::warn;
-use log::{debug, trace};
+use chrono;
+use log::{debug, trace, warn};
 
 use near_crypto::{SecretKey, Signature};
 use near_metrics;
@@ -254,7 +253,7 @@ pub struct RoutingTable {
     /// Hash of messages that requires routing back to respective previous hop.
     pub route_back: SizedCache<CryptoHash, PeerId>,
     /// Last time a peer with reachable through active edges.
-    pub peer_last_time_reachable: HashMap<PeerId, Instant>,
+    pub peer_last_time_reachable: HashMap<PeerId, chrono::DateTime<chrono::Utc>>,
     /// Access to store on disk
     store: Arc<Store>,
     /// Current view of the network. Nodes are Peers and edges are active connections.
@@ -323,43 +322,34 @@ impl RoutingTable {
     /// from `source` to `peer_id`.
     pub fn find_route_from_peer_id(&mut self, peer_id: &PeerId) -> Result<PeerId, FindRouteError> {
         if let Some(routes) = self.peer_forwarding.get(&peer_id).cloned() {
+            if routes.is_empty() {
+                return Err(FindRouteError::Disconnected);
+            }
+
             // Strategy similar to Round Robin. Select node with least nonce and send it. Increase its
             // nonce by one. Additionally if the difference between the highest nonce and the lowest
             // nonce is greater than some threshold increase the lowest nonce to be at least
             // max nonce - threshold.
+            let nonce_peer = routes
+                .iter()
+                .map(|peer_id| {
+                    (self.route_nonce.cache_get(&peer_id).cloned().unwrap_or(0), peer_id)
+                })
+                .collect::<Vec<_>>();
 
-            let (min_v, max_v) = routes.iter().fold((None, None), |(min_v, max_v), peer_id| {
-                let nonce = self.route_nonce.cache_get(&peer_id).cloned().unwrap_or(0usize);
-                let current = (nonce, peer_id.clone());
-                if min_v.is_none() || current < *min_v.as_ref().unwrap() {
-                    (Some(current), max_v)
-                } else if max_v.is_none() || *max_v.as_ref().unwrap() < current {
-                    (max_v, Some(current))
-                } else {
-                    (min_v, max_v)
-                }
-            });
+            // Neighbor with minimum and maximum nonce respectively.
+            let min_v = nonce_peer.iter().min().cloned().unwrap();
+            let max_v = nonce_peer.into_iter().max().unwrap();
 
-            let next_hop = match (min_v, max_v) {
-                (None, _) => {
-                    return Err(FindRouteError::Disconnected);
-                }
-                (Some(min_v), None) => min_v.1,
-                (Some(min_v), Some(max_v)) => {
-                    if min_v.0 + ROUND_ROBIN_MAX_NONCE_DIFFERENCE_ALLOWED < max_v.0 {
-                        self.route_nonce.cache_set(
-                            min_v.1.clone(),
-                            max_v.0 - ROUND_ROBIN_MAX_NONCE_DIFFERENCE_ALLOWED,
-                        );
-                    }
-                    min_v.1
-                }
-            };
+            if min_v.0 + ROUND_ROBIN_MAX_NONCE_DIFFERENCE_ALLOWED < max_v.0 {
+                self.route_nonce
+                    .cache_set(min_v.1.clone(), max_v.0 - ROUND_ROBIN_MAX_NONCE_DIFFERENCE_ALLOWED);
+            }
 
+            let next_hop = min_v.1;
             let nonce = self.route_nonce.cache_get(&next_hop).cloned();
             self.route_nonce.cache_set(next_hop.clone(), nonce.map_or(1, |nonce| nonce + 1));
-
-            Ok(next_hop)
+            Ok(next_hop.clone())
         } else {
             Err(FindRouteError::PeerNotFound)
         }
@@ -453,7 +443,8 @@ impl RoutingTable {
                             if cur_nonce == nonce {
                                 self.peer_last_time_reachable.insert(
                                     peer_id.clone(),
-                                    Instant::now().sub(Duration::from_secs(SAVE_PEERS_MAX_TIME)),
+                                    chrono::Utc::now()
+                                        .sub(chrono::Duration::seconds(SAVE_PEERS_MAX_TIME as i64)),
                                 );
                                 update
                                     .delete(ColPeerComponent, Vec::from(peer_id.clone()).as_ref());
@@ -468,7 +459,7 @@ impl RoutingTable {
                 warn!(target: "network", "Error removing network component from store. {:?}", e);
             }
         } else {
-            self.peer_last_time_reachable.insert(peer_id.clone(), Instant::now());
+            self.peer_last_time_reachable.insert(peer_id.clone(), chrono::Utc::now());
         }
     }
 
@@ -613,14 +604,16 @@ impl RoutingTable {
     }
 
     fn try_save_edges(&mut self) {
-        let now = Instant::now();
+        let now = chrono::Utc::now();
         let mut oldest_time = now;
         let to_save = self
             .peer_last_time_reachable
             .iter()
             .filter_map(|(peer_id, last_time)| {
                 oldest_time = std::cmp::min(oldest_time, *last_time);
-                if now.duration_since(*last_time).as_secs() >= SAVE_PEERS_AFTER_TIME {
+                if now.signed_duration_since(*last_time).num_seconds()
+                    >= SAVE_PEERS_AFTER_TIME as i64
+                {
                     Some(peer_id.clone())
                 } else {
                     None
@@ -630,7 +623,7 @@ impl RoutingTable {
 
         // Save nodes on disk and remove from memory only if elapsed time from oldest peer
         // is greater than `SAVE_PEERS_MAX_TIME`
-        if now.duration_since(oldest_time).as_secs() < SAVE_PEERS_MAX_TIME {
+        if now.signed_duration_since(oldest_time).num_seconds() < SAVE_PEERS_MAX_TIME as i64 {
             return;
         }
 
@@ -678,7 +671,7 @@ impl RoutingTable {
 
         self.peer_forwarding = self.raw_graph.calculate_distance();
 
-        let now = Instant::now();
+        let now = chrono::Utc::now();
         for peer in self.peer_forwarding.keys() {
             self.peer_last_time_reachable.insert(peer.clone(), now);
         }

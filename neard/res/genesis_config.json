@@ -1,6 +1,6 @@
 {
   "config_version": 1,
-  "protocol_version": 7,
+  "protocol_version": 10,
   "genesis_time": "1970-01-01T00:00:00.000000000Z",
   "chain_id": "sample",
   "genesis_height": 0,
@@ -17,7 +17,10 @@
   "min_gas_price": "5000",
   "block_producer_kickout_threshold": 90,
   "chunk_producer_kickout_threshold": 60,
-  "gas_price_adjustment_rate": 1,
+  "gas_price_adjustment_rate": [
+    1,
+    100
+  ],
   "runtime_config": {
     "storage_amount_per_byte": "90900000000000000000",
     "transaction_costs": {
@@ -106,10 +109,10 @@
         "num_bytes_account": 100,
         "num_extra_bytes_record": 40
       },
-      "burnt_gas_reward": {
-        "numerator": 3,
-        "denominator": 10
-      }
+      "burnt_gas_reward": [
+        3,
+        10
+      ]
     },
     "wasm_config": {
       "ext_costs": {
@@ -198,9 +201,14 @@
     }
   ],
   "transaction_validity_period": 100,
-  "developer_reward_percentage": 30,
-  "protocol_reward_percentage": 10,
-  "max_inflation_rate": 5,
+  "protocol_reward_rate": [
+    1,
+    10
+  ],
+  "max_inflation_rate": [
+    1,
+    20
+  ],
   "total_supply": "2050000000000000000000000000000000",
   "num_blocks_per_year": 31536000,
   "protocol_treasury_account": "test.near",

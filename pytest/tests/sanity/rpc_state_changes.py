@@ -15,7 +15,7 @@ from cluster import start_cluster, Key
 from utils import load_binary_file
 import transaction
 
-nodes = start_cluster(4, 0, 1, None, [["epoch_length", 10], ["block_producer_kickout_threshold", 80]], {})
+nodes = start_cluster(4, 0, 1, None, [["epoch_length", 1000], ["block_producer_kickout_threshold", 80]], {})
 
 def assert_changes_in_block_response(request, expected_response):
     for node_index, node in enumerate(nodes):
@@ -391,13 +391,13 @@ def test_key_value_changes():
                     "account_id": contract_key.account_id,
                 },
                 {
-                    "type": "data_touched",
+                    "type": "access_key_touched",
                     "account_id": contract_key.account_id,
                 },
                 {
-                    "type": "access_key_touched",
+                    "type": "data_touched",
                     "account_id": contract_key.account_id,
-                }
+                },
             ]
         }
     )

@@ -1,3 +1,4 @@
+use near_vm_errors::FunctionCallError::WasmUnknownError;
 use near_vm_errors::{CompilationError, FunctionCallError, MethodResolveError, VMError};
 use near_vm_logic::VMLogicError;
 
@@ -33,9 +34,15 @@ impl IntoVMError for wasmer_runtime::error::CallError {
 
 impl IntoVMError for wasmer_runtime::error::CompileError {
     fn into_vm_error(self) -> VMError {
-        VMError::FunctionCallError(FunctionCallError::CompilationError(
-            CompilationError::WasmerCompileError { msg: self.to_string() },
-        ))
+        match self {
+            wasmer_runtime::error::CompileError::InternalError { .. } => {
+                // An internal Wasmer error the most probably is a result of a node malfunction
+                panic!("Internal Wasmer error on Wasm compilation: {}", self);
+            }
+            _ => VMError::FunctionCallError(FunctionCallError::CompilationError(
+                CompilationError::WasmerCompileError { msg: self.to_string() },
+            )),
+        }
     }
 }
 
@@ -60,9 +67,7 @@ impl IntoVMError for wasmer_runtime::error::RuntimeError {
     fn into_vm_error(self) -> VMError {
         use wasmer_runtime::error::RuntimeError;
         match &self {
-            RuntimeError::Trap { msg } => {
-                VMError::FunctionCallError(FunctionCallError::WasmTrap { msg: msg.to_string() })
-            }
+            RuntimeError::Trap { msg: _ } => VMError::FunctionCallError(WasmUnknownError),
             RuntimeError::Error { data } => {
                 if let Some(err) = data.downcast_ref::<VMLogicError>() {
                     match err {
@@ -80,9 +85,7 @@ impl IntoVMError for wasmer_runtime::error::RuntimeError {
                         data.type_id(),
                         self.to_string()
                     );
-                    VMError::FunctionCallError(FunctionCallError::WasmTrap {
-                        msg: "unknown".to_string(),
-                    })
+                    VMError::FunctionCallError(WasmUnknownError)
                 }
             }
         }

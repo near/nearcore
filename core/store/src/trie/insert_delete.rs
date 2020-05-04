@@ -313,12 +313,11 @@ impl Trie {
         memory: &mut NodesStorage,
         node: StorageHandle,
         partial: NibbleSlice<'_>,
-    ) -> Result<(StorageHandle, bool), StorageError> {
+    ) -> Result<StorageHandle, StorageError> {
         let mut handle = node;
         let mut partial = partial;
         let root_node = handle;
         let mut path: Vec<StorageHandle> = Vec::new();
-        let deleted: bool;
         loop {
             path.push(handle);
             let TrieNodeWithSize { node, memory_usage } = memory.destroy(handle);
@@ -326,20 +325,17 @@ impl Trie {
             match node {
                 TrieNode::Empty => {
                     memory.store_at(handle, TrieNodeWithSize::empty());
-                    deleted = false;
                     break;
                 }
                 TrieNode::Leaf(key, value) => {
                     if NibbleSlice::from_encoded(&key).0 == partial {
                         self.delete_value(memory, &value)?;
                         memory.store_at(handle, TrieNodeWithSize::empty());
-                        deleted = true;
                         break;
                     } else {
                         let leaf_node = TrieNode::Leaf(key, value);
                         let memory_usage = leaf_node.memory_usage_direct(memory);
                         memory.store_at(handle, TrieNodeWithSize::new(leaf_node, memory_usage));
-                        deleted = false;
                         break;
                     }
                 }
@@ -347,9 +343,7 @@ impl Trie {
                     if partial.is_empty() {
                         if let Some(value) = &value {
                             self.delete_value(memory, &value)?;
-                            deleted = true;
                         } else {
-                            deleted = false;
                         }
                         if children.iter().filter(|&x| x.is_some()).count() == 0 {
                             memory.store_at(handle, TrieNodeWithSize::empty());
@@ -392,7 +386,6 @@ impl Trie {
                                     memory_usage,
                                 ),
                             );
-                            deleted = false;
                             break;
                         }
                     }
@@ -422,14 +415,13 @@ impl Trie {
                             handle,
                             TrieNodeWithSize::new(TrieNode::Extension(key, child), memory_usage),
                         );
-                        deleted = false;
                         break;
                     }
                 }
             }
         }
         self.fix_nodes(memory, path)?;
-        Ok((root_node, deleted))
+        Ok(root_node)
     }
 
     fn fix_nodes(

@@ -2,13 +2,12 @@ use std::sync::{Arc, RwLock};
 
 use actix::{Actor, System};
 use futures::{future, FutureExt};
-use tempdir::TempDir;
 
 use near_client::{GetBlock, GetChunk};
+use near_logger_utils::init_integration_logger;
 use near_network::test_utils::WaitOrTimeout;
 use near_primitives::hash::CryptoHash;
-use near_primitives::test_utils::{heavy_test, init_integration_logger};
-use testlib::start_nodes;
+use testlib::{start_nodes, test_helpers::heavy_test};
 
 #[test]
 fn track_shards() {
@@ -17,7 +16,9 @@ fn track_shards() {
         let system = System::new("NEAR");
         let num_nodes = 4;
         let dirs = (0..num_nodes)
-            .map(|i| TempDir::new(&format!("track_shards_{}", i)).unwrap())
+            .map(|i| {
+                tempfile::Builder::new().prefix(&format!("track_shards_{}", i)).tempdir().unwrap()
+            })
             .collect::<Vec<_>>();
         let (_, _, clients) = start_nodes(4, &dirs, 2, 0, 10, 0);
         let view_client = clients[clients.len() - 1].1.clone();

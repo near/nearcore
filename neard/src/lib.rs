@@ -53,7 +53,7 @@ pub fn start_with_config(
     config: NearConfig,
 ) -> (Addr<ClientActor>, Addr<ViewClientActor>) {
     let store = create_store(&get_store_path(home_dir));
-    near_primitives::test_utils::init_stop_on_panic();
+    near_actix_utils::init_stop_on_panic();
     let runtime = Arc::new(NightshadeRuntime::new(
         home_dir,
         Arc::clone(&store),
@@ -68,6 +68,7 @@ pub fn start_with_config(
     let node_id = config.network_config.public_key.clone().into();
     let network_adapter = Arc::new(NetworkRecipient::new());
     let view_client = ViewClientActor::new(
+        config.validator_signer.as_ref().map(|signer| signer.validator_id().clone()),
         &chain_genesis,
         runtime.clone(),
         network_adapter.clone(),
@@ -94,6 +95,8 @@ pub fn start_with_config(
         client_actor.clone(),
         view_client.clone(),
     );
+
+    config.network_config.verify();
 
     let network_actor = PeerManagerActor::new(
         store.clone(),

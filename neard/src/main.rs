@@ -39,11 +39,16 @@ fn init_logging(verbose: Option<&str>) {
     }
 
     if let Ok(rust_log) = env::var("RUST_LOG") {
-        if let Ok(directive) = rust_log.parse() {
+        for directive in rust_log.split(',').filter_map(|s| match s.parse() {
+            Ok(directive) => Some(directive),
+            Err(err) => {
+                eprintln!("Ignoring directive `{}`: {}", s, err);
+                None
+            }
+        }) {
             env_filter = env_filter.add_directive(directive);
         }
     }
-
     tracing_subscriber::fmt::Subscriber::builder()
         .with_env_filter(env_filter)
         .with_writer(io::stderr)
@@ -183,7 +188,9 @@ fn main() {
                 near_config.rpc_config.addr = rpc_addr.to_string();
             }
             if let Some(telemetry_url) = args.value_of("telemetry-url") {
-                near_config.telemetry_config.endpoints.push(telemetry_url.to_string());
+                if !telemetry_url.is_empty() {
+                    near_config.telemetry_config.endpoints.push(telemetry_url.to_string());
+                }
             }
             if args.is_present("archive") {
                 near_config.client_config.archive = true;

@@ -5,6 +5,7 @@ use chrono::{DateTime, Utc};
 use failure::{Backtrace, Context, Fail};
 
 use near_primitives::challenge::{ChunkProofs, ChunkState};
+use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::{ChunkHash, ShardChunkHeader};
 use near_primitives::types::ShardId;
 
@@ -21,7 +22,11 @@ pub enum ErrorKind {
     /// Orphan block.
     #[fail(display = "Orphan")]
     Orphan,
-    #[fail(display = "Chunk Missing: {:?}", _0)]
+    /// Block is not availiable (e.g. garbage collected)
+    #[fail(display = "Block Missing (unavailable on the node): {}", _0)]
+    BlockMissing(CryptoHash),
+    /// Chunk is missing.
+    #[fail(display = "Chunk Missing (unavailable on the node): {:?}", _0)]
     ChunkMissing(ChunkHash),
     /// Chunks missing with header info.
     #[fail(display = "Chunks Missing: {:?}", _0)]
@@ -41,9 +46,6 @@ pub enum ErrorKind {
     /// Invalid block confirmation signature.
     #[fail(display = "Invalid Block Confirmation Signature")]
     InvalidBlockConfirmation,
-    /// Invalid block score.
-    #[fail(display = "Invalid Block Score")]
-    InvalidBlockScore,
     /// Invalid state root hash.
     #[fail(display = "Invalid State Root Hash")]
     InvalidStateRoot,
@@ -101,15 +103,12 @@ pub enum ErrorKind {
     /// `next_bps_hash` doens't correspond to the actual next block producers set
     #[fail(display = "Invalid Next BP Hash")]
     InvalidNextBPHash,
-    /// Invalid quorum_pre_vote or quorum_pre_commit
-    #[fail(display = "Invalid Finality Info")]
-    InvalidFinalityInfo,
     /// The block doesn't have approvals from 50% of the block producers
     #[fail(display = "Not enough approvals")]
     NotEnoughApprovals,
-    /// The information about the last doomslug final block is incorrect
-    #[fail(display = "Invalid doomslug finality info")]
-    InvalidDoomslugFinalityInfo,
+    /// The information about the last final block is incorrect
+    #[fail(display = "Invalid finality info")]
+    InvalidFinalityInfo,
     /// Invalid validator proposals in the block.
     #[fail(display = "Invalid Validator Proposals")]
     InvalidValidatorProposals,
@@ -204,6 +203,7 @@ impl Error {
         match self.kind() {
             ErrorKind::Unfit(_)
             | ErrorKind::Orphan
+            | ErrorKind::BlockMissing(_)
             | ErrorKind::ChunkMissing(_)
             | ErrorKind::ChunksMissing(_)
             | ErrorKind::InvalidChunkHeight
@@ -221,7 +221,6 @@ impl Error {
             | ErrorKind::InvalidBlockHeight
             | ErrorKind::InvalidBlockProposer
             | ErrorKind::InvalidBlockConfirmation
-            | ErrorKind::InvalidBlockScore
             | ErrorKind::InvalidChunk
             | ErrorKind::InvalidChunkProofs(_)
             | ErrorKind::InvalidChunkState(_)
@@ -240,9 +239,8 @@ impl Error {
             | ErrorKind::IncorrectNumberOfChunkHeaders
             | ErrorKind::InvalidEpochHash
             | ErrorKind::InvalidNextBPHash
-            | ErrorKind::InvalidFinalityInfo
             | ErrorKind::NotEnoughApprovals
-            | ErrorKind::InvalidDoomslugFinalityInfo
+            | ErrorKind::InvalidFinalityInfo
             | ErrorKind::InvalidValidatorProposals
             | ErrorKind::InvalidSignature
             | ErrorKind::InvalidApprovals

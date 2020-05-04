@@ -265,13 +265,6 @@ const BRANCH_NODE_NO_VALUE: u8 = 1;
 const BRANCH_NODE_WITH_VALUE: u8 = 2;
 const EXTENSION_NODE: u8 = 3;
 
-#[derive(Debug, Eq, PartialEq)]
-/// Trie node + refcount of copies of this node in storage
-struct RcTrieNode {
-    data: RawTrieNodeWithSize,
-    rc: u32,
-}
-
 fn decode_children(cursor: &mut Cursor<&[u8]>) -> Result<[Option<CryptoHash>; 16], std::io::Error> {
     let mut children: [Option<CryptoHash>; 16] = Default::default();
     let bitmap = cursor.read_u16::<LittleEndian>()?;
@@ -405,19 +398,17 @@ impl RawTrieNodeWithSize {
     }
 }
 
-impl RcTrieNode {
-    fn encode(data: &[u8], rc: u32) -> Result<Vec<u8>, std::io::Error> {
-        let mut cursor = Cursor::new(Vec::with_capacity(data.len() + 4));
-        cursor.write_all(data)?;
-        cursor.write_u32::<LittleEndian>(rc)?;
-        Ok(cursor.into_inner())
-    }
+fn encode_trie_node_with_rc(data: &[u8], rc: u32) -> Result<Vec<u8>, std::io::Error> {
+    let mut cursor = Cursor::new(Vec::with_capacity(data.len() + 4));
+    cursor.write_all(data)?;
+    cursor.write_u32::<LittleEndian>(rc)?;
+    Ok(cursor.into_inner())
+}
 
-    fn decode_raw(bytes: &[u8]) -> Result<(&[u8], u32), std::io::Error> {
-        let mut cursor = Cursor::new(&bytes[bytes.len() - 4..]);
-        let rc = cursor.read_u32::<LittleEndian>()?;
-        Ok((&bytes[..bytes.len() - 4], rc))
-    }
+fn decode_trie_node_with_rc(bytes: &[u8]) -> Result<(&[u8], u32), std::io::Error> {
+    let mut cursor = Cursor::new(&bytes[bytes.len() - 4..]);
+    let rc = cursor.read_u32::<LittleEndian>()?;
+    Ok((&bytes[..bytes.len() - 4], rc))
 }
 
 pub struct Trie {
@@ -474,7 +465,7 @@ impl TrieChanges {
                 .expect("Must be caching storage")
                 .retrieve_rc(&key)
                 .unwrap_or_default();
-            let bytes = RcTrieNode::encode(&value, storage_rc + rc)?;
+            let bytes = encode_trie_node_with_rc(&value, storage_rc + rc)?;
             store_update.set(ColState, key.as_ref(), &bytes);
         }
         Ok(())
@@ -511,7 +502,7 @@ impl TrieChanges {
                 .unwrap_or_default();
             assert!(*rc <= storage_rc);
             if *rc < storage_rc {
-                let bytes = RcTrieNode::encode(&value, storage_rc - rc)?;
+                let bytes = encode_trie_node_with_rc(&value, storage_rc - rc)?;
                 store_update.set(ColState, key.as_ref(), &bytes);
             } else {
                 store_update.delete(ColState, key.as_ref());
@@ -603,6 +594,16 @@ impl WrappedTrieChanges {
                 )),
                 "NotWritableToDisk changes must never be finalized."
             );
+            // Filtering trie keys for user facing RPC reporting.
+            // NOTE: If the trie key is not one of the account specific, it may cause key conflict
+            // when the node tracks multiple shards. See #2563.
+            match &change_with_trie_key.trie_key {
+                TrieKey::Account { .. }
+                | TrieKey::ContractCode { .. }
+                | TrieKey::AccessKey { .. }
+                | TrieKey::ContractData { .. } => {}
+                _ => continue,
+            };
             let storage_key = KeyForStateChanges::new_from_trie_key(
                 &self.block_hash,
                 &change_with_trie_key.trie_key,
@@ -968,9 +969,7 @@ impl Trie {
                     root_node = self.insert(&mut memory, root_node, key, arr)?;
                 }
                 None => {
-                    root_node = match self.delete(&mut memory, root_node, key)? {
-                        (value, _) => value,
-                    };
+                    root_node = self.delete(&mut memory, root_node, key)?;
                 }
             }
         }
@@ -1015,7 +1014,6 @@ impl Trie {
 #[cfg(test)]
 mod tests {
     use rand::Rng;
-    use tempdir::TempDir;
 
     use crate::test_utils::{create_test_store, create_trie, gen_changes, simplify_changes};
 
@@ -1407,7 +1405,7 @@ mod tests {
             (b"docu".to_vec(), Some(b"value".to_vec())),
         ];
         let root = test_populate_trie(trie1, &empty_root, changes.clone());
-        let dir = TempDir::new("test_dump_load_trie").unwrap();
+        let dir = tempfile::Builder::new().prefix("test_dump_load_trie").tempdir().unwrap();
         store.save_to_file(ColState, &dir.path().join("test.bin")).unwrap();
         let store2 = create_test_store();
         store2.load_from_file(ColState, &dir.path().join("test.bin")).unwrap();

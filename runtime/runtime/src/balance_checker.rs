@@ -219,9 +219,9 @@ mod tests {
     use super::*;
     use crate::ApplyStats;
     use near_crypto::{InMemorySigner, KeyType};
-    use near_primitives::account::Account;
     use near_primitives::hash::{hash, CryptoHash};
     use near_primitives::receipt::ActionReceipt;
+    use near_primitives::test_utils::account_new;
     use near_primitives::transaction::{Action, TransferAction};
     use near_primitives::types::{MerkleHash, StateChangeCause};
     use near_runtime_fees::RuntimeFeesConfig;
@@ -288,12 +288,12 @@ mod tests {
         let refund_balance = 1000;
 
         let mut initial_state = TrieUpdate::new(trie.clone(), root);
-        let initial_account = Account::new(initial_balance, hash(&[]));
+        let initial_account = account_new(initial_balance, hash(&[]));
         set_account(&mut initial_state, account_id.clone(), &initial_account);
         initial_state.commit(StateChangeCause::NotWritableToDisk);
 
         let mut final_state = TrieUpdate::new(trie.clone(), root);
-        let final_account = Account::new(initial_balance + refund_balance, hash(&[]));
+        let final_account = account_new(initial_balance + refund_balance, hash(&[]));
         set_account(&mut final_state, account_id.clone(), &final_account);
         final_state.commit(StateChangeCause::NotWritableToDisk);
 
@@ -325,17 +325,16 @@ mod tests {
             + cfg.action_creation_config.transfer_cost.exec_fee();
         let send_gas = cfg.action_receipt_creation_config.send_fee(false)
             + cfg.action_creation_config.transfer_cost.send_fee(false);
-        let contract_reward = (send_gas * cfg.burnt_gas_reward.numerator
-            / cfg.burnt_gas_reward.denominator) as Balance
-            * gas_price;
+        let contract_reward = send_gas as u128 * *cfg.burnt_gas_reward.numer() as u128 * gas_price
+            / (*cfg.burnt_gas_reward.denom() as u128);
         let total_validator_reward = send_gas as Balance * gas_price - contract_reward;
         let mut initial_state = TrieUpdate::new(trie.clone(), root);
-        let initial_account = Account::new(initial_balance, hash(&[]));
+        let initial_account = account_new(initial_balance, hash(&[]));
         set_account(&mut initial_state, account_id.clone(), &initial_account);
         initial_state.commit(StateChangeCause::NotWritableToDisk);
 
         let mut final_state = TrieUpdate::new(trie.clone(), root);
-        let final_account = Account::new(
+        let final_account = account_new(
             initial_balance - (exec_gas + send_gas) as Balance * gas_price - deposit
                 + contract_reward,
             hash(&[]),
@@ -393,8 +392,8 @@ mod tests {
         let deposit = 1000;
 
         let mut initial_state = TrieUpdate::new(trie.clone(), root);
-        let alice = Account::new(std::u128::MAX, hash(&[]));
-        let bob = Account::new(1u128, hash(&[]));
+        let alice = account_new(std::u128::MAX, hash(&[]));
+        let bob = account_new(1u128, hash(&[]));
 
         set_account(&mut initial_state, alice_id.clone(), &alice);
         set_account(&mut initial_state, bob_id.clone(), &bob);

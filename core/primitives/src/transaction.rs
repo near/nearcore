@@ -3,15 +3,16 @@ use std::fmt;
 use std::hash::{Hash, Hasher};
 
 use borsh::{BorshDeserialize, BorshSerialize};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
-use near_crypto::{PublicKey, Signature, Signer};
+use near_crypto::{PublicKey, Signature};
 
 use crate::account::AccessKey;
 use crate::errors::TxExecutionError;
 use crate::hash::{hash, CryptoHash};
 use crate::logging;
 use crate::merkle::MerklePath;
+use crate::serialize::{base64_format, u128_dec_format_compatible};
 use crate::types::{AccountId, Balance, Gas, Nonce};
 
 pub type LogEntry = String;
@@ -42,7 +43,7 @@ impl Transaction {
     }
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Serialize, PartialEq, Eq, Debug, Clone)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
 pub enum Action {
     /// Create an (sub)account using a transaction `receiver_id` as an ID for a new account
     /// ID must pass validation rules described here http://nomicon.io/Primitives/Account.html
@@ -74,13 +75,14 @@ impl Action {
 }
 
 /// Create account action
-#[derive(BorshSerialize, BorshDeserialize, Serialize, PartialEq, Eq, Clone, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Clone, Debug)]
 pub struct CreateAccountAction {}
 
 /// Deploy contract action
-#[derive(BorshSerialize, BorshDeserialize, Serialize, PartialEq, Eq, Clone)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Clone)]
 pub struct DeployContractAction {
     /// WebAssembly binary
+    #[serde(with = "base64_format")]
     pub code: Vec<u8>,
 }
 
@@ -92,11 +94,13 @@ impl fmt::Debug for DeployContractAction {
     }
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Serialize, PartialEq, Eq, Clone)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Clone)]
 pub struct FunctionCallAction {
     pub method_name: String,
+    #[serde(with = "base64_format")]
     pub args: Vec<u8>,
     pub gas: Gas,
+    #[serde(with = "u128_dec_format_compatible")]
     pub deposit: Balance,
 }
 
@@ -111,21 +115,23 @@ impl fmt::Debug for FunctionCallAction {
     }
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Serialize, PartialEq, Eq, Clone, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Clone, Debug)]
 pub struct TransferAction {
+    #[serde(with = "u128_dec_format_compatible")]
     pub deposit: Balance,
 }
 
 /// An action which stakes singer_id tokens and setup's validator public key
-#[derive(BorshSerialize, BorshDeserialize, Serialize, PartialEq, Eq, Clone, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Clone, Debug)]
 pub struct StakeAction {
     /// Amount of tokens to stake.
+    #[serde(with = "u128_dec_format_compatible")]
     pub stake: Balance,
     /// Validator key which will be used to sign transactions on behalf of singer_id
     pub public_key: PublicKey,
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Serialize, PartialEq, Eq, Clone, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Clone, Debug)]
 pub struct AddKeyAction {
     /// A public key which will be associated with an access_key
     pub public_key: PublicKey,
@@ -133,13 +139,13 @@ pub struct AddKeyAction {
     pub access_key: AccessKey,
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Serialize, PartialEq, Eq, Clone, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Clone, Debug)]
 pub struct DeleteKeyAction {
-    ///
+    /// A public key associated with the access_key to be deleted.
     pub public_key: PublicKey,
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Serialize, PartialEq, Eq, Clone, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Clone, Debug)]
 pub struct DeleteAccountAction {
     pub beneficiary_id: AccountId,
 }
@@ -166,25 +172,6 @@ impl SignedTransaction {
 
     pub fn get_hash(&self) -> CryptoHash {
         self.hash
-    }
-
-    pub fn from_actions(
-        nonce: Nonce,
-        signer_id: AccountId,
-        receiver_id: AccountId,
-        signer: &dyn Signer,
-        actions: Vec<Action>,
-        block_hash: CryptoHash,
-    ) -> Self {
-        Transaction {
-            nonce,
-            signer_id,
-            public_key: signer.public_key(),
-            receiver_id,
-            block_hash,
-            actions,
-        }
-        .sign(signer)
     }
 }
 
@@ -340,7 +327,7 @@ mod tests {
 
     use borsh::BorshDeserialize;
 
-    use near_crypto::{InMemorySigner, KeyType, Signature};
+    use near_crypto::{InMemorySigner, KeyType, Signature, Signer};
 
     use crate::account::{AccessKeyPermission, FunctionCallPermission};
     use crate::serialize::to_base;

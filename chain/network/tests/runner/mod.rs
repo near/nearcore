@@ -13,19 +13,21 @@ use near_chain::ChainGenesis;
 use near_chain_configs::ClientConfig;
 use near_client::{ClientActor, ViewClientActor};
 use near_crypto::KeyType;
+use near_logger_utils::init_test_logger;
 use near_network::test_utils::{
-    convert_boot_nodes, expected_routing_tables, open_port, GetInfo, StopSignal, WaitOrTimeout,
+    convert_boot_nodes, expected_routing_tables, open_port, peer_id_from_seed, BanPeerSignal,
+    GetInfo, StopSignal, WaitOrTimeout,
 };
 use near_network::types::{OutboundTcpConnect, ROUTED_MESSAGE_TTL};
 use near_network::utils::blacklist_from_vec;
 use near_network::{
     NetworkConfig, NetworkRecipient, NetworkRequests, NetworkResponses, PeerInfo, PeerManagerActor,
 };
-use near_primitives::test_utils::init_test_logger;
 use near_primitives::types::{AccountId, ValidatorId};
 use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_store::test_utils::create_test_store;
 use near_telemetry::{TelemetryActor, TelemetryConfig};
+use num_rational::Rational;
 
 pub type SharedRunningInfo = Arc<RwLock<RunningInfo>>;
 
@@ -56,8 +58,17 @@ pub fn setup_network_node(
         account_id.as_str(),
     ));
     let telemetry_actor = TelemetryActor::new(TelemetryConfig::default()).start();
-    let chain_genesis =
-        ChainGenesis::new(genesis_time, 0, 1_000_000, 100, 1_000_000_000, 0, 0, 1000, 5);
+    let chain_genesis = ChainGenesis::new(
+        genesis_time,
+        0,
+        1_000_000,
+        100,
+        1_000_000_000,
+        Rational::from_integer(0),
+        Rational::from_integer(0),
+        1000,
+        5,
+    );
 
     let peer_manager = PeerManagerActor::create(move |ctx| {
         let mut client_config = ClientConfig::test(false, 100, 200, num_validators, false);
@@ -78,6 +89,7 @@ pub fn setup_network_node(
         .unwrap()
         .start();
         let view_client_actor = ViewClientActor::new(
+            config.account_id.clone(),
             &chain_genesis,
             runtime.clone(),
             network_adapter.clone(),
@@ -347,21 +359,29 @@ impl StateMachine {
 }
 
 struct TestConfig {
-    max_peer: u32,
+    max_num_peers: u32,
     routed_message_ttl: u8,
     boot_nodes: Vec<usize>,
     blacklist: HashSet<Option<usize>>,
     outbound_disabled: bool,
+    ban_window: Duration,
+    ideal_connections: Option<(u32, u32)>,
+    minimum_outbound_peers: Option<u32>,
+    safe_set_size: Option<u32>,
 }
 
 impl TestConfig {
     fn new() -> Self {
         Self {
-            max_peer: 100,
+            max_num_peers: 100,
             routed_message_ttl: ROUTED_MESSAGE_TTL,
             boot_nodes: vec![],
             blacklist: HashSet::new(),
             outbound_disabled: true,
+            ban_window: Duration::from_secs(1),
+            ideal_connections: None,
+            minimum_outbound_peers: None,
+            safe_set_size: None,
         }
     }
 }
@@ -418,10 +438,41 @@ impl Runner {
         self
     }
 
-    pub fn max_peer(mut self, max_peer: u32) -> Self {
+    pub fn ideal_connections(
+        mut self,
+        ideal_connections_lo: u32,
+        ideal_connections_hi: u32,
+    ) -> Self {
         self.apply_all(move |test_config| {
-            test_config.max_peer = max_peer;
+            test_config.ideal_connections = Some((ideal_connections_lo, ideal_connections_hi));
         });
+        self
+    }
+
+    pub fn minimum_outbound_peers(mut self, minimum_outbound_peers: u32) -> Self {
+        self.apply_all(move |test_config| {
+            test_config.minimum_outbound_peers = Some(minimum_outbound_peers);
+        });
+        self
+    }
+
+    pub fn safe_set_size(mut self, safe_set_size: u32) -> Self {
+        self.apply_all(move |test_config| {
+            test_config.minimum_outbound_peers = Some(safe_set_size);
+        });
+        self
+    }
+
+    pub fn max_num_peers(mut self, max_num_peers: u32) -> Self {
+        self.apply_all(move |test_config| {
+            test_config.max_num_peers = max_num_peers;
+        });
+        self
+    }
+
+    /// Set ban window range.
+    pub fn ban_window(mut self, ban_window: Duration) -> Self {
+        self.apply_all(move |test_config| test_config.ban_window = ban_window);
         self
     }
 
@@ -492,12 +543,22 @@ impl Runner {
         let mut network_config =
             NetworkConfig::from_seed(accounts_id[node_id].as_str(), ports[node_id].clone());
 
-        network_config.max_peer = test_config.max_peer;
+        network_config.ban_window = test_config.ban_window;
+        network_config.max_num_peers = test_config.max_num_peers;
         network_config.ttl_account_id_router = Duration::from_secs(5);
         network_config.routed_message_ttl = test_config.routed_message_ttl;
         network_config.blacklist = blacklist;
         network_config.outbound_disabled = test_config.outbound_disabled;
         network_config.boot_nodes = boot_nodes;
+
+        network_config.ideal_connections_lo =
+            test_config.ideal_connections.map_or(network_config.ideal_connections_lo, |(lo, _)| lo);
+        network_config.ideal_connections_hi =
+            test_config.ideal_connections.map_or(network_config.ideal_connections_hi, |(_, hi)| hi);
+        network_config.safe_set_size =
+            test_config.safe_set_size.unwrap_or(network_config.safe_set_size);
+        network_config.minimum_outbound_peers =
+            test_config.minimum_outbound_peers.unwrap_or(network_config.minimum_outbound_peers);
 
         setup_network_node(
             accounts_id[node_id].clone(),
@@ -586,15 +647,32 @@ impl Actor for Runner {
 
 #[derive(Message)]
 #[rtype(result = "()")]
-struct StartNode(usize);
+enum RunnerMessage {
+    StartNode(usize),
+    ChangeAccountId(usize, String),
+}
 
-impl Handler<StartNode> for Runner {
+impl Handler<RunnerMessage> for Runner {
     type Result = ();
-    fn handle(&mut self, msg: StartNode, _ctx: &mut Self::Context) -> Self::Result {
-        let node_id = msg.0;
-        let pm = self.setup_node(node_id);
-        let info = self.info.as_ref().cloned().unwrap();
-        (*info.write().unwrap()).pm_addr[node_id] = pm;
+    fn handle(&mut self, msg: RunnerMessage, _ctx: &mut Self::Context) -> Self::Result {
+        match msg {
+            RunnerMessage::StartNode(node_id) => {
+                let pm = self.setup_node(node_id);
+                let info = self.info.as_ref().cloned().unwrap();
+                let mut write_info = info.write().unwrap();
+                write_info.pm_addr[node_id] = pm;
+            }
+            RunnerMessage::ChangeAccountId(node_id, account_id) => {
+                self.accounts_id.as_mut().unwrap()[node_id] = account_id.clone();
+                let info = self.info.as_ref().cloned().unwrap();
+                let mut write_info = info.write().unwrap();
+
+                write_info.peers_info[node_id].id = peer_id_from_seed(account_id.as_str());
+                if write_info.peers_info[node_id].account_id.is_some() {
+                    write_info.peers_info[node_id].account_id = Some(account_id);
+                }
+            }
+        }
     }
 }
 
@@ -615,7 +693,6 @@ pub fn check_expected_connections(node_id: usize, expected_connections: usize) -
                     .map_err(|_| ())
                     .and_then(move |res| {
                         if res.num_active_peers >= expected_connections {
-                            println!("Total connections: {} {}", node_id, res.num_active_peers,);
                             flag.store(true, Ordering::Relaxed);
                         }
                         future::ok(())
@@ -626,7 +703,7 @@ pub fn check_expected_connections(node_id: usize, expected_connections: usize) -
     )
 }
 
-// Restart a node that was already stopped
+/// Restart a node that was already stopped.
 pub fn restart(node_id: usize) -> ActionFn {
     Box::new(
         move |_info: SharedRunningInfo,
@@ -635,7 +712,54 @@ pub fn restart(node_id: usize) -> ActionFn {
               runner: Addr<Runner>| {
             actix::spawn(
                 runner
-                    .send(StartNode(node_id))
+                    .send(RunnerMessage::StartNode(node_id))
+                    .map_err(|_| ())
+                    .and_then(move |_| {
+                        flag.store(true, Ordering::Relaxed);
+                        future::ok(())
+                    })
+                    .map(drop),
+            );
+        },
+    )
+}
+
+/// Ban peer `banned_peer` from perspective of `target_peer`.
+pub fn ban_peer(target_peer: usize, banned_peer: usize) -> ActionFn {
+    Box::new(
+        move |info: SharedRunningInfo,
+              flag: Arc<AtomicBool>,
+              _ctx: &mut Context<WaitOrTimeout>,
+              _runner| {
+            let info = info.read().unwrap();
+            let banned_peer_id = info.peers_info[banned_peer].id.clone();
+            actix::spawn(
+                info.pm_addr
+                    .get(target_peer)
+                    .unwrap()
+                    .send(BanPeerSignal::new(banned_peer_id))
+                    .map_err(|_| ())
+                    .and_then(move |_| {
+                        flag.store(true, Ordering::Relaxed);
+                        future::ok(())
+                    })
+                    .map(drop),
+            );
+        },
+    )
+}
+
+/// Change account id from a stopped peer. Notice this will also change its peer id, since
+/// peer_id is derived from account id with NetworkConfig::from_seed
+pub fn change_account_id(node_id: usize, account_id: String) -> ActionFn {
+    Box::new(
+        move |_info: SharedRunningInfo,
+              flag: Arc<AtomicBool>,
+              _ctx: &mut Context<WaitOrTimeout>,
+              runner: Addr<Runner>| {
+            actix::spawn(
+                runner
+                    .send(RunnerMessage::ChangeAccountId(node_id, account_id.clone()))
                     .map_err(|_| ())
                     .and_then(move |_| {
                         flag.store(true, Ordering::Relaxed);

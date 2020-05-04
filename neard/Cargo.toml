@@ -5,9 +5,9 @@ authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2018"
 
 [dependencies]
-actix = "0.9.0"
+actix = "0.9"
 byteorder = "1.2"
-easy-ext = "0.1"
+easy-ext = "0.2"
 rocksdb = "0.13"
 log = "0.4"
 env_logger = "0.7"
@@ -16,15 +16,16 @@ git-version = "0.3.1"
 futures = "0.3"
 clap = "2.32"
 rand = "0.7"
-serde = "1.0"
-serde_derive = "1.0"
-serde_json = "1.0"
+serde = { version = "1", features = [ "derive" ] }
+serde_json = "1"
 lazy_static = "1.4"
 dirs = "2.0.2"
 borsh = "0.6.1"
-tracing = "0.1"
-tracing-subscriber = "0.1.6"
+tracing = "0.1.13"
+tracing-subscriber = "0.2.4"
+num-rational = { version = "0.2.4", features = ["serde"] }
 
+near-actix-utils = { path = "../utils/actix" }
 near-crypto = { path = "../core/crypto" }
 near-primitives = { path = "../core/primitives" }
 near-chain-configs = { path = "../core/chain-configs" }
@@ -41,7 +42,8 @@ near-telemetry = { path = "../chain/telemetry" }
 near-epoch-manager = { path = "../chain/epoch_manager" }
 
 [dev-dependencies]
-tempdir = "0.3"
+near-logger-utils = { path = "../test-utils/logger" }
+tempfile = "3"
 testlib = { path = "../test-utils/testlib" }
 
 [features]

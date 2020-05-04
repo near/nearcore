@@ -7,8 +7,9 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use cached::{Cached, SizedCache};
 use chrono::Utc;
 use serde::Serialize;
+use tracing::debug;
 
-use near_primitives::block::{Approval, BlockScore};
+use near_primitives::block::Approval;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::MerklePath;
@@ -30,11 +31,10 @@ use near_store::{
     read_with_cache, ColBlock, ColBlockExtra, ColBlockHeader, ColBlockHeight, ColBlockMisc,
     ColBlockPerHeight, ColBlockRefCount, ColBlocksToCatchup, ColChallengedBlocks, ColChunkExtra,
     ColChunkPerHeightShard, ColChunks, ColEpochLightClientBlocks, ColIncomingReceipts,
-    ColInvalidChunks, ColLastApprovalPerAccount, ColLastBlockWithNewChunk,
-    ColMyLastApprovalsPerChain, ColNextBlockHashes, ColNextBlockWithNewChunk, ColOutgoingReceipts,
-    ColPartialChunks, ColReceiptIdToShardId, ColStateChanges, ColStateDlInfos, ColStateHeaders,
-    ColTransactionResult, ColTransactions, ColTrieChanges, KeyForStateChanges, Store, StoreUpdate,
-    Trie, TrieChanges, WrappedTrieChanges,
+    ColInvalidChunks, ColLastBlockWithNewChunk, ColNextBlockHashes, ColNextBlockWithNewChunk,
+    ColOutgoingReceipts, ColPartialChunks, ColReceiptIdToShardId, ColState, ColStateChanges,
+    ColStateDlInfos, ColStateHeaders, ColTransactionResult, ColTransactions, ColTrieChanges,
+    KeyForStateChanges, Store, StoreUpdate, Trie, TrieChanges, WrappedTrieChanges,
 };
 
 use crate::byzantine_assert;
@@ -46,10 +46,7 @@ const TAIL_KEY: &[u8; 4] = b"TAIL";
 const SYNC_HEAD_KEY: &[u8; 9] = b"SYNC_HEAD";
 const HEADER_HEAD_KEY: &[u8; 11] = b"HEADER_HEAD";
 const LATEST_KNOWN_KEY: &[u8; 12] = b"LATEST_KNOWN";
-const LARGEST_APPROVED_HEIGHT_KEY: &[u8; 23] = b"LARGEST_APPROVED_HEIGHT";
-const LARGEST_APPROVED_SCORE_KEY: &[u8; 22] = b"LARGEST_APPROVED_SCORE";
-const LARGEST_ENDORSED_HEIGHT_KEY: &[u8; 23] = b"LARGEST_ENDORSED_HEIGHT";
-const LARGEST_SKIPPED_HEIGHT_KEY: &[u8; 22] = b"LARGEST_SKIPPED_HEIGHT";
+const LARGEST_TARGET_HEIGHT_KEY: &[u8; 21] = b"LARGEST_TARGET_HEIGHT";
 
 /// lru cache size
 const CACHE_SIZE: usize = 100;
@@ -57,6 +54,13 @@ const CHUNK_CACHE_SIZE: usize = 1024;
 
 #[derive(Debug, PartialEq, BorshSerialize, BorshDeserialize, Serialize)]
 pub struct ShardInfo(pub ShardId, pub ChunkHash);
+
+#[derive(Clone)]
+pub enum GCMode {
+    Fork(Arc<Trie>),
+    Canonical(Arc<Trie>),
+    StateSync,
+}
 
 fn get_block_shard_id(block_hash: &CryptoHash, shard_id: ShardId) -> Vec<u8> {
     let mut res = Vec::with_capacity(40);
@@ -95,12 +99,8 @@ pub trait ChainStoreAccess {
     fn sync_head(&self) -> Result<Tip, Error>;
     /// Header of the block at the head of the block chain (not the same thing as header_head).
     fn head_header(&mut self) -> Result<&BlockHeader, Error>;
-    /// Largest score and height for which the approval was ever created
-    fn largest_approved_height(&self) -> Result<BlockHeight, Error>;
-    fn largest_approved_score(&self) -> Result<BlockScore, Error>;
-    /// Doomslug-related values
-    fn largest_endorsed_height(&self) -> Result<BlockHeight, Error>;
-    fn largest_skipped_height(&self) -> Result<BlockHeight, Error>;
+    /// Larget approval target height sent by us
+    fn largest_target_height(&self) -> Result<BlockHeight, Error>;
     /// Get full block.
     fn get_block(&mut self, h: &CryptoHash) -> Result<&Block, Error>;
     /// Get full chunk.
@@ -188,11 +188,6 @@ pub trait ChainStoreAccess {
         }
         self.get_block_header(&hash)
     }
-    /// Returns resulting receipt for given block.
-    fn get_my_last_approval(&mut self, block_hash: &CryptoHash) -> Result<&Approval, Error>;
-    /// Returns resulting receipt for given block.
-    fn get_last_approval_for_account(&mut self, account_id: &AccountId)
-        -> Result<&Approval, Error>;
     /// Returns resulting receipt for given block.
     fn get_outgoing_receipts(
         &mut self,
@@ -432,7 +427,7 @@ impl ChainStore {
         // whether the base block is the same as the one with that height on the canonical fork.
         // Otherwise we walk back the chain to check whether base block is on the same chain.
         let last_final_height = self
-            .get_block_height(&prev_block_header.inner_rest.last_quorum_pre_commit)
+            .get_block_height(&prev_block_header.inner_rest.last_final_block)
             .map_err(|_| InvalidTxError::InvalidChain)?;
 
         if prev_height > base_height + validity_period {
@@ -498,34 +493,9 @@ impl ChainStoreAccess for ChainStore {
         self.get_block_header(&self.head()?.last_block_hash)
     }
 
-    /// Largest height for which the approval was ever created
-    fn largest_approved_height(&self) -> Result<BlockHeight, Error> {
-        option_to_not_found(
-            self.store.get_ser(ColBlockMisc, LARGEST_APPROVED_HEIGHT_KEY),
-            "LARGEST_APPROVED_WEIGHT_KEY",
-        )
-    }
-
-    /// Largest score for which the approval was ever created
-    fn largest_approved_score(&self) -> Result<BlockScore, Error> {
-        option_to_not_found(
-            self.store.get_ser(ColBlockMisc, LARGEST_APPROVED_SCORE_KEY),
-            "LARGEST_APPROVED_SCORE_KEY",
-        )
-    }
-
     /// Largest height for which we created a doomslug endorsement
-    fn largest_endorsed_height(&self) -> Result<BlockHeight, Error> {
-        match self.store.get_ser(ColBlockMisc, LARGEST_ENDORSED_HEIGHT_KEY) {
-            Ok(Some(o)) => Ok(o),
-            Ok(None) => Ok(0),
-            Err(e) => Err(e.into()),
-        }
-    }
-
-    /// Largest height for which we created a doomslug skip-message
-    fn largest_skipped_height(&self) -> Result<BlockHeight, Error> {
-        match self.store.get_ser(ColBlockMisc, LARGEST_SKIPPED_HEIGHT_KEY) {
+    fn largest_target_height(&self) -> Result<BlockHeight, Error> {
+        match self.store.get_ser(ColBlockMisc, LARGEST_TARGET_HEIGHT_KEY) {
             Ok(Some(o)) => Ok(o),
             Ok(None) => Ok(0),
             Err(e) => Err(e.into()),
@@ -539,10 +509,44 @@ impl ChainStoreAccess for ChainStore {
 
     /// Get full block.
     fn get_block(&mut self, h: &CryptoHash) -> Result<&Block, Error> {
-        option_to_not_found(
+        let block_result = option_to_not_found(
             read_with_cache(&*self.store, ColBlock, &mut self.blocks, h.as_ref()),
             &format!("BLOCK: {}", h),
-        )
+        );
+        match block_result {
+            Ok(block) => Ok(block),
+            Err(e) => match e.kind() {
+                ErrorKind::DBNotFoundErr(_) => {
+                    let block_header_result = read_with_cache(
+                        &*self.store,
+                        ColBlockHeader,
+                        &mut self.headers,
+                        h.as_ref(),
+                    );
+                    match block_header_result {
+                        Ok(Some(_)) => Err(ErrorKind::BlockMissing(h.clone()).into()),
+                        Ok(None) => Err(e),
+                        Err(header_error) => {
+                            debug_assert!(
+                                false,
+                                "If the block was not found, the block header may either \
+                                exist or not found as well, instead the error was returned {:?}",
+                                header_error
+                            );
+                            debug!(
+                                target: "store",
+                                "If the block was not found, the block header may either \
+                                exist or not found as well, instead the error was returned {:?}. \
+                                This is not expected to happen, but it is not a fatal error.",
+                                header_error
+                            );
+                            Err(e)
+                        }
+                    }
+                }
+                _ => Err(e),
+            },
+        }
     }
 
     /// Get full chunk.
@@ -699,33 +703,6 @@ impl ChainStoreAccess for ChainStore {
                 &get_height_shard_id(height, shard_id),
             ),
             &format!("CHUNK PER HEIGHT AND SHARD ID: {} {}", height, shard_id),
-        )
-    }
-
-    fn get_my_last_approval(&mut self, block_hash: &CryptoHash) -> Result<&Approval, Error> {
-        option_to_not_found(
-            read_with_cache(
-                &*self.store,
-                ColMyLastApprovalsPerChain,
-                &mut self.my_last_approvals,
-                block_hash.as_ref(),
-            ),
-            &format!("MY LAST APPROVAL: {}", block_hash),
-        )
-    }
-
-    fn get_last_approval_for_account(
-        &mut self,
-        account_id: &AccountId,
-    ) -> Result<&Approval, Error> {
-        option_to_not_found(
-            read_with_cache(
-                &*self.store,
-                ColLastApprovalPerAccount,
-                &mut self.last_approvals_per_account,
-                account_id.as_ref(),
-            ),
-            &format!("LAST APPROVAL FOR ACCOUNT: {}", account_id),
         )
     }
 
@@ -1052,10 +1029,7 @@ pub struct ChainStoreUpdate<'a> {
     tail: Option<BlockHeight>,
     header_head: Option<Tip>,
     sync_head: Option<Tip>,
-    largest_approved_height: Option<BlockHeight>,
-    largest_approved_score: Option<BlockScore>,
-    largest_endorsed_height: Option<BlockHeight>,
-    largest_skipped_height: Option<BlockHeight>,
+    largest_target_height: Option<BlockHeight>,
     trie_changes: Vec<WrappedTrieChanges>,
     add_blocks_to_catchup: Vec<(CryptoHash, CryptoHash)>,
     // A pair (prev_hash, hash) to be removed from blocks to catchup
@@ -1077,10 +1051,7 @@ impl<'a> ChainStoreUpdate<'a> {
             tail: None,
             header_head: None,
             sync_head: None,
-            largest_approved_height: None,
-            largest_approved_score: None,
-            largest_endorsed_height: None,
-            largest_skipped_height: None,
+            largest_target_height: None,
             trie_changes: vec![],
             add_blocks_to_catchup: vec![],
             remove_blocks_to_catchup: vec![],
@@ -1174,35 +1145,11 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
         }
     }
 
-    fn largest_approved_height(&self) -> Result<BlockHeight, Error> {
-        if let Some(largest_approved_height) = &self.largest_approved_height {
-            Ok(largest_approved_height.clone())
+    fn largest_target_height(&self) -> Result<BlockHeight, Error> {
+        if let Some(largest_target_height) = &self.largest_target_height {
+            Ok(largest_target_height.clone())
         } else {
-            self.chain_store.largest_approved_height()
-        }
-    }
-
-    fn largest_approved_score(&self) -> Result<BlockScore, Error> {
-        if let Some(largest_approved_score) = &self.largest_approved_score {
-            Ok(largest_approved_score.clone())
-        } else {
-            self.chain_store.largest_approved_score()
-        }
-    }
-
-    fn largest_endorsed_height(&self) -> Result<BlockHeight, Error> {
-        if let Some(largest_endorsed_height) = &self.largest_endorsed_height {
-            Ok(largest_endorsed_height.clone())
-        } else {
-            self.chain_store.largest_endorsed_height()
-        }
-    }
-
-    fn largest_skipped_height(&self) -> Result<BlockHeight, Error> {
-        if let Some(largest_skipped_height) = &self.largest_skipped_height {
-            Ok(largest_skipped_height.clone())
-        } else {
-            self.chain_store.largest_skipped_height()
+            self.chain_store.largest_target_height()
         }
     }
 
@@ -1322,27 +1269,6 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
             Ok(light_client_block)
         } else {
             self.chain_store.get_epoch_light_client_block(hash)
-        }
-    }
-
-    fn get_my_last_approval(&mut self, block_hash: &CryptoHash) -> Result<&Approval, Error> {
-        if let Some(approval) = self.chain_store_cache_update.my_last_approvals.get(block_hash) {
-            Ok(approval)
-        } else {
-            self.chain_store.get_my_last_approval(block_hash)
-        }
-    }
-
-    fn get_last_approval_for_account(
-        &mut self,
-        account_id: &AccountId,
-    ) -> Result<&Approval, Error> {
-        if let Some(approval) =
-            self.chain_store_cache_update.last_approvals_per_account.get(account_id)
-        {
-            Ok(approval)
-        } else {
-            self.chain_store.get_last_approval_for_account(account_id)
         }
     }
 
@@ -1595,20 +1521,8 @@ impl<'a> ChainStoreUpdate<'a> {
         self.sync_head = Some(t.clone());
     }
 
-    pub fn save_largest_approved_height(&mut self, height: &BlockHeight) {
-        self.largest_approved_height = Some(height.clone());
-    }
-
-    pub fn save_largest_approved_score(&mut self, score: &BlockScore) {
-        self.largest_approved_score = Some(score.clone());
-    }
-
-    pub fn save_largest_endorsed_height(&mut self, height: &BlockHeight) {
-        self.largest_endorsed_height = Some(height.clone());
-    }
-
-    pub fn save_largest_skipped_height(&mut self, height: &BlockHeight) {
-        self.largest_skipped_height = Some(height.clone());
+    pub fn save_largest_target_height(&mut self, height: &BlockHeight) {
+        self.largest_target_height = Some(height.clone());
     }
 
     /// Save new height if it's above currently latest known.
@@ -1677,22 +1591,6 @@ impl<'a> ChainStoreUpdate<'a> {
         self.chain_store_cache_update
             .epoch_light_client_blocks
             .insert(epoch_hash.clone(), light_client_block);
-    }
-
-    pub fn save_my_last_approval_with_reference_hash(
-        &mut self,
-        block_hash: &CryptoHash,
-        approval: Approval,
-    ) {
-        if approval.reference_hash.is_some() {
-            self.chain_store_cache_update.my_last_approvals.insert(block_hash.clone(), approval);
-        }
-    }
-
-    pub fn save_last_approval_for_account(&mut self, account_id: &AccountId, approval: Approval) {
-        self.chain_store_cache_update
-            .last_approvals_per_account
-            .insert(account_id.clone(), approval);
     }
 
     pub fn save_outgoing_receipt(
@@ -1824,46 +1722,54 @@ impl<'a> ChainStoreUpdate<'a> {
         self.tail = Some(height);
     }
 
+    pub fn clear_state_data(&mut self) {
+        let mut store_update = self.store().store_update();
+
+        let stored_state = self.chain_store.store().iter_prefix(ColState, &[]);
+        for (key, _) in stored_state {
+            store_update.delete(ColState, key.as_ref());
+        }
+        self.merge(store_update);
+    }
+
     // Clearing block data of `block_hash`, if on a fork.
     // Clearing block data of `block_hash.prev`, if on the Canonical Chain.
     pub fn clear_block_data(
         &mut self,
-        trie: Arc<Trie>,
         mut block_hash: CryptoHash,
-        is_fork: bool,
+        gc_mode: GCMode,
     ) -> Result<(), Error> {
-        let header = self
-            .get_block_header(&block_hash)
-            .expect("block data is not expected to be already cleaned")
-            .clone();
-        // Broken GC prerequisites found
-        assert_ne!(header.inner_lite.height, self.get_genesis_height());
-
         let mut store_update = self.store().store_update();
 
         // 1. Apply revert insertions or deletions from ColTrieChanges for Trie
-        if is_fork {
-            // If the block is on a fork, we delete the state that's the result of applying this block
-            self.store()
-                .get_ser(ColTrieChanges, block_hash.as_ref())?
-                .map(|trie_changes: TrieChanges| {
-                    trie_changes
-                        .revert_insertions_into(trie.clone(), &mut store_update)
-                        .map_err(|err| ErrorKind::Other(err.to_string()))
-                })
-                .unwrap_or(Ok(()))?;
-        } else {
-            // If the block is on canonical chain, we delete the state that's before applying this block
-            self.store()
-                .get_ser(ColTrieChanges, block_hash.as_ref())?
-                .map(|trie_changes: TrieChanges| {
-                    trie_changes
-                        .deletions_into(trie.clone(), &mut store_update)
-                        .map_err(|err| ErrorKind::Other(err.to_string()))
-                })
-                .unwrap_or(Ok(()))?;
-            // Set `block_hash` on previous one
-            block_hash = self.get_block_header(&block_hash)?.prev_hash;
+        match gc_mode.clone() {
+            GCMode::Fork(trie) => {
+                // If the block is on a fork, we delete the state that's the result of applying this block
+                self.store()
+                    .get_ser(ColTrieChanges, block_hash.as_ref())?
+                    .map(|trie_changes: TrieChanges| {
+                        trie_changes
+                            .revert_insertions_into(trie.clone(), &mut store_update)
+                            .map_err(|err| ErrorKind::Other(err.to_string()))
+                    })
+                    .unwrap_or(Ok(()))?;
+            }
+            GCMode::Canonical(trie) => {
+                // If the block is on canonical chain, we delete the state that's before applying this block
+                self.store()
+                    .get_ser(ColTrieChanges, block_hash.as_ref())?
+                    .map(|trie_changes: TrieChanges| {
+                        trie_changes
+                            .deletions_into(trie.clone(), &mut store_update)
+                            .map_err(|err| ErrorKind::Other(err.to_string()))
+                    })
+                    .unwrap_or(Ok(()))?;
+                // Set `block_hash` on previous one
+                block_hash = self.get_block_header(&block_hash)?.prev_hash;
+            }
+            GCMode::StateSync => {
+                // Do nothing here
+            }
         }
 
         let block = self
@@ -1872,8 +1778,12 @@ impl<'a> ChainStoreUpdate<'a> {
             .clone();
         let height = block.header.inner_lite.height;
         if height == self.get_genesis_height() {
-            // Broken GC prerequisites found
-            assert!(!is_fork);
+            if let GCMode::Fork(_) = gc_mode {
+                // Broken GC prerequisites found
+                assert!(false);
+            }
+            // Don't clean Genesis Block
+            self.merge(store_update);
             return Ok(());
         }
 
@@ -1952,78 +1862,85 @@ impl<'a> ChainStoreUpdate<'a> {
         // 4d. Delete from next_block_hashes (ColNextBlockHashes)
         store_update.delete(ColNextBlockHashes, block_hash_ref);
         self.chain_store.next_block_hashes.cache_remove(&block_hash.into());
-        // 4e. Delete from my_last_approvals (ColMyLastApprovalsPerChain)
-        store_update.delete(ColMyLastApprovalsPerChain, block_hash_ref);
-        self.chain_store.my_last_approvals.cache_remove(&block_hash.into());
-        // 4f. Delete from ColChallengedBlocks
+        // 4e. Delete from ColChallengedBlocks
         store_update.delete(ColChallengedBlocks, block_hash_ref);
-        // 4g. Delete from ColBlocksToCatchup
+        // 4f. Delete from ColBlocksToCatchup
         store_update.delete(ColBlocksToCatchup, block_hash_ref);
-        // 4h. Delete from KV state changes
+        // 4g. Delete from KV state changes
         let storage_key = KeyForStateChanges::get_prefix(&block_hash);
-        // 4h1. We should collect all the keys which key prefix equals to `block_hash`
+        // 4g1. We should collect all the keys which key prefix equals to `block_hash`
         let stored_state_changes =
             self.chain_store.store().iter_prefix(ColStateChanges, storage_key.as_ref());
-        // 4h2. Remove from ColStateChanges all found State Changes
+        // 4g2. Remove from ColStateChanges all found State Changes
         for (key, _) in stored_state_changes {
             store_update.delete(ColStateChanges, key.as_ref());
         }
-        // 4i. Delete from ColBlockRefCount
+        // 4h. Delete from ColBlockRefCount
         store_update.delete(ColBlockRefCount, block_hash_ref);
         self.chain_store.block_refcounts.cache_remove(&block_hash.into());
 
-        if is_fork {
-            // 5. Forks only clearing
-            // 5a. Update block_hash_per_height
-            let epoch_to_hashes_ref =
-                self.get_all_block_hashes_by_height(height).expect("current height exists");
-            let mut epoch_to_hashes = epoch_to_hashes_ref.clone();
-            let hashes = epoch_to_hashes
-                .get_mut(&block.header.inner_lite.epoch_id)
-                .expect("current epoch id should exist");
-            hashes.remove(&block_hash);
-            store_update.set_ser(ColBlockPerHeight, &index_to_bytes(height), &epoch_to_hashes)?;
-            self.chain_store
-                .block_hash_per_height
-                .cache_set(index_to_bytes(height), epoch_to_hashes);
-            // 5b. Decreasing block refcount
-            self.dec_block_refcount(&block.header.prev_hash)?;
-        } else {
-            // 6. Canonical Chain only clearing
-            // 6a. Delete blocks with current height (ColBlockPerHeight)
-            store_update.delete(ColBlockPerHeight, &index_to_bytes(height));
-            self.chain_store.block_hash_per_height.cache_remove(&index_to_bytes(height));
-            // 6b. Delete from ColBlockHeight - don't do because: block sync needs it + genesis should be accessible
-        }
+        match gc_mode {
+            GCMode::Fork(_) => {
+                // 5. Forks only clearing
+                // 5a. Update block_hash_per_height
+                let epoch_to_hashes_ref =
+                    self.get_all_block_hashes_by_height(height).expect("current height exists");
+                let mut epoch_to_hashes = epoch_to_hashes_ref.clone();
+                let hashes = epoch_to_hashes
+                    .get_mut(&block.header.inner_lite.epoch_id)
+                    .expect("current epoch id should exist");
+                hashes.remove(&block_hash);
+                store_update.set_ser(
+                    ColBlockPerHeight,
+                    &index_to_bytes(height),
+                    &epoch_to_hashes,
+                )?;
+                self.chain_store
+                    .block_hash_per_height
+                    .cache_set(index_to_bytes(height), epoch_to_hashes);
+                // 5b. Decreasing block refcount
+                self.dec_block_refcount(&block.header.prev_hash)?;
+            }
+            GCMode::Canonical(_) => {
+                // 6. Canonical Chain only clearing
+                // 6a. Delete blocks with current height (ColBlockPerHeight)
+                store_update.delete(ColBlockPerHeight, &index_to_bytes(height));
+                self.chain_store.block_hash_per_height.cache_remove(&index_to_bytes(height));
+                // 6b. Delete from ColBlockHeight - don't do because: block sync needs it + genesis should be accessible
+            }
+            GCMode::StateSync => {
+                // 7. Post State Sync clearing
+                // 7a. Delete blocks with current height (ColBlockPerHeight) - that's fine to do it multiple times
+                store_update.delete(ColBlockPerHeight, &index_to_bytes(height));
+                self.chain_store.block_hash_per_height.cache_remove(&index_to_bytes(height));
+            }
+        };
         self.merge(store_update);
         Ok(())
     }
 
     pub fn clear_forks_data(&mut self, trie: Arc<Trie>, height: BlockHeight) -> Result<(), Error> {
-        let blocks_current_height = match self.get_all_block_hashes_by_height(height) {
-            Ok(blocks_current_height) => {
-                blocks_current_height.values().flatten().cloned().collect()
-            }
-            _ => vec![],
-        };
+        if let Ok(blocks_current_height) = self.get_all_block_hashes_by_height(height) {
+            let blocks_current_height =
+                blocks_current_height.values().flatten().cloned().collect::<Vec<_>>();
+            for block_hash in blocks_current_height.iter() {
+                let mut current_hash = *block_hash;
+                loop {
+                    // Block `block_hash` is not on the Canonical Chain
+                    // because shorter chain cannot be Canonical one
+                    // and it may be safely deleted
+                    // and all its ancestors while there are no other sibling blocks rely on it.
+                    if *self.get_block_refcount(&current_hash)? == 0 {
+                        let prev_hash = self.get_block_header(&current_hash)?.prev_hash;
 
-        for block_hash in blocks_current_height.iter() {
-            let mut current_hash = *block_hash;
-            loop {
-                // Block `block_hash` is not on the Canonical Chain
-                // because shorter chain cannot be Canonical one
-                // and it may be safely deleted
-                // and all its ancestors while there are no other sibling blocks rely on it.
-                if *self.get_block_refcount(&current_hash)? == 0 {
-                    let prev_hash = self.get_block_header(&current_hash)?.prev_hash;
+                        // It's safe to call `clear_block_data` for prev data because it clears fork only here
+                        self.clear_block_data(current_hash, GCMode::Fork(trie.clone()))?;
 
-                    // It's safe to call `clear_block_data` for prev data because it clears fork only here
-                    self.clear_block_data(trie.clone(), current_hash, true)?;
-
-                    current_hash = prev_hash;
-                } else {
-                    // Block of `current_hash` is an ancestor for some other blocks, stopping
-                    break;
+                        current_hash = prev_hash;
+                    } else {
+                        // Block of `current_hash` is an ancestor for some other blocks, stopping
+                        break;
+                    }
                 }
             }
         }
@@ -2054,24 +1971,9 @@ impl<'a> ChainStoreUpdate<'a> {
                 .set_ser(ColBlockMisc, SYNC_HEAD_KEY, &t)
                 .map_err::<Error, _>(|e| e.into())?;
         }
-        if let Some(t) = self.largest_approved_height {
+        if let Some(t) = self.largest_target_height {
             store_update
-                .set_ser(ColBlockMisc, LARGEST_APPROVED_HEIGHT_KEY, &t)
-                .map_err::<Error, _>(|e| e.into())?;
-        }
-        if let Some(t) = self.largest_approved_score {
-            store_update
-                .set_ser(ColBlockMisc, LARGEST_APPROVED_SCORE_KEY, &t)
-                .map_err::<Error, _>(|e| e.into())?;
-        }
-        if let Some(t) = self.largest_endorsed_height {
-            store_update
-                .set_ser(ColBlockMisc, LARGEST_ENDORSED_HEIGHT_KEY, &t)
-                .map_err::<Error, _>(|e| e.into())?;
-        }
-        if let Some(t) = self.largest_skipped_height {
-            store_update
-                .set_ser(ColBlockMisc, LARGEST_SKIPPED_HEIGHT_KEY, &t)
+                .set_ser(ColBlockMisc, LARGEST_TARGET_HEIGHT_KEY, &t)
                 .map_err::<Error, _>(|e| e.into())?;
         }
         for (hash, block) in self.chain_store_cache_update.blocks.iter() {
@@ -2150,14 +2052,6 @@ impl<'a> ChainStoreUpdate<'a> {
                 epoch_hash.as_ref(),
                 light_client_block,
             )?;
-        }
-        for (block_hash, approval) in self.chain_store_cache_update.my_last_approvals.iter() {
-            store_update.set_ser(ColMyLastApprovalsPerChain, block_hash.as_ref(), approval)?;
-        }
-        for (account_id, approval) in
-            self.chain_store_cache_update.last_approvals_per_account.iter()
-        {
-            store_update.set_ser(ColLastApprovalPerAccount, account_id.as_ref(), approval)?;
         }
         for ((block_hash, shard_id), receipt) in
             self.chain_store_cache_update.outgoing_receipts.iter()
@@ -2422,7 +2316,7 @@ mod tests {
     use near_store::test_utils::create_test_store;
 
     use crate::chain::{check_refcount_map, MAX_HEIGHTS_TO_CLEAR};
-    use crate::store::ChainStoreAccess;
+    use crate::store::{ChainStoreAccess, GCMode};
     use crate::test_utils::KeyValueRuntime;
     use crate::{Chain, ChainGenesis, DoomslugThresholdMode, Tip};
 
@@ -2475,6 +2369,9 @@ mod tests {
             let block = Block::empty_with_height(&prev_block, i, &*signer.clone());
             prev_block = block.clone();
             store_update.save_block_header(block.header.clone());
+            store_update
+                .update_height_if_not_challenged(block.header.inner_lite.height, block.hash())
+                .unwrap();
             long_fork.push(block);
         }
         store_update.commit().unwrap();
@@ -2513,6 +2410,9 @@ mod tests {
             let block = Block::empty_with_height(&prev_block, i, &*signer.clone());
             prev_block = block.clone();
             store_update.save_block_header(block.header.clone());
+            store_update
+                .update_height_if_not_challenged(block.header.inner_lite.height, block.hash())
+                .unwrap();
             blocks.push(block);
         }
         store_update.commit().unwrap();
@@ -2533,6 +2433,9 @@ mod tests {
         );
         let mut store_update = chain.mut_store().store_update();
         store_update.save_block_header(new_block.header.clone());
+        store_update
+            .update_height_if_not_challenged(new_block.header.inner_lite.height, new_block.hash())
+            .unwrap();
         store_update.commit().unwrap();
         assert_eq!(
             chain.mut_store().check_transaction_validity_period(
@@ -2644,7 +2547,6 @@ mod tests {
         for i in 1..15 {
             let block = Block::empty_with_height(&prev_block, i, &*signer.clone());
             blocks.push(block.clone());
-
             let mut store_update = chain.mut_store().store_update();
             store_update.save_block(block.clone());
             store_update.inc_block_refcount(&block.header.prev_hash).unwrap();
@@ -2701,7 +2603,6 @@ mod tests {
             store_update.inc_block_refcount(&block.header.prev_hash).unwrap();
             store_update.save_head(&Tip::from_header(&block.header)).unwrap();
             store_update.save_block_header(block.header.clone());
-            //block_hash_per_height.
             store_update
                 .chain_store_cache_update
                 .height_to_hashes
@@ -2731,7 +2632,7 @@ mod tests {
 
         let trie = chain.runtime_adapter.get_trie();
         let mut store_update = chain.mut_store().store_update();
-        assert!(store_update.clear_block_data(trie, blocks[5].hash(), false).is_ok());
+        assert!(store_update.clear_block_data(blocks[5].hash(), GCMode::Canonical(trie)).is_ok());
         store_update.commit().unwrap();
 
         assert!(chain.get_block(&blocks[4].hash()).is_err());

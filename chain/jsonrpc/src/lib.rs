@@ -22,7 +22,7 @@ use near_chain_configs::Genesis;
 use near_client::{
     ClientActor, GetBlock, GetChunk, GetGasPrice, GetNetworkInfo, GetNextLightClientBlock,
     GetStateChanges, GetStateChangesInBlock, GetValidatorInfo, Query, Status, TxStatus,
-    ViewClientActor,
+    TxStatusError, ViewClientActor,
 };
 use near_crypto::PublicKey;
 pub use near_jsonrpc_client as client;
@@ -35,14 +35,15 @@ use near_network::{NetworkClientMessages, NetworkClientResponses};
 use near_primitives::errors::{InvalidTxError, TxExecutionError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::rpc::{
-    RpcGenesisRecordsRequest, RpcQueryRequest, RpcStateChangesInBlockRequest,
-    RpcStateChangesInBlockResponse, RpcStateChangesRequest, RpcStateChangesResponse,
+    RpcBroadcastTxSyncResponse, RpcGenesisRecordsRequest, RpcQueryRequest,
+    RpcStateChangesInBlockRequest, RpcStateChangesInBlockResponse, RpcStateChangesRequest,
+    RpcStateChangesResponse,
 };
 use near_primitives::serialize::{from_base, from_base64, BaseEncode};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockId, BlockIdOrFinality, MaybeBlockId};
 use near_primitives::utils::is_valid_account_id;
-use near_primitives::views::{FinalExecutionStatus, GenesisRecordsView, QueryRequest};
+use near_primitives::views::{FinalExecutionOutcomeView, GenesisRecordsView, QueryRequest};
 
 mod metrics;
 
@@ -129,6 +130,7 @@ pub enum ServerError {
     TxExecutionError(TxExecutionError),
     Timeout,
     Closed,
+    InternalError,
 }
 
 impl Display for ServerError {
@@ -137,6 +139,7 @@ impl Display for ServerError {
             ServerError::TxExecutionError(e) => write!(f, "ServerError: {}", e),
             ServerError::Timeout => write!(f, "ServerError: Timeout"),
             ServerError::Closed => write!(f, "ServerError: Closed"),
+            ServerError::InternalError => write!(f, "ServerError: Internal Error"),
         }
     }
 }
@@ -208,7 +211,9 @@ impl JsonRpcHandler {
 
         match request.method.as_ref() {
             "broadcast_tx_async" => self.send_tx_async(request.params).await,
+            "EXPERIMENTAL_broadcast_tx_sync" => self.send_tx_sync(request.params).await,
             "broadcast_tx_commit" => self.send_tx_commit(request.params).await,
+            "EXPERIMENTAL_check_tx" => self.check_tx(request.params).await,
             "validators" => self.validators(request.params).await,
             "query" => self.query(request.params).await,
             "health" => self.health().await,
@@ -230,12 +235,36 @@ impl JsonRpcHandler {
     async fn send_tx_async(&self, params: Option<Value>) -> Result<Value, RpcError> {
         let tx = parse_tx(params)?;
         let hash = (&tx.get_hash()).to_base();
-        actix::spawn(
-            self.client_addr
-                .send(NetworkClientMessages::Transaction { transaction: tx, is_forwarded: false })
-                .map(drop),
-        );
+        self.client_addr.do_send(NetworkClientMessages::Transaction {
+            transaction: tx,
+            is_forwarded: false,
+            check_only: false,
+        });
         Ok(Value::String(hash))
+    }
+
+    async fn tx_status_fetch(
+        &self,
+        tx_hash: CryptoHash,
+        account_id: AccountId,
+    ) -> Result<FinalExecutionOutcomeView, TxStatusError> {
+        timeout(self.polling_config.polling_timeout, async {
+            loop {
+                let tx_status_result = self
+                    .view_client_addr
+                    .send(TxStatus { tx_hash, signer_account_id: account_id.clone() })
+                    .await;
+                match tx_status_result {
+                    Ok(Ok(Some(outcome))) => break Ok(outcome),
+                    Ok(Ok(None)) => {}
+                    Ok(Err(err)) => break Err(err),
+                    Err(_) => break Err(TxStatusError::InternalError),
+                }
+                let _ = delay_for(self.polling_config.polling_interval).await;
+            }
+        })
+        .await
+        .map_err(|_| TxStatusError::TimeoutError)?
     }
 
     async fn tx_polling(
@@ -245,18 +274,12 @@ impl JsonRpcHandler {
     ) -> Result<Value, RpcError> {
         timeout(self.polling_config.polling_timeout, async {
             loop {
-                let final_tx = self
-                    .view_client_addr
-                    .send(TxStatus { tx_hash, signer_account_id: account_id.clone() })
-                    .await;
-                if let Ok(Ok(Some(ref tx_result))) = final_tx {
-                    match tx_result.status {
-                        FinalExecutionStatus::Started | FinalExecutionStatus::NotStarted => {}
-                        FinalExecutionStatus::Failure(_)
-                        | FinalExecutionStatus::SuccessValue(_) => {
-                            break jsonify(final_tx);
-                        }
-                    }
+                match self.tx_status_fetch(tx_hash, account_id.clone()).await {
+                    Ok(tx_status) => break jsonify(Ok(Ok(tx_status))),
+                    // If transaction is missing, keep polling.
+                    Err(TxStatusError::MissingTransaction(_)) => {}
+                    // If we hit any other error, we return to the user.
+                    Err(err) => break jsonify::<FinalExecutionOutcomeView>(Ok(Err(err.into()))),
                 }
                 let _ = delay_for(self.polling_config.polling_interval).await;
             }
@@ -265,16 +288,73 @@ impl JsonRpcHandler {
         .map_err(|_| timeout_err())?
     }
 
+    async fn send_tx(
+        &self,
+        tx: SignedTransaction,
+        check_only: bool,
+    ) -> Result<NetworkClientResponses, RpcError> {
+        Ok(self
+            .client_addr
+            .send(NetworkClientMessages::Transaction {
+                transaction: tx,
+                is_forwarded: false,
+                check_only,
+            })
+            .map_err(|err| RpcError::server_error(Some(ServerError::from(err))))
+            .await?)
+    }
+
+    async fn send_tx_sync(&self, params: Option<Value>) -> Result<Value, RpcError> {
+        self.send_or_check_tx(params, false).await
+    }
+
+    async fn check_tx(&self, params: Option<Value>) -> Result<Value, RpcError> {
+        self.send_or_check_tx(params, true).await
+    }
+
+    async fn send_or_check_tx(
+        &self,
+        params: Option<Value>,
+        check_only: bool,
+    ) -> Result<Value, RpcError> {
+        let tx = parse_tx(params)?;
+        let tx_hash = (&tx.get_hash()).to_base();
+        match self.send_tx(tx, check_only).await? {
+            NetworkClientResponses::ValidTx => {
+                if check_only {
+                    Ok(Value::Null)
+                } else {
+                    jsonify(Ok(Ok(RpcBroadcastTxSyncResponse {
+                        transaction_hash: tx_hash,
+                        is_routed: false,
+                    })))
+                }
+            }
+            NetworkClientResponses::RequestRouted => {
+                if check_only {
+                    Err(RpcError::server_error(Some("Node doesn't track this shard. Cannot determine whether the transaction is valid".to_string())))
+                } else {
+                    jsonify(Ok(Ok(RpcBroadcastTxSyncResponse {
+                        transaction_hash: tx_hash,
+                        is_routed: true,
+                    })))
+                }
+            }
+            NetworkClientResponses::InvalidTx(err) => {
+                Err(RpcError::server_error(Some(ServerError::TxExecutionError(err.into()))))
+            }
+            _ => {
+                // this is only possible if something went wrong with the node internally.
+                Err(RpcError::server_error(Some(ServerError::InternalError)))
+            }
+        }
+    }
+
     async fn send_tx_commit(&self, params: Option<Value>) -> Result<Value, RpcError> {
         let tx = parse_tx(params)?;
         let tx_hash = tx.get_hash();
         let signer_account_id = tx.transaction.signer_id.clone();
-        let result = self
-            .client_addr
-            .send(NetworkClientMessages::Transaction { transaction: tx, is_forwarded: false })
-            .map_err(|err| RpcError::server_error(Some(ServerError::from(err))))
-            .await?;
-        match result {
+        match self.send_tx(tx, false).await? {
             NetworkClientResponses::ValidTx | NetworkClientResponses::RequestRouted => {
                 self.tx_polling(tx_hash, signer_account_id).await
             }
@@ -284,7 +364,7 @@ impl JsonRpcHandler {
             NetworkClientResponses::NoResponse => {
                 Err(RpcError::server_error(Some(ServerError::Timeout)))
             }
-            _ => unreachable!(),
+            _ => Err(RpcError::server_error(Some(ServerError::InternalError))),
         }
     }
 
@@ -420,7 +500,7 @@ impl JsonRpcHandler {
             return Err(RpcError::invalid_params(format!("Invalid account id: {}", account_id)));
         }
 
-        self.tx_polling(tx_hash, account_id).await
+        jsonify(Ok(self.tx_status_fetch(tx_hash, account_id).await.map_err(|err| err.into())))
     }
 
     async fn block(&self, params: Option<Value>) -> Result<Value, RpcError> {
@@ -522,11 +602,11 @@ impl JsonRpcHandler {
 #[cfg(feature = "adversarial")]
 impl JsonRpcHandler {
     async fn adv_set_sync_info(&self, params: Option<Value>) -> Result<Value, RpcError> {
-        let (height, score) = parse_params::<(u64, u64)>(params)?;
+        let height = parse_params::<u64>(params)?;
         actix::spawn(
             self.view_client_addr
                 .send(NetworkViewClientMessages::Adversarial(
-                    NetworkAdversarialMessage::AdvSetSyncInfo(height, score),
+                    NetworkAdversarialMessage::AdvSetSyncInfo(height),
                 ))
                 .map(|_| ()),
         );

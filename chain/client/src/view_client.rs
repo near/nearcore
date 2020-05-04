@@ -21,7 +21,7 @@ use near_network::types::{
     NetworkViewClientMessages, NetworkViewClientResponses, ReasonForBan, StateResponseInfo,
 };
 use near_network::{NetworkAdapter, NetworkRequests};
-use near_primitives::block::{BlockHeader, BlockScore, GenesisId};
+use near_primitives::block::{BlockHeader, GenesisId};
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::verify_path;
 use near_primitives::network::AnnounceAccount;
@@ -34,7 +34,7 @@ use near_primitives::views::{
     StateChangesView,
 };
 
-use crate::types::{Error, GetBlock, GetGasPrice, Query, TxStatus};
+use crate::types::{Error, GetBlock, GetGasPrice, Query, TxStatus, TxStatusError};
 use crate::{
     sync, GetChunk, GetNextLightClientBlock, GetStateChanges, GetStateChangesInBlock,
     GetValidatorInfo,
@@ -52,8 +52,10 @@ pub struct ViewClientActor {
     #[cfg(feature = "adversarial")]
     pub adv_disable_doomslug: bool,
     #[cfg(feature = "adversarial")]
-    pub adv_sync_info: Option<(u64, u64)>,
+    pub adv_sync_height: Option<u64>,
 
+    /// Validator account (if present).
+    validator_account_id: Option<AccountId>,
     chain: Chain,
     runtime_adapter: Arc<dyn RuntimeAdapter>,
     network_adapter: Arc<dyn NetworkAdapter>,
@@ -72,6 +74,7 @@ pub struct ViewClientActor {
 
 impl ViewClientActor {
     pub fn new(
+        validator_account_id: Option<AccountId>,
         chain_genesis: &ChainGenesis,
         runtime_adapter: Arc<dyn RuntimeAdapter>,
         network_adapter: Arc<dyn NetworkAdapter>,
@@ -79,14 +82,15 @@ impl ViewClientActor {
     ) -> Result<Self, Error> {
         // TODO: should we create shared ChainStore that is passed to both Client and ViewClient?
         let chain =
-            Chain::new(runtime_adapter.clone(), chain_genesis, DoomslugThresholdMode::HalfStake)?;
+            Chain::new(runtime_adapter.clone(), chain_genesis, DoomslugThresholdMode::TwoThirds)?;
         Ok(ViewClientActor {
             #[cfg(feature = "adversarial")]
             adv_disable_header_sync: false,
             #[cfg(feature = "adversarial")]
             adv_disable_doomslug: false,
             #[cfg(feature = "adversarial")]
-            adv_sync_info: None,
+            adv_sync_height: None,
+            validator_account_id,
             chain,
             runtime_adapter,
             network_adapter,
@@ -127,7 +131,7 @@ impl ViewClientActor {
         match finality {
             Finality::None => Ok(head_header.hash),
             Finality::DoomSlug => Ok(head_header.inner_rest.last_ds_final_block),
-            Finality::NFG => Ok(head_header.inner_rest.last_quorum_pre_commit),
+            Finality::Final => Ok(head_header.inner_rest.last_final_block),
         }
     }
 
@@ -204,73 +208,94 @@ impl ViewClientActor {
         }
     }
 
+    fn request_receipt_outcome(
+        &mut self,
+        receipt_id: CryptoHash,
+        last_block_hash: &CryptoHash,
+    ) -> Result<(), TxStatusError> {
+        if let Ok(&dst_shard_id) = self.chain.get_shard_id_for_receipt_id(&receipt_id) {
+            if self.chain.get_chunk_extra(last_block_hash, dst_shard_id).is_err() {
+                if Self::need_request(receipt_id, &mut self.receipt_outcome_requests) {
+                    let validator = self
+                        .chain
+                        .find_validator_for_forwarding(dst_shard_id)
+                        .map_err(|e| TxStatusError::ChainError(e))?;
+                    self.network_adapter
+                        .do_send(NetworkRequests::ReceiptOutComeRequest(validator, receipt_id));
+                }
+            }
+        }
+
+        Ok(())
+    }
+
     fn get_tx_status(
         &mut self,
         tx_hash: CryptoHash,
         signer_account_id: AccountId,
-    ) -> Result<Option<FinalExecutionOutcomeView>, String> {
+    ) -> Result<Option<FinalExecutionOutcomeView>, TxStatusError> {
         if let Some(res) = self.tx_status_response.cache_remove(&tx_hash) {
             self.tx_status_requests.cache_remove(&tx_hash);
             return Ok(Some(res));
         }
-        let has_tx_result = match self.chain.get_execution_outcome(&tx_hash) {
-            Ok(_) => true,
-            Err(e) => match e.kind() {
-                ErrorKind::DBNotFoundErr(_) => false,
-                _ => {
-                    warn!(target: "client", "Error trying to get transaction result: {}", e.to_string());
-                    false
-                }
-            },
-        };
-        let head = self.chain.head().map_err(|e| e.to_string())?.clone();
-        if has_tx_result {
-            let tx_result = self.chain.get_final_transaction_result(&tx_hash)?;
-            match tx_result.status {
-                FinalExecutionStatus::NotStarted | FinalExecutionStatus::Started => {
-                    for receipt_view in tx_result.receipts_outcome.iter() {
-                        let dst_shard_id = *self
-                            .chain
-                            .get_shard_id_for_receipt_id(&receipt_view.id)
-                            .map_err(|e| e.to_string())?;
-                        if self.chain.get_chunk_extra(&head.last_block_hash, dst_shard_id).is_err()
-                        {
-                            if Self::need_request(
-                                receipt_view.id,
-                                &mut self.receipt_outcome_requests,
-                            ) {
-                                let validator = self
-                                    .chain
-                                    .find_validator_for_forwarding(dst_shard_id)
-                                    .map_err(|e| e.to_string())?;
-                                self.network_adapter.do_send(
-                                    NetworkRequests::ReceiptOutComeRequest(
-                                        validator,
-                                        receipt_view.id,
-                                    ),
-                                );
+        let head = self.chain.head().map_err(|e| TxStatusError::ChainError(e))?.clone();
+        let target_shard_id = self.runtime_adapter.account_id_to_shard_id(&signer_account_id);
+        // Check if we are tracking this shard.
+        if self.runtime_adapter.cares_about_shard(
+            self.validator_account_id.as_ref(),
+            &head.last_block_hash,
+            target_shard_id,
+            true,
+        ) {
+            match self.chain.get_final_transaction_result(&tx_hash) {
+                Ok(tx_result) => {
+                    match tx_result.status {
+                        FinalExecutionStatus::NotStarted | FinalExecutionStatus::Started => {
+                            for receipt_view in tx_result.receipts_outcome.iter() {
+                                self.request_receipt_outcome(
+                                    receipt_view.id,
+                                    &head.last_block_hash,
+                                )?;
                             }
                         }
+                        FinalExecutionStatus::SuccessValue(_)
+                        | FinalExecutionStatus::Failure(_) => {}
                     }
+                    return Ok(Some(tx_result));
                 }
-                FinalExecutionStatus::SuccessValue(_) | FinalExecutionStatus::Failure(_) => {}
+                Err(e) => match e.kind() {
+                    ErrorKind::DBNotFoundErr(_) => {
+                        if let Ok(execution_outcome) =
+                            self.chain.get_transaction_execution_result(&tx_hash)
+                        {
+                            for receipt_id in execution_outcome.outcome.receipt_ids {
+                                self.request_receipt_outcome(receipt_id, &head.last_block_hash)?;
+                            }
+                        }
+                        return Err(TxStatusError::MissingTransaction(tx_hash));
+                    }
+                    _ => {
+                        warn!(target: "client", "Error trying to get transaction result: {}", e.to_string());
+                        return Err(TxStatusError::ChainError(e));
+                    }
+                },
             }
-            return Ok(Some(tx_result));
-        }
+        } else {
+            if Self::need_request(tx_hash, &mut self.tx_status_requests) {
+                let target_shard_id =
+                    self.runtime_adapter.account_id_to_shard_id(&signer_account_id);
+                let validator = self
+                    .chain
+                    .find_validator_for_forwarding(target_shard_id)
+                    .map_err(|e| TxStatusError::ChainError(e))?;
 
-        if Self::need_request(tx_hash, &mut self.tx_status_requests) {
-            let target_shard_id = self.runtime_adapter.account_id_to_shard_id(&signer_account_id);
-            let validator = self
-                .chain
-                .find_validator_for_forwarding(target_shard_id)
-                .map_err(|e| e.to_string())?;
-            self.network_adapter.do_send(NetworkRequests::TxStatus(
-                validator,
-                signer_account_id,
-                tx_hash,
-            ));
+                self.network_adapter.do_send(NetworkRequests::TxStatus(
+                    validator,
+                    signer_account_id,
+                    tx_hash,
+                ));
+            }
         }
-
         Ok(None)
     }
 
@@ -315,15 +340,15 @@ impl ViewClientActor {
             .map_err(|e| e.into())
     }
 
-    fn get_height_and_score(&self, head: &Tip) -> (BlockHeight, BlockScore) {
+    fn get_height(&self, head: &Tip) -> BlockHeight {
         #[cfg(feature = "adversarial")]
         {
-            if let Some((height, score)) = self.adv_sync_info {
-                return (height, BlockScore::from(score));
+            if let Some(height) = self.adv_sync_height {
+                return height;
             }
         }
 
-        (head.height, head.score)
+        head.height
     }
 }
 
@@ -420,7 +445,7 @@ impl Handler<GetChunk> for ViewClientActor {
 }
 
 impl Handler<TxStatus> for ViewClientActor {
-    type Result = Result<Option<FinalExecutionOutcomeView>, String>;
+    type Result = Result<Option<FinalExecutionOutcomeView>, TxStatusError>;
 
     fn handle(&mut self, msg: TxStatus, _: &mut Context<Self>) -> Self::Result {
         self.get_tx_status(msg.tx_hash, msg.signer_account_id)
@@ -528,9 +553,9 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
                         self.chain.adv_disable_doomslug();
                         NetworkViewClientResponses::NoResponse
                     }
-                    NetworkAdversarialMessage::AdvSetSyncInfo(height, score) => {
-                        info!(target: "adversary", "Setting adversarial stats: ({}, {})", height, score);
-                        self.adv_sync_info = Some((height, score));
+                    NetworkAdversarialMessage::AdvSetSyncInfo(height) => {
+                        info!(target: "adversary", "Setting adversarial sync height: {}", height);
+                        self.adv_sync_height = Some(height);
                         NetworkViewClientResponses::NoResponse
                     }
                     NetworkAdversarialMessage::AdvDisableHeaderSync => {
@@ -541,8 +566,7 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
                     NetworkAdversarialMessage::AdvSwitchToHeight(height) => {
                         info!(target: "adversary", "Switching to height");
                         let mut chain_store_update = self.chain.mut_store().store_update();
-                        chain_store_update.save_largest_skipped_height(&height);
-                        chain_store_update.save_largest_approved_height(&height);
+                        chain_store_update.save_largest_target_height(&height);
                         chain_store_update
                             .adv_save_latest_known(height)
                             .expect("adv method should not fail");
@@ -645,7 +669,7 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
             }
             NetworkViewClientMessages::GetChainInfo => match self.chain.head() {
                 Ok(head) => {
-                    let (height, score) = self.get_height_and_score(&head);
+                    let height = self.get_height(&head);
 
                     NetworkViewClientResponses::ChainInfo {
                         genesis_id: GenesisId {
@@ -653,7 +677,6 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
                             hash: self.chain.genesis().hash(),
                         },
                         height,
-                        score,
                         tracked_shards: self.config.tracked_shards.clone(),
                     }
                 }

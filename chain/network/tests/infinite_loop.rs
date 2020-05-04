@@ -7,12 +7,12 @@ use actix::{Actor, System};
 use futures::{future, FutureExt};
 
 use near_client::ClientActor;
+use near_logger_utils::init_integration_logger;
 use near_network::test_utils::{convert_boot_nodes, open_port, GetInfo, WaitOrTimeout};
 use near_network::types::{NetworkViewClientMessages, NetworkViewClientResponses, SyncData};
 use near_network::{NetworkClientResponses, NetworkConfig, NetworkRequests, PeerManagerActor};
 use near_primitives::block::GenesisId;
 use near_primitives::network::{AnnounceAccount, PeerId};
-use near_primitives::test_utils::init_integration_logger;
 use near_store::test_utils::create_test_store;
 
 /// Make Peer Manager with mocked client ready to accept any announce account.
@@ -26,7 +26,7 @@ pub fn make_peer_manager(
     let store = create_test_store();
     let mut config = NetworkConfig::from_seed(seed, port);
     config.boot_nodes = convert_boot_nodes(boot_nodes);
-    config.max_peer = peer_max_count;
+    config.max_num_peers = peer_max_count;
     let counter = Arc::new(AtomicUsize::new(0));
     let counter1 = counter.clone();
     let client_addr = ClientMock::mock(Box::new(move |_msg, _ctx| {
@@ -48,7 +48,6 @@ pub fn make_peer_manager(
                 Box::new(Some(NetworkViewClientResponses::ChainInfo {
                     genesis_id: GenesisId::default(),
                     height: 1,
-                    score: 0.into(),
                     tracked_shards: vec![],
                 }))
             }
