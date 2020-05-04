@@ -7,13 +7,13 @@ mod runner;
 /// of active peers of every node is high.
 ///
 /// Spawn a network with `num_node` nodes and with top connections allowed
-/// for every peer `max_peers`. Wait until every peer has `expected_connections`
+/// for every peer `max_num_peers`. Wait until every peer has `expected_connections`
 /// active peers and start new node. Wait until new node is connected.
 pub fn connect_at_max_capacity(
     num_node: usize,
     ideal_lo: u32,
     ideal_hi: u32,
-    max_peers: u32,
+    max_num_peers: u32,
     expected_connections: usize,
     extra_nodes: usize,
 ) {
@@ -24,7 +24,7 @@ pub fn connect_at_max_capacity(
 
     let mut runner = Runner::new(num_node + extra_nodes, num_node)
         .enable_outbound()
-        .max_peer(max_peers)
+        .max_num_peers(max_num_peers)
         .use_boot_nodes(boot_nodes)
         .safe_set_size(0)
         .minimum_outbound_peers(0)

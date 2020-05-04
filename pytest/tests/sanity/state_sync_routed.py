@@ -80,7 +80,7 @@ time.sleep(3)
 
 catch_up_height = 0
 while catch_up_height < observed_height:
-    assert time.time() - started < TIMEOUT
+    assert time.time() - started < TIMEOUT, "Waiting for node 4 to catch up"
     status = node4.get_status()
     new_height = status['sync_info']['latest_block_height']
     print("Latest block at:", new_height)
@@ -107,8 +107,16 @@ if catch_up_height >= 100:
 elif catch_up_height <= 30:
     assert not tracker4.check("transition to State Sync")
 
+while True:
+    assert time.time() - started < TIMEOUT, "Waiting for node 4 to connect to two peers"
+    tracker4.reset()
+    if tracker4.count("Consolidated connection with FullPeerInfo") == 2:
+        break
+    time.sleep(0.1)
+
 tracker4.reset()
-assert tracker4.count("Consolidated connection with FullPeerInfo") == 2
+# Check that no message is dropped because a peer is disconnected
+assert tracker4.count("Reason Disconnected") == 0
 
 if mode == 'manytx':
     while ctx.get_balances() != ctx.expected_balances:

@@ -22,7 +22,7 @@ mod tests {
     fn test_consensus_with_epoch_switches() {
         init_integration_logger();
 
-        const HEIGHT_GOAL: u64 = 10000;
+        const HEIGHT_GOAL: u64 = 120;
 
         System::run(move || {
             let connectors: Arc<RwLock<Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>>> =

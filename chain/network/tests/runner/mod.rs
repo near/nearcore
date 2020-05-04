@@ -359,7 +359,7 @@ impl StateMachine {
 }
 
 struct TestConfig {
-    max_peer: u32,
+    max_num_peers: u32,
     routed_message_ttl: u8,
     boot_nodes: Vec<usize>,
     blacklist: HashSet<Option<usize>>,
@@ -373,7 +373,7 @@ struct TestConfig {
 impl TestConfig {
     fn new() -> Self {
         Self {
-            max_peer: 100,
+            max_num_peers: 100,
             routed_message_ttl: ROUTED_MESSAGE_TTL,
             boot_nodes: vec![],
             blacklist: HashSet::new(),
@@ -463,9 +463,9 @@ impl Runner {
         self
     }
 
-    pub fn max_peer(mut self, max_peer: u32) -> Self {
+    pub fn max_num_peers(mut self, max_num_peers: u32) -> Self {
         self.apply_all(move |test_config| {
-            test_config.max_peer = max_peer;
+            test_config.max_num_peers = max_num_peers;
         });
         self
     }
@@ -544,7 +544,7 @@ impl Runner {
             NetworkConfig::from_seed(accounts_id[node_id].as_str(), ports[node_id].clone());
 
         network_config.ban_window = test_config.ban_window;
-        network_config.max_peer = test_config.max_peer;
+        network_config.max_num_peers = test_config.max_num_peers;
         network_config.ttl_account_id_router = Duration::from_secs(5);
         network_config.routed_message_ttl = test_config.routed_message_ttl;
         network_config.blacklist = blacklist;
