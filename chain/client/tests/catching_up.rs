@@ -131,7 +131,7 @@ mod tests {
             let seen_hashes_with_state = Arc::new(RwLock::new(HashSet::<CryptoHash>::new()));
 
             let connectors1 = connectors.clone();
-            let mut block_prod_time: u64 = 1200;
+            let mut block_prod_time: u64 = 1600;
             if sync_hold {
                 block_prod_time *= STATE_SYNC_TIMEOUT as u64;
             }
@@ -436,7 +436,7 @@ mod tests {
                 key_pairs.clone(),
                 validator_groups,
                 true,
-                1500,
+                1800,
                 false,
                 false,
                 5,
