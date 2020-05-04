@@ -132,7 +132,6 @@ impl EpochManager {
                 .get(&(i as u64))
                 .unwrap_or_else(|| &ValidatorStats { expected: 0, produced: 0 });
             // Note, validator_kickout_threshold is 0..100, so we use * 100 to keep this in integer space.
-            println!("account {} stat {:?}", account_id, block_stats);
             if block_stats.produced * 100
                 < u64::from(block_producer_kickout_threshold) * block_stats.expected
             {
