@@ -35,7 +35,7 @@ def is_active_validator(account_id):
 if __name__ == "__main__":
     contract_path = sys.argv[1] if len(sys.argv) > 1 else None
     if not contract_path:
-        contract_path = download_from_url('https://github.com/near/initial-contracts/raw/b18e33218101faaf53025c3da2e0370bc8e3b67a/staking-pool-shares/res/staking_pool_with_shares.wasm')
+        contract_path = download_from_url('https://github.com/near/initial-contracts/raw/483e71df72215a4806869c5e9052d56dea4004a2/staking-pool-shares/res/staking_pool_with_shares.wasm')
 
     cluster = Cluster(1, None, [["num_block_producer_seats", 10], ["num_block_producer_seats_per_shard", [10]], ["epoch_length", 10], ["block_producer_kickout_threshold", 40]], {})
     cluster.start(1, 0)
@@ -49,10 +49,13 @@ if __name__ == "__main__":
     # Deploy & init staking contract.
     master_account = cluster.get_account_for_node(0)
 
+    # Creating pool owner account
+    master_account.create_account('pool_owner', master_account.signer.decoded_pk(), ntoy(1))
+
     stake_public_key = cluster.nodes[node_id].signer_key.pk.split(':')[1]
     master_account.create_deploy_and_init_contract(
         account_name, None, load_binary_file(contract_path), ntoy(100),
-        {"owner_id": cluster.nodes[0].signer_key.account_id, "stake_public_key": stake_public_key})
+        {"owner_id": "pool_owner", "stake_public_key": stake_public_key, "reward_fee_fraction": {"numerator": 10, "denominator": 100}})
 
     print(master_account.provider.get_account(account_name))
 
@@ -76,7 +79,7 @@ if __name__ == "__main__":
         master_account.function_call(account_name, 'ping', {})
         time.sleep(1)
 
-    print(">>> Waiting for 20 epochs")
+    print(">>> Waiting for 20 blocks")
 
     wait_for_blocks_or_timeout(cluster.nodes[node_id], 20, 120, ping)
     assert is_active_validator("staker")
@@ -96,7 +99,7 @@ if __name__ == "__main__":
     wait_for_blocks_or_timeout(cluster.nodes[node_id], 20, 120, ping)
     assert is_active_validator("staker")
 
-    print(">>> Waiting for another 20 epochs")
+    print(">>> Waiting for another 20 blocks")
 
     user1_left_stake = user1.view_function(account_name, 'get_account_staked_balance', {"account_id": "user1"})["result"]
     print(">>> @user1 stake =", user1_left_stake)
@@ -114,3 +117,11 @@ if __name__ == "__main__":
     user1_balance = user1.view_function(account_name, 'get_account_unstaked_balance', {"account_id": "user1"})["result"]
     print(">>> @user1 unstaked balance =", user1_balance)
     assert user1_balance == "0", "%s != 0" % user1_balance
+
+    # Checking rewards and unstaked balance of the pool owner
+    pool_owner_balance = user1.view_function(account_name, 'get_account_unstaked_balance', {"account_id": "pool_owner"})["result"]
+    print(">>> @pool_owner unstaked balance =", pool_owner_balance)
+    assert pool_owner_balance == "0", "%s != 0" % pool_owner_balance
+    pool_owner_stake = user1.view_function(account_name, 'get_account_staked_balance', {"account_id": "pool_owner"})["result"]
+    print(">>> @pool_owner stake =", pool_owner_stake)
+    assert int(pool_owner_stake) > 0, "%s == 0" % pool_owner_stake
