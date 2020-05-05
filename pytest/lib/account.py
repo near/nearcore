@@ -2,6 +2,7 @@ import base58
 import base64
 import json
 import requests
+import itertools
 
 import transaction
 
@@ -103,6 +104,9 @@ class Account(object):
             receiver_id, self._access_key["nonce"], actions, block_hash, self._account_id,
             self._signer.decoded_pk(), self._signer.decoded_sk())
         result = self._provider.send_tx_and_wait(serialzed_tx, 10)
+        for outcome in itertools.chain([result['transaction_outcome']], result['receipts_outcome']):
+            for log in outcome['outcome']['logs']:
+                print("Log:", log)
         if 'Failure' in result['status']:
             raise TransactionError(result['status']['Failure'])
         return result
