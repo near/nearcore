@@ -35,7 +35,7 @@ def is_active_validator(account_id):
 if __name__ == "__main__":
     contract_path = sys.argv[1] if len(sys.argv) > 1 else None
     if not contract_path:
-        contract_path = download_from_url('https://github.com/near/initial-contracts/raw/483e71df72215a4806869c5e9052d56dea4004a2/staking-pool-shares/res/staking_pool_with_shares.wasm')
+        contract_path = download_from_url('https://github.com/near/initial-contracts/raw/9e24f275ff886a256ac94d7b9573dc7043fd78d4/staking-pool-shares/res/staking_pool_with_shares.wasm')
 
     cluster = Cluster(1, None, [["num_block_producer_seats", 10], ["num_block_producer_seats_per_shard", [10]], ["epoch_length", 10], ["block_producer_kickout_threshold", 40]], {})
     cluster.start(1, 0)
