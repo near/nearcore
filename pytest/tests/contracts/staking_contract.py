@@ -95,6 +95,14 @@ if __name__ == "__main__":
     print(">>> @user1 stake =", user1_stake)
     print(">>> @user1 unstake call")
     user1.function_call(account_name, 'unstake', {"amount": user1_stake})
+    user1_stake_after_unstake = user1.view_function(account_name, 'get_account_staked_balance', {"account_id": "user1"})["result"]
+    print(">>> @user1 stake (after unstake) =", user1_stake_after_unstake)
+
+    if int(user1_stake_after_unstake) > 0:
+        print("It's sometimes possible that user1 unstaking happened at the epoch boundary. Will unstake again")
+        print(">>> @user1 unstake call")
+        user1.function_call(account_name, 'unstake', {"amount": user1_stake_after_unstake})
+        user1_stake = str(int(user1_stake) + int(user1_stake_after_unstake))
 
     wait_for_blocks_or_timeout(cluster.nodes[node_id], 20, 120, ping)
     assert is_active_validator("staker")
