@@ -87,6 +87,7 @@ lazy_static! {
             "drop_message_unreachable_peer",
             "Total messages dropped because target peer is not reachable"
         );
+    pub static ref RECEIVED_INFO_ABOUT_ITSELF: near_metrics::Result<IntCounter> = try_create_int_counter("received_info_about_itself", "Number of times a peer tried to connect to itself");
 }
 
 type_messages!(HANDSHAKE_RECEIVED_TOTAL, HANDSHAKE_RECEIVED_BYTES);

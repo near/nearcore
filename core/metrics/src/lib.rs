@@ -126,6 +126,15 @@ pub fn inc_counter(counter: &Result<IntCounter>) {
     }
 }
 
+pub fn get_counter(counter: &Result<IntCounter>) -> std::result::Result<i64, ()> {
+    if let Ok(counter) = counter {
+        Ok(counter.get())
+    } else {
+        error!(target: "metrics", "Failed to fetch counter");
+        Err(())
+    }
+}
+
 pub fn inc_counter_by(counter: &Result<IntCounter>, value: i64) {
     if let Ok(counter) = counter {
         counter.inc_by(value);
