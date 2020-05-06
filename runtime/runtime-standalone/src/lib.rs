@@ -7,11 +7,11 @@ use near_primitives::{
     state_record::StateRecord,
     transaction::{ExecutionOutcome, ExecutionStatus, SignedTransaction},
     types::AccountId,
-    types::{Balance, BlockHeight, Gas},
+    types::{Balance, BlockHeight, EpochHeight, Gas},
 };
 use near_runtime_configs::RuntimeConfig;
 use near_store::{get_account, Store, Trie, TrieUpdate};
-use node_runtime::{ApplyState, Runtime};
+use node_runtime::{state_viewer::TrieViewer, ApplyState, Runtime};
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -31,6 +31,7 @@ struct Block {
     pub state_root: CryptoHash,
     transactions: Vec<SignedTransaction>,
     receipts: Vec<Receipt>,
+    epoch_height: EpochHeight,
     block_height: BlockHeight,
     block_timestamp: u64,
     gas_price: Balance,
@@ -46,6 +47,7 @@ impl Block {
             transactions: vec![],
             receipts: vec![],
             block_height: 1,
+            epoch_height: 1,
             block_timestamp: genesis_config.genesis_time,
             gas_price: genesis_config.gas_price,
             gas_limit: genesis_config.gas_limit,
@@ -62,7 +64,8 @@ impl Block {
             state_root: new_state_root,
             transactions: vec![],
             receipts: vec![],
-            block_height: 1,
+            block_height: self.block_height + 1,
+            epoch_height: self.epoch_height + 1, // TODO: simulate epoch_height
             gas_burnt: 0,
         }
     }
@@ -179,6 +182,29 @@ impl RuntimeStandalone {
     pub fn view_account(&self, account_id: &AccountId) -> Option<Account> {
         let trie_update = TrieUpdate::new(self.trie.clone(), self.cur_block.state_root);
         get_account(&trie_update, &account_id).expect("Unexpected Storage error")
+    }
+
+    /// Outputs return_value and logs
+    pub fn call_function(
+        &self,
+        account_id: &AccountId,
+        method_name: &str,
+        args: &[u8],
+    ) -> Result<(Vec<u8>, Vec<String>), Box<dyn std::error::Error>> {
+        let trie_update = TrieUpdate::new(self.trie.clone(), self.cur_block.state_root);
+        let viewer = TrieViewer {};
+        let mut logs = vec![];
+        let result = viewer.call_function(
+            trie_update,
+            self.cur_block.block_height,
+            self.cur_block.block_timestamp,
+            self.cur_block.epoch_height,
+            account_id,
+            method_name,
+            args,
+            &mut logs,
+        )?;
+        Ok((result, logs))
     }
 
     pub fn pending_receipts(&self) -> &[Receipt] {
@@ -322,11 +348,28 @@ mod tests {
                 &signer,
                 0,
                 "simple_call".into(),
-                "{\"account_id\": \"status\", \"message\": \"forwarded msg\"}".as_bytes().to_vec(),
+                "{\"account_id\": \"status\", \"message\": \"caller status is ok!\"}"
+                    .as_bytes()
+                    .to_vec(),
                 10000000000000000,
                 CryptoHash::default(),
             )),
             Ok(ExecutionOutcome { status: ExecutionStatus::SuccessValue(_), .. })
         ));
+
+        runtime.run_all().unwrap();
+
+        let caller_status = String::from_utf8(
+            runtime
+                .call_function(
+                    &"status".into(),
+                    "get_status",
+                    "{\"account_id\": \"caller\"}".as_bytes(),
+                )
+                .unwrap()
+                .0,
+        )
+        .unwrap();
+        assert_eq!("\"caller status is ok!\"", caller_status);
     }
 }

@@ -16,7 +16,7 @@ pub struct StatusMessage {
 impl StatusMessage {
     pub fn set_status(&mut self, message: String) {
         env::log(b"A");
-        let account_id = env::signer_account_id();
+        let account_id = env::predecessor_account_id();
         self.records.insert(account_id, message);
     }
 
