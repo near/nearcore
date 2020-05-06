@@ -1,14 +1,16 @@
 use near_pool::{types::PoolIterator, TransactionPool};
 use near_primitives::{
+    account::Account,
     errors::RuntimeError,
     hash::CryptoHash,
     receipt::Receipt,
     state_record::StateRecord,
     transaction::{ExecutionOutcome, ExecutionStatus, SignedTransaction},
+    types::AccountId,
     types::{Balance, BlockHeight, Gas},
 };
 use near_runtime_configs::RuntimeConfig;
-use near_store::{Store, Trie, TrieUpdate};
+use near_store::{get_account, Store, Trie, TrieUpdate};
 use node_runtime::{ApplyState, Runtime};
 
 use std::collections::HashMap;
@@ -174,6 +176,11 @@ impl RuntimeStandalone {
         Ok(())
     }
 
+    pub fn view_account(&self, account_id: &AccountId) -> Option<Account> {
+        let trie_update = TrieUpdate::new(self.trie.clone(), self.cur_block.state_root);
+        get_account(&trie_update, &account_id).expect("Unexpected Storage error")
+    }
+
     pub fn pending_receipts(&self) -> &[Receipt] {
         &self.pending_receipts
     }
@@ -243,6 +250,7 @@ mod tests {
     fn run_all() {
         let signer = InMemorySigner::from_seed("bob".into(), KeyType::ED25519, "test");
         let mut runtime = init_runtime(&signer);
+        assert_eq!(runtime.view_account(&"alice".into()), None);
         let outcome = runtime.resolve_tx(SignedTransaction::create_account(
             1,
             signer.account_id.clone(),
@@ -256,6 +264,15 @@ mod tests {
             outcome,
             Ok(ExecutionOutcome { status: ExecutionStatus::SuccessValue(_), .. })
         ));
+        assert_eq!(
+            runtime.view_account(&"alice".into()),
+            Some(Account {
+                amount: 165437999999999999999000,
+                code_hash: CryptoHash::default(),
+                locked: 0,
+                storage_usage: 182,
+            })
+        );
     }
 
     #[test]

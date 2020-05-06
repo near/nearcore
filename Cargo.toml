@@ -49,6 +49,7 @@ serde_json = "1"
 reqwest = "0.10"
 futures = "0.3"
 
+near-runtime-standalone = { path = "./runtime/runtime-standalone" }
 near-logger-utils = { path = "./test-utils/logger" }
 near-chain-configs = { path = "./core/chain-configs" }
 near-crypto = { path = "./core/crypto" }
