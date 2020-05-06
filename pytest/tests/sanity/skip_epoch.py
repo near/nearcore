@@ -61,8 +61,15 @@ while True:
 # 2. Spin up the second node and make sure it gets to 25 as well, and doesn't diverge
 node2 = spin_up_node(config, near_root, node_dirs[1], 1, boot_node.node_key.pk, boot_node.addr())
 
+status = boot_node.get_status()
+new_height = status['sync_info']['latest_block_height']
+seen_boot_heights.add(new_height)
+
 while True:
     assert time.time() - started < TIMEOUT
+
+    status = node2.get_status()
+    node2_height = status['sync_info']['latest_block_height']
 
     status = boot_node.get_status()
     new_height = status['sync_info']['latest_block_height']
@@ -72,10 +79,8 @@ while True:
         largest_height = new_height
         print(new_height)
 
-    status = node2.get_status()
-    new_height = status['sync_info']['latest_block_height']
-    if new_height > TWENTY_FIVE:
-        assert new_height in seen_boot_heights, "%s not in %s" % (new_height, seen_boot_heights)
+    if node2_height > TWENTY_FIVE:
+        assert node2_height in seen_boot_heights, "%s not in %s" % (node2_height, seen_boot_heights)
         break
 
     time.sleep(0.1)

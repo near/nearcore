@@ -594,6 +594,16 @@ impl WrappedTrieChanges {
                 )),
                 "NotWritableToDisk changes must never be finalized."
             );
+            // Filtering trie keys for user facing RPC reporting.
+            // NOTE: If the trie key is not one of the account specific, it may cause key conflict
+            // when the node tracks multiple shards. See #2563.
+            match &change_with_trie_key.trie_key {
+                TrieKey::Account { .. }
+                | TrieKey::ContractCode { .. }
+                | TrieKey::AccessKey { .. }
+                | TrieKey::ContractData { .. } => {}
+                _ => continue,
+            };
             let storage_key = KeyForStateChanges::new_from_trie_key(
                 &self.block_hash,
                 &change_with_trie_key.trie_key,

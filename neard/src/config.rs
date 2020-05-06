@@ -119,18 +119,6 @@ pub const NUM_BLOCK_PRODUCER_SEATS: NumSeats = 50;
 /// How much height horizon to give to consider peer up to date.
 pub const HIGHEST_PEER_HORIZON: u64 = 5;
 
-/// Minimum outbound connections a peer should have to avoid eclipse attacks.
-pub const MINIMUM_OUTBOUND_CONNECTIONS: u32 = 5;
-/// Lower bound of the ideal number of connections.
-pub const IDEAL_CONNECTIONS_LO: u32 = 30;
-/// Upper bound of the ideal number of connections.
-pub const IDEAL_CONNECTIONS_HI: u32 = 35;
-/// Peers which last message is was within this period of time are considered active recent peers.
-pub const PEER_RECENT_TIME_WINDOW: Duration = Duration::from_secs(600);
-/// Number of peers to keep while removing a connection.
-/// Used to avoid disconnecting from peers we have been connected since long time.
-pub const SAFE_SET_SIZE: u32 = 20;
-
 pub const CONFIG_FILENAME: &str = "config.json";
 pub const GENESIS_CONFIG_FILENAME: &str = "genesis.json";
 pub const NODE_KEY_FILE: &str = "node_key.json";
@@ -152,6 +140,32 @@ lazy_static! {
     pub static ref MAX_INFLATION_RATE: Rational = Rational::new(5, 100);
 }
 
+/// Maximum number of active peers. Hard limit.
+fn default_max_num_peers() -> u32 {
+    40
+}
+/// Minimum outbound connections a peer should have to avoid eclipse attacks.
+fn default_minimum_outbound_connections() -> u32 {
+    5
+}
+/// Lower bound of the ideal number of connections.
+fn default_ideal_connections_lo() -> u32 {
+    30
+}
+/// Upper bound of the ideal number of connections.
+fn default_ideal_connections_hi() -> u32 {
+    35
+}
+/// Peers which last message is was within this period of time are considered active recent peers.
+fn default_peer_recent_time_window() -> Duration {
+    Duration::from_secs(600)
+}
+/// Number of peers to keep while removing a connection.
+/// Used to avoid disconnecting from peers we have been connected since long time.
+fn default_safe_set_size() -> u32 {
+    20
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Network {
     /// Address to listen for incoming connections.
@@ -161,8 +175,25 @@ pub struct Network {
     pub external_address: String,
     /// Comma separated list of nodes to connect to.
     pub boot_nodes: String,
-    /// Maximum number of peers.
-    pub max_peers: u32,
+    /// Maximum number of active peers. Hard limit.
+    #[serde(default = "default_max_num_peers")]
+    pub max_num_peers: u32,
+    /// Minimum outbound connections a peer should have to avoid eclipse attacks.
+    #[serde(default = "default_minimum_outbound_connections")]
+    pub minimum_outbound_peers: u32,
+    /// Lower bound of the ideal number of connections.
+    #[serde(default = "default_ideal_connections_lo")]
+    pub ideal_connections_lo: u32,
+    /// Upper bound of the ideal number of connections.
+    #[serde(default = "default_ideal_connections_hi")]
+    pub ideal_connections_hi: u32,
+    /// Peers which last message is was within this period of time are considered active recent peers (in seconds).
+    #[serde(default = "default_peer_recent_time_window")]
+    pub peer_recent_time_window: Duration,
+    /// Number of peers to keep while removing a connection.
+    /// Used to avoid disconnecting from peers we have been connected since long time.
+    #[serde(default = "default_safe_set_size")]
+    pub safe_set_size: u32,
     /// Handshake timeout.
     pub handshake_timeout: Duration,
     /// Duration before trying to reconnect to a peer.
@@ -183,7 +214,12 @@ impl Default for Network {
             addr: "0.0.0.0:24567".to_string(),
             external_address: "".to_string(),
             boot_nodes: "".to_string(),
-            max_peers: 40,
+            max_num_peers: default_max_num_peers(),
+            minimum_outbound_peers: default_minimum_outbound_connections(),
+            ideal_connections_lo: default_ideal_connections_lo(),
+            ideal_connections_hi: default_ideal_connections_hi(),
+            peer_recent_time_window: default_peer_recent_time_window(),
+            safe_set_size: default_safe_set_size(),
             handshake_timeout: Duration::from_secs(20),
             reconnect_delay: Duration::from_secs(60),
             skip_sync_wait: false,
@@ -510,12 +546,12 @@ impl NearConfig {
                 handshake_timeout: config.network.handshake_timeout,
                 reconnect_delay: config.network.reconnect_delay,
                 bootstrap_peers_period: Duration::from_secs(60),
-                max_peer: config.network.max_peers,
-                minimum_outbound_peers: MINIMUM_OUTBOUND_CONNECTIONS,
-                ideal_connections_lo: IDEAL_CONNECTIONS_LO,
-                ideal_connections_hi: IDEAL_CONNECTIONS_HI,
-                peer_recent_time_window: PEER_RECENT_TIME_WINDOW,
-                safe_set_size: SAFE_SET_SIZE,
+                max_num_peers: config.network.max_num_peers,
+                minimum_outbound_peers: config.network.minimum_outbound_peers,
+                ideal_connections_lo: config.network.ideal_connections_lo,
+                ideal_connections_hi: config.network.ideal_connections_hi,
+                peer_recent_time_window: config.network.peer_recent_time_window,
+                safe_set_size: config.network.safe_set_size,
                 ban_window: config.network.ban_window,
                 max_send_peers: 512,
                 peer_expiration_duration: Duration::from_secs(7 * 24 * 60 * 60),
