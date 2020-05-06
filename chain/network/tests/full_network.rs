@@ -7,11 +7,13 @@ mod runner;
 /// of active peers of every node is high.
 ///
 /// Spawn a network with `num_node` nodes and with top connections allowed
-/// for every peer `max_peers`. Wait until every peer has `expected_connections`
+/// for every peer `max_num_peers`. Wait until every peer has `expected_connections`
 /// active peers and start new node. Wait until new node is connected.
 pub fn connect_at_max_capacity(
     num_node: usize,
-    max_peers: u32,
+    ideal_lo: u32,
+    ideal_hi: u32,
+    max_num_peers: u32,
     expected_connections: usize,
     extra_nodes: usize,
 ) {
@@ -22,8 +24,11 @@ pub fn connect_at_max_capacity(
 
     let mut runner = Runner::new(num_node + extra_nodes, num_node)
         .enable_outbound()
-        .max_peer(max_peers)
-        .use_boot_nodes(boot_nodes);
+        .max_num_peers(max_num_peers)
+        .use_boot_nodes(boot_nodes)
+        .safe_set_size(0)
+        .minimum_outbound_peers(0)
+        .ideal_connections(ideal_lo, ideal_hi);
 
     let total_nodes = num_node + extra_nodes;
 
@@ -53,21 +58,19 @@ pub fn connect_at_max_capacity(
 /// Check that two nodes are able to connect if they only know themselves from boot list.
 #[test]
 fn simple_network() {
-    connect_at_max_capacity(2, 1, 1, 0);
+    connect_at_max_capacity(2, 1, 1, 1, 1, 0);
 }
 
 /// Start 4 nodes and connect them all with each other.
 /// Create new node, it should be able to connect since max allowed peers is 4.
 #[test]
 fn connect_on_almost_full_network() {
-    connect_at_max_capacity(4, 4, 1, 1);
+    connect_at_max_capacity(4, 1, 3, 4, 1, 1);
 }
 
 /// Start 4 nodes and connect them all with each other.
 /// Create new node, it should be able to connect even if max allowed peers is 3.
-/// TODO: Fix it.
 #[test]
-#[ignore]
 fn connect_on_full_network() {
-    connect_at_max_capacity(4, 3, 1, 1);
+    connect_at_max_capacity(5, 2, 3, 4, 2, 1);
 }

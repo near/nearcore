@@ -49,7 +49,8 @@ nodes[0].kill()
 while time.time() - started < TIMEOUT:
     status = nodes[1].get_status()
     height = status['sync_info']['latest_block_height']
-    if height > EPOCH_LENGTH * 5:
+    # epoch boundary may have shifted due to validator being offline
+    if height > EPOCH_LENGTH * 5 + 5:
         # 5 epochs later.
         validators = nodes[1].get_validators()['result']
         present = False

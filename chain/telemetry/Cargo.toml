@@ -7,10 +7,9 @@ edition = "2018"
 [dependencies]
 openssl = { version = "0.10", features = ["vendored"] }
 openssl-probe = "0.1.2"
-actix-web = { version = "2.0.0", features = [ "openssl" ] }
+actix-web = { version = "2", features = [ "openssl" ] }
 futures = "0.3"
-actix = "0.9.0"
-serde = "1.0"
-serde_derive = "1.0"
-serde_json = "1.0"
+actix = "0.9"
+serde = { version = "1", features = [ "derive" ] }
+serde_json = "1"
 tracing = "0.1.13"

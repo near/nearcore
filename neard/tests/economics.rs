@@ -8,7 +8,7 @@ use near_chain::{ChainGenesis, RuntimeAdapter};
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
 use near_crypto::{InMemorySigner, KeyType};
-use near_primitives::test_utils::init_integration_logger;
+use near_logger_utils::init_integration_logger;
 use near_primitives::transaction::SignedTransaction;
 use near_store::test_utils::create_test_store;
 use neard::config::GenesisExt;
@@ -85,6 +85,7 @@ fn test_burn_mint() {
             1000,
             genesis_hash,
         ),
+        false,
         false,
     );
     let near_balance = env.query_balance("near".to_string());

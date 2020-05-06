@@ -2,7 +2,7 @@
 #[cfg(test)]
 #[cfg(feature = "expensive_tests")]
 mod test {
-    use near_primitives::test_utils::init_integration_logger;
+    use near_logger_utils::init_integration_logger;
     use near_primitives::transaction::SignedTransaction;
     use testlib::node::{create_nodes, sample_two_nodes, Node};
     use testlib::test_helpers::{heavy_test, wait};

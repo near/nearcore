@@ -9,7 +9,8 @@ use std::time::Duration;
 use chrono::Utc;
 use lazy_static::lazy_static;
 use log::info;
-use serde_derive::{Deserialize, Serialize};
+use num_rational::Rational;
+use serde::{Deserialize, Serialize};
 
 use near_chain_configs::{
     ClientConfig, Genesis, GenesisConfig, GENESIS_CONFIG_VERSION, PROTOCOL_VERSION,
@@ -30,7 +31,6 @@ use near_primitives::utils::{generate_random_string, get_num_seats_per_shard};
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
 use near_runtime_configs::RuntimeConfig;
 use near_telemetry::TelemetryConfig;
-use num_rational::Rational;
 
 /// Initial balance used in tests.
 pub const TESTING_INIT_BALANCE: Balance = 1_000_000_000 * NEAR_BASE;
@@ -124,7 +124,8 @@ pub const GENESIS_CONFIG_FILENAME: &str = "genesis.json";
 pub const NODE_KEY_FILE: &str = "node_key.json";
 pub const VALIDATOR_KEY_FILE: &str = "validator_key.json";
 
-pub const DEFAULT_TELEMETRY_URL: &str = "https://explorer.nearprotocol.com/api/nodes";
+pub const MAINNET_TELEMETRY_URL: &str = "https://explorer.nearprotocol.com/api/nodes";
+pub const NETWORK_TELEMETRY_URL: &str = "https://explorer.{}.nearprotocol.com/api/nodes";
 
 lazy_static! {
     /// The rate at which the gas price can be adjusted (alpha in the formula).
@@ -139,6 +140,32 @@ lazy_static! {
     pub static ref MAX_INFLATION_RATE: Rational = Rational::new(5, 100);
 }
 
+/// Maximum number of active peers. Hard limit.
+fn default_max_num_peers() -> u32 {
+    40
+}
+/// Minimum outbound connections a peer should have to avoid eclipse attacks.
+fn default_minimum_outbound_connections() -> u32 {
+    5
+}
+/// Lower bound of the ideal number of connections.
+fn default_ideal_connections_lo() -> u32 {
+    30
+}
+/// Upper bound of the ideal number of connections.
+fn default_ideal_connections_hi() -> u32 {
+    35
+}
+/// Peers which last message is was within this period of time are considered active recent peers.
+fn default_peer_recent_time_window() -> Duration {
+    Duration::from_secs(600)
+}
+/// Number of peers to keep while removing a connection.
+/// Used to avoid disconnecting from peers we have been connected since long time.
+fn default_safe_set_size() -> u32 {
+    20
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Network {
     /// Address to listen for incoming connections.
@@ -148,8 +175,25 @@ pub struct Network {
     pub external_address: String,
     /// Comma separated list of nodes to connect to.
     pub boot_nodes: String,
-    /// Maximum number of peers.
-    pub max_peers: u32,
+    /// Maximum number of active peers. Hard limit.
+    #[serde(default = "default_max_num_peers")]
+    pub max_num_peers: u32,
+    /// Minimum outbound connections a peer should have to avoid eclipse attacks.
+    #[serde(default = "default_minimum_outbound_connections")]
+    pub minimum_outbound_peers: u32,
+    /// Lower bound of the ideal number of connections.
+    #[serde(default = "default_ideal_connections_lo")]
+    pub ideal_connections_lo: u32,
+    /// Upper bound of the ideal number of connections.
+    #[serde(default = "default_ideal_connections_hi")]
+    pub ideal_connections_hi: u32,
+    /// Peers which last message is was within this period of time are considered active recent peers (in seconds).
+    #[serde(default = "default_peer_recent_time_window")]
+    pub peer_recent_time_window: Duration,
+    /// Number of peers to keep while removing a connection.
+    /// Used to avoid disconnecting from peers we have been connected since long time.
+    #[serde(default = "default_safe_set_size")]
+    pub safe_set_size: u32,
     /// Handshake timeout.
     pub handshake_timeout: Duration,
     /// Duration before trying to reconnect to a peer.
@@ -170,7 +214,12 @@ impl Default for Network {
             addr: "0.0.0.0:24567".to_string(),
             external_address: "".to_string(),
             boot_nodes: "".to_string(),
-            max_peers: 40,
+            max_num_peers: default_max_num_peers(),
+            minimum_outbound_peers: default_minimum_outbound_connections(),
+            ideal_connections_lo: default_ideal_connections_lo(),
+            ideal_connections_hi: default_ideal_connections_hi(),
+            peer_recent_time_window: default_peer_recent_time_window(),
+            safe_set_size: default_safe_set_size(),
             handshake_timeout: Duration::from_secs(20),
             reconnect_delay: Duration::from_secs(60),
             skip_sync_wait: false,
@@ -497,7 +546,12 @@ impl NearConfig {
                 handshake_timeout: config.network.handshake_timeout,
                 reconnect_delay: config.network.reconnect_delay,
                 bootstrap_peers_period: Duration::from_secs(60),
-                max_peer: config.network.max_peers,
+                max_num_peers: config.network.max_num_peers,
+                minimum_outbound_peers: config.network.minimum_outbound_peers,
+                ideal_connections_lo: config.network.ideal_connections_lo,
+                ideal_connections_hi: config.network.ideal_connections_hi,
+                peer_recent_time_window: config.network.peer_recent_time_window,
+                safe_set_size: config.network.safe_set_size,
                 ban_window: config.network.ban_window,
                 max_send_peers: 512,
                 peer_expiration_duration: Duration::from_secs(7 * 24 * 60 * 60),
@@ -599,15 +653,31 @@ pub fn init_configs(
         .unwrap_or_else(random_chain_id);
     match chain_id.as_ref() {
         "mainnet" => {
-            // TODO:
-            unimplemented!();
+            if test_seed.is_some() {
+                panic!("Test seed is not supported for MainNet");
+            }
+            let mut config = Config::default();
+            config.telemetry.endpoints.push(MAINNET_TELEMETRY_URL.to_string());
+            config.write_to_file(&dir.join(CONFIG_FILENAME));
+
+            let genesis: Genesis = serde_json::from_str(
+                &std::str::from_utf8(include_bytes!("../res/mainnet_genesis.json"))
+                    .expect("Failed to convert genesis file into string"),
+            )
+            .expect("Failed to deserialize MainNet genesis");
+
+            let network_signer = InMemorySigner::from_random("".to_string(), KeyType::ED25519);
+            network_signer.write_to_file(&dir.join(config.node_key_file));
+
+            genesis.to_file(&dir.join(config.genesis_file));
+            info!(target: "near", "Generated MainNet genesis file in {}", dir.to_str().unwrap());
         }
         "testnet" | "betanet" | "devnet" => {
             if test_seed.is_some() {
                 panic!("Test seed is not supported for official TestNet");
             }
             let mut config = Config::default();
-            config.telemetry.endpoints.push(DEFAULT_TELEMETRY_URL.to_string());
+            config.telemetry.endpoints.push(NETWORK_TELEMETRY_URL.replace("{}", &chain_id));
             config.write_to_file(&dir.join(CONFIG_FILENAME));
 
             // If account id was given, create new key pair for this validator.
@@ -626,10 +696,10 @@ pub fn init_configs(
             let mut genesis = Genesis::from_file(
                 genesis.expect(&format!("Genesis file is required for {}.", &chain_id)),
             );
-            genesis.config.chain_id = chain_id;
+            genesis.config.chain_id = chain_id.clone();
 
             genesis.to_file(&dir.join(config.genesis_file));
-            info!(target: "near", "Generated node key and genesis file in {}", dir.to_str().unwrap());
+            info!(target: "near", "Generated for {} network node key and genesis file in {}", chain_id, dir.to_str().unwrap());
         }
         _ => {
             // Create new configuration, key files and genesis for one validator.

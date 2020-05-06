@@ -62,3 +62,9 @@ pub struct RpcStateChangesInBlockResponse {
     pub block_hash: CryptoHash,
     pub changes: StateChangesKindsView,
 }
+
+#[derive(Serialize, Deserialize)]
+pub struct RpcBroadcastTxSyncResponse {
+    pub transaction_hash: String,
+    pub is_routed: bool,
+}

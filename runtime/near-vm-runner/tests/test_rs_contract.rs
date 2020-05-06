@@ -6,9 +6,9 @@ use near_vm_logic::{VMConfig, VMContext, VMOutcome};
 use near_vm_runner::{run, VMError};
 use std::mem::size_of;
 
-mod utils;
+pub mod test_utils;
 
-use crate::utils::{
+use self::test_utils::{
     CURRENT_ACCOUNT_ID, PREDECESSOR_ACCOUNT_ID, SIGNER_ACCOUNT_ID, SIGNER_ACCOUNT_PK,
 };
 
@@ -42,7 +42,7 @@ fn arr_u64_to_u8(value: &[u64]) -> Vec<u8> {
 }
 
 fn create_context(input: &[u8]) -> VMContext {
-    crate::utils::create_context(input.to_owned())
+    test_utils::create_context(input.to_owned())
 }
 
 #[test]
@@ -172,10 +172,5 @@ pub fn test_out_of_memory() {
         &fees,
         &promise_results,
     );
-    assert_eq!(
-        result.1,
-        Some(VMError::FunctionCallError(FunctionCallError::WasmTrap {
-            msg: "unknown".to_string()
-        }))
-    );
+    assert_eq!(result.1, Some(VMError::FunctionCallError(FunctionCallError::WasmUnknownError)));
 }

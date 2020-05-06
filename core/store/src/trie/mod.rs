@@ -594,6 +594,16 @@ impl WrappedTrieChanges {
                 )),
                 "NotWritableToDisk changes must never be finalized."
             );
+            // Filtering trie keys for user facing RPC reporting.
+            // NOTE: If the trie key is not one of the account specific, it may cause key conflict
+            // when the node tracks multiple shards. See #2563.
+            match &change_with_trie_key.trie_key {
+                TrieKey::Account { .. }
+                | TrieKey::ContractCode { .. }
+                | TrieKey::AccessKey { .. }
+                | TrieKey::ContractData { .. } => {}
+                _ => continue,
+            };
             let storage_key = KeyForStateChanges::new_from_trie_key(
                 &self.block_hash,
                 &change_with_trie_key.trie_key,
@@ -1004,7 +1014,6 @@ impl Trie {
 #[cfg(test)]
 mod tests {
     use rand::Rng;
-    use tempdir::TempDir;
 
     use crate::test_utils::{create_test_store, create_trie, gen_changes, simplify_changes};
 
@@ -1396,7 +1405,7 @@ mod tests {
             (b"docu".to_vec(), Some(b"value".to_vec())),
         ];
         let root = test_populate_trie(trie1, &empty_root, changes.clone());
-        let dir = TempDir::new("test_dump_load_trie").unwrap();
+        let dir = tempfile::Builder::new().prefix("test_dump_load_trie").tempdir().unwrap();
         store.save_to_file(ColState, &dir.path().join("test.bin")).unwrap();
         let store2 = create_test_store();
         store2.load_from_file(ColState, &dir.path().join("test.bin")).unwrap();

@@ -8,7 +8,6 @@ use std::sync::Arc;
 
 use borsh::BorshSerialize;
 use indicatif::{ProgressBar, ProgressStyle};
-use tempdir::TempDir;
 
 use near_chain::{Block, Chain, ChainStore, RuntimeAdapter, Tip};
 use near_chain_configs::Genesis;
@@ -18,7 +17,9 @@ use near_primitives::block::genesis_chunks;
 use near_primitives::contract::ContractCode;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::state_record::StateRecord;
-use near_primitives::types::{AccountId, Balance, ChunkExtra, EpochId, ShardId, StateRoot};
+use near_primitives::types::{
+    AccountId, Balance, ChunkExtra, EpochId, ShardId, StateChangeCause, StateRoot,
+};
 use near_store::{
     create_store, get_account, set_access_key, set_account, set_code, ColState, Store, TrieUpdate,
 };
@@ -34,7 +35,7 @@ pub struct GenesisBuilder {
     home_dir: PathBuf,
     // We hold this temporary directory to avoid deletion through deallocation.
     #[allow(dead_code)]
-    tmpdir: TempDir,
+    tmpdir: tempfile::TempDir,
     genesis: Arc<Genesis>,
     store: Arc<Store>,
     runtime: NightshadeRuntime,
@@ -56,7 +57,7 @@ impl GenesisBuilder {
         genesis: Arc<Genesis>,
         store: Arc<Store>,
     ) -> Self {
-        let tmpdir = TempDir::new("storage").unwrap();
+        let tmpdir = tempfile::Builder::new().prefix("storage").tempdir().unwrap();
         let runtime = NightshadeRuntime::new(
             tmpdir.path(),
             store.clone(),
@@ -169,6 +170,7 @@ impl GenesisBuilder {
             set_account(&mut state_update, account_id, &account);
         }
         let trie = state_update.trie.clone();
+        state_update.commit(StateChangeCause::InitialState);
         let (store_update, root) = state_update.finalize()?.0.into(trie)?;
         store_update.commit()?;
 

@@ -105,9 +105,9 @@ impl HeaderSync {
             | SyncStatus::StateSyncDone => true,
             SyncStatus::NoSync | SyncStatus::AwaitingPeers => {
                 let sync_head = chain.sync_head()?;
-                debug!(target: "sync", "Sync: initial transition to Header sync. Sync head: {} at {}/{:?}, resetting to {} at {}/{:?}",
-                    sync_head.last_block_hash, sync_head.height, sync_head.score,
-                    header_head.last_block_hash, header_head.height, header_head.score,
+                debug!(target: "sync", "Sync: initial transition to Header sync. Sync head: {} at {}, resetting to {} at {}",
+                    sync_head.last_block_hash, sync_head.height,
+                    header_head.last_block_hash, header_head.height,
                 );
                 // Reset sync_head to header_head on initial transition to HeaderSync.
                 chain.reset_sync_head()?;
@@ -123,7 +123,7 @@ impl HeaderSync {
             let header_head = chain.header_head()?;
             self.syncing_peer = None;
             if let Some(peer) = highest_height_peer(&highest_height_peers) {
-                if peer.chain_info.score_and_height() > header_head.score_and_height() {
+                if peer.chain_info.height > header_head.height {
                     self.syncing_peer = self.request_headers(chain, peer);
                 }
             }
@@ -183,8 +183,8 @@ impl HeaderSync {
                                 if now > *stalling_ts + self.stall_ban_timeout
                                     && *highest_height == peer.chain_info.height
                                 {
-                                    info!(target: "sync", "Sync: ban a fraudulent peer: {}, claimed height: {}, score: {}",
-                                        peer.peer_info, peer.chain_info.height, peer.chain_info.score);
+                                    info!(target: "sync", "Sync: ban a fraudulent peer: {}, claimed height: {}",
+                                        peer.peer_info, peer.chain_info.height);
                                     self.network_adapter.do_send(NetworkRequests::BanPeer {
                                         peer_id: peer.peer_info.id.clone(),
                                         ban_reason: ReasonForBan::HeightFraud,
@@ -869,17 +869,20 @@ mod test {
     use std::sync::Arc;
     use std::thread;
 
-    use near_chain::test_utils::{new_block_no_epoch_switches, setup, setup_with_validators};
+    use near_chain::test_utils::{setup, setup_with_validators};
     use near_chain::Provenance;
     use near_crypto::{KeyType, PublicKey};
     use near_network::routing::EdgeInfo;
     use near_network::test_utils::MockNetworkAdapter;
     use near_network::types::PeerChainInfo;
     use near_network::PeerInfo;
-    use near_primitives::block::{Block, GenesisId};
+    use near_primitives::block::{Approval, Block, GenesisId};
     use near_primitives::network::PeerId;
 
     use super::*;
+    use near_primitives::types::EpochId;
+    use near_primitives::validator_signer::InMemoryValidatorSigner;
+    use num_rational::Ratio;
 
     #[test]
     fn test_get_locator_heights() {
@@ -936,7 +939,6 @@ mod test {
                     hash: chain.genesis().hash(),
                 },
                 height: chain2.head().unwrap().height,
-                score: chain2.head().unwrap().score,
                 tracked_shards: vec![],
             },
             edge_info: EdgeInfo::default(),
@@ -1009,11 +1011,49 @@ mod test {
         let mut all_blocks = vec![];
         for i in 0..61 {
             let current_height = 3 + i * 5;
-            let block = new_block_no_epoch_switches(
-                last_block,
+
+            let approvals = [None, None, Some("test3"), Some("test4")]
+                .iter()
+                .map(|account_id| {
+                    account_id.map(|account_id| {
+                        let signer = InMemoryValidatorSigner::from_seed(
+                            account_id,
+                            KeyType::ED25519,
+                            account_id,
+                        );
+                        Approval::new(
+                            last_block.hash(),
+                            last_block.header.inner_lite.height,
+                            current_height,
+                            &signer,
+                        )
+                        .signature
+                    })
+                })
+                .collect();
+            let (epoch_id, next_epoch_id) = if last_block.header.prev_hash == CryptoHash::default()
+            {
+                (last_block.header.inner_lite.next_epoch_id.clone(), EpochId(last_block.hash()))
+            } else {
+                (
+                    last_block.header.inner_lite.epoch_id.clone(),
+                    last_block.header.inner_lite.next_epoch_id.clone(),
+                )
+            };
+            let block = Block::produce(
+                &last_block.header,
                 current_height,
-                vec!["test3", "test4"],
+                last_block.chunks.clone(),
+                epoch_id,
+                next_epoch_id,
+                approvals,
+                Ratio::new(0, 1),
+                0,
+                Some(0),
+                vec![],
+                vec![],
                 &*signers[3],
+                last_block.header.inner_lite.next_bp_hash.clone(),
             );
 
             all_blocks.push(block);

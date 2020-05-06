@@ -15,6 +15,7 @@ use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
 use near_client::Client;
 use near_crypto::{InMemorySigner, KeyType, Signer};
+use near_logger_utils::init_test_logger;
 use near_network::test_utils::MockNetworkAdapter;
 use near_network::NetworkRequests;
 use near_primitives::challenge::{
@@ -25,7 +26,6 @@ use near_primitives::merkle::{merklize, MerklePath};
 use near_primitives::receipt::Receipt;
 use near_primitives::serialize::BaseDecode;
 use near_primitives::sharding::{EncodedShardChunk, ReedSolomonWrapper};
-use near_primitives::test_utils::init_test_logger;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::StateRoot;
 use near_primitives::validator_signer::InMemoryValidatorSigner;
@@ -57,10 +57,6 @@ fn test_verify_block_double_sign_challenge() {
         vec![],
         vec![],
         &signer,
-        0.into(),
-        CryptoHash::default(),
-        CryptoHash::default(),
-        CryptoHash::default(),
         b1.header.inner_lite.next_bp_hash.clone(),
     );
     let epoch_id = b1.header.inner_lite.epoch_id.clone();
@@ -144,7 +140,6 @@ fn create_chunk(
             last_block.chunks[0].clone(),
             2,
             0,
-            0,
         )
         .unwrap()
         .unwrap();
@@ -200,10 +195,6 @@ fn create_chunk(
         vec![],
         vec![],
         &*client.validator_signer.as_ref().unwrap().clone(),
-        0.into(),
-        CryptoHash::default(),
-        CryptoHash::default(),
-        CryptoHash::default(),
         last_block.header.inner_lite.next_bp_hash,
     );
     (chunk, merkle_paths, receipts, block)
@@ -385,6 +376,7 @@ fn test_verify_chunk_invalid_state_challenge() {
             genesis_hash,
         ),
         false,
+        false,
     );
     env.produce_block(0, 2);
 
@@ -443,10 +435,6 @@ fn test_verify_chunk_invalid_state_challenge() {
         vec![],
         vec![],
         &validator_signer,
-        0.into(),
-        CryptoHash::default(),
-        CryptoHash::default(),
-        CryptoHash::default(),
         last_block.header.inner_lite.next_bp_hash,
     );
 
@@ -661,7 +649,7 @@ fn test_fishermen_challenge() {
         signer.public_key(),
         genesis_hash,
     );
-    env.clients[0].process_tx(stake_transaction, false);
+    env.clients[0].process_tx(stake_transaction, false, false);
     for i in 1..=11 {
         env.produce_block(0, i);
     }
