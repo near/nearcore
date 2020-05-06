@@ -1,5 +1,8 @@
+/// Test economic edge cases.
 use std::path::Path;
 use std::sync::Arc;
+
+use num_rational::Rational;
 
 use near_chain::{ChainGenesis, RuntimeAdapter};
 use near_chain_configs::Genesis;
@@ -9,18 +12,13 @@ use near_primitives::test_utils::init_integration_logger;
 use near_primitives::transaction::SignedTransaction;
 use near_store::test_utils::create_test_store;
 use neard::config::GenesisExt;
-use num_rational::Rational;
 use testlib::fees_utils::FeeHelper;
 
-fn setup_env() -> TestEnv {
+fn setup_env(f: &mut dyn FnMut(&mut Genesis) -> ()) -> (TestEnv, FeeHelper) {
     init_integration_logger();
     let store1 = create_test_store();
     let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
-    genesis.config.epoch_length = 2;
-    genesis.config.num_blocks_per_year = 2;
-    genesis.config.protocol_reward_rate = Rational::new_raw(1, 10);
-    genesis.config.max_inflation_rate = Rational::new_raw(1, 10);
-    let initial_total_supply = genesis.config.total_supply;
+    f(&mut genesis);
     let fee_helper = FeeHelper::new(
         genesis.config.runtime_config.transaction_costs.clone(),
         genesis.config.min_gas_price,
@@ -34,15 +32,22 @@ fn setup_env() -> TestEnv {
         vec![],
     ))];
     let env = TestEnv::new_with_runtime(ChainGenesis::from(&arc_genesis), 1, 1, runtimes);
-    env
+    (env, fee_helper)
 }
 
 /// Test that node mints and burns tokens correctly as blocks become full.
 /// This combines Client & NightshadeRuntime to also test EpochManager.
 #[test]
 fn test_burn_mint() {
-    let mut env = setup_env();
+    let (mut env, fee_helper) = setup_env(&mut |mut genesis| {
+        genesis.config.epoch_length = 2;
+        genesis.config.num_blocks_per_year = 2;
+        genesis.config.protocol_reward_rate = Rational::new_raw(1, 10);
+        genesis.config.max_inflation_rate = Rational::new_raw(1, 10);
+        genesis.config.chunk_producer_kickout_threshold = 30;
+    });
     let signer = InMemorySigner::from_seed("test0", KeyType::ED25519, "test0");
+    let initial_total_supply = env.chain_genesis.total_supply;
     let genesis_hash = env.clients[0].chain.genesis().hash();
     env.clients[0].process_tx(
         SignedTransaction::send_money(
@@ -60,6 +65,7 @@ fn test_burn_mint() {
     env.produce_block(0, 2);
     env.produce_block(0, 3);
     env.produce_block(0, 4);
+    env.produce_block(0, 5);
 
     // Block 3: epoch ends, it gets it's 10% of total supply - transfer cost.
     let block3 = env.clients[0].chain.get_block_by_height(3).unwrap().clone();
@@ -67,7 +73,8 @@ fn test_burn_mint() {
     let half_transfer_cost = fee_helper.transfer_cost() / 2;
     assert_eq!(
         block3.header.inner_rest.total_supply,
-        initial_total_supply * 110 / 100 - half_transfer_cost
+        // supply + 1% of protocol rewards + 3/4 * 9% of validator rewards.
+        initial_total_supply * 10775 / 10000 - half_transfer_cost
     );
     assert_eq!(block3.chunks[0].inner.balance_burnt, half_transfer_cost);
     // Block 4: subtract 2nd part of transfer.
@@ -77,9 +84,16 @@ fn test_burn_mint() {
         block3.header.inner_rest.total_supply - half_transfer_cost
     );
     assert_eq!(block4.chunks[0].inner.balance_burnt, half_transfer_cost);
-    // Check that PROTOCOL account got it's 1% as well.
+    // Check that Protocol Treasury account got it's 1% as well.
     assert_eq!(
         env.query_balance("near".to_string()),
         near_balance + initial_total_supply * 1 / 100
+    );
+    // Block 5: reward from previous block.
+    let block5 = env.clients[0].chain.get_block_by_height(5).unwrap().clone();
+    assert_eq!(
+        block5.header.inner_rest.total_supply,
+        // previous supply + 10%
+        block4.header.inner_rest.total_supply * 110 / 100
     );
 }

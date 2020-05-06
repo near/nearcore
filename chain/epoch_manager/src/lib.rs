@@ -239,6 +239,7 @@ impl EpochManager {
         );
         validator_kickout.extend(kickout);
         debug!(
+            target: "epoch_manager",
             "All proposals: {:?}, Kickouts: {:?}, Block Tracker: {:?}, Shard Tracker: {:?}",
             all_proposals, validator_kickout, block_validator_tracker, chunk_validator_tracker
         );
@@ -295,7 +296,7 @@ impl EpochManager {
             .collect::<HashMap<_, _>>();
         let next_epoch_id = self.get_next_epoch_id(last_block_hash)?;
         let next_epoch_info = self.get_epoch_info(&next_epoch_id)?.clone();
-        let (validator_reward, inflation) = self.reward_calculator.calculate_reward(
+        let (validator_reward, minted_amount) = self.reward_calculator.calculate_reward(
             validator_block_chunk_stats,
             &validator_stake,
             block_info.total_supply,
@@ -307,7 +308,7 @@ impl EpochManager {
             all_proposals,
             validator_kickout,
             validator_reward,
-            inflation,
+            minted_amount,
         ) {
             Ok(next_next_epoch_info) => next_next_epoch_info,
             Err(EpochError::ThresholdError(amount, num_seats)) => {

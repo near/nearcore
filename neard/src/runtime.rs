@@ -341,13 +341,6 @@ impl NightshadeRuntime {
         }
         let total_gas_burnt =
             apply_result.outcomes.iter().map(|tx_result| tx_result.outcome.gas_burnt).sum();
-        println!(
-            "Total gas burnt: {}, total balance burnt: {}",
-            total_gas_burnt,
-            apply_result.stats.tx_burnt_amount
-                + apply_result.stats.other_burnt_amount
-                + apply_result.stats.slashed_burnt_amount
-        );
 
         let result = ApplyTransactionResult {
             trie_changes: WrappedTrieChanges::new(

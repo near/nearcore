@@ -166,7 +166,6 @@ pub fn verify_and_charge_transaction(
     let burnt_amount = safe_gas_to_balance(apply_state.gas_price, gas_burnt)
         .map_err(|_| InvalidTxError::CostOverflow)?;
 
-    println!("{} {} {} {}", apply_state.gas_price, gas_burnt, gas_used, burnt_amount);
     Ok(VerificationResult { gas_burnt, gas_used, burnt_amount })
 }
 

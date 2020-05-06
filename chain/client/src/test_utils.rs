@@ -906,6 +906,8 @@ impl TestEnv {
         }
     }
 
+    /// Produces block by given client, which kicks of creation of chunk.
+    /// Which means that transactions added before this call, will be included in the next block of this validator.
     pub fn produce_block(&mut self, id: usize, height: BlockHeight) {
         let block = self.clients[id].produce_block(height).unwrap();
         self.process_block(id, block.unwrap(), Provenance::PRODUCED);
