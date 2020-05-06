@@ -15,12 +15,14 @@ mod test {
     use testlib::test_helpers::{heavy_test, wait, wait_for_catchup};
 
     fn warmup() {
-        Command::new("cargo")
-            .args(&["build", "-p", "neard"])
-            .spawn()
-            .expect("warmup failed")
-            .wait()
-            .unwrap();
+        if let Err(_) = std::env::var("NIGHTLY_RUNNER") {
+            Command::new("cargo")
+                .args(&["build", "-p", "neard"])
+                .spawn()
+                .expect("warmup failed")
+                .wait()
+                .unwrap();
+        }
     }
 
     // DISCLAIMER. These tests are very heavy and somehow manage to interfere with each other.
