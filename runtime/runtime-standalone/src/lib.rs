@@ -7,10 +7,10 @@ use near_primitives::{
     state_record::StateRecord,
     transaction::{ExecutionOutcome, ExecutionStatus, SignedTransaction},
     types::AccountId,
-    types::{Balance, BlockHeight, EpochHeight, Gas},
+    types::{Balance, BlockHeight, EpochHeight, Gas, StateChangeCause},
 };
 use near_runtime_configs::RuntimeConfig;
-use near_store::{get_account, Store, Trie, TrieUpdate};
+use near_store::{get_account, set_account, Store, Trie, TrieUpdate};
 use node_runtime::{state_viewer::TrieViewer, ApplyState, Runtime};
 
 use std::collections::HashMap;
@@ -26,17 +26,15 @@ pub struct GenesisConfig {
 }
 
 #[derive(Debug, Default, Clone)]
-struct Block {
+pub struct Block {
     prev_block: Option<Box<Block>>,
-    pub state_root: CryptoHash,
-    transactions: Vec<SignedTransaction>,
-    receipts: Vec<Receipt>,
-    epoch_height: EpochHeight,
-    block_height: BlockHeight,
-    block_timestamp: u64,
-    gas_price: Balance,
-    gas_limit: Gas,
+    state_root: CryptoHash,
     gas_burnt: Gas,
+    pub epoch_height: EpochHeight,
+    pub block_height: BlockHeight,
+    pub block_timestamp: u64,
+    pub gas_price: Balance,
+    pub gas_limit: Gas,
 }
 
 impl Block {
@@ -44,8 +42,6 @@ impl Block {
         Self {
             prev_block: None,
             state_root: CryptoHash::default(),
-            transactions: vec![],
-            receipts: vec![],
             block_height: 1,
             epoch_height: 1,
             block_timestamp: genesis_config.genesis_time,
@@ -62,8 +58,6 @@ impl Block {
             block_timestamp: self.block_timestamp + 1,
             prev_block: Some(Box::new(self.clone())),
             state_root: new_state_root,
-            transactions: vec![],
-            receipts: vec![],
             block_height: self.block_height + 1,
             epoch_height: self.epoch_height + 1, // TODO: simulate epoch_height
             gas_burnt: 0,
@@ -179,13 +173,23 @@ impl RuntimeStandalone {
         Ok(())
     }
 
+    pub fn force_account_update(&mut self, account_id: AccountId, account: &Account) {
+        let mut trie_update = TrieUpdate::new(self.trie.clone(), self.cur_block.state_root);
+        set_account(&mut trie_update, account_id, account);
+        trie_update.commit(StateChangeCause::ValidatorAccountsUpdate);
+        let (trie_changes, _) = trie_update.finalize().expect("Unexpected Storage error");
+        let (store_update, new_root) = trie_changes.into(self.trie.clone()).unwrap();
+        store_update.commit().expect("No io errors expected");
+        self.cur_block.state_root = new_root;
+    }
+
     pub fn view_account(&self, account_id: &AccountId) -> Option<Account> {
         let trie_update = TrieUpdate::new(self.trie.clone(), self.cur_block.state_root);
         get_account(&trie_update, &account_id).expect("Unexpected Storage error")
     }
 
     /// Outputs return_value and logs
-    pub fn call_function(
+    pub fn view_method_call(
         &self,
         account_id: &AccountId,
         method_name: &str,
@@ -205,6 +209,10 @@ impl RuntimeStandalone {
             &mut logs,
         )?;
         Ok((result, logs))
+    }
+
+    pub fn current_block(&mut self) -> &mut Block {
+        &mut self.cur_block
     }
 
     pub fn pending_receipts(&self) -> &[Receipt] {
@@ -361,7 +369,7 @@ mod tests {
 
         let caller_status = String::from_utf8(
             runtime
-                .call_function(
+                .view_method_call(
                     &"status".into(),
                     "get_status",
                     "{\"account_id\": \"caller\"}".as_bytes(),
@@ -371,5 +379,15 @@ mod tests {
         )
         .unwrap();
         assert_eq!("\"caller status is ok!\"", caller_status);
+    }
+
+    #[test]
+    fn test_force_update_account() {
+        let signer = InMemorySigner::from_seed("bob".into(), KeyType::ED25519, "test");
+        let mut runtime = init_runtime(&signer);
+        let mut bob_account = runtime.view_account(&"bob".into()).unwrap();
+        bob_account.locked = 10000;
+        runtime.force_account_update("bob".into(), &bob_account);
+        assert_eq!(runtime.view_account(&"bob".into()).unwrap().locked, 10000);
     }
 }
