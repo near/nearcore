@@ -98,33 +98,20 @@ impl RuntimeStandalone {
         }
     }
 
-    pub fn run_tx(&mut self, mut tx: SignedTransaction) -> Result<ExecutionOutcome, RuntimeError> {
-        tx.init();
-        let tx_hash = tx.get_hash();
-        self.transactions.insert(tx_hash, tx.clone());
-        self.tx_pool.insert_transaction(tx);
-        self.process_block()?;
-        Ok(self
-            .outcomes
-            .get(&tx_hash)
-            .expect("successful self.process() guaranies to have outcome for a tx")
-            .clone())
-    }
-
     /// Processes blocks until the final value is produced
     pub fn resolve_tx(
         &mut self,
         mut tx: SignedTransaction,
     ) -> Result<ExecutionOutcome, RuntimeError> {
         tx.init();
-        let mut tx_hash = tx.get_hash();
-        self.transactions.insert(tx_hash, tx.clone());
+        let mut outcome_hash = tx.get_hash();
+        self.transactions.insert(outcome_hash, tx.clone());
         self.tx_pool.insert_transaction(tx);
         loop {
             self.process_block()?;
-            let outcome = self.outcomes.get(&tx_hash).unwrap();
+            let outcome = self.outcomes.get(&outcome_hash).unwrap();
             match outcome.status {
-                ExecutionStatus::SuccessReceiptId(ref id) => tx_hash = *id,
+                ExecutionStatus::SuccessReceiptId(ref id) => outcome_hash = *id,
                 ExecutionStatus::SuccessValue(_)
                 | ExecutionStatus::Failure(_)
                 | ExecutionStatus::Unknown => return Ok(outcome.clone()),
@@ -132,8 +119,20 @@ impl RuntimeStandalone {
         }
     }
 
+    /// Just puts tx into the transaction pool
+    pub fn send_tx(&mut self, tx: SignedTransaction) -> CryptoHash {
+        let tx_hash = tx.get_hash();
+        self.transactions.insert(tx_hash, tx.clone());
+        self.tx_pool.insert_transaction(tx);
+        tx_hash
+    }
+
+    pub fn outcome(&self, hash: &CryptoHash) -> Option<ExecutionOutcome> {
+        self.outcomes.get(hash).cloned()
+    }
+
     /// Processes all transactions and pending receipts until there is no pending_receipts left
-    pub fn run_all(&mut self) -> Result<(), RuntimeError> {
+    pub fn process_all(&mut self) -> Result<(), RuntimeError> {
         loop {
             self.process_block()?;
             if self.pending_receipts.len() == 0 {
@@ -173,6 +172,7 @@ impl RuntimeStandalone {
         Ok(())
     }
 
+    /// Force alter account and change state_root
     pub fn force_account_update(&mut self, account_id: AccountId, account: &Account) {
         let mut trie_update = TrieUpdate::new(self.trie.clone(), self.cur_block.state_root);
         set_account(&mut trie_update, account_id, account);
@@ -265,7 +265,7 @@ mod tests {
         let signer = InMemorySigner::from_seed("bob".into(), KeyType::ED25519, "test");
 
         let mut runtime = init_runtime(&signer);
-        let outcome = runtime.run_tx(SignedTransaction::create_account(
+        let hash = runtime.send_tx(SignedTransaction::create_account(
             1,
             signer.account_id.clone(),
             "alice".into(),
@@ -274,14 +274,15 @@ mod tests {
             &signer,
             CryptoHash::default(),
         ));
+        runtime.process_block().unwrap();
         assert!(matches!(
-            outcome,
-            Ok(ExecutionOutcome { status: ExecutionStatus::SuccessReceiptId(_), .. })
+            runtime.outcome(&hash),
+            Some(ExecutionOutcome { status: ExecutionStatus::SuccessReceiptId(_), .. })
         ));
     }
 
     #[test]
-    fn run_all() {
+    fn process_all() {
         let signer = InMemorySigner::from_seed("bob".into(), KeyType::ED25519, "test");
         let mut runtime = init_runtime(&signer);
         assert_eq!(runtime.view_account(&"alice".into()), None);
@@ -365,7 +366,7 @@ mod tests {
             Ok(ExecutionOutcome { status: ExecutionStatus::SuccessValue(_), .. })
         ));
 
-        runtime.run_all().unwrap();
+        runtime.process_all().unwrap();
 
         let caller_status = String::from_utf8(
             runtime
