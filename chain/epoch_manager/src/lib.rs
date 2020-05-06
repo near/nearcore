@@ -2255,12 +2255,10 @@ mod tests {
                     proposals: vec![],
                     chunk_mask: vec![false],
                     slashed: Default::default(),
-                    validator_reward: 0,
                     total_supply,
                     block_tracker: Default::default(),
                     shard_tracker: Default::default(),
                     all_proposals: vec![],
-                    total_validator_reward: 0,
                 },
                 rng_seed,
             )
