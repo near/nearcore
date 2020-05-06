@@ -35,6 +35,31 @@ fn setup_env(f: &mut dyn FnMut(&mut Genesis) -> ()) -> (TestEnv, FeeHelper) {
     (env, fee_helper)
 }
 
+/// Debug tool to show current balances.
+#[allow(dead_code)]
+fn print_accounts(env: &mut TestEnv) {
+    println!(
+        "{:?}",
+        ["near", "test0", "test1"]
+            .iter()
+            .map(|account_id| {
+                let account = env.query_account(account_id.to_string());
+                (account_id, account.amount, account.locked)
+            })
+            .collect::<Vec<_>>()
+    );
+}
+
+fn calc_total_supply(env: &mut TestEnv) -> u128 {
+    ["near", "test0", "test1"]
+        .iter()
+        .map(|account_id| {
+            let account = env.query_account(account_id.to_string());
+            account.amount + account.locked
+        })
+        .sum()
+}
+
 /// Test that node mints and burns tokens correctly with fees and epoch rewards.
 /// This combines Client & NightshadeRuntime to also test EpochManager.
 #[test]
@@ -63,11 +88,16 @@ fn test_burn_mint() {
         false,
     );
     let near_balance = env.query_balance("near".to_string());
-    env.produce_block(0, 1);
-    env.produce_block(0, 2);
-    env.produce_block(0, 3);
-    env.produce_block(0, 4);
-    env.produce_block(0, 5);
+    assert_eq!(calc_total_supply(&mut env), initial_total_supply);
+    for i in 1..6 {
+        env.produce_block(0, i);
+        // TODO: include receipts into total supply calculations and check with total supply in the next block?
+        //        print_accounts(&mut env);
+        //        assert_eq!(
+        //            calc_total_supply(&mut env),
+        //            env.clients[0].chain.get_block_by_height(i + 1).unwrap().header.inner_rest.total_supply
+        //        );
+    }
 
     // Block 3: epoch ends, it gets it's 10% of total supply - transfer cost.
     let block3 = env.clients[0].chain.get_block_by_height(3).unwrap().clone();

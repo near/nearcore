@@ -71,6 +71,7 @@ pub struct ApplyState {
 }
 
 /// Contains information to update validators accounts at the first block of a new epoch.
+#[derive(Debug)]
 pub struct ValidatorAccountsUpdate {
     /// Maximum stake across last 3 epochs.
     pub stake_info: HashMap<AccountId, Balance>,
