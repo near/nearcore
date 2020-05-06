@@ -821,7 +821,7 @@ pub fn setup_client(
 }
 
 pub struct TestEnv {
-    chain_genesis: ChainGenesis,
+    pub chain_genesis: ChainGenesis,
     validators: Vec<AccountId>,
     pub network_adapters: Vec<Arc<MockNetworkAdapter>>,
     pub clients: Vec<Client>,
