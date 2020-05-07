@@ -24,7 +24,7 @@ use crate::receipt::{ActionReceipt, DataReceipt, DataReceiver, Receipt, ReceiptE
 use crate::rpc::RpcPagination;
 use crate::serialize::{
     base64_format, from_base64, option_base64_format, option_u128_dec_format, to_base64,
-    u128_dec_format, u64_dec_format,
+    u128_dec_format,
 };
 use crate::sharding::{ChunkHash, ShardChunk, ShardChunkHeader, ShardChunkHeaderInner};
 use crate::state_record::StateRecord;
@@ -320,7 +320,6 @@ pub struct BlockHeaderView {
     pub outcome_root: CryptoHash,
     pub chunks_included: u64,
     pub challenges_root: CryptoHash,
-    #[serde(with = "u64_dec_format")]
     pub timestamp: u64,
     pub random_value: CryptoHash,
     pub validator_proposals: Vec<ValidatorStakeView>,
