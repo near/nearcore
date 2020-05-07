@@ -121,7 +121,7 @@ mod tests {
                                     }
                                 }
 
-                                if *largest_block_height > HEIGHT_GOAL {
+                                if *largest_block_height >= HEIGHT_GOAL {
                                     System::current().stop();
                                 }
                             }
@@ -276,7 +276,9 @@ mod tests {
             );
             *connectors.write().unwrap() = conn;
 
-            near_network::test_utils::wait_or_panic(3000 * HEIGHT_GOAL);
+            // We only check the terminating condition once every 20 heights, thus extra 20 to
+            // account for possibly going beyond the HEIGHT_GOAL.
+            near_network::test_utils::wait_or_panic(3000 * (20 + HEIGHT_GOAL));
         })
         .unwrap();
     }
