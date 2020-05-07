@@ -23,6 +23,14 @@ use crate::PROTOCOL_VERSION;
 
 pub const CONFIG_VERSION: u32 = 1;
 
+fn default_online_min_threshold() -> Rational {
+    Rational::new(90, 100)
+}
+
+fn default_online_max_threshold() -> Rational {
+    Rational::new(99, 100)
+}
+
 #[derive(Debug, Clone, SmartDefault, Serialize, Deserialize)]
 pub struct GenesisConfig {
     /// This is a version of a genesis config structure this version of binary works with.
@@ -59,9 +67,11 @@ pub struct GenesisConfig {
     /// Criterion for kicking out chunk producers (this is a number between 0 and 100)
     pub chunk_producer_kickout_threshold: u8,
     /// Online minimum threshold below which validator doesn't receive reward.
+    #[serde(default = "default_online_min_threshold")]
     #[default(Rational::new(90, 100))]
     pub online_min_threshold: Rational,
     /// Online maximum threshold above which validator gets full reward.
+    #[serde(default = "default_online_max_threshold")]
     #[default(Rational::new(99, 100))]
     pub online_max_threshold: Rational,
     /// Gas price adjustment rate

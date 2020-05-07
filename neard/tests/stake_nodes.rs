@@ -484,11 +484,15 @@ fn test_inflation() {
                 }));
                 actix::spawn(test_nodes[0].view_client.send(GetBlock::latest()).then(move |res| {
                     let header_view = res.unwrap().unwrap().header;
+                    // It's expected that validator will miss first chunk, hence will only be 95% online, getting 50% of their reward.
+                    // +10% of protocol reward = 60% of max inflation are allocated.
+                    let base_reward = initial_total_supply
+                        * epoch_length as u128
+                        * *max_inflation_rate.numer() as u128
+                        / (num_blocks_per_year as u128 * *max_inflation_rate.denom() as u128);
+                    // To match rounding, split into protocol reward and validator reward.
+                    let inflation = base_reward * 1 / 10 + base_reward * 5 / 10;
                     if header_view.height > epoch_length && header_view.height < epoch_length * 2 {
-                        let inflation = initial_total_supply
-                            * epoch_length as u128
-                            * *max_inflation_rate.numer() as u128
-                            / (num_blocks_per_year as u128 * *max_inflation_rate.denom() as u128);
                         if header_view.total_supply == initial_total_supply + inflation {
                             done2_copy2.store(true, Ordering::SeqCst);
                         }
