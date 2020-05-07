@@ -16,13 +16,31 @@ use node_runtime::{state_viewer::TrieViewer, ApplyState, Runtime};
 use std::collections::HashMap;
 use std::sync::Arc;
 
-#[derive(Debug, Default)]
+const DEFAULT_GENESIS_HEIGHT: u64 = 3;
+
+#[derive(Debug)]
 pub struct GenesisConfig {
     pub genesis_time: u64,
     pub gas_price: Balance,
     pub gas_limit: Gas,
+    pub genesis_height: u64,
+    pub epoch_length: u64,
     pub runtime_config: RuntimeConfig,
     pub state_records: Vec<StateRecord>,
+}
+
+impl Default for GenesisConfig {
+    fn default() -> Self {
+        Self {
+            genesis_time: 0,
+            gas_price: 0,
+            gas_limit: std::u64::MAX,
+            genesis_height: 0,
+            epoch_length: DEFAULT_GENESIS_HEIGHT,
+            runtime_config: RuntimeConfig::default(),
+            state_records: vec![],
+        }
+    }
 }
 
 #[derive(Debug, Default, Clone)]
@@ -42,8 +60,8 @@ impl Block {
         Self {
             prev_block: None,
             state_root: CryptoHash::default(),
-            block_height: 1,
-            epoch_height: 1,
+            block_height: 0,
+            epoch_height: 0,
             block_timestamp: genesis_config.genesis_time,
             gas_price: genesis_config.gas_price,
             gas_limit: genesis_config.gas_limit,
@@ -51,7 +69,7 @@ impl Block {
         }
     }
 
-    pub fn produce(&self, new_state_root: CryptoHash) -> Block {
+    pub fn produce(&self, new_state_root: CryptoHash, epoch_length: u64) -> Block {
         Self {
             gas_price: self.gas_price,
             gas_limit: self.gas_limit,
@@ -59,13 +77,14 @@ impl Block {
             prev_block: Some(Box::new(self.clone())),
             state_root: new_state_root,
             block_height: self.block_height + 1,
-            epoch_height: self.epoch_height + 1, // TODO: simulate epoch_height
+            epoch_height: self.block_timestamp + 1 / epoch_length,
             gas_burnt: 0,
         }
     }
 }
 
 pub struct RuntimeStandalone {
+    genesis: GenesisConfig,
     tx_pool: TransactionPool,
     transactions: HashMap<CryptoHash, SignedTransaction>,
     outcomes: HashMap<CryptoHash, ExecutionOutcome>,
@@ -88,6 +107,7 @@ impl RuntimeStandalone {
         store_update.commit().unwrap();
         genesis_block.state_root = state_root;
         Self {
+            genesis,
             trie,
             runtime,
             transactions: HashMap::new(),
@@ -167,7 +187,7 @@ impl RuntimeStandalone {
         let (update, _) =
             apply_result.trie_changes.into(self.trie.clone()).expect("Unexpected Storage error");
         update.commit().expect("Unexpected io error");
-        self.cur_block = self.cur_block.produce(apply_result.state_root);
+        self.cur_block = self.cur_block.produce(apply_result.state_root, self.genesis.epoch_length);
 
         Ok(())
     }
