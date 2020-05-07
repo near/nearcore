@@ -60,7 +60,7 @@ impl Block {
         Self {
             prev_block: None,
             state_root: CryptoHash::default(),
-            block_height: 0,
+            block_height: genesis_config.genesis_height,
             epoch_height: 0,
             block_timestamp: genesis_config.genesis_time,
             gas_price: genesis_config.gas_price,
