@@ -35,7 +35,7 @@ def is_active_validator(account_id):
 if __name__ == "__main__":
     contract_path = sys.argv[1] if len(sys.argv) > 1 else None
     if not contract_path:
-        contract_path = download_from_url('https://github.com/near/initial-contracts/raw/9e24f275ff886a256ac94d7b9573dc7043fd78d4/staking-pool-shares/res/staking_pool_with_shares.wasm')
+        contract_path = download_from_url('https://github.com/near/initial-contracts/raw/dd3e1c7f447e3b976ce8040c308935ab23c68428/staking-pool/res/staking_pool.wasm')
 
     cluster = Cluster(1, None, [["num_block_producer_seats", 10], ["num_block_producer_seats_per_shard", [10]], ["epoch_length", 10], ["block_producer_kickout_threshold", 40]], {})
     cluster.start(1, 0)
@@ -114,7 +114,7 @@ if __name__ == "__main__":
     assert user1_left_stake == "0", "%s != 0" % user1_left_stake
     user1_balance = user1.view_function(account_name, 'get_account_unstaked_balance', {"account_id": "user1"})["result"]
     print(">>> @user1 unstaked balance =", user1_balance)
-    assert user1_balance == user1_stake, "%s != %s" % (user1_balance,  user1_stake)
+    assert int(user1_balance) >= int(user1_stake), "%s < %s" % (user1_balance,  user1_stake)
     print(">>> @user1 withdraw call")
     user1.function_call(account_name, 'withdraw', {"amount": user1_balance})
 
