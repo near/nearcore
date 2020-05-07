@@ -1,4 +1,6 @@
+use near_crypto::{InMemorySigner, KeyType, Signer};
 use near_pool::{types::PoolIterator, TransactionPool};
+use near_primitives::{account::AccessKey, test_utils::account_new};
 use near_primitives::{
     account::Account,
     errors::RuntimeError,
@@ -10,13 +12,14 @@ use near_primitives::{
     types::{Balance, BlockHeight, EpochHeight, Gas, StateChangeCause},
 };
 use near_runtime_configs::RuntimeConfig;
-use near_store::{get_account, set_account, Store, Trie, TrieUpdate};
+use near_store::{
+    get_account, set_account, test_utils::create_test_store, Store, Trie, TrieUpdate,
+};
 use node_runtime::{state_viewer::TrieViewer, ApplyState, Runtime};
-
 use std::collections::HashMap;
 use std::sync::Arc;
 
-const DEFAULT_GENESIS_HEIGHT: u64 = 3;
+const DEFAULT_GENESIS_LENGTH: u64 = 3;
 
 #[derive(Debug)]
 pub struct GenesisConfig {
@@ -36,10 +39,26 @@ impl Default for GenesisConfig {
             gas_price: 0,
             gas_limit: std::u64::MAX,
             genesis_height: 0,
-            epoch_length: DEFAULT_GENESIS_HEIGHT,
+            epoch_length: DEFAULT_GENESIS_LENGTH,
             runtime_config: RuntimeConfig::default(),
             state_records: vec![],
         }
+    }
+}
+
+impl GenesisConfig {
+    pub fn init_root_signer(&mut self, account_id: &AccountId) -> InMemorySigner {
+        let signer = InMemorySigner::from_seed(account_id, KeyType::ED25519, "test");
+        let root_account = account_new(std::u128::MAX, CryptoHash::default());
+
+        self.state_records
+            .push(StateRecord::Account { account_id: account_id.clone(), account: root_account });
+        self.state_records.push(StateRecord::AccessKey {
+            account_id: account_id.clone(),
+            public_key: signer.public_key(),
+            access_key: AccessKey::full_access(),
+        });
+        signer
     }
 }
 
@@ -77,7 +96,7 @@ impl Block {
             prev_block: Some(Box::new(self.clone())),
             state_root: new_state_root,
             block_height: self.block_height + 1,
-            epoch_height: self.block_timestamp + 1 / epoch_length,
+            epoch_height: (self.block_height + 1) / epoch_length,
             gas_burnt: 0,
         }
     }
@@ -116,6 +135,10 @@ impl RuntimeStandalone {
             tx_pool: TransactionPool::new(),
             pending_receipts: vec![],
         }
+    }
+
+    pub fn new_with_store(genesis: GenesisConfig) -> Self {
+        RuntimeStandalone::new(genesis, create_test_store())
     }
 
     /// Processes blocks until the final value is produced
@@ -258,33 +281,16 @@ impl RuntimeStandalone {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use near_crypto::{InMemorySigner, KeyType, Signer};
-    use near_primitives::{account::AccessKey, test_utils::account_new};
-    use near_store::test_utils::create_test_store;
 
-    // Inits runtime with
-    fn init_runtime(signer: &InMemorySigner) -> RuntimeStandalone {
+    fn init_runtime_and_signer(root_account_id: &AccountId) -> (RuntimeStandalone, InMemorySigner) {
         let mut genesis = GenesisConfig::default();
-        let root_account = account_new(std::u128::MAX, CryptoHash::default());
-
-        genesis.state_records.push(StateRecord::Account {
-            account_id: signer.account_id.clone(),
-            account: root_account,
-        });
-        genesis.state_records.push(StateRecord::AccessKey {
-            account_id: signer.account_id.clone(),
-            public_key: signer.public_key(),
-            access_key: AccessKey::full_access(),
-        });
-
-        RuntimeStandalone::new(genesis, create_test_store())
+        let signer = genesis.init_root_signer(root_account_id);
+        (RuntimeStandalone::new_with_store(genesis), signer)
     }
 
     #[test]
     fn single_block() {
-        let signer = InMemorySigner::from_seed("bob".into(), KeyType::ED25519, "test");
-
-        let mut runtime = init_runtime(&signer);
+        let (mut runtime, signer) = init_runtime_and_signer(&"root".into());
         let hash = runtime.send_tx(SignedTransaction::create_account(
             1,
             signer.account_id.clone(),
@@ -303,8 +309,7 @@ mod tests {
 
     #[test]
     fn process_all() {
-        let signer = InMemorySigner::from_seed("bob".into(), KeyType::ED25519, "test");
-        let mut runtime = init_runtime(&signer);
+        let (mut runtime, signer) = init_runtime_and_signer(&"root".into());
         assert_eq!(runtime.view_account(&"alice".into()), None);
         let outcome = runtime.resolve_tx(SignedTransaction::create_account(
             1,
@@ -332,8 +337,7 @@ mod tests {
 
     #[test]
     fn test_cross_contract_call() {
-        let signer = InMemorySigner::from_seed("bob".into(), KeyType::ED25519, "test");
-        let mut runtime = init_runtime(&signer);
+        let (mut runtime, signer) = init_runtime_and_signer(&"root".into());
 
         assert!(matches!(
             runtime.resolve_tx(SignedTransaction::create_contract(
@@ -404,11 +408,10 @@ mod tests {
 
     #[test]
     fn test_force_update_account() {
-        let signer = InMemorySigner::from_seed("bob".into(), KeyType::ED25519, "test");
-        let mut runtime = init_runtime(&signer);
-        let mut bob_account = runtime.view_account(&"bob".into()).unwrap();
+        let (mut runtime, _) = init_runtime_and_signer(&"root".into());
+        let mut bob_account = runtime.view_account(&"root".into()).unwrap();
         bob_account.locked = 10000;
-        runtime.force_account_update("bob".into(), &bob_account);
-        assert_eq!(runtime.view_account(&"bob".into()).unwrap().locked, 10000);
+        runtime.force_account_update("root".into(), &bob_account);
+        assert_eq!(runtime.view_account(&"root".into()).unwrap().locked, 10000);
     }
 }
