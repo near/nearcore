@@ -19,7 +19,7 @@ use node_runtime::{state_viewer::TrieViewer, ApplyState, Runtime};
 use std::collections::HashMap;
 use std::sync::Arc;
 
-const DEFAULT_GENESIS_LENGTH: u64 = 3;
+const DEFAULT_EPOCH_LENGTH: u64 = 3;
 
 #[derive(Debug)]
 pub struct GenesisConfig {
@@ -39,7 +39,7 @@ impl Default for GenesisConfig {
             gas_price: 0,
             gas_limit: std::u64::MAX,
             genesis_height: 0,
-            epoch_length: DEFAULT_GENESIS_LENGTH,
+            epoch_length: DEFAULT_EPOCH_LENGTH,
             runtime_config: RuntimeConfig::default(),
             state_records: vec![],
         }
