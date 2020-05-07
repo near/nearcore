@@ -69,8 +69,8 @@ pub fn validate_genesis(genesis: &Genesis) {
         "Online max threshold smaller than min threshold"
     );
     assert!(
-        genesis.config.online_max_threshold < Rational::from_integer(1),
-        "Online max threshold must be less than 1"
+        genesis.config.online_max_threshold <= Rational::from_integer(1),
+        "Online max threshold must be less or equal than 1"
     );
     assert!(
         genesis.config.gas_price_adjustment_rate < Rational::from_integer(1),

@@ -5,7 +5,7 @@ use primitive_types::U256;
 
 use near_primitives::types::{AccountId, Balance, BlockChunkValidatorStats};
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct RewardCalculator {
     pub max_inflation_rate: Rational,
     pub num_blocks_per_year: u64,
@@ -58,6 +58,8 @@ impl RewardCalculator {
             // If average of produced blocks below online min threshold, validator gets 0 reward.
             let reward = if average_produced_numer * online_min_denom
                 < online_min_numer * average_produced_denom
+                || stats.chunk_stats.expected == 0
+                || stats.block_stats.expected == 0
             {
                 0
             } else {
@@ -94,6 +96,56 @@ mod tests {
     use near_primitives::types::{BlockChunkValidatorStats, ValidatorStats};
     use num_rational::Rational;
     use std::collections::HashMap;
+
+    #[test]
+    fn test_zero_produced_and_expected() {
+        let reward_calculator = RewardCalculator {
+            max_inflation_rate: Rational::new(0, 1),
+            num_blocks_per_year: 1000000,
+            epoch_length: 1,
+            protocol_reward_percentage: Rational::new(0, 1),
+            protocol_treasury_account: "near".to_string(),
+            online_min_threshold: Rational::new(9, 10),
+            online_max_threshold: Rational::new(1, 1),
+        };
+        let validator_block_chunk_stats = vec![
+            (
+                "test1".to_string(),
+                BlockChunkValidatorStats {
+                    block_stats: ValidatorStats { produced: 0, expected: 0 },
+                    chunk_stats: ValidatorStats { produced: 0, expected: 0 },
+                },
+            ),
+            (
+                "test2".to_string(),
+                BlockChunkValidatorStats {
+                    block_stats: ValidatorStats { produced: 0, expected: 1 },
+                    chunk_stats: ValidatorStats { produced: 0, expected: 1 },
+                },
+            ),
+        ]
+        .into_iter()
+        .collect::<HashMap<_, _>>();
+        let validator_stake = vec![("test1".to_string(), 100), ("test2".to_string(), 100)]
+            .into_iter()
+            .collect::<HashMap<_, _>>();
+        let total_supply = 1_000_000_000_000;
+        let result = reward_calculator.calculate_reward(
+            validator_block_chunk_stats,
+            &validator_stake,
+            total_supply,
+        );
+        assert_eq!(
+            result.0,
+            vec![
+                ("near".to_string(), 0u128),
+                ("test1".to_string(), 0u128),
+                ("test2".to_string(), 0u128)
+            ]
+            .into_iter()
+            .collect::<HashMap<_, _>>()
+        );
+    }
 
     /// Test reward calculation when validators are not fully online.
     #[test]
@@ -173,7 +225,7 @@ mod tests {
             protocol_reward_percentage: Rational::new(1, 10),
             protocol_treasury_account: "near".to_string(),
             online_min_threshold: Rational::new(9, 10),
-            online_max_threshold: Rational::new(9, 10),
+            online_max_threshold: Rational::new(1, 1),
         };
         let validator_block_chunk_stats = vec![(
             "test".to_string(),
