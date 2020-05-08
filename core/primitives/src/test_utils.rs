@@ -4,10 +4,11 @@ use crate::account::{AccessKey, AccessKeyPermission, Account};
 use crate::block::Block;
 use crate::hash::CryptoHash;
 use crate::transaction::{
-    Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, SignedTransaction, StakeAction,
-    Transaction, TransferAction,
+    Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
+    DeployContractAction, FunctionCallAction, SignedTransaction, StakeAction, Transaction,
+    TransferAction,
 };
-use crate::types::{AccountId, Balance, BlockHeight, EpochId, Nonce};
+use crate::types::{AccountId, Balance, BlockHeight, EpochId, Gas, Nonce};
 use crate::validator_signer::ValidatorSigner;
 use num_rational::Rational;
 
@@ -16,9 +17,69 @@ pub fn account_new(amount: Balance, code_hash: CryptoHash) -> Account {
 }
 
 impl Transaction {
+    pub fn new(
+        signer_id: AccountId,
+        public_key: PublicKey,
+        receiver_id: AccountId,
+        nonce: Nonce,
+        block_hash: CryptoHash,
+    ) -> Self {
+        Self { signer_id, public_key, nonce, receiver_id, block_hash, actions: vec![] }
+    }
+
     pub fn sign(self, signer: &dyn Signer) -> SignedTransaction {
         let signature = signer.sign(self.get_hash().as_ref());
         SignedTransaction::new(signature, self)
+    }
+
+    pub fn create_account(mut self) -> Self {
+        self.actions.push(Action::CreateAccount(CreateAccountAction {}));
+        self
+    }
+
+    pub fn deploy_contract(mut self, code: Vec<u8>) -> Self {
+        self.actions.push(Action::DeployContract(DeployContractAction { code }));
+        self
+    }
+
+    pub fn function_call(
+        mut self,
+        method_name: String,
+        args: Vec<u8>,
+        gas: Gas,
+        deposit: Balance,
+    ) -> Self {
+        self.actions.push(Action::FunctionCall(FunctionCallAction {
+            method_name,
+            args,
+            gas,
+            deposit,
+        }));
+        self
+    }
+
+    pub fn transfer(mut self, deposit: Balance) -> Self {
+        self.actions.push(Action::Transfer(TransferAction { deposit }));
+        self
+    }
+
+    pub fn stake(mut self, stake: Balance, public_key: PublicKey) -> Self {
+        self.actions.push(Action::Stake(StakeAction { stake, public_key }));
+        self
+    }
+    pub fn add_key(mut self, public_key: PublicKey, access_key: AccessKey) -> Self {
+        self.actions.push(Action::AddKey(AddKeyAction { public_key, access_key }));
+        self
+    }
+
+    pub fn delete_key(mut self, public_key: PublicKey) -> Self {
+        self.actions.push(Action::DeleteKey(DeleteKeyAction { public_key }));
+        self
+    }
+
+    pub fn delete_account(mut self, beneficiary_id: AccountId) -> Self {
+        self.actions.push(Action::DeleteAccount(DeleteAccountAction { beneficiary_id }));
+        self
     }
 }
 
@@ -100,6 +161,55 @@ impl SignedTransaction {
                 }),
                 Action::Transfer(TransferAction { deposit: amount }),
             ],
+            block_hash,
+        )
+    }
+
+    pub fn create_contract(
+        nonce: Nonce,
+        originator: AccountId,
+        new_account_id: AccountId,
+        code: Vec<u8>,
+        amount: Balance,
+        public_key: PublicKey,
+        signer: &dyn Signer,
+        block_hash: CryptoHash,
+    ) -> Self {
+        Self::from_actions(
+            nonce,
+            originator,
+            new_account_id,
+            signer,
+            vec![
+                Action::CreateAccount(CreateAccountAction {}),
+                Action::AddKey(AddKeyAction {
+                    public_key,
+                    access_key: AccessKey { nonce: 0, permission: AccessKeyPermission::FullAccess },
+                }),
+                Action::Transfer(TransferAction { deposit: amount }),
+                Action::DeployContract(DeployContractAction { code }),
+            ],
+            block_hash,
+        )
+    }
+
+    pub fn call(
+        nonce: Nonce,
+        signer_id: AccountId,
+        receiver_id: AccountId,
+        signer: &dyn Signer,
+        deposit: Balance,
+        method_name: String,
+        args: Vec<u8>,
+        gas: Gas,
+        block_hash: CryptoHash,
+    ) -> Self {
+        Self::from_actions(
+            nonce,
+            signer_id,
+            receiver_id,
+            signer,
+            vec![Action::FunctionCall(FunctionCallAction { args, method_name, gas, deposit })],
             block_hash,
         )
     }
