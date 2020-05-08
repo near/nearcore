@@ -25,7 +25,7 @@ fn warmup_total_transactions(config: &Config) -> usize {
     config.block_sizes.iter().sum::<usize>() * config.warmup_iters_per_block
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum GasMetric {
     // If we measure gas in number of executed instructions, must run under simulator.
     ICount,
@@ -113,7 +113,7 @@ pub unsafe fn syscall3(mut n: usize, a1: usize, a2: usize, a3: usize) -> usize {
 
 const CATCH_BASE: usize = 0xcafebabe;
 
-enum Consumed {
+pub enum Consumed {
     Instant(Instant),
     None,
 }
@@ -155,14 +155,14 @@ fn end_count_time(consumed: &Consumed) -> u64 {
     }
 }
 
-fn start_count(metric: &GasMetric) -> Consumed {
+pub fn start_count(metric: &GasMetric) -> Consumed {
     return match *metric {
         GasMetric::ICount => start_count_instructions(),
         GasMetric::Time => start_count_time(),
     };
 }
 
-fn end_count(metric: &GasMetric, consumed: &Consumed) -> u64 {
+pub fn end_count(metric: &GasMetric, consumed: &Consumed) -> u64 {
     return match metric {
         GasMetric::ICount => end_count_instructions(),
         GasMetric::Time => end_count_time(consumed),
