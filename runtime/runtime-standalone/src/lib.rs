@@ -161,10 +161,11 @@ impl RuntimeStandalone {
             self.process_block()?;
             let outcome = self.outcomes.get(&outcome_hash).unwrap();
             match outcome.status {
+                ExecutionStatus::Unknown => unreachable!(), // ExecutionStatus::Unknown is not relevant for a standalone runtime
                 ExecutionStatus::SuccessReceiptId(ref id) => outcome_hash = *id,
-                ExecutionStatus::SuccessValue(_)
-                | ExecutionStatus::Failure(_)
-                | ExecutionStatus::Unknown => return Ok(outcome.clone()),
+                ExecutionStatus::SuccessValue(_) | ExecutionStatus::Failure(_) => {
+                    return Ok(outcome.clone())
+                }
             };
         }
     }
