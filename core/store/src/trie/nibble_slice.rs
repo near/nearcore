@@ -31,12 +31,12 @@ use std::fmt;
 ///   let d1 = &[0x01u8, 0x23, 0x45];
 ///   let d2 = &[0x34u8, 0x50, 0x12];
 ///   let d3 = &[0x00u8, 0x12];
-///   let n1 = NibbleSlice::new(d1);			// 0,1,2,3,4,5
-///   let n2 = NibbleSlice::new(d2);			// 3,4,5,0,1,2
-///   let n3 = NibbleSlice::new_offset(d3, 1);	// 0,1,2
-///   assert!(n1 > n3);							// 0,1,2,... > 0,1,2
-///   assert!(n1 < n2);							// 0,... < 3,...
-///   assert!(n2.mid(3) == n3);					// 0,1,2 == 0,1,2
+///   let n1 = NibbleSlice::new(d1);            // 0,1,2,3,4,5
+///   let n2 = NibbleSlice::new(d2);            // 3,4,5,0,1,2
+///   let n3 = NibbleSlice::new_offset(d3, 1);  // 0,1,2
+///   assert!(n1 > n3);                         // 0,1,2,... > 0,1,2
+///   assert!(n1 < n2);                         // 0,... < 3,...
+///   assert!(n2.mid(3) == n3);                 // 0,1,2 == 0,1,2
 ///   assert!(n1.starts_with(&n3));
 ///   assert_eq!(n1.common_prefix(&n3), 3);
 ///   assert_eq!(n2.mid(3).common_prefix(&n1), 3);
@@ -233,7 +233,7 @@ impl fmt::Debug for NibbleSlice<'_> {
 mod tests {
     use super::NibbleSlice;
     use elastic_array::ElasticArray36;
-    static D: &'static [u8; 3] = &[0x01u8, 0x23, 0x45];
+    static D: &[u8; 3] = &[0x01u8, 0x23, 0x45];
 
     #[test]
     fn basics() {

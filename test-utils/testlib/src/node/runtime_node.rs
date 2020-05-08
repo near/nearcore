@@ -18,6 +18,7 @@ pub struct RuntimeNode {
     pub genesis: Genesis,
 }
 
+#[allow(clippy::ptr_arg)]
 impl RuntimeNode {
     pub fn new(account_id: &AccountId) -> Self {
         let mut genesis = Genesis::test(vec![&alice_account(), &bob_account(), "carol.near"], 3);

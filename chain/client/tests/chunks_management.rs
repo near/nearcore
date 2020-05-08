@@ -78,6 +78,7 @@ fn chunks_recovered_from_full() {
 /// Runs block producing client and stops after network mock received seven blocks
 /// Confirms that the blocks form a chain (which implies the chunks are distributed).
 /// Confirms that the number of messages transmitting the chunks matches the expected number.
+#[allow(clippy::type_complexity)]
 fn chunks_produced_and_distributed_common(
     validator_groups: u64,
     drop_from_1_to_4: bool,
@@ -88,13 +89,13 @@ fn chunks_produced_and_distributed_common(
         let connectors: Arc<RwLock<Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>>> =
             Arc::new(RwLock::new(vec![]));
         let heights = Arc::new(RwLock::new(HashMap::new()));
-        let heights1 = heights.clone();
+        let heights1 = heights;
 
         let height_to_hash = Arc::new(RwLock::new(HashMap::new()));
         let height_to_epoch = Arc::new(RwLock::new(HashMap::new()));
 
         let check_height =
-            move |hash: CryptoHash, height| match heights1.write().unwrap().entry(hash.clone()) {
+            move |hash: CryptoHash, height| match heights1.write().unwrap().entry(hash) {
                 Entry::Occupied(entry) => {
                     assert_eq!(*entry.get(), height);
                 }
@@ -111,7 +112,7 @@ fn chunks_produced_and_distributed_common(
 
         let (_, conn) = setup_mock_all_validators(
             validators.clone(),
-            key_pairs.clone(),
+            key_pairs,
             validator_groups,
             true,
             block_timeout,
@@ -277,8 +278,7 @@ fn test_request_chunk_restart() {
     if let NetworkRequests::PartialEncodedChunkResponse { partial_encoded_chunk, .. } = response {
         assert_eq!(partial_encoded_chunk.chunk_hash, block1.chunks[0].chunk_hash());
     } else {
-        println!("{:?}", response);
-        assert!(false);
+        panic!("Unexpected response: {:?}", response);
     }
 }
 
@@ -399,16 +399,16 @@ fn store_partial_encoded_chunk_sanity() {
         .store_partial_encoded_chunk(&block.header, partial_encoded_chunk3.clone());
     assert_eq!(env.clients[0].shards_mgr.get_stored_partial_encoded_chunks(9).len(), 0);
     h.inner.height_created = 5;
-    partial_encoded_chunk3.header = Some(h.clone());
+    partial_encoded_chunk3.header = Some(h);
     env.clients[0]
         .shards_mgr
-        .store_partial_encoded_chunk(&block.header, partial_encoded_chunk3.clone());
+        .store_partial_encoded_chunk(&block.header, partial_encoded_chunk3);
     assert_eq!(env.clients[0].shards_mgr.get_stored_partial_encoded_chunks(5).len(), 1);
 
     // No header
-    let mut partial_encoded_chunk4 = partial_encoded_chunk.clone();
+    let mut partial_encoded_chunk4 = partial_encoded_chunk;
     partial_encoded_chunk4.header = None;
     env.clients[0]
         .shards_mgr
-        .store_partial_encoded_chunk(&block.header, partial_encoded_chunk4.clone());
+        .store_partial_encoded_chunk(&block.header, partial_encoded_chunk4);
 }

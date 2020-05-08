@@ -10,6 +10,7 @@ type ExecutionCost = u64;
 
 /// Stores measurements per block.
 #[derive(Clone)]
+#[allow(clippy::type_complexity)] // TODO: could capture large tuple as a struct
 pub struct Measurements {
     data: BTreeMap<Metric, Vec<(usize, ExecutionCost, HashMap<ExtCosts, u64>)>>,
     gas_metric: GasMetric,
@@ -44,7 +45,7 @@ impl Measurements {
     pub fn aggregate(&self) -> BTreeMap<Metric, DataStats> {
         self.data
             .iter()
-            .map(|(metric, measurements)| (metric.clone(), DataStats::aggregate(measurements)))
+            .map(|(metric, measurements)| (*metric, DataStats::aggregate(measurements)))
             .collect()
     }
 
@@ -145,7 +146,8 @@ pub struct DataStats {
 }
 
 impl DataStats {
-    pub fn aggregate(un_aggregated: &Vec<(usize, ExecutionCost, HashMap<ExtCosts, u64>)>) -> Self {
+    #[allow(clippy::type_complexity)] // TODO: capture tuple as struct
+    pub fn aggregate(un_aggregated: &[(usize, ExecutionCost, HashMap<ExtCosts, u64>)]) -> Self {
         let mut costs = un_aggregated
             .iter()
             .map(|(block_size, execution_cost, _)| {

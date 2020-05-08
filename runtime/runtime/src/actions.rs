@@ -64,6 +64,7 @@ pub(crate) fn get_insufficient_storage_stake(
     }
 }
 
+#[allow(clippy::ptr_arg)]
 pub(crate) fn get_code_with_cache(
     state_update: &TrieUpdate,
     account_id: &AccountId,
@@ -75,6 +76,7 @@ pub(crate) fn get_code_with_cache(
     crate::cache::get_code(code_hash, code)
 }
 
+#[allow(clippy::ptr_arg, clippy::too_many_arguments)]
 pub(crate) fn action_function_call(
     state_update: &mut TrieUpdate,
     apply_state: &ApplyState,
@@ -195,6 +197,7 @@ pub(crate) fn action_function_call(
     Ok(())
 }
 
+#[allow(clippy::ptr_arg)]
 pub(crate) fn action_stake(
     account: &mut Account,
     result: &mut ActionResult,
@@ -260,6 +263,7 @@ pub(crate) fn action_transfer(
     Ok(())
 }
 
+#[allow(clippy::ptr_arg)]
 pub(crate) fn action_create_account(
     fee_config: &RuntimeFeesConfig,
     account_creation_config: &AccountCreationConfig,
@@ -308,6 +312,7 @@ pub(crate) fn action_create_account(
     });
 }
 
+#[allow(clippy::ptr_arg)]
 pub(crate) fn action_deploy_contract(
     state_update: &mut TrieUpdate,
     account: &mut Account,
@@ -336,6 +341,7 @@ pub(crate) fn action_deploy_contract(
     Ok(())
 }
 
+#[allow(clippy::ptr_arg)]
 pub(crate) fn action_delete_account(
     state_update: &mut TrieUpdate,
     account: &mut Option<Account>,
@@ -358,6 +364,7 @@ pub(crate) fn action_delete_account(
     Ok(())
 }
 
+#[allow(clippy::ptr_arg)]
 pub(crate) fn action_delete_key(
     fee_config: &RuntimeFeesConfig,
     state_update: &mut TrieUpdate,
@@ -394,6 +401,7 @@ pub(crate) fn action_delete_key(
     Ok(())
 }
 
+#[allow(clippy::ptr_arg)]
 pub(crate) fn action_add_key(
     fees_config: &RuntimeFeesConfig,
     state_update: &mut TrieUpdate,
@@ -433,6 +441,7 @@ pub(crate) fn action_add_key(
     Ok(())
 }
 
+#[allow(clippy::ptr_arg)]
 pub(crate) fn check_actor_permissions(
     action: &Action,
     account: &Option<Account>,
@@ -470,6 +479,7 @@ pub(crate) fn check_actor_permissions(
     Ok(())
 }
 
+#[allow(clippy::ptr_arg)]
 pub(crate) fn check_account_existence(
     action: &Action,
     account: &mut Option<Account>,
@@ -479,7 +489,7 @@ pub(crate) fn check_account_existence(
         Action::CreateAccount(_) => {
             if account.is_some() {
                 return Err(ActionErrorKind::AccountAlreadyExists {
-                    account_id: account_id.clone().into(),
+                    account_id: account_id.clone(),
                 }
                 .into());
             }
@@ -570,8 +580,8 @@ mod tests {
             Err(ActionError {
                 index: None,
                 kind: ActionErrorKind::CreateAccountNotAllowed {
-                    account_id: account_id.clone(),
-                    predecessor_id: predecessor_id.clone(),
+                    account_id: account_id,
+                    predecessor_id: predecessor_id,
                 }
             })
         );
@@ -588,9 +598,9 @@ mod tests {
             Err(ActionError {
                 index: None,
                 kind: ActionErrorKind::CreateAccountOnlyByRegistrar {
-                    account_id: account_id.clone(),
+                    account_id: account_id,
                     registrar_account_id: AccountId::from("registrar"),
-                    predecessor_id: predecessor_id.clone(),
+                    predecessor_id: predecessor_id,
                 }
             })
         );
@@ -601,7 +611,7 @@ mod tests {
         let account_id = AccountId::from("bob");
         let predecessor_id = AccountId::from("near");
         let action_result =
-            test_action_create_account(account_id.clone(), predecessor_id.clone(), 0);
+            test_action_create_account(account_id, predecessor_id, 0);
         assert!(action_result.result.is_ok());
     }
 }

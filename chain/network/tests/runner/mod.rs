@@ -70,7 +70,7 @@ pub fn setup_network_node(
         5,
     );
 
-    let peer_manager = PeerManagerActor::create(move |ctx| {
+    PeerManagerActor::create(move |ctx| {
         let mut client_config = ClientConfig::test(false, 100, 200, num_validators, false);
         client_config.ttl_account_id_router = config.ttl_account_id_router;
         let network_adapter = NetworkRecipient::new();
@@ -92,7 +92,7 @@ pub fn setup_network_node(
             config.account_id.clone(),
             &chain_genesis,
             runtime.clone(),
-            network_adapter.clone(),
+            network_adapter,
             client_config,
         )
         .unwrap()
@@ -105,9 +105,7 @@ pub fn setup_network_node(
             view_client_actor.recipient(),
         )
         .unwrap()
-    });
-
-    peer_manager
+    })
 }
 
 // TODO: Deprecate this in favor of separate functions.
@@ -232,9 +230,10 @@ impl StateMachine {
                                 .map_err(|_| ())
                                 .and_then(move |res| {
                                     if let NetworkResponses::RoutingTableInfo(routing_table) = res {
-                                        if expected_known.into_iter().all(|validator| {
+                                        let all_peers_known = expected_known.into_iter().all(|validator| {
                                             routing_table.account_peers.contains_key(&validator)
-                                        }) {
+                                        });
+                                        if all_peers_known {
                                             flag.store(true, Ordering::Relaxed);
                                         }
                                     }
@@ -527,21 +526,20 @@ impl Runner {
         );
 
         let blacklist = blacklist_from_vec(
-            &test_config
+            test_config
                 .blacklist
                 .iter()
                 .map(|x| {
                     if let Some(x) = x {
-                        format!("127.0.0.1:{}", ports[*x]).parse().unwrap()
+                        format!("127.0.0.1:{}", ports[*x])
                     } else {
-                        "127.0.0.1".parse().unwrap()
+                        "127.0.0.1".to_string()
                     }
                 })
-                .collect(),
         );
 
         let mut network_config =
-            NetworkConfig::from_seed(accounts_id[node_id].as_str(), ports[node_id].clone());
+            NetworkConfig::from_seed(accounts_id[node_id].as_str(), ports[node_id]);
 
         network_config.ban_window = test_config.ban_window;
         network_config.max_num_peers = test_config.max_num_peers;
@@ -573,7 +571,7 @@ impl Runner {
         let ports: Vec<_> = (0..self.num_nodes).map(|_| open_port()).collect();
 
         let validators: Vec<_> =
-            accounts_id.iter().map(|x| x.clone()).take(self.num_validators).collect();
+            accounts_id.iter().take(self.num_validators).cloned().collect();
 
         let mut peers_info =
             convert_boot_nodes(accounts_id.iter().map(|x| x.as_str()).zip(ports.clone()).collect());

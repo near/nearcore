@@ -74,6 +74,7 @@ pub enum TrieKey {
     ContractData { account_id: AccountId, key: Vec<u8> },
 }
 
+#[allow(clippy::len_without_is_empty)]
 impl TrieKey {
     pub fn len(&self) -> usize {
         match self {
@@ -183,6 +184,7 @@ pub mod trie_key_parsers {
     use super::*;
     use std::convert::TryFrom;
 
+    #[allow(clippy::ptr_arg)]
     pub fn parse_public_key_from_access_key_key(
         raw_key: &[u8],
         account_id: &AccountId,
@@ -197,6 +199,7 @@ pub mod trie_key_parsers {
         PublicKey::try_from_slice(&raw_key[prefix_len..])
     }
 
+    #[allow(clippy::ptr_arg)]
     pub fn parse_data_key_from_contract_data_key<'a>(
         raw_key: &'a [u8],
         account_id: &AccountId,
@@ -338,6 +341,7 @@ pub mod trie_key_parsers {
         })?))
     }
 
+    #[allow(clippy::ptr_arg)]
     pub fn parse_data_id_from_received_data_key(
         raw_key: &[u8],
         account_id: &AccountId,
@@ -357,6 +361,7 @@ pub mod trie_key_parsers {
         })
     }
 
+    #[allow(clippy::ptr_arg)]
     pub fn get_raw_prefix_for_access_keys(account_id: &AccountId) -> Vec<u8> {
         let mut res = Vec::with_capacity(col::ACCESS_KEY.len() * 2 + account_id.len());
         res.extend(col::ACCESS_KEY);
@@ -365,6 +370,7 @@ pub mod trie_key_parsers {
         res
     }
 
+    #[allow(clippy::ptr_arg)]
     pub fn get_raw_prefix_for_contract_data(account_id: &AccountId, prefix: &[u8]) -> Vec<u8> {
         let mut res = Vec::with_capacity(
             col::CONTRACT_DATA.len()

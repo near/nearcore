@@ -4,6 +4,7 @@ use near_primitives::types::{AccountId, BlockHeight, EpochHeight, MerkleHash};
 use near_primitives::views::ViewStateResult;
 
 /// Adapter for querying runtime.
+#[allow(clippy::ptr_arg)]
 pub trait ViewRuntimeAdapter {
     fn view_account(
         &self,
@@ -11,6 +12,7 @@ pub trait ViewRuntimeAdapter {
         account_id: &AccountId,
     ) -> Result<Account, Box<dyn std::error::Error>>;
 
+    #[allow(clippy::too_many_arguments)]
     fn call_function(
         &self,
         state_root: MerkleHash,

@@ -15,6 +15,7 @@ pub struct Error {
 }
 
 #[derive(Clone, Eq, PartialEq, Debug, Fail)]
+#[allow(clippy::large_enum_variant)] // TODO: should maybe consider boxing here
 pub enum ErrorKind {
     /// The block doesn't fit anywhere in our chain.
     #[fail(display = "Block is unfit: {}", _0)]

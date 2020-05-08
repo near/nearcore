@@ -11,6 +11,8 @@ use near_network::{NetworkRequests, NetworkResponses, PeerInfo};
 use near_primitives::types::BlockIdOrFinality;
 use near_primitives::views::{QueryRequest, QueryResponseKind::ViewAccount};
 
+pub(crate) type Connectors = Arc<RwLock<Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>>>;
+
 /// Tests that the KeyValueRuntime properly sets balances in genesis and makes them queriable
 #[test]
 fn test_keyvalue_runtime_balances() {
@@ -18,8 +20,7 @@ fn test_keyvalue_runtime_balances() {
     let successful_queries = Arc::new(AtomicUsize::new(0));
     init_test_logger();
     System::run(move || {
-        let connectors: Arc<RwLock<Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>>> =
-            Arc::new(RwLock::new(vec![]));
+        let connectors: Connectors = Arc::new(RwLock::new(vec![]));
 
         let validators = vec![vec!["test1", "test2", "test3", "test4"]];
         let key_pairs =
@@ -27,7 +28,7 @@ fn test_keyvalue_runtime_balances() {
 
         let (_, conn) = setup_mock_all_validators(
             validators.clone(),
-            key_pairs.clone(),
+            key_pairs,
             validator_groups,
             true,
             100,
@@ -76,16 +77,18 @@ fn test_keyvalue_runtime_balances() {
 
 #[cfg(test)]
 mod tests {
+    use super::Connectors;
+
     use std::collections::HashSet;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::{Arc, RwLock};
 
-    use actix::{Addr, MailboxError, System};
+    use actix::{MailboxError, System};
     use futures::{future, FutureExt};
 
     use near_chain::test_utils::account_id_to_shard_id;
     use near_client::test_utils::setup_mock_all_validators;
-    use near_client::{ClientActor, Query, ViewClientActor};
+    use near_client::Query;
     use near_crypto::{InMemorySigner, KeyType};
     use near_logger_utils::init_test_logger;
     use near_network::{
@@ -96,9 +99,10 @@ mod tests {
     use near_primitives::types::{AccountId, BlockIdOrFinality};
     use near_primitives::views::{QueryRequest, QueryResponse, QueryResponseKind::ViewAccount};
 
+    #[allow(clippy::type_complexity, clippy::too_many_arguments)]
     fn send_tx(
         num_validators: usize,
-        connectors: Arc<RwLock<Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>>>,
+        connectors: Connectors,
         connector_ordinal: usize,
         from: AccountId,
         to: AccountId,
@@ -107,7 +111,7 @@ mod tests {
         block_hash: CryptoHash,
     ) {
         let connectors1 = connectors.clone();
-        let signer = InMemorySigner::from_seed(&from.clone(), KeyType::ED25519, &from.clone());
+        let signer = InMemorySigner::from_seed(&from, KeyType::ED25519, &from);
         actix::spawn(
             connectors.write().unwrap()[connector_ordinal]
                 .0
@@ -145,12 +149,11 @@ mod tests {
                                 connector_ordinal
                             );
                         }
-                        other @ _ => {
-                            println!(
+                        other => {
+                            panic!(
                                 "Transaction was rejected with an unexpected outcome: {:?}",
                                 other
                             );
-                            assert!(false)
                         }
                     }
                     future::ready(())
@@ -158,10 +161,12 @@ mod tests {
         );
     }
 
+    // TODO: this function could use some cleanup:
+    #[allow(clippy::type_complexity, clippy::too_many_arguments, clippy::redundant_clone, clippy::needless_range_loop)]
     fn test_cross_shard_tx_callback(
         res: Result<Result<Option<QueryResponse>, String>, MailboxError>,
         account_id: AccountId,
-        connectors: Arc<RwLock<Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>>>,
+        connectors: Connectors,
         iteration: Arc<AtomicUsize>,
         nonce: Arc<AtomicUsize>,
         validators: Vec<&'static str>,
@@ -376,8 +381,7 @@ mod tests {
         let validator_groups = 4;
         init_test_logger();
         System::run(move || {
-            let connectors: Arc<RwLock<Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>>> =
-                Arc::new(RwLock::new(vec![]));
+            let connectors: Connectors = Arc::new(RwLock::new(vec![]));
 
             let validators = if rotate_validators {
                 vec![
@@ -414,7 +418,7 @@ mod tests {
 
             let (genesis_block, conn) = setup_mock_all_validators(
                 validators.clone(),
-                key_pairs.clone(),
+                key_pairs,
                 validator_groups,
                 true,
                 block_production_time,
@@ -437,9 +441,9 @@ mod tests {
             let nonce = Arc::new(AtomicUsize::new(1));
             let successful_queries = Arc::new(RwLock::new(HashSet::new()));
             let unsuccessful_queries = Arc::new(AtomicUsize::new(0));
-            let flat_validators = validators.iter().flatten().map(|x| *x).collect::<Vec<_>>();
+            let flat_validators = validators.iter().flatten().copied().collect::<Vec<_>>();
 
-            for i in 0..8 {
+            for (i, validator) in flat_validators.iter().enumerate() {
                 let connectors1 = connectors.clone();
                 let iteration1 = iteration.clone();
                 let nonce1 = nonce.clone();
@@ -449,20 +453,20 @@ mod tests {
                 let balances1 = balances.clone();
                 let observed_balances1 = observed_balances.clone();
                 let presumable_epoch1 = presumable_epoch.clone();
-                let account_id1 = flat_validators[i].clone();
+                let account_id1 = validator.to_string();
                 actix::spawn(
                     connectors_[i + *presumable_epoch.read().unwrap() * 8]
                         .1
                         .send(Query::new(
                             BlockIdOrFinality::latest(),
                             QueryRequest::ViewAccount {
-                                account_id: flat_validators[i].to_string(),
+                                account_id: validator.to_string(),
                             },
                         ))
                         .then(move |x| {
                             test_cross_shard_tx_callback(
                                 x,
-                                account_id1.to_string(),
+                                account_id1,
                                 connectors1,
                                 iteration1,
                                 nonce1,

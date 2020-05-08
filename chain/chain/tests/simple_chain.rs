@@ -49,7 +49,7 @@ fn build_chain_with_orhpans() {
         vec![],
         vec![],
         &*signer,
-        last_block.header.inner_lite.next_bp_hash.clone(),
+        last_block.header.inner_lite.next_bp_hash,
     );
     assert_eq!(
         chain

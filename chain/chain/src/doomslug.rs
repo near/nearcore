@@ -175,6 +175,7 @@ impl DoomslugApprovalsTracker {
     /// Withdraws an approval. This happens if a newer approval for the same `target_height` comes
     /// from the same account. Removes the approval from the `witness` and updates approved and
     /// endorsed stakes.
+    #[allow(clippy::ptr_arg)]
     fn withdraw_approval(&mut self, account_id: &AccountId) {
         let approval = match self.witness.remove(account_id) {
             None => return,
@@ -235,7 +236,7 @@ impl DoomslugApprovalsTrackersAtHeight {
         &mut self,
         now: Instant,
         approval: &Approval,
-        stakes: &Vec<ApprovalStake>,
+        stakes: &[ApprovalStake],
         threshold_mode: DoomslugThresholdMode,
     ) -> DoomslugBlockProductionReadiness {
         if let Some(last_parent) = self.last_approval_per_account.get(&approval.account_id) {
@@ -416,8 +417,8 @@ impl Doomslug {
     /// * `stakes`    - the vector of validator stakes in the current epoch
     pub fn can_approved_block_be_produced(
         mode: DoomslugThresholdMode,
-        approvals: &Vec<Option<Signature>>,
-        stakes: &Vec<(Balance, Balance)>,
+        approvals: &[Option<Signature>],
+        stakes: &[(Balance, Balance)],
     ) -> bool {
         if mode == DoomslugThresholdMode::NoApprovals {
             return true;
@@ -496,19 +497,17 @@ impl Doomslug {
         &mut self,
         now: Instant,
         approval: &Approval,
-        stakes: &Vec<ApprovalStake>,
+        stakes: &[ApprovalStake],
     ) -> DoomslugBlockProductionReadiness {
         let threshold_mode = self.threshold_mode;
         let ret = self
             .approval_tracking
             .entry(approval.target_height)
-            .or_insert_with(|| DoomslugApprovalsTrackersAtHeight::new())
+            .or_insert_with(DoomslugApprovalsTrackersAtHeight::new)
             .process_approval(now, approval, stakes, threshold_mode);
 
-        if ret != DoomslugBlockProductionReadiness::NotReady {
-            if approval.target_height > self.largest_threshold_height {
-                self.largest_threshold_height = approval.target_height;
-            }
+        if ret != DoomslugBlockProductionReadiness::NotReady && approval.target_height > self.largest_threshold_height {
+            self.largest_threshold_height = approval.target_height;
         }
 
         ret
@@ -519,7 +518,7 @@ impl Doomslug {
         &mut self,
         now: Instant,
         approval: &Approval,
-        stakes: &Vec<ApprovalStake>,
+        stakes: &[ApprovalStake],
     ) {
         if approval.target_height < self.tip.height
             || approval.target_height > self.tip.height + MAX_HEIGHTS_AHEAD_TO_STORE_APPROVALS
@@ -617,7 +616,7 @@ mod tests {
         ds.set_tip(now, hash(&[1]), 1, 1);
         assert_eq!(ds.process_timer(now + Duration::from_millis(399)).len(), 0);
         let approval =
-            ds.process_timer(now + Duration::from_millis(400)).into_iter().nth(0).unwrap();
+            ds.process_timer(now + Duration::from_millis(400)).into_iter().next().unwrap();
         assert_eq!(approval.inner, ApprovalInner::Endorsement(hash(&[1])));
         assert_eq!(approval.target_height, 2);
 
@@ -628,13 +627,10 @@ mod tests {
         assert_eq!(ds.process_timer(now + Duration::from_millis(999)), vec![]);
 
         // But one second should trigger the skip
-        match ds.process_timer(now + Duration::from_millis(1000)) {
-            approvals if approvals.len() == 0 => assert!(false),
-            approvals => {
-                assert_eq!(approvals[0].inner, ApprovalInner::Skip(1));
-                assert_eq!(approvals[0].target_height, 3);
-            }
-        }
+        let approvals = ds.process_timer(now + Duration::from_millis(1000));
+        assert!(!approvals.is_empty());
+        assert_eq!(approvals[0].inner, ApprovalInner::Skip(1));
+        assert_eq!(approvals[0].target_height, 3);
 
         // Shift now 1 second forward
         now += Duration::from_millis(1000);
@@ -649,7 +645,7 @@ mod tests {
         // But at height 3 should (also neither block has finality set, keep last final at 0 for now)
         ds.set_tip(now, hash(&[3]), 3, 0);
         let approval =
-            ds.process_timer(now + Duration::from_millis(400)).into_iter().nth(0).unwrap();
+            ds.process_timer(now + Duration::from_millis(400)).into_iter().next().unwrap();
         assert_eq!(approval.inner, ApprovalInner::Endorsement(hash(&[3])));
         assert_eq!(approval.target_height, 4);
 
@@ -658,14 +654,10 @@ mod tests {
 
         assert_eq!(ds.process_timer(now + Duration::from_millis(199)), vec![]);
 
-        match ds.process_timer(now + Duration::from_millis(200)) {
-            approvals if approvals.len() == 0 => assert!(false),
-            approvals if approvals.len() == 1 => {
-                assert_eq!(approvals[0].inner, ApprovalInner::Skip(3));
-                assert_eq!(approvals[0].target_height, 5);
-            }
-            _ => assert!(false),
-        }
+        let approvals = ds.process_timer(now + Duration::from_millis(200));
+        assert_eq!(approvals.len(), 1);
+        assert_eq!(approvals[0].inner, ApprovalInner::Skip(3));
+        assert_eq!(approvals[0].target_height, 5);
 
         // Move 1 second further
         now += Duration::from_millis(1000);
@@ -673,13 +665,10 @@ mod tests {
         // Now skip 5 (the extra delay is 200+300 = 500)
         assert_eq!(ds.process_timer(now + Duration::from_millis(499)), vec![]);
 
-        match ds.process_timer(now + Duration::from_millis(500)) {
-            approvals if approvals.len() == 0 => assert!(false),
-            approvals => {
-                assert_eq!(approvals[0].inner, ApprovalInner::Skip(3));
-                assert_eq!(approvals[0].target_height, 6);
-            }
-        }
+        let approvals = ds.process_timer(now + Duration::from_millis(500));
+        assert!(!approvals.is_empty());
+        assert_eq!(approvals[0].inner, ApprovalInner::Skip(3));
+        assert_eq!(approvals[0].target_height, 6);
 
         // Move 1 second further
         now += Duration::from_millis(1000);
@@ -688,7 +677,7 @@ mod tests {
         assert_eq!(ds.process_timer(now + Duration::from_millis(899)), vec![]);
 
         match ds.process_timer(now + Duration::from_millis(900)) {
-            approvals if approvals.len() == 0 => assert!(false),
+            approvals if approvals.is_empty() => assert!(false),
             approvals => {
                 assert_eq!(approvals[0].inner, ApprovalInner::Skip(3));
                 assert_eq!(approvals[0].target_height, 7);
@@ -718,13 +707,10 @@ mod tests {
         // The wait time for height 7 with last ds final block at 5 is 1100
         assert_eq!(ds.process_timer(now + Duration::from_millis(1099)), vec![]);
 
-        match ds.process_timer(now + Duration::from_millis(1100)) {
-            approvals if approvals.len() == 0 => assert!(false),
-            approvals => {
-                assert_eq!(approvals[0].inner, ApprovalInner::Skip(6));
-                assert_eq!(approvals[0].target_height, 8);
-            }
-        }
+        let approvals = ds.process_timer(now + Duration::from_millis(1100));
+        assert!(!approvals.is_empty());
+        assert_eq!(approvals[0].inner, ApprovalInner::Skip(6));
+        assert_eq!(approvals[0].target_height, 8);
     }
 
     #[test]
@@ -754,7 +740,7 @@ mod tests {
             Duration::from_millis(1000),
             Duration::from_millis(100),
             Duration::from_millis(3000),
-            Some(signer.clone()),
+            Some(signer),
             DoomslugThresholdMode::TwoThirds,
         );
 

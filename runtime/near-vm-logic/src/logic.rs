@@ -853,6 +853,7 @@ impl<'a> VMLogic<'a> {
     ///
     /// Since `promise_create` is a convenience wrapper around `promise_batch_create` and
     /// `promise_batch_action_function_call`. This also means it charges `base` cost twice.
+    #[allow(clippy::too_many_arguments)]
     pub fn promise_create(
         &mut self,
         account_id_len: u64,
@@ -896,6 +897,7 @@ impl<'a> VMLogic<'a> {
     ///
     /// Since `promise_create` is a convenience wrapper around `promise_batch_then` and
     /// `promise_batch_action_function_call`. This also means it charges `base` cost twice.
+    #[allow(clippy::too_many_arguments)]
     pub fn promise_then(
         &mut self,
         promise_idx: u64,
@@ -1226,6 +1228,7 @@ impl<'a> VMLogic<'a> {
     /// `burnt_gas := base + dispatch action base fee + dispatch action per byte fee * num bytes + cost of reading vector from memory
     ///  + cost of reading u128, method_name and arguments from the memory`
     /// `used_gas := burnt_gas + exec action base fee + exec action per byte fee * num bytes`
+    #[allow(clippy::too_many_arguments)]
     pub fn promise_batch_action_function_call(
         &mut self,
         promise_idx: u64,
@@ -1417,6 +1420,7 @@ impl<'a> VMLogic<'a> {
     /// `burnt_gas := base + dispatch action base fee + dispatch action per byte fee * num bytes + cost of reading vector from memory
     ///  + cost of reading u128, method_names and public key from the memory + cost of reading and parsing account name`
     /// `used_gas := burnt_gas + exec action base fee + exec action per byte fee * num bytes`
+    #[allow(clippy::too_many_arguments)]
     pub fn promise_batch_action_add_key_with_function_call(
         &mut self,
         promise_idx: u64,

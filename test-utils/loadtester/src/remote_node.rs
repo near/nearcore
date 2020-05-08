@@ -155,6 +155,7 @@ impl RemoteNode {
         self.get_nonces(signers_accs);
     }
 
+    #[allow(clippy::ptr_arg)]
     fn get_access_key(
         &self,
         account_id: &AccountId,
@@ -197,7 +198,7 @@ impl RemoteNode {
                     j["result"]
                         .as_str()
                         .map(|s| s.to_string())
-                        .ok_or(VALUE_NOT_STR_ERR.to_string()),
+                        .ok_or_else(|| VALUE_NOT_STR_ERR.to_string()),
                 )
             })
             .boxed()
@@ -238,7 +239,7 @@ impl RemoteNode {
     }
 
     /// Returns () if transaction is completed
-    pub fn transaction_committed(&self, hash: &String) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn transaction_committed(&self, hash: &str) -> Result<(), Box<dyn std::error::Error>> {
         let params = (hash,);
         let message =
             Message::request("tx".to_string(), Some(serde_json::to_value(&params).unwrap()));
@@ -291,7 +292,7 @@ impl RemoteNode {
         Ok(response["active_peers"]
             .as_array()
             .ok_or(VALUE_NOT_ARR_ERR)?
-            .into_iter()
+            .iter()
             .map(|active_peer| {
                 let mut socket_addr =
                     active_peer["addr"].as_str().unwrap().parse::<SocketAddr>().unwrap();

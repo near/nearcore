@@ -120,21 +120,21 @@ impl GenesisBuilder {
             self.roots.keys().cloned().map(|shard_idx| (shard_idx, vec![])).collect();
 
         let total_accounts_num = self.additional_accounts_num * self.runtime.num_shards();
-        let bar = ProgressBar::new(total_accounts_num as _);
-        bar.set_style(ProgressStyle::default_bar().template(
+        let progress_bar = ProgressBar::new(total_accounts_num as _);
+        progress_bar.set_style(ProgressStyle::default_bar().template(
             "[elapsed {elapsed_precise} remaining {eta_precise}] Writing into storage {bar} {pos:>7}/{len:7}",
         ));
         // Add records in chunks of 3000 per shard for memory efficiency reasons.
         for i in 0..total_accounts_num {
             let account_id = get_account_id(i);
             self.add_additional_account(account_id)?;
-            bar.inc(1);
+            progress_bar.inc(1);
         }
 
         for shard_id in 0..self.runtime.num_shards() {
             self.flush_shard_records(shard_id)?;
         }
-        bar.finish();
+        progress_bar.finish();
         self.write_genesis_block()?;
         Ok(self)
     }
@@ -174,7 +174,7 @@ impl GenesisBuilder {
         let (store_update, root) = state_update.finalize()?.0.into(trie)?;
         store_update.commit()?;
 
-        self.roots.insert(shard_idx, root.clone());
+        self.roots.insert(shard_idx, root);
         self.state_updates.insert(shard_idx, TrieUpdate::new(self.runtime.trie.clone(), root));
         Ok(())
     }
@@ -209,7 +209,7 @@ impl GenesisBuilder {
                 vec![],
                 vec![],
                 0,
-                self.genesis.config.total_supply.clone(),
+                self.genesis.config.total_supply,
             )
             .unwrap();
         store_update.save_block_header(genesis.header.clone());
@@ -224,7 +224,7 @@ impl GenesisBuilder {
                     CryptoHash::default(),
                     vec![],
                     0,
-                    self.genesis.config.gas_limit.clone(),
+                    self.genesis.config.gas_limit,
                     0,
                     0,
                 ),
@@ -265,7 +265,7 @@ impl GenesisBuilder {
         set_access_key(
             &mut state_update,
             account_id.clone(),
-            signer.public_key.clone(),
+            signer.public_key,
             &AccessKey::full_access(),
         );
         records.push(access_key_record);

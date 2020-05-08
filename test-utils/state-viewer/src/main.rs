@@ -135,18 +135,16 @@ fn print_chain(
                     format_hash(parent_header.hash()),
                 );
             }
+        } else if let Some(epoch_id) = &cur_epoch_id {
+            let block_producer = runtime.get_block_producer(epoch_id, height).unwrap();
+            println!(
+                "{: >3} {} | {: >10}",
+                height,
+                Red.bold().paint("MISSING"),
+                block_producer
+            );
         } else {
-            if let Some(epoch_id) = &cur_epoch_id {
-                let block_producer = runtime.get_block_producer(epoch_id, height).unwrap();
-                println!(
-                    "{: >3} {} | {: >10}",
-                    height,
-                    Red.bold().paint("MISSING"),
-                    block_producer
-                );
-            } else {
-                println!("{: >3} {}", height, Red.bold().paint("MISSING"));
-            }
+            println!("{: >3} {}", height, Red.bold().paint("MISSING"));
         }
     }
 }
@@ -279,7 +277,7 @@ fn main() {
         ("dump_state", Some(args)) => {
             let height = args.value_of("height").map(|s| s.parse::<u64>().unwrap());
             let (runtime, state_roots, header) =
-                load_trie_stop_at_height(store.clone(), home_dir, &near_config, height);
+                load_trie_stop_at_height(store, home_dir, &near_config, height);
             let height = header.inner_lite.height;
             let home_dir = PathBuf::from(&home_dir);
 

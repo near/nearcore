@@ -98,6 +98,7 @@ pub struct BlockInfo {
 }
 
 impl BlockInfo {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         height: BlockHeight,
         last_finalized_height: BlockHeight,

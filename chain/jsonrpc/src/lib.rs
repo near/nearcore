@@ -11,7 +11,6 @@ use actix_web::{http, middleware, web, App, Error as HttpError, HttpResponse, Ht
 use borsh::BorshDeserialize;
 use futures::Future;
 use futures::{FutureExt, TryFutureExt};
-use prometheus;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -426,47 +425,40 @@ impl JsonRpcHandler {
                         query_data_size
                     ))));
                 }
-                let path_parts: Vec<&str> = path.splitn(3, '/').collect();
-                if path_parts.len() <= 1 {
-                    return Err(RpcError::server_error(Some(
-                        "Not enough query parameters provided".to_string(),
-                    )));
-                }
-                let account_id = AccountId::from(path_parts[1].clone());
-                let request = match path_parts[0] {
+                let mut path_parts = path.splitn(3, '/');
+                let make_err = || { RpcError::server_error(Some(
+                    "Not enough query parameters provided".to_string(),
+                )) };
+                let query_command = path_parts.next().ok_or_else(make_err)?;
+                let account_id = AccountId::from(path_parts.next().ok_or_else(make_err)?);
+                let maybe_extra_arg = path_parts.next();
+
+                let request = match query_command {
                     "account" => QueryRequest::ViewAccount { account_id },
-                    "access_key" => match path_parts.len() {
-                        2 => QueryRequest::ViewAccessKeyList { account_id },
-                        3 => QueryRequest::ViewAccessKey {
+                    "access_key" => match maybe_extra_arg {
+                        None => QueryRequest::ViewAccessKeyList { account_id },
+                        Some(pk) => QueryRequest::ViewAccessKey {
                             account_id,
-                            public_key: PublicKey::try_from(path_parts[2])
+                            public_key: PublicKey::try_from(pk)
                                 .map_err(|_| RpcError::server_error(Some("Invalid public key")))?,
-                        },
-                        _ => {
-                            unreachable!(
-                                "`access_key` query path parts are at least 2 and at most 3 \
-                                 elements due to splitn(3) and the check right after it"
-                            );
                         }
-                    },
+                    }
                     "contract" => QueryRequest::ViewState { account_id, prefix: data.into() },
-                    "call" => {
-                        if let Some(method_name) = path_parts.get(2) {
-                            QueryRequest::CallFunction {
-                                account_id,
-                                method_name: method_name.to_string(),
-                                args: data.into(),
-                            }
-                        } else {
-                            return Err(RpcError::server_error(Some(
-                                "Method name is missing".to_string(),
-                            )));
-                        }
+                    "call" => match maybe_extra_arg {
+                        Some(method_name) => QueryRequest::CallFunction {
+                            account_id,
+                            method_name: method_name.to_string(),
+                            args: data.into(),
+                        },
+
+                        None => return Err(RpcError::server_error(Some(
+                            "Method name is missing".to_string(),
+                        ))),
                     }
                     _ => {
                         return Err(RpcError::server_error(Some(format!(
                             "Unknown path {}",
-                            path_parts[0]
+                            query_command
                         ))))
                     }
                 };
@@ -521,7 +513,7 @@ impl JsonRpcHandler {
                     ChunkId::BlockShardId(block_id, shard_id) => match block_id {
                         BlockId::Height(height) => GetChunk::Height(height, shard_id),
                         BlockId::Hash(block_hash) => {
-                            GetChunk::BlockHash(block_hash.into(), shard_id)
+                            GetChunk::BlockHash(block_hash, shard_id)
                         }
                     },
                     ChunkId::Hash(chunk_hash) => GetChunk::ChunkHash(chunk_hash.into()),
@@ -538,7 +530,7 @@ impl JsonRpcHandler {
             .await
             .map_err(|err| RpcError::server_error(Some(err.to_string())))?
             .map_err(|err| RpcError::server_error(Some(err)))?;
-        let block_hash = block.header.hash.clone();
+        let block_hash = block.header.hash;
         jsonify(self.view_client_addr.send(GetStateChangesInBlock { block_hash }).await.map(|v| {
             v.map(|changes| RpcStateChangesInBlockResponse {
                 block_hash: block.header.hash,
@@ -556,7 +548,7 @@ impl JsonRpcHandler {
             .await
             .map_err(|err| RpcError::server_error(Some(err.to_string())))?
             .map_err(|err| RpcError::server_error(Some(err)))?;
-        let block_hash = block.header.hash.clone();
+        let block_hash = block.header.hash;
         jsonify(
             self.view_client_addr
                 .send(GetStateChanges { block_hash, state_changes_request })

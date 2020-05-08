@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{hash_map::Entry, HashMap, HashSet};
 use std::ops::Sub;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -8,11 +8,9 @@ use serde::Serialize;
 use borsh::{BorshDeserialize, BorshSerialize};
 use byteorder::{LittleEndian, WriteBytesExt};
 use cached::{Cached, SizedCache};
-use chrono;
 use log::{debug, trace, warn};
 
 use near_crypto::{SecretKey, Signature};
-use near_metrics;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::types::AccountId;
@@ -359,15 +357,16 @@ impl RoutingTable {
         match target {
             PeerIdOrHash::PeerId(peer_id) => self.find_route_from_peer_id(&peer_id),
             PeerIdOrHash::Hash(hash) => {
-                self.fetch_route_back(hash.clone()).ok_or(FindRouteError::RouteBackNotFound)
+                self.fetch_route_back(*hash).ok_or(FindRouteError::RouteBackNotFound)
             }
         }
     }
 
     /// Find peer that owns this AccountId.
+    #[allow(clippy::ptr_arg)]
     pub fn account_owner(&mut self, account_id: &AccountId) -> Result<PeerId, FindRouteError> {
         self.get_announce(account_id)
-            .map(|announce_account| announce_account.peer_id.clone())
+            .map(|announce_account| announce_account.peer_id)
             .ok_or_else(|| FindRouteError::AccountNotFound)
     }
 
@@ -561,7 +560,7 @@ impl RoutingTable {
         if let Some(nonces) = self.waiting_pong.cache_get_mut(&pong.source) {
             res = nonces
                 .cache_remove(&(pong.nonce as usize))
-                .and_then(|sent| Some(Instant::now().duration_since(sent).as_secs_f64() * 1000f64));
+                .map(|sent| Instant::now().duration_since(sent).as_secs_f64() * 1000f64);
         }
 
         self.pong_info.cache_set(pong.nonce as usize, pong);
@@ -701,6 +700,7 @@ impl RoutingTable {
     }
 
     /// Get account announce from
+    #[allow(clippy::ptr_arg)]
     pub fn get_announce(&mut self, account_id: &AccountId) -> Option<AnnounceAccount> {
         if let Some(announce_account) = self.account_peers.cache_get(&account_id) {
             Some(announce_account.clone())
@@ -814,9 +814,9 @@ impl Graph {
 
             if let Some(neighbors) = self.adjacency.get(&cur_peer) {
                 for neighbor in neighbors {
-                    if !distance.contains_key(&neighbor) {
-                        queue.push(neighbor);
-                        distance.insert(neighbor, cur_distance + 1);
+                    if let Entry::Vacant(entry) = distance.entry(neighbor) {
+                        queue.push(entry.key());
+                        entry.insert(cur_distance + 1);
                         routes.insert(neighbor.clone(), HashSet::new());
                     }
 
@@ -876,11 +876,11 @@ mod test {
         let node0 = random_peer_id();
 
         let mut graph = Graph::new(source.clone());
-        graph.add_edge(source.clone(), node0.clone());
+        graph.add_edge(source, node0.clone());
 
         assert!(expected_routing_tables(
             graph.calculate_distance(),
-            vec![(node0.clone(), vec![node0.clone()])],
+            vec![(node0.clone(), vec![node0])],
         ));
     }
 
@@ -889,7 +889,7 @@ mod test {
         let source = random_peer_id();
         let nodes: Vec<_> = (0..3).map(|_| random_peer_id()).collect();
 
-        let mut graph = Graph::new(source.clone());
+        let mut graph = Graph::new(source);
 
         graph.add_edge(nodes[0].clone(), nodes[1].clone());
         graph.add_edge(nodes[2].clone(), nodes[1].clone());
@@ -908,7 +908,7 @@ mod test {
         graph.add_edge(nodes[0].clone(), nodes[1].clone());
         graph.add_edge(nodes[2].clone(), nodes[1].clone());
         graph.add_edge(nodes[1].clone(), nodes[2].clone());
-        graph.add_edge(source.clone(), nodes[0].clone());
+        graph.add_edge(source, nodes[0].clone());
 
         assert!(expected_routing_tables(
             graph.calculate_distance(),
@@ -931,7 +931,7 @@ mod test {
         graph.add_edge(nodes[2].clone(), nodes[1].clone());
         graph.add_edge(nodes[0].clone(), nodes[2].clone());
         graph.add_edge(source.clone(), nodes[0].clone());
-        graph.add_edge(source.clone(), nodes[1].clone());
+        graph.add_edge(source, nodes[1].clone());
 
         assert!(expected_routing_tables(
             graph.calculate_distance(),
@@ -960,8 +960,8 @@ mod test {
 
         let mut graph = Graph::new(source.clone());
 
-        for i in 0..3 {
-            graph.add_edge(source.clone(), nodes[i].clone());
+        for node in nodes.iter().take(3) {
+            graph.add_edge(source.clone(), node.clone());
         }
 
         for level in 0..2 {
@@ -975,12 +975,12 @@ mod test {
         // Dummy edge.
         graph.add_edge(nodes[9].clone(), nodes[10].clone());
 
-        let mut next_hops: Vec<_> =
-            (0..3).map(|i| (nodes[i].clone(), vec![nodes[i].clone()])).collect();
-        let target: Vec<_> = (0..3).map(|i| nodes[i].clone()).collect();
+        let mut next_hops: Vec<_> = 
+            nodes.iter().take(3).map(|node| (node.clone(), vec![node.clone()])).collect();
+        let target: Vec<_> = nodes.iter().take(3).cloned().collect();
 
-        for i in 3..9 {
-            next_hops.push((nodes[i].clone(), target.clone()));
+        for node in nodes.iter().take(9).skip(3) {
+            next_hops.push((node.clone(), target.clone()));
         }
 
         assert!(expected_routing_tables(graph.calculate_distance(), next_hops));

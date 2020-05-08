@@ -175,28 +175,26 @@ impl HeaderSync {
 
             if all_headers_received {
                 self.stalling_ts = None;
-            } else {
-                if let Some(ref stalling_ts) = self.stalling_ts {
-                    if let Some(ref peer) = self.syncing_peer {
-                        match sync_status {
-                            SyncStatus::HeaderSync { highest_height, .. } => {
-                                if now > *stalling_ts + self.stall_ban_timeout
-                                    && *highest_height == peer.chain_info.height
-                                {
-                                    info!(target: "sync", "Sync: ban a fraudulent peer: {}, claimed height: {}",
-                                        peer.peer_info, peer.chain_info.height);
-                                    self.network_adapter.do_send(NetworkRequests::BanPeer {
-                                        peer_id: peer.peer_info.id.clone(),
-                                        ban_reason: ReasonForBan::HeightFraud,
-                                    });
-                                    // This peer is fraudulent, let's skip this beat and wait for
-                                    // the next one when this peer is not in the list anymore.
-                                    self.syncing_peer = None;
-                                    return false;
-                                }
+            } else if let Some(ref stalling_ts) = self.stalling_ts {
+                if let Some(ref peer) = self.syncing_peer {
+                    match sync_status {
+                        SyncStatus::HeaderSync { highest_height, .. } => {
+                            if now > *stalling_ts + self.stall_ban_timeout
+                                && *highest_height == peer.chain_info.height
+                            {
+                                info!(target: "sync", "Sync: ban a fraudulent peer: {}, claimed height: {}",
+                                    peer.peer_info, peer.chain_info.height);
+                                self.network_adapter.do_send(NetworkRequests::BanPeer {
+                                    peer_id: peer.peer_info.id.clone(),
+                                    ban_reason: ReasonForBan::HeightFraud,
+                                });
+                                // This peer is fraudulent, let's skip this beat and wait for
+                                // the next one when this peer is not in the list anymore.
+                                self.syncing_peer = None;
+                                return false;
                             }
-                            _ => (),
                         }
+                        _ => (),
                     }
                 }
             }
@@ -509,7 +507,7 @@ impl StateSync {
         new_shard_sync: &mut HashMap<u64, ShardSyncDownload>,
         chain: &mut Chain,
         runtime_adapter: &Arc<dyn RuntimeAdapter>,
-        highest_height_peers: &Vec<FullPeerInfo>,
+        highest_height_peers: &[FullPeerInfo],
         tracking_shards: Vec<ShardId>,
         now: DateTime<Utc>,
     ) -> Result<(bool, bool), near_chain::Error> {
@@ -713,7 +711,7 @@ impl StateSync {
         runtime_adapter: &Arc<dyn RuntimeAdapter>,
         sync_hash: CryptoHash,
         shard_sync_download: ShardSyncDownload,
-        highest_height_peers: &Vec<FullPeerInfo>,
+        highest_height_peers: &[FullPeerInfo],
     ) -> Result<ShardSyncDownload, near_chain::Error> {
         let prev_block_hash =
             unwrap_or_return!(chain.get_block_header(&sync_hash), Ok(shard_sync_download))
@@ -751,7 +749,7 @@ impl StateSync {
             }
         }))
         .collect::<Vec<_>>();
-        if possible_targets.len() == 0 {
+        if possible_targets.is_empty() {
             return Ok(shard_sync_download);
         }
 
@@ -823,7 +821,7 @@ impl StateSync {
         new_shard_sync: &mut HashMap<u64, ShardSyncDownload>,
         chain: &mut Chain,
         runtime_adapter: &Arc<dyn RuntimeAdapter>,
-        highest_height_peers: &Vec<FullPeerInfo>,
+        highest_height_peers: &[FullPeerInfo],
         tracking_shards: Vec<ShardId>,
     ) -> Result<StateSyncResult, near_chain::Error> {
         let now = Utc::now();

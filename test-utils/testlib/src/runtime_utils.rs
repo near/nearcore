@@ -38,6 +38,7 @@ lazy_static::lazy_static! {
     static ref DEFAULT_TEST_CONTRACT_HASH: CryptoHash = hash(&DEFAULT_TEST_CONTRACT);
 }
 
+#[allow(clippy::ptr_arg)]
 pub fn add_test_contract(genesis: &mut Genesis, account_id: &AccountId) {
     let mut is_account_record_found = false;
     for record in genesis.records.as_mut() {

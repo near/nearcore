@@ -29,6 +29,7 @@ use node_runtime::config::RuntimeConfig;
 /// How much gas there is in a nanosecond worth of computation.
 const GAS_IN_NANOS: f64 = 1_000_000f64;
 
+#[allow(clippy::too_many_arguments)]
 fn measure_function(
     metric: Metric,
     method_name: &'static str,
@@ -56,7 +57,7 @@ fn measure_function(
         SignedTransaction::from_actions(
             nonce as u64,
             account_id.clone(),
-            account_id.clone(),
+            account_id,
             &signer,
             vec![function_call],
             CryptoHash::default(),
@@ -189,7 +190,7 @@ pub fn run(mut config: Config) -> RuntimeConfig {
     let mut f = || {
         let account_idx = loop {
             let x = rand::thread_rng().gen::<usize>() % config.active_accounts;
-            if !deleted_accounts.contains(&x) & &!beneficiaries.contains(&x) {
+            if !deleted_accounts.contains(&x) & !beneficiaries.contains(&x) {
                 break x;
             }
         };
@@ -208,7 +209,7 @@ pub fn run(mut config: Config) -> RuntimeConfig {
         SignedTransaction::from_actions(
             nonce as u64,
             account_id.clone(),
-            account_id.clone(),
+            account_id,
             &signer,
             vec![Action::DeleteAccount(DeleteAccountAction { beneficiary_id })],
             CryptoHash::default(),
@@ -300,7 +301,7 @@ pub fn run(mut config: Config) -> RuntimeConfig {
         SignedTransaction::from_actions(
             nonce as u64,
             account_id.clone(),
-            account_id.clone(),
+            account_id,
             &signer,
             vec![Action::DeleteKey(DeleteKeyAction { public_key: signer.public_key.clone() })],
             CryptoHash::default(),
@@ -343,7 +344,7 @@ pub fn run(mut config: Config) -> RuntimeConfig {
         SignedTransaction::from_actions(
             nonce as u64,
             account_id.clone(),
-            account_id.clone(),
+            account_id,
             &signer,
             vec![Action::DeployContract(DeployContractAction { code: curr_code.borrow().clone() })],
             CryptoHash::default(),

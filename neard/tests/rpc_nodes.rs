@@ -47,7 +47,7 @@ fn test_tx_propagation() {
                 let rpc_addrs_copy = rpc_addrs.clone();
                 let transaction_copy = transaction.clone();
                 let transaction_copy1 = transaction.clone();
-                let tx_hash_clone = tx_hash.clone();
+                let tx_hash_clone = tx_hash;
                 // We are sending this tx unstop, just to get over the warm up period.
                 // Probably make sense to stop after 1 time though.
                 actix::spawn(view_client.send(GetBlock::latest()).then(move |res| {
@@ -192,7 +192,7 @@ fn test_tx_status_with_light_client() {
                 let rpc_addrs_copy1 = rpc_addrs.clone();
                 let transaction_copy = transaction.clone();
                 let signer_account_id = transaction_copy.transaction.signer_id.clone();
-                let tx_hash_clone = tx_hash.clone();
+                let tx_hash_clone = tx_hash;
                 actix::spawn(view_client.send(GetBlock::latest()).then(move |res| {
                     if res.unwrap().unwrap().header.height > 1 {
                         let client = new_client(&format!("http://{}", rpc_addrs_copy[2]));
@@ -265,7 +265,7 @@ fn test_tx_status_with_light_client1() {
                 let rpc_addrs_copy1 = rpc_addrs.clone();
                 let transaction_copy = transaction.clone();
                 let signer_account_id = transaction_copy.transaction.signer_id.clone();
-                let tx_hash_clone = tx_hash.clone();
+                let tx_hash_clone = tx_hash;
                 actix::spawn(view_client.send(GetBlock::latest()).then(move |res| {
                     if res.unwrap().unwrap().header.height > 1 {
                         let client = new_client(&format!("http://{}", rpc_addrs_copy[2]));
@@ -429,7 +429,7 @@ fn test_get_validator_info_rpc() {
                                     assert!(result
                                         .current_validators
                                         .iter()
-                                        .any(|r| r.account_id == "near.0".to_string()));
+                                        .any(|r| r.account_id == "near.0"));
                                     System::current().stop();
                                 })
                                 .map(drop),

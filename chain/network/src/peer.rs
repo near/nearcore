@@ -11,7 +11,6 @@ use actix::{
 use tracing::{debug, error, info, warn};
 
 use near_chain_configs::PROTOCOL_VERSION;
-use near_metrics;
 use near_primitives::block::GenesisId;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
@@ -159,6 +158,7 @@ pub struct Peer {
 }
 
 impl Peer {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         node_info: PeerInfo,
         peer_addr: SocketAddr,
@@ -191,6 +191,8 @@ impl Peer {
     }
 
     /// Whether the peer is considered abusive due to sending too many messages.
+    // I am allowing this for now because I assume `MAX_PEER_MSG_PER_MIN` will some day be less than `u64::MAX`.
+    #[allow(clippy::absurd_extreme_comparisons)]
     fn is_abusive(&self) -> bool {
         self.tracker.received_bytes.count_per_min() > MAX_PEER_MSG_PER_MIN
             || self.tracker.sent_bytes.count_per_min() > MAX_PEER_MSG_PER_MIN
@@ -670,14 +672,13 @@ impl StreamHandler<Vec<u8>> for Peer {
                 }
 
                 // Check that received nonce on handshake match our proposed nonce.
-                if self.peer_type == PeerType::Outbound {
-                    if handshake.edge_info.nonce
+                if self.peer_type == PeerType::Outbound &&
+                    handshake.edge_info.nonce
                         != self.edge_info.as_ref().map(|edge_info| edge_info.nonce).unwrap()
-                    {
-                        info!(target: "network", "Received invalid nonce on handshake. Disconnecting this peer.");
-                        ctx.stop();
-                        return;
-                    }
+                {
+                    info!(target: "network", "Received invalid nonce on handshake. Disconnecting this peer.");
+                    ctx.stop();
+                    return;
                 }
 
                 let peer_info = PeerInfo {
@@ -729,26 +730,23 @@ impl StreamHandler<Vec<u8>> for Peer {
                 if self.peer_type == PeerType::Inbound {
                     info!(target: "network", "{:?}: Inbound peer {:?} sent invalid message. Disconnect.", self.node_id(), self.peer_addr);
                     ctx.stop();
-                    return ();
+                    return;
                 }
 
                 // Disconnect if neighbor propose invalid edge.
                 if !edge.verify() {
                     info!(target: "network", "{:?}: Peer {:?} sent invalid edge. Disconnect.", self.node_id(), self.peer_addr);
                     ctx.stop();
-                    return ();
+                    return;
                 }
 
                 self.peer_manager_addr
                     .send(PeerRequest::UpdateEdge((self.peer_id().unwrap(), edge.next_nonce())))
                     .into_actor(self)
                     .then(|res, act, ctx| {
-                        match res {
-                            Ok(PeerResponse::UpdatedEdge(edge_info)) => {
-                                act.edge_info = Some(edge_info);
-                                act.send_handshake(ctx);
-                            }
-                            _ => {}
+                        if let Ok(PeerResponse::UpdatedEdge(edge_info)) = res {
+                            act.edge_info = Some(edge_info);
+                            act.send_handshake(ctx);                            
                         }
                         actix::fut::ready(())
                     })
@@ -799,11 +797,8 @@ impl StreamHandler<Vec<u8>> for Peer {
                 .send(NetworkRequests::ResponseUpdateNonce(edge))
                 .into_actor(self)
                 .then(|res, act, ctx| {
-                    match res {
-                        Ok(NetworkResponses::BanPeer(reason_for_ban)) => {
-                            act.ban_peer(ctx, reason_for_ban);
-                        }
-                        _ => {}
+                    if let Ok(NetworkResponses::BanPeer(reason_for_ban)) = res {
+                        act.ban_peer(ctx, reason_for_ban);
                     }
                     actix::fut::ready(())
                 })

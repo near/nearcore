@@ -22,7 +22,7 @@ mod tests {
         let chain_genesis = ChainGenesis::test();
         let validators = vec![vec!["test1"]];
         let runtime_adapter = Arc::new(KeyValueRuntime::new_with_validators(
-            store.clone(),
+            store,
             validators
                 .into_iter()
                 .map(|inner| inner.into_iter().map(Into::into).collect())
@@ -35,6 +35,7 @@ mod tests {
     }
 
     // Build a chain of num_blocks on top of prev_block
+    #[allow(clippy::type_complexity, clippy::too_many_arguments)]
     fn do_fork(
         mut prev_block: Block,
         mut prev_state_root: StateRoot,
@@ -70,7 +71,7 @@ mod tests {
 
             let (trie_store_update, new_root) =
                 trie_changes.clone().into_no_deletions(trie.clone()).unwrap();
-            states.push((block.clone(), new_root.clone(), trie_changes_data.clone()));
+            states.push((block.clone(), new_root, trie_changes_data.clone()));
             store_update.merge(trie_store_update);
 
             let wrapped_trie_changes = WrappedTrieChanges::new(
@@ -105,10 +106,10 @@ mod tests {
 
         // Init Chain 1
         let mut chain1 = get_chain();
-        let trie1 = chain1.runtime_adapter.get_trie().clone();
+        let trie1 = chain1.runtime_adapter.get_trie();
         let genesis1 = chain1.get_block_by_height(0).unwrap().clone();
         let mut states1 = vec![];
-        states1.push((genesis1.clone(), Trie::empty_root(), vec![]));
+        states1.push((genesis1, Trie::empty_root(), vec![]));
 
         for simple_chain in simple_chains.iter() {
             let (source_block1, state_root1, _) = states1[simple_chain.from as usize].clone();
@@ -128,13 +129,12 @@ mod tests {
         // GC execution
         let clear_data = chain1.clear_data(trie1.clone());
         if clear_data.is_err() {
-            println!("clear data failed = {:?}", clear_data);
-            assert!(false);
+            panic!("clear data failed = {:?}", clear_data);
         }
         assert!(check_refcount_map(&mut chain1).is_ok());
 
         let mut chain2 = get_chain();
-        let trie2 = chain2.runtime_adapter.get_trie().clone();
+        let trie2 = chain2.runtime_adapter.get_trie();
 
         // Find gc_height
         let mut gc_height = simple_chains[0].length - 51;

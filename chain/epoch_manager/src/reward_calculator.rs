@@ -51,7 +51,7 @@ impl RewardCalculator {
             } else {
                 let stake = *validator_stake
                     .get(&account_id)
-                    .expect(&format!("{} is not a validator", account_id));
+                    .unwrap_or_else(|| panic!("{} is not a validator", account_id));
                 // Online ratio is an average of block produced / expected and chunk produced / expected.
                 (U256::from(epoch_validator_reward)
                     * U256::from(

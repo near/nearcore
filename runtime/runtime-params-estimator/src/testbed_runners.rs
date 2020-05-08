@@ -102,8 +102,9 @@ pub fn measure_actions(
 
 // TODO: super-ugly, can achieve the same via higher-level wrappers over POSIX read().
 #[inline(always)]
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn syscall3(mut n: usize, a1: usize, a2: usize, a3: usize) -> usize {
-    asm!("syscall"
+    llvm_asm!("syscall"
          : "+{rax}"(n)
          : "{rdi}"(a1) "{rsi}"(a2) "{rdx}"(a3)
          : "rcx", "r11", "memory"
@@ -156,17 +157,17 @@ fn end_count_time(consumed: &Consumed) -> u64 {
 }
 
 fn start_count(metric: &GasMetric) -> Consumed {
-    return match *metric {
+    match *metric {
         GasMetric::ICount => start_count_instructions(),
         GasMetric::Time => start_count_time(),
-    };
+    }
 }
 
 fn end_count(metric: &GasMetric, consumed: &Consumed) -> u64 {
-    return match metric {
+    match metric {
         GasMetric::ICount => end_count_instructions(),
         GasMetric::Time => end_count_time(consumed),
-    };
+    }
 }
 
 /// Measure the speed of the transactions, given a transactions-generator function.
@@ -194,22 +195,22 @@ where
         }
     };
 
-    let bar = ProgressBar::new(warmup_total_transactions(config) as _);
-    bar.set_style(ProgressStyle::default_bar().template(
+    let progress_bar = ProgressBar::new(warmup_total_transactions(config) as _);
+    progress_bar.set_style(ProgressStyle::default_bar().template(
         "[elapsed {elapsed_precise} remaining {eta_precise}] Warm up {bar} {pos:>7}/{len:7} {msg}",
     ));
     for block_size in config.block_sizes.clone() {
         for _ in 0..config.warmup_iters_per_block {
             let block: Vec<_> = (0..block_size).map(|_| (*f)()).collect();
             testbed.process_block(&block, allow_failures);
-            bar.inc(block_size as _);
-            bar.set_message(format!("Block size: {}", block_size).as_str());
+            progress_bar.inc(block_size as _);
+            progress_bar.set_message(format!("Block size: {}", block_size).as_str());
         }
     }
-    bar.finish();
+    progress_bar.finish();
 
-    let bar = ProgressBar::new(total_transactions(config) as _);
-    bar.set_style(ProgressStyle::default_bar().template(
+    let progress_bar = ProgressBar::new(total_transactions(config) as _);
+    progress_bar.set_style(ProgressStyle::default_bar().template(
         "[elapsed {elapsed_precise} remaining {eta_precise}] Measuring {bar} {pos:>7}/{len:7} {msg}",
     ));
     node_runtime::EXT_COSTS_COUNTER.with(|f| {
@@ -221,13 +222,13 @@ where
             let start = start_count(&config.metric);
             testbed.process_block(&block, allow_failures);
             let measured = end_count(&config.metric, &start);
-            measurements.record_measurement(metric.clone(), block_size, measured);
-            bar.inc(block_size as _);
-            bar.set_message(format!("Block size: {}", block_size).as_str());
+            measurements.record_measurement(metric, block_size, measured);
+            progress_bar.inc(block_size as _);
+            progress_bar.set_message(format!("Block size: {}", block_size).as_str());
         }
     }
     testbed.process_blocks_until_no_receipts(allow_failures);
-    bar.finish();
+    progress_bar.finish();
     measurements.print();
     testbed
 }

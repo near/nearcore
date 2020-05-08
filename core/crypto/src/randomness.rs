@@ -199,7 +199,7 @@ fn xor32(a: [u8; 32], b: [u8; 32]) -> [u8; 32] {
 impl SecretShares {
     pub fn encrypt(&self, index: usize, key: &PublicKey) -> EncryptedShare {
         let s = &self.0[index];
-        EncryptedShare(xor32(hash!(s * &key.1), s.pack()))
+        EncryptedShare(xor32(hash!(s * key.1), s.pack()))
     }
 }
 
@@ -219,14 +219,14 @@ impl ValidatedPublicShares {
         key: &SecretKey,
     ) -> Result<DecryptedShare, DecryptionFailureProof> {
         let p = self.get_element(index);
-        let ss = (&key.0 * &p).pack();
+        let ss = (key.0 * p).pack();
         if let Some(s) = unpack(&xor32(hash!(&ss), share.0)) {
             if &s * &GT == p {
                 return Ok(DecryptedShare(s));
             }
         }
         let k = prs!(key.0, p);
-        let c = hash_s!(&(key.1).0, p, &ss, &k * &GT, &k * &p);
+        let c = hash_s!(&(key.1).0, p, &ss, &k * &GT, k * p);
         Err(DecryptionFailureProof((ss, k - c * key.0, c).pack()))
     }
 
@@ -267,8 +267,8 @@ impl RandomEpoch {
                 res.extend_from_slice(s.0.deref());
                 for s in shares {
                     assert!(s.0.len() == k);
-                    for i in 0..k {
-                        res[i] += s.0[i];
+                    for (s0_i, res_i) in s.0.iter().zip(res.iter_mut()) {
+                        *res_i += *s0_i
                     }
                 }
                 res.extend(expand::<Point, _>(res.iter()).take(n - k));
@@ -283,9 +283,9 @@ impl RandomEpoch {
         index: usize,
         secret: &RandomEpochSecret,
     ) -> RandomShare {
-        let ss = (&secret.0 * &round.1).pack();
+        let ss = (secret.0 * round.1).pack();
         let k = prs!(secret.0, &round.0);
-        let c = hash_s!(self.0[index], &ss, &k * &GT, &k * &round.1);
+        let c = hash_s!(self.0[index], &ss, &k * &GT, k * round.1);
         RandomShare((ss, k - c * secret.0, c).pack())
     }
 
@@ -380,7 +380,7 @@ impl TryFrom<&str> for PublicShares {
 
 common_conversions!(PublicShares, "public shares");
 
-eq!(RandomRound, |a, b| &a.0 == &b.0);
+eq!(RandomRound, |a, b| a.0 == b.0);
 
 #[cfg(test)]
 mod tests {
@@ -408,12 +408,12 @@ mod tests {
         }
         let mut public_shares = Vec::new();
         let mut decrypted_shares = Vec::new();
-        for i in 0..gens {
-            let (ps, ss) = generate_shares(params, &gen_keys[i].public_key());
-            let vs = ps.validate(&gen_keys[i].public_key()).unwrap();
-            for j in 0..params.n {
-                let es = ss.encrypt(j, &recv_keys[j].public_key());
-                let ds = vs.try_decrypt(j, &es, &recv_keys[j]).unwrap();
+        for gen_keys_i in gen_keys.iter() {
+            let (ps, ss) = generate_shares(params, &gen_keys_i.public_key());
+            let vs = ps.validate(&gen_keys_i.public_key()).unwrap();
+            for (j, recv_keys_j) in recv_keys.iter().enumerate() {
+                let es = ss.encrypt(j, &recv_keys_j.public_key());
+                let ds = vs.try_decrypt(j, &es, recv_keys_j).unwrap();
                 decrypted_shares.push(ds);
             }
             public_shares.push(vs);
@@ -431,8 +431,8 @@ mod tests {
         OsRng.fill_bytes(&mut epoch_id);
         let random_round = RandomRound::new(&epoch_id, OsRng.next_u32());
         let mut random_shares = Vec::new();
-        for i in 0..params.n {
-            let rs = epoch.compute_share(&random_round, i, &epoch_secrets[i]);
+        for (i, epoch_secrets_i) in epoch_secrets.iter().enumerate() {
+            let rs = epoch.compute_share(&random_round, i, epoch_secrets_i);
             let vrs = epoch.validate_share(&random_round, i, &rs).unwrap();
             random_shares.push(vrs);
         }

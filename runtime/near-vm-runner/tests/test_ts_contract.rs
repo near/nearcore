@@ -12,7 +12,7 @@ fn create_context(input: &[u8]) -> VMContext {
     test_utils::create_context(input)
 }
 
-const TEST_CONTRACT: &'static [u8] = include_bytes!("../tests/res/test_contract_ts.wasm");
+const TEST_CONTRACT: &[u8] = include_bytes!("../tests/res/test_contract_ts.wasm");
 
 #[test]
 pub fn test_ts_contract() {

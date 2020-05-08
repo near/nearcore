@@ -5,7 +5,6 @@ mod vm_logic_builder;
 use fixtures::get_context;
 use helpers::*;
 use near_vm_logic::types::PromiseResult;
-use serde_json;
 use vm_logic_builder::VMLogicBuilder;
 
 #[test]

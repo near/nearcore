@@ -141,7 +141,7 @@ mod test {
             last_block.chunks.iter().map(|chunk| chunk.inner.prev_state_root).collect();
         let runtime = NightshadeRuntime::new(
             Path::new("."),
-            store.clone(),
+            store,
             Arc::new(genesis.clone()),
             vec![],
             vec![],
@@ -176,7 +176,7 @@ mod test {
             last_block.chunks.iter().map(|chunk| chunk.inner.prev_state_root).collect();
         let runtime = NightshadeRuntime::new(
             Path::new("."),
-            store.clone(),
+            store,
             Arc::new(genesis.clone()),
             vec![],
             vec![],
@@ -210,7 +210,7 @@ mod test {
             NightshadeRuntime::new(Path::new("."), store, Arc::new(genesis.clone()), vec![], vec![])
         };
         let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![
-            Arc::new(create_runtime(store1.clone())),
+            Arc::new(create_runtime(store1)),
             Arc::new(create_runtime(store2.clone())),
         ];
         let mut chain_genesis = ChainGenesis::test();
@@ -244,7 +244,7 @@ mod test {
         let runtime2 = create_runtime(store2);
 
         let _ =
-            state_dump(runtime2, state_roots.clone(), last_block.header.clone(), &genesis.config);
+            state_dump(runtime2, state_roots, last_block.header, &genesis.config);
     }
 
     #[test]
@@ -296,7 +296,7 @@ mod test {
             last_block.chunks.iter().map(|chunk| chunk.inner.prev_state_root).collect();
         let runtime = NightshadeRuntime::new(
             Path::new("."),
-            store.clone(),
+            store,
             Arc::new(genesis.clone()),
             vec![],
             vec![],

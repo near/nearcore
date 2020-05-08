@@ -257,11 +257,12 @@ impl Runtime {
             Err(e) => {
                 near_metrics::inc_counter(&metrics::TRANSACTION_PROCESSED_FAILED_TOTAL);
                 state_update.rollback();
-                return Err(e);
+                Err(e)
             }
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn apply_action(
         &self,
         action: &Action,
@@ -942,7 +943,7 @@ impl Runtime {
         transactions: &[SignedTransaction],
     ) -> Result<ApplyResult, RuntimeError> {
         let initial_state = TrieUpdate::new(trie.clone(), root);
-        let mut state_update = TrieUpdate::new(trie.clone(), root);
+        let mut state_update = TrieUpdate::new(trie, root);
 
         let mut stats = ApplyStats::default();
 
@@ -1131,7 +1132,7 @@ impl Runtime {
                 }
                 StateRecord::AccessKey { account_id, public_key, access_key } => {
                     let public_key: PublicKey = public_key.clone();
-                    let access_key: AccessKey = access_key.clone().into();
+                    let access_key: AccessKey = access_key.clone();
                     let storage_usage = config.num_extra_bytes_record
                         + public_key.try_to_vec().unwrap().len() as u64
                         + access_key.try_to_vec().unwrap().len() as u64;
@@ -1307,7 +1308,7 @@ mod tests {
         let (store_update, new_root) =
             state_update.finalize().unwrap().0.into(trie.clone()).unwrap();
         store_update.commit().unwrap();
-        let new_state_update = TrieUpdate::new(trie.clone(), new_root);
+        let new_state_update = TrieUpdate::new(trie, new_root);
         let get_res = get_account(&new_state_update, &account_id).unwrap().unwrap();
         assert_eq!(test_account, get_res);
     }
@@ -1335,7 +1336,7 @@ mod tests {
         set_account(&mut initial_state, account_id.clone(), &initial_account);
         set_access_key(
             &mut initial_state,
-            account_id.clone(),
+            account_id,
             signer.public_key(),
             &AccessKey::full_access(),
         );
@@ -1675,7 +1676,7 @@ mod tests {
         // We process R#3, R#4, R#5.
         // The new delayed queue is empty.
         let apply_result =
-            runtime.apply(trie.clone(), root, &None, &apply_state, &receipts[5..6], &[]).unwrap();
+            runtime.apply(trie, root, &None, &apply_state, &receipts[5..6], &[]).unwrap();
 
         assert_eq!(
             apply_result.outcomes.iter().map(|o| o.id).collect::<Vec<_>>(),
@@ -1703,7 +1704,7 @@ mod tests {
         receipts.get_mut(0).unwrap().predecessor_id = invalid_account_id.clone();
 
         let err =
-            runtime.apply(trie.clone(), root, &None, &apply_state, &receipts, &[]).err().unwrap();
+            runtime.apply(trie, root, &None, &apply_state, &receipts, &[]).err().unwrap();
         assert_eq!(
             err,
             RuntimeError::ReceiptValidationError(ReceiptValidationError::InvalidPredecessorId {
@@ -1737,7 +1738,7 @@ mod tests {
         let (store_update, root) = trie_changes.into(trie.clone()).unwrap();
         store_update.commit().unwrap();
 
-        let err = runtime.apply(trie.clone(), root, &None, &apply_state, &[], &[]).err().unwrap();
+        let err = runtime.apply(trie, root, &None, &apply_state, &[], &[]).err().unwrap();
         assert_eq!(
             err,
             RuntimeError::StorageError(StorageError::StorageInconsistentState(format!(

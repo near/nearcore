@@ -33,7 +33,7 @@ pub fn genesis_header(genesis: Arc<Genesis>) -> BlockHeader {
     let store = create_test_store();
     let chain_genesis = ChainGenesis::from(&genesis);
     let runtime =
-        Arc::new(NightshadeRuntime::new(dir.path(), store.clone(), genesis, vec![], vec![]));
+        Arc::new(NightshadeRuntime::new(dir.path(), store, genesis, vec![], vec![]));
     let chain = Chain::new(runtime, &chain_genesis, DoomslugThresholdMode::TwoThirds).unwrap();
     chain.genesis().clone()
 }
@@ -44,11 +44,12 @@ pub fn genesis_block(genesis: Arc<Genesis>) -> Block {
     let store = create_test_store();
     let chain_genesis = ChainGenesis::from(&genesis);
     let runtime =
-        Arc::new(NightshadeRuntime::new(dir.path(), store.clone(), genesis, vec![], vec![]));
+        Arc::new(NightshadeRuntime::new(dir.path(), store, genesis, vec![], vec![]));
     let mut chain = Chain::new(runtime, &chain_genesis, DoomslugThresholdMode::TwoThirds).unwrap();
     chain.get_block(&chain.genesis().hash()).unwrap().clone()
 }
 
+#[allow(clippy::needless_range_loop, clippy::type_complexity)]
 pub fn start_nodes(
     num_shards: NumShards,
     dirs: &[TempDir],
@@ -75,6 +76,7 @@ pub fn start_nodes(
     let mut near_configs = vec![];
     let first_node = open_port();
     let mut rpc_addrs = vec![];
+    // clippy thinks this is a "needless range loop", but it's not.
     for i in 0..num_nodes {
         let mut near_config = load_test_config(
             if i < num_validator_seats as usize { &validators[i] } else { "" },

@@ -207,7 +207,7 @@ fn sync_state_nodes_multishard() {
                                 return future::ready(());
                             }
                             _ => {
-                                assert!(false);
+                                unreachable!();
                             }
                         };
                         future::ready(())
@@ -261,7 +261,7 @@ fn sync_empty_state() {
 
                     actix::spawn(view_client1.send(GetBlock::latest()).then(move |res| {
                         match &res {
-                            Ok(Ok(b)) if b.header.height >= state_sync_horizon + 1 => {
+                            Ok(Ok(b)) if b.header.height > state_sync_horizon => {
                                 let mut view_client2_holder2 =
                                     view_client2_holder2.write().unwrap();
 
@@ -311,7 +311,7 @@ fn sync_empty_state() {
                                 return future::ready(());
                             }
                             _ => {
-                                assert!(false);
+                                unreachable!();
                             }
                         };
                         future::ready(())

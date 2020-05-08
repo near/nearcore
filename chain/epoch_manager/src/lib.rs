@@ -218,7 +218,7 @@ impl EpochManager {
                 // This code relies on the fact that within a block the proposals are ordered
                 // in the order they are added. So we only take the last proposal for any given
                 // account in this manner.
-                proposals.entry(proposal.account_id.clone()).or_insert(proposal.clone());
+                proposals.entry(proposal.account_id.clone()).or_insert_with(|| proposal.clone());
             }
         }
 
@@ -252,6 +252,7 @@ impl EpochManager {
     }
 
     /// Returns number of produced and expected blocks by given validator.
+    #[allow(clippy::ptr_arg)]
     pub fn get_num_validator_blocks(
         &mut self,
         epoch_id: &EpochId,
@@ -341,7 +342,7 @@ impl EpochManager {
                 assert_eq!(block_info.proposals.len(), 0);
                 let pre_genesis_epoch_id = EpochId::default();
                 let genesis_epoch_info = self.get_epoch_info(&pre_genesis_epoch_id)?.clone();
-                self.save_block_info(&mut store_update, current_hash, block_info.clone())?;
+                self.save_block_info(&mut store_update, current_hash, block_info)?;
                 self.save_epoch_info(
                     &mut store_update,
                     &EpochId(*current_hash),
@@ -384,7 +385,7 @@ impl EpochManager {
                             block_info
                                 .slashed
                                 .entry(account_id.clone())
-                                .or_insert(slash_state.clone());
+                                .or_insert_with(|| slash_state.clone());
                         }
                     } else {
                         block_info
@@ -395,7 +396,7 @@ impl EpochManager {
                                     *e = SlashState::Other;
                                 }
                             })
-                            .or_insert(slash_state.clone());
+                            .or_insert_with(|| slash_state.clone());
                     }
                 }
 
@@ -550,6 +551,7 @@ impl EpochManager {
 
     /// Returns validator for given account id for given epoch.
     /// We don't require caller to know about EpochIds. Doesn't account for slashing.
+    #[allow(clippy::ptr_arg)]
     pub fn get_validator_by_account_id(
         &mut self,
         epoch_id: &EpochId,
@@ -563,6 +565,7 @@ impl EpochManager {
     }
 
     /// Returns fisherman for given account id for given epoch.
+    #[allow(clippy::ptr_arg)]
     pub fn get_fisherman_by_account_id(
         &mut self,
         epoch_id: &EpochId,
@@ -605,6 +608,7 @@ impl EpochManager {
         self.get_epoch_info(&epoch_id)
     }
 
+    #[allow(clippy::ptr_arg)]
     pub fn cares_about_shard_from_prev_block(
         &mut self,
         parent_hash: &CryptoHash,
@@ -615,6 +619,7 @@ impl EpochManager {
         self.cares_about_shard_in_epoch(epoch_id, account_id, shard_id)
     }
 
+    #[allow(clippy::ptr_arg)]
     pub fn cares_about_shard_next_epoch_from_prev_block(
         &mut self,
         parent_hash: &CryptoHash,
@@ -673,6 +678,7 @@ impl EpochManager {
     /// # Returns
     /// If successful, a triple of (hashmap of account id to max of stakes in the past three epochs,
     /// validator rewards in the last epoch, double sign slashing for the past epoch).
+    #[allow(clippy::type_complexity)] // TODO: should probably fix
     pub fn compute_stake_return_info(
         &mut self,
         last_block_hash: &CryptoHash,
@@ -895,6 +901,7 @@ impl EpochManager {
 
 /// Private utilities for EpochManager.
 impl EpochManager {
+    #[allow(clippy::ptr_arg)]
     fn cares_about_shard_in_epoch(
         &mut self,
         epoch_id: EpochId,
@@ -968,7 +975,7 @@ impl EpochManager {
     }
 
     pub fn get_epoch_info(&mut self, epoch_id: &EpochId) -> Result<&EpochInfo, EpochError> {
-        if !self.epochs_info.cache_get(epoch_id).is_some() {
+        if self.epochs_info.cache_get(epoch_id).is_none() {
             let epoch_info = self
                 .store
                 .get_ser(ColEpochInfo, epoch_id.as_ref())
@@ -1315,10 +1322,10 @@ mod tests {
         let amount_staked = 1_000_000;
         let validators = vec![stake("test1", amount_staked), stake("test2", amount_staked)];
         let mut epoch_manager = EpochManager::new(
-            store.clone(),
-            config.clone(),
+            store,
+            config,
             default_reward_calculator(),
-            validators.clone(),
+            validators,
         )
         .unwrap();
         let h = hash_range(12);
@@ -1366,10 +1373,10 @@ mod tests {
         let amount_staked = 1_000_000;
         let validators = vec![stake("test1", amount_staked), stake("test2", amount_staked)];
         let mut epoch_manager = EpochManager::new(
-            store.clone(),
-            config.clone(),
+            store,
+            config,
             default_reward_calculator(),
-            validators.clone(),
+            validators,
         )
         .unwrap();
         let h = hash_range(8);
@@ -1440,10 +1447,10 @@ mod tests {
         let amount_staked = 1_000_000;
         let validators = vec![stake("test1", amount_staked), stake("test2", amount_staked)];
         let mut epoch_manager = EpochManager::new(
-            store.clone(),
-            config.clone(),
+            store,
+            config,
             default_reward_calculator(),
-            validators.clone(),
+            validators,
         )
         .unwrap();
 
@@ -1526,10 +1533,10 @@ mod tests {
         let amount_staked = 1_000_000;
         let validators = vec![stake("test1", amount_staked), stake("test2", amount_staked)];
         let mut epoch_manager = EpochManager::new(
-            store.clone(),
-            config.clone(),
+            store,
+            config,
             default_reward_calculator(),
-            validators.clone(),
+            validators,
         )
         .unwrap();
 
@@ -1617,10 +1624,10 @@ mod tests {
         let amount_staked = 1_000_000;
         let validators = vec![stake("test1", amount_staked), stake("test2", amount_staked)];
         let mut epoch_manager = EpochManager::new(
-            store.clone(),
-            config.clone(),
+            store,
+            config,
             default_reward_calculator(),
-            validators.clone(),
+            validators,
         )
         .unwrap();
 
@@ -2122,10 +2129,10 @@ mod tests {
         let amount_staked = 1_000_000;
         let validators = vec![stake("test1", amount_staked), stake("test2", amount_staked)];
         let mut epoch_manager = EpochManager::new(
-            store.clone(),
-            config.clone(),
+            store,
+            config,
             default_reward_calculator(),
-            validators.clone(),
+            validators,
         )
         .unwrap();
         let h = hash_range(8);
@@ -2534,10 +2541,10 @@ mod tests {
         let amount_staked = 1_000_000;
         let validators = vec![stake("test1", amount_staked), stake("test2", amount_staked)];
         let mut epoch_manager = EpochManager::new(
-            store.clone(),
-            config.clone(),
+            store,
+            config,
             default_reward_calculator(),
-            validators.clone(),
+            validators,
         )
         .unwrap();
         let h = hash_range(8);
@@ -2664,7 +2671,7 @@ mod tests {
             actual_block_producers.insert(bp);
         }
         assert_eq!(
-            epoch_info.validator_to_index.keys().cloned().into_iter().collect::<HashSet<_>>(),
+            epoch_info.validator_to_index.keys().cloned().collect::<HashSet<_>>(),
             actual_block_producers
         );
     }

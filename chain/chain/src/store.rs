@@ -115,7 +115,7 @@ pub trait ChainStoreAccess {
         let shard_chunk_result = self.get_chunk(&header.chunk_hash());
         match shard_chunk_result {
             Err(_) => {
-                return Err(ErrorKind::ChunksMissing(vec![header.clone()]).into());
+                Err(ErrorKind::ChunksMissing(vec![header.clone()]).into())
             }
             Ok(shard_chunk) => {
                 byzantine_assert!(header.height_included > 0 || header.inner.height_created == 0);
@@ -178,7 +178,7 @@ pub trait ChainStoreAccess {
         height: BlockHeight,
     ) -> Result<&BlockHeader, Error> {
         let mut header = self.get_block_header(sync_hash)?;
-        let mut hash = sync_hash.clone();
+        let mut hash = *sync_hash;
         while header.inner_lite.height > height {
             hash = header.prev_hash;
             header = self.get_block_header(&hash)?;
@@ -524,7 +524,7 @@ impl ChainStoreAccess for ChainStore {
                         h.as_ref(),
                     );
                     match block_header_result {
-                        Ok(Some(_)) => Err(ErrorKind::BlockMissing(h.clone()).into()),
+                        Ok(Some(_)) => Err(ErrorKind::BlockMissing(*h).into()),
                         Ok(None) => Err(e),
                         Err(header_error) => {
                             debug_assert!(
@@ -749,7 +749,7 @@ impl ChainStoreAccess for ChainStore {
     }
 
     fn get_blocks_to_catchup(&self, hash: &CryptoHash) -> Result<Vec<CryptoHash>, Error> {
-        Ok(self.store.get_ser(ColBlocksToCatchup, hash.as_ref())?.unwrap_or_else(|| vec![]))
+        Ok(self.store.get_ser(ColBlocksToCatchup, hash.as_ref())?.unwrap_or_else(Vec::new))
     }
 
     fn get_latest_known(&mut self) -> Result<LatestKnown, Error> {
@@ -770,10 +770,10 @@ impl ChainStoreAccess for ChainStore {
     }
 
     fn is_block_challenged(&mut self, hash: &CryptoHash) -> Result<bool, Error> {
-        return Ok(self
+        Ok(self
             .store
             .get_ser(ColChallengedBlocks, hash.as_ref())?
-            .unwrap_or_else(|| false));
+            .unwrap_or_else(|| false))
     }
 
     fn is_invalid_chunk(
@@ -1121,7 +1121,7 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
     /// The chain tail height, used by GC.
     fn tail(&self) -> Result<BlockHeight, Error> {
         if let Some(tail) = &self.tail {
-            Ok(tail.clone())
+            Ok(*tail)
         } else {
             self.chain_store.tail()
         }
@@ -1146,8 +1146,8 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
     }
 
     fn largest_target_height(&self) -> Result<BlockHeight, Error> {
-        if let Some(largest_target_height) = &self.largest_target_height {
-            Ok(largest_target_height.clone())
+        if let Some(largest_target_height) = self.largest_target_height {
+            Ok(largest_target_height)
         } else {
             self.chain_store.largest_target_height()
         }
@@ -1522,7 +1522,7 @@ impl<'a> ChainStoreUpdate<'a> {
     }
 
     pub fn save_largest_target_height(&mut self, height: &BlockHeight) {
-        self.largest_target_height = Some(height.clone());
+        self.largest_target_height = Some(*height);
     }
 
     /// Save new height if it's above currently latest known.
@@ -1580,7 +1580,7 @@ impl<'a> ChainStoreUpdate<'a> {
     }
 
     pub fn save_next_block_hash(&mut self, hash: &CryptoHash, next_hash: CryptoHash) {
-        self.chain_store_cache_update.next_block_hashes.insert(hash.clone(), next_hash);
+        self.chain_store_cache_update.next_block_hashes.insert(*hash, next_hash);
     }
 
     pub fn save_epoch_light_client_block(
@@ -1590,7 +1590,7 @@ impl<'a> ChainStoreUpdate<'a> {
     ) {
         self.chain_store_cache_update
             .epoch_light_client_blocks
-            .insert(epoch_hash.clone(), light_client_block);
+            .insert(*epoch_hash, light_client_block);
     }
 
     pub fn save_outgoing_receipt(
@@ -1697,7 +1697,7 @@ impl<'a> ChainStoreUpdate<'a> {
 
     pub fn inc_block_refcount(&mut self, block_hash: &CryptoHash) -> Result<(), Error> {
         let refcount = match self.get_block_refcount(block_hash) {
-            Ok(refcount) => refcount.clone(),
+            Ok(refcount) => *refcount,
             Err(e) => match e.kind() {
                 ErrorKind::DBNotFoundErr(_) => 0,
                 _ => return Err(e),
@@ -1708,7 +1708,7 @@ impl<'a> ChainStoreUpdate<'a> {
     }
 
     pub fn dec_block_refcount(&mut self, block_hash: &CryptoHash) -> Result<(), Error> {
-        let refcount = self.get_block_refcount(block_hash)?.clone();
+        let refcount = *self.get_block_refcount(block_hash)?;
         if refcount > 0 {
             self.chain_store_cache_update.block_refcounts.insert(*block_hash, refcount - 1);
             Ok(())
@@ -1779,8 +1779,7 @@ impl<'a> ChainStoreUpdate<'a> {
         let height = block.header.inner_lite.height;
         if height == self.get_genesis_height() {
             if let GCMode::Fork(_) = gc_mode {
-                // Broken GC prerequisites found
-                assert!(false);
+                panic!("Broken GC prerequisites found");
             }
             // Don't clean Genesis Block
             self.merge(store_update);
@@ -1985,7 +1984,7 @@ impl<'a> ChainStoreUpdate<'a> {
                 Err(_) => HashMap::new(),
             };
             map.entry(block.header.inner_lite.epoch_id.clone())
-                .or_insert_with(|| HashSet::new())
+                .or_insert_with(HashSet::new)
                 .insert(*hash);
             store_update
                 .set_ser(ColBlockPerHeight, &index_to_bytes(block.header.inner_lite.height), &map)
@@ -2130,10 +2129,10 @@ impl<'a> ChainStoreUpdate<'a> {
             assert_ne!(remove_idx, prev_table.len());
             prev_table.swap_remove(remove_idx);
 
-            if prev_table.len() > 0 {
-                store_update.set_ser(ColBlocksToCatchup, prev_hash.as_ref(), &prev_table)?;
-            } else {
+            if prev_table.is_empty() {
                 store_update.delete(ColBlocksToCatchup, prev_hash.as_ref());
+            } else {
+                store_update.set_ser(ColBlocksToCatchup, prev_hash.as_ref(), &prev_table)?;
             }
         }
         for prev_hash in self.remove_prev_blocks_to_catchup.drain(..) {
@@ -2329,7 +2328,7 @@ mod tests {
         let chain_genesis = ChainGenesis::test();
         let validators = vec![vec!["test1"]];
         let runtime_adapter = Arc::new(KeyValueRuntime::new_with_validators(
-            store.clone(),
+            store,
             validators
                 .into_iter()
                 .map(|inner| inner.into_iter().map(Into::into).collect())
@@ -2346,9 +2345,8 @@ mod tests {
         let transaction_validity_period = 5;
         let mut chain = get_chain();
         let genesis = chain.get_block_by_height(0).unwrap().clone();
-        let signer =
-            Arc::new(InMemoryValidatorSigner::from_seed("test1", KeyType::ED25519, "test1"));
-        let short_fork = vec![Block::empty_with_height(&genesis, 1, &*signer.clone())];
+        let signer = InMemoryValidatorSigner::from_seed("test1", KeyType::ED25519, "test1");
+        let short_fork = vec![Block::empty_with_height(&genesis, 1, &signer)];
         let mut store_update = chain.mut_store().store_update();
         store_update.save_block_header(short_fork[0].header.clone());
         store_update.commit().unwrap();
@@ -2363,10 +2361,10 @@ mod tests {
             )
             .is_ok());
         let mut long_fork = vec![];
-        let mut prev_block = genesis.clone();
+        let mut prev_block = genesis;
         let mut store_update = chain.mut_store().store_update();
         for i in 1..(transaction_validity_period + 3) {
-            let block = Block::empty_with_height(&prev_block, i, &*signer.clone());
+            let block = Block::empty_with_height(&prev_block, i, &signer);
             prev_block = block.clone();
             store_update.save_block_header(block.header.clone());
             store_update
@@ -2401,13 +2399,12 @@ mod tests {
         let transaction_validity_period = 5;
         let mut chain = get_chain();
         let genesis = chain.get_block_by_height(0).unwrap().clone();
-        let signer =
-            Arc::new(InMemoryValidatorSigner::from_seed("test1", KeyType::ED25519, "test1"));
+        let signer = InMemoryValidatorSigner::from_seed("test1", KeyType::ED25519, "test1");
         let mut blocks = vec![];
-        let mut prev_block = genesis.clone();
+        let mut prev_block = genesis;
         let mut store_update = chain.mut_store().store_update();
         for i in 1..(transaction_validity_period + 2) {
-            let block = Block::empty_with_height(&prev_block, i, &*signer.clone());
+            let block = Block::empty_with_height(&prev_block, i, &signer);
             prev_block = block.clone();
             store_update.save_block_header(block.header.clone());
             store_update
@@ -2429,7 +2426,7 @@ mod tests {
         let new_block = Block::empty_with_height(
             &blocks.last().unwrap(),
             transaction_validity_period + 3,
-            &*signer.clone(),
+            &signer,
         );
         let mut store_update = chain.mut_store().store_update();
         store_update.save_block_header(new_block.header.clone());
@@ -2499,9 +2496,8 @@ mod tests {
     fn test_cache_invalidation() {
         let mut chain = get_chain();
         let genesis = chain.get_block_by_height(0).unwrap().clone();
-        let signer =
-            Arc::new(InMemoryValidatorSigner::from_seed("test1", KeyType::ED25519, "test1"));
-        let block1 = Block::empty_with_height(&genesis, 1, &*signer.clone());
+        let signer = InMemoryValidatorSigner::from_seed("test1", KeyType::ED25519, "test1");
+        let block1 = Block::empty_with_height(&genesis, 1, &signer);
         let mut block2 = block1.clone();
         block2.header.inner_lite.epoch_id = EpochId(hash(&[1, 2, 3]));
         let (block_hash, signature) = signer.sign_block_header_parts(
@@ -2514,7 +2510,7 @@ mod tests {
 
         let mut store_update = chain.mut_store().store_update();
         store_update.chain_store_cache_update.height_to_hashes.insert(1, Some(hash(&[1])));
-        store_update.chain_store_cache_update.blocks.insert(block1.header.hash, block1.clone());
+        store_update.chain_store_cache_update.blocks.insert(block1.header.hash, block1);
         store_update.commit().unwrap();
 
         let block_hash = chain.mut_store().height.cache_get(&index_to_bytes(1)).cloned();
@@ -2523,7 +2519,7 @@ mod tests {
 
         let mut store_update = chain.mut_store().store_update();
         store_update.chain_store_cache_update.height_to_hashes.insert(1, Some(hash(&[2])));
-        store_update.chain_store_cache_update.blocks.insert(block2.header.hash, block2.clone());
+        store_update.chain_store_cache_update.blocks.insert(block2.header.hash, block2);
         store_update.commit().unwrap();
 
         let block_hash1 = chain.mut_store().height.cache_get(&index_to_bytes(1)).cloned();
@@ -2540,12 +2536,11 @@ mod tests {
     fn test_clear_old_data() {
         let mut chain = get_chain_with_epoch_length(1);
         let genesis = chain.get_block_by_height(0).unwrap().clone();
-        let signer =
-            Arc::new(InMemoryValidatorSigner::from_seed("test1", KeyType::ED25519, "test1"));
-        let mut prev_block = genesis.clone();
+        let signer = InMemoryValidatorSigner::from_seed("test1", KeyType::ED25519, "test1");
+        let mut prev_block = genesis;
         let mut blocks = vec![prev_block.clone()];
         for i in 1..15 {
-            let block = Block::empty_with_height(&prev_block, i, &*signer.clone());
+            let block = Block::empty_with_height(&prev_block, i, &signer);
             blocks.push(block.clone());
             let mut store_update = chain.mut_store().store_update();
             store_update.save_block(block.clone());
@@ -2570,16 +2565,16 @@ mod tests {
         assert!(chain.get_block(&blocks[0].hash()).is_ok());
 
         // epoch didn't change so no data is garbage collected.
-        for i in 1..15 {
-            println!("height = {} hash = {}", i, blocks[i].hash());
+        for (i, blocks_i) in blocks.iter().enumerate().skip(1) {
+            println!("height = {} hash = {}", i, blocks_i.hash());
             if i < 8 {
-                assert!(chain.get_block(&blocks[i].hash()).is_err());
+                assert!(chain.get_block(&blocks_i.hash()).is_err());
                 assert!(chain
                     .mut_store()
                     .get_all_block_hashes_by_height(i as BlockHeight)
                     .is_err());
             } else {
-                assert!(chain.get_block(&blocks[i].hash()).is_ok());
+                assert!(chain.get_block(&blocks_i.hash()).is_ok());
                 assert!(chain.mut_store().get_all_block_hashes_by_height(i as BlockHeight).is_ok());
             }
         }
@@ -2592,7 +2587,7 @@ mod tests {
         let genesis = chain.get_block_by_height(0).unwrap().clone();
         let signer =
             Arc::new(InMemoryValidatorSigner::from_seed("test1", KeyType::ED25519, "test1"));
-        let mut prev_block = genesis.clone();
+        let mut prev_block = genesis;
         let mut blocks = vec![prev_block.clone()];
         for i in 1..10 {
             let mut store_update = chain.mut_store().store_update();
@@ -2657,7 +2652,7 @@ mod tests {
         let genesis = chain.get_block_by_height(0).unwrap().clone();
         let signer =
             Arc::new(InMemoryValidatorSigner::from_seed("test1", KeyType::ED25519, "test1"));
-        let mut prev_block = genesis.clone();
+        let mut prev_block = genesis;
         let mut blocks = vec![prev_block.clone()];
         for i in 1..1000 {
             let block = Block::empty_with_height(&prev_block, i, &*signer.clone());
@@ -2688,15 +2683,15 @@ mod tests {
             assert!(chain.get_block(&blocks[0].hash()).is_ok());
 
             // epoch didn't change so no data is garbage collected.
-            for i in 1..1000 {
+            for (i, blocks_i) in blocks.iter().enumerate().skip(1) {
                 if i < (iter + 1) * (MAX_HEIGHTS_TO_CLEAR - 1) as usize {
-                    assert!(chain.get_block(&blocks[i].hash()).is_err());
+                    assert!(chain.get_block(&blocks_i.hash()).is_err());
                     assert!(chain
                         .mut_store()
                         .get_all_block_hashes_by_height(i as BlockHeight)
                         .is_err());
                 } else {
-                    assert!(chain.get_block(&blocks[i].hash()).is_ok());
+                    assert!(chain.get_block(&blocks_i.hash()).is_ok());
                     assert!(chain
                         .mut_store()
                         .get_all_block_hashes_by_height(i as BlockHeight)

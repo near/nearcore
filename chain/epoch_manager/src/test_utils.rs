@@ -30,6 +30,7 @@ pub fn change_stake(stake_changes: Vec<(&str, Balance)>) -> BTreeMap<AccountId, 
     stake_changes.into_iter().map(|(k, v)| (k.to_string(), v)).collect()
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn epoch_info(
     epoch_height: EpochHeight,
     mut accounts: Vec<(&str, Balance)>,
@@ -123,6 +124,7 @@ pub fn reward(info: Vec<(&str, Balance)>) -> HashMap<AccountId, Balance> {
     info.into_iter().map(|(account_id, r)| (account_id.to_string(), r)).collect()
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn setup_epoch_manager(
     validators: Vec<(&str, Balance)>,
     epoch_length: BlockHeightDelta,

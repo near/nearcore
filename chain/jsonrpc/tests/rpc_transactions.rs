@@ -25,11 +25,11 @@ fn test_send_tx_async() {
     System::run(|| {
         let (_, addr) = test_utils::start_all(test_utils::NodeType::Validator);
 
-        let client = new_client(&format!("http://{}", addr.clone()));
+        let client = new_client(&format!("http://{}", addr));
 
         let tx_hash2 = Arc::new(Mutex::new(None));
         let tx_hash2_1 = tx_hash2.clone();
-        let tx_hash2_2 = tx_hash2.clone();
+        let tx_hash2_2 = tx_hash2;
         let signer_account_id = "test1".to_string();
 
         actix::spawn(client.block(BlockIdOrFinality::latest()).then(move |res| {
@@ -115,8 +115,8 @@ fn test_expired_tx() {
                 let client = new_client(&format!("http://{}", addr));
                 actix::spawn(client.block(BlockIdOrFinality::latest()).then(move |res| {
                     let header = res.unwrap().header;
-                    let hash = block_hash.lock().unwrap().clone();
-                    let height = block_height.lock().unwrap().clone();
+                    let hash = *block_hash.lock().unwrap();
+                    let height = *block_height.lock().unwrap();
                     if let Some(block_hash) = hash {
                         if let Some(height) = height {
                             if header.height - height >= 2 {
@@ -170,7 +170,7 @@ fn test_replay_protection() {
             hash(&[1]),
         );
         let bytes = tx.try_to_vec().unwrap();
-        if let Ok(_) = client.broadcast_tx_commit(to_base64(&bytes)).await {
+        if client.broadcast_tx_commit(to_base64(&bytes)).await.is_ok() {
             panic!("transaction should not succeed");
         }
     });

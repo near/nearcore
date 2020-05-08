@@ -208,11 +208,8 @@ impl Trie {
                 }
                 TrieNode::Branch(children, value) => match position {
                     CrumbStatus::Entering => {
-                        match value {
-                            Some(ValueHandle::HashAndSize(_, hash)) => {
-                                on_enter(hash)?;
-                            }
-                            _ => {}
+                        if let Some(ValueHandle::HashAndSize(_, hash)) = value {
+                            on_enter(hash)?;
                         }
                         stack.push((hash, node, CrumbStatus::AtChild(0)));
                         continue;
@@ -269,7 +266,7 @@ impl Trie {
     /// StorageError if data is inconsistent. Should never happen if each part was validated.
     pub fn combine_state_parts(
         state_root: &StateRoot,
-        parts: &Vec<Vec<Vec<u8>>>,
+        parts: &[Vec<Vec<u8>>],
     ) -> Result<TrieChanges, StorageError> {
         let nodes = parts
             .iter()
@@ -299,11 +296,11 @@ impl Trie {
         })
     }
 
-    pub fn get_memory_usage_from_serialized(bytes: &Vec<u8>) -> Result<u64, StorageError> {
+    pub fn get_memory_usage_from_serialized(bytes: &[u8]) -> Result<u64, StorageError> {
         match RawTrieNodeWithSize::decode(&bytes) {
             Ok(value) => Ok(TrieNodeWithSize::from_raw(value).memory_usage),
             Err(_) => {
-                Err(StorageError::StorageInconsistentState(format!("Failed to decode node",)))
+                Err(StorageError::StorageInconsistentState("Failed to decode node".to_string()))
             }
         }
     }
@@ -325,7 +322,7 @@ mod tests {
     #[test]
     fn test_combine_empty_trie_parts() {
         let state_root = StateRoot::default();
-        let _ = Trie::combine_state_parts(&state_root, &vec![]).unwrap();
+        let _ = Trie::combine_state_parts(&state_root, &[]).unwrap();
     }
 
     fn construct_trie_for_big_parts_1(

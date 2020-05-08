@@ -94,9 +94,9 @@ fn peers_connect_all() {
         let flags = Arc::new(AtomicUsize::new(0));
         WaitOrTimeout::new(
             Box::new(move |_| {
-                for i in 0..num_peers {
+                for (i, peer) in peers.iter().enumerate() {
                     let flags1 = flags.clone();
-                    actix::spawn(peers[i].send(GetInfo {}).then(move |res| {
+                    actix::spawn(peer.send(GetInfo {}).then(move |res| {
                         let info = res.unwrap();
                         if info.num_active_peers > num_peers - 1
                             && (flags1.load(Ordering::Relaxed) >> i) % 2 == 0
@@ -151,7 +151,7 @@ fn peer_recover() {
                         actix::spawn(pm0.send(GetInfo {}).then(move |res| {
                             if let Ok(info) = res {
                                 if info.active_peers.len() == 1 {
-                                    flag1.clone().store(true, Ordering::Relaxed);
+                                    flag1.store(true, Ordering::Relaxed);
                                 }
                             }
                             future::ready(())

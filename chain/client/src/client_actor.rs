@@ -294,7 +294,7 @@ impl Handler<NetworkClientMessages> for ClientActor {
                         }
                         _ => {}
                     }
-                    return NetworkClientResponses::NoResponse;
+                    NetworkClientResponses::NoResponse
                 }
             }
             NetworkClientMessages::BlockHeaders(headers, peer_id) => {
@@ -852,19 +852,17 @@ impl ClientActor {
                 );
                 is_syncing = false;
             }
-        } else {
-            if full_peer_info.chain_info.height
+        } else if full_peer_info.chain_info.height
                 > head.height + self.client.config.sync_height_threshold
-            {
-                info!(
-                    target: "client",
-                    "Sync: height: {}, peer id/height: {}/{}, enabling sync",
-                    head.height,
-                    full_peer_info.peer_info.id,
-                    full_peer_info.chain_info.height,
-                );
-                is_syncing = true;
-            }
+        {
+            info!(
+                target: "client",
+                "Sync: height: {}, peer id/height: {}/{}, enabling sync",
+                head.height,
+                full_peer_info.peer_info.id,
+                full_peer_info.chain_info.height,
+            );
+            is_syncing = true;
         }
         Ok((is_syncing, full_peer_info.chain_info.height))
     }

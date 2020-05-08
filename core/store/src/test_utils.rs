@@ -30,7 +30,7 @@ pub fn gen_changes(rng: &mut impl Rng, max_size: usize) -> Vec<(Vec<u8>, Option<
     let size = rng.gen_range(0, max_size) + 1;
     for _ in 0..size {
         let key_length = rng.gen_range(1, max_length);
-        let key: Vec<u8> = (0..key_length).map(|_| alphabet.choose(rng).unwrap().clone()).collect();
+        let key: Vec<u8> = (0..key_length).map(|_| *alphabet.choose(rng).unwrap()).collect();
 
         let delete = rng.gen_range(0.0, 1.0) < delete_probability;
         if delete {
@@ -42,7 +42,7 @@ pub fn gen_changes(rng: &mut impl Rng, max_size: usize) -> Vec<(Vec<u8>, Option<
         } else {
             let value_length = rng.gen_range(1, max_length);
             let value: Vec<u8> =
-                (0..value_length).map(|_| alphabet.choose(rng).unwrap().clone()).collect();
+                (0..value_length).map(|_| *alphabet.choose(rng).unwrap()).collect();
             result.push((key.clone(), Some(value.clone())));
             state.insert(key, value);
         }
@@ -52,7 +52,7 @@ pub fn gen_changes(rng: &mut impl Rng, max_size: usize) -> Vec<(Vec<u8>, Option<
 
 #[cfg(test)]
 pub(crate) fn simplify_changes(
-    changes: &Vec<(Vec<u8>, Option<Vec<u8>>)>,
+    changes: &[(Vec<u8>, Option<Vec<u8>>)],
 ) -> Vec<(Vec<u8>, Option<Vec<u8>>)> {
     let mut state: HashMap<Vec<u8>, Vec<u8>> = HashMap::new();
     for (key, value) in changes.iter() {

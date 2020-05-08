@@ -13,7 +13,7 @@ use near_chain::{Block, ChainGenesis, ChainStoreAccess, ErrorKind, Provenance, R
 use near_chain_configs::Genesis;
 use near_chunks::{ChunkStatus, ShardsManager};
 use near_client::test_utils::setup_mock_all_validators;
-use near_client::test_utils::{setup_client, setup_mock, TestEnv};
+use near_client::test_utils::{NetworkRequestsHandler, setup_client, setup_mock, TestEnv};
 use near_client::{Client, GetBlock};
 use near_crypto::{InMemorySigner, KeyType, Signature, Signer};
 use near_logger_utils::init_test_logger;
@@ -93,7 +93,7 @@ fn produce_blocks_with_tx() {
                     let total_parts = 1 + data_parts * (1 + ((height - 1) as usize) % 3);
                     if encoded_chunks.len() + 2 == height {
                         encoded_chunks
-                            .push(EncodedShardChunk::from_header(header.clone(), total_parts));
+                            .push(EncodedShardChunk::from_header(header, total_parts));
                     }
                     for part in partial_encoded_chunk.parts.iter() {
                         encoded_chunks[height - 2].content.parts[part.part_ord as usize] =
@@ -108,7 +108,7 @@ fn produce_blocks_with_tx() {
                         &mut rs,
                     ) {
                         let chunk = encoded_chunks[height - 2].decode_chunk(data_parts).unwrap();
-                        if chunk.transactions.len() > 0 {
+                        if !chunk.transactions.is_empty() {
                             System::current().stop();
                         }
                     }
@@ -168,7 +168,7 @@ fn receive_network_block() {
                 if last_block.header.prev_hash == CryptoHash::default() {
                     EpochId(last_block.header.hash)
                 } else {
-                    EpochId(last_block.header.next_epoch_id.clone())
+                    EpochId(last_block.header.next_epoch_id)
                 },
                 vec![],
                 Rational::from_integer(0),
@@ -228,7 +228,7 @@ fn receive_network_block_header() {
                 if last_block.header.prev_hash == CryptoHash::default() {
                     EpochId(last_block.header.hash)
                 } else {
-                    EpochId(last_block.header.next_epoch_id.clone())
+                    EpochId(last_block.header.next_epoch_id)
                 },
                 vec![],
                 Rational::from_integer(0),
@@ -274,15 +274,13 @@ fn produce_block_with_approvals() {
                     if block.header.num_approvals() == validators.len() as u64 - 2 {
                         System::current().stop();
                     } else if block.header.inner_lite.height == 10 {
-                        println!("{}", block.header.inner_lite.height);
-                        println!(
-                            "{} != {} -2 (height: {})",
+                        panic!(
+                            "{}\n{} != {} -2 (height: {})",
+                            block.header.inner_lite.height,
                             block.header.num_approvals(),
                             validators.len(),
-                            block.header.inner_lite.height
+                            block.header.inner_lite.height,
                         );
-
-                        assert!(false);
                     }
                 }
                 NetworkResponses::NoResponse
@@ -299,7 +297,7 @@ fn produce_block_with_approvals() {
                 if last_block.header.prev_hash == CryptoHash::default() {
                     EpochId(last_block.header.hash)
                 } else {
-                    EpochId(last_block.header.next_epoch_id.clone())
+                    EpochId(last_block.header.next_epoch_id)
                 },
                 vec![],
                 Rational::from_integer(0),
@@ -346,11 +344,10 @@ fn produce_block_with_approvals_arrived_early() {
     let block_holder: Arc<RwLock<Option<Block>>> = Arc::new(RwLock::new(None));
     System::run(move || {
         let mut approval_counter = 0;
-        let network_mock: Arc<
-            RwLock<Box<dyn FnMut(String, &NetworkRequests) -> (NetworkResponses, bool)>>,
-        > = Arc::new(RwLock::new(Box::new(|_: String, _: &NetworkRequests| {
-            (NetworkResponses::NoResponse, true)
-        })));
+        let network_mock: Arc<RwLock<NetworkRequestsHandler>> = 
+            Arc::new(RwLock::new(Box::new(|_: String, _: &NetworkRequests| {
+                (NetworkResponses::NoResponse, true)
+            })));
         let (_, conns) = setup_mock_all_validators(
             validators.clone(),
             key_pairs,
@@ -386,7 +383,7 @@ fn produce_block_with_approvals_arrived_early() {
                         (NetworkResponses::NoResponse, true)
                     }
                     NetworkRequests::Approval { approval_message } => {
-                        if approval_message.target == "test1".to_string()
+                        if approval_message.target == "test1"
                             && approval_message.approval.target_height == 4
                         {
                             approval_counter += 1;
@@ -421,17 +418,14 @@ fn invalid_blocks() {
             false,
             false,
             Box::new(move |msg, _ctx, _client_actor| {
-                match msg {
-                    NetworkRequests::Block { block } => {
-                        assert_eq!(block.header.inner_lite.height, 1);
-                        assert_eq!(
-                            block.header.inner_lite.prev_state_root,
-                            merklize(&vec![MerkleHash::default()]).0
-                        );
-                        System::current().stop();
-                    }
-                    _ => {}
-                };
+                if let NetworkRequests::Block { block } = msg {
+                    assert_eq!(block.header.inner_lite.height, 1);
+                    assert_eq!(
+                        block.header.inner_lite.prev_state_root,
+                        merklize(&[MerkleHash::default()]).0
+                    );
+                    System::current().stop();
+                }
                 NetworkResponses::NoResponse
             }),
         );
@@ -447,7 +441,7 @@ fn invalid_blocks() {
                 if last_block.header.prev_hash == CryptoHash::default() {
                     EpochId(last_block.header.hash)
                 } else {
-                    EpochId(last_block.header.next_epoch_id.clone())
+                    EpochId(last_block.header.next_epoch_id)
                 },
                 vec![],
                 Rational::from_integer(0),
@@ -460,7 +454,7 @@ fn invalid_blocks() {
             );
             block.header.inner_rest.chunk_mask = vec![];
             client.do_send(NetworkClientMessages::Block(
-                block.clone(),
+                block,
                 PeerInfo::random().id,
                 false,
             ));
@@ -474,7 +468,7 @@ fn invalid_blocks() {
                 if last_block.header.prev_hash == CryptoHash::default() {
                     EpochId(last_block.header.hash)
                 } else {
-                    EpochId(last_block.header.next_epoch_id.clone())
+                    EpochId(last_block.header.next_epoch_id)
                 },
                 vec![],
                 Rational::from_integer(0),
@@ -505,14 +499,11 @@ fn skip_block_production() {
             true,
             false,
             Box::new(move |msg, _ctx, _client_actor| {
-                match msg {
-                    NetworkRequests::Block { block } => {
-                        if block.header.inner_lite.height > 3 {
-                            System::current().stop();
-                        }
+                if let NetworkRequests::Block { block } = msg {
+                    if block.header.inner_lite.height > 3 {
+                        System::current().stop();
                     }
-                    _ => {}
-                };
+                }
                 NetworkResponses::NoResponse
             }),
         );
@@ -557,7 +548,7 @@ fn client_sync_headers() {
             num_active_peers: 1,
             peer_max_count: 1,
             highest_height_peers: vec![FullPeerInfo {
-                peer_info: peer_info2.clone(),
+                peer_info: peer_info2,
                 chain_info: PeerChainInfo {
                     genesis_id: Default::default(),
                     height: 5,
@@ -580,7 +571,7 @@ fn produce_blocks(client: &mut Client, num: u64) {
     for i in 1..num {
         let b = client.produce_block(i).unwrap().unwrap();
         let (mut accepted_blocks, _) = client.process_block(b, Provenance::PRODUCED);
-        let more_accepted_blocks = client.run_catchup(&vec![]).unwrap();
+        let more_accepted_blocks = client.run_catchup(&[]).unwrap();
         accepted_blocks.extend(more_accepted_blocks);
         for accepted_block in accepted_blocks {
             client.on_block_accepted(
@@ -898,7 +889,7 @@ fn test_gc_long_epoch() {
                 .runtime_adapter
                 .get_block_producer(&EpochId(CryptoHash::default()), i)
                 .unwrap();
-            if block_producer == "test0".to_string() {
+            if block_producer == "test0" {
                 let block = env.clients[0].produce_block(i).unwrap().unwrap();
                 env.process_block(0, block.clone(), Provenance::PRODUCED);
                 blocks.push(block);

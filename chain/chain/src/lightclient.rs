@@ -48,7 +48,7 @@ pub fn create_light_client_block_view(
     };
     let inner_rest_hash = block_header.inner_rest.hash();
 
-    let next_block_hash = chain_store.get_next_block_hash(&block_header.hash())?.clone();
+    let next_block_hash = *chain_store.get_next_block_hash(&block_header.hash())?;
     let next_block_header = chain_store.get_block_header(&next_block_hash)?;
     let next_block_inner_hash = BlockHeader::compute_inner_hash(
         &next_block_header.inner_lite,
@@ -56,7 +56,7 @@ pub fn create_light_client_block_view(
     );
     let approvals_next = next_block_header.inner_rest.approvals.clone();
 
-    let after_next_block_hash = chain_store.get_next_block_hash(&next_block_hash)?.clone();
+    let after_next_block_hash = *chain_store.get_next_block_hash(&next_block_hash)?;
     let after_next_block_header = chain_store.get_block_header(&after_next_block_hash)?;
     let approvals_after_next = after_next_block_header.inner_rest.approvals.clone();
 

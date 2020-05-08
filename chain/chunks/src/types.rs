@@ -1,4 +1,5 @@
 #[derive(Debug)]
+#[allow(clippy::large_enum_variant)]
 pub enum Error {
     InvalidPartMessage,
     InvalidChunkPartId,

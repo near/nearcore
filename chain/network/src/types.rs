@@ -19,7 +19,6 @@ use near_chain::types::ShardStateSyncResponse;
 use near_chain::{Block, BlockHeader};
 use near_chain_configs::PROTOCOL_VERSION;
 use near_crypto::{PublicKey, SecretKey, Signature};
-use near_metrics;
 use near_primitives::block::{Approval, ApprovalMessage, GenesisId};
 use near_primitives::challenge::Challenge;
 use near_primitives::errors::InvalidTxError;
@@ -260,7 +259,7 @@ impl AccountOrPeerIdOrHash {
         match self {
             AccountOrPeerIdOrHash::AccountId(_) => None,
             AccountOrPeerIdOrHash::PeerId(peer_id) => Some(PeerIdOrHash::PeerId(peer_id.clone())),
-            AccountOrPeerIdOrHash::Hash(hash) => Some(PeerIdOrHash::Hash(hash.clone())),
+            AccountOrPeerIdOrHash::Hash(hash) => Some(PeerIdOrHash::Hash(*hash)),
         }
     }
 }
@@ -919,6 +918,7 @@ impl Message for Consolidate {
 }
 
 #[derive(MessageResponse, Debug)]
+#[allow(clippy::large_enum_variant)] // TODO: should probably fix this
 pub enum ConsolidateResponse {
     Accept(Option<EdgeInfo>),
     InvalidNonce(Edge),
@@ -938,6 +938,7 @@ pub struct PeerList {
 }
 
 /// Message from peer to peer manager
+#[allow(clippy::large_enum_variant)] // TODO: should fix this
 pub enum PeerRequest {
     UpdateEdge((PeerId, u64)),
     RouteBack(RoutedMessageBody, CryptoHash),
@@ -1155,6 +1156,7 @@ where
 }
 
 #[derive(Debug)]
+#[allow(clippy::large_enum_variant)] // TODO: should fix this
 pub enum NetworkResponses {
     NoResponse,
     RoutingTableInfo(RoutingTableInfo),
@@ -1273,6 +1275,7 @@ impl Message for NetworkClientMessages {
     type Result = NetworkClientResponses;
 }
 
+#[allow(clippy::large_enum_variant)] // TODO: should fix this
 pub enum NetworkViewClientMessages {
     #[cfg(feature = "adversarial")]
     Adversarial(NetworkAdversarialMessage),
@@ -1305,6 +1308,7 @@ pub enum NetworkViewClientMessages {
     AnnounceAccount(Vec<(AnnounceAccount, Option<EpochId>)>),
 }
 
+#[allow(clippy::large_enum_variant)] // TODO: should fix this
 pub enum NetworkViewClientResponses {
     /// Transaction execution outcome
     TxStatus(FinalExecutionOutcomeView),
@@ -1396,6 +1400,7 @@ pub trait NetworkAdapter: Sync + Send {
     fn do_send(&self, msg: NetworkRequests);
 }
 
+#[derive(Default)]
 pub struct NetworkRecipient {
     network_recipient: RwLock<Option<Recipient<NetworkRequests>>>,
 }

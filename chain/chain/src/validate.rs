@@ -44,7 +44,7 @@ pub fn validate_chunk_proofs(chunk: &ShardChunk, runtime_adapter: &dyn RuntimeAd
     }
     // 2c. Checking that chunk receipts are valid
     if chunk.header.inner.height_created == 0 {
-        return chunk.receipts.len() == 0
+        return chunk.receipts.is_empty()
             && chunk.header.inner.outgoing_receipts_root == CryptoHash::default();
     } else {
         let outgoing_receipts_hashes = runtime_adapter.build_receipts_hashes(&chunk.receipts);
@@ -268,7 +268,7 @@ fn validate_chunk_proofs_challenge(
     }
 
     // The chunk is fine. It's a malicious challenge.
-    return Err(ErrorKind::MaliciousChallenge.into());
+    Err(ErrorKind::MaliciousChallenge.into())
 }
 
 fn validate_chunk_state_challenge(

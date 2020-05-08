@@ -55,7 +55,7 @@ pub fn start_all_with_validity_period(
     start_http(
         RpcConfig::new(&addr),
         Arc::new(genesis),
-        client_addr.clone(),
+        client_addr,
         view_client_addr.clone(),
     );
     (view_client_addr, addr)

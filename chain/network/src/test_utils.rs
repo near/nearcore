@@ -90,7 +90,7 @@ pub fn convert_boot_nodes(boot_nodes: Vec<(&str, u16)>) -> Vec<PeerInfo> {
     let mut result = vec![];
     for (peer_seed, port) in boot_nodes {
         let id = peer_id_from_seed(peer_seed);
-        result.push(PeerInfo::new(id.into(), format!("127.0.0.1:{}", port).parse().unwrap()))
+        result.push(PeerInfo::new(id, format!("127.0.0.1:{}", port).parse().unwrap()))
     }
     result
 }
@@ -194,7 +194,7 @@ pub fn expected_routing_tables(
 
     for (peer, paths) in expected.into_iter() {
         let cur_paths = current.get(&peer);
-        if !cur_paths.is_some() {
+        if cur_paths.is_none() {
             return false;
         }
         let cur_paths = cur_paths.unwrap();
@@ -225,7 +225,7 @@ impl Handler<GetInfo> for PeerManagerActor {
     }
 }
 
-#[derive(Message)]
+#[derive(Message, Default)]
 #[rtype(result = "()")]
 pub struct StopSignal {
     pub should_panic: bool,

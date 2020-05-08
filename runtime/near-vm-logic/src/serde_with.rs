@@ -2,7 +2,7 @@
 pub mod bytes_as_base64 {
     use serde::{Deserialize, Deserializer, Serializer};
 
-    pub fn serialize<S>(arr: &Vec<u8>, serializer: S) -> Result<S::Ok, S::Error>
+    pub fn serialize<S>(arr: &[u8], serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
@@ -22,11 +22,11 @@ pub mod bytes_as_base64 {
 pub mod bytes_as_str {
     use serde::{Deserialize, Deserializer, Serializer};
 
-    pub fn serialize<S>(arr: &Vec<u8>, serializer: S) -> Result<S::Ok, S::Error>
+    pub fn serialize<S>(arr: &[u8], serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
-        serializer.serialize_str(&String::from_utf8(arr.clone()).unwrap())
+        serializer.serialize_str(std::str::from_utf8(arr).unwrap())
     }
 
     pub fn deserialize<'de, D>(deserializer: D) -> Result<Vec<u8>, D::Error>
@@ -42,7 +42,7 @@ pub mod bytes_as_str {
 pub mod bytes_as_base58 {
     use serde::{Deserialize, Deserializer, Serializer};
 
-    pub fn serialize<S>(arr: &Vec<u8>, serializer: S) -> Result<S::Ok, S::Error>
+    pub fn serialize<S>(arr: &[u8], serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
@@ -66,13 +66,13 @@ pub mod vec_bytes_as_str {
     use serde::ser::SerializeSeq;
     use serde::{Deserializer, Serializer};
 
-    pub fn serialize<S>(data: &Vec<Vec<u8>>, serializer: S) -> Result<S::Ok, S::Error>
+    pub fn serialize<S>(data: &[Vec<u8>], serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
         let mut seq = serializer.serialize_seq(Some(data.len()))?;
         for v in data {
-            seq.serialize_element(&String::from_utf8(v.clone()).unwrap())?;
+            seq.serialize_element(std::str::from_utf8(v).unwrap())?;
         }
         seq.end()
     }

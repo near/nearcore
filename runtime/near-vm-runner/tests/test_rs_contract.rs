@@ -12,10 +12,10 @@ use self::test_utils::{
     CURRENT_ACCOUNT_ID, PREDECESSOR_ACCOUNT_ID, SIGNER_ACCOUNT_ID, SIGNER_ACCOUNT_PK,
 };
 
-const TEST_CONTRACT: &'static [u8] = include_bytes!("../tests/res/test_contract_rs.wasm");
+const TEST_CONTRACT: &[u8] = include_bytes!("../tests/res/test_contract_rs.wasm");
 
 fn assert_run_result((outcome, err): (Option<VMOutcome>, Option<VMError>), expected_value: u64) {
-    if let Some(_) = err {
+    if err.is_some() {
         panic!("Failed execution");
     }
 
@@ -106,7 +106,7 @@ fn run_test_ext(method: &[u8], expected: &[u8], input: &[u8]) {
     let (outcome, err) =
         run(input.to_owned(), &code, &method, &mut fake_external, context, &config, &fees, &[]);
 
-    if let Some(_) = err {
+    if err.is_some() {
         panic!("Failed execution: {:?}", err);
     }
 

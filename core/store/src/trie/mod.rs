@@ -441,7 +441,6 @@ pub struct Trie {
 /// StoreUpdate are the changes from current state refcount to refcount + delta.
 #[derive(BorshSerialize, BorshDeserialize, Clone)]
 pub struct TrieChanges {
-    #[allow(dead_code)]
     old_root: StateRoot,
     pub new_root: StateRoot,
     insertions: Vec<(CryptoHash, Vec<u8>, u32)>, // key, value, rc
@@ -488,7 +487,7 @@ impl TrieChanges {
     }
 
     fn deletions_into_inner(
-        deletions: &Vec<(CryptoHash, Vec<u8>, u32)>,
+        deletions: &[(CryptoHash, Vec<u8>, u32)],
         trie: Arc<Trie>,
         store_update: &mut StoreUpdate,
     ) -> Result<(), Box<dyn std::error::Error>> {
@@ -938,6 +937,8 @@ impl Trie {
         }
     }
 
+    // TODO: this should probably be fixed, Vec<(CryptoHash, Vec<u8>, u32)> is also used in `TrieChanges`
+    #[allow(clippy::type_complexity)]
     fn convert_to_insertions_and_deletions(
         changes: HashMap<CryptoHash, (Vec<u8>, i32)>,
     ) -> (Vec<(CryptoHash, Vec<u8>, u32)>, Vec<(CryptoHash, Vec<u8>, u32)>) {
@@ -1326,7 +1327,7 @@ mod tests {
             (b"dog".to_vec(), Some(b"puppy".to_vec())),
             (b"h".to_vec(), Some(b"value".to_vec())),
         ];
-        let root = test_populate_trie(trie1, &empty_root, changes.clone());
+        let root = test_populate_trie(trie1, &empty_root, changes);
 
         let trie2 = Arc::new(Trie::new(store));
         assert_eq!(trie2.get(&root, b"doge"), Ok(Some(b"coin".to_vec())));
@@ -1346,7 +1347,7 @@ mod tests {
             (b"dog".to_vec(), Some(b"puppy".to_vec())),
             (b"h".to_vec(), Some(b"value".to_vec())),
         ];
-        let root = test_populate_trie(trie1, &empty_root, changes.clone());
+        let root = test_populate_trie(trie1, &empty_root, changes);
 
         let trie2 = Trie::new(store).recording_reads();
         trie2.get(&root, b"dog").unwrap();
@@ -1369,7 +1370,7 @@ mod tests {
             (b"doge".to_vec(), Some(b"coin".to_vec())),
             (b"docu".to_vec(), Some(b"value".to_vec())),
         ];
-        let root = test_populate_trie(trie1, &empty_root, changes.clone());
+        let root = test_populate_trie(trie1, &empty_root, changes);
         // Trie: extension -> branch -> 2 leaves
         {
             let trie2 = Trie::new(Arc::clone(&store)).recording_reads();
@@ -1404,12 +1405,12 @@ mod tests {
             (b"doge".to_vec(), Some(b"coin".to_vec())),
             (b"docu".to_vec(), Some(b"value".to_vec())),
         ];
-        let root = test_populate_trie(trie1, &empty_root, changes.clone());
+        let root = test_populate_trie(trie1, &empty_root, changes);
         let dir = tempfile::Builder::new().prefix("test_dump_load_trie").tempdir().unwrap();
         store.save_to_file(ColState, &dir.path().join("test.bin")).unwrap();
         let store2 = create_test_store();
         store2.load_from_file(ColState, &dir.path().join("test.bin")).unwrap();
-        let trie2 = Arc::new(Trie::new(store2.clone()));
+        let trie2 = Arc::new(Trie::new(store2));
         assert_eq!(trie2.get(&root, b"doge").unwrap().unwrap(), b"coin");
     }
 }

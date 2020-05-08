@@ -57,6 +57,7 @@ const WAIT_PEER_BEFORE_REMOVE: u64 = 6_000;
 #[cfg(feature = "metric_recorder")]
 const WAIT_BEFORE_PING: u64 = 20_000;
 
+#[allow(clippy::needless_return)]
 macro_rules! unwrap_or_error(($obj: expr, $error: expr) => (match $obj {
     Ok(result) => result,
     Err(err) => {
@@ -131,7 +132,7 @@ impl PeerManagerActor {
             peer_store,
             active_peers: HashMap::default(),
             outgoing_peers: HashSet::default(),
-            routing_table: RoutingTable::new(me.clone(), store),
+            routing_table: RoutingTable::new(me, store),
             monitor_peers_attempts: 0,
             pending_update_nonce_request: HashMap::new(),
             #[cfg(feature = "metric_recorder")]
@@ -273,6 +274,7 @@ impl PeerManagerActor {
 
     /// Remove a peer from the active peer set. If the peer doesn't belong to the active peer set
     /// data from ongoing connection established is removed.
+    #[allow(clippy::needless_return)]
     fn unregister_peer(&mut self, ctx: &mut Context<Self>, peer_id: PeerId, peer_type: PeerType) {
         // If this is an unconsolidated peer because failed / connected inbound, just delete it.
         if peer_type == PeerType::Outbound && self.outgoing_peers.contains(&peer_id) {
@@ -286,6 +288,7 @@ impl PeerManagerActor {
     /// Add peer to ban list.
     /// This function should only be called after Peer instance is stopped.
     /// Note: Use `try_ban_peer` if there might be a Peer instance still active.
+    #[allow(clippy::needless_return)]
     fn ban_peer(&mut self, ctx: &mut Context<Self>, peer_id: &PeerId, ban_reason: ReasonForBan) {
         info!(target: "network", "Banning peer {:?} for {:?}", peer_id, ban_reason);
         self.remove_active_peer(ctx, peer_id, None);
@@ -833,6 +836,7 @@ impl PeerManagerActor {
 
     /// Send message to specific account.
     /// Return whether the message is sent or not.
+    #[allow(clippy::ptr_arg)]
     fn send_message_to_account(
         &mut self,
         ctx: &mut Context<Self>,
@@ -868,7 +872,7 @@ impl PeerManagerActor {
         match target {
             PeerIdOrHash::PeerId(peer_id) => peer_id == &self.peer_id,
             PeerIdOrHash::Hash(hash) => {
-                self.routing_table.compare_route_back(hash.clone(), &self.peer_id)
+                self.routing_table.compare_route_back(*hash, &self.peer_id)
             }
         }
     }
@@ -1197,7 +1201,7 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                             } else {
                                 Some((
                                     announce_account,
-                                    Some(current_announce_account.epoch_id.clone()),
+                                    Some(current_announce_account.epoch_id),
                                 ))
                             }
                         } else {
@@ -1234,7 +1238,7 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                                     act.process_edge(ctx,edge.clone());
                                     if let Some(other) = edge.other(&me) {
                                         // We belong to this edge.
-                                        return if act.active_peers.contains_key(&other) {
+                                        if act.active_peers.contains_key(&other) {
                                             // This is an active connection.
                                             match edge.edge_type() {
                                                 EdgeType::Added => true,
@@ -1252,7 +1256,7 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                                                 }
                                                 EdgeType::Removed => true
                                             }
-                                        };
+                                        }
                                     } else {
 
                                     true
@@ -1308,7 +1312,7 @@ impl Handler<NetworkRequests> for PeerManagerActor {
 
                     let new_edge = Edge::build_with_secret_key(
                         self.peer_id.clone(),
-                        peer_id.clone(),
+                        peer_id,
                         edge_info.nonce,
                         &self.config.secret_key,
                         edge_info.signature,
@@ -1475,7 +1479,7 @@ impl Handler<Consolidate> for PeerManagerActor {
             ctx,
         );
 
-        return ConsolidateResponse::Accept(edge_info_response);
+        ConsolidateResponse::Accept(edge_info_response)
     }
 }
 
@@ -1506,6 +1510,7 @@ impl Handler<PeersRequest> for PeerManagerActor {
 impl Handler<PeersResponse> for PeerManagerActor {
     type Result = ();
 
+    #[allow(clippy::needless_return)]
     fn handle(&mut self, msg: PeersResponse, _ctx: &mut Self::Context) {
         unwrap_or_error!(
             self.peer_store.add_indirect_peers(

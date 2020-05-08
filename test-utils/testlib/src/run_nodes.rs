@@ -27,19 +27,19 @@ fn main() {
     let nodes = create_nodes(num_nodes, "test");
 
     print!("Connect via RPC to: ");
-    for i in 0..num_nodes {
-        match &nodes[i] {
-            NodeConfig::Thread(cfg) => print!("{}, ", cfg.rpc_config.addr),
-            _ => (),
+
+    for node in nodes.iter() {
+        if let NodeConfig::Thread(cfg) = node {
+            print!("{}, ", cfg.rpc_config.addr);
         }
     }
     println!();
 
-    let nodes: Vec<_> = nodes.into_iter().map(|cfg| Node::new_sharable(cfg)).collect();
+    let nodes: Vec<_> = nodes.into_iter().map(Node::new_sharable).collect();
 
     // Start nodes.
-    for i in 0..num_nodes {
-        nodes[i].write().unwrap().start();
+    for node in nodes {
+        node.write().unwrap().start();
     }
 
     // Loop infinitely.

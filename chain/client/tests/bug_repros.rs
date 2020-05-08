@@ -7,7 +7,7 @@ use actix::{Addr, System};
 use rand::{thread_rng, Rng};
 
 use near_chain::test_utils::account_id_to_shard_id;
-use near_client::test_utils::setup_mock_all_validators;
+use near_client::test_utils::{setup_mock_all_validators, NetworkRequestsHandler};
 use near_client::{ClientActor, ViewClientActor};
 use near_crypto::{InMemorySigner, KeyType};
 use near_logger_utils::init_test_logger;
@@ -18,6 +18,7 @@ use near_primitives::transaction::SignedTransaction;
 use std::cmp::max;
 use std::collections::HashMap;
 
+#[allow(clippy::type_complexity)]
 #[test]
 fn repro_1183() {
     let validator_groups = 2;
@@ -40,7 +41,7 @@ fn repro_1183() {
         let delayed_one_parts: Arc<RwLock<Vec<NetworkRequests>>> = Arc::new(RwLock::new(vec![]));
         let (_, conn) = setup_mock_all_validators(
             validators.clone(),
-            key_pairs.clone(),
+            key_pairs,
             validator_groups,
             true,
             200,
@@ -80,13 +81,13 @@ fn repro_1183() {
                                 }
                             }
                         } else {
-                            assert!(false);
+                            panic!("delayed_message was not a PartialEncodedChunkMessage");
                         }
                     }
 
                     let mut nonce_delta = 0;
-                    for from in vec!["test1", "test2", "test3", "test4"] {
-                        for to in vec!["test1", "test2", "test3", "test4"] {
+                    for from in &["test1", "test2", "test3", "test4"] {
+                        for to in &["test1", "test2", "test3", "test4"] {
                             connectors1.write().unwrap()
                                 [account_id_to_shard_id(&from.to_string(), 4) as usize]
                                 .0
@@ -144,11 +145,10 @@ fn test_sync_from_achival_node() {
     let epoch_length = 4;
 
     System::run(move || {
-        let network_mock: Arc<
-            RwLock<Box<dyn FnMut(String, &NetworkRequests) -> (NetworkResponses, bool)>>,
-        > = Arc::new(RwLock::new(Box::new(|_: String, _: &NetworkRequests| {
-            (NetworkResponses::NoResponse, true)
-        })));
+        let network_mock: Arc<RwLock<NetworkRequestsHandler>> =
+            Arc::new(RwLock::new(Box::new(|_: String, _: &NetworkRequests| {
+                (NetworkResponses::NoResponse, true)
+            })));
         let (_, conns) = setup_mock_all_validators(
             validators.clone(),
             key_pairs,

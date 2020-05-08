@@ -49,6 +49,7 @@ pub enum NodeConfig {
     Process(NearConfig),
 }
 
+#[allow(clippy::ptr_arg)]
 pub trait Node: Send + Sync {
     fn genesis(&self) -> &Genesis;
 

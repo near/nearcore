@@ -100,6 +100,7 @@ impl BlockHeaderInnerLite {
 }
 
 impl BlockHeaderInnerRest {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         chunk_receipts_root: MerkleHash,
         chunk_headers_root: MerkleHash,
@@ -171,7 +172,7 @@ impl ApprovalInner {
         target_height: BlockHeight,
     ) -> Self {
         if target_height == parent_height + 1 {
-            ApprovalInner::Endorsement(parent_hash.clone())
+            ApprovalInner::Endorsement(*parent_hash)
         } else {
             ApprovalInner::Skip(parent_height)
         }
@@ -236,13 +237,14 @@ impl BlockHeader {
     ) -> CryptoHash {
         let hash_inner = BlockHeader::compute_inner_hash(inner_lite, inner_rest);
 
-        return combine_hash(hash_inner, prev_hash);
+        combine_hash(hash_inner, prev_hash)
     }
 
     pub fn init(&mut self) {
         self.hash = BlockHeader::compute_hash(self.prev_hash, &self.inner_lite, &self.inner_rest);
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         height: BlockHeight,
         prev_hash: CryptoHash,
@@ -299,6 +301,7 @@ impl BlockHeader {
         Self { prev_hash, inner_lite, inner_rest, signature, hash }
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn genesis(
         height: BlockHeight,
         state_root: MerkleHash,
@@ -390,7 +393,7 @@ pub fn genesis_chunks(
         .map(|i| {
             let (encoded_chunk, _) = EncodedShardChunk::new(
                 CryptoHash::default(),
-                state_roots[i as usize % state_roots.len()].clone(),
+                state_roots[i as usize % state_roots.len()],
                 CryptoHash::default(),
                 genesis_height,
                 i,
@@ -448,6 +451,7 @@ impl Block {
     }
 
     /// Produces new block from header of previous block, current state root and set of transactions.
+    #[allow(clippy::too_many_arguments)]
     pub fn produce(
         prev: &BlockHeader,
         height: BlockHeight,
@@ -586,14 +590,14 @@ impl Block {
         }
     }
 
-    pub fn compute_state_root(chunks: &Vec<ShardChunkHeader>) -> CryptoHash {
+    pub fn compute_state_root(chunks: &[ShardChunkHeader]) -> CryptoHash {
         merklize(
             &chunks.iter().map(|chunk| chunk.inner.prev_state_root).collect::<Vec<CryptoHash>>(),
         )
         .0
     }
 
-    pub fn compute_chunk_receipts_root(chunks: &Vec<ShardChunkHeader>) -> CryptoHash {
+    pub fn compute_chunk_receipts_root(chunks: &[ShardChunkHeader]) -> CryptoHash {
         merklize(
             &chunks
                 .iter()
@@ -604,7 +608,7 @@ impl Block {
     }
 
     pub fn compute_chunk_headers_root(
-        chunks: &Vec<ShardChunkHeader>,
+        chunks: &[ShardChunkHeader],
     ) -> (CryptoHash, Vec<MerklePath>) {
         merklize(
             &chunks
@@ -614,19 +618,20 @@ impl Block {
         )
     }
 
-    pub fn compute_chunk_tx_root(chunks: &Vec<ShardChunkHeader>) -> CryptoHash {
+    pub fn compute_chunk_tx_root(chunks: &[ShardChunkHeader]) -> CryptoHash {
         merklize(&chunks.iter().map(|chunk| chunk.inner.tx_root).collect::<Vec<CryptoHash>>()).0
     }
 
-    pub fn compute_chunks_included(chunks: &Vec<ShardChunkHeader>, height: BlockHeight) -> u64 {
+    pub fn compute_chunks_included(chunks: &[ShardChunkHeader], height: BlockHeight) -> u64 {
         chunks.iter().filter(|chunk| chunk.height_included == height).count() as u64
     }
 
-    pub fn compute_outcome_root(chunks: &Vec<ShardChunkHeader>) -> CryptoHash {
+    pub fn compute_outcome_root(chunks: &[ShardChunkHeader]) -> CryptoHash {
         merklize(&chunks.iter().map(|chunk| chunk.inner.outcome_root).collect::<Vec<CryptoHash>>())
             .0
     }
 
+    #[allow(clippy::ptr_arg)]
     pub fn compute_challenges_root(challenges: &Challenges) -> CryptoHash {
         merklize(&challenges.iter().map(|challenge| challenge.hash).collect::<Vec<CryptoHash>>()).0
     }
@@ -651,6 +656,7 @@ impl Block {
         })
     }
 
+    #[allow(clippy::ptr_arg)]
     pub fn validate_chunk_header_proof(
         chunk: &ShardChunkHeader,
         chunk_root: &CryptoHash,

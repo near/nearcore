@@ -145,7 +145,7 @@ mod test {
         let msg = PeerMessage::Routed(RoutedMessage {
             target: PeerIdOrHash::PeerId(sk.public_key().into()),
             author: sk.public_key().into(),
-            signature: signature.clone(),
+            signature,
             ttl: 100,
             body: RoutedMessageBody::BlockApproval(Approval {
                 account_id: "test2".to_string(),

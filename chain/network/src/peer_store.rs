@@ -1,4 +1,4 @@
-use std::collections::{hash_map::Iter, HashMap};
+use std::collections::{hash_map::{Entry, Iter}, HashMap};
 use std::convert::TryInto;
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -61,14 +61,17 @@ impl PeerStore {
 
         for peer_info in boot_nodes.iter().cloned() {
             if !peer_states.contains_key(&peer_info.id) {
-                if let Some(peer_addr) = peer_info.addr.clone() {
-                    if addr_peers.contains_key(&peer_addr) {
-                        // There is already a different peer_id with this address.
-                        error!(target: "network", "Two boot nodes have the same address {:?}", peer_addr);
-                    } else {
-                        addr_peers.insert(peer_addr, VerifiedPeer::signed(peer_info.id.clone()));
-                        peer_states
-                            .insert(peer_info.id.clone(), KnownPeerState::new(peer_info.clone()));
+                if let Some(peer_addr) = peer_info.addr {
+                    match addr_peers.entry(peer_addr) {
+                        Entry::Occupied(entry) => {
+                            // There is already a different peer_id with this address.
+                            error!(target: "network", "Two boot nodes have the same address {:?}", entry.key());
+                        }
+                        Entry::Vacant(entry) => {
+                            entry.insert(VerifiedPeer::signed(peer_info.id.clone()));
+                            peer_states
+                                .insert(peer_info.id.clone(), KnownPeerState::new(peer_info.clone()));
+                        }
                     }
                 }
             }
@@ -94,10 +97,9 @@ impl PeerStore {
                 continue;
             }
 
-            if let Some(peer_addr) = peer_state.peer_info.addr.clone() {
-                if !addr_peers.contains_key(&peer_addr) {
-                    addr_peers
-                        .insert(peer_addr, VerifiedPeer::new(peer_state.peer_info.id.clone()));
+            if let Some(peer_addr) = peer_state.peer_info.addr {
+                if let Entry::Vacant(entry) = addr_peers.entry(peer_addr) {
+                    entry.insert(VerifiedPeer::new(peer_state.peer_info.id.clone()));
                     peer_states.insert(peer_id, peer_state);
                 }
             }
@@ -280,7 +282,7 @@ impl PeerStore {
 
         // Add new address
         self.addr_peers
-            .insert(peer_addr.clone(), VerifiedPeer { peer_id: peer_info.id.clone(), trust_level });
+            .insert(peer_addr, VerifiedPeer { peer_id: peer_info.id.clone(), trust_level });
 
         // Update peer_id addr
         self.peer_states
@@ -313,13 +315,15 @@ impl PeerStore {
                     // If this peer already exists with a signed connection ignore this update.
                     // Warning: This is a problem for nodes that changes its address without changing peer_id.
                     //          It is recommended to change peer_id if address is changed.
-                    if self.peer_states.get(&peer_info.id).map_or(false, |peer_state| {
+                    let peer_exists = self.peer_states.get(&peer_info.id).map_or(false, |peer_state| {
                         peer_state.peer_info.addr.map_or(false, |current_addr| {
                             self.addr_peers.get(&current_addr).map_or(false, |verified_peer| {
                                 verified_peer.trust_level == TrustLevel::Signed
                             })
                         })
-                    }) {
+                    });
+                    
+                    if peer_exists {
                         return Ok(());
                     }
 
@@ -397,7 +401,7 @@ mod test {
         let tmp_dir = tempfile::Builder::new().prefix("_test_store_ban").tempdir().unwrap();
         let peer_info_a = gen_peer_info(0);
         let peer_info_to_ban = gen_peer_info(1);
-        let boot_nodes = vec![peer_info_a.clone(), peer_info_to_ban.clone()];
+        let boot_nodes = vec![peer_info_a, peer_info_to_ban.clone()];
         {
             let store = create_store(tmp_dir.path().to_str().unwrap());
             let mut peer_store = PeerStore::new(store, &boot_nodes).unwrap();
@@ -480,7 +484,7 @@ mod test {
         let mut peer_store = PeerStore::new(store, &[]).unwrap();
 
         let peers_id = (0..1).map(|ix| get_peer_id(format!("node{}", ix))).collect::<Vec<_>>();
-        let addrs = (0..2).map(|ix| get_addr(ix)).collect::<Vec<_>>();
+        let addrs = (0..2).map(get_addr).collect::<Vec<_>>();
 
         let peer_aa = get_peer_info(peers_id[0].clone(), Some(addrs[0]));
         peer_store.peer_connected(&peer_aa).unwrap();
@@ -500,7 +504,7 @@ mod test {
         // Five peers: A, B, C, D, X, T
         let peers_id = (0..6).map(|ix| get_peer_id(format!("node{}", ix))).collect::<Vec<_>>();
         // Five addresses: #A, #B, #C, #D, #X, #T
-        let addrs = (0..6).map(|ix| get_addr(ix)).collect::<Vec<_>>();
+        let addrs = (0..6).map(get_addr).collect::<Vec<_>>();
 
         // Create signed connection A - #A
         let peer_00 = get_peer_info(peers_id[0].clone(), Some(addrs[0]));

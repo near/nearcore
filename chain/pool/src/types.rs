@@ -23,10 +23,12 @@ pub struct TransactionGroup {
     pub(crate) removed_transaction_hashes: Vec<CryptoHash>,
 }
 
-impl TransactionGroup {
+impl Iterator for TransactionGroup {
+    type Item = SignedTransaction;
+
     /// Returns the next transaction with the smallest nonce and removes it from the group.
     /// It also stores all hashes of returned transactions.
-    pub fn next(&mut self) -> Option<SignedTransaction> {
+    fn next(&mut self) -> Option<SignedTransaction> {
         if let Some(tx) = self.transactions.pop() {
             self.removed_transaction_hashes.push(tx.get_hash());
             Some(tx)

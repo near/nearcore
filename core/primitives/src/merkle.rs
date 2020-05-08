@@ -83,6 +83,7 @@ pub fn merklize<T: BorshSerialize>(arr: &[T]) -> (MerkleHash, Vec<MerklePath>) {
 }
 
 /// Verify merkle path for given item and corresponding path.
+#[allow(clippy::ptr_arg)]
 pub fn verify_path<T: BorshSerialize>(root: MerkleHash, path: &MerklePath, item: &T) -> bool {
     let mut hash = hash(&item.try_to_vec().expect("Failed to serialize"));
     for item in path {

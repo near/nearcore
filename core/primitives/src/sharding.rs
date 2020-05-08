@@ -91,6 +91,7 @@ impl ShardChunkHeader {
         self.hash.clone()
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         prev_block_hash: CryptoHash,
         prev_state_root: StateRoot,
@@ -209,6 +210,7 @@ impl EncodedShardChunk {
         Self { header, content: EncodedShardChunkBody { parts: vec![None; total_parts] } }
     }
 
+    #[allow(clippy::ptr_arg, clippy::too_many_arguments)]
     pub fn new(
         prev_block_hash: CryptoHash,
         prev_state_root: StateRoot,
@@ -272,6 +274,7 @@ impl EncodedShardChunk {
         Ok((new_chunk, merkle_paths))
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn from_parts_and_metadata(
         prev_block_hash: CryptoHash,
         prev_state_root: StateRoot,

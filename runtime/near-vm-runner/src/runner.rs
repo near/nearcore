@@ -11,8 +11,8 @@ fn check_method(module: &Module, method_name: &str) -> Result<(), VMError> {
     let info = module.info();
     use wasmer_runtime_core::module::ExportIndex::Func;
     if let Some(Func(index)) = info.exports.get(method_name) {
-        let func = info.func_assoc.get(index.clone()).unwrap();
-        let sig = info.signatures.get(func.clone()).unwrap();
+        let func = info.func_assoc.get(*index).unwrap();
+        let sig = info.signatures.get(*func).unwrap();
         if sig.params().is_empty() && sig.returns().is_empty() {
             Ok(())
         } else {
@@ -38,6 +38,7 @@ fn check_method(module: &Module, method_name: &str) -> Result<(), VMError> {
 ///   - collects logs
 ///   - sets the return data
 ///  returns result as `VMOutcome`
+#[allow(clippy::too_many_arguments)]
 pub fn run<'a>(
     code_hash: Vec<u8>,
     code: &[u8],
@@ -67,13 +68,10 @@ pub fn run<'a>(
         Ok(x) => x,
         Err(err) => return (None, Some(err)),
     };
-    let mut memory = match WasmerMemory::new(
+    let mut memory = WasmerMemory::new(
         wasm_config.limit_config.initial_memory_pages,
         wasm_config.limit_config.max_memory_pages,
-    ) {
-        Ok(x) => x,
-        Err(_err) => panic!("Cannot create memory for a contract call"),
-    };
+    ).expect("Cannot create memory for a contract call");
     let memory_copy = memory.clone();
 
     let mut logic =

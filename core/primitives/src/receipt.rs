@@ -41,6 +41,7 @@ impl Receipt {
     }
 
     /// Generates a receipt with a transfer from system for a given balance without a receipt_id
+    #[allow(clippy::ptr_arg)]
     pub fn new_refund(receiver_id: &AccountId, refund: Balance) -> Self {
         Receipt {
             predecessor_id: system_account(),

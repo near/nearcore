@@ -12,7 +12,7 @@ use near_network::test_utils::WaitOrTimeout;
 use near_primitives::account::{AccessKey, AccessKeyPermission};
 use near_primitives::hash::CryptoHash;
 use near_primitives::rpc::{RpcGenesisRecordsRequest, RpcPagination, RpcQueryRequest};
-use near_primitives::types::{BlockId, BlockIdOrFinality, Finality, ShardId};
+use near_primitives::types::{BlockId, BlockIdOrFinality, Finality};
 use near_primitives::views::{QueryRequest, QueryResponseKind};
 
 #[macro_use]
@@ -83,7 +83,7 @@ fn test_block_query() {
 fn test_chunk_by_hash() {
     test_with_client!(test_utils::NodeType::NonValidator, client, async move {
         let chunk = client
-            .chunk(ChunkId::BlockShardId(BlockId::Height(0), ShardId::from(0u64)))
+            .chunk(ChunkId::BlockShardId(BlockId::Height(0), 0u64))
             .await
             .unwrap();
         assert_eq!(chunk.author, "test2");

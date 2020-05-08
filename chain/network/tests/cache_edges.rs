@@ -81,6 +81,7 @@ impl RoutingTableTest {
         EdgeDescription(*peer0, *peer1, edge_type)
     }
 
+    #[allow(clippy::type_complexity)]
     fn check(
         &mut self,
         on_memory: Vec<(usize, usize, bool)>,
@@ -212,7 +213,7 @@ fn load_component_nonce_on_start() {
     test.add_edge(0, 1, 2);
     test.set_times(vec![(1, 2)]);
     test.update();
-    let routing_table = RoutingTable::new(random_peer_id(), test.store.clone());
+    let routing_table = RoutingTable::new(random_peer_id(), test.store);
     assert_eq!(routing_table.component_nonce, 1);
 }
 
@@ -230,7 +231,7 @@ fn load_component_nonce_2_on_start() {
         vec![(0, vec![(0, 1, false)]), (1, vec![(0, 2, false)])],
         vec![(1, 0), (2, 1)],
     );
-    let routing_table = RoutingTable::new(random_peer_id(), test.store.clone());
+    let routing_table = RoutingTable::new(random_peer_id(), test.store);
     assert_eq!(routing_table.component_nonce, 2);
 }
 

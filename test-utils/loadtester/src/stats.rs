@@ -3,6 +3,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Instant;
 
 /// Stats measured while executing load testing on the node.
+#[derive(Default)]
 pub struct Stats {
     /// Block height at the beginning of the testing.
     pub from_height: Option<u64>,
@@ -29,14 +30,14 @@ impl std::fmt::Display for Stats {
         let bps = (blocks_passed as f64) / (time_passed as f64);
         let total_txs = self.committed_transactions.unwrap();
 
-        write!(f, "Start block:\t{}\n", from_height)?;
-        write!(f, "End block:\t{}\n", to_height)?;
-        write!(f, "Time passed:\t{} secs\n", time_passed)?;
-        write!(f, "Blocks per second:\t{:.2}\n", bps)?;
-        write!(f, "Transactions per second:\t{}\n", total_txs / time_passed)?;
-        write!(
+        writeln!(f, "Start block:\t{}", from_height)?;
+        writeln!(f, "End block:\t{}", to_height)?;
+        writeln!(f, "Time passed:\t{} secs", time_passed)?;
+        writeln!(f, "Blocks per second:\t{:.2}", bps)?;
+        writeln!(f, "Transactions per second:\t{}", total_txs / time_passed)?;
+        writeln!(
             f,
-            "Outgoing transactions per second:\t{}\n",
+            "Outgoing transactions per second:\t{}",
             self.out_tx_counter_frozen.unwrap() / time_passed
         )?;
         write!(f, "Transactions per block:\t{}", total_txs / blocks_passed)?;

@@ -47,6 +47,7 @@ pub trait ValidatorSigner: Sync + Send {
     fn sign_challenge(&self, challenge_body: &ChallengeBody) -> (CryptoHash, Signature);
 
     /// Signs account announce.
+    #[allow(clippy::ptr_arg)]
     fn sign_account_announce(
         &self,
         account_id: &AccountId,
@@ -110,6 +111,7 @@ impl ValidatorSigner for EmptyValidatorSigner {
         (hash, Signature::default())
     }
 
+    #[allow(clippy::ptr_arg)]
     fn sign_account_announce(
         &self,
         _account_id: &String,
@@ -208,6 +210,7 @@ impl ValidatorSigner for InMemoryValidatorSigner {
         (hash, signature)
     }
 
+    #[allow(clippy::ptr_arg)]
     fn sign_account_announce(
         &self,
         account_id: &AccountId,

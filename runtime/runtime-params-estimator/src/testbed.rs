@@ -111,9 +111,8 @@ impl RuntimeTestbed {
         if !allow_failures {
             for outcome in &apply_result.outcomes {
                 total_burnt_gas += outcome.outcome.gas_burnt;
-                match &outcome.outcome.status {
-                    ExecutionStatus::Failure(e) => panic!("Execution failed {:#?}", e),
-                    _ => (),
+                if let ExecutionStatus::Failure(e) = &outcome.outcome.status {
+                    panic!("Execution failed {:#?}", e);
                 }
             }
         }

@@ -211,6 +211,7 @@ impl NightshadeRuntime {
     }
 
     /// Processes state update.
+    #[allow(clippy::ptr_arg, clippy::too_many_arguments)]
     fn process_state_update(
         &self,
         trie: Arc<Trie>,
@@ -332,7 +333,7 @@ impl NightshadeRuntime {
         for receipt in apply_result.outgoing_receipts {
             receipt_result
                 .entry(self.account_id_to_shard_id(&receipt.receiver_id))
-                .or_insert_with(|| vec![])
+                .or_insert_with(Vec::new)
                 .push(receipt);
         }
         let total_gas_burnt =
@@ -343,7 +344,7 @@ impl NightshadeRuntime {
                 self.trie.clone(),
                 apply_result.trie_changes,
                 apply_result.state_changes,
-                block_hash.clone(),
+                *block_hash,
             ),
             new_root: apply_result.state_root,
             outcomes: apply_result.outcomes,
@@ -474,7 +475,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             && total_gas_burnt < transactions_gas_limit
         {
             if let Some(iter) = pool_iterator.next() {
-                while let Some(tx) = iter.next() {
+                for tx in iter {
                     num_checked_transactions += 1;
                     // Verifying the transaction is on the same chain and hasn't expired yet.
                     if chain_validate(&tx) {
@@ -600,7 +601,7 @@ impl RuntimeAdapter for NightshadeRuntime {
 
         let message_to_sign = Approval::get_data_for_sig(
             &if prev_block_height + 1 == block_height {
-                ApprovalInner::Endorsement(prev_block_hash.clone())
+                ApprovalInner::Endorsement(*prev_block_hash)
             } else {
                 ApprovalInner::Skip(prev_block_height)
             },
@@ -905,7 +906,7 @@ impl RuntimeAdapter for NightshadeRuntime {
     ) -> Result<ApplyTransactionResult, Error> {
         let trie = Arc::new(Trie::from_recorded_storage(partial_storage));
         self.process_state_update(
-            trie.clone(),
+            trie,
             *state_root,
             shard_id,
             height,
@@ -1059,16 +1060,14 @@ impl RuntimeAdapter for NightshadeRuntime {
     ) -> bool {
         assert!(part_id < num_parts);
         match BorshDeserialize::try_from_slice(data) {
-            Ok(trie_nodes) => match Trie::validate_trie_nodes_for_part(
-                state_root,
-                part_id,
-                num_parts,
-                &trie_nodes,
-            ) {
-                Ok(_) => true,
-                // Storage error should not happen
-                Err(_) => false,
-            },
+            Ok(trie_nodes) => {
+                Trie::validate_trie_nodes_for_part(
+                    state_root,
+                    part_id,
+                    num_parts,
+                    &trie_nodes,
+                ).is_ok() // Storage error should not happen
+            }
             // Deserialization error means we've got the data from malicious peer
             Err(_) => false,
         }
@@ -1105,14 +1104,8 @@ impl RuntimeAdapter for NightshadeRuntime {
             false
         } else {
             match Trie::get_memory_usage_from_serialized(&state_root_node.data) {
-                Ok(memory_usage) => {
-                    if memory_usage != state_root_node.memory_usage {
-                        // Invalid value of memory_usage
-                        false
-                    } else {
-                        true
-                    }
-                }
+                Ok(memory_usage) => memory_usage == state_root_node.memory_usage,
+                
                 Err(_) => false, // Invalid state_root_node
             }
         }
@@ -1193,8 +1186,8 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
                 })
                 .collect::<Result<Vec<_>, Box<dyn std::error::Error>>>(),
             Err(e) => Err(e.into()),
-        };
-        access_keys
+        }?;
+        Ok(access_keys)
     }
 
     fn view_state(
@@ -1251,6 +1244,7 @@ mod test {
     }
 
     impl NightshadeRuntime {
+        #[allow(clippy::ptr_arg, clippy::too_many_arguments)]
         fn update(
             &self,
             state_root: &StateRoot,
@@ -1337,7 +1331,7 @@ mod test {
             );
             let (_store, store_update, state_roots) = runtime.genesis_state();
             store_update.commit().unwrap();
-            let genesis_hash = hash(&vec![0]);
+            let genesis_hash = hash(&[0]);
             runtime
                 .add_validator_proposals(
                     CryptoHash::default(),
@@ -1374,7 +1368,7 @@ mod test {
             chunk_mask: Vec<bool>,
             challenges_result: ChallengesResult,
         ) {
-            let new_hash = hash(&vec![(self.head.height + 1) as u8]);
+            let new_hash = hash(&[(self.head.height + 1) as u8]);
             let num_shards = self.runtime.num_shards();
             assert_eq!(transactions.len() as NumShards, num_shards);
             assert_eq!(chunk_mask.len() as NumShards, num_shards);
@@ -1399,7 +1393,7 @@ mod test {
                 for (shard_id, mut shard_receipts) in receipts {
                     new_receipts
                         .entry(shard_id)
-                        .or_insert_with(|| vec![])
+                        .or_insert_with(Vec::new)
                         .append(&mut shard_receipts);
                 }
                 all_proposals.append(&mut proposals.clone());
@@ -1801,7 +1795,7 @@ mod test {
         let state_part = env.runtime.obtain_state_part(&env.state_roots[0], 0, 1);
         let root_node = env.runtime.get_state_root_node(&env.state_roots[0]);
         let mut new_env =
-            TestEnv::new("test_state_sync", vec![validators.clone()], 2, vec![], vec![], true);
+            TestEnv::new("test_state_sync", vec![validators], 2, vec![], vec![], true);
         for i in 1..=2 {
             let prev_hash = hash(&[new_env.head.height as u8]);
             let cur_hash = hash(&[(new_env.head.height + 1) as u8]);
@@ -1835,7 +1829,7 @@ mod test {
             new_env.last_proposals = proposals;
         }
         assert!(new_env.runtime.validate_state_root_node(&root_node, &env.state_roots[0]));
-        let mut root_node_wrong = root_node.clone();
+        let mut root_node_wrong = root_node;
         root_node_wrong.memory_usage += 1;
         assert!(!new_env.runtime.validate_state_root_node(&root_node_wrong, &env.state_roots[0]));
         root_node_wrong.data = vec![123];
@@ -1843,7 +1837,7 @@ mod test {
         assert!(!new_env.runtime.validate_state_part(&StateRoot::default(), 0, 1, &state_part));
         new_env.runtime.validate_state_part(&env.state_roots[0], 0, 1, &state_part);
         new_env.runtime.confirm_state(&env.state_roots[0], &vec![state_part]).unwrap();
-        new_env.state_roots[0] = env.state_roots[0].clone();
+        new_env.state_roots[0] = env.state_roots[0];
         for _ in 3..=5 {
             new_env.step_default(vec![]);
         }
@@ -1969,7 +1963,7 @@ mod test {
             response,
             EpochValidatorInfo {
                 current_validators: current_epoch_validator_info.clone(),
-                next_validators: next_epoch_validator_info.clone(),
+                next_validators: next_epoch_validator_info,
                 current_fishermen: vec![],
                 next_fishermen: vec![],
                 current_proposals: vec![ValidatorStake {
@@ -1995,8 +1989,7 @@ mod test {
                 public_key: block_producers[1].public_key(),
                 stake: TESTING_INIT_STAKE + per_epoch_per_validator_reward,
                 shards: vec![0],
-            }
-            .into()]
+            }]
         );
         assert!(response.current_proposals.is_empty());
         assert_eq!(
@@ -2216,8 +2209,8 @@ mod test {
         env.step(vec![vec![]], vec![true], vec![SlashedValidator::new("test1".to_string(), true)]);
         env.step(vec![vec![]], vec![true], vec![SlashedValidator::new("test2".to_string(), true)]);
         let msg = vec![0, 1, 2];
-        for i in 0..=1 {
-            let signature = signers[i].sign(&msg);
+        for (i, signer) in signers.iter().enumerate().take(2) {
+            let signature = signer.sign(&msg);
             assert!(!env
                 .runtime
                 .verify_validator_signature(
@@ -2250,7 +2243,7 @@ mod test {
         let num_nodes = 3;
         let validators = (0..num_nodes).map(|i| format!("test{}", i + 1)).collect::<Vec<_>>();
         let mut env =
-            TestEnv::new("test_challenges", vec![validators.clone()], 5, vec![], vec![], false);
+            TestEnv::new("test_challenges", vec![validators], 5, vec![], vec![], false);
         env.step(
             vec![vec![]],
             vec![true],
@@ -2425,8 +2418,8 @@ mod test {
         }
 
         let (validator_reward, protocol_treasury_reward) = env.compute_reward(num_nodes);
-        for i in 0..4 {
-            let account = env.view_account(&block_producers[i].validator_id());
+        for block_producer in block_producers {
+            let account = env.view_account(&block_producer.validator_id());
             assert_eq!(account.locked, TESTING_INIT_STAKE + validator_reward);
         }
 

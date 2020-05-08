@@ -20,8 +20,10 @@ use near_vm_logic::{ReturnData, VMConfig, VMContext};
 use crate::actions::get_code_with_cache;
 use crate::ext::RuntimeExt;
 
+#[derive(Default)]
 pub struct TrieViewer {}
 
+#[allow(clippy::ptr_arg)]
 impl TrieViewer {
     pub fn new() -> Self {
         Self {}
@@ -83,6 +85,7 @@ impl TrieViewer {
         Ok(ViewStateResult { values, proof: vec![] })
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn call_function(
         &self,
         mut state_update: TrieUpdate,

@@ -19,6 +19,7 @@ use std::collections::HashSet;
 
 // TODO: Check for balance overflows
 // TODO: Fix StorageError for partial states when looking up something that doesn't exist.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn check_balance(
     transaction_costs: &RuntimeFeesConfig,
     initial_state: &TrieUpdate,
@@ -93,7 +94,7 @@ pub(crate) fn check_balance(
             })
             .collect::<Result<Vec<Balance>, RuntimeError>>()?
             .into_iter()
-            .try_fold(0u128, |res, balance| safe_add_balance(res, balance))?)
+            .try_fold(0u128, safe_add_balance)?)
     };
     let initial_accounts_balance = total_accounts_balance(&initial_state)?;
     let final_accounts_balance = total_accounts_balance(&final_state)?;
@@ -123,7 +124,7 @@ pub(crate) fn check_balance(
             .map(receipt_cost)
             .collect::<Result<Vec<Balance>, IntegerOverflowError>>()?
             .into_iter()
-            .try_fold(0u128, |res, balance| safe_add_balance(res, balance))
+            .try_fold(0u128, safe_add_balance)
     };
     let incoming_receipts_balance = receipts_cost(incoming_receipts)?;
     let outgoing_receipts_balance = receipts_cost(outgoing_receipts)?;
@@ -169,7 +170,7 @@ pub(crate) fn check_balance(
             })
             .collect::<Result<Vec<Balance>, RuntimeError>>()?
             .into_iter()
-            .try_fold(0u128, |res, balance| safe_add_balance(res, balance))?)
+            .try_fold(0u128, safe_add_balance)?)
     };
     let initial_postponed_receipts_balance = total_postponed_receipts_cost(initial_state)?;
     let final_postponed_receipts_balance = total_postponed_receipts_cost(final_state)?;
@@ -242,7 +243,7 @@ mod tests {
         let trie = create_trie();
         let root = MerkleHash::default();
         let initial_state = TrieUpdate::new(trie.clone(), root);
-        let final_state = TrieUpdate::new(trie.clone(), root);
+        let final_state = TrieUpdate::new(trie, root);
         let transaction_costs = RuntimeFeesConfig::default();
         check_balance(
             &transaction_costs,
@@ -262,7 +263,7 @@ mod tests {
         let trie = create_trie();
         let root = MerkleHash::default();
         let initial_state = TrieUpdate::new(trie.clone(), root);
-        let final_state = TrieUpdate::new(trie.clone(), root);
+        let final_state = TrieUpdate::new(trie, root);
         let transaction_costs = RuntimeFeesConfig::default();
         let err = check_balance(
             &transaction_costs,
@@ -292,7 +293,7 @@ mod tests {
         set_account(&mut initial_state, account_id.clone(), &initial_account);
         initial_state.commit(StateChangeCause::NotWritableToDisk);
 
-        let mut final_state = TrieUpdate::new(trie.clone(), root);
+        let mut final_state = TrieUpdate::new(trie, root);
         let final_account = account_new(initial_balance + refund_balance, hash(&[]));
         set_account(&mut final_state, account_id.clone(), &final_account);
         final_state.commit(StateChangeCause::NotWritableToDisk);
@@ -333,7 +334,7 @@ mod tests {
         set_account(&mut initial_state, account_id.clone(), &initial_account);
         initial_state.commit(StateChangeCause::NotWritableToDisk);
 
-        let mut final_state = TrieUpdate::new(trie.clone(), root);
+        let mut final_state = TrieUpdate::new(trie, root);
         let final_account = account_new(
             initial_balance - (exec_gas + send_gas) as Balance * gas_price - deposit
                 + contract_reward,
@@ -345,7 +346,7 @@ mod tests {
         let signer = InMemorySigner::from_seed(&account_id, KeyType::ED25519, &account_id);
         let tx = SignedTransaction::send_money(
             1,
-            account_id.clone(),
+            account_id,
             bob_account(),
             &signer,
             deposit,
@@ -391,7 +392,7 @@ mod tests {
         let gas_price = 100;
         let deposit = 1000;
 
-        let mut initial_state = TrieUpdate::new(trie.clone(), root);
+        let mut initial_state = TrieUpdate::new(trie, root);
         let alice = account_new(std::u128::MAX, hash(&[]));
         let bob = account_new(1u128, hash(&[]));
 
@@ -403,8 +404,8 @@ mod tests {
 
         let tx = SignedTransaction::send_money(
             0,
-            alice_id.clone(),
-            bob_id.clone(),
+            alice_id,
+            bob_id,
             &signer,
             1,
             CryptoHash::default(),

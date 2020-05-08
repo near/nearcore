@@ -147,8 +147,8 @@ impl Client {
     pub fn remove_transactions_for_block(&mut self, me: AccountId, block: &Block) {
         for (shard_id, chunk_header) in block.chunks.iter().enumerate() {
             let shard_id = shard_id as ShardId;
-            if block.header.inner_lite.height == chunk_header.height_included {
-                if self.shards_mgr.cares_about_shard_this_or_next_epoch(
+            if block.header.inner_lite.height == chunk_header.height_included &&
+                self.shards_mgr.cares_about_shard_this_or_next_epoch(
                     Some(&me),
                     &block.header.prev_hash,
                     shard_id,
@@ -160,7 +160,6 @@ impl Client {
                         &self.chain.get_chunk(&chunk_header.chunk_hash()).unwrap().transactions,
                     );
                 }
-            }
         }
         for challenge in block.challenges.iter() {
             self.challenges.remove(&challenge.hash);
@@ -170,8 +169,8 @@ impl Client {
     pub fn reintroduce_transactions_for_block(&mut self, me: AccountId, block: &Block) {
         for (shard_id, chunk_header) in block.chunks.iter().enumerate() {
             let shard_id = shard_id as ShardId;
-            if block.header.inner_lite.height == chunk_header.height_included {
-                if self.shards_mgr.cares_about_shard_this_or_next_epoch(
+            if block.header.inner_lite.height == chunk_header.height_included &&
+                self.shards_mgr.cares_about_shard_this_or_next_epoch(
                     Some(&me),
                     &block.header.prev_hash,
                     shard_id,
@@ -183,7 +182,6 @@ impl Client {
                         &self.chain.get_chunk(&chunk_header.chunk_hash()).unwrap().transactions,
                     );
                 }
-            }
         }
         for challenge in block.challenges.iter() {
             self.challenges.insert(challenge.hash, challenge.clone());
@@ -203,6 +201,7 @@ impl Client {
     }
 
     /// Check that we are next block producer.
+   #[allow(clippy::ptr_arg)]
     fn is_me_block_producer(
         &self,
         account_id: &AccountId,
@@ -221,6 +220,7 @@ impl Client {
         account_id == next_block_proposer
     }
 
+    #[allow(clippy::ptr_arg, clippy::too_many_arguments)]
     fn should_reschedule_block(
         &self,
         head: &Tip,
@@ -247,8 +247,8 @@ impl Client {
             }
         }
 
-        if self.runtime_adapter.is_next_block_epoch_start(&head.last_block_hash)? {
-            if !self.chain.prev_block_is_caught_up(&prev_prev_hash, &prev_hash)? {
+        if self.runtime_adapter.is_next_block_epoch_start(&head.last_block_hash)? &&
+            !self.chain.prev_block_is_caught_up(&prev_prev_hash, &prev_hash)? {
                 // Currently state for the chunks we are interested in this epoch
                 // are not yet caught up (e.g. still state syncing).
                 // We reschedule block production.
@@ -259,7 +259,6 @@ impl Client {
                 debug!(target: "client", "Produce block: prev block is not caught up");
                 return Ok(true);
             }
-        }
 
         Ok(false)
     }
@@ -401,6 +400,7 @@ impl Client {
         Ok(Some(block))
     }
 
+    #[allow(clippy::type_complexity)]
     pub fn produce_chunk(
         &mut self,
         prev_block_hash: CryptoHash,
@@ -484,7 +484,7 @@ impl Client {
             chunk_extra.gas_limit,
             chunk_extra.validator_reward,
             chunk_extra.balance_burnt,
-            chunk_extra.validator_proposals.clone(),
+            chunk_extra.validator_proposals,
             transactions,
             &outgoing_receipts,
             outgoing_receipts_root,
@@ -522,7 +522,7 @@ impl Client {
                 .prepare_transactions(
                     prev_block_header.inner_rest.gas_price,
                     chunk_extra.gas_limit,
-                    chunk_extra.state_root.clone(),
+                    chunk_extra.state_root,
                     config.block_expected_weight as usize,
                     &mut iter,
                     &mut |tx: &SignedTransaction| -> bool {
@@ -588,8 +588,8 @@ impl Client {
 
         // Send out challenge if the block was found to be invalid.
         if let Some(validator_signer) = self.validator_signer.as_ref() {
-            match &result {
-                Err(e) => match e.kind() {
+            if let Err(e) = &result {
+                match e.kind() {
                     near_chain::ErrorKind::InvalidChunkProofs(chunk_proofs) => {
                         self.network_adapter.do_send(NetworkRequests::Challenge(
                             Challenge::produce(
@@ -607,8 +607,7 @@ impl Client {
                         ));
                     }
                     _ => {}
-                },
-                _ => {}
+                }
             }
         }
 
@@ -887,6 +886,7 @@ impl Client {
 
     /// Check if any block with missing chunks is ready to be processed
     #[must_use]
+    #[allow(clippy::let_and_return)]
     pub fn process_blocks_with_missing_chunks(
         &mut self,
         last_accepted_block_hash: CryptoHash,
@@ -896,7 +896,7 @@ impl Client {
         let challenges = Arc::new(RwLock::new(vec![]));
         let me =
             self.validator_signer.as_ref().map(|validator_signer| validator_signer.validator_id());
-        self.chain.check_blocks_with_missing_chunks(&me.map(|x| x.clone()), last_accepted_block_hash, |accepted_block| {
+        self.chain.check_blocks_with_missing_chunks(&me.cloned(), last_accepted_block_hash, |accepted_block| {
             debug!(target: "client", "Block {} was missing chunks but now is ready to be processed", accepted_block.hash);
             accepted_blocks.write().unwrap().push(accepted_block);
         }, |missing_chunks| blocks_missing_chunks.write().unwrap().push(missing_chunks), |challenge| challenges.write().unwrap().push(challenge));
@@ -929,14 +929,14 @@ impl Client {
             if let ErrorKind::DBNotFoundErr(_) = e.kind() {
                 let mut entry = pending_approvals
                     .cache_remove(&approval.inner)
-                    .unwrap_or_else(|| HashMap::new());
+                    .unwrap_or_else(HashMap::new);
                 entry.insert(approval.account_id.clone(), approval.clone());
                 pending_approvals.cache_set(approval.inner.clone(), entry);
             }
         };
 
         let parent_hash = match inner {
-            ApprovalInner::Endorsement(parent_hash) => parent_hash.clone(),
+            ApprovalInner::Endorsement(parent_hash) => *parent_hash,
             ApprovalInner::Skip(parent_height) => {
                 match self.chain.get_header_by_height(*parent_height) {
                     Ok(header) => header.hash(),
@@ -1071,6 +1071,7 @@ impl Client {
         Ok(())
     }
 
+    #[allow(clippy::needless_return)]
     pub fn process_tx(
         &mut self,
         tx: SignedTransaction,
@@ -1235,7 +1236,7 @@ impl Client {
     /// Walks through all the ongoing state syncs for future epochs and processes them
     pub fn run_catchup(
         &mut self,
-        highest_height_peers: &Vec<FullPeerInfo>,
+        highest_height_peers: &[FullPeerInfo],
     ) -> Result<Vec<AcceptedBlock>, Error> {
         let me = &self.validator_signer.as_ref().map(|x| x.validator_id().clone());
         for (sync_hash, state_sync_info) in self.chain.store().iterate_state_sync_infos() {

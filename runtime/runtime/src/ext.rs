@@ -38,6 +38,7 @@ impl<'a> ValuePtr for RuntimeExtValuePtr<'a> {
     }
 }
 
+#[allow(clippy::ptr_arg)]
 impl<'a> RuntimeExt<'a> {
     pub fn new(
         trie_update: &'a mut TrieUpdate,

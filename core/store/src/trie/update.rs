@@ -35,6 +35,7 @@ pub enum TrieUpdateValuePtr<'a> {
     MemoryRef(&'a Vec<u8>),
 }
 
+#[allow(clippy::len_without_is_empty)]
 impl<'a> TrieUpdateValuePtr<'a> {
     pub fn len(&self) -> u32 {
         match self {
@@ -149,9 +150,12 @@ impl TrieUpdate {
     }
 }
 
+/// Peekable iterator over key-value pairs (values possibly missing)
+type PKVIter<'a> = Peekable<Box<dyn Iterator<Item = (&'a Vec<u8>, &'a Option<Vec<u8>>)> + 'a>>;
+
 struct MergeIter<'a> {
-    left: Peekable<Box<dyn Iterator<Item = (&'a Vec<u8>, &'a Option<Vec<u8>>)> + 'a>>,
-    right: Peekable<Box<dyn Iterator<Item = (&'a Vec<u8>, &'a Option<Vec<u8>>)> + 'a>>,
+    left: PKVIter<'a>,
+    right: PKVIter<'a>,
 }
 
 impl<'a> Iterator for MergeIter<'a> {
@@ -342,7 +346,7 @@ mod tests {
         let (store_update, new_root) =
             trie_update.finalize().unwrap().0.into(trie.clone()).unwrap();
         store_update.commit().ok();
-        let trie_update2 = TrieUpdate::new(trie.clone(), new_root);
+        let trie_update2 = TrieUpdate::new(trie, new_root);
         assert_eq!(trie_update2.get(&test_key(b"dog".to_vec())), Ok(Some(b"puppy".to_vec())));
         let values = trie_update2
             .iter(&test_key(b"dog".to_vec()).to_vec())
@@ -394,7 +398,7 @@ mod tests {
         trie_update
             .commit(StateChangeCause::TransactionProcessing { tx_hash: CryptoHash::default() });
         let (store_update, new_root) =
-            trie_update.finalize().unwrap().0.into(trie.clone()).unwrap();
+            trie_update.finalize().unwrap().0.into(trie).unwrap();
         store_update.commit().ok();
         assert_eq!(new_root, CryptoHash::default());
     }
@@ -445,7 +449,7 @@ mod tests {
             trie_update.iter(&test_key(b"dog".to_vec()).to_vec()).unwrap().collect();
         assert_eq!(values.unwrap(), vec![test_key(b"dog".to_vec()).to_vec()]);
 
-        let mut trie_update = TrieUpdate::new(trie.clone(), new_root);
+        let mut trie_update = TrieUpdate::new(trie, new_root);
         trie_update.set(test_key(b"dog2".to_vec()), b"puppy".to_vec());
         trie_update
             .commit(StateChangeCause::TransactionProcessing { tx_hash: CryptoHash::default() });

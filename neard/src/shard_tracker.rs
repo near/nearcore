@@ -11,6 +11,7 @@ use near_primitives::types::{AccountId, EpochId, NumShards, ShardId};
 
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 
+#[allow(clippy::ptr_arg)]
 pub fn account_id_to_shard_id(account_id: &AccountId, num_shards: NumShards) -> ShardId {
     let mut cursor = Cursor::new((hash(&account_id.clone().into_bytes()).0).0);
     cursor.read_u64::<LittleEndian>().expect("Must not happened") % (num_shards)
@@ -71,6 +72,7 @@ impl ShardTracker {
         }
     }
 
+    #[allow(clippy::ptr_arg)]
     fn track_account(&mut self, account_id: &AccountId) {
         let shard_id = account_id_to_shard_id(account_id, self.num_shards);
         self.tracked_accounts
@@ -372,7 +374,7 @@ mod tests {
         tracker.update_epoch(&hash(&[2])).unwrap();
 
         let mut total_tracked_shards = HashSet::new();
-        for account_id in vec!["test1", "test2", "test3"] {
+        for account_id in &["test1", "test2", "test3"] {
             total_tracked_shards
                 .insert(account_id_to_shard_id(&account_id.to_string(), num_shards));
         }

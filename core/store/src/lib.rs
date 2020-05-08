@@ -30,6 +30,12 @@ mod db;
 pub mod test_utils;
 mod trie;
 
+/// Iterator over key-value pairs
+pub type KVIter<'a> = Box<dyn Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a>;
+
+/// Iterator over key-value pairs, where we attempt to deserialize the value
+pub type DeserKVIter<'a, T> = Box<dyn Iterator<Item = Result<(Vec<u8>, T), io::Error>> + 'a>;
+
 pub struct Store {
     storage: Arc<dyn Database>,
 }
@@ -66,10 +72,10 @@ impl Store {
         StoreUpdate::new(self.storage.clone())
     }
 
-    pub fn iter<'a>(
-        &'a self,
+    pub fn iter(
+        &self,
         column: DBCol,
-    ) -> Box<dyn Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a> {
+    ) -> KVIter<'_> {
         self.storage.iter(column)
     }
 
@@ -77,7 +83,7 @@ impl Store {
         &'a self,
         column: DBCol,
         key_prefix: &'a [u8],
-    ) -> Box<dyn Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a> {
+    ) -> KVIter<'a> {
         self.storage.iter_prefix(column, key_prefix)
     }
 
@@ -85,7 +91,7 @@ impl Store {
         &'a self,
         column: DBCol,
         key_prefix: &'a [u8],
-    ) -> Box<dyn Iterator<Item = Result<(Vec<u8>, T), io::Error>> + 'a> {
+    ) -> DeserKVIter<'a, T> {
         Box::new(
             self.storage
                 .iter_prefix(column, key_prefix)
@@ -163,6 +169,7 @@ impl StoreUpdate {
     }
 
     /// Merge another store update into this one.
+    #[allow(clippy::vtable_address_comparisons)] // TODO: This actually seems bad; should try to fix for real
     pub fn merge(&mut self, other: StoreUpdate) {
         if self.trie.is_none() {
             if let Some(trie) = other.trie {
@@ -186,6 +193,7 @@ impl StoreUpdate {
         }
     }
 
+    #[allow(clippy::vtable_address_comparisons)] // TODO: This actually seems bad; should try to fix for real
     pub fn commit(self) -> Result<(), io::Error> {
         if let Some(trie) = self.trie {
             assert_eq!(
@@ -264,6 +272,7 @@ pub fn set_account(state_update: &mut TrieUpdate, account_id: AccountId, account
     set(state_update, TrieKey::Account { account_id }, account)
 }
 
+#[allow(clippy::ptr_arg)]
 pub fn get_account(
     state_update: &TrieUpdate,
     account_id: &AccountId,
@@ -280,6 +289,7 @@ pub fn set_received_data(
     set(state_update, TrieKey::ReceivedData { receiver_id, data_id }, data);
 }
 
+#[allow(clippy::ptr_arg)]
 pub fn get_received_data(
     state_update: &TrieUpdate,
     receiver_id: &AccountId,
@@ -296,6 +306,7 @@ pub fn set_postponed_receipt(state_update: &mut TrieUpdate, receipt: &Receipt) {
     set(state_update, key, receipt);
 }
 
+#[allow(clippy::ptr_arg)]
 pub fn remove_postponed_receipt(
     state_update: &mut TrieUpdate,
     receiver_id: &AccountId,
@@ -304,6 +315,7 @@ pub fn remove_postponed_receipt(
     state_update.remove(TrieKey::PostponedReceipt { receiver_id: receiver_id.clone(), receipt_id });
 }
 
+#[allow(clippy::ptr_arg)]
 pub fn get_postponed_receipt(
     state_update: &TrieUpdate,
     receiver_id: &AccountId,
@@ -329,6 +341,7 @@ pub fn remove_access_key(
     state_update.remove(TrieKey::AccessKey { account_id, public_key });
 }
 
+#[allow(clippy::ptr_arg)]
 pub fn get_access_key(
     state_update: &TrieUpdate,
     account_id: &AccountId,
@@ -355,6 +368,7 @@ pub fn set_code(state_update: &mut TrieUpdate, account_id: AccountId, code: &Con
     state_update.set(TrieKey::ContractCode { account_id }, code.code.clone());
 }
 
+#[allow(clippy::ptr_arg)]
 pub fn get_code(
     state_update: &TrieUpdate,
     account_id: &AccountId,
@@ -365,6 +379,7 @@ pub fn get_code(
 }
 
 /// Removes account, code and all access keys associated to it.
+#[allow(clippy::ptr_arg)]
 pub fn remove_account(
     state_update: &mut TrieUpdate,
     account_id: &AccountId,

@@ -57,7 +57,7 @@ fn test_verify_block_double_sign_challenge() {
         vec![],
         vec![],
         &signer,
-        b1.header.inner_lite.next_bp_hash.clone(),
+        b1.header.inner_lite.next_bp_hash,
     );
     let epoch_id = b1.header.inner_lite.epoch_id.clone();
     let valid_challenge = Challenge::produce(
@@ -105,7 +105,7 @@ fn test_verify_block_double_sign_challenge() {
     if let NetworkRequests::Challenge(network_challenge) = last_message {
         assert_eq!(network_challenge, valid_challenge);
     } else {
-        assert!(false);
+        panic!("Last message was not a Challenge");
     }
 }
 
@@ -427,7 +427,7 @@ fn test_verify_chunk_invalid_state_challenge() {
     let block = Block::produce(
         &last_block.header,
         last_block.header.inner_lite.height + 1,
-        vec![invalid_chunk.header.clone()],
+        vec![invalid_chunk.header],
         last_block.header.inner_lite.epoch_id.clone(),
         last_block.header.inner_lite.next_epoch_id.clone(),
         vec![],
@@ -511,7 +511,7 @@ fn test_verify_chunk_invalid_state_challenge() {
     if let NetworkRequests::Challenge(network_challenge) = last_message {
         assert_eq!(challenge, network_challenge);
     } else {
-        assert!(false);
+        panic!("Last message was not a Challenge");
     }
 }
 
@@ -555,10 +555,10 @@ fn test_receive_invalid_chunk_as_chunk_producer() {
             vec![0],
             true,
             one_part_receipt_proofs,
-            &vec![merkle_paths[0].clone()]
+            &[merkle_paths[0].clone()]
         ))
         .is_ok());
-    env.process_block(1, block.clone(), Provenance::NONE);
+    env.process_block(1, block, Provenance::NONE);
 
     // At this point we should create a challenge and send it out.
     let last_message = env.network_adapters[0].pop().unwrap();
@@ -569,7 +569,7 @@ fn test_receive_invalid_chunk_as_chunk_producer() {
     {
         assert_eq!(chunk_proofs.chunk, MaybeEncodedShardChunk::Encoded(chunk));
     } else {
-        assert!(false);
+        panic!("Last message was not a Challenge");
     }
 
     // The other client processes challenge and invalidates the chain.
@@ -726,7 +726,7 @@ fn test_challenge_in_different_epoch() {
     for block in fork_blocks {
         let height = block.header.inner_lite.height;
         let (_, result) = env.clients[0].process_block(block, Provenance::NONE);
-        match env.clients[0].run_catchup(&vec![]) {
+        match env.clients[0].run_catchup(&[]) {
             Ok(accepted_blocks) => {
                 for accepted_block in accepted_blocks {
                     env.clients[0].on_block_accepted(
@@ -750,12 +750,10 @@ fn test_challenge_in_different_epoch() {
         }
         if height < 9 {
             assert!(result.is_ok());
-        } else {
-            if let Err(e) = result {
-                match e.kind() {
-                    ErrorKind::ChunksMissing(_) => {}
-                    _ => panic!(format!("unexpected error: {}", e)),
-                }
+        } else if let Err(e) = result {
+            match e.kind() {
+                ErrorKind::ChunksMissing(_) => {}
+                _ => panic!("unexpected error: {}", e),
             }
         }
     }

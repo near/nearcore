@@ -88,6 +88,7 @@ pub struct AnnounceAccount {
 }
 
 impl AnnounceAccount {
+    #[allow(clippy::ptr_arg)]
     pub fn build_header_hash(
         account_id: &AccountId,
         peer_id: &PeerId,

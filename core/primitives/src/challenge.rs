@@ -69,6 +69,7 @@ pub struct ChunkState {
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Serialize, PartialEq, Eq, Clone, Debug)]
+#[allow(clippy::large_enum_variant)]
 pub enum ChallengeBody {
     BlockDoubleSign(BlockDoubleSign),
     ChunkProofs(ChunkProofs),

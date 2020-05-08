@@ -131,6 +131,7 @@ struct Row {
 /// * `PeerInfo`s that represent boot nodes;
 /// * `AccountId` of the treasury.
 /// *  Genesis time
+#[allow(clippy::type_complexity)]
 pub fn keys_to_state_records<R>(
     reader: R,
     gas_price: Balance,
@@ -163,7 +164,7 @@ where
         if let Some(ref validator_key) = row.validator_key {
             initial_validators.push(AccountInfo {
                 account_id: row.account_id.clone(),
-                public_key: validator_key.clone().into(),
+                public_key: validator_key.clone(),
                 amount: row.validator_stake,
             });
         }
@@ -199,7 +200,7 @@ fn account_records(row: &Row, gas_price: Balance) -> Vec<StateRecord> {
         account: Account {
             amount: row.amount,
             locked: row.validator_stake,
-            code_hash: smart_contract_hash.into(),
+            code_hash: smart_contract_hash,
             storage_usage: 0,
         },
     }];
@@ -280,7 +281,7 @@ fn account_records(row: &Row, gas_price: Balance) -> Vec<StateRecord> {
                 })],
             }),
         };
-        res.push(StateRecord::PostponedReceipt(Box::new(receipt.into())));
+        res.push(StateRecord::PostponedReceipt(Box::new(receipt)));
     }
     res
 }

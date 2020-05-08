@@ -40,7 +40,7 @@ impl Generator {
     pub fn send_money(
         node: &Arc<RwLock<RemoteNode>>,
         signer_ind: usize,
-        all_accounts: &Vec<String>,
+        all_accounts: &[String],
     ) -> SignedTransaction {
         let (signer_from, nonce, block_hash) = {
             let mut node = node.write().unwrap();

@@ -46,7 +46,7 @@ pub fn verify_and_charge_transaction(
     }
 
     validate_actions(&config.wasm_config.limit_config, &transaction.actions)
-        .map_err(|e| InvalidTxError::ActionsValidation(e))?;
+        .map_err(InvalidTxError::ActionsValidation)?;
 
     let mut signer = match get_account(state_update, signer_id)? {
         Some(signer) => signer,
@@ -219,7 +219,7 @@ fn validate_action_receipt(
         });
     }
     validate_actions(limit_config, &receipt.actions)
-        .map_err(|e| ReceiptValidationError::ActionsValidation(e))
+        .map_err(ReceiptValidationError::ActionsValidation)
 }
 
 /// Validates given data receipt. Checks validity of the length of the returned data.
@@ -432,7 +432,7 @@ mod tests {
         let (store_update, root) = trie_changes.into(trie.clone()).unwrap();
         store_update.commit().unwrap();
 
-        (signer, TrieUpdate::new(trie.clone(), root), 100)
+        (signer, TrieUpdate::new(trie, root), 100)
     }
 
     // Transactions
@@ -1190,7 +1190,7 @@ mod tests {
         let limit_config = VMLimitConfig::default();
         validate_actions(
             &limit_config,
-            &vec![Action::FunctionCall(FunctionCallAction {
+            &[Action::FunctionCall(FunctionCallAction {
                 method_name: "hello".to_string(),
                 args: b"abc".to_vec(),
                 gas: 100,
@@ -1207,7 +1207,7 @@ mod tests {
         assert_eq!(
             validate_actions(
                 &limit_config,
-                &vec![
+                &[
                     Action::FunctionCall(FunctionCallAction {
                         method_name: "hello".to_string(),
                         args: b"abc".to_vec(),
@@ -1234,7 +1234,7 @@ mod tests {
         assert_eq!(
             validate_actions(
                 &limit_config,
-                &vec![
+                &[
                     Action::FunctionCall(FunctionCallAction {
                         method_name: "hello".to_string(),
                         args: b"abc".to_vec(),
@@ -1261,7 +1261,7 @@ mod tests {
         assert_eq!(
             validate_actions(
                 &limit_config,
-                &vec![
+                &[
                     Action::CreateAccount(CreateAccountAction {}),
                     Action::CreateAccount(CreateAccountAction {}),
                 ]

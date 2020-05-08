@@ -372,7 +372,7 @@ fn test_validator_join() {
         );
 
         let (done1, done2) = (Arc::new(AtomicBool::new(false)), Arc::new(AtomicBool::new(false)));
-        let (done1_copy1, done2_copy1) = (done1.clone(), done2.clone());
+        let (done1_copy1, done2_copy1) = (done1, done2);
         WaitOrTimeout::new(
             Box::new(move |_ctx| {
                 let test_nodes = test_nodes.clone();
@@ -469,17 +469,16 @@ fn test_inflation() {
         let num_blocks_per_year = test_nodes[0].config.genesis.config.num_blocks_per_year;
 
         let (done1, done2) = (Arc::new(AtomicBool::new(false)), Arc::new(AtomicBool::new(false)));
-        let (done1_copy1, done2_copy1) = (done1.clone(), done2.clone());
+        let (done1_copy1, done2_copy1) = (done1, done2);
         WaitOrTimeout::new(
             Box::new(move |_ctx| {
                 let (done1_copy2, done2_copy2) = (done1_copy1.clone(), done2_copy1.clone());
                 actix::spawn(test_nodes[0].view_client.send(GetBlock::latest()).then(move |res| {
                     let header_view = res.unwrap().unwrap().header;
-                    if header_view.height >= 2 && header_view.height <= epoch_length {
-                        if header_view.total_supply == initial_total_supply {
+                    if header_view.height >= 2 && header_view.height <= epoch_length &&
+                        header_view.total_supply == initial_total_supply {
                             done1_copy2.store(true, Ordering::SeqCst);
                         }
-                    }
                     future::ready(())
                 }));
                 actix::spawn(test_nodes[0].view_client.send(GetBlock::latest()).then(move |res| {

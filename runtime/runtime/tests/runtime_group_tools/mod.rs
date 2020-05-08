@@ -59,7 +59,7 @@ impl StandaloneRuntime {
             gas_limit: None,
         };
 
-        Self { apply_state, runtime, trie, signer, root: root }
+        Self { apply_state, runtime, trie, signer, root }
     }
 
     pub fn process_block(
@@ -147,7 +147,7 @@ impl RuntimeGroup {
                 state_records.push(StateRecord::AccessKey {
                     account_id: account_id.to_string(),
                     public_key: signer.public_key.clone(),
-                    access_key: AccessKey::full_access().into(),
+                    access_key: AccessKey::full_access(),
                 });
                 state_records
                     .push(StateRecord::Contract { account_id, code: contract_code.to_vec() });

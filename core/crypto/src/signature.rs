@@ -131,6 +131,7 @@ pub enum PublicKey {
     SECP256K1(Secp256K1PublicKey),
 }
 
+#[allow(clippy::len_without_is_empty)]
 impl PublicKey {
     pub fn len(&self) -> usize {
         match self {
@@ -163,6 +164,7 @@ impl PublicKey {
     }
 }
 
+#[allow(clippy::derive_hash_xor_eq)]
 impl Hash for PublicKey {
     fn hash<H: Hasher>(&self, state: &mut H) {
         match self {

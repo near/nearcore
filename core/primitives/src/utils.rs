@@ -7,7 +7,6 @@ use chrono::{DateTime, NaiveDateTime, Utc};
 use rand::distributions::Alphanumeric;
 use rand::{thread_rng, Rng};
 use regex::Regex;
-use serde;
 
 use lazy_static::lazy_static;
 
@@ -49,12 +48,14 @@ pub fn system_account() -> AccountId {
     "system".to_string()
 }
 
+#[allow(clippy::ptr_arg)]
 pub fn is_valid_account_id(account_id: &AccountId) -> bool {
     account_id.len() >= MIN_ACCOUNT_ID_LEN
         && account_id.len() <= MAX_ACCOUNT_ID_LEN
         && VALID_ACCOUNT_ID.is_match(account_id)
 }
 
+#[allow(clippy::ptr_arg)]
 pub fn is_valid_top_level_account_id(account_id: &AccountId) -> bool {
     account_id.len() >= MIN_ACCOUNT_ID_LEN
         && account_id.len() <= MAX_ACCOUNT_ID_LEN
@@ -64,6 +65,7 @@ pub fn is_valid_top_level_account_id(account_id: &AccountId) -> bool {
 
 /// Returns true if the signer_id can create a direct sub-account with the given account Id.
 /// It assumes the signer_id is a valid account_id
+#[allow(clippy::ptr_arg)]
 pub fn is_valid_sub_account_id(signer_id: &AccountId, sub_account_id: &AccountId) -> bool {
     if !is_valid_account_id(sub_account_id) {
         return false;
@@ -208,7 +210,7 @@ where
 /// objects using tracing.
 ///
 /// tracing::debug!(target: "diagnostic", value=%ser(&object));
-pub fn ser<'a, T>(object: &'a T) -> Serializable<'a, T>
+pub fn ser<T>(object: &T) -> Serializable<'_, T>
 where
     T: serde::Serialize,
 {

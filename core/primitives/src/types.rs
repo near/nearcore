@@ -310,7 +310,7 @@ impl StateChanges {
                     value: if let Some(change_data) = data {
                         StateChangeValue::ContractCodeUpdate {
                             account_id: account_id.clone(),
-                            code: change_data.into(),
+                            code: change_data,
                         }
                     } else {
                         StateChangeValue::ContractCodeDeletion { account_id: account_id.clone() }
@@ -465,7 +465,7 @@ impl ChunkExtra {
         balance_burnt: Balance,
     ) -> Self {
         Self {
-            state_root: state_root.clone(),
+            state_root: *state_root,
             outcome_root,
             validator_proposals,
             gas_used,

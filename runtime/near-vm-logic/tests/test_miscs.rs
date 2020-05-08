@@ -17,7 +17,7 @@ fn test_valid_utf8() {
     let len = string_bytes.len() as u64;
     logic.log_utf8(len, string_bytes.as_ptr() as _).expect("Valid utf-8 string_bytes");
     let outcome = logic.outcome();
-    assert_eq!(outcome.logs[0], String::from_utf8(string_bytes.clone()).unwrap());
+    assert_eq!(outcome.logs[0], String::from_utf8(string_bytes).unwrap());
     assert_costs(map! {
         ExtCosts::base: 1,
         ExtCosts::log_base:  1,
@@ -71,7 +71,7 @@ fn test_valid_null_terminated_utf8() {
         ExtCosts::utf8_decoding_base: 1,
         ExtCosts::utf8_decoding_byte: len - 1,
     });
-    assert_eq!(outcome.logs[0], String::from_utf8(string_bytes.clone()).unwrap());
+    assert_eq!(outcome.logs[0], String::from_utf8(string_bytes).unwrap());
 }
 
 #[test]
@@ -123,7 +123,7 @@ fn test_log_total_length_limit() {
 #[test]
 fn test_log_number_limit() {
     let mut logic_builder = VMLogicBuilder::default();
-    let string_bytes = "blabla".as_bytes().to_vec();
+    let string_bytes = b"blabla".to_vec();
     let max_number_logs = 3;
     logic_builder.config.limit_config.max_total_log_length =
         (string_bytes.len() + 1) as u64 * (max_number_logs + 1);
@@ -197,7 +197,7 @@ fn test_log_utf16_number_limit() {
 #[test]
 fn test_log_total_length_limit_mixed() {
     let mut logic_builder = VMLogicBuilder::default();
-    let utf8_bytes = "abc".as_bytes().to_vec();
+    let utf8_bytes = b"abc".to_vec();
 
     let string = "abc";
     let mut utf16_bytes: Vec<u8> = vec![0u8; 0];
@@ -206,7 +206,7 @@ fn test_log_total_length_limit_mixed() {
         utf16_bytes.push((u16_ >> 8) as u8);
     }
 
-    let final_bytes = "abc".as_bytes().to_vec();
+    let final_bytes = b"abc".to_vec();
 
     let num_logs_each = 10;
     let limit = utf8_bytes.len() as u64 * num_logs_each
@@ -341,7 +341,7 @@ fn test_valid_log_utf16_max_log_len_not_even() {
 #[test]
 fn test_log_utf8_max_limit_null_terminated_fail() {
     let mut logic_builder = VMLogicBuilder::default();
-    let mut string_bytes = "abcd".as_bytes().to_vec();
+    let mut string_bytes = b"abcd".to_vec();
     string_bytes.push(0u8);
     logic_builder.config.limit_config.max_total_log_length = 3;
     let mut logic = logic_builder.build(get_context(vec![], false));

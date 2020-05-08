@@ -21,8 +21,8 @@ fn test_random_epochs() {
 fn minimal_repro(epoch_length: u64, num_heights: u64, max_seed: u64) {
     let mut epoch_length = epoch_length;
     let mut num_heights = num_heights;
-    if !std::panic::catch_unwind(move || run_with_seed_range(epoch_length, num_heights, max_seed))
-        .is_err()
+    if std::panic::catch_unwind(move || run_with_seed_range(epoch_length, num_heights, max_seed))
+        .is_ok()
     {
         println!("PASS");
         return;
@@ -59,8 +59,8 @@ fn run_with_seed_range(epoch_length: u64, num_heights: u64, max_seed: u64) {
 
 fn run_with_seed(epoch_length: u64, num_heights: u64, test: u64) {
     let mut seed = [0u8; 32];
-    for i in 0..8 {
-        seed[i] = ((test >> ((8 * i) as u64)) & 0xFF) as u8
+    for (i, seed_i) in seed.iter_mut().enumerate().take(8) {
+        *seed_i = ((test >> ((8 * i) as u64)) & 0xFF) as u8
     }
     let mut rng = StdRng::from_seed(seed);
     let do_slashes = rng.gen_bool(0.5);
@@ -183,7 +183,7 @@ fn validate(
     verify_epochs(&epoch_infos);
 }
 
-fn verify_epochs(epoch_infos: &Vec<EpochInfo>) {
+fn verify_epochs(epoch_infos: &[EpochInfo]) {
     for i in 1..epoch_infos.len() {
         let epoch_info = &epoch_infos[i];
         let prev_epoch_info = &epoch_infos[i - 1];
@@ -194,7 +194,7 @@ fn verify_epochs(epoch_infos: &Vec<EpochInfo>) {
         );
         let stakes_before_change = get_stakes_map(prev_epoch_info);
         assert!(!stakes_before_change.is_empty(), "validator set cannot be empty");
-        for (_, stake) in &stakes_before_change {
+        for stake in stakes_before_change.values() {
             assert_ne!(*stake, 0, "validators cannot have 0 stake");
         }
         let stakes_after_change = get_stakes_map(epoch_info);
@@ -240,7 +240,7 @@ fn verify_epochs(epoch_infos: &Vec<EpochInfo>) {
     }
 }
 
-fn verify_proposals(epoch_manager: &mut EpochManager, block_infos: &Vec<BlockInfo>) {
+fn verify_proposals(epoch_manager: &mut EpochManager, block_infos: &[BlockInfo]) {
     for i in 1..block_infos.len() {
         let prev_block_info = &block_infos[i - 1];
         let block_info = &block_infos[i];
@@ -277,8 +277,8 @@ fn verify_proposals(epoch_manager: &mut EpochManager, block_infos: &Vec<BlockInf
 
 fn verify_slashes(
     epoch_manager: &mut EpochManager,
-    block_infos: &Vec<BlockInfo>,
-    slashes_per_block: &Vec<Vec<SlashedValidator>>,
+    block_infos: &[BlockInfo],
+    slashes_per_block: &[Vec<SlashedValidator>],
 ) {
     for i in 1..block_infos.len() {
         let prev_slashes_set = &block_infos[i - 1].slashed;
@@ -335,7 +335,7 @@ fn verify_slashes(
 fn verify_block_stats(
     epoch_manager: &mut EpochManager,
     heights: Vec<u64>,
-    block_infos: &Vec<BlockInfo>,
+    block_infos: &[BlockInfo],
 ) {
     for i in 1..block_infos.len() {
         let prev_epoch_end =

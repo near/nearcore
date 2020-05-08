@@ -12,7 +12,7 @@ unsafe impl Sync for ImportReference {}
 macro_rules! wrapped_imports {
         ( $( $func:ident < [ $( $arg_name:ident : $arg_type:ident ),* ] -> [ $( $returns:ident ),* ] >, )* ) => {
             $(
-                #[allow(unused_parens)]
+                #[allow(unused_parens, clippy::too_many_arguments)]
                 fn $func( ctx: &mut Ctx, $( $arg_name: $arg_type ),* ) -> Result<($( $returns ),*)> {
                     let logic: &mut VMLogic<'_> = unsafe { &mut *(ctx.data as *mut VMLogic<'_>) };
                     logic.$func( $( $arg_name, )* )

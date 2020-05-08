@@ -69,7 +69,7 @@ struct StandaloneOutput {
 }
 
 fn default_vm_context() -> VMContext {
-    return VMContext {
+    VMContext {
         current_account_id: "alice".to_string(),
         signer_account_id: "bob".to_string(),
         signer_account_pk: vec![0, 1, 2],
@@ -86,7 +86,7 @@ fn default_vm_context() -> VMContext {
         is_view: false,
         output_data_receivers: vec![],
         epoch_height: 1,
-    };
+    }
 }
 
 fn main() {

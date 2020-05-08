@@ -23,6 +23,7 @@ pub mod runtime_user;
 
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 
+#[allow(clippy::ptr_arg)]
 pub trait User {
     fn view_account(&self, account_id: &AccountId) -> Result<AccountView, String>;
 
@@ -74,7 +75,7 @@ pub trait User {
         receiver_id: AccountId,
         actions: Vec<Action>,
     ) -> Result<FinalExecutionOutcomeView, ServerError> {
-        let block_hash = self.get_best_block_hash().unwrap_or(CryptoHash::default());
+        let block_hash = self.get_best_block_hash().unwrap_or_else(CryptoHash::default);
         let signed_transaction = SignedTransaction::from_actions(
             self.get_access_key_nonce_for_signer(&signer_id).unwrap_or_default() + 1,
             signer_id,
@@ -219,6 +220,7 @@ pub trait User {
 }
 
 /// Same as `User` by provides async API that can be used inside tokio.
+#[allow(clippy::ptr_arg)]
 pub trait AsyncUser: Send + Sync {
     fn view_account(
         &self,

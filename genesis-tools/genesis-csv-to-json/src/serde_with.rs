@@ -33,7 +33,7 @@ pub mod pks_as_str {
     use serde::{Deserialize, Deserializer, Serializer};
     use std::convert::TryFrom;
 
-    pub fn serialize<S>(peer_info: &Vec<PublicKey>, serializer: S) -> Result<S::Ok, S::Error>
+    pub fn serialize<S>(peer_info: &[PublicKey], serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
@@ -50,7 +50,7 @@ pub mod pks_as_str {
             Ok(vec![])
         } else {
             s.retain(|c| !c.is_whitespace());
-            Ok(s.split(",").map(|c| PublicKey::try_from(c).unwrap()).collect())
+            Ok(s.split(',').map(|c| PublicKey::try_from(c).unwrap()).collect())
         }
     }
 }

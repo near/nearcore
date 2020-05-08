@@ -25,7 +25,7 @@ fn track_shards() {
         let last_block_hash: Arc<RwLock<Option<CryptoHash>>> = Arc::new(RwLock::new(None));
         WaitOrTimeout::new(
             Box::new(move |_ctx| {
-                let bh = last_block_hash.read().unwrap().map(|h| h.clone());
+                let bh = *last_block_hash.read().unwrap();
                 if let Some(block_hash) = bh {
                     actix::spawn(view_client.send(GetChunk::BlockHash(block_hash, 3)).then(
                         move |res| {
@@ -44,7 +44,7 @@ fn track_shards() {
                         match &res {
                             Ok(Ok(b)) if b.header.height > 10 => {
                                 *last_block_hash1.write().unwrap() =
-                                    Some(b.header.hash.clone().into());
+                                    Some(b.header.hash);
                             }
                             Err(_) => return future::ready(()),
                             _ => {}

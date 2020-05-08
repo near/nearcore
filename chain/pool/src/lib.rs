@@ -12,6 +12,7 @@ use std::ops::Bound;
 pub mod types;
 
 /// Transaction pool: keeps track of transactions that were not yet accepted into the block chain.
+#[derive(Default)]
 pub struct TransactionPool {
     /// Transactions are grouped by a pair of (account ID, signer public key).
     /// NOTE: It's more efficient on average to keep transactions unsorted and with potentially
@@ -35,6 +36,7 @@ impl TransactionPool {
         }
     }
 
+    #[allow(clippy::ptr_arg)]
     fn key(&self, account_id: &AccountId, public_key: &PublicKey) -> PoolKey {
         let mut v = public_key.try_to_vec().unwrap();
         v.extend_from_slice(&self.key_seed);
@@ -93,9 +95,9 @@ impl TransactionPool {
     }
 
     /// Reintroduce transactions back during the chain reorg
-    pub fn reintroduce_transactions(&mut self, transactions: Vec<SignedTransaction>) {
+    pub fn reintroduce_transactions(&mut self, transactions: &[SignedTransaction]) {
         for tx in transactions {
-            self.insert_transaction(tx);
+            self.insert_transaction(tx.clone());
         }
     }
 
@@ -341,7 +343,7 @@ mod tests {
                 let signer_id = format!("user_{}", i % 5);
                 SignedTransaction::send_money(
                     i,
-                    signer_id.to_string(),
+                    signer_id,
                     "bob.near".to_string(),
                     &*signer,
                     i as Balance,
@@ -385,7 +387,7 @@ mod tests {
         let mut res = vec![];
         let mut pool_iter = pool.pool_iterator();
         while let Some(iter) = pool_iter.next() {
-            while let Some(tx) = iter.next() {
+            for tx in iter {
                 if tx.transaction.nonce & 1 == 1 {
                     res.push(tx);
                     break;
@@ -427,7 +429,7 @@ mod tests {
                 ));
                 SignedTransaction::send_money(
                     i,
-                    signer_seed.to_string(),
+                    signer_seed,
                     "bob.near".to_string(),
                     &*signer,
                     i as Balance,

@@ -19,7 +19,7 @@ impl KeyFile {
         let mut file = File::create(path).expect("Failed to create / write a key file.");
         let mut perm =
             file.metadata().expect("Failed to retrieve key file metadata.").permissions();
-        perm.set_mode(u32::from(libc::S_IWUSR | libc::S_IRUSR));
+        perm.set_mode(libc::S_IWUSR | libc::S_IRUSR);
         file.set_permissions(perm).expect("Failed to set permissions for a key file.");
         let str = serde_json::to_string_pretty(self).expect("Error serializing the key file.");
         if let Err(err) = file.write_all(str.as_bytes()) {

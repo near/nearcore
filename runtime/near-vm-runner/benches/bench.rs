@@ -43,7 +43,7 @@ fn setup(
 }
 
 fn assert_run_result((outcome, err): (Option<VMOutcome>, Option<VMError>), expected_value: u64) {
-    if let Some(_) = err {
+    if err.is_some() {
         panic!("Failed execution");
     }
 

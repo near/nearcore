@@ -6,6 +6,7 @@ use std::cmp;
 use std::collections::HashMap;
 use std::io;
 use std::sync::RwLock;
+use crate::KVIter;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct DBError(rocksdb::Error);
@@ -173,12 +174,12 @@ pub trait Database: Sync + Send {
         DBTransaction { ops: Vec::new() }
     }
     fn get(&self, col: DBCol, key: &[u8]) -> Result<Option<Vec<u8>>, DBError>;
-    fn iter<'a>(&'a self, column: DBCol) -> Box<dyn Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a>;
+    fn iter(&self, column: DBCol) -> KVIter<'_>;
     fn iter_prefix<'a>(
         &'a self,
         col: DBCol,
         key_prefix: &'a [u8],
-    ) -> Box<dyn Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a>;
+    ) -> KVIter<'a>;
     fn write(&self, batch: DBTransaction) -> Result<(), DBError>;
 }
 
@@ -187,7 +188,7 @@ impl Database for RocksDB {
         unsafe { Ok(self.db.get_cf_opt(&*self.cfs[col as usize], key, &self.read_options)?) }
     }
 
-    fn iter<'a>(&'a self, col: DBCol) -> Box<dyn Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a> {
+    fn iter(&self, col: DBCol) -> KVIter<'_> {
         unsafe {
             let cf_handle = &*self.cfs[col as usize];
             let iterator = self
@@ -202,7 +203,7 @@ impl Database for RocksDB {
         &'a self,
         col: DBCol,
         key_prefix: &'a [u8],
-    ) -> Box<dyn Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a> {
+    ) -> KVIter<'a> {
         // NOTE: There is no Clone implementation for ReadOptions, so we cannot really reuse
         // `self.read_options` here.
         let mut read_options = rocksdb_read_options();
@@ -245,7 +246,7 @@ impl Database for TestDB {
         Ok(self.db.read().unwrap()[col as usize].get(key).cloned())
     }
 
-    fn iter<'a>(&'a self, col: DBCol) -> Box<dyn Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a> {
+    fn iter(&self, col: DBCol) -> KVIter<'_> {
         let iterator = self.db.read().unwrap()[col as usize]
             .clone()
             .into_iter()
@@ -257,7 +258,7 @@ impl Database for TestDB {
         &'a self,
         col: DBCol,
         key_prefix: &'a [u8],
-    ) -> Box<dyn Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a> {
+    ) -> KVIter<'a> {
         Box::new(self.iter(col).filter(move |(key, _value)| key.starts_with(key_prefix)))
     }
 
@@ -293,7 +294,7 @@ fn rocksdb_options() -> Options {
     opts.set_max_bytes_for_level_base(1024 * 1024 * 512 / 2);
     opts.increase_parallelism(cmp::max(1, num_cpus::get() as i32 / 2));
 
-    return opts;
+    opts
 }
 
 fn rocksdb_block_based_options() -> BlockBasedOptions {

@@ -35,6 +35,7 @@ pub type Result<T> = ::std::result::Result<T, VMLogicError>;
 /// Logical pointer to a value in storage.
 /// Allows getting value length before getting the value itself. This is needed so that runtime
 /// can charge gas before accessing a potentially large value.
+#[allow(clippy::len_without_is_empty)] // TODO: implement `is_empty`
 pub trait ValuePtr {
     /// Returns the length of the value
     fn len(&self) -> u32;

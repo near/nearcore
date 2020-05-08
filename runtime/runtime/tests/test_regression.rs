@@ -73,7 +73,7 @@ fn template_test(transaction_type: TransactionType, db_type: DataBaseType, expec
     };
     let runtime_signer =
         InMemorySigner::from_seed(&get_account_id(0), KeyType::ED25519, &get_account_id(0));
-    let mut runtime = StandaloneRuntime::new(runtime_signer.clone(), &[], trie);
+    let mut runtime = StandaloneRuntime::new(runtime_signer, &[], trie);
 
     let mut rng = rand::thread_rng();
     let account_indices: Vec<_> = (0..NUM_ACCOUNTS).collect();
@@ -86,8 +86,8 @@ fn template_test(transaction_type: TransactionType, db_type: DataBaseType, expec
     // Add accounts in chunks of 1000 for memory efficiency reasons.
     const CHUNK_SIZE: usize = 1000;
     let chunked_accounts = account_indices.chunks(CHUNK_SIZE).collect::<Vec<_>>();
-    let bar = ProgressBar::new(chunked_accounts.len() as _);
-    bar.set_style(ProgressStyle::default_bar().template(
+    let progress_bar = ProgressBar::new(chunked_accounts.len() as _);
+    progress_bar.set_style(ProgressStyle::default_bar().template(
         "[elapsed {elapsed_precise} remaining {eta_precise}] Preparing {bar} {pos:>7}/{len:7}",
     ));
     let wasm_binary: &[u8] = include_bytes!("./tiny-contract-rs/res/tiny_contract_rs.wasm");
@@ -110,8 +110,8 @@ fn template_test(transaction_type: TransactionType, db_type: DataBaseType, expec
             records.push(account_record);
             let access_key_record = StateRecord::AccessKey {
                 account_id: account_id.clone(),
-                public_key: signer.public_key.clone().into(),
-                access_key: AccessKey::full_access().into(),
+                public_key: signer.public_key.clone(),
+                access_key: AccessKey::full_access(),
             };
             set_access_key(
                 &mut state_update,
@@ -183,10 +183,10 @@ fn template_test(transaction_type: TransactionType, db_type: DataBaseType, expec
         store_update.commit().unwrap();
         runtime.root = root;
         if DISPLAY_PROGRESS_BAR {
-            bar.inc(1);
+            progress_bar.inc(1);
         }
     }
-    bar.finish();
+    progress_bar.finish();
     transactions.shuffle(&mut rng);
 
     // Submit transactions one chunk at a time.
@@ -194,8 +194,8 @@ fn template_test(transaction_type: TransactionType, db_type: DataBaseType, expec
     let mut _successful_transactions = 0usize;
     let mut failed_transactions = 0usize;
     let chunks = transactions.chunks(BLOCK_SIZE);
-    let bar = ProgressBar::new(chunks.len() as _);
-    bar.set_style(ProgressStyle::default_bar().template(
+    let progress_bar = ProgressBar::new(chunks.len() as _);
+    progress_bar.set_style(ProgressStyle::default_bar().template(
         "[elapsed {elapsed_precise} remaining {eta_precise}] {bar} {pos:>7}/{len:7} {msg}",
     ));
     let mut processed_transactions = 0usize;
@@ -219,17 +219,17 @@ fn template_test(transaction_type: TransactionType, db_type: DataBaseType, expec
         avg_tps = if secs_elapsed > 0 { processed_transactions as u64 / secs_elapsed } else { 0 };
 
         if let Some(prev_block) = prev_block {
-            bar.println(format!("{}ms per block", prev_block.elapsed().as_millis()));
+            progress_bar.println(format!("{}ms per block", prev_block.elapsed().as_millis()));
         }
         prev_block = Some(Instant::now());
         if DISPLAY_PROGRESS_BAR {
-            bar.inc(1);
+            progress_bar.inc(1);
         }
-        bar.set_message(
+        progress_bar.set_message(
             format!("avg tps: {} failed_transactions: {}", avg_tps, failed_transactions).as_str(),
         );
     }
-    bar.finish();
+    progress_bar.finish();
     assert_eq!(
         failed_transactions, 0,
         "Expected no failed transactions, but got {}",

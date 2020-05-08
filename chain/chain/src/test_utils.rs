@@ -76,6 +76,7 @@ pub struct KeyValueRuntime {
     epoch_start: RwLock<HashMap<CryptoHash, u64>>,
 }
 
+#[allow(clippy::ptr_arg)]
 pub fn account_id_to_shard_id(account_id: &AccountId, num_shards: ShardId) -> ShardId {
     u64::from((hash(&account_id.clone().into_bytes()).0).0[0]) % num_shards
 }
@@ -157,8 +158,8 @@ impl KeyValueRuntime {
             hash_to_epoch: RwLock::new(HashMap::new()),
             hash_to_next_epoch_approvals_req: RwLock::new(HashMap::new()),
             hash_to_next_epoch: RwLock::new(map_with_default_hash1),
-            hash_to_valset: RwLock::new(map_with_default_hash3.clone()),
-            epoch_start: RwLock::new(map_with_default_hash2.clone()),
+            hash_to_valset: RwLock::new(map_with_default_hash3),
+            epoch_start: RwLock::new(map_with_default_hash2),
         }
     }
 
@@ -172,7 +173,7 @@ impl KeyValueRuntime {
             return Ok(Some(headers_cache.get(hash).unwrap().clone()));
         }
         if let Some(result) = self.store.get_ser(ColBlockHeader, hash.as_ref())? {
-            headers_cache.insert(hash.clone(), result);
+            headers_cache.insert(*hash, result);
             return Ok(Some(headers_cache.get(hash).unwrap().clone()));
         }
         Ok(None)
@@ -246,12 +247,12 @@ impl KeyValueRuntime {
 
         hash_to_next_epoch.insert(prev_hash, next_epoch.clone());
         hash_to_epoch.insert(prev_hash, epoch.clone());
-        hash_to_next_epoch_approvals_req.insert(prev_hash.clone(), needs_next_epoch_approvals);
+        hash_to_next_epoch_approvals_req.insert(prev_hash, needs_next_epoch_approvals);
         hash_to_valset.insert(epoch.clone(), valset);
         hash_to_valset.insert(next_epoch.clone(), valset + 1);
         epoch_start_map.insert(prev_hash, epoch_start);
 
-        Ok((epoch, valset as usize % self.validators.len(), next_epoch.clone()))
+        Ok((epoch, valset as usize % self.validators.len(), next_epoch))
     }
 
     fn get_valset_for_epoch(&self, epoch_id: &EpochId) -> Result<usize, Error> {
@@ -344,7 +345,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         parent_hash: &CryptoHash,
     ) -> Result<Vec<ApprovalStake>, Error> {
         let (_cur_epoch, cur_valset, next_epoch) =
-            self.get_epoch_and_valset(parent_hash.clone())?;
+            self.get_epoch_and_valset(*parent_hash)?;
         let mut validators = self.validators[cur_valset]
             .iter()
             .map(|x| x.get_approval_stake(false))
@@ -642,7 +643,7 @@ impl RuntimeAdapter for KeyValueRuntime {
                     let receipt_hash = receipt.get_hash();
                     new_receipts
                         .entry(self.account_id_to_shard_id(&receipt.receiver_id))
-                        .or_insert_with(|| vec![])
+                        .or_insert_with(Vec::new)
                         .push(receipt);
                     vec![receipt_hash]
                 };
@@ -677,15 +678,15 @@ impl RuntimeAdapter for KeyValueRuntime {
         let data = state.try_to_vec()?;
         let state_size = data.len() as u64;
         let state_root = hash(&data);
-        self.state.write().unwrap().insert(state_root.clone(), state);
-        self.state_size.write().unwrap().insert(state_root.clone(), state_size);
+        self.state.write().unwrap().insert(state_root, state);
+        self.state_size.write().unwrap().insert(state_root, state_size);
 
         Ok(ApplyTransactionResult {
             trie_changes: WrappedTrieChanges::new(
                 self.trie.clone(),
                 TrieChanges::empty(state_root),
                 Default::default(),
-                block_hash.clone(),
+                *block_hash,
             ),
             new_root: state_root,
             outcomes: tx_results,
@@ -783,10 +784,11 @@ impl RuntimeAdapter for KeyValueRuntime {
         let data = state.try_to_vec().expect("should never fall");
         let state_size = data.len() as u64;
         let begin = state_size / num_parts * part_id;
-        let mut end = state_size / num_parts * (part_id + 1);
-        if part_id + 1 == num_parts {
-            end = state_size;
-        }
+        let end = if part_id + 1 == num_parts {
+            state_size
+        } else {
+            state_size / num_parts * (part_id + 1)
+        };
         data[begin as usize..end as usize].to_vec()
     }
 
@@ -809,10 +811,10 @@ impl RuntimeAdapter for KeyValueRuntime {
         }
         let data_flatten: Vec<u8> = data.iter().flatten().cloned().collect();
         let state = KVState::try_from_slice(&data_flatten).unwrap();
-        self.state.write().unwrap().insert(state_root.clone(), state.clone());
+        self.state.write().unwrap().insert(*state_root, state.clone());
         let data = state.try_to_vec()?;
         let state_size = data.len() as u64;
-        self.state_size.write().unwrap().insert(state_root.clone(), state_size);
+        self.state_size.write().unwrap().insert(*state_root, state_size);
         Ok(())
     }
 
@@ -827,7 +829,7 @@ impl RuntimeAdapter for KeyValueRuntime {
                 .clone()
                 .try_to_vec()
                 .expect("should never fall"),
-            memory_usage: self.state_size.read().unwrap().get(&state_root).unwrap().clone(),
+            memory_usage: *self.state_size.read().unwrap().get(&state_root).unwrap(),
         }
     }
 
@@ -948,7 +950,7 @@ pub fn setup_with_tx_validity_period(
     tx_validity_period: NumBlocks,
 ) -> (Chain, Arc<KeyValueRuntime>, Arc<InMemoryValidatorSigner>) {
     let store = create_test_store();
-    let runtime = Arc::new(KeyValueRuntime::new(store.clone()));
+    let runtime = Arc::new(KeyValueRuntime::new(store));
     let chain = Chain::new(
         runtime.clone(),
         &ChainGenesis::new(
@@ -982,7 +984,7 @@ pub fn setup_with_validators(
         .map(|x| Arc::new(InMemoryValidatorSigner::from_seed(x.as_str(), KeyType::ED25519, x)))
         .collect();
     let runtime = Arc::new(KeyValueRuntime::new_with_validators(
-        store.clone(),
+        store,
         vec![validators],
         validator_groups,
         num_shards,

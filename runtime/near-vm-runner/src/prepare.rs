@@ -162,7 +162,6 @@ pub fn prepare_contract(original_code: &[u8], config: &VMConfig) -> Result<Vec<u
 #[cfg(test)]
 mod tests {
     use assert_matches::assert_matches;
-    use wabt;
 
     use super::*;
 
