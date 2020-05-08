@@ -4,8 +4,9 @@ use crate::account::{AccessKey, AccessKeyPermission, Account};
 use crate::block::Block;
 use crate::hash::CryptoHash;
 use crate::transaction::{
-    Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeployContractAction,
-    FunctionCallAction, SignedTransaction, StakeAction, Transaction, TransferAction,
+    Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
+    DeployContractAction, FunctionCallAction, SignedTransaction, StakeAction, Transaction,
+    TransferAction,
 };
 use crate::types::{AccountId, Balance, BlockHeight, EpochId, Gas, Nonce};
 use crate::validator_signer::ValidatorSigner;
@@ -16,9 +17,69 @@ pub fn account_new(amount: Balance, code_hash: CryptoHash) -> Account {
 }
 
 impl Transaction {
+    pub fn new(
+        signer_id: AccountId,
+        public_key: PublicKey,
+        receiver_id: AccountId,
+        nonce: Nonce,
+        block_hash: CryptoHash,
+    ) -> Self {
+        Self { signer_id, public_key, nonce, receiver_id, block_hash, actions: vec![] }
+    }
+
     pub fn sign(self, signer: &dyn Signer) -> SignedTransaction {
         let signature = signer.sign(self.get_hash().as_ref());
         SignedTransaction::new(signature, self)
+    }
+
+    pub fn create_account(mut self) -> Self {
+        self.actions.push(Action::CreateAccount(CreateAccountAction {}));
+        self
+    }
+
+    pub fn deploy_contract(mut self, code: Vec<u8>) -> Self {
+        self.actions.push(Action::DeployContract(DeployContractAction { code }));
+        self
+    }
+
+    pub fn function_call(
+        mut self,
+        method_name: String,
+        args: Vec<u8>,
+        gas: Gas,
+        deposit: Balance,
+    ) -> Self {
+        self.actions.push(Action::FunctionCall(FunctionCallAction {
+            method_name,
+            args,
+            gas,
+            deposit,
+        }));
+        self
+    }
+
+    pub fn transfer(mut self, deposit: Balance) -> Self {
+        self.actions.push(Action::Transfer(TransferAction { deposit }));
+        self
+    }
+
+    pub fn stake(mut self, stake: Balance, public_key: PublicKey) -> Self {
+        self.actions.push(Action::Stake(StakeAction { stake, public_key }));
+        self
+    }
+    pub fn add_key(mut self, public_key: PublicKey, access_key: AccessKey) -> Self {
+        self.actions.push(Action::AddKey(AddKeyAction { public_key, access_key }));
+        self
+    }
+
+    pub fn delete_key(mut self, public_key: PublicKey) -> Self {
+        self.actions.push(Action::DeleteKey(DeleteKeyAction { public_key }));
+        self
+    }
+
+    pub fn delete_account(mut self, beneficiary_id: AccountId) -> Self {
+        self.actions.push(Action::DeleteAccount(DeleteAccountAction { beneficiary_id }));
+        self
     }
 }
 

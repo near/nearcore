@@ -1,4 +1,4 @@
-use near_crypto::{InMemorySigner, KeyType, Signer};
+use near_crypto::{InMemorySigner, KeyType, PublicKey, Signer};
 use near_pool::{types::PoolIterator, TransactionPool};
 use near_primitives::{account::AccessKey, test_utils::account_new};
 use near_primitives::{
@@ -13,13 +13,20 @@ use near_primitives::{
 };
 use near_runtime_configs::RuntimeConfig;
 use near_store::{
-    get_account, set_account, test_utils::create_test_store, Store, Trie, TrieUpdate,
+    get_access_key, get_account, set_account, test_utils::create_test_store, Store, Trie,
+    TrieUpdate,
 };
 use node_runtime::{state_viewer::TrieViewer, ApplyState, Runtime};
 use std::collections::HashMap;
 use std::sync::Arc;
 
 const DEFAULT_EPOCH_LENGTH: u64 = 3;
+
+pub fn init_runtime_and_signer(root_account_id: &AccountId) -> (RuntimeStandalone, InMemorySigner) {
+    let mut genesis = GenesisConfig::default();
+    let signer = genesis.init_root_signer(root_account_id);
+    (RuntimeStandalone::new_with_store(genesis), signer)
+}
 
 #[derive(Debug)]
 pub struct GenesisConfig {
@@ -228,7 +235,16 @@ impl RuntimeStandalone {
 
     pub fn view_account(&self, account_id: &AccountId) -> Option<Account> {
         let trie_update = TrieUpdate::new(self.trie.clone(), self.cur_block.state_root);
-        get_account(&trie_update, &account_id).expect("Unexpected Storage error")
+        get_account(&trie_update, account_id).expect("Unexpected Storage error")
+    }
+
+    pub fn view_access_key(
+        &self,
+        account_id: &AccountId,
+        public_key: &PublicKey,
+    ) -> Option<AccessKey> {
+        let trie_update = TrieUpdate::new(self.trie.clone(), self.cur_block.state_root);
+        get_access_key(&trie_update, account_id, public_key).expect("Unexpected Storage error")
     }
 
     /// Outputs return_value and logs
