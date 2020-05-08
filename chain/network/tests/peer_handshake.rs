@@ -209,5 +209,12 @@ fn check_connection_with_new_identity() {
     runner.push(Action::CheckRoutingTable(0, vec![(1, vec![1])]));
     runner.push(Action::CheckRoutingTable(1, vec![(0, vec![0])]));
 
+    runner.push(Action::Wait(2000));
+
+    // Check the no node tried to connect to itself in this process.
+    runner.push_action(wait_for(|| {
+        near_metrics::get_counter(&near_network::metrics::RECEIVED_INFO_ABOUT_ITSELF) == Ok(0)
+    }));
+
     start_test(runner);
 }

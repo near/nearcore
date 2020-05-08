@@ -41,7 +41,8 @@ use crate::types::{
     RoutedMessageFrom, SendMessage, SyncData, Unregister,
 };
 use crate::types::{
-    NetworkClientMessages, NetworkConfig, NetworkRequests, NetworkResponses, PeerInfo,
+    KnownPeerState, NetworkClientMessages, NetworkConfig, NetworkRequests, NetworkResponses,
+    PeerInfo,
 };
 
 /// How often to request peers from active peers.
@@ -437,8 +438,8 @@ impl PeerManagerActor {
     }
 
     /// Get a random peer we are not connected to from the known list.
-    fn sample_random_peer(&self, ignore_list: &HashSet<PeerId>) -> Option<PeerInfo> {
-        let unconnected_peers = self.peer_store.unconnected_peers(ignore_list);
+    fn sample_random_peer(&self, ignore_fn: impl Fn(&KnownPeerState) -> bool) -> Option<PeerInfo> {
+        let unconnected_peers = self.peer_store.unconnected_peers(ignore_fn);
         unconnected_peers.choose(&mut rand::thread_rng()).cloned()
     }
 
@@ -673,9 +674,13 @@ impl PeerManagerActor {
         }
 
         if self.is_outbound_bootstrap_needed() {
-            let mut ignore_list = self.outgoing_peers.clone();
-            ignore_list.insert(self.peer_id.clone());
-            if let Some(peer_info) = self.sample_random_peer(&ignore_list) {
+            if let Some(peer_info) = self.sample_random_peer(|peer_state| {
+                // Ignore connecting to ourself
+                self.peer_id == peer_state.peer_info.id
+                    || self.config.addr == peer_state.peer_info.addr
+                    // Or to peers we are currently trying to connect to
+                    || self.outgoing_peers.contains(&peer_state.peer_info.id)
+            }) {
                 self.outgoing_peers.insert(peer_info.id.clone());
                 ctx.notify(OutboundTcpConnect { peer_info });
             } else {

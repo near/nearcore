@@ -26,6 +26,19 @@ The goal will be to address issues in as short period as possible, but it's impo
 
 *Note:* If Security Team identifies that an issue is mission critical and requires subset of network participants to update prior to newsletter announcement - this will be done in manual way by communicating via direct channels. 
 
+## Reward
+
+The discovery of the security vulnerabilities that include but are not limited to the following categories will be rewarded proportionally to their severity:
+* Algorithmic, implementation, and economic issues that violate safety of the blockchain;
+* Algorithmic, implementation, and economic issues that stall the blockchain or significantly throttle liveness;
+* Algorithmic, implementation, and economic issues in the standard contracts developed by NEAR;
+* Issues that expose the private data of the users, the developers, or the validators;
+
+The following are the neccessary conditions for the reward:
+* The vulnerability is disclosed to NEAR before it is disclosed publicly and NEAR is given sufficient time to fix it;
+* The vulnerability is not disclosed to anyone else except the finder and NEAR before it is fixed;
+* The vulnerability is not exploited until it is fixed.
+
 ## Receive Security Updates
 
 If you are must be informed about security vulnerabilities, please subscribe to the [NEAR Security Update newsletter](https://groups.google.com/a/nearprotocol.com/forum/#!forum/security-updates).
