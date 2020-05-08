@@ -18,6 +18,5 @@ assert config['protocol_version'] == 10
 config['protocol_version'] = 11
 config['online_max_threshold'] = [99, 100]
 config['online_min_threshold'] = [90, 100]
-# config.pop('')
 
 json.dump(config, open(os.path.join(output_home, 'output.json'), 'w'), indent=2)

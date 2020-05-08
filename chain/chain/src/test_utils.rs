@@ -878,7 +878,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         Ok(block_height.saturating_sub(NUM_EPOCHS_TO_KEEP_STORE_DATA * self.epoch_length))
     }
 
-    fn is_epoch_exists(&self, _epoch_id: &EpochId) -> bool {
+    fn epoch_exists(&self, _epoch_id: &EpochId) -> bool {
         true
     }
 

@@ -298,7 +298,7 @@ pub trait RuntimeAdapter: Send + Sync {
     fn get_gc_stop_height(&self, block_hash: &CryptoHash) -> Result<BlockHeight, Error>;
 
     /// Check if epoch exists.
-    fn is_epoch_exists(&self, epoch_id: &EpochId) -> bool;
+    fn epoch_exists(&self, epoch_id: &EpochId) -> bool;
 
     /// Amount of tokens minted in given epoch.
     fn get_epoch_minted_amount(&self, epoch_id: &EpochId) -> Result<Balance, Error>;

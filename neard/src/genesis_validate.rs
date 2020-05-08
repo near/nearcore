@@ -73,6 +73,22 @@ pub fn validate_genesis(genesis: &Genesis) {
         "Online max threshold must be less or equal than 1"
     );
     assert!(
+        *genesis.config.online_max_threshold.numer() < 10_000_000,
+        "Numerator is too large, may lead to overflow."
+    );
+    assert!(
+        *genesis.config.online_min_threshold.numer() < 10_000_000,
+        "Numerator is too large, may lead to overflow."
+    );
+    assert!(
+        *genesis.config.online_max_threshold.denom() < 10_000_000,
+        "Denominator is too large, may lead to overflow."
+    );
+    assert!(
+        *genesis.config.online_min_threshold.denom() < 10_000_000,
+        "Denominator is too large, may lead to overflow."
+    );
+    assert!(
         genesis.config.gas_price_adjustment_rate < Rational::from_integer(1),
         "Gas price adjustment rate must be less than 1"
     );

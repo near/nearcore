@@ -804,7 +804,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         Ok(epoch_start_height)
     }
 
-    fn is_epoch_exists(&self, epoch_id: &EpochId) -> bool {
+    fn epoch_exists(&self, epoch_id: &EpochId) -> bool {
         let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
         epoch_manager.get_epoch_info(epoch_id).is_ok()
     }
