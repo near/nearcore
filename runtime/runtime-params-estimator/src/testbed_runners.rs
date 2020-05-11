@@ -104,7 +104,7 @@ pub fn measure_actions(
 #[inline(always)]
 #[allow(clippy::missing_safety_doc)]
 pub unsafe fn syscall3(mut n: usize, a1: usize, a2: usize, a3: usize) -> usize {
-    llvm_asm!("syscall"
+    asm!("syscall"
          : "+{rax}"(n)
          : "{rdi}"(a1) "{rsi}"(a2) "{rdx}"(a3)
          : "rcx", "r11", "memory"

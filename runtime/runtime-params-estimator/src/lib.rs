@@ -1,4 +1,4 @@
-#![feature(llvm_asm)]
+#![feature(asm)]
 
 // Lists all cases that we want to measure.
 pub mod cases;
