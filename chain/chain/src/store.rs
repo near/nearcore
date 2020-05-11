@@ -1109,6 +1109,7 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
     fn store(&self) -> &Store {
         &*self.chain_store.store
     }
+
     /// The chain head.
     fn head(&self) -> Result<Tip, Error> {
         if let Some(head) = &self.head {
@@ -1916,35 +1917,6 @@ impl<'a> ChainStoreUpdate<'a> {
             }
         };
         self.merge(store_update);
-        Ok(())
-    }
-
-    pub fn clear_forks_data(&mut self, trie: Arc<Trie>, height: BlockHeight) -> Result<(), Error> {
-        if let Ok(blocks_current_height) = self.get_all_block_hashes_by_height(height) {
-            let blocks_current_height =
-                blocks_current_height.values().flatten().cloned().collect::<Vec<_>>();
-            for block_hash in blocks_current_height.iter() {
-                let mut current_hash = *block_hash;
-                loop {
-                    // Block `block_hash` is not on the Canonical Chain
-                    // because shorter chain cannot be Canonical one
-                    // and it may be safely deleted
-                    // and all its ancestors while there are no other sibling blocks rely on it.
-                    if *self.get_block_refcount(&current_hash)? == 0 {
-                        let prev_hash = self.get_block_header(&current_hash)?.prev_hash;
-
-                        // It's safe to call `clear_block_data` for prev data because it clears fork only here
-                        self.clear_block_data(current_hash, GCMode::Fork(trie.clone()))?;
-
-                        current_hash = prev_hash;
-                    } else {
-                        // Block of `current_hash` is an ancestor for some other blocks, stopping
-                        break;
-                    }
-                }
-            }
-        }
-
         Ok(())
     }
 
