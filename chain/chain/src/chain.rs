@@ -922,18 +922,15 @@ impl Chain {
         let new_tail = tip.height;
         let tail = self.store.tail()?;
         for height in tail..new_tail {
-            let mut chain_store_update = self.mut_store().store_update();
-            if let Ok(blocks_current_height) =
-                chain_store_update.get_all_block_hashes_by_height(height)
-            {
+            if let Ok(blocks_current_height) = self.store.get_all_block_hashes_by_height(height) {
                 let blocks_current_height =
                     blocks_current_height.values().flatten().cloned().collect::<Vec<_>>();
                 for block_hash in blocks_current_height {
+                    let mut chain_store_update = self.mut_store().store_update();
                     chain_store_update.clear_block_data(block_hash, GCMode::StateSync)?;
+                    chain_store_update.commit()?;
                 }
             }
-            chain_store_update.update_tail(height);
-            chain_store_update.commit()?;
         }
 
         let mut chain_store_update = self.mut_store().store_update();
