@@ -570,11 +570,7 @@ impl ShardsManager {
         self.tx_pools.entry(shard_id).or_insert_with(TransactionPool::new).insert_transaction(tx)
     }
 
-    pub fn remove_transactions(
-        &mut self,
-        shard_id: ShardId,
-        transactions: &[SignedTransaction],
-    ) {
+    pub fn remove_transactions(&mut self, shard_id: ShardId, transactions: &[SignedTransaction]) {
         if let Some(pool) = self.tx_pools.get_mut(&shard_id) {
             pool.remove_transactions(transactions)
         }
@@ -846,9 +842,9 @@ impl ShardsManager {
                 shard_id,
                 true,
             ) && !verify_path(
-                    header.inner.outgoing_receipts_root,
-                    &(proof.1).proof,
-                    &receipts_hashes[shard_id as usize],
+                header.inner.outgoing_receipts_root,
+                &(proof.1).proof,
+                &receipts_hashes[shard_id as usize],
             ) {
                 byzantine_assert!(false);
                 return Err(Error::ChainError(ErrorKind::InvalidReceiptsProof.into()));
@@ -965,8 +961,9 @@ impl ShardsManager {
     ) -> Result<bool, Error> {
         for shard_id in 0..self.runtime_adapter.num_shards() {
             let shard_id = shard_id as ShardId;
-            if !chunk_entry.receipts.contains_key(&shard_id) && 
-                self.need_receipt(&prev_block_hash, shard_id) {
+            if !chunk_entry.receipts.contains_key(&shard_id)
+                && self.need_receipt(&prev_block_hash, shard_id)
+            {
                 return Ok(false);
             }
         }
@@ -980,8 +977,9 @@ impl ShardsManager {
     ) -> Result<bool, Error> {
         for part_ord in 0..self.runtime_adapter.num_total_parts() {
             let part_ord = part_ord as u64;
-            if !chunk_entry.parts.contains_key(&part_ord) && 
-                self.need_part(&prev_block_hash, part_ord)? {
+            if !chunk_entry.parts.contains_key(&part_ord)
+                && self.need_part(&prev_block_hash, part_ord)?
+            {
                 return Ok(false);
             }
         }

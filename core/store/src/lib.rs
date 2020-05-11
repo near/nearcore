@@ -72,18 +72,11 @@ impl Store {
         StoreUpdate::new(self.storage.clone())
     }
 
-    pub fn iter(
-        &self,
-        column: DBCol,
-    ) -> KVIter<'_> {
+    pub fn iter(&self, column: DBCol) -> KVIter<'_> {
         self.storage.iter(column)
     }
 
-    pub fn iter_prefix<'a>(
-        &'a self,
-        column: DBCol,
-        key_prefix: &'a [u8],
-    ) -> KVIter<'a> {
+    pub fn iter_prefix<'a>(&'a self, column: DBCol, key_prefix: &'a [u8]) -> KVIter<'a> {
         self.storage.iter_prefix(column, key_prefix)
     }
 

@@ -7,7 +7,7 @@ use crate::types::{BlockedPorts, PatternAddr};
 
 pub fn blacklist_from_vec<T>(blacklist: T) -> HashMap<IpAddr, BlockedPorts>
 where
-    T: IntoIterator<Item=String>,
+    T: IntoIterator<Item = String>,
 {
     let mut blacklist_map = HashMap::new();
     for addr in blacklist {

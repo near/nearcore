@@ -853,7 +853,7 @@ impl ClientActor {
                 is_syncing = false;
             }
         } else if full_peer_info.chain_info.height
-                > head.height + self.client.config.sync_height_threshold
+            > head.height + self.client.config.sync_height_threshold
         {
             info!(
                 target: "client",

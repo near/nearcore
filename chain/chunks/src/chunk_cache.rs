@@ -162,9 +162,7 @@ impl EncodedChunksCache {
         &mut self,
         prev_block_hash: &CryptoHash,
     ) -> HashMap<ShardId, ShardChunkHeader> {
-        self.block_hash_to_chunk_headers
-            .cache_remove(prev_block_hash)
-            .unwrap_or_else(HashMap::new)
+        self.block_hash_to_chunk_headers.cache_remove(prev_block_hash).unwrap_or_else(HashMap::new)
     }
 
     pub fn num_chunks_for_block(&mut self, prev_block_hash: &CryptoHash) -> ShardId {

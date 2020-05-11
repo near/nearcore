@@ -397,8 +397,7 @@ mod tests {
         trie_update.remove(test_key(b"dog".to_vec()));
         trie_update
             .commit(StateChangeCause::TransactionProcessing { tx_hash: CryptoHash::default() });
-        let (store_update, new_root) =
-            trie_update.finalize().unwrap().0.into(trie).unwrap();
+        let (store_update, new_root) = trie_update.finalize().unwrap().0.into(trie).unwrap();
         store_update.commit().ok();
         assert_eq!(new_root, CryptoHash::default());
     }

@@ -1061,12 +1061,8 @@ impl RuntimeAdapter for NightshadeRuntime {
         assert!(part_id < num_parts);
         match BorshDeserialize::try_from_slice(data) {
             Ok(trie_nodes) => {
-                Trie::validate_trie_nodes_for_part(
-                    state_root,
-                    part_id,
-                    num_parts,
-                    &trie_nodes,
-                ).is_ok() // Storage error should not happen
+                Trie::validate_trie_nodes_for_part(state_root, part_id, num_parts, &trie_nodes)
+                    .is_ok() // Storage error should not happen
             }
             // Deserialization error means we've got the data from malicious peer
             Err(_) => false,
@@ -1105,7 +1101,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         } else {
             match Trie::get_memory_usage_from_serialized(&state_root_node.data) {
                 Ok(memory_usage) => memory_usage == state_root_node.memory_usage,
-                
+
                 Err(_) => false, // Invalid state_root_node
             }
         }
@@ -2242,8 +2238,7 @@ mod test {
         init_test_logger();
         let num_nodes = 3;
         let validators = (0..num_nodes).map(|i| format!("test{}", i + 1)).collect::<Vec<_>>();
-        let mut env =
-            TestEnv::new("test_challenges", vec![validators], 5, vec![], vec![], false);
+        let mut env = TestEnv::new("test_challenges", vec![validators], 5, vec![], vec![], false);
         env.step(
             vec![vec![]],
             vec![true],

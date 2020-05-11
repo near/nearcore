@@ -230,9 +230,10 @@ impl StateMachine {
                                 .map_err(|_| ())
                                 .and_then(move |res| {
                                     if let NetworkResponses::RoutingTableInfo(routing_table) = res {
-                                        let all_peers_known = expected_known.into_iter().all(|validator| {
-                                            routing_table.account_peers.contains_key(&validator)
-                                        });
+                                        let all_peers_known =
+                                            expected_known.into_iter().all(|validator| {
+                                                routing_table.account_peers.contains_key(&validator)
+                                            });
                                         if all_peers_known {
                                             flag.store(true, Ordering::Relaxed);
                                         }
@@ -525,18 +526,13 @@ impl Runner {
                 .collect(),
         );
 
-        let blacklist = blacklist_from_vec(
-            test_config
-                .blacklist
-                .iter()
-                .map(|x| {
-                    if let Some(x) = x {
-                        format!("127.0.0.1:{}", ports[*x])
-                    } else {
-                        "127.0.0.1".to_string()
-                    }
-                })
-        );
+        let blacklist = blacklist_from_vec(test_config.blacklist.iter().map(|x| {
+            if let Some(x) = x {
+                format!("127.0.0.1:{}", ports[*x])
+            } else {
+                "127.0.0.1".to_string()
+            }
+        }));
 
         let mut network_config =
             NetworkConfig::from_seed(accounts_id[node_id].as_str(), ports[node_id]);
@@ -570,8 +566,7 @@ impl Runner {
         let accounts_id: Vec<_> = (0..self.num_nodes).map(|ix| format!("test{}", ix)).collect();
         let ports: Vec<_> = (0..self.num_nodes).map(|_| open_port()).collect();
 
-        let validators: Vec<_> =
-            accounts_id.iter().take(self.num_validators).cloned().collect();
+        let validators: Vec<_> = accounts_id.iter().take(self.num_validators).cloned().collect();
 
         let mut peers_info =
             convert_boot_nodes(accounts_id.iter().map(|x| x.as_str()).zip(ports.clone()).collect());

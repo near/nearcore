@@ -610,8 +610,7 @@ mod tests {
     fn test_create_account_valid_short_top_level_len_allowed() {
         let account_id = AccountId::from("bob");
         let predecessor_id = AccountId::from("near");
-        let action_result =
-            test_action_create_account(account_id, predecessor_id, 0);
+        let action_result = test_action_create_account(account_id, predecessor_id, 0);
         assert!(action_result.result.is_ok());
     }
 }

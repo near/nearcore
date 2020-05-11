@@ -1,3 +1,4 @@
+use crate::KVIter;
 use rocksdb::{
     BlockBasedOptions, ColumnFamily, ColumnFamilyDescriptor, Direction, IteratorMode, Options,
     ReadOptions, WriteBatch, DB,
@@ -6,7 +7,6 @@ use std::cmp;
 use std::collections::HashMap;
 use std::io;
 use std::sync::RwLock;
-use crate::KVIter;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct DBError(rocksdb::Error);
@@ -175,11 +175,7 @@ pub trait Database: Sync + Send {
     }
     fn get(&self, col: DBCol, key: &[u8]) -> Result<Option<Vec<u8>>, DBError>;
     fn iter(&self, column: DBCol) -> KVIter<'_>;
-    fn iter_prefix<'a>(
-        &'a self,
-        col: DBCol,
-        key_prefix: &'a [u8],
-    ) -> KVIter<'a>;
+    fn iter_prefix<'a>(&'a self, col: DBCol, key_prefix: &'a [u8]) -> KVIter<'a>;
     fn write(&self, batch: DBTransaction) -> Result<(), DBError>;
 }
 
@@ -199,11 +195,7 @@ impl Database for RocksDB {
         }
     }
 
-    fn iter_prefix<'a>(
-        &'a self,
-        col: DBCol,
-        key_prefix: &'a [u8],
-    ) -> KVIter<'a> {
+    fn iter_prefix<'a>(&'a self, col: DBCol, key_prefix: &'a [u8]) -> KVIter<'a> {
         // NOTE: There is no Clone implementation for ReadOptions, so we cannot really reuse
         // `self.read_options` here.
         let mut read_options = rocksdb_read_options();
@@ -254,11 +246,7 @@ impl Database for TestDB {
         Box::new(iterator)
     }
 
-    fn iter_prefix<'a>(
-        &'a self,
-        col: DBCol,
-        key_prefix: &'a [u8],
-    ) -> KVIter<'a> {
+    fn iter_prefix<'a>(&'a self, col: DBCol, key_prefix: &'a [u8]) -> KVIter<'a> {
         Box::new(self.iter(col).filter(move |(key, _value)| key.starts_with(key_prefix)))
     }
 

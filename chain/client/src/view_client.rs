@@ -214,15 +214,16 @@ impl ViewClientActor {
         last_block_hash: &CryptoHash,
     ) -> Result<(), TxStatusError> {
         if let Ok(&dst_shard_id) = self.chain.get_shard_id_for_receipt_id(&receipt_id) {
-            if self.chain.get_chunk_extra(last_block_hash, dst_shard_id).is_err() &&
-                Self::need_request(receipt_id, &mut self.receipt_outcome_requests) {
-                    let validator = self
-                        .chain
-                        .find_validator_for_forwarding(dst_shard_id)
-                        .map_err(|e| TxStatusError::ChainError(e))?;
-                    self.network_adapter
-                        .do_send(NetworkRequests::ReceiptOutComeRequest(validator, receipt_id));
-                }
+            if self.chain.get_chunk_extra(last_block_hash, dst_shard_id).is_err()
+                && Self::need_request(receipt_id, &mut self.receipt_outcome_requests)
+            {
+                let validator = self
+                    .chain
+                    .find_validator_for_forwarding(dst_shard_id)
+                    .map_err(|e| TxStatusError::ChainError(e))?;
+                self.network_adapter
+                    .do_send(NetworkRequests::ReceiptOutComeRequest(validator, receipt_id));
+            }
         }
 
         Ok(())
@@ -280,8 +281,7 @@ impl ViewClientActor {
                 },
             }
         } else if Self::need_request(tx_hash, &mut self.tx_status_requests) {
-            let target_shard_id =
-                self.runtime_adapter.account_id_to_shard_id(&signer_account_id);
+            let target_shard_id = self.runtime_adapter.account_id_to_shard_id(&signer_account_id);
             let validator = self
                 .chain
                 .find_validator_for_forwarding(target_shard_id)
@@ -620,22 +620,23 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
                             self.chain.get_next_block_hash_with_new_chunk(&block_hash, shard_id)
                         {
                             if let Ok(block) = self.chain.get_block(&next_block_hash) {
-                                if (shard_id < block.chunks.len() as u64) &&
-                                    verify_path(
+                                if (shard_id < block.chunks.len() as u64)
+                                    && verify_path(
                                         block.chunks[shard_id as usize].inner.outcome_root,
                                         &response.proof,
                                         &response.outcome_with_id.to_hashes(),
-                                    ) {
-                                        let mut chain_store_update =
-                                            self.chain.mut_store().store_update();
-                                        chain_store_update.save_outcome_with_proof(
-                                            response.outcome_with_id.id,
-                                            response,
-                                        );
-                                        if let Err(e) = chain_store_update.commit() {
-                                            error!(target: "view_client", "Error committing to chain store: {}", e);
-                                        }
+                                    )
+                                {
+                                    let mut chain_store_update =
+                                        self.chain.mut_store().store_update();
+                                    chain_store_update.save_outcome_with_proof(
+                                        response.outcome_with_id.id,
+                                        response,
+                                    );
+                                    if let Err(e) = chain_store_update.commit() {
+                                        error!(target: "view_client", "Error committing to chain store: {}", e);
                                     }
+                                }
                             }
                         }
                     }

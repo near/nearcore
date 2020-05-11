@@ -13,7 +13,7 @@ use near_chain::{Block, ChainGenesis, ChainStoreAccess, ErrorKind, Provenance, R
 use near_chain_configs::Genesis;
 use near_chunks::{ChunkStatus, ShardsManager};
 use near_client::test_utils::setup_mock_all_validators;
-use near_client::test_utils::{NetworkRequestsHandler, setup_client, setup_mock, TestEnv};
+use near_client::test_utils::{setup_client, setup_mock, NetworkRequestsHandler, TestEnv};
 use near_client::{Client, GetBlock};
 use near_crypto::{InMemorySigner, KeyType, Signature, Signer};
 use near_logger_utils::init_test_logger;
@@ -92,8 +92,7 @@ fn produce_blocks_with_tx() {
                     let data_parts = 12 + 2 * (((height - 1) as usize) % 4);
                     let total_parts = 1 + data_parts * (1 + ((height - 1) as usize) % 3);
                     if encoded_chunks.len() + 2 == height {
-                        encoded_chunks
-                            .push(EncodedShardChunk::from_header(header, total_parts));
+                        encoded_chunks.push(EncodedShardChunk::from_header(header, total_parts));
                     }
                     for part in partial_encoded_chunk.parts.iter() {
                         encoded_chunks[height - 2].content.parts[part.part_ord as usize] =
@@ -344,7 +343,7 @@ fn produce_block_with_approvals_arrived_early() {
     let block_holder: Arc<RwLock<Option<Block>>> = Arc::new(RwLock::new(None));
     System::run(move || {
         let mut approval_counter = 0;
-        let network_mock: Arc<RwLock<NetworkRequestsHandler>> = 
+        let network_mock: Arc<RwLock<NetworkRequestsHandler>> =
             Arc::new(RwLock::new(Box::new(|_: String, _: &NetworkRequests| {
                 (NetworkResponses::NoResponse, true)
             })));
@@ -453,11 +452,7 @@ fn invalid_blocks() {
                 last_block.header.next_bp_hash,
             );
             block.header.inner_rest.chunk_mask = vec![];
-            client.do_send(NetworkClientMessages::Block(
-                block,
-                PeerInfo::random().id,
-                false,
-            ));
+            client.do_send(NetworkClientMessages::Block(block, PeerInfo::random().id, false));
 
             // Send proper block.
             let block2 = Block::produce(

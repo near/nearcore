@@ -1703,8 +1703,7 @@ mod tests {
         let invalid_account_id = "Invalid".to_string();
         receipts.get_mut(0).unwrap().predecessor_id = invalid_account_id.clone();
 
-        let err =
-            runtime.apply(trie, root, &None, &apply_state, &receipts, &[]).err().unwrap();
+        let err = runtime.apply(trie, root, &None, &apply_state, &receipts, &[]).err().unwrap();
         assert_eq!(
             err,
             RuntimeError::ReceiptValidationError(ReceiptValidationError::InvalidPredecessorId {

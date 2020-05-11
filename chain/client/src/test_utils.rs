@@ -40,7 +40,8 @@ use near_network::test_utils::MockNetworkAdapter;
 use num_rational::Rational;
 
 pub type NetworkMock = Mocker<PeerManagerActor>;
-pub type NetworkRequestsHandler = Box<dyn FnMut(String, &NetworkRequests) -> (NetworkResponses, bool)>;
+pub type NetworkRequestsHandler =
+    Box<dyn FnMut(String, &NetworkRequests) -> (NetworkResponses, bool)>;
 
 /// Sets up ClientActor and ViewClientActor viewing the same store/runtime.
 pub fn setup(
@@ -366,7 +367,9 @@ pub fn setup_mock_all_validators(
                             request,
                         } => {
                             for (i, name) in validators_clone2.iter().flatten().enumerate() {
-                                if name == their_account_id && (!drop_chunks || !sample_binary(1, 10)) {
+                                if name == their_account_id
+                                    && (!drop_chunks || !sample_binary(1, 10))
+                                {
                                     connectors1.read().unwrap()[i].0.do_send(
                                         NetworkClientMessages::PartialEncodedChunkRequest(
                                             request.clone(),
@@ -381,7 +384,8 @@ pub fn setup_mock_all_validators(
                             partial_encoded_chunk,
                         } => {
                             for (i, address) in addresses.iter().enumerate() {
-                                if route_back == address && (!drop_chunks || !sample_binary(1, 10)) {
+                                if route_back == address && (!drop_chunks || !sample_binary(1, 10))
+                                {
                                     connectors1.read().unwrap()[i].0.do_send(
                                         NetworkClientMessages::PartialEncodedChunk(
                                             partial_encoded_chunk.clone(),

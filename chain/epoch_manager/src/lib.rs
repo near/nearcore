@@ -1321,13 +1321,8 @@ mod tests {
         let config = epoch_config(4, 1, 2, 0, 90, 60, 0);
         let amount_staked = 1_000_000;
         let validators = vec![stake("test1", amount_staked), stake("test2", amount_staked)];
-        let mut epoch_manager = EpochManager::new(
-            store,
-            config,
-            default_reward_calculator(),
-            validators,
-        )
-        .unwrap();
+        let mut epoch_manager =
+            EpochManager::new(store, config, default_reward_calculator(), validators).unwrap();
         let h = hash_range(12);
 
         record_block(&mut epoch_manager, CryptoHash::default(), h[0], 0, vec![]);
@@ -1372,13 +1367,8 @@ mod tests {
         let config = epoch_config(2, 1, 2, 0, 90, 60, 0);
         let amount_staked = 1_000_000;
         let validators = vec![stake("test1", amount_staked), stake("test2", amount_staked)];
-        let mut epoch_manager = EpochManager::new(
-            store,
-            config,
-            default_reward_calculator(),
-            validators,
-        )
-        .unwrap();
+        let mut epoch_manager =
+            EpochManager::new(store, config, default_reward_calculator(), validators).unwrap();
         let h = hash_range(8);
         record_block(&mut epoch_manager, CryptoHash::default(), h[0], 0, vec![]);
         // test1 unstakes in epoch 1, and should be kicked out in epoch 3 (validators stored at h2).
@@ -1446,13 +1436,8 @@ mod tests {
         let config = epoch_config(2, 1, 2, 0, 90, 60, 0);
         let amount_staked = 1_000_000;
         let validators = vec![stake("test1", amount_staked), stake("test2", amount_staked)];
-        let mut epoch_manager = EpochManager::new(
-            store,
-            config,
-            default_reward_calculator(),
-            validators,
-        )
-        .unwrap();
+        let mut epoch_manager =
+            EpochManager::new(store, config, default_reward_calculator(), validators).unwrap();
 
         let h = hash_range(10);
         record_block(&mut epoch_manager, CryptoHash::default(), h[0], 0, vec![]);
@@ -1532,13 +1517,8 @@ mod tests {
         let config = epoch_config(2, 1, 2, 0, 90, 60, 0);
         let amount_staked = 1_000_000;
         let validators = vec![stake("test1", amount_staked), stake("test2", amount_staked)];
-        let mut epoch_manager = EpochManager::new(
-            store,
-            config,
-            default_reward_calculator(),
-            validators,
-        )
-        .unwrap();
+        let mut epoch_manager =
+            EpochManager::new(store, config, default_reward_calculator(), validators).unwrap();
 
         let h = hash_range(10);
         record_block(&mut epoch_manager, CryptoHash::default(), h[0], 0, vec![]);
@@ -1623,13 +1603,8 @@ mod tests {
         let config = epoch_config(2, 1, 2, 0, 90, 60, 0);
         let amount_staked = 1_000_000;
         let validators = vec![stake("test1", amount_staked), stake("test2", amount_staked)];
-        let mut epoch_manager = EpochManager::new(
-            store,
-            config,
-            default_reward_calculator(),
-            validators,
-        )
-        .unwrap();
+        let mut epoch_manager =
+            EpochManager::new(store, config, default_reward_calculator(), validators).unwrap();
 
         let h = hash_range(10);
         record_block(&mut epoch_manager, CryptoHash::default(), h[0], 0, vec![]);
@@ -2128,13 +2103,8 @@ mod tests {
         let config = epoch_config(2, 1, 2, 0, 90, 60, 0);
         let amount_staked = 1_000_000;
         let validators = vec![stake("test1", amount_staked), stake("test2", amount_staked)];
-        let mut epoch_manager = EpochManager::new(
-            store,
-            config,
-            default_reward_calculator(),
-            validators,
-        )
-        .unwrap();
+        let mut epoch_manager =
+            EpochManager::new(store, config, default_reward_calculator(), validators).unwrap();
         let h = hash_range(8);
         record_block(&mut epoch_manager, CryptoHash::default(), h[0], 0, vec![]);
         // test1 unstakes in epoch 1, and should be kicked out in epoch 3 (validators stored at h2).
@@ -2540,13 +2510,8 @@ mod tests {
         let config = epoch_config(2, 1, 2, 0, 90, 60, 0);
         let amount_staked = 1_000_000;
         let validators = vec![stake("test1", amount_staked), stake("test2", amount_staked)];
-        let mut epoch_manager = EpochManager::new(
-            store,
-            config,
-            default_reward_calculator(),
-            validators,
-        )
-        .unwrap();
+        let mut epoch_manager =
+            EpochManager::new(store, config, default_reward_calculator(), validators).unwrap();
         let h = hash_range(8);
         record_block(&mut epoch_manager, CryptoHash::default(), h[0], 0, vec![]);
         // test1 unstakes in epoch 1, and should be kicked out in epoch 3 (validators stored at h2).

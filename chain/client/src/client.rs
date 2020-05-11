@@ -147,19 +147,20 @@ impl Client {
     pub fn remove_transactions_for_block(&mut self, me: AccountId, block: &Block) {
         for (shard_id, chunk_header) in block.chunks.iter().enumerate() {
             let shard_id = shard_id as ShardId;
-            if block.header.inner_lite.height == chunk_header.height_included &&
-                self.shards_mgr.cares_about_shard_this_or_next_epoch(
+            if block.header.inner_lite.height == chunk_header.height_included
+                && self.shards_mgr.cares_about_shard_this_or_next_epoch(
                     Some(&me),
                     &block.header.prev_hash,
                     shard_id,
                     true,
-                ) {
-                    self.shards_mgr.remove_transactions(
-                        shard_id,
-                        // By now the chunk must be in store, otherwise the block would have been orphaned
-                        &self.chain.get_chunk(&chunk_header.chunk_hash()).unwrap().transactions,
-                    );
-                }
+                )
+            {
+                self.shards_mgr.remove_transactions(
+                    shard_id,
+                    // By now the chunk must be in store, otherwise the block would have been orphaned
+                    &self.chain.get_chunk(&chunk_header.chunk_hash()).unwrap().transactions,
+                );
+            }
         }
         for challenge in block.challenges.iter() {
             self.challenges.remove(&challenge.hash);
@@ -169,19 +170,20 @@ impl Client {
     pub fn reintroduce_transactions_for_block(&mut self, me: AccountId, block: &Block) {
         for (shard_id, chunk_header) in block.chunks.iter().enumerate() {
             let shard_id = shard_id as ShardId;
-            if block.header.inner_lite.height == chunk_header.height_included &&
-                self.shards_mgr.cares_about_shard_this_or_next_epoch(
+            if block.header.inner_lite.height == chunk_header.height_included
+                && self.shards_mgr.cares_about_shard_this_or_next_epoch(
                     Some(&me),
                     &block.header.prev_hash,
                     shard_id,
                     false,
-                ) {
-                    self.shards_mgr.reintroduce_transactions(
-                        shard_id,
-                        // By now the chunk must be in store, otherwise the block would have been orphaned
-                        &self.chain.get_chunk(&chunk_header.chunk_hash()).unwrap().transactions,
-                    );
-                }
+                )
+            {
+                self.shards_mgr.reintroduce_transactions(
+                    shard_id,
+                    // By now the chunk must be in store, otherwise the block would have been orphaned
+                    &self.chain.get_chunk(&chunk_header.chunk_hash()).unwrap().transactions,
+                );
+            }
         }
         for challenge in block.challenges.iter() {
             self.challenges.insert(challenge.hash, challenge.clone());
@@ -201,7 +203,7 @@ impl Client {
     }
 
     /// Check that we are next block producer.
-   #[allow(clippy::ptr_arg)]
+    #[allow(clippy::ptr_arg)]
     fn is_me_block_producer(
         &self,
         account_id: &AccountId,
@@ -247,18 +249,19 @@ impl Client {
             }
         }
 
-        if self.runtime_adapter.is_next_block_epoch_start(&head.last_block_hash)? &&
-            !self.chain.prev_block_is_caught_up(&prev_prev_hash, &prev_hash)? {
-                // Currently state for the chunks we are interested in this epoch
-                // are not yet caught up (e.g. still state syncing).
-                // We reschedule block production.
-                // Alex's comment:
-                // The previous block is not caught up for the next epoch relative to the previous
-                // block, which is the current epoch for this block, so this block cannot be applied
-                // at all yet, block production must to be rescheduled
-                debug!(target: "client", "Produce block: prev block is not caught up");
-                return Ok(true);
-            }
+        if self.runtime_adapter.is_next_block_epoch_start(&head.last_block_hash)?
+            && !self.chain.prev_block_is_caught_up(&prev_prev_hash, &prev_hash)?
+        {
+            // Currently state for the chunks we are interested in this epoch
+            // are not yet caught up (e.g. still state syncing).
+            // We reschedule block production.
+            // Alex's comment:
+            // The previous block is not caught up for the next epoch relative to the previous
+            // block, which is the current epoch for this block, so this block cannot be applied
+            // at all yet, block production must to be rescheduled
+            debug!(target: "client", "Produce block: prev block is not caught up");
+            return Ok(true);
+        }
 
         Ok(false)
     }
@@ -927,9 +930,8 @@ impl Client {
                              approval: &Approval,
                              pending_approvals: &mut SizedCache<_, _>| {
             if let ErrorKind::DBNotFoundErr(_) = e.kind() {
-                let mut entry = pending_approvals
-                    .cache_remove(&approval.inner)
-                    .unwrap_or_else(HashMap::new);
+                let mut entry =
+                    pending_approvals.cache_remove(&approval.inner).unwrap_or_else(HashMap::new);
                 entry.insert(approval.account_id.clone(), approval.clone());
                 pending_approvals.cache_set(approval.inner.clone(), entry);
             }

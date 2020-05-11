@@ -68,9 +68,7 @@ fn dont_load_on_build() {
     routing_table.add_account(announce0.clone());
     routing_table.add_account(announce1.clone());
     let accounts = routing_table.get_announce_accounts();
-    assert!(vec![announce0, announce1]
-        .iter()
-        .all(|announce| { accounts.contains(announce) }));
+    assert!(vec![announce0, announce1].iter().all(|announce| { accounts.contains(announce) }));
     assert_eq!(routing_table.get_announce_accounts().len(), 2);
 
     let mut routing_table1 = RoutingTable::new(peer_id0, store);

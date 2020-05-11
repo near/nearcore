@@ -132,8 +132,7 @@ impl RuntimeUser {
             block_hash: Default::default(),
         }];
         for hash in &receipt_ids {
-            transactions
-                .extend(self.get_recursive_transaction_results(&hash).into_iter());
+            transactions.extend(self.get_recursive_transaction_results(&hash).into_iter());
         }
         transactions
     }

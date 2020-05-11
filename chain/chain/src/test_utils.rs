@@ -344,8 +344,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         &self,
         parent_hash: &CryptoHash,
     ) -> Result<Vec<ApprovalStake>, Error> {
-        let (_cur_epoch, cur_valset, next_epoch) =
-            self.get_epoch_and_valset(*parent_hash)?;
+        let (_cur_epoch, cur_valset, next_epoch) = self.get_epoch_and_valset(*parent_hash)?;
         let mut validators = self.validators[cur_valset]
             .iter()
             .map(|x| x.get_approval_stake(false))

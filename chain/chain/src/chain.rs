@@ -385,8 +385,8 @@ impl Chain {
     }
 
     pub fn compute_bp_hash_inner<'a, T>(bps: T) -> Result<CryptoHash, Error>
-    where 
-        T: IntoIterator<Item=&'a ValidatorStake>,
+    where
+        T: IntoIterator<Item = &'a ValidatorStake>,
     {
         let iter = bps.into_iter();
         let (size, _) = iter.size_hint();
@@ -810,7 +810,9 @@ impl Chain {
         let mut oldest_height = header_head.height;
         let mut current = self.get_block_header(&header_head.last_block_hash).map(|h| h.clone());
         while let Ok(header) = current {
-            if header.inner_lite.height <= block_head.height && self.is_on_current_chain(&header).is_ok() {
+            if header.inner_lite.height <= block_head.height
+                && self.is_on_current_chain(&header).is_ok()
+            {
                 break;
             }
 
@@ -1866,8 +1868,7 @@ impl Chain {
         let receipt_ids = outcome.outcome.receipt_ids.clone();
         let mut transactions = vec![outcome];
         for hash in &receipt_ids {
-            transactions
-                .extend(self.get_recursive_transaction_results(hash)?.into_iter());
+            transactions.extend(self.get_recursive_transaction_results(hash)?.into_iter());
         }
         Ok(transactions)
     }
@@ -2268,7 +2269,8 @@ impl<'a> ChainUpdate<'a> {
                         true,
                     );
 
-                    if cares_or_will_care && self.chain_store_update.get_chunk(&chunk_hash).is_err() {
+                    if cares_or_will_care && self.chain_store_update.get_chunk(&chunk_hash).is_err()
+                    {
                         missing.push(chunk_header.clone());
                     }
                 }
@@ -2588,8 +2590,7 @@ impl<'a> ChainUpdate<'a> {
 
         // Check that we know the epoch of the block before we try to get the header
         // (so that a block from unknown epoch doesn't get marked as an orphan)
-        if self.runtime_adapter.get_epoch_inflation(&block.header.inner_lite.epoch_id).is_err()
-        {
+        if self.runtime_adapter.get_epoch_inflation(&block.header.inner_lite.epoch_id).is_err() {
             return Err(ErrorKind::EpochOutOfBounds.into());
         }
 
@@ -2861,11 +2862,11 @@ impl<'a> ChainUpdate<'a> {
                 return Err(ErrorKind::InvalidNextBPHash.into());
             }
         } else if header.inner_lite.next_bp_hash
-                != Chain::compute_bp_hash(
-                    &*self.runtime_adapter,
-                    header.inner_lite.next_epoch_id.clone(),
-                    &header.prev_hash,
-                )?
+            != Chain::compute_bp_hash(
+                &*self.runtime_adapter,
+                header.inner_lite.next_epoch_id.clone(),
+                &header.prev_hash,
+            )?
         {
             return Err(ErrorKind::InvalidNextBPHash.into());
         }
@@ -3272,7 +3273,7 @@ impl<'a> ChainUpdate<'a> {
 
 pub fn collect_receipts<'a, T>(receipt_proofs: T) -> Vec<Receipt>
 where
-    T: IntoIterator<Item=&'a ReceiptProof>,
+    T: IntoIterator<Item = &'a ReceiptProof>,
 {
     receipt_proofs.into_iter().flat_map(|ReceiptProof(receipts, _)| receipts).cloned().collect()
 }
@@ -3280,7 +3281,9 @@ where
 pub fn collect_receipts_from_response(
     receipt_proof_response: &[ReceiptProofResponse],
 ) -> Vec<Receipt> {
-    collect_receipts(receipt_proof_response.iter().flat_map(|ReceiptProofResponse(_, proofs)| proofs))
+    collect_receipts(
+        receipt_proof_response.iter().flat_map(|ReceiptProofResponse(_, proofs)| proofs),
+    )
 }
 
 // Used in testing only

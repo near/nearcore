@@ -475,10 +475,12 @@ fn test_inflation() {
                 let (done1_copy2, done2_copy2) = (done1_copy1.clone(), done2_copy1.clone());
                 actix::spawn(test_nodes[0].view_client.send(GetBlock::latest()).then(move |res| {
                     let header_view = res.unwrap().unwrap().header;
-                    if header_view.height >= 2 && header_view.height <= epoch_length &&
-                        header_view.total_supply == initial_total_supply {
-                            done1_copy2.store(true, Ordering::SeqCst);
-                        }
+                    if header_view.height >= 2
+                        && header_view.height <= epoch_length
+                        && header_view.total_supply == initial_total_supply
+                    {
+                        done1_copy2.store(true, Ordering::SeqCst);
+                    }
                     future::ready(())
                 }));
                 actix::spawn(test_nodes[0].view_client.send(GetBlock::latest()).then(move |res| {

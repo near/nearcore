@@ -411,62 +411,64 @@ impl JsonRpcHandler {
     }
 
     async fn query(&self, params: Option<Value>) -> Result<Value, RpcError> {
-        let query_request =
-            if let Ok((path, data)) = parse_params::<(String, String)>(params.clone()) {
-                // Handle a soft-deprecated version of the query API, which is based on
-                // positional arguments with a "path"-style first argument.
-                //
-                // This whole block can be removed one day, when the new API is 100% adopted.
-                let data = from_base_or_parse_err(data)?;
-                let query_data_size = path.len() + data.len();
-                if query_data_size > QUERY_DATA_MAX_SIZE {
-                    return Err(RpcError::server_error(Some(format!(
-                        "Query data size {} is too large",
-                        query_data_size
-                    ))));
-                }
-                let mut path_parts = path.splitn(3, '/');
-                let make_err = || { RpcError::server_error(Some(
-                    "Not enough query parameters provided".to_string(),
-                )) };
-                let query_command = path_parts.next().ok_or_else(make_err)?;
-                let account_id = AccountId::from(path_parts.next().ok_or_else(make_err)?);
-                let maybe_extra_arg = path_parts.next();
+        let query_request = if let Ok((path, data)) =
+            parse_params::<(String, String)>(params.clone())
+        {
+            // Handle a soft-deprecated version of the query API, which is based on
+            // positional arguments with a "path"-style first argument.
+            //
+            // This whole block can be removed one day, when the new API is 100% adopted.
+            let data = from_base_or_parse_err(data)?;
+            let query_data_size = path.len() + data.len();
+            if query_data_size > QUERY_DATA_MAX_SIZE {
+                return Err(RpcError::server_error(Some(format!(
+                    "Query data size {} is too large",
+                    query_data_size
+                ))));
+            }
+            let mut path_parts = path.splitn(3, '/');
+            let make_err =
+                || RpcError::server_error(Some("Not enough query parameters provided".to_string()));
+            let query_command = path_parts.next().ok_or_else(make_err)?;
+            let account_id = AccountId::from(path_parts.next().ok_or_else(make_err)?);
+            let maybe_extra_arg = path_parts.next();
 
-                let request = match query_command {
-                    "account" => QueryRequest::ViewAccount { account_id },
-                    "access_key" => match maybe_extra_arg {
-                        None => QueryRequest::ViewAccessKeyList { account_id },
-                        Some(pk) => QueryRequest::ViewAccessKey {
-                            account_id,
-                            public_key: PublicKey::try_from(pk)
-                                .map_err(|_| RpcError::server_error(Some("Invalid public key")))?,
-                        }
-                    }
-                    "contract" => QueryRequest::ViewState { account_id, prefix: data.into() },
-                    "call" => match maybe_extra_arg {
-                        Some(method_name) => QueryRequest::CallFunction {
-                            account_id,
-                            method_name: method_name.to_string(),
-                            args: data.into(),
-                        },
+            let request = match query_command {
+                "account" => QueryRequest::ViewAccount { account_id },
+                "access_key" => match maybe_extra_arg {
+                    None => QueryRequest::ViewAccessKeyList { account_id },
+                    Some(pk) => QueryRequest::ViewAccessKey {
+                        account_id,
+                        public_key: PublicKey::try_from(pk)
+                            .map_err(|_| RpcError::server_error(Some("Invalid public key")))?,
+                    },
+                },
+                "contract" => QueryRequest::ViewState { account_id, prefix: data.into() },
+                "call" => match maybe_extra_arg {
+                    Some(method_name) => QueryRequest::CallFunction {
+                        account_id,
+                        method_name: method_name.to_string(),
+                        args: data.into(),
+                    },
 
-                        None => return Err(RpcError::server_error(Some(
+                    None => {
+                        return Err(RpcError::server_error(Some(
                             "Method name is missing".to_string(),
-                        ))),
+                        )))
                     }
-                    _ => {
-                        return Err(RpcError::server_error(Some(format!(
-                            "Unknown path {}",
-                            query_command
-                        ))))
-                    }
-                };
-                // Use Finality::None here to make backward compatibility tests work
-                RpcQueryRequest { request, block_id_or_finality: BlockIdOrFinality::latest() }
-            } else {
-                parse_params::<RpcQueryRequest>(params)?
+                },
+                _ => {
+                    return Err(RpcError::server_error(Some(format!(
+                        "Unknown path {}",
+                        query_command
+                    ))))
+                }
             };
+            // Use Finality::None here to make backward compatibility tests work
+            RpcQueryRequest { request, block_id_or_finality: BlockIdOrFinality::latest() }
+        } else {
+            parse_params::<RpcQueryRequest>(params)?
+        };
         let query = Query::new(query_request.block_id_or_finality, query_request.request);
         timeout(self.polling_config.polling_timeout, async {
             loop {
@@ -512,9 +514,7 @@ impl JsonRpcHandler {
                 .send(match chunk_id {
                     ChunkId::BlockShardId(block_id, shard_id) => match block_id {
                         BlockId::Height(height) => GetChunk::Height(height, shard_id),
-                        BlockId::Hash(block_hash) => {
-                            GetChunk::BlockHash(block_hash, shard_id)
-                        }
+                        BlockId::Hash(block_hash) => GetChunk::BlockHash(block_hash, shard_id),
                     },
                     ChunkId::Hash(chunk_hash) => GetChunk::ChunkHash(chunk_hash.into()),
                 })

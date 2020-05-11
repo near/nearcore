@@ -975,7 +975,7 @@ mod test {
         // Dummy edge.
         graph.add_edge(nodes[9].clone(), nodes[10].clone());
 
-        let mut next_hops: Vec<_> = 
+        let mut next_hops: Vec<_> =
             nodes.iter().take(3).map(|node| (node.clone(), vec![node.clone()])).collect();
         let target: Vec<_> = nodes.iter().take(3).cloned().collect();
 

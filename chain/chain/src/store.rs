@@ -114,9 +114,7 @@ pub trait ChainStoreAccess {
     ) -> Result<ShardChunk, Error> {
         let shard_chunk_result = self.get_chunk(&header.chunk_hash());
         match shard_chunk_result {
-            Err(_) => {
-                Err(ErrorKind::ChunksMissing(vec![header.clone()]).into())
-            }
+            Err(_) => Err(ErrorKind::ChunksMissing(vec![header.clone()]).into()),
             Ok(shard_chunk) => {
                 byzantine_assert!(header.height_included > 0 || header.inner.height_created == 0);
                 if header.height_included == 0 && header.inner.height_created > 0 {
@@ -770,10 +768,7 @@ impl ChainStoreAccess for ChainStore {
     }
 
     fn is_block_challenged(&mut self, hash: &CryptoHash) -> Result<bool, Error> {
-        Ok(self
-            .store
-            .get_ser(ColChallengedBlocks, hash.as_ref())?
-            .unwrap_or_else(|| false))
+        Ok(self.store.get_ser(ColChallengedBlocks, hash.as_ref())?.unwrap_or_else(|| false))
     }
 
     fn is_invalid_chunk(

@@ -162,7 +162,12 @@ mod tests {
     }
 
     // TODO: this function could use some cleanup:
-    #[allow(clippy::type_complexity, clippy::too_many_arguments, clippy::redundant_clone, clippy::needless_range_loop)]
+    #[allow(
+        clippy::type_complexity,
+        clippy::too_many_arguments,
+        clippy::redundant_clone,
+        clippy::needless_range_loop
+    )]
     fn test_cross_shard_tx_callback(
         res: Result<Result<Option<QueryResponse>, String>, MailboxError>,
         account_id: AccountId,
@@ -459,9 +464,7 @@ mod tests {
                         .1
                         .send(Query::new(
                             BlockIdOrFinality::latest(),
-                            QueryRequest::ViewAccount {
-                                account_id: validator.to_string(),
-                            },
+                            QueryRequest::ViewAccount { account_id: validator.to_string() },
                         ))
                         .then(move |x| {
                             test_cross_shard_tx_callback(

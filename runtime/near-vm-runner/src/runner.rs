@@ -71,7 +71,8 @@ pub fn run<'a>(
     let mut memory = WasmerMemory::new(
         wasm_config.limit_config.initial_memory_pages,
         wasm_config.limit_config.max_memory_pages,
-    ).expect("Cannot create memory for a contract call");
+    )
+    .expect("Cannot create memory for a contract call");
     let memory_copy = memory.clone();
 
     let mut logic =

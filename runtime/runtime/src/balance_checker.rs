@@ -402,14 +402,8 @@ mod tests {
 
         let signer = InMemorySigner::from_seed(&alice_id, KeyType::ED25519, &alice_id);
 
-        let tx = SignedTransaction::send_money(
-            0,
-            alice_id,
-            bob_id,
-            &signer,
-            1,
-            CryptoHash::default(),
-        );
+        let tx =
+            SignedTransaction::send_money(0, alice_id, bob_id, &signer, 1, CryptoHash::default());
 
         let receipt = Receipt {
             predecessor_id: tx.transaction.signer_id.clone(),

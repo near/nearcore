@@ -871,9 +871,7 @@ impl PeerManagerActor {
     fn message_for_me(&mut self, target: &PeerIdOrHash) -> bool {
         match target {
             PeerIdOrHash::PeerId(peer_id) => peer_id == &self.peer_id,
-            PeerIdOrHash::Hash(hash) => {
-                self.routing_table.compare_route_back(*hash, &self.peer_id)
-            }
+            PeerIdOrHash::Hash(hash) => self.routing_table.compare_route_back(*hash, &self.peer_id),
         }
     }
 
@@ -1199,10 +1197,7 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                             if announce_account.epoch_id == current_announce_account.epoch_id {
                                 None
                             } else {
-                                Some((
-                                    announce_account,
-                                    Some(current_announce_account.epoch_id),
-                                ))
+                                Some((announce_account, Some(current_announce_account.epoch_id)))
                             }
                         } else {
                             Some((announce_account, None))

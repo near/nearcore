@@ -137,12 +137,7 @@ fn print_chain(
             }
         } else if let Some(epoch_id) = &cur_epoch_id {
             let block_producer = runtime.get_block_producer(epoch_id, height).unwrap();
-            println!(
-                "{: >3} {} | {: >10}",
-                height,
-                Red.bold().paint("MISSING"),
-                block_producer
-            );
+            println!("{: >3} {} | {: >10}", height, Red.bold().paint("MISSING"), block_producer);
         } else {
             println!("{: >3} {}", height, Red.bold().paint("MISSING"));
         }

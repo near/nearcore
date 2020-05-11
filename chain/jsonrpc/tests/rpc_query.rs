@@ -82,10 +82,7 @@ fn test_block_query() {
 #[test]
 fn test_chunk_by_hash() {
     test_with_client!(test_utils::NodeType::NonValidator, client, async move {
-        let chunk = client
-            .chunk(ChunkId::BlockShardId(BlockId::Height(0), 0u64))
-            .await
-            .unwrap();
+        let chunk = client.chunk(ChunkId::BlockShardId(BlockId::Height(0), 0u64)).await.unwrap();
         assert_eq!(chunk.author, "test2");
         assert_eq!(chunk.header.balance_burnt, 0);
         assert_eq!(chunk.header.chunk_hash.as_ref().len(), 32);

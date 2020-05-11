@@ -209,10 +209,8 @@ mod test {
         let create_runtime = |store| -> NightshadeRuntime {
             NightshadeRuntime::new(Path::new("."), store, Arc::new(genesis.clone()), vec![], vec![])
         };
-        let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![
-            Arc::new(create_runtime(store1)),
-            Arc::new(create_runtime(store2.clone())),
-        ];
+        let runtimes: Vec<Arc<dyn RuntimeAdapter>> =
+            vec![Arc::new(create_runtime(store1)), Arc::new(create_runtime(store2.clone()))];
         let mut chain_genesis = ChainGenesis::test();
         chain_genesis.epoch_length = epoch_length;
         chain_genesis.gas_limit = genesis.config.gas_limit;
@@ -243,8 +241,7 @@ mod test {
             last_block.chunks.iter().map(|chunk| chunk.inner.prev_state_root).collect::<Vec<_>>();
         let runtime2 = create_runtime(store2);
 
-        let _ =
-            state_dump(runtime2, state_roots, last_block.header, &genesis.config);
+        let _ = state_dump(runtime2, state_roots, last_block.header, &genesis.config);
     }
 
     #[test]

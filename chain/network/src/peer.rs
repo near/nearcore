@@ -672,8 +672,8 @@ impl StreamHandler<Vec<u8>> for Peer {
                 }
 
                 // Check that received nonce on handshake match our proposed nonce.
-                if self.peer_type == PeerType::Outbound &&
-                    handshake.edge_info.nonce
+                if self.peer_type == PeerType::Outbound
+                    && handshake.edge_info.nonce
                         != self.edge_info.as_ref().map(|edge_info| edge_info.nonce).unwrap()
                 {
                     info!(target: "network", "Received invalid nonce on handshake. Disconnecting this peer.");
@@ -746,7 +746,7 @@ impl StreamHandler<Vec<u8>> for Peer {
                     .then(|res, act, ctx| {
                         if let Ok(PeerResponse::UpdatedEdge(edge_info)) = res {
                             act.edge_info = Some(edge_info);
-                            act.send_handshake(ctx);                            
+                            act.send_handshake(ctx);
                         }
                         actix::fut::ready(())
                     })

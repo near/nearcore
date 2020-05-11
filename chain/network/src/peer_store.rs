@@ -1,4 +1,7 @@
-use std::collections::{hash_map::{Entry, Iter}, HashMap};
+use std::collections::{
+    hash_map::{Entry, Iter},
+    HashMap,
+};
 use std::convert::TryInto;
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -69,8 +72,10 @@ impl PeerStore {
                         }
                         Entry::Vacant(entry) => {
                             entry.insert(VerifiedPeer::signed(peer_info.id.clone()));
-                            peer_states
-                                .insert(peer_info.id.clone(), KnownPeerState::new(peer_info.clone()));
+                            peer_states.insert(
+                                peer_info.id.clone(),
+                                KnownPeerState::new(peer_info.clone()),
+                            );
                         }
                     }
                 }
@@ -315,14 +320,15 @@ impl PeerStore {
                     // If this peer already exists with a signed connection ignore this update.
                     // Warning: This is a problem for nodes that changes its address without changing peer_id.
                     //          It is recommended to change peer_id if address is changed.
-                    let peer_exists = self.peer_states.get(&peer_info.id).map_or(false, |peer_state| {
-                        peer_state.peer_info.addr.map_or(false, |current_addr| {
-                            self.addr_peers.get(&current_addr).map_or(false, |verified_peer| {
-                                verified_peer.trust_level == TrustLevel::Signed
+                    let peer_exists =
+                        self.peer_states.get(&peer_info.id).map_or(false, |peer_state| {
+                            peer_state.peer_info.addr.map_or(false, |current_addr| {
+                                self.addr_peers.get(&current_addr).map_or(false, |verified_peer| {
+                                    verified_peer.trust_level == TrustLevel::Signed
+                                })
                             })
-                        })
-                    });
-                    
+                        });
+
                     if peer_exists {
                         return Ok(());
                     }

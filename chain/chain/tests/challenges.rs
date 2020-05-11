@@ -47,7 +47,9 @@ fn challenges_new_head_prev() {
 
     // Try to add a block on top of the fifth block.
 
-    let e = chain.process_block(&None, last_block, Provenance::PRODUCED, |_| {}, |_| {}, |_| {}).unwrap_err();
+    let e = chain
+        .process_block(&None, last_block, Provenance::PRODUCED, |_| {}, |_| {}, |_| {})
+        .unwrap_err();
     assert_eq!(e.kind(), ErrorKind::ChallengedBlockOnChain);
     assert_eq!(chain.head_header().unwrap().hash(), hashes[2]);
 

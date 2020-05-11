@@ -52,12 +52,7 @@ pub fn start_all_with_validity_period(
 
     let addr = format!("127.0.0.1:{}", open_port());
 
-    start_http(
-        RpcConfig::new(&addr),
-        Arc::new(genesis),
-        client_addr,
-        view_client_addr.clone(),
-    );
+    start_http(RpcConfig::new(&addr), Arc::new(genesis), client_addr, view_client_addr.clone());
     (view_client_addr, addr)
 }
 

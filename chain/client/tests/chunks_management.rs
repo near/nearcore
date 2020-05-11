@@ -400,15 +400,11 @@ fn store_partial_encoded_chunk_sanity() {
     assert_eq!(env.clients[0].shards_mgr.get_stored_partial_encoded_chunks(9).len(), 0);
     h.inner.height_created = 5;
     partial_encoded_chunk3.header = Some(h);
-    env.clients[0]
-        .shards_mgr
-        .store_partial_encoded_chunk(&block.header, partial_encoded_chunk3);
+    env.clients[0].shards_mgr.store_partial_encoded_chunk(&block.header, partial_encoded_chunk3);
     assert_eq!(env.clients[0].shards_mgr.get_stored_partial_encoded_chunks(5).len(), 1);
 
     // No header
     let mut partial_encoded_chunk4 = partial_encoded_chunk;
     partial_encoded_chunk4.header = None;
-    env.clients[0]
-        .shards_mgr
-        .store_partial_encoded_chunk(&block.header, partial_encoded_chunk4);
+    env.clients[0].shards_mgr.store_partial_encoded_chunk(&block.header, partial_encoded_chunk4);
 }
