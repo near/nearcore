@@ -2179,6 +2179,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "near-runtime-standalone"
+version = "0.1.0"
+dependencies = [
+ "near-chain 0.1.0",
+ "near-crypto 0.1.0",
+ "near-pool 0.1.0",
+ "near-primitives 0.1.0",
+ "near-runtime-configs 0.1.0",
+ "near-store 0.1.0",
+ "node-runtime 0.0.1",
+]
+
+[[package]]
 name = "near-store"
 version = "0.1.0"
 dependencies = [
@@ -2283,6 +2296,7 @@ dependencies = [
  "near-logger-utils 0.1.0",
  "near-network 0.1.0",
  "near-primitives 0.1.0",
+ "near-runtime-standalone 0.1.0",
  "near-store 0.1.0",
  "neard 0.4.13",
  "node-runtime 0.0.1",
