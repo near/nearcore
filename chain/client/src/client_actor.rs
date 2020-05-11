@@ -459,14 +459,18 @@ impl Handler<Status> for ClientActor {
             .map_err(|err| err.to_string())?;
         let latest_block_time = header.inner_lite.timestamp.clone();
         if msg.is_health_check {
-            let elapsed = (Utc::now() - from_timestamp(latest_block_time)).to_std().unwrap();
-            if elapsed
-                > Duration::from_millis(
-                    self.client.config.max_block_production_delay.as_millis() as u64
-                        * STATUS_WAIT_TIME_MULTIPLIER,
-                )
-            {
-                return Err(format!("No blocks for {:?}.", elapsed));
+            let now = Utc::now();
+            let block_timestamp = from_timestamp(latest_block_time);
+            if now > block_timestamp {
+                let elapsed = (now - block_timestamp).to_std().unwrap();
+                if elapsed
+                    > Duration::from_millis(
+                        self.client.config.max_block_production_delay.as_millis() as u64
+                            * STATUS_WAIT_TIME_MULTIPLIER,
+                    )
+                {
+                    return Err(format!("No blocks for {:?}.", elapsed));
+                }
             }
         }
         let validators = self
