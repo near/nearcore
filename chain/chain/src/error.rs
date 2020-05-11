@@ -5,6 +5,7 @@ use chrono::{DateTime, Utc};
 use failure::{Backtrace, Context, Fail};
 
 use near_primitives::challenge::{ChunkProofs, ChunkState};
+use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::{ChunkHash, ShardChunkHeader};
 use near_primitives::types::ShardId;
@@ -158,8 +159,8 @@ pub enum ErrorKind {
     #[fail(display = "DB Not Found Error: {}", _0)]
     DBNotFoundErr(String),
     /// Storage error. Used for internal passing the error.
-    #[fail(display = "Storage Error")]
-    StorageError,
+    #[fail(display = "Storage Error: {}", _0)]
+    StorageError(StorageError),
     /// GC error.
     #[fail(display = "GC Error: {}", _0)]
     GCError(String),
@@ -210,7 +211,7 @@ impl Error {
             // TODO: can be either way?
             | ErrorKind::EpochOutOfBounds
             | ErrorKind::ChallengedBlockOnChain
-            | ErrorKind::StorageError
+            | ErrorKind::StorageError(_)
             | ErrorKind::GCError(_)
             | ErrorKind::DBNotFoundErr(_) => false,
             ErrorKind::InvalidBlockPastTime(_, _)

@@ -326,7 +326,7 @@ impl NightshadeRuntime {
                 RuntimeError::UnexpectedIntegerOverflow => {
                     panic!("RuntimeError::UnexpectedIntegerOverflow")
                 }
-                RuntimeError::StorageError(_) => ErrorKind::StorageError,
+                RuntimeError::StorageError(e) => ErrorKind::StorageError(e),
                 // TODO(#2152): process gracefully
                 RuntimeError::ReceiptValidationError(e) => panic!("{}", e),
             })?;
@@ -451,7 +451,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                 debug!(target: "runtime", "Tx {:?} validation failed: {:?}", transaction, err);
                 Ok(Some(err))
             }
-            Err(RuntimeError::StorageError(_err)) => Err(Error::from(ErrorKind::StorageError)),
+            Err(RuntimeError::StorageError(err)) => Err(Error::from(ErrorKind::StorageError(err))),
             Err(err) => unreachable!("Unexpected RuntimeError error {:?}", err),
         }
     }
@@ -498,8 +498,8 @@ impl RuntimeAdapter for NightshadeRuntime {
                             Err(RuntimeError::InvalidTxError(_err)) => {
                                 state_update.rollback();
                             }
-                            Err(RuntimeError::StorageError(_err)) => {
-                                return Err(Error::from(ErrorKind::StorageError))
+                            Err(RuntimeError::StorageError(err)) => {
+                                return Err(Error::from(ErrorKind::StorageError(err)))
                             }
                             Err(err) => unreachable!("Unexpected RuntimeError error {:?}", err),
                         }
@@ -886,8 +886,8 @@ impl RuntimeAdapter for NightshadeRuntime {
         ) {
             Ok(result) => Ok(result),
             Err(e) => match e.kind() {
-                ErrorKind::StorageError => {
-                    panic!("Storage error. Corrupted db or invalid state.");
+                ErrorKind::StorageError(_) => {
+                    panic!("{}", e);
                 }
                 _ => Err(e),
             },
