@@ -368,8 +368,9 @@ impl EncodedShardChunk {
     }
 }
 
-/// An reed solomon instance should not consume more than 20MB of memory.
-const RS_MAX_MEMORY: u64 = 20 * 1024 * 1024;
+/// The ttl for a reed solomon instance to control memory usage. This number below corresponds to
+/// roughly 60MB of memory usage.
+const RS_TTL: u64 = 2 * 1024;
 
 /// Wrapper around reed solomon which occasionally resets the underlying
 /// reed solomon instead to work around the memory leak in reed solomon
@@ -383,7 +384,7 @@ impl ReedSolomonWrapper {
     pub fn new(data_shards: usize, parity_shards: usize) -> Self {
         ReedSolomonWrapper {
             rs: ReedSolomon::new(data_shards, parity_shards).unwrap(),
-            ttl: RS_MAX_MEMORY / (data_shards * data_shards) as u64 + 1,
+            ttl: RS_TTL,
         }
     }
 
