@@ -158,7 +158,7 @@ impl RuntimeStandalone {
         self.transactions.insert(outcome_hash, tx.clone());
         self.tx_pool.insert_transaction(tx);
         loop {
-            self.process_block()?;
+            self.produce_block()?;
             let outcome = self.outcomes.get(&outcome_hash).unwrap();
             match outcome.status {
                 ExecutionStatus::Unknown => unreachable!(), // ExecutionStatus::Unknown is not relevant for a standalone runtime
@@ -185,7 +185,7 @@ impl RuntimeStandalone {
     /// Processes all transactions and pending receipts until there is no pending_receipts left
     pub fn process_all(&mut self) -> Result<(), RuntimeError> {
         loop {
-            self.process_block()?;
+            self.produce_block()?;
             if self.pending_receipts.len() == 0 {
                 return Ok(());
             }
@@ -193,7 +193,7 @@ impl RuntimeStandalone {
     }
 
     /// Processes one block. Populates outcomes and producining new pending_receipts.
-    pub fn process_block(&mut self) -> Result<(), RuntimeError> {
+    pub fn produce_block(&mut self) -> Result<(), RuntimeError> {
         let apply_state = ApplyState {
             block_index: self.cur_block.block_height,
             epoch_length: 0, // TODO: support for epochs
@@ -223,7 +223,25 @@ impl RuntimeStandalone {
         Ok(())
     }
 
-    /// Force alter account and change state_root
+    /// Produce num_of_blocks blocks.
+    /// # Examples
+    ///
+    /// ```
+    /// use near_runtime_standalone::init_runtime_and_signer;
+    /// let (mut runtime, _) = init_runtime_and_signer(&"root".into());
+    /// runtime.produce_blocks(5);
+    /// assert_eq!(runtime.current_block().block_height, 5);
+    /// assert_eq!(runtime.current_block().epoch_height, 1);
+    ///```
+
+    pub fn produce_blocks(&mut self, num_of_blocks: u64) -> Result<(), RuntimeError> {
+        for _ in 0..num_of_blocks {
+            self.produce_block()?;
+        }
+        Ok(())
+    }
+
+    /// Force alter account and change state_root.
     pub fn force_account_update(&mut self, account_id: AccountId, account: &Account) {
         let mut trie_update = TrieUpdate::new(self.trie.clone(), self.cur_block.state_root);
         set_account(&mut trie_update, account_id, account);
@@ -299,12 +317,6 @@ impl RuntimeStandalone {
 mod tests {
     use super::*;
 
-    fn init_runtime_and_signer(root_account_id: &AccountId) -> (RuntimeStandalone, InMemorySigner) {
-        let mut genesis = GenesisConfig::default();
-        let signer = genesis.init_root_signer(root_account_id);
-        (RuntimeStandalone::new_with_store(genesis), signer)
-    }
-
     #[test]
     fn single_block() {
         let (mut runtime, signer) = init_runtime_and_signer(&"root".into());
@@ -317,7 +329,7 @@ mod tests {
             &signer,
             CryptoHash::default(),
         ));
-        runtime.process_block().unwrap();
+        runtime.produce_block().unwrap();
         assert!(matches!(
             runtime.outcome(&hash),
             Some(ExecutionOutcome { status: ExecutionStatus::SuccessReceiptId(_), .. })
