@@ -13,7 +13,7 @@ if "swap_nodes" in sys.argv:
 from cluster import start_cluster
 
 TARGET_HEIGHT_1 = 60
-TARGET_HEIGHT_2 = 160
+TARGET_HEIGHT_2 = 170
 TARGET_HEIGHT_3 = 250
 TIMEOUT = 300
 
