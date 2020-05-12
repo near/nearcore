@@ -484,7 +484,7 @@ impl Client {
             chunk_extra.gas_limit,
             chunk_extra.validator_reward,
             chunk_extra.balance_burnt,
-            chunk_extra.validator_proposals.clone(),
+            chunk_extra.validator_proposals,
             transactions,
             &outgoing_receipts,
             outgoing_receipts_root,

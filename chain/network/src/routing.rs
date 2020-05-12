@@ -367,7 +367,7 @@ impl RoutingTable {
     /// Find peer that owns this AccountId.
     pub fn account_owner(&mut self, account_id: &AccountId) -> Result<PeerId, FindRouteError> {
         self.get_announce(account_id)
-            .map(|announce_account| announce_account.peer_id.clone())
+            .map(|announce_account| announce_account.peer_id)
             .ok_or_else(|| FindRouteError::AccountNotFound)
     }
 

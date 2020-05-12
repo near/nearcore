@@ -238,7 +238,7 @@ impl ViewClientActor {
             self.tx_status_requests.cache_remove(&tx_hash);
             return Ok(Some(res));
         }
-        let head = self.chain.head().map_err(|e| TxStatusError::ChainError(e))?.clone();
+        let head = self.chain.head().map_err(|e| TxStatusError::ChainError(e))?;
         let target_shard_id = self.runtime_adapter.account_id_to_shard_id(&signer_account_id);
         // Check if we are tracking this shard.
         if self.runtime_adapter.cares_about_shard(

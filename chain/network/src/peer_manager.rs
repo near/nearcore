@@ -122,20 +122,24 @@ impl PeerManagerActor {
         debug!(target: "network", "Blacklist: {:?}", config.blacklist);
 
         let me: PeerId = config.public_key.clone().into();
+        let routing_table = RoutingTable::new(me.clone(), store);
+
+        #[cfg(feature = "metric_recorder")]
+        let metric_recorder = MetricRecorder::default().set_me(me.clone());
 
         Ok(PeerManagerActor {
-            peer_id: config.public_key.clone().into(),
+            peer_id: me,
             config,
             client_addr,
             view_client_addr,
             peer_store,
             active_peers: HashMap::default(),
             outgoing_peers: HashSet::default(),
-            routing_table: RoutingTable::new(me.clone(), store),
+            routing_table,
             monitor_peers_attempts: 0,
             pending_update_nonce_request: HashMap::new(),
             #[cfg(feature = "metric_recorder")]
-            metric_recorder: MetricRecorder::default().set_me(me),
+            metric_recorder,
         })
     }
 
@@ -1195,10 +1199,7 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                             if announce_account.epoch_id == current_announce_account.epoch_id {
                                 None
                             } else {
-                                Some((
-                                    announce_account,
-                                    Some(current_announce_account.epoch_id.clone()),
-                                ))
+                                Some((announce_account, Some(current_announce_account.epoch_id)))
                             }
                         } else {
                             Some((announce_account, None))
@@ -1308,7 +1309,7 @@ impl Handler<NetworkRequests> for PeerManagerActor {
 
                     let new_edge = Edge::build_with_secret_key(
                         self.peer_id.clone(),
-                        peer_id.clone(),
+                        peer_id,
                         edge_info.nonce,
                         &self.config.secret_key,
                         edge_info.signature,

@@ -59,7 +59,7 @@ fn measure_function(
         SignedTransaction::from_actions(
             nonce as u64,
             account_id.clone(),
-            account_id.clone(),
+            account_id,
             &signer,
             vec![function_call],
             CryptoHash::default(),
@@ -211,7 +211,7 @@ pub fn run(mut config: Config) -> RuntimeConfig {
         SignedTransaction::from_actions(
             nonce as u64,
             account_id.clone(),
-            account_id.clone(),
+            account_id,
             &signer,
             vec![Action::DeleteAccount(DeleteAccountAction { beneficiary_id })],
             CryptoHash::default(),
@@ -303,7 +303,7 @@ pub fn run(mut config: Config) -> RuntimeConfig {
         SignedTransaction::from_actions(
             nonce as u64,
             account_id.clone(),
-            account_id.clone(),
+            account_id,
             &signer,
             vec![Action::DeleteKey(DeleteKeyAction { public_key: signer.public_key.clone() })],
             CryptoHash::default(),
@@ -346,7 +346,7 @@ pub fn run(mut config: Config) -> RuntimeConfig {
         SignedTransaction::from_actions(
             nonce as u64,
             account_id.clone(),
-            account_id.clone(),
+            account_id,
             &signer,
             vec![Action::DeployContract(DeployContractAction { code: curr_code.borrow().clone() })],
             CryptoHash::default(),
