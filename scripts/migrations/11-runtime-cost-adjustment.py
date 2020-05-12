@@ -82,9 +82,9 @@ config['runtime_config']['transaction_costs'] = {
             "execution": 102217625000
           },
           "function_call_cost_per_byte": {
-            "send_sir": 19715392000000,
-            "send_not_sir": 19715392000000,
-            "execution": 19715392000000
+            "send_sir": 1925331,
+            "send_not_sir": 1925331,
+            "execution": 1925331
           }
         },
         "delete_key_cost": {
