@@ -517,7 +517,7 @@ impl ShardsManager {
         if self.encoded_chunks.height_within_front_horizon(height) {
             let runtime_adapter = &self.runtime_adapter;
             let heights =
-                self.stored_partial_encoded_chunks.entry(height).or_insert(HashMap::new());
+                self.stored_partial_encoded_chunks.entry(height).or_insert_with(HashMap::new);
             heights
                 .entry(shard_id)
                 .and_modify(|stored_chunk| {
@@ -543,7 +543,7 @@ impl ShardsManager {
                 })
                 // This is the first partial encoded chunk received for current height / shard_id.
                 // Store it because there are no other candidates.
-                .or_insert(partial_encoded_chunk.clone());
+                .or_insert_with(|| partial_encoded_chunk.clone());
         }
     }
 
