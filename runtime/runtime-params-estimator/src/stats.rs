@@ -12,7 +12,7 @@ type ExecutionCost = u64;
 #[derive(Clone)]
 pub struct Measurements {
     data: BTreeMap<Metric, Vec<(usize, ExecutionCost, HashMap<ExtCosts, u64>)>>,
-    gas_metric: GasMetric,
+    pub gas_metric: GasMetric,
 }
 
 impl Measurements {
@@ -28,23 +28,15 @@ impl Measurements {
     ) {
         let ext_costs = node_runtime::EXT_COSTS_COUNTER
             .with(|f| f.borrow_mut().drain().collect::<HashMap<_, _>>());
-        let normalized = self.normalize(block_cost);
-        self.data.entry(metric).or_insert_with(Vec::new).push((block_size, normalized, ext_costs));
-    }
-
-    pub fn normalize(&self, cost: u64) -> u64 {
-        match self.gas_metric {
-            GasMetric::Time => cost,
-            // We use factor of 8 to approximately match the price of SHA256 operation between
-            // time-based and icount-based metric as measured on 3.2Ghz Core i5.
-            GasMetric::ICount => cost / 8,
-        }
+        self.data.entry(metric).or_insert_with(Vec::new).push((block_size, block_cost, ext_costs));
     }
 
     pub fn aggregate(&self) -> BTreeMap<Metric, DataStats> {
         self.data
             .iter()
-            .map(|(metric, measurements)| (metric.clone(), DataStats::aggregate(measurements)))
+            .map(|(metric, measurements)| {
+                (metric.clone(), DataStats::aggregate(&self.gas_metric, measurements))
+            })
             .collect()
     }
 
@@ -141,11 +133,15 @@ pub struct DataStats {
     pub stddev: ExecutionCost,
     pub ile5: ExecutionCost,
     pub ile95: ExecutionCost,
-    pub ext_costs: BTreeMap<ExtCosts, f64>,
+    pub ext_costs: BTreeMap<ExtCosts, u64>,
+    pub gas_metric: GasMetric,
 }
 
 impl DataStats {
-    pub fn aggregate(un_aggregated: &Vec<(usize, ExecutionCost, HashMap<ExtCosts, u64>)>) -> Self {
+    pub fn aggregate(
+        gas_metric: &GasMetric,
+        un_aggregated: &Vec<(usize, ExecutionCost, HashMap<ExtCosts, u64>)>,
+    ) -> Self {
         let mut costs = un_aggregated
             .iter()
             .map(|(block_size, execution_cost, _)| {
@@ -160,16 +156,16 @@ impl DataStats {
         let ile5 = costs[costs.len() * 5 / 100];
         let ile95 = costs[costs.len() * 95 / 100];
 
-        let mut ext_costs: BTreeMap<ExtCosts, f64> = BTreeMap::new();
+        let mut ext_costs: BTreeMap<ExtCosts, u64> = BTreeMap::new();
         let mut div: BTreeMap<ExtCosts, u64> = BTreeMap::new();
         for (block_size, _, un_aggregated_ext_costs) in un_aggregated {
             for (ext_cost, count) in un_aggregated_ext_costs {
-                *ext_costs.entry(*ext_cost).or_default() += *count as f64;
+                *ext_costs.entry(*ext_cost).or_default() += *count as u64;
                 *div.entry(*ext_cost).or_default() += *block_size as u64;
             }
         }
         for (k, v) in div {
-            *ext_costs.get_mut(&k).unwrap() /= v as f64;
+            *ext_costs.get_mut(&k).unwrap() /= v as u64;
         }
 
         Self {
@@ -177,13 +173,33 @@ impl DataStats {
             stddev: stddev as u64,
             ile5: ile5 as u64,
             ile95: ile95 as u64,
-            ext_costs,
+            ext_costs: ext_costs,
+            gas_metric: *gas_metric,
         }
     }
 
-    /// Get mean + 4*sigma in micros
-    pub fn upper(&self) -> u128 {
-        (self.mean + 4u64 * self.stddev) as u128
+    /// Get mean + 4*sigma
+    pub fn upper(&self) -> u64 {
+        self.mean + 4u64 * self.stddev
+    }
+}
+
+fn op(gas_metric: &GasMetric, index: i32) -> String {
+    match *gas_metric {
+        GasMetric::ICount => match index {
+            0 => "go".to_string(),
+            1 => "mo".to_string(),
+            2 => "ko".to_string(),
+            3 => "o".to_string(),
+            _ => panic!("Unknown index"),
+        },
+        GasMetric::Time => match index {
+            0 => "s".to_string(),
+            1 => "ms".to_string(),
+            2 => "us".to_string(),
+            3 => "ns".to_string(),
+            _ => panic!("Unknown index"),
+        },
     }
 }
 
@@ -192,32 +208,55 @@ impl std::fmt::Display for DataStats {
         if self.mean > 100 * 1000 * 1000 * 1000 {
             write!(
                 f,
-                "{}go±{}go ({}go, {}go)",
+                "{}{}±{}{} ({}{}, {}{})",
                 self.mean / (1000 * 1000 * 1000),
+                op(&self.gas_metric, 0),
                 self.stddev / (1000 * 1000 * 1000),
+                op(&self.gas_metric, 0),
                 self.ile5 / (1000 * 1000 * 1000),
-                self.ile95 / (1000 * 1000 * 1000)
+                op(&self.gas_metric, 0),
+                self.ile95 / (1000 * 1000 * 1000),
+                op(&self.gas_metric, 0),
             )?;
         } else if self.mean > 100 * 1000 * 1000 {
             write!(
                 f,
-                "{}mo±{}mo ({}mo, {}mo)",
+                "{}{}±{}{} ({}{}, {}{})",
                 self.mean / (1000 * 1000),
+                op(&self.gas_metric, 1),
                 self.stddev / (1000 * 1000),
+                op(&self.gas_metric, 1),
                 self.ile5 / (1000 * 1000),
-                self.ile95 / (1000 * 1000)
+                op(&self.gas_metric, 1),
+                self.ile95 / (1000 * 1000),
+                op(&self.gas_metric, 1)
             )?;
         } else if self.mean > 100 * 1000 {
             write!(
                 f,
-                "{}ko±{}ko ({}ko, {}ko)",
+                "{}{}±{}{} ({}{}, {}{})",
                 self.mean / 1000,
+                op(&self.gas_metric, 2),
                 self.stddev / 1000,
+                op(&self.gas_metric, 2),
                 self.ile5 / 1000,
-                self.ile95 / 1000
+                op(&self.gas_metric, 2),
+                self.ile95 / 1000,
+                op(&self.gas_metric, 2)
             )?;
         } else {
-            write!(f, "{}o±{}o ({}o, {}o)", self.mean, self.stddev, self.ile5, self.ile95)?;
+            write!(
+                f,
+                "{}{}±{}{} ({}{}, {}{})",
+                self.mean,
+                op(&self.gas_metric, 3),
+                self.stddev,
+                op(&self.gas_metric, 3),
+                self.ile5,
+                op(&self.gas_metric, 3),
+                self.ile95,
+                op(&self.gas_metric, 3)
+            )?;
         }
         for (ext_cost, cnt) in &self.ext_costs {
             write!(f, " {:?}=>{:.2}", ext_cost, cnt)?;
