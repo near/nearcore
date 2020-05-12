@@ -423,7 +423,7 @@ pub fn setup_mock_all_validators(
                                                         connectors2.read().unwrap()[my_ord]
                                                             .0
                                                             .do_send(NetworkClientMessages::Block(
-                                                                block, peer_id, true,
+                                                                *block, peer_id, true,
                                                             ));
                                                     }
                                                     NetworkViewClientResponses::NoResponse => {}
@@ -498,7 +498,7 @@ pub fn setup_mock_all_validators(
                                                             .0
                                                             .do_send(
                                                             NetworkClientMessages::StateResponse(
-                                                                response,
+                                                                *response,
                                                             ),
                                                         );
                                                     }
@@ -542,7 +542,7 @@ pub fn setup_mock_all_validators(
                                                             .0
                                                             .do_send(
                                                             NetworkClientMessages::StateResponse(
-                                                                response,
+                                                                *response,
                                                             ),
                                                         );
                                                     }

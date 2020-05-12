@@ -59,7 +59,7 @@ pub enum ProcessPartialEncodedChunkResult {
     HaveAllPartsAndReceipts(CryptoHash),
     /// The Header is the header of the current chunk, which is unknown to the caller, to request
     ///     parts / receipts for
-    NeedMorePartsOrReceipts(ShardChunkHeader),
+    NeedMorePartsOrReceipts(Box<ShardChunkHeader>),
     /// PartialEncodedChunkMessage is received earlier than Block for the same height.
     /// Without the block we cannot restore the epoch and save encoded chunk data.
     NeedBlock,
@@ -946,7 +946,7 @@ impl ShardsManager {
             return Ok(ProcessPartialEncodedChunkResult::HaveAllPartsAndReceipts(prev_block_hash));
         }
 
-        Ok(ProcessPartialEncodedChunkResult::NeedMorePartsOrReceipts(header))
+        Ok(ProcessPartialEncodedChunkResult::NeedMorePartsOrReceipts(Box::new(header)))
     }
 
     fn need_receipt(&self, prev_block_hash: &CryptoHash, shard_id: ShardId) -> bool {

@@ -578,7 +578,7 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
             }
             NetworkViewClientMessages::TxStatus { tx_hash, signer_account_id } => {
                 if let Ok(Some(result)) = self.get_tx_status(tx_hash, signer_account_id) {
-                    NetworkViewClientResponses::TxStatus(result)
+                    NetworkViewClientResponses::TxStatus(Box::new(result))
                 } else {
                     NetworkViewClientResponses::NoResponse
                 }
@@ -586,7 +586,7 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
             NetworkViewClientMessages::TxStatusResponse(tx_result) => {
                 let tx_hash = tx_result.transaction_outcome.id;
                 if self.tx_status_requests.cache_remove(&tx_hash).is_some() {
-                    self.tx_status_response.cache_set(tx_hash, tx_result);
+                    self.tx_status_response.cache_set(tx_hash, *tx_result);
                 }
                 NetworkViewClientResponses::NoResponse
             }
@@ -610,7 +610,9 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
             }
             NetworkViewClientMessages::ReceiptOutcomeRequest(receipt_id) => {
                 if let Ok(outcome_with_proof) = self.chain.get_execution_outcome(&receipt_id) {
-                    NetworkViewClientResponses::ReceiptOutcomeResponse(outcome_with_proof.clone())
+                    NetworkViewClientResponses::ReceiptOutcomeResponse(Box::new(
+                        outcome_with_proof.clone(),
+                    ))
                 } else {
                     NetworkViewClientResponses::NoResponse
                 }
@@ -633,7 +635,7 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
                                             self.chain.mut_store().store_update();
                                         chain_store_update.save_outcome_with_proof(
                                             response.outcome_with_id.id,
-                                            response,
+                                            *response,
                                         );
                                         if let Err(e) = chain_store_update.commit() {
                                             error!(target: "view_client", "Error committing to chain store: {}", e);
@@ -648,7 +650,7 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
             }
             NetworkViewClientMessages::BlockRequest(hash) => {
                 if let Ok(block) = self.chain.get_block(&hash) {
-                    NetworkViewClientResponses::Block(block.clone())
+                    NetworkViewClientResponses::Block(Box::new(block.clone()))
                 } else {
                     NetworkViewClientResponses::NoResponse
                 }
@@ -705,11 +707,11 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
                         ShardStateSyncResponse { header: None, part: None }
                     }
                 };
-                NetworkViewClientResponses::StateResponse(StateResponseInfo {
+                NetworkViewClientResponses::StateResponse(Box::new(StateResponseInfo {
                     shard_id,
                     sync_hash,
                     state_response,
-                })
+                }))
             }
             NetworkViewClientMessages::StateRequestPart { shard_id, sync_hash, part_id } => {
                 let state_response = match self.chain.get_block(&sync_hash) {
@@ -733,11 +735,11 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
                         ShardStateSyncResponse { header: None, part: None }
                     }
                 };
-                NetworkViewClientResponses::StateResponse(StateResponseInfo {
+                NetworkViewClientResponses::StateResponse(Box::new(StateResponseInfo {
                     shard_id,
                     sync_hash,
                     state_response,
-                })
+                }))
             }
             NetworkViewClientMessages::AnnounceAccount(announce_accounts) => {
                 let mut filtered_announce_accounts = Vec::new();

@@ -2275,7 +2275,7 @@ impl<'a> ChainUpdate<'a> {
                     merkle_proof: merkle_paths[shard_id].clone(),
                     chunk: MaybeEncodedShardChunk::Encoded(encoded_chunk.clone()),
                 };
-                return Err(ErrorKind::InvalidChunkProofs(chunk_proof).into());
+                return Err(ErrorKind::InvalidChunkProofs(Box::new(chunk_proof)).into());
             }
             let shard_id = shard_id as ShardId;
             if chunk_header.height_included == height {
@@ -2467,7 +2467,7 @@ impl<'a> ChainUpdate<'a> {
                         byzantine_assert!(false);
                         match self.create_chunk_state_challenge(&prev_block, &block, chunk_header) {
                             Ok(chunk_state) => {
-                                Error::from(ErrorKind::InvalidChunkState(chunk_state))
+                                Error::from(ErrorKind::InvalidChunkState(Box::new(chunk_state)))
                             }
                             Err(err) => err,
                         }
@@ -2491,7 +2491,9 @@ impl<'a> ChainUpdate<'a> {
                             merkle_proof: merkle_paths[shard_id as usize].clone(),
                             chunk: MaybeEncodedShardChunk::Decoded(chunk),
                         };
-                        return Err(Error::from(ErrorKind::InvalidChunkProofs(chunk_proof)));
+                        return Err(Error::from(ErrorKind::InvalidChunkProofs(Box::new(
+                            chunk_proof,
+                        ))));
                     }
 
                     let gas_limit = chunk.header.inner.gas_limit;

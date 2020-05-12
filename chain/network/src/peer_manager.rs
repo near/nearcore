@@ -1303,7 +1303,7 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                         if cur_edge.edge_type() == EdgeType::Added
                             && cur_edge.nonce >= edge_info.nonce
                         {
-                            return NetworkResponses::EdgeUpdate(cur_edge);
+                            return NetworkResponses::EdgeUpdate(Box::new(cur_edge));
                         }
                     }
 
@@ -1316,7 +1316,7 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                     );
 
                     self.process_edge(ctx, new_edge.clone());
-                    NetworkResponses::EdgeUpdate(new_edge)
+                    NetworkResponses::EdgeUpdate(Box::new(new_edge))
                 } else {
                     NetworkResponses::BanPeer(ReasonForBan::InvalidEdge)
                 }
@@ -1452,7 +1452,7 @@ impl Handler<Consolidate> for PeerManagerActor {
         if last_nonce >= msg.other_edge_info.nonce {
             debug!(target: "network", "Too low nonce. ({} <= {}) {:?} {:?}", msg.other_edge_info.nonce, last_nonce, self.peer_id, msg.peer_info.id);
             // If the check fails don't allow this connection.
-            return ConsolidateResponse::InvalidNonce(last_edge.unwrap());
+            return ConsolidateResponse::InvalidNonce(last_edge.map(Box::new).unwrap());
         }
 
         let require_response = msg.this_edge_info.is_none();
@@ -1573,7 +1573,7 @@ impl Handler<PeerRequest> for PeerManagerActor {
             PeerRequest::RouteBack(body, target) => {
                 self.send_message_to_peer(
                     ctx,
-                    RawRoutedMessage { target: AccountOrPeerIdOrHash::Hash(target), body },
+                    RawRoutedMessage { target: AccountOrPeerIdOrHash::Hash(target), body: *body },
                 );
                 PeerResponse::NoResponse
             }
