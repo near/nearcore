@@ -694,7 +694,7 @@ pub fn init_configs(
             network_signer.write_to_file(&dir.join(config.node_key_file));
 
             let mut genesis = Genesis::from_file(
-                genesis.expect(&format!("Genesis file is required for {}.", &chain_id)),
+                genesis.unwrap_or_else(|| panic!("Genesis file is required for {}.", &chain_id)),
             );
             genesis.config.chain_id = chain_id.clone();
 
