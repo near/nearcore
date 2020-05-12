@@ -12,6 +12,7 @@ use near_store::test_utils::create_test_store;
 use crate::types::{EpochConfig, EpochInfo, ValidatorWeight};
 use crate::RewardCalculator;
 use crate::{BlockInfo, EpochManager};
+use near_primitives::challenge::SlashedValidator;
 use num_rational::Rational;
 
 pub const DEFAULT_GAS_PRICE: u128 = 100;
@@ -174,6 +175,34 @@ pub fn setup_default_epoch_manager(
     )
 }
 
+pub fn record_block_with_slashes(
+    epoch_manager: &mut EpochManager,
+    prev_h: CryptoHash,
+    cur_h: CryptoHash,
+    height: BlockHeight,
+    proposals: Vec<ValidatorStake>,
+    slashed: Vec<SlashedValidator>,
+) {
+    epoch_manager
+        .record_block_info(
+            &cur_h,
+            BlockInfo::new(
+                height,
+                height.saturating_sub(2),
+                prev_h,
+                proposals,
+                vec![],
+                slashed,
+                0,
+                DEFAULT_TOTAL_SUPPLY,
+            ),
+            [0; 32],
+        )
+        .unwrap()
+        .commit()
+        .unwrap();
+}
+
 pub fn record_block(
     epoch_manager: &mut EpochManager,
     prev_h: CryptoHash,
@@ -181,13 +210,5 @@ pub fn record_block(
     height: BlockHeight,
     proposals: Vec<ValidatorStake>,
 ) {
-    epoch_manager
-        .record_block_info(
-            &cur_h,
-            BlockInfo::new(height, 0, prev_h, proposals, vec![], vec![], 0, DEFAULT_TOTAL_SUPPLY),
-            [0; 32],
-        )
-        .unwrap()
-        .commit()
-        .unwrap();
+    record_block_with_slashes(epoch_manager, prev_h, cur_h, height, proposals, vec![]);
 }

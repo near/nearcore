@@ -9,7 +9,7 @@ use chrono::Duration;
 use log::{debug, error, info};
 
 use near_chain_configs::GenesisConfig;
-use near_primitives::block::{genesis_chunks, Approval};
+use near_primitives::block::genesis_chunks;
 use near_primitives::challenge::{
     BlockDoubleSign, Challenge, ChallengeBody, ChallengesResult, ChunkProofs, ChunkState,
     MaybeEncodedShardChunk, SlashedValidator,
@@ -20,9 +20,7 @@ use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{
     ChunkHash, ChunkHashHeight, ReceiptProof, ShardChunk, ShardChunkHeader, ShardProof,
 };
-use near_primitives::transaction::{
-    ExecutionOutcome, ExecutionOutcomeWithId, ExecutionOutcomeWithIdAndProof, ExecutionStatus,
-};
+use near_primitives::transaction::ExecutionOutcomeWithIdAndProof;
 use near_primitives::types::{
     AccountId, Balance, BlockExtra, BlockHeight, BlockHeightDelta, ChunkExtra, EpochId, Gas,
     NumBlocks, ShardId, StateHeaderKey, ValidatorStake,
@@ -35,7 +33,6 @@ use near_primitives::views::{
 use near_store::{ColStateHeaders, ColStateParts, Trie};
 
 use crate::error::{Error, ErrorKind};
-use crate::finality::{ApprovalVerificationError, FinalityGadget, FinalityGadgetQuorums};
 use crate::lightclient::get_epoch_block_producers_view;
 use crate::store::{
     ChainStore, ChainStoreAccess, ChainStoreUpdate, GCMode, ShardInfo, StateSyncInfo,
@@ -362,7 +359,7 @@ impl Chain {
         }
         store_update.commit()?;
 
-        info!(target: "chain", "Init: head: score: {} @ {} [{}]", head.score.to_num(), head.height, head.last_block_hash);
+        info!(target: "chain", "Init: head @ {} [{}]", head.height, head.last_block_hash);
 
         Ok(Chain {
             store,
@@ -383,28 +380,6 @@ impl Chain {
     #[cfg(feature = "adversarial")]
     pub fn adv_disable_doomslug(&mut self) {
         self.doomslug_threshold_mode = DoomslugThresholdMode::NoApprovals
-    }
-
-    pub fn process_approval(
-        &mut self,
-        me: &Option<AccountId>,
-        approval: &Approval,
-    ) -> Result<(), Error> {
-        let mut chain_store_update = ChainStoreUpdate::new(&mut self.store);
-        FinalityGadget::process_approval(me, approval, &mut chain_store_update)?;
-        chain_store_update.commit()?;
-        Ok(())
-    }
-
-    pub fn verify_approval_conditions(
-        &mut self,
-        approval: &Approval,
-    ) -> Result<(), ApprovalVerificationError> {
-        FinalityGadget::verify_approval_conditions(approval, &mut self.store)
-    }
-
-    pub fn get_my_approval_reference_hash(&mut self, last_hash: CryptoHash) -> Option<CryptoHash> {
-        FinalityGadget::get_my_approval_reference_hash(last_hash, &mut self.store)
     }
 
     pub fn compute_bp_hash_inner(bps: &Vec<ValidatorStake>) -> Result<CryptoHash, Error> {
@@ -431,35 +406,6 @@ impl Chain {
         Chain::compute_bp_hash_inner(&bps)
     }
 
-    pub fn compute_quorums(
-        prev_hash: CryptoHash,
-        epoch_id: EpochId,
-        height: BlockHeight,
-        approvals: Vec<Approval>,
-        runtime_adapter: &dyn RuntimeAdapter,
-        chain_store: &mut dyn ChainStoreAccess,
-        push_back_if_needed: bool,
-    ) -> Result<FinalityGadgetQuorums, Error> {
-        let stakes = runtime_adapter
-            .get_epoch_block_producers_ordered(&epoch_id, &prev_hash)?
-            .iter()
-            .map(|x| x.0.clone())
-            .collect();
-        let mut ret = FinalityGadget::compute_quorums(
-            prev_hash,
-            epoch_id,
-            height,
-            approvals,
-            chain_store,
-            &stakes,
-        )?;
-        if push_back_if_needed {
-            ret.last_quorum_pre_commit = runtime_adapter
-                .push_final_block_back_if_needed(prev_hash, ret.last_quorum_pre_commit)?;
-        }
-        Ok(ret)
-    }
-
     /// Creates a light client block for the last final block from perspective of some other block
     ///
     /// # Arguments
@@ -470,26 +416,8 @@ impl Chain {
         runtime_adapter: &dyn RuntimeAdapter,
         chain_store: &mut dyn ChainStoreAccess,
     ) -> Result<LightClientBlockView, Error> {
-        // Compute actual, not pushed back, quorum_pre_commit
-        let actual_quorum = Chain::compute_quorums(
-            header.prev_hash,
-            header.inner_lite.epoch_id.clone(),
-            header.inner_lite.height,
-            header.inner_rest.approvals.clone(),
-            runtime_adapter,
-            chain_store,
-            false,
-        )?;
-
-        // Get the actual, not pushed, back, final block
         let final_block_header =
-            chain_store.get_block_header(&actual_quorum.last_quorum_pre_commit)?.clone();
-
-        let block_producers = get_epoch_block_producers_view(
-            &final_block_header.inner_lite.epoch_id,
-            &header.prev_hash,
-            runtime_adapter,
-        )?;
+            chain_store.get_block_header(&header.inner_rest.last_final_block)?.clone();
 
         let next_block_producers = get_epoch_block_producers_view(
             &final_block_header.inner_lite.next_epoch_id,
@@ -497,13 +425,7 @@ impl Chain {
             runtime_adapter,
         )?;
 
-        create_light_client_block_view(
-            &final_block_header,
-            &header.inner_rest.last_quorum_pre_commit,
-            chain_store,
-            &block_producers,
-            Some(next_block_producers),
-        )
+        create_light_client_block_view(&final_block_header, chain_store, Some(next_block_producers))
     }
 
     /// Reset "sync" head to current header head.
@@ -616,9 +538,8 @@ impl Chain {
     // 4. State Sync Clearing happens in `reset_data_pre_state_sync()`.
     //
     pub fn clear_data(&mut self, trie: Arc<Trie>) -> Result<(), Error> {
-        let mut chain_store_update = self.store.store_update();
-        let head = chain_store_update.head()?;
-        let tail = chain_store_update.tail()?;
+        let head = self.store.head()?;
+        let tail = self.store.tail()?;
         let mut gc_stop_height = self.runtime_adapter.get_gc_stop_height(&head.last_block_hash)?;
         if gc_stop_height > head.height {
             return Err(ErrorKind::GCError(
@@ -631,11 +552,12 @@ impl Chain {
 
         // Forks Cleaning
         for height in tail..gc_stop_height {
-            chain_store_update.clear_forks_data(trie.clone(), height)?;
+            self.clear_forks_data(trie.clone(), height)?;
         }
 
         // Canonical Chain Clearing
         for height in tail + 1..gc_stop_height {
+            let mut chain_store_update = self.store.store_update();
             if let Ok(blocks_current_height) =
                 chain_store_update.get_all_block_hashes_by_height(height)
             {
@@ -660,8 +582,41 @@ impl Chain {
                 }
             }
             chain_store_update.update_tail(height);
+            chain_store_update.commit()?;
         }
-        chain_store_update.commit()?;
+        Ok(())
+    }
+
+    pub fn clear_forks_data(&mut self, trie: Arc<Trie>, height: BlockHeight) -> Result<(), Error> {
+        if let Ok(blocks_current_height) = self.store.get_all_block_hashes_by_height(height) {
+            let blocks_current_height =
+                blocks_current_height.values().flatten().cloned().collect::<Vec<_>>();
+            for block_hash in blocks_current_height.iter() {
+                let mut current_hash = *block_hash;
+                loop {
+                    // Block `block_hash` is not on the Canonical Chain
+                    // because shorter chain cannot be Canonical one
+                    // and it may be safely deleted
+                    // and all its ancestors while there are no other sibling blocks rely on it.
+                    let mut chain_store_update = self.store.store_update();
+                    if *chain_store_update.get_block_refcount(&current_hash)? == 0 {
+                        let prev_hash =
+                            chain_store_update.get_block_header(&current_hash)?.prev_hash;
+
+                        // It's safe to call `clear_block_data` for prev data because it clears fork only here
+                        chain_store_update
+                            .clear_block_data(current_hash, GCMode::Fork(trie.clone()))?;
+                        chain_store_update.commit()?;
+
+                        current_hash = prev_hash;
+                    } else {
+                        // Block of `current_hash` is an ancestor for some other blocks, stopping
+                        break;
+                    }
+                }
+            }
+        }
+
         Ok(())
     }
 
@@ -832,7 +787,7 @@ impl Chain {
                     header.hash(),
                     header.inner_rest.random_value,
                     header.inner_lite.height,
-                    self.store.get_block_height(&header.inner_rest.last_quorum_pre_commit)?,
+                    self.store.get_block_height(&header.inner_rest.last_final_block)?,
                     header.inner_rest.validator_proposals.clone(),
                     vec![],
                     header.inner_rest.chunk_mask.clone(),
@@ -874,7 +829,7 @@ impl Chain {
 
         // If latest block is up to date return early.
         // No state download is required, neither any blocks need to be fetched.
-        if block_head.score_and_height() >= header_head.score_and_height() {
+        if block_head.height >= header_head.height {
             return Ok(BlockSyncResponse::None);
         }
 
@@ -962,33 +917,27 @@ impl Chain {
         let hash = header.prev_hash;
         let prev_header = self.get_block_header(&hash)?;
         let tip = Tip::from_header(prev_header);
-        let mut chain_store_update = self.mut_store().store_update();
 
         // GC all the data from current tail up to `tip.height`
         let new_tail = tip.height;
-        let tail = chain_store_update.tail()?;
+        let tail = self.store.tail()?;
         for height in tail..new_tail {
-            if let Ok(blocks_current_height) =
-                chain_store_update.get_all_block_hashes_by_height(height)
-            {
+            if let Ok(blocks_current_height) = self.store.get_all_block_hashes_by_height(height) {
                 let blocks_current_height =
                     blocks_current_height.values().flatten().cloned().collect::<Vec<_>>();
                 for block_hash in blocks_current_height {
+                    let mut chain_store_update = self.mut_store().store_update();
                     chain_store_update.clear_block_data(block_hash, GCMode::StateSync)?;
+                    chain_store_update.commit()?;
                 }
             }
         }
 
+        let mut chain_store_update = self.mut_store().store_update();
         // Clear all Trie data
         chain_store_update.clear_state_data();
-
         chain_store_update.update_tail(new_tail);
-
         chain_store_update.commit()?;
-
-        // Fill the Trie with Genesis state
-        let (_, state_store_update, _) = self.runtime_adapter.genesis_state();
-        state_store_update.commit()?;
 
         Ok(())
     }
@@ -1932,30 +1881,14 @@ impl Chain {
     pub fn get_transaction_execution_result(
         &mut self,
         hash: &CryptoHash,
-    ) -> Result<ExecutionOutcomeWithIdView, String> {
-        match self.get_execution_outcome(hash) {
-            Ok(result) => Ok(result.clone().into()),
-            Err(err) => match err.kind() {
-                ErrorKind::DBNotFoundErr(_) => Ok(ExecutionOutcomeWithIdAndProof {
-                    outcome_with_id: ExecutionOutcomeWithId {
-                        id: *hash,
-                        outcome: ExecutionOutcome {
-                            status: ExecutionStatus::Unknown,
-                            ..Default::default()
-                        },
-                    },
-                    ..Default::default()
-                }
-                .into()),
-                _ => Err(err.to_string()),
-            },
-        }
+    ) -> Result<ExecutionOutcomeWithIdView, Error> {
+        self.get_execution_outcome(hash).map(|r| r.clone().into())
     }
 
     fn get_recursive_transaction_results(
         &mut self,
         hash: &CryptoHash,
-    ) -> Result<Vec<ExecutionOutcomeWithIdView>, String> {
+    ) -> Result<Vec<ExecutionOutcomeWithIdView>, Error> {
         let outcome = self.get_transaction_execution_result(hash)?;
         let receipt_ids = outcome.outcome.receipt_ids.clone();
         let mut transactions = vec![outcome];
@@ -1969,7 +1902,7 @@ impl Chain {
     pub fn get_final_transaction_result(
         &mut self,
         hash: &CryptoHash,
-    ) -> Result<FinalExecutionOutcomeView, String> {
+    ) -> Result<FinalExecutionOutcomeView, Error> {
         let mut outcomes = self.get_recursive_transaction_results(hash)?;
         let mut looking_for_id = (*hash).into();
         let num_outcomes = outcomes.len();
@@ -2001,9 +1934,8 @@ impl Chain {
         let receipts = outcomes.split_off(1);
         let transaction = self
             .store
-            .get_transaction(hash)
-            .map_err(|e| e.to_string())?
-            .ok_or_else(|| format!("Transaction {} is not found", hash))?
+            .get_transaction(hash)?
+            .ok_or_else(|| ErrorKind::DBNotFoundErr(format!("Transaction {} is not found", hash)))?
             .clone()
             .into();
         Ok(FinalExecutionOutcomeView {
@@ -2576,7 +2508,7 @@ impl<'a> ChainUpdate<'a> {
                             &receipts,
                             &chunk.transactions,
                             &chunk.header.inner.validator_proposals,
-                            block.header.inner_rest.gas_price,
+                            prev_block.header.inner_rest.gas_price,
                             chunk.header.inner.gas_limit,
                             &block.header.inner_rest.challenges_result,
                         )
@@ -2701,7 +2633,9 @@ impl<'a> ChainUpdate<'a> {
             return Err(ErrorKind::Orphan.into());
         }
 
-        if block.header.inner_lite.height > head.height + self.epoch_length * 2 {
+        // A heuristic to prevent block height to jump too fast towards BlockHeight::max and cause
+        // overflow-related problems
+        if block.header.inner_lite.height > head.height + self.epoch_length * 20 {
             return Err(ErrorKind::InvalidBlockHeight.into());
         }
 
@@ -2726,10 +2660,6 @@ impl<'a> ChainUpdate<'a> {
         // Check the header is valid before we proceed with the full block.
         self.process_header_for_block(&block.header, provenance, on_challenge)?;
 
-        for approval in block.header.inner_rest.approvals.iter() {
-            FinalityGadget::process_approval(me, approval, &mut self.chain_store_update)?;
-        }
-
         self.runtime_adapter.verify_block_vrf(
             &block.header.inner_lite.epoch_id,
             block.header.inner_lite.height,
@@ -2740,18 +2670,6 @@ impl<'a> ChainUpdate<'a> {
 
         if block.header.inner_rest.random_value != hash(block.vrf_value.0.as_ref()) {
             return Err(ErrorKind::InvalidRandomnessBeaconOutput.into());
-        }
-
-        // We need to know the last approval on the previous block to later compute the reference
-        //    block for the current block. If it is not known by now, transfer it from the block
-        //    before it
-        if let Err(_) = self.chain_store_update.get_my_last_approval(&prev_hash) {
-            if let Ok(prev_approval) = self.chain_store_update.get_my_last_approval(&prev_prev_hash)
-            {
-                let prev_approval = prev_approval.clone();
-                self.chain_store_update
-                    .save_my_last_approval_with_reference_hash(&prev_hash, prev_approval);
-            }
         }
 
         if !block.check_validity() {
@@ -2809,11 +2727,11 @@ impl<'a> ChainUpdate<'a> {
         }
 
         // If block checks out, record validator proposals for given block.
-        let last_quorum_pre_commit = &block.header.inner_rest.last_quorum_pre_commit;
-        let last_finalized_height = if last_quorum_pre_commit == &CryptoHash::default() {
+        let last_final_block = &block.header.inner_rest.last_final_block;
+        let last_finalized_height = if last_final_block == &CryptoHash::default() {
             self.chain_store_update.get_genesis_height()
         } else {
-            self.chain_store_update.get_block_header(last_quorum_pre_commit)?.inner_lite.height
+            self.chain_store_update.get_block_header(last_final_block)?.inner_lite.height
         };
         self.runtime_adapter.add_validator_proposals(
             block.header.prev_hash,
@@ -2842,31 +2760,18 @@ impl<'a> ChainUpdate<'a> {
         let res = self.update_head(block)?;
 
         if res.is_some() {
-            // Some tests do not set finality-related fields, make them also not create the light
-            // client block.
-            if block.header.inner_rest.last_quorum_pre_commit != CryptoHash::default() {
-                // On the epoch switch record the epoch light client block
-                // Note that we only do it if `res.is_some()`, i.e. if the current block is the head.
-                // This is necessary because the computation of the light client block relies on
-                // `ColNextBlockHash`-es populated, and they are only populated for the canonical
-                // chain. We need to be careful to avoid a situation when the first block of the epoch
-                // never becomes a tip of the canonical chain. E.g consider the following diagram:
-                //
-                //          / C0 - D0
-                //  A0 - B0 - E1 - F1
-                //
-                // Where the number indicates the epoch. Say C0 and D0 are produced first, and then E1
-                // is produced. If after processing E1 the chain ending in D0 is still canonical, we
-                // would miss the moment to save the epoch light block, since when we process E1 the
-                // condition `res.is_some()` is not met, and by the time we process F1 the below
-                // condition is not met.
-                // Currently the situation above is impossible, because we only switch to the new epoch
-                // when a block at a particular height gets finalized, and once it is finalized we
-                // always switch the epoch. Thus, the last final block from perspective of E1 has higher
-                // score that the last final block from perspective of D0, and thus E1 would be the tip
-                // of the canonical chain when it is processed, not D0.
-                if block.header.inner_lite.epoch_id != prev_epoch_id {
-                    let prev = self.get_previous_header(&block.header)?.clone();
+            // On the epoch switch record the epoch light client block
+            // Note that we only do it if `res.is_some()`, i.e. if the current block is the head.
+            // This is necessary because the computation of the light client block relies on
+            // `ColNextBlockHash`-es populated, and they are only populated for the canonical
+            // chain. We need to be careful to avoid a situation when the first block of the epoch
+            // never becomes a tip of the canonical chain.
+            // Presently the epoch boundary is defined by the height, and the fork choice rule
+            // is also just height, so the very first block to cross the epoch end is guaranteed
+            // to be the head of the chain, and result in the light client block produced.
+            if block.header.inner_lite.epoch_id != prev_epoch_id {
+                let prev = self.get_previous_header(&block.header)?.clone();
+                if prev.inner_rest.last_final_block != CryptoHash::default() {
                     let light_client_block = self.create_light_client_block(&prev)?;
                     self.chain_store_update
                         .save_epoch_light_client_block(&prev_epoch_id.0, light_client_block);
@@ -3010,12 +2915,13 @@ impl<'a> ChainUpdate<'a> {
             .into());
         }
         // If this is not the block we produced (hence trust in it) - validates block
-        // producer, confirmation signatures, finality info and score.
+        // producer, confirmation signatures and finality info.
         if *provenance != Provenance::PRODUCED {
             // first verify aggregated signature
-            if !self.runtime_adapter.verify_approval_signature(
-                &header.inner_lite.epoch_id,
+            if !self.runtime_adapter.verify_approval(
                 &prev_header.hash,
+                prev_header.inner_lite.height,
+                header.inner_lite.height,
                 &header.inner_rest.approvals,
             )? {
                 return Err(ErrorKind::InvalidApprovals.into());
@@ -3023,60 +2929,40 @@ impl<'a> ChainUpdate<'a> {
 
             self.runtime_adapter.verify_block_signature(header)?;
 
-            let quorums = Chain::compute_quorums(
-                header.prev_hash,
-                header.inner_lite.epoch_id.clone(),
-                header.inner_lite.height,
-                header.inner_rest.approvals.clone(),
-                &*self.runtime_adapter,
-                &mut self.chain_store_update,
-                true,
-            )?;
-
-            if header.inner_rest.last_quorum_pre_commit != quorums.last_quorum_pre_commit
-                || header.inner_rest.last_quorum_pre_vote != quorums.last_quorum_pre_vote
-            {
-                return Err(ErrorKind::InvalidFinalityInfo.into());
-            };
-            let account_id_to_stake = self
+            let stakes = self
                 .runtime_adapter
-                .get_epoch_block_producers_ordered(&header.inner_lite.epoch_id, &header.prev_hash)?
+                .get_epoch_block_approvers_ordered(&header.prev_hash)?
                 .iter()
-                .map(|x| (x.0.account_id.clone(), x.0.stake))
+                .map(|x| (x.stake_this_epoch, x.stake_next_epoch))
                 .collect();
             if !Doomslug::can_approved_block_be_produced(
                 self.doomslug_threshold_mode,
                 &header.inner_rest.approvals,
-                &account_id_to_stake,
+                &stakes,
             ) {
                 return Err(ErrorKind::NotEnoughApprovals.into());
             }
 
-            let expected_last_ds_final_block = if Doomslug::is_approved_block_ds_final(
-                &header.inner_rest.approvals,
-                &account_id_to_stake,
-            ) {
-                header.prev_hash
+            let expected_last_ds_final_block =
+                if prev_header.inner_lite.height + 1 == header.inner_lite.height {
+                    prev_header.hash
+                } else {
+                    prev_header.inner_rest.last_ds_final_block
+                };
+
+            let expected_last_final_block = if prev_header.inner_lite.height + 1
+                == header.inner_lite.height
+                && prev_header.inner_rest.last_ds_final_block == prev_header.prev_hash
+            {
+                prev_header.prev_hash
             } else {
-                prev_header.inner_rest.last_ds_final_block
+                prev_header.inner_rest.last_final_block
             };
 
-            if header.inner_rest.last_ds_final_block != expected_last_ds_final_block {
-                return Err(ErrorKind::InvalidDoomslugFinalityInfo.into());
-            }
-
-            let expected_score = if quorums.last_quorum_pre_vote == CryptoHash::default() {
-                0.into()
-            } else {
-                self.chain_store_update
-                    .get_block_header(&quorums.last_quorum_pre_vote)?
-                    .inner_lite
-                    .height
-                    .into()
-            };
-
-            if header.inner_rest.score != expected_score {
-                return Err(ErrorKind::InvalidBlockScore.into());
+            if header.inner_rest.last_ds_final_block != expected_last_ds_final_block
+                || header.inner_rest.last_final_block != expected_last_final_block
+            {
+                return Err(ErrorKind::InvalidFinalityInfo.into());
             }
         }
 
@@ -3089,7 +2975,7 @@ impl<'a> ChainUpdate<'a> {
         header: &BlockHeader,
     ) -> Result<Option<Tip>, Error> {
         let header_head = self.chain_store_update.header_head()?;
-        if header.score_and_height() > header_head.score_and_height() {
+        if header.inner_lite.height > header_head.height {
             let tip = Tip::from_header(header);
             self.chain_store_update.save_header_head_if_not_challenged(&tip)?;
             debug!(target: "chain", "Header head updated to {} at {}", tip.last_block_hash, tip.height);
@@ -3101,12 +2987,12 @@ impl<'a> ChainUpdate<'a> {
     }
 
     /// Directly updates the head if we've just appended a new block to it or handle
-    /// the situation where the block has higher score/height to have a fork
+    /// the situation where the block has higher height to have a fork
     fn update_head(&mut self, block: &Block) -> Result<Option<Tip>, Error> {
-        // if we made a fork with higher score/height than the head (which should also be true
+        // if we made a fork with higher height than the head (which should also be true
         // when extending the head), update it
         let head = self.chain_store_update.head()?;
-        if block.header.score_and_height() > head.score_and_height() {
+        if block.header.inner_lite.height > head.height {
             let tip = Tip::from_header(&block.header);
 
             self.chain_store_update.save_body_head(&tip)?;

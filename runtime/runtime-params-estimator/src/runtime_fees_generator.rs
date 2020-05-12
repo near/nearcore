@@ -1,14 +1,15 @@
 use crate::cases::Metric;
 use crate::stats::{DataStats, Measurements};
+use num_rational::Ratio;
 use std::collections::BTreeMap;
 
 pub struct RuntimeFeesGenerator {
     aggregated: BTreeMap<Metric, DataStats>,
 }
 
-/// Fees for receipts and actions expressed in micros as floats.
+/// Fees for receipts and actions.
 #[derive(Clone, Copy, Hash, PartialEq, Eq, Debug, PartialOrd, Ord)]
-pub enum ReceiptFeesFloat {
+pub enum ReceiptFees {
     ActionReceiptCreation,
     DataReceiptCreationBase,
     DataReceiptCreationPerByte,
@@ -32,87 +33,74 @@ impl RuntimeFeesGenerator {
         Self { aggregated }
     }
 
-    /// Compute fees for receipts and actions in microseconds as floats.
-    pub fn compute(&self) -> BTreeMap<ReceiptFeesFloat, f64> {
-        let mut res: BTreeMap<ReceiptFeesFloat, f64> = Default::default();
+    /// Compute fees for receipts and actions in measurment units, keeps result as rational.
+    pub fn compute(&self) -> BTreeMap<ReceiptFees, Ratio<u64>> {
+        let mut res: BTreeMap<ReceiptFees, Ratio<u64>> = Default::default();
         res.insert(
-            ReceiptFeesFloat::ActionReceiptCreation,
-            self.aggregated[&Metric::Receipt].upper() as f64,
+            ReceiptFees::ActionReceiptCreation,
+            Ratio::new(self.aggregated[&Metric::Receipt].upper(), 1),
         );
         res.insert(
-            ReceiptFeesFloat::DataReceiptCreationBase,
-            self.aggregated[&Metric::data_receipt_10b_1000].upper() as f64 / 1000f64,
+            ReceiptFees::DataReceiptCreationBase,
+            Ratio::new(self.aggregated[&Metric::data_receipt_10b_1000].upper(), 1000),
         );
         res.insert(
-            ReceiptFeesFloat::DataReceiptCreationPerByte,
-            self.aggregated[&Metric::data_receipt_100kib_1000].upper() as f64
-                / (1000f64 * 100f64 * 1024f64),
+            ReceiptFees::DataReceiptCreationPerByte,
+            Ratio::new(
+                self.aggregated[&Metric::data_receipt_100kib_1000].upper(),
+                1000 * 100 * 1024,
+            ),
         );
         res.insert(
-            ReceiptFeesFloat::ActionCreateAccount,
-            self.aggregated[&Metric::ActionCreateAccount].upper() as f64
-                - self.aggregated[&Metric::Receipt].upper() as f64,
+            ReceiptFees::ActionCreateAccount,
+            Ratio::new(self.aggregated[&Metric::ActionCreateAccount].upper(), 1),
         );
         res.insert(
-            ReceiptFeesFloat::ActionDeployContractBase,
+            ReceiptFees::ActionDeployContractBase,
             // TODO: This is a base cost, so we should not be charging for bytes here.
             // We ignore the fact that this includes 10K contract.
-            self.aggregated[&Metric::ActionDeploy10K].upper() as f64
-                - self.aggregated[&Metric::Receipt].upper() as f64,
+            Ratio::new(self.aggregated[&Metric::ActionDeploy10K].upper(), 1),
         );
         res.insert(
-            ReceiptFeesFloat::ActionDeployContractPerByte,
-            (self.aggregated[&Metric::ActionDeploy1M].upper() as f64
-                - self.aggregated[&Metric::ActionDeploy100K].upper() as f64)
-                / (1024f64 * 1024f64 - 100f64 * 1024f64),
+            ReceiptFees::ActionDeployContractPerByte,
+            Ratio::new(self.aggregated[&Metric::ActionDeploy1M].upper(), 1024 * 1024),
         );
         res.insert(
-            ReceiptFeesFloat::ActionFunctionCallBase,
-            (self.aggregated[&Metric::noop].upper() - self.aggregated[&Metric::Receipt].upper())
-                as f64,
+            ReceiptFees::ActionFunctionCallBase,
+            Ratio::new(self.aggregated[&Metric::noop].upper(), 1),
         );
         res.insert(
-            ReceiptFeesFloat::ActionFunctionCallPerByte,
-            (self.aggregated[&Metric::noop_1MiB].upper() - self.aggregated[&Metric::noop].upper())
-                as f64
-                / (1024f64 * 1024f64),
+            ReceiptFees::ActionFunctionCallPerByte,
+            Ratio::new(self.aggregated[&Metric::noop_1MiB].upper(), 1024 * 1024),
         );
         res.insert(
-            ReceiptFeesFloat::ActionTransfer,
-            self.aggregated[&Metric::ActionTransfer].upper() as f64
-                - self.aggregated[&Metric::Receipt].upper() as f64,
+            ReceiptFees::ActionTransfer,
+            Ratio::new(self.aggregated[&Metric::ActionTransfer].upper(), 1),
         );
         res.insert(
-            ReceiptFeesFloat::ActionStake,
-            self.aggregated[&Metric::ActionStake].upper() as f64
-                - self.aggregated[&Metric::Receipt].upper() as f64,
+            ReceiptFees::ActionStake,
+            Ratio::new(self.aggregated[&Metric::ActionStake].upper(), 1),
         );
         res.insert(
-            ReceiptFeesFloat::ActionAddFullAccessKey,
-            self.aggregated[&Metric::ActionAddFullAccessKey].upper() as f64
-                - self.aggregated[&Metric::Receipt].upper() as f64,
+            ReceiptFees::ActionAddFullAccessKey,
+            Ratio::new(self.aggregated[&Metric::ActionAddFullAccessKey].upper(), 1),
         );
         res.insert(
-            ReceiptFeesFloat::ActionAddFunctionAccessKeyBase,
-            self.aggregated[&Metric::ActionAddFunctionAccessKey1Method].upper() as f64
-                - self.aggregated[&Metric::Receipt].upper() as f64,
+            ReceiptFees::ActionAddFunctionAccessKeyBase,
+            Ratio::new(self.aggregated[&Metric::ActionAddFunctionAccessKey1Method].upper(), 1),
         );
         res.insert(
-            ReceiptFeesFloat::ActionAddFunctionAccessKeyPerByte,
+            ReceiptFees::ActionAddFunctionAccessKeyPerByte,
             // These are 1k methods each 10bytes long.
-            (self.aggregated[&Metric::ActionAddFunctionAccessKey1000Methods].upper() as f64
-                - self.aggregated[&Metric::ActionAddFunctionAccessKey1Method].upper() as f64)
-                / (1000f64 * 10f64),
+            Ratio::new(self.aggregated[&Metric::ActionAddFunctionAccessKey1000Methods].upper(), 10),
         );
         res.insert(
-            ReceiptFeesFloat::ActionDeleteKey,
-            self.aggregated[&Metric::ActionDeleteAccessKey].upper() as f64
-                - self.aggregated[&Metric::Receipt].upper() as f64,
+            ReceiptFees::ActionDeleteKey,
+            Ratio::new(self.aggregated[&Metric::ActionDeleteAccessKey].upper(), 1),
         );
         res.insert(
-            ReceiptFeesFloat::ActionDeleteAccount,
-            self.aggregated[&Metric::ActionDeleteAccount].upper() as f64
-                - self.aggregated[&Metric::Receipt].upper() as f64,
+            ReceiptFees::ActionDeleteAccount,
+            Ratio::new(self.aggregated[&Metric::ActionDeleteAccount].upper(), 1),
         );
         res
     }

@@ -1,6 +1,5 @@
 use std::cmp::max;
-use std::collections::{BTreeSet, HashMap, HashSet};
-use std::ops::Bound::{Excluded, Included, Unbounded};
+use std::collections::{HashMap, HashSet};
 use std::ops::DerefMut;
 use std::sync::{Arc, RwLock};
 
@@ -25,7 +24,7 @@ use near_network::{
     FullPeerInfo, NetworkAdapter, NetworkClientMessages, NetworkClientResponses, NetworkRecipient,
     NetworkRequests, NetworkResponses, PeerInfo, PeerManagerActor,
 };
-use near_primitives::block::{Block, GenesisId, ScoreAndHeight};
+use near_primitives::block::{ApprovalInner, Block, GenesisId};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{
@@ -79,7 +78,7 @@ pub fn setup(
         epoch_length,
     );
     let doomslug_threshold_mode = if enable_doomslug {
-        DoomslugThresholdMode::HalfStake
+        DoomslugThresholdMode::TwoThirds
     } else {
         DoomslugThresholdMode::NoApprovals
     };
@@ -97,6 +96,7 @@ pub fn setup(
         archive,
     );
     let view_client = ViewClientActor::new(
+        Some(signer.validator_id().clone()),
         &chain_genesis,
         runtime.clone(),
         network_adapter.clone(),
@@ -255,13 +255,10 @@ pub fn setup_mock_all_validators(
     let genesis_block = Arc::new(RwLock::new(None));
     let num_shards = validators.iter().map(|x| x.len()).min().unwrap() as NumShards;
 
-    let last_height_score =
-        Arc::new(RwLock::new(vec![ScoreAndHeight::from_ints(0, 0); key_pairs.len()]));
+    let last_height = Arc::new(RwLock::new(vec![0; key_pairs.len()]));
     let largest_endorsed_height = Arc::new(RwLock::new(vec![0u64; key_pairs.len()]));
     let largest_skipped_height = Arc::new(RwLock::new(vec![0u64; key_pairs.len()]));
-    let hash_to_score = Arc::new(RwLock::new(HashMap::new()));
-    let approval_intervals: Arc<RwLock<Vec<BTreeSet<(ScoreAndHeight, ScoreAndHeight)>>>> =
-        Arc::new(RwLock::new(key_pairs.iter().map(|_| BTreeSet::new()).collect()));
+    let hash_to_height = Arc::new(RwLock::new(HashMap::new()));
 
     for (index, account_id) in
         validators.iter().flatten().enumerate().map(|(i, acc)| (i, acc.clone())).collect::<Vec<_>>()
@@ -278,12 +275,11 @@ pub fn setup_mock_all_validators(
         let connectors2 = connectors.clone();
         let network_mock1 = network_mock.clone();
         let announced_accounts1 = announced_accounts.clone();
-        let last_height_score1 = last_height_score.clone();
-        let last_height_score2 = last_height_score.clone();
+        let last_height1 = last_height.clone();
+        let last_height2 = last_height.clone();
         let largest_endorsed_height1 = largest_endorsed_height.clone();
         let largest_skipped_height1 = largest_skipped_height.clone();
-        let hash_to_score1 = hash_to_score.clone();
-        let approval_intervals1 = approval_intervals.clone();
+        let hash_to_height1 = hash_to_height.clone();
         let archive1 = archive.clone();
         let client_addr = ClientActor::create(move |ctx| {
             let client_addr = ctx.address();
@@ -310,7 +306,7 @@ pub fn setup_mock_all_validators(
                     let my_ord = my_ord.unwrap();
 
                     {
-                        let last_height_score2 = last_height_score2.read().unwrap();
+                        let last_height2 = last_height2.read().unwrap();
                         let peers: Vec<_> = key_pairs1
                             .iter()
                             .take(connectors2.read().unwrap().len())
@@ -322,8 +318,7 @@ pub fn setup_mock_all_validators(
                                         chain_id: "unittest".to_string(),
                                         hash: Default::default(),
                                     },
-                                    height: last_height_score2[i].height,
-                                    score: last_height_score2[i].score,
+                                    height: last_height2[i],
                                     tracked_shards: vec![],
                                 },
                                 edge_info: EdgeInfo::default(),
@@ -354,17 +349,16 @@ pub fn setup_mock_all_validators(
                                 ))
                             }
 
-                            let mut last_height_score1 = last_height_score1.write().unwrap();
+                            let mut last_height1 = last_height1.write().unwrap();
 
-                            let my_height_score = &mut last_height_score1[my_ord];
+                            let my_height = &mut last_height1[my_ord];
 
-                            *my_height_score =
-                                max(*my_height_score, block.header.score_and_height());
+                            *my_height = max(*my_height, block.header.inner_lite.height);
 
-                            hash_to_score1
+                            hash_to_height1
                                 .write()
                                 .unwrap()
-                                .insert(block.header.hash(), block.header.score_and_height());
+                                .insert(block.header.hash(), block.header.inner_lite.height);
                         }
                         NetworkRequests::PartialEncodedChunkRequest {
                             account_id: their_account_id,
@@ -618,66 +612,38 @@ pub fn setup_mock_all_validators(
                                 }
                             }
 
-                            // Ensure the finality gadget invariant that no two approvals intersect
-                            //     is maintained
-                            if approval.is_endorsement {
-                                assert!(
-                                    approval.target_height
-                                        > largest_skipped_height1.read().unwrap()[my_ord]
-                                );
-                                largest_endorsed_height1.write().unwrap()[my_ord] =
-                                    approval.target_height;
-                            } else if let Some(prev_height) =
-                                hash_to_score1.read().unwrap().get(&approval.parent_hash).clone()
-                            {
-                                if approval.target_height - prev_height.height >= 2 {
-                                    // it's a skip message
-                                    largest_skipped_height1.write().unwrap()[my_ord] =
-                                        approval.target_height;
+                            // Verify doomslug invariant
+                            match approval.inner {
+                                ApprovalInner::Endorsement(parent_hash) => {
                                     assert!(
                                         approval.target_height
-                                            > largest_endorsed_height1.read().unwrap()[my_ord]
+                                            > largest_skipped_height1.read().unwrap()[my_ord]
+                                    );
+                                    largest_endorsed_height1.write().unwrap()[my_ord] =
+                                        approval.target_height;
+
+                                    if let Some(prev_height) =
+                                        hash_to_height1.read().unwrap().get(&parent_hash).clone()
+                                    {
+                                        assert_eq!(prev_height + 1, approval.target_height);
+                                    }
+                                }
+                                ApprovalInner::Skip(prev_height) => {
+                                    largest_skipped_height1.write().unwrap()[my_ord] =
+                                        approval.target_height;
+                                    let e = largest_endorsed_height1.read().unwrap()[my_ord];
+                                    // `e` is the *target* height of the last endorsement. `prev_height`
+                                    // is allowed to be anything >= to the source height, which is e-1.
+                                    assert!(
+                                        prev_height + 1 >= e,
+                                        "New: {}->{}, Old: {}->{}",
+                                        prev_height,
+                                        approval.target_height,
+                                        e - 1,
+                                        e
                                     );
                                 }
-                            }
-
-                            if approval.reference_hash.is_some() {
-                                let hh = hash_to_score1.read().unwrap();
-                                let arange = (
-                                    hh.get(&approval.reference_hash.unwrap()),
-                                    hh.get(&approval.parent_hash),
-                                );
-                                if let (Some(left), Some(right)) = arange {
-                                    let arange = (*left, *right);
-                                    assert!(arange.0 <= arange.1);
-
-                                    let approval_intervals =
-                                        &mut approval_intervals1.write().unwrap()[my_ord];
-                                    let prev = approval_intervals
-                                        .range((Unbounded, Excluded((arange.0, arange.0))))
-                                        .next_back();
-                                    let mut next_score_and_height = arange.0;
-                                    next_score_and_height.height += 1;
-                                    let next = approval_intervals
-                                        .range((
-                                            Included((
-                                                next_score_and_height,
-                                                next_score_and_height,
-                                            )),
-                                            Unbounded,
-                                        ))
-                                        .next();
-
-                                    if let Some(prev) = prev {
-                                        assert!(prev.1 < arange.0);
-                                    }
-                                    if let Some(next) = next {
-                                        assert!(next.0 > arange.1);
-                                    }
-
-                                    approval_intervals.insert(arange);
-                                }
-                            }
+                            };
                         }
                         NetworkRequests::ForwardTx(_, _)
                         | NetworkRequests::Sync { .. }
@@ -720,11 +686,11 @@ pub fn setup_mock_all_validators(
 
         ret.push((client_addr, view_client_addr.clone().read().unwrap().clone().unwrap()));
     }
-    hash_to_score.write().unwrap().insert(CryptoHash::default(), ScoreAndHeight::from_ints(0, 0));
-    hash_to_score.write().unwrap().insert(
-        genesis_block.read().unwrap().as_ref().unwrap().header.clone().hash(),
-        ScoreAndHeight::from_ints(0, 0),
-    );
+    hash_to_height.write().unwrap().insert(CryptoHash::default(), 0);
+    hash_to_height
+        .write()
+        .unwrap()
+        .insert(genesis_block.read().unwrap().as_ref().unwrap().header.clone().hash(), 0);
     *locked_connectors = ret.clone();
     let value = genesis_block.read().unwrap();
     (value.clone().unwrap(), ret)
@@ -919,7 +885,7 @@ impl TestEnv {
             100,
             self.clients[id].chain.head().unwrap().last_block_hash,
         );
-        self.clients[id].process_tx(tx, false)
+        self.clients[id].process_tx(tx, false, false)
     }
 
     pub fn restart(&mut self, id: usize) {

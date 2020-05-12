@@ -145,9 +145,6 @@ extern "C" {
     fn storage_read(key_len: u64, key_ptr: u64, register_id: u64) -> u64;
     fn storage_remove(key_len: u64, key_ptr: u64, register_id: u64) -> u64;
     fn storage_has_key(key_len: u64, key_ptr: u64) -> u64;
-    fn storage_iter_prefix(prefix_len: u64, prefix_ptr: u64) -> u64;
-    fn storage_iter_range(start_len: u64, start_ptr: u64, end_len: u64, end_ptr: u64) -> u64;
-    fn storage_iter_next(iterator_id: u64, key_register_id: u64, value_register_id: u64) -> u64;
 }
 
 // This function is not doing anything useful, it is just here to make sure the payload is getting
@@ -546,96 +543,6 @@ storage_bench!(key, 10240, value, 10, 1000, storage_has_key_10kib_key_10b_value_
 storage_bench!(key, 10, value, 10240, 1000, storage_has_key_10b_key_10kib_value_1k, {
     storage_has_key(10, key.as_ptr() as _);
 });
-
-macro_rules! storage_iter_bench {
-    ($from_buf:ident, $from_len:expr, $to_buf:ident, $to_len:expr, $loop_n:expr, $exp_name:ident, $call:block) => {
-        #[no_mangle]
-        pub unsafe fn $exp_name() {
-            let mut $from_buf = [0u8; $from_len];
-            let mut $to_buf = [0u8; $to_len];
-            for i in 0..$loop_n {
-                // Modify blob so that we write different content.
-                $from_buf[1] = (i % 256) as u8;
-                $from_buf[2] = ((i / 256) % 256) as u8;
-                $from_buf[3] = ((i / 256 / 256) % 256) as u8;
-
-                $to_buf[0] = 255;
-                $to_buf[1] = (i % 256) as u8;
-                $to_buf[2] = ((i / 256) % 256) as u8;
-                $to_buf[3] = ((i / 256 / 256) % 256) as u8;
-                $call
-            }
-        }
-    };
-}
-
-// Storage prefix.
-
-// Function to measure `storage_iter_create_prefix_base`.
-// Create prefix iterator 1k times.
-storage_iter_bench!(from, 10, to, 10, 1000, storage_iter_prefix_10b_1k, {
-    storage_iter_prefix(10, from.as_ptr() as _);
-});
-
-// Function to measure `storage_iter_create_prefix_base + storage_iter_create_prefix_byte`.
-// Create prefix iterator with 10kib prefix 1000 times.
-storage_iter_bench!(from, 10240, to, 10, 1000, storage_iter_prefix_10kib_1k, {
-    storage_iter_prefix(10240, from.as_ptr() as _);
-});
-
-// Storage range.
-
-// Function to measure `storage_iter_create_range_base`.
-// Create prefix iterator 1k times.
-storage_iter_bench!(from, 10, to, 10, 1000, storage_iter_range_10b_from_10b_to_1k, {
-    storage_iter_range(10, from.as_ptr() as _, 10, to.as_ptr() as _);
-});
-
-// Function to measure `storage_iter_create_range_base + storage_iter_create_from_byte`.
-// Create range iterator with 10kib from prefix 1000 times.
-storage_iter_bench!(from, 10240, to, 10, 1000, storage_iter_range_10kib_from_10b_to_1k, {
-    storage_iter_range(10240, from.as_ptr() as _, 10, to.as_ptr() as _);
-});
-
-// Function to measure `storage_iter_create_range_base + storage_iter_create_to_byte`.
-// Create range iterator with 10kib to prefix 1000 times.
-storage_iter_bench!(from, 10, to, 10240, 1000, storage_iter_range_10b_from_10kib_to_1k, {
-    storage_iter_range(10, from.as_ptr() as _, 10240, to.as_ptr() as _);
-});
-
-// Storage iter next.
-
-// Needs to be run after the corresponding write benchmarks.
-macro_rules! storage_next {
-    ($from_buf:ident, $from_len:expr, $to_buf:ident, $to_len:expr, $loop_n:expr, $exp_name:ident) => {
-        #[no_mangle]
-        pub unsafe fn $exp_name() {
-            let $from_buf = [0u8; $from_len];
-            let $to_buf = [255u8; $to_len];
-            let it = storage_iter_range(
-                $from_len,
-                $from_buf.as_ptr() as _,
-                $to_len,
-                $to_buf.as_ptr() as _,
-            );
-            for _ in 0..$loop_n {
-                storage_iter_next(it, 1, 2);
-            }
-        }
-    };
-}
-
-// Function to measure `storage_iter_next_base`, `storage_iter_next_key_byte`, `storage_iter_next_value_byte`.
-// Iterate 1k times.
-storage_next!(from, 10, to, 10, 1000, storage_next_10b_from_10b_to_1k);
-
-// Similar functions as above to check the hidden parameters.
-// Iterate 1k times.
-storage_next!(from, 10240, to, 10, 1000, storage_next_10kib_from_10b_to_1k);
-
-// Similar functions as above to check the hidden parameters.
-// Iterate 1k times.
-storage_next!(from, 10, to, 10240, 1000, storage_next_10b_from_10kib_to_1k);
 
 // Function to measure `promise_and_base`.
 #[no_mangle]

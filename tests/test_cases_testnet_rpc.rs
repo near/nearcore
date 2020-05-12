@@ -6,7 +6,7 @@ mod test {
     use std::thread;
     use std::time::Duration;
 
-    use near_primitives::test_utils::init_test_module_logger;
+    use near_logger_utils::init_test_module_logger;
     use testlib::node::{create_nodes_from_seeds, Node, NodeConfig, ThreadNode};
     use testlib::runtime_utils::alice_account;
     use testlib::standard_test_cases::*;

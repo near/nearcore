@@ -1,9 +1,10 @@
-use crate::utils::{make_simple_contract_call, make_simple_contract_call_with_gas};
 use near_vm_errors::{CompilationError, FunctionCallError, MethodResolveError, PrepareError};
 use near_vm_logic::{HostError, ReturnData, VMOutcome};
 use near_vm_runner::VMError;
 
-mod utils;
+pub mod test_utils;
+
+use self::test_utils::{make_simple_contract_call, make_simple_contract_call_with_gas};
 
 fn vm_outcome_with_gas(gas: u64) -> VMOutcome {
     VMOutcome {
@@ -131,9 +132,7 @@ fn test_trap_contract() {
         make_simple_contract_call(&trap_contract(), b"hello"),
         (
             Some(vm_outcome_with_gas(3856371)),
-            Some(VMError::FunctionCallError(FunctionCallError::WasmTrap {
-                msg: "unknown".to_string()
-            }))
+            Some(VMError::FunctionCallError(FunctionCallError::WasmUnknownError))
         )
     );
 }
@@ -157,9 +156,7 @@ fn test_trap_initializer() {
         make_simple_contract_call(&trap_initializer(), b"hello"),
         (
             Some(vm_outcome_with_gas(3856371)),
-            Some(VMError::FunctionCallError(FunctionCallError::WasmTrap {
-                msg: "unknown".to_string()
-            }))
+            Some(VMError::FunctionCallError(FunctionCallError::WasmUnknownError))
         )
     );
 }
@@ -257,9 +254,7 @@ fn test_stack_overflow() {
         make_simple_contract_call(&stack_overflow(), b"hello"),
         (
             Some(vm_outcome_with_gas(63182782464)),
-            Some(VMError::FunctionCallError(FunctionCallError::WasmTrap {
-                msg: "unknown".to_string()
-            }))
+            Some(VMError::FunctionCallError(FunctionCallError::WasmUnknownError))
         )
     );
 }

@@ -3,7 +3,7 @@ use std::time::Duration;
 use actix::{Actor, Addr, Context, Handler, Message};
 use actix_web::client::{Client, Connector};
 use futures::FutureExt;
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use tracing::info;
 
 /// Timeout for establishing connection.
@@ -34,6 +34,14 @@ impl Default for TelemetryActor {
 
 impl TelemetryActor {
     pub fn new(config: TelemetryConfig) -> Self {
+        for endpoint in config.endpoints.iter() {
+            if endpoint.is_empty() {
+                panic!(
+                    "All telemetry endpoints must be valid URLs. Received: {:?}",
+                    config.endpoints
+                );
+            }
+        }
         openssl_probe::init_ssl_cert_env_vars();
         let client = Client::build()
             .timeout(CONNECT_TIMEOUT)

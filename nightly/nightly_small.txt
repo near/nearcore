@@ -2,6 +2,7 @@
 pytest --timeout=120 sanity/rpc_state_changes.py
 pytest --timeout=120 sanity/transactions.py
 pytest --timeout=120 sanity/block_production.py
+pytest --timeout=120 sanity/rpc_tx_submission.py
 
 # cross-shard transactions tests
 expensive near-client catching_up tests::test_catchup_receipts_sync_last_block

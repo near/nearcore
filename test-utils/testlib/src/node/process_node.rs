@@ -115,9 +115,25 @@ impl ProcessNode {
 
     /// Side effect: writes chain spec file
     pub fn get_start_node_command(&self) -> Command {
-        let mut command = Command::new("cargo");
-        command.args(&["run", "-p", "near", "--", "--home", &self.work_dir, "run"]);
-        command
+        if let Err(_) = std::env::var("NIGHTLY_RUNNER") {
+            let mut command = Command::new("cargo");
+            command.args(&[
+                "run",
+                "-p",
+                "neard",
+                "--bin",
+                "neard",
+                "--",
+                "--home",
+                &self.work_dir,
+                "run",
+            ]);
+            command
+        } else {
+            let mut command = Command::new("target/debug/neard");
+            command.args(&["--home", &self.work_dir, "run"]);
+            command
+        }
     }
 }
 

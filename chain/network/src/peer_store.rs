@@ -1,4 +1,4 @@
-use std::collections::{hash_map::Iter, HashMap, HashSet};
+use std::collections::{hash_map::Iter, HashMap};
 use std::convert::TryInto;
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -192,11 +192,11 @@ impl PeerStore {
 
     /// Return unconnected or peers with unknown status that we can try to connect to.
     /// Peers with unknown addresses are filtered out.
-    pub fn unconnected_peers(&self, ignore_list: &HashSet<PeerId>) -> Vec<PeerInfo> {
+    pub fn unconnected_peers(&self, ignore_fn: impl Fn(&KnownPeerState) -> bool) -> Vec<PeerInfo> {
         self.find_peers(
             |p| {
                 (p.status == KnownPeerStatus::NotConnected || p.status == KnownPeerStatus::Unknown)
-                    && !ignore_list.contains(&p.peer_info.id)
+                    && !ignore_fn(p)
                     && p.peer_info.addr.is_some()
             },
             0,
@@ -366,8 +366,6 @@ impl PeerStore {
 
 #[cfg(test)]
 mod test {
-    use tempdir;
-
     use near_crypto::{KeyType, SecretKey};
     use near_store::create_store;
     use near_store::test_utils::create_test_store;
@@ -396,7 +394,7 @@ mod test {
 
     #[test]
     fn ban_store() {
-        let tmp_dir = tempdir::TempDir::new("_test_store_ban").unwrap();
+        let tmp_dir = tempfile::Builder::new().prefix("_test_store_ban").tempdir().unwrap();
         let peer_info_a = gen_peer_info(0);
         let peer_info_to_ban = gen_peer_info(1);
         let boot_nodes = vec![peer_info_a.clone(), peer_info_to_ban.clone()];

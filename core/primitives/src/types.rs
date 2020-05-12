@@ -58,12 +58,12 @@ pub enum Finality {
     #[serde(rename = "near-final")]
     DoomSlug,
     #[serde(rename = "final")]
-    NFG,
+    Final,
 }
 
 impl Default for Finality {
     fn default() -> Self {
-        Finality::NFG
+        Finality::Final
     }
 }
 
@@ -400,9 +400,32 @@ pub struct ValidatorStake {
     pub stake: Balance,
 }
 
+/// Stores validator and its stake for two consecutive epochs.
+/// It is necessary because the blocks on the epoch boundary need to contain approvals from both
+/// epochs.
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, PartialEq, Eq)]
+pub struct ApprovalStake {
+    /// Account that stakes money.
+    pub account_id: AccountId,
+    /// Public key of the proposed validator.
+    pub public_key: PublicKey,
+    /// Stake / weight of the validator.
+    pub stake_this_epoch: Balance,
+    pub stake_next_epoch: Balance,
+}
+
 impl ValidatorStake {
     pub fn new(account_id: AccountId, public_key: PublicKey, stake: Balance) -> Self {
         ValidatorStake { account_id, public_key, stake }
+    }
+
+    pub fn get_approval_stake(&self, is_next_epoch: bool) -> ApprovalStake {
+        ApprovalStake {
+            account_id: self.account_id.clone(),
+            public_key: self.public_key.clone(),
+            stake_this_epoch: if is_next_epoch { 0 } else { self.stake },
+            stake_next_epoch: if is_next_epoch { self.stake } else { 0 },
+        }
     }
 }
 

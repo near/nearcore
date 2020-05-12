@@ -16,7 +16,16 @@ TIMEOUT = 240
 
 
 # give more stake to the bootnode so that it can produce the blocks alone
-nodes = start_cluster(2, 1, 8, None, [["num_block_producer_seats", 199], ["num_block_producer_seats_per_shard", [24, 25, 25, 25, 25, 25, 25, 25]], ["min_gas_price", 0], ["max_inflation_rate", [0, 1]], ["epoch_length", 10], ["block_producer_kickout_threshold", 70], ["validators", 0, "amount", "60000000000000000000000000000000"], ["records", 0, "Account", "account", "locked", "60000000000000000000000000000000"]], {})
+nodes = start_cluster(
+    2, 1, 8, None,
+    [
+        ["num_block_producer_seats", 199], ["num_block_producer_seats_per_shard", [24, 25, 25, 25, 25, 25, 25, 25]],
+        ["min_gas_price", 0], ["max_inflation_rate", [0, 1]], ["epoch_length", 10], ["block_producer_kickout_threshold", 70],
+        ["validators", 0, "amount", "110000000000000000000000000000000"], ["records", 0, "Account", "account", "locked", "110000000000000000000000000000000"],
+        ["total_supply", "4060000000000000000000000000000000"]
+    ],
+    {}
+)
 time.sleep(3)
 nodes[1].kill()
 

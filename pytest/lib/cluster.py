@@ -112,8 +112,11 @@ class BaseNode(object):
 
         while True:
             block = self.get_block(hash_)
-            if 'error' in block and 'data' in block['error'] and 'DB Not Found Error' in block['error']['data']:
+            if 'error' in block and 'data' in block['error'] and 'Block Missing' in block['error']['data']:
                 break
+            elif 'result' not in block:
+                print(block)
+
             height = block['result']['header']['height']
             if height == 0:
                 break

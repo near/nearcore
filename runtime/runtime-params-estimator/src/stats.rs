@@ -1,41 +1,42 @@
 use crate::cases::Metric;
+use crate::testbed_runners::GasMetric;
 use gnuplot::{AxesCommon, Caption, Color, DotDotDash, Figure, Graph, LineStyle, PointSymbol};
 use near_vm_logic::ExtCosts;
 use rand::Rng;
 use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
-use std::time::Duration;
+
+type ExecutionCost = u64;
 
 /// Stores measurements per block.
-#[derive(Default, Clone)]
+#[derive(Clone)]
 pub struct Measurements {
-    data: BTreeMap<Metric, Vec<(usize, Duration, HashMap<ExtCosts, u64>)>>,
+    data: BTreeMap<Metric, Vec<(usize, ExecutionCost, HashMap<ExtCosts, u64>)>>,
+    pub gas_metric: GasMetric,
 }
 
 impl Measurements {
-    pub fn new() -> Self {
-        Self::default()
+    pub fn new(gas_metric: &GasMetric) -> Self {
+        Self { data: BTreeMap::new(), gas_metric: gas_metric.clone() }
     }
 
     pub fn record_measurement(
         &mut self,
         metric: Metric,
         block_size: usize,
-        block_duration: Duration,
+        block_cost: ExecutionCost,
     ) {
         let ext_costs = node_runtime::EXT_COSTS_COUNTER
             .with(|f| f.borrow_mut().drain().collect::<HashMap<_, _>>());
-        self.data.entry(metric).or_insert_with(Vec::new).push((
-            block_size,
-            block_duration,
-            ext_costs,
-        ));
+        self.data.entry(metric).or_insert_with(Vec::new).push((block_size, block_cost, ext_costs));
     }
 
     pub fn aggregate(&self) -> BTreeMap<Metric, DataStats> {
         self.data
             .iter()
-            .map(|(metric, measurements)| (metric.clone(), DataStats::aggregate(measurements)))
+            .map(|(metric, measurements)| {
+                (metric.clone(), DataStats::aggregate(&self.gas_metric, measurements))
+            })
             .collect()
     }
 
@@ -47,23 +48,15 @@ impl Measurements {
 
     pub fn save_to_csv(&self, path: &Path) {
         let mut writer = csv::Writer::from_path(path).unwrap();
-        writer
-            .write_record(&[
-                "metric",
-                "mean_micros",
-                "stddev_micros",
-                "5ile_micros",
-                "95ile_micros",
-            ])
-            .unwrap();
+        writer.write_record(&["metric", "mean_ko", "stddev_ko", "5ile_ko", "95ile_ko"]).unwrap();
         for (metric, stats) in self.aggregate() {
             writer
                 .write_record(&[
                     format!("{:?}", metric),
-                    format!("{}", stats.mean.as_micros()),
-                    format!("{}", stats.stddev.as_micros()),
-                    format!("{}", stats.ile5.as_micros()),
-                    format!("{}", stats.ile95.as_micros()),
+                    format!("{}", stats.mean / 1000),
+                    format!("{}", stats.stddev / 1000),
+                    format!("{}", stats.ile5 / 1000),
+                    format!("{}", stats.ile95 / 1000),
                 ])
                 .unwrap();
         }
@@ -78,7 +71,7 @@ impl Measurements {
             .set_title("Metrics in micros", &[])
             .set_legend(Graph(0.5), Graph(0.9), &[], &[])
             .set_x_label("Block size", &[])
-            .set_y_label("Duration micros", &[])
+            .set_y_label("Execution cost", &[])
             .set_grid_options(true, &[LineStyle(DotDotDash), Color("black")])
             .set_x_log(Some(2.0))
             .set_x_grid(true)
@@ -92,8 +85,8 @@ impl Measurements {
             let (xs, ys): (Vec<_>, Vec<_>) = data
                 .iter()
                 .cloned()
-                .map(|(block_size, block_duration, _)| {
-                    (block_size as u64, (block_duration.as_micros() / block_size as u128) as u64)
+                .map(|(block_size, block_cost, _)| {
+                    (block_size as u64, ((block_cost / 1000 / block_size as u64) as u128) as u64)
                 })
                 .unzip();
 
@@ -136,91 +129,133 @@ pub fn random_color() -> String {
 }
 
 pub struct DataStats {
-    pub mean: Duration,
-    pub stddev: Duration,
-    pub ile5: Duration,
-    pub ile95: Duration,
-    pub ext_costs: BTreeMap<ExtCosts, f64>,
+    pub mean: ExecutionCost,
+    pub stddev: ExecutionCost,
+    pub ile5: ExecutionCost,
+    pub ile95: ExecutionCost,
+    pub ext_costs: BTreeMap<ExtCosts, u64>,
+    pub gas_metric: GasMetric,
 }
 
 impl DataStats {
-    pub fn aggregate(un_aggregated: &Vec<(usize, Duration, HashMap<ExtCosts, u64>)>) -> Self {
-        let mut nanos = un_aggregated
+    pub fn aggregate(
+        gas_metric: &GasMetric,
+        un_aggregated: &Vec<(usize, ExecutionCost, HashMap<ExtCosts, u64>)>,
+    ) -> Self {
+        let mut costs = un_aggregated
             .iter()
-            .map(|(block_size, duration, _)| duration.as_nanos() / *block_size as u128)
+            .map(|(block_size, execution_cost, _)| {
+                (*execution_cost as u128) / (*block_size as u128)
+            })
             .collect::<Vec<_>>();
-        nanos.sort();
-        let mean = (nanos.iter().sum::<u128>() / (nanos.len() as u128)) as i128;
-        let stddev2 = nanos.iter().map(|x| (*x as i128 - mean) * (*x as i128 - mean)).sum::<i128>()
-            / if nanos.len() > 1 { nanos.len() as i128 - 1 } else { 1 };
+        costs.sort();
+        let mean = (costs.iter().sum::<u128>() / (costs.len() as u128)) as i128;
+        let stddev2 = costs.iter().map(|x| (*x as i128 - mean) * (*x as i128 - mean)).sum::<i128>()
+            / if costs.len() > 1 { costs.len() as i128 - 1 } else { 1 };
         let stddev = (stddev2 as f64).sqrt() as u128;
-        let ile5 = nanos[nanos.len() * 5 / 100];
-        let ile95 = nanos[nanos.len() * 95 / 100];
+        let ile5 = costs[costs.len() * 5 / 100];
+        let ile95 = costs[costs.len() * 95 / 100];
 
-        let mut ext_costs: BTreeMap<ExtCosts, f64> = BTreeMap::new();
+        let mut ext_costs: BTreeMap<ExtCosts, u64> = BTreeMap::new();
         let mut div: BTreeMap<ExtCosts, u64> = BTreeMap::new();
         for (block_size, _, un_aggregated_ext_costs) in un_aggregated {
             for (ext_cost, count) in un_aggregated_ext_costs {
-                *ext_costs.entry(*ext_cost).or_default() += *count as f64;
+                *ext_costs.entry(*ext_cost).or_default() += *count as u64;
                 *div.entry(*ext_cost).or_default() += *block_size as u64;
             }
         }
         for (k, v) in div {
-            *ext_costs.get_mut(&k).unwrap() /= v as f64;
+            *ext_costs.get_mut(&k).unwrap() /= v as u64;
         }
 
         Self {
-            mean: Duration::from_nanos(mean as u64),
-            stddev: Duration::from_nanos(stddev as u64),
-            ile5: Duration::from_nanos(ile5 as u64),
-            ile95: Duration::from_nanos(ile95 as u64),
-            ext_costs,
+            mean: mean as u64,
+            stddev: stddev as u64,
+            ile5: ile5 as u64,
+            ile95: ile95 as u64,
+            ext_costs: ext_costs,
+            gas_metric: *gas_metric,
         }
     }
 
-    /// Get mean + 4*sigma in micros
-    pub fn upper(&self) -> u128 {
-        self.mean.as_nanos() + 4u128 * self.stddev.as_nanos()
+    /// Get mean + 4*sigma
+    pub fn upper(&self) -> u64 {
+        self.mean + 4u64 * self.stddev
+    }
+}
+
+fn op(gas_metric: &GasMetric, index: i32) -> String {
+    match *gas_metric {
+        GasMetric::ICount => match index {
+            0 => "go".to_string(),
+            1 => "mo".to_string(),
+            2 => "ko".to_string(),
+            3 => "o".to_string(),
+            _ => panic!("Unknown index"),
+        },
+        GasMetric::Time => match index {
+            0 => "s".to_string(),
+            1 => "ms".to_string(),
+            2 => "us".to_string(),
+            3 => "ns".to_string(),
+            _ => panic!("Unknown index"),
+        },
     }
 }
 
 impl std::fmt::Display for DataStats {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if self.mean.as_secs() > 100 {
+        if self.mean > 100 * 1000 * 1000 * 1000 {
             write!(
                 f,
-                "{}s±{}s ({}s, {}s)",
-                self.mean.as_secs(),
-                self.stddev.as_secs(),
-                self.ile5.as_secs(),
-                self.ile95.as_secs()
+                "{}{}±{}{} ({}{}, {}{})",
+                self.mean / (1000 * 1000 * 1000),
+                op(&self.gas_metric, 0),
+                self.stddev / (1000 * 1000 * 1000),
+                op(&self.gas_metric, 0),
+                self.ile5 / (1000 * 1000 * 1000),
+                op(&self.gas_metric, 0),
+                self.ile95 / (1000 * 1000 * 1000),
+                op(&self.gas_metric, 0),
             )?;
-        } else if self.mean.as_millis() > 100 {
+        } else if self.mean > 100 * 1000 * 1000 {
             write!(
                 f,
-                "{}ms±{}ms ({}ms, {}ms)",
-                self.mean.as_millis(),
-                self.stddev.as_millis(),
-                self.ile5.as_millis(),
-                self.ile95.as_millis()
+                "{}{}±{}{} ({}{}, {}{})",
+                self.mean / (1000 * 1000),
+                op(&self.gas_metric, 1),
+                self.stddev / (1000 * 1000),
+                op(&self.gas_metric, 1),
+                self.ile5 / (1000 * 1000),
+                op(&self.gas_metric, 1),
+                self.ile95 / (1000 * 1000),
+                op(&self.gas_metric, 1)
             )?;
-        } else if self.mean.as_micros() > 100 {
+        } else if self.mean > 100 * 1000 {
             write!(
                 f,
-                "{}μ±{}μ ({}μ, {}μ)",
-                self.mean.as_micros(),
-                self.stddev.as_micros(),
-                self.ile5.as_micros(),
-                self.ile95.as_micros()
+                "{}{}±{}{} ({}{}, {}{})",
+                self.mean / 1000,
+                op(&self.gas_metric, 2),
+                self.stddev / 1000,
+                op(&self.gas_metric, 2),
+                self.ile5 / 1000,
+                op(&self.gas_metric, 2),
+                self.ile95 / 1000,
+                op(&self.gas_metric, 2)
             )?;
         } else {
             write!(
                 f,
-                "{}n±{}n ({}n, {}n)",
-                self.mean.as_nanos(),
-                self.stddev.as_nanos(),
-                self.ile5.as_nanos(),
-                self.ile95.as_nanos()
+                "{}{}±{}{} ({}{}, {}{})",
+                self.mean,
+                op(&self.gas_metric, 3),
+                self.stddev,
+                op(&self.gas_metric, 3),
+                self.ile5,
+                op(&self.gas_metric, 3),
+                self.ile95,
+                op(&self.gas_metric, 3)
             )?;
         }
         for (ext_cost, cnt) in &self.ext_costs {

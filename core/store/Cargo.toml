@@ -10,9 +10,8 @@ derive_more = "0.99.3"
 owning_ref = "0.4.1"
 elastic-array = "0.11"
 rocksdb = "0.13"
-serde = "1.0"
-serde_derive = "1.0"
-cached = "0.12.0"
+serde = { version = "1", features = [ "derive" ] }
+cached = "0.12"
 log = "0.4"
 num_cpus = "1.11"
 rand = "0.7.2"
@@ -23,7 +22,7 @@ near-crypto = { path = "../crypto" }
 near-primitives = { path = "../primitives" }
 
 [dev-dependencies]
-tempdir = "0.3"
+tempfile = "3"
 hex-literal = "0.2"
 bencher = "0.1.5"
 rand = "0.7"

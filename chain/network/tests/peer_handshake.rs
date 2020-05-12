@@ -9,10 +9,10 @@ use actix::System;
 use futures::{future, FutureExt};
 
 use near_client::{ClientActor, ViewClientActor};
+use near_logger_utils::init_test_logger;
 use near_network::test_utils::{convert_boot_nodes, open_port, GetInfo, StopSignal, WaitOrTimeout};
 use near_network::types::{NetworkViewClientMessages, NetworkViewClientResponses};
 use near_network::{NetworkClientResponses, NetworkConfig, PeerManagerActor};
-use near_primitives::test_utils::init_test_logger;
 use near_store::test_utils::create_test_store;
 
 type ClientMock = Mocker<ClientActor>;
@@ -27,7 +27,7 @@ fn make_peer_manager(
     let store = create_test_store();
     let mut config = NetworkConfig::from_seed(seed, port);
     config.boot_nodes = convert_boot_nodes(boot_nodes);
-    config.max_peer = peer_max_count;
+    config.max_num_peers = peer_max_count;
     let client_addr = ClientMock::mock(Box::new(move |_msg, _ctx| {
         Box::new(Some(NetworkClientResponses::NoResponse))
     }))
@@ -39,7 +39,6 @@ fn make_peer_manager(
                 Box::new(Some(NetworkViewClientResponses::ChainInfo {
                     genesis_id: Default::default(),
                     height: 1,
-                    score: 0.into(),
                     tracked_shards: vec![],
                 }))
             }
@@ -209,6 +208,13 @@ fn check_connection_with_new_identity() {
 
     runner.push(Action::CheckRoutingTable(0, vec![(1, vec![1])]));
     runner.push(Action::CheckRoutingTable(1, vec![(0, vec![0])]));
+
+    runner.push(Action::Wait(2000));
+
+    // Check the no node tried to connect to itself in this process.
+    runner.push_action(wait_for(|| {
+        near_metrics::get_counter(&near_network::metrics::RECEIVED_INFO_ABOUT_ITSELF) == Ok(0)
+    }));
 
     start_test(runner);
 }

@@ -12,7 +12,9 @@ members = [
     "core/runtime-configs",
     "core/store",
     "core/metrics",
+    "utils/actix",
     "runtime/runtime",
+    "runtime/runtime-standalone",
     "runtime/near-runtime-fees",
     "runtime/near-vm-logic",
     "runtime/near-vm-runner",
@@ -38,15 +40,21 @@ members = [
     "tools/restaked"
 ]
 
+[dependencies]
+# pins this version to fix https://github.com/actix/actix-net/issues/129
+actix-rt = "=1.1.1"
+
 [dev-dependencies]
-actix = "0.9.0"
-lazy_static = "1.4.0"
-log = "0.4.6"
+actix = "0.9"
+lazy_static = "1.4"
+log = "^0.4.6"
 rand = "0.7"
-serde_json = "1.0.0"
+serde_json = "1"
 reqwest = "0.10"
 futures = "0.3"
 
+near-runtime-standalone = { path = "./runtime/runtime-standalone" }
+near-logger-utils = { path = "./test-utils/logger" }
 near-chain-configs = { path = "./core/chain-configs" }
 near-crypto = { path = "./core/crypto" }
 near-primitives = { path = "./core/primitives" }
@@ -89,6 +97,3 @@ regression_tests = []
 old_tests = []
 adversarial = ["neard/adversarial", "near-jsonrpc/adversarial"]
 metric_recorder = ["neard/metric_recorder"]
-
-[patch.crates-io]
-actix-rt = { git = "https://github.com/actix/actix-net", rev="602db1779eb51d60e0fe5a33d725d1d7fdf540fd" }

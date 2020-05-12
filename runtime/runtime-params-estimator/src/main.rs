@@ -2,6 +2,7 @@ use clap::{App, Arg};
 use neard::get_default_home;
 use runtime_params_estimator::cases::run;
 use runtime_params_estimator::testbed_runners::Config;
+use runtime_params_estimator::testbed_runners::GasMetric;
 use std::fs::File;
 use std::io::Write;
 use std::path::Path;
@@ -40,18 +41,32 @@ fn main() {
                 .takes_value(true)
                 .help("How many accounts were generated with `genesis-populate`."),
         )
+        .arg(
+            Arg::with_name("metric")
+                .long("metric")
+                .default_value("icount")
+                .required(true)
+                .takes_value(true)
+                .help("What metric to use, possible values are icount or time."),
+        )
         .get_matches();
 
     let state_dump_path = matches.value_of("home").unwrap().to_string();
     let warmup_iters_per_block = matches.value_of("warmup-iters").unwrap().parse().unwrap();
     let iter_per_block = matches.value_of("iters").unwrap().parse().unwrap();
     let active_accounts = matches.value_of("accounts-num").unwrap().parse().unwrap();
+    let metric = matches.value_of("metric").unwrap().to_string();
+    let known_metrics = vec!["icount".to_string(), "time".to_string()];
+    if !known_metrics.contains(&metric) {
+        panic!("Unknown metric {}", metric);
+    }
     let runtime_config = run(Config {
         warmup_iters_per_block,
         iter_per_block,
         active_accounts,
         block_sizes: vec![],
         state_dump_path: state_dump_path.clone(),
+        metric: if metric == "icount" { GasMetric::ICount } else { GasMetric::Time },
     });
 
     println!("Generated RuntimeConfig:");

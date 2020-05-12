@@ -1,10 +1,12 @@
+use crate::testbed_runners::end_count;
+use crate::testbed_runners::start_count;
+use crate::testbed_runners::GasMetric;
 use near_runtime_fees::RuntimeFeesConfig;
 use near_vm_logic::mocks::mock_external::MockedExternal;
 use near_vm_logic::{VMConfig, VMContext, VMOutcome};
 use near_vm_runner::VMError;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
-use std::time::Instant;
 
 const CURRENT_ACCOUNT_ID: &str = "alice";
 const SIGNER_ACCOUNT_ID: &str = "bob";
@@ -58,17 +60,17 @@ fn call() -> (Option<VMOutcome>, Option<VMError>) {
     )
 }
 
-const NUM_ITERATIONS: usize = 10;
+const NUM_ITERATIONS: u64 = 10;
 
-/// Amount of nanosec it takes to execute the most CPU demanding operation.
-pub fn nanosec_per_op() -> f64 {
+/// Cost of the most CPU demanding operation.
+pub fn cost_per_op(gas_metric: &GasMetric) -> u64 {
     // Call once for the warmup.
     let (outcome, _) = call();
     let outcome = outcome.unwrap();
-    let start = Instant::now();
+    let start = start_count(&gas_metric);
     for _ in 0..NUM_ITERATIONS {
         call();
     }
-    let duration = Instant::now().duration_since(start).as_nanos() as f64;
-    duration / (outcome.burnt_gas as f64 * NUM_ITERATIONS as f64)
+    let cost = end_count(&gas_metric, &start);
+    cost / (outcome.burnt_gas * NUM_ITERATIONS)
 }

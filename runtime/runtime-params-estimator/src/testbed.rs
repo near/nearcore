@@ -1,4 +1,10 @@
+use std::fs::File;
+use std::io::Read;
+use std::path::Path;
+use std::sync::Arc;
+
 use borsh::BorshDeserialize;
+
 use near_primitives::receipt::Receipt;
 use near_primitives::transaction::{ExecutionStatus, SignedTransaction};
 use near_primitives::types::{Gas, MerkleHash, StateRoot};
@@ -7,11 +13,6 @@ use near_vm_logic::VMLimitConfig;
 use neard::get_store_path;
 use node_runtime::config::RuntimeConfig;
 use node_runtime::{ApplyState, Runtime};
-use std::fs::File;
-use std::io::Read;
-use std::path::Path;
-use std::sync::Arc;
-use tempdir::TempDir;
 
 const STATE_DUMP_FILE: &str = "state_dump";
 const GENESIS_ROOTS_FILE: &str = "genesis_roots";
@@ -19,7 +20,7 @@ const GENESIS_ROOTS_FILE: &str = "genesis_roots";
 pub struct RuntimeTestbed {
     /// Directory where we temporarily keep the storage.
     #[allow(dead_code)]
-    workdir: TempDir,
+    workdir: tempfile::TempDir,
     trie: Arc<Trie>,
     root: MerkleHash,
     runtime: Runtime,
@@ -30,7 +31,7 @@ pub struct RuntimeTestbed {
 impl RuntimeTestbed {
     /// Copies dump from another directory and loads the state from it.
     pub fn from_state_dump(dump_dir: &Path) -> Self {
-        let workdir = TempDir::new("runtime_testbed").unwrap();
+        let workdir = tempfile::Builder::new().prefix("runtime_testbed").tempdir().unwrap();
         println!("workdir {}", workdir.path().to_str().unwrap());
         let store = create_store(&get_store_path(workdir.path()));
         let trie = Arc::new(Trie::new(store.clone()));

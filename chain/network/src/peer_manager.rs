@@ -1,9 +1,10 @@
+use rand::seq::SliceRandom;
 use std::cmp;
 use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
 use std::pin::Pin;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use actix::actors::resolver::{ConnectAddr, Resolver};
 use actix::io::FramedWrite;
@@ -11,11 +12,9 @@ use actix::{
     Actor, ActorFuture, Addr, AsyncContext, Context, ContextFutureSpawner, Handler, Recipient,
     Running, StreamHandler, SystemService, WrapFuture,
 };
-use chrono::offset::TimeZone;
-use chrono::{DateTime, Utc};
+use chrono::Utc;
 use futures::task::Poll;
 use futures::{future, Stream, StreamExt};
-use rand::seq::SliceRandom;
 use tokio::net::{TcpListener, TcpStream};
 use tokio_util::codec::FramedRead;
 use tracing::{debug, error, info, trace, warn};
@@ -42,11 +41,12 @@ use crate::types::{
     RoutedMessageFrom, SendMessage, SyncData, Unregister,
 };
 use crate::types::{
-    NetworkClientMessages, NetworkConfig, NetworkRequests, NetworkResponses, PeerInfo,
+    KnownPeerState, NetworkClientMessages, NetworkConfig, NetworkRequests, NetworkResponses,
+    PeerInfo,
 };
 
 /// How often to request peers from active peers.
-const REQUEST_PEERS_SECS: i64 = 60;
+const REQUEST_PEERS_SECS: u64 = 60;
 /// How much time to wait (in milliseconds) after we send update nonce request before disconnecting.
 /// This number should be large to handle pair of nodes with high latency.
 const WAIT_ON_TRY_UPDATE_NONCE: u64 = 6_000;
@@ -74,7 +74,11 @@ struct ActivePeer {
     /// Number of bytes we've sent to the peer.
     sent_bytes_per_sec: u64,
     /// Last time requested peers.
-    last_time_peer_requested: DateTime<Utc>,
+    last_time_peer_requested: Instant,
+    /// Last time we received a message from this peer.
+    last_time_received_message: Instant,
+    /// Time where the connection was established.
+    connection_established_time: Instant,
     /// Who started connection. Inbound (other) or Outbound (us).
     peer_type: PeerType,
 }
@@ -191,7 +195,9 @@ impl PeerManagerActor {
                 full_peer_info,
                 sent_bytes_per_sec: 0,
                 received_bytes_per_sec: 0,
-                last_time_peer_requested: Utc.timestamp(0, 0),
+                last_time_peer_requested: Instant::now(),
+                last_time_received_message: Instant::now(),
+                connection_established_time: Instant::now(),
                 peer_type,
             },
         );
@@ -217,7 +223,7 @@ impl PeerManagerActor {
             // Ask for peers list on connection.
             let _ = addr.do_send(SendMessage { message: PeerMessage::PeersRequest });
             if let Some(active_peer) = act.active_peers.get_mut(&target_peer_id) {
-                active_peer.last_time_peer_requested = Utc::now();
+                active_peer.last_time_peer_requested = Instant::now();
             }
 
             if peer_type == PeerType::Outbound {
@@ -371,38 +377,54 @@ impl PeerManagerActor {
         });
     }
 
+    fn num_active_outgoing_peers(&self) -> usize {
+        self.active_peers
+            .values()
+            .filter(|active_peer| active_peer.peer_type == PeerType::Outbound)
+            .count()
+    }
+
+    /// Check if it is needed to create a new outbound connection.
+    /// If the number of active connections is less than `ideal_connections_lo` or
+    /// (the number of outgoing connections is less than `minimum_outbound_peers`
+    ///     and the total connections is less than `max_num_peers`)
     fn is_outbound_bootstrap_needed(&self) -> bool {
-        self.active_peers.len() + self.outgoing_peers.len() < self.config.max_peer as usize
+        let total_connections = self.active_peers.len() + self.outgoing_peers.len();
+        let potential_outgoing_connections =
+            self.num_active_outgoing_peers() + self.outgoing_peers.len();
+
+        (total_connections < self.config.ideal_connections_lo as usize
+            || (total_connections < self.config.max_num_peers as usize
+                && potential_outgoing_connections < self.config.minimum_outbound_peers as usize))
             && !self.config.outbound_disabled
     }
 
     fn is_inbound_allowed(&self) -> bool {
-        self.active_peers.len() + self.outgoing_peers.len() < self.config.max_peer as usize
+        self.active_peers.len() + self.outgoing_peers.len() < self.config.max_num_peers as usize
     }
 
-    /// Returns single random peer with the highest score/height
+    /// Returns single random peer with close to the highest height
     fn highest_height_peers(&self) -> Vec<FullPeerInfo> {
-        // This finds max of score and height and returns such peer.
-        let max_score_and_height = match self
+        // This finds max height among peers, and returns one peer close to such height.
+        let max_height = match self
             .active_peers
             .values()
-            .map(|active_peers| active_peers.full_peer_info.chain_info.score_and_height())
+            .map(|active_peers| active_peers.full_peer_info.chain_info.height)
             .max()
         {
-            Some(score_and_height) => score_and_height,
+            Some(height) => height,
             None => return vec![],
         };
         // Find all peers whose height is within `highest_peer_horizon` from max height peer(s).
         self.active_peers
             .values()
             .filter_map(|active_peer| {
-                if max_score_and_height.beyond_threshold(
-                    &active_peer.full_peer_info.chain_info.score_and_height(),
-                    self.config.highest_peer_horizon,
-                ) {
-                    None
-                } else {
+                if active_peer.full_peer_info.chain_info.height + self.config.highest_peer_horizon
+                    >= max_height
+                {
                     Some(active_peer.full_peer_info.clone())
+                } else {
+                    None
                 }
             })
             .collect::<Vec<_>>()
@@ -416,8 +438,8 @@ impl PeerManagerActor {
     }
 
     /// Get a random peer we are not connected to from the known list.
-    fn sample_random_peer(&self, ignore_list: &HashSet<PeerId>) -> Option<PeerInfo> {
-        let unconnected_peers = self.peer_store.unconnected_peers(ignore_list);
+    fn sample_random_peer(&self, ignore_fn: impl Fn(&KnownPeerState) -> bool) -> Option<PeerInfo> {
+        let unconnected_peers = self.peer_store.unconnected_peers(ignore_fn);
         unconnected_peers.choose(&mut rand::thread_rng()).cloned()
     }
 
@@ -426,10 +448,8 @@ impl PeerManagerActor {
         let mut requests = vec![];
         let msg = SendMessage { message: PeerMessage::PeersRequest };
         for (_, active_peer) in self.active_peers.iter_mut() {
-            if Utc::now().signed_duration_since(active_peer.last_time_peer_requested).num_seconds()
-                > REQUEST_PEERS_SECS
-            {
-                active_peer.last_time_peer_requested = Utc::now();
+            if active_peer.last_time_peer_requested.elapsed().as_secs() > REQUEST_PEERS_SECS {
+                active_peer.last_time_peer_requested = Instant::now();
                 requests.push(active_peer.addr.send(msg.clone()));
             }
         }
@@ -556,6 +576,79 @@ impl PeerManagerActor {
         });
     }
 
+    /// Select one peer and send signal to stop connection to it gracefully.
+    /// Selection process:
+    ///     Create a safe set of peers, and among the remaining peers select one at random.
+    ///     If the number of outbound connections is less or equal than minimum_outbound_connections,
+    ///         add all outbound connections to the safe set.
+    ///     While the length of the safe set is less than safe_set_size:
+    ///         Among all the peers we have received a message within the last peer_recent_time_window,
+    ///             find the one we connected earlier and add it to the safe set.
+    ///         else break
+    fn try_stop_active_connection(&self) {
+        // Build safe set
+        let mut safe_set = HashSet::new();
+
+        if self.num_active_outgoing_peers() + self.outgoing_peers.len()
+            <= self.config.minimum_outbound_peers as usize
+        {
+            for (peer, active) in self.active_peers.iter() {
+                if active.peer_type == PeerType::Outbound {
+                    safe_set.insert(peer.clone());
+                }
+            }
+        }
+
+        // Find all recent connections
+        let mut recent_connections = self
+            .active_peers
+            .iter()
+            .filter_map(|(peer_id, active)| {
+                if active.last_time_received_message.elapsed() < self.config.peer_recent_time_window
+                {
+                    Some((peer_id.clone(), active.connection_established_time))
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<_>>();
+
+        // Sort by established time
+        recent_connections.sort_by(|(_, established_time_a), (_, established_time_b)| {
+            established_time_a.cmp(established_time_b)
+        });
+
+        // Take remaining peers
+        for (peer_id, _) in recent_connections
+            .into_iter()
+            .take((self.config.safe_set_size as usize).saturating_sub(safe_set.len()))
+        {
+            safe_set.insert(peer_id.clone());
+        }
+
+        // Build valid candidate list to choose the peer to be removed. All peers outside the safe set.
+        let candidates = self
+            .active_peers
+            .keys()
+            .filter_map(
+                |peer_id| {
+                    if safe_set.contains(&peer_id) {
+                        None
+                    } else {
+                        Some(peer_id.clone())
+                    }
+                },
+            )
+            .collect::<Vec<_>>();
+
+        if let Some(peer_id) = candidates.choose(&mut rand::thread_rng()) {
+            if let Some(active_peer) = self.active_peers.get(&peer_id) {
+                debug!(target: "network", "Stop active connection: {:?}", peer_id);
+                active_peer.addr.do_send(PeerManagerRequest::UnregisterPeer);
+            }
+        }
+    }
+
     /// Periodically monitor list of peers and:
     ///  - request new peers from connected peers,
     ///  - bootstrap outbound connections from known peers,
@@ -575,19 +668,29 @@ impl PeerManagerActor {
                 }
             }
         }
+
         for peer_id in to_unban {
             unwrap_or_error!(self.peer_store.peer_unban(&peer_id), "Failed to unban a peer");
         }
 
         if self.is_outbound_bootstrap_needed() {
-            let mut ignore_list = self.outgoing_peers.clone();
-            ignore_list.insert(self.peer_id.clone());
-            if let Some(peer_info) = self.sample_random_peer(&ignore_list) {
+            if let Some(peer_info) = self.sample_random_peer(|peer_state| {
+                // Ignore connecting to ourself
+                self.peer_id == peer_state.peer_info.id
+                    || self.config.addr == peer_state.peer_info.addr
+                    // Or to peers we are currently trying to connect to
+                    || self.outgoing_peers.contains(&peer_state.peer_info.id)
+            }) {
                 self.outgoing_peers.insert(peer_info.id.clone());
                 ctx.notify(OutboundTcpConnect { peer_info });
             } else {
                 self.query_active_peers_for_more_peers(ctx);
             }
+        }
+
+        // If there are too many active connections try to remove some connections
+        if self.active_peers.len() > self.config.ideal_connections_hi as usize {
+            self.try_stop_active_connection();
         }
 
         unwrap_or_error!(
@@ -689,6 +792,14 @@ impl PeerManagerActor {
     /// Route signed message to target peer.
     /// Return whether the message is sent or not.
     fn send_signed_message_to_peer(&mut self, ctx: &mut Context<Self>, msg: RoutedMessage) -> bool {
+        // Check if the message is for myself and don't try to send it in that case.
+        if let PeerIdOrHash::PeerId(target) = &msg.target {
+            if target == &self.peer_id {
+                debug!(target: "network", "{:?} Drop signed message to myself ({:?}). Message: {:?}.", self.config.account_id, self.peer_id, msg);
+                return false;
+            }
+        }
+
         match self.routing_table.find_route(&msg.target) {
             Ok(peer_id) => {
                 // Remember if we expect a response for this message.
@@ -821,7 +932,7 @@ impl PeerManagerActor {
                 .map(|a| a.full_peer_info.clone())
                 .collect::<Vec<_>>(),
             num_active_peers: self.num_active_peers(),
-            peer_max_count: self.config.max_peer,
+            peer_max_count: self.config.max_num_peers,
             highest_height_peers: self.highest_height_peers(),
             sent_bytes_per_sec,
             received_bytes_per_sec,
@@ -1468,6 +1579,12 @@ impl Handler<PeerRequest> for PeerManagerActor {
             PeerRequest::UpdatePeerInfo(peer_info) => {
                 if let Err(err) = self.peer_store.add_trusted_peer(peer_info, TrustLevel::Direct) {
                     error!(target: "network", "Fail to update peer store: {}", err);
+                }
+                PeerResponse::NoResponse
+            }
+            PeerRequest::ReceivedMessage(peer_id, last_time_received_message) => {
+                if let Some(active_peer) = self.active_peers.get_mut(&peer_id) {
+                    active_peer.last_time_received_message = last_time_received_message;
                 }
                 PeerResponse::NoResponse
             }

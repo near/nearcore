@@ -5,10 +5,9 @@ use std::hash::{Hash, Hasher};
 use std::io::{Error, ErrorKind, Write};
 
 use borsh::{BorshDeserialize, BorshSerialize};
-use rand_core::OsRng;
-use serde_derive::{Deserialize, Serialize};
-
 use lazy_static::lazy_static;
+use rand_core::OsRng;
+use serde::{Deserialize, Serialize};
 
 lazy_static! {
     pub static ref SECP256K1: secp256k1::Secp256k1 = secp256k1::Secp256k1::new();
@@ -195,11 +194,11 @@ impl BorshSerialize for PublicKey {
     fn serialize<W: Write>(&self, writer: &mut W) -> Result<(), Error> {
         match self {
             PublicKey::ED25519(public_key) => {
-                0u8.serialize(writer)?;
+                BorshSerialize::serialize(&0u8, writer)?;
                 writer.write_all(&public_key.0)?;
             }
             PublicKey::SECP256K1(public_key) => {
-                1u8.serialize(writer)?;
+                BorshSerialize::serialize(&1u8, writer)?;
                 writer.write_all(&public_key.0)?;
             }
         }
@@ -209,7 +208,7 @@ impl BorshSerialize for PublicKey {
 
 impl BorshDeserialize for PublicKey {
     fn deserialize(buf: &mut &[u8]) -> Result<Self, Error> {
-        let key_type = KeyType::try_from(u8::deserialize(buf)?)
+        let key_type = KeyType::try_from(<u8 as BorshDeserialize>::deserialize(buf)?)
             .map_err(|err| Error::new(ErrorKind::InvalidData, err.to_string()))?;
         match key_type {
             KeyType::ED25519 => {
@@ -539,11 +538,11 @@ impl BorshSerialize for Signature {
     fn serialize<W: Write>(&self, writer: &mut W) -> Result<(), Error> {
         match self {
             Signature::ED25519(signature) => {
-                0u8.serialize(writer)?;
+                BorshSerialize::serialize(&0u8, writer)?;
                 writer.write_all(&signature.to_bytes())?;
             }
             Signature::SECP256K1(signature) => {
-                1u8.serialize(writer)?;
+                BorshSerialize::serialize(&1u8, writer)?;
                 writer.write_all(&signature.0)?;
             }
         }
@@ -553,7 +552,7 @@ impl BorshSerialize for Signature {
 
 impl BorshDeserialize for Signature {
     fn deserialize(buf: &mut &[u8]) -> Result<Self, Error> {
-        let key_type = KeyType::try_from(u8::deserialize(buf)?)
+        let key_type = KeyType::try_from(<u8 as BorshDeserialize>::deserialize(buf)?)
             .map_err(|err| Error::new(ErrorKind::InvalidData, err.to_string()))?;
         match key_type {
             KeyType::ED25519 => {
