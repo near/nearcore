@@ -6,6 +6,7 @@ use near_vm_logic::mocks::mock_external::MockedExternal;
 use near_vm_logic::{VMConfig, VMContext, VMOutcome};
 use near_vm_runner::VMError;
 use std::collections::hash_map::DefaultHasher;
+use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 
 const CURRENT_ACCOUNT_ID: &str = "alice";
@@ -23,7 +24,7 @@ fn create_context(input: Vec<u8>) -> VMContext {
         block_index: 10,
         block_timestamp: 42,
         epoch_height: 0,
-        validators: Default::default(),
+        validators: HashMap::default(),
         epoch_total_stake: 0,
         account_balance: 2u128,
         account_locked_balance: 1u128,

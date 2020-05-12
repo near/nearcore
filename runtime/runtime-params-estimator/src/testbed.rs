@@ -13,6 +13,7 @@ use near_vm_logic::VMLimitConfig;
 use neard::get_store_path;
 use node_runtime::config::RuntimeConfig;
 use node_runtime::{ApplyState, Runtime};
+use std::collections::HashMap;
 
 const STATE_DUMP_FILE: &str = "state_dump";
 const GENESIS_ROOTS_FILE: &str = "genesis_roots";
@@ -78,7 +79,7 @@ impl RuntimeTestbed {
             // Epoch length is long enough to avoid corner cases.
             epoch_length: 4,
             epoch_height: 0,
-            validators: Default::default(),
+            validators: HashMap::default(),
             gas_price: 1,
             block_timestamp: 0,
             gas_limit: None,
