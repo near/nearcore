@@ -260,9 +260,7 @@ pub fn setup_mock_all_validators(
     let largest_skipped_height = Arc::new(RwLock::new(vec![0u64; key_pairs.len()]));
     let hash_to_height = Arc::new(RwLock::new(HashMap::new()));
 
-    for (index, account_id) in
-        validators.iter().flatten().enumerate().map(|(i, acc)| (i, acc.clone())).collect::<Vec<_>>()
-    {
+    for (index, account_id) in validators.into_iter().flatten().enumerate() {
         let view_client_addr = Arc::new(RwLock::new(None));
         let view_client_addr1 = view_client_addr.clone();
         let validators_clone1 = validators_clone.clone();
