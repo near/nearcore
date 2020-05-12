@@ -382,12 +382,18 @@ impl Chain {
         self.doomslug_threshold_mode = DoomslugThresholdMode::NoApprovals
     }
 
-    pub fn compute_bp_hash_inner(bps: &Vec<ValidatorStake>) -> Result<CryptoHash, Error> {
-        let mut arr = vec![];
-        for bp in bps.iter() {
-            arr.append(&mut hash(bp.account_id.as_bytes()).into());
-            arr.append(&mut hash(bp.public_key.try_to_vec()?.as_ref()).into());
-            arr.append(&mut hash(bp.stake.try_to_vec()?.as_ref()).into());
+    pub fn compute_bp_hash_inner<'a, T>(bps: T) -> Result<CryptoHash, Error>
+    where
+        T: IntoIterator<Item = &'a ValidatorStake>,
+    {
+        let iter = bps.into_iter();
+        let (size, _) = iter.size_hint();
+        // each element contributes three 32-byte hashes
+        let mut arr = Vec::with_capacity(96 * size);
+        for bp in iter {
+            arr.extend_from_slice(hash(bp.account_id.as_bytes()).as_ref());
+            arr.extend_from_slice(hash(bp.public_key.try_to_vec()?.as_ref()).as_ref());
+            arr.extend_from_slice(hash(bp.stake.try_to_vec()?.as_ref()).as_ref());
         }
 
         Ok(hash(&arr))
@@ -398,12 +404,8 @@ impl Chain {
         epoch_id: EpochId,
         last_known_hash: &CryptoHash,
     ) -> Result<CryptoHash, Error> {
-        let bps = runtime_adapter
-            .get_epoch_block_producers_ordered(&epoch_id, last_known_hash)?
-            .iter()
-            .map(|x| x.0.clone())
-            .collect();
-        Chain::compute_bp_hash_inner(&bps)
+        let bps = runtime_adapter.get_epoch_block_producers_ordered(&epoch_id, last_known_hash)?;
+        Chain::compute_bp_hash_inner(bps.iter().map(|(bp, _)| bp))
     }
 
     /// Creates a light client block for the last final block from perspective of some other block
@@ -3300,15 +3302,19 @@ impl<'a> ChainUpdate<'a> {
     }
 }
 
-pub fn collect_receipts(receipt_proofs: &Vec<ReceiptProof>) -> Vec<Receipt> {
-    receipt_proofs.iter().map(|x| x.0.clone()).flatten().collect()
+pub fn collect_receipts<'a, T>(receipt_proofs: T) -> Vec<Receipt>
+where
+    T: IntoIterator<Item = &'a ReceiptProof>,
+{
+    receipt_proofs.into_iter().flat_map(|ReceiptProof(receipts, _)| receipts).cloned().collect()
 }
 
 pub fn collect_receipts_from_response(
-    receipt_proof_response: &Vec<ReceiptProofResponse>,
+    receipt_proof_response: &[ReceiptProofResponse],
 ) -> Vec<Receipt> {
-    let receipt_proofs = &receipt_proof_response.iter().map(|x| x.1.clone()).flatten().collect();
-    collect_receipts(receipt_proofs)
+    collect_receipts(
+        receipt_proof_response.iter().flat_map(|ReceiptProofResponse(_, proofs)| proofs),
+    )
 }
 
 // Used in testing only

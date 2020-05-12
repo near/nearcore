@@ -526,19 +526,13 @@ impl Runner {
                 .collect(),
         );
 
-        let blacklist = blacklist_from_vec(
-            &test_config
-                .blacklist
-                .iter()
-                .map(|x| {
-                    if let Some(x) = x {
-                        format!("127.0.0.1:{}", ports[*x]).parse().unwrap()
-                    } else {
-                        "127.0.0.1".parse().unwrap()
-                    }
-                })
-                .collect(),
-        );
+        let blacklist = blacklist_from_vec(test_config.blacklist.iter().map(|x| {
+            if let Some(x) = x {
+                format!("127.0.0.1:{}", ports[*x])
+            } else {
+                "127.0.0.1".to_string()
+            }
+        }));
 
         let mut network_config =
             NetworkConfig::from_seed(accounts_id[node_id].as_str(), ports[node_id].clone());

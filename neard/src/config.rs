@@ -561,7 +561,7 @@ impl NearConfig {
                 max_routes_to_store: MAX_ROUTES_TO_STORE,
                 highest_peer_horizon: HIGHEST_PEER_HORIZON,
                 push_info_period: Duration::from_millis(100),
-                blacklist: blacklist_from_vec(&config.network.blacklist),
+                blacklist: blacklist_from_vec(config.network.blacklist),
                 outbound_disabled: false,
             },
             telemetry_config: config.telemetry,
