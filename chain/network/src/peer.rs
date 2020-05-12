@@ -191,6 +191,9 @@ impl Peer {
     }
 
     /// Whether the peer is considered abusive due to sending too many messages.
+    // I am allowing this for now because I assume `MAX_PEER_MSG_PER_MIN` will
+    // some day be less than `u64::MAX`.
+    #[allow(clippy::absurd_extreme_comparisons)]
     fn is_abusive(&self) -> bool {
         self.tracker.received_bytes.count_per_min() > MAX_PEER_MSG_PER_MIN
             || self.tracker.sent_bytes.count_per_min() > MAX_PEER_MSG_PER_MIN
