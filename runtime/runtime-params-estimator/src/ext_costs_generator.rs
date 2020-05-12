@@ -41,8 +41,9 @@ impl ExtCostsGenerator {
         self.extract(write_memory_10b_10k, write_memory_base);
         self.extract(write_memory_1Mib_10k, write_memory_byte);
 
-        self.result.insert(log_base, Ratio::<u64>::new(0, 1));
-        self.result.insert(log_byte, Ratio::<u64>::new(0, 1));
+        self.extract(utf16_log_10b_10k, log_base);
+        self.extract(utf16_log_10kib_10k, log_byte);
+
         self.extract(utf8_log_10b_10k, utf8_decoding_base);
         // Charge the maximum between non-nul-terminated and nul-terminated costs.
         let utf8_byte = self.extract_value(utf8_log_10kib_10k, utf8_decoding_byte);

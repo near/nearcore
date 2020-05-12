@@ -603,7 +603,8 @@ fn get_ext_costs_config(measurement: &Measurements) -> ExtCostsConfig {
         storage_iter_next_key_byte: 0,
         storage_iter_next_value_byte: 0,
         // TODO: Actually compute it once our storage is complete.
-        touching_trie_node: 1,
+        // TODO: temporary value, as suggested by @nearmax, divisor is log_16(20000) ~ 3.57 ~ 7/2.
+        touching_trie_node: measured_to_gas(metric, &measured, storage_read_base) * 2 / 7,
         promise_and_base: measured_to_gas(metric, &measured, promise_and_base),
         promise_and_per_promise: measured_to_gas(metric, &measured, promise_and_per_promise),
         promise_return: measured_to_gas(metric, &measured, promise_return),
