@@ -226,7 +226,7 @@ impl Handler<NetworkClientMessages> for ClientActor {
                     NetworkAdversarialMessage::AdvSwitchToHeight(height) => {
                         info!(target: "adversary", "Switching to height {:?}", height);
                         let mut chain_store_update = self.client.chain.mut_store().store_update();
-                        chain_store_update.save_largest_target_height(&height);
+                        chain_store_update.save_largest_target_height(height);
                         chain_store_update
                             .adv_save_latest_known(height)
                             .expect("adv method should not fail");
@@ -959,7 +959,7 @@ impl ClientActor {
         // that if the node crashes in the meantime, we cannot get slashed on recovery
         let mut chain_store_update = self.client.chain.mut_store().store_update();
         chain_store_update
-            .save_largest_target_height(&self.client.doomslug.get_largest_target_height());
+            .save_largest_target_height(self.client.doomslug.get_largest_target_height());
 
         match chain_store_update.commit() {
             Ok(_) => {

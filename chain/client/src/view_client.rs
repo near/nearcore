@@ -566,7 +566,7 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
                     NetworkAdversarialMessage::AdvSwitchToHeight(height) => {
                         info!(target: "adversary", "Switching to height");
                         let mut chain_store_update = self.chain.mut_store().store_update();
-                        chain_store_update.save_largest_target_height(&height);
+                        chain_store_update.save_largest_target_height(height);
                         chain_store_update
                             .adv_save_latest_known(height)
                             .expect("adv method should not fail");

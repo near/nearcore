@@ -155,14 +155,14 @@ fn end_count_time(consumed: &Consumed) -> u64 {
     }
 }
 
-pub fn start_count(metric: &GasMetric) -> Consumed {
-    return match *metric {
+pub fn start_count(metric: GasMetric) -> Consumed {
+    return match metric {
         GasMetric::ICount => start_count_instructions(),
         GasMetric::Time => start_count_time(),
     };
 }
 
-pub fn end_count(metric: &GasMetric, consumed: &Consumed) -> u64 {
+pub fn end_count(metric: GasMetric, consumed: &Consumed) -> u64 {
     return match metric {
         GasMetric::ICount => end_count_instructions(),
         GasMetric::Time => end_count_time(consumed),
@@ -218,9 +218,9 @@ where
     for block_size in config.block_sizes.clone() {
         for _ in 0..config.iter_per_block {
             let block: Vec<_> = (0..block_size).map(|_| (*f)()).collect();
-            let start = start_count(&config.metric);
+            let start = start_count(config.metric);
             testbed.process_block(&block, allow_failures);
-            let measured = end_count(&config.metric, &start);
+            let measured = end_count(config.metric, &start);
             measurements.record_measurement(metric.clone(), block_size, measured);
             bar.inc(block_size as _);
             bar.set_message(format!("Block size: {}", block_size).as_str());
