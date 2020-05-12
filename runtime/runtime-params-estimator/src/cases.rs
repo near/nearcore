@@ -486,8 +486,7 @@ fn ratio_to_gas(gas_metric: &GasMetric, value: Ratio<u64>) -> u64 {
         GasMetric::ICount => 8u64,
         GasMetric::Time => 1u64,
     };
-    Ratio::<u64>::new(*value.numer() * GAS_IN_MEASURE_UNIT, *value.denom() * divisor)
-        .to_integer()
+    Ratio::<u64>::new(*value.numer() * GAS_IN_MEASURE_UNIT, *value.denom() * divisor).to_integer()
 }
 
 /// Converts cost of a certain action to a fee, spliting it evenly between send and execution fee.
