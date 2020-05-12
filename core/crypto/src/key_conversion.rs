@@ -1,9 +1,17 @@
-use crate::{signature, vrf};
+use crate::{signature, vrf, PublicKey};
 use arrayref::array_ref;
 use curve25519_dalek::edwards::{CompressedEdwardsY, EdwardsPoint};
 use curve25519_dalek::ristretto::RistrettoPoint;
 use curve25519_dalek::scalar::Scalar;
 use std::mem::transmute;
+
+pub fn is_valid_staking_key(public_key: &PublicKey) -> bool {
+    // The valid staking key is ED25519, and can be converted to ristretto.
+    match public_key {
+        PublicKey::ED25519(key) => convert_public_key(&key).is_some(),
+        PublicKey::SECP256K1(_) => false,
+    }
+}
 
 pub fn convert_public_key(key: &signature::ED25519PublicKey) -> Option<vrf::PublicKey> {
     let ep: EdwardsPoint = CompressedEdwardsY::from_slice(&key.0).decompress()?;
