@@ -129,18 +129,18 @@ pub struct StoreUpdate {
     storage: Arc<dyn Database>,
     transaction: DBTransaction,
     /// Optionally has reference to the trie to clear cache on the commit.
-    trie: Option<Arc<ShardTries>>,
+    tries: Option<Arc<ShardTries>>,
 }
 
 impl StoreUpdate {
     pub fn new(storage: Arc<dyn Database>) -> Self {
         let transaction = storage.transaction();
-        StoreUpdate { storage, transaction, trie: None }
+        StoreUpdate { storage, transaction, tries: None }
     }
 
-    pub fn new_with_trie(storage: Arc<dyn Database>, trie: Arc<ShardTries>) -> Self {
+    pub fn new_with_trie(storage: Arc<dyn Database>, tries: Arc<ShardTries>) -> Self {
         let transaction = storage.transaction();
-        StoreUpdate { storage, transaction, trie: Some(trie) }
+        StoreUpdate { storage, transaction, tries: Some(tries) }
     }
 
     pub fn set(&mut self, column: DBCol, key: &[u8], value: &[u8]) {
@@ -164,12 +164,12 @@ impl StoreUpdate {
 
     /// Merge another store update into this one.
     pub fn merge(&mut self, other: StoreUpdate) {
-        if let Some(trie) = other.trie {
-            if self.trie.is_none() {
-                self.trie = Some(trie);
+        if let Some(trie) = other.tries {
+            if self.tries.is_none() {
+                self.tries = Some(trie);
             } else {
                 debug_assert_eq!(
-                    self.trie.as_ref().unwrap().as_ref() as *const _,
+                    self.tries.as_ref().unwrap().as_ref() as *const _,
                     trie.as_ref() as *const _
                 );
             }
@@ -208,7 +208,7 @@ impl StoreUpdate {
             "Transaction overwrites itself: {:?}",
             self
         );
-        if let Some(trie) = self.trie {
+        if let Some(trie) = self.tries {
             assert_eq!(
                 trie.get_trie_for_shard(0)
                     .storage

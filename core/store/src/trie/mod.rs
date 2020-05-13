@@ -508,12 +508,12 @@ impl TrieChanges {
     }
     pub fn insertions_into(
         &self,
-        trie: Arc<ShardTries>,
+        tries: Arc<ShardTries>,
         shard_id: ShardId,
         store_update: &mut StoreUpdate,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        store_update.trie = Some(trie.clone());
-        let trie = trie.get_trie_for_shard(shard_id);
+        store_update.tries = Some(tries.clone());
+        let trie = tries.get_trie_for_shard(shard_id);
         let storage = trie.storage.as_caching_storage().expect("Must be caching storage");
         for (hash, value, rc) in self.insertions.iter() {
             let storage_rc = storage.retrieve_rc(&hash).unwrap_or_default();
@@ -528,30 +528,30 @@ impl TrieChanges {
 
     pub fn revert_insertions_into(
         &self,
-        trie: Arc<ShardTries>,
+        tries: Arc<ShardTries>,
         shard_id: ShardId,
         store_update: &mut StoreUpdate,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        TrieChanges::deletions_into_inner(&self.insertions, trie, shard_id, store_update)
+        TrieChanges::deletions_into_inner(&self.insertions, tries, shard_id, store_update)
     }
 
     pub fn deletions_into(
         &self,
-        trie: Arc<ShardTries>,
+        tries: Arc<ShardTries>,
         shard_id: ShardId,
         store_update: &mut StoreUpdate,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        TrieChanges::deletions_into_inner(&self.deletions, trie, shard_id, store_update)
+        TrieChanges::deletions_into_inner(&self.deletions, tries, shard_id, store_update)
     }
 
     fn deletions_into_inner(
         deletions: &Vec<(CryptoHash, Vec<u8>, u32)>,
-        trie: Arc<ShardTries>,
+        tries: Arc<ShardTries>,
         shard_id: ShardId,
         store_update: &mut StoreUpdate,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        store_update.trie = Some(trie.clone());
-        let trie = trie.get_trie_for_shard(shard_id);
+        store_update.tries = Some(tries.clone());
+        let trie = tries.get_trie_for_shard(shard_id);
         let storage = trie.storage.as_caching_storage().expect("Must be caching storage");
         for (hash, value, rc) in deletions.iter() {
             let storage_rc = storage.retrieve_rc(&hash).unwrap_or_default();
@@ -571,38 +571,38 @@ impl TrieChanges {
 
     pub fn into(
         self,
-        trie: Arc<ShardTries>,
+        tries: Arc<ShardTries>,
         shard_id: ShardId,
     ) -> Result<(StoreUpdate, StateRoot), Box<dyn std::error::Error>> {
-        self.into_inner(trie, shard_id, true)
+        self.into_inner(tries, shard_id, true)
     }
 
     pub fn into_no_deletions(
         self,
-        trie: Arc<ShardTries>,
+        tries: Arc<ShardTries>,
         shard_id: ShardId,
     ) -> Result<(StoreUpdate, StateRoot), Box<dyn std::error::Error>> {
-        self.into_inner(trie, shard_id, false)
+        self.into_inner(tries, shard_id, false)
     }
 
     fn into_inner(
         self,
-        trie: Arc<ShardTries>,
+        tries: Arc<ShardTries>,
         shard_id: ShardId,
         apply_deletions: bool,
     ) -> Result<(StoreUpdate, StateRoot), Box<dyn std::error::Error>> {
         let mut store_update =
-            StoreUpdate::new_with_trie(trie.get_store().storage.clone(), trie.clone());
-        self.insertions_into(trie.clone(), shard_id, &mut store_update)?;
+            StoreUpdate::new_with_trie(tries.get_store().storage.clone(), tries.clone());
+        self.insertions_into(tries.clone(), shard_id, &mut store_update)?;
         if apply_deletions {
-            self.deletions_into(trie, shard_id, &mut store_update)?;
+            self.deletions_into(tries, shard_id, &mut store_update)?;
         }
         Ok((store_update, self.new_root))
     }
 }
 
 pub struct WrappedTrieChanges {
-    trie: Arc<ShardTries>,
+    tries: Arc<ShardTries>,
     shard_id: ShardId,
     trie_changes: TrieChanges,
     state_changes: Vec<RawStateChangesWithTrieKey>,
@@ -611,27 +611,27 @@ pub struct WrappedTrieChanges {
 
 impl WrappedTrieChanges {
     pub fn new(
-        trie: Arc<ShardTries>,
+        tries: Arc<ShardTries>,
         shard_id: ShardId,
         trie_changes: TrieChanges,
         state_changes: Vec<RawStateChangesWithTrieKey>,
         block_hash: CryptoHash,
     ) -> Self {
-        WrappedTrieChanges { trie, shard_id, trie_changes, state_changes, block_hash }
+        WrappedTrieChanges { tries, shard_id, trie_changes, state_changes, block_hash }
     }
 
     pub fn insertions_into(
         &self,
         store_update: &mut StoreUpdate,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        self.trie_changes.insertions_into(self.trie.clone(), self.shard_id, store_update)
+        self.trie_changes.insertions_into(self.tries.clone(), self.shard_id, store_update)
     }
 
     pub fn deletions_into(
         &self,
         store_update: &mut StoreUpdate,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        self.trie_changes.deletions_into(self.trie.clone(), self.shard_id, store_update)
+        self.trie_changes.deletions_into(self.tries.clone(), self.shard_id, store_update)
     }
 
     /// Save state changes into Store.

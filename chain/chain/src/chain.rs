@@ -537,7 +537,7 @@ impl Chain {
     //    and the Trie is updated with having only Genesis data.
     // 4. State Sync Clearing happens in `reset_data_pre_state_sync()`.
     //
-    pub fn clear_data(&mut self, trie: Arc<ShardTries>) -> Result<(), Error> {
+    pub fn clear_data(&mut self, tries: Arc<ShardTries>) -> Result<(), Error> {
         let head = self.store.head()?;
         let tail = self.store.tail()?;
         let mut gc_stop_height = self.runtime_adapter.get_gc_stop_height(&head.last_block_hash)?;
@@ -552,7 +552,7 @@ impl Chain {
 
         // Forks Cleaning
         for height in tail..gc_stop_height {
-            self.clear_forks_data(trie.clone(), height)?;
+            self.clear_forks_data(tries.clone(), height)?;
         }
 
         // Canonical Chain Clearing
@@ -572,7 +572,7 @@ impl Chain {
                     } else if prev_block_refcount == 1 {
                         debug_assert_eq!(blocks_current_height.len(), 1);
                         chain_store_update
-                            .clear_block_data(*block_hash, GCMode::Canonical(trie.clone()))?;
+                            .clear_block_data(*block_hash, GCMode::Canonical(tries.clone()))?;
                     } else {
                         return Err(ErrorKind::GCError(
                             "block on canonical chain shouldn't have refcount 0".into(),
@@ -589,7 +589,7 @@ impl Chain {
 
     pub fn clear_forks_data(
         &mut self,
-        trie: Arc<ShardTries>,
+        tries: Arc<ShardTries>,
         height: BlockHeight,
     ) -> Result<(), Error> {
         if let Ok(blocks_current_height) = self.store.get_all_block_hashes_by_height(height) {
@@ -609,7 +609,7 @@ impl Chain {
 
                         // It's safe to call `clear_block_data` for prev data because it clears fork only here
                         chain_store_update
-                            .clear_block_data(current_hash, GCMode::Fork(trie.clone()))?;
+                            .clear_block_data(current_hash, GCMode::Fork(tries.clone()))?;
                         chain_store_update.commit()?;
 
                         current_hash = prev_hash;
