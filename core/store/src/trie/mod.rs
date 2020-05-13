@@ -1,8 +1,8 @@
 use std::cmp::Ordering;
 use std::collections::HashMap;
-use std::convert::{TryFrom, TryInto};
+use std::convert::TryFrom;
 use std::fmt;
-use std::io::{Cursor, ErrorKind, Read, Write};
+use std::io::{Cursor, Read, Write};
 use std::sync::{Arc, Mutex};
 
 use borsh::{BorshDeserialize, BorshSerialize};
@@ -447,17 +447,11 @@ impl ShardTries {
         for op in &transaction.ops {
             match op {
                 DBOp::Insert { col, ref key, ref value } if *col == ColState => {
-                    let shard_id = u64::from_le_bytes(key[0..8].try_into().unwrap());
-                    let hash = CryptoHash::try_from(&key[8..]).map_err(|_| {
-                        std::io::Error::new(ErrorKind::Other, "Key is always a hash")
-                    })?;
+                    let (shard_id, hash) = TrieCachingStorage::get_shard_id_and_hash_from_key(key)?;
                     shards[shard_id as usize].push((hash, Some(value.clone())));
                 }
                 DBOp::Delete { col, ref key } if *col == ColState => {
-                    let shard_id = u64::from_le_bytes(key[0..8].try_into().unwrap());
-                    let hash = CryptoHash::try_from(&key[8..]).map_err(|_| {
-                        std::io::Error::new(ErrorKind::Other, "Key is always a hash")
-                    })?;
+                    let (shard_id, hash) = TrieCachingStorage::get_shard_id_and_hash_from_key(key)?;
                     shards[shard_id as usize].push((hash, None));
                 }
                 _ => {}

@@ -9,6 +9,8 @@ use near_primitives::hash::CryptoHash;
 use crate::trie::{decode_trie_node_with_rc, POISONED_LOCK_ERR};
 use crate::{ColState, StorageError, Store};
 use near_primitives::types::ShardId;
+use std::convert::{TryFrom, TryInto};
+use std::io::ErrorKind;
 
 pub trait TrieStorage: Send + Sync {
     /// Get bytes of a serialized TrieNode.
@@ -111,6 +113,24 @@ impl TrieCachingStorage {
             })
     }
 
+    pub(crate) fn get_shard_id_and_hash_from_key(
+        key: &[u8],
+    ) -> Result<(u64, CryptoHash), std::io::Error> {
+        if key.len() != 40 {
+            return Err(std::io::Error::new(ErrorKind::Other, "Key is always shard_id + hash"));
+        }
+        let shard_id = u64::from_le_bytes(key[0..8].try_into().unwrap());
+        let hash = CryptoHash::try_from(&key[8..]).unwrap();
+        Ok((shard_id, hash))
+    }
+
+    pub(crate) fn get_key_from_shard_id_and_hash(shard_id: ShardId, hash: &CryptoHash) -> [u8; 40] {
+        let mut key = [0; 40];
+        key[0..8].copy_from_slice(&u64::to_le_bytes(shard_id));
+        key[8..].copy_from_slice(hash.as_ref());
+        key
+    }
+
     /// Get storage refcount, or 0 if hash is not present
     /// # Errors
     /// StorageError::StorageInternalError if the storage fails internally.
@@ -119,9 +139,7 @@ impl TrieCachingStorage {
         if let Some(val) = (*guard).cache_get(hash) {
             Self::vec_to_rc(val)
         } else {
-            let mut key = Vec::with_capacity(40);
-            key.extend_from_slice(&u64::to_le_bytes(self.shard_id));
-            key.extend_from_slice(hash.as_ref());
+            let key = Self::get_key_from_shard_id_and_hash(self.shard_id, hash);
             let val = self
                 .store
                 .get(ColState, key.as_ref())
@@ -139,9 +157,7 @@ impl TrieStorage for TrieCachingStorage {
         if let Some(val) = (*guard).cache_get(hash) {
             Self::vec_to_bytes(val)
         } else {
-            let mut key = Vec::with_capacity(40);
-            key.extend_from_slice(&u64::to_le_bytes(self.shard_id));
-            key.extend_from_slice(hash.as_ref());
+            let key = Self::get_key_from_shard_id_and_hash(self.shard_id, hash);
             let val = self
                 .store
                 .get(ColState, key.as_ref())
