@@ -178,6 +178,8 @@ pub enum ActionsValidationError {
     FunctionCallMethodNameLengthExceeded { length: u64, limit: u64 },
     /// The length of the arguments exceeded the limit in a Function Call action.
     FunctionCallArgumentsLengthExceeded { length: u64, limit: u64 },
+    /// An attempt to stake with a public key that is not convertible to ristretto
+    UnsuitableStakingKey { public_key: PublicKey },
 }
 
 /// Describes the error for validating a receipt.
@@ -278,6 +280,11 @@ impl Display for ActionsValidationError {
                 "The length of the arguments {} exceeds the maximum allowed length {} in a FunctionCall action",
                 length, limit
             ),
+            ActionsValidationError::UnsuitableStakingKey { public_key } => write!(
+                f,
+                "The staking key must be ristretto compatible ED25519 key. {} is provided instead.",
+                public_key,
+            )
         }
     }
 }
@@ -339,8 +346,6 @@ pub enum ActionErrorKind {
         #[serde(with = "u128_dec_format")]
         balance: Balance,
     },
-    /// An attempt to stake with a key that is not convertable to ristretto
-    UnsuitableStakingKey { public_key: PublicKey },
     /// An error occurred during a `FunctionCall` Action.
     FunctionCallError(FunctionCallError),
     /// Error occurs when a new `ActionReceipt` created by the `FunctionCall` action fails
@@ -599,9 +604,6 @@ impl Display for ActionErrorKind {
                 "Account {:?} tries to stake {}, but has staked {} and only has {}",
                 account_id, stake, locked, balance
             ),
-            ActionErrorKind::UnsuitableStakingKey { public_key } => {
-                write!(f, "The staking key must be ED25519. {} is provided instead.", public_key)
-            }
             ActionErrorKind::CreateAccountOnlyByRegistrar { account_id, registrar_account_id, predecessor_id } => write!(
                 f,
                 "A top-level account ID {:?} can't be created by {:?}, short top-level account IDs can only be created by {:?}",
