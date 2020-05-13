@@ -430,7 +430,6 @@
         "LackBalanceForState",
         "TriesToUnstake",
         "TriesToStake",
-        "UnsuitableStakingKey",
         "FunctionCallError",
         "NewReceiptValidationError"
       ],
@@ -660,15 +659,13 @@
       ],
       "props": {}
     },
-    "UnsuitableStakingKey": {
-      "name": "UnsuitableStakingKey",
-      "subtypes": [],
-      "props": {
-        "public_key": ""
-      }
-    },
     "Closed": {
       "name": "Closed",
+      "subtypes": [],
+      "props": {}
+    },
+    "InternalError": {
+      "name": "InternalError",
       "subtypes": [],
       "props": {}
     },
@@ -677,7 +674,8 @@
       "subtypes": [
         "TxExecutionError",
         "Timeout",
-        "Closed"
+        "Closed",
+        "InternalError"
       ],
       "props": {}
     },
