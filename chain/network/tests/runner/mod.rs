@@ -19,7 +19,7 @@ use near_network::test_utils::{
     GetInfo, StopSignal, WaitOrTimeout,
 };
 use near_network::types::{OutboundTcpConnect, ROUTED_MESSAGE_TTL};
-use near_network::utils::blacklist_from_vec;
+use near_network::utils::blacklist_from_iter;
 use near_network::{
     NetworkConfig, NetworkRecipient, NetworkRequests, NetworkResponses, PeerInfo, PeerManagerActor,
 };
@@ -526,7 +526,7 @@ impl Runner {
                 .collect(),
         );
 
-        let blacklist = blacklist_from_vec(test_config.blacklist.iter().map(|x| {
+        let blacklist = blacklist_from_iter(test_config.blacklist.iter().map(|x| {
             if let Some(x) = x {
                 format!("127.0.0.1:{}", ports[*x])
             } else {

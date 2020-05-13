@@ -5,7 +5,7 @@ use std::{hash::Hash, net::IpAddr};
 
 use crate::types::{BlockedPorts, PatternAddr};
 
-pub fn blacklist_from_vec<T>(blacklist: T) -> HashMap<IpAddr, BlockedPorts>
+pub fn blacklist_from_iter<T>(blacklist: T) -> HashMap<IpAddr, BlockedPorts>
 where
     T: IntoIterator<Item = String>,
 {
