@@ -17,7 +17,7 @@ pub struct Measurements {
 
 impl Measurements {
     pub fn new(gas_metric: GasMetric) -> Self {
-        Self { data: BTreeMap::new(), gas_metric: gas_metric.clone() }
+        Self { data: BTreeMap::new(), gas_metric }
     }
 
     pub fn record_measurement(

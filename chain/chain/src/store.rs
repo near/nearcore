@@ -1523,7 +1523,7 @@ impl<'a> ChainStoreUpdate<'a> {
     }
 
     pub fn save_largest_target_height(&mut self, height: BlockHeight) {
-        self.largest_target_height = Some(height.clone());
+        self.largest_target_height = Some(height);
     }
 
     /// Save new height if it's above currently latest known.

@@ -52,6 +52,7 @@ use num_rational::Rational;
 use rand::rngs::StdRng;
 use rand::seq::SliceRandom;
 use rand::SeedableRng;
+use std::mem;
 
 /// Maximum number of orphans chain can store.
 pub const MAX_ORPHAN_SIZE: usize = 1024;
@@ -387,13 +388,14 @@ impl Chain {
         T: IntoIterator<Item = &'a ValidatorStake>,
     {
         let iter = bps.into_iter();
-        let (size, _) = iter.size_hint();
-        // each element contributes three 32-byte hashes
-        let mut arr = Vec::with_capacity(96 * size);
+        let (iter_size, _) = iter.size_hint();
+        let hash_size = mem::size_of::<CryptoHash>();
+        // each element of the iterator contributes three hashes
+        let mut arr = Vec::with_capacity(3 * hash_size * iter_size);
         for bp in iter {
-            arr.extend_from_slice(hash(bp.account_id.as_bytes()).as_ref());
-            arr.extend_from_slice(hash(bp.public_key.try_to_vec()?.as_ref()).as_ref());
-            arr.extend_from_slice(hash(bp.stake.try_to_vec()?.as_ref()).as_ref());
+            arr.extend(hash(bp.account_id.as_bytes()).as_ref());
+            arr.extend(hash(bp.public_key.try_to_vec()?.as_ref()).as_ref());
+            arr.extend(hash(bp.stake.try_to_vec()?.as_ref()).as_ref());
         }
 
         Ok(hash(&arr))
