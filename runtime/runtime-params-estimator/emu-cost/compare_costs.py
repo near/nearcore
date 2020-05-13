@@ -5,7 +5,7 @@ import sys
 def read_costs(path):
     result = {}
     with open(path) as f:
-        pattern = re.compile("\\s*([\\w]+): ([\\d]+).*")
+        pattern = re.compile("\\s*\"*([\\w]+)\"*: ([\\d]+).*")
         for line in f:
             m = pattern.search(line)
             if m != None:
