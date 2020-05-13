@@ -538,9 +538,8 @@ impl Chain {
     // 4. State Sync Clearing happens in `reset_data_pre_state_sync()`.
     //
     pub fn clear_data(&mut self, trie: Arc<Trie>) -> Result<(), Error> {
-        let mut chain_store_update = self.store.store_update();
-        let head = chain_store_update.head()?;
-        let tail = chain_store_update.tail()?;
+        let head = self.store.head()?;
+        let tail = self.store.tail()?;
         let mut gc_stop_height = self.runtime_adapter.get_gc_stop_height(&head.last_block_hash)?;
         if gc_stop_height > head.height {
             return Err(ErrorKind::GCError(
@@ -553,11 +552,12 @@ impl Chain {
 
         // Forks Cleaning
         for height in tail..gc_stop_height {
-            chain_store_update.clear_forks_data(trie.clone(), height)?;
+            self.clear_forks_data(trie.clone(), height)?;
         }
 
         // Canonical Chain Clearing
         for height in tail + 1..gc_stop_height {
+            let mut chain_store_update = self.store.store_update();
             if let Ok(blocks_current_height) =
                 chain_store_update.get_all_block_hashes_by_height(height)
             {
@@ -582,8 +582,41 @@ impl Chain {
                 }
             }
             chain_store_update.update_tail(height);
+            chain_store_update.commit()?;
         }
-        chain_store_update.commit()?;
+        Ok(())
+    }
+
+    pub fn clear_forks_data(&mut self, trie: Arc<Trie>, height: BlockHeight) -> Result<(), Error> {
+        if let Ok(blocks_current_height) = self.store.get_all_block_hashes_by_height(height) {
+            let blocks_current_height =
+                blocks_current_height.values().flatten().cloned().collect::<Vec<_>>();
+            for block_hash in blocks_current_height.iter() {
+                let mut current_hash = *block_hash;
+                loop {
+                    // Block `block_hash` is not on the Canonical Chain
+                    // because shorter chain cannot be Canonical one
+                    // and it may be safely deleted
+                    // and all its ancestors while there are no other sibling blocks rely on it.
+                    let mut chain_store_update = self.store.store_update();
+                    if *chain_store_update.get_block_refcount(&current_hash)? == 0 {
+                        let prev_hash =
+                            chain_store_update.get_block_header(&current_hash)?.prev_hash;
+
+                        // It's safe to call `clear_block_data` for prev data because it clears fork only here
+                        chain_store_update
+                            .clear_block_data(current_hash, GCMode::Fork(trie.clone()))?;
+                        chain_store_update.commit()?;
+
+                        current_hash = prev_hash;
+                    } else {
+                        // Block of `current_hash` is an ancestor for some other blocks, stopping
+                        break;
+                    }
+                }
+            }
+        }
+
         Ok(())
     }
 
@@ -884,28 +917,26 @@ impl Chain {
         let hash = header.prev_hash;
         let prev_header = self.get_block_header(&hash)?;
         let tip = Tip::from_header(prev_header);
-        let mut chain_store_update = self.mut_store().store_update();
 
         // GC all the data from current tail up to `tip.height`
         let new_tail = tip.height;
-        let tail = chain_store_update.tail()?;
+        let tail = self.store.tail()?;
         for height in tail..new_tail {
-            if let Ok(blocks_current_height) =
-                chain_store_update.get_all_block_hashes_by_height(height)
-            {
+            if let Ok(blocks_current_height) = self.store.get_all_block_hashes_by_height(height) {
                 let blocks_current_height =
                     blocks_current_height.values().flatten().cloned().collect::<Vec<_>>();
                 for block_hash in blocks_current_height {
+                    let mut chain_store_update = self.mut_store().store_update();
                     chain_store_update.clear_block_data(block_hash, GCMode::StateSync)?;
+                    chain_store_update.commit()?;
                 }
             }
         }
 
+        let mut chain_store_update = self.mut_store().store_update();
         // Clear all Trie data
         chain_store_update.clear_state_data();
-
         chain_store_update.update_tail(new_tail);
-
         chain_store_update.commit()?;
 
         Ok(())

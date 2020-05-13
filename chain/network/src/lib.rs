@@ -8,7 +8,7 @@ pub use types::{
 };
 
 mod codec;
-mod metrics;
+pub mod metrics;
 mod peer;
 mod peer_manager;
 pub mod peer_store;

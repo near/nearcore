@@ -642,6 +642,7 @@ impl StreamHandler<Vec<u8>> for Peer {
                 }
 
                 if handshake.peer_id == self.node_info.id {
+                    near_metrics::inc_counter(&metrics::RECEIVED_INFO_ABOUT_ITSELF);
                     debug!(target: "network", "Received info about itself. Disconnecting this peer.");
                     ctx.stop();
                     return;

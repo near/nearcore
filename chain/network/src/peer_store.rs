@@ -1,4 +1,4 @@
-use std::collections::{hash_map::Iter, HashMap, HashSet};
+use std::collections::{hash_map::Iter, HashMap};
 use std::convert::TryInto;
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -192,11 +192,11 @@ impl PeerStore {
 
     /// Return unconnected or peers with unknown status that we can try to connect to.
     /// Peers with unknown addresses are filtered out.
-    pub fn unconnected_peers(&self, ignore_list: &HashSet<PeerId>) -> Vec<PeerInfo> {
+    pub fn unconnected_peers(&self, ignore_fn: impl Fn(&KnownPeerState) -> bool) -> Vec<PeerInfo> {
         self.find_peers(
             |p| {
                 (p.status == KnownPeerStatus::NotConnected || p.status == KnownPeerStatus::Unknown)
-                    && !ignore_list.contains(&p.peer_info.id)
+                    && !ignore_fn(p)
                     && p.peer_info.addr.is_some()
             },
             0,

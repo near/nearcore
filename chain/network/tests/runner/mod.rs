@@ -770,3 +770,20 @@ pub fn change_account_id(node_id: usize, account_id: String) -> ActionFn {
         },
     )
 }
+
+/// Wait for predicate to return True.
+pub fn wait_for<T>(predicate: T) -> ActionFn
+where
+    T: 'static + Fn() -> bool,
+{
+    Box::new(
+        move |_info: SharedRunningInfo,
+              flag: Arc<AtomicBool>,
+              _ctx: &mut Context<WaitOrTimeout>,
+              _runner: Addr<Runner>| {
+            if predicate() {
+                flag.store(true, Ordering::Relaxed);
+            }
+        },
+    )
+}
