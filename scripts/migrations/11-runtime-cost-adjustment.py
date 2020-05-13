@@ -1,30 +1,23 @@
-{
-  "config_version": 1,
-  "protocol_version": 11,
-  "genesis_time": "1970-01-01T00:00:00.000000000Z",
-  "chain_id": "sample",
-  "genesis_height": 0,
-  "num_block_producer_seats": 50,
-  "num_block_producer_seats_per_shard": [
-    50
-  ],
-  "avg_hidden_validator_seats_per_shard": [
-    0
-  ],
-  "dynamic_resharding": false,
-  "epoch_length": 500,
-  "gas_limit": 1000000000000000,
-  "min_gas_price": "5000",
-  "block_producer_kickout_threshold": 90,
-  "chunk_producer_kickout_threshold": 60,
-  "gas_price_adjustment_rate": [
-    1,
-    100
-  ],
-  "runtime_config": {
-    "storage_amount_per_byte": "90900000000000000000",
-    "transaction_costs": {
-      "action_receipt_creation_config": {
+"""
+Changes runtime costs based on results from the new runtime parameter estimator.
+
+"""
+
+import sys
+import os
+import json
+from collections import OrderedDict
+
+home = sys.argv[1]
+output_home = sys.argv[2]
+
+config = json.load(open(os.path.join(home, 'output.json')), object_pairs_hook=OrderedDict)
+
+assert config['protocol_version'] == 10
+
+config['protocol_version'] = 11
+config['runtime_config']['transaction_costs'] = {
+    "action_receipt_creation_config": {
         "send_sir": 108059500000,
         "send_not_sir": 108059500000,
         "execution": 108059500000
@@ -113,9 +106,8 @@
         3,
         10
       ]
-    },
-    "wasm_config": {
-      "ext_costs": {
+}
+config['runtime_config']['wasm_config']['ext_costs'] = {
         "base": 265261758,
         "read_memory_base": 2584050225,
         "read_memory_byte": 3801396,
@@ -161,57 +153,6 @@
         "promise_and_base": 1473816795,
         "promise_and_per_promise": 5613432,
         "promise_return": 558292404
-      },
-      "grow_mem_cost": 1,
-      "regular_op_cost": 3856371,
-      "limit_config": {
-        "max_gas_burnt": 200000000000000,
-        "max_gas_burnt_view": 200000000000000,
-        "max_stack_height": 16384,
-        "initial_memory_pages": 1024,
-        "max_memory_pages": 2048,
-        "registers_memory_limit": 1073741824,
-        "max_register_size": 104857600,
-        "max_number_registers": 100,
-        "max_number_logs": 100,
-        "max_total_log_length": 16384,
-        "max_total_prepaid_gas": 10000000000000000,
-        "max_actions_per_receipt": 100,
-        "max_number_bytes_method_names": 2000,
-        "max_length_method_name": 256,
-        "max_arguments_length": 4194304,
-        "max_length_returned_data": 4194304,
-        "max_contract_size": 4194304,
-        "max_length_storage_key": 4194304,
-        "max_length_storage_value": 4194304,
-        "max_promises_per_function_call_action": 1024,
-        "max_number_input_data_dependencies": 128
-      }
-    },
-    "account_creation_config": {
-      "min_allowed_top_level_account_length": 0,
-      "registrar_account_id": "registrar"
-    }
-  },
-  "validators": [
-    {
-      "account_id": "test.near",
-      "public_key": "ed25519:9BmAFNRTa5mRRXpSAm6MxSEeqRASDGNh2FuuwZ4gyxTw",
-      "amount": "50000000000000000000000000000000"
-    }
-  ],
-  "transaction_validity_period": 100,
-  "protocol_reward_rate": [
-    1,
-    10
-  ],
-  "max_inflation_rate": [
-    1,
-    20
-  ],
-  "total_supply": "2050000000000000000000000000000000",
-  "num_blocks_per_year": 31536000,
-  "protocol_treasury_account": "test.near",
-  "fishermen_threshold": "10000000000000000000000000",
-  "records": []
-}
+};
+
+json.dump(config, open(os.path.join(output_home, 'output.json'), 'w'), indent=2)

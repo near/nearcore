@@ -3,6 +3,7 @@ use crate::config::{
     safe_gas_to_balance, total_prepaid_gas, tx_cost, RuntimeConfig, TransactionCost,
 };
 use crate::VerificationResult;
+use near_crypto::key_conversion::is_valid_staking_key;
 use near_primitives::account::AccessKeyPermission;
 use near_primitives::errors::{
     ActionsValidationError, InvalidAccessKeyError, InvalidTxError, ReceiptValidationError,
@@ -11,7 +12,7 @@ use near_primitives::errors::{
 use near_primitives::receipt::{ActionReceipt, DataReceipt, Receipt, ReceiptEnum};
 use near_primitives::transaction::{
     Action, AddKeyAction, DeleteAccountAction, DeployContractAction, FunctionCallAction,
-    SignedTransaction,
+    SignedTransaction, StakeAction,
 };
 use near_primitives::utils::is_valid_account_id;
 use near_store::{get_access_key, get_account, set_access_key, set_account, TrieUpdate};
@@ -278,7 +279,7 @@ pub fn validate_action(
         Action::DeployContract(a) => validate_deploy_contract_action(limit_config, a),
         Action::FunctionCall(a) => validate_function_call_action(limit_config, a),
         Action::Transfer(_) => Ok(()),
-        Action::Stake(_) => Ok(()),
+        Action::Stake(a) => validate_stake_action(a),
         Action::AddKey(a) => validate_add_key_action(limit_config, a),
         Action::DeleteKey(_) => Ok(()),
         Action::DeleteAccount(a) => validate_delete_account_action(a),
@@ -317,6 +318,17 @@ fn validate_function_call_action(
         return Err(ActionsValidationError::FunctionCallArgumentsLengthExceeded {
             length: action.args.len() as u64,
             limit: limit_config.max_arguments_length,
+        });
+    }
+
+    Ok(())
+}
+
+/// Validates `StakeAction`. Checks that the `public_key` is a valid staking key.
+fn validate_stake_action(action: &StakeAction) -> Result<(), ActionsValidationError> {
+    if !is_valid_staking_key(&action.public_key) {
+        return Err(ActionsValidationError::UnsuitableStakingKey {
+            public_key: action.public_key.clone(),
         });
     }
 
@@ -386,6 +398,7 @@ mod tests {
     };
     use near_primitives::types::{AccountId, Balance, MerkleHash, StateChangeCause};
     use near_store::test_utils::create_tries;
+    use std::convert::TryInto;
     use std::sync::Arc;
     use testlib::runtime_utils::{alice_account, bob_account, eve_dot_alice_account};
 
@@ -1311,10 +1324,29 @@ mod tests {
             &VMLimitConfig::default(),
             &Action::Stake(StakeAction {
                 stake: 100,
-                public_key: PublicKey::empty(KeyType::ED25519),
+                public_key: "ed25519:KuTCtARNzxZQ3YvXDeLjx83FDqxv2SdQTSbiq876zR7"
+                    .try_into()
+                    .unwrap(),
             }),
         )
         .expect("valid action");
+    }
+
+    #[test]
+    fn test_validate_action_invalid_staking_key() {
+        assert_eq!(
+            validate_action(
+                &VMLimitConfig::default(),
+                &Action::Stake(StakeAction {
+                    stake: 100,
+                    public_key: PublicKey::empty(KeyType::ED25519),
+                }),
+            )
+            .expect_err("Expected an error"),
+            ActionsValidationError::UnsuitableStakingKey {
+                public_key: PublicKey::empty(KeyType::ED25519),
+            },
+        );
     }
 
     #[test]
