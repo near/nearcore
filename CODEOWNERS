@@ -3,7 +3,10 @@
 /chain/ @SkidanovAlex @bowenwang1996
 /chain/jsonrpc/ @frol @evgenykuzyakov
 
-/runtime/ @nearmax @evgenykuzyakov
+/runtime/ @evgenykuzyakov @frol @nearmax
+/runtime/runtime-params-estimator @olonho @nearmax
+/runtime/runtime-standalone @frol @fckt
+/runtime/near-vm-runner-standalone @frol @fckt
 
 /genesis-tools/ @nearmax
 
