@@ -354,7 +354,7 @@ def test_key_value_changes():
             contract_key.account_id,
             'setKeyValue',
             json.dumps({"key": "my_key", "value": "my_value_1"}).encode('utf-8'),
-            100000000000,
+            10000000000000000,
             100000000000,
             20,
             base58.b58decode(latest_block_hash.encode('utf8'))
@@ -368,7 +368,7 @@ def test_key_value_changes():
         contract_key.account_id,
         'setKeyValue',
         json.dumps({"key": "my_key", "value": "my_value_2"}).encode('utf-8'),
-        100000000000,
+        10000000000000000,
         100000000000,
         30,
         base58.b58decode(latest_block_hash.encode('utf8'))
