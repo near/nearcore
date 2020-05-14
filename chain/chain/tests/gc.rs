@@ -8,6 +8,7 @@ mod tests {
     use near_chain::DoomslugThresholdMode;
     use near_crypto::KeyType;
     use near_primitives::block::Block;
+    use near_primitives::merkle::MerkleTree;
     use near_primitives::types::{NumBlocks, StateRoot};
     use near_primitives::validator_signer::InMemoryValidatorSigner;
     use near_store::test_utils::{create_test_store, gen_changes};
@@ -48,14 +49,17 @@ mod tests {
         let mut rng = rand::thread_rng();
         let signer =
             Arc::new(InMemoryValidatorSigner::from_seed("test1", KeyType::ED25519, "test1"));
-        for _ in 0..num_blocks {
+        for i in 0..num_blocks {
             let block = Block::empty(&prev_block, &*signer);
 
             let head = chain.head().unwrap();
             let mut store_update = chain.mut_store().store_update();
+            if i == 0 {
+                store_update.save_block_merkle_tree(prev_block.hash(), MerkleTree::default());
+            }
             store_update.save_block(block.clone());
             store_update.inc_block_refcount(&block.header.prev_hash).unwrap();
-            store_update.save_block_header(block.header.clone());
+            store_update.save_block_header(block.header.clone()).unwrap();
             let tip = Tip::from_header(&block.header);
             if head.height < tip.height {
                 store_update.save_head(&tip).unwrap();

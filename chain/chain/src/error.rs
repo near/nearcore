@@ -143,6 +143,9 @@ pub enum ErrorKind {
     /// Invalid VRF proof, or incorrect random_output in the header
     #[fail(display = "Invalid Randomness Beacon Output")]
     InvalidRandomnessBeaconOutput,
+    /// Invalid block merkle root.
+    #[fail(display = "Invalid Block Merkle Root")]
+    InvalidBlockMerkleRoot,
     /// Someone is not a validator. Usually happens in signature verification
     #[fail(display = "Not A Validator")]
     NotAValidator,
@@ -253,6 +256,7 @@ impl Error {
             | ErrorKind::InvalidShardId(_)
             | ErrorKind::InvalidStateRequest(_)
             | ErrorKind::InvalidRandomnessBeaconOutput
+            | ErrorKind::InvalidBlockMerkleRoot
             | ErrorKind::NotAValidator => true,
         }
     }

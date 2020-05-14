@@ -352,8 +352,12 @@ impl Client {
         };
 
         // Get block extra from previous block.
-        let prev_block_extra = self.chain.get_block_extra(&head.last_block_hash)?.clone();
-        let prev_block = self.chain.get_block(&head.last_block_hash)?;
+        let mut block_merkle_tree =
+            self.chain.mut_store().get_block_merkle_tree(&prev_hash)?.clone();
+        block_merkle_tree.insert(prev_hash);
+        let block_merkle_root = block_merkle_tree.root();
+        let prev_block_extra = self.chain.get_block_extra(&prev_hash)?.clone();
+        let prev_block = self.chain.get_block(&prev_hash)?;
         let mut chunks = prev_block.chunks.clone();
 
         // Collect new chunks.
@@ -390,6 +394,7 @@ impl Client {
             vec![],
             &*validator_signer,
             next_bp_hash,
+            block_merkle_root,
         );
 
         // Update latest known even before returning block out, to prevent race conditions.

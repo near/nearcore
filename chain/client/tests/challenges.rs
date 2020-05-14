@@ -22,7 +22,7 @@ use near_primitives::challenge::{
     BlockDoubleSign, Challenge, ChallengeBody, ChunkProofs, MaybeEncodedShardChunk,
 };
 use near_primitives::hash::CryptoHash;
-use near_primitives::merkle::{merklize, MerklePath};
+use near_primitives::merkle::{merklize, MerklePath, MerkleTree};
 use near_primitives::receipt::Receipt;
 use near_primitives::serialize::BaseDecode;
 use near_primitives::sharding::{EncodedShardChunk, ReedSolomonWrapper};
@@ -44,6 +44,8 @@ fn test_verify_block_double_sign_challenge() {
     env.process_block(0, b1.clone(), Provenance::NONE);
 
     let signer = InMemoryValidatorSigner::from_seed("test0", KeyType::ED25519, "test0");
+    let mut block_merkle_tree = MerkleTree::default();
+    block_merkle_tree.insert(genesis.hash());
     let b2 = Block::produce(
         &genesis.header,
         2,
@@ -58,6 +60,7 @@ fn test_verify_block_double_sign_challenge() {
         vec![],
         &signer,
         b1.header.inner_lite.next_bp_hash.clone(),
+        block_merkle_tree.root(),
     );
     let epoch_id = b1.header.inner_lite.epoch_id.clone();
     let valid_challenge = Challenge::produce(
@@ -183,6 +186,9 @@ fn create_chunk(
         chunk.header.hash = hash;
         chunk.header.signature = signature;
     }
+    let mut block_merkle_tree =
+        client.chain.mut_store().get_block_merkle_tree(&last_block.hash()).unwrap().clone();
+    block_merkle_tree.insert(last_block.hash());
     let block = Block::produce(
         &last_block.header,
         2,
@@ -197,6 +203,7 @@ fn create_chunk(
         vec![],
         &*client.validator_signer.as_ref().unwrap().clone(),
         last_block.header.inner_lite.next_bp_hash,
+        block_merkle_tree.root(),
     );
     (chunk, merkle_paths, receipts, block)
 }
@@ -424,6 +431,9 @@ fn test_verify_chunk_invalid_state_challenge() {
         .unwrap();
 
     invalid_chunk.header.height_included = last_block.header.inner_lite.height + 1;
+    let mut block_merkle_tree =
+        client.chain.mut_store().get_block_merkle_tree(&last_block.hash()).unwrap().clone();
+    block_merkle_tree.insert(last_block.hash());
     let block = Block::produce(
         &last_block.header,
         last_block.header.inner_lite.height + 1,
@@ -438,6 +448,7 @@ fn test_verify_chunk_invalid_state_challenge() {
         vec![],
         &validator_signer,
         last_block.header.inner_lite.next_bp_hash,
+        block_merkle_tree.root(),
     );
 
     let challenge_body = {

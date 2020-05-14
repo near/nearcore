@@ -1,7 +1,7 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
 
-use crate::hash::hash;
+use crate::hash::{hash, CryptoHash};
 use crate::types::MerkleHash;
 
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, Serialize, Deserialize)]
@@ -98,6 +98,41 @@ pub fn verify_path<T: BorshSerialize>(root: MerkleHash, path: &MerklePath, item:
     hash == root
 }
 
+#[derive(Default, Clone, BorshSerialize, BorshDeserialize)]
+pub struct MerkleTree {
+    /// Path for the next leaf.
+    path: Vec<MerkleHash>,
+    /// Number of leaves
+    size: u64,
+}
+
+impl MerkleTree {
+    pub fn root(&self) -> MerkleHash {
+        if self.path.is_empty() {
+            CryptoHash::default()
+        } else {
+            let mut res = *self.path.last().unwrap();
+            let len = self.path.len();
+            for i in (0..len - 1).rev() {
+                res = combine_hash(self.path[i], res);
+            }
+            res
+        }
+    }
+
+    pub fn insert(&mut self, elem: MerkleHash) {
+        let mut s = self.size;
+        let mut node = elem;
+        while s % 2 == 1 {
+            let last_path_elem = self.path.pop().unwrap();
+            node = combine_hash(last_path_elem, node);
+            s /= 2;
+        }
+        self.path.push(node);
+        self.size += 1;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use rand::rngs::StdRng;
@@ -142,5 +177,22 @@ mod tests {
         let items2 = vec![2, 1];
         let (root2, _) = merklize(&items2);
         assert_ne!(root, root2);
+    }
+
+    #[test]
+    fn test_merkle_tree() {
+        let mut tree = MerkleTree::default();
+        let hash0 = hash(&[0]);
+        tree.insert(hash0);
+        assert_eq!(tree.root(), hash0);
+        let (hash1, hash2) = (hash(&[1]), hash(&[2]));
+        tree.insert(hash1);
+        tree.insert(hash2);
+        let expected_root = combine_hash(combine_hash(hash0, hash1), hash2);
+        assert_eq!(tree.root(), expected_root);
+        let hash3 = hash(&[3]);
+        tree.insert(hash3);
+        let expected_root = combine_hash(combine_hash(hash0, hash1), combine_hash(hash2, hash3));
+        assert_eq!(tree.root(), expected_root);
     }
 }

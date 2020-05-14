@@ -3,6 +3,7 @@ use near_crypto::{EmptySigner, PublicKey, Signature, Signer};
 use crate::account::{AccessKey, AccessKeyPermission, Account};
 use crate::block::Block;
 use crate::hash::CryptoHash;
+use crate::merkle::MerkleTree;
 use crate::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
     DeployContractAction, FunctionCallAction, SignedTransaction, StakeAction, Transaction,
@@ -245,7 +246,9 @@ impl Block {
         next_epoch_id: EpochId,
         next_bp_hash: CryptoHash,
         signer: &dyn ValidatorSigner,
+        block_merkle_tree: &mut MerkleTree,
     ) -> Self {
+        block_merkle_tree.insert(prev.hash());
         Self::empty_with_approvals(
             prev,
             height,
@@ -254,6 +257,7 @@ impl Block {
             vec![],
             signer,
             next_bp_hash,
+            block_merkle_tree.root(),
         )
     }
 
@@ -261,6 +265,20 @@ impl Block {
         prev: &Block,
         height: BlockHeight,
         signer: &dyn ValidatorSigner,
+    ) -> Self {
+        Self::empty_with_height_and_block_merkle_tree(
+            prev,
+            height,
+            signer,
+            &mut MerkleTree::default(),
+        )
+    }
+
+    pub fn empty_with_height_and_block_merkle_tree(
+        prev: &Block,
+        height: BlockHeight,
+        signer: &dyn ValidatorSigner,
+        block_merkle_tree: &mut MerkleTree,
     ) -> Self {
         Self::empty_with_epoch(
             prev,
@@ -273,11 +291,25 @@ impl Block {
             },
             prev.header.inner_lite.next_bp_hash,
             signer,
+            block_merkle_tree,
+        )
+    }
+
+    pub fn empty_with_block_merkle_tree(
+        prev: &Block,
+        signer: &dyn ValidatorSigner,
+        block_merkle_tree: &mut MerkleTree,
+    ) -> Self {
+        Self::empty_with_height_and_block_merkle_tree(
+            prev,
+            prev.header.inner_lite.height + 1,
+            signer,
+            block_merkle_tree,
         )
     }
 
     pub fn empty(prev: &Block, signer: &dyn ValidatorSigner) -> Self {
-        Self::empty_with_height(prev, prev.header.inner_lite.height + 1, signer)
+        Self::empty_with_block_merkle_tree(prev, signer, &mut MerkleTree::default())
     }
 
     /// This is not suppose to be used outside of chain tests, because this doesn't refer to correct chunks.
@@ -290,6 +322,7 @@ impl Block {
         approvals: Vec<Option<Signature>>,
         signer: &dyn ValidatorSigner,
         next_bp_hash: CryptoHash,
+        block_merkle_root: CryptoHash,
     ) -> Self {
         Block::produce(
             &prev.header,
@@ -305,6 +338,7 @@ impl Block {
             vec![],
             signer,
             next_bp_hash,
+            block_merkle_root,
         )
     }
 }
