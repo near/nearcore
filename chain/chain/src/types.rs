@@ -447,7 +447,7 @@ pub trait RuntimeAdapter: Send + Sync {
     ) -> Result<Ordering, Error>;
 
     /// Build receipts hashes.
-    fn build_receipts_hashes(&self, receipts: &Vec<Receipt>) -> Vec<CryptoHash> {
+    fn build_receipts_hashes(&self, receipts: &[Receipt]) -> Vec<CryptoHash> {
         let mut receipts_hashes = vec![];
         for shard_id in 0..self.num_shards() {
             // importance to save the same order while filtering
@@ -556,7 +556,7 @@ mod tests {
             0,
             100,
             1_000_000_000,
-            Chain::compute_bp_hash_inner(&vec![]).unwrap(),
+            Chain::compute_bp_hash_inner(&[]).unwrap(),
         );
         let signer = InMemoryValidatorSigner::from_seed("other", KeyType::ED25519, "other");
         let b1 = Block::empty(&genesis, &signer);

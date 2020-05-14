@@ -79,7 +79,7 @@ pub fn start_with_config(
 
     let client_actor = ClientActor::new(
         config.client_config,
-        chain_genesis.clone(),
+        chain_genesis,
         runtime,
         node_id,
         network_adapter.clone(),
@@ -99,7 +99,7 @@ pub fn start_with_config(
     config.network_config.verify();
 
     let network_actor = PeerManagerActor::new(
-        store.clone(),
+        store,
         config.network_config,
         client_actor.clone().recipient(),
         view_client.clone().recipient(),

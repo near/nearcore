@@ -35,16 +35,12 @@ impl EncodedChunksCacheEntry {
     pub fn merge_in_partial_encoded_chunk(&mut self, partial_encoded_chunk: &PartialEncodedChunk) {
         for part_info in partial_encoded_chunk.parts.iter() {
             let part_ord = part_info.part_ord;
-            if !self.parts.contains_key(&part_ord) {
-                self.parts.insert(part_ord, part_info.clone());
-            }
+            self.parts.entry(part_ord).or_insert_with(|| part_info.clone());
         }
 
         for receipt in partial_encoded_chunk.receipts.iter() {
             let shard_id = receipt.1.to_shard_id;
-            if !self.receipts.contains_key(&shard_id) {
-                self.receipts.insert(shard_id, receipt.clone());
-            }
+            self.receipts.entry(shard_id).or_insert_with(|| receipt.clone());
         }
     }
 }

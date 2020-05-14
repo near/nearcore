@@ -167,7 +167,7 @@ fn main() {
                 if !boot_nodes.is_empty() {
                     near_config.network_config.boot_nodes = boot_nodes
                         .to_string()
-                        .split(",")
+                        .split(',')
                         .map(|chunk| chunk.try_into().expect("Failed to parse PeerInfo"))
                         .collect();
                 }

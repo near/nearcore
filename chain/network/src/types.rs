@@ -921,7 +921,7 @@ impl Message for Consolidate {
 #[derive(MessageResponse, Debug)]
 pub enum ConsolidateResponse {
     Accept(Option<EdgeInfo>),
-    InvalidNonce(Edge),
+    InvalidNonce(Box<Edge>),
     Reject,
 }
 
@@ -940,7 +940,7 @@ pub struct PeerList {
 /// Message from peer to peer manager
 pub enum PeerRequest {
     UpdateEdge((PeerId, u64)),
-    RouteBack(RoutedMessageBody, CryptoHash),
+    RouteBack(Box<RoutedMessageBody>, CryptoHash),
     UpdatePeerInfo(PeerInfo),
     ReceivedMessage(PeerId, Instant),
 }
@@ -1160,7 +1160,7 @@ pub enum NetworkResponses {
     RoutingTableInfo(RoutingTableInfo),
     PingPongInfo { pings: HashMap<usize, Ping>, pongs: HashMap<usize, Pong> },
     BanPeer(ReasonForBan),
-    EdgeUpdate(Edge),
+    EdgeUpdate(Box<Edge>),
     RouteNotFound,
 }
 
@@ -1280,7 +1280,7 @@ pub enum NetworkViewClientMessages {
     /// Transaction status query
     TxStatus { tx_hash: CryptoHash, signer_account_id: AccountId },
     /// Transaction status response
-    TxStatusResponse(FinalExecutionOutcomeView),
+    TxStatusResponse(Box<FinalExecutionOutcomeView>),
     /// General query
     Query { query_id: String, block_id_or_finality: BlockIdOrFinality, request: QueryRequest },
     /// Query response
@@ -1288,7 +1288,7 @@ pub enum NetworkViewClientMessages {
     /// Request for receipt outcome
     ReceiptOutcomeRequest(CryptoHash),
     /// Receipt outcome response
-    ReceiptOutcomeResponse(ExecutionOutcomeWithIdAndProof),
+    ReceiptOutcomeResponse(Box<ExecutionOutcomeWithIdAndProof>),
     /// Request a block.
     BlockRequest(CryptoHash),
     /// Request headers.
@@ -1307,19 +1307,19 @@ pub enum NetworkViewClientMessages {
 
 pub enum NetworkViewClientResponses {
     /// Transaction execution outcome
-    TxStatus(FinalExecutionOutcomeView),
+    TxStatus(Box<FinalExecutionOutcomeView>),
     /// Response to general queries
     QueryResponse { query_id: String, response: Result<QueryResponse, String> },
     /// Receipt outcome response
-    ReceiptOutcomeResponse(ExecutionOutcomeWithIdAndProof),
+    ReceiptOutcomeResponse(Box<ExecutionOutcomeWithIdAndProof>),
     /// Block response.
-    Block(Block),
+    Block(Box<Block>),
     /// Headers response.
     BlockHeaders(Vec<BlockHeader>),
     /// Chain information.
     ChainInfo { genesis_id: GenesisId, height: BlockHeight, tracked_shards: Vec<ShardId> },
     /// Response to state request.
-    StateResponse(StateResponseInfo),
+    StateResponse(Box<StateResponseInfo>),
     /// Valid announce accounts.
     AnnounceAccount(Vec<AnnounceAccount>),
     /// Ban peer for malicious behavior.

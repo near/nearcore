@@ -61,14 +61,14 @@ fn call() -> (Option<VMOutcome>, Option<VMError>) {
 const NUM_ITERATIONS: u64 = 10;
 
 /// Cost of the most CPU demanding operation.
-pub fn cost_per_op(gas_metric: &GasMetric) -> u64 {
+pub fn cost_per_op(gas_metric: GasMetric) -> u64 {
     // Call once for the warmup.
     let (outcome, _) = call();
     let outcome = outcome.unwrap();
-    let start = start_count(&gas_metric);
+    let start = start_count(gas_metric);
     for _ in 0..NUM_ITERATIONS {
         call();
     }
-    let cost = end_count(&gas_metric, &start);
+    let cost = end_count(gas_metric, &start);
     cost / (outcome.burnt_gas * NUM_ITERATIONS)
 }
