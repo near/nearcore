@@ -19,7 +19,7 @@ use near_crypto::{InMemorySigner, KeyFile, KeyType, PublicKey, Signer};
 use near_jsonrpc::RpcConfig;
 use near_network::test_utils::open_port;
 use near_network::types::ROUTED_MESSAGE_TTL;
-use near_network::utils::blacklist_from_vec;
+use near_network::utils::blacklist_from_iter;
 use near_network::NetworkConfig;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::hash::CryptoHash;
@@ -561,7 +561,7 @@ impl NearConfig {
                 max_routes_to_store: MAX_ROUTES_TO_STORE,
                 highest_peer_horizon: HIGHEST_PEER_HORIZON,
                 push_info_period: Duration::from_millis(100),
-                blacklist: blacklist_from_vec(&config.network.blacklist),
+                blacklist: blacklist_from_iter(config.network.blacklist),
                 outbound_disabled: false,
             },
             telemetry_config: config.telemetry,
@@ -694,7 +694,7 @@ pub fn init_configs(
             network_signer.write_to_file(&dir.join(config.node_key_file));
 
             let mut genesis = Genesis::from_file(
-                genesis.expect(&format!("Genesis file is required for {}.", &chain_id)),
+                genesis.unwrap_or_else(|| panic!("Genesis file is required for {}.", &chain_id)),
             );
             genesis.config.chain_id = chain_id.clone();
 

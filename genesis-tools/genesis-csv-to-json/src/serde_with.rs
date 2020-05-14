@@ -50,7 +50,7 @@ pub mod pks_as_str {
             Ok(vec![])
         } else {
             s.retain(|c| !c.is_whitespace());
-            Ok(s.split(",").map(|c| PublicKey::try_from(c).unwrap()).collect())
+            Ok(s.split(',').map(|c| PublicKey::try_from(c).unwrap()).collect())
         }
     }
 }

@@ -265,7 +265,7 @@ impl GenesisBuilder {
         set_access_key(
             &mut state_update,
             account_id.clone(),
-            signer.public_key.clone(),
+            signer.public_key,
             &AccessKey::full_access(),
         );
         records.push(access_key_record);
