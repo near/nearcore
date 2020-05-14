@@ -179,20 +179,30 @@ mod tests {
         assert_ne!(root, root2);
     }
 
+    /// Compute the merkle root of a given array.
+    fn compute_root(hashes: &[CryptoHash]) -> CryptoHash {
+        if hashes.is_empty() {
+            CryptoHash::default()
+        } else if hashes.len() == 1 {
+            hashes[0]
+        } else {
+            let len = hashes.len();
+            let subtree_len = len.next_power_of_two() / 2;
+            let left_root = compute_root(&hashes[0..subtree_len]);
+            let right_root = compute_root(&hashes[subtree_len..len]);
+            combine_hash(left_root, right_root)
+        }
+    }
+
     #[test]
     fn test_merkle_tree() {
         let mut tree = MerkleTree::default();
-        let hash0 = hash(&[0]);
-        tree.insert(hash0);
-        assert_eq!(tree.root(), hash0);
-        let (hash1, hash2) = (hash(&[1]), hash(&[2]));
-        tree.insert(hash1);
-        tree.insert(hash2);
-        let expected_root = combine_hash(combine_hash(hash0, hash1), hash2);
-        assert_eq!(tree.root(), expected_root);
-        let hash3 = hash(&[3]);
-        tree.insert(hash3);
-        let expected_root = combine_hash(combine_hash(hash0, hash1), combine_hash(hash2, hash3));
-        assert_eq!(tree.root(), expected_root);
+        let mut hashes = vec![];
+        for i in 0..50 {
+            assert_eq!(compute_root(&hashes), tree.root());
+            let cur_hash = hash(&[i]);
+            hashes.push(cur_hash);
+            tree.insert(cur_hash);
+        }
     }
 }
