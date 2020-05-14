@@ -1550,8 +1550,8 @@ impl<'a> ChainStoreUpdate<'a> {
         self.sync_head = Some(t.clone());
     }
 
-    pub fn save_largest_target_height(&mut self, height: &BlockHeight) {
-        self.largest_target_height = Some(height.clone());
+    pub fn save_largest_target_height(&mut self, height: BlockHeight) {
+        self.largest_target_height = Some(height);
     }
 
     /// Save new height if it's above currently latest known.

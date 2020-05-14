@@ -59,7 +59,7 @@ fn measure_function(
         SignedTransaction::from_actions(
             nonce as u64,
             account_id.clone(),
-            account_id.clone(),
+            account_id,
             &signer,
             vec![function_call],
             CryptoHash::default(),
@@ -147,7 +147,7 @@ pub enum Metric {
 }
 
 pub fn run(mut config: Config) -> RuntimeConfig {
-    let mut m = Measurements::new(&config.metric);
+    let mut m = Measurements::new(config.metric);
     config.block_sizes = vec![100];
     // Measure the speed of processing empty receipts.
     measure_actions(Metric::Receipt, &mut m, &config, None, vec![], false, false);
@@ -211,7 +211,7 @@ pub fn run(mut config: Config) -> RuntimeConfig {
         SignedTransaction::from_actions(
             nonce as u64,
             account_id.clone(),
-            account_id.clone(),
+            account_id,
             &signer,
             vec![Action::DeleteAccount(DeleteAccountAction { beneficiary_id })],
             CryptoHash::default(),
@@ -303,7 +303,7 @@ pub fn run(mut config: Config) -> RuntimeConfig {
         SignedTransaction::from_actions(
             nonce as u64,
             account_id.clone(),
-            account_id.clone(),
+            account_id,
             &signer,
             vec![Action::DeleteKey(DeleteKeyAction { public_key: signer.public_key.clone() })],
             CryptoHash::default(),
@@ -346,7 +346,7 @@ pub fn run(mut config: Config) -> RuntimeConfig {
         SignedTransaction::from_actions(
             nonce as u64,
             account_id.clone(),
-            account_id.clone(),
+            account_id,
             &signer,
             vec![Action::DeployContract(DeployContractAction { code: curr_code.borrow().clone() })],
             CryptoHash::default(),
@@ -479,7 +479,7 @@ pub fn run(mut config: Config) -> RuntimeConfig {
     //    m.plot(PathBuf::from(&config.state_dump_path).as_path());
 }
 
-fn ratio_to_gas(gas_metric: &GasMetric, value: Ratio<u64>) -> u64 {
+fn ratio_to_gas(gas_metric: GasMetric, value: Ratio<u64>) -> u64 {
     let divisor = match gas_metric {
         // We use factor of 8 to approximately match the price of SHA256 operation between
         // time-based and icount-based metric as measured on 3.2Ghz Core i5.
@@ -490,13 +490,13 @@ fn ratio_to_gas(gas_metric: &GasMetric, value: Ratio<u64>) -> u64 {
 }
 
 /// Converts cost of a certain action to a fee, spliting it evenly between send and execution fee.
-fn measured_to_fee(gas_metric: &GasMetric, value: Ratio<u64>) -> Fee {
+fn measured_to_fee(gas_metric: GasMetric, value: Ratio<u64>) -> Fee {
     let value = ratio_to_gas(gas_metric, value);
     Fee { send_sir: value / 2, send_not_sir: value / 2, execution: value / 2 }
 }
 
 fn measured_to_gas(
-    gas_metric: &GasMetric,
+    gas_metric: GasMetric,
     measured: &BTreeMap<ExtCosts, Ratio<u64>>,
     cost: ExtCosts,
 ) -> u64 {
@@ -510,7 +510,7 @@ fn get_runtime_fees_config(measurement: &Measurements) -> RuntimeFeesConfig {
     use crate::runtime_fees_generator::ReceiptFees::*;
     let generator = RuntimeFeesGenerator::new(measurement);
     let measured = generator.compute();
-    let metric = &measurement.gas_metric;
+    let metric = measurement.gas_metric;
     RuntimeFeesConfig {
         action_receipt_creation_config: measured_to_fee(metric, measured[&ActionReceiptCreation]),
         data_receipt_creation_config: DataReceiptCreationConfig {
@@ -552,7 +552,7 @@ fn get_runtime_fees_config(measurement: &Measurements) -> RuntimeFeesConfig {
 fn get_ext_costs_config(measurement: &Measurements) -> ExtCostsConfig {
     let mut generator = ExtCostsGenerator::new(measurement);
     let measured = generator.compute();
-    let metric = &measurement.gas_metric;
+    let metric = measurement.gas_metric;
     use ExtCosts::*;
     ExtCostsConfig {
         base: measured_to_gas(metric, &measured, base),
@@ -617,7 +617,7 @@ fn get_vm_config(measurement: &Measurements) -> VMConfig {
         // TODO: Figure out whether we need this fee at all. If we do what should be the memory
         // growth cost.
         grow_mem_cost: 1,
-        regular_op_cost: cost_per_op(&measurement.gas_metric) as u32,
+        regular_op_cost: cost_per_op(measurement.gas_metric) as u32,
         limit_config: VMLimitConfig::default(),
     }
 }

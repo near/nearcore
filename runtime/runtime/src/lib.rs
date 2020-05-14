@@ -942,7 +942,7 @@ impl Runtime {
         transactions: &[SignedTransaction],
     ) -> Result<ApplyResult, RuntimeError> {
         let initial_state = TrieUpdate::new(trie.clone(), root);
-        let mut state_update = TrieUpdate::new(trie.clone(), root);
+        let mut state_update = TrieUpdate::new(trie, root);
 
         let mut stats = ApplyStats::default();
 

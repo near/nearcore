@@ -905,7 +905,7 @@ impl RuntimeAdapter for NightshadeRuntime {
     ) -> Result<ApplyTransactionResult, Error> {
         let trie = Arc::new(Trie::from_recorded_storage(partial_storage));
         self.process_state_update(
-            trie.clone(),
+            trie,
             *state_root,
             shard_id,
             height,

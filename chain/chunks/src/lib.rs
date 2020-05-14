@@ -59,7 +59,7 @@ pub enum ProcessPartialEncodedChunkResult {
     HaveAllPartsAndReceipts(CryptoHash),
     /// The Header is the header of the current chunk, which is unknown to the caller, to request
     ///     parts / receipts for
-    NeedMorePartsOrReceipts(ShardChunkHeader),
+    NeedMorePartsOrReceipts(Box<ShardChunkHeader>),
     /// PartialEncodedChunkMessage is received earlier than Block for the same height.
     /// Without the block we cannot restore the epoch and save encoded chunk data.
     NeedBlock,
@@ -517,7 +517,7 @@ impl ShardsManager {
         if self.encoded_chunks.height_within_front_horizon(height) {
             let runtime_adapter = &self.runtime_adapter;
             let heights =
-                self.stored_partial_encoded_chunks.entry(height).or_insert(HashMap::new());
+                self.stored_partial_encoded_chunks.entry(height).or_insert_with(HashMap::new);
             heights
                 .entry(shard_id)
                 .and_modify(|stored_chunk| {
@@ -543,7 +543,7 @@ impl ShardsManager {
                 })
                 // This is the first partial encoded chunk received for current height / shard_id.
                 // Store it because there are no other candidates.
-                .or_insert(partial_encoded_chunk.clone());
+                .or_insert_with(|| partial_encoded_chunk.clone());
         }
     }
 
@@ -946,7 +946,7 @@ impl ShardsManager {
             return Ok(ProcessPartialEncodedChunkResult::HaveAllPartsAndReceipts(prev_block_hash));
         }
 
-        Ok(ProcessPartialEncodedChunkResult::NeedMorePartsOrReceipts(header))
+        Ok(ProcessPartialEncodedChunkResult::NeedMorePartsOrReceipts(Box::new(header)))
     }
 
     fn need_receipt(&self, prev_block_hash: &CryptoHash, shard_id: ShardId) -> bool {
@@ -1042,7 +1042,7 @@ impl ShardsManager {
         let prev_block_hash = chunk_entry.header.inner.prev_block_hash;
         let partial_chunk = PartialEncodedChunk {
             shard_id: chunk_entry.header.inner.shard_id,
-            chunk_hash: chunk_entry.header.chunk_hash().clone(),
+            chunk_hash: chunk_entry.header.chunk_hash(),
             header: Some(chunk_entry.header.clone()),
             parts: chunk_entry
                 .parts
@@ -1072,7 +1072,7 @@ impl ShardsManager {
                 .collect(),
         };
 
-        store_update.save_partial_chunk(&chunk_entry.header.chunk_hash().clone(), partial_chunk);
+        store_update.save_partial_chunk(&chunk_entry.header.chunk_hash(), partial_chunk);
     }
 
     pub fn decode_and_persist_encoded_chunk(
@@ -1167,7 +1167,7 @@ impl ShardsManager {
         self.persist_partial_chunk_for_data_availability(&cache_entry, store_update);
 
         // Save this chunk into encoded_chunks.
-        self.encoded_chunks.insert(cache_entry.header.chunk_hash().clone(), cache_entry);
+        self.encoded_chunks.insert(cache_entry.header.chunk_hash(), cache_entry);
     }
 
     pub fn distribute_encoded_chunk(

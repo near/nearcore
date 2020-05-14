@@ -60,7 +60,7 @@ pub fn setup(
     let store = create_test_store();
     let num_validator_seats = validators.iter().map(|x| x.len()).sum::<usize>() as NumSeats;
     let runtime = Arc::new(KeyValueRuntime::new_with_validators(
-        store.clone(),
+        store,
         validators.into_iter().map(|inner| inner.into_iter().map(Into::into).collect()).collect(),
         validator_groups,
         num_shards,
@@ -238,7 +238,7 @@ pub fn setup_mock_all_validators(
     network_mock: Arc<RwLock<Box<dyn FnMut(String, &NetworkRequests) -> (NetworkResponses, bool)>>>,
 ) -> (Block, Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>) {
     let validators_clone = validators.clone();
-    let key_pairs = key_pairs.clone();
+    let key_pairs = key_pairs;
 
     let addresses: Vec<_> = (0..key_pairs.len()).map(|i| hash(vec![i as u8].as_ref())).collect();
     let genesis_time = Utc::now();
@@ -260,9 +260,7 @@ pub fn setup_mock_all_validators(
     let largest_skipped_height = Arc::new(RwLock::new(vec![0u64; key_pairs.len()]));
     let hash_to_height = Arc::new(RwLock::new(HashMap::new()));
 
-    for (index, account_id) in
-        validators.iter().flatten().enumerate().map(|(i, acc)| (i, acc.clone())).collect::<Vec<_>>()
-    {
+    for (index, account_id) in validators.into_iter().flatten().enumerate() {
         let view_client_addr = Arc::new(RwLock::new(None));
         let view_client_addr1 = view_client_addr.clone();
         let validators_clone1 = validators_clone.clone();
@@ -425,7 +423,7 @@ pub fn setup_mock_all_validators(
                                                         connectors2.read().unwrap()[my_ord]
                                                             .0
                                                             .do_send(NetworkClientMessages::Block(
-                                                                block, peer_id, true,
+                                                                *block, peer_id, true,
                                                             ));
                                                     }
                                                     NetworkViewClientResponses::NoResponse => {}
@@ -500,7 +498,7 @@ pub fn setup_mock_all_validators(
                                                             .0
                                                             .do_send(
                                                             NetworkClientMessages::StateResponse(
-                                                                response,
+                                                                *response,
                                                             ),
                                                         );
                                                     }
@@ -544,7 +542,7 @@ pub fn setup_mock_all_validators(
                                                             .0
                                                             .do_send(
                                                             NetworkClientMessages::StateResponse(
-                                                                response,
+                                                                *response,
                                                             ),
                                                         );
                                                     }
@@ -768,7 +766,7 @@ pub fn setup_client(
 ) -> Client {
     let num_validator_seats = validators.iter().map(|x| x.len()).sum::<usize>() as NumSeats;
     let runtime_adapter = Arc::new(KeyValueRuntime::new_with_validators(
-        store.clone(),
+        store,
         validators.into_iter().map(|inner| inner.into_iter().map(Into::into).collect()).collect(),
         validator_groups,
         num_shards,
@@ -801,7 +799,7 @@ impl TestEnv {
             .map(|i| {
                 let store = create_test_store();
                 setup_client(
-                    store.clone(),
+                    store,
                     vec![validators.iter().map(|x| x.as_str()).collect::<Vec<&str>>()],
                     1,
                     1,
@@ -889,7 +887,7 @@ impl TestEnv {
     }
 
     pub fn restart(&mut self, id: usize) {
-        let store = self.clients[id].chain.store().owned_store().clone();
+        let store = self.clients[id].chain.store().owned_store();
         self.clients[id] = setup_client(
             store,
             vec![self.validators.iter().map(|x| x.as_str()).collect::<Vec<&str>>()],

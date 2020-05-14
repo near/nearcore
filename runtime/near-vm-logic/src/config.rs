@@ -435,7 +435,7 @@ pub enum ExtCosts {
 }
 
 impl ExtCosts {
-    pub fn value(&self, config: &ExtCostsConfig) -> Gas {
+    pub fn value(self, config: &ExtCostsConfig) -> Gas {
         use ExtCosts::*;
         match self {
             base => config.base,

@@ -5,9 +5,12 @@ use std::{hash::Hash, net::IpAddr};
 
 use crate::types::{BlockedPorts, PatternAddr};
 
-pub fn blacklist_from_vec(blacklist: &Vec<String>) -> HashMap<IpAddr, BlockedPorts> {
+pub fn blacklist_from_iter<T>(blacklist: T) -> HashMap<IpAddr, BlockedPorts>
+where
+    T: IntoIterator<Item = String>,
+{
     let mut blacklist_map = HashMap::new();
-    for addr in blacklist.iter() {
+    for addr in blacklist {
         if let Ok(res) = addr.parse::<PatternAddr>() {
             match res {
                 PatternAddr::Ip(addr) => {
