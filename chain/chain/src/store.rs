@@ -34,20 +34,14 @@ use near_store::{
     ColIncomingReceipts, ColInvalidChunks, ColLastBlockWithNewChunk, ColNextBlockHashes,
     ColNextBlockWithNewChunk, ColOutgoingReceipts, ColPartialChunks, ColReceiptIdToShardId,
     ColState, ColStateChanges, ColStateDlInfos, ColStateHeaders, ColTransactionResult,
-    ColTransactions, ColTrieChanges, KeyForStateChanges, ShardTries, Store, StoreUpdate,
-    TrieChanges, WrappedTrieChanges,
+    ColTransactions, ColTrieChanges, KeyForStateChanges, Store, StoreUpdate, Trie, TrieChanges,
+    WrappedTrieChanges, HEADER_HEAD_KEY, HEAD_KEY, LARGEST_TARGET_HEIGHT_KEY, LATEST_KNOWN_KEY,
+    SYNC_HEAD_KEY, TAIL_KEY,
 };
 
 use crate::byzantine_assert;
 use crate::error::{Error, ErrorKind};
 use crate::types::{Block, BlockHeader, LatestKnown, ReceiptProofResponse, ReceiptResponse, Tip};
-
-const HEAD_KEY: &[u8; 4] = b"HEAD";
-const TAIL_KEY: &[u8; 4] = b"TAIL";
-const SYNC_HEAD_KEY: &[u8; 9] = b"SYNC_HEAD";
-const HEADER_HEAD_KEY: &[u8; 11] = b"HEADER_HEAD";
-const LATEST_KNOWN_KEY: &[u8; 12] = b"LATEST_KNOWN";
-const LARGEST_TARGET_HEIGHT_KEY: &[u8; 21] = b"LARGEST_TARGET_HEIGHT";
 
 /// lru cache size
 const CACHE_SIZE: usize = 100;

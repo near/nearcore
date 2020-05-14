@@ -2203,6 +2203,7 @@ dependencies = [
  "elastic-array 0.11.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "hex-literal 0.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "log 0.4.8 (registry+https://github.com/rust-lang/crates.io-index)",
+ "near-chain-configs 0.1.0",
  "near-crypto 0.1.0",
  "near-primitives 0.1.0",
  "num_cpus 1.13.0 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -3333,6 +3334,27 @@ dependencies = [
 name = "static_assertions"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
+
+[[package]]
+name = "store-validator"
+version = "0.1.0"
+dependencies = [
+ "ansi_term 0.11.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "borsh 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "clap 2.33.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "near-chain 0.1.0",
+ "near-chain-configs 0.1.0",
+ "near-client 0.1.0",
+ "near-crypto 0.1.0",
+ "near-logger-utils 0.1.0",
+ "near-network 0.1.0",
+ "near-primitives 0.1.0",
+ "near-store 0.1.0",
+ "neard 0.4.13",
+ "node-runtime 0.0.1",
+ "serde_json 1.0.51 (registry+https://github.com/rust-lang/crates.io-index)",
+ "testlib 0.1.0",
+]
 
 [[package]]
 name = "stream-cipher"
