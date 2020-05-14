@@ -537,7 +537,7 @@ impl Chain {
     //    and the Trie is updated with having only Genesis data.
     // 4. State Sync Clearing happens in `reset_data_pre_state_sync()`.
     //
-    pub fn clear_data(&mut self, tries: Arc<ShardTries>) -> Result<(), Error> {
+    pub fn clear_data(&mut self, tries: ShardTries) -> Result<(), Error> {
         let head = self.store.head()?;
         let tail = self.store.tail()?;
         let mut gc_stop_height = self.runtime_adapter.get_gc_stop_height(&head.last_block_hash)?;
@@ -589,7 +589,7 @@ impl Chain {
 
     pub fn clear_forks_data(
         &mut self,
-        tries: Arc<ShardTries>,
+        tries: ShardTries,
         height: BlockHeight,
     ) -> Result<(), Error> {
         if let Ok(blocks_current_height) = self.store.get_all_block_hashes_by_height(height) {

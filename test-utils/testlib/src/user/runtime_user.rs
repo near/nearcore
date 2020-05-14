@@ -24,7 +24,7 @@ use neard::config::MIN_GAS_PRICE;
 /// Mock client without chain, used in RuntimeUser and RuntimeNode
 pub struct MockClient {
     pub runtime: Runtime,
-    pub tries: Arc<ShardTries>,
+    pub tries: ShardTries,
     pub state_root: MerkleHash,
     pub epoch_length: BlockHeightDelta,
 }
@@ -99,7 +99,7 @@ impl RuntimeUser {
                     .borrow_mut()
                     .insert(outcome_with_id.id, outcome_with_id.outcome.into());
             }
-            apply_result.trie_changes.into(client.tries.clone(), 0).unwrap().0.commit().unwrap();
+            client.tries.apply_all(&apply_result.trie_changes, 0).unwrap().0.commit().unwrap();
             client.state_root = apply_result.state_root;
             if apply_result.outgoing_receipts.is_empty() {
                 return Ok(());

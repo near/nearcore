@@ -12,24 +12,22 @@ use cached::Cached;
 
 use near_primitives::challenge::PartialState;
 use near_primitives::hash::{hash, CryptoHash};
-use near_primitives::trie_key::TrieKey;
-use near_primitives::types::{
-    RawStateChange, RawStateChangesWithTrieKey, ShardId, StateChangeCause, StateRoot, StateRootNode,
-};
+use near_primitives::types::{ShardId, StateRoot, StateRootNode};
 
-use crate::db::{DBCol, DBOp, DBTransaction};
 use crate::trie::insert_delete::NodesStorage;
 use crate::trie::iterator::TrieIterator;
 use crate::trie::nibble_slice::NibbleSlice;
+pub use crate::trie::shard_tries::{KeyForStateChanges, ShardTries, WrappedTrieChanges};
 use crate::trie::trie_storage::{
     TouchedNodesCounter, TrieCachingStorage, TrieMemoryPartialStorage, TrieRecordingStorage,
     TrieStorage,
 };
-use crate::{ColState, ColTrieChanges, StorageError, Store, StoreUpdate, TrieUpdate};
+use crate::{StorageError, Store};
 
 mod insert_delete;
 pub mod iterator;
 mod nibble_slice;
+mod shard_tries;
 mod state_parts;
 mod trie_storage;
 pub mod update;
@@ -398,70 +396,27 @@ impl RawTrieNodeWithSize {
     }
 }
 
-fn encode_trie_node_with_rc(data: &[u8], rc: u32) -> Result<Vec<u8>, std::io::Error> {
+fn encode_trie_node_with_rc(data: &[u8], rc: u32) -> Vec<u8> {
     let mut cursor = Cursor::new(Vec::with_capacity(data.len() + 4));
-    cursor.write_all(data)?;
-    cursor.write_u32::<LittleEndian>(rc)?;
-    Ok(cursor.into_inner())
+    cursor.write_all(data).unwrap();
+    cursor.write_u32::<LittleEndian>(rc).unwrap();
+    cursor.into_inner()
 }
 
-fn decode_trie_node_with_rc(bytes: &[u8]) -> Result<(&[u8], u32), std::io::Error> {
+fn decode_trie_node_with_rc(bytes: &[u8]) -> Result<(&[u8], u32), StorageError> {
+    if bytes.len() < 4 {
+        return Err(StorageError::StorageInconsistentState(
+            "Decode node with RC failed".to_string(),
+        ));
+    }
     let mut cursor = Cursor::new(&bytes[bytes.len() - 4..]);
-    let rc = cursor.read_u32::<LittleEndian>()?;
+    let rc = cursor.read_u32::<LittleEndian>().unwrap();
     Ok((&bytes[..bytes.len() - 4], rc))
 }
 
 pub struct Trie {
     pub(crate) storage: Box<dyn TrieStorage>,
     pub counter: TouchedNodesCounter,
-}
-
-pub struct ShardTries {
-    tries: Vec<Arc<Trie>>,
-}
-
-impl ShardTries {
-    pub fn new(storage: Arc<Store>, num_shards: ShardId) -> Self {
-        let tries = (0..num_shards)
-            .map(|shard_id| Arc::new(Trie::new(Arc::clone(&storage), shard_id)))
-            .collect::<Vec<_>>();
-        ShardTries { tries }
-    }
-
-    pub fn new_trie_update(&self, shard_id: ShardId, state_root: CryptoHash) -> TrieUpdate {
-        TrieUpdate::new(self.get_trie_for_shard(shard_id), state_root)
-    }
-
-    pub fn get_trie_for_shard(&self, shard_id: ShardId) -> Arc<Trie> {
-        return Arc::clone(&self.tries[shard_id as usize]);
-    }
-
-    pub fn get_store(&self) -> Arc<Store> {
-        Arc::clone(
-            &self.tries[0].storage.as_caching_storage().expect("Always caching storage").store,
-        )
-    }
-
-    pub fn update_cache(&self, transaction: &DBTransaction) -> std::io::Result<()> {
-        let mut shards = vec![Vec::new(); self.tries.len()];
-        for op in &transaction.ops {
-            match op {
-                DBOp::Insert { col, ref key, ref value } if *col == ColState => {
-                    let (shard_id, hash) = TrieCachingStorage::get_shard_id_and_hash_from_key(key)?;
-                    shards[shard_id as usize].push((hash, Some(value.clone())));
-                }
-                DBOp::Delete { col, ref key } if *col == ColState => {
-                    let (shard_id, hash) = TrieCachingStorage::get_shard_id_and_hash_from_key(key)?;
-                    shards[shard_id as usize].push((hash, None));
-                }
-                _ => {}
-            }
-        }
-        for (shard_id, ops) in shards.into_iter().enumerate() {
-            self.tries[shard_id].update_cache(ops);
-        }
-        Ok(())
-    }
 }
 
 ///
@@ -499,254 +454,6 @@ pub struct TrieChanges {
 impl TrieChanges {
     pub fn empty(old_root: StateRoot) -> Self {
         TrieChanges { old_root, new_root: old_root, insertions: vec![], deletions: vec![] }
-    }
-    pub fn insertions_into(
-        &self,
-        tries: Arc<ShardTries>,
-        shard_id: ShardId,
-        store_update: &mut StoreUpdate,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        store_update.tries = Some(tries.clone());
-        let trie = tries.get_trie_for_shard(shard_id);
-        let storage = trie.storage.as_caching_storage().expect("Must be caching storage");
-        for (hash, value, rc) in self.insertions.iter() {
-            let storage_rc = storage.retrieve_rc(&hash).unwrap_or_default();
-            let mut key = Vec::with_capacity(40);
-            key.extend_from_slice(&u64::to_le_bytes(storage.shard_id));
-            key.extend_from_slice(hash.as_ref());
-            let bytes = encode_trie_node_with_rc(&value, storage_rc + rc)?;
-            store_update.set(ColState, key.as_ref(), &bytes);
-        }
-        Ok(())
-    }
-
-    pub fn revert_insertions_into(
-        &self,
-        tries: Arc<ShardTries>,
-        shard_id: ShardId,
-        store_update: &mut StoreUpdate,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        TrieChanges::deletions_into_inner(&self.insertions, tries, shard_id, store_update)
-    }
-
-    pub fn deletions_into(
-        &self,
-        tries: Arc<ShardTries>,
-        shard_id: ShardId,
-        store_update: &mut StoreUpdate,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        TrieChanges::deletions_into_inner(&self.deletions, tries, shard_id, store_update)
-    }
-
-    fn deletions_into_inner(
-        deletions: &Vec<(CryptoHash, Vec<u8>, u32)>,
-        tries: Arc<ShardTries>,
-        shard_id: ShardId,
-        store_update: &mut StoreUpdate,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        store_update.tries = Some(tries.clone());
-        let trie = tries.get_trie_for_shard(shard_id);
-        let storage = trie.storage.as_caching_storage().expect("Must be caching storage");
-        for (hash, value, rc) in deletions.iter() {
-            let storage_rc = storage.retrieve_rc(&hash).unwrap_or_default();
-            assert!(*rc <= storage_rc);
-            let mut key = Vec::with_capacity(40);
-            key.extend_from_slice(&u64::to_le_bytes(storage.shard_id));
-            key.extend_from_slice(hash.as_ref());
-            if *rc < storage_rc {
-                let bytes = encode_trie_node_with_rc(&value, storage_rc - rc)?;
-                store_update.set(ColState, key.as_ref(), &bytes);
-            } else {
-                store_update.delete(ColState, key.as_ref());
-            }
-        }
-        Ok(())
-    }
-
-    pub fn into(
-        self,
-        tries: Arc<ShardTries>,
-        shard_id: ShardId,
-    ) -> Result<(StoreUpdate, StateRoot), Box<dyn std::error::Error>> {
-        self.into_inner(tries, shard_id, true)
-    }
-
-    pub fn into_no_deletions(
-        self,
-        tries: Arc<ShardTries>,
-        shard_id: ShardId,
-    ) -> Result<(StoreUpdate, StateRoot), Box<dyn std::error::Error>> {
-        self.into_inner(tries, shard_id, false)
-    }
-
-    fn into_inner(
-        self,
-        tries: Arc<ShardTries>,
-        shard_id: ShardId,
-        apply_deletions: bool,
-    ) -> Result<(StoreUpdate, StateRoot), Box<dyn std::error::Error>> {
-        let mut store_update =
-            StoreUpdate::new_with_trie(tries.get_store().storage.clone(), tries.clone());
-        self.insertions_into(tries.clone(), shard_id, &mut store_update)?;
-        if apply_deletions {
-            self.deletions_into(tries, shard_id, &mut store_update)?;
-        }
-        Ok((store_update, self.new_root))
-    }
-}
-
-pub struct WrappedTrieChanges {
-    tries: Arc<ShardTries>,
-    shard_id: ShardId,
-    trie_changes: TrieChanges,
-    state_changes: Vec<RawStateChangesWithTrieKey>,
-    block_hash: CryptoHash,
-}
-
-impl WrappedTrieChanges {
-    pub fn new(
-        tries: Arc<ShardTries>,
-        shard_id: ShardId,
-        trie_changes: TrieChanges,
-        state_changes: Vec<RawStateChangesWithTrieKey>,
-        block_hash: CryptoHash,
-    ) -> Self {
-        WrappedTrieChanges { tries, shard_id, trie_changes, state_changes, block_hash }
-    }
-
-    pub fn insertions_into(
-        &self,
-        store_update: &mut StoreUpdate,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        self.trie_changes.insertions_into(self.tries.clone(), self.shard_id, store_update)
-    }
-
-    pub fn deletions_into(
-        &self,
-        store_update: &mut StoreUpdate,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        self.trie_changes.deletions_into(self.tries.clone(), self.shard_id, store_update)
-    }
-
-    /// Save state changes into Store.
-    ///
-    /// NOTE: the changes are drained from `self`.
-    pub fn state_changes_into(
-        &mut self,
-        store_update: &mut StoreUpdate,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        for change_with_trie_key in self.state_changes.drain(..) {
-            assert!(
-                !change_with_trie_key.changes.iter().any(|RawStateChange { cause, .. }| matches!(
-                    cause,
-                    StateChangeCause::NotWritableToDisk
-                )),
-                "NotWritableToDisk changes must never be finalized."
-            );
-            // Filtering trie keys for user facing RPC reporting.
-            // NOTE: If the trie key is not one of the account specific, it may cause key conflict
-            // when the node tracks multiple shards. See #2563.
-            match &change_with_trie_key.trie_key {
-                TrieKey::Account { .. }
-                | TrieKey::ContractCode { .. }
-                | TrieKey::AccessKey { .. }
-                | TrieKey::ContractData { .. } => {}
-                _ => continue,
-            };
-            let storage_key = KeyForStateChanges::new_from_trie_key(
-                &self.block_hash,
-                &change_with_trie_key.trie_key,
-            );
-            store_update.set(
-                DBCol::ColStateChanges,
-                storage_key.as_ref(),
-                &change_with_trie_key.try_to_vec()?,
-            );
-        }
-        Ok(())
-    }
-
-    pub fn wrapped_into(
-        &mut self,
-        mut store_update: &mut StoreUpdate,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        self.insertions_into(&mut store_update)?;
-        self.state_changes_into(&mut store_update)?;
-        // TODO #2564
-        if self.shard_id == 0 {
-            store_update.set_ser(ColTrieChanges, self.block_hash.as_ref(), &self.trie_changes)?;
-        }
-        Ok(())
-    }
-}
-
-#[derive(derive_more::AsRef, derive_more::Into)]
-pub struct KeyForStateChanges(Vec<u8>);
-
-impl KeyForStateChanges {
-    fn estimate_prefix_len() -> usize {
-        std::mem::size_of::<CryptoHash>()
-    }
-
-    fn get_prefix_with_capacity(block_hash: &CryptoHash, reserve_capacity: usize) -> Self {
-        let mut key_prefix = Vec::with_capacity(Self::estimate_prefix_len() + reserve_capacity);
-        key_prefix.extend(block_hash.as_ref());
-        debug_assert_eq!(key_prefix.len(), Self::estimate_prefix_len());
-        Self(key_prefix)
-    }
-
-    pub fn get_prefix(block_hash: &CryptoHash) -> Self {
-        Self::get_prefix_with_capacity(block_hash, 0)
-    }
-
-    pub fn new(block_hash: &CryptoHash, raw_key: &[u8]) -> Self {
-        let mut key = Self::get_prefix_with_capacity(block_hash, raw_key.len());
-        key.0.extend(raw_key);
-        key
-    }
-
-    pub fn new_from_trie_key(block_hash: &CryptoHash, trie_key: &TrieKey) -> Self {
-        let mut key = Self::get_prefix_with_capacity(block_hash, trie_key.len());
-        key.0.extend(trie_key.to_vec());
-        key
-    }
-
-    pub fn find_iter<'a: 'b, 'b>(
-        &'a self,
-        store: &'b Store,
-    ) -> impl Iterator<Item = Result<RawStateChangesWithTrieKey, std::io::Error>> + 'b {
-        let prefix_len = Self::estimate_prefix_len();
-        debug_assert!(self.0.len() >= prefix_len);
-        store.iter_prefix_ser::<RawStateChangesWithTrieKey>(DBCol::ColStateChanges, &self.0).map(
-            move |change| {
-                // Split off the irrelevant part of the key, so only the original trie_key is left.
-                let (key, state_changes) = change?;
-                debug_assert!(key.starts_with(&self.0));
-                Ok(state_changes)
-            },
-        )
-    }
-
-    pub fn find_exact_iter<'a: 'b, 'b>(
-        &'a self,
-        store: &'b Store,
-    ) -> impl Iterator<Item = Result<RawStateChangesWithTrieKey, std::io::Error>> + 'b {
-        let prefix_len = Self::estimate_prefix_len();
-        let trie_key_len = self.0.len() - prefix_len;
-        self.find_iter(store).filter_map(move |change| {
-            let state_changes = match change {
-                Ok(change) => change,
-                error => {
-                    return Some(error);
-                }
-            };
-            if state_changes.trie_key.len() != trie_key_len {
-                None
-            } else {
-                debug_assert_eq!(&state_changes.trie_key.to_vec()[..], &self.0[prefix_len..]);
-                Some(Ok(state_changes))
-            }
-        })
     }
 }
 
@@ -1056,31 +763,22 @@ impl Trie {
 mod tests {
     use rand::Rng;
 
-    use crate::test_utils::{create_test_store, create_tries, gen_changes, simplify_changes};
+    use crate::test_utils::{
+        create_test_store, create_tries, gen_changes, simplify_changes, test_populate_trie,
+    };
 
     use super::*;
+    use crate::db::DBCol::ColState;
 
     type TrieChanges = Vec<(Vec<u8>, Option<Vec<u8>>)>;
 
-    fn test_populate_trie(trie: Arc<Trie>, root: &CryptoHash, changes: TrieChanges) -> CryptoHash {
-        let tries = Arc::new(ShardTries { tries: vec![trie.clone()] });
-        let mut other_changes = changes.clone();
-        let (store_update, root) =
-            trie.update(root, other_changes.drain(..)).unwrap().into(tries, 0).unwrap();
-        store_update.commit().unwrap();
-        for (key, value) in changes {
-            assert_eq!(trie.get(&root, &key), Ok(value));
-        }
-        root
-    }
-
     fn test_clear_trie(trie: Arc<Trie>, root: &CryptoHash, changes: TrieChanges) -> CryptoHash {
-        let tries = Arc::new(ShardTries { tries: vec![trie.clone()] });
+        let tries = Arc::new(ShardTries { tries: Arc::new(vec![trie.clone()]) });
         let delete_changes: TrieChanges =
             changes.iter().map(|(key, _)| (key.clone(), None)).collect();
         let mut other_delete_changes = delete_changes.clone();
-        let (store_update, root) =
-            trie.update(root, other_delete_changes.drain(..)).unwrap().into(tries, 0).unwrap();
+        let trie_changes = trie.update(root, other_delete_changes.drain(..)).unwrap();
+        let (store_update, root) = tries.apply_all(&trie_changes, 0).unwrap();
         store_update.commit().unwrap();
         for (key, _) in delete_changes {
             assert_eq!(trie.get(&root, &key), Ok(None));
@@ -1228,25 +926,18 @@ mod tests {
     fn test_trie_remove_non_existent_key() {
         let tries = create_tries();
         let trie = tries.get_trie_for_shard(0);
-        let mut initial = vec![
+        let initial = vec![
             (vec![99, 44, 100, 58, 58, 49], Some(vec![1])),
             (vec![99, 44, 100, 58, 58, 50], Some(vec![1])),
             (vec![99, 44, 100, 58, 58, 50, 51], Some(vec![1])),
         ];
-        let (store_update, root) = trie
-            .update(&Trie::empty_root(), initial.drain(..))
-            .unwrap()
-            .into(tries.clone(), 0)
-            .unwrap();
-        store_update.commit().unwrap();
+        let root = test_populate_trie(trie.clone(), &Trie::empty_root(), initial);
 
-        let mut changes = vec![
+        let changes = vec![
             (vec![99, 44, 100, 58, 58, 45, 49], None),
             (vec![99, 44, 100, 58, 58, 50, 52], None),
         ];
-        let (store_update, root) =
-            trie.update(&root, changes.drain(..)).unwrap().into(tries.clone(), 0).unwrap();
-        store_update.commit().unwrap();
+        let root = test_populate_trie(trie.clone(), &root, changes);
         for r in trie.iter(&root).unwrap() {
             r.unwrap();
         }
@@ -1261,20 +952,13 @@ mod tests {
             (vec![2, 2, 3], Some(vec![1])),
             (vec![3, 2, 3], Some(vec![1])),
         ];
-        let (store_update, root) = trie
-            .update(&Trie::empty_root(), initial.into_iter())
-            .unwrap()
-            .into(tries.clone(), 0)
-            .unwrap();
-        store_update.commit().unwrap();
+        let root = test_populate_trie(trie.clone(), &Trie::empty_root(), initial);
         for r in trie.iter(&root).unwrap() {
             r.unwrap();
         }
 
-        let mut changes = vec![(vec![1, 2, 3], None)];
-        let (store_update, root) =
-            trie.update(&root, changes.drain(..)).unwrap().into(tries.clone(), 0).unwrap();
-        store_update.commit().unwrap();
+        let changes = vec![(vec![1, 2, 3], None)];
+        let root = test_populate_trie(trie.clone(), &root, changes);
         for r in trie.iter(&root).unwrap() {
             r.unwrap();
         }
@@ -1289,21 +973,15 @@ mod tests {
             let trie_changes = gen_changes(&mut rng, 20);
             let simplified_changes = simplify_changes(&trie_changes);
 
-            let (_store_update1, root1) = trie
-                .update(&Trie::empty_root(), trie_changes.iter().cloned())
-                .unwrap()
-                .into(tries.clone(), 0)
-                .unwrap();
-            let (_store_update2, root2) = trie
-                .update(&Trie::empty_root(), simplified_changes.iter().cloned())
-                .unwrap()
-                .into(tries.clone(), 0)
-                .unwrap();
-            if root1 != root2 {
+            let trie_changes1 =
+                trie.update(&Trie::empty_root(), trie_changes.iter().cloned()).unwrap();
+            let trie_changes2 =
+                trie.update(&Trie::empty_root(), simplified_changes.iter().cloned()).unwrap();
+            if trie_changes1.new_root != trie_changes2.new_root {
                 eprintln!("{:?}", trie_changes);
                 eprintln!("{:?}", simplified_changes);
-                eprintln!("root1: {:?}", root1);
-                eprintln!("root2: {:?}", root2);
+                eprintln!("root1: {:?}", trie_changes1.new_root);
+                eprintln!("root2: {:?}", trie_changes2.new_root);
                 panic!("MISMATCH!");
             }
             // TODO: compare state updates?
@@ -1320,14 +998,7 @@ mod tests {
             let mut state_root = Trie::empty_root();
             for _ in 0..num_iterations {
                 let trie_changes = gen_changes(&mut rng, 20);
-                let (store_update, new_root) = trie
-                    .update(&state_root, trie_changes.iter().cloned())
-                    .unwrap()
-                    .into(tries.clone(), 0)
-                    .unwrap();
-
-                store_update.commit().unwrap();
-                state_root = new_root;
+                state_root = test_populate_trie(trie.clone(), &state_root, trie_changes);
                 println!(
                     "New memory_usage: {}",
                     trie.retrieve_root_node(&state_root).unwrap().memory_usage
@@ -1342,13 +1013,7 @@ mod tests {
                         (key, None)
                     })
                     .collect::<Vec<_>>();
-                let (store_update, new_root) = trie
-                    .update(&state_root, trie_changes.iter().cloned())
-                    .unwrap()
-                    .into(tries.clone(), 0)
-                    .unwrap();
-                store_update.commit().unwrap();
-                state_root = new_root;
+                state_root = test_populate_trie(trie.clone(), &state_root, trie_changes);
                 assert_eq!(state_root, Trie::empty_root(), "Trie must be empty");
                 assert!(
                     trie.storage

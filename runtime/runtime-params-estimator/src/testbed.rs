@@ -1,7 +1,6 @@
 use std::fs::File;
 use std::io::Read;
 use std::path::Path;
-use std::sync::Arc;
 
 use borsh::BorshDeserialize;
 
@@ -21,7 +20,7 @@ pub struct RuntimeTestbed {
     /// Directory where we temporarily keep the storage.
     #[allow(dead_code)]
     workdir: tempfile::TempDir,
-    tries: Arc<ShardTries>,
+    tries: ShardTries,
     root: MerkleHash,
     runtime: Runtime,
     prev_receipts: Vec<Receipt>,
@@ -34,7 +33,7 @@ impl RuntimeTestbed {
         let workdir = tempfile::Builder::new().prefix("runtime_testbed").tempdir().unwrap();
         println!("workdir {}", workdir.path().to_str().unwrap());
         let store = create_store(&get_store_path(workdir.path()));
-        let tries = Arc::new(ShardTries::new(store.clone(), 1));
+        let tries = ShardTries::new(store.clone(), 1);
 
         let mut state_file = dump_dir.to_path_buf();
         state_file.push(STATE_DUMP_FILE);
@@ -102,7 +101,7 @@ impl RuntimeTestbed {
             )
             .unwrap();
 
-        let (store_update, root) = apply_result.trie_changes.into(self.tries.clone(), 0).unwrap();
+        let (store_update, root) = self.tries.apply_all(&apply_result.trie_changes, 0).unwrap();
         self.root = root;
         store_update.commit().unwrap();
         self.apply_state.block_index += 1;

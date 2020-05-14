@@ -112,7 +112,7 @@ pub trait RuntimeAdapter: Send + Sync {
     /// StoreUpdate can be discarded if the chain past the genesis.
     fn genesis_state(&self) -> (Arc<Store>, StoreUpdate, Vec<StateRoot>);
 
-    fn get_tries(&self) -> Arc<ShardTries>;
+    fn get_tries(&self) -> ShardTries;
 
     /// Returns trie.
     fn get_trie_for_shard(&self, shard_id: ShardId) -> Arc<Trie>;

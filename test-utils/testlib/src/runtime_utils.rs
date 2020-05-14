@@ -1,6 +1,5 @@
 use std::fs;
 use std::path::PathBuf;
-use std::sync::Arc;
 
 use byteorder::{ByteOrder, LittleEndian};
 
@@ -65,9 +64,7 @@ pub fn add_test_contract(genesis: &mut Genesis, account_id: &AccountId) {
     });
 }
 
-pub fn get_runtime_and_trie_from_genesis(
-    genesis: &Genesis,
-) -> (Runtime, Arc<ShardTries>, StateRoot) {
+pub fn get_runtime_and_trie_from_genesis(genesis: &Genesis) -> (Runtime, ShardTries, StateRoot) {
     let tries = create_tries();
     let runtime = Runtime::new(genesis.config.runtime_config.clone());
     let (store_update, genesis_root) = runtime.apply_genesis_state(
@@ -91,7 +88,7 @@ pub fn get_runtime_and_trie_from_genesis(
     (runtime, tries, genesis_root)
 }
 
-pub fn get_runtime_and_trie() -> (Runtime, Arc<ShardTries>, StateRoot) {
+pub fn get_runtime_and_trie() -> (Runtime, ShardTries, StateRoot) {
     let mut genesis = Genesis::test(vec![&alice_account(), &bob_account(), "carol.near"], 3);
     add_test_contract(&mut genesis, &AccountId::from("test.contract"));
     get_runtime_and_trie_from_genesis(&genesis)

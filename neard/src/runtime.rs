@@ -55,7 +55,7 @@ pub struct NightshadeRuntime {
     home_dir: PathBuf,
 
     store: Arc<Store>,
-    pub tries: Arc<ShardTries>,
+    pub tries: ShardTries,
     trie_viewer: TrieViewer,
     pub runtime: Runtime,
     epoch_manager: Arc<RwLock<EpochManager>>,
@@ -73,7 +73,7 @@ impl NightshadeRuntime {
         let runtime = Runtime::new(genesis.config.runtime_config.clone());
         let trie_viewer = TrieViewer::new();
         let num_shards = genesis.config.num_block_producer_seats_per_shard.len() as NumShards;
-        let tries = Arc::new(ShardTries::new(store.clone(), num_shards));
+        let tries = ShardTries::new(store.clone(), num_shards);
         let initial_epoch_config = EpochConfig {
             epoch_length: genesis.config.epoch_length,
             num_shards,
@@ -394,8 +394,8 @@ impl RuntimeAdapter for NightshadeRuntime {
         }
     }
 
-    fn get_tries(&self) -> Arc<ShardTries> {
-        Arc::clone(&self.tries)
+    fn get_tries(&self) -> ShardTries {
+        self.tries.clone()
     }
 
     fn get_trie_for_shard(&self, shard_id: ShardId) -> Arc<Trie> {
@@ -1104,7 +1104,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             .expect("combine_state_parts is guaranteed to succeed when each part is valid");
         let tries = self.get_tries();
         let (store_update, _) =
-            trie_changes.into(tries, shard_id).expect("TrieChanges::into never fails");
+            tries.apply_all(&trie_changes, shard_id).expect("TrieChanges::into never fails");
         Ok(store_update.commit()?)
     }
 
@@ -1310,7 +1310,7 @@ mod test {
                 .unwrap();
             let mut store_update = self.store.store_update();
             result.trie_changes.insertions_into(&mut store_update).unwrap();
-            result.trie_changes.state_changes_into(&mut store_update).unwrap();
+            result.trie_changes.state_changes_into(&mut store_update);
             store_update.commit().unwrap();
             (result.new_root, result.validator_proposals, result.receipt_result)
         }

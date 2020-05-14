@@ -1151,7 +1151,7 @@ impl Runtime {
     /// Balances are account, publickey, initial_balance, initial_tx_stake
     pub fn apply_genesis_state(
         &self,
-        tries: Arc<ShardTries>,
+        tries: ShardTries,
         shard_id: ShardId,
         validators: &[(AccountId, PublicKey, Balance)],
         records: &[StateRecord],
@@ -1256,12 +1256,10 @@ impl Runtime {
             set_account(&mut state_update, account_id.clone(), &account);
         }
         state_update.commit(StateChangeCause::InitialState);
-        let (store_update, state_root) = state_update
-            .finalize()
-            .expect("Genesis state update failed")
-            .0
-            .into(tries, shard_id)
-            .expect("Genesis state update failed");
+        let trie_changes = state_update.finalize().expect("Genesis state update failed").0;
+
+        let (store_update, state_root) =
+            tries.apply_all(&trie_changes, shard_id).expect("Genesis state update failed");
         (store_update, state_root)
     }
 }
@@ -1305,8 +1303,8 @@ mod tests {
         let account_id = bob_account();
         set_account(&mut state_update, account_id.clone(), &test_account);
         state_update.commit(StateChangeCause::InitialState);
-        let (store_update, new_root) =
-            state_update.finalize().unwrap().0.into(tries.clone(), 0).unwrap();
+        let trie_changes = state_update.finalize().unwrap().0;
+        let (store_update, new_root) = tries.apply_all(&trie_changes, 0).unwrap();
         store_update.commit().unwrap();
         let new_state_update = tries.new_trie_update(0, new_root);
         let get_res = get_account(&new_state_update, &account_id).unwrap().unwrap();
@@ -1321,7 +1319,7 @@ mod tests {
         initial_balance: Balance,
         initial_locked: Balance,
         gas_limit: Gas,
-    ) -> (Runtime, Arc<ShardTries>, CryptoHash, ApplyState, Arc<InMemorySigner>) {
+    ) -> (Runtime, ShardTries, CryptoHash, ApplyState, Arc<InMemorySigner>) {
         let tries = create_tries();
         let root = MerkleHash::default();
         let runtime = Runtime::new(RuntimeConfig::default());
@@ -1342,7 +1340,7 @@ mod tests {
         );
         initial_state.commit(StateChangeCause::InitialState);
         let trie_changes = initial_state.finalize().unwrap().0;
-        let (store_update, root) = trie_changes.into(tries.clone(), 0).unwrap();
+        let (store_update, root) = tries.apply_all(&trie_changes, 0).unwrap();
         store_update.commit().unwrap();
 
         let apply_state = ApplyState {
@@ -1410,8 +1408,7 @@ mod tests {
             let apply_result = runtime
                 .apply(tries.get_trie_for_shard(0), root, &None, &apply_state, prev_receipts, &[])
                 .unwrap();
-            let (store_update, new_root) =
-                apply_result.trie_changes.into(tries.clone(), 0).unwrap();
+            let (store_update, new_root) = tries.apply_all(&apply_result.trie_changes, 0).unwrap();
             root = new_root;
             store_update.commit().unwrap();
             let state = tries.new_trie_update(0, root);
@@ -1449,8 +1446,7 @@ mod tests {
             let apply_result = runtime
                 .apply(tries.get_trie_for_shard(0), root, &None, &apply_state, prev_receipts, &[])
                 .unwrap();
-            let (store_update, new_root) =
-                apply_result.trie_changes.into(tries.clone(), 0).unwrap();
+            let (store_update, new_root) = tries.apply_all(&apply_result.trie_changes, 0).unwrap();
             root = new_root;
             store_update.commit().unwrap();
             let state = tries.new_trie_update(0, root);
@@ -1497,8 +1493,7 @@ mod tests {
             let apply_result = runtime
                 .apply(tries.get_trie_for_shard(0), root, &None, &apply_state, prev_receipts, &[])
                 .unwrap();
-            let (store_update, new_root) =
-                apply_result.trie_changes.into(tries.clone(), 0).unwrap();
+            let (store_update, new_root) = tries.apply_all(&apply_result.trie_changes, 0).unwrap();
             root = new_root;
             store_update.commit().unwrap();
             let state = tries.new_trie_update(0, root);
@@ -1583,7 +1578,7 @@ mod tests {
                 &local_transactions[0..4],
             )
             .unwrap();
-        let (store_update, root) = apply_result.trie_changes.into(tries.clone(), 0).unwrap();
+        let (store_update, root) = tries.apply_all(&apply_result.trie_changes, 0).unwrap();
         store_update.commit().unwrap();
 
         assert_eq!(
@@ -1614,7 +1609,7 @@ mod tests {
                 &local_transactions[4..5],
             )
             .unwrap();
-        let (store_update, root) = apply_result.trie_changes.into(tries.clone(), 0).unwrap();
+        let (store_update, root) = tries.apply_all(&apply_result.trie_changes, 0).unwrap();
         store_update.commit().unwrap();
 
         assert_eq!(
@@ -1642,7 +1637,7 @@ mod tests {
                 &local_transactions[5..9],
             )
             .unwrap();
-        let (store_update, root) = apply_result.trie_changes.into(tries.clone(), 0).unwrap();
+        let (store_update, root) = tries.apply_all(&apply_result.trie_changes, 0).unwrap();
         store_update.commit().unwrap();
 
         assert_eq!(
@@ -1666,7 +1661,7 @@ mod tests {
         let apply_result = runtime
             .apply(tries.get_trie_for_shard(0), root, &None, &apply_state, &receipts[4..5], &[])
             .unwrap();
-        let (store_update, root) = apply_result.trie_changes.into(tries.clone(), 0).unwrap();
+        let (store_update, root) = tries.apply_all(&apply_result.trie_changes, 0).unwrap();
         store_update.commit().unwrap();
 
         assert_eq!(
@@ -1745,7 +1740,7 @@ mod tests {
         set(&mut state_update, TrieKey::DelayedReceiptIndices, &delayed_receipts_indices);
         state_update.commit(StateChangeCause::UpdatedDelayedReceipts);
         let trie_changes = state_update.finalize().unwrap().0;
-        let (store_update, root) = trie_changes.into(tries.clone(), 0).unwrap();
+        let (store_update, root) = tries.apply_all(&trie_changes, 0).unwrap();
         store_update.commit().unwrap();
 
         let err = runtime

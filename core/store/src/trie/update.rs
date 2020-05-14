@@ -339,9 +339,9 @@ mod tests {
         trie_update.set(test_key(b"xxx".to_vec()), b"puppy".to_vec());
         trie_update
             .commit(StateChangeCause::TransactionProcessing { tx_hash: CryptoHash::default() });
-        let (store_update, new_root) =
-            trie_update.finalize().unwrap().0.into(tries.clone(), 0).unwrap();
-        store_update.commit().ok();
+        let trie_changes = trie_update.finalize().unwrap().0;
+        let (store_update, new_root) = tries.apply_all(&trie_changes, 0).unwrap();
+        store_update.commit().unwrap();
         let trie_update2 = tries.new_trie_update(0, new_root);
         assert_eq!(trie_update2.get(&test_key(b"dog".to_vec())), Ok(Some(b"puppy".to_vec())));
         let values = trie_update2
@@ -364,9 +364,9 @@ mod tests {
         trie_update.remove(test_key(b"dog".to_vec()));
         trie_update
             .commit(StateChangeCause::TransactionProcessing { tx_hash: CryptoHash::default() });
-        let (store_update, new_root) =
-            trie_update.finalize().unwrap().0.into(tries.clone(), 0).unwrap();
-        store_update.commit().ok();
+        let trie_changes = trie_update.finalize().unwrap().0;
+        let (store_update, new_root) = tries.apply_all(&trie_changes, 0).unwrap();
+        store_update.commit().unwrap();
         assert_eq!(new_root, CryptoHash::default());
 
         // Add and right away delete element.
@@ -375,9 +375,9 @@ mod tests {
         trie_update.remove(test_key(b"dog".to_vec()));
         trie_update
             .commit(StateChangeCause::TransactionProcessing { tx_hash: CryptoHash::default() });
-        let (store_update, new_root) =
-            trie_update.finalize().unwrap().0.into(tries.clone(), 0).unwrap();
-        store_update.commit().ok();
+        let trie_changes = trie_update.finalize().unwrap().0;
+        let (store_update, new_root) = tries.apply_all(&trie_changes, 0).unwrap();
+        store_update.commit().unwrap();
         assert_eq!(new_root, CryptoHash::default());
 
         // Add, apply changes and then delete element.
@@ -385,17 +385,17 @@ mod tests {
         trie_update.set(test_key(b"dog".to_vec()), b"puppy".to_vec());
         trie_update
             .commit(StateChangeCause::TransactionProcessing { tx_hash: CryptoHash::default() });
-        let (store_update, new_root) =
-            trie_update.finalize().unwrap().0.into(tries.clone(), 0).unwrap();
-        store_update.commit().ok();
+        let trie_changes = trie_update.finalize().unwrap().0;
+        let (store_update, new_root) = tries.apply_all(&trie_changes, 0).unwrap();
+        store_update.commit().unwrap();
         assert_ne!(new_root, CryptoHash::default());
         let mut trie_update = tries.new_trie_update(0, new_root);
         trie_update.remove(test_key(b"dog".to_vec()));
         trie_update
             .commit(StateChangeCause::TransactionProcessing { tx_hash: CryptoHash::default() });
-        let (store_update, new_root) =
-            trie_update.finalize().unwrap().0.into(tries.clone(), 0).unwrap();
-        store_update.commit().ok();
+        let trie_changes = trie_update.finalize().unwrap().0;
+        let (store_update, new_root) = tries.apply_all(&trie_changes, 0).unwrap();
+        store_update.commit().unwrap();
         assert_eq!(new_root, CryptoHash::default());
     }
 
@@ -407,9 +407,9 @@ mod tests {
         trie_update.set(test_key(b"aaa".to_vec()), b"puppy".to_vec());
         trie_update
             .commit(StateChangeCause::TransactionProcessing { tx_hash: CryptoHash::default() });
-        let (store_update, new_root) =
-            trie_update.finalize().unwrap().0.into(tries.clone(), 0).unwrap();
-        store_update.commit().ok();
+        let trie_changes = trie_update.finalize().unwrap().0;
+        let (store_update, new_root) = tries.apply_all(&trie_changes, 0).unwrap();
+        store_update.commit().unwrap();
 
         let mut trie_update = tries.new_trie_update(0, new_root);
         trie_update.set(test_key(b"dog2".to_vec()), b"puppy".to_vec());

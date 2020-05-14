@@ -57,8 +57,8 @@ pub struct ShardInfo(pub ShardId, pub ChunkHash);
 
 #[derive(Clone)]
 pub enum GCMode {
-    Fork(Arc<ShardTries>),
-    Canonical(Arc<ShardTries>),
+    Fork(ShardTries),
+    Canonical(ShardTries),
     StateSync,
 }
 
@@ -1744,24 +1744,24 @@ impl<'a> ChainStoreUpdate<'a> {
 
         // 1. Apply revert insertions or deletions from ColTrieChanges for Trie
         match gc_mode.clone() {
-            GCMode::Fork(trie) => {
+            GCMode::Fork(tries) => {
                 // If the block is on a fork, we delete the state that's the result of applying this block
                 self.store()
                     .get_ser(ColTrieChanges, block_hash.as_ref())?
                     .map(|trie_changes: TrieChanges| {
-                        trie_changes
-                            .revert_insertions_into(trie.clone(), 0, &mut store_update)
+                        tries
+                            .revert_insertions(&trie_changes, 0, &mut store_update)
                             .map_err(|err| ErrorKind::Other(err.to_string()))
                     })
                     .unwrap_or(Ok(()))?;
             }
-            GCMode::Canonical(trie) => {
+            GCMode::Canonical(tries) => {
                 // If the block is on canonical chain, we delete the state that's before applying this block
                 self.store()
                     .get_ser(ColTrieChanges, block_hash.as_ref())?
                     .map(|trie_changes: TrieChanges| {
-                        trie_changes
-                            .deletions_into(trie.clone(), 0, &mut store_update)
+                        tries
+                            .apply_deletions(&trie_changes, 0, &mut store_update)
                             .map_err(|err| ErrorKind::Other(err.to_string()))
                     })
                     .unwrap_or(Ok(()))?;

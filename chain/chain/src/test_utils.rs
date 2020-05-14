@@ -58,7 +58,7 @@ struct KVState {
 /// Simple key value runtime for tests.
 pub struct KeyValueRuntime {
     store: Arc<Store>,
-    tries: Arc<ShardTries>,
+    tries: ShardTries,
     validators: Vec<Vec<ValidatorStake>>,
     validator_groups: u64,
     num_shards: ShardId,
@@ -104,7 +104,7 @@ impl KeyValueRuntime {
         num_shards: ShardId,
         epoch_length: u64,
     ) -> Self {
-        let tries = Arc::new(ShardTries::new(store.clone(), num_shards));
+        let tries = ShardTries::new(store.clone(), num_shards);
         let mut initial_amounts = HashMap::new();
         for (i, validator) in validators.iter().flatten().enumerate() {
             initial_amounts.insert(validator.clone(), (1000 + 100 * i) as u128);
@@ -271,8 +271,8 @@ impl RuntimeAdapter for KeyValueRuntime {
         )
     }
 
-    fn get_tries(&self) -> Arc<ShardTries> {
-        Arc::clone(&self.tries)
+    fn get_tries(&self) -> ShardTries {
+        self.tries.clone()
     }
 
     fn get_trie_for_shard(&self, shard_id: ShardId) -> Arc<Trie> {

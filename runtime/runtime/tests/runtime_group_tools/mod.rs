@@ -28,7 +28,7 @@ pub const NEAR_BASE: Balance = 1_000_000_000_000_000_000_000_000;
 pub struct StandaloneRuntime {
     pub apply_state: ApplyState,
     pub runtime: Runtime,
-    pub tries: Arc<ShardTries>,
+    pub tries: ShardTries,
     pub signer: InMemorySigner,
     pub root: CryptoHash,
 }
@@ -38,11 +38,7 @@ impl StandaloneRuntime {
         self.signer.account_id.clone()
     }
 
-    pub fn new(
-        signer: InMemorySigner,
-        state_records: &[StateRecord],
-        tries: Arc<ShardTries>,
-    ) -> Self {
+    pub fn new(signer: InMemorySigner, state_records: &[StateRecord], tries: ShardTries) -> Self {
         let mut runtime_config = random_config();
         runtime_config.wasm_config.limit_config.max_total_prepaid_gas = u64::max_value();
 
@@ -83,7 +79,7 @@ impl StandaloneRuntime {
             )
             .unwrap();
 
-        let (store_update, root) = apply_result.trie_changes.into(self.tries.clone(), 0).unwrap();
+        let (store_update, root) = self.tries.apply_all(&apply_result.trie_changes, 0).unwrap();
         self.root = root;
         store_update.commit().unwrap();
         self.apply_state.block_index += 1;

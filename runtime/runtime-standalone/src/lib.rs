@@ -115,7 +115,7 @@ pub struct RuntimeStandalone {
     outcomes: HashMap<CryptoHash, ExecutionOutcome>,
     cur_block: Block,
     runtime: Runtime,
-    tries: Arc<ShardTries>,
+    tries: ShardTries,
     pending_receipts: Vec<Receipt>,
 }
 
@@ -124,7 +124,7 @@ impl RuntimeStandalone {
         let mut genesis_block = Block::genesis(&genesis);
         let mut store_update = store.store_update();
         let runtime = Runtime::new(genesis.runtime_config.clone());
-        let tries = Arc::new(ShardTries::new(store, 1));
+        let tries = ShardTries::new(store, 1);
         let (s_update, state_root) =
             runtime.apply_genesis_state(tries.clone(), 0, &[], &genesis.state_records);
         store_update.merge(s_update);
@@ -213,10 +213,8 @@ impl RuntimeStandalone {
         apply_result.outcomes.iter().for_each(|outcome| {
             self.outcomes.insert(outcome.id, outcome.outcome.clone());
         });
-        let (update, _) = apply_result
-            .trie_changes
-            .into(self.tries.clone(), 0)
-            .expect("Unexpected Storage error");
+        let (update, _) =
+            self.tries.apply_all(&apply_result.trie_changes, 0).expect("Unexpected Storage error");
         update.commit().expect("Unexpected io error");
         self.cur_block = self.cur_block.produce(apply_result.state_root, self.genesis.epoch_length);
 
@@ -247,7 +245,7 @@ impl RuntimeStandalone {
         set_account(&mut trie_update, account_id, account);
         trie_update.commit(StateChangeCause::ValidatorAccountsUpdate);
         let (trie_changes, _) = trie_update.finalize().expect("Unexpected Storage error");
-        let (store_update, new_root) = trie_changes.into(self.tries.clone(), 0).unwrap();
+        let (store_update, new_root) = self.tries.apply_all(&trie_changes, 0).unwrap();
         store_update.commit().expect("No io errors expected");
         self.cur_block.state_root = new_root;
     }

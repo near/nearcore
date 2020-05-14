@@ -1,4 +1,4 @@
-use crate::test_utils::{create_tries, gen_changes, simplify_changes};
+use crate::test_utils::{create_tries, gen_changes, simplify_changes, test_populate_trie};
 use crate::trie::trie_storage::{TrieMemoryPartialStorage, TrieStorage};
 use crate::trie::POISONED_LOCK_ERR;
 use crate::{PartialStorage, Trie, TrieUpdate};
@@ -94,14 +94,7 @@ fn test_reads_with_incomplete_storage() {
         if trie_changes.is_empty() {
             continue;
         }
-        let (store_update, new_root) = trie
-            .update(&state_root, trie_changes.iter().cloned())
-            .unwrap()
-            .into(Arc::clone(&tries), 0)
-            .unwrap();
-
-        store_update.commit().unwrap();
-        state_root = new_root;
+        state_root = test_populate_trie(trie.clone(), &state_root, trie_changes.clone());
 
         {
             let (key, _) = trie_changes.choose(&mut rng).unwrap();

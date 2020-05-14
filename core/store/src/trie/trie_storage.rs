@@ -92,21 +92,13 @@ impl TrieCachingStorage {
 
     fn vec_to_rc(val: &Option<Vec<u8>>) -> Result<u32, StorageError> {
         val.as_ref()
-            .map(|vec| {
-                decode_trie_node_with_rc(&vec).map(|(_bytes, rc)| rc).map_err(|_| {
-                    StorageError::StorageInconsistentState("Decode node with RC failed".to_string())
-                })
-            })
+            .map(|vec| decode_trie_node_with_rc(&vec).map(|(_bytes, rc)| rc))
             .unwrap_or_else(|| Ok(0))
     }
 
     fn vec_to_bytes(val: &Option<Vec<u8>>) -> Result<Vec<u8>, StorageError> {
         val.as_ref()
-            .map(|vec| {
-                decode_trie_node_with_rc(&vec).map(|(bytes, _rc)| bytes.to_vec()).map_err(|_| {
-                    StorageError::StorageInconsistentState("Decode node with RC failed".to_string())
-                })
-            })
+            .map(|vec| decode_trie_node_with_rc(&vec).map(|(bytes, _rc)| bytes.to_vec()))
             // not StorageError::TrieNodeMissing because it's only for TrieMemoryPartialStorage
             .unwrap_or_else(|| {
                 Err(StorageError::StorageInconsistentState("Trie node missing".to_string()))

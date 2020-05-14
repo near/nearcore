@@ -129,7 +129,7 @@ pub struct StoreUpdate {
     storage: Arc<dyn Database>,
     transaction: DBTransaction,
     /// Optionally has reference to the trie to clear cache on the commit.
-    tries: Option<Arc<ShardTries>>,
+    tries: Option<ShardTries>,
 }
 
 impl StoreUpdate {
@@ -138,7 +138,8 @@ impl StoreUpdate {
         StoreUpdate { storage, transaction, tries: None }
     }
 
-    pub fn new_with_trie(storage: Arc<dyn Database>, tries: Arc<ShardTries>) -> Self {
+    pub fn new_with_trie(tries: ShardTries) -> Self {
+        let storage = tries.get_store().storage.clone();
         let transaction = storage.transaction();
         StoreUpdate { storage, transaction, tries: Some(tries) }
     }
@@ -169,8 +170,8 @@ impl StoreUpdate {
                 self.tries = Some(trie);
             } else {
                 debug_assert_eq!(
-                    self.tries.as_ref().unwrap().as_ref() as *const _,
-                    trie.as_ref() as *const _
+                    self.tries.as_ref().unwrap().tries.as_ref() as *const _,
+                    trie.tries.as_ref() as *const _
                 );
             }
         }

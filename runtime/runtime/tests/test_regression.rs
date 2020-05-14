@@ -3,7 +3,6 @@
 //! * Processes 10_000 transactions per block.
 
 use std::collections::HashSet;
-use std::sync::Arc;
 use std::time::Instant;
 
 use indicatif::{ProgressBar, ProgressStyle};
@@ -65,7 +64,7 @@ fn template_test(transaction_type: TransactionType, db_type: DataBaseType, expec
     let tries = match db_type {
         DataBaseType::Disk => {
             let store = create_store(tmpdir.path().to_str().unwrap());
-            Arc::new(ShardTries::new(store, 1))
+            ShardTries::new(store, 1)
         }
         DataBaseType::InMemory => create_tries(),
     };
@@ -171,12 +170,9 @@ fn template_test(transaction_type: TransactionType, db_type: DataBaseType, expec
             set_account(&mut state_update, account_id.clone(), &account);
         }
         state_update.commit(StateChangeCause::InitialState);
-        let (store_update, root) = state_update
-            .finalize()
-            .expect("Genesis state update failed")
-            .0
-            .into(runtime.tries.clone(), 0)
-            .expect("Genesis state update failed");
+        let trie_changes = state_update.finalize().expect("Genesis state update failed").0;
+        let (store_update, root) =
+            runtime.tries.apply_all(&trie_changes, 0).expect("Genesis state update failed");
         store_update.commit().unwrap();
         runtime.root = root;
         if DISPLAY_PROGRESS_BAR {

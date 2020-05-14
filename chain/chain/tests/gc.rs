@@ -11,7 +11,7 @@ mod tests {
     use near_primitives::types::{NumBlocks, StateRoot};
     use near_primitives::validator_signer::InMemoryValidatorSigner;
     use near_store::test_utils::{create_test_store, gen_changes};
-    use near_store::{ShardTries, Trie, WrappedTrieChanges};
+    use near_store::{ShardTries, StoreUpdate, Trie, WrappedTrieChanges};
     use rand::Rng;
 
     fn get_chain(num_shards: u64) -> Chain {
@@ -42,7 +42,7 @@ mod tests {
     fn do_fork(
         mut prev_block: Block,
         mut prev_state_roots: Vec<StateRoot>,
-        tries: Arc<ShardTries>,
+        tries: ShardTries,
         chain: &mut Chain,
         num_blocks: u64,
         states: &mut Vec<(Block, Vec<StateRoot>, Vec<Vec<(Vec<u8>, Option<Vec<u8>>)>>)>,
@@ -196,16 +196,20 @@ mod tests {
                     .unwrap();
                 // i == gc_height is the only height should be processed here
                 if block1.header.inner_lite.height > gc_height || i == gc_height {
-                    let (trie_store_update2, new_root2) = trie_changes2
-                        .clone()
-                        .into_no_deletions(tries2.clone(), shard_to_check_trie)
+                    let mut trie_store_update2 = StoreUpdate::new_with_trie(tries2.clone());
+                    tries2
+                        .apply_insertions(
+                            &trie_changes2,
+                            shard_to_check_trie,
+                            &mut trie_store_update2,
+                        )
                         .unwrap();
-                    state_root2 = new_root2;
+                    state_root2 = trie_changes2.new_root;
                     assert_eq!(state_root1[shard_to_check_trie as usize], state_root2);
                     store_update2.merge(trie_store_update2);
                 } else {
                     let (trie_store_update2, new_root2) =
-                        trie_changes2.clone().into(tries2.clone(), shard_to_check_trie).unwrap();
+                        tries2.apply_all(&trie_changes2, shard_to_check_trie).unwrap();
                     state_root2 = new_root2;
                     store_update2.merge(trie_store_update2);
                 }
