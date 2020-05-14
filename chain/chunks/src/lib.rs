@@ -852,8 +852,9 @@ impl ShardsManager {
             ) {
                 if *hash != chunk_hash {
                     warn!(target: "client", "Rejecting unrequested chunk {:?}, height {}, shard_id {}, because of having {:?}", chunk_hash, header.inner.height_created, header.inner.shard_id, hash);
+                    return Err(Error::DuplicateChunkHeight.into());
                 }
-                return Err(Error::DuplicateChunkHeight.into());
+                return Ok(ProcessPartialEncodedChunkResult::Known);
             }
         }
 
