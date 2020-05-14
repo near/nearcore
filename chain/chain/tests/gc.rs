@@ -196,7 +196,7 @@ mod tests {
                     .unwrap();
                 // i == gc_height is the only height should be processed here
                 if block1.header.inner_lite.height > gc_height || i == gc_height {
-                    let mut trie_store_update2 = StoreUpdate::new_with_trie(tries2.clone());
+                    let mut trie_store_update2 = StoreUpdate::new_with_tries(tries2.clone());
                     tries2
                         .apply_insertions(
                             &trie_changes2,

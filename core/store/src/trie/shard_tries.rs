@@ -107,7 +107,7 @@ impl ShardTries {
         shard_id: ShardId,
         apply_deletions: bool,
     ) -> Result<(StoreUpdate, StateRoot), StorageError> {
-        let mut store_update = StoreUpdate::new_with_trie(tries.clone());
+        let mut store_update = StoreUpdate::new_with_tries(tries.clone());
         ShardTries::apply_insertions_inner(
             &trie_changes.insertions,
             tries.clone(),
@@ -197,10 +197,6 @@ impl WrappedTrieChanges {
 
     pub fn insertions_into(&self, store_update: &mut StoreUpdate) -> Result<(), StorageError> {
         self.tries.apply_insertions(&self.trie_changes, self.shard_id, store_update)
-    }
-
-    pub fn deletions_into(&self, store_update: &mut StoreUpdate) -> Result<(), StorageError> {
-        self.tries.apply_deletions(&self.trie_changes, self.shard_id, store_update)
     }
 
     /// Save state changes into Store.

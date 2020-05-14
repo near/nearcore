@@ -138,7 +138,7 @@ impl StoreUpdate {
         StoreUpdate { storage, transaction, tries: None }
     }
 
-    pub fn new_with_trie(tries: ShardTries) -> Self {
+    pub fn new_with_tries(tries: ShardTries) -> Self {
         let storage = tries.get_store().storage.clone();
         let transaction = storage.transaction();
         StoreUpdate { storage, transaction, tries: Some(tries) }
@@ -165,13 +165,13 @@ impl StoreUpdate {
 
     /// Merge another store update into this one.
     pub fn merge(&mut self, other: StoreUpdate) {
-        if let Some(trie) = other.tries {
+        if let Some(tries) = other.tries {
             if self.tries.is_none() {
-                self.tries = Some(trie);
+                self.tries = Some(tries);
             } else {
                 debug_assert_eq!(
                     self.tries.as_ref().unwrap().tries.as_ref() as *const _,
-                    trie.tries.as_ref() as *const _
+                    tries.tries.as_ref() as *const _
                 );
             }
         }
@@ -209,18 +209,12 @@ impl StoreUpdate {
             "Transaction overwrites itself: {:?}",
             self
         );
-        if let Some(trie) = self.tries {
+        if let Some(tries) = self.tries {
             assert_eq!(
-                trie.get_trie_for_shard(0)
-                    .storage
-                    .as_caching_storage()
-                    .unwrap()
-                    .store
-                    .storage
-                    .as_ref() as *const _,
+                tries.get_store().storage.as_ref() as *const _,
                 self.storage.as_ref() as *const _
             );
-            trie.update_cache(&self.transaction)?;
+            tries.update_cache(&self.transaction)?;
         }
         self.storage.write(self.transaction).map_err(|e| e.into())
     }
