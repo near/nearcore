@@ -86,8 +86,6 @@ fn default_vm_context() -> VMContext {
         is_view: false,
         output_data_receivers: vec![],
         epoch_height: 1,
-        validators: Default::default(),
-        epoch_total_stake: 0,
     };
 }
 

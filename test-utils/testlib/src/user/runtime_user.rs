@@ -19,6 +19,7 @@ use node_runtime::state_viewer::TrieViewer;
 use node_runtime::{ApplyState, Runtime};
 
 use crate::user::{User, POISONED_LOCK_ERR};
+use near_primitives::test_utils::MockEpochInfoProvider;
 use neard::config::MIN_GAS_PRICE;
 
 /// Mock client without chain, used in RuntimeUser and RuntimeNode
@@ -47,6 +48,7 @@ pub struct RuntimeUser {
     // store receipts generated when applying transactions
     pub receipts: RefCell<HashMap<CryptoHash, Receipt>>,
     pub transactions: RefCell<HashSet<SignedTransaction>>,
+    pub epoch_info_provider: MockEpochInfoProvider,
 }
 
 impl RuntimeUser {
@@ -59,6 +61,7 @@ impl RuntimeUser {
             transaction_results: Default::default(),
             receipts: Default::default(),
             transactions: RefCell::new(Default::default()),
+            epoch_info_provider: MockEpochInfoProvider::default(),
         }
     }
 
@@ -77,7 +80,15 @@ impl RuntimeUser {
             let mut client = self.client.write().expect(POISONED_LOCK_ERR);
             let apply_result = client
                 .runtime
-                .apply(client.trie.clone(), client.state_root, &None, &apply_state, &receipts, &txs)
+                .apply(
+                    client.trie.clone(),
+                    client.state_root,
+                    &None,
+                    &apply_state,
+                    &receipts,
+                    &txs,
+                    &self.epoch_info_provider,
+                )
                 .map_err(|e| match e {
                     RuntimeError::InvalidTxError(e) => {
                         ServerError::TxExecutionError(TxExecutionError::InvalidTxError(e))
@@ -88,6 +99,7 @@ impl RuntimeUser {
                         panic!("UnexpectedIntegerOverflow error")
                     }
                     RuntimeError::ReceiptValidationError(e) => panic!("{}", e),
+                    RuntimeError::ValidatorError(e) => panic!("{}", e),
                 })?;
             for outcome_with_id in apply_result.outcomes {
                 self.transaction_results
@@ -108,15 +120,14 @@ impl RuntimeUser {
     }
 
     fn apply_state(&self) -> ApplyState {
-        let client = self.client.read().expect(POISONED_LOCK_ERR);
         ApplyState {
             block_index: 0,
+            last_block_hash: Default::default(),
             block_timestamp: 0,
-            epoch_length: client.epoch_length,
             epoch_height: 0,
-            validators: Default::default(),
             gas_price: MIN_GAS_PRICE,
             gas_limit: None,
+            epoch_id: Default::default(),
         }
     }
 

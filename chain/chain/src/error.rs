@@ -5,8 +5,9 @@ use chrono::{DateTime, Utc};
 use failure::{Backtrace, Context, Fail};
 
 use near_primitives::challenge::{ChunkProofs, ChunkState};
-use near_primitives::errors::StorageError;
+use near_primitives::errors::{EpochError, StorageError};
 use near_primitives::hash::CryptoHash;
+use near_primitives::serialize::to_base;
 use near_primitives::sharding::{ChunkHash, ShardChunkHeader};
 use near_primitives::types::ShardId;
 
@@ -284,3 +285,14 @@ impl From<String> for Error {
 }
 
 impl std::error::Error for Error {}
+
+impl From<EpochError> for Error {
+    fn from(error: EpochError) -> Self {
+        match error {
+            EpochError::EpochOutOfBounds => ErrorKind::EpochOutOfBounds,
+            EpochError::MissingBlock(h) => ErrorKind::DBNotFoundErr(to_base(&h)),
+            err => ErrorKind::ValidatorError(err.to_string()),
+        }
+        .into()
+    }
+}

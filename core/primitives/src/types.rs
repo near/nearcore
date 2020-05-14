@@ -6,6 +6,7 @@ use near_crypto::PublicKey;
 
 use crate::account::{AccessKey, Account};
 use crate::challenge::ChallengesResult;
+use crate::errors::EpochError;
 use crate::hash::CryptoHash;
 use crate::serialize::u128_dec_format;
 use crate::trie_key::TrieKey;
@@ -536,3 +537,19 @@ pub enum ValidatorKickoutReason {
 
 #[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize, Serialize)]
 pub struct StateHeaderKey(pub ShardId, pub CryptoHash);
+
+/// Provides information about current epoch validators.
+/// Used to break dependency between epoch manager and runtime.
+pub trait EpochInfoProvider {
+    /// Get current stake of a validator in the given epoch.
+    /// If the account is not a validator, returns `None`.
+    fn get_validator_stake(
+        &self,
+        epoch_id: &EpochId,
+        last_block_hash: &CryptoHash,
+        account_id: &AccountId,
+    ) -> Result<Option<Balance>, EpochError>;
+
+    /// Get the total stake of the given epoch.
+    fn validator_total_stake(&self, epoch_id: &EpochId) -> Result<Balance, EpochError>;
+}

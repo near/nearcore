@@ -57,8 +57,6 @@ wrapped_imports! {
     block_index<[] -> [u64]>,
     block_timestamp<[] -> [u64]>,
     epoch_height<[] -> [u64]>,
-    validator_stake<[account_len: u64, account_ptr: u64, stake_ptr: u64] -> []>,
-    validator_total_stake<[stake_ptr: u64] -> []>,
     storage_usage<[] -> [u64]>,
     // #################
     // # Economics API #
@@ -177,4 +175,9 @@ wrapped_imports! {
     storage_iter_next<[iterator_id: u64, key_register_id: u64, value_register_id: u64] -> [u64]>,
     // Function for the injected gas counter. Automatically called by the gas meter.
     gas<[gas_amount: u32] -> []>,
+    // ###############
+    // # Validator API #
+    // ###############
+    validator_stake<[account_len: u64, account_ptr: u64, stake_ptr: u64] -> []>,
+    validator_total_stake<[stake_ptr: u64] -> []>,
 }

@@ -1,6 +1,5 @@
 use crate::types::{AccountId, Balance, BlockHeight, EpochHeight, Gas, PublicKey, StorageUsage};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 
 #[derive(Serialize, Deserialize, Clone)]
 /// Context for the contract execution.
@@ -30,10 +29,6 @@ pub struct VMContext {
     pub block_timestamp: u64,
     /// The current epoch height.
     pub epoch_height: EpochHeight,
-    /// Current epoch validators and their stake
-    pub validators: HashMap<AccountId, Balance>,
-    /// Total stake of this epoch.
-    pub epoch_total_stake: Balance,
 
     /// The balance attached to the given account. Excludes the `attached_deposit` that was
     /// attached to the transaction.
