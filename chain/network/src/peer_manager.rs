@@ -122,20 +122,24 @@ impl PeerManagerActor {
         debug!(target: "network", "Blacklist: {:?}", config.blacklist);
 
         let me: PeerId = config.public_key.clone().into();
+        let routing_table = RoutingTable::new(me.clone(), store);
+
+        #[cfg(feature = "metric_recorder")]
+        let metric_recorder = MetricRecorder::default().set_me(me.clone());
 
         Ok(PeerManagerActor {
-            peer_id: config.public_key.clone().into(),
+            peer_id: me,
             config,
             client_addr,
             view_client_addr,
             peer_store,
             active_peers: HashMap::default(),
             outgoing_peers: HashSet::default(),
-            routing_table: RoutingTable::new(me.clone(), store),
+            routing_table,
             monitor_peers_attempts: 0,
             pending_update_nonce_request: HashMap::new(),
             #[cfg(feature = "metric_recorder")]
-            metric_recorder: MetricRecorder::default().set_me(me),
+            metric_recorder,
         })
     }
 
@@ -1195,10 +1199,7 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                             if announce_account.epoch_id == current_announce_account.epoch_id {
                                 None
                             } else {
-                                Some((
-                                    announce_account,
-                                    Some(current_announce_account.epoch_id.clone()),
-                                ))
+                                Some((announce_account, Some(current_announce_account.epoch_id)))
                             }
                         } else {
                             Some((announce_account, None))
@@ -1302,20 +1303,20 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                         if cur_edge.edge_type() == EdgeType::Added
                             && cur_edge.nonce >= edge_info.nonce
                         {
-                            return NetworkResponses::EdgeUpdate(cur_edge);
+                            return NetworkResponses::EdgeUpdate(Box::new(cur_edge));
                         }
                     }
 
                     let new_edge = Edge::build_with_secret_key(
                         self.peer_id.clone(),
-                        peer_id.clone(),
+                        peer_id,
                         edge_info.nonce,
                         &self.config.secret_key,
                         edge_info.signature,
                     );
 
                     self.process_edge(ctx, new_edge.clone());
-                    NetworkResponses::EdgeUpdate(new_edge)
+                    NetworkResponses::EdgeUpdate(Box::new(new_edge))
                 } else {
                     NetworkResponses::BanPeer(ReasonForBan::InvalidEdge)
                 }
@@ -1451,7 +1452,7 @@ impl Handler<Consolidate> for PeerManagerActor {
         if last_nonce >= msg.other_edge_info.nonce {
             debug!(target: "network", "Too low nonce. ({} <= {}) {:?} {:?}", msg.other_edge_info.nonce, last_nonce, self.peer_id, msg.peer_info.id);
             // If the check fails don't allow this connection.
-            return ConsolidateResponse::InvalidNonce(last_edge.unwrap());
+            return ConsolidateResponse::InvalidNonce(last_edge.map(Box::new).unwrap());
         }
 
         let require_response = msg.this_edge_info.is_none();
@@ -1572,7 +1573,7 @@ impl Handler<PeerRequest> for PeerManagerActor {
             PeerRequest::RouteBack(body, target) => {
                 self.send_message_to_peer(
                     ctx,
-                    RawRoutedMessage { target: AccountOrPeerIdOrHash::Hash(target), body },
+                    RawRoutedMessage { target: AccountOrPeerIdOrHash::Hash(target), body: *body },
                 );
                 PeerResponse::NoResponse
             }

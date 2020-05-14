@@ -484,7 +484,7 @@ impl Client {
             chunk_extra.gas_limit,
             chunk_extra.validator_reward,
             chunk_extra.balance_burnt,
-            chunk_extra.validator_proposals.clone(),
+            chunk_extra.validator_proposals,
             transactions,
             &outgoing_receipts,
             outgoing_receipts_root,
@@ -593,7 +593,7 @@ impl Client {
                     near_chain::ErrorKind::InvalidChunkProofs(chunk_proofs) => {
                         self.network_adapter.do_send(NetworkRequests::Challenge(
                             Challenge::produce(
-                                ChallengeBody::ChunkProofs(chunk_proofs),
+                                ChallengeBody::ChunkProofs(*chunk_proofs),
                                 &**validator_signer,
                             ),
                         ));
@@ -601,7 +601,7 @@ impl Client {
                     near_chain::ErrorKind::InvalidChunkState(chunk_state) => {
                         self.network_adapter.do_send(NetworkRequests::Challenge(
                             Challenge::produce(
-                                ChallengeBody::ChunkState(chunk_state),
+                                ChallengeBody::ChunkState(*chunk_state),
                                 &**validator_signer,
                             ),
                         ));
@@ -642,7 +642,7 @@ impl Client {
                 Ok(self.process_blocks_with_missing_chunks(prev_block_hash))
             }
             ProcessPartialEncodedChunkResult::NeedMorePartsOrReceipts(chunk_header) => {
-                self.shards_mgr.request_chunks(vec![chunk_header]).unwrap();
+                self.shards_mgr.request_chunks(vec![*chunk_header]).unwrap();
                 Ok(vec![])
             }
             ProcessPartialEncodedChunkResult::NeedBlock => {

@@ -197,7 +197,7 @@ impl RemoteNode {
                     j["result"]
                         .as_str()
                         .map(|s| s.to_string())
-                        .ok_or(VALUE_NOT_STR_ERR.to_string()),
+                        .ok_or_else(|| VALUE_NOT_STR_ERR.to_string()),
                 )
             })
             .boxed()

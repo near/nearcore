@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{hash_map::Entry, HashMap, HashSet};
 use std::ops::Sub;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -367,7 +367,7 @@ impl RoutingTable {
     /// Find peer that owns this AccountId.
     pub fn account_owner(&mut self, account_id: &AccountId) -> Result<PeerId, FindRouteError> {
         self.get_announce(account_id)
-            .map(|announce_account| announce_account.peer_id.clone())
+            .map(|announce_account| announce_account.peer_id)
             .ok_or_else(|| FindRouteError::AccountNotFound)
     }
 
@@ -814,9 +814,9 @@ impl Graph {
 
             if let Some(neighbors) = self.adjacency.get(&cur_peer) {
                 for neighbor in neighbors {
-                    if !distance.contains_key(&neighbor) {
-                        queue.push(neighbor);
-                        distance.insert(neighbor, cur_distance + 1);
+                    if let Entry::Vacant(entry) = distance.entry(neighbor) {
+                        queue.push(entry.key());
+                        entry.insert(cur_distance + 1);
                         routes.insert(neighbor.clone(), HashSet::new());
                     }
 
