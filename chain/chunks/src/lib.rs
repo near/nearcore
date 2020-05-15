@@ -686,7 +686,7 @@ impl ShardsManager {
     /// a `PartialEncodedChunkResponse`. `parts_iter` is only evaluated up to the first `None`
     /// (if any); since iterators are lazy this could save some work if there were any `Some`
     /// elements later in the iterator. `receipts_iter` is only evaluated if `part_iter` was
-    /// completely present. Similary, `receipts_iter` is only evaluated up to the first `None`
+    /// completely present. Similarly, `receipts_iter` is only evaluated up to the first `None`
     /// if it is evaluated at all.
     fn maybe_send_partial_encoded_chunk_response<A, B>(
         &self,
