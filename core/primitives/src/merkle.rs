@@ -29,24 +29,28 @@ pub fn merklize<T: BorshSerialize>(arr: &[T]) -> (MerkleHash, Vec<MerklePath>) {
     if arr.is_empty() {
         return (MerkleHash::default(), vec![]);
     }
-    let mut len = (arr.len() as u32).next_power_of_two();
-    let mut hashes: Vec<_> = (0..len)
-        .map(|i| {
-            if i < arr.len() as u32 {
-                hash(&arr[i as usize].try_to_vec().expect("Failed to serialize"))
-            } else {
-                hash(&[0])
-            }
-        })
-        .collect();
+    let mut len = arr.len().next_power_of_two();
+    let mut hashes = arr
+        .iter()
+        .map(|elem| hash(&elem.try_to_vec().expect("Failed to serialize")))
+        .collect::<Vec<_>>();
+
     // degenerate case
     if len == 1 {
         return (hashes[0], vec![vec![]]);
     }
-    let mut paths: Vec<MerklePath> = (0..arr.len())
+    let mut arr_len = arr.len();
+    let mut paths: Vec<MerklePath> = (0..arr_len)
         .map(|i| {
             if i % 2 == 0 {
-                vec![MerklePathItem { hash: hashes[(i + 1) as usize], direction: Direction::Right }]
+                if i + 1 < arr_len {
+                    vec![MerklePathItem {
+                        hash: hashes[(i + 1) as usize],
+                        direction: Direction::Right,
+                    }]
+                } else {
+                    vec![]
+                }
             } else {
                 vec![MerklePathItem { hash: hashes[(i - 1) as usize], direction: Direction::Left }]
             }
@@ -58,8 +62,14 @@ pub fn merklize<T: BorshSerialize>(arr: &[T]) -> (MerkleHash, Vec<MerklePath>) {
         len /= 2;
         counter *= 2;
         for i in 0..len {
-            let hash = combine_hash(hashes[2 * i as usize], hashes[(2 * i + 1) as usize]);
-            hashes[i as usize] = hash;
+            let hash = if 2 * i >= arr_len {
+                continue;
+            } else if 2 * i + 1 >= arr_len {
+                hashes[2 * i]
+            } else {
+                combine_hash(hashes[2 * i], hashes[2 * i + 1])
+            };
+            hashes[i] = hash;
             if len > 1 {
                 if i % 2 == 0 {
                     for j in 0..counter {
@@ -78,7 +88,9 @@ pub fn merklize<T: BorshSerialize>(arr: &[T]) -> (MerkleHash, Vec<MerklePath>) {
                 }
             }
         }
+        arr_len = (arr_len + 1) / 2;
     }
+    println!("paths: {:?}", paths);
     (hashes[0], paths)
 }
 
@@ -148,6 +160,7 @@ mod tests {
         let (root, paths) = merklize(&arr);
         assert_eq!(paths.len() as u32, n);
         for (i, item) in arr.iter().enumerate() {
+            println!("i: {} item: {:?} path: {:?}", i, item, paths[i]);
             assert!(verify_path(root, &paths[i], item));
         }
     }
@@ -156,7 +169,7 @@ mod tests {
     fn test_merkle_path() {
         let mut rng: StdRng = SeedableRng::seed_from_u64(1);
         for _ in 0..10 {
-            let len: u32 = rng.gen_range(1, 50);
+            let len: u32 = rng.gen_range(1, 100);
             test_with_len(len, &mut rng);
         }
     }
