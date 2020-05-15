@@ -84,7 +84,7 @@ fn produce_blocks_with_tx() {
                     partial_encoded_chunk,
                 } = msg
                 {
-                    let header = partial_encoded_chunk.header.clone().unwrap();
+                    let header = partial_encoded_chunk.header.clone();
                     let height = header.inner.height_created as usize;
                     assert!(encoded_chunks.len() + 2 >= height);
 
