@@ -41,7 +41,7 @@ The following are the neccessary conditions for the reward:
 
 ### Rewards platform
 
-We are using https://gitcoin.co/ to reward tokens. Meaning that any security vulnerability that you submit to us will be processed like a general work-item by an external contributor. To receive the reward you would need to register on https://gitcoin.co/ and be able to receive the reward through it. Example of a reward for a security vulnerability finding: https://gitcoin.co/issue/near/community/5/4359
+We are using https://gitcoin.co/ to reward tokens. Meaning that every security vulnerability that you submit to us will be processed like a general work-item by an external contributor. To receive the reward you would need to register on https://gitcoin.co/ and be able to receive the reward through it. Example of a reward for a security vulnerability finding: https://gitcoin.co/issue/near/community/5/4359
 
 
 ## Receive Security Updates
