@@ -627,52 +627,98 @@ impl ShardsManager {
         route_back: CryptoHash,
         chain_store: &mut ChainStore,
     ) {
-        debug!(target:"chunks", "Received partial encoded chunk request for {:?}, part_ordinals: {:?}, receipts: {:?}, I'm {:?}", request.chunk_hash.0, request.part_ords, request.tracking_shards, self.me);
+        debug!(target: "chunks", "Received partial encoded chunk request for {:?}, part_ordinals: {:?}, receipts: {:?}, I'm {:?}", request.chunk_hash.0, request.part_ords, request.tracking_shards, self.me);
 
-        let entry_storage;
+        // Check if we have the chunk in our cache
+        if let Some(entry) = self.encoded_chunks.get(&request.chunk_hash) {
+            // Create iterators which _might_ contain the requested parts.
+            let parts_iter = request.part_ords.iter().map(|ord| entry.parts.get(ord).cloned());
+            let receipts_iter = request
+                .tracking_shards
+                .iter()
+                .map(|shard_id| entry.receipts.get(shard_id).cloned());
 
-        let entry = if let Some(entry) = self.encoded_chunks.get(&request.chunk_hash) {
-            entry
+            // Pass iterators to function which will evaluate them. Since iterators are lazy
+            // we will clone as few elements as possible before realizing not all are present.
+            // In the case all are present, the response is sent.
+            return self.maybe_send_partial_encoded_chunk_response(
+                request.chunk_hash,
+                entry.header.inner.shard_id,
+                route_back,
+                parts_iter,
+                receipts_iter,
+            );
+        // If not in the cache then check the storage
         } else if let Ok(partial_chunk) = chain_store.get_partial_chunk(&request.chunk_hash) {
-            let mut entry =
-                EncodedChunksCacheEntry::from_chunk_header(partial_chunk.header.clone().unwrap());
-            entry.merge_in_partial_encoded_chunk(partial_chunk);
-            entry_storage = entry;
-            &entry_storage
-        } else {
-            return;
+            // Index _references_ to the parts we know about by their `part_ord`. Since only
+            // references are used in this index, we will only clone the requested parts, not
+            // all of them.
+            let present_parts: HashMap<u64, _> =
+                partial_chunk.parts.iter().map(|part| (part.part_ord, part)).collect();
+            // Create an iterator which _might_ contain the request parts. Again, we are
+            // using the laziness of iterators for efficiency.
+            let parts_iter =
+                request.part_ords.iter().map(|ord| present_parts.get(ord).map(|x| *x).cloned());
+
+            // Same process for receipts as above for parts.
+            let present_receipts: HashMap<ShardId, _> = partial_chunk
+                .receipts
+                .iter()
+                .map(|receipt| (receipt.1.to_shard_id, receipt))
+                .collect();
+            let receipts_iter = request
+                .tracking_shards
+                .iter()
+                .map(|shard_id| present_receipts.get(shard_id).map(|x| *x).cloned());
+
+            // Pass iterators to function, same as cache case.
+            return self.maybe_send_partial_encoded_chunk_response(
+                request.chunk_hash,
+                partial_chunk.shard_id,
+                route_back,
+                parts_iter,
+                receipts_iter,
+            );
+        };
+    }
+
+    /// Checks `parts_iter` and `receipts_iter`, if all elements are `Some` then sends
+    /// a `PartialEncodedChunkResponse`. `parts_iter` is only evaluated up to the first `None`
+    /// (if any); since iterators are lazy this could save some work if there were any `Some`
+    /// elements later in the iterator. `receipts_iter` is only evaluated if `part_iter` was
+    /// completely present. Similary, `receipts_iter` is only evaluated up to the first `None`
+    /// if it is evaluated at all.
+    fn maybe_send_partial_encoded_chunk_response<A, B>(
+        &self,
+        chunk_hash: ChunkHash,
+        shard_id: ShardId,
+        route_back: CryptoHash,
+        parts_iter: A,
+        receipts_iter: B,
+    ) where
+        A: Iterator<Item = Option<PartialEncodedChunkPart>>,
+        B: Iterator<Item = Option<ReceiptProof>>,
+    {
+        let maybe_known_parts: Option<Vec<_>> = parts_iter.collect();
+        let parts = match maybe_known_parts {
+            None => {
+                debug!(target:"chunks", "Not responding, some parts are missing");
+                return;
+            }
+            Some(known_parts) => known_parts,
         };
 
-        let parts =
-            request.part_ords.iter().map(|part_ord| entry.parts.get(&part_ord)).collect::<Vec<_>>();
-
-        if parts.iter().any(|x| x.is_none()) {
-            debug!(target:"chunks", "Not responding, some parts are missing");
-            return;
-        }
-
-        let parts = parts.into_iter().map(|x| x.unwrap().clone()).collect::<Vec<_>>();
-
-        let receipts = request
-            .tracking_shards
-            .iter()
-            .map(|shard_id| entry.receipts.get(&shard_id))
-            .collect::<Vec<_>>();
-
-        if receipts.iter().any(|x| x.is_none()) {
-            debug!(target:"chunks", "Not responding, some receipts are missing");
-            return;
-        }
-
-        let receipts = receipts.into_iter().map(|x| x.unwrap().clone()).collect::<Vec<_>>();
-
-        let partial_encoded_chunk = PartialEncodedChunk {
-            shard_id: entry.header.inner.shard_id,
-            chunk_hash: entry.header.chunk_hash(),
-            header: None,
-            parts,
-            receipts,
+        let maybe_known_receipts: Option<Vec<_>> = receipts_iter.collect();
+        let receipts = match maybe_known_receipts {
+            None => {
+                debug!(target:"chunks", "Not responding, some receipts are missing");
+                return;
+            }
+            Some(known_receipts) => known_receipts,
         };
+
+        let partial_encoded_chunk =
+            PartialEncodedChunk { shard_id, chunk_hash, header: None, parts, receipts };
 
         self.network_adapter.do_send(NetworkRequests::PartialEncodedChunkResponse {
             route_back,
