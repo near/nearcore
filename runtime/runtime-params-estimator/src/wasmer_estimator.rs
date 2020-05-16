@@ -5,6 +5,7 @@ use near_runtime_fees::RuntimeFeesConfig;
 use near_vm_logic::mocks::mock_external::MockedExternal;
 use near_vm_logic::{VMConfig, VMContext, VMOutcome};
 use near_vm_runner::VMError;
+use num_rational::Ratio;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
@@ -61,14 +62,13 @@ fn call() -> (Option<VMOutcome>, Option<VMError>) {
 const NUM_ITERATIONS: u64 = 10;
 
 /// Cost of the most CPU demanding operation.
-pub fn cost_per_op(gas_metric: GasMetric) -> u64 {
+pub fn cost_per_op(gas_metric: GasMetric) -> Ratio<u64> {
     // Call once for the warmup.
-    let (outcome, _) = call();
-    let outcome = outcome.unwrap();
+    call();
     let start = start_count(gas_metric);
     for _ in 0..NUM_ITERATIONS {
         call();
     }
     let cost = end_count(gas_metric, &start);
-    cost / (outcome.burnt_gas * NUM_ITERATIONS)
+    Ratio::new(cost, NUM_ITERATIONS)
 }
