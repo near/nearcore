@@ -65,7 +65,7 @@ impl RewardCalculator {
             } else {
                 let stake = *validator_stake
                     .get(&account_id)
-                    .expect(&format!("{} is not a validator", account_id));
+                    .unwrap_or_else(|| panic!("{} is not a validator", account_id));
                 // Online reward multiplier is min(1., (uptime - online_threshold_min) / (online_threshold_max - online_threshold_min).
                 let online_max_numer = U256::from(*self.online_max_threshold.numer() as u64);
                 let online_max_denom = U256::from(*self.online_max_threshold.denom() as u64);

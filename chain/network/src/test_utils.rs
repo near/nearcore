@@ -172,7 +172,7 @@ impl Actor for WaitOrTimeout {
 }
 
 pub fn vec_ref_to_str(values: Vec<&str>) -> Vec<String> {
-    values.iter().map(|x| x.to_string()).collect()
+    values.into_iter().map(|x| x.to_string()).collect()
 }
 
 pub fn random_peer_id() -> PeerId {

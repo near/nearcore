@@ -25,7 +25,9 @@ use near_primitives::challenge::Challenge;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::network::{AnnounceAccount, PeerId};
-use near_primitives::sharding::{ChunkHash, PartialEncodedChunk};
+use near_primitives::sharding::{
+    ChunkHash, PartialEncodedChunk, PartialEncodedChunkPart, ReceiptProof,
+};
 use near_primitives::transaction::{ExecutionOutcomeWithIdAndProof, SignedTransaction};
 use near_primitives::types::{AccountId, BlockHeight, BlockIdOrFinality, EpochId, ShardId};
 use near_primitives::utils::{from_timestamp, to_timestamp};
@@ -236,6 +238,7 @@ pub enum RoutedMessageBody {
     StateRequestPart(ShardId, CryptoHash, u64),
     StateResponse(StateResponseInfo),
     PartialEncodedChunkRequest(PartialEncodedChunkRequestMsg),
+    PartialEncodedChunkResponse(PartialEncodedChunkResponseMsg),
     PartialEncodedChunk(PartialEncodedChunk),
     /// Ping/Pong used for testing networking and routing.
     Ping(Ping),
@@ -456,6 +459,9 @@ impl fmt::Display for PeerMessage {
                 RoutedMessageBody::PartialEncodedChunkRequest(_) => {
                     f.write_str("PartialEncodedChunkRequest")
                 }
+                RoutedMessageBody::PartialEncodedChunkResponse(_) => {
+                    f.write_str("PartialEncodedChunkResponse")
+                }
                 RoutedMessageBody::PartialEncodedChunk(_) => f.write_str("PartialEncodedChunk"),
                 RoutedMessageBody::Ping(_) => f.write_str("Ping"),
                 RoutedMessageBody::Pong(_) => f.write_str("Pong"),
@@ -624,6 +630,15 @@ impl PeerMessage {
                         size as i64,
                     );
                 }
+                RoutedMessageBody::PartialEncodedChunkResponse(_) => {
+                    near_metrics::inc_counter(
+                        &metrics::ROUTED_PARTIAL_CHUNK_RESPONSE_RECEIVED_TOTAL,
+                    );
+                    near_metrics::inc_counter_by(
+                        &metrics::ROUTED_PARTIAL_CHUNK_RESPONSE_RECEIVED_BYTES,
+                        size as i64,
+                    );
+                }
                 RoutedMessageBody::PartialEncodedChunk(_) => {
                     near_metrics::inc_counter(&metrics::ROUTED_PARTIAL_CHUNK_RECEIVED_TOTAL);
                     near_metrics::inc_counter_by(
@@ -662,6 +677,7 @@ impl PeerMessage {
                 | RoutedMessageBody::ForwardTx(_)
                 | RoutedMessageBody::PartialEncodedChunk(_)
                 | RoutedMessageBody::PartialEncodedChunkRequest(_)
+                | RoutedMessageBody::PartialEncodedChunkResponse(_)
                 | RoutedMessageBody::StateResponse(_) => true,
                 _ => false,
             },
@@ -921,7 +937,7 @@ impl Message for Consolidate {
 #[derive(MessageResponse, Debug)]
 pub enum ConsolidateResponse {
     Accept(Option<EdgeInfo>),
-    InvalidNonce(Edge),
+    InvalidNonce(Box<Edge>),
     Reject,
 }
 
@@ -940,7 +956,7 @@ pub struct PeerList {
 /// Message from peer to peer manager
 pub enum PeerRequest {
     UpdateEdge((PeerId, u64)),
-    RouteBack(RoutedMessageBody, CryptoHash),
+    RouteBack(Box<RoutedMessageBody>, CryptoHash),
     UpdatePeerInfo(PeerInfo),
     ReceivedMessage(PeerId, Instant),
 }
@@ -1062,7 +1078,7 @@ pub enum NetworkRequests {
     /// Information about chunk such as its header, some subset of parts and/or incoming receipts
     PartialEncodedChunkResponse {
         route_back: CryptoHash,
-        partial_encoded_chunk: PartialEncodedChunk,
+        response: PartialEncodedChunkResponseMsg,
     },
     /// Information about chunk such as its header, some subset of parts and/or incoming receipts
     PartialEncodedChunkMessage {
@@ -1160,7 +1176,7 @@ pub enum NetworkResponses {
     RoutingTableInfo(RoutingTableInfo),
     PingPongInfo { pings: HashMap<usize, Ping>, pongs: HashMap<usize, Pong> },
     BanPeer(ReasonForBan),
-    EdgeUpdate(Edge),
+    EdgeUpdate(Box<Edge>),
     RouteNotFound,
 }
 
@@ -1225,6 +1241,8 @@ pub enum NetworkClientMessages {
 
     /// Request chunk parts and/or receipts.
     PartialEncodedChunkRequest(PartialEncodedChunkRequestMsg, CryptoHash),
+    /// Response to a request for  chunk parts and/or receipts.
+    PartialEncodedChunkResponse(PartialEncodedChunkResponseMsg),
     /// Information about chunk such as its header, some subset of parts and/or incoming receipts
     PartialEncodedChunk(PartialEncodedChunk),
 
@@ -1280,7 +1298,7 @@ pub enum NetworkViewClientMessages {
     /// Transaction status query
     TxStatus { tx_hash: CryptoHash, signer_account_id: AccountId },
     /// Transaction status response
-    TxStatusResponse(FinalExecutionOutcomeView),
+    TxStatusResponse(Box<FinalExecutionOutcomeView>),
     /// General query
     Query { query_id: String, block_id_or_finality: BlockIdOrFinality, request: QueryRequest },
     /// Query response
@@ -1288,7 +1306,7 @@ pub enum NetworkViewClientMessages {
     /// Request for receipt outcome
     ReceiptOutcomeRequest(CryptoHash),
     /// Receipt outcome response
-    ReceiptOutcomeResponse(ExecutionOutcomeWithIdAndProof),
+    ReceiptOutcomeResponse(Box<ExecutionOutcomeWithIdAndProof>),
     /// Request a block.
     BlockRequest(CryptoHash),
     /// Request headers.
@@ -1307,19 +1325,19 @@ pub enum NetworkViewClientMessages {
 
 pub enum NetworkViewClientResponses {
     /// Transaction execution outcome
-    TxStatus(FinalExecutionOutcomeView),
+    TxStatus(Box<FinalExecutionOutcomeView>),
     /// Response to general queries
     QueryResponse { query_id: String, response: Result<QueryResponse, String> },
     /// Receipt outcome response
-    ReceiptOutcomeResponse(ExecutionOutcomeWithIdAndProof),
+    ReceiptOutcomeResponse(Box<ExecutionOutcomeWithIdAndProof>),
     /// Block response.
-    Block(Block),
+    Block(Box<Block>),
     /// Headers response.
     BlockHeaders(Vec<BlockHeader>),
     /// Chain information.
     ChainInfo { genesis_id: GenesisId, height: BlockHeight, tracked_shards: Vec<ShardId> },
     /// Response to state request.
-    StateResponse(StateResponseInfo),
+    StateResponse(Box<StateResponseInfo>),
     /// Valid announce accounts.
     AnnounceAccount(Vec<AnnounceAccount>),
     /// Ban peer for malicious behavior.
@@ -1383,6 +1401,13 @@ pub struct PartialEncodedChunkRequestMsg {
     pub chunk_hash: ChunkHash,
     pub part_ords: Vec<u64>,
     pub tracking_shards: HashSet<ShardId>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, BorshSerialize, BorshDeserialize, Serialize)]
+pub struct PartialEncodedChunkResponseMsg {
+    pub chunk_hash: ChunkHash,
+    pub parts: Vec<PartialEncodedChunkPart>,
+    pub receipts: Vec<ReceiptProof>,
 }
 
 /// Adapter to break dependency of sub-components on the network requests.

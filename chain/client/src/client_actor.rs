@@ -226,7 +226,7 @@ impl Handler<NetworkClientMessages> for ClientActor {
                     NetworkAdversarialMessage::AdvSwitchToHeight(height) => {
                         info!(target: "adversary", "Switching to height {:?}", height);
                         let mut chain_store_update = self.client.chain.mut_store().store_update();
-                        chain_store_update.save_largest_target_height(&height);
+                        chain_store_update.save_largest_target_height(height);
                         chain_store_update
                             .adv_save_latest_known(height)
                             .expect("adv method should not fail");
@@ -356,11 +356,8 @@ impl Handler<NetworkClientMessages> for ClientActor {
                         ShardSyncStatus::StateDownloadHeader => {
                             if let Some(header) = state_response.header {
                                 if !shard_sync_download.downloads[0].done {
-                                    match self.client.chain.set_state_header(
-                                        shard_id,
-                                        hash,
-                                        header.clone(),
-                                    ) {
+                                    match self.client.chain.set_state_header(shard_id, hash, header)
+                                    {
                                         Ok(()) => {
                                             shard_sync_download.downloads[0].done = true;
                                         }
@@ -420,6 +417,14 @@ impl Handler<NetworkClientMessages> for ClientActor {
                     route_back,
                     self.client.chain.mut_store(),
                 );
+                NetworkClientResponses::NoResponse
+            }
+            NetworkClientMessages::PartialEncodedChunkResponse(response) => {
+                if let Ok(accepted_blocks) =
+                    self.client.process_partial_encoded_chunk_response(response)
+                {
+                    self.process_accepted_blocks(accepted_blocks);
+                }
                 NetworkClientResponses::NoResponse
             }
             NetworkClientMessages::PartialEncodedChunk(partial_encoded_chunk) => {
@@ -510,7 +515,7 @@ impl Handler<GetNetworkInfo> for ClientActor {
                 .active_peers
                 .clone()
                 .into_iter()
-                .map(|a| a.peer_info.clone())
+                .map(|a| a.peer_info)
                 .collect::<Vec<_>>(),
             num_active_peers: self.network_info.num_active_peers,
             peer_max_count: self.network_info.peer_max_count,
@@ -671,7 +676,7 @@ impl ClientActor {
                                 "Chunks were missing for newly produced block {}, I'm {:?}, requesting. Missing: {:?}, ({:?})",
                                 block_hash,
                                 self.client.validator_signer.as_ref().map(|vs| vs.validator_id()),
-                                missing_chunks.clone(),
+                                missing_chunks,
                                 missing_chunks.iter().map(|header| header.chunk_hash()).collect::<Vec<_>>()
                             );
                             self.client.shards_mgr.request_chunks(missing_chunks).unwrap();
@@ -784,7 +789,7 @@ impl ClientActor {
                         "Chunks were missing for block {}, I'm {:?}, requesting. Missing: {:?}, ({:?})",
                         hash.clone(),
                         self.client.validator_signer.as_ref().map(|vs| vs.validator_id()),
-                        missing_chunks.clone(),
+                        missing_chunks,
                         missing_chunks.iter().map(|header| header.chunk_hash()).collect::<Vec<_>>()
                     );
                     self.client.shards_mgr.request_chunks(missing_chunks).unwrap();
@@ -962,7 +967,7 @@ impl ClientActor {
         // that if the node crashes in the meantime, we cannot get slashed on recovery
         let mut chain_store_update = self.client.chain.mut_store().store_update();
         chain_store_update
-            .save_largest_target_height(&self.client.doomslug.get_largest_target_height());
+            .save_largest_target_height(self.client.doomslug.get_largest_target_height());
 
         match chain_store_update.commit() {
             Ok(_) => {

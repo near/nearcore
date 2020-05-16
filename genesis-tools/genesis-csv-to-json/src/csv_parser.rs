@@ -219,7 +219,7 @@ fn account_records(row: &Row, gas_price: Balance) -> Vec<StateRecord> {
                     permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
                         allowance: None,
                         receiver_id: row.account_id.clone(),
-                        method_names: method_names.iter().map(|x| x.to_string()).collect(),
+                        method_names: method_names.iter().map(|x| (*x).to_string()).collect(),
                     }),
                 },
             })

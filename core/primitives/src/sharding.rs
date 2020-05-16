@@ -127,9 +127,7 @@ impl ShardChunkHeader {
 
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, Eq, PartialEq)]
 pub struct PartialEncodedChunk {
-    pub shard_id: u64,
-    pub chunk_hash: ChunkHash,
-    pub header: Option<ShardChunkHeader>,
+    pub header: ShardChunkHeader,
     pub parts: Vec<PartialEncodedChunkPart>,
     pub receipts: Vec<ReceiptProof>,
 }
@@ -316,7 +314,6 @@ impl EncodedShardChunk {
     pub fn create_partial_encoded_chunk(
         &self,
         part_ords: Vec<u64>,
-        include_header: bool,
         receipts: Vec<ReceiptProof>,
         merkle_paths: &[MerklePath],
     ) -> PartialEncodedChunk {
@@ -329,13 +326,7 @@ impl EncodedShardChunk {
             })
             .collect();
 
-        PartialEncodedChunk {
-            shard_id: self.header.inner.shard_id,
-            chunk_hash: self.header.chunk_hash(),
-            header: if include_header { Some(self.header.clone()) } else { None },
-            parts,
-            receipts,
-        }
+        PartialEncodedChunk { header: self.header.clone(), parts, receipts }
     }
 
     pub fn decode_chunk(&self, data_parts: usize) -> Result<ShardChunk, std::io::Error> {

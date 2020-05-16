@@ -52,6 +52,7 @@ use num_rational::Rational;
 use rand::rngs::StdRng;
 use rand::seq::SliceRandom;
 use rand::SeedableRng;
+use std::mem;
 
 /// Maximum number of orphans chain can store.
 pub const MAX_ORPHAN_SIZE: usize = 1024;
@@ -380,12 +381,19 @@ impl Chain {
         self.doomslug_threshold_mode = DoomslugThresholdMode::NoApprovals
     }
 
-    pub fn compute_bp_hash_inner(bps: &Vec<ValidatorStake>) -> Result<CryptoHash, Error> {
-        let mut arr = vec![];
-        for bp in bps.iter() {
-            arr.append(&mut hash(bp.account_id.as_bytes()).into());
-            arr.append(&mut hash(bp.public_key.try_to_vec()?.as_ref()).into());
-            arr.append(&mut hash(bp.stake.try_to_vec()?.as_ref()).into());
+    pub fn compute_bp_hash_inner<'a, T>(bps: T) -> Result<CryptoHash, Error>
+    where
+        T: IntoIterator<Item = &'a ValidatorStake>,
+    {
+        let iter = bps.into_iter();
+        let (iter_size, _) = iter.size_hint();
+        let hash_size = mem::size_of::<CryptoHash>();
+        // each element of the iterator contributes three hashes
+        let mut arr = Vec::with_capacity(3 * hash_size * iter_size);
+        for bp in iter {
+            arr.extend(hash(bp.account_id.as_bytes()).as_ref());
+            arr.extend(hash(bp.public_key.try_to_vec()?.as_ref()).as_ref());
+            arr.extend(hash(bp.stake.try_to_vec()?.as_ref()).as_ref());
         }
 
         Ok(hash(&arr))
@@ -396,12 +404,8 @@ impl Chain {
         epoch_id: EpochId,
         last_known_hash: &CryptoHash,
     ) -> Result<CryptoHash, Error> {
-        let bps = runtime_adapter
-            .get_epoch_block_producers_ordered(&epoch_id, last_known_hash)?
-            .iter()
-            .map(|x| x.0.clone())
-            .collect();
-        Chain::compute_bp_hash_inner(&bps)
+        let bps = runtime_adapter.get_epoch_block_producers_ordered(&epoch_id, last_known_hash)?;
+        Chain::compute_bp_hash_inner(bps.iter().map(|(bp, _)| bp))
     }
 
     /// Creates a light client block for the last final block from perspective of some other block
@@ -1383,8 +1387,7 @@ impl Chain {
 
         // Getting all existing incoming_receipts from prev_chunk height to the new epoch.
         let incoming_receipts_proofs = ChainStoreUpdate::new(&mut self.store)
-            .get_incoming_receipts_for_shard(shard_id, sync_hash, prev_chunk_height_included)?
-            .clone();
+            .get_incoming_receipts_for_shard(shard_id, sync_hash, prev_chunk_height_included)?;
 
         // Collecting proofs for incoming receipts.
         let mut root_proofs = vec![];
@@ -2271,7 +2274,7 @@ impl<'a> ChainUpdate<'a> {
                     merkle_proof: merkle_paths[shard_id].clone(),
                     chunk: MaybeEncodedShardChunk::Encoded(encoded_chunk.clone()),
                 };
-                return Err(ErrorKind::InvalidChunkProofs(chunk_proof).into());
+                return Err(ErrorKind::InvalidChunkProofs(Box::new(chunk_proof)).into());
             }
             let shard_id = shard_id as ShardId;
             if chunk_header.height_included == height {
@@ -2463,7 +2466,7 @@ impl<'a> ChainUpdate<'a> {
                         byzantine_assert!(false);
                         match self.create_chunk_state_challenge(&prev_block, &block, chunk_header) {
                             Ok(chunk_state) => {
-                                Error::from(ErrorKind::InvalidChunkState(chunk_state))
+                                Error::from(ErrorKind::InvalidChunkState(Box::new(chunk_state)))
                             }
                             Err(err) => err,
                         }
@@ -2487,7 +2490,9 @@ impl<'a> ChainUpdate<'a> {
                             merkle_proof: merkle_paths[shard_id as usize].clone(),
                             chunk: MaybeEncodedShardChunk::Decoded(chunk),
                         };
-                        return Err(Error::from(ErrorKind::InvalidChunkProofs(chunk_proof)));
+                        return Err(Error::from(ErrorKind::InvalidChunkProofs(Box::new(
+                            chunk_proof,
+                        ))));
                     }
 
                     let gas_limit = chunk.header.inner.gas_limit;
@@ -2567,8 +2572,8 @@ impl<'a> ChainUpdate<'a> {
                             block.header.inner_lite.timestamp,
                             &prev_block.hash(),
                             &block.hash(),
-                            &vec![],
-                            &vec![],
+                            &[],
+                            &[],
                             &new_extra.validator_proposals,
                             block.header.inner_rest.gas_price,
                             new_extra.gas_limit,
@@ -3241,8 +3246,8 @@ impl<'a> ChainUpdate<'a> {
             block_header.inner_lite.timestamp,
             &prev_block_header.hash(),
             &block_header.hash(),
-            &vec![],
-            &vec![],
+            &[],
+            &[],
             &chunk_extra.validator_proposals,
             block_header.inner_rest.gas_price,
             chunk_extra.gas_limit,
@@ -3294,15 +3299,19 @@ impl<'a> ChainUpdate<'a> {
     }
 }
 
-pub fn collect_receipts(receipt_proofs: &Vec<ReceiptProof>) -> Vec<Receipt> {
-    receipt_proofs.iter().map(|x| x.0.clone()).flatten().collect()
+pub fn collect_receipts<'a, T>(receipt_proofs: T) -> Vec<Receipt>
+where
+    T: IntoIterator<Item = &'a ReceiptProof>,
+{
+    receipt_proofs.into_iter().flat_map(|ReceiptProof(receipts, _)| receipts).cloned().collect()
 }
 
 pub fn collect_receipts_from_response(
-    receipt_proof_response: &Vec<ReceiptProofResponse>,
+    receipt_proof_response: &[ReceiptProofResponse],
 ) -> Vec<Receipt> {
-    let receipt_proofs = &receipt_proof_response.iter().map(|x| x.1.clone()).flatten().collect();
-    collect_receipts(receipt_proofs)
+    collect_receipts(
+        receipt_proof_response.iter().flat_map(|ReceiptProofResponse(_, proofs)| proofs),
+    )
 }
 
 // Used in testing only

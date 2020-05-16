@@ -37,6 +37,7 @@ use crate::metrics;
 use crate::sync::{BlockSync, HeaderSync, StateSync, StateSyncResult};
 use crate::types::{Error, ShardSyncDownload};
 use crate::SyncStatus;
+use near_network::types::PartialEncodedChunkResponseMsg;
 
 const NUM_REBROADCAST_BLOCKS: usize = 30;
 
@@ -485,7 +486,7 @@ impl Client {
             chunk_extra.gas_used,
             chunk_extra.gas_limit,
             chunk_extra.balance_burnt,
-            chunk_extra.validator_proposals.clone(),
+            chunk_extra.validator_proposals,
             transactions,
             &outgoing_receipts,
             outgoing_receipts_root,
@@ -594,7 +595,7 @@ impl Client {
                     near_chain::ErrorKind::InvalidChunkProofs(chunk_proofs) => {
                         self.network_adapter.do_send(NetworkRequests::Challenge(
                             Challenge::produce(
-                                ChallengeBody::ChunkProofs(chunk_proofs),
+                                ChallengeBody::ChunkProofs(*chunk_proofs),
                                 &**validator_signer,
                             ),
                         ));
@@ -602,7 +603,7 @@ impl Client {
                     near_chain::ErrorKind::InvalidChunkState(chunk_state) => {
                         self.network_adapter.do_send(NetworkRequests::Challenge(
                             Challenge::produce(
-                                ChallengeBody::ChunkState(chunk_state),
+                                ChallengeBody::ChunkState(*chunk_state),
                                 &**validator_signer,
                             ),
                         ));
@@ -627,6 +628,15 @@ impl Client {
         }
     }
 
+    pub fn process_partial_encoded_chunk_response(
+        &mut self,
+        response: PartialEncodedChunkResponseMsg,
+    ) -> Result<Vec<AcceptedBlock>, Error> {
+        let header = self.shards_mgr.get_partial_encoded_chunk_header(&response.chunk_hash)?;
+        let partial_chunk =
+            PartialEncodedChunk { header, parts: response.parts, receipts: response.receipts };
+        self.process_partial_encoded_chunk(partial_chunk)
+    }
     pub fn process_partial_encoded_chunk(
         &mut self,
         partial_encoded_chunk: PartialEncodedChunk,
@@ -643,7 +653,7 @@ impl Client {
                 Ok(self.process_blocks_with_missing_chunks(prev_block_hash))
             }
             ProcessPartialEncodedChunkResult::NeedMorePartsOrReceipts(chunk_header) => {
-                self.shards_mgr.request_chunks(vec![chunk_header]).unwrap();
+                self.shards_mgr.request_chunks(vec![*chunk_header]).unwrap();
                 Ok(vec![])
             }
             ProcessPartialEncodedChunkResult::NeedBlock => {

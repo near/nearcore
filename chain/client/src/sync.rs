@@ -768,11 +768,7 @@ impl StateSync {
                 let run_me = new_shard_sync_download.downloads[0].run_me.clone();
                 actix::spawn(
                     self.network_adapter
-                        .send(NetworkRequests::StateRequestHeader {
-                            shard_id,
-                            sync_hash,
-                            target: target.clone(),
-                        })
+                        .send(NetworkRequests::StateRequestHeader { shard_id, sync_hash, target })
                         .then(move |result| {
                             if let Ok(NetworkResponses::RouteNotFound) = result {
                                 // Send a StateRequestHeader on the next iteration

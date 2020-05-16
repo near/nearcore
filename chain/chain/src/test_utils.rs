@@ -157,8 +157,8 @@ impl KeyValueRuntime {
             hash_to_epoch: RwLock::new(HashMap::new()),
             hash_to_next_epoch_approvals_req: RwLock::new(HashMap::new()),
             hash_to_next_epoch: RwLock::new(map_with_default_hash1),
-            hash_to_valset: RwLock::new(map_with_default_hash3.clone()),
-            epoch_start: RwLock::new(map_with_default_hash2.clone()),
+            hash_to_valset: RwLock::new(map_with_default_hash3),
+            epoch_start: RwLock::new(map_with_default_hash2),
         }
     }
 
@@ -251,7 +251,7 @@ impl KeyValueRuntime {
         hash_to_valset.insert(next_epoch.clone(), valset + 1);
         epoch_start_map.insert(prev_hash, epoch_start);
 
-        Ok((epoch, valset as usize % self.validators.len(), next_epoch.clone()))
+        Ok((epoch, valset as usize % self.validators.len(), next_epoch))
     }
 
     fn get_valset_for_epoch(&self, epoch_id: &EpochId) -> Result<usize, Error> {
@@ -950,7 +950,7 @@ pub fn setup_with_tx_validity_period(
     tx_validity_period: NumBlocks,
 ) -> (Chain, Arc<KeyValueRuntime>, Arc<InMemoryValidatorSigner>) {
     let store = create_test_store();
-    let runtime = Arc::new(KeyValueRuntime::new(store.clone()));
+    let runtime = Arc::new(KeyValueRuntime::new(store));
     let chain = Chain::new(
         runtime.clone(),
         &ChainGenesis::new(
@@ -984,7 +984,7 @@ pub fn setup_with_validators(
         .map(|x| Arc::new(InMemoryValidatorSigner::from_seed(x.as_str(), KeyType::ED25519, x)))
         .collect();
     let runtime = Arc::new(KeyValueRuntime::new_with_validators(
-        store.clone(),
+        store,
         vec![validators],
         validator_groups,
         num_shards,

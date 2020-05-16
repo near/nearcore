@@ -217,7 +217,7 @@ impl EpochManager {
                 // This code relies on the fact that within a block the proposals are ordered
                 // in the order they are added. So we only take the last proposal for any given
                 // account in this manner.
-                proposals.entry(proposal.account_id.clone()).or_insert(proposal.clone());
+                proposals.entry(proposal.account_id.clone()).or_insert_with(|| proposal.clone());
             }
         }
 
@@ -338,7 +338,7 @@ impl EpochManager {
                 assert_eq!(block_info.proposals.len(), 0);
                 let pre_genesis_epoch_id = EpochId::default();
                 let genesis_epoch_info = self.get_epoch_info(&pre_genesis_epoch_id)?.clone();
-                self.save_block_info(&mut store_update, current_hash, block_info.clone())?;
+                self.save_block_info(&mut store_update, current_hash, block_info)?;
                 self.save_epoch_info(
                     &mut store_update,
                     &EpochId(*current_hash),
@@ -381,7 +381,7 @@ impl EpochManager {
                             block_info
                                 .slashed
                                 .entry(account_id.clone())
-                                .or_insert(slash_state.clone());
+                                .or_insert_with(|| slash_state.clone());
                         }
                     } else {
                         block_info
@@ -392,7 +392,7 @@ impl EpochManager {
                                     *e = SlashState::Other;
                                 }
                             })
-                            .or_insert(slash_state.clone());
+                            .or_insert_with(|| slash_state.clone());
                     }
                 }
 

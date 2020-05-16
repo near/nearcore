@@ -88,10 +88,10 @@ pub enum ErrorKind {
     InvalidChunk,
     /// One of the chunks has invalid proofs
     #[fail(display = "Invalid Chunk Proofs")]
-    InvalidChunkProofs(ChunkProofs),
+    InvalidChunkProofs(Box<ChunkProofs>),
     /// Invalid chunk state.
     #[fail(display = "Invalid Chunk State")]
-    InvalidChunkState(ChunkState),
+    InvalidChunkState(Box<ChunkState>),
     /// Invalid chunk mask
     #[fail(display = "Invalid Chunk Mask")]
     InvalidChunkMask,

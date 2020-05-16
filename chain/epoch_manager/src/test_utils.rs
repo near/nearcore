@@ -47,8 +47,11 @@ pub fn epoch_info(
         acc.insert(x.0.to_string(), i as u64);
         acc
     });
-    let fishermen_to_index =
-        fishermen.iter().enumerate().map(|(i, (s, _))| (s.to_string(), i as ValidatorId)).collect();
+    let fishermen_to_index = fishermen
+        .iter()
+        .enumerate()
+        .map(|(i, (s, _))| ((*s).to_string(), i as ValidatorId))
+        .collect();
     let account_to_validators = |accounts: Vec<(&str, Balance)>| -> Vec<ValidatorStake> {
         accounts
             .into_iter()

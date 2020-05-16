@@ -191,6 +191,9 @@ impl Peer {
     }
 
     /// Whether the peer is considered abusive due to sending too many messages.
+    // I am allowing this for now because I assume `MAX_PEER_MSG_PER_MIN` will
+    // some day be less than `u64::MAX`.
+    #[allow(clippy::absurd_extreme_comparisons)]
     fn is_abusive(&self) -> bool {
         self.tracker.received_bytes.count_per_min() > MAX_PEER_MSG_PER_MIN
             || self.tracker.sent_bytes.count_per_min() > MAX_PEER_MSG_PER_MIN
@@ -320,13 +323,13 @@ impl Peer {
                         }
                     }
                     RoutedMessageBody::TxStatusResponse(tx_result) => {
-                        NetworkViewClientMessages::TxStatusResponse(tx_result)
+                        NetworkViewClientMessages::TxStatusResponse(Box::new(tx_result))
                     }
                     RoutedMessageBody::ReceiptOutcomeRequest(receipt_id) => {
                         NetworkViewClientMessages::ReceiptOutcomeRequest(receipt_id)
                     }
                     RoutedMessageBody::ReceiptOutComeResponse(response) => {
-                        NetworkViewClientMessages::ReceiptOutcomeResponse(response)
+                        NetworkViewClientMessages::ReceiptOutcomeResponse(Box::new(response))
                     }
                     RoutedMessageBody::StateRequestHeader(shard_id, sync_hash) => {
                         NetworkViewClientMessages::StateRequestHeader { shard_id, sync_hash }
@@ -357,27 +360,28 @@ impl Peer {
                 // Ban peer if client thinks received data is bad.
                 match res {
                     Ok(NetworkViewClientResponses::TxStatus(tx_result)) => {
-                        let body = RoutedMessageBody::TxStatusResponse(tx_result);
+                        let body = Box::new(RoutedMessageBody::TxStatusResponse(*tx_result));
                         act.peer_manager_addr
                             .do_send(PeerRequest::RouteBack(body, msg_hash.unwrap()));
                     }
                     Ok(NetworkViewClientResponses::QueryResponse { query_id, response }) => {
-                        let body = RoutedMessageBody::QueryResponse { query_id, response };
+                        let body =
+                            Box::new(RoutedMessageBody::QueryResponse { query_id, response });
                         act.peer_manager_addr
                             .do_send(PeerRequest::RouteBack(body, msg_hash.unwrap()));
                     }
                     Ok(NetworkViewClientResponses::ReceiptOutcomeResponse(response)) => {
-                        let body = RoutedMessageBody::ReceiptOutComeResponse(response);
+                        let body = Box::new(RoutedMessageBody::ReceiptOutComeResponse(*response));
                         act.peer_manager_addr
                             .do_send(PeerRequest::RouteBack(body, msg_hash.unwrap()));
                     }
                     Ok(NetworkViewClientResponses::StateResponse(state_response)) => {
-                        let body = RoutedMessageBody::StateResponse(state_response);
+                        let body = Box::new(RoutedMessageBody::StateResponse(*state_response));
                         act.peer_manager_addr
                             .do_send(PeerRequest::RouteBack(body, msg_hash.unwrap()));
                     }
                     Ok(NetworkViewClientResponses::Block(block)) => {
-                        act.send_message(PeerMessage::Block(block))
+                        act.send_message(PeerMessage::Block(*block))
                     }
                     Ok(NetworkViewClientResponses::BlockHeaders(headers)) => {
                         act.send_message(PeerMessage::BlockHeaders(headers))
@@ -444,6 +448,9 @@ impl Peer {
                     }
                     RoutedMessageBody::PartialEncodedChunkRequest(request) => {
                         NetworkClientMessages::PartialEncodedChunkRequest(request, msg_hash)
+                    }
+                    RoutedMessageBody::PartialEncodedChunkResponse(response) => {
+                        NetworkClientMessages::PartialEncodedChunkResponse(response)
                     }
                     RoutedMessageBody::PartialEncodedChunk(partial_encoded_chunk) => {
                         NetworkClientMessages::PartialEncodedChunk(partial_encoded_chunk)
@@ -712,7 +719,7 @@ impl StreamHandler<Vec<u8>> for Peer {
                             },
                             Ok(ConsolidateResponse::InvalidNonce(edge)) => {
                                 debug!(target: "network", "{:?}: Received invalid nonce from peer {:?} sending evidence.", act.node_id(), act.peer_addr);
-                                act.send_message(PeerMessage::LastEdge(edge));
+                                act.send_message(PeerMessage::LastEdge(*edge));
                                 actix::fut::ready(())
                             }
                             _ => {
@@ -784,7 +791,7 @@ impl StreamHandler<Vec<u8>> for Peer {
                 .then(|res, act, ctx| {
                     match res {
                         Ok(NetworkResponses::EdgeUpdate(edge)) => {
-                            act.send_message(PeerMessage::ResponseUpdateNonce(edge));
+                            act.send_message(PeerMessage::ResponseUpdateNonce(*edge));
                         }
                         Ok(NetworkResponses::BanPeer(reason_for_ban)) => {
                             act.ban_peer(ctx, reason_for_ban);
