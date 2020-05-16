@@ -449,6 +449,9 @@ impl Peer {
                     RoutedMessageBody::PartialEncodedChunkRequest(request) => {
                         NetworkClientMessages::PartialEncodedChunkRequest(request, msg_hash)
                     }
+                    RoutedMessageBody::PartialEncodedChunkResponse(response) => {
+                        NetworkClientMessages::PartialEncodedChunkResponse(response)
+                    }
                     RoutedMessageBody::PartialEncodedChunk(partial_encoded_chunk) => {
                         NetworkClientMessages::PartialEncodedChunk(partial_encoded_chunk)
                     }
