@@ -2340,6 +2340,7 @@ mod tests {
 
     use cached::Cached;
 
+    use near_chain_configs::GenesisConfig;
     use near_crypto::KeyType;
     use near_primitives::block::Block;
     use near_primitives::errors::InvalidTxError;
@@ -2348,6 +2349,7 @@ mod tests {
     use near_primitives::utils::index_to_bytes;
     use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
     use near_store::test_utils::create_test_store;
+    use near_store::StoreValidator;
 
     use crate::chain::{check_refcount_map, MAX_HEIGHTS_TO_CLEAR};
     use crate::store::{ChainStoreAccess, GCMode};
@@ -2738,6 +2740,11 @@ mod tests {
                 }
             }
             assert!(check_refcount_map(&mut chain).is_ok());
+            let mut genesis = GenesisConfig::default();
+            genesis.genesis_height = 0;
+            let mut store_validator = StoreValidator::default();
+            store_validator.validate(&*chain.store().owned_store(), &genesis);
+            assert!(!store_validator.is_failed());
         }
     }
 }

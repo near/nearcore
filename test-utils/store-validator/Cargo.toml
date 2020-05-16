@@ -11,13 +11,10 @@ clap = "2.33"
 borsh = "0.5.0"
 
 near-chain-configs = { path = "../../core/chain-configs" }
-near-crypto = { path = "../../core/crypto" }
 near-logger-utils = {path = "../../test-utils/logger"}
 near-primitives = { path = "../../core/primitives" }
 near-store = { path = "../../core/store" }
-node-runtime = { path = "../../runtime/runtime" }
 near-chain = { path = "../../chain/chain" }
-near-network = { path = "../../chain/network" }
 neard = { path = "../../neard" }
 
 [dev-dependencies]

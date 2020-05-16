@@ -121,14 +121,13 @@ fn chunk_hash_validity(
 
 fn block_of_chunk_exists(
     store: &Store,
-    _config: &GenesisConfig,
+    config: &GenesisConfig,
     _key: &[u8],
     value: &[u8],
 ) -> Result<(), String> {
     let shard_chunk = ShardChunk::try_from_slice(value).unwrap();
     let height = shard_chunk.header.height_included;
-    if height == 0 {
-        // TODO discuss - non-accepted chunk found?
+    if height == config.genesis_height {
         return Ok(());
     }
     match store.get_ser::<HashMap<EpochId, HashSet<CryptoHash>>>(
@@ -151,8 +150,8 @@ fn block_of_chunk_exists(
             }
             err!(format!("No Block on height {:?} accepts ShardChunk {:?}", height, shard_chunk))
         }
-        Ok(None) => err!(format!("Map not found on height {:?}", height)),
-        Err(e) => err!(format!("Can't get Map from storage on height {:?}, {:?}", height, e)),
+        Ok(None) => err!(format!("Map not found on height {:?}, no one is responsible for ShardChunk {:?}", height, shard_chunk)),
+        Err(e) => err!(format!("Can't get Map from storage on height {:?}, no one is responsible for ShardChunk {:?}, {:?}", height, shard_chunk, e)),
     }
 }
 
