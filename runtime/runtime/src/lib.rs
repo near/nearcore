@@ -485,8 +485,7 @@ impl Runtime {
         if receipt.predecessor_id == system_account() {
             result.gas_burnt = 0;
             result.gas_used = 0;
-            // If the refund fails, instead of just burning tokens, we report the total number of
-            // tokens burnt in the ApplyResult. It can be used by validators to distribute it.
+            // If the refund fails tokens are burned.
             if result.result.is_err() {
                 stats.other_burnt_amount = safe_add_balance(
                     stats.other_burnt_amount,

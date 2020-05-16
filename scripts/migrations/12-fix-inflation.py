@@ -13,9 +13,9 @@ output_home = sys.argv[2]
 
 config = json.load(open(os.path.join(home, 'output.json')), object_pairs_hook=OrderedDict)
 
-assert config['protocol_version'] == 10
+assert config['protocol_version'] == 11
 
-config['protocol_version'] = 11
+config['protocol_version'] = 12
 config['online_max_threshold'] = [99, 100]
 config['online_min_threshold'] = [90, 100]
 

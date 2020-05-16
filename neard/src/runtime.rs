@@ -331,6 +331,17 @@ impl NightshadeRuntime {
                 RuntimeError::ReceiptValidationError(e) => panic!("{}", e),
             })?;
 
+        let total_gas_burnt =
+            apply_result.outcomes.iter().map(|tx_result| tx_result.outcome.gas_burnt).sum();
+        let total_balance_burnt = apply_result
+            .stats
+            .tx_burnt_amount
+            .checked_add(apply_result.stats.other_burnt_amount)
+            .and_then(|result| result.checked_add(apply_result.stats.slashed_burnt_amount))
+            .ok_or_else(|| {
+                ErrorKind::Other("Integer overflow during burnt balance summation".to_string())
+            })?;
+
         // Sort the receipts into appropriate outgoing shards.
         let mut receipt_result = HashMap::default();
         for receipt in apply_result.outgoing_receipts {
@@ -339,8 +350,6 @@ impl NightshadeRuntime {
                 .or_insert_with(|| vec![])
                 .push(receipt);
         }
-        let total_gas_burnt =
-            apply_result.outcomes.iter().map(|tx_result| tx_result.outcome.gas_burnt).sum();
 
         let result = ApplyTransactionResult {
             trie_changes: WrappedTrieChanges::new(
@@ -354,9 +363,7 @@ impl NightshadeRuntime {
             receipt_result,
             validator_proposals: apply_result.validator_proposals,
             total_gas_burnt,
-            total_balance_burnt: apply_result.stats.tx_burnt_amount
-                + apply_result.stats.other_burnt_amount
-                + apply_result.stats.slashed_burnt_amount,
+            total_balance_burnt,
             proof: trie.recorded_storage(),
         };
 
