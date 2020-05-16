@@ -375,16 +375,13 @@ pub fn setup_mock_all_validators(
                                 }
                             }
                         }
-                        NetworkRequests::PartialEncodedChunkResponse {
-                            route_back,
-                            partial_encoded_chunk,
-                        } => {
+                        NetworkRequests::PartialEncodedChunkResponse { route_back, response } => {
                             for (i, address) in addresses.iter().enumerate() {
                                 if route_back == address {
                                     if !drop_chunks || !sample_binary(1, 10) {
                                         connectors1.read().unwrap()[i].0.do_send(
-                                            NetworkClientMessages::PartialEncodedChunk(
-                                                partial_encoded_chunk.clone(),
+                                            NetworkClientMessages::PartialEncodedChunkResponse(
+                                                response.clone(),
                                             ),
                                         );
                                     }
