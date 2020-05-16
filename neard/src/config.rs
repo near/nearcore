@@ -84,7 +84,7 @@ pub const EXPECTED_EPOCH_LENGTH: BlockHeightDelta = (5 * 60 * 1000) / MIN_BLOCK_
 pub const BLOCK_PRODUCER_KICKOUT_THRESHOLD: u8 = 90;
 
 /// Criterion for kicking out chunk producers.
-pub const CHUNK_PRODUCER_KICKOUT_THRESHOLD: u8 = 60;
+pub const CHUNK_PRODUCER_KICKOUT_THRESHOLD: u8 = 90;
 
 /// Fast mode constants for testing/developing.
 pub const FAST_MIN_BLOCK_PRODUCTION_DELAY: u64 = 120;
