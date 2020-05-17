@@ -892,8 +892,9 @@ impl TestEnv {
         let response = self.clients[0]
             .runtime_adapter
             .query(
+                0,
                 &last_block.chunks[0].inner.prev_state_root,
-                4,
+                last_block.header.inner_lite.height,
                 last_block.header.inner_lite.timestamp,
                 &last_block.header.hash,
                 &last_block.header.inner_lite.epoch_id,

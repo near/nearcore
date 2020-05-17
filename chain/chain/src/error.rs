@@ -23,7 +23,7 @@ pub enum ErrorKind {
     /// Orphan block.
     #[fail(display = "Orphan")]
     Orphan,
-    /// Block is not availiable (e.g. garbage collected)
+    /// Block is not available (e.g. garbage collected)
     #[fail(display = "Block Missing (unavailable on the node): {}", _0)]
     BlockMissing(CryptoHash),
     /// Chunk is missing.
