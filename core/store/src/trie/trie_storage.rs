@@ -8,6 +8,9 @@ use near_primitives::hash::CryptoHash;
 
 use crate::trie::{decode_trie_node_with_rc, POISONED_LOCK_ERR};
 use crate::{ColState, StorageError, Store};
+use near_primitives::types::ShardId;
+use std::convert::{TryFrom, TryInto};
+use std::io::ErrorKind;
 
 pub trait TrieStorage: Send + Sync {
     /// Get bytes of a serialized TrieNode.
@@ -74,35 +77,50 @@ impl TrieStorage for TrieMemoryPartialStorage {
 pub struct TrieCachingStorage {
     pub(crate) store: Arc<Store>,
     pub(crate) cache: Arc<Mutex<SizedCache<CryptoHash, Option<Vec<u8>>>>>,
+    pub(crate) shard_id: ShardId,
 }
 
 impl TrieCachingStorage {
-    pub fn new(store: Arc<Store>) -> TrieCachingStorage {
+    pub fn new(store: Arc<Store>, shard_id: ShardId) -> TrieCachingStorage {
         // TODO defend from huge values in cache
-        TrieCachingStorage { store, cache: Arc::new(Mutex::new(SizedCache::with_size(10000))) }
+        TrieCachingStorage {
+            store,
+            cache: Arc::new(Mutex::new(SizedCache::with_size(10000))),
+            shard_id,
+        }
     }
 
     fn vec_to_rc(val: &Option<Vec<u8>>) -> Result<u32, StorageError> {
         val.as_ref()
-            .map(|vec| {
-                decode_trie_node_with_rc(&vec).map(|(_bytes, rc)| rc).map_err(|_| {
-                    StorageError::StorageInconsistentState("Decode node with RC failed".to_string())
-                })
-            })
+            .map(|vec| decode_trie_node_with_rc(&vec).map(|(_bytes, rc)| rc))
             .unwrap_or_else(|| Ok(0))
     }
 
     fn vec_to_bytes(val: &Option<Vec<u8>>) -> Result<Vec<u8>, StorageError> {
         val.as_ref()
-            .map(|vec| {
-                decode_trie_node_with_rc(&vec).map(|(bytes, _rc)| bytes.to_vec()).map_err(|_| {
-                    StorageError::StorageInconsistentState("Decode node with RC failed".to_string())
-                })
-            })
+            .map(|vec| decode_trie_node_with_rc(&vec).map(|(bytes, _rc)| bytes.to_vec()))
             // not StorageError::TrieNodeMissing because it's only for TrieMemoryPartialStorage
             .unwrap_or_else(|| {
                 Err(StorageError::StorageInconsistentState("Trie node missing".to_string()))
             })
+    }
+
+    pub(crate) fn get_shard_id_and_hash_from_key(
+        key: &[u8],
+    ) -> Result<(u64, CryptoHash), std::io::Error> {
+        if key.len() != 40 {
+            return Err(std::io::Error::new(ErrorKind::Other, "Key is always shard_id + hash"));
+        }
+        let shard_id = u64::from_le_bytes(key[0..8].try_into().unwrap());
+        let hash = CryptoHash::try_from(&key[8..]).unwrap();
+        Ok((shard_id, hash))
+    }
+
+    pub(crate) fn get_key_from_shard_id_and_hash(shard_id: ShardId, hash: &CryptoHash) -> [u8; 40] {
+        let mut key = [0; 40];
+        key[0..8].copy_from_slice(&u64::to_le_bytes(shard_id));
+        key[8..].copy_from_slice(hash.as_ref());
+        key
     }
 
     /// Get storage refcount, or 0 if hash is not present
@@ -113,9 +131,10 @@ impl TrieCachingStorage {
         if let Some(val) = (*guard).cache_get(hash) {
             Self::vec_to_rc(val)
         } else {
+            let key = Self::get_key_from_shard_id_and_hash(self.shard_id, hash);
             let val = self
                 .store
-                .get(ColState, hash.as_ref())
+                .get(ColState, key.as_ref())
                 .map_err(|_| StorageError::StorageInternalError)?;
             let rc = Self::vec_to_rc(&val);
             (*guard).cache_set(*hash, val);
@@ -130,9 +149,10 @@ impl TrieStorage for TrieCachingStorage {
         if let Some(val) = (*guard).cache_get(hash) {
             Self::vec_to_bytes(val)
         } else {
+            let key = Self::get_key_from_shard_id_and_hash(self.shard_id, hash);
             let val = self
                 .store
-                .get(ColState, hash.as_ref())
+                .get(ColState, key.as_ref())
                 .map_err(|_| StorageError::StorageInternalError)?;
             let raw_node = Self::vec_to_bytes(&val);
             (*guard).cache_set(*hash, val);

@@ -32,7 +32,8 @@ use near_primitives::views::{
 };
 use near_store::test_utils::create_test_store;
 use near_store::{
-    ColBlockHeader, PartialStorage, Store, StoreUpdate, Trie, TrieChanges, WrappedTrieChanges,
+    ColBlockHeader, PartialStorage, ShardTries, Store, StoreUpdate, Trie, TrieChanges,
+    WrappedTrieChanges,
 };
 
 use crate::chain::{Chain, ChainGenesis, NUM_EPOCHS_TO_KEEP_STORE_DATA};
@@ -57,8 +58,7 @@ struct KVState {
 /// Simple key value runtime for tests.
 pub struct KeyValueRuntime {
     store: Arc<Store>,
-    trie: Arc<Trie>,
-    root: StateRoot,
+    tries: ShardTries,
     validators: Vec<Vec<ValidatorStake>>,
     validator_groups: u64,
     num_shards: ShardId,
@@ -104,7 +104,7 @@ impl KeyValueRuntime {
         num_shards: ShardId,
         epoch_length: u64,
     ) -> Self {
-        let trie = Arc::new(Trie::new(store.clone()));
+        let tries = ShardTries::new(store.clone(), num_shards);
         let mut initial_amounts = HashMap::new();
         for (i, validator) in validators.iter().flatten().enumerate() {
             initial_amounts.insert(validator.clone(), (1000 + 100 * i) as u128);
@@ -132,8 +132,7 @@ impl KeyValueRuntime {
         state_size.insert(StateRoot::default(), data_len);
         KeyValueRuntime {
             store,
-            trie,
-            root: StateRoot::default(),
+            tries,
             validators: validators
                 .iter()
                 .map(|account_ids| {
@@ -160,10 +159,6 @@ impl KeyValueRuntime {
             hash_to_valset: RwLock::new(map_with_default_hash3),
             epoch_start: RwLock::new(map_with_default_hash2),
         }
-    }
-
-    pub fn get_root(&self) -> CryptoHash {
-        self.root
     }
 
     fn get_block_header(&self, hash: &CryptoHash) -> Result<Option<BlockHeader>, Error> {
@@ -276,8 +271,12 @@ impl RuntimeAdapter for KeyValueRuntime {
         )
     }
 
-    fn get_trie(&self) -> Arc<Trie> {
-        self.trie.clone()
+    fn get_tries(&self) -> ShardTries {
+        self.tries.clone()
+    }
+
+    fn get_trie_for_shard(&self, shard_id: ShardId) -> Arc<Trie> {
+        self.tries.get_trie_for_shard(shard_id)
     }
 
     fn verify_block_signature(&self, header: &BlockHeader) -> Result<(), Error> {
@@ -495,6 +494,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         &self,
         _gas_price: Balance,
         _gas_limit: Gas,
+        _shard_id: ShardId,
         _state_root: StateRoot,
         _max_number_of_transactions: usize,
         transactions: &mut dyn PoolIterator,
@@ -682,7 +682,8 @@ impl RuntimeAdapter for KeyValueRuntime {
 
         Ok(ApplyTransactionResult {
             trie_changes: WrappedTrieChanges::new(
-                self.trie.clone(),
+                self.get_tries(),
+                shard_id,
                 TrieChanges::empty(state_root),
                 Default::default(),
                 block_hash.clone(),
@@ -719,6 +720,7 @@ impl RuntimeAdapter for KeyValueRuntime {
 
     fn query(
         &self,
+        _shard_id: ShardId,
         state_root: &StateRoot,
         block_height: BlockHeight,
         _block_timestamp: u64,
@@ -777,7 +779,13 @@ impl RuntimeAdapter for KeyValueRuntime {
         }
     }
 
-    fn obtain_state_part(&self, state_root: &StateRoot, part_id: u64, num_parts: u64) -> Vec<u8> {
+    fn obtain_state_part(
+        &self,
+        _shard_id: ShardId,
+        state_root: &StateRoot,
+        part_id: u64,
+        num_parts: u64,
+    ) -> Vec<u8> {
         assert!(part_id < num_parts);
         let state = self.state.read().unwrap().get(&state_root).unwrap().clone();
         let data = state.try_to_vec().expect("should never fall");
@@ -802,7 +810,12 @@ impl RuntimeAdapter for KeyValueRuntime {
         true
     }
 
-    fn confirm_state(&self, state_root: &StateRoot, parts: &Vec<Vec<u8>>) -> Result<(), Error> {
+    fn confirm_state(
+        &self,
+        _shard_id: ShardId,
+        state_root: &StateRoot,
+        parts: &Vec<Vec<u8>>,
+    ) -> Result<(), Error> {
         let mut data = vec![];
         for part in parts {
             data.push(part.clone());
@@ -816,7 +829,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         Ok(())
     }
 
-    fn get_state_root_node(&self, state_root: &StateRoot) -> StateRootNode {
+    fn get_state_root_node(&self, _shard_id: ShardId, state_root: &StateRoot) -> StateRootNode {
         StateRootNode {
             data: self
                 .state
