@@ -25,7 +25,9 @@ use near_primitives::challenge::Challenge;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::network::{AnnounceAccount, PeerId};
-use near_primitives::sharding::{ChunkHash, PartialEncodedChunk};
+use near_primitives::sharding::{
+    ChunkHash, PartialEncodedChunk, PartialEncodedChunkPart, ReceiptProof,
+};
 use near_primitives::transaction::{ExecutionOutcomeWithIdAndProof, SignedTransaction};
 use near_primitives::types::{AccountId, BlockHeight, BlockIdOrFinality, EpochId, ShardId};
 use near_primitives::utils::{from_timestamp, to_timestamp};
@@ -236,6 +238,7 @@ pub enum RoutedMessageBody {
     StateRequestPart(ShardId, CryptoHash, u64),
     StateResponse(StateResponseInfo),
     PartialEncodedChunkRequest(PartialEncodedChunkRequestMsg),
+    PartialEncodedChunkResponse(PartialEncodedChunkResponseMsg),
     PartialEncodedChunk(PartialEncodedChunk),
     /// Ping/Pong used for testing networking and routing.
     Ping(Ping),
@@ -456,6 +459,9 @@ impl fmt::Display for PeerMessage {
                 RoutedMessageBody::PartialEncodedChunkRequest(_) => {
                     f.write_str("PartialEncodedChunkRequest")
                 }
+                RoutedMessageBody::PartialEncodedChunkResponse(_) => {
+                    f.write_str("PartialEncodedChunkResponse")
+                }
                 RoutedMessageBody::PartialEncodedChunk(_) => f.write_str("PartialEncodedChunk"),
                 RoutedMessageBody::Ping(_) => f.write_str("Ping"),
                 RoutedMessageBody::Pong(_) => f.write_str("Pong"),
@@ -624,6 +630,15 @@ impl PeerMessage {
                         size as i64,
                     );
                 }
+                RoutedMessageBody::PartialEncodedChunkResponse(_) => {
+                    near_metrics::inc_counter(
+                        &metrics::ROUTED_PARTIAL_CHUNK_RESPONSE_RECEIVED_TOTAL,
+                    );
+                    near_metrics::inc_counter_by(
+                        &metrics::ROUTED_PARTIAL_CHUNK_RESPONSE_RECEIVED_BYTES,
+                        size as i64,
+                    );
+                }
                 RoutedMessageBody::PartialEncodedChunk(_) => {
                     near_metrics::inc_counter(&metrics::ROUTED_PARTIAL_CHUNK_RECEIVED_TOTAL);
                     near_metrics::inc_counter_by(
@@ -662,6 +677,7 @@ impl PeerMessage {
                 | RoutedMessageBody::ForwardTx(_)
                 | RoutedMessageBody::PartialEncodedChunk(_)
                 | RoutedMessageBody::PartialEncodedChunkRequest(_)
+                | RoutedMessageBody::PartialEncodedChunkResponse(_)
                 | RoutedMessageBody::StateResponse(_) => true,
                 _ => false,
             },
@@ -1062,7 +1078,7 @@ pub enum NetworkRequests {
     /// Information about chunk such as its header, some subset of parts and/or incoming receipts
     PartialEncodedChunkResponse {
         route_back: CryptoHash,
-        partial_encoded_chunk: PartialEncodedChunk,
+        response: PartialEncodedChunkResponseMsg,
     },
     /// Information about chunk such as its header, some subset of parts and/or incoming receipts
     PartialEncodedChunkMessage {
@@ -1225,6 +1241,8 @@ pub enum NetworkClientMessages {
 
     /// Request chunk parts and/or receipts.
     PartialEncodedChunkRequest(PartialEncodedChunkRequestMsg, CryptoHash),
+    /// Response to a request for  chunk parts and/or receipts.
+    PartialEncodedChunkResponse(PartialEncodedChunkResponseMsg),
     /// Information about chunk such as its header, some subset of parts and/or incoming receipts
     PartialEncodedChunk(PartialEncodedChunk),
 
@@ -1383,6 +1401,13 @@ pub struct PartialEncodedChunkRequestMsg {
     pub chunk_hash: ChunkHash,
     pub part_ords: Vec<u64>,
     pub tracking_shards: HashSet<ShardId>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, BorshSerialize, BorshDeserialize, Serialize)]
+pub struct PartialEncodedChunkResponseMsg {
+    pub chunk_hash: ChunkHash,
+    pub parts: Vec<PartialEncodedChunkPart>,
+    pub receipts: Vec<ReceiptProof>,
 }
 
 /// Adapter to break dependency of sub-components on the network requests.

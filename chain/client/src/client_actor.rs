@@ -419,6 +419,14 @@ impl Handler<NetworkClientMessages> for ClientActor {
                 );
                 NetworkClientResponses::NoResponse
             }
+            NetworkClientMessages::PartialEncodedChunkResponse(response) => {
+                if let Ok(accepted_blocks) =
+                    self.client.process_partial_encoded_chunk_response(response)
+                {
+                    self.process_accepted_blocks(accepted_blocks);
+                }
+                NetworkClientResponses::NoResponse
+            }
             NetworkClientMessages::PartialEncodedChunk(partial_encoded_chunk) => {
                 if let Ok(accepted_blocks) =
                     self.client.process_partial_encoded_chunk(partial_encoded_chunk)

@@ -200,7 +200,7 @@ fn chunks_produced_and_distributed_common(
                     }
                     NetworkRequests::PartialEncodedChunkResponse {
                         route_back: _,
-                        partial_encoded_chunk: _,
+                        response: _,
                     } => {
                         partial_chunk_msgs += 1;
                     }
@@ -274,8 +274,8 @@ fn test_request_chunk_restart() {
         client.chain.mut_store(),
     );
     let response = env.network_adapters[0].pop().unwrap();
-    if let NetworkRequests::PartialEncodedChunkResponse { partial_encoded_chunk, .. } = response {
-        assert_eq!(partial_encoded_chunk.chunk_hash, block1.chunks[0].chunk_hash());
+    if let NetworkRequests::PartialEncodedChunkResponse { response: response_body, .. } = response {
+        assert_eq!(response_body.chunk_hash, block1.chunks[0].chunk_hash());
     } else {
         println!("{:?}", response);
         assert!(false);
@@ -288,9 +288,7 @@ fn store_partial_encoded_chunk_sanity() {
     let mut env = TestEnv::new(ChainGenesis::test(), 1, 1);
     let signer = InMemoryValidatorSigner::from_seed("test0", KeyType::ED25519, "test0");
     let mut partial_encoded_chunk = PartialEncodedChunk {
-        shard_id: 0,
-        chunk_hash: Default::default(),
-        header: Some(ShardChunkHeader::new(
+        header: ShardChunkHeader::new(
             CryptoHash::default(),
             CryptoHash::default(),
             CryptoHash::default(),
@@ -306,7 +304,7 @@ fn store_partial_encoded_chunk_sanity() {
             CryptoHash::default(),
             vec![],
             &signer,
-        )),
+        ),
         parts: vec![],
         receipts: vec![],
     };
@@ -323,7 +321,7 @@ fn store_partial_encoded_chunk_sanity() {
     );
 
     // Check replacing
-    partial_encoded_chunk.chunk_hash.0 = hash(vec![123].as_ref());
+    partial_encoded_chunk.header.hash.0 = hash(&[123]);
     env.clients[0]
         .shards_mgr
         .store_partial_encoded_chunk(&block.header, partial_encoded_chunk.clone());
@@ -352,7 +350,7 @@ fn store_partial_encoded_chunk_sanity() {
         vec![],
         &signer,
     );
-    partial_encoded_chunk2.header = Some(h);
+    partial_encoded_chunk2.header = h;
     assert_eq!(env.clients[0].shards_mgr.get_stored_partial_encoded_chunks(1).len(), 1);
     env.clients[0]
         .shards_mgr
@@ -387,28 +385,21 @@ fn store_partial_encoded_chunk_sanity() {
         vec![],
         &signer,
     );
-    partial_encoded_chunk3.header = Some(h.clone());
+    partial_encoded_chunk3.header = h.clone();
     env.clients[0]
         .shards_mgr
         .store_partial_encoded_chunk(&block.header, partial_encoded_chunk3.clone());
     assert_eq!(env.clients[0].shards_mgr.get_stored_partial_encoded_chunks(2).len(), 0);
     h.inner.height_created = 9;
-    partial_encoded_chunk3.header = Some(h.clone());
+    partial_encoded_chunk3.header = h.clone();
     env.clients[0]
         .shards_mgr
         .store_partial_encoded_chunk(&block.header, partial_encoded_chunk3.clone());
     assert_eq!(env.clients[0].shards_mgr.get_stored_partial_encoded_chunks(9).len(), 0);
     h.inner.height_created = 5;
-    partial_encoded_chunk3.header = Some(h.clone());
+    partial_encoded_chunk3.header = h.clone();
     env.clients[0]
         .shards_mgr
         .store_partial_encoded_chunk(&block.header, partial_encoded_chunk3.clone());
     assert_eq!(env.clients[0].shards_mgr.get_stored_partial_encoded_chunks(5).len(), 1);
-
-    // No header
-    let mut partial_encoded_chunk4 = partial_encoded_chunk.clone();
-    partial_encoded_chunk4.header = None;
-    env.clients[0]
-        .shards_mgr
-        .store_partial_encoded_chunk(&block.header, partial_encoded_chunk4.clone());
 }

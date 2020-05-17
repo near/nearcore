@@ -1113,12 +1113,12 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                     NetworkResponses::RouteNotFound
                 }
             }
-            NetworkRequests::PartialEncodedChunkResponse { route_back, partial_encoded_chunk } => {
+            NetworkRequests::PartialEncodedChunkResponse { route_back, response } => {
                 if self.send_message_to_peer(
                     ctx,
                     RawRoutedMessage {
                         target: AccountOrPeerIdOrHash::Hash(route_back),
-                        body: RoutedMessageBody::PartialEncodedChunk(partial_encoded_chunk),
+                        body: RoutedMessageBody::PartialEncodedChunkResponse(response),
                     },
                 ) {
                     NetworkResponses::NoResponse

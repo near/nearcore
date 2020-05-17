@@ -37,6 +37,7 @@ use crate::metrics;
 use crate::sync::{BlockSync, HeaderSync, StateSync, StateSyncResult};
 use crate::types::{Error, ShardSyncDownload};
 use crate::SyncStatus;
+use near_network::types::PartialEncodedChunkResponseMsg;
 
 const NUM_REBROADCAST_BLOCKS: usize = 30;
 
@@ -627,6 +628,15 @@ impl Client {
         }
     }
 
+    pub fn process_partial_encoded_chunk_response(
+        &mut self,
+        response: PartialEncodedChunkResponseMsg,
+    ) -> Result<Vec<AcceptedBlock>, Error> {
+        let header = self.shards_mgr.get_partial_encoded_chunk_header(&response.chunk_hash)?;
+        let partial_chunk =
+            PartialEncodedChunk { header, parts: response.parts, receipts: response.receipts };
+        self.process_partial_encoded_chunk(partial_chunk)
+    }
     pub fn process_partial_encoded_chunk(
         &mut self,
         partial_encoded_chunk: PartialEncodedChunk,
