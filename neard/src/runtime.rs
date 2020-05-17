@@ -37,7 +37,7 @@ use near_primitives::views::{
     QueryResponseKind, ViewStateResult,
 };
 use near_store::{
-    get_access_key_raw, ColState, PartialStorage, Store, StoreUpdate, Trie, TrieUpdate,
+    get_access_key_raw, ColState, PartialStorage, ShardTries, Store, StoreUpdate, Trie,
     WrappedTrieChanges,
 };
 use node_runtime::adapter::ViewRuntimeAdapter;
@@ -55,7 +55,7 @@ pub struct NightshadeRuntime {
     home_dir: PathBuf,
 
     store: Arc<Store>,
-    pub trie: Arc<Trie>,
+    pub tries: ShardTries,
     trie_viewer: TrieViewer,
     pub runtime: Runtime,
     epoch_manager: Arc<RwLock<EpochManager>>,
@@ -70,10 +70,10 @@ impl NightshadeRuntime {
         initial_tracking_accounts: Vec<AccountId>,
         initial_tracking_shards: Vec<ShardId>,
     ) -> Self {
-        let trie = Arc::new(Trie::new(store.clone()));
         let runtime = Runtime::new(genesis.config.runtime_config.clone());
         let trie_viewer = TrieViewer::new();
         let num_shards = genesis.config.num_block_producer_seats_per_shard.len() as NumShards;
+        let tries = ShardTries::new(store.clone(), num_shards);
         let initial_epoch_config = EpochConfig {
             epoch_length: genesis.config.epoch_length,
             num_shards,
@@ -134,7 +134,7 @@ impl NightshadeRuntime {
             genesis,
             home_dir: home_dir.to_path_buf(),
             store,
-            trie,
+            tries,
             runtime,
             trie_viewer,
             epoch_manager,
@@ -202,9 +202,9 @@ impl NightshadeRuntime {
                     }
                 })
                 .collect::<Vec<_>>();
-            let state_update = TrieUpdate::new(self.trie.clone(), MerkleHash::default());
             let (shard_store_update, state_root) = self.runtime.apply_genesis_state(
-                state_update,
+                self.get_tries(),
+                shard_id,
                 &validators,
                 &shard_records[shard_id as usize],
             );
@@ -353,7 +353,8 @@ impl NightshadeRuntime {
 
         let result = ApplyTransactionResult {
             trie_changes: WrappedTrieChanges::new(
-                self.trie.clone(),
+                self.get_tries(),
+                shard_id,
                 apply_result.trie_changes,
                 apply_result.state_changes,
                 block_hash.clone(),
@@ -404,8 +405,12 @@ impl RuntimeAdapter for NightshadeRuntime {
         }
     }
 
-    fn get_trie(&self) -> Arc<Trie> {
-        self.trie.clone()
+    fn get_tries(&self) -> ShardTries {
+        self.tries.clone()
+    }
+
+    fn get_trie_for_shard(&self, shard_id: ShardId) -> Arc<Trie> {
+        self.tries.get_trie_for_shard(shard_id)
     }
 
     fn verify_block_signature(&self, header: &BlockHeader) -> Result<(), Error> {
@@ -445,7 +450,8 @@ impl RuntimeAdapter for NightshadeRuntime {
         state_root: StateRoot,
         transaction: &SignedTransaction,
     ) -> Result<Option<InvalidTxError>, Error> {
-        let mut state_update = TrieUpdate::new(self.trie.clone(), state_root);
+        let shard_id = self.account_id_to_shard_id(&transaction.transaction.signer_id);
+        let mut state_update = self.get_tries().new_trie_update(shard_id, state_root);
 
         match verify_and_charge_transaction(
             &self.runtime.config,
@@ -467,12 +473,13 @@ impl RuntimeAdapter for NightshadeRuntime {
         &self,
         gas_price: Balance,
         gas_limit: Gas,
+        shard_id: ShardId,
         state_root: StateRoot,
         max_number_of_transactions: usize,
         pool_iterator: &mut dyn PoolIterator,
         chain_validate: &mut dyn FnMut(&SignedTransaction) -> bool,
     ) -> Result<Vec<SignedTransaction>, Error> {
-        let mut state_update = TrieUpdate::new(self.trie.clone(), state_root);
+        let mut state_update = self.get_tries().new_trie_update(shard_id, state_root);
 
         // Total amount of gas burnt for converting transactions towards receipts.
         let mut total_gas_burnt = 0;
@@ -871,11 +878,8 @@ impl RuntimeAdapter for NightshadeRuntime {
         challenges: &ChallengesResult,
         generate_storage_proof: bool,
     ) -> Result<ApplyTransactionResult, Error> {
-        let trie = if generate_storage_proof {
-            Arc::new(self.trie.recording_reads())
-        } else {
-            self.trie.clone()
-        };
+        let trie = self.get_trie_for_shard(shard_id);
+        let trie = if generate_storage_proof { Arc::new(trie.recording_reads()) } else { trie };
         match self.process_state_update(
             trie,
             *state_root,
@@ -937,6 +941,7 @@ impl RuntimeAdapter for NightshadeRuntime {
 
     fn query(
         &self,
+        shard_id: ShardId,
         state_root: &StateRoot,
         block_height: BlockHeight,
         block_timestamp: u64,
@@ -946,7 +951,7 @@ impl RuntimeAdapter for NightshadeRuntime {
     ) -> Result<QueryResponse, Box<dyn std::error::Error>> {
         match request {
             QueryRequest::ViewAccount { account_id } => {
-                match self.view_account(*state_root, account_id) {
+                match self.view_account(shard_id, *state_root, account_id) {
                     Ok(r) => Ok(QueryResponse {
                         kind: QueryResponseKind::ViewAccount(r.into()),
                         block_height,
@@ -960,6 +965,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                 let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
                 let epoch_height = epoch_manager.get_epoch_info(&epoch_id)?.epoch_height;
                 match self.call_function(
+                    shard_id,
                     *state_root,
                     block_height,
                     block_timestamp,
@@ -982,7 +988,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                 }
             }
             QueryRequest::ViewState { account_id, prefix } => {
-                match self.view_state(*state_root, account_id, prefix.as_ref()) {
+                match self.view_state(shard_id, *state_root, account_id, prefix.as_ref()) {
                     Ok(result) => Ok(QueryResponse {
                         kind: QueryResponseKind::ViewState(result),
                         block_height,
@@ -999,7 +1005,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                 }
             }
             QueryRequest::ViewAccessKeyList { account_id } => {
-                match self.view_access_keys(*state_root, account_id) {
+                match self.view_access_keys(shard_id, *state_root, account_id) {
                     Ok(result) => Ok(QueryResponse {
                         kind: QueryResponseKind::AccessKeyList(
                             result
@@ -1024,7 +1030,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                 }
             }
             QueryRequest::ViewAccessKey { account_id, public_key } => {
-                match self.view_access_key(*state_root, account_id, public_key) {
+                match self.view_access_key(shard_id, *state_root, account_id, public_key) {
                     Ok(access_key) => Ok(QueryResponse {
                         kind: QueryResponseKind::AccessKey(access_key.into()),
                         block_height,
@@ -1048,9 +1054,16 @@ impl RuntimeAdapter for NightshadeRuntime {
         epoch_manager.get_validator_info(block_hash).map_err(|e| e.into())
     }
 
-    fn obtain_state_part(&self, state_root: &StateRoot, part_id: u64, num_parts: u64) -> Vec<u8> {
+    fn obtain_state_part(
+        &self,
+        shard_id: ShardId,
+        state_root: &StateRoot,
+        part_id: u64,
+        num_parts: u64,
+    ) -> Vec<u8> {
         assert!(part_id < num_parts);
-        match self.trie.get_trie_nodes_for_part(part_id, num_parts, state_root) {
+        let trie = self.get_trie_for_shard(shard_id);
+        match trie.get_trie_nodes_for_part(part_id, num_parts, state_root) {
             Ok(partial_state) => partial_state,
             Err(e) => {
                 error!(target: "runtime",
@@ -1088,7 +1101,12 @@ impl RuntimeAdapter for NightshadeRuntime {
         }
     }
 
-    fn confirm_state(&self, state_root: &StateRoot, data: &Vec<Vec<u8>>) -> Result<(), Error> {
+    fn confirm_state(
+        &self,
+        shard_id: ShardId,
+        state_root: &StateRoot,
+        data: &Vec<Vec<u8>>,
+    ) -> Result<(), Error> {
         let mut parts = vec![];
         for part in data {
             parts.push(
@@ -1098,13 +1116,16 @@ impl RuntimeAdapter for NightshadeRuntime {
         }
         let trie_changes = Trie::combine_state_parts(&state_root, &parts)
             .expect("combine_state_parts is guaranteed to succeed when each part is valid");
-        let trie = self.trie.clone();
-        let (store_update, _) = trie_changes.into(trie).expect("TrieChanges::into never fails");
+        let tries = self.get_tries();
+        let (store_update, _) =
+            tries.apply_all(&trie_changes, shard_id).expect("TrieChanges::into never fails");
         Ok(store_update.commit()?)
     }
 
-    fn get_state_root_node(&self, state_root: &StateRoot) -> StateRootNode {
-        self.trie.retrieve_root_node(state_root).expect("Failed to get root node")
+    fn get_state_root_node(&self, shard_id: ShardId, state_root: &StateRoot) -> StateRootNode {
+        self.get_trie_for_shard(shard_id)
+            .retrieve_root_node(state_root)
+            .expect("Failed to get root node")
     }
 
     fn validate_state_root_node(
@@ -1145,15 +1166,17 @@ impl RuntimeAdapter for NightshadeRuntime {
 impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
     fn view_account(
         &self,
+        shard_id: ShardId,
         state_root: MerkleHash,
         account_id: &AccountId,
     ) -> Result<Account, Box<dyn std::error::Error>> {
-        let state_update = TrieUpdate::new(self.trie.clone(), state_root);
+        let state_update = self.get_tries().new_trie_update(shard_id, state_root);
         self.trie_viewer.view_account(&state_update, account_id)
     }
 
     fn call_function(
         &self,
+        shard_id: ShardId,
         state_root: MerkleHash,
         height: BlockHeight,
         block_timestamp: u64,
@@ -1163,7 +1186,7 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
         args: &[u8],
         logs: &mut Vec<String>,
     ) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
-        let state_update = TrieUpdate::new(self.trie.clone(), state_root);
+        let state_update = self.get_tries().new_trie_update(shard_id, state_root);
         self.trie_viewer.call_function(
             state_update,
             height,
@@ -1178,20 +1201,22 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
 
     fn view_access_key(
         &self,
+        shard_id: ShardId,
         state_root: MerkleHash,
         account_id: &AccountId,
         public_key: &PublicKey,
     ) -> Result<AccessKey, Box<dyn std::error::Error>> {
-        let state_update = TrieUpdate::new(self.trie.clone(), state_root);
+        let state_update = self.get_tries().new_trie_update(shard_id, state_root);
         self.trie_viewer.view_access_key(&state_update, account_id, public_key)
     }
 
     fn view_access_keys(
         &self,
+        shard_id: ShardId,
         state_root: MerkleHash,
         account_id: &AccountId,
     ) -> Result<Vec<(PublicKey, AccessKey)>, Box<dyn std::error::Error>> {
-        let state_update = TrieUpdate::new(self.trie.clone(), state_root);
+        let state_update = self.get_tries().new_trie_update(shard_id, state_root);
         let prefix = trie_key_parsers::get_raw_prefix_for_access_keys(account_id);
         let raw_prefix: &[u8] = prefix.as_ref();
         let access_keys = match state_update.iter(&prefix) {
@@ -1213,11 +1238,12 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
 
     fn view_state(
         &self,
+        shard_id: ShardId,
         state_root: MerkleHash,
         account_id: &AccountId,
         prefix: &[u8],
     ) -> Result<ViewStateResult, Box<dyn std::error::Error>> {
-        let state_update = TrieUpdate::new(self.trie.clone(), state_root);
+        let state_update = self.get_tries().new_trie_update(shard_id, state_root);
         self.trie_viewer.view_state(&state_update, account_id, prefix)
     }
 }
@@ -1298,7 +1324,7 @@ mod test {
                 .unwrap();
             let mut store_update = self.store.store_update();
             result.trie_changes.insertions_into(&mut store_update).unwrap();
-            result.trie_changes.state_changes_into(&mut store_update).unwrap();
+            result.trie_changes.state_changes_into(&mut store_update);
             store_update.commit().unwrap();
             (result.new_root, result.validator_proposals, result.receipt_result)
         }
@@ -1450,7 +1476,11 @@ mod test {
         pub fn view_account(&self, account_id: &str) -> AccountView {
             let shard_id = self.runtime.account_id_to_shard_id(&account_id.to_string());
             self.runtime
-                .view_account(self.state_roots[shard_id as usize], &account_id.to_string())
+                .view_account(
+                    shard_id,
+                    self.state_roots[shard_id as usize],
+                    &account_id.to_string(),
+                )
                 .unwrap()
                 .into()
         }
@@ -1810,8 +1840,8 @@ mod test {
         let staking_transaction = stake(1, &signer, &block_producers[0], TESTING_INIT_STAKE + 1);
         env.step_default(vec![staking_transaction]);
         env.step_default(vec![]);
-        let state_part = env.runtime.obtain_state_part(&env.state_roots[0], 0, 1);
-        let root_node = env.runtime.get_state_root_node(&env.state_roots[0]);
+        let state_part = env.runtime.obtain_state_part(0, &env.state_roots[0], 0, 1);
+        let root_node = env.runtime.get_state_root_node(0, &env.state_roots[0]);
         let mut new_env =
             TestEnv::new("test_state_sync", vec![validators.clone()], 2, vec![], vec![], true);
         for i in 1..=2 {
@@ -1853,7 +1883,7 @@ mod test {
         assert!(!new_env.runtime.validate_state_root_node(&root_node_wrong, &env.state_roots[0]));
         assert!(!new_env.runtime.validate_state_part(&StateRoot::default(), 0, 1, &state_part));
         new_env.runtime.validate_state_part(&env.state_roots[0], 0, 1, &state_part);
-        new_env.runtime.confirm_state(&env.state_roots[0], &vec![state_part]).unwrap();
+        new_env.runtime.confirm_state(0, &env.state_roots[0], &vec![state_part]).unwrap();
         new_env.state_roots[0] = env.state_roots[0].clone();
         for _ in 3..=5 {
             new_env.step_default(vec![]);

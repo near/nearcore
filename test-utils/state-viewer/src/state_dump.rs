@@ -37,8 +37,9 @@ pub fn state_dump(
         .collect::<HashMap<_, _>>();
 
     let mut records = vec![];
-    for state_root in &state_roots {
-        let trie = TrieIterator::new(&runtime.trie, &state_root).unwrap();
+    for (shard_id, state_root) in state_roots.iter().enumerate() {
+        let trie = runtime.get_trie_for_shard(shard_id as u64);
+        let trie = TrieIterator::new(&trie, &state_root).unwrap();
         for item in trie {
             let (key, value) = item.unwrap();
             if let Some(mut sr) = StateRecord::from_raw_key_value(key, value) {

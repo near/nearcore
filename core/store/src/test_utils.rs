@@ -5,8 +5,8 @@ use rand::seq::SliceRandom;
 use rand::Rng;
 
 use crate::db::TestDB;
-use crate::trie::Trie;
-use crate::Store;
+use crate::{ShardTries, Store, Trie};
+use near_primitives::hash::CryptoHash;
 
 /// Creates an in-memory database.
 pub fn create_test_store() -> Arc<Store> {
@@ -15,9 +15,26 @@ pub fn create_test_store() -> Arc<Store> {
 }
 
 /// Creates a Trie using an in-memory database.
-pub fn create_trie() -> Arc<Trie> {
+pub fn create_tries() -> ShardTries {
     let store = create_test_store();
-    Arc::new(Trie::new(store))
+    ShardTries::new(store, 1)
+}
+
+pub fn test_populate_trie(
+    trie: Arc<Trie>,
+    root: &CryptoHash,
+    changes: Vec<(Vec<u8>, Option<Vec<u8>>)>,
+) -> CryptoHash {
+    assert_eq!(trie.storage.as_caching_storage().unwrap().shard_id, 0);
+    let tries = Arc::new(ShardTries { tries: Arc::new(vec![trie.clone()]) });
+    let trie_changes = trie.update(root, changes.iter().cloned()).unwrap();
+    let (store_update, root) = tries.apply_all(&trie_changes, 0).unwrap();
+    store_update.commit().unwrap();
+    let deduped = simplify_changes(&changes);
+    for (key, value) in deduped {
+        assert_eq!(trie.get(&root, &key), Ok(value));
+    }
+    root
 }
 
 pub fn gen_changes(rng: &mut impl Rng, max_size: usize) -> Vec<(Vec<u8>, Option<Vec<u8>>)> {
@@ -50,7 +67,6 @@ pub fn gen_changes(rng: &mut impl Rng, max_size: usize) -> Vec<(Vec<u8>, Option<
     result
 }
 
-#[cfg(test)]
 pub(crate) fn simplify_changes(
     changes: &Vec<(Vec<u8>, Option<Vec<u8>>)>,
 ) -> Vec<(Vec<u8>, Option<Vec<u8>>)> {

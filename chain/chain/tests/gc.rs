@@ -11,13 +11,17 @@ mod tests {
     use near_primitives::types::{NumBlocks, StateRoot};
     use near_primitives::validator_signer::InMemoryValidatorSigner;
     use near_store::test_utils::{create_test_store, gen_changes};
-    use near_store::{Trie, WrappedTrieChanges};
+    use near_store::{ShardTries, StoreUpdate, Trie, WrappedTrieChanges};
+    use rand::Rng;
 
-    fn get_chain() -> Chain {
-        get_chain_with_epoch_length(10)
+    fn get_chain(num_shards: u64) -> Chain {
+        get_chain_with_epoch_length_and_num_shards(10, num_shards)
     }
 
-    fn get_chain_with_epoch_length(epoch_length: NumBlocks) -> Chain {
+    fn get_chain_with_epoch_length_and_num_shards(
+        epoch_length: NumBlocks,
+        num_shards: u64,
+    ) -> Chain {
         let store = create_test_store();
         let chain_genesis = ChainGenesis::test();
         let validators = vec![vec!["test1"]];
@@ -28,7 +32,7 @@ mod tests {
                 .map(|inner| inner.into_iter().map(Into::into).collect())
                 .collect(),
             1,
-            1,
+            num_shards,
             epoch_length,
         ));
         Chain::new(runtime_adapter, &chain_genesis, DoomslugThresholdMode::NoApprovals).unwrap()
@@ -37,17 +41,18 @@ mod tests {
     // Build a chain of num_blocks on top of prev_block
     fn do_fork(
         mut prev_block: Block,
-        mut prev_state_root: StateRoot,
-        trie: Arc<Trie>,
+        mut prev_state_roots: Vec<StateRoot>,
+        tries: ShardTries,
         chain: &mut Chain,
         num_blocks: u64,
-        states: &mut Vec<(Block, StateRoot, Vec<(Vec<u8>, Option<Vec<u8>>)>)>,
+        states: &mut Vec<(Block, Vec<StateRoot>, Vec<Vec<(Vec<u8>, Option<Vec<u8>>)>>)>,
         max_changes: usize,
         verbose: bool,
     ) {
         let mut rng = rand::thread_rng();
         let signer =
             Arc::new(InMemoryValidatorSigner::from_seed("test1", KeyType::ED25519, "test1"));
+        let num_shards = prev_state_roots.len() as u64;
         for _ in 0..num_blocks {
             let block = Block::empty(&prev_block, &*signer);
 
@@ -61,31 +66,37 @@ mod tests {
                 store_update.save_head(&tip).unwrap();
             }
 
-            let trie_changes_data = gen_changes(&mut rng, max_changes);
-            let state_root = prev_state_root;
-            let trie_changes = trie.update(&state_root, trie_changes_data.iter().cloned()).unwrap();
-            if verbose {
-                println!("state new {:?} {:?}", block.header.inner_lite.height, trie_changes_data);
+            let mut trie_changes_shards = Vec::new();
+            for shard_id in 0..num_shards {
+                let trie_changes_data = gen_changes(&mut rng, max_changes);
+                let state_root = prev_state_roots[shard_id as usize];
+                let trie = tries.get_trie_for_shard(shard_id);
+                let trie_changes =
+                    trie.update(&state_root, trie_changes_data.iter().cloned()).unwrap();
+                if verbose {
+                    println!(
+                        "state new {:?} {:?}",
+                        block.header.inner_lite.height, trie_changes_data
+                    );
+                }
+
+                let new_root = trie_changes.new_root;
+
+                let wrapped_trie_changes = WrappedTrieChanges::new(
+                    tries.clone(),
+                    shard_id,
+                    trie_changes,
+                    Default::default(),
+                    block.hash(),
+                );
+                store_update.save_trie_changes(wrapped_trie_changes);
+
+                prev_state_roots[shard_id as usize] = new_root;
+                trie_changes_shards.push(trie_changes_data);
             }
-
-            let (trie_store_update, new_root) =
-                trie_changes.clone().into_no_deletions(trie.clone()).unwrap();
-            states.push((block.clone(), new_root.clone(), trie_changes_data.clone()));
-            store_update.merge(trie_store_update);
-
-            let wrapped_trie_changes = WrappedTrieChanges::new(
-                trie.clone(),
-                trie_changes,
-                Default::default(),
-                block.hash(),
-            );
-            store_update.save_trie_changes(wrapped_trie_changes);
             store_update.commit().unwrap();
-
-            assert!(trie.iter(&new_root).is_ok());
-
+            states.push((block.clone(), prev_state_roots.clone(), trie_changes_shards));
             prev_block = block.clone();
-            prev_state_root = new_root;
         }
     }
 
@@ -103,19 +114,28 @@ mod tests {
         );
         let verbose = false;
 
+        let num_shards = rand::thread_rng().gen_range(1, 3);
+
         // Init Chain 1
-        let mut chain1 = get_chain();
-        let trie1 = chain1.runtime_adapter.get_trie().clone();
+        let mut chain1 = get_chain(num_shards);
+        let tries1 = chain1.runtime_adapter.get_tries();
+        let mut rng = rand::thread_rng();
+        let shard_to_check_trie = rng.gen_range(0, num_shards);
+        let trie1 = tries1.get_trie_for_shard(shard_to_check_trie);
         let genesis1 = chain1.get_block_by_height(0).unwrap().clone();
         let mut states1 = vec![];
-        states1.push((genesis1.clone(), Trie::empty_root(), vec![]));
+        states1.push((
+            genesis1.clone(),
+            vec![Trie::empty_root(); num_shards as usize],
+            vec![Vec::new(); num_shards as usize],
+        ));
 
         for simple_chain in simple_chains.iter() {
             let (source_block1, state_root1, _) = states1[simple_chain.from as usize].clone();
             do_fork(
                 source_block1.clone(),
                 state_root1,
-                trie1.clone(),
+                tries1.clone(),
                 &mut chain1,
                 simple_chain.length,
                 &mut states1,
@@ -126,15 +146,16 @@ mod tests {
 
         assert!(check_refcount_map(&mut chain1).is_ok());
         // GC execution
-        let clear_data = chain1.clear_data(trie1.clone());
+        let clear_data = chain1.clear_data(tries1.clone());
         if clear_data.is_err() {
             println!("clear data failed = {:?}", clear_data);
             assert!(false);
         }
         assert!(check_refcount_map(&mut chain1).is_ok());
 
-        let mut chain2 = get_chain();
-        let trie2 = chain2.runtime_adapter.get_trie().clone();
+        let mut chain2 = get_chain(num_shards);
+        let tries2 = chain2.runtime_adapter.get_tries();
+        let trie2 = tries2.get_trie_for_shard(shard_to_check_trie);
 
         // Find gc_height
         let mut gc_height = simple_chains[0].length - 51;
@@ -162,7 +183,7 @@ mod tests {
             }
 
             let mut state_root2 = state_roots2[simple_chain.from as usize];
-            let state_root1 = states1[simple_chain.from as usize].1;
+            let state_root1 = states1[simple_chain.from as usize].1[shard_to_check_trie as usize];
             assert!(trie1.iter(&state_root1).is_ok());
             assert_eq!(state_root1, state_root2);
 
@@ -170,17 +191,25 @@ mod tests {
                 let mut store_update2 = chain2.mut_store().store_update();
                 let (block1, state_root1, changes1) = states1[i as usize].clone();
                 // Apply to Trie 2 the same changes (changes1) as applied to Trie 1
-                let trie_changes2 = trie2.update(&state_root2, changes1.iter().cloned()).unwrap();
+                let trie_changes2 = trie2
+                    .update(&state_root2, changes1[shard_to_check_trie as usize].iter().cloned())
+                    .unwrap();
                 // i == gc_height is the only height should be processed here
                 if block1.header.inner_lite.height > gc_height || i == gc_height {
-                    let (trie_store_update2, new_root2) =
-                        trie_changes2.clone().into_no_deletions(trie2.clone()).unwrap();
-                    state_root2 = new_root2;
-                    assert_eq!(state_root1, state_root2);
+                    let mut trie_store_update2 = StoreUpdate::new_with_tries(tries2.clone());
+                    tries2
+                        .apply_insertions(
+                            &trie_changes2,
+                            shard_to_check_trie,
+                            &mut trie_store_update2,
+                        )
+                        .unwrap();
+                    state_root2 = trie_changes2.new_root;
+                    assert_eq!(state_root1[shard_to_check_trie as usize], state_root2);
                     store_update2.merge(trie_store_update2);
                 } else {
                     let (trie_store_update2, new_root2) =
-                        trie_changes2.clone().into(trie2.clone()).unwrap();
+                        tries2.apply_all(&trie_changes2, shard_to_check_trie).unwrap();
                     state_root2 = new_root2;
                     store_update2.merge(trie_store_update2);
                 }
@@ -198,6 +227,7 @@ mod tests {
             }
             for i in start_index..start_index + simple_chain.length {
                 let (block1, state_root1, _) = states1[i as usize].clone();
+                let state_root1 = state_root1[shard_to_check_trie as usize];
                 if block1.header.inner_lite.height > gc_height || i == gc_height {
                     assert!(trie1.iter(&state_root1).is_ok());
                     assert!(trie2.iter(&state_root1).is_ok());
@@ -402,7 +432,6 @@ mod tests {
     }
 
     fn test_gc_random_common(runs: u64) {
-        use rand::Rng;
         let mut rng = rand::thread_rng();
         for _tests in 0..runs {
             let canonical_len = 100 + rng.gen_range(0, 20);

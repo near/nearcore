@@ -397,7 +397,7 @@ mod tests {
         CreateAccountAction, DeleteKeyAction, StakeAction, TransferAction,
     };
     use near_primitives::types::{AccountId, Balance, MerkleHash, StateChangeCause};
-    use near_store::test_utils::create_trie;
+    use near_store::test_utils::create_tries;
     use std::convert::TryInto;
     use std::sync::Arc;
     use testlib::runtime_utils::{alice_account, bob_account, eve_dot_alice_account};
@@ -419,14 +419,14 @@ mod tests {
     fn setup_accounts(
         accounts: Vec<(AccountId, Balance, Balance, Option<AccessKey>)>,
     ) -> (Arc<InMemorySigner>, TrieUpdate, Balance) {
-        let trie = create_trie();
+        let tries = create_tries();
         let root = MerkleHash::default();
 
         let account_id = alice_account();
         let signer =
             Arc::new(InMemorySigner::from_seed(&account_id, KeyType::ED25519, &account_id));
 
-        let mut initial_state = TrieUpdate::new(trie.clone(), root);
+        let mut initial_state = tries.new_trie_update(0, root);
         for (account_id, initial_balance, initial_locked, access_key) in accounts {
             let mut initial_account = account_new(initial_balance, hash(&[]));
             initial_account.locked = initial_locked;
@@ -442,10 +442,10 @@ mod tests {
         }
         initial_state.commit(StateChangeCause::InitialState);
         let trie_changes = initial_state.finalize().unwrap().0;
-        let (store_update, root) = trie_changes.into(trie.clone()).unwrap();
+        let (store_update, root) = tries.apply_all(&trie_changes, 0).unwrap();
         store_update.commit().unwrap();
 
-        (signer, TrieUpdate::new(trie.clone(), root), 100)
+        (signer, tries.new_trie_update(0, root), 100)
     }
 
     // Transactions

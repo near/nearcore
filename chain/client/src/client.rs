@@ -524,6 +524,7 @@ impl Client {
                 .prepare_transactions(
                     prev_block_header.inner_rest.gas_price,
                     chunk_extra.gas_limit,
+                    shard_id,
                     chunk_extra.state_root.clone(),
                     config.block_expected_weight as usize,
                     &mut iter,
@@ -759,7 +760,7 @@ impl Client {
         if status.is_new_head() {
             self.shards_mgr.update_largest_seen_height(block.header.inner_lite.height);
             if !self.config.archive {
-                if let Err(err) = self.chain.clear_data(self.runtime_adapter.get_trie()) {
+                if let Err(err) = self.chain.clear_data(self.runtime_adapter.get_tries()) {
                     error!(target: "client", "Can't clear old data, {:?}", err);
                     debug_assert!(false);
                 };

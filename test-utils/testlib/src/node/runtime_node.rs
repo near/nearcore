@@ -28,10 +28,10 @@ impl RuntimeNode {
 
     pub fn new_from_genesis(account_id: &AccountId, genesis: Genesis) -> Self {
         let signer = Arc::new(InMemorySigner::from_seed(account_id, KeyType::ED25519, account_id));
-        let (runtime, trie, root) = get_runtime_and_trie_from_genesis(&genesis);
+        let (runtime, tries, root) = get_runtime_and_trie_from_genesis(&genesis);
         let client = Arc::new(RwLock::new(MockClient {
             runtime,
-            trie,
+            tries,
             state_root: root,
             epoch_length: genesis.config.epoch_length,
         }));
