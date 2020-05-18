@@ -317,7 +317,7 @@ mod tests {
 
     use near_primitives::hash::{hash, CryptoHash};
 
-    use crate::test_utils::{create_trie, gen_changes};
+    use crate::test_utils::{create_tries, gen_changes, test_populate_trie};
 
     use super::*;
     use rand::prelude::ThreadRng;
@@ -403,13 +403,9 @@ mod tests {
         println!("Max allowed overhead: {}", max_part_overhead);
         let trie_changes = gen_trie_changes(&mut rng, max_key_length, big_value_length);
         println!("Number of nodes: {}", trie_changes.len());
-        let trie = create_trie();
-        let (store_update, state_root) = trie
-            .update(&Trie::empty_root(), trie_changes.into_iter())
-            .unwrap()
-            .into(trie.clone())
-            .unwrap();
-        store_update.commit().ok();
+        let tries = create_tries();
+        let trie = tries.get_trie_for_shard(0);
+        let state_root = test_populate_trie(trie.clone(), &Trie::empty_root(), trie_changes);
         let memory_size = trie.retrieve_root_node(&state_root).unwrap().memory_usage;
         println!("Total memory size: {}", memory_size);
         for num_parts in [2, 3, 5, 10, 50].iter().cloned() {
@@ -448,15 +444,12 @@ mod tests {
     fn test_parts() {
         let mut rng = rand::thread_rng();
         for _ in 0..20 {
-            let trie = create_trie();
+            let tries = create_tries();
+            let trie = tries.get_trie_for_shard(0);
             let trie_changes = gen_changes(&mut rng, 500);
 
-            let (store_update, state_root) = trie
-                .update(&Trie::empty_root(), trie_changes.iter().cloned())
-                .unwrap()
-                .into(trie.clone())
-                .unwrap();
-            store_update.commit().ok();
+            let state_root =
+                test_populate_trie(trie.clone(), &Trie::empty_root(), trie_changes.clone());
             let root_memory_usage = trie.retrieve_root_node(&state_root).unwrap().memory_usage;
             for _ in 0..100 {
                 // Test that creating and validating are consistent

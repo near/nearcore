@@ -37,6 +37,7 @@ use crate::metrics;
 use crate::sync::{BlockSync, HeaderSync, StateSync, StateSyncResult};
 use crate::types::{Error, ShardSyncDownload};
 use crate::SyncStatus;
+use near_network::types::PartialEncodedChunkResponseMsg;
 
 const NUM_REBROADCAST_BLOCKS: usize = 30;
 
@@ -368,13 +369,15 @@ impl Client {
 
         let prev_header = &prev_block.header;
 
-        let inflation = if self.runtime_adapter.is_next_block_epoch_start(&head.last_block_hash)? {
-            let next_epoch_id =
-                self.runtime_adapter.get_next_epoch_id_from_prev_block(&head.last_block_hash)?;
-            Some(self.runtime_adapter.get_epoch_inflation(&next_epoch_id)?)
-        } else {
-            None
-        };
+        let minted_amount =
+            if self.runtime_adapter.is_next_block_epoch_start(&head.last_block_hash)? {
+                let next_epoch_id = self
+                    .runtime_adapter
+                    .get_next_epoch_id_from_prev_block(&head.last_block_hash)?;
+                Some(self.runtime_adapter.get_epoch_minted_amount(&next_epoch_id)?)
+            } else {
+                None
+            };
 
         // Get all the current challenges.
         // TODO(2445): Enable challenges when they are working correctly.
@@ -389,7 +392,7 @@ impl Client {
             approvals,
             gas_price_adjustment_rate,
             min_gas_price,
-            inflation,
+            minted_amount,
             prev_block_extra.challenges_result,
             vec![],
             &*validator_signer,
@@ -487,7 +490,6 @@ impl Client {
             shard_id,
             chunk_extra.gas_used,
             chunk_extra.gas_limit,
-            chunk_extra.validator_reward,
             chunk_extra.balance_burnt,
             chunk_extra.validator_proposals,
             transactions,
@@ -527,6 +529,7 @@ impl Client {
                 .prepare_transactions(
                     prev_block_header.inner_rest.gas_price,
                     chunk_extra.gas_limit,
+                    shard_id,
                     chunk_extra.state_root.clone(),
                     config.block_expected_weight as usize,
                     &mut iter,
@@ -631,6 +634,15 @@ impl Client {
         }
     }
 
+    pub fn process_partial_encoded_chunk_response(
+        &mut self,
+        response: PartialEncodedChunkResponseMsg,
+    ) -> Result<Vec<AcceptedBlock>, Error> {
+        let header = self.shards_mgr.get_partial_encoded_chunk_header(&response.chunk_hash)?;
+        let partial_chunk =
+            PartialEncodedChunk { header, parts: response.parts, receipts: response.receipts };
+        self.process_partial_encoded_chunk(partial_chunk)
+    }
     pub fn process_partial_encoded_chunk(
         &mut self,
         partial_encoded_chunk: PartialEncodedChunk,
@@ -753,7 +765,7 @@ impl Client {
         if status.is_new_head() {
             self.shards_mgr.update_largest_seen_height(block.header.inner_lite.height);
             if !self.config.archive {
-                if let Err(err) = self.chain.clear_data(self.runtime_adapter.get_trie()) {
+                if let Err(err) = self.chain.clear_data(self.runtime_adapter.get_tries()) {
                     error!(target: "client", "Can't clear old data, {:?}", err);
                     debug_assert!(false);
                 };

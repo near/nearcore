@@ -10,5 +10,5 @@
 
 /genesis-tools/ @nearmax
 
-/core/ @nearmax @evgenykuzyakov @SkidanovAlex @bowenwang1996
-/neard/ @nearmax @evgenykuzyakov @SkidanovAlex @bowenwang1996
+/core/  @bowenwang1996 @frol @evgenykuzyakov @nearmax @SkidanovAlex
+/neard/ @bowenwang1996 @frol @evgenykuzyakov @nearmax @SkidanovAlex

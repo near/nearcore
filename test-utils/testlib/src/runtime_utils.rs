@@ -1,6 +1,5 @@
 use std::fs;
 use std::path::PathBuf;
-use std::sync::Arc;
 
 use byteorder::{ByteOrder, LittleEndian};
 
@@ -8,9 +7,9 @@ use near_chain_configs::Genesis;
 use near_primitives::account::Account;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::state_record::StateRecord;
-use near_primitives::types::{AccountId, MerkleHash, StateRoot};
-use near_store::test_utils::create_trie;
-use near_store::{Trie, TrieUpdate};
+use near_primitives::types::{AccountId, StateRoot};
+use near_store::test_utils::create_tries;
+use near_store::{ShardTries, TrieUpdate};
 use neard::config::GenesisExt;
 use node_runtime::{state_viewer::TrieViewer, Runtime};
 
@@ -65,12 +64,12 @@ pub fn add_test_contract(genesis: &mut Genesis, account_id: &AccountId) {
     });
 }
 
-pub fn get_runtime_and_trie_from_genesis(genesis: &Genesis) -> (Runtime, Arc<Trie>, StateRoot) {
-    let trie = create_trie();
+pub fn get_runtime_and_trie_from_genesis(genesis: &Genesis) -> (Runtime, ShardTries, StateRoot) {
+    let tries = create_tries();
     let runtime = Runtime::new(genesis.config.runtime_config.clone());
-    let trie_update = TrieUpdate::new(trie.clone(), MerkleHash::default());
     let (store_update, genesis_root) = runtime.apply_genesis_state(
-        trie_update,
+        tries.clone(),
+        0,
         &genesis
             .config
             .validators
@@ -86,19 +85,19 @@ pub fn get_runtime_and_trie_from_genesis(genesis: &Genesis) -> (Runtime, Arc<Tri
         &genesis.records.as_ref(),
     );
     store_update.commit().unwrap();
-    (runtime, trie, genesis_root)
+    (runtime, tries, genesis_root)
 }
 
-pub fn get_runtime_and_trie() -> (Runtime, Arc<Trie>, StateRoot) {
+pub fn get_runtime_and_trie() -> (Runtime, ShardTries, StateRoot) {
     let mut genesis = Genesis::test(vec![&alice_account(), &bob_account(), "carol.near"], 3);
     add_test_contract(&mut genesis, &AccountId::from("test.contract"));
     get_runtime_and_trie_from_genesis(&genesis)
 }
 
 pub fn get_test_trie_viewer() -> (TrieViewer, TrieUpdate) {
-    let (_, trie, root) = get_runtime_and_trie();
+    let (_, tries, root) = get_runtime_and_trie();
     let trie_viewer = TrieViewer::new();
-    let state_update = TrieUpdate::new(trie, root);
+    let state_update = tries.new_trie_update(0, root);
     (trie_viewer, state_update)
 }
 

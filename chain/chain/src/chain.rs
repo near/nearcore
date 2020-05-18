@@ -30,7 +30,7 @@ use near_primitives::views::{
     ExecutionOutcomeWithIdView, ExecutionStatusView, FinalExecutionOutcomeView,
     FinalExecutionStatus, LightClientBlockView,
 };
-use near_store::{ColStateHeaders, ColStateParts, Trie};
+use near_store::{ColStateHeaders, ColStateParts, ShardTries};
 
 use crate::error::{Error, ErrorKind};
 use crate::lightclient::get_epoch_block_producers_view;
@@ -320,7 +320,6 @@ impl Chain {
                         vec![],
                         vec![],
                         vec![],
-                        0,
                         chain_genesis.total_supply,
                     )?;
                     store_update.save_block_header(genesis.header.clone())?;
@@ -341,7 +340,6 @@ impl Chain {
                                 vec![],
                                 0,
                                 chain_genesis.gas_limit,
-                                0,
                                 0,
                             ),
                         );
@@ -541,7 +539,7 @@ impl Chain {
     //    and the Trie is updated with having only Genesis data.
     // 4. State Sync Clearing happens in `reset_data_pre_state_sync()`.
     //
-    pub fn clear_data(&mut self, trie: Arc<Trie>) -> Result<(), Error> {
+    pub fn clear_data(&mut self, tries: ShardTries) -> Result<(), Error> {
         let head = self.store.head()?;
         let tail = self.store.tail()?;
         let mut gc_stop_height = self.runtime_adapter.get_gc_stop_height(&head.last_block_hash)?;
@@ -556,7 +554,7 @@ impl Chain {
 
         // Forks Cleaning
         for height in tail..gc_stop_height {
-            self.clear_forks_data(trie.clone(), height)?;
+            self.clear_forks_data(tries.clone(), height)?;
         }
 
         // Canonical Chain Clearing
@@ -576,7 +574,7 @@ impl Chain {
                     } else if prev_block_refcount == 1 {
                         debug_assert_eq!(blocks_current_height.len(), 1);
                         chain_store_update
-                            .clear_block_data(*block_hash, GCMode::Canonical(trie.clone()))?;
+                            .clear_block_data(*block_hash, GCMode::Canonical(tries.clone()))?;
                     } else {
                         return Err(ErrorKind::GCError(
                             "block on canonical chain shouldn't have refcount 0".into(),
@@ -591,7 +589,11 @@ impl Chain {
         Ok(())
     }
 
-    pub fn clear_forks_data(&mut self, trie: Arc<Trie>, height: BlockHeight) -> Result<(), Error> {
+    pub fn clear_forks_data(
+        &mut self,
+        tries: ShardTries,
+        height: BlockHeight,
+    ) -> Result<(), Error> {
         if let Ok(blocks_current_height) = self.store.get_all_block_hashes_by_height(height) {
             let blocks_current_height =
                 blocks_current_height.values().flatten().cloned().collect::<Vec<_>>();
@@ -609,7 +611,7 @@ impl Chain {
 
                         // It's safe to call `clear_block_data` for prev data because it clears fork only here
                         chain_store_update
-                            .clear_block_data(current_hash, GCMode::Fork(trie.clone()))?;
+                            .clear_block_data(current_hash, GCMode::Fork(tries.clone()))?;
                         chain_store_update.commit()?;
 
                         current_hash = prev_hash;
@@ -795,7 +797,6 @@ impl Chain {
                     header.inner_rest.validator_proposals.clone(),
                     vec![],
                     header.inner_rest.chunk_mask.clone(),
-                    header.inner_rest.validator_reward,
                     header.inner_rest.total_supply,
                 )?;
             }
@@ -1431,7 +1432,7 @@ impl Chain {
         }
 
         let state_root_node =
-            self.runtime_adapter.get_state_root_node(&chunk_header.inner.prev_state_root);
+            self.runtime_adapter.get_state_root_node(shard_id, &chunk_header.inner.prev_state_root);
 
         Ok(ShardStateSyncResponseHeader {
             chunk,
@@ -1476,13 +1477,14 @@ impl Chain {
             return Err(ErrorKind::InvalidStateRequest("shard_id out of bounds".into()).into());
         }
         let state_root = sync_prev_block.chunks[shard_id as usize].inner.prev_state_root.clone();
-        let state_root_node = self.runtime_adapter.get_state_root_node(&state_root);
+        let state_root_node = self.runtime_adapter.get_state_root_node(shard_id, &state_root);
         let num_parts = Self::get_num_state_parts(state_root_node.memory_usage);
 
         if part_id >= num_parts {
             return Err(ErrorKind::InvalidStateRequest("part_id out of bound".to_string()).into());
         }
-        let state_part = self.runtime_adapter.obtain_state_part(&state_root, part_id, num_parts);
+        let state_part =
+            self.runtime_adapter.obtain_state_part(shard_id, &state_root, part_id, num_parts);
 
         Ok(state_part)
     }
@@ -1725,7 +1727,7 @@ impl Chain {
         }
 
         // Confirm that state matches the parts we received
-        self.runtime_adapter.confirm_state(&state_root, &parts)?;
+        self.runtime_adapter.confirm_state(shard_id, &state_root, &parts)?;
 
         // Applying the chunk starts here
         let mut chain_update = ChainUpdate::new(
@@ -2533,7 +2535,6 @@ impl<'a> ChainUpdate<'a> {
                             apply_result.validator_proposals,
                             apply_result.total_gas_burnt,
                             gas_limit,
-                            apply_result.total_validator_reward,
                             apply_result.total_balance_burnt,
                         ),
                     );
@@ -2620,8 +2621,7 @@ impl<'a> ChainUpdate<'a> {
 
         // Check that we know the epoch of the block before we try to get the header
         // (so that a block from unknown epoch doesn't get marked as an orphan)
-        if let Err(_) = self.runtime_adapter.get_epoch_inflation(&block.header.inner_lite.epoch_id)
-        {
+        if !self.runtime_adapter.epoch_exists(&block.header.inner_lite.epoch_id) {
             return Err(ErrorKind::EpochOutOfBounds.into());
         }
 
@@ -2747,7 +2747,6 @@ impl<'a> ChainUpdate<'a> {
             block.header.inner_rest.validator_proposals.clone(),
             block.header.inner_rest.challenges_result.clone(),
             block.header.inner_rest.chunk_mask.clone(),
-            block.header.inner_rest.validator_reward,
             block.header.inner_rest.total_supply,
         )?;
 
@@ -3198,7 +3197,6 @@ impl<'a> ChainUpdate<'a> {
             apply_result.validator_proposals,
             apply_result.total_gas_burnt,
             gas_limit,
-            apply_result.total_validator_reward,
             apply_result.total_balance_burnt,
         );
         self.chain_store_update.save_chunk_extra(&block_header.hash, shard_id, chunk_extra);

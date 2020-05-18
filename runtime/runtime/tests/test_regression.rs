@@ -3,7 +3,6 @@
 //! * Processes 10_000 transactions per block.
 
 use std::collections::HashSet;
-use std::sync::Arc;
 use std::time::Instant;
 
 use indicatif::{ProgressBar, ProgressStyle};
@@ -19,10 +18,8 @@ use near_primitives::transaction::{
     Action, ExecutionStatus, FunctionCallAction, SignedTransaction, TransferAction,
 };
 use near_primitives::types::StateChangeCause;
-use near_store::test_utils::create_trie;
-use near_store::{
-    create_store, get_account, set_access_key, set_account, set_code, Trie, TrieUpdate,
-};
+use near_store::test_utils::create_tries;
+use near_store::{create_store, get_account, set_access_key, set_account, set_code, ShardTries};
 use near_vm_logic::types::Balance;
 
 pub mod runtime_group_tools;
@@ -64,16 +61,16 @@ fn get_account_id(account_index: usize) -> String {
 fn template_test(transaction_type: TransactionType, db_type: DataBaseType, expected_avg_tps: u64) {
     // Create runtime with no records in the trie.
     let tmpdir = tempfile::Builder::new().prefix("storage").tempdir().unwrap();
-    let trie = match db_type {
+    let tries = match db_type {
         DataBaseType::Disk => {
             let store = create_store(tmpdir.path().to_str().unwrap());
-            Arc::new(Trie::new(store))
+            ShardTries::new(store, 1)
         }
-        DataBaseType::InMemory => create_trie(),
+        DataBaseType::InMemory => create_tries(),
     };
     let runtime_signer =
         InMemorySigner::from_seed(&get_account_id(0), KeyType::ED25519, &get_account_id(0));
-    let mut runtime = StandaloneRuntime::new(runtime_signer.clone(), &[], trie);
+    let mut runtime = StandaloneRuntime::new(runtime_signer.clone(), &[], tries);
 
     let mut rng = rand::thread_rng();
     let account_indices: Vec<_> = (0..NUM_ACCOUNTS).collect();
@@ -93,7 +90,7 @@ fn template_test(transaction_type: TransactionType, db_type: DataBaseType, expec
     let wasm_binary: &[u8] = include_bytes!("./tiny-contract-rs/res/tiny_contract_rs.wasm");
     let code_hash = hash(wasm_binary);
     for chunk in chunked_accounts {
-        let mut state_update = TrieUpdate::new(runtime.trie.clone(), runtime.root);
+        let mut state_update = runtime.tries.new_trie_update(0, runtime.root);
         // Put state records directly into trie and save them separately to compute storage usage.
         let mut records = Vec::with_capacity(CHUNK_SIZE * 3);
         for account_index in chunk {
@@ -173,13 +170,9 @@ fn template_test(transaction_type: TransactionType, db_type: DataBaseType, expec
             set_account(&mut state_update, account_id.clone(), &account);
         }
         state_update.commit(StateChangeCause::InitialState);
-        let trie = state_update.trie.clone();
-        let (store_update, root) = state_update
-            .finalize()
-            .expect("Genesis state update failed")
-            .0
-            .into(trie)
-            .expect("Genesis state update failed");
+        let trie_changes = state_update.finalize().expect("Genesis state update failed").0;
+        let (store_update, root) =
+            runtime.tries.apply_all(&trie_changes, 0).expect("Genesis state update failed");
         store_update.commit().unwrap();
         runtime.root = root;
         if DISPLAY_PROGRESS_BAR {

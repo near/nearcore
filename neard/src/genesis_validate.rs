@@ -1,6 +1,7 @@
 use near_chain_configs::Genesis;
 use near_crypto::key_conversion::is_valid_staking_key;
 use near_primitives::state_record::StateRecord;
+use num_rational::Rational;
 use std::collections::{HashMap, HashSet};
 
 /// Validate genesis config and records. Panics if genesis is ill-formed.
@@ -70,6 +71,34 @@ pub fn validate_genesis(genesis: &Genesis) {
             account_id
         );
     }
+    assert!(
+        genesis.config.online_max_threshold > genesis.config.online_min_threshold,
+        "Online max threshold smaller than min threshold"
+    );
+    assert!(
+        genesis.config.online_max_threshold <= Rational::from_integer(1),
+        "Online max threshold must be less or equal than 1"
+    );
+    assert!(
+        *genesis.config.online_max_threshold.numer() < 10_000_000,
+        "Numerator is too large, may lead to overflow."
+    );
+    assert!(
+        *genesis.config.online_min_threshold.numer() < 10_000_000,
+        "Numerator is too large, may lead to overflow."
+    );
+    assert!(
+        *genesis.config.online_max_threshold.denom() < 10_000_000,
+        "Denominator is too large, may lead to overflow."
+    );
+    assert!(
+        *genesis.config.online_min_threshold.denom() < 10_000_000,
+        "Denominator is too large, may lead to overflow."
+    );
+    assert!(
+        genesis.config.gas_price_adjustment_rate < Rational::from_integer(1),
+        "Gas price adjustment rate must be less than 1"
+    );
 }
 
 #[cfg(test)]

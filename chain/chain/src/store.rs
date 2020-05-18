@@ -34,8 +34,8 @@ use near_store::{
     ColIncomingReceipts, ColInvalidChunks, ColLastBlockWithNewChunk, ColNextBlockHashes,
     ColNextBlockWithNewChunk, ColOutgoingReceipts, ColPartialChunks, ColReceiptIdToShardId,
     ColState, ColStateChanges, ColStateDlInfos, ColStateHeaders, ColTransactionResult,
-    ColTransactions, ColTrieChanges, KeyForStateChanges, Store, StoreUpdate, Trie, TrieChanges,
-    WrappedTrieChanges,
+    ColTransactions, ColTrieChanges, KeyForStateChanges, ShardTries, Store, StoreUpdate,
+    TrieChanges, WrappedTrieChanges,
 };
 
 use crate::byzantine_assert;
@@ -58,8 +58,8 @@ pub struct ShardInfo(pub ShardId, pub ChunkHash);
 
 #[derive(Clone)]
 pub enum GCMode {
-    Fork(Arc<Trie>),
-    Canonical(Arc<Trie>),
+    Fork(ShardTries),
+    Canonical(ShardTries),
     StateSync,
 }
 
@@ -1803,24 +1803,24 @@ impl<'a> ChainStoreUpdate<'a> {
 
         // 1. Apply revert insertions or deletions from ColTrieChanges for Trie
         match gc_mode.clone() {
-            GCMode::Fork(trie) => {
+            GCMode::Fork(tries) => {
                 // If the block is on a fork, we delete the state that's the result of applying this block
                 self.store()
                     .get_ser(ColTrieChanges, block_hash.as_ref())?
                     .map(|trie_changes: TrieChanges| {
-                        trie_changes
-                            .revert_insertions_into(trie.clone(), &mut store_update)
+                        tries
+                            .revert_insertions(&trie_changes, 0, &mut store_update)
                             .map_err(|err| ErrorKind::Other(err.to_string()))
                     })
                     .unwrap_or(Ok(()))?;
             }
-            GCMode::Canonical(trie) => {
+            GCMode::Canonical(tries) => {
                 // If the block is on canonical chain, we delete the state that's before applying this block
                 self.store()
                     .get_ser(ColTrieChanges, block_hash.as_ref())?
                     .map(|trie_changes: TrieChanges| {
-                        trie_changes
-                            .deletions_into(trie.clone(), &mut store_update)
+                        tries
+                            .apply_deletions(&trie_changes, 0, &mut store_update)
                             .map_err(|err| ErrorKind::Other(err.to_string()))
                     })
                     .unwrap_or(Ok(()))?;
@@ -2604,7 +2604,7 @@ mod tests {
 
         assert!(check_refcount_map(&mut chain).is_ok());
         chain.epoch_length = 1;
-        let trie = chain.runtime_adapter.get_trie();
+        let trie = chain.runtime_adapter.get_tries();
         assert!(chain.clear_data(trie).is_ok());
 
         assert!(chain.get_block(&blocks[0].hash()).is_ok());
@@ -2670,7 +2670,7 @@ mod tests {
         );
         assert!(chain.mut_store().get_next_block_hash(&blocks[5].hash()).is_ok());
 
-        let trie = chain.runtime_adapter.get_trie();
+        let trie = chain.runtime_adapter.get_tries();
         let mut store_update = chain.mut_store().store_update();
         assert!(store_update.clear_block_data(blocks[5].hash(), GCMode::Canonical(trie)).is_ok());
         store_update.commit().unwrap();
@@ -2719,7 +2719,7 @@ mod tests {
         }
 
         assert!(check_refcount_map(&mut chain).is_ok());
-        let trie = chain.runtime_adapter.get_trie();
+        let trie = chain.runtime_adapter.get_tries();
 
         for iter in 0..10 {
             println!("ITERATION #{:?}", iter);

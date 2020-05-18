@@ -84,7 +84,7 @@ pub const EXPECTED_EPOCH_LENGTH: BlockHeightDelta = (5 * 60 * 1000) / MIN_BLOCK_
 pub const BLOCK_PRODUCER_KICKOUT_THRESHOLD: u8 = 90;
 
 /// Criterion for kicking out chunk producers.
-pub const CHUNK_PRODUCER_KICKOUT_THRESHOLD: u8 = 60;
+pub const CHUNK_PRODUCER_KICKOUT_THRESHOLD: u8 = 90;
 
 /// Fast mode constants for testing/developing.
 pub const FAST_MIN_BLOCK_PRODUCTION_DELAY: u64 = 120;
@@ -753,6 +753,9 @@ pub fn init_configs(
                 gas_limit: INITIAL_GAS_LIMIT,
                 gas_price_adjustment_rate: *GAS_PRICE_ADJUSTMENT_RATE,
                 block_producer_kickout_threshold: BLOCK_PRODUCER_KICKOUT_THRESHOLD,
+                chunk_producer_kickout_threshold: CHUNK_PRODUCER_KICKOUT_THRESHOLD,
+                online_max_threshold: Rational::new(99, 100),
+                online_min_threshold: Rational::new(BLOCK_PRODUCER_KICKOUT_THRESHOLD as isize, 100),
                 runtime_config: Default::default(),
                 validators: vec![AccountInfo {
                     account_id: account_id.clone(),
@@ -765,7 +768,6 @@ pub fn init_configs(
                 total_supply: 0,
                 num_blocks_per_year: NUM_BLOCKS_PER_YEAR,
                 protocol_treasury_account: account_id,
-                chunk_producer_kickout_threshold: CHUNK_PRODUCER_KICKOUT_THRESHOLD,
                 fishermen_threshold: FISHERMEN_THRESHOLD,
                 min_gas_price: MIN_GAS_PRICE,
             };

@@ -165,7 +165,6 @@ fn create_chunk(
             &mut rs,
             chunk.header.inner.gas_used,
             chunk.header.inner.gas_limit,
-            chunk.header.inner.validator_reward,
             chunk.header.inner.balance_burnt,
             tx_root,
             chunk.header.inner.validator_proposals.clone(),
@@ -406,7 +405,6 @@ fn test_verify_chunk_invalid_state_challenge() {
             0,
             1_000,
             0,
-            0,
             vec![],
             vec![],
             &vec![],
@@ -564,7 +562,6 @@ fn test_receive_invalid_chunk_as_chunk_producer() {
     assert!(env.clients[1]
         .process_partial_encoded_chunk(chunk.create_partial_encoded_chunk(
             vec![0],
-            true,
             one_part_receipt_proofs,
             &vec![merkle_paths[0].clone()]
         ))

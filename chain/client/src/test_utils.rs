@@ -28,9 +28,10 @@ use near_primitives::block::{ApprovalInner, Block, GenesisId};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{
-    AccountId, BlockHeight, BlockHeightDelta, NumBlocks, NumSeats, NumShards,
+    AccountId, Balance, BlockHeight, BlockHeightDelta, NumBlocks, NumSeats, NumShards,
 };
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
+use near_primitives::views::{AccountView, QueryRequest, QueryResponseKind};
 use near_store::test_utils::create_test_store;
 use near_store::Store;
 use near_telemetry::TelemetryActor;
@@ -71,7 +72,7 @@ pub fn setup(
         0,
         1_000_000,
         100,
-        1_000_000_000,
+        3_000_000_000_000_000_000_000_000_000_000_000,
         Rational::from_integer(0),
         Rational::from_integer(0),
         transaction_validity_period,
@@ -375,16 +376,13 @@ pub fn setup_mock_all_validators(
                                 }
                             }
                         }
-                        NetworkRequests::PartialEncodedChunkResponse {
-                            route_back,
-                            partial_encoded_chunk,
-                        } => {
+                        NetworkRequests::PartialEncodedChunkResponse { route_back, response } => {
                             for (i, address) in addresses.iter().enumerate() {
                                 if route_back == address {
                                     if !drop_chunks || !sample_binary(1, 10) {
                                         connectors1.read().unwrap()[i].0.do_send(
-                                            NetworkClientMessages::PartialEncodedChunk(
-                                                partial_encoded_chunk.clone(),
+                                            NetworkClientMessages::PartialEncodedChunkResponse(
+                                                response.clone(),
                                             ),
                                         );
                                     }
@@ -783,7 +781,7 @@ pub fn setup_client(
 }
 
 pub struct TestEnv {
-    chain_genesis: ChainGenesis,
+    pub chain_genesis: ChainGenesis,
     validators: Vec<AccountId>,
     pub network_adapters: Vec<Arc<MockNetworkAdapter>>,
     pub clients: Vec<Client>,
@@ -868,6 +866,8 @@ impl TestEnv {
         }
     }
 
+    /// Produces block by given client, which kicks of creation of chunk.
+    /// Which means that transactions added before this call, will be included in the next block of this validator.
     pub fn produce_block(&mut self, id: usize, height: BlockHeight) {
         let block = self.clients[id].produce_block(height).unwrap();
         self.process_block(id, block.unwrap(), Provenance::PRODUCED);
@@ -884,6 +884,31 @@ impl TestEnv {
             self.clients[id].chain.head().unwrap().last_block_hash,
         );
         self.clients[id].process_tx(tx, false, false)
+    }
+
+    pub fn query_account(&mut self, account_id: AccountId) -> AccountView {
+        let head = self.clients[0].chain.head().unwrap();
+        let last_block = self.clients[0].chain.get_block(&head.last_block_hash).unwrap().clone();
+        let response = self.clients[0]
+            .runtime_adapter
+            .query(
+                0,
+                &last_block.chunks[0].inner.prev_state_root,
+                last_block.header.inner_lite.height,
+                last_block.header.inner_lite.timestamp,
+                &last_block.header.hash,
+                &last_block.header.inner_lite.epoch_id,
+                &QueryRequest::ViewAccount { account_id },
+            )
+            .unwrap();
+        match response.kind {
+            QueryResponseKind::ViewAccount(account_view) => account_view,
+            _ => panic!("Wrong return value"),
+        }
+    }
+
+    pub fn query_balance(&mut self, account_id: AccountId) -> Balance {
+        self.query_account(account_id).amount
     }
 
     pub fn restart(&mut self, id: usize) {
