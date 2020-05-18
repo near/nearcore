@@ -188,15 +188,26 @@ impl SealsManager {
                     height,
                     shard_id,
                 )?;
-                let mut candidates = vec![];
-                for part_ord in 0..self.runtime_adapter.num_total_parts() {
-                    let part_ord = part_ord as u64;
-                    let part_owner = self.runtime_adapter.get_part_owner(parent_hash, part_ord)?;
-                    if part_owner == chunk_producer || Some(part_owner) == self.me {
-                        continue;
+                let candidates = {
+                    let n = self.runtime_adapter.num_total_parts();
+                    // `n` is an upper bound for elements in the accumulator; declaring with
+                    // this capacity up front will mean no further allocations will occur
+                    // from `push` calls in the loop.
+                    let mut accumulator = Vec::with_capacity(n);
+
+                    for part_ord in 0..n {
+                        let part_ord = part_ord as u64;
+                        let part_owner =
+                            self.runtime_adapter.get_part_owner(parent_hash, part_ord)?;
+                        if part_owner == chunk_producer || Some(part_owner) == self.me {
+                            continue;
+                        }
+                        accumulator.push(part_ord);
                     }
-                    candidates.push(part_ord);
-                }
+
+                    accumulator
+                };
+
                 let chosen = candidates
                     .choose_multiple(
                         &mut rand::thread_rng(),
