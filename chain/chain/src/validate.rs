@@ -119,10 +119,6 @@ pub fn validate_chunk_with_chunk_extra(
         return Err(ErrorKind::InvalidGasUsed.into());
     }
 
-    if prev_chunk_extra.validator_reward != chunk_header.inner.validator_reward {
-        return Err(ErrorKind::InvalidReward.into());
-    }
-
     if prev_chunk_extra.balance_burnt != chunk_header.inner.balance_burnt {
         return Err(ErrorKind::InvalidBalanceBurnt.into());
     }

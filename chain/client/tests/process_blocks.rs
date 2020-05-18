@@ -1119,6 +1119,7 @@ fn test_gc_tail_update() {
 fn test_gas_price_change() {
     init_test_logger();
     let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
+    println!("total supply = {}", genesis.config.total_supply);
     let target_num_tokens_left = NEAR_BASE / 10 + 1;
     let send_money_total_gas = genesis
         .config
@@ -1149,17 +1150,15 @@ fn test_gas_price_change() {
     genesis.config.gas_limit = gas_limit;
     genesis.config.gas_price_adjustment_rate = gas_price_adjustment_rate;
     genesis.config.runtime_config.storage_amount_per_byte = 0;
+    let genesis = Arc::new(genesis);
+    let chain_genesis = ChainGenesis::from(&genesis);
     let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![Arc::new(neard::NightshadeRuntime::new(
         Path::new("."),
         create_test_store(),
-        Arc::new(genesis),
+        genesis,
         vec![],
         vec![],
     ))];
-    let mut chain_genesis = ChainGenesis::test();
-    chain_genesis.min_gas_price = min_gas_price;
-    chain_genesis.gas_price_adjustment_rate = gas_price_adjustment_rate;
-    chain_genesis.gas_limit = gas_limit;
     let mut env = TestEnv::new_with_runtime(chain_genesis, 1, 1, runtimes);
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
     let genesis_hash = genesis_block.hash();

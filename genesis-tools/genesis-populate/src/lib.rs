@@ -209,7 +209,6 @@ impl GenesisBuilder {
                 vec![],
                 vec![],
                 vec![],
-                0,
                 self.genesis.config.total_supply.clone(),
             )
             .unwrap();
@@ -226,7 +225,6 @@ impl GenesisBuilder {
                     vec![],
                     0,
                     self.genesis.config.gas_limit.clone(),
-                    0,
                     0,
                 ),
             );

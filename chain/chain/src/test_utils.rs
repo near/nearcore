@@ -517,7 +517,6 @@ impl RuntimeAdapter for KeyValueRuntime {
         _proposals: Vec<ValidatorStake>,
         _slashed_validators: Vec<SlashedValidator>,
         _validator_mask: Vec<bool>,
-        _validator_reward: Balance,
         _total_supply: Balance,
     ) -> Result<(), Error> {
         Ok(())
@@ -693,7 +692,6 @@ impl RuntimeAdapter for KeyValueRuntime {
             receipt_result: new_receipts,
             validator_proposals: vec![],
             total_gas_burnt: 0,
-            total_validator_reward: 0,
             total_balance_burnt: 0,
             proof: None,
         })
@@ -893,7 +891,11 @@ impl RuntimeAdapter for KeyValueRuntime {
         Ok(block_height.saturating_sub(NUM_EPOCHS_TO_KEEP_STORE_DATA * self.epoch_length))
     }
 
-    fn get_epoch_inflation(&self, _epoch_id: &EpochId) -> Result<u128, Error> {
+    fn epoch_exists(&self, _epoch_id: &EpochId) -> bool {
+        true
+    }
+
+    fn get_epoch_minted_amount(&self, _epoch_id: &EpochId) -> Result<Balance, Error> {
         Ok(0)
     }
 

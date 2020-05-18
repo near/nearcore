@@ -71,6 +71,7 @@ pub struct ApplyState {
 }
 
 /// Contains information to update validators accounts at the first block of a new epoch.
+#[derive(Debug)]
 pub struct ValidatorAccountsUpdate {
     /// Maximum stake across last 3 epochs.
     pub stake_info: HashMap<AccountId, Balance>,
@@ -88,14 +89,14 @@ pub struct ValidatorAccountsUpdate {
 pub struct VerificationResult {
     pub gas_burnt: Gas,
     pub gas_used: Gas,
-    pub validator_reward: Balance,
+    pub burnt_amount: Balance,
 }
 
 #[derive(Debug, Default)]
 pub struct ApplyStats {
-    pub total_validator_reward: Balance,
-    pub total_balance_burnt: Balance,
-    pub total_balance_slashed: Balance,
+    pub tx_burnt_amount: Balance,
+    pub slashed_burnt_amount: Balance,
+    pub other_burnt_amount: Balance,
 }
 
 pub struct ApplyResult {
@@ -239,10 +240,8 @@ impl Runtime {
                         actions: transaction.actions.clone(),
                     }),
                 };
-                stats.total_validator_reward = safe_add_balance(
-                    stats.total_validator_reward,
-                    verification_result.validator_reward,
-                )?;
+                stats.tx_burnt_amount =
+                    safe_add_balance(stats.tx_burnt_amount, verification_result.burnt_amount)?;
                 let outcome = ExecutionOutcomeWithId {
                     id: signed_transaction.get_hash(),
                     outcome: ExecutionOutcome {
@@ -486,11 +485,10 @@ impl Runtime {
         if receipt.predecessor_id == system_account() {
             result.gas_burnt = 0;
             result.gas_used = 0;
-            // If the refund fails, instead of just burning tokens, we report the total number of
-            // tokens burnt in the ApplyResult. It can be used by validators to distribute it.
+            // If the refund fails tokens are burned.
             if result.result.is_err() {
-                stats.total_balance_burnt = safe_add_balance(
-                    stats.total_balance_burnt,
+                stats.other_burnt_amount = safe_add_balance(
+                    stats.other_burnt_amount,
                     total_deposit(&action_receipt.actions)?,
                 )?
             }
@@ -518,7 +516,7 @@ impl Runtime {
         let receiver_gas_reward = result.gas_burnt_for_function_call
             * *self.config.transaction_costs.burnt_gas_reward.numer() as u64
             / *self.config.transaction_costs.burnt_gas_reward.denom() as u64;
-        let mut validator_reward = safe_gas_to_balance(action_receipt.gas_price, result.gas_burnt)?;
+        let mut tx_burnt_amount = safe_gas_to_balance(action_receipt.gas_price, result.gas_burnt)?;
         if receiver_gas_reward > 0 {
             let mut account = get_account(state_update, account_id)?;
             if let Some(ref mut account) = account {
@@ -527,7 +525,7 @@ impl Runtime {
                 // Validators receive the remaining execution reward that was not given to the
                 // account holder. If the account doesn't exist by the end of the execution, the
                 // validators receive the full reward.
-                validator_reward -= receiver_reward;
+                tx_burnt_amount -= receiver_reward;
                 account.amount = safe_add_balance(account.amount, receiver_reward)?;
                 set_account(state_update, account_id.clone(), account);
                 state_update.commit(StateChangeCause::ActionReceiptGasReward {
@@ -536,8 +534,7 @@ impl Runtime {
             }
         }
 
-        stats.total_validator_reward =
-            safe_add_balance(stats.total_validator_reward, validator_reward)?;
+        stats.tx_burnt_amount = safe_add_balance(stats.tx_burnt_amount, tx_burnt_amount)?;
 
         // Generating outgoing data
         // A {
@@ -875,8 +872,8 @@ impl Runtime {
                         "FATAL: staking invariant does not hold. Account locked {} is less than slashed {}",
                         account.locked, amount_to_slash)).into());
                 }
-                stats.total_balance_slashed = stats
-                    .total_balance_slashed
+                stats.slashed_burnt_amount = stats
+                    .slashed_burnt_amount
                     .checked_add(amount_to_slash)
                     .ok_or_else(|| RuntimeError::UnexpectedIntegerOverflow)?;
                 account.locked = account

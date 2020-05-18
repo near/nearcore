@@ -193,7 +193,6 @@ mod tests {
                 0,
                 0,
                 0,
-                0,
                 CryptoHash::default(),
                 CryptoHash::default(),
                 vec![],

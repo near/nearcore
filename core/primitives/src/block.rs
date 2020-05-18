@@ -57,8 +57,6 @@ pub struct BlockHeaderInnerRest {
     pub chunk_mask: Vec<bool>,
     /// Gas price. Same for all chunks
     pub gas_price: Balance,
-    /// Sum of all validator reward across all chunks.
-    pub validator_reward: Balance,
     /// Total supply of tokens in the system
     pub total_supply: Balance,
     /// List of challenges result from previous block.
@@ -110,7 +108,6 @@ impl BlockHeaderInnerRest {
         validator_proposals: Vec<ValidatorStake>,
         chunk_mask: Vec<bool>,
         gas_price: Balance,
-        validator_reward: Balance,
         total_supply: Balance,
         challenges_result: ChallengesResult,
         last_final_block: CryptoHash,
@@ -127,7 +124,6 @@ impl BlockHeaderInnerRest {
             validator_proposals,
             chunk_mask,
             gas_price,
-            validator_reward,
             total_supply,
             challenges_result,
             last_final_block,
@@ -260,7 +256,6 @@ impl BlockHeader {
         epoch_id: EpochId,
         next_epoch_id: EpochId,
         gas_price: Balance,
-        validator_reward: Balance,
         total_supply: Balance,
         challenges_result: ChallengesResult,
         signer: &dyn ValidatorSigner,
@@ -288,7 +283,6 @@ impl BlockHeader {
             validator_proposals,
             chunk_mask,
             gas_price,
-            validator_reward,
             total_supply,
             challenges_result,
             last_final_block,
@@ -331,7 +325,6 @@ impl BlockHeader {
             vec![],
             vec![],
             initial_gas_price,
-            0,
             initial_total_supply,
             vec![],
             CryptoHash::default(),
@@ -398,7 +391,6 @@ pub fn genesis_chunks(
                 0,
                 initial_gas_limit,
                 0,
-                0,
                 CryptoHash::default(),
                 vec![],
                 vec![],
@@ -457,7 +449,7 @@ impl Block {
         approvals: Vec<Option<Signature>>,
         gas_price_adjustment_rate: Rational,
         min_gas_price: Balance,
-        inflation: Option<Balance>,
+        minted_amount: Option<Balance>,
         challenges_result: ChallengesResult,
         challenges: Challenges,
         signer: &dyn ValidatorSigner,
@@ -468,7 +460,6 @@ impl Block {
         let mut gas_used = 0;
         // This computation of chunk_mask relies on the fact that chunks are ordered by shard_id.
         let mut chunk_mask = vec![];
-        let mut validator_reward = 0;
         let mut balance_burnt = 0;
         let mut gas_limit = 0;
         for chunk in chunks.iter() {
@@ -476,7 +467,6 @@ impl Block {
                 validator_proposals.extend_from_slice(&chunk.inner.validator_proposals);
                 gas_used += chunk.inner.gas_used;
                 gas_limit += chunk.inner.gas_limit;
-                validator_reward += chunk.inner.validator_reward;
                 balance_burnt += chunk.inner.balance_burnt;
                 chunk_mask.push(true);
             } else {
@@ -492,7 +482,7 @@ impl Block {
         let new_gas_price = std::cmp::max(new_gas_price, min_gas_price);
 
         let new_total_supply =
-            prev.inner_rest.total_supply + inflation.unwrap_or(0) - balance_burnt;
+            prev.inner_rest.total_supply + minted_amount.unwrap_or(0) - balance_burnt;
 
         let now = to_timestamp(Utc::now());
         let time =
@@ -534,7 +524,6 @@ impl Block {
                 epoch_id,
                 next_epoch_id,
                 new_gas_price,
-                validator_reward,
                 new_total_supply,
                 challenges_result,
                 signer,

@@ -187,9 +187,9 @@ pub(crate) fn check_balance(
         outgoing_receipts_balance,
         new_delayed_receipts_balance,
         final_postponed_receipts_balance,
-        stats.total_validator_reward,
-        stats.total_balance_burnt,
-        stats.total_balance_slashed
+        stats.tx_burnt_amount,
+        stats.slashed_burnt_amount,
+        stats.other_burnt_amount
     );
     if initial_balance != final_balance {
         Err(BalanceMismatchError {
@@ -204,9 +204,9 @@ pub(crate) fn check_balance(
             outgoing_receipts_balance,
             new_delayed_receipts_balance,
             final_postponed_receipts_balance,
-            total_validator_reward: stats.total_validator_reward,
-            total_balance_burnt: stats.total_balance_burnt,
-            total_balance_slashed: stats.total_balance_slashed,
+            tx_burnt_amount: stats.tx_burnt_amount,
+            slashed_burnt_amount: stats.slashed_burnt_amount,
+            other_burnt_amount: stats.other_burnt_amount,
         }
         .into())
     } else {
@@ -374,9 +374,9 @@ mod tests {
             &[tx],
             &[receipt],
             &ApplyStats {
-                total_validator_reward,
-                total_balance_burnt: 0,
-                total_balance_slashed: 0,
+                tx_burnt_amount: total_validator_reward,
+                other_burnt_amount: 0,
+                slashed_burnt_amount: 0,
             },
         )
         .unwrap();

@@ -89,6 +89,8 @@ impl NightshadeRuntime {
             block_producer_kickout_threshold: genesis.config.block_producer_kickout_threshold,
             chunk_producer_kickout_threshold: genesis.config.chunk_producer_kickout_threshold,
             fishermen_threshold: genesis.config.fishermen_threshold,
+            online_min_threshold: genesis.config.online_min_threshold,
+            online_max_threshold: genesis.config.online_max_threshold,
         };
         let reward_calculator = RewardCalculator {
             max_inflation_rate: genesis.config.max_inflation_rate,
@@ -96,6 +98,8 @@ impl NightshadeRuntime {
             epoch_length: genesis.config.epoch_length,
             protocol_reward_percentage: genesis.config.protocol_reward_rate,
             protocol_treasury_account: genesis.config.protocol_treasury_account.to_string(),
+            online_max_threshold: genesis.config.online_max_threshold,
+            online_min_threshold: genesis.config.online_min_threshold,
         };
         let epoch_manager = Arc::new(RwLock::new(
             EpochManager::new(
@@ -327,6 +331,17 @@ impl NightshadeRuntime {
                 RuntimeError::ReceiptValidationError(e) => panic!("{}", e),
             })?;
 
+        let total_gas_burnt =
+            apply_result.outcomes.iter().map(|tx_result| tx_result.outcome.gas_burnt).sum();
+        let total_balance_burnt = apply_result
+            .stats
+            .tx_burnt_amount
+            .checked_add(apply_result.stats.other_burnt_amount)
+            .and_then(|result| result.checked_add(apply_result.stats.slashed_burnt_amount))
+            .ok_or_else(|| {
+                ErrorKind::Other("Integer overflow during burnt balance summation".to_string())
+            })?;
+
         // Sort the receipts into appropriate outgoing shards.
         let mut receipt_result = HashMap::default();
         for receipt in apply_result.outgoing_receipts {
@@ -335,8 +350,6 @@ impl NightshadeRuntime {
                 .or_insert_with(|| vec![])
                 .push(receipt);
         }
-        let total_gas_burnt =
-            apply_result.outcomes.iter().map(|tx_result| tx_result.outcome.gas_burnt).sum();
 
         let result = ApplyTransactionResult {
             trie_changes: WrappedTrieChanges::new(
@@ -351,9 +364,7 @@ impl NightshadeRuntime {
             receipt_result,
             validator_proposals: apply_result.validator_proposals,
             total_gas_burnt,
-            total_validator_reward: apply_result.stats.total_validator_reward,
-            total_balance_burnt: apply_result.stats.total_balance_burnt
-                + apply_result.stats.total_balance_slashed,
+            total_balance_burnt,
             proof: trie.recorded_storage(),
         };
 
@@ -807,9 +818,14 @@ impl RuntimeAdapter for NightshadeRuntime {
         Ok(epoch_start_height)
     }
 
-    fn get_epoch_inflation(&self, epoch_id: &EpochId) -> Result<Balance, Error> {
+    fn epoch_exists(&self, epoch_id: &EpochId) -> bool {
         let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
-        Ok(epoch_manager.get_epoch_inflation(epoch_id)?)
+        epoch_manager.get_epoch_info(epoch_id).is_ok()
+    }
+
+    fn get_epoch_minted_amount(&self, epoch_id: &EpochId) -> Result<Balance, Error> {
+        let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
+        Ok(epoch_manager.get_epoch_info(epoch_id)?.minted_amount)
     }
 
     fn add_validator_proposals(
@@ -822,7 +838,6 @@ impl RuntimeAdapter for NightshadeRuntime {
         proposals: Vec<ValidatorStake>,
         slashed_validators: Vec<SlashedValidator>,
         chunk_mask: Vec<bool>,
-        validator_reward: Balance,
         total_supply: Balance,
     ) -> Result<(), Error> {
         // Check that genesis block doesn't have any proposals.
@@ -837,7 +852,6 @@ impl RuntimeAdapter for NightshadeRuntime {
             proposals,
             chunk_mask,
             slashed_validators,
-            validator_reward,
             total_supply,
         );
         let rng_seed = (rng_seed.0).0;
@@ -1374,7 +1388,6 @@ mod test {
                     vec![],
                     vec![],
                     vec![],
-                    0,
                     genesis_total_supply,
                 )
                 .unwrap();
@@ -1441,7 +1454,6 @@ mod test {
                     self.last_proposals.clone(),
                     challenges_result,
                     chunk_mask,
-                    0,
                     self.runtime.genesis.config.total_supply,
                 )
                 .unwrap();
@@ -1855,7 +1867,6 @@ mod test {
                     new_env.last_proposals.clone(),
                     vec![],
                     vec![true],
-                    0,
                     new_env.runtime.genesis.config.total_supply,
                 )
                 .unwrap();

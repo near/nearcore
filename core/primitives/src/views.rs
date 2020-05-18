@@ -329,6 +329,7 @@ pub struct BlockHeaderView {
     /// TODO(2271): deprecated.
     #[serde(with = "u128_dec_format")]
     pub rent_paid: Balance,
+    /// TODO(2271): deprecated.
     #[serde(with = "u128_dec_format")]
     pub validator_reward: Balance,
     #[serde(with = "u128_dec_format")]
@@ -367,7 +368,7 @@ impl From<BlockHeader> for BlockHeaderView {
             chunk_mask: header.inner_rest.chunk_mask,
             gas_price: header.inner_rest.gas_price,
             rent_paid: 0,
-            validator_reward: header.inner_rest.validator_reward,
+            validator_reward: 0,
             total_supply: header.inner_rest.total_supply,
             challenges_result: header.inner_rest.challenges_result,
             last_final_block: header.inner_rest.last_final_block,
@@ -408,7 +409,6 @@ impl From<BlockHeaderView> for BlockHeader {
                 gas_price: view.gas_price,
                 total_supply: view.total_supply,
                 challenges_result: view.challenges_result,
-                validator_reward: view.validator_reward,
                 last_final_block: view.last_final_block,
                 last_ds_final_block: view.last_ds_final_block,
                 approvals: view.approvals.clone(),
@@ -448,6 +448,7 @@ pub struct ChunkHeaderView {
     /// TODO(2271): deprecated.
     #[serde(with = "u128_dec_format")]
     pub rent_paid: Balance,
+    /// TODO(2271): deprecated.
     #[serde(with = "u128_dec_format")]
     pub validator_reward: Balance,
     #[serde(with = "u128_dec_format")]
@@ -473,7 +474,7 @@ impl From<ShardChunkHeader> for ChunkHeaderView {
             gas_used: chunk.inner.gas_used,
             gas_limit: chunk.inner.gas_limit,
             rent_paid: 0,
-            validator_reward: chunk.inner.validator_reward,
+            validator_reward: 0,
             balance_burnt: chunk.inner.balance_burnt,
             outgoing_receipts_root: chunk.inner.outgoing_receipts_root,
             tx_root: chunk.inner.tx_root,
@@ -501,7 +502,6 @@ impl From<ChunkHeaderView> for ShardChunkHeader {
                 shard_id: view.shard_id,
                 gas_used: view.gas_used,
                 gas_limit: view.gas_limit,
-                validator_reward: view.validator_reward,
                 balance_burnt: view.balance_burnt,
                 outgoing_receipts_root: view.outgoing_receipts_root,
                 tx_root: view.tx_root,

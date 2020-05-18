@@ -86,7 +86,6 @@ pub struct ApplyTransactionResult {
     pub receipt_result: ReceiptResult,
     pub validator_proposals: Vec<ValidatorStake>,
     pub total_gas_burnt: Gas,
-    pub total_validator_reward: Balance,
     pub total_balance_burnt: Balance,
     pub proof: Option<PartialStorage>,
 }
@@ -301,8 +300,11 @@ pub trait RuntimeAdapter: Send + Sync {
     /// Get the block height for which garbage collection should not go over
     fn get_gc_stop_height(&self, block_hash: &CryptoHash) -> Result<BlockHeight, Error>;
 
-    /// Get inflation for a certain epoch
-    fn get_epoch_inflation(&self, epoch_id: &EpochId) -> Result<Balance, Error>;
+    /// Check if epoch exists.
+    fn epoch_exists(&self, epoch_id: &EpochId) -> bool;
+
+    /// Amount of tokens minted in given epoch.
+    fn get_epoch_minted_amount(&self, epoch_id: &EpochId) -> Result<Balance, Error>;
 
     /// Add proposals for validators.
     fn add_validator_proposals(
@@ -315,7 +317,6 @@ pub trait RuntimeAdapter: Send + Sync {
         proposals: Vec<ValidatorStake>,
         slashed_validators: Vec<SlashedValidator>,
         validator_mask: Vec<bool>,
-        validator_reward: Balance,
         total_supply: Balance,
     ) -> Result<(), Error>;
 

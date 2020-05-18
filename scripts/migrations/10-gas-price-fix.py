@@ -1,6 +1,6 @@
 """
-Fixes a bug related to gas price computation. No state migration needed for this change
-
+Fixes a bug related to gas price computation.
+No state migration needed for this change.
 """
 
 import sys

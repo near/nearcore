@@ -23,7 +23,7 @@ pub enum ErrorKind {
     /// Orphan block.
     #[fail(display = "Orphan")]
     Orphan,
-    /// Block is not availiable (e.g. garbage collected)
+    /// Block is not available (e.g. garbage collected)
     #[fail(display = "Block Missing (unavailable on the node): {}", _0)]
     BlockMissing(CryptoHash),
     /// Chunk is missing.
@@ -128,9 +128,6 @@ pub enum ErrorKind {
     /// Invalid Gas Used
     #[fail(display = "Invalid Gas Used")]
     InvalidGasUsed,
-    /// Invalid Validator Reward
-    #[fail(display = "Invalid Validator Reward")]
-    InvalidReward,
     /// Invalid Balance Burnt
     #[fail(display = "Invalid Balance Burnt")]
     InvalidBalanceBurnt,
@@ -248,7 +245,6 @@ impl Error {
             | ErrorKind::InvalidGasLimit
             | ErrorKind::InvalidGasPrice
             | ErrorKind::InvalidGasUsed
-            | ErrorKind::InvalidReward
             | ErrorKind::InvalidBalanceBurnt
             | ErrorKind::InvalidShardId(_)
             | ErrorKind::InvalidStateRequest(_)
