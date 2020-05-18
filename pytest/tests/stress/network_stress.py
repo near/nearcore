@@ -7,6 +7,7 @@ from network import stop_network, resume_network, init_network_pillager
 
 TIMEOUT = 300
 
+
 @stress_process
 def monkey_transactions_noval(stopped, error, nodes, nonces):
     while stopped.value == 0:
@@ -22,7 +23,9 @@ def monkey_transactions_noval(stopped, error, nodes, nonces):
         hash_, _ = get_recent_hash(nodes[-1])
 
         with nonce_lock:
-            tx = sign_payment_tx(nodes[from_].signer_key, 'test%s' % to, amt, nonce_val.value, base58.b58decode(hash_.encode('utf8')))
+            tx = sign_payment_tx(nodes[from_].signer_key, 'test%s' % to, amt,
+                                 nonce_val.value,
+                                 base58.b58decode(hash_.encode('utf8')))
             for validator_id in validator_ids:
                 try:
                     tx_hash = nodes[validator_id].send_tx(tx)['result']
@@ -32,6 +35,7 @@ def monkey_transactions_noval(stopped, error, nodes, nonces):
             nonce_val.value = nonce_val.value + 1
 
         time.sleep(0.1)
+
 
 @stress_process
 def monkey_network_hammering(stopped, error, nodes, nonces):
@@ -53,9 +57,10 @@ def monkey_network_hammering(stopped, error, nodes, nonces):
             pid = nodes[i].pid.value
             print("Resuming network for process %s" % pid)
             resume_network(pid)
-            
+
 
 expect_network_issues()
 init_network_pillager()
-doit(3, 3, 3, 0, [monkey_network_hammering, monkey_transactions_noval, monkey_staking], TIMEOUT)
-
+doit(3, 3, 3, 0,
+     [monkey_network_hammering, monkey_transactions_noval, monkey_staking],
+     TIMEOUT)

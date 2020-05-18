@@ -6,8 +6,12 @@ from collections import OrderedDict
 home = sys.argv[1]
 output_home = sys.argv[2]
 
-config = json.load(open(os.path.join(home, 'output_config.json')), object_pairs_hook=OrderedDict)
-records_fname = [filename for filename in os.listdir(home) if filename.startswith('output_records_')]
+config = json.load(open(os.path.join(home, 'output_config.json')),
+                   object_pairs_hook=OrderedDict)
+records_fname = [
+    filename for filename in os.listdir(home)
+    if filename.startswith('output_records_')
+]
 assert len(records_fname) == 1, "Not found records file or found too many"
 
 records = json.load(open(os.path.join(home, records_fname[0])))
@@ -61,4 +65,3 @@ config['runtime_config']['wasm_config']['limit_config'] = {
 config['records'] = records
 
 json.dump(config, open(os.path.join(output_home, 'output.json'), 'w'), indent=2)
-

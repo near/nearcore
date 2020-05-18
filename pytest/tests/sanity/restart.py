@@ -6,14 +6,15 @@ import sys, time
 
 sys.path.append('lib')
 
-
 from cluster import start_cluster
 
 TIMEOUT = 150
 BLOCKS1 = 20
 BLOCKS2 = 40
 
-nodes = start_cluster(2, 0, 2, None, [["epoch_length", 10], ["block_producer_kickout_threshold", 80]], {})
+nodes = start_cluster(
+    2, 0, 2, None,
+    [["epoch_length", 10], ["block_producer_kickout_threshold", 80]], {})
 
 started = time.time()
 
@@ -24,10 +25,15 @@ last_common = [[0 for _ in nodes] for _ in nodes]
 
 height_to_hash = {}
 
-def min_common(): return min([min(x) for x in last_common])
+
+def min_common():
+    return min([min(x) for x in last_common])
+
+
 def heights_report():
     for i, sh in enumerate(seen_heights):
         print("Node %s: %s" % (i, sorted(list(sh))))
+
 
 while max_height < BLOCKS1:
     assert time.time() - started < TIMEOUT
@@ -39,12 +45,15 @@ while max_height < BLOCKS1:
         if height > max_height:
             max_height = height
             if height % 10 == 0:
-                print("Reached height %s, min common: %s" % (height, min_common()))
+                print("Reached height %s, min common: %s" %
+                      (height, min_common()))
 
         if height not in height_to_hash:
             height_to_hash[height] = hash_
         else:
-            assert height_to_hash[height] == hash_, "height: %s, h1: %s, h2: %s" % (height, hash_, height_to_hash[height])
+            assert height_to_hash[
+                height] == hash_, "height: %s, h1: %s, h2: %s" % (
+                    height, hash_, height_to_hash[height])
 
         last_heights[i] = height
         seen_heights[i].add(height)
@@ -73,12 +82,15 @@ while max_height < BLOCKS2:
         if height > max_height:
             max_height = height
             if height % 10 == 0:
-                print("Reached height %s, min common: %s" % (height, min_common()))
+                print("Reached height %s, min common: %s" %
+                      (height, min_common()))
 
         if height not in height_to_hash:
             height_to_hash[height] = hash_
         else:
-            assert height_to_hash[height] == hash_, "height: %s, h1: %s, h2: %s" % (height, hash_, height_to_hash[height])
+            assert height_to_hash[
+                height] == hash_, "height: %s, h1: %s, h2: %s" % (
+                    height, hash_, height_to_hash[height])
 
         last_heights[i] = height
         seen_heights[i].add(height)
@@ -90,4 +102,3 @@ while max_height < BLOCKS2:
         assert min_common() + 2 >= height, heights_report()
 
 assert min_common() + 2 >= BLOCKS2, heights_report()
-

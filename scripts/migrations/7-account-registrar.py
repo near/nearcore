@@ -17,7 +17,8 @@ from collections import OrderedDict
 home = sys.argv[1]
 output_home = sys.argv[2]
 
-config = json.load(open(os.path.join(home, 'output.json')), object_pairs_hook=OrderedDict)
+config = json.load(open(os.path.join(home, 'output.json')),
+                   object_pairs_hook=OrderedDict)
 
 assert config['protocol_version'] == 6
 
@@ -33,15 +34,18 @@ near_access_key_records = []
 
 # Removing existing `registrar` account.
 for record in config['records']:
-    if ('Account' in record) and (record['Account']['account_id'] == 'registrar'):
+    if ('Account' in record) and (
+            record['Account']['account_id'] == 'registrar'):
         continue
-    if ('AccessKey' in record) and (record['AccessKey']['account_id'] == 'registrar'):
+    if ('AccessKey' in record) and (
+            record['AccessKey']['account_id'] == 'registrar'):
         continue
-    if ('AccessKey' in record) and (record['AccessKey']['account_id'] == 'near'):
+    if ('AccessKey' in record) and (
+            record['AccessKey']['account_id'] == 'near'):
         near_access_key_records.append(record['AccessKey'])
     records.append(record)
 
-assert(len(near_access_key_records) > 0)
+assert (len(near_access_key_records) > 0)
 
 records.append({
     'Account': {
@@ -64,7 +68,6 @@ for access_key_record in near_access_key_records:
             'account_id': 'registrar',
         }
     })
-
 
 config['records'] = records
 

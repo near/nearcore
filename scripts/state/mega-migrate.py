@@ -18,7 +18,8 @@
 import json
 import os
 
-filename = os.path.join(os.path.dirname(os.path.realpath(__file__)), '../../near/res/testnet.json')
+filename = os.path.join(os.path.dirname(os.path.realpath(__file__)),
+                        '../../near/res/testnet.json')
 q = json.loads(open(filename).read())
 
 config_version = q.get('config_version', 0)
@@ -27,9 +28,12 @@ if config_version == 0:
     num_sec_per_year = 31556952
     # The rest of `runtime_config` fields are default
     q['runtime_config'] = {
-        'poke_threshold': 24 * 3600,
-        'storage_cost_byte_per_block': str(5 * 10**6),
-        'account_length_baseline_cost_per_block': str(10**24 * 3**8 // num_sec_per_year),
+        'poke_threshold':
+            24 * 3600,
+        'storage_cost_byte_per_block':
+            str(5 * 10**6),
+        'account_length_baseline_cost_per_block':
+            str(10**24 * 3**8 // num_sec_per_year),
     }
     config_version = 1
 
