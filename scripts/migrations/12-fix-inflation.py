@@ -18,5 +18,6 @@ assert config['protocol_version'] == 11
 config['protocol_version'] = 12
 config['online_max_threshold'] = [99, 100]
 config['online_min_threshold'] = [90, 100]
+config['chunk_producer_kickout_threshold'] = 90
 
 json.dump(config, open(os.path.join(output_home, 'output.json'), 'w'), indent=2)
