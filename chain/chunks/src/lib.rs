@@ -414,7 +414,7 @@ impl ShardsManager {
                 )
                 && self.me.as_ref() != Some(&validator_stake.account_id)
             {
-                block_producers.push(validator_stake.account_id.clone());
+                block_producers.push(validator_stake.account_id);
             }
         }
 
