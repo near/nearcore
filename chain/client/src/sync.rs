@@ -876,6 +876,7 @@ mod test {
     use near_primitives::network::PeerId;
 
     use super::*;
+    use near_primitives::merkle::PartialMerkleTree;
     use near_primitives::types::EpochId;
     use near_primitives::validator_signer::InMemoryValidatorSigner;
     use num_rational::Ratio;
@@ -1005,6 +1006,7 @@ mod test {
 
         let mut last_block = &genesis;
         let mut all_blocks = vec![];
+        let mut block_merkle_tree = PartialMerkleTree::default();
         for i in 0..61 {
             let current_height = 3 + i * 5;
 
@@ -1050,7 +1052,9 @@ mod test {
                 vec![],
                 &*signers[3],
                 last_block.header.inner_lite.next_bp_hash.clone(),
+                block_merkle_tree.root(),
             );
+            block_merkle_tree.insert(block.hash());
 
             all_blocks.push(block);
 

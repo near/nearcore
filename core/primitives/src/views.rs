@@ -338,6 +338,7 @@ pub struct BlockHeaderView {
     pub last_final_block: CryptoHash,
     pub last_ds_final_block: CryptoHash,
     pub next_bp_hash: CryptoHash,
+    pub block_merkle_root: CryptoHash,
     pub approvals: Vec<Option<Signature>>,
     pub signature: Signature,
 }
@@ -374,6 +375,7 @@ impl From<BlockHeader> for BlockHeaderView {
             last_final_block: header.inner_rest.last_final_block,
             last_ds_final_block: header.inner_rest.last_ds_final_block,
             next_bp_hash: header.inner_lite.next_bp_hash,
+            block_merkle_root: header.inner_lite.block_merkle_root,
             approvals: header.inner_rest.approvals.clone(),
             signature: header.signature,
         }
@@ -392,6 +394,7 @@ impl From<BlockHeaderView> for BlockHeader {
                 outcome_root: view.outcome_root,
                 timestamp: view.timestamp,
                 next_bp_hash: view.next_bp_hash,
+                block_merkle_root: view.block_merkle_root,
             },
             inner_rest: BlockHeaderInnerRest {
                 chunk_receipts_root: view.chunk_receipts_root,

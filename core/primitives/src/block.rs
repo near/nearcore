@@ -35,6 +35,8 @@ pub struct BlockHeaderInnerLite {
     pub timestamp: u64,
     /// Hash of the next epoch block producers set
     pub next_bp_hash: CryptoHash,
+    /// Merkle root of block hashes up to the current block.
+    pub block_merkle_root: CryptoHash,
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, Eq, PartialEq)]
@@ -80,6 +82,7 @@ impl BlockHeaderInnerLite {
         outcome_root: MerkleHash,
         timestamp: u64,
         next_bp_hash: CryptoHash,
+        block_merkle_root: CryptoHash,
     ) -> Self {
         Self {
             height,
@@ -89,6 +92,7 @@ impl BlockHeaderInnerLite {
             outcome_root,
             timestamp,
             next_bp_hash,
+            block_merkle_root,
         }
     }
 
@@ -263,6 +267,7 @@ impl BlockHeader {
         last_ds_final_block: CryptoHash,
         approvals: Vec<Option<Signature>>,
         next_bp_hash: CryptoHash,
+        block_merkle_root: CryptoHash,
     ) -> Self {
         let inner_lite = BlockHeaderInnerLite::new(
             height,
@@ -272,6 +277,7 @@ impl BlockHeader {
             outcome_root,
             timestamp,
             next_bp_hash,
+            block_merkle_root,
         );
         let inner_rest = BlockHeaderInnerRest::new(
             chunk_receipts_root,
@@ -314,6 +320,7 @@ impl BlockHeader {
             CryptoHash::default(),
             to_timestamp(timestamp),
             next_bp_hash,
+            CryptoHash::default(),
         );
         let inner_rest = BlockHeaderInnerRest::new(
             chunk_receipts_root,
@@ -454,6 +461,7 @@ impl Block {
         challenges: Challenges,
         signer: &dyn ValidatorSigner,
         next_bp_hash: CryptoHash,
+        block_merkle_root: CryptoHash,
     ) -> Self {
         // Collect aggregate of validators and gas usage/limits from chunks.
         let mut validator_proposals = vec![];
@@ -531,6 +539,7 @@ impl Block {
                 last_ds_final_block,
                 approvals,
                 next_bp_hash,
+                block_merkle_root,
             ),
             chunks,
             challenges,
