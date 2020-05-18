@@ -12,7 +12,7 @@ use tracing::debug;
 use near_primitives::block::Approval;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
-use near_primitives::merkle::{MerklePath, MerkleTree};
+use near_primitives::merkle::{MerklePath, PartialMerkleTree};
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{
     ChunkHash, EncodedShardChunk, PartialEncodedChunk, ReceiptProof, ShardChunk, ShardChunkHeader,
@@ -255,7 +255,10 @@ pub trait ChainStoreAccess {
 
     fn get_genesis_height(&self) -> BlockHeight;
 
-    fn get_block_merkle_tree(&mut self, block_hash: &CryptoHash) -> Result<&MerkleTree, Error>;
+    fn get_block_merkle_tree(
+        &mut self,
+        block_hash: &CryptoHash,
+    ) -> Result<&PartialMerkleTree, Error>;
 }
 
 /// All chain-related database operations.
@@ -311,7 +314,7 @@ pub struct ChainStore {
     /// Cache with height to hash on any chain.
     block_refcounts: SizedCache<Vec<u8>, u64>,
     /// Cache of block hash -> block merkle tree at the current block
-    block_merkle_tree: SizedCache<Vec<u8>, MerkleTree>,
+    block_merkle_tree: SizedCache<Vec<u8>, PartialMerkleTree>,
 }
 
 pub fn option_to_not_found<T>(res: io::Result<Option<T>>, field_name: &str) -> Result<T, Error> {
@@ -968,7 +971,10 @@ impl ChainStoreAccess for ChainStore {
         self.genesis_height
     }
 
-    fn get_block_merkle_tree(&mut self, block_hash: &CryptoHash) -> Result<&MerkleTree, Error> {
+    fn get_block_merkle_tree(
+        &mut self,
+        block_hash: &CryptoHash,
+    ) -> Result<&PartialMerkleTree, Error> {
         option_to_not_found(
             read_with_cache(
                 &*self.store,
@@ -1005,7 +1011,7 @@ struct ChainStoreCacheUpdate {
     last_block_with_new_chunk: HashMap<ShardId, CryptoHash>,
     transactions: HashSet<SignedTransaction>,
     block_refcounts: HashMap<CryptoHash, u64>,
-    block_merkle_tree: HashMap<CryptoHash, MerkleTree>,
+    block_merkle_tree: HashMap<CryptoHash, PartialMerkleTree>,
 }
 
 impl ChainStoreCacheUpdate {
@@ -1456,7 +1462,10 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
         self.chain_store.genesis_height
     }
 
-    fn get_block_merkle_tree(&mut self, block_hash: &CryptoHash) -> Result<&MerkleTree, Error> {
+    fn get_block_merkle_tree(
+        &mut self,
+        block_hash: &CryptoHash,
+    ) -> Result<&PartialMerkleTree, Error> {
         if let Some(merkle_tree) = self.chain_store_cache_update.block_merkle_tree.get(block_hash) {
             Ok(merkle_tree)
         } else {
@@ -1607,7 +1616,7 @@ impl<'a> ChainStoreUpdate<'a> {
     pub fn save_block_merkle_tree(
         &mut self,
         block_hash: CryptoHash,
-        block_merkle_tree: MerkleTree,
+        block_merkle_tree: PartialMerkleTree,
     ) {
         self.chain_store_cache_update.block_merkle_tree.insert(block_hash, block_merkle_tree);
     }
@@ -1615,7 +1624,7 @@ impl<'a> ChainStoreUpdate<'a> {
     fn update_and_save_block_merkle_tree(&mut self, header: &BlockHeader) -> Result<(), Error> {
         let prev_hash = header.prev_hash;
         if prev_hash == CryptoHash::default() {
-            self.save_block_merkle_tree(header.hash(), MerkleTree::default());
+            self.save_block_merkle_tree(header.hash(), PartialMerkleTree::default());
         } else {
             let mut block_merkle_tree = self.get_block_merkle_tree(&prev_hash)?.clone();
             block_merkle_tree.insert(prev_hash);

@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use near_network::types::{AccountOrPeerIdOrHash, KnownProducer};
 use near_network::PeerInfo;
 use near_primitives::hash::CryptoHash;
-use near_primitives::merkle::MerkleTree;
+use near_primitives::merkle::PartialMerkleTree;
 use near_primitives::sharding::ChunkHash;
 use near_primitives::types::{AccountId, BlockHeight, BlockIdOrFinality, MaybeBlockId, ShardId};
 use near_primitives::utils::generate_random_string;
@@ -166,7 +166,7 @@ impl GetBlockWithMerkleTree {
 }
 
 impl Message for GetBlockWithMerkleTree {
-    type Result = Result<(BlockView, MerkleTree), String>;
+    type Result = Result<(BlockView, PartialMerkleTree), String>;
 }
 
 /// Actor message requesting a chunk by chunk hash and block hash + shard id.

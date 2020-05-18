@@ -3,7 +3,7 @@ use near_crypto::{EmptySigner, PublicKey, Signature, Signer};
 use crate::account::{AccessKey, AccessKeyPermission, Account};
 use crate::block::Block;
 use crate::hash::CryptoHash;
-use crate::merkle::MerkleTree;
+use crate::merkle::PartialMerkleTree;
 use crate::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
     DeployContractAction, FunctionCallAction, SignedTransaction, StakeAction, Transaction,
@@ -246,7 +246,7 @@ impl Block {
         next_epoch_id: EpochId,
         next_bp_hash: CryptoHash,
         signer: &dyn ValidatorSigner,
-        block_merkle_tree: &mut MerkleTree,
+        block_merkle_tree: &mut PartialMerkleTree,
     ) -> Self {
         block_merkle_tree.insert(prev.hash());
         Self::empty_with_approvals(
@@ -270,7 +270,7 @@ impl Block {
             prev,
             height,
             signer,
-            &mut MerkleTree::default(),
+            &mut PartialMerkleTree::default(),
         )
     }
 
@@ -278,7 +278,7 @@ impl Block {
         prev: &Block,
         height: BlockHeight,
         signer: &dyn ValidatorSigner,
-        block_merkle_tree: &mut MerkleTree,
+        block_merkle_tree: &mut PartialMerkleTree,
     ) -> Self {
         Self::empty_with_epoch(
             prev,
@@ -298,7 +298,7 @@ impl Block {
     pub fn empty_with_block_merkle_tree(
         prev: &Block,
         signer: &dyn ValidatorSigner,
-        block_merkle_tree: &mut MerkleTree,
+        block_merkle_tree: &mut PartialMerkleTree,
     ) -> Self {
         Self::empty_with_height_and_block_merkle_tree(
             prev,
@@ -309,7 +309,7 @@ impl Block {
     }
 
     pub fn empty(prev: &Block, signer: &dyn ValidatorSigner) -> Self {
-        Self::empty_with_block_merkle_tree(prev, signer, &mut MerkleTree::default())
+        Self::empty_with_block_merkle_tree(prev, signer, &mut PartialMerkleTree::default())
     }
 
     /// This is not suppose to be used outside of chain tests, because this doesn't refer to correct chunks.

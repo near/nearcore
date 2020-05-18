@@ -23,7 +23,7 @@ use near_network::types::{
 use near_network::{NetworkAdapter, NetworkRequests};
 use near_primitives::block::{BlockHeader, GenesisId};
 use near_primitives::hash::CryptoHash;
-use near_primitives::merkle::{verify_path, MerkleTree};
+use near_primitives::merkle::{verify_path, PartialMerkleTree};
 use near_primitives::network::AnnounceAccount;
 use near_primitives::types::{
     AccountId, BlockHeight, BlockId, BlockIdOrFinality, Finality, MaybeBlockId,
@@ -398,7 +398,7 @@ impl Handler<GetBlock> for ViewClientActor {
 }
 
 impl Handler<GetBlockWithMerkleTree> for ViewClientActor {
-    type Result = Result<(BlockView, MerkleTree), String>;
+    type Result = Result<(BlockView, PartialMerkleTree), String>;
 
     fn handle(&mut self, msg: GetBlockWithMerkleTree, ctx: &mut Context<Self>) -> Self::Result {
         let block_view = self.handle(GetBlock(msg.0), ctx)?;

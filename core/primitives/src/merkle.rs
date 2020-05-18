@@ -110,15 +110,20 @@ pub fn verify_path<T: BorshSerialize>(root: MerkleHash, path: &MerklePath, item:
     hash == root
 }
 
+/// Merkle tree that only maintains the path for the next leaf, i.e,
+/// when a new leaf is inserted, the existing `path` is its proof.
+/// The root can be computed by folding `path` from right but is not explicitly
+/// maintained to save space.
+/// The size of the object is O(log(n)) where n is the number of leaves in the tree, i.e, `size`.
 #[derive(Default, Clone, BorshSerialize, BorshDeserialize)]
-pub struct MerkleTree {
+pub struct PartialMerkleTree {
     /// Path for the next leaf.
     path: Vec<MerkleHash>,
-    /// Number of leaves
+    /// Number of leaves in the tree.
     size: u64,
 }
 
-impl MerkleTree {
+impl PartialMerkleTree {
     pub fn root(&self) -> MerkleHash {
         if self.path.is_empty() {
             CryptoHash::default()
@@ -209,7 +214,7 @@ mod tests {
 
     #[test]
     fn test_merkle_tree() {
-        let mut tree = MerkleTree::default();
+        let mut tree = PartialMerkleTree::default();
         let mut hashes = vec![];
         for i in 0..50 {
             assert_eq!(compute_root(&hashes), tree.root());

@@ -22,7 +22,7 @@ use near_primitives::challenge::{
     BlockDoubleSign, Challenge, ChallengeBody, ChunkProofs, MaybeEncodedShardChunk,
 };
 use near_primitives::hash::CryptoHash;
-use near_primitives::merkle::{merklize, MerklePath, MerkleTree};
+use near_primitives::merkle::{merklize, MerklePath, PartialMerkleTree};
 use near_primitives::receipt::Receipt;
 use near_primitives::serialize::BaseDecode;
 use near_primitives::sharding::{EncodedShardChunk, ReedSolomonWrapper};
@@ -44,7 +44,7 @@ fn test_verify_block_double_sign_challenge() {
     env.process_block(0, b1.clone(), Provenance::NONE);
 
     let signer = InMemoryValidatorSigner::from_seed("test0", KeyType::ED25519, "test0");
-    let mut block_merkle_tree = MerkleTree::default();
+    let mut block_merkle_tree = PartialMerkleTree::default();
     block_merkle_tree.insert(genesis.hash());
     let b2 = Block::produce(
         &genesis.header,
