@@ -34,6 +34,7 @@ use near_primitives::validator_signer::ValidatorSigner;
 
 use crate::chunk_cache::{EncodedChunksCache, EncodedChunksCacheEntry};
 pub use crate::types::Error;
+use std::collections::hash_map::Entry;
 
 mod chunk_cache;
 mod types;
@@ -179,30 +180,35 @@ impl SealsManager {
         height: BlockHeight,
         shard_id: ShardId,
     ) -> Result<&mut Seal, Error> {
-        Ok(self.seals.entry(chunk_hash.clone()).or_insert({
-            let chunk_producer = self.runtime_adapter.get_chunk_producer(
-                &self.runtime_adapter.get_epoch_id_from_prev_block(parent_hash)?,
-                height,
-                shard_id,
-            )?;
-            let mut candidates = vec![];
-            for part_ord in 0..self.runtime_adapter.num_total_parts() {
-                let part_ord = part_ord as u64;
-                let part_owner = self.runtime_adapter.get_part_owner(parent_hash, part_ord)?;
-                if part_owner == chunk_producer || Some(part_owner) == self.me {
-                    continue;
+        match self.seals.entry(chunk_hash.clone()) {
+            Entry::Occupied(entry) => Ok(entry.into_mut()),
+            Entry::Vacant(entry) => {
+                let chunk_producer = self.runtime_adapter.get_chunk_producer(
+                    &self.runtime_adapter.get_epoch_id_from_prev_block(parent_hash)?,
+                    height,
+                    shard_id,
+                )?;
+                let mut candidates = vec![];
+                for part_ord in 0..self.runtime_adapter.num_total_parts() {
+                    let part_ord = part_ord as u64;
+                    let part_owner = self.runtime_adapter.get_part_owner(parent_hash, part_ord)?;
+                    if part_owner == chunk_producer || Some(part_owner) == self.me {
+                        continue;
+                    }
+                    candidates.push(part_ord);
                 }
-                candidates.push(part_ord);
+                let chosen = candidates
+                    .choose_multiple(
+                        &mut rand::thread_rng(),
+                        cmp::min(NUM_PARTS_REQUESTED_IN_SEAL, candidates.len()),
+                    )
+                    .cloned()
+                    .collect::<HashSet<_>>();
+                let seal = Seal { part_ords: chosen, chunk_producer, sent: Utc::now() };
+
+                Ok(entry.insert(seal))
             }
-            let chosen = candidates
-                .choose_multiple(
-                    &mut rand::thread_rng(),
-                    cmp::min(NUM_PARTS_REQUESTED_IN_SEAL, candidates.len()),
-                )
-                .cloned()
-                .collect::<HashSet<_>>();
-            Seal { part_ords: chosen, chunk_producer, sent: Utc::now() }
-        }))
+        }
     }
 
     fn approve_chunk(&mut self, chunk_hash: &ChunkHash) {
