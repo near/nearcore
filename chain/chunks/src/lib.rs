@@ -480,7 +480,7 @@ impl ShardsManager {
     }
 
     /// Resends chunk requests if haven't received it within expected time.
-    pub fn resend_chunk_requests(&mut self) -> Result<(), Error> {
+    pub fn resend_chunk_requests(&mut self) {
         // Process chunk one part requests.
         let requests = self.requested_partial_encoded_chunks.fetch();
         for (chunk_hash, chunk_request) in requests {
@@ -500,7 +500,6 @@ impl ShardsManager {
                 }
             }
         }
-        Ok(())
     }
 
     pub fn store_partial_encoded_chunk(
@@ -1302,7 +1301,7 @@ mod test {
             },
         );
         std::thread::sleep(Duration::from_millis(200));
-        shards_manager.resend_chunk_requests().unwrap();
+        shards_manager.resend_chunk_requests();
         assert!(network_adapter.requests.read().unwrap().is_empty());
     }
 }

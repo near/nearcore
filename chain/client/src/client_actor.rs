@@ -963,12 +963,7 @@ impl ClientActor {
 
     /// Job to retry chunks that were requested but not received within expected time.
     fn chunk_request_retry(&mut self, ctx: &mut Context<ClientActor>) {
-        match self.client.shards_mgr.resend_chunk_requests() {
-            Ok(_) => {}
-            Err(err) => {
-                error!(target: "client", "Failed to resend chunk requests: {}", err);
-            }
-        };
+        self.client.shards_mgr.resend_chunk_requests();
         ctx.run_later(self.client.config.chunk_request_retry_period, move |act, ctx| {
             act.chunk_request_retry(ctx);
         });
