@@ -622,18 +622,18 @@ impl Client {
         }
 
         // Request any missing chunks
-        self.shards_mgr
-            .request_chunks(
-                blocks_missing_chunks
-                    .write()
-                    .unwrap()
-                    .drain(..)
-                    .flat_map(|missing_chunks| missing_chunks.into_iter()),
-            )
-            .unwrap();
+        let requests_result = self.shards_mgr.request_chunks(
+            blocks_missing_chunks
+                .write()
+                .unwrap()
+                .drain(..)
+                .flat_map(|missing_chunks| missing_chunks.into_iter()),
+        );
 
         let unwrapped_accepted_blocks = accepted_blocks.write().unwrap().drain(..).collect();
-        (unwrapped_accepted_blocks, result)
+        // Take into account the requests_result as well in the
+        // return value (if it was an error then an error is returned).
+        (unwrapped_accepted_blocks, result.and_then(|tip| requests_result.map(|_| tip)))
     }
 
     pub fn rebroadcast_block(&mut self, block: Block) {
@@ -665,12 +665,13 @@ impl Client {
         match process_result {
             ProcessPartialEncodedChunkResult::Known => Ok(vec![]),
             ProcessPartialEncodedChunkResult::HaveAllPartsAndReceipts(prev_block_hash) => {
-                Ok(self.process_blocks_with_missing_chunks(prev_block_hash))
+                self.process_blocks_with_missing_chunks(prev_block_hash)
             }
-            ProcessPartialEncodedChunkResult::NeedMorePartsOrReceipts(chunk_header) => {
-                self.shards_mgr.request_chunks(iter::once(*chunk_header)).unwrap();
-                Ok(vec![])
-            }
+            ProcessPartialEncodedChunkResult::NeedMorePartsOrReceipts(chunk_header) => self
+                .shards_mgr
+                .request_chunks(iter::once(*chunk_header))
+                .map(|_| Vec::new())
+                .map_err(Into::into),
             ProcessPartialEncodedChunkResult::NeedBlock => {
                 self.shards_mgr
                     .store_partial_encoded_chunk(self.chain.head_header()?, partial_encoded_chunk);
@@ -916,7 +917,7 @@ impl Client {
     pub fn process_blocks_with_missing_chunks(
         &mut self,
         last_accepted_block_hash: CryptoHash,
-    ) -> Vec<AcceptedBlock> {
+    ) -> Result<Vec<AcceptedBlock>, Error> {
         let accepted_blocks = Arc::new(RwLock::new(vec![]));
         let blocks_missing_chunks = Arc::new(RwLock::new(vec![]));
         let challenges = Arc::new(RwLock::new(vec![]));
@@ -928,18 +929,16 @@ impl Client {
         }, |missing_chunks| blocks_missing_chunks.write().unwrap().push(missing_chunks), |challenge| challenges.write().unwrap().push(challenge));
         self.send_challenges(challenges);
 
-        self.shards_mgr
-            .request_chunks(
-                blocks_missing_chunks
-                    .write()
-                    .unwrap()
-                    .drain(..)
-                    .flat_map(|missing_chunks| missing_chunks.into_iter()),
-            )
-            .unwrap();
+        self.shards_mgr.request_chunks(
+            blocks_missing_chunks
+                .write()
+                .unwrap()
+                .drain(..)
+                .flat_map(|missing_chunks| missing_chunks.into_iter()),
+        )?;
 
         let unwrapped_accepted_blocks = accepted_blocks.write().unwrap().drain(..).collect();
-        unwrapped_accepted_blocks
+        Ok(unwrapped_accepted_blocks)
     }
 
     /// Collects block approvals. Returns false if block approval is invalid.
@@ -1318,15 +1317,13 @@ impl Client {
 
                     self.send_challenges(challenges);
 
-                    self.shards_mgr
-                        .request_chunks(
-                            blocks_missing_chunks
-                                .write()
-                                .unwrap()
-                                .drain(..)
-                                .flat_map(|missing_chunks| missing_chunks.into_iter()),
-                        )
-                        .unwrap();
+                    self.shards_mgr.request_chunks(
+                        blocks_missing_chunks
+                            .write()
+                            .unwrap()
+                            .drain(..)
+                            .flat_map(|missing_chunks| missing_chunks.into_iter()),
+                    )?;
 
                     let unwrapped_accepted_blocks =
                         accepted_blocks.write().unwrap().drain(..).collect();
