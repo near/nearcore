@@ -13,7 +13,8 @@ mod tests {
     use near_primitives::types::{NumBlocks, StateRoot};
     use near_primitives::validator_signer::InMemoryValidatorSigner;
     use near_store::test_utils::{create_test_store, gen_changes};
-    use near_store::{ShardTries, StoreUpdate, StoreValidator, Trie, WrappedTrieChanges};
+    use near_store::{ShardTries, StoreUpdate, Trie, WrappedTrieChanges};
+    use near_store_validator::StoreValidator;
     use rand::Rng;
 
     fn get_chain(num_shards: u64) -> Chain {

@@ -49,7 +49,7 @@ use crate::types::{
 };
 use crate::StatusResponse;
 #[cfg(feature = "adversarial")]
-use near_store::StoreValidator;
+use near_store_validator::StoreValidator;
 
 /// Multiplier on `max_block_time` to wait until deciding that chain stalled.
 const STATUS_WAIT_TIME_MULTIPLIER: u64 = 10;
