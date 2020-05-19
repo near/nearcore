@@ -1,5 +1,6 @@
 use std::collections::{HashMap, HashSet};
 use std::convert::TryFrom;
+use std::sync::Arc;
 
 use borsh::BorshDeserialize;
 
@@ -18,8 +19,8 @@ use crate::{
     ColInvalidChunks, ColLastBlockWithNewChunk, ColNextBlockHashes, ColNextBlockWithNewChunk,
     ColOutgoingReceipts, ColPartialChunks, ColReceiptIdToShardId, ColState, ColStateChanges,
     ColStateDlInfos, ColStateHeaders, ColTransactionResult, ColTransactions, ColTrieChanges, DBCol,
-    KeyForStateChanges, Store, StoreUpdate, Trie, TrieChanges, TrieIterator, WrappedTrieChanges,
-    TAIL_KEY,
+    KeyForStateChanges, ShardTries, Store, StoreUpdate, Trie, TrieChanges, TrieIterator,
+    WrappedTrieChanges, TAIL_KEY,
 };
 
 macro_rules! get_parent_function_name {
@@ -35,25 +36,26 @@ macro_rules! get_parent_function_name {
 
 macro_rules! err(($x:expr) => (Err(format!("{}: {}", get_parent_function_name!(), $x))));
 
+macro_rules! unwrap_or_err {
+    ($obj: expr, $ret: expr) => {
+        match $obj {
+            Ok(value) => value,
+            Err(err) => {
+                return err!(err);
+            }
+        }
+    };
+}
+
 // All validations start here
 //
 
-fn nothing(
-    _store: &Store,
-    _config: &GenesisConfig,
-    _key: &[u8],
-    _value: &[u8],
-) -> Result<(), String> {
+fn nothing(_sv: &StoreValidator, _key: &[u8], _value: &[u8]) -> Result<(), String> {
     // Make sure that validation is executed
     Ok(())
 }
 
-fn block_header_validity(
-    _store: &Store,
-    _config: &GenesisConfig,
-    key: &[u8],
-    value: &[u8],
-) -> Result<(), String> {
+fn block_header_validity(_sv: &StoreValidator, key: &[u8], value: &[u8]) -> Result<(), String> {
     let block_hash = CryptoHash::try_from(key.as_ref()).unwrap();
     match BlockHeader::try_from_slice(value) {
         Ok(header) => {
@@ -67,12 +69,7 @@ fn block_header_validity(
     }
 }
 
-fn block_hash_validity(
-    _store: &Store,
-    _config: &GenesisConfig,
-    key: &[u8],
-    value: &[u8],
-) -> Result<(), String> {
+fn block_hash_validity(_sv: &StoreValidator, key: &[u8], value: &[u8]) -> Result<(), String> {
     let block_hash = CryptoHash::try_from(key.as_ref()).unwrap();
     match Block::try_from_slice(value) {
         Ok(block) => {
@@ -86,26 +83,16 @@ fn block_hash_validity(
     }
 }
 
-fn block_header_exists(
-    store: &Store,
-    _config: &GenesisConfig,
-    key: &[u8],
-    _value: &[u8],
-) -> Result<(), String> {
+fn block_header_exists(sv: &StoreValidator, key: &[u8], _value: &[u8]) -> Result<(), String> {
     let block_hash = CryptoHash::try_from(key.as_ref()).unwrap();
-    match store.get_ser::<BlockHeader>(ColBlockHeader, block_hash.as_ref()) {
+    match sv.store.get_ser::<BlockHeader>(ColBlockHeader, block_hash.as_ref()) {
         Ok(Some(_header)) => Ok(()),
         Ok(None) => err!(format!("Block Header not found, {:?}", block_hash)),
         Err(e) => err!(format!("Can't get Block Header from storage, {:?}, {:?}", block_hash, e)),
     }
 }
 
-fn chunk_hash_validity(
-    _store: &Store,
-    _config: &GenesisConfig,
-    key: &[u8],
-    value: &[u8],
-) -> Result<(), String> {
+fn chunk_hash_validity(_sv: &StoreValidator, key: &[u8], value: &[u8]) -> Result<(), String> {
     let chunk_hash = ChunkHash::try_from_slice(key.as_ref()).unwrap();
     match ShardChunk::try_from_slice(value) {
         Ok(shard_chunk) => {
@@ -119,25 +106,21 @@ fn chunk_hash_validity(
     }
 }
 
-fn block_of_chunk_exists(
-    store: &Store,
-    config: &GenesisConfig,
-    _key: &[u8],
-    value: &[u8],
-) -> Result<(), String> {
-    let shard_chunk = ShardChunk::try_from_slice(value).unwrap();
+fn block_of_chunk_exists(sv: &StoreValidator, _key: &[u8], value: &[u8]) -> Result<(), String> {
+    let shard_chunk =
+        unwrap_or_err!(ShardChunk::try_from_slice(value), "Can't deserialize ShardChunk");
     let height = shard_chunk.header.height_included;
-    if height == config.genesis_height {
+    if height == sv.config.genesis_height {
         return Ok(());
     }
-    match store.get_ser::<HashMap<EpochId, HashSet<CryptoHash>>>(
+    match sv.store.get_ser::<HashMap<EpochId, HashSet<CryptoHash>>>(
         ColBlockPerHeight,
         &index_to_bytes(height),
     ) {
         Ok(Some(map)) => {
             for (_, set) in map {
                 for block_hash in set {
-                    match store.get_ser::<Block>(ColBlock, block_hash.as_ref()) {
+                    match sv.store.get_ser::<Block>(ColBlock, block_hash.as_ref()) {
                         Ok(Some(block)) => {
                             if block.chunks.contains(&shard_chunk.header) {
                                 // Block for ShardChunk is found
@@ -155,22 +138,17 @@ fn block_of_chunk_exists(
     }
 }
 
-fn block_height_cmp_tail(
-    store: &Store,
-    config: &GenesisConfig,
-    key: &[u8],
-    value: &[u8],
-) -> Result<(), String> {
+fn block_height_cmp_tail(sv: &StoreValidator, key: &[u8], value: &[u8]) -> Result<(), String> {
     let block_hash = CryptoHash::try_from(key.as_ref()).unwrap();
-    let tail = match store.get_ser::<BlockHeight>(ColBlockMisc, TAIL_KEY) {
+    let tail = match sv.store.get_ser::<BlockHeight>(ColBlockMisc, TAIL_KEY) {
         Ok(Some(tail)) => tail,
-        Ok(None) => config.genesis_height,
+        Ok(None) => sv.config.genesis_height,
         Err(_) => return err!("Can't get Tail from storage"),
     };
     match Block::try_from_slice(value) {
         Ok(block) => {
             if block.header.inner_lite.height < tail
-                && block.header.inner_lite.height != config.genesis_height
+                && block.header.inner_lite.height != sv.config.genesis_height
             {
                 err!(format!(
                     "Invalid block height stored: {:?}, tail: {:?}",
@@ -184,6 +162,23 @@ fn block_height_cmp_tail(
             err!(format!("Can't get Block from storage, {:?}, {:?}", block_hash.to_string(), e))
         }
     }
+}
+
+fn chunks_state_roots_in_trie(
+    sv: &StoreValidator,
+    _key: &[u8],
+    value: &[u8],
+) -> Result<(), String> {
+    let shard_chunk: ShardChunk =
+        unwrap_or_err!(ShardChunk::try_from_slice(value), "Can't deserialize ShardChunk");
+    let shard_id = shard_chunk.header.inner.shard_id;
+    let state_root = shard_chunk.header.inner.prev_state_root;
+    let trie = sv.shard_tries.get_trie_for_shard(shard_id);
+    let trie = TrieIterator::new(&trie, &state_root).unwrap();
+    for item in trie {
+        unwrap_or_err!(item, format!("Can't find ShardChunk {} in Trie", shard_chunk));
+    }
+    Ok(())
 }
 
 //
@@ -201,14 +196,25 @@ impl ErrorMessage {
     }
 }
 
-#[derive(Default, BorshDeserialize)]
 pub struct StoreValidator {
-    #[borsh_skip]
+    config: GenesisConfig,
+    shard_tries: ShardTries,
+    store: Arc<Store>,
+
     pub errors: Vec<ErrorMessage>,
     tests: u64,
 }
 
 impl StoreValidator {
+    pub fn new(config: GenesisConfig, shard_tries: ShardTries, store: Arc<Store>) -> Self {
+        StoreValidator {
+            config,
+            shard_tries: shard_tries.clone(),
+            store: store.clone(),
+            errors: vec![],
+            tests: 0,
+        }
+    }
     pub fn is_failed(&self) -> bool {
         self.tests == 0 || self.errors.len() > 0
     }
@@ -218,38 +224,42 @@ impl StoreValidator {
     pub fn tests_done(&self) -> u64 {
         self.tests
     }
-    pub fn validate(&mut self, store: &Store, config: &GenesisConfig) {
-        self.check(&nothing, store, config, &[0], &[0], ColBlockMisc);
-        for (key, value) in store.iter(ColBlockHeader) {
+    pub fn validate(&mut self) {
+        self.check(&nothing, &[0], &[0], ColBlockMisc);
+        for (key, value) in self.store.clone().iter(ColBlockHeader) {
             // Block Header Hash is valid
-            self.check(&block_header_validity, store, config, &key, &value, ColBlockHeader);
+            self.check(&block_header_validity, &key, &value, ColBlockHeader);
         }
-        for (key, value) in store.iter(ColBlock) {
+        for (key, value) in self.store.clone().iter(ColBlock) {
             // Block Hash is valid
-            self.check(&block_hash_validity, store, config, &key, &value, ColBlock);
+            self.check(&block_hash_validity, &key, &value, ColBlock);
             // Block Header for current Block exists
-            self.check(&block_header_exists, store, config, &key, &value, ColBlock);
+            self.check(&block_header_exists, &key, &value, ColBlock);
             // Block Height is greater or equal to tail, or to Genesis Height
-            self.check(&block_height_cmp_tail, store, config, &key, &value, ColBlock);
+            self.check(&block_height_cmp_tail, &key, &value, ColBlock);
         }
-        for (key, value) in store.iter(ColChunks) {
+        for (key, value) in self.store.clone().iter(ColChunks) {
             // Chunk Hash is valid
-            self.check(&chunk_hash_validity, store, config, &key, &value, ColChunks);
+            self.check(&chunk_hash_validity, &key, &value, ColChunks);
             // Block for current Chunk exists
-            self.check(&block_of_chunk_exists, store, config, &key, &value, ColChunks);
+            self.check(&block_of_chunk_exists, &key, &value, ColChunks);
+            // There is a State Root in the Trie
+            self.check(&chunks_state_roots_in_trie, &key, &value, ColChunks);
+        }
+        for shard_id in 0..self.shard_tries.tries.len() {
+            println!("{}", shard_id);
+            // TODO ??
         }
     }
 
     fn check(
         &mut self,
-        f: &dyn Fn(&Store, &GenesisConfig, &[u8], &[u8]) -> Result<(), String>,
-        store: &Store,
-        config: &GenesisConfig,
+        f: &dyn Fn(&StoreValidator, &[u8], &[u8]) -> Result<(), String>,
         key: &[u8],
         value: &[u8],
         col: DBCol,
     ) {
-        let result = f(store, config, key, value);
+        let result = f(self, key, value);
         self.tests += 1;
         match result {
             Ok(_) => {}

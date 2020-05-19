@@ -1,9 +1,11 @@
 use std::path::Path;
 use std::process;
+use std::sync::Arc;
 
 use ansi_term::Color::{Green, Red};
 use clap::{App, Arg, SubCommand};
 
+use near_chain::RuntimeAdapter;
 use near_logger_utils::init_integration_logger;
 use near_store::{create_store, StoreValidator};
 use neard::{get_default_home, get_store_path, load_config};
@@ -28,8 +30,20 @@ fn main() {
 
     let store = create_store(&get_store_path(&home_dir));
 
-    let mut store_validator = StoreValidator::default();
-    store_validator.validate(&*store, &near_config.genesis.config);
+    let runtime_adapter: Arc<dyn RuntimeAdapter> = Arc::new(neard::NightshadeRuntime::new(
+        &home_dir,
+        store.clone(),
+        Arc::clone(&near_config.genesis),
+        near_config.client_config.tracked_accounts.clone(),
+        near_config.client_config.tracked_shards.clone(),
+    ));
+
+    let mut store_validator = StoreValidator::new(
+        near_config.genesis.config.clone(),
+        runtime_adapter.get_tries(),
+        store.clone(),
+    );
+    store_validator.validate();
 
     if store_validator.tests_done() == 0 {
         println!("{}", Red.bold().paint("No conditions has been validated"));

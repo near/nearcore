@@ -260,8 +260,12 @@ impl Handler<NetworkClientMessages> for ClientActor {
                         info!(target: "adversary", "Check Storage Consistency");
                         let mut genesis = GenesisConfig::default();
                         genesis.genesis_height = self.client.chain.store().get_genesis_height();
-                        let mut store_validator = StoreValidator::default();
-                        store_validator.validate(self.client.chain.store().store(), &genesis);
+                        let mut store_validator = StoreValidator::new(
+                            genesis,
+                            self.client.runtime_adapter.get_tries(),
+                            self.client.chain.store().owned_store(),
+                        );
+                        store_validator.validate();
                         if store_validator.is_failed() {
                             error!(target: "client", "Storage Validation failed, {:?}", store_validator.errors);
                             NetworkClientResponses::AdvResult(0)

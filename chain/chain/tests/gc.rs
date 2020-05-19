@@ -254,10 +254,13 @@ mod tests {
         }
         let mut genesis = GenesisConfig::default();
         genesis.genesis_height = 0;
-        let mut store_validator = StoreValidator::default();
-        store_validator.validate(&*chain1.store().owned_store(), &genesis);
+        let mut store_validator =
+            StoreValidator::new(genesis.clone(), tries1, chain1.store().owned_store());
+        store_validator.validate();
         assert!(!store_validator.is_failed());
-        store_validator.validate(&*chain2.store().owned_store(), &genesis);
+        let mut store_validator =
+            StoreValidator::new(genesis, tries2, chain2.store().owned_store());
+        store_validator.validate();
         assert!(!store_validator.is_failed());
     }
 
