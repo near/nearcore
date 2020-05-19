@@ -43,7 +43,7 @@ fn main() {
         println!("{}: {}", Red.bold().paint(&error.col.to_string()), error.msg);
     }
     if store_validator.is_failed() {
-        println!("Errors found: {}", Red.bold().paint(store_validator.failed().to_string()));
+        println!("Errors found: {}", Red.bold().paint(store_validator.num_failed().to_string()));
         process::exit(1);
     } else {
         println!("{}", Green.bold().paint("No errors found"));

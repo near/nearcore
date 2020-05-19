@@ -34,9 +34,9 @@ use near_store::{
     ColIncomingReceipts, ColInvalidChunks, ColLastBlockWithNewChunk, ColNextBlockHashes,
     ColNextBlockWithNewChunk, ColOutgoingReceipts, ColPartialChunks, ColReceiptIdToShardId,
     ColState, ColStateChanges, ColStateDlInfos, ColStateHeaders, ColTransactionResult,
-    ColTransactions, ColTrieChanges, KeyForStateChanges, Store, StoreUpdate, Trie, TrieChanges,
-    WrappedTrieChanges, HEADER_HEAD_KEY, HEAD_KEY, LARGEST_TARGET_HEIGHT_KEY, LATEST_KNOWN_KEY,
-    SYNC_HEAD_KEY, TAIL_KEY,
+    ColTransactions, ColTrieChanges, KeyForStateChanges, ShardTries, Store, StoreUpdate,
+    TrieChanges, WrappedTrieChanges, HEADER_HEAD_KEY, HEAD_KEY, LARGEST_TARGET_HEIGHT_KEY,
+    LATEST_KNOWN_KEY, SYNC_HEAD_KEY, TAIL_KEY,
 };
 
 use crate::byzantine_assert;

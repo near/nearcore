@@ -22,7 +22,7 @@ use crate::{
     TAIL_KEY,
 };
 
-macro_rules! function {
+macro_rules! get_parent_function_name {
     () => {{
         fn f() {}
         fn type_name_of<T>(_: T) -> &'static str {
@@ -33,7 +33,7 @@ macro_rules! function {
     }};
 }
 
-macro_rules! err(($x:expr) => (Err(format!("{}: {}", function!(), $x))));
+macro_rules! err(($x:expr) => (Err(format!("{}: {}", get_parent_function_name!(), $x))));
 
 // All validations start here
 //
@@ -212,7 +212,7 @@ impl StoreValidator {
     pub fn is_failed(&self) -> bool {
         self.tests == 0 || self.errors.len() > 0
     }
-    pub fn failed(&self) -> u64 {
+    pub fn num_failed(&self) -> u64 {
         self.errors.len() as u64
     }
     pub fn tests_done(&self) -> u64 {
