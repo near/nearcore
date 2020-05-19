@@ -529,7 +529,7 @@ impl Handler<GetNextLightClientBlock> for ViewClientActor {
                 .get_block_header(&head.last_block_hash)
                 .map_err(|err| err.to_string())?;
             let ret = Chain::create_light_client_block(
-                &head_header.clone(),
+                head_header.clone(),
                 &*self.runtime_adapter,
                 self.chain.mut_store(),
             )
