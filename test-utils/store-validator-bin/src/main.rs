@@ -5,14 +5,15 @@ use ansi_term::Color::{Green, Red};
 use clap::{App, Arg, SubCommand};
 
 use near_logger_utils::init_integration_logger;
-use near_store::{create_store, StoreValidator};
+use near_store::create_store;
+use near_store_validator::StoreValidator;
 use neard::{get_default_home, get_store_path, load_config};
 
 fn main() {
     init_integration_logger();
 
     let default_home = get_default_home();
-    let matches = App::new("store-validator")
+    let matches = App::new("store-validator-bin")
         .arg(
             Arg::with_name("home")
                 .long("home")

@@ -5,13 +5,13 @@ use borsh::BorshDeserialize;
 
 use near_chain_configs::GenesisConfig;
 use near_primitives::block::{Block, BlockHeader};
+use near_primitives::borsh;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::{ChunkHash, ShardChunk};
 use near_primitives::types::{BlockHeight, EpochId};
 use near_primitives::utils::index_to_bytes;
-
 #[allow(unused)]
-use crate::{
+use near_store::{
     read_with_cache, ColBlock, ColBlockExtra, ColBlockHeader, ColBlockHeight, ColBlockMisc,
     ColBlockPerHeight, ColBlockRefCount, ColBlocksToCatchup, ColChallengedBlocks, ColChunkExtra,
     ColChunkPerHeightShard, ColChunks, ColEpochLightClientBlocks, ColIncomingReceipts,
@@ -38,7 +38,7 @@ macro_rules! err(($x:expr) => (Err(format!("{}: {}", get_parent_function_name!()
 // All validations start here
 //
 
-fn nothing(
+pub(crate) fn nothing(
     _store: &Store,
     _config: &GenesisConfig,
     _key: &[u8],
@@ -48,7 +48,7 @@ fn nothing(
     Ok(())
 }
 
-fn block_header_validity(
+pub(crate) fn block_header_validity(
     _store: &Store,
     _config: &GenesisConfig,
     key: &[u8],
@@ -67,7 +67,7 @@ fn block_header_validity(
     }
 }
 
-fn block_hash_validity(
+pub(crate) fn block_hash_validity(
     _store: &Store,
     _config: &GenesisConfig,
     key: &[u8],
@@ -86,7 +86,7 @@ fn block_hash_validity(
     }
 }
 
-fn block_header_exists(
+pub(crate) fn block_header_exists(
     store: &Store,
     _config: &GenesisConfig,
     key: &[u8],
@@ -100,7 +100,7 @@ fn block_header_exists(
     }
 }
 
-fn chunk_hash_validity(
+pub(crate) fn chunk_hash_validity(
     _store: &Store,
     _config: &GenesisConfig,
     key: &[u8],
@@ -119,7 +119,7 @@ fn chunk_hash_validity(
     }
 }
 
-fn block_of_chunk_exists(
+pub(crate) fn block_of_chunk_exists(
     store: &Store,
     config: &GenesisConfig,
     _key: &[u8],
@@ -155,7 +155,7 @@ fn block_of_chunk_exists(
     }
 }
 
-fn block_height_cmp_tail(
+pub(crate) fn block_height_cmp_tail(
     store: &Store,
     config: &GenesisConfig,
     key: &[u8],
@@ -182,78 +182,6 @@ fn block_height_cmp_tail(
         }
         Err(e) => {
             err!(format!("Can't get Block from storage, {:?}, {:?}", block_hash.to_string(), e))
-        }
-    }
-}
-
-//
-// All validations end here
-
-#[derive(Debug)]
-pub struct ErrorMessage {
-    pub col: DBCol,
-    pub msg: String,
-}
-
-impl ErrorMessage {
-    fn new(col: DBCol, msg: String) -> Self {
-        Self { col, msg }
-    }
-}
-
-#[derive(Default, BorshDeserialize)]
-pub struct StoreValidator {
-    #[borsh_skip]
-    pub errors: Vec<ErrorMessage>,
-    tests: u64,
-}
-
-impl StoreValidator {
-    pub fn is_failed(&self) -> bool {
-        self.tests == 0 || self.errors.len() > 0
-    }
-    pub fn num_failed(&self) -> u64 {
-        self.errors.len() as u64
-    }
-    pub fn tests_done(&self) -> u64 {
-        self.tests
-    }
-    pub fn validate(&mut self, store: &Store, config: &GenesisConfig) {
-        self.check(&nothing, store, config, &[0], &[0], ColBlockMisc);
-        for (key, value) in store.iter(ColBlockHeader) {
-            // Block Header Hash is valid
-            self.check(&block_header_validity, store, config, &key, &value, ColBlockHeader);
-        }
-        for (key, value) in store.iter(ColBlock) {
-            // Block Hash is valid
-            self.check(&block_hash_validity, store, config, &key, &value, ColBlock);
-            // Block Header for current Block exists
-            self.check(&block_header_exists, store, config, &key, &value, ColBlock);
-            // Block Height is greater or equal to tail, or to Genesis Height
-            self.check(&block_height_cmp_tail, store, config, &key, &value, ColBlock);
-        }
-        for (key, value) in store.iter(ColChunks) {
-            // Chunk Hash is valid
-            self.check(&chunk_hash_validity, store, config, &key, &value, ColChunks);
-            // Block for current Chunk exists
-            self.check(&block_of_chunk_exists, store, config, &key, &value, ColChunks);
-        }
-    }
-
-    fn check(
-        &mut self,
-        f: &dyn Fn(&Store, &GenesisConfig, &[u8], &[u8]) -> Result<(), String>,
-        store: &Store,
-        config: &GenesisConfig,
-        key: &[u8],
-        value: &[u8],
-        col: DBCol,
-    ) {
-        let result = f(store, config, key, value);
-        self.tests += 1;
-        match result {
-            Ok(_) => {}
-            Err(msg) => self.errors.push(ErrorMessage::new(col, msg)),
         }
     }
 }
