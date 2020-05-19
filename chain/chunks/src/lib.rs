@@ -414,7 +414,7 @@ impl ShardsManager {
                 )
                 && self.me.as_ref() != Some(&validator_stake.account_id)
             {
-                block_producers.push(validator_stake.account_id.clone());
+                block_producers.push(validator_stake.account_id);
             }
         }
 
@@ -480,7 +480,7 @@ impl ShardsManager {
     }
 
     /// Resends chunk requests if haven't received it within expected time.
-    pub fn resend_chunk_requests(&mut self) -> Result<(), Error> {
+    pub fn resend_chunk_requests(&mut self) {
         // Process chunk one part requests.
         let requests = self.requested_partial_encoded_chunks.fetch();
         for (chunk_hash, chunk_request) in requests {
@@ -500,7 +500,6 @@ impl ShardsManager {
                 }
             }
         }
-        Ok(())
     }
 
     pub fn store_partial_encoded_chunk(
@@ -1275,7 +1274,7 @@ impl ShardsManager {
 
 #[cfg(test)]
 mod test {
-    use crate::{ChunkRequestInfo, ShardsManager};
+    use crate::{ChunkRequestInfo, ShardsManager, CHUNK_REQUEST_RETRY_MS};
     use near_chain::test_utils::KeyValueRuntime;
     use near_network::test_utils::MockNetworkAdapter;
     use near_primitives::hash::hash;
@@ -1301,8 +1300,8 @@ mod test {
                 last_requested: Instant::now(),
             },
         );
-        std::thread::sleep(Duration::from_millis(200));
-        shards_manager.resend_chunk_requests().unwrap();
+        std::thread::sleep(Duration::from_millis(2 * CHUNK_REQUEST_RETRY_MS));
+        shards_manager.resend_chunk_requests();
         assert!(network_adapter.requests.read().unwrap().is_empty());
     }
 }

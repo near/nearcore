@@ -90,7 +90,6 @@ pub fn merklize<T: BorshSerialize>(arr: &[T]) -> (MerkleHash, Vec<MerklePath>) {
         }
         arr_len = (arr_len + 1) / 2;
     }
-    println!("paths: {:?}", paths);
     (hashes[0], paths)
 }
 
