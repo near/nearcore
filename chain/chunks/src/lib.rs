@@ -178,7 +178,7 @@ impl SealsManager {
         parent_hash: &CryptoHash,
         height: BlockHeight,
         shard_id: ShardId,
-    ) -> Result<&mut Seal, Error> {
+    ) -> Result<&mut Seal, near_chain::Error> {
         Ok(self.seals.entry(chunk_hash.clone()).or_insert({
             let chunk_producer = self.runtime_adapter.get_chunk_producer(
                 &self.runtime_adapter.get_epoch_id_from_prev_block(parent_hash)?,
@@ -296,7 +296,7 @@ impl ShardsManager {
         chunk_hash: &ChunkHash,
         force_request_full: bool,
         request_own_parts_from_others: bool,
-    ) -> Result<(), Error> {
+    ) -> Result<(), near_chain::Error> {
         let mut bp_to_parts = HashMap::new();
 
         let cache_entry = self.encoded_chunks.get(chunk_hash);
@@ -434,10 +434,11 @@ impl ShardsManager {
             .collect::<HashSet<_>>()
     }
 
-    pub fn request_chunks<T>(&mut self, chunks_to_request: T) -> Result<(), Error>
+    pub fn request_chunks<T>(&mut self, chunks_to_request: T) -> Result<(), near_chain::Error>
     where
         T: IntoIterator<Item = ShardChunkHeader>,
     {
+        let mut maybe_error: Option<near_chain::Error> = None;
         for chunk_header in chunks_to_request {
             let ShardChunkHeader {
                 inner:
@@ -467,16 +468,26 @@ impl ShardsManager {
                     added: Instant::now(),
                 },
             );
-            self.request_partial_encoded_chunk(
+            let request_result = self.request_partial_encoded_chunk(
                 height,
                 &parent_hash,
                 shard_id,
                 &chunk_hash,
                 false,
                 false,
-            )?;
+            );
+            if let Err(err) = request_result {
+                error!(target: "chunks", "Error during requesting partial encoded chunk: {}", err);
+                // All errors are logged, but only the first one is returned.
+                if let None = maybe_error {
+                    maybe_error = Some(err);
+                }
+            }
         }
-        Ok(())
+        match maybe_error {
+            Some(err) => Err(err),
+            None => Ok(()),
+        }
     }
 
     /// Resends chunk requests if haven't received it within expected time.
