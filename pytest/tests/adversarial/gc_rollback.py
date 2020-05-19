@@ -1,6 +1,6 @@
 # Builds the following graph:
 # -------
-#    \ 
+#    \
 #     ------
 #       \
 #        --------
@@ -19,7 +19,8 @@ NUM_BLOCKS_TOTAL = 200
 FORK_EACH_BLOCKS = 10
 
 consensus_config = {"consensus": {"min_num_peers": 0}}
-nodes = start_cluster(2, 0, 1, None, [["epoch_length", EPOCH_LENGTH]], {0: consensus_config})
+nodes = start_cluster(2, 0, 1, None, [["epoch_length", EPOCH_LENGTH]],
+                      {0: consensus_config})
 time.sleep(2)
 
 res = nodes[0].json_rpc('adv_disable_doomslug', [])

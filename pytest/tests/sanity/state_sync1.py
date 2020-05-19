@@ -6,14 +6,24 @@ import sys, time
 
 sys.path.append('lib')
 
-
 from cluster import start_cluster
 
 BLOCK_WAIT = 40
 EPOCH_LENGTH = 80
 
-consensus_config = {"consensus": {"block_fetch_horizon": 10, "block_header_fetch_horizon": 10}}
-nodes = start_cluster(4, 0, 1, None, [["epoch_length", EPOCH_LENGTH], ["block_producer_kickout_threshold", 10], ["chunk_producer_kickout_threshold", 10]], {0: consensus_config, 1: consensus_config})
+consensus_config = {
+    "consensus": {
+        "block_fetch_horizon": 10,
+        "block_header_fetch_horizon": 10
+    }
+}
+nodes = start_cluster(
+    4, 0, 1, None,
+    [["epoch_length", EPOCH_LENGTH], ["block_producer_kickout_threshold", 10],
+     ["chunk_producer_kickout_threshold", 10]], {
+         0: consensus_config,
+         1: consensus_config
+     })
 time.sleep(2)
 nodes[1].kill()
 
@@ -59,7 +69,8 @@ if not synced:
     assert False, "Nodes are not synced"
 
 status = nodes[0].get_status()
-validator_info = nodes[0].json_rpc('validators', [status['sync_info']['latest_block_hash']])
+validator_info = nodes[0].json_rpc('validators',
+                                   [status['sync_info']['latest_block_hash']])
 if len(validator_info['result']['next_validators']) < 2:
     assert False, "Node 1 did not produce enough blocks"
 

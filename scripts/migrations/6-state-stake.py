@@ -20,7 +20,8 @@ from collections import OrderedDict
 home = sys.argv[1]
 output_home = sys.argv[2]
 
-config = json.load(open(os.path.join(home, 'output.json')), object_pairs_hook=OrderedDict)
+config = json.load(open(os.path.join(home, 'output.json')),
+                   object_pairs_hook=OrderedDict)
 
 assert config['protocol_version'] == 5
 
@@ -35,6 +36,7 @@ for record in config['records']:
         storage_usage = record["Account"]["account"]["storage_usage"]
         # If account doesn't have balance to cover storage, we will mint some tokens to cover for it.
         if storage_usage * 1e20 > int(record["Account"]["account"]["amount"]):
-            record["Account"]["account"]["amount"] = str(storage_usage) + "0" * 20
+            record["Account"]["account"]["amount"] = str(
+                storage_usage) + "0" * 20
 
 json.dump(config, open(os.path.join(output_home, 'output.json'), 'w'), indent=2)
