@@ -6,13 +6,14 @@ mod tests {
     use near_chain::test_utils::KeyValueRuntime;
     use near_chain::types::Tip;
     use near_chain::DoomslugThresholdMode;
+    use near_chain_configs::GenesisConfig;
     use near_crypto::KeyType;
     use near_primitives::block::Block;
     use near_primitives::merkle::PartialMerkleTree;
     use near_primitives::types::{NumBlocks, StateRoot};
     use near_primitives::validator_signer::InMemoryValidatorSigner;
     use near_store::test_utils::{create_test_store, gen_changes};
-    use near_store::{ShardTries, StoreUpdate, Trie, WrappedTrieChanges};
+    use near_store::{ShardTries, StoreUpdate, StoreValidator, Trie, WrappedTrieChanges};
     use rand::Rng;
 
     fn get_chain(num_shards: u64) -> Chain {
@@ -251,6 +252,13 @@ mod tests {
             }
             start_index += simple_chain.length;
         }
+        let mut genesis = GenesisConfig::default();
+        genesis.genesis_height = 0;
+        let mut store_validator = StoreValidator::default();
+        store_validator.validate(&*chain1.store().owned_store(), &genesis);
+        assert!(!store_validator.is_failed());
+        store_validator.validate(&*chain2.store().owned_store(), &genesis);
+        assert!(!store_validator.is_failed());
     }
 
     // from is an index in blocks array, length is the number of blocks in a chain on top of blocks[from],
