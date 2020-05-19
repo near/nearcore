@@ -2,6 +2,7 @@
 //! This client works completely synchronously and must be operated by some async actor outside.
 
 use std::collections::{HashMap, HashSet};
+use std::iter;
 use std::sync::{Arc, RwLock};
 use std::time::Instant;
 
@@ -620,9 +621,17 @@ impl Client {
             }
         }
 
-        for missing_chunks in blocks_missing_chunks.write().unwrap().drain(..) {
-            self.shards_mgr.request_chunks(missing_chunks).unwrap();
-        }
+        // Request any missing chunks
+        self.shards_mgr
+            .request_chunks(
+                blocks_missing_chunks
+                    .write()
+                    .unwrap()
+                    .drain(..)
+                    .flat_map(|missing_chunks| missing_chunks.into_iter()),
+            )
+            .unwrap();
+
         let unwrapped_accepted_blocks = accepted_blocks.write().unwrap().drain(..).collect();
         (unwrapped_accepted_blocks, result)
     }
@@ -659,7 +668,7 @@ impl Client {
                 Ok(self.process_blocks_with_missing_chunks(prev_block_hash))
             }
             ProcessPartialEncodedChunkResult::NeedMorePartsOrReceipts(chunk_header) => {
-                self.shards_mgr.request_chunks(vec![*chunk_header]).unwrap();
+                self.shards_mgr.request_chunks(iter::once(*chunk_header)).unwrap();
                 Ok(vec![])
             }
             ProcessPartialEncodedChunkResult::NeedBlock => {
@@ -918,9 +927,17 @@ impl Client {
             accepted_blocks.write().unwrap().push(accepted_block);
         }, |missing_chunks| blocks_missing_chunks.write().unwrap().push(missing_chunks), |challenge| challenges.write().unwrap().push(challenge));
         self.send_challenges(challenges);
-        for missing_chunks in blocks_missing_chunks.write().unwrap().drain(..) {
-            self.shards_mgr.request_chunks(missing_chunks).unwrap();
-        }
+
+        self.shards_mgr
+            .request_chunks(
+                blocks_missing_chunks
+                    .write()
+                    .unwrap()
+                    .drain(..)
+                    .flat_map(|missing_chunks| missing_chunks.into_iter()),
+            )
+            .unwrap();
+
         let unwrapped_accepted_blocks = accepted_blocks.write().unwrap().drain(..).collect();
         unwrapped_accepted_blocks
     }
@@ -1301,9 +1318,16 @@ impl Client {
 
                     self.send_challenges(challenges);
 
-                    for missing_chunks in blocks_missing_chunks.write().unwrap().drain(..) {
-                        self.shards_mgr.request_chunks(missing_chunks).unwrap();
-                    }
+                    self.shards_mgr
+                        .request_chunks(
+                            blocks_missing_chunks
+                                .write()
+                                .unwrap()
+                                .drain(..)
+                                .flat_map(|missing_chunks| missing_chunks.into_iter()),
+                        )
+                        .unwrap();
+
                     let unwrapped_accepted_blocks =
                         accepted_blocks.write().unwrap().drain(..).collect();
                     return Ok(unwrapped_accepted_blocks);

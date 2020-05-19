@@ -434,10 +434,10 @@ impl ShardsManager {
             .collect::<HashSet<_>>()
     }
 
-    pub fn request_chunks(
-        &mut self,
-        chunks_to_request: Vec<ShardChunkHeader>,
-    ) -> Result<(), Error> {
+    pub fn request_chunks<T>(&mut self, chunks_to_request: T) -> Result<(), Error>
+    where
+        T: IntoIterator<Item = ShardChunkHeader>,
+    {
         for chunk_header in chunks_to_request {
             let ShardChunkHeader {
                 inner:
