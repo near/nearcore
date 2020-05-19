@@ -1274,7 +1274,7 @@ impl ShardsManager {
 
 #[cfg(test)]
 mod test {
-    use crate::{ChunkRequestInfo, ShardsManager};
+    use crate::{ChunkRequestInfo, ShardsManager, CHUNK_REQUEST_RETRY_MS};
     use near_chain::test_utils::KeyValueRuntime;
     use near_network::test_utils::MockNetworkAdapter;
     use near_primitives::hash::hash;
@@ -1300,7 +1300,7 @@ mod test {
                 last_requested: Instant::now(),
             },
         );
-        std::thread::sleep(Duration::from_millis(200));
+        std::thread::sleep(Duration::from_millis(2 * CHUNK_REQUEST_RETRY_MS));
         shards_manager.resend_chunk_requests();
         assert!(network_adapter.requests.read().unwrap().is_empty());
     }
