@@ -31,6 +31,7 @@ class DownloadException(Exception):
 def atexit_cleanup(node):
     print("Cleaning up node %s:%s on script exit" % node.addr())
     print("Executed refmap tests: %s" % node.refmap_tests)
+    print("Executed store validity tests: %s" % node.store_tests)
     try:
         node.cleanup()
     except:
@@ -103,6 +104,7 @@ class BaseNode(object):
         r = requests.get("http://%s:%s/status" % self.rpc_addr(), timeout=2)
         r.raise_for_status()
         self.check_refmap()
+        self.check_store()
         return json.loads(r.content)
 
     def get_all_heights(self):
@@ -163,6 +165,9 @@ class BaseNode(object):
     def stop_checking_refmap(self):
         self.is_check_refmap = False
 
+    def stop_checking_store(self):
+        self.is_check_store = False
+
     def check_refmap(self):
         if self.is_check_refmap:
             res = self.json_rpc('adv_check_refmap', [])
@@ -175,6 +180,17 @@ class BaseNode(object):
                     print("ERROR: Block Reference Map for %s:%s in inconsistent state, stopping" % self.addr())
                     self.kill()
 
+    def check_store(self):
+        if self.is_check_store:
+            res = self.json_rpc('adv_check_store', [])
+            if not 'result' in res:
+                # cannot check Storage Consistency for the node, possibly not Adversarial Mode is running
+                pass
+            else:
+                if res['result'] == 0:
+                    print("ERROR: Storage for %s:%s in inconsistent state, stopping" % self.addr())
+                    self.kill()
+                self.store_tests += res['result']
 
 
 class RpcNode(BaseNode):
@@ -197,7 +213,9 @@ class LocalNode(BaseNode):
         self.node_dir = node_dir
         self.binary_name = binary_name
         self.refmap_tests = 0
+        self.store_tests = 0
         self.is_check_refmap = True
+        self.is_check_store = True
         self.cleaned = False
         with open(os.path.join(node_dir, "config.json")) as f:
             config_json = json.loads(f.read())
