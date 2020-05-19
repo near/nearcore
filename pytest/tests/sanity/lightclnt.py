@@ -14,26 +14,29 @@ config = load_config()
 client_config_changes = {}
 if not config['local']:
     client_config_changes = {
-      "consensus": {
-        "min_block_production_delay": {
-          "secs": 4,
-          "nanos": 0,
-        },
-      "max_block_production_delay": {
-          "secs": 8,
-          "nanos": 0,
-        },
-      "max_block_wait_delay": {
-          "secs": 24,
-          "nanos": 0,
-        },
-      }
+        "consensus": {
+            "min_block_production_delay": {
+                "secs": 4,
+                "nanos": 0,
+            },
+            "max_block_production_delay": {
+                "secs": 8,
+                "nanos": 0,
+            },
+            "max_block_wait_delay": {
+                "secs": 24,
+                "nanos": 0,
+            },
+        }
     }
     TIMEOUT = 600
 
 client_config_changes['archive'] = True
 
-nodes = start_cluster(4, 0, 4, None, [["epoch_length", 6], ["block_producer_kickout_threshold", 80]], client_config_changes)
+nodes = start_cluster(
+    4, 0, 4, None,
+    [["epoch_length", 6], ["block_producer_kickout_threshold", 80]],
+    client_config_changes)
 
 started = time.time()
 
@@ -44,13 +47,19 @@ height_to_hash = {}
 epochs = []
 
 block_producers_map = {}
+
+
 def get_light_client_block(hash_, last_known_block):
     global block_producers_map
 
     ret = nodes[0].json_rpc('next_light_client_block', [hash_])
     if ret['result'] is not None and last_known_block is not None:
-        validate_light_client_block(last_known_block, ret['result'], block_producers_map, panic=True)
+        validate_light_client_block(last_known_block,
+                                    ret['result'],
+                                    block_producers_map,
+                                    panic=True)
     return ret
+
 
 def get_up_to(from_, to):
     global hash_to_height, hash_to_epoch, hash_to_next_epoch, height_to_hash, epochs
@@ -70,7 +79,6 @@ def get_up_to(from_, to):
         hash_to_epoch[hash_] = block['result']['header']['epoch_id']
         hash_to_next_epoch[hash_] = block['result']['header']['next_epoch_id']
 
-
         if height >= to:
             break
 
@@ -80,6 +88,7 @@ def get_up_to(from_, to):
 
         if len(epochs) == 0 or epochs[-1] != hash_to_epoch[hash_]:
             epochs.append(hash_to_epoch[hash_])
+
 
 # don't start from 1, sicne couple heights get produced while the nodes spin up
 get_up_to(4, 29)
@@ -105,15 +114,22 @@ while True:
 
     assert res['result']['inner_lite']['epoch_id'] == epochs[iter_]
     print(iter_, heights[iter_])
-    assert res['result']['inner_lite']['height'] == heights[iter_], res['result']['inner_lite']
+    assert res['result']['inner_lite']['height'] == heights[iter_], res[
+        'result']['inner_lite']
 
-    last_known_block_hash = compute_block_hash(res['result']['inner_lite'], res['result']['inner_rest_hash'], res['result']['prev_hash']).decode('ascii')
-    assert last_known_block_hash == height_to_hash[res['result']['inner_lite']['height']], "%s != %s" % (last_known_block_hash, height_to_hash[res['result']['inner_lite']['height']])
+    last_known_block_hash = compute_block_hash(
+        res['result']['inner_lite'], res['result']['inner_rest_hash'],
+        res['result']['prev_hash']).decode('ascii')
+    assert last_known_block_hash == height_to_hash[
+        res['result']['inner_lite']['height']], "%s != %s" % (
+            last_known_block_hash,
+            height_to_hash[res['result']['inner_lite']['height']])
 
     if last_known_block is None:
-        block_producers_map[res['result']['inner_lite']['next_epoch_id']] = res['result']['next_bps']
+        block_producers_map[res['result']['inner_lite']
+                            ['next_epoch_id']] = res['result']['next_bps']
     last_known_block = res['result']
-    
+
     iter_ += 1
 
 res = get_light_client_block(height_to_hash[26], last_known_block)
@@ -135,4 +151,3 @@ get_up_to(32, 33)
 
 res = get_light_client_block(height_to_hash[28], last_known_block)
 assert res['result']['inner_lite']['height'] == 31
-

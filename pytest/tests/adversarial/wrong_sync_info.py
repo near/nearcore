@@ -13,7 +13,9 @@ from utils import LogTracker
 TIMEOUT = 300
 BLOCKS = 30
 
-nodes = start_cluster(2, 1, 2, None, [["epoch_length", 7], ["block_producer_kickout_threshold", 80]], {})
+nodes = start_cluster(
+    2, 1, 2, None,
+    [["epoch_length", 7], ["block_producer_kickout_threshold", 80]], {})
 
 started = time.time()
 

@@ -17,20 +17,30 @@ TWENTY_FIVE = 25
 
 config = load_config()
 # give more stake to the bootnode so that it can produce the blocks alone
-near_root, node_dirs = init_cluster(4, 1, 4, config, [["min_gas_price", 0], ["max_inflation_rate", [0, 1]], ["epoch_length", 7], ["block_producer_kickout_threshold", 40]], {4: {"tracked_shards": [0, 1, 2, 3]}})
+near_root, node_dirs = init_cluster(
+    4, 1, 4, config,
+    [["min_gas_price", 0], ["max_inflation_rate", [0, 1]], ["epoch_length", 7],
+     ["block_producer_kickout_threshold", 40]],
+    {4: {
+        "tracked_shards": [0, 1, 2, 3]
+    }})
 
 started = time.time()
 
 boot_node = spin_up_node(config, near_root, node_dirs[0], 0, None, None)
-node3 = spin_up_node(config, near_root, node_dirs[2], 2, boot_node.node_key.pk, boot_node.addr())
-node4 = spin_up_node(config, near_root, node_dirs[3], 3, boot_node.node_key.pk, boot_node.addr())
-observer = spin_up_node(config, near_root, node_dirs[4], 4, boot_node.node_key.pk, boot_node.addr())
+node3 = spin_up_node(config, near_root, node_dirs[2], 2, boot_node.node_key.pk,
+                     boot_node.addr())
+node4 = spin_up_node(config, near_root, node_dirs[3], 3, boot_node.node_key.pk,
+                     boot_node.addr())
+observer = spin_up_node(config, near_root, node_dirs[4], 4,
+                        boot_node.node_key.pk, boot_node.addr())
 
 ctx = TxContext([0, 0, 0, 0, 0], [boot_node, None, node3, node4, observer])
 initial_balances = ctx.get_balances()
 total_supply = sum(initial_balances)
 
-print("Initial balances: %s\nTotal supply: %s" % (initial_balances, total_supply))
+print("Initial balances: %s\nTotal supply: %s" %
+      (initial_balances, total_supply))
 
 seen_boot_heights = set()
 sent_txs = False
@@ -59,7 +69,8 @@ while True:
     time.sleep(0.1)
 
 # 2. Spin up the second node and make sure it gets to 25 as well, and doesn't diverge
-node2 = spin_up_node(config, near_root, node_dirs[1], 1, boot_node.node_key.pk, boot_node.addr())
+node2 = spin_up_node(config, near_root, node_dirs[1], 1, boot_node.node_key.pk,
+                     boot_node.addr())
 
 status = boot_node.get_status()
 new_height = status['sync_info']['latest_block_height']
@@ -80,7 +91,8 @@ while True:
         print(new_height)
 
     if node2_height > TWENTY_FIVE:
-        assert node2_height in seen_boot_heights, "%s not in %s" % (node2_height, seen_boot_heights)
+        assert node2_height in seen_boot_heights, "%s not in %s" % (
+            node2_height, seen_boot_heights)
         break
 
     time.sleep(0.1)
@@ -95,25 +107,29 @@ while True:
 balances = ctx.get_balances()
 print("New balances: %s\nNew total supply: %s" % (balances, sum(balances)))
 
-assert(balances != initial_balances)
-assert(sum(balances) == total_supply)
+assert (balances != initial_balances)
+assert (sum(balances) == total_supply)
 
 initial_balances = balances
 
 # 4. Stake for the second node to bring it back up as a validator and wait until it actually
 #    becomes one
 
+
 def get_validators():
     return set([x['account_id'] for x in boot_node.get_status()['validators']])
+
 
 print(get_validators())
 
 # The stake for node2 must be higher than that of boot_node, so that it can produce blocks
 # after the boot_node is brought down
-tx = sign_staking_tx(node2.signer_key, node2.validator_key, 50000000000000000000000000000000, 20, base58.b58decode(hash_.encode('utf8')))
+tx = sign_staking_tx(node2.signer_key, node2.validator_key,
+                     50000000000000000000000000000000, 20,
+                     base58.b58decode(hash_.encode('utf8')))
 boot_node.send_tx(tx)
 
-assert(get_validators() == set(["test0", "test2", "test3"])), get_validators()
+assert (get_validators() == set(["test0", "test2", "test3"])), get_validators()
 
 while True:
     if time.time() - started > TIMEOUT:
@@ -124,7 +140,6 @@ while True:
         break
 
     time.sleep(1)
-
 
 ctx.next_nonce = 100
 # 5. Record the latest height and bring down the first node, wait for couple epochs to pass
@@ -163,6 +178,5 @@ print("New balances: %s\nNew total supply: %s" % (balances, sum(balances)))
 ctx.nodes = [observer, node2]
 print("Observer sees: %s" % ctx.get_balances())
 
-assert(balances != initial_balances)
-assert(sum(balances) == total_supply)
-
+assert (balances != initial_balances)
+assert (sum(balances) == total_supply)

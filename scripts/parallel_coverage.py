@@ -23,23 +23,26 @@ def coverage(test_binary):
 
     if not os.path.isfile(test_binary):
         return -1, '', f'{test_binary} does not exist'
-        
-    p = subprocess.Popen(['docker', 'run', '--rm',
-    '--security-opt', 'seccomp=unconfined',
-    '-u', f'{os.getuid()}:{os.getgid()}',
-    '-v', f'{test_binary}:{test_binary}',
-    '-v', f'{src_dir}:{src_dir}',
-    '-v', f'{coverage_output}:{coverage_output}',
-    'nearprotocol/near-coverage-runtime',
-    'bash', '-c', f'/usr/local/bin/kcov --include-pattern=nearcore --exclude-pattern=.so --verify {coverage_output} {test_binary}'], 
-    stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+
+    p = subprocess.Popen([
+        'docker', 'run', '--rm', '--security-opt', 'seccomp=unconfined', '-u',
+        f'{os.getuid()}:{os.getgid()}', '-v', f'{test_binary}:{test_binary}',
+        '-v', f'{src_dir}:{src_dir}', '-v',
+        f'{coverage_output}:{coverage_output}',
+        'nearprotocol/near-coverage-runtime', 'bash', '-c',
+        f'/usr/local/bin/kcov --include-pattern=nearcore --exclude-pattern=.so --verify {coverage_output} {test_binary}'
+    ],
+                         stdout=subprocess.PIPE,
+                         stderr=subprocess.PIPE,
+                         universal_newlines=True)
     stdout, stderr = p.communicate()
     return (p.returncode, stdout, stderr)
 
 
 def clean_coverage():
     subprocess.check_output(f'rm -rf {current_path}/../target/cov*', shell=True)
-    subprocess.check_output(f'rm -rf {current_path}/../target/merged_coverage', shell=True)
+    subprocess.check_output(f'rm -rf {current_path}/../target/merged_coverage',
+                            shell=True)
 
 
 def coverage_dir(i):
@@ -47,7 +50,12 @@ def coverage_dir(i):
 
 
 def merge_coverage(i, to_merge, j):
-    p = subprocess.Popen(['kcov', '--merge', os.path.join(coverage_dir(i+1), str(j)), *to_merge], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    p = subprocess.Popen([
+        'kcov', '--merge',
+        os.path.join(coverage_dir(i + 1), str(j)), *to_merge
+    ],
+                         stdout=subprocess.PIPE,
+                         stderr=subprocess.PIPE)
     stdout, stderr = p.communicate()
     return (p.returncode, stdout, stderr)
 
@@ -71,14 +79,18 @@ if __name__ == "__main__":
 
     # Run coverage
     with ThreadPoolExecutor(max_workers=workers()) as executor:
-        future_to_binary = {executor.submit(coverage, binary): binary for binary in binaries}
+        future_to_binary = {
+            executor.submit(coverage, binary): binary for binary in binaries
+        }
         for future in as_completed(future_to_binary):
             binary = future_to_binary[future]
             result = future.result()
             if result[0] != 0:
                 print(result[2])
                 errors = True
-                print(f'========= error: kcov {binary} fail, exit code {result[0]} cause coverage fail')
+                print(
+                    f'========= error: kcov {binary} fail, exit code {result[0]} cause coverage fail'
+                )
             else:
                 print(f'========= kcov {binary} done')
 
@@ -97,21 +109,23 @@ if __name__ == "__main__":
                 # ensure the last to merge is not only one cov
                 cov_to_merge[-2] += (cov_to_merge[-1][0],)
                 del cov_to_merge[-1]
-            
+
             futures = []
             for cov in cov_to_merge:
-                j+=1
+                j += 1
                 futures.append(executor.submit(merge_coverage, i, cov, j))
 
             for f in as_completed(futures):
                 pass
 
-            i+=1
+            i += 1
 
     merged_coverage = os.path.join(coverage_dir(i), str(j))
     print(f'========= coverage merged to {merged_coverage}')
-    subprocess.check_output(['mv', merged_coverage, f'{current_path}/../merged_coverage'])
+    subprocess.check_output(
+        ['mv', merged_coverage, f'{current_path}/../merged_coverage'])
     subprocess.check_output(f'rm -rf {current_path}/../target/cov*', shell=True)
 
     if errors:
-        print(f'========= some errors in running kcov, coverage maybe inaccurate')
+        print(
+            f'========= some errors in running kcov, coverage maybe inaccurate')
