@@ -212,7 +212,9 @@ impl GenesisBuilder {
                 self.genesis.config.total_supply.clone(),
             )
             .unwrap();
-        store_update.save_block_header(genesis.header.clone());
+        store_update
+            .save_block_header(genesis.header.clone())
+            .expect("save genesis block header shouldn't fail");
         store_update.save_block(genesis.clone());
 
         for (chunk_header, state_root) in genesis.chunks.iter().zip(self.roots.values()) {

@@ -1212,6 +1212,7 @@ pub enum NetworkAdversarialMessage {
     AdvDisableDoomslug,
     AdvGetSavedBlocks,
     AdvCheckRefMap,
+    AdvCheckStorageConsistency,
     AdvSetSyncInfo(u64),
 }
 

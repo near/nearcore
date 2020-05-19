@@ -31,6 +31,7 @@ members = [
     "test-utils/testlib",
     "test-utils/loadtester",
     "test-utils/state-viewer",
+    "test-utils/store-validator",
     "neard/",
     "tools/rpctypegen/core",
     "tools/rpctypegen/macro",

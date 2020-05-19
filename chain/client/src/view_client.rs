@@ -23,7 +23,7 @@ use near_network::types::{
 use near_network::{NetworkAdapter, NetworkRequests};
 use near_primitives::block::{BlockHeader, GenesisId};
 use near_primitives::hash::CryptoHash;
-use near_primitives::merkle::verify_path;
+use near_primitives::merkle::{verify_path, PartialMerkleTree};
 use near_primitives::network::AnnounceAccount;
 use near_primitives::types::{
     AccountId, BlockHeight, BlockId, BlockIdOrFinality, Finality, MaybeBlockId,
@@ -34,7 +34,9 @@ use near_primitives::views::{
     StateChangesView,
 };
 
-use crate::types::{Error, GetBlock, GetGasPrice, Query, TxStatus, TxStatusError};
+use crate::types::{
+    Error, GetBlock, GetBlockWithMerkleTree, GetGasPrice, Query, TxStatus, TxStatusError,
+};
 use crate::{
     sync, GetChunk, GetNextLightClientBlock, GetStateChanges, GetStateChangesInBlock,
     GetValidatorInfo,
@@ -393,6 +395,19 @@ impl Handler<GetBlock> for ViewClientActor {
                 .map(|author| BlockView::from_author_block(author, block))
         })
         .map_err(|err| err.to_string())
+    }
+}
+
+impl Handler<GetBlockWithMerkleTree> for ViewClientActor {
+    type Result = Result<(BlockView, PartialMerkleTree), String>;
+
+    fn handle(&mut self, msg: GetBlockWithMerkleTree, ctx: &mut Context<Self>) -> Self::Result {
+        let block_view = self.handle(GetBlock(msg.0), ctx)?;
+        self.chain
+            .mut_store()
+            .get_block_merkle_tree(&block_view.header.hash)
+            .map(|merkle_tree| (block_view, merkle_tree.clone()))
+            .map_err(|e| e.to_string())
     }
 }
 
