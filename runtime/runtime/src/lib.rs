@@ -854,7 +854,9 @@ impl Runtime {
                     .ok_or_else(|| RuntimeError::UnexpectedIntegerOverflow)?;
 
                 set_account(state_update, account_id.clone(), &account);
-            } else {
+            } else if *max_of_stakes > 0 {
+                // if max_of_stakes > 0, it means that the account must have locked balance
+                // and therefore must exist
                 return Err(StorageError::StorageInconsistentState(format!(
                     "Account {} with max of stakes {} is not found",
                     account_id, max_of_stakes
