@@ -3,6 +3,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use cached::{Cached, SizedCache};
 use chrono::{DateTime, Utc};
 use log::{debug, error, warn};
 use rand::seq::SliceRandom;
@@ -39,6 +40,7 @@ use std::collections::hash_map::Entry;
 mod chunk_cache;
 mod types;
 
+const CHUNK_PRODUCER_BLACKLIST_SIZE: usize = 100;
 const CHUNK_REQUEST_RETRY_MS: u64 = 100;
 const CHUNK_REQUEST_SWITCH_TO_OTHERS_MS: u64 = 400;
 const CHUNK_REQUEST_SWITCH_TO_FULL_FETCH_MS: u64 = 3_000;
@@ -161,7 +163,7 @@ pub struct SealsManager {
     runtime_adapter: Arc<dyn RuntimeAdapter>,
 
     seals: HashMap<ChunkHash, Seal>,
-    dont_include_chunks_from: HashSet<AccountId>,
+    dont_include_chunks_from: SizedCache<AccountId, ()>,
 }
 
 impl SealsManager {
@@ -170,7 +172,7 @@ impl SealsManager {
             me,
             runtime_adapter,
             seals: HashMap::new(),
-            dont_include_chunks_from: HashSet::new(),
+            dont_include_chunks_from: SizedCache::with_size(CHUNK_PRODUCER_BLACKLIST_SIZE),
         }
     }
 
@@ -241,17 +243,17 @@ impl SealsManager {
             // note chunk producers that failed to make parts available
             if parts_remain && accepting_period_over {
                 warn!(target: "client", "Couldn't reconstruct chunk {:?} from {:?}, I'm {:?}", chunk_hash, seal.chunk_producer, me);
-                dont_include_chunks_from.insert(seal.chunk_producer.clone());
+                dont_include_chunks_from.cache_set(seal.chunk_producer.clone(), ());
                 seal.part_ords.clear();
             }
 
-            // retain the seal if it after the GC cut-off
+            // retain the seal if it is after the GC cut-off
             gc_stop_height.map_or(true, |height| seal.height >= height)
         });
     }
 
-    fn should_trust_chunk_producer(&self, chunk_producer: &AccountId) -> bool {
-        !self.dont_include_chunks_from.contains(chunk_producer)
+    fn should_trust_chunk_producer(&mut self, chunk_producer: &AccountId) -> bool {
+        self.dont_include_chunks_from.cache_get(chunk_producer).is_none()
     }
 }
 
