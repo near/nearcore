@@ -938,10 +938,16 @@ impl RuntimeAdapter for KeyValueRuntime {
 
     fn get_validator_by_account_id(
         &self,
-        _epoch_id: &EpochId,
+        epoch_id: &EpochId,
         _last_known_block_hash: &CryptoHash,
-        _account_id: &String,
+        account_id: &String,
     ) -> Result<(ValidatorStake, bool), Error> {
+        let validators = &self.validators[self.get_valset_for_epoch(epoch_id)?];
+        for validator_stake in validators.iter() {
+            if &validator_stake.account_id == account_id {
+                return Ok((validator_stake.clone(), false));
+            }
+        }
         Err(ErrorKind::NotAValidator.into())
     }
 
