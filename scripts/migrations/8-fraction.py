@@ -6,7 +6,6 @@ Changes:
  and `max_inflation_rate` to fractions.
 """
 
-
 import sys
 import os
 import json
@@ -15,7 +14,8 @@ from collections import OrderedDict
 home = sys.argv[1]
 output_home = sys.argv[2]
 
-config = json.load(open(os.path.join(home, 'output.json')), object_pairs_hook=OrderedDict)
+config = json.load(open(os.path.join(home, 'output.json')),
+                   object_pairs_hook=OrderedDict)
 
 assert config['protocol_version'] == 7
 

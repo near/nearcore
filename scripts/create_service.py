@@ -20,19 +20,24 @@ elif exists(near_debug_path):
 default_near_args = 'run'
 default_near_user = getpass.getuser()
 
-near_user = raw_input("Enter user to run service, default: '{}': ".format(default_near_user)) or default_near_user
-near_path = raw_input("Enter the nearcore binary path, default '{}': ".format(default_near_path if default_near_path else "")) or default_near_path
-near_args = raw_input("Enter args, default: '{}': ".format(default_near_args)) or default_near_args
+near_user = raw_input("Enter user to run service, default: '{}': ".format(
+    default_near_user)) or default_near_user
+near_path = raw_input("Enter the nearcore binary path, default '{}': ".format(
+    default_near_path if default_near_path else "")) or default_near_path
+near_args = raw_input("Enter args, default: '{}': ".format(
+    default_near_args)) or default_near_args
 
 template = open(join(dirname(__file__), './near.service.template')).read()
-service_file = template.format(exec_start=near_path + " " + near_args, user=near_user)
+service_file = template.format(exec_start=near_path + " " + near_args,
+                               user=near_user)
 
 service_file_path = '/etc/systemd/system/near.service'
 with open(service_file_path, 'w') as f:
     f.write(service_file)
 
 st = os.stat(service_file_path)
-os.chmod(service_file_path, st.st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
+os.chmod(service_file_path,
+         st.st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
 print("""
 Service created at {}.
 To start: sudo systemctl start near

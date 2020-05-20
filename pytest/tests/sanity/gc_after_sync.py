@@ -12,19 +12,35 @@ TARGET_HEIGHT = 30
 AFTER_SYNC_HEIGHT = 150
 TIMEOUT = 300
 
-consensus_config = {"consensus": {"min_block_production_delay": {"secs": 0, "nanos": 100000000}, "max_block_production_delay": {"secs": 0, "nanos": 400000000}, "max_block_wait_delay": {"secs": 0, "nanos": 400000000}}}
+consensus_config = {
+    "consensus": {
+        "min_block_production_delay": {
+            "secs": 0,
+            "nanos": 100000000
+        },
+        "max_block_production_delay": {
+            "secs": 0,
+            "nanos": 400000000
+        },
+        "max_block_wait_delay": {
+            "secs": 0,
+            "nanos": 400000000
+        }
+    }
+}
 
 nodes = start_cluster(
     4, 0, 1, None,
-    [
-        ["epoch_length", 10],
-        ["num_block_producer_seats_per_shard", [5]],
-        ["validators", 0, "amount", "60000000000000000000000000000000"],
-        ["records", 0, "Account", "account", "locked", "60000000000000000000000000000000"],
-        ["total_supply", "5010000000000000000000000000000000"]
-    ],
-    {0: consensus_config, 1: consensus_config, 2: consensus_config}
-)
+    [["epoch_length", 10], ["num_block_producer_seats_per_shard", [5]],
+     ["validators", 0, "amount", "60000000000000000000000000000000"],
+     [
+         "records", 0, "Account", "account", "locked",
+         "60000000000000000000000000000000"
+     ], ["total_supply", "5010000000000000000000000000000000"]], {
+         0: consensus_config,
+         1: consensus_config,
+         2: consensus_config
+     })
 
 node0_height = 0
 while node0_height < TARGET_HEIGHT:

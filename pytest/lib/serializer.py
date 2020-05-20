@@ -1,4 +1,5 @@
 class BinarySerializer:
+
     def __init__(self, schema):
         self.array = bytearray()
         self.schema = schema
@@ -24,7 +25,8 @@ class BinarySerializer:
             assert len(fieldType) == 1
             if type(fieldType[0]) == int:
                 assert type(value) == bytes
-                assert len(value) == fieldType[0], "len(%s) = %s != %s" % (value, len(value), fieldType[0])
+                assert len(value) == fieldType[0], "len(%s) = %s != %s" % (
+                    value, len(value), fieldType[0])
                 self.array += bytearray(value)
             else:
                 self.serialize_num(len(value), 4)
@@ -38,10 +40,11 @@ class BinarySerializer:
                 self.serialize_num(1, 1)
                 self.serialize_field(value, fieldType['type'])
         elif type(fieldType) == type:
-            assert type(value) == fieldType, "%s != type(%s)" % (fieldType, value)
+            assert type(value) == fieldType, "%s != type(%s)" % (fieldType,
+                                                                 value)
             self.serialize_struct(value)
         else:
-             assert False, type(fieldType)
+            assert False, type(fieldType)
 
     def serialize_struct(self, obj):
         structSchema = self.schema[type(obj)]
@@ -50,7 +53,8 @@ class BinarySerializer:
                 self.serialize_field(getattr(obj, fieldName), fieldType)
         elif structSchema['kind'] == 'enum':
             name = getattr(obj, structSchema['field'])
-            for idx, (fieldName, fieldType) in enumerate(structSchema['values']):
+            for idx, (fieldName,
+                      fieldType) in enumerate(structSchema['values']):
                 if fieldName == name:
                     self.serialize_num(idx, 1)
                     self.serialize_field(getattr(obj, fieldName), fieldType)
