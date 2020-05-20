@@ -1,5 +1,8 @@
 from serializer import BinarySerializer
 import hashlib, base58
+import nacl.signing
+
+ED_PREFIX = "ed25519:"
 
 
 class BlockHeaderInnerLite:
@@ -10,7 +13,7 @@ inner_lite_schema = dict([
     [
         BlockHeaderInnerLite, {
             'kind':
-            'struct',
+                'struct',
             'fields': [
                 ['height', 'u64'],
                 ['epoch_id', [32]],
@@ -44,7 +47,8 @@ def compute_block_hash(inner_lite_view, inner_rest_hash, prev_hash):
     inner_lite.outcome_root = base58.b58decode(inner_lite_view['outcome_root'])
     inner_lite.timestamp = inner_lite_view['timestamp']
     inner_lite.next_bp_hash = base58.b58decode(inner_lite_view['next_bp_hash'])
-    inner_lite.block_merkle_root = base58.b58decode(inner_lite_view['block_merkle_root'])
+    inner_lite.block_merkle_root = base58.b58decode(
+        inner_lite_view['block_merkle_root'])
 
     msg = BinarySerializer(inner_lite_schema).serialize(inner_lite)
     inner_lite_hash = hashlib.sha256(msg).digest()
@@ -62,17 +66,22 @@ def validate_light_client_block(last_known_block,
     new_block_hash = compute_block_hash(new_block['inner_lite'],
                                         new_block['inner_rest_hash'],
                                         new_block['prev_block_hash'])
+    next_block_hash_decoded = combine_hash(
+        base58.b58decode(new_block['next_block_inner_hash']),
+        base58.b58decode(new_block_hash))
 
     if new_block['inner_lite']['epoch_id'] not in [
             last_known_block['inner_lite']['epoch_id'],
             last_known_block['inner_lite']['next_epoch_id']
     ]:
-        if panic: assert False
+        if panic:
+            assert False
         return False
 
     block_producers = block_producers_map[new_block['inner_lite']['epoch_id']]
     if len(new_block['approvals_after_next']) != len(block_producers):
-        if panic: assert False
+        if panic:
+            assert False
         return False
 
     total_stake = 0
@@ -80,23 +89,67 @@ def validate_light_client_block(last_known_block,
 
     for approval, stake in zip(new_block['approvals_after_next'],
                                block_producers):
-        if approval is not None:
-            approved_stake += int(stake['stake'])
-
         total_stake += int(stake['stake'])
+
+        if approval is None:
+            continue
+
+        approved_stake += int(stake['stake'])
+
+        public_key = stake['public_key']
+
+        signature = base58.b58decode(approval[len(ED_PREFIX):])
+        verify_key = nacl.signing.VerifyKey(
+            base58.b58decode(public_key[len(ED_PREFIX):]))
+
+        approval_message = bytearray()
+        approval_message.append(0)
+        approval_message += next_block_hash_decoded
+        for i in range(7):
+            approval_message.append(0)
+        approval_message.append(new_block['inner_lite']['height'] + 2)
+        approval_message = bytes(approval_message)
+        verify_key.verify(approval_message, signature)
 
     threshold = total_stake * 2 // 3
     if approved_stake <= threshold:
-        if panic: assert False
+        if panic:
+            assert False
         return False
 
     if new_block['inner_lite']['epoch_id'] == last_known_block['inner_lite'][
             'next_epoch_id']:
         if new_block['next_bps'] is None:
-            if panic: assert False
+            if panic:
+                assert False
             return False
 
-        # TODO: MOO check hash
+        serialized_next_bp = bytearray()
+        serialized_next_bp.append(len(new_block['next_bps']))
+        for i in range(3):
+            serialized_next_bp.append(0)
+        for bp in new_block['next_bps']:
+            serialized_next_bp.append(5)
+            for i in range(3):
+                serialized_next_bp.append(0)
+            serialized_next_bp += bp['account_id'].encode('utf-8')
+            serialized_next_bp.append(0)  # public key type
+            serialized_next_bp += base58.b58decode(
+                bp['public_key'][len(ED_PREFIX):])
+            stake = int(bp['stake'])
+            for i in range(16):
+                serialized_next_bp.append(stake & 255)
+                stake >>= 8
+
+        serialized_next_bp = bytes(serialized_next_bp)
+
+        computed_hash = base58.b58encode(
+            hashlib.sha256(serialized_next_bp).digest())
+        if computed_hash != new_block['inner_lite']['next_bp_hash'].encode(
+                'utf-8'):
+            if panic:
+                assert False
+            return False
 
         block_producers_map[new_block['inner_lite']
                             ['next_epoch_id']] = new_block['next_bps']
