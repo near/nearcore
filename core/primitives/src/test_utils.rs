@@ -366,7 +366,11 @@ impl EpochInfoProvider for MockEpochInfoProvider {
         Ok(self.validators.get(account_id).cloned())
     }
 
-    fn validator_total_stake(&self, _epoch_id: &EpochId) -> Result<Balance, EpochError> {
+    fn validator_total_stake(
+        &self,
+        _epoch_id: &EpochId,
+        _last_block_hash: &CryptoHash,
+    ) -> Result<Balance, EpochError> {
         Ok(self.validators.values().sum())
     }
 }

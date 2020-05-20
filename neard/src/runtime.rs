@@ -78,10 +78,25 @@ impl EpochInfoProvider for SafeEpochManager {
         }
     }
 
-    fn validator_total_stake(&self, epoch_id: &EpochId) -> Result<Balance, EpochError> {
+    fn validator_total_stake(
+        &self,
+        epoch_id: &EpochId,
+        last_block_hash: &CryptoHash,
+    ) -> Result<Balance, EpochError> {
         let mut epoch_manager = self.0.write().expect(POISONED_LOCK_ERR);
+        let slashed = epoch_manager.get_slashed_validators(last_block_hash)?.clone();
         let epoch_info = epoch_manager.get_epoch_info(&epoch_id)?;
-        Ok(epoch_info.validators.iter().map(|info| info.stake).sum())
+        Ok(epoch_info
+            .validators
+            .iter()
+            .filter_map(|info| {
+                if slashed.contains_key(&info.account_id) {
+                    None
+                } else {
+                    Some(info.stake)
+                }
+            })
+            .sum())
     }
 }
 

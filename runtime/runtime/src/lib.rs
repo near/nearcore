@@ -1371,7 +1371,17 @@ mod tests {
     fn test_apply_no_op() {
         let (runtime, tries, root, apply_state, _, epoch_info_provider) =
             setup_runtime(to_yocto(1_000_000), 0, 10u64.pow(15));
-        runtime.apply(tries, root, &None, &apply_state, &[], &[], &epoch_info_provider).unwrap();
+        runtime
+            .apply(
+                tries.get_trie_for_shard(0),
+                root,
+                &None,
+                &apply_state,
+                &[],
+                &[],
+                &epoch_info_provider,
+            )
+            .unwrap();
     }
 
     #[test]

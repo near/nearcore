@@ -552,5 +552,9 @@ pub trait EpochInfoProvider {
     ) -> Result<Option<Balance>, EpochError>;
 
     /// Get the total stake of the given epoch.
-    fn validator_total_stake(&self, epoch_id: &EpochId) -> Result<Balance, EpochError>;
+    fn validator_total_stake(
+        &self,
+        epoch_id: &EpochId,
+        last_block_hash: &CryptoHash,
+    ) -> Result<Balance, EpochError>;
 }
