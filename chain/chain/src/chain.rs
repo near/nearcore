@@ -414,7 +414,7 @@ impl Chain {
     ///  * `header` - the last finalized block seen from `header` (not pushed back) will be used to
     ///               compute the light client block
     pub fn create_light_client_block(
-        header: BlockHeader,
+        header: &BlockHeader,
         runtime_adapter: &dyn RuntimeAdapter,
         chain_store: &mut dyn ChainStoreAccess,
     ) -> Result<LightClientBlockView, Error> {
@@ -2808,7 +2808,7 @@ impl<'a> ChainUpdate<'a> {
         self.chain_store_update.save_next_block_hash(&header.prev_hash, header.hash());
 
         Chain::create_light_client_block(
-            header.clone(),
+            header,
             &*self.runtime_adapter,
             &mut self.chain_store_update,
         )
