@@ -64,11 +64,28 @@ const NUM_ITERATIONS: u64 = 10;
 /// Cost of the most CPU demanding operation.
 pub fn cost_per_op(gas_metric: GasMetric) -> Ratio<u64> {
     // Call once for the warmup.
-    call();
+    let (outcome, _) = call();
+    let outcome = outcome.unwrap();
     let start = start_count(gas_metric);
     for _ in 0..NUM_ITERATIONS {
         call();
     }
-    let cost = end_count(gas_metric, &start);
-    Ratio::new(cost, NUM_ITERATIONS)
+    let measured = end_count(gas_metric, &start);
+    // Those proportions led to the used formula:
+    //   outcome.burnt_gas = gas_burned(call)
+    //   measured = NUM_ITERATIONS * measured(call)
+    //   measured(call) = num_x86_insns(call)
+    //   gas_burned(call) = gas_cost_per_wasm_op * num_wasm_ops(call)
+    //   gas_burned(call) = measured * GAS_IN_MEASURE_UNIT / DIVISOR
+    //   outcome.burnt_gas = num_wasm_ops(call) *
+    //       VMConfig::default().regular_op_cost
+    //   gas_cost_per_wasm_op = (measured * GAS_IN_MEASURE_UNIT *
+    //       VMConfig::default().regular_op_cost) /
+    //       (DIVISOR * NUM_ITERATIONS * outcome.burnt_gas)
+    // Enough to return just
+    //    (measured * VMConfig::default().regular_op_cost) /
+    //       (outcome.burnt_gas * NUM_ITERATIONS),
+    // as remaining can be computed with ratio_to_gas().
+    Ratio::new(measured * (VMConfig::default().regular_op_cost as u64),
+        NUM_ITERATIONS * outcome.burnt_gas)
 }
