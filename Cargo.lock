@@ -3632,7 +3632,6 @@ dependencies = [
  "near-store",
  "neard",
  "serde_json",
- "testlib",
 ]
 
 [[package]]
