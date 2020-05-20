@@ -180,7 +180,6 @@ fn replay_chain(
                     header.inner_rest.validator_proposals,
                     vec![],
                     header.inner_rest.chunk_mask,
-                    header.inner_rest.validator_reward,
                     header.inner_rest.total_supply,
                 )
                 .unwrap();
@@ -266,8 +265,9 @@ fn main() {
                 "Storage roots are {:?}, block height is {}",
                 state_roots, header.inner_lite.height
             );
-            for state_root in state_roots {
-                let trie = TrieIterator::new(&runtime.trie, &state_root).unwrap();
+            for (shard_id, state_root) in state_roots.iter().enumerate() {
+                let trie = runtime.get_trie_for_shard(shard_id as u64);
+                let trie = TrieIterator::new(&trie, &state_root).unwrap();
                 for item in trie {
                     let (key, value) = item.unwrap();
                     if let Some(state_record) = StateRecord::from_raw_key_value(key, value) {
@@ -279,7 +279,7 @@ fn main() {
         ("dump_state", Some(args)) => {
             let height = args.value_of("height").map(|s| s.parse::<u64>().unwrap());
             let (runtime, state_roots, header) =
-                load_trie_stop_at_height(store.clone(), home_dir, &near_config, height);
+                load_trie_stop_at_height(store, home_dir, &near_config, height);
             let height = header.inner_lite.height;
             let home_dir = PathBuf::from(&home_dir);
 

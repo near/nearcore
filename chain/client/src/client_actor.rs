@@ -18,6 +18,8 @@ use near_chain::{
     RuntimeAdapter,
 };
 use near_chain_configs::ClientConfig;
+#[cfg(feature = "adversarial")]
+use near_chain_configs::GenesisConfig;
 use near_crypto::Signature;
 #[cfg(feature = "metric_recorder")]
 use near_network::recorder::MetricRecorder;
@@ -46,6 +48,8 @@ use crate::types::{
     StatusSyncInfo, SyncStatus,
 };
 use crate::StatusResponse;
+#[cfg(feature = "adversarial")]
+use near_store::StoreValidator;
 
 /// Multiplier on `max_block_time` to wait until deciding that chain stalled.
 const STATUS_WAIT_TIME_MULTIPLIER: u64 = 10;
@@ -226,7 +230,7 @@ impl Handler<NetworkClientMessages> for ClientActor {
                     NetworkAdversarialMessage::AdvSwitchToHeight(height) => {
                         info!(target: "adversary", "Switching to height {:?}", height);
                         let mut chain_store_update = self.client.chain.mut_store().store_update();
-                        chain_store_update.save_largest_target_height(&height);
+                        chain_store_update.save_largest_target_height(height);
                         chain_store_update
                             .adv_save_latest_known(height)
                             .expect("adv method should not fail");
@@ -250,6 +254,19 @@ impl Handler<NetworkClientMessages> for ClientActor {
                                 error!(target: "client", "Block Reference Map is inconsistent: {:?}", e);
                                 NetworkClientResponses::AdvResult(0 /* false */)
                             }
+                        }
+                    }
+                    NetworkAdversarialMessage::AdvCheckStorageConsistency => {
+                        info!(target: "adversary", "Check Storage Consistency");
+                        let mut genesis = GenesisConfig::default();
+                        genesis.genesis_height = self.client.chain.store().get_genesis_height();
+                        let mut store_validator = StoreValidator::default();
+                        store_validator.validate(self.client.chain.store().store(), &genesis);
+                        if store_validator.is_failed() {
+                            error!(target: "client", "Storage Validation failed, {:?}", store_validator.errors);
+                            NetworkClientResponses::AdvResult(0)
+                        } else {
+                            NetworkClientResponses::AdvResult(store_validator.tests_done())
                         }
                     }
                     _ => panic!("invalid adversary message"),
@@ -356,11 +373,8 @@ impl Handler<NetworkClientMessages> for ClientActor {
                         ShardSyncStatus::StateDownloadHeader => {
                             if let Some(header) = state_response.header {
                                 if !shard_sync_download.downloads[0].done {
-                                    match self.client.chain.set_state_header(
-                                        shard_id,
-                                        hash,
-                                        header.clone(),
-                                    ) {
+                                    match self.client.chain.set_state_header(shard_id, hash, header)
+                                    {
                                         Ok(()) => {
                                             shard_sync_download.downloads[0].done = true;
                                         }
@@ -420,6 +434,14 @@ impl Handler<NetworkClientMessages> for ClientActor {
                     route_back,
                     self.client.chain.mut_store(),
                 );
+                NetworkClientResponses::NoResponse
+            }
+            NetworkClientMessages::PartialEncodedChunkResponse(response) => {
+                if let Ok(accepted_blocks) =
+                    self.client.process_partial_encoded_chunk_response(response)
+                {
+                    self.process_accepted_blocks(accepted_blocks);
+                }
                 NetworkClientResponses::NoResponse
             }
             NetworkClientMessages::PartialEncodedChunk(partial_encoded_chunk) => {
@@ -510,7 +532,7 @@ impl Handler<GetNetworkInfo> for ClientActor {
                 .active_peers
                 .clone()
                 .into_iter()
-                .map(|a| a.peer_info.clone())
+                .map(|a| a.peer_info)
                 .collect::<Vec<_>>(),
             num_active_peers: self.network_info.num_active_peers,
             peer_max_count: self.network_info.peer_max_count,
@@ -633,7 +655,7 @@ impl ClientActor {
                 ) {
                     if let Err(err) = self.produce_block(height) {
                         // If there is an error, report it and let it retry on the next loop step.
-                        error!(target: "client", "Block production failed: {:?}", err);
+                        error!(target: "client", "Block production failed: {}", err);
                     }
                 }
             }
@@ -671,7 +693,7 @@ impl ClientActor {
                                 "Chunks were missing for newly produced block {}, I'm {:?}, requesting. Missing: {:?}, ({:?})",
                                 block_hash,
                                 self.client.validator_signer.as_ref().map(|vs| vs.validator_id()),
-                                missing_chunks.clone(),
+                                missing_chunks,
                                 missing_chunks.iter().map(|header| header.chunk_hash()).collect::<Vec<_>>()
                             );
                             self.client.shards_mgr.request_chunks(missing_chunks).unwrap();
@@ -784,7 +806,7 @@ impl ClientActor {
                         "Chunks were missing for block {}, I'm {:?}, requesting. Missing: {:?}, ({:?})",
                         hash.clone(),
                         self.client.validator_signer.as_ref().map(|vs| vs.validator_id()),
-                        missing_chunks.clone(),
+                        missing_chunks,
                         missing_chunks.iter().map(|header| header.chunk_hash()).collect::<Vec<_>>()
                     );
                     self.client.shards_mgr.request_chunks(missing_chunks).unwrap();
@@ -941,12 +963,7 @@ impl ClientActor {
 
     /// Job to retry chunks that were requested but not received within expected time.
     fn chunk_request_retry(&mut self, ctx: &mut Context<ClientActor>) {
-        match self.client.shards_mgr.resend_chunk_requests() {
-            Ok(_) => {}
-            Err(err) => {
-                error!(target: "client", "Failed to resend chunk requests: {}", err);
-            }
-        };
+        self.client.shards_mgr.resend_chunk_requests();
         ctx.run_later(self.client.config.chunk_request_retry_period, move |act, ctx| {
             act.chunk_request_retry(ctx);
         });
@@ -962,7 +979,7 @@ impl ClientActor {
         // that if the node crashes in the meantime, we cannot get slashed on recovery
         let mut chain_store_update = self.client.chain.mut_store().store_update();
         chain_store_update
-            .save_largest_target_height(&self.client.doomslug.get_largest_target_height());
+            .save_largest_target_height(self.client.doomslug.get_largest_target_height());
 
         match chain_store_update.commit() {
             Ok(_) => {

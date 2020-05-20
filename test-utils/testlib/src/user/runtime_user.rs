@@ -14,7 +14,7 @@ use near_primitives::views::{
     ExecutionStatusView, ViewStateResult,
 };
 use near_primitives::views::{FinalExecutionOutcomeView, FinalExecutionStatus};
-use near_store::{Trie, TrieUpdate};
+use near_store::{ShardTries, TrieUpdate};
 use node_runtime::state_viewer::TrieViewer;
 use node_runtime::{ApplyState, Runtime};
 
@@ -25,16 +25,14 @@ use neard::config::MIN_GAS_PRICE;
 /// Mock client without chain, used in RuntimeUser and RuntimeNode
 pub struct MockClient {
     pub runtime: Runtime,
-    // Arc here because get_runtime_and_trie returns Arc<Trie> and
-    // TrieUpdate takes Arc<Trie>.
-    pub trie: Arc<Trie>,
+    pub tries: ShardTries,
     pub state_root: MerkleHash,
     pub epoch_length: BlockHeightDelta,
 }
 
 impl MockClient {
     pub fn get_state_update(&self) -> TrieUpdate {
-        TrieUpdate::new(self.trie.clone(), self.state_root)
+        self.tries.new_trie_update(0, self.state_root)
     }
 }
 
@@ -81,7 +79,7 @@ impl RuntimeUser {
             let apply_result = client
                 .runtime
                 .apply(
-                    client.trie.clone(),
+                    client.tries.get_trie_for_shard(0),
                     client.state_root,
                     &None,
                     &apply_state,
@@ -106,7 +104,7 @@ impl RuntimeUser {
                     .borrow_mut()
                     .insert(outcome_with_id.id, outcome_with_id.outcome.into());
             }
-            apply_result.trie_changes.into(client.trie.clone()).unwrap().0.commit().unwrap();
+            client.tries.apply_all(&apply_result.trie_changes, 0).unwrap().0.commit().unwrap();
             client.state_root = apply_result.state_root;
             if apply_result.outgoing_receipts.is_empty() {
                 return Ok(());

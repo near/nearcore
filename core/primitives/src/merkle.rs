@@ -1,7 +1,7 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
 
-use crate::hash::hash;
+use crate::hash::{hash, CryptoHash};
 use crate::types::MerkleHash;
 
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, Serialize, Deserialize)]
@@ -29,24 +29,28 @@ pub fn merklize<T: BorshSerialize>(arr: &[T]) -> (MerkleHash, Vec<MerklePath>) {
     if arr.is_empty() {
         return (MerkleHash::default(), vec![]);
     }
-    let mut len = (arr.len() as u32).next_power_of_two();
-    let mut hashes: Vec<_> = (0..len)
-        .map(|i| {
-            if i < arr.len() as u32 {
-                hash(&arr[i as usize].try_to_vec().expect("Failed to serialize"))
-            } else {
-                hash(&[0])
-            }
-        })
-        .collect();
+    let mut len = arr.len().next_power_of_two();
+    let mut hashes = arr
+        .iter()
+        .map(|elem| hash(&elem.try_to_vec().expect("Failed to serialize")))
+        .collect::<Vec<_>>();
+
     // degenerate case
     if len == 1 {
         return (hashes[0], vec![vec![]]);
     }
-    let mut paths: Vec<MerklePath> = (0..arr.len())
+    let mut arr_len = arr.len();
+    let mut paths: Vec<MerklePath> = (0..arr_len)
         .map(|i| {
             if i % 2 == 0 {
-                vec![MerklePathItem { hash: hashes[(i + 1) as usize], direction: Direction::Right }]
+                if i + 1 < arr_len {
+                    vec![MerklePathItem {
+                        hash: hashes[(i + 1) as usize],
+                        direction: Direction::Right,
+                    }]
+                } else {
+                    vec![]
+                }
             } else {
                 vec![MerklePathItem { hash: hashes[(i - 1) as usize], direction: Direction::Left }]
             }
@@ -58,8 +62,14 @@ pub fn merklize<T: BorshSerialize>(arr: &[T]) -> (MerkleHash, Vec<MerklePath>) {
         len /= 2;
         counter *= 2;
         for i in 0..len {
-            let hash = combine_hash(hashes[2 * i as usize], hashes[(2 * i + 1) as usize]);
-            hashes[i as usize] = hash;
+            let hash = if 2 * i >= arr_len {
+                continue;
+            } else if 2 * i + 1 >= arr_len {
+                hashes[2 * i]
+            } else {
+                combine_hash(hashes[2 * i], hashes[2 * i + 1])
+            };
+            hashes[i] = hash;
             if len > 1 {
                 if i % 2 == 0 {
                     for j in 0..counter {
@@ -78,6 +88,7 @@ pub fn merklize<T: BorshSerialize>(arr: &[T]) -> (MerkleHash, Vec<MerklePath>) {
                 }
             }
         }
+        arr_len = (arr_len + 1) / 2;
     }
     (hashes[0], paths)
 }
@@ -98,6 +109,46 @@ pub fn verify_path<T: BorshSerialize>(root: MerkleHash, path: &MerklePath, item:
     hash == root
 }
 
+/// Merkle tree that only maintains the path for the next leaf, i.e,
+/// when a new leaf is inserted, the existing `path` is its proof.
+/// The root can be computed by folding `path` from right but is not explicitly
+/// maintained to save space.
+/// The size of the object is O(log(n)) where n is the number of leaves in the tree, i.e, `size`.
+#[derive(Default, Clone, BorshSerialize, BorshDeserialize)]
+pub struct PartialMerkleTree {
+    /// Path for the next leaf.
+    path: Vec<MerkleHash>,
+    /// Number of leaves in the tree.
+    size: u64,
+}
+
+impl PartialMerkleTree {
+    pub fn root(&self) -> MerkleHash {
+        if self.path.is_empty() {
+            CryptoHash::default()
+        } else {
+            let mut res = *self.path.last().unwrap();
+            let len = self.path.len();
+            for i in (0..len - 1).rev() {
+                res = combine_hash(self.path[i], res);
+            }
+            res
+        }
+    }
+
+    pub fn insert(&mut self, elem: MerkleHash) {
+        let mut s = self.size;
+        let mut node = elem;
+        while s % 2 == 1 {
+            let last_path_elem = self.path.pop().unwrap();
+            node = combine_hash(last_path_elem, node);
+            s /= 2;
+        }
+        self.path.push(node);
+        self.size += 1;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use rand::rngs::StdRng;
@@ -113,6 +164,7 @@ mod tests {
         let (root, paths) = merklize(&arr);
         assert_eq!(paths.len() as u32, n);
         for (i, item) in arr.iter().enumerate() {
+            println!("i: {} item: {:?} path: {:?}", i, item, paths[i]);
             assert!(verify_path(root, &paths[i], item));
         }
     }
@@ -121,7 +173,7 @@ mod tests {
     fn test_merkle_path() {
         let mut rng: StdRng = SeedableRng::seed_from_u64(1);
         for _ in 0..10 {
-            let len: u32 = rng.gen_range(1, 50);
+            let len: u32 = rng.gen_range(1, 100);
             test_with_len(len, &mut rng);
         }
     }
@@ -142,5 +194,32 @@ mod tests {
         let items2 = vec![2, 1];
         let (root2, _) = merklize(&items2);
         assert_ne!(root, root2);
+    }
+
+    /// Compute the merkle root of a given array.
+    fn compute_root(hashes: &[CryptoHash]) -> CryptoHash {
+        if hashes.is_empty() {
+            CryptoHash::default()
+        } else if hashes.len() == 1 {
+            hashes[0]
+        } else {
+            let len = hashes.len();
+            let subtree_len = len.next_power_of_two() / 2;
+            let left_root = compute_root(&hashes[0..subtree_len]);
+            let right_root = compute_root(&hashes[subtree_len..len]);
+            combine_hash(left_root, right_root)
+        }
+    }
+
+    #[test]
+    fn test_merkle_tree() {
+        let mut tree = PartialMerkleTree::default();
+        let mut hashes = vec![];
+        for i in 0..50 {
+            assert_eq!(compute_root(&hashes), tree.root());
+            let cur_hash = hash(&[i]);
+            hashes.push(cur_hash);
+            tree.insert(cur_hash);
+        }
     }
 }

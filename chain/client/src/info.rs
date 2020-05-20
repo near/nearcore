@@ -134,7 +134,7 @@ impl InfoHelper {
                     .validator_signer
                     .clone()
                     .map(|bp| bp.validator_id().clone())
-                    .unwrap_or("".to_string()),
+                    .unwrap_or_else(String::new),
                 is_validator,
                 status: sync_status.as_variant_name().to_string(),
                 latest_block_hash: to_base(&head.last_block_hash),

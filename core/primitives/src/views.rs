@@ -329,6 +329,7 @@ pub struct BlockHeaderView {
     /// TODO(2271): deprecated.
     #[serde(with = "u128_dec_format")]
     pub rent_paid: Balance,
+    /// TODO(2271): deprecated.
     #[serde(with = "u128_dec_format")]
     pub validator_reward: Balance,
     #[serde(with = "u128_dec_format")]
@@ -337,6 +338,7 @@ pub struct BlockHeaderView {
     pub last_final_block: CryptoHash,
     pub last_ds_final_block: CryptoHash,
     pub next_bp_hash: CryptoHash,
+    pub block_merkle_root: CryptoHash,
     pub approvals: Vec<Option<Signature>>,
     pub signature: Signature,
 }
@@ -367,12 +369,13 @@ impl From<BlockHeader> for BlockHeaderView {
             chunk_mask: header.inner_rest.chunk_mask,
             gas_price: header.inner_rest.gas_price,
             rent_paid: 0,
-            validator_reward: header.inner_rest.validator_reward,
+            validator_reward: 0,
             total_supply: header.inner_rest.total_supply,
             challenges_result: header.inner_rest.challenges_result,
             last_final_block: header.inner_rest.last_final_block,
             last_ds_final_block: header.inner_rest.last_ds_final_block,
             next_bp_hash: header.inner_lite.next_bp_hash,
+            block_merkle_root: header.inner_lite.block_merkle_root,
             approvals: header.inner_rest.approvals.clone(),
             signature: header.signature,
         }
@@ -391,6 +394,7 @@ impl From<BlockHeaderView> for BlockHeader {
                 outcome_root: view.outcome_root,
                 timestamp: view.timestamp,
                 next_bp_hash: view.next_bp_hash,
+                block_merkle_root: view.block_merkle_root,
             },
             inner_rest: BlockHeaderInnerRest {
                 chunk_receipts_root: view.chunk_receipts_root,
@@ -408,7 +412,6 @@ impl From<BlockHeaderView> for BlockHeader {
                 gas_price: view.gas_price,
                 total_supply: view.total_supply,
                 challenges_result: view.challenges_result,
-                validator_reward: view.validator_reward,
                 last_final_block: view.last_final_block,
                 last_ds_final_block: view.last_ds_final_block,
                 approvals: view.approvals.clone(),
@@ -430,6 +433,7 @@ pub struct BlockHeaderInnerLiteView {
     pub outcome_root: CryptoHash,
     pub timestamp: u64,
     pub next_bp_hash: CryptoHash,
+    pub block_merkle_root: CryptoHash,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -448,6 +452,7 @@ pub struct ChunkHeaderView {
     /// TODO(2271): deprecated.
     #[serde(with = "u128_dec_format")]
     pub rent_paid: Balance,
+    /// TODO(2271): deprecated.
     #[serde(with = "u128_dec_format")]
     pub validator_reward: Balance,
     #[serde(with = "u128_dec_format")]
@@ -473,7 +478,7 @@ impl From<ShardChunkHeader> for ChunkHeaderView {
             gas_used: chunk.inner.gas_used,
             gas_limit: chunk.inner.gas_limit,
             rent_paid: 0,
-            validator_reward: chunk.inner.validator_reward,
+            validator_reward: 0,
             balance_burnt: chunk.inner.balance_burnt,
             outgoing_receipts_root: chunk.inner.outgoing_receipts_root,
             tx_root: chunk.inner.tx_root,
@@ -501,7 +506,6 @@ impl From<ChunkHeaderView> for ShardChunkHeader {
                 shard_id: view.shard_id,
                 gas_used: view.gas_used,
                 gas_limit: view.gas_limit,
-                validator_reward: view.validator_reward,
                 balance_burnt: view.balance_burnt,
                 outgoing_receipts_root: view.outgoing_receipts_root,
                 tx_root: view.tx_root,
@@ -1011,7 +1015,6 @@ pub struct LightClientBlockView {
     pub inner_lite: BlockHeaderInnerLiteView,
     pub inner_rest_hash: CryptoHash,
     pub next_bps: Option<Vec<ValidatorStakeView>>,
-    pub approvals_next: Vec<Option<Signature>>,
     pub approvals_after_next: Vec<Option<Signature>>,
 }
 

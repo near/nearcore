@@ -3,6 +3,7 @@ use crate::config::{
     safe_gas_to_balance, total_prepaid_gas, tx_cost, RuntimeConfig, TransactionCost,
 };
 use crate::VerificationResult;
+use near_crypto::key_conversion::is_valid_staking_key;
 use near_primitives::account::AccessKeyPermission;
 use near_primitives::errors::{
     ActionsValidationError, InvalidAccessKeyError, InvalidTxError, ReceiptValidationError,
@@ -11,7 +12,7 @@ use near_primitives::errors::{
 use near_primitives::receipt::{ActionReceipt, DataReceipt, Receipt, ReceiptEnum};
 use near_primitives::transaction::{
     Action, AddKeyAction, DeleteAccountAction, DeployContractAction, FunctionCallAction,
-    SignedTransaction,
+    SignedTransaction, StakeAction,
 };
 use near_primitives::utils::is_valid_account_id;
 use near_store::{get_access_key, get_account, set_access_key, set_account, TrieUpdate};
@@ -164,10 +165,10 @@ pub fn verify_and_charge_transaction(
     set_access_key(state_update, signer_id.clone(), transaction.public_key.clone(), &access_key);
     set_account(state_update, signer_id.clone(), &signer);
 
-    let validator_reward =
+    let burnt_amount =
         safe_gas_to_balance(gas_price, gas_burnt).map_err(|_| InvalidTxError::CostOverflow)?;
 
-    Ok(VerificationResult { gas_burnt, gas_used, validator_reward })
+    Ok(VerificationResult { gas_burnt, gas_used, burnt_amount })
 }
 
 /// Validates a given receipt. Checks validity of the predecessor and receiver account IDs and
@@ -278,7 +279,7 @@ pub fn validate_action(
         Action::DeployContract(a) => validate_deploy_contract_action(limit_config, a),
         Action::FunctionCall(a) => validate_function_call_action(limit_config, a),
         Action::Transfer(_) => Ok(()),
-        Action::Stake(_) => Ok(()),
+        Action::Stake(a) => validate_stake_action(a),
         Action::AddKey(a) => validate_add_key_action(limit_config, a),
         Action::DeleteKey(_) => Ok(()),
         Action::DeleteAccount(a) => validate_delete_account_action(a),
@@ -317,6 +318,17 @@ fn validate_function_call_action(
         return Err(ActionsValidationError::FunctionCallArgumentsLengthExceeded {
             length: action.args.len() as u64,
             limit: limit_config.max_arguments_length,
+        });
+    }
+
+    Ok(())
+}
+
+/// Validates `StakeAction`. Checks that the `public_key` is a valid staking key.
+fn validate_stake_action(action: &StakeAction) -> Result<(), ActionsValidationError> {
+    if !is_valid_staking_key(&action.public_key) {
+        return Err(ActionsValidationError::UnsuitableStakingKey {
+            public_key: action.public_key.clone(),
         });
     }
 
@@ -385,7 +397,8 @@ mod tests {
         CreateAccountAction, DeleteKeyAction, StakeAction, TransferAction,
     };
     use near_primitives::types::{AccountId, Balance, MerkleHash, StateChangeCause};
-    use near_store::test_utils::create_trie;
+    use near_store::test_utils::create_tries;
+    use std::convert::TryInto;
     use std::sync::Arc;
     use testlib::runtime_utils::{alice_account, bob_account, eve_dot_alice_account};
 
@@ -406,14 +419,14 @@ mod tests {
     fn setup_accounts(
         accounts: Vec<(AccountId, Balance, Balance, Option<AccessKey>)>,
     ) -> (Arc<InMemorySigner>, TrieUpdate, Balance) {
-        let trie = create_trie();
+        let tries = create_tries();
         let root = MerkleHash::default();
 
         let account_id = alice_account();
         let signer =
             Arc::new(InMemorySigner::from_seed(&account_id, KeyType::ED25519, &account_id));
 
-        let mut initial_state = TrieUpdate::new(trie.clone(), root);
+        let mut initial_state = tries.new_trie_update(0, root);
         for (account_id, initial_balance, initial_locked, access_key) in accounts {
             let mut initial_account = account_new(initial_balance, hash(&[]));
             initial_account.locked = initial_locked;
@@ -429,10 +442,10 @@ mod tests {
         }
         initial_state.commit(StateChangeCause::InitialState);
         let trie_changes = initial_state.finalize().unwrap().0;
-        let (store_update, root) = trie_changes.into(trie.clone()).unwrap();
+        let (store_update, root) = tries.apply_all(&trie_changes, 0).unwrap();
         store_update.commit().unwrap();
 
-        (signer, TrieUpdate::new(trie.clone(), root), 100)
+        (signer, tries.new_trie_update(0, root), 100)
     }
 
     // Transactions
@@ -464,7 +477,7 @@ mod tests {
         assert!(verification_result.gas_used > verification_result.gas_burnt);
         // All burned gas goes to the validators at current gas price
         assert_eq!(
-            verification_result.validator_reward,
+            verification_result.burnt_amount,
             Balance::from(verification_result.gas_burnt) * gas_price
         );
 
@@ -1311,10 +1324,29 @@ mod tests {
             &VMLimitConfig::default(),
             &Action::Stake(StakeAction {
                 stake: 100,
-                public_key: PublicKey::empty(KeyType::ED25519),
+                public_key: "ed25519:KuTCtARNzxZQ3YvXDeLjx83FDqxv2SdQTSbiq876zR7"
+                    .try_into()
+                    .unwrap(),
             }),
         )
         .expect("valid action");
+    }
+
+    #[test]
+    fn test_validate_action_invalid_staking_key() {
+        assert_eq!(
+            validate_action(
+                &VMLimitConfig::default(),
+                &Action::Stake(StakeAction {
+                    stake: 100,
+                    public_key: PublicKey::empty(KeyType::ED25519),
+                }),
+            )
+            .expect_err("Expected an error"),
+            ActionsValidationError::UnsuitableStakingKey {
+                public_key: PublicKey::empty(KeyType::ED25519),
+            },
+        );
     }
 
     #[test]

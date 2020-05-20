@@ -24,7 +24,7 @@ pub enum ErrorKind {
     /// Orphan block.
     #[fail(display = "Orphan")]
     Orphan,
-    /// Block is not availiable (e.g. garbage collected)
+    /// Block is not available (e.g. garbage collected)
     #[fail(display = "Block Missing (unavailable on the node): {}", _0)]
     BlockMissing(CryptoHash),
     /// Chunk is missing.
@@ -89,10 +89,10 @@ pub enum ErrorKind {
     InvalidChunk,
     /// One of the chunks has invalid proofs
     #[fail(display = "Invalid Chunk Proofs")]
-    InvalidChunkProofs(ChunkProofs),
+    InvalidChunkProofs(Box<ChunkProofs>),
     /// Invalid chunk state.
     #[fail(display = "Invalid Chunk State")]
-    InvalidChunkState(ChunkState),
+    InvalidChunkState(Box<ChunkState>),
     /// Invalid chunk mask
     #[fail(display = "Invalid Chunk Mask")]
     InvalidChunkMask,
@@ -129,9 +129,6 @@ pub enum ErrorKind {
     /// Invalid Gas Used
     #[fail(display = "Invalid Gas Used")]
     InvalidGasUsed,
-    /// Invalid Validator Reward
-    #[fail(display = "Invalid Validator Reward")]
-    InvalidReward,
     /// Invalid Balance Burnt
     #[fail(display = "Invalid Balance Burnt")]
     InvalidBalanceBurnt,
@@ -144,6 +141,9 @@ pub enum ErrorKind {
     /// Invalid VRF proof, or incorrect random_output in the header
     #[fail(display = "Invalid Randomness Beacon Output")]
     InvalidRandomnessBeaconOutput,
+    /// Invalid block merkle root.
+    #[fail(display = "Invalid Block Merkle Root")]
+    InvalidBlockMerkleRoot,
     /// Someone is not a validator. Usually happens in signature verification
     #[fail(display = "Not A Validator")]
     NotAValidator,
@@ -249,11 +249,11 @@ impl Error {
             | ErrorKind::InvalidGasLimit
             | ErrorKind::InvalidGasPrice
             | ErrorKind::InvalidGasUsed
-            | ErrorKind::InvalidReward
             | ErrorKind::InvalidBalanceBurnt
             | ErrorKind::InvalidShardId(_)
             | ErrorKind::InvalidStateRequest(_)
             | ErrorKind::InvalidRandomnessBeaconOutput
+            | ErrorKind::InvalidBlockMerkleRoot
             | ErrorKind::NotAValidator => true,
         }
     }

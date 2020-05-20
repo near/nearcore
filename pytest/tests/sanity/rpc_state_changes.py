@@ -2,7 +2,6 @@
 # and call various scenarios to trigger store changes.
 # Check that the key changes are observable via `changes` RPC call.
 
-
 import sys
 import base58, base64
 import json
@@ -15,7 +14,10 @@ from cluster import start_cluster, Key
 from utils import load_binary_file
 import transaction
 
-nodes = start_cluster(4, 0, 1, None, [["epoch_length", 1000], ["block_producer_kickout_threshold", 80]], {})
+nodes = start_cluster(
+    4, 0, 1, None,
+    [["epoch_length", 1000], ["block_producer_kickout_threshold", 80]], {})
+
 
 def assert_changes_in_block_response(request, expected_response):
     for node_index, node in enumerate(nodes):
@@ -64,28 +66,24 @@ def test_changes_with_new_account_with_access_key():
         new_key=new_key,
         balance=10**24,
         nonce=7,
-        block_hash=base58.b58decode(latest_block_hash.encode('utf8'))
-    )
+        block_hash=base58.b58decode(latest_block_hash.encode('utf8')))
     new_account_response = nodes[0].send_tx_and_wait(create_account_tx, 10)
 
     # Step 2
-    block_hash = new_account_response['result']['receipts_outcome'][0]['block_hash']
-    assert_changes_in_block_response(
-        request={"block_id": block_hash},
-        expected_response={
-            "block_hash": block_hash,
-            "changes": [
-                {
-                    "type": "account_touched",
-                    "account_id": new_key.account_id,
-                },
-                {
-                    "type": "access_key_touched",
-                    "account_id": new_key.account_id,
-                }
-            ]
-        }
-    )
+    block_hash = new_account_response['result']['receipts_outcome'][0][
+        'block_hash']
+    assert_changes_in_block_response(request={"block_id": block_hash},
+                                     expected_response={
+                                         "block_hash":
+                                             block_hash,
+                                         "changes": [{
+                                             "type": "account_touched",
+                                             "account_id": new_key.account_id,
+                                         }, {
+                                             "type": "access_key_touched",
+                                             "account_id": new_key.account_id,
+                                         }]
+                                     })
 
     base_request = {
         "block_id": block_hash,
@@ -93,45 +91,65 @@ def test_changes_with_new_account_with_access_key():
     }
     for request in [
             # Test empty account_ids
-            {**base_request, "account_ids": []},
+        {
+            **base_request, "account_ids": []
+        },
             # Test an account_id that is a prefix of the original account_id.
-            {**base_request, "account_ids": [new_key.account_id[:-1]]},
+        {
+            **base_request, "account_ids": [new_key.account_id[:-1]]
+        },
             # Test an account_id that has the original account_id as a prefix.
-            {**base_request, "account_ids": [new_key.account_id + '_extra']},
-        ]:
-        assert_changes_response(request=request, expected_response={"block_hash": block_hash, "changes": []})
+        {
+            **base_request, "account_ids": [new_key.account_id + '_extra']
+        },
+    ]:
+        assert_changes_response(request=request,
+                                expected_response={
+                                    "block_hash": block_hash,
+                                    "changes": []
+                                })
 
     # Test happy-path
     expected_response = {
-        "block_hash": block_hash,
-        "changes": [
-            {
-                "cause": {
-                    "type": "receipt_processing",
-                    "receipt_hash": new_account_response["result"]["receipts_outcome"][0]["id"],
+        "block_hash":
+            block_hash,
+        "changes": [{
+            "cause": {
+                "type":
+                    "receipt_processing",
+                "receipt_hash":
+                    new_account_response["result"]["receipts_outcome"][0]["id"],
+            },
+            "type": "access_key_update",
+            "change": {
+                "account_id": new_key.account_id,
+                "public_key": new_key.pk,
+                "access_key": {
+                    "nonce": 0,
+                    "permission": "FullAccess"
                 },
-                "type": "access_key_update",
-                "change": {
-                    "account_id": new_key.account_id,
-                    "public_key": new_key.pk,
-                    "access_key": {"nonce": 0, "permission": "FullAccess"},
-                }
             }
-        ]
+        }]
     }
     for request in [
-            {
-                "block_id": block_hash,
-                "changes_type": "all_access_key_changes",
-                "account_ids": [new_key.account_id],
-            },
-            {
-                "block_id": block_hash,
-                "changes_type": "all_access_key_changes",
-                "account_ids": [new_key.account_id + '_non_existing1', new_key.account_id, new_key.account_id + '_non_existing2'],
-            },
-        ]:
-        assert_changes_response(request=request, expected_response=expected_response)
+        {
+            "block_id": block_hash,
+            "changes_type": "all_access_key_changes",
+            "account_ids": [new_key.account_id],
+        },
+        {
+            "block_id":
+                block_hash,
+            "changes_type":
+                "all_access_key_changes",
+            "account_ids": [
+                new_key.account_id + '_non_existing1', new_key.account_id,
+                new_key.account_id + '_non_existing2'
+            ],
+        },
+    ]:
+        assert_changes_response(request=request,
+                                expected_response=expected_response)
 
     # Step 3
     status = nodes[0].get_status()
@@ -141,28 +159,25 @@ def test_changes_with_new_account_with_access_key():
         target_account_id=new_key.account_id,
         key_for_deletion=new_key,
         nonce=8,
-        block_hash=base58.b58decode(latest_block_hash.encode('utf8'))
-    )
-    delete_access_key_response = nodes[1].send_tx_and_wait(delete_access_key_tx, 10)
+        block_hash=base58.b58decode(latest_block_hash.encode('utf8')))
+    delete_access_key_response = nodes[1].send_tx_and_wait(
+        delete_access_key_tx, 10)
 
     # Step 4
-    block_hash = delete_access_key_response['result']['receipts_outcome'][0]['block_hash']
-    assert_changes_in_block_response(
-        request={"block_id": block_hash},
-        expected_response={
-            "block_hash": block_hash,
-            "changes": [
-                {
-                    "type": "account_touched",
-                    "account_id": new_key.account_id,
-                },
-                {
-                    "type": "access_key_touched",
-                    "account_id": new_key.account_id,
-                }
-            ]
-        }
-    )
+    block_hash = delete_access_key_response['result']['receipts_outcome'][0][
+        'block_hash']
+    assert_changes_in_block_response(request={"block_id": block_hash},
+                                     expected_response={
+                                         "block_hash":
+                                             block_hash,
+                                         "changes": [{
+                                             "type": "account_touched",
+                                             "account_id": new_key.account_id,
+                                         }, {
+                                             "type": "access_key_touched",
+                                             "account_id": new_key.account_id,
+                                         }]
+                                     })
 
     base_request = {
         "block_id": block_hash,
@@ -170,60 +185,86 @@ def test_changes_with_new_account_with_access_key():
     }
     for request in [
             # Test empty account_ids
-            {**base_request, "account_ids": []},
+        {
+            **base_request, "account_ids": []
+        },
             # Test an account_id that is a prefix of the original account_id
-            {**base_request, "account_ids": [new_key.account_id[:-1]]},
+        {
+            **base_request, "account_ids": [new_key.account_id[:-1]]
+        },
             # Test an account_id that has the original account_id as a prefix
-            {**base_request, "account_ids": [new_key.account_id + '_extra']},
+        {
+            **base_request, "account_ids": [new_key.account_id + '_extra']
+        },
             # Test empty keys in single_access_key_changes request
-            {"block_id": block_hash, "changes_type": "single_access_key_changes", "keys": []},
+        {
+            "block_id": block_hash,
+            "changes_type": "single_access_key_changes",
+            "keys": []
+        },
             # Test non-existing account_id
-            {
-                "block_id": block_hash,
-                "changes_type": "single_access_key_changes",
-                "keys": [
-                    {"account_id": new_key.account_id + '_non_existing1', "public_key": new_key.pk},
-                ],
-            },
+        {
+            "block_id":
+                block_hash,
+            "changes_type":
+                "single_access_key_changes",
+            "keys": [{
+                "account_id": new_key.account_id + '_non_existing1',
+                "public_key": new_key.pk
+            },],
+        },
             # Test non-existing public_key for an existing account_id
-            {
-                "block_id": block_hash,
-                "changes_type": "single_access_key_changes",
-                "keys": [
-                    {"account_id": new_key.account_id, "public_key": new_key.pk[:-3] + 'aaa'},
-                ],
-            },
-        ]:
-        assert_changes_response(request=request, expected_response={"block_hash": block_hash, "changes": []})
+        {
+            "block_id":
+                block_hash,
+            "changes_type":
+                "single_access_key_changes",
+            "keys": [{
+                "account_id": new_key.account_id,
+                "public_key": new_key.pk[:-3] + 'aaa'
+            },],
+        },
+    ]:
+        assert_changes_response(request=request,
+                                expected_response={
+                                    "block_hash": block_hash,
+                                    "changes": []
+                                })
 
     # Test happy-path
     expected_response = {
-        "block_hash": block_hash,
-        "changes": [
-            {
-                "cause": {
-                    'type': 'transaction_processing',
-                    'tx_hash': delete_access_key_response['result']['transaction']['hash'],
-                },
-                "type": "access_key_update",
-                "change": {
-                    "account_id": new_key.account_id,
-                    "public_key": new_key.pk,
-                    "access_key": {"nonce": 8, "permission": "FullAccess"},
-                }
+        "block_hash":
+            block_hash,
+        "changes": [{
+            "cause": {
+                'type':
+                    'transaction_processing',
+                'tx_hash':
+                    delete_access_key_response['result']['transaction']['hash'],
             },
-            {
-                "cause": {
-                    "type": "receipt_processing",
-                    "receipt_hash": delete_access_key_response["result"]["receipts_outcome"][0]["id"]
+            "type": "access_key_update",
+            "change": {
+                "account_id": new_key.account_id,
+                "public_key": new_key.pk,
+                "access_key": {
+                    "nonce": 8,
+                    "permission": "FullAccess"
                 },
-                "type": "access_key_deletion",
-                "change": {
-                    "account_id": new_key.account_id,
-                    "public_key": new_key.pk,
-                }
             }
-        ]
+        }, {
+            "cause": {
+                "type":
+                    "receipt_processing",
+                "receipt_hash":
+                    delete_access_key_response["result"]["receipts_outcome"][0]
+                    ["id"]
+            },
+            "type": "access_key_deletion",
+            "change": {
+                "account_id": new_key.account_id,
+                "public_key": new_key.pk,
+            }
+        }]
     }
 
     for request in [
@@ -233,25 +274,44 @@ def test_changes_with_new_account_with_access_key():
             "account_ids": [new_key.account_id],
         },
         {
-            "block_id": block_hash,
-            "changes_type": "all_access_key_changes",
-            "account_ids": [new_key.account_id + '_non_existing1', new_key.account_id, new_key.account_id + '_non_existing2'],
+            "block_id":
+                block_hash,
+            "changes_type":
+                "all_access_key_changes",
+            "account_ids": [
+                new_key.account_id + '_non_existing1', new_key.account_id,
+                new_key.account_id + '_non_existing2'
+            ],
         },
         {
-            "block_id": block_hash,
-            "changes_type": "single_access_key_changes",
-            "keys": [{"account_id": new_key.account_id, "public_key": new_key.pk}],
+            "block_id":
+                block_hash,
+            "changes_type":
+                "single_access_key_changes",
+            "keys": [{
+                "account_id": new_key.account_id,
+                "public_key": new_key.pk
+            }],
         },
         {
-            "block_id": block_hash,
-            "changes_type": "single_access_key_changes",
+            "block_id":
+                block_hash,
+            "changes_type":
+                "single_access_key_changes",
             "keys": [
-                {"account_id": new_key.account_id + '_non_existing1', "public_key": new_key.pk},
-                {"account_id": new_key.account_id, "public_key": new_key.pk},
+                {
+                    "account_id": new_key.account_id + '_non_existing1',
+                    "public_key": new_key.pk
+                },
+                {
+                    "account_id": new_key.account_id,
+                    "public_key": new_key.pk
+                },
             ],
         },
     ]:
-        assert_changes_response(request=request, expected_response=expected_response)
+        assert_changes_response(request=request,
+                                expected_response=expected_response)
 
 
 def test_key_value_changes():
@@ -271,36 +331,29 @@ def test_key_value_changes():
     status = nodes[0].get_status()
     latest_block_hash = status['sync_info']['latest_block_hash']
     deploy_contract_tx = transaction.sign_deploy_contract_tx(
-        contract_key,
-        hello_smart_contract,
-        10,
-        base58.b58decode(latest_block_hash.encode('utf8'))
-    )
+        contract_key, hello_smart_contract, 10,
+        base58.b58decode(latest_block_hash.encode('utf8')))
     deploy_contract_response = nodes[0].send_tx_and_wait(deploy_contract_tx, 10)
 
     # Step 2
-    block_hash = deploy_contract_response['result']['transaction_outcome']['block_hash']
+    block_hash = deploy_contract_response['result']['transaction_outcome'][
+        'block_hash']
     assert_changes_in_block_response(
         request={"block_id": block_hash},
         expected_response={
-            "block_hash": block_hash,
-            "changes": [
-                {
-                    "type": "account_touched",
-                    "account_id": contract_key.account_id,
-                },
-                {
-                    "type": "contract_code_touched",
-                    "account_id": contract_key.account_id,
-                },
-                {
-                    "type": "access_key_touched",
-                    "account_id": contract_key.account_id,
-                }
-
-            ]
-        }
-    )
+            "block_hash":
+                block_hash,
+            "changes": [{
+                "type": "account_touched",
+                "account_id": contract_key.account_id,
+            }, {
+                "type": "contract_code_touched",
+                "account_id": contract_key.account_id,
+            }, {
+                "type": "access_key_touched",
+                "account_id": contract_key.account_id,
+            }]
+        })
 
     base_request = {
         "block_id": block_hash,
@@ -308,40 +361,63 @@ def test_key_value_changes():
     }
     for request in [
             # Test empty account_ids
-            {**base_request, "account_ids": []},
+        {
+            **base_request, "account_ids": []
+        },
             # Test an account_id that is a prefix of the original account_id
-            {**base_request, "account_ids": [contract_key.account_id[:-1]]},
+        {
+            **base_request, "account_ids": [contract_key.account_id[:-1]]
+        },
             # Test an account_id that has the original account_id as a prefix
-            {**base_request, "account_ids": [contract_key.account_id + '_extra']},
-        ]:
-        assert_changes_response(request=request, expected_response={"block_hash": block_hash, "changes": []})
+        {
+            **base_request, "account_ids": [contract_key.account_id + '_extra']
+        },
+    ]:
+        assert_changes_response(request=request,
+                                expected_response={
+                                    "block_hash": block_hash,
+                                    "changes": []
+                                })
 
     # Test happy-path
     expected_response = {
-        "block_hash": block_hash,
-        "changes": [
-            {
-                "cause": {
-                    "type": "receipt_processing",
-                    "receipt_hash": deploy_contract_response["result"]["receipts_outcome"][0]["id"],
-                },
-                "type": "contract_code_update",
-                "change": {
-                    "account_id": contract_key.account_id,
-                    "code_base64": base64.b64encode(hello_smart_contract).decode('utf-8'),
-                }
+        "block_hash":
+            block_hash,
+        "changes": [{
+            "cause": {
+                "type":
+                    "receipt_processing",
+                "receipt_hash":
+                    deploy_contract_response["result"]["receipts_outcome"][0]
+                    ["id"],
             },
-        ]
+            "type": "contract_code_update",
+            "change": {
+                "account_id":
+                    contract_key.account_id,
+                "code_base64":
+                    base64.b64encode(hello_smart_contract).decode('utf-8'),
+            }
+        },]
     }
     base_request = {
         "block_id": block_hash,
         "changes_type": "contract_code_changes",
     }
     for request in [
-            {**base_request, "account_ids": [contract_key.account_id]},
-            {**base_request, "account_ids": [contract_key.account_id + '_non_existing1', contract_key.account_id, contract_key.account_id + '_non_existing2']},
-        ]:
-        assert_changes_response(request=request, expected_response=expected_response)
+        {
+            **base_request, "account_ids": [contract_key.account_id]
+        },
+        {
+            **base_request, "account_ids": [
+                contract_key.account_id + '_non_existing1',
+                contract_key.account_id,
+                contract_key.account_id + '_non_existing2'
+            ]
+        },
+    ]:
+        assert_changes_response(request=request,
+                                expected_response=expected_response)
 
     # Step 3
     status = nodes[1].get_status()
@@ -350,41 +426,38 @@ def test_key_value_changes():
 
     def set_value_1():
         function_call_1_tx = transaction.sign_function_call_tx(
-            function_caller_key,
-            contract_key.account_id,
-            'setKeyValue',
-            json.dumps({"key": "my_key", "value": "my_value_1"}).encode('utf-8'),
-            100000000000,
-            100000000000,
-            20,
-            base58.b58decode(latest_block_hash.encode('utf8'))
-        )
+            function_caller_key, contract_key.account_id, 'setKeyValue',
+            json.dumps({
+                "key": "my_key",
+                "value": "my_value_1"
+            }).encode('utf-8'), 10000000000000000, 100000000000, 20,
+            base58.b58decode(latest_block_hash.encode('utf8')))
         nodes[1].send_tx_and_wait(function_call_1_tx, 10)
+
     function_call_1_thread = threading.Thread(target=set_value_1)
     function_call_1_thread.start()
 
     function_call_2_tx = transaction.sign_function_call_tx(
-        function_caller_key,
-        contract_key.account_id,
-        'setKeyValue',
-        json.dumps({"key": "my_key", "value": "my_value_2"}).encode('utf-8'),
-        100000000000,
-        100000000000,
-        30,
-        base58.b58decode(latest_block_hash.encode('utf8'))
-    )
+        function_caller_key, contract_key.account_id, 'setKeyValue',
+        json.dumps({
+            "key": "my_key",
+            "value": "my_value_2"
+        }).encode('utf-8'), 10000000000000000, 100000000000, 30,
+        base58.b58decode(latest_block_hash.encode('utf8')))
     function_call_2_response = nodes[1].send_tx_and_wait(function_call_2_tx, 10)
     assert function_call_2_response['result']['receipts_outcome'][0]['outcome']['status'] == {'SuccessValue': ''}, \
         "Expected successful execution, but the output was: %s" % function_call_2_response
     function_call_1_thread.join()
 
-    tx_block_hash = function_call_2_response['result']['transaction_outcome']['block_hash']
+    tx_block_hash = function_call_2_response['result']['transaction_outcome'][
+        'block_hash']
 
     # Step 4
     assert_changes_in_block_response(
         request={"block_id": tx_block_hash},
         expected_response={
-            "block_hash": tx_block_hash,
+            "block_hash":
+                tx_block_hash,
             "changes": [
                 {
                     "type": "account_touched",
@@ -399,8 +472,7 @@ def test_key_value_changes():
                     "account_id": contract_key.account_id,
                 },
             ]
-        }
-    )
+        })
 
     base_request = {
         "block_id": block_hash,
@@ -409,48 +481,60 @@ def test_key_value_changes():
     }
     for request in [
             # Test empty account_ids
-            {**base_request, "account_ids": []},
+        {
+            **base_request, "account_ids": []
+        },
             # Test an account_id that is a prefix of the original account_id
-            {**base_request, "account_ids": [contract_key.account_id[:-1]]},
+        {
+            **base_request, "account_ids": [contract_key.account_id[:-1]]
+        },
             # Test an account_id that has the original account_id as a prefix
-            {**base_request, "account_ids": [contract_key.account_id + '_extra']},
+        {
+            **base_request, "account_ids": [contract_key.account_id + '_extra']
+        },
             # Test non-existing key prefix
-            {
-                **base_request,
-                "account_ids": [contract_key.account_id],
-                "key_prefix_base64": base64.b64encode(b"my_key_with_extra").decode('utf-8'),
-            },
-        ]:
-        assert_changes_response(request=request, expected_response={"block_hash": block_hash, "changes": []})
+        {
+            **base_request,
+            "account_ids": [contract_key.account_id],
+            "key_prefix_base64":
+                base64.b64encode(b"my_key_with_extra").decode('utf-8'),
+        },
+    ]:
+        assert_changes_response(request=request,
+                                expected_response={
+                                    "block_hash": block_hash,
+                                    "changes": []
+                                })
 
     # Test happy-path
     expected_response = {
-        "block_hash": tx_block_hash,
-        "changes": [
-            {
-                "cause": {
-                    "type": "receipt_processing",
-                },
-                "type": "data_update",
-                "change": {
-                    "account_id": contract_key.account_id,
-                    "key_base64": base64.b64encode(b"my_key").decode('utf-8'),
-                    "value_base64": base64.b64encode(b"my_value_1").decode('utf-8'),
-                }
+        "block_hash":
+            tx_block_hash,
+        "changes": [{
+            "cause": {
+                "type": "receipt_processing",
             },
-            {
-                "cause": {
-                    "type": "receipt_processing",
-                    "receipt_hash": function_call_2_response["result"]["receipts_outcome"][0]["id"],
-                },
-                "type": "data_update",
-                "change": {
-                    "account_id": contract_key.account_id,
-                    "key_base64": base64.b64encode(b"my_key").decode('utf-8'),
-                    "value_base64": base64.b64encode(b"my_value_2").decode('utf-8'),
-                }
+            "type": "data_update",
+            "change": {
+                "account_id": contract_key.account_id,
+                "key_base64": base64.b64encode(b"my_key").decode('utf-8'),
+                "value_base64": base64.b64encode(b"my_value_1").decode('utf-8'),
             }
-        ]
+        }, {
+            "cause": {
+                "type":
+                    "receipt_processing",
+                "receipt_hash":
+                    function_call_2_response["result"]["receipts_outcome"][0]
+                    ["id"],
+            },
+            "type": "data_update",
+            "change": {
+                "account_id": contract_key.account_id,
+                "key_base64": base64.b64encode(b"my_key").decode('utf-8'),
+                "value_base64": base64.b64encode(b"my_value_2").decode('utf-8'),
+            }
+        }]
     }
 
     base_request = {
@@ -459,19 +543,27 @@ def test_key_value_changes():
         "key_prefix_base64": base64.b64encode(b"my_key").decode('utf-8'),
     }
     for request in [
-            {**base_request, "account_ids": [contract_key.account_id]},
-            {**base_request, "account_ids": [contract_key.account_id + '_non_existing1', contract_key.account_id, contract_key.account_id + '_non_existing2']},
-            {
-                **base_request,
-                "account_ids": [contract_key.account_id],
-                "key_prefix_base64": base64.b64encode(b"").decode('utf-8'),
-            },
-            {
-                **base_request,
-                "account_ids": [contract_key.account_id],
-                "key_prefix_base64": base64.b64encode(b"my_ke").decode('utf-8'),
-            },
-        ]:
+        {
+            **base_request, "account_ids": [contract_key.account_id]
+        },
+        {
+            **base_request, "account_ids": [
+                contract_key.account_id + '_non_existing1',
+                contract_key.account_id,
+                contract_key.account_id + '_non_existing2'
+            ]
+        },
+        {
+            **base_request,
+            "account_ids": [contract_key.account_id],
+            "key_prefix_base64": base64.b64encode(b"").decode('utf-8'),
+        },
+        {
+            **base_request,
+            "account_ids": [contract_key.account_id],
+            "key_prefix_base64": base64.b64encode(b"my_ke").decode('utf-8'),
+        },
+    ]:
         assert_changes_response(
             request=request,
             expected_response=expected_response,

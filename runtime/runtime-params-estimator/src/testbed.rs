@@ -1,7 +1,6 @@
 use std::fs::File;
 use std::io::Read;
 use std::path::Path;
-use std::sync::Arc;
 
 use borsh::BorshDeserialize;
 
@@ -9,7 +8,7 @@ use near_primitives::receipt::Receipt;
 use near_primitives::test_utils::MockEpochInfoProvider;
 use near_primitives::transaction::{ExecutionStatus, SignedTransaction};
 use near_primitives::types::{Gas, MerkleHash, StateRoot};
-use near_store::{create_store, ColState, Trie};
+use near_store::{create_store, ColState, ShardTries};
 use near_vm_logic::VMLimitConfig;
 use neard::get_store_path;
 use node_runtime::config::RuntimeConfig;
@@ -22,7 +21,7 @@ pub struct RuntimeTestbed {
     /// Directory where we temporarily keep the storage.
     #[allow(dead_code)]
     workdir: tempfile::TempDir,
-    trie: Arc<Trie>,
+    tries: ShardTries,
     root: MerkleHash,
     runtime: Runtime,
     prev_receipts: Vec<Receipt>,
@@ -36,7 +35,7 @@ impl RuntimeTestbed {
         let workdir = tempfile::Builder::new().prefix("runtime_testbed").tempdir().unwrap();
         println!("workdir {}", workdir.path().to_str().unwrap());
         let store = create_store(&get_store_path(workdir.path()));
-        let trie = Arc::new(Trie::new(store.clone()));
+        let tries = ShardTries::new(store.clone(), 1);
 
         let mut state_file = dump_dir.to_path_buf();
         state_file.push(STATE_DUMP_FILE);
@@ -87,7 +86,7 @@ impl RuntimeTestbed {
         };
         Self {
             workdir,
-            trie,
+            tries,
             root,
             runtime,
             prev_receipts,
@@ -104,7 +103,7 @@ impl RuntimeTestbed {
         let apply_result = self
             .runtime
             .apply(
-                self.trie.clone(),
+                self.tries.get_trie_for_shard(0),
                 self.root,
                 &None,
                 &self.apply_state,
@@ -114,7 +113,7 @@ impl RuntimeTestbed {
             )
             .unwrap();
 
-        let (store_update, root) = apply_result.trie_changes.into(self.trie.clone()).unwrap();
+        let (store_update, root) = self.tries.apply_all(&apply_result.trie_changes, 0).unwrap();
         self.root = root;
         store_update.commit().unwrap();
         self.apply_state.block_index += 1;

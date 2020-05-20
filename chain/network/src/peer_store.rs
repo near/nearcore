@@ -1,4 +1,7 @@
-use std::collections::{hash_map::Iter, HashMap};
+use std::collections::{
+    hash_map::{Entry, Iter},
+    HashMap,
+};
 use std::convert::TryInto;
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -59,16 +62,21 @@ impl PeerStore {
         let mut peer_states = HashMap::default();
         let mut addr_peers = HashMap::default();
 
-        for peer_info in boot_nodes.iter().cloned() {
+        for peer_info in boot_nodes.iter() {
             if !peer_states.contains_key(&peer_info.id) {
-                if let Some(peer_addr) = peer_info.addr.clone() {
-                    if addr_peers.contains_key(&peer_addr) {
-                        // There is already a different peer_id with this address.
-                        error!(target: "network", "Two boot nodes have the same address {:?}", peer_addr);
-                    } else {
-                        addr_peers.insert(peer_addr, VerifiedPeer::signed(peer_info.id.clone()));
-                        peer_states
-                            .insert(peer_info.id.clone(), KnownPeerState::new(peer_info.clone()));
+                if let Some(peer_addr) = peer_info.addr {
+                    match addr_peers.entry(peer_addr) {
+                        Entry::Occupied(entry) => {
+                            // There is already a different peer_id with this address.
+                            error!(target: "network", "Two boot nodes have the same address {:?}", entry.key());
+                        }
+                        Entry::Vacant(entry) => {
+                            entry.insert(VerifiedPeer::signed(peer_info.id.clone()));
+                            peer_states.insert(
+                                peer_info.id.clone(),
+                                KnownPeerState::new(peer_info.clone()),
+                            );
+                        }
                     }
                 }
             }
@@ -94,10 +102,9 @@ impl PeerStore {
                 continue;
             }
 
-            if let Some(peer_addr) = peer_state.peer_info.addr.clone() {
-                if !addr_peers.contains_key(&peer_addr) {
-                    addr_peers
-                        .insert(peer_addr, VerifiedPeer::new(peer_state.peer_info.id.clone()));
+            if let Some(peer_addr) = peer_state.peer_info.addr {
+                if let Entry::Vacant(entry) = addr_peers.entry(peer_addr) {
+                    entry.insert(VerifiedPeer::new(peer_state.peer_info.id.clone()));
                     peer_states.insert(peer_id, peer_state);
                 }
             }

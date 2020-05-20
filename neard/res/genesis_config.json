@@ -1,6 +1,6 @@
 {
   "config_version": 1,
-  "protocol_version": 11,
+  "protocol_version": 14,
   "genesis_time": "1970-01-01T00:00:00.000000000Z",
   "chain_id": "sample",
   "genesis_height": 0,
@@ -16,7 +16,15 @@
   "gas_limit": 1000000000000000,
   "min_gas_price": "5000",
   "block_producer_kickout_threshold": 90,
-  "chunk_producer_kickout_threshold": 60,
+  "chunk_producer_kickout_threshold": 90,
+  "online_min_threshold": [
+    9,
+    10
+  ],
+  "online_max_threshold": [
+    99,
+    100
+  ],
   "gas_price_adjustment_rate": [
     1,
     100
@@ -25,84 +33,84 @@
     "storage_amount_per_byte": "90900000000000000000",
     "transaction_costs": {
       "action_receipt_creation_config": {
-        "send_sir": 924119500000,
-        "send_not_sir": 924119500000,
-        "execution": 924119500000
+        "send_sir": 108059500000,
+        "send_not_sir": 108059500000,
+        "execution": 108059500000
       },
       "data_receipt_creation_config": {
         "base_cost": {
-          "send_sir": 539890689500,
-          "send_not_sir": 539890689500,
-          "execution": 539890689500
+          "send_sir": 4697339419375,
+          "send_not_sir": 4697339419375,
+          "execution": 4697339419375
         },
         "cost_per_byte": {
-          "send_sir": 14234654,
-          "send_not_sir": 14234654,
-          "execution": 14234654
+          "send_sir": 59357464,
+          "send_not_sir": 59357464,
+          "execution": 59357464
         }
       },
       "action_creation_config": {
         "create_account_cost": {
-          "send_sir": 0,
-          "send_not_sir": 0,
-          "execution": 0
+          "send_sir": 99607375000,
+          "send_not_sir": 99607375000,
+          "execution": 99607375000
         },
         "deploy_contract_cost": {
-          "send_sir": 513359000000,
-          "send_not_sir": 513359000000,
-          "execution": 513359000000
+          "send_sir": 184765750000,
+          "send_not_sir": 184765750000,
+          "execution": 184765750000
         },
         "deploy_contract_cost_per_byte": {
-          "send_sir": 27106233,
-          "send_not_sir": 27106233,
-          "execution": 27106233
+          "send_sir": 6812999,
+          "send_not_sir": 6812999,
+          "execution": 6812999
         },
         "function_call_cost": {
-          "send_sir": 1367372500000,
-          "send_not_sir": 1367372500000,
-          "execution": 1367372500000
+          "send_sir": 2319861500000,
+          "send_not_sir": 2319861500000,
+          "execution": 2319861500000
         },
         "function_call_cost_per_byte": {
-          "send_sir": 2354953,
-          "send_not_sir": 2354953,
-          "execution": 2354953
+          "send_sir": 2235934,
+          "send_not_sir": 2235934,
+          "execution": 2235934
         },
         "transfer_cost": {
-          "send_sir": 13025000000,
-          "send_not_sir": 13025000000,
-          "execution": 13025000000
+          "send_sir": 115123062500,
+          "send_not_sir": 115123062500,
+          "execution": 115123062500
         },
         "stake_cost": {
-          "send_sir": 0,
-          "send_not_sir": 0,
-          "execution": 0
+          "send_sir": 141715687500,
+          "send_not_sir": 141715687500,
+          "execution": 102217625000
         },
         "add_key_cost": {
           "full_access_cost": {
-            "send_sir": 0,
-            "send_not_sir": 0,
-            "execution": 0
+            "send_sir": 101765125000,
+            "send_not_sir": 101765125000,
+            "execution": 101765125000
           },
           "function_call_cost": {
-            "send_sir": 0,
-            "send_not_sir": 0,
-            "execution": 0
+            "send_sir": 102217625000,
+            "send_not_sir": 102217625000,
+            "execution": 102217625000
           },
           "function_call_cost_per_byte": {
-            "send_sir": 37538150,
-            "send_not_sir": 37538150,
-            "execution": 37538150
+            "send_sir": 1925331,
+            "send_not_sir": 1925331,
+            "execution": 1925331
           }
         },
         "delete_key_cost": {
-          "send_sir": 0,
-          "send_not_sir": 0,
-          "execution": 0
+          "send_sir": 94946625000,
+          "send_not_sir": 94946625000,
+          "execution": 94946625000
         },
         "delete_account_cost": {
-          "send_sir": 454830000000,
-          "send_not_sir": 454830000000,
-          "execution": 454830000000
+          "send_sir": 147489000000,
+          "send_not_sir": 147489000000,
+          "execution": 147489000000
         }
       },
       "storage_usage_config": {
@@ -116,51 +124,51 @@
     },
     "wasm_config": {
       "ext_costs": {
-        "base": 126224222,
-        "read_memory_base": 1629369577,
-        "read_memory_byte": 123816,
-        "write_memory_base": 76445225,
-        "write_memory_byte": 809907,
-        "read_register_base": 639340699,
-        "read_register_byte": 63637,
-        "write_register_base": 0,
-        "write_register_byte": 0,
-        "utf8_decoding_base": 0,
-        "utf8_decoding_byte": 591904,
-        "utf16_decoding_base": 0,
-        "utf16_decoding_byte": 9095538,
-        "sha256_base": 710092630,
-        "sha256_byte": 5536829,
-        "keccak256_base": 710092630,
-        "keccak256_byte": 5536829,
-        "keccak512_base": 1420185260,
-        "keccak512_byte": 11073658,
-        "log_base": 0,
-        "log_byte": 0,
-        "storage_write_base": 21058769282,
-        "storage_write_key_byte": 23447086,
-        "storage_write_value_byte": 9437547,
-        "storage_write_evicted_byte": 0,
-        "storage_read_base": 19352220621,
-        "storage_read_key_byte": 4792496,
-        "storage_read_value_byte": 139743,
-        "storage_remove_base": 109578968621,
-        "storage_remove_key_byte": 9512022,
-        "storage_remove_ret_value_byte": 0,
-        "storage_has_key_base": 20019912030,
-        "storage_has_key_byte": 4647597,
-        "storage_iter_create_prefix_base": 28443562030,
-        "storage_iter_create_prefix_byte": 442354,
-        "storage_iter_create_range_base": 25804628282,
-        "storage_iter_create_from_byte": 429608,
-        "storage_iter_create_to_byte": 1302886,
-        "storage_iter_next_base": 24213271567,
+        "base": 265261758,
+        "read_memory_base": 2584050225,
+        "read_memory_byte": 3801396,
+        "write_memory_base": 2780731725,
+        "write_memory_byte": 2723859,
+        "read_register_base": 2493624561,
+        "read_register_byte": 98622,
+        "write_register_base": 2840975211,
+        "write_register_byte": 3801645,
+        "utf8_decoding_base": 3110963061,
+        "utf8_decoding_byte": 289342653,
+        "utf16_decoding_base": 3593689800,
+        "utf16_decoding_byte": 167519322,
+        "sha256_base": 4530046500,
+        "sha256_byte": 24116301,
+        "keccak256_base": 5867223186,
+        "keccak256_byte": 21469644,
+        "keccak512_base": 5798128650,
+        "keccak512_byte": 36651981,
+        "log_base": 2408221236,
+        "log_byte": 15863835,
+        "storage_write_base": 45187219125,
+        "storage_write_key_byte": 66445653,
+        "storage_write_value_byte": 29682120,
+        "storage_write_evicted_byte": 28939782,
+        "storage_read_base": 32029296375,
+        "storage_read_key_byte": 28463997,
+        "storage_read_value_byte": 3289884,
+        "storage_remove_base": 35876668875,
+        "storage_remove_key_byte": 35342424,
+        "storage_remove_ret_value_byte": 7303842,
+        "storage_has_key_base": 31315025250,
+        "storage_has_key_byte": 28376217,
+        "storage_iter_create_prefix_base": 0,
+        "storage_iter_create_prefix_byte": 0,
+        "storage_iter_create_range_base": 0,
+        "storage_iter_create_from_byte": 0,
+        "storage_iter_create_to_byte": 0,
+        "storage_iter_next_base": 0,
         "storage_iter_next_key_byte": 0,
-        "storage_iter_next_value_byte": 1343211668,
-        "touching_trie_node": 1,
-        "promise_and_base": 0,
-        "promise_and_per_promise": 672136,
-        "promise_return": 34854215
+        "storage_iter_next_value_byte": 0,
+        "touching_trie_node": 5764118571,
+        "promise_and_base": 1473816795,
+        "promise_and_per_promise": 5613432,
+        "promise_return": 558292404
       },
       "grow_mem_cost": 1,
       "regular_op_cost": 3856371,

@@ -505,7 +505,7 @@ pub fn test_create_account_failure_invalid_name(node: impl Node) {
         let transaction_result = node_user
             .create_account(
                 account_id.clone(),
-                invalid_account_name.to_string(),
+                (*invalid_account_name).to_string(),
                 node.signer().public_key(),
                 money_used,
             )
@@ -513,7 +513,9 @@ pub fn test_create_account_failure_invalid_name(node: impl Node) {
         assert_eq!(
             transaction_result,
             ServerError::TxExecutionError(TxExecutionError::InvalidTxError(
-                InvalidTxError::InvalidReceiverId { receiver_id: invalid_account_name.to_string() }
+                InvalidTxError::InvalidReceiverId {
+                    receiver_id: (*invalid_account_name).to_string()
+                }
             ))
         );
     }

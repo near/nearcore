@@ -31,6 +31,7 @@ members = [
     "test-utils/testlib",
     "test-utils/loadtester",
     "test-utils/state-viewer",
+    "test-utils/store-validator",
     "neard/",
     "tools/rpctypegen/core",
     "tools/rpctypegen/macro",
@@ -50,10 +51,8 @@ lazy_static = "1.4"
 log = "^0.4.6"
 rand = "0.7"
 serde_json = "1"
-reqwest = "0.10"
 futures = "0.3"
 
-near-runtime-standalone = { path = "./runtime/runtime-standalone" }
 near-logger-utils = { path = "./test-utils/logger" }
 near-chain-configs = { path = "./core/chain-configs" }
 near-crypto = { path = "./core/crypto" }

@@ -35,6 +35,8 @@ pub struct BlockHeaderInnerLite {
     pub timestamp: u64,
     /// Hash of the next epoch block producers set
     pub next_bp_hash: CryptoHash,
+    /// Merkle root of block hashes up to the current block.
+    pub block_merkle_root: CryptoHash,
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, Eq, PartialEq)]
@@ -57,8 +59,6 @@ pub struct BlockHeaderInnerRest {
     pub chunk_mask: Vec<bool>,
     /// Gas price. Same for all chunks
     pub gas_price: Balance,
-    /// Sum of all validator reward across all chunks.
-    pub validator_reward: Balance,
     /// Total supply of tokens in the system
     pub total_supply: Balance,
     /// List of challenges result from previous block.
@@ -82,6 +82,7 @@ impl BlockHeaderInnerLite {
         outcome_root: MerkleHash,
         timestamp: u64,
         next_bp_hash: CryptoHash,
+        block_merkle_root: CryptoHash,
     ) -> Self {
         Self {
             height,
@@ -91,6 +92,7 @@ impl BlockHeaderInnerLite {
             outcome_root,
             timestamp,
             next_bp_hash,
+            block_merkle_root,
         }
     }
 
@@ -110,7 +112,6 @@ impl BlockHeaderInnerRest {
         validator_proposals: Vec<ValidatorStake>,
         chunk_mask: Vec<bool>,
         gas_price: Balance,
-        validator_reward: Balance,
         total_supply: Balance,
         challenges_result: ChallengesResult,
         last_final_block: CryptoHash,
@@ -127,7 +128,6 @@ impl BlockHeaderInnerRest {
             validator_proposals,
             chunk_mask,
             gas_price,
-            validator_reward,
             total_supply,
             challenges_result,
             last_final_block,
@@ -260,7 +260,6 @@ impl BlockHeader {
         epoch_id: EpochId,
         next_epoch_id: EpochId,
         gas_price: Balance,
-        validator_reward: Balance,
         total_supply: Balance,
         challenges_result: ChallengesResult,
         signer: &dyn ValidatorSigner,
@@ -268,6 +267,7 @@ impl BlockHeader {
         last_ds_final_block: CryptoHash,
         approvals: Vec<Option<Signature>>,
         next_bp_hash: CryptoHash,
+        block_merkle_root: CryptoHash,
     ) -> Self {
         let inner_lite = BlockHeaderInnerLite::new(
             height,
@@ -277,6 +277,7 @@ impl BlockHeader {
             outcome_root,
             timestamp,
             next_bp_hash,
+            block_merkle_root,
         );
         let inner_rest = BlockHeaderInnerRest::new(
             chunk_receipts_root,
@@ -288,7 +289,6 @@ impl BlockHeader {
             validator_proposals,
             chunk_mask,
             gas_price,
-            validator_reward,
             total_supply,
             challenges_result,
             last_final_block,
@@ -320,6 +320,7 @@ impl BlockHeader {
             CryptoHash::default(),
             to_timestamp(timestamp),
             next_bp_hash,
+            CryptoHash::default(),
         );
         let inner_rest = BlockHeaderInnerRest::new(
             chunk_receipts_root,
@@ -331,7 +332,6 @@ impl BlockHeader {
             vec![],
             vec![],
             initial_gas_price,
-            0,
             initial_total_supply,
             vec![],
             CryptoHash::default(),
@@ -398,7 +398,6 @@ pub fn genesis_chunks(
                 0,
                 initial_gas_limit,
                 0,
-                0,
                 CryptoHash::default(),
                 vec![],
                 vec![],
@@ -457,18 +456,18 @@ impl Block {
         approvals: Vec<Option<Signature>>,
         gas_price_adjustment_rate: Rational,
         min_gas_price: Balance,
-        inflation: Option<Balance>,
+        minted_amount: Option<Balance>,
         challenges_result: ChallengesResult,
         challenges: Challenges,
         signer: &dyn ValidatorSigner,
         next_bp_hash: CryptoHash,
+        block_merkle_root: CryptoHash,
     ) -> Self {
         // Collect aggregate of validators and gas usage/limits from chunks.
         let mut validator_proposals = vec![];
         let mut gas_used = 0;
         // This computation of chunk_mask relies on the fact that chunks are ordered by shard_id.
         let mut chunk_mask = vec![];
-        let mut validator_reward = 0;
         let mut balance_burnt = 0;
         let mut gas_limit = 0;
         for chunk in chunks.iter() {
@@ -476,7 +475,6 @@ impl Block {
                 validator_proposals.extend_from_slice(&chunk.inner.validator_proposals);
                 gas_used += chunk.inner.gas_used;
                 gas_limit += chunk.inner.gas_limit;
-                validator_reward += chunk.inner.validator_reward;
                 balance_burnt += chunk.inner.balance_burnt;
                 chunk_mask.push(true);
             } else {
@@ -492,7 +490,7 @@ impl Block {
         let new_gas_price = std::cmp::max(new_gas_price, min_gas_price);
 
         let new_total_supply =
-            prev.inner_rest.total_supply + inflation.unwrap_or(0) - balance_burnt;
+            prev.inner_rest.total_supply + minted_amount.unwrap_or(0) - balance_burnt;
 
         let now = to_timestamp(Utc::now());
         let time =
@@ -534,7 +532,6 @@ impl Block {
                 epoch_id,
                 next_epoch_id,
                 new_gas_price,
-                validator_reward,
                 new_total_supply,
                 challenges_result,
                 signer,
@@ -542,6 +539,7 @@ impl Block {
                 last_ds_final_block,
                 approvals,
                 next_bp_hash,
+                block_merkle_root,
             ),
             chunks,
             challenges,

@@ -24,15 +24,22 @@ next_nonce = 3
 # random. See `staking_repro1.py` for an example
 sequence = []
 
+
 def get_validators():
     return set([x['account_id'] for x in nodes[0].get_status()['validators']])
 
+
 def get_stakes():
-    return [int(nodes[2].get_account("test%s" % i)['result']['locked']) for i in range(3)]
+    return [
+        int(nodes[2].get_account("test%s" % i)['result']['locked'])
+        for i in range(3)
+    ]
+
 
 def get_expected_stakes():
     global all_stakes
     return [max([x[i] for x in all_stakes[-3:]]) for i in range(3)]
+
 
 def do_moar_stakes(last_block_hash, update_expected):
     global next_nonce, all_stakes, sequence
@@ -41,8 +48,10 @@ def do_moar_stakes(last_block_hash, update_expected):
         stakes = [0, 0, 0]
         # have 1-2 validators with stake, and the remaining without
         # make numbers dibisable by 1M so that we can easily distinguish a situation when the current locked amt has some reward added to it (not divisable by 1M) vs not (divisable by 1M)
-        stakes[random.randint(0, 2)] = random.randint(70000000000000000000000000, 100000000000000000000000000) * 1000000
-        stakes[random.randint(0, 2)] = random.randint(70000000000000000000000000, 100000000000000000000000000) * 1000000
+        stakes[random.randint(0, 2)] = random.randint(
+            70000000000000000000000000, 100000000000000000000000000) * 1000000
+        stakes[random.randint(0, 2)] = random.randint(
+            70000000000000000000000000, 100000000000000000000000000) * 1000000
     else:
         stakes = sequence[0]
         sequence = sequence[1:]
@@ -50,22 +59,30 @@ def do_moar_stakes(last_block_hash, update_expected):
     vals = get_validators()
     val_id = int(list(vals)[0][4:])
     for i in range(3):
-        tx = sign_staking_tx(nodes[i].signer_key, nodes[i].validator_key, stakes[i], next_nonce, base58.b58decode(last_block_hash.encode('utf8')))
+        tx = sign_staking_tx(nodes[i].signer_key, nodes[i].validator_key,
+                             stakes[i], next_nonce,
+                             base58.b58decode(last_block_hash.encode('utf8')))
         nodes[val_id].send_tx(tx)
         next_nonce += 1
 
     if update_expected:
         all_stakes.append(stakes)
         print("")
-    print("Sent %s staking txs: %s" % ("REAL" if update_expected else "fake", stakes))
+    print("Sent %s staking txs: %s" %
+          ("REAL" if update_expected else "fake", stakes))
 
 
-def doit(seq = []):
+def doit(seq=[]):
     global nodes, all_stakes, sequence
     sequence = seq
 
     config = None
-    nodes = start_cluster(2, 1, 1, config, [["epoch_length", EPOCH_LENGTH], ["block_producer_kickout_threshold", 40]], {2: {"tracked_shards": [0]}})
+    nodes = start_cluster(2, 1, 1, config,
+                          [["epoch_length", EPOCH_LENGTH],
+                           ["block_producer_kickout_threshold", 40]],
+                          {2: {
+                              "tracked_shards": [0]
+                          }})
 
     started = time.time()
     last_iter = started
@@ -91,7 +108,9 @@ def doit(seq = []):
         height = status['sync_info']['latest_block_height']
         hash_ = status['sync_info']['latest_block_hash']
 
-        if (height + EPOCH_LENGTH - FAKE_OFFSET) // EPOCH_LENGTH > (last_fake_stakes_height + EPOCH_LENGTH - FAKE_OFFSET) // EPOCH_LENGTH:
+        if (height + EPOCH_LENGTH - FAKE_OFFSET) // EPOCH_LENGTH > (
+                last_fake_stakes_height + EPOCH_LENGTH -
+                FAKE_OFFSET) // EPOCH_LENGTH:
             last_iter = time.time()
             cur_stakes = get_stakes()
             print("Current stakes: %s" % cur_stakes)
@@ -108,10 +127,12 @@ def doit(seq = []):
             do_moar_stakes(hash_, False)
             last_fake_stakes_height = height
 
-        if (height + EPOCH_LENGTH - REAL_OFFSET) // EPOCH_LENGTH > (last_staked_height + EPOCH_LENGTH - REAL_OFFSET) // EPOCH_LENGTH:
+        if (height + EPOCH_LENGTH - REAL_OFFSET) // EPOCH_LENGTH > (
+                last_staked_height + EPOCH_LENGTH -
+                REAL_OFFSET) // EPOCH_LENGTH:
             do_moar_stakes(hash_, True)
             last_staked_height = height
 
+
 if __name__ == "__main__":
     doit()
-

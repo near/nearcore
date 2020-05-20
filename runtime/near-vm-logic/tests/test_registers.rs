@@ -54,7 +54,7 @@ fn test_many_registers() {
 
 #[test]
 fn test_max_register_size() {
-    let mut logic_builder = VMLogicBuilder::default();
+    let mut logic_builder = VMLogicBuilder::free();
     let max_register_size = logic_builder.config.limit_config.max_register_size;
     let mut logic = logic_builder.build(get_context(vec![], false));
 

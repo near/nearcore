@@ -37,6 +37,7 @@ use crate::metrics;
 use crate::sync::{BlockSync, HeaderSync, StateSync, StateSyncResult};
 use crate::types::{Error, ShardSyncDownload};
 use crate::SyncStatus;
+use near_network::types::PartialEncodedChunkResponseMsg;
 
 const NUM_REBROADCAST_BLOCKS: usize = 30;
 
@@ -281,10 +282,10 @@ impl Client {
         );
 
         // Check that we are were called at the block that we are producer for.
-        let next_block_proposer = self.runtime_adapter.get_block_producer(
-            &self.runtime_adapter.get_epoch_id_from_prev_block(&head.last_block_hash).unwrap(),
-            next_height,
-        )?;
+        let epoch_id =
+            self.runtime_adapter.get_epoch_id_from_prev_block(&head.last_block_hash).unwrap();
+        let next_block_proposer =
+            self.runtime_adapter.get_block_producer(&epoch_id, next_height)?;
 
         let prev = self.chain.get_block_header(&head.last_block_hash)?.clone();
         let prev_hash = head.last_block_hash;
@@ -307,6 +308,18 @@ impl Client {
             &next_block_proposer,
         )? {
             return Ok(None);
+        }
+        let (validator_stake, _) = self.runtime_adapter.get_validator_by_account_id(
+            &epoch_id,
+            &head.last_block_hash,
+            &next_block_proposer,
+        )?;
+        if validator_stake.public_key != validator_signer.public_key() {
+            return Err(Error::BlockProducer(format!(
+                "Validator key doesn't match. Expected {} Actual {}",
+                validator_stake.public_key,
+                validator_signer.public_key()
+            )));
         }
 
         debug!(target: "client", "{:?} Producing block at height {}, parent {} @ {}", validator_signer.validator_id(), next_height, prev.inner_lite.height, format_hash(head.last_block_hash));
@@ -352,8 +365,12 @@ impl Client {
         };
 
         // Get block extra from previous block.
-        let prev_block_extra = self.chain.get_block_extra(&head.last_block_hash)?.clone();
-        let prev_block = self.chain.get_block(&head.last_block_hash)?;
+        let mut block_merkle_tree =
+            self.chain.mut_store().get_block_merkle_tree(&prev_hash)?.clone();
+        block_merkle_tree.insert(prev_hash);
+        let block_merkle_root = block_merkle_tree.root();
+        let prev_block_extra = self.chain.get_block_extra(&prev_hash)?.clone();
+        let prev_block = self.chain.get_block(&prev_hash)?;
         let mut chunks = prev_block.chunks.clone();
 
         // Collect new chunks.
@@ -364,13 +381,15 @@ impl Client {
 
         let prev_header = &prev_block.header;
 
-        let inflation = if self.runtime_adapter.is_next_block_epoch_start(&head.last_block_hash)? {
-            let next_epoch_id =
-                self.runtime_adapter.get_next_epoch_id_from_prev_block(&head.last_block_hash)?;
-            Some(self.runtime_adapter.get_epoch_inflation(&next_epoch_id)?)
-        } else {
-            None
-        };
+        let minted_amount =
+            if self.runtime_adapter.is_next_block_epoch_start(&head.last_block_hash)? {
+                let next_epoch_id = self
+                    .runtime_adapter
+                    .get_next_epoch_id_from_prev_block(&head.last_block_hash)?;
+                Some(self.runtime_adapter.get_epoch_minted_amount(&next_epoch_id)?)
+            } else {
+                None
+            };
 
         // Get all the current challenges.
         // TODO(2445): Enable challenges when they are working correctly.
@@ -385,11 +404,12 @@ impl Client {
             approvals,
             gas_price_adjustment_rate,
             min_gas_price,
-            inflation,
+            minted_amount,
             prev_block_extra.challenges_result,
             vec![],
             &*validator_signer,
             next_bp_hash,
+            block_merkle_root,
         );
 
         // Update latest known even before returning block out, to prevent race conditions.
@@ -482,9 +502,8 @@ impl Client {
             shard_id,
             chunk_extra.gas_used,
             chunk_extra.gas_limit,
-            chunk_extra.validator_reward,
             chunk_extra.balance_burnt,
-            chunk_extra.validator_proposals.clone(),
+            chunk_extra.validator_proposals,
             transactions,
             &outgoing_receipts,
             outgoing_receipts_root,
@@ -522,6 +541,7 @@ impl Client {
                 .prepare_transactions(
                     prev_block_header.inner_rest.gas_price,
                     chunk_extra.gas_limit,
+                    shard_id,
                     chunk_extra.state_root.clone(),
                     config.block_expected_weight as usize,
                     &mut iter,
@@ -593,7 +613,7 @@ impl Client {
                     near_chain::ErrorKind::InvalidChunkProofs(chunk_proofs) => {
                         self.network_adapter.do_send(NetworkRequests::Challenge(
                             Challenge::produce(
-                                ChallengeBody::ChunkProofs(chunk_proofs),
+                                ChallengeBody::ChunkProofs(*chunk_proofs),
                                 &**validator_signer,
                             ),
                         ));
@@ -601,7 +621,7 @@ impl Client {
                     near_chain::ErrorKind::InvalidChunkState(chunk_state) => {
                         self.network_adapter.do_send(NetworkRequests::Challenge(
                             Challenge::produce(
-                                ChallengeBody::ChunkState(chunk_state),
+                                ChallengeBody::ChunkState(*chunk_state),
                                 &**validator_signer,
                             ),
                         ));
@@ -626,6 +646,15 @@ impl Client {
         }
     }
 
+    pub fn process_partial_encoded_chunk_response(
+        &mut self,
+        response: PartialEncodedChunkResponseMsg,
+    ) -> Result<Vec<AcceptedBlock>, Error> {
+        let header = self.shards_mgr.get_partial_encoded_chunk_header(&response.chunk_hash)?;
+        let partial_chunk =
+            PartialEncodedChunk { header, parts: response.parts, receipts: response.receipts };
+        self.process_partial_encoded_chunk(partial_chunk)
+    }
     pub fn process_partial_encoded_chunk(
         &mut self,
         partial_encoded_chunk: PartialEncodedChunk,
@@ -642,7 +671,7 @@ impl Client {
                 Ok(self.process_blocks_with_missing_chunks(prev_block_hash))
             }
             ProcessPartialEncodedChunkResult::NeedMorePartsOrReceipts(chunk_header) => {
-                self.shards_mgr.request_chunks(vec![chunk_header]).unwrap();
+                self.shards_mgr.request_chunks(vec![*chunk_header]).unwrap();
                 Ok(vec![])
             }
             ProcessPartialEncodedChunkResult::NeedBlock => {
@@ -748,7 +777,7 @@ impl Client {
         if status.is_new_head() {
             self.shards_mgr.update_largest_seen_height(block.header.inner_lite.height);
             if !self.config.archive {
-                if let Err(err) = self.chain.clear_data(self.runtime_adapter.get_trie()) {
+                if let Err(err) = self.chain.clear_data(self.runtime_adapter.get_tries()) {
                     error!(target: "client", "Can't clear old data, {:?}", err);
                     debug_assert!(false);
                 };

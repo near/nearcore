@@ -5,9 +5,9 @@ use near_primitives::receipt::Receipt;
 use near_primitives::state_record::StateRecord;
 use near_primitives::test_utils::MockEpochInfoProvider;
 use near_primitives::transaction::{ExecutionOutcomeWithId, SignedTransaction};
-use near_primitives::types::{Balance, MerkleHash};
-use near_store::test_utils::create_trie;
-use near_store::{Trie, TrieUpdate};
+use near_primitives::types::Balance;
+use near_store::test_utils::create_tries;
+use near_store::ShardTries;
 use node_runtime::{ApplyState, Runtime};
 use random_config::random_config;
 use std::collections::HashMap;
@@ -29,7 +29,7 @@ pub const NEAR_BASE: Balance = 1_000_000_000_000_000_000_000_000;
 pub struct StandaloneRuntime {
     pub apply_state: ApplyState,
     pub runtime: Runtime,
-    pub trie: Arc<Trie>,
+    pub tries: ShardTries,
     pub signer: InMemorySigner,
     pub root: CryptoHash,
     pub epoch_info_provider: MockEpochInfoProvider,
@@ -40,14 +40,14 @@ impl StandaloneRuntime {
         self.signer.account_id.clone()
     }
 
-    pub fn new(signer: InMemorySigner, state_records: &[StateRecord], trie: Arc<Trie>) -> Self {
+    pub fn new(signer: InMemorySigner, state_records: &[StateRecord], tries: ShardTries) -> Self {
         let mut runtime_config = random_config();
         runtime_config.wasm_config.limit_config.max_total_prepaid_gas = u64::max_value();
 
         let runtime = Runtime::new(runtime_config);
-        let trie_update = TrieUpdate::new(trie.clone(), MerkleHash::default());
 
-        let (store_update, root) = runtime.apply_genesis_state(trie_update, &[], state_records);
+        let (store_update, root) =
+            runtime.apply_genesis_state(tries.clone(), 0, &[], state_records);
         store_update.commit().unwrap();
 
         let apply_state = ApplyState {
@@ -63,7 +63,7 @@ impl StandaloneRuntime {
         Self {
             apply_state,
             runtime,
-            trie,
+            tries,
             signer,
             root,
             epoch_info_provider: MockEpochInfoProvider::default(),
@@ -78,7 +78,7 @@ impl StandaloneRuntime {
         let apply_result = self
             .runtime
             .apply(
-                self.trie.clone(),
+                self.tries.get_trie_for_shard(0),
                 self.root,
                 &None,
                 &self.apply_state,
@@ -88,7 +88,7 @@ impl StandaloneRuntime {
             )
             .unwrap();
 
-        let (store_update, root) = apply_result.trie_changes.into(self.trie.clone()).unwrap();
+        let (store_update, root) = self.tries.apply_all(&apply_result.trie_changes, 0).unwrap();
         self.root = root;
         store_update.commit().unwrap();
         self.apply_state.block_index += 1;
@@ -131,8 +131,11 @@ impl RuntimeGroup {
 
         for signer in signers {
             res.mailboxes.0.lock().unwrap().insert(signer.account_id.clone(), Default::default());
-            let runtime =
-                Arc::new(Mutex::new(StandaloneRuntime::new(signer, &state_records, create_trie())));
+            let runtime = Arc::new(Mutex::new(StandaloneRuntime::new(
+                signer,
+                &state_records,
+                create_tries(),
+            )));
             res.runtimes.push(runtime);
         }
         Arc::new(res)

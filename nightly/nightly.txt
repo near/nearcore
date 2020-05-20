@@ -21,7 +21,7 @@ pytest --timeout=300 sanity/state_sync_late.py notx
 pytest sanity/rpc_tx_forwarding.py
 pytest --timeout=240 sanity/skip_epoch.py
 pytest --timeout=240 sanity/one_val.py
-# pytest --timeout=240 sanity/lightclnt.py
+pytest --timeout=240 sanity/lightclnt.py
 pytest --timeout=240 sanity/rpc_query.py
 pytest --timeout=240 sanity/block_sync.py
 pytest --timeout=240 sanity/validator_switch.py
@@ -79,7 +79,7 @@ expensive --timeout=4800 near-client cross_shard_tx tests::test_cross_shard_tx_w
 expensive --timeout=4800 near-client cross_shard_tx tests::test_cross_shard_tx_with_validator_rotation_2
 
 # consensus tests
-expensive --timeout=1500 near-chain doomslug tests::test_fuzzy_doomslug_liveness_and_safety
+expensive --timeout=3000 near-chain doomslug tests::test_fuzzy_doomslug_liveness_and_safety
 expensive --timeout=500 near-client consensus tests::test_consensus_with_epoch_switches
 
 # state sync tests
@@ -121,7 +121,7 @@ expensive nearcore test_cases_testnet_rpc test::test_delete_access_key_with_allo
 # GC tests
 expensive --timeout=600 near-chain gc tests::test_gc_remove_fork_large
 expensive --timeout=1200 near-chain gc tests::test_gc_not_remove_fork_large
-expensive --timeout=600 near-chain gc tests::test_gc_boundaries_large
+expensive --timeout=1200 near-chain gc tests::test_gc_boundaries_large
 expensive --timeout=600 near-chain gc tests::test_gc_random_large
 expensive --timeout=600 near-chain gc tests::test_gc_pine
 expensive --timeout=600 near-chain gc tests::test_gc_star_large

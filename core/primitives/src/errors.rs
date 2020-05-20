@@ -189,6 +189,8 @@ pub enum ActionsValidationError {
     FunctionCallMethodNameLengthExceeded { length: u64, limit: u64 },
     /// The length of the arguments exceeded the limit in a Function Call action.
     FunctionCallArgumentsLengthExceeded { length: u64, limit: u64 },
+    /// An attempt to stake with a public key that is not convertible to ristretto
+    UnsuitableStakingKey { public_key: PublicKey },
 }
 
 /// Describes the error for validating a receipt.
@@ -289,6 +291,11 @@ impl Display for ActionsValidationError {
                 "The length of the arguments {} exceeds the maximum allowed length {} in a FunctionCall action",
                 length, limit
             ),
+            ActionsValidationError::UnsuitableStakingKey { public_key } => write!(
+                f,
+                "The staking key must be ristretto compatible ED25519 key. {} is provided instead.",
+                public_key,
+            )
         }
     }
 }
@@ -350,8 +357,6 @@ pub enum ActionErrorKind {
         #[serde(with = "u128_dec_format")]
         balance: Balance,
     },
-    /// An attempt to stake with a key that is not convertable to ristretto
-    UnsuitableStakingKey { public_key: PublicKey },
     /// An error occurred during a `FunctionCall` Action.
     FunctionCallError(FunctionCallError),
     /// Error occurs when a new `ActionReceipt` created by the `FunctionCall` action fails
@@ -483,11 +488,11 @@ pub struct BalanceMismatchError {
     #[serde(with = "u128_dec_format")]
     pub final_postponed_receipts_balance: Balance,
     #[serde(with = "u128_dec_format")]
-    pub total_validator_reward: Balance,
+    pub tx_burnt_amount: Balance,
     #[serde(with = "u128_dec_format")]
-    pub total_balance_burnt: Balance,
+    pub slashed_burnt_amount: Balance,
     #[serde(with = "u128_dec_format")]
-    pub total_balance_slashed: Balance,
+    pub other_burnt_amount: Balance,
 }
 
 impl Display for BalanceMismatchError {
@@ -504,9 +509,9 @@ impl Display for BalanceMismatchError {
             .saturating_add(self.outgoing_receipts_balance)
             .saturating_add(self.new_delayed_receipts_balance)
             .saturating_add(self.final_postponed_receipts_balance)
-            .saturating_add(self.total_validator_reward)
-            .saturating_add(self.total_balance_burnt)
-            .saturating_add(self.total_balance_slashed);
+            .saturating_add(self.tx_burnt_amount)
+            .saturating_add(self.slashed_burnt_amount)
+            .saturating_add(self.other_burnt_amount);
         write!(
             f,
             "Balance Mismatch Error. The input balance {} doesn't match output balance {}\n\
@@ -521,9 +526,9 @@ impl Display for BalanceMismatchError {
              \tOutgoing receipts balance sum: {}\n\
              \tNew delayed receipts balance sum: {}\n\
              \tFinal postponed receipts balance sum: {}\n\
-             \tTotal validators reward: {}\n\
-             \tTotal balance burnt: {}\n\
-             \tTotal balance slashed: {}",
+             \tTx fees burnt amount: {}\n\
+             \tSlashed amount: {}\n\
+             \tOther burnt amount: {}",
             initial_balance,
             final_balance,
             self.incoming_validator_rewards,
@@ -535,9 +540,9 @@ impl Display for BalanceMismatchError {
             self.outgoing_receipts_balance,
             self.new_delayed_receipts_balance,
             self.final_postponed_receipts_balance,
-            self.total_validator_reward,
-            self.total_balance_burnt,
-            self.total_balance_slashed,
+            self.tx_burnt_amount,
+            self.slashed_burnt_amount,
+            self.other_burnt_amount,
         )
     }
 }
@@ -610,9 +615,6 @@ impl Display for ActionErrorKind {
                 "Account {:?} tries to stake {}, but has staked {} and only has {}",
                 account_id, stake, locked, balance
             ),
-            ActionErrorKind::UnsuitableStakingKey { public_key } => {
-                write!(f, "The staking key must be ED25519. {} is provided instead.", public_key)
-            }
             ActionErrorKind::CreateAccountOnlyByRegistrar { account_id, registrar_account_id, predecessor_id } => write!(
                 f,
                 "A top-level account ID {:?} can't be created by {:?}, short top-level account IDs can only be created by {:?}",

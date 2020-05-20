@@ -19,7 +19,7 @@ use near_crypto::{InMemorySigner, KeyFile, KeyType, PublicKey, Signer};
 use near_jsonrpc::RpcConfig;
 use near_network::test_utils::open_port;
 use near_network::types::ROUTED_MESSAGE_TTL;
-use near_network::utils::blacklist_from_vec;
+use near_network::utils::blacklist_from_iter;
 use near_network::NetworkConfig;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::hash::CryptoHash;
@@ -84,7 +84,7 @@ pub const EXPECTED_EPOCH_LENGTH: BlockHeightDelta = (5 * 60 * 1000) / MIN_BLOCK_
 pub const BLOCK_PRODUCER_KICKOUT_THRESHOLD: u8 = 90;
 
 /// Criterion for kicking out chunk producers.
-pub const CHUNK_PRODUCER_KICKOUT_THRESHOLD: u8 = 60;
+pub const CHUNK_PRODUCER_KICKOUT_THRESHOLD: u8 = 90;
 
 /// Fast mode constants for testing/developing.
 pub const FAST_MIN_BLOCK_PRODUCTION_DELAY: u64 = 120;
@@ -561,7 +561,7 @@ impl NearConfig {
                 max_routes_to_store: MAX_ROUTES_TO_STORE,
                 highest_peer_horizon: HIGHEST_PEER_HORIZON,
                 push_info_period: Duration::from_millis(100),
-                blacklist: blacklist_from_vec(&config.network.blacklist),
+                blacklist: blacklist_from_iter(config.network.blacklist),
                 outbound_disabled: false,
             },
             telemetry_config: config.telemetry,
@@ -694,7 +694,7 @@ pub fn init_configs(
             network_signer.write_to_file(&dir.join(config.node_key_file));
 
             let mut genesis = Genesis::from_file(
-                genesis.expect(&format!("Genesis file is required for {}.", &chain_id)),
+                genesis.unwrap_or_else(|| panic!("Genesis file is required for {}.", &chain_id)),
             );
             genesis.config.chain_id = chain_id.clone();
 
@@ -753,6 +753,9 @@ pub fn init_configs(
                 gas_limit: INITIAL_GAS_LIMIT,
                 gas_price_adjustment_rate: *GAS_PRICE_ADJUSTMENT_RATE,
                 block_producer_kickout_threshold: BLOCK_PRODUCER_KICKOUT_THRESHOLD,
+                chunk_producer_kickout_threshold: CHUNK_PRODUCER_KICKOUT_THRESHOLD,
+                online_max_threshold: Rational::new(99, 100),
+                online_min_threshold: Rational::new(BLOCK_PRODUCER_KICKOUT_THRESHOLD as isize, 100),
                 runtime_config: Default::default(),
                 validators: vec![AccountInfo {
                     account_id: account_id.clone(),
@@ -765,7 +768,6 @@ pub fn init_configs(
                 total_supply: 0,
                 num_blocks_per_year: NUM_BLOCKS_PER_YEAR,
                 protocol_treasury_account: account_id,
-                chunk_producer_kickout_threshold: CHUNK_PRODUCER_KICKOUT_THRESHOLD,
                 fishermen_threshold: FISHERMEN_THRESHOLD,
                 min_gas_price: MIN_GAS_PRICE,
             };

@@ -1,9 +1,9 @@
 use std::collections::{BTreeMap, HashMap};
 
 use borsh::{BorshDeserialize, BorshSerialize};
+use num_rational::Rational;
 use serde::Serialize;
 
-use crate::EpochManager;
 use near_primitives::challenge::SlashedValidator;
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{
@@ -11,6 +11,8 @@ use near_primitives::types::{
     EpochId, NumSeats, NumShards, ShardId, ValidatorId, ValidatorKickoutReason, ValidatorStake,
     ValidatorStats,
 };
+
+use crate::EpochManager;
 
 pub type RngSeed = [u8; 32];
 
@@ -32,6 +34,10 @@ pub struct EpochConfig {
     pub block_producer_kickout_threshold: u8,
     /// Criterion for kicking out chunk producers.
     pub chunk_producer_kickout_threshold: u8,
+    /// Online minimum threshold below which validator doesn't receive reward.
+    pub online_min_threshold: Rational,
+    /// Online maximum threshold above which validator gets full reward.
+    pub online_max_threshold: Rational,
     /// Stake threshold for becoming a fisherman.
     pub fishermen_threshold: Balance,
 }
@@ -59,14 +65,14 @@ pub struct EpochInfo {
     pub fishermen: Vec<ValidatorStake>,
     /// Fisherman account id to index of proposal.
     pub fishermen_to_index: HashMap<AccountId, ValidatorId>,
-    /// New stake for validators
+    /// New stake for validators.
     pub stake_change: BTreeMap<AccountId, Balance>,
-    /// Validator reward for the epoch
+    /// Validator reward for the epoch.
     pub validator_reward: HashMap<AccountId, Balance>,
-    /// Total inflation in the epoch
-    pub inflation: Balance,
-    /// Validators who are kicked out in this epoch
+    /// Validators who are kicked out in this epoch.
     pub validator_kickout: HashMap<AccountId, ValidatorKickoutReason>,
+    /// Total minted tokens in the epoch.
+    pub minted_amount: Balance,
 }
 
 /// Information per each block.
@@ -81,8 +87,6 @@ pub struct BlockInfo {
     pub chunk_mask: Vec<bool>,
     /// Validators slashed since the start of epoch or in previous epoch
     pub slashed: HashMap<AccountId, SlashState>,
-    /// Total validator reward in this block.
-    pub validator_reward: Balance,
     /// Total supply at this block.
     pub total_supply: Balance,
     /// Map from validator index to (num_blocks_produced, num_blocks_expected) so far in the given epoch.
@@ -91,8 +95,6 @@ pub struct BlockInfo {
     pub shard_tracker: HashMap<ShardId, HashMap<ValidatorId, ValidatorStats>>,
     /// All proposals in this epoch up to this block.
     pub all_proposals: Vec<ValidatorStake>,
-    /// Total validator reward so far in this epoch.
-    pub total_validator_reward: Balance,
 }
 
 impl BlockInfo {
@@ -103,7 +105,6 @@ impl BlockInfo {
         proposals: Vec<ValidatorStake>,
         validator_mask: Vec<bool>,
         slashed: Vec<SlashedValidator>,
-        validator_reward: Balance,
         total_supply: Balance,
     ) -> Self {
         Self {
@@ -120,7 +121,6 @@ impl BlockInfo {
                     (s.account_id, slash_state)
                 })
                 .collect(),
-            validator_reward,
             total_supply,
             // These values are not set. This code is suboptimal
             epoch_first_block: CryptoHash::default(),
@@ -128,7 +128,6 @@ impl BlockInfo {
             block_tracker: HashMap::default(),
             shard_tracker: HashMap::default(),
             all_proposals: vec![],
-            total_validator_reward: 0,
         }
     }
 
@@ -197,7 +196,6 @@ pub struct EpochSummary {
     pub validator_kickout: HashMap<AccountId, ValidatorKickoutReason>,
     // Only for validators who met the threshold and didn't get slashed
     pub validator_block_chunk_stats: HashMap<AccountId, BlockChunkValidatorStats>,
-    pub total_validator_reward: Balance,
 }
 
 /// State that a slashed validator can be in.

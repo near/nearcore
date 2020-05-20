@@ -1,6 +1,6 @@
 """
-Fixes a bug related to gas price computation. No state migration needed for this change
-
+Fixes a bug related to gas price computation.
+No state migration needed for this change.
 """
 
 import sys
@@ -11,7 +11,8 @@ from collections import OrderedDict
 home = sys.argv[1]
 output_home = sys.argv[2]
 
-config = json.load(open(os.path.join(home, 'output.json')), object_pairs_hook=OrderedDict)
+config = json.load(open(os.path.join(home, 'output.json')),
+                   object_pairs_hook=OrderedDict)
 
 assert config['protocol_version'] == 9
 

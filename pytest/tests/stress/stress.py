@@ -35,13 +35,13 @@ from network import init_network_pillager, stop_network, resume_network
 
 sys.stdout = Unbuffered(sys.stdout)
 
-TIMEOUT = 1500 # after how much time to shut down the test
-TIMEOUT_SHUTDOWN = 120 # time to wait after the shutdown was initiated before
+TIMEOUT = 1500  # after how much time to shut down the test
+TIMEOUT_SHUTDOWN = 120  # time to wait after the shutdown was initiated before
 MAX_STAKE = int(1e26)
 EPOCH_LENGTH = 20
 
-block_timeout = 20 # if two blocks are not produced within that many seconds, the test will fail. The timeout is increased if nodes are restarted or network is being messed up with
-balances_timeout = 15 # how long to tolerate for balances to update after txs are sent
+block_timeout = 20  # if two blocks are not produced within that many seconds, the test will fail. The timeout is increased if nodes are restarted or network is being messed up with
+balances_timeout = 15  # how long to tolerate for balances to update after txs are sent
 tx_tolerance = 0.1
 
 assert balances_timeout * 2 <= TIMEOUT_SHUTDOWN
@@ -49,19 +49,24 @@ assert block_timeout * 2 <= TIMEOUT_SHUTDOWN
 
 network_issues_expected = False
 
+
 def expect_network_issues():
     global network_issues_expected
     network_issues_expected = True
 
+
 def stress_process(func):
+
     def wrapper(stopped, error, *args):
         try:
             func(stopped, error, *args)
         except:
             traceback.print_exc()
             error.value = 1
+
     wrapper.__name__ = func.__name__
     return wrapper
+
 
 def get_recent_hash(node):
     # return the parent of the last block known to the observer
@@ -76,10 +81,14 @@ def get_recent_hash(node):
 
 def get_validator_ids(nodes):
     # the [4:] part is a hack to convert test7 => 7
-    return set([int(x['account_id'][4:]) for x in nodes[-1].get_status()['validators']])
+    return set([
+        int(x['account_id'][4:]) for x in nodes[-1].get_status()['validators']
+    ])
+
 
 @stress_process
 def monkey_node_set(stopped, error, nodes, nonces):
+
     def get_future_time():
         if random.choice([True, False]):
             return time.time() + random.randint(1, 5)
@@ -107,9 +116,11 @@ def monkey_node_set(stopped, error, nodes, nonces):
                 if random.choice([True, False]):
                     wipe = True
                     #node.reset_data()
-                print("Node set: stopping%s node %s" % (" and wiping" if wipe else "", i))
+                print("Node set: stopping%s node %s" %
+                      (" and wiping" if wipe else "", i))
             nodes_stopped[i] = not nodes_stopped[i]
             change_status_at[i] = get_future_time()
+
 
 @stress_process
 def monkey_node_restart(stopped, error, nodes, nonces):
@@ -125,7 +136,8 @@ def monkey_node_restart(stopped, error, nodes, nonces):
         # don't kill the same node too frequently, give it time to reboot and produce something
         while True:
             _, h = get_recent_hash(node)
-            assert h >= heights_after_restart[node_idx], "%s > %s" % (h, heights_after_restart[node_idx])
+            assert h >= heights_after_restart[node_idx], "%s > %s" % (
+                h, heights_after_restart[node_idx])
             if h > heights_after_restart[node_idx]:
                 break
             time.sleep(1)
@@ -138,6 +150,7 @@ def monkey_node_restart(stopped, error, nodes, nonces):
         _, heights_after_restart[node_idx] = get_recent_hash(node)
 
         time.sleep(5)
+
 
 @stress_process
 def monkey_local_network(stopped, error, nodes, nonces):
@@ -152,12 +165,15 @@ def monkey_local_network(stopped, error, nodes, nonces):
         nodes[node_idx].resume_network()
         time.sleep(5)
 
+
 @stress_process
 def monkey_global_network():
     pass
 
+
 @stress_process
 def monkey_transactions(stopped, error, nodes, nonces):
+
     def get_balances():
         acts = [
             nodes[-1].get_account("test%s" % i)['result']
@@ -171,7 +187,7 @@ def monkey_transactions(stopped, error, nodes, nonces):
     print("TOTAL SUPPLY: %s" % total_supply)
 
     last_iter_switch = time.time()
-    mode = 0 # 0 = send more tx, 1 = wait for balances
+    mode = 0  # 0 = send more tx, 1 = wait for balances
     tx_count = 0
     last_tx_set = []
 
@@ -185,8 +201,11 @@ def monkey_transactions(stopped, error, nodes, nonces):
                 print("%s TRANSACTIONS SENT. WAITING FOR BALANCES" % tx_count)
                 mode = 1
             else:
-                print("BALANCES NEVER CAUGHT UP, CHECKING UNFINISHED TRANSACTIONS")
+                print(
+                    "BALANCES NEVER CAUGHT UP, CHECKING UNFINISHED TRANSACTIONS"
+                )
                 snapshot_expected_balances = [x for x in expected_balances]
+
                 def revert_txs():
                     nonlocal expected_balances
                     good = 0
@@ -194,13 +213,18 @@ def monkey_transactions(stopped, error, nodes, nonces):
                     for tx in last_tx_set:
                         tx_happened = True
                         try:
-                            response = nodes[-1].json_rpc('tx', [tx[3], "test%s" % tx[1]], timeout=1)
+                            response = nodes[-1].json_rpc(
+                                'tx', [tx[3], "test%s" % tx[1]], timeout=1)
 
                             # due to #2195 if the tx was dropped, the query today times out.
-                            if 'error' in response and 'data' in response['error'] and response['error']['data'] == 'Timeout':
+                            if 'error' in response and 'data' in response[
+                                    'error'] and response['error'][
+                                        'data'] == 'Timeout':
                                 tx_happened = False
-                            elif 'result' in response and 'receipts_outcome' in response['result']:
-                                tx_happened = len(response['result']['receipts_outcome']) > 0
+                            elif 'result' in response and 'receipts_outcome' in response[
+                                    'result']:
+                                tx_happened = len(
+                                    response['result']['receipts_outcome']) > 0
                             else:
                                 assert False, response
                         # This exception handler is also due to #2195
@@ -216,10 +240,12 @@ def monkey_transactions(stopped, error, nodes, nonces):
                         else:
                             good += 1
                     return (good, bad)
+
                 good, bad = revert_txs()
                 if expected_balances == get_balances():
                     # reverting helped
-                    print("REVERTING HELPED, TX EXECUTED: %s, TX LOST: %s" % (good, bad))
+                    print("REVERTING HELPED, TX EXECUTED: %s, TX LOST: %s" %
+                          (good, bad))
                     bad_ratio = bad / (good + bad)
                     if bad_ratio > rolling_tolerance:
                         rolling_tolerance -= bad_ratio - rolling_tolerance
@@ -234,14 +260,21 @@ def monkey_transactions(stopped, error, nodes, nonces):
                     last_tx_set = []
                 else:
                     # still no match, fail
-                    print("REVERTING DIDN'T HELP, TX EXECUTED: %s, TX LOST: %s" % (good, bad))
-                    for step in range(10): # trace balances for 20 seconds to see if they are catching up
+                    print(
+                        "REVERTING DIDN'T HELP, TX EXECUTED: %s, TX LOST: %s" %
+                        (good, bad))
+                    for step in range(
+                            10
+                    ):  # trace balances for 20 seconds to see if they are catching up
                         print(get_balances())
                         time.sleep(2)
                     expected_balances = snapshot_expected_balances
                     good, bad = revert_txs()
-                    print("The latest and greatest stats on successful/failed: %s/%s" % (good, bad))
-                    assert False, "Balances didn't update in time. Expected: %s, received: %s" % (expected_balances, get_balances())
+                    print(
+                        "The latest and greatest stats on successful/failed: %s/%s"
+                        % (good, bad))
+                    assert False, "Balances didn't update in time. Expected: %s, received: %s" % (
+                        expected_balances, get_balances())
             last_iter_switch = time.time()
 
         if mode == 0:
@@ -259,12 +292,16 @@ def monkey_transactions(stopped, error, nodes, nonces):
                 hash_, _ = get_recent_hash(nodes[-1])
 
                 with nonce_lock:
-                    tx = sign_payment_tx(nodes[from_].signer_key, 'test%s' % to, amt, nonce_val.value, base58.b58decode(hash_.encode('utf8')))
+                    tx = sign_payment_tx(nodes[from_].signer_key, 'test%s' % to,
+                                         amt, nonce_val.value,
+                                         base58.b58decode(hash_.encode('utf8')))
                     for validator_id in validator_ids:
                         try:
                             tx_hash = nodes[validator_id].send_tx(tx)['result']
-                        except (requests.exceptions.ReadTimeout, requests.exceptions.ConnectionError):
-                            if not network_issues_expected and not nodes[validator_id].mess_with:
+                        except (requests.exceptions.ReadTimeout,
+                                requests.exceptions.ConnectionError):
+                            if not network_issues_expected and not nodes[
+                                    validator_id].mess_with:
                                 raise
 
                     last_tx_set.append((tx, from_, to, tx_hash, amt))
@@ -285,12 +322,16 @@ def monkey_transactions(stopped, error, nodes, nonces):
                 rolling_tolerance = tx_tolerance
                 last_tx_set = []
 
-        if mode == 1: time.sleep(1)
-        elif mode == 0: time.sleep(0.1)
+        if mode == 1:
+            time.sleep(1)
+        elif mode == 0:
+            time.sleep(0.1)
+
 
 def get_the_guy_to_mess_up_with(nodes):
     _, height = get_recent_hash(nodes[-1])
     return (height // EPOCH_LENGTH) % (len(nodes) - 1)
+
 
 @stress_process
 def monkey_staking(stopped, error, nodes, nonces):
@@ -305,17 +346,23 @@ def monkey_staking(stopped, error, nodes, nonces):
 
         nonce_val, nonce_lock = nonces[whom]
         with nonce_lock:
-            stake = random.randint(0.7 * MAX_STAKE // 1000000, MAX_STAKE // 1000000) * 1000000
+            stake = random.randint(0.7 * MAX_STAKE // 1000000,
+                                   MAX_STAKE // 1000000) * 1000000
 
             if whom == who_can_unstake:
                 stake = 0
 
-            tx = sign_staking_tx(nodes[whom].signer_key, nodes[whom].validator_key, stake, nonce_val.value, base58.b58decode(hash_.encode('utf8')))
+            tx = sign_staking_tx(nodes[whom].signer_key,
+                                 nodes[whom].validator_key, stake,
+                                 nonce_val.value,
+                                 base58.b58decode(hash_.encode('utf8')))
             for validator_id in validator_ids:
                 try:
                     nodes[validator_id].send_tx(tx)
-                except (requests.exceptions.ReadTimeout, requests.exceptions.ConnectionError):
-                    if not network_issues_expected and not nodes[validator_id].mess_with:
+                except (requests.exceptions.ReadTimeout,
+                        requests.exceptions.ConnectionError):
+                    if not network_issues_expected and not nodes[
+                            validator_id].mess_with:
                         raise
             nonce_val.value = nonce_val.value + 1
 
@@ -342,7 +389,9 @@ def blocks_tracker(stopped, error, nodes, nonces):
                 status = nodes[val_id].get_status()
                 if status['validators'] != last_validators and val_id == -1:
                     last_validators = status['validators']
-                    print("VALIDATORS TRACKER: validators set changed, new set: %s" % [x['account_id'] for x in last_validators])
+                    print(
+                        "VALIDATORS TRACKER: validators set changed, new set: %s"
+                        % [x['account_id'] for x in last_validators])
                 hash_ = status['sync_info']['latest_block_hash']
                 height = status['sync_info']['latest_block_height']
                 largest_per_node[val_id] = height
@@ -354,7 +403,9 @@ def blocks_tracker(stopped, error, nodes, nonces):
                     if largest_height >= 20:
                         if not every_ten:
                             every_ten = True
-                            print("BLOCK TRACKER: switching to tracing every ten blocks to reduce spam")
+                            print(
+                                "BLOCK TRACKER: switching to tracing every ten blocks to reduce spam"
+                            )
                     largest_height = height
                     last_updated = time.time()
 
@@ -367,7 +418,8 @@ def blocks_tracker(stopped, error, nodes, nonces):
                     assert height == confirm_height
                     prev_hash = block_info['result']['header']['prev_hash']
                     if height in height_to_hash:
-                        assert False, "Two blocks for the same height: %s and %s" % (height_to_hash[height], hash_)
+                        assert False, "Two blocks for the same height: %s and %s" % (
+                            height_to_hash[height], hash_)
 
                     height_to_hash[height] = hash_
                     mapping[hash_] = (prev_hash, height)
@@ -427,7 +479,11 @@ def doit(s, n, N, k, monkeys, timeout):
         # make all the observers track all the shards
         local_config_changes[i] = {"tracked_shards": list(range(s))}
 
-    near_root, node_dirs = init_cluster(N, k + 1, s, config, [["min_gas_price", 0], ["max_inflation_rate", [0, 1]], ["epoch_length", EPOCH_LENGTH], ["block_producer_kickout_threshold", 70]], local_config_changes)
+    near_root, node_dirs = init_cluster(
+        N, k + 1, s, config,
+        [["min_gas_price", 0], ["max_inflation_rate", [0, 1]],
+         ["epoch_length", EPOCH_LENGTH],
+         ["block_producer_kickout_threshold", 70]], local_config_changes)
 
     started = time.time()
 
@@ -436,7 +492,8 @@ def doit(s, n, N, k, monkeys, timeout):
     nodes = [boot_node]
 
     for i in range(1, N + k + 1):
-        node = spin_up_node(config, near_root, node_dirs[i], i, boot_node.node_key.pk, boot_node.addr())
+        node = spin_up_node(config, near_root, node_dirs[i], i,
+                            boot_node.node_key.pk, boot_node.addr())
         nodes.append(node)
         if i >= n and i < N:
             node.kill()
@@ -447,7 +504,8 @@ def doit(s, n, N, k, monkeys, timeout):
     monkey_names = [x.__name__ for x in monkeys]
     print(monkey_names)
     if 'monkey_local_network' in monkey_names or 'monkey_global_network' in monkey_names:
-        print("There are monkeys messing up with network, initializing the infra")
+        print(
+            "There are monkeys messing up with network, initializing the infra")
         if config['local']:
             init_network_pillager()
             expect_network_issues()
@@ -505,16 +563,20 @@ def doit(s, n, N, k, monkeys, timeout):
         if time.time() - started_shutdown > TIMEOUT_SHUTDOWN:
             for (p, _) in ps:
                 p.terminate()
-            assert False, "The test didn't gracefully shut down in time\nStill running: %s" % (still_running)
+            assert False, "The test didn't gracefully shut down in time\nStill running: %s" % (
+                still_running)
 
     check_errors()
 
 
-MONKEYS = dict([(name[7:], obj) for name, obj in inspect.getmembers(sys.modules[__name__]) if inspect.isfunction(obj) and name.startswith("monkey_")])
+MONKEYS = dict([(name[7:], obj)
+                for name, obj in inspect.getmembers(sys.modules[__name__])
+                if inspect.isfunction(obj) and name.startswith("monkey_")])
 
 if __name__ == "__main__":
     if len(sys.argv) < 5:
-        print("Usage:\npython tests/stress/stress.py s n N k monkey1 monkey2 ...")
+        print(
+            "Usage:\npython tests/stress/stress.py s n N k monkey1 monkey2 ...")
         sys.exit(1)
 
     s = int(sys.argv[1])
@@ -528,4 +590,3 @@ if __name__ == "__main__":
         assert monkey in MONKEYS, "Unknown monkey \"%s\"" % monkey
 
     doit(s, n, N, k, [globals()["monkey_%s" % x] for x in monkeys], TIMEOUT)
-

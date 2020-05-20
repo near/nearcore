@@ -45,6 +45,7 @@ pub fn create_light_client_block_view(
         outcome_root: inner_lite.outcome_root,
         timestamp: inner_lite.timestamp,
         next_bp_hash: inner_lite.next_bp_hash,
+        block_merkle_root: inner_lite.block_merkle_root,
     };
     let inner_rest_hash = block_header.inner_rest.hash();
 
@@ -54,7 +55,6 @@ pub fn create_light_client_block_view(
         &next_block_header.inner_lite,
         &next_block_header.inner_rest,
     );
-    let approvals_next = next_block_header.inner_rest.approvals.clone();
 
     let after_next_block_hash = chain_store.get_next_block_hash(&next_block_hash)?.clone();
     let after_next_block_header = chain_store.get_block_header(&after_next_block_hash)?;
@@ -66,7 +66,6 @@ pub fn create_light_client_block_view(
         inner_lite: inner_lite_view,
         inner_rest_hash,
         next_bps: next_block_producers,
-        approvals_next,
         approvals_after_next,
     })
 }
