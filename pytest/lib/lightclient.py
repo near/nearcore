@@ -105,9 +105,9 @@ def validate_light_client_block(last_known_block,
         approval_message = bytearray()
         approval_message.append(0)
         approval_message += next_block_hash_decoded
+        approval_message.append(new_block['inner_lite']['height'] + 2)
         for i in range(7):
             approval_message.append(0)
-        approval_message.append(new_block['inner_lite']['height'] + 2)
         approval_message = bytes(approval_message)
         verify_key.verify(approval_message, signature)
 
