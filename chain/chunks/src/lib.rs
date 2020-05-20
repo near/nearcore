@@ -38,6 +38,8 @@ pub use crate::types::Error;
 use std::collections::hash_map::Entry;
 
 mod chunk_cache;
+#[cfg(test)]
+mod test_utils;
 mod types;
 
 const CHUNK_PRODUCER_BLACKLIST_SIZE: usize = 100;
@@ -1303,7 +1305,11 @@ impl ShardsManager {
 
 #[cfg(test)]
 mod test {
-    use crate::{ChunkRequestInfo, ShardsManager, CHUNK_REQUEST_RETRY_MS};
+    use crate::test_utils::SealsManagerTestFixture;
+    use crate::{
+        ChunkRequestInfo, SealsManager, ShardsManager, CHUNK_REQUEST_RETRY_MS,
+        NUM_PARTS_REQUESTED_IN_SEAL,
+    };
     use near_chain::test_utils::KeyValueRuntime;
     use near_network::test_utils::MockNetworkAdapter;
     use near_primitives::hash::hash;
@@ -1332,5 +1338,39 @@ mod test {
         std::thread::sleep(Duration::from_millis(2 * CHUNK_REQUEST_RETRY_MS));
         shards_manager.resend_chunk_requests();
         assert!(network_adapter.requests.read().unwrap().is_empty());
+    }
+
+    #[test]
+    fn test_get_seal() {
+        let fixture = SealsManagerTestFixture::default();
+        let (runtime, mut seals_manager) = fixture.create_seals_manager();
+
+        let seal_assert = |seals_manager: &mut SealsManager| {
+            let seal = seals_manager
+                .get_seal(
+                    &fixture.mock_chunk_hash,
+                    &fixture.mock_parent_hash,
+                    fixture.mock_height,
+                    fixture.mock_shard_id,
+                )
+                .unwrap();
+            assert_eq!(seal.part_ords.len(), NUM_PARTS_REQUESTED_IN_SEAL);
+            assert_eq!(seal.height, fixture.mock_height);
+            assert_eq!(seal.chunk_producer, fixture.mock_chunk_producer);
+        };
+
+        // SealsManger::get_seal should:
+
+        // 1. return a new seal when one does not exist
+        assert!(seals_manager.seals.is_empty());
+        seal_assert(&mut seals_manager);
+        assert_eq!(seals_manager.seals.len(), 1);
+
+        // 2. return the same seal when it is already created
+        seal_assert(&mut seals_manager);
+        assert_eq!(seals_manager.seals.len(), 1);
+        // `get_chunk_producer` should still have only been called once because the same
+        // seal was produced instead of making a new one.
+        assert_eq!(*runtime.get_chunk_producer_call_count.lock().unwrap(), 1);
     }
 }
