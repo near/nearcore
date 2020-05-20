@@ -168,7 +168,9 @@
         "touching_trie_node": 5764118571,
         "promise_and_base": 1473816795,
         "promise_and_per_promise": 5613432,
-        "promise_return": 558292404
+        "promise_return": 558292404,
+        "validator_stake_base": 31123958661120,
+        "validator_total_stake_base": 31123958661120
       },
       "grow_mem_cost": 1,
       "regular_op_cost": 3856371,
