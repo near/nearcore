@@ -138,6 +138,7 @@ pub struct Seal {
     part_ords: HashSet<u64>,
     chunk_producer: AccountId,
     sent: DateTime<Utc>,
+    height: BlockHeight,
 }
 
 impl Seal {
@@ -215,7 +216,7 @@ impl SealsManager {
                     )
                     .cloned()
                     .collect::<HashSet<_>>();
-                let seal = Seal { part_ords: chosen, chunk_producer, sent: Utc::now() };
+                let seal = Seal { part_ords: chosen, chunk_producer, sent: Utc::now(), height };
 
                 Ok(entry.insert(seal))
             }
@@ -227,17 +228,26 @@ impl SealsManager {
         seal.part_ords.clear();
     }
 
-    fn track_seals(&mut self) {
+    fn track_seals(&mut self, block_hash: &CryptoHash) {
         let now = Utc::now();
-        for (chunk_hash, seal) in self.seals.iter_mut() {
-            if seal.part_ords.len() > NUM_PARTS_LEFT_IN_SEAL
-                && (now - seal.sent).num_milliseconds() > ACCEPTING_SEAL_PERIOD_MS
-            {
-                warn!(target: "client", "Couldn't reconstruct chunk {:?} from {:?}, I'm {:?}", chunk_hash, seal.chunk_producer, self.me);
-                self.dont_include_chunks_from.insert(seal.chunk_producer.clone());
+        let gc_stop_height = self.runtime_adapter.get_gc_stop_height(block_hash).ok();
+        let me = &self.me;
+        let dont_include_chunks_from = &mut self.dont_include_chunks_from;
+
+        self.seals.retain(|chunk_hash, seal| {
+            let accepting_period_over =  (now - seal.sent).num_milliseconds() > ACCEPTING_SEAL_PERIOD_MS;
+            let parts_remain = seal.part_ords.len() > NUM_PARTS_LEFT_IN_SEAL;
+
+            // note chunk producers that failed to make parts available
+            if parts_remain && accepting_period_over {
+                warn!(target: "client", "Couldn't reconstruct chunk {:?} from {:?}, I'm {:?}", chunk_hash, seal.chunk_producer, me);
+                dont_include_chunks_from.insert(seal.chunk_producer.clone());
                 seal.part_ords.clear();
             }
-        }
+
+            // retain the seal if it after the GC cut-off
+            gc_stop_height.map_or(true, |height| seal.height >= height)
+        });
     }
 
     fn should_trust_chunk_producer(&self, chunk_producer: &AccountId) -> bool {
@@ -939,7 +949,7 @@ impl ShardsManager {
             header.inner.height_created,
             header.inner.shard_id,
         )?;
-        self.seals_mgr.track_seals();
+        self.seals_mgr.track_seals(&prev_block_hash);
 
         if have_all_parts && self.seals_mgr.should_trust_chunk_producer(&chunk_producer) {
             self.encoded_chunks.insert_chunk_header(header.inner.shard_id, header.clone());
