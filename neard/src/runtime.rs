@@ -59,14 +59,14 @@ impl AsRef<RwLock<EpochManager>> for SafeEpochManager {
 }
 
 impl EpochInfoProvider for SafeEpochManager {
-    fn get_validator_stake(
+    fn validator_stake(
         &self,
         epoch_id: &EpochId,
         last_block_hash: &CryptoHash,
         account_id: &AccountId,
     ) -> Result<Option<Balance>, EpochError> {
         let mut epoch_manager = self.0.write().expect(POISONED_LOCK_ERR);
-        let slashed = epoch_manager.get_slashed_validators(last_block_hash)?.clone();
+        let slashed = epoch_manager.get_slashed_validators(last_block_hash)?;
         if slashed.contains_key(account_id) {
             return Ok(None);
         }

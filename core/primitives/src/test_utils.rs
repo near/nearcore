@@ -323,7 +323,7 @@ impl MockEpochInfoProvider {
 }
 
 impl EpochInfoProvider for MockEpochInfoProvider {
-    fn get_validator_stake(
+    fn validator_stake(
         &self,
         _epoch_id: &EpochId,
         _last_block_hash: &CryptoHash,

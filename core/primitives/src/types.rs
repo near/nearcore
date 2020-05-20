@@ -543,7 +543,7 @@ pub struct StateHeaderKey(pub ShardId, pub CryptoHash);
 pub trait EpochInfoProvider {
     /// Get current stake of a validator in the given epoch.
     /// If the account is not a validator, returns `None`.
-    fn get_validator_stake(
+    fn validator_stake(
         &self,
         epoch_id: &EpochId,
         last_block_hash: &CryptoHash,
