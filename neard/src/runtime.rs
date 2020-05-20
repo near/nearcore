@@ -1257,7 +1257,9 @@ mod test {
     use near_chain::{ReceiptResult, Tip};
     use near_crypto::{InMemorySigner, KeyType, Signer};
     use near_logger_utils::init_test_logger;
-    use near_primitives::transaction::{Action, CreateAccountAction, StakeAction};
+    use near_primitives::transaction::{
+        Action, CreateAccountAction, DeleteAccountAction, StakeAction,
+    };
     use near_primitives::types::{BlockHeightDelta, Nonce, ValidatorId, ValidatorKickoutReason};
     use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
     use near_primitives::views::{
@@ -2477,5 +2479,60 @@ mod test {
             protocol_treasury_account.amount,
             TESTING_INIT_BALANCE + protocol_treasury_reward
         );
+    }
+
+    #[test]
+    fn test_delete_account_after_unstake() {
+        init_test_logger();
+        let num_nodes = 2;
+        let validators = (0..num_nodes).map(|i| format!("test{}", i + 1)).collect::<Vec<_>>();
+        let mut env = TestEnv::new(
+            "test_validator_delete_account",
+            vec![validators.clone()],
+            4,
+            vec![],
+            vec![],
+            false,
+        );
+        let block_producers: Vec<_> = validators
+            .iter()
+            .map(|id| InMemoryValidatorSigner::from_seed(id, KeyType::ED25519, id))
+            .collect();
+        let signers: Vec<_> = validators
+            .iter()
+            .map(|id| InMemorySigner::from_seed(id, KeyType::ED25519, id))
+            .collect();
+
+        let staking_transaction1 = stake(1, &signers[1], &block_producers[1], 0);
+        env.step_default(vec![staking_transaction1]);
+        let account = env.view_account(&block_producers[1].validator_id());
+        assert_eq!(account.amount, TESTING_INIT_BALANCE - TESTING_INIT_STAKE);
+        assert_eq!(account.locked, TESTING_INIT_STAKE);
+        for _ in 2..=5 {
+            env.step_default(vec![]);
+        }
+        let staking_transaction2 = stake(2, &signers[1], &block_producers[1], 1);
+        env.step_default(vec![staking_transaction2]);
+        for _ in 7..=13 {
+            env.step_default(vec![]);
+        }
+        let account = env.view_account(&block_producers[1].validator_id());
+        assert_eq!(account.locked, 0);
+
+        let delete_account_transaction = SignedTransaction::from_actions(
+            4,
+            signers[1].account_id.clone(),
+            signers[1].account_id.clone(),
+            &signers[1] as &dyn Signer,
+            vec![Action::DeleteAccount(DeleteAccountAction {
+                beneficiary_id: signers[0].account_id.clone(),
+            })],
+            // runtime does not validate block history
+            CryptoHash::default(),
+        );
+        env.step_default(vec![delete_account_transaction]);
+        for _ in 15..=17 {
+            env.step_default(vec![]);
+        }
     }
 }
