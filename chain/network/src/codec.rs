@@ -148,7 +148,7 @@ mod test {
                 account_id: "test2".to_string(),
                 inner: ApprovalInner::Endorsement(CryptoHash::default()),
                 target_height: 1,
-                signature: signature.clone(),
+                signature: signature,
             }),
         });
         test_codec(msg);
