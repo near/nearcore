@@ -30,7 +30,7 @@ pub struct MockRuntimeAdapter {
     pub epoch_id: EpochId,
     pub num_total_parts: usize,
     pub part_owner: AccountId,
-    pub gc_stop_height: BlockHeight,
+    pub gc_stop_height: Mutex<BlockHeight>,
 }
 impl RuntimeAdapter for MockRuntimeAdapter {
     fn get_chunk_producer(
@@ -57,7 +57,7 @@ impl RuntimeAdapter for MockRuntimeAdapter {
     }
 
     fn get_gc_stop_height(&self, _block_hash: &CryptoHash) -> Result<u64, Error> {
-        Ok(self.gc_stop_height)
+        Ok(*self.gc_stop_height.lock().unwrap())
     }
 
     fn genesis_state(&self) -> (Arc<Store>, StoreUpdate, Vec<StateRoot>) {
@@ -420,10 +420,21 @@ impl SealsManagerTestFixture {
             epoch_id: self.mock_epoch_id.clone(),
             num_total_parts: self.mock_total_parts,
             part_owner: self.mock_part_owner.clone(),
-            gc_stop_height: self.mock_gc_height,
+            gc_stop_height: Mutex::new(self.mock_gc_height),
         };
         let runtime = Arc::new(mock_runtime);
 
         (runtime.clone(), SealsManager::new(self.mock_me.clone(), runtime))
+    }
+
+    pub fn create_seal(&self, seals_manager: &mut SealsManager) {
+        seals_manager
+            .get_seal(
+                &self.mock_chunk_hash,
+                &self.mock_parent_hash,
+                self.mock_height,
+                self.mock_shard_id,
+            )
+            .unwrap();
     }
 }

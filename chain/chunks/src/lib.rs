@@ -1307,8 +1307,8 @@ impl ShardsManager {
 mod test {
     use crate::test_utils::SealsManagerTestFixture;
     use crate::{
-        ChunkRequestInfo, SealsManager, ShardsManager, CHUNK_REQUEST_RETRY_MS,
-        NUM_PARTS_REQUESTED_IN_SEAL,
+        ChunkRequestInfo, SealsManager, ShardsManager, ACCEPTING_SEAL_PERIOD_MS,
+        CHUNK_REQUEST_RETRY_MS, NUM_PARTS_REQUESTED_IN_SEAL,
     };
     use near_chain::test_utils::KeyValueRuntime;
     use near_network::test_utils::MockNetworkAdapter;
@@ -1372,5 +1372,59 @@ mod test {
         // `get_chunk_producer` should still have only been called once because the same
         // seal was produced instead of making a new one.
         assert_eq!(*runtime.get_chunk_producer_call_count.lock().unwrap(), 1);
+    }
+
+    #[test]
+    fn test_approve_chunk() {
+        let fixture = SealsManagerTestFixture::default();
+        let (_, mut seals_manager) = fixture.create_seals_manager();
+
+        // SealsManager::approve_chunk should indicate all parts were retrieved
+        fixture.create_seal(&mut seals_manager);
+        seals_manager.approve_chunk(&fixture.mock_chunk_hash);
+        let seal = seals_manager
+            .get_seal(
+                &fixture.mock_chunk_hash,
+                &fixture.mock_parent_hash,
+                fixture.mock_height,
+                fixture.mock_shard_id,
+            )
+            .unwrap();
+        assert!(seal.part_ords.is_empty());
+    }
+
+    #[test]
+    fn test_track_seals() {
+        let fixture = SealsManagerTestFixture::default();
+        let (runtime, mut seals_manager) = fixture.create_seals_manager();
+
+        {
+            // create a seal with old timestamp
+            let seal = seals_manager
+                .get_seal(
+                    &fixture.mock_chunk_hash,
+                    &fixture.mock_parent_hash,
+                    fixture.mock_height,
+                    fixture.mock_shard_id,
+                )
+                .unwrap();
+
+            let d = chrono::Duration::milliseconds(2 * ACCEPTING_SEAL_PERIOD_MS);
+            seal.sent = seal.sent - d;
+        }
+
+        // SealsManager::track_seals should:
+
+        // 1. mark the chunk producer as faulty if the parts were not retrieved
+        seals_manager.track_seals(&fixture.mock_parent_hash);
+        assert!(!seals_manager.should_trust_chunk_producer(&fixture.mock_chunk_producer));
+        assert_eq!(seals_manager.seals.len(), 1);
+
+        // 2. remove seals older than the GC limit
+        {
+            *runtime.gc_stop_height.lock().unwrap() += fixture.mock_height;
+        }
+        seals_manager.track_seals(&fixture.mock_parent_hash);
+        assert!(seals_manager.seals.is_empty());
     }
 }
