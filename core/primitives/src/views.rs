@@ -254,6 +254,10 @@ pub struct StatusResponse {
     pub version: Version,
     /// Unique chain id.
     pub chain_id: String,
+    /// Currently active protocol version.
+    pub protocol_version: u32,
+    /// Latest protocol version that this client supports.
+    pub latest_protocol_version: u32,
     /// Address for RPC server.
     pub rpc_addr: String,
     /// Current epoch validators.

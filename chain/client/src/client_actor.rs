@@ -17,9 +17,9 @@ use near_chain::{
     byzantine_assert, Block, BlockHeader, ChainGenesis, ChainStoreAccess, Provenance,
     RuntimeAdapter,
 };
-use near_chain_configs::ClientConfig;
 #[cfg(feature = "adversarial")]
 use near_chain_configs::GenesisConfig;
+use near_chain_configs::{ClientConfig, PROTOCOL_VERSION};
 use near_crypto::Signature;
 #[cfg(feature = "metric_recorder")]
 use near_network::recorder::MetricRecorder;
@@ -38,6 +38,8 @@ use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::views::ValidatorInfo;
 #[cfg(feature = "adversarial")]
 use near_store::ColBlock;
+#[cfg(feature = "adversarial")]
+use near_store::StoreValidator;
 use near_telemetry::TelemetryActor;
 
 use crate::client::Client;
@@ -48,8 +50,6 @@ use crate::types::{
     StatusSyncInfo, SyncStatus,
 };
 use crate::StatusResponse;
-#[cfg(feature = "adversarial")]
-use near_store::StoreValidator;
 
 /// Multiplier on `max_block_time` to wait until deciding that chain stalled.
 const STATUS_WAIT_TIME_MULTIPLIER: u64 = 10;
@@ -508,6 +508,9 @@ impl Handler<Status> for ClientActor {
             .collect();
         Ok(StatusResponse {
             version: self.client.config.version.clone(),
+            // TODO: update this with current one from epoch manager.
+            protocol_version: PROTOCOL_VERSION,
+            latest_protocol_version: PROTOCOL_VERSION,
             chain_id: self.client.config.chain_id.clone(),
             rpc_addr: self.client.config.rpc_addr.clone(),
             validators,
