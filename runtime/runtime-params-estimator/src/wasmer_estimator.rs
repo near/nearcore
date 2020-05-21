@@ -86,6 +86,8 @@ pub fn cost_per_op(gas_metric: GasMetric) -> Ratio<u64> {
     //    (measured * VMConfig::default().regular_op_cost) /
     //       (outcome.burnt_gas * NUM_ITERATIONS),
     // as remaining can be computed with ratio_to_gas().
-    Ratio::new(measured * (VMConfig::default().regular_op_cost as u64),
-        NUM_ITERATIONS * outcome.burnt_gas)
+    Ratio::new(
+        measured * (VMConfig::default().regular_op_cost as u64),
+        NUM_ITERATIONS * outcome.burnt_gas,
+    )
 }
