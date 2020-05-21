@@ -350,10 +350,7 @@ impl NightshadeRuntime {
         };
 
         let epoch_height = self.get_epoch_height_from_prev_block(prev_block_hash)?;
-        let epoch_id = {
-            let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
-            epoch_manager.get_block_info(block_hash)?.epoch_id.clone()
-        };
+        let epoch_id = self.get_epoch_id_from_prev_block(prev_block_hash)?;
 
         let apply_state = ApplyState {
             block_index: block_height,
