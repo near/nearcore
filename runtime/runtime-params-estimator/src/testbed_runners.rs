@@ -101,9 +101,10 @@ pub fn measure_actions(
 }
 
 // TODO: super-ugly, can achieve the same via higher-level wrappers over POSIX read().
+#[cfg(any(target_arch = "x86_64"))]
 #[inline(always)]
 pub unsafe fn syscall3(mut n: usize, a1: usize, a2: usize, a3: usize) -> usize {
-    asm!("syscall"
+    llvm_asm!("syscall"
          : "+{rax}"(n)
          : "{rdi}"(a1) "{rsi}"(a2) "{rdx}"(a3)
          : "rcx", "r11", "memory"

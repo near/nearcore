@@ -283,10 +283,10 @@ impl Client {
         );
 
         // Check that we are were called at the block that we are producer for.
-        let next_block_proposer = self.runtime_adapter.get_block_producer(
-            &self.runtime_adapter.get_epoch_id_from_prev_block(&head.last_block_hash).unwrap(),
-            next_height,
-        )?;
+        let epoch_id =
+            self.runtime_adapter.get_epoch_id_from_prev_block(&head.last_block_hash).unwrap();
+        let next_block_proposer =
+            self.runtime_adapter.get_block_producer(&epoch_id, next_height)?;
 
         let prev = self.chain.get_block_header(&head.last_block_hash)?.clone();
         let prev_hash = head.last_block_hash;
@@ -309,6 +309,18 @@ impl Client {
             &next_block_proposer,
         )? {
             return Ok(None);
+        }
+        let (validator_stake, _) = self.runtime_adapter.get_validator_by_account_id(
+            &epoch_id,
+            &head.last_block_hash,
+            &next_block_proposer,
+        )?;
+        if validator_stake.public_key != validator_signer.public_key() {
+            return Err(Error::BlockProducer(format!(
+                "Validator key doesn't match. Expected {} Actual {}",
+                validator_stake.public_key,
+                validator_signer.public_key()
+            )));
         }
 
         debug!(target: "client", "{:?} Producing block at height {}, parent {} @ {}", validator_signer.validator_id(), next_height, prev.inner_lite.height, format_hash(head.last_block_hash));

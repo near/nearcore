@@ -10,7 +10,7 @@ use num_rational::Rational;
 
 use near_chain::chain::{check_refcount_map, NUM_EPOCHS_TO_KEEP_STORE_DATA};
 use near_chain::{Block, ChainGenesis, ChainStoreAccess, ErrorKind, Provenance, RuntimeAdapter};
-use near_chain_configs::Genesis;
+use near_chain_configs::{ClientConfig, Genesis};
 use near_chunks::{ChunkStatus, ShardsManager};
 use near_client::test_utils::setup_mock_all_validators;
 use near_client::test_utils::{setup_client, setup_mock, TestEnv};
@@ -1061,7 +1061,6 @@ fn test_gc_tail_update() {
 fn test_gas_price_change() {
     init_test_logger();
     let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
-    println!("total supply = {}", genesis.config.total_supply);
     let target_num_tokens_left = NEAR_BASE / 10 + 1;
     let send_money_total_gas = genesis
         .config
@@ -1151,5 +1150,36 @@ fn test_invalid_block_root() {
             _ => assert!(false, "wrong error: {}", e),
         },
         _ => assert!(false, "succeeded, tip: {:?}", tip),
+    }
+}
+
+#[test]
+fn test_incorrect_validator_key_produce_block() {
+    let genesis = Genesis::test(vec!["test0", "test1"], 2);
+    let genesis = Arc::new(genesis);
+    let chain_genesis = ChainGenesis::from(&genesis);
+    let runtime_adapter: Arc<dyn RuntimeAdapter> = Arc::new(neard::NightshadeRuntime::new(
+        Path::new("."),
+        create_test_store(),
+        genesis,
+        vec![],
+        vec![],
+    ));
+    let signer = Arc::new(InMemoryValidatorSigner::from_seed("test0", KeyType::ED25519, "seed"));
+    let mut config = ClientConfig::test(true, 10, 20, 2, false);
+    config.epoch_length = chain_genesis.epoch_length;
+    let mut client = Client::new(
+        config,
+        chain_genesis,
+        runtime_adapter,
+        Arc::new(MockNetworkAdapter::default()),
+        Some(signer),
+        false,
+    )
+    .unwrap();
+    let res = client.produce_block(1);
+    match res {
+        Err(near_client::Error::BlockProducer(_)) => {}
+        _ => panic!("unexpected result: {:?}", res),
     }
 }
