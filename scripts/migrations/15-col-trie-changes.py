@@ -16,8 +16,8 @@ output_home = sys.argv[2]
 config = json.load(open(os.path.join(home, 'output.json')),
                    object_pairs_hook=OrderedDict)
 
-assert config['protocol_version'] == 13
+assert config['protocol_version'] == 14
 
-config['protocol_version'] = 14
+config['protocol_version'] = 15
 
 json.dump(config, open(os.path.join(output_home, 'output.json'), 'w'), indent=2)
