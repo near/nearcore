@@ -1057,6 +1057,7 @@ mod tests {
 
     use num_rational::Rational;
 
+    use near_chain_configs::PROTOCOL_VERSION;
     use near_primitives::challenge::SlashedValidator;
     use near_primitives::hash::hash;
     use near_primitives::types::ValidatorKickoutReason::NotEnoughBlocks;
@@ -1449,6 +1450,7 @@ mod tests {
                     vec![],
                     vec![SlashedValidator::new("test1".to_string(), false)],
                     DEFAULT_TOTAL_SUPPLY,
+                    PROTOCOL_VERSION,
                 ),
                 [0; 32],
             )
@@ -1535,6 +1537,7 @@ mod tests {
                         SlashedValidator::new("test1".to_string(), false),
                     ],
                     DEFAULT_TOTAL_SUPPLY,
+                    PROTOCOL_VERSION,
                 ),
                 [0; 32],
             )
@@ -1561,6 +1564,7 @@ mod tests {
                     vec![],
                     vec![SlashedValidator::new("test1".to_string(), true)],
                     DEFAULT_TOTAL_SUPPLY,
+                    PROTOCOL_VERSION,
                 ),
                 [0; 32],
             )
@@ -1620,6 +1624,7 @@ mod tests {
                     vec![],
                     vec![SlashedValidator::new("test1".to_string(), true)],
                     DEFAULT_TOTAL_SUPPLY,
+                    PROTOCOL_VERSION,
                 ),
                 [0; 32],
             )
@@ -1647,6 +1652,7 @@ mod tests {
                     vec![],
                     vec![SlashedValidator::new("test1".to_string(), true)],
                     DEFAULT_TOTAL_SUPPLY,
+                    PROTOCOL_VERSION,
                 ),
                 [0; 32],
             )
@@ -1731,6 +1737,7 @@ mod tests {
                     block_tracker: Default::default(),
                     shard_tracker: Default::default(),
                     all_proposals: vec![],
+                    latest_protocol_version: PROTOCOL_VERSION,
                 },
                 rng_seed,
             )
@@ -1751,6 +1758,7 @@ mod tests {
                     block_tracker: Default::default(),
                     shard_tracker: Default::default(),
                     all_proposals: vec![],
+                    latest_protocol_version: PROTOCOL_VERSION,
                 },
                 rng_seed,
             )
@@ -1771,6 +1779,7 @@ mod tests {
                     block_tracker: Default::default(),
                     shard_tracker: Default::default(),
                     all_proposals: vec![],
+                    latest_protocol_version: PROTOCOL_VERSION,
                 },
                 rng_seed,
             )
@@ -1855,6 +1864,7 @@ mod tests {
                     block_tracker: Default::default(),
                     shard_tracker: Default::default(),
                     all_proposals: vec![],
+                    latest_protocol_version: PROTOCOL_VERSION,
                 },
                 rng_seed,
             )
@@ -1875,6 +1885,7 @@ mod tests {
                     block_tracker: Default::default(),
                     shard_tracker: Default::default(),
                     all_proposals: vec![],
+                    latest_protocol_version: PROTOCOL_VERSION,
                 },
                 rng_seed,
             )
@@ -1895,6 +1906,7 @@ mod tests {
                     block_tracker: Default::default(),
                     shard_tracker: Default::default(),
                     all_proposals: vec![],
+                    latest_protocol_version: PROTOCOL_VERSION,
                 },
                 rng_seed,
             )
@@ -1998,6 +2010,7 @@ mod tests {
                     block_tracker: Default::default(),
                     shard_tracker: Default::default(),
                     all_proposals: vec![],
+                    latest_protocol_version: PROTOCOL_VERSION,
                 },
                 rng_seed,
             )
@@ -2018,6 +2031,7 @@ mod tests {
                     block_tracker: Default::default(),
                     shard_tracker: Default::default(),
                     all_proposals: vec![],
+                    latest_protocol_version: PROTOCOL_VERSION,
                 },
                 rng_seed,
             )
@@ -2038,6 +2052,7 @@ mod tests {
                     block_tracker: Default::default(),
                     shard_tracker: Default::default(),
                     all_proposals: vec![],
+                    latest_protocol_version: PROTOCOL_VERSION,
                 },
                 rng_seed,
             )
@@ -2156,6 +2171,7 @@ mod tests {
                     block_tracker: Default::default(),
                     shard_tracker: Default::default(),
                     all_proposals: vec![],
+                    latest_protocol_version: PROTOCOL_VERSION,
                 },
                 rng_seed,
             )
@@ -2176,6 +2192,7 @@ mod tests {
                     block_tracker: Default::default(),
                     shard_tracker: Default::default(),
                     all_proposals: vec![],
+                    latest_protocol_version: PROTOCOL_VERSION,
                 },
                 rng_seed,
             )
@@ -2196,6 +2213,7 @@ mod tests {
                     block_tracker: Default::default(),
                     shard_tracker: Default::default(),
                     all_proposals: vec![],
+                    latest_protocol_version: PROTOCOL_VERSION,
                 },
                 rng_seed,
             )
@@ -2259,6 +2277,7 @@ mod tests {
                     block_tracker: Default::default(),
                     shard_tracker: Default::default(),
                     all_proposals: vec![],
+                    latest_protocol_version: PROTOCOL_VERSION,
                 },
                 rng_seed,
             )
@@ -2416,6 +2435,7 @@ mod tests {
                 block_tracker: Default::default(),
                 shard_tracker: Default::default(),
                 all_proposals: vec![],
+                latest_protocol_version: PROTOCOL_VERSION,
             },
             rng_seed,
         )
@@ -2435,6 +2455,7 @@ mod tests {
                 block_tracker: Default::default(),
                 shard_tracker: Default::default(),
                 all_proposals: vec![],
+                latest_protocol_version: PROTOCOL_VERSION,
             },
             rng_seed,
         )
@@ -2454,6 +2475,7 @@ mod tests {
                 block_tracker: Default::default(),
                 shard_tracker: Default::default(),
                 all_proposals: vec![],
+                latest_protocol_version: PROTOCOL_VERSION,
             },
             rng_seed,
         )

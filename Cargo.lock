@@ -2189,6 +2189,7 @@ dependencies = [
  "cached",
  "log",
  "near-chain",
+ "near-chain-configs",
  "near-crypto",
  "near-primitives",
  "near-store",

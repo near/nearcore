@@ -5,6 +5,7 @@ use std::sync::Arc;
 use borsh::{BorshDeserialize, BorshSerialize};
 use serde::Serialize;
 
+use near_chain_configs::ProtocolVersion;
 use near_crypto::Signature;
 use near_pool::types::PoolIterator;
 pub use near_primitives::block::{Block, BlockHeader};
@@ -318,6 +319,7 @@ pub trait RuntimeAdapter: Send + Sync {
         slashed_validators: Vec<SlashedValidator>,
         validator_mask: Vec<bool>,
         total_supply: Balance,
+        protocol_version: ProtocolVersion,
     ) -> Result<(), Error>;
 
     /// Apply transactions to given state root and return store update and new state root.

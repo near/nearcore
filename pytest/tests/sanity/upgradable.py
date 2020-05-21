@@ -60,12 +60,14 @@ def main():
     # Restart stable nodes into new version.
     for i in range(3):
         nodes[i].kill()
+        nodes[i].binary_name = config['binary_name']
         nodes[i].start(nodes[0].node_key.pk, nodes[0].addr())
 
     wait_for_blocks_or_timeout(nodes[3], 30, 120)
-    status = nodes[0].get_status()
-    protocol_version = status.get("protocol_version", 14)
-    latest_protocol_version = status["latest_protocol_version"]
+    status0 = nodes[0].get_status()
+    status3 = nodes[3].get_status()
+    protocol_version = status0.get("protocol_version", 14)
+    latest_protocol_version = status3["latest_protocol_version"]
     assert protocol_version == latest_protocol_version,\
            "Latest protocol version %d should match active protocol version %d" % (latest_protocol_version, protocol_version)
 

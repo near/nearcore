@@ -6,8 +6,10 @@ use std::sync::{Arc, RwLock};
 use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::Utc;
 use log::debug;
+use num_rational::Rational;
 use serde::Serialize;
 
+use near_chain_configs::{ProtocolVersion, PROTOCOL_VERSION};
 use near_crypto::{KeyType, PublicKey, SecretKey, Signature};
 use near_pool::types::PoolIterator;
 use near_primitives::account::{AccessKey, Account};
@@ -41,7 +43,6 @@ use crate::error::{Error, ErrorKind};
 use crate::store::ChainStoreAccess;
 use crate::types::ApplyTransactionResult;
 use crate::{BlockHeader, DoomslugThresholdMode, RuntimeAdapter};
-use num_rational::Rational;
 
 #[derive(
     BorshSerialize, BorshDeserialize, Serialize, Hash, PartialEq, Eq, Ord, PartialOrd, Clone, Debug,
@@ -518,6 +519,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         _slashed_validators: Vec<SlashedValidator>,
         _validator_mask: Vec<bool>,
         _total_supply: Balance,
+        _protocol_version: ProtocolVersion,
     ) -> Result<(), Error> {
         Ok(())
     }
@@ -982,6 +984,7 @@ pub fn setup_with_tx_validity_period(
             Rational::from_integer(0),
             tx_validity_period,
             10,
+            PROTOCOL_VERSION,
         ),
         DoomslugThresholdMode::NoApprovals,
     )
@@ -1021,6 +1024,7 @@ pub fn setup_with_validators(
             Rational::from_integer(0),
             tx_validity_period,
             epoch_length,
+            PROTOCOL_VERSION,
         ),
         DoomslugThresholdMode::NoApprovals,
     )
@@ -1138,6 +1142,7 @@ impl ChainGenesis {
             gas_price_adjustment_rate: Rational::from_integer(0),
             transaction_validity_period: 100,
             epoch_length: 5,
+            protocol_version: PROTOCOL_VERSION,
         }
     }
 }

@@ -5,6 +5,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use num_rational::Rational;
 use serde::Serialize;
 
+use near_chain_configs::ProtocolVersion;
 use near_primitives::challenge::SlashedValidator;
 use near_primitives::hash::CryptoHash;
 use near_primitives::serialize::to_base;
@@ -75,6 +76,8 @@ pub struct EpochInfo {
     pub validator_kickout: HashMap<AccountId, ValidatorKickoutReason>,
     /// Total minted tokens in the epoch.
     pub minted_amount: Balance,
+    /// Current protocol version during this epoch.
+    pub protocol_version: ProtocolVersion,
 }
 
 /// Information per each block.
@@ -87,7 +90,7 @@ pub struct BlockInfo {
     pub epoch_id: EpochId,
     pub proposals: Vec<ValidatorStake>,
     pub chunk_mask: Vec<bool>,
-    /// Validators slashed since the start of epoch or in previous epoch
+    /// Validators slashed since the start of epoch or in previous epoch.
     pub slashed: HashMap<AccountId, SlashState>,
     /// Total supply at this block.
     pub total_supply: Balance,
@@ -97,6 +100,8 @@ pub struct BlockInfo {
     pub shard_tracker: HashMap<ShardId, HashMap<ValidatorId, ValidatorStats>>,
     /// All proposals in this epoch up to this block.
     pub all_proposals: Vec<ValidatorStake>,
+    /// Latest protocol version this validator observes.
+    pub latest_protocol_version: ProtocolVersion,
 }
 
 impl BlockInfo {
@@ -108,6 +113,7 @@ impl BlockInfo {
         validator_mask: Vec<bool>,
         slashed: Vec<SlashedValidator>,
         total_supply: Balance,
+        latest_protocol_version: ProtocolVersion,
     ) -> Self {
         Self {
             height,
@@ -130,6 +136,7 @@ impl BlockInfo {
             block_tracker: HashMap::default(),
             shard_tracker: HashMap::default(),
             all_proposals: vec![],
+            latest_protocol_version,
         }
     }
 

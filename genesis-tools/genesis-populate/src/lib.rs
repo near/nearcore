@@ -210,6 +210,7 @@ impl GenesisBuilder {
                 vec![],
                 vec![],
                 self.genesis.config.total_supply.clone(),
+                self.genesis.config.protocol_version,
             )
             .unwrap();
         store_update

@@ -11,7 +11,7 @@ use rand::{thread_rng, Rng};
 
 use near_chain::test_utils::KeyValueRuntime;
 use near_chain::{Chain, ChainGenesis, DoomslugThresholdMode, Provenance, RuntimeAdapter};
-use near_chain_configs::ClientConfig;
+use near_chain_configs::{ClientConfig, PROTOCOL_VERSION};
 use near_crypto::{InMemorySigner, KeyType, PublicKey};
 #[cfg(feature = "metric_recorder")]
 use near_network::recorder::MetricRecorder;
@@ -77,6 +77,7 @@ pub fn setup(
         Rational::from_integer(0),
         transaction_validity_period,
         epoch_length,
+        PROTOCOL_VERSION,
     );
     let doomslug_threshold_mode = if enable_doomslug {
         DoomslugThresholdMode::TwoThirds

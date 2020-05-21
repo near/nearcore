@@ -1,5 +1,6 @@
 use std::cmp::min;
 use std::collections::{HashMap, HashSet};
+use std::mem;
 use std::sync::Arc;
 use std::time::{Duration as TimeDuration, Instant};
 
@@ -7,8 +8,12 @@ use borsh::BorshSerialize;
 use chrono::prelude::{DateTime, Utc};
 use chrono::Duration;
 use log::{debug, error, info};
+use num_rational::Rational;
+use rand::rngs::StdRng;
+use rand::seq::SliceRandom;
+use rand::SeedableRng;
 
-use near_chain_configs::GenesisConfig;
+use near_chain_configs::{GenesisConfig, ProtocolVersion, PROTOCOL_VERSION};
 use near_primitives::block::genesis_chunks;
 use near_primitives::challenge::{
     BlockDoubleSign, Challenge, ChallengeBody, ChallengesResult, ChunkProofs, ChunkState,
@@ -48,11 +53,6 @@ use crate::validate::{
 };
 use crate::{byzantine_assert, create_light_client_block_view, Doomslug};
 use crate::{metrics, DoomslugThresholdMode};
-use num_rational::Rational;
-use rand::rngs::StdRng;
-use rand::seq::SliceRandom;
-use rand::SeedableRng;
-use std::mem;
 
 /// Maximum number of orphans chain can store.
 pub const MAX_ORPHAN_SIZE: usize = 1024;
@@ -187,6 +187,7 @@ pub struct ChainGenesis {
     pub gas_price_adjustment_rate: Rational,
     pub transaction_validity_period: NumBlocks,
     pub epoch_length: BlockHeightDelta,
+    pub protocol_version: ProtocolVersion,
 }
 
 impl ChainGenesis {
@@ -200,6 +201,7 @@ impl ChainGenesis {
         gas_price_adjustment_rate: Rational,
         transaction_validity_period: NumBlocks,
         epoch_length: BlockHeightDelta,
+        protocol_version: ProtocolVersion,
     ) -> Self {
         Self {
             time,
@@ -211,6 +213,7 @@ impl ChainGenesis {
             gas_price_adjustment_rate,
             transaction_validity_period,
             epoch_length,
+            protocol_version,
         }
     }
 }
@@ -231,6 +234,7 @@ where
             genesis_config.gas_price_adjustment_rate,
             genesis_config.transaction_validity_period,
             genesis_config.epoch_length,
+            genesis_config.protocol_version,
         )
     }
 }
@@ -321,6 +325,7 @@ impl Chain {
                         vec![],
                         vec![],
                         chain_genesis.total_supply,
+                        chain_genesis.protocol_version,
                     )?;
                     store_update.save_block_header(genesis.header.clone())?;
                     store_update.save_block(genesis.clone());
@@ -812,6 +817,8 @@ impl Chain {
                     vec![],
                     header.inner_rest.chunk_mask.clone(),
                     header.inner_rest.total_supply,
+                    // TODO: header.inner_rest.latest_protocol_version,
+                    PROTOCOL_VERSION,
                 )?;
             }
         }
@@ -2762,6 +2769,8 @@ impl<'a> ChainUpdate<'a> {
             block.header.inner_rest.challenges_result.clone(),
             block.header.inner_rest.chunk_mask.clone(),
             block.header.inner_rest.total_supply,
+            // TODO: !!!
+            PROTOCOL_VERSION,
         )?;
 
         // Add validated block to the db, even if it's not the canonical fork.

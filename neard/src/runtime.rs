@@ -10,11 +10,10 @@ use borsh::ser::BorshSerialize;
 use borsh::BorshDeserialize;
 use log::{debug, error, warn};
 
-use crate::shard_tracker::{account_id_to_shard_id, ShardTracker};
 use near_chain::chain::NUM_EPOCHS_TO_KEEP_STORE_DATA;
 use near_chain::types::ApplyTransactionResult;
 use near_chain::{BlockHeader, Error, ErrorKind, RuntimeAdapter};
-use near_chain_configs::Genesis;
+use near_chain_configs::{Genesis, ProtocolVersion};
 use near_crypto::{PublicKey, Signature};
 use near_epoch_manager::{BlockInfo, EpochConfig, EpochError, EpochManager, RewardCalculator};
 use near_pool::types::PoolIterator;
@@ -43,6 +42,8 @@ use near_store::{
 use node_runtime::adapter::ViewRuntimeAdapter;
 use node_runtime::state_viewer::TrieViewer;
 use node_runtime::{verify_and_charge_transaction, ApplyState, Runtime, ValidatorAccountsUpdate};
+
+use crate::shard_tracker::{account_id_to_shard_id, ShardTracker};
 
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 const STATE_DUMP_FILE: &str = "state_dump";
@@ -839,6 +840,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         slashed_validators: Vec<SlashedValidator>,
         chunk_mask: Vec<bool>,
         total_supply: Balance,
+        protocol_version: ProtocolVersion,
     ) -> Result<(), Error> {
         // Check that genesis block doesn't have any proposals.
         assert!(height > 0 || (proposals.is_empty() && slashed_validators.is_empty()));
@@ -853,6 +855,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             chunk_mask,
             slashed_validators,
             total_supply,
+            protocol_version,
         );
         let rng_seed = (rng_seed.0).0;
         // TODO: don't commit here, instead contribute to upstream store update.
@@ -1370,6 +1373,7 @@ mod test {
                 genesis.config.max_inflation_rate = Rational::from_integer(0);
             }
             let genesis_total_supply = genesis.config.total_supply;
+            let genesis_protocol_version = genesis.config.protocol_version;
             let runtime = NightshadeRuntime::new(
                 dir.path(),
                 store,
@@ -1391,6 +1395,7 @@ mod test {
                     vec![],
                     vec![],
                     genesis_total_supply,
+                    genesis_protocol_version,
                 )
                 .unwrap();
             Self {
@@ -1457,6 +1462,7 @@ mod test {
                     challenges_result,
                     chunk_mask,
                     self.runtime.genesis.config.total_supply,
+                    self.runtime.genesis.config.protocol_version,
                 )
                 .unwrap();
             self.last_receipts = new_receipts;
@@ -1870,6 +1876,7 @@ mod test {
                     vec![],
                     vec![true],
                     new_env.runtime.genesis.config.total_supply,
+                    new_env.runtime.genesis.config.protocol_version,
                 )
                 .unwrap();
             new_env.head.height = i;

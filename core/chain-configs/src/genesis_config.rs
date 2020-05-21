@@ -19,7 +19,7 @@ use near_primitives::types::{
 };
 use near_runtime_configs::RuntimeConfig;
 
-use crate::PROTOCOL_VERSION;
+use crate::{ProtocolVersion, PROTOCOL_VERSION};
 
 pub const CONFIG_VERSION: u32 = 1;
 
@@ -38,7 +38,7 @@ pub struct GenesisConfig {
     /// It's not a major protocol version, but used for automatic config migrations using scripts.
     pub config_version: u32,
     /// Protocol version that this genesis works with.
-    pub protocol_version: u32,
+    pub protocol_version: ProtocolVersion,
     /// Official time of blockchain start.
     #[default(Utc::now())]
     pub genesis_time: DateTime<Utc>,

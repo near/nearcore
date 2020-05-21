@@ -1,6 +1,10 @@
 use std::collections::{BTreeMap, HashMap};
 
+use num_rational::Rational;
+
+use near_chain_configs::PROTOCOL_VERSION;
 use near_crypto::{KeyType, SecretKey};
+use near_primitives::challenge::SlashedValidator;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, BlockHeightDelta, EpochHeight, NumSeats, NumShards,
@@ -12,8 +16,6 @@ use near_store::test_utils::create_test_store;
 use crate::types::{EpochConfig, EpochInfo, ValidatorWeight};
 use crate::RewardCalculator;
 use crate::{BlockInfo, EpochManager};
-use near_primitives::challenge::SlashedValidator;
-use num_rational::Rational;
 
 pub const DEFAULT_GAS_PRICE: u128 = 100;
 pub const DEFAULT_TOTAL_SUPPLY: u128 = 1_000_000_000_000;
@@ -77,6 +79,7 @@ pub fn epoch_info(
         validator_reward,
         validator_kickout,
         minted_amount,
+        protocol_version: PROTOCOL_VERSION,
     }
 }
 
@@ -201,6 +204,7 @@ pub fn record_block_with_slashes(
                 vec![],
                 slashed,
                 DEFAULT_TOTAL_SUPPLY,
+                PROTOCOL_VERSION,
             ),
             [0; 32],
         )

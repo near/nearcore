@@ -200,6 +200,7 @@ pub fn proposals_to_epoch_info(
         validator_kickout,
         fishermen_to_index,
         minted_amount,
+        protocol_version: epoch_info.protocol_version,
     })
 }
 

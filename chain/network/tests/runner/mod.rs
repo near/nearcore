@@ -10,7 +10,7 @@ use futures::{future, FutureExt, TryFutureExt};
 
 use near_chain::test_utils::KeyValueRuntime;
 use near_chain::ChainGenesis;
-use near_chain_configs::ClientConfig;
+use near_chain_configs::{ClientConfig, PROTOCOL_VERSION};
 use near_client::{ClientActor, ViewClientActor};
 use near_crypto::KeyType;
 use near_logger_utils::init_test_logger;
@@ -68,6 +68,7 @@ pub fn setup_network_node(
         Rational::from_integer(0),
         1000,
         5,
+        PROTOCOL_VERSION,
     );
 
     let peer_manager = PeerManagerActor::create(move |ctx| {
