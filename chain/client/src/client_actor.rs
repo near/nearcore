@@ -696,7 +696,7 @@ impl ClientActor {
                                 missing_chunks,
                                 missing_chunks.iter().map(|header| header.chunk_hash()).collect::<Vec<_>>()
                             );
-                            self.client.shards_mgr.request_chunks(missing_chunks).unwrap();
+                            self.client.shards_mgr.request_chunks(missing_chunks);
                             Ok(())
                         }
                         _ => {
@@ -809,7 +809,7 @@ impl ClientActor {
                         missing_chunks,
                         missing_chunks.iter().map(|header| header.chunk_hash()).collect::<Vec<_>>()
                     );
-                    self.client.shards_mgr.request_chunks(missing_chunks).unwrap();
+                    self.client.shards_mgr.request_chunks(missing_chunks);
                     NetworkClientResponses::NoResponse
                 }
                 _ => {
@@ -1139,16 +1139,13 @@ impl ClientActor {
                             accepted_blocks.write().unwrap().drain(..).collect(),
                         );
 
-                        self.client
-                            .shards_mgr
-                            .request_chunks(
-                                blocks_missing_chunks
-                                    .write()
-                                    .unwrap()
-                                    .drain(..)
-                                    .flat_map(|missing_chunks| missing_chunks.into_iter()),
-                            )
-                            .unwrap();
+                        self.client.shards_mgr.request_chunks(
+                            blocks_missing_chunks
+                                .write()
+                                .unwrap()
+                                .drain(..)
+                                .flat_map(|missing_chunks| missing_chunks.into_iter()),
+                        );
 
                         self.client.sync_status =
                             SyncStatus::BodySync { current_height: 0, highest_height: 0 };

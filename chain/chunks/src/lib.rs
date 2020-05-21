@@ -434,11 +434,10 @@ impl ShardsManager {
             .collect::<HashSet<_>>()
     }
 
-    pub fn request_chunks<T>(&mut self, chunks_to_request: T) -> Result<(), near_chain::Error>
+    pub fn request_chunks<T>(&mut self, chunks_to_request: T)
     where
         T: IntoIterator<Item = ShardChunkHeader>,
     {
-        let mut maybe_error: Option<near_chain::Error> = None;
         for chunk_header in chunks_to_request {
             let ShardChunkHeader {
                 inner:
@@ -478,15 +477,7 @@ impl ShardsManager {
             );
             if let Err(err) = request_result {
                 error!(target: "chunks", "Error during requesting partial encoded chunk: {}", err);
-                // All errors are logged, but only the first one is returned.
-                if let None = maybe_error {
-                    maybe_error = Some(err);
-                }
             }
-        }
-        match maybe_error {
-            Some(err) => Err(err),
-            None => Ok(()),
         }
     }
 
