@@ -1,5 +1,5 @@
 use crate::serialize::u128_dec_format;
-use crate::types::{AccountId, Balance, Gas, Nonce};
+use crate::types::{AccountId, Balance, EpochId, Gas, Nonce};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::PublicKey;
 use serde::{Deserialize, Serialize};
@@ -655,8 +655,10 @@ pub enum EpochError {
     EpochOutOfBounds,
     /// Missing block hash in the storage (means there is some structural issue).
     MissingBlock(CryptoHash),
-    /// Other error.
-    Other(String),
+    /// Error due to IO (DB read/write, serialization, etc.).
+    IOErr(String),
+    /// Given account ID is not a validator in the given epoch ID.
+    NotAValidator(AccountId, EpochId),
 }
 
 impl std::error::Error for EpochError {}
@@ -671,7 +673,10 @@ impl Display for EpochError {
             ),
             EpochError::EpochOutOfBounds => write!(f, "Epoch out of bounds"),
             EpochError::MissingBlock(hash) => write!(f, "Missing block {}", hash),
-            EpochError::Other(err) => write!(f, "Other: {}", err),
+            EpochError::IOErr(err) => write!(f, "IO: {}", err),
+            EpochError::NotAValidator(account_id, epoch_id) => {
+                write!(f, "{} is not a validator in epoch {:?}", account_id, epoch_id)
+            }
         }
     }
 }
@@ -684,13 +689,16 @@ impl Debug for EpochError {
             }
             EpochError::EpochOutOfBounds => write!(f, "EpochOutOfBounds"),
             EpochError::MissingBlock(hash) => write!(f, "MissingBlock({})", hash),
-            EpochError::Other(err) => write!(f, "Other({})", err),
+            EpochError::IOErr(err) => write!(f, "IOErr({})", err),
+            EpochError::NotAValidator(account_id, epoch_id) => {
+                write!(f, "NotAValidator({}, {:?})", account_id, epoch_id)
+            }
         }
     }
 }
 
 impl From<std::io::Error> for EpochError {
     fn from(error: std::io::Error) -> Self {
-        EpochError::Other(error.to_string())
+        EpochError::IOErr(error.to_string())
     }
 }
