@@ -178,6 +178,6 @@ wrapped_imports! {
     // ###############
     // # Validator API #
     // ###############
-    validator_stake<[account_len: u64, account_ptr: u64, stake_ptr: u64] -> []>,
+    validator_stake<[account_id_len: u64, account_id_ptr: u64, stake_ptr: u64] -> []>,
     validator_total_stake<[stake_ptr: u64] -> []>,
 }

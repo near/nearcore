@@ -309,8 +309,8 @@ impl EpochManager {
             minted_amount,
         ) {
             Ok(next_next_epoch_info) => next_next_epoch_info,
-            Err(EpochError::ThresholdError(amount, num_seats)) => {
-                warn!(target: "epoch_manager", "Not enough stake for required number of seats (all validators tried to unstake?): amount = {} for {}", amount, num_seats);
+            Err(EpochError::ThresholdError { stake_sum, num_seats }) => {
+                warn!(target: "epoch_manager", "Not enough stake for required number of seats (all validators tried to unstake?): amount = {} for {}", stake_sum, num_seats);
                 let mut epoch_info = next_epoch_info.clone();
                 epoch_info.epoch_height += 1;
                 epoch_info

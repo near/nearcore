@@ -10,11 +10,11 @@ use crate::types::{EpochConfig, EpochInfo, RngSeed};
 
 /// Find threshold of stake per seat, given provided stakes and required number of seats.
 fn find_threshold(stakes: &[Balance], num_seats: NumSeats) -> Result<Balance, EpochError> {
-    let stakes_sum: Balance = stakes.iter().sum();
-    if stakes_sum < num_seats.into() {
-        return Err(EpochError::ThresholdError(stakes_sum, num_seats));
+    let stake_sum: Balance = stakes.iter().sum();
+    if stake_sum < num_seats.into() {
+        return Err(EpochError::ThresholdError { stake_sum, num_seats });
     }
-    let (mut left, mut right): (Balance, Balance) = (1, stakes_sum + 1);
+    let (mut left, mut right): (Balance, Balance) = (1, stake_sum + 1);
     'outer: loop {
         if left == right - 1 {
             break Ok(left);

@@ -650,7 +650,7 @@ impl Display for ActionErrorKind {
 pub enum EpochError {
     /// Error calculating threshold from given stakes for given number of seats.
     /// Only should happened if calling code doesn't check for integer value of stake > number of seats.
-    ThresholdError(Balance, u64),
+    ThresholdError { stake_sum: Balance, num_seats: u64 },
     /// Requesting validators for an epoch that wasn't computed yet.
     EpochOutOfBounds,
     /// Missing block hash in the storage (means there is some structural issue).
@@ -664,10 +664,10 @@ impl std::error::Error for EpochError {}
 impl Debug for EpochError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            EpochError::ThresholdError(stakes_sum, num_seats) => write!(
+            EpochError::ThresholdError { stake_sum, num_seats } => write!(
                 f,
                 "Total stake {} must be higher than the number of seats {}",
-                stakes_sum, num_seats
+                stake_sum, num_seats
             ),
             EpochError::EpochOutOfBounds => write!(f, "Epoch out of bounds"),
             EpochError::MissingBlock(hash) => write!(f, "Missing block {}", hash),
@@ -679,8 +679,8 @@ impl Debug for EpochError {
 impl Display for EpochError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            EpochError::ThresholdError(stake, num_seats) => {
-                write!(f, "ThresholdError({}, {})", stake, num_seats)
+            EpochError::ThresholdError { stake_sum, num_seats } => {
+                write!(f, "ThresholdError({}, {})", stake_sum, num_seats)
             }
             EpochError::EpochOutOfBounds => write!(f, "EpochOutOfBounds"),
             EpochError::MissingBlock(hash) => write!(f, "MissingBlock({})", hash),

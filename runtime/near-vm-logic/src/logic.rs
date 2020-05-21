@@ -613,15 +613,15 @@ impl<'a> VMLogic<'a> {
     ///
     /// # Cost
     ///
-    /// `base + memory_write_base + memory_write_size * 16 + validator_stake_base` + cost of `get_utf8_string`.
+    /// `base + memory_write_base + memory_write_size * 16 + utf8_decoding_base + utf8_decoding_byte * account_id_len + validator_stake_base`.
     pub fn validator_stake(
         &mut self,
-        account_len: u64,
-        account_ptr: u64,
+        account_id_len: u64,
+        account_id_ptr: u64,
         stake_ptr: u64,
     ) -> Result<()> {
         self.gas_counter.pay_base(base)?;
-        let account_id = self.get_utf8_string(account_len, account_ptr)?;
+        let account_id = self.read_and_parse_account_id(account_id_ptr, account_id_len)?;
         let balance = self.ext.validator_stake(&account_id)?.unwrap_or_default();
         self.gas_counter.pay_base(validator_stake_base)?;
         self.memory_set_u128(stake_ptr, balance)
