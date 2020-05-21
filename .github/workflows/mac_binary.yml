@@ -5,7 +5,7 @@ on:
       - master
       - beta
       - stable
-      - mac-binary-release
+      - workaround-release-build
 jobs:
   build_binary:
     runs-on: macOS-latest
