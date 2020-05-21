@@ -33,11 +33,13 @@ RUN --mount=type=cache,target=/tmp/target \
     --mount=type=cache,target=/usr/local/cargo/git \
     --mount=type=cache,target=/usr/local/cargo/registry \
     cargo build -p neard --release && \
-    cargo build -p keypair-generator --release && \
-    cargo build -p genesis-csv-to-json --release && \
+    cargo build -p keypair-generator && \
+    cargo build -p genesis-csv-to-json && \
     mkdir /tmp/build && \
     cd /tmp/target/release && \
-    mv ./near ./keypair-generator ./genesis-csv-to-json /tmp/build
+    mv ./near ./neard /tmp/build && \
+    cd /tmp/target/debug && \
+    mv ./genesis-csv-to-json ./keypair-generator /tmp/build
 
 COPY scripts/run_docker.sh /tmp/build/run.sh
 
