@@ -696,10 +696,8 @@ impl ClientActor {
                                 missing_chunks,
                                 missing_chunks.iter().map(|header| header.chunk_hash()).collect::<Vec<_>>()
                             );
-                            self.client
-                                .shards_mgr
-                                .request_chunks(missing_chunks)
-                                .map_err(Into::into)
+                            self.client.shards_mgr.request_chunks(missing_chunks).unwrap();
+                            Ok(())
                         }
                         _ => {
                             error!(target: "client", "Failed to process freshly produced block: {:?}", res);
@@ -811,9 +809,7 @@ impl ClientActor {
                         missing_chunks,
                         missing_chunks.iter().map(|header| header.chunk_hash()).collect::<Vec<_>>()
                     );
-                    if let Err(err) = self.client.shards_mgr.request_chunks(missing_chunks) {
-                        error!(target: "client", "Error requesting missing chunks: {}", err);
-                    }
+                    self.client.shards_mgr.request_chunks(missing_chunks).unwrap();
                     NetworkClientResponses::NoResponse
                 }
                 _ => {
@@ -1143,16 +1139,16 @@ impl ClientActor {
                             accepted_blocks.write().unwrap().drain(..).collect(),
                         );
 
-                        let request_result = self.client.shards_mgr.request_chunks(
-                            blocks_missing_chunks
-                                .write()
-                                .unwrap()
-                                .drain(..)
-                                .flat_map(|missing_chunks| missing_chunks.into_iter()),
-                        );
-                        if let Err(err) = request_result {
-                            error!(target: "sync", "Error requesting missing chunks after sync completed: {}", err);
-                        }
+                        self.client
+                            .shards_mgr
+                            .request_chunks(
+                                blocks_missing_chunks
+                                    .write()
+                                    .unwrap()
+                                    .drain(..)
+                                    .flat_map(|missing_chunks| missing_chunks.into_iter()),
+                            )
+                            .unwrap();
 
                         self.client.sync_status =
                             SyncStatus::BodySync { current_height: 0, highest_height: 0 };
