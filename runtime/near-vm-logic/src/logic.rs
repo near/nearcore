@@ -609,7 +609,8 @@ impl<'a> VMLogic<'a> {
         Ok(self.context.epoch_height)
     }
 
-    /// Returns the stake of an account, if the account is currently a validator. Otherwise returns 0.
+    /// Get the stake of an account, if the account is currently a validator. Otherwise returns 0.
+    /// writes the value into the` u128` variable pointed by `stake_ptr`.
     ///
     /// # Cost
     ///
@@ -622,20 +623,22 @@ impl<'a> VMLogic<'a> {
     ) -> Result<()> {
         self.gas_counter.pay_base(base)?;
         let account_id = self.read_and_parse_account_id(account_id_ptr, account_id_len)?;
-        let balance = self.ext.validator_stake(&account_id)?.unwrap_or_default();
         self.gas_counter.pay_base(validator_stake_base)?;
+        let balance = self.ext.validator_stake(&account_id)?.unwrap_or_default();
         self.memory_set_u128(stake_ptr, balance)
     }
 
-    /// Returns the total validator stake of the current epoch.
+    /// Get the total validator stake of the current epoch.
+    /// Write the u128 value into `stake_ptr`.
+    /// writes the value into the` u128` variable pointed by `stake_ptr`.
     ///
     /// # Cost
     ///
     /// `base + memory_write_base + memory_write_size * 16 + validator_total_stake_base`
     pub fn validator_total_stake(&mut self, stake_ptr: u64) -> Result<()> {
         self.gas_counter.pay_base(base)?;
-        let total_stake = self.ext.validator_total_stake()?;
         self.gas_counter.pay_base(validator_total_stake_base)?;
+        let total_stake = self.ext.validator_total_stake()?;
         self.memory_set_u128(stake_ptr, total_stake)
     }
 
