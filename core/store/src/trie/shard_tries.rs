@@ -16,7 +16,8 @@ pub struct ShardTries {
 }
 
 impl ShardTries {
-    pub fn new(storage: Arc<Store>, num_shards: ShardId) -> Self {
+    pub fn new(storage: Arc<Store>, num_shards: u64) -> Self {
+        assert_ne!(num_shards, 0);
         let tries = Arc::new(
             (0..num_shards)
                 .map(|shard_id| Arc::new(Trie::new(Arc::clone(&storage), shard_id)))

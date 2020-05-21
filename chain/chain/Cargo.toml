@@ -28,8 +28,6 @@ near-pool = { path = "../pool" }
 
 [dev-dependencies]
 near-logger-utils = {path = "../../test-utils/logger"}
-
-[dev-dependencies]
 near-store-validator = { path = "../../test-utils/store-validator" }
 
 [features]

@@ -1,19 +1,27 @@
+use std::convert::TryFrom;
 use std::sync::Arc;
 
+use borsh::BorshDeserialize;
+
 use near_chain_configs::GenesisConfig;
+use near_primitives::borsh;
+use near_primitives::hash::CryptoHash;
+use near_primitives::sharding::ChunkHash;
 use near_store::{DBCol, ShardTries, Store};
 
 mod validate;
 
 #[derive(Debug)]
 pub struct ErrorMessage {
-    pub col: DBCol,
-    pub msg: String,
+    pub col: Option<DBCol>,
+    pub key: Option<String>,
+    pub func: String,
+    pub reason: String,
 }
 
 impl ErrorMessage {
-    fn new(col: DBCol, msg: String) -> Self {
-        Self { col, msg }
+    fn new(func: String, reason: String) -> Self {
+        Self { col: None, key: None, func, reason }
     }
 }
 
@@ -45,6 +53,15 @@ impl StoreValidator {
     pub fn tests_done(&self) -> u64 {
         self.tests
     }
+    fn col_to_key(col: DBCol, key: &[u8]) -> String {
+        match col {
+            DBCol::ColBlockHeader | DBCol::ColBlock => {
+                format!("{:?}", CryptoHash::try_from(key.as_ref()))
+            }
+            DBCol::ColChunks => format!("{:?}", ChunkHash::try_from_slice(key.as_ref())),
+            _ => format!("{:?}", key),
+        }
+    }
     pub fn validate(&mut self) {
         self.check(&validate::nothing, &[0], &[0], DBCol::ColBlockMisc);
         for (key, value) in self.store.clone().iter(DBCol::ColBlockHeader) {
@@ -67,15 +84,11 @@ impl StoreValidator {
             // There is a State Root in the Trie
             self.check(&validate::chunks_state_roots_in_trie, &key, &value, DBCol::ColChunks);
         }
-        /*for shard_id in 0..self.shard_tries.tries.len() {
-            println!("{}", shard_id);
-            // TODO ??
-        }*/
     }
 
     fn check(
         &mut self,
-        f: &dyn Fn(&StoreValidator, &[u8], &[u8]) -> Result<(), String>,
+        f: &dyn Fn(&StoreValidator, &[u8], &[u8]) -> Result<(), ErrorMessage>,
         key: &[u8],
         value: &[u8],
         col: DBCol,
@@ -84,7 +97,12 @@ impl StoreValidator {
         self.tests += 1;
         match result {
             Ok(_) => {}
-            Err(msg) => self.errors.push(ErrorMessage::new(col, msg)),
+            Err(e) => {
+                let mut e = e;
+                e.col = Some(col);
+                e.key = Some(Self::col_to_key(col, key));
+                self.errors.push(e)
+            }
         }
     }
 }
