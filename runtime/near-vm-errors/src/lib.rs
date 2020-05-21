@@ -47,6 +47,12 @@ pub enum WasmTrap {
     IllegalArithmetic,
     /// Misaligned atomic access trap.
     MisalignedAtomicAccess,
+    /// Breakpoint trap.
+    BreakpointTrap,
+    /// Stack overflow.
+    StackOverflow,
+    /// Generic trap.
+    GenericTrap,
 }
 
 #[derive(
@@ -244,6 +250,9 @@ impl fmt::Display for WasmTrap {
                 write!(f, "An arithmetic exception, e.g. divided by zero.")
             }
             WasmTrap::MisalignedAtomicAccess => write!(f, "Misaligned atomic access trap."),
+            WasmTrap::GenericTrap => write!(f, "Generic trap."),
+            WasmTrap::BreakpointTrap => write!(f, "Breakpoint trap."),
+            WasmTrap::StackOverflow => write!(f, "Stack overflow."),
         }
     }
 }
