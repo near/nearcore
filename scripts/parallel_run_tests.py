@@ -18,14 +18,17 @@ if __name__ == "__main__":
     clean_binary_tests()
     run_doc_tests()
     build_tests()
-    binaries = test_binaries(exclude=[r'test_regression-.*', r'near_rpc_error_macro-.*'])
+    binaries = test_binaries(
+        exclude=[r'test_regression-.*', r'near_rpc_error_macro-.*'])
     print(f'========= collected {len(binaries)} test binaries:')
     print('\n'.join(binaries))
 
     completed = 0
     fails = []
     with ThreadPoolExecutor(max_workers=workers()) as executor:
-        future_to_binary = {executor.submit(run_test, binary): binary for binary in binaries}
+        future_to_binary = {
+            executor.submit(run_test, binary): binary for binary in binaries
+        }
         for future in as_completed(future_to_binary):
             completed += 1
             binary_full_name = future_to_binary[future]
@@ -45,7 +48,9 @@ if __name__ == "__main__":
                 binary_full_name = f[0]
                 result = f[1]
                 binary = os.path.basename(binary_full_name)
-                print(f'========= test binary {binary} run in parallel failed, exit code {result[0]}, retry run equentially ...')
+                print(
+                    f'========= test binary {binary} run in parallel failed, exit code {result[0]}, retry run equentially ...'
+                )
                 result = run_test(binary_full_name, isolate=False)
                 if result[0] != 0:
                     new_fails.append((binary_full_name, result))
@@ -58,7 +63,9 @@ if __name__ == "__main__":
                     result = f[1]
                     binary = os.path.basename(binary_full_name)
                     show_test_result(binary, result)
-                    new_fail_summary.append(f'========= test binary {binary} run sequentially failed, exit code {result[0]}')
+                    new_fail_summary.append(
+                        f'========= test binary {binary} run sequentially failed, exit code {result[0]}'
+                    )
                 for s in new_fail_summary:
                     print(s)
                 exit(1)
@@ -71,7 +78,9 @@ if __name__ == "__main__":
                 result = f[1]
                 binary = os.path.basename(binary_full_name)
                 show_test_result(binary, result)
-                print(f'========= test binary {binary} failed, exit code {result[0]}')
+                print(
+                    f'========= test binary {binary} failed, exit code {result[0]}'
+                )
             exit(1)
     else:
         print("========= all tests passed")

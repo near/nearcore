@@ -10,7 +10,6 @@ byteorder = "1.2"
 easy-ext = "0.2"
 rocksdb = "0.13"
 log = "0.4"
-env_logger = "0.7"
 chrono = { version = "0.4.4", features = ["serde"] }
 git-version = "0.3.1"
 futures = "0.3"

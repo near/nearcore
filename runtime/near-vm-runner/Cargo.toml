@@ -36,6 +36,10 @@ costs_counting = ["near-vm-logic/costs_counting"]
 
 no_cache = []
 
+[package.metadata.cargo-udeps.ignore]
+# `no_cache` feature leads to an unused `cached` crate
+normal = ["cached"]
+
 [[bench]]
 name = "bench"
 harness = false

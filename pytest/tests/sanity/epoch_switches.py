@@ -13,15 +13,26 @@ TIMEOUT = HEIGHT_GOAL * 3
 EPOCH_LENGTH = 20
 
 config = None
-nodes = start_cluster(2, 2, 1, config, [["epoch_length", EPOCH_LENGTH], ["block_producer_kickout_threshold", 40]], {2: {"tracked_shards": [0]}})
+nodes = start_cluster(
+    2, 2, 1, config,
+    [["epoch_length", EPOCH_LENGTH], ["block_producer_kickout_threshold", 40]],
+    {2: {
+        "tracked_shards": [0]
+    }})
 
 started = time.time()
+
 
 def get_validators():
     return set([x['account_id'] for x in nodes[0].get_status()['validators']])
 
+
 def get_stakes():
-    return [int(nodes[2].get_account("test%s" % i)['result']['locked']) for i in range(3)]
+    return [
+        int(nodes[2].get_account("test%s" % i)['result']['locked'])
+        for i in range(3)
+    ]
+
 
 status = nodes[0].get_status()
 prev_hash = status['sync_info']['latest_block_hash']
@@ -48,7 +59,8 @@ while True:
     height = block['result']['header']['height']
 
     # we expect no skipped heights
-    height_to_num_approvals[height] = len(block['result']['header']['approvals'])
+    height_to_num_approvals[height] = len(
+        block['result']['header']['approvals'])
 
     if height > largest_height:
         print("... %s" % height)
@@ -60,13 +72,18 @@ while True:
 
     if height > epoch_switch_height + 2:
         for val_ord in next_vals:
-            tx = sign_staking_tx(nodes[val_ord].signer_key, nodes[val_ord].validator_key, 0, next_nonce, base58.b58decode(prev_hash.encode('utf8')))
+            tx = sign_staking_tx(nodes[val_ord].signer_key,
+                                 nodes[val_ord].validator_key, 0, next_nonce,
+                                 base58.b58decode(prev_hash.encode('utf8')))
             for target in range(0, 4):
                 nodes[target].send_tx(tx)
             next_nonce += 1
 
         for val_ord in cur_vals:
-            tx = sign_staking_tx(nodes[val_ord].signer_key, nodes[val_ord].validator_key, 50000000000000000000000000000000, next_nonce, base58.b58decode(prev_hash.encode('utf8')))
+            tx = sign_staking_tx(nodes[val_ord].signer_key,
+                                 nodes[val_ord].validator_key,
+                                 50000000000000000000000000000000, next_nonce,
+                                 base58.b58decode(prev_hash.encode('utf8')))
             for target in range(0, 4):
                 nodes[target].send_tx(tx)
             next_nonce += 1
@@ -76,7 +93,7 @@ while True:
 
         print("EPOCH %s, VALS %s" % (epoch_id, get_validators()))
 
-        if len(seen_epochs) > 2: # the first two epochs share the validator set
+        if len(seen_epochs) > 2:  # the first two epochs share the validator set
             assert height_to_num_approvals[height] == 2
 
             has_prev = height - 1 in height_to_num_approvals
@@ -95,7 +112,6 @@ while True:
             for i in range(height):
                 if i in height_to_num_approvals:
                     assert height_to_num_approvals[i] == 2
-
 
         cur_vals, next_vals = next_vals, cur_vals
         epoch_switch_height = height

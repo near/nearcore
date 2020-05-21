@@ -8,7 +8,6 @@ import sys, time
 
 sys.path.append('lib')
 
-
 from cluster import start_cluster
 
 TIMEOUT = 120
@@ -16,7 +15,9 @@ FIRST_STEP_WAIT = 20
 SECOND_STEP_WAIT = 30
 FINAL_HEIGHT_THRESHOLD = 80
 
-nodes = start_cluster(4, 0, 4, None, [["epoch_length", 200], ["block_producer_kickout_threshold", 10]], {})
+nodes = start_cluster(
+    4, 0, 4, None,
+    [["epoch_length", 200], ["block_producer_kickout_threshold", 10]], {})
 time.sleep(3)
 cur_height = 0
 fork1_height = 0
@@ -74,7 +75,8 @@ while cur_height < TIMEOUT:
     statuses = []
     for i, node in enumerate(nodes):
         cur_status = node.get_status()
-        statuses.append((i, cur_status['sync_info']['latest_block_height'], cur_status['sync_info']['latest_block_hash']))
+        statuses.append((i, cur_status['sync_info']['latest_block_height'],
+                         cur_status['sync_info']['latest_block_hash']))
     statuses.sort(key=lambda x: x[1])
     last = statuses[-1]
     cur_height = last[1]
@@ -93,6 +95,3 @@ while cur_height < TIMEOUT:
     time.sleep(0.5)
 
 assert False, "timed out waiting for forks to resolve"
-
-
-

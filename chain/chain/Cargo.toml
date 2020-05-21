@@ -9,7 +9,6 @@ chrono = { version = "0.4.4", features = ["serde"] }
 log = "0.4"
 failure = "0.1"
 failure_derive = "0.1"
-futures = "0.3"
 rocksdb = "0.13"
 rand = "0.7"
 serde = { version = "1", features = [ "derive" ] }
@@ -26,6 +25,8 @@ near-primitives = { path = "../../core/primitives" }
 near-store = { path = "../../core/store" }
 near-metrics = { path = "../../core/metrics" }
 near-pool = { path = "../pool" }
+
+[dev-dependencies]
 near-logger-utils = {path = "../../test-utils/logger"}
 
 [features]

@@ -418,8 +418,22 @@ impl Chain {
         runtime_adapter: &dyn RuntimeAdapter,
         chain_store: &mut dyn ChainStoreAccess,
     ) -> Result<LightClientBlockView, Error> {
-        let final_block_header =
-            chain_store.get_block_header(&header.inner_rest.last_final_block)?.clone();
+        let final_block_header = {
+            let ret = chain_store.get_block_header(&header.inner_rest.last_final_block)?.clone();
+            let two_ahead = chain_store.get_header_by_height(ret.inner_lite.height + 2)?;
+            if two_ahead.inner_lite.epoch_id != ret.inner_lite.epoch_id {
+                let one_ahead = chain_store.get_header_by_height(ret.inner_lite.height + 1)?;
+                if one_ahead.inner_lite.epoch_id != ret.inner_lite.epoch_id {
+                    let new_final_hash = ret.inner_rest.last_final_block.clone();
+                    chain_store.get_block_header(&new_final_hash)?.clone()
+                } else {
+                    let new_final_hash = one_ahead.inner_rest.last_final_block.clone();
+                    chain_store.get_block_header(&new_final_hash)?.clone()
+                }
+            } else {
+                ret
+            }
+        };
 
         let next_block_producers = get_epoch_block_producers_view(
             &final_block_header.inner_lite.next_epoch_id,

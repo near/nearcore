@@ -11,4 +11,3 @@ sequence = [
 ]
 
 doit(sequence)
-

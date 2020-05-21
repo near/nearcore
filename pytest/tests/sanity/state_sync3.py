@@ -11,9 +11,30 @@ from transaction import sign_payment_tx
 
 EPOCH_LENGTH = 1000
 MAX_SYNC_WAIT = 120
-consensus_config0 = {"consensus": {"min_block_production_delay": {"secs": 0, "nanos": 100000000}}}
-consensus_config1 = {"consensus": {"sync_step_period": {"secs": 0, "nanos": 1000}}, "tracked_shards": [0]}
-nodes = start_cluster(1, 1, 1, None, [["epoch_length", EPOCH_LENGTH], ["block_producer_kickout_threshold", 10], ["chunk_producer_kickout_threshold", 10]], {0: consensus_config0, 1: consensus_config1})
+consensus_config0 = {
+    "consensus": {
+        "min_block_production_delay": {
+            "secs": 0,
+            "nanos": 100000000
+        }
+    }
+}
+consensus_config1 = {
+    "consensus": {
+        "sync_step_period": {
+            "secs": 0,
+            "nanos": 1000
+        }
+    },
+    "tracked_shards": [0]
+}
+nodes = start_cluster(
+    1, 1, 1, None,
+    [["epoch_length", EPOCH_LENGTH], ["block_producer_kickout_threshold", 10],
+     ["chunk_producer_kickout_threshold", 10]], {
+         0: consensus_config0,
+         1: consensus_config1
+     })
 time.sleep(2)
 nodes[1].kill()
 
@@ -45,4 +66,3 @@ while node1_height <= node0_height:
         elif time.time() - state_sync_done_time > 8:
             assert node1_height > state_sync_done_height, "No progress after state sync is done"
     time.sleep(2)
-

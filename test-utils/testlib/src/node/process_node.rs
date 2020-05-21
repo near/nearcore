@@ -130,7 +130,7 @@ impl ProcessNode {
             ]);
             command
         } else {
-            let mut command = Command::new("target/debug/neard");
+            let mut command = Command::new("normal_target/debug/neard");
             command.args(&["--home", &self.work_dir, "run"]);
             command
         }

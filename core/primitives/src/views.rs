@@ -433,6 +433,7 @@ pub struct BlockHeaderInnerLiteView {
     pub outcome_root: CryptoHash,
     pub timestamp: u64,
     pub next_bp_hash: CryptoHash,
+    pub block_merkle_root: CryptoHash,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -1014,7 +1015,6 @@ pub struct LightClientBlockView {
     pub inner_lite: BlockHeaderInnerLiteView,
     pub inner_rest_hash: CryptoHash,
     pub next_bps: Option<Vec<ValidatorStakeView>>,
-    pub approvals_next: Vec<Option<Signature>>,
     pub approvals_after_next: Vec<Option<Signature>>,
 }
 

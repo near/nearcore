@@ -35,19 +35,13 @@ use near_store::{
     ColNextBlockWithNewChunk, ColOutgoingReceipts, ColPartialChunks, ColReceiptIdToShardId,
     ColState, ColStateChanges, ColStateDlInfos, ColStateHeaders, ColTransactionResult,
     ColTransactions, ColTrieChanges, KeyForStateChanges, ShardTries, Store, StoreUpdate,
-    TrieChanges, WrappedTrieChanges,
+    TrieChanges, WrappedTrieChanges, HEADER_HEAD_KEY, HEAD_KEY, LARGEST_TARGET_HEIGHT_KEY,
+    LATEST_KNOWN_KEY, SYNC_HEAD_KEY, TAIL_KEY,
 };
 
 use crate::byzantine_assert;
 use crate::error::{Error, ErrorKind};
 use crate::types::{Block, BlockHeader, LatestKnown, ReceiptProofResponse, ReceiptResponse, Tip};
-
-const HEAD_KEY: &[u8; 4] = b"HEAD";
-const TAIL_KEY: &[u8; 4] = b"TAIL";
-const SYNC_HEAD_KEY: &[u8; 9] = b"SYNC_HEAD";
-const HEADER_HEAD_KEY: &[u8; 11] = b"HEADER_HEAD";
-const LATEST_KNOWN_KEY: &[u8; 12] = b"LATEST_KNOWN";
-const LARGEST_TARGET_HEIGHT_KEY: &[u8; 21] = b"LARGEST_TARGET_HEIGHT";
 
 /// lru cache size
 const CACHE_SIZE: usize = 100;
@@ -2346,6 +2340,7 @@ mod tests {
 
     use cached::Cached;
 
+    use near_chain_configs::GenesisConfig;
     use near_crypto::KeyType;
     use near_primitives::block::Block;
     use near_primitives::errors::InvalidTxError;
@@ -2354,6 +2349,7 @@ mod tests {
     use near_primitives::utils::index_to_bytes;
     use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
     use near_store::test_utils::create_test_store;
+    use near_store::StoreValidator;
 
     use crate::chain::{check_refcount_map, MAX_HEIGHTS_TO_CLEAR};
     use crate::store::{ChainStoreAccess, GCMode};
@@ -2744,6 +2740,11 @@ mod tests {
                 }
             }
             assert!(check_refcount_map(&mut chain).is_ok());
+            let mut genesis = GenesisConfig::default();
+            genesis.genesis_height = 0;
+            let mut store_validator = StoreValidator::default();
+            store_validator.validate(&*chain.store().owned_store(), &genesis);
+            assert!(!store_validator.is_failed());
         }
     }
 }

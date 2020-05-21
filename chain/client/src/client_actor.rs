@@ -18,6 +18,8 @@ use near_chain::{
     RuntimeAdapter,
 };
 use near_chain_configs::ClientConfig;
+#[cfg(feature = "adversarial")]
+use near_chain_configs::GenesisConfig;
 use near_crypto::Signature;
 #[cfg(feature = "metric_recorder")]
 use near_network::recorder::MetricRecorder;
@@ -46,6 +48,8 @@ use crate::types::{
     StatusSyncInfo, SyncStatus,
 };
 use crate::StatusResponse;
+#[cfg(feature = "adversarial")]
+use near_store::StoreValidator;
 
 /// Multiplier on `max_block_time` to wait until deciding that chain stalled.
 const STATUS_WAIT_TIME_MULTIPLIER: u64 = 10;
@@ -250,6 +254,19 @@ impl Handler<NetworkClientMessages> for ClientActor {
                                 error!(target: "client", "Block Reference Map is inconsistent: {:?}", e);
                                 NetworkClientResponses::AdvResult(0 /* false */)
                             }
+                        }
+                    }
+                    NetworkAdversarialMessage::AdvCheckStorageConsistency => {
+                        info!(target: "adversary", "Check Storage Consistency");
+                        let mut genesis = GenesisConfig::default();
+                        genesis.genesis_height = self.client.chain.store().get_genesis_height();
+                        let mut store_validator = StoreValidator::default();
+                        store_validator.validate(self.client.chain.store().store(), &genesis);
+                        if store_validator.is_failed() {
+                            error!(target: "client", "Storage Validation failed, {:?}", store_validator.errors);
+                            NetworkClientResponses::AdvResult(0)
+                        } else {
+                            NetworkClientResponses::AdvResult(store_validator.tests_done())
                         }
                     }
                     _ => panic!("invalid adversary message"),
@@ -638,7 +655,7 @@ impl ClientActor {
                 ) {
                     if let Err(err) = self.produce_block(height) {
                         // If there is an error, report it and let it retry on the next loop step.
-                        error!(target: "client", "Block production failed: {:?}", err);
+                        error!(target: "client", "Block production failed: {}", err);
                     }
                 }
             }
@@ -946,12 +963,7 @@ impl ClientActor {
 
     /// Job to retry chunks that were requested but not received within expected time.
     fn chunk_request_retry(&mut self, ctx: &mut Context<ClientActor>) {
-        match self.client.shards_mgr.resend_chunk_requests() {
-            Ok(_) => {}
-            Err(err) => {
-                error!(target: "client", "Failed to resend chunk requests: {}", err);
-            }
-        };
+        self.client.shards_mgr.resend_chunk_requests();
         ctx.run_later(self.client.config.chunk_request_retry_period, move |act, ctx| {
             act.chunk_request_retry(ctx);
         });
