@@ -273,6 +273,14 @@ pub struct ExtCostsConfig {
     pub promise_and_per_promise: Gas,
     /// Cost for calling promise_return
     pub promise_return: Gas,
+
+    // ###############
+    // # Validator API #
+    // ###############
+    /// Cost of calling `validator_stake`.
+    pub validator_stake_base: Gas,
+    /// Cost of calling `validator_total_stake`.
+    pub validator_total_stake_base: Gas,
 }
 
 // We multiply the actual computed costs by the fixed factor to ensure we
@@ -327,6 +335,8 @@ impl Default for ExtCostsConfig {
             promise_and_base: SAFETY_MULTIPLIER * 491272265,
             promise_and_per_promise: SAFETY_MULTIPLIER * 1871144,
             promise_return: SAFETY_MULTIPLIER * 186097468,
+            validator_stake_base: SAFETY_MULTIPLIER * 9894040 * 1024 * 10,
+            validator_total_stake_base: SAFETY_MULTIPLIER * 9894040 * 1024 * 10,
         }
     }
 }
@@ -379,6 +389,8 @@ impl ExtCostsConfig {
             promise_and_base: 0,
             promise_and_per_promise: 0,
             promise_return: 0,
+            validator_stake_base: 0,
+            validator_total_stake_base: 0,
         }
     }
 }
@@ -432,6 +444,8 @@ pub enum ExtCosts {
     promise_and_base,
     promise_and_per_promise,
     promise_return,
+    validator_stake_base,
+    validator_total_stake_base,
 }
 
 impl ExtCosts {
@@ -483,6 +497,8 @@ impl ExtCosts {
             promise_and_base => config.promise_and_base,
             promise_and_per_promise => config.promise_and_per_promise,
             promise_return => config.promise_return,
+            validator_stake_base => config.validator_stake_base,
+            validator_total_stake_base => config.validator_total_stake_base,
         }
     }
 }

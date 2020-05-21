@@ -1,5 +1,4 @@
 use std::collections::{BTreeMap, HashMap};
-use std::{fmt, io};
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use num_rational::Rational;
@@ -7,7 +6,6 @@ use serde::Serialize;
 
 use near_primitives::challenge::SlashedValidator;
 use near_primitives::hash::CryptoHash;
-use near_primitives::serialize::to_base;
 use near_primitives::types::{
     AccountId, Balance, BlockChunkValidatorStats, BlockHeight, BlockHeightDelta, EpochHeight,
     EpochId, NumSeats, NumShards, ShardId, ValidatorId, ValidatorKickoutReason, ValidatorStake,
@@ -187,76 +185,6 @@ impl BlockInfo {
                 .or_insert(ValidatorStats { produced: u64::from(*mask), expected: 1 });
         }
         self.shard_tracker = prev_shard_tracker;
-    }
-}
-
-#[derive(Eq, PartialEq)]
-pub enum EpochError {
-    /// Error calculating threshold from given stakes for given number of seats.
-    /// Only should happened if calling code doesn't check for integer value of stake > number of seats.
-    ThresholdError(Balance, u64),
-    /// Requesting validators for an epoch that wasn't computed yet.
-    EpochOutOfBounds,
-    /// Missing block hash in the storage (means there is some structural issue).
-    MissingBlock(CryptoHash),
-    /// Error due to IO (DB read/write, serialization, etc.).
-    IOErr(String),
-    /// Given account ID is not a validator in the given epoch ID.
-    NotAValidator(AccountId, EpochId),
-}
-
-impl std::error::Error for EpochError {}
-
-impl fmt::Debug for EpochError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            EpochError::ThresholdError(stakes_sum, num_seats) => write!(
-                f,
-                "Total stake {} must be higher than the number of seats {}",
-                stakes_sum, num_seats
-            ),
-            EpochError::EpochOutOfBounds => write!(f, "Epoch out of bounds"),
-            EpochError::MissingBlock(hash) => write!(f, "Missing block {}", hash),
-            EpochError::IOErr(err) => write!(f, "IO: {}", err),
-            EpochError::NotAValidator(account_id, epoch_id) => {
-                write!(f, "{} is not a validator in epoch {:?}", account_id, epoch_id)
-            }
-        }
-    }
-}
-
-impl fmt::Display for EpochError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            EpochError::ThresholdError(stake, num_seats) => {
-                write!(f, "ThresholdError({}, {})", stake, num_seats)
-            }
-            EpochError::EpochOutOfBounds => write!(f, "EpochOutOfBounds"),
-            EpochError::MissingBlock(hash) => write!(f, "MissingBlock({})", hash),
-            EpochError::IOErr(err) => write!(f, "IOErr({})", err),
-            EpochError::NotAValidator(account_id, epoch_id) => {
-                write!(f, "NotAValidator({}, {:?})", account_id, epoch_id)
-            }
-        }
-    }
-}
-
-impl From<io::Error> for EpochError {
-    fn from(error: io::Error) -> Self {
-        EpochError::IOErr(error.to_string())
-    }
-}
-
-impl From<EpochError> for near_chain::Error {
-    fn from(error: EpochError) -> Self {
-        match error {
-            EpochError::EpochOutOfBounds => near_chain::ErrorKind::EpochOutOfBounds,
-            EpochError::MissingBlock(h) => near_chain::ErrorKind::DBNotFoundErr(to_base(&h)),
-            EpochError::IOErr(err) => near_chain::ErrorKind::IOErr(err),
-            EpochError::NotAValidator(_, _) => near_chain::ErrorKind::NotAValidator,
-            err => near_chain::ErrorKind::ValidatorError(err.to_string()),
-        }
-        .into()
     }
 }
 

@@ -608,6 +608,9 @@ fn get_ext_costs_config(measurement: &Measurements) -> ExtCostsConfig {
         promise_and_base: measured_to_gas(metric, &measured, promise_and_base),
         promise_and_per_promise: measured_to_gas(metric, &measured, promise_and_per_promise),
         promise_return: measured_to_gas(metric, &measured, promise_return),
+        // TODO: accurately price host functions that expose validator information.
+        validator_stake_base: measured_to_gas(metric, &measured, validator_stake_base),
+        validator_total_stake_base: measured_to_gas(metric, &measured, validator_total_stake_base),
     }
 }
 
