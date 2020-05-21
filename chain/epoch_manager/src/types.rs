@@ -1,5 +1,5 @@
 use std::collections::{BTreeMap, HashMap};
-use std::fmt;
+use std::{fmt, io};
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use num_rational::Rational;
@@ -199,8 +199,10 @@ pub enum EpochError {
     EpochOutOfBounds,
     /// Missing block hash in the storage (means there is some structural issue).
     MissingBlock(CryptoHash),
-    /// Other error.
-    Other(String),
+    /// Error due to IO (DB read/write, serialization, etc.).
+    IOErr(String),
+    /// Given account ID is not a validator in the given epoch ID.
+    NotAValidator(AccountId, EpochId),
 }
 
 impl std::error::Error for EpochError {}
@@ -215,7 +217,10 @@ impl fmt::Debug for EpochError {
             ),
             EpochError::EpochOutOfBounds => write!(f, "Epoch out of bounds"),
             EpochError::MissingBlock(hash) => write!(f, "Missing block {}", hash),
-            EpochError::Other(err) => write!(f, "Other: {}", err),
+            EpochError::IOErr(err) => write!(f, "IO: {}", err),
+            EpochError::NotAValidator(account_id, epoch_id) => {
+                write!(f, "{} is not a validator in epoch {:?}", account_id, epoch_id)
+            }
         }
     }
 }
@@ -228,14 +233,17 @@ impl fmt::Display for EpochError {
             }
             EpochError::EpochOutOfBounds => write!(f, "EpochOutOfBounds"),
             EpochError::MissingBlock(hash) => write!(f, "MissingBlock({})", hash),
-            EpochError::Other(err) => write!(f, "Other({})", err),
+            EpochError::IOErr(err) => write!(f, "IOErr({})", err),
+            EpochError::NotAValidator(account_id, epoch_id) => {
+                write!(f, "NotAValidator({}, {:?})", account_id, epoch_id)
+            }
         }
     }
 }
 
-impl From<std::io::Error> for EpochError {
-    fn from(error: std::io::Error) -> Self {
-        EpochError::Other(error.to_string())
+impl From<io::Error> for EpochError {
+    fn from(error: io::Error) -> Self {
+        EpochError::IOErr(error.to_string())
     }
 }
 
@@ -244,6 +252,8 @@ impl From<EpochError> for near_chain::Error {
         match error {
             EpochError::EpochOutOfBounds => near_chain::ErrorKind::EpochOutOfBounds,
             EpochError::MissingBlock(h) => near_chain::ErrorKind::DBNotFoundErr(to_base(&h)),
+            EpochError::IOErr(err) => near_chain::ErrorKind::IOErr(err),
+            EpochError::NotAValidator(_, _) => near_chain::ErrorKind::NotAValidator,
             err => near_chain::ErrorKind::ValidatorError(err.to_string()),
         }
         .into()
