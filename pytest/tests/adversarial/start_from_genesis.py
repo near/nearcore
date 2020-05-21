@@ -18,6 +18,9 @@ BLOCKS = 30
 nodes = start_cluster(
     2, 1, 2, None,
     [["epoch_length", 100], ["block_producer_kickout_threshold", 80]], {})
+if not doomslug:
+    # we expect inconsistency in store in node 0
+    nodes[0].stop_checking_store()
 
 started = time.time()
 
