@@ -335,8 +335,8 @@ impl Default for ExtCostsConfig {
             promise_and_base: SAFETY_MULTIPLIER * 491272265,
             promise_and_per_promise: SAFETY_MULTIPLIER * 1871144,
             promise_return: SAFETY_MULTIPLIER * 186097468,
-            validator_stake_base: SAFETY_MULTIPLIER * 9894040 * 1024 * 1024,
-            validator_total_stake_base: SAFETY_MULTIPLIER * 9894040 * 1024 * 1024,
+            validator_stake_base: SAFETY_MULTIPLIER * 9894040 * 1024 * 10,
+            validator_total_stake_base: SAFETY_MULTIPLIER * 9894040 * 1024 * 10,
         }
     }
 }
