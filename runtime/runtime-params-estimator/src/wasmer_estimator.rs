@@ -71,13 +71,20 @@ pub fn cost_per_op(gas_metric: GasMetric) -> Ratio<u64> {
         call();
     }
     let measured = end_count(gas_metric, &start);
-    // Those proportions led to the used formula:
-    //   outcome.burnt_gas = gas_burned(call)
-    //   measured = NUM_ITERATIONS * measured(call)
-    //   measured(call) = num_x86_insns(call)
-    //   gas_burned(call) = gas_cost_per_wasm_op * num_wasm_ops(call)
+    // We are given by measurement burnt gas
+    //   gas_burned(call) = outcome.burnt_gas
+    // and raw 'measured' value counting x86 insns.
+    // And know that
+    //   measured = NUM_ITERATIONS * x86_insns(call)
+    // Gas that was burned could be computed in two ways:
+    // As number of WASM instructions by cost of a single instruction.
+    //   gas_burned(call) = gas_cost_per_wasm_op * wasm_insns(call)
+    // and as normalized x86 insns count.
     //   gas_burned(call) = measured * GAS_IN_MEASURE_UNIT / DIVISOR
-    //   outcome.burnt_gas = num_wasm_ops(call) *
+    // Divisor here is essentially a normalizing factor matching insn count
+    // to the notion of 1M gas as nanosecond of computations.
+    // So
+    //   outcome.burnt_gas = wasm_insns(call) *
     //       VMConfig::default().regular_op_cost
     //   gas_cost_per_wasm_op = (measured * GAS_IN_MEASURE_UNIT *
     //       VMConfig::default().regular_op_cost) /
