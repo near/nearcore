@@ -35,7 +35,8 @@ impl Default for SealsManagerTestFixture {
             })
             .collect();
         let validators = vec![letters];
-        let mock_runtime = KeyValueRuntime::new_with_validators(Arc::clone(&store), validators, 1, 3, 5);
+        let mock_runtime =
+            KeyValueRuntime::new_with_validators(Arc::clone(&store), validators, 1, 3, 5);
 
         let mock_parent_hash = CryptoHash::default();
         let mock_height: BlockHeight = 1;
