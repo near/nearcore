@@ -195,9 +195,11 @@ class BaseNode(object):
                 self.get_status()['validators']))
 
     def stop_checking_refmap(self):
+        print("WARN: Stopping checking Reference Map for inconsistency for %s:%s" % self.addr())
         self.is_check_refmap = False
 
     def stop_checking_store(self):
+        print("WARN: Stopping checking Storage for inconsistency for %s:%s" % self.addr())
         self.is_check_store = False
 
     def check_refmap(self):
@@ -215,6 +217,8 @@ class BaseNode(object):
                     self.kill()
 
     def check_store(self):
+        # TODO #2597 enable
+        return
         if self.is_check_store:
             res = self.json_rpc('adv_check_store', [])
             if not 'result' in res:
