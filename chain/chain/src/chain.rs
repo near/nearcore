@@ -52,7 +52,6 @@ use num_rational::Rational;
 use rand::rngs::StdRng;
 use rand::seq::SliceRandom;
 use rand::SeedableRng;
-use std::mem;
 
 /// Maximum number of orphans chain can store.
 pub const MAX_ORPHAN_SIZE: usize = 1024;
@@ -381,22 +380,8 @@ impl Chain {
         self.doomslug_threshold_mode = DoomslugThresholdMode::NoApprovals
     }
 
-    pub fn compute_bp_hash_inner<'a, T>(bps: T) -> Result<CryptoHash, Error>
-    where
-        T: IntoIterator<Item = &'a ValidatorStake>,
-    {
-        let iter = bps.into_iter();
-        let (iter_size, _) = iter.size_hint();
-        let hash_size = mem::size_of::<CryptoHash>();
-        // each element of the iterator contributes three hashes
-        let mut arr = Vec::with_capacity(3 * hash_size * iter_size);
-        for bp in iter {
-            arr.extend(hash(bp.account_id.as_bytes()).as_ref());
-            arr.extend(hash(bp.public_key.try_to_vec()?.as_ref()).as_ref());
-            arr.extend(hash(bp.stake.try_to_vec()?.as_ref()).as_ref());
-        }
-
-        Ok(hash(&arr))
+    pub fn compute_bp_hash_inner(bps: Vec<ValidatorStake>) -> Result<CryptoHash, Error> {
+        Ok(hash(&bps.try_to_vec()?))
     }
 
     pub fn compute_bp_hash(
@@ -405,7 +390,7 @@ impl Chain {
         last_known_hash: &CryptoHash,
     ) -> Result<CryptoHash, Error> {
         let bps = runtime_adapter.get_epoch_block_producers_ordered(&epoch_id, last_known_hash)?;
-        Chain::compute_bp_hash_inner(bps.iter().map(|(bp, _)| bp))
+        Chain::compute_bp_hash_inner(bps.iter().map(|(bp, _)| bp).cloned().collect::<Vec<_>>())
     }
 
     /// Creates a light client block for the last final block from perspective of some other block
