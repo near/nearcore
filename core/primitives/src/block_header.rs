@@ -612,36 +612,43 @@ impl BlockHeader {
 
 #[cfg(test)]
 mod tests {
-    //    use borsh::ser::BorshSerialize;
-    //
-    //    use crate::block::Block;
-    use crate::serialize::from_base;
+    use crate::block::Block;
+    use crate::serialize::{from_base, to_base};
 
     use super::*;
 
     #[test]
-    fn test_block_header_v1_deserialize() {
+    fn test_block_header_genesis_deserialize() {
         // This is serialized BlockHeader converting from v1 which doesn't have version number.
-        //        let chunks = vec![];
-        //        let challenges = vec![];
-        //        let block_header_v1 = BlockHeader::genesis(
-        //            0,
-        //            Block::compute_state_root(&chunks),
-        //            Block::compute_chunk_receipts_root(&chunks),
-        //            Block::compute_chunk_headers_root(&chunks).0,
-        //            Block::compute_chunk_tx_root(&chunks),
-        //            Block::compute_chunks_included(&chunks, 0),
-        //            Block::compute_challenges_root(&challenges),
-        //            Utc::now(),
-        //            100,
-        //            1_000_000,
-        //            CryptoHash::default(),
-        //        );
-        let block_header_v1_enc = "11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111119g3LQYu8NYhqU9RHSeqTwaGjiCojJtbKmHraACCNtFbduZbaV2QUaM1fBMVuoXXoXZxnC5Qicu74eS3rRY7DNWGycYjQknptSjzT4H1RXubmP7g3wg5DXC6jrG2K5zBmn8AFPHviziwHK1DsHWct58EXmKX1WjMR7mvahinN5DMAqd1vRN8o45uQP6HunhgnuC22Jo1uT6E1TyBjgyMLPnxq2SZ4jWvSn6d5H4u4qwgQ5RBJR1sP53gVptwrF6vvtCSpe6jNM6JfC6R9VgG5UeW91wua2Mo8cgzfF5SZ7hgLHkmkVqZqx6Pt98C44JTWHAvzrFpZ3xUeSBxKXeqE3zs8koVfz2hYyCASsx5xXwtVEJsARgmjBojJ8s8v2P3sETiF1rTTRVkth9TF7tcc4TSW8JCzhpgDiu2vVLaUkc8452h9Yrn2Ruh9GmWbZT3anrPrHr8GEGaLmNiAN4pF6eUjDxqf44y95eKrz7dPWcYj3gsdKcTgQB98xt6NhPbSE33az6DkrqgZDqapWQBWcPkrXqUstWkLBPVypgjpJPSkdeJvVDP8WwfM";
-        //        assert_eq!(to_base(block_header_v1.try_to_vec().unwrap()), block_header_v1_enc);
-        let _block_header_v1 =
+        let chunks = vec![];
+        let challenges = vec![];
+        let timestamp = from_timestamp(0);
+        let block_header = BlockHeader::genesis(
+            0,
+            Block::compute_state_root(&chunks),
+            Block::compute_chunk_receipts_root(&chunks),
+            Block::compute_chunk_headers_root(&chunks).0,
+            Block::compute_chunk_tx_root(&chunks),
+            Block::compute_chunks_included(&chunks, 0),
+            Block::compute_challenges_root(&challenges),
+            timestamp,
+            100,
+            1_000_000,
+            CryptoHash::default(),
+        );
+        let block_header_v1_enc = "11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111AuX3ahfw71vXubTc6dKkCTnEitpHVEc9bSeZNTJeeVz5mu7wocuVidGE4qAkz4DYZcqsy3YDpBg6VcPLLmXNhQMDJTHpcvKfoUqvLnWcueRvAgQRCxpSr66XUCNwHdP1bvyCT6cFzCcWGBuHM4PsPvPAWVQEkFC9zaTYDGaazC7mAuwq7Dc5NyKG8DjKD3XqAJoZAgq5F2f5xoUa69X6n51MZmNC7QaenrooR1q";
+        match block_header {
+            BlockHeader::BlockHeaderV1(header) => {
+                assert_eq!(to_base(header.try_to_vec().unwrap()), block_header_v1_enc)
+            }
+            _ => panic!("Invalid block header version"),
+        };
+        let block_header_v1 =
             BlockHeaderV1::try_from_slice(&from_base(block_header_v1_enc).unwrap())
                 .expect("Failed to deserialize old block header");
-        // assert_eq!(block_header_v1.latest_protocol_version(), PROTOCOL_VERSION_V14);
+        assert_eq!(
+            BlockHeader::BlockHeaderV1(block_header_v1).latest_protocol_version(),
+            PROTOCOL_VERSION_V14
+        );
     }
 }

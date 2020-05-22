@@ -12,6 +12,7 @@ use tracing::{debug, error, info, warn};
 
 use near_metrics;
 use near_primitives::block::GenesisId;
+use near_primitives::block_header::BlockHeader;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
 use near_primitives::protocol_version::PROTOCOL_VERSION;
@@ -204,6 +205,7 @@ impl Peer {
         // Record block requests in tracker.
         match &msg {
             PeerMessage::Block(b) if self.tracker.has_received(b.hash()) => return,
+            PeerMessage::BlockLegacy(b) if self.tracker.has_received(&b.header.hash) => return,
             PeerMessage::BlockRequest(h) => self.tracker.push_request(*h),
             _ => (),
         };
@@ -381,6 +383,7 @@ impl Peer {
                             .do_send(PeerRequest::RouteBack(body, msg_hash.unwrap()));
                     }
                     Ok(NetworkViewClientResponses::Block(block)) => {
+                        // MOO need protocol version
                         act.send_message(PeerMessage::Block(*block))
                     }
                     Ok(NetworkViewClientResponses::BlockHeaders(headers)) => {
@@ -405,6 +408,15 @@ impl Peer {
     fn receive_client_message(&mut self, ctx: &mut Context<Peer>, msg: PeerMessage) {
         near_metrics::inc_counter(&metrics::PEER_CLIENT_MESSAGE_RECEIVED_TOTAL);
         let peer_id = unwrap_option_or_return!(self.peer_id());
+
+        // Convert legacy protocol messages.
+        let msg = match msg {
+            PeerMessage::BlockLegacy(b) => PeerMessage::Block(b.into()),
+            PeerMessage::BlockHeadersLegacy(h) => PeerMessage::BlockHeaders(
+                h.into_iter().map(|h| BlockHeader::BlockHeaderV1(h)).collect(),
+            ),
+            m => m,
+        };
 
         // Wrap peer message into what client expects.
         let network_client_msg = match msg {
@@ -480,7 +492,9 @@ impl Peer {
             | PeerMessage::RequestUpdateNonce(_)
             | PeerMessage::ResponseUpdateNonce(_)
             | PeerMessage::BlockRequest(_)
-            | PeerMessage::BlockHeadersRequest(_) => {
+            | PeerMessage::BlockHeadersRequest(_)
+            | PeerMessage::BlockLegacy(_)
+            | PeerMessage::BlockHeadersLegacy(_) => {
                 error!(target: "network", "Peer receive_client_message received unexpected type: {:?}", msg);
                 return;
             }
