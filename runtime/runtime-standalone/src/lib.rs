@@ -203,7 +203,7 @@ impl RuntimeStandalone {
     pub fn produce_block(&mut self) -> Result<(), RuntimeError> {
         let apply_state = ApplyState {
             block_index: self.cur_block.block_height,
-            epoch_height: self.cur_block.block_height,
+            epoch_height: self.cur_block.epoch_height,
             gas_price: self.cur_block.gas_price,
             block_timestamp: self.cur_block.block_timestamp,
             gas_limit: None,

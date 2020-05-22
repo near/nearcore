@@ -2347,7 +2347,7 @@ mod tests {
     use near_primitives::utils::index_to_bytes;
     use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
     use near_store::test_utils::create_test_store;
-    use near_store::StoreValidator;
+    use near_store_validator::StoreValidator;
 
     use crate::chain::{check_refcount_map, MAX_HEIGHTS_TO_CLEAR};
     use crate::store::{ChainStoreAccess, GCMode};
@@ -2740,8 +2740,12 @@ mod tests {
             assert!(check_refcount_map(&mut chain).is_ok());
             let mut genesis = GenesisConfig::default();
             genesis.genesis_height = 0;
-            let mut store_validator = StoreValidator::default();
-            store_validator.validate(&*chain.store().owned_store(), &genesis);
+            let mut store_validator = StoreValidator::new(
+                genesis.clone(),
+                chain.runtime_adapter.get_tries(),
+                chain.store().owned_store(),
+            );
+            store_validator.validate();
             assert!(!store_validator.is_failed());
         }
     }
