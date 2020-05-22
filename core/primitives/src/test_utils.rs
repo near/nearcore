@@ -4,6 +4,7 @@ use crate::account::{AccessKey, AccessKeyPermission, Account};
 use crate::block::Block;
 use crate::hash::CryptoHash;
 use crate::merkle::PartialMerkleTree;
+use crate::protocol_version::PROTOCOL_VERSION;
 use crate::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
     DeployContractAction, FunctionCallAction, SignedTransaction, StakeAction, Transaction,
@@ -248,7 +249,7 @@ impl Block {
         signer: &dyn ValidatorSigner,
         block_merkle_tree: &mut PartialMerkleTree,
     ) -> Self {
-        block_merkle_tree.insert(prev.hash());
+        block_merkle_tree.insert(*prev.hash());
         Self::empty_with_approvals(
             prev,
             height,
@@ -283,13 +284,13 @@ impl Block {
         Self::empty_with_epoch(
             prev,
             height,
-            prev.header.inner_lite.epoch_id.clone(),
-            if prev.header.prev_hash == CryptoHash::default() {
-                EpochId(prev.hash())
+            prev.header.epoch_id().clone(),
+            if prev.header.prev_hash() == &CryptoHash::default() {
+                EpochId(*prev.hash())
             } else {
-                prev.header.inner_lite.next_epoch_id.clone()
+                prev.header.next_epoch_id().clone()
             },
-            prev.header.inner_lite.next_bp_hash,
+            *prev.header.next_bp_hash(),
             signer,
             block_merkle_tree,
         )
@@ -302,7 +303,7 @@ impl Block {
     ) -> Self {
         Self::empty_with_height_and_block_merkle_tree(
             prev,
-            prev.header.inner_lite.height + 1,
+            prev.header.height() + 1,
             signer,
             block_merkle_tree,
         )
@@ -325,6 +326,7 @@ impl Block {
         block_merkle_root: CryptoHash,
     ) -> Self {
         Block::produce(
+            PROTOCOL_VERSION,
             &prev.header,
             height,
             prev.chunks.clone(),

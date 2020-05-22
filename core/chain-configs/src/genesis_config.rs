@@ -12,14 +12,13 @@ use num_rational::Rational;
 use serde::{Deserialize, Serialize};
 use smart_default::SmartDefault;
 
+use near_primitives::protocol_version::{ProtocolVersion, PROTOCOL_VERSION};
 use near_primitives::serialize::{u128_dec_format, u128_dec_format_compatible};
 use near_primitives::state_record::StateRecord;
 use near_primitives::types::{
     AccountId, AccountInfo, Balance, BlockHeight, BlockHeightDelta, Gas, NumBlocks, NumSeats,
 };
 use near_runtime_configs::RuntimeConfig;
-
-use crate::{ProtocolVersion, PROTOCOL_VERSION};
 
 pub const CONFIG_VERSION: u32 = 1;
 

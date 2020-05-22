@@ -11,6 +11,7 @@ pub use crate::block_header::*;
 use crate::challenge::{Challenges, ChallengesResult};
 use crate::hash::{hash, CryptoHash};
 use crate::merkle::{merklize, verify_path, MerklePath};
+use crate::protocol_version::ProtocolVersion;
 use crate::sharding::{
     ChunkHashHeight, EncodedShardChunk, ReedSolomonWrapper, ShardChunk, ShardChunkHeader,
 };
@@ -100,6 +101,7 @@ impl Block {
 
     /// Produces new block from header of previous block, current state root and set of transactions.
     pub fn produce(
+        protocol_version: ProtocolVersion,
         prev: &BlockHeader,
         height: BlockHeight,
         chunks: Vec<ShardChunkHeader>,
@@ -134,42 +136,36 @@ impl Block {
             }
         }
         let new_gas_price = Self::compute_new_gas_price(
-            prev.inner_rest.gas_price,
+            prev.gas_price(),
             gas_used,
             gas_limit,
             gas_price_adjustment_rate,
         );
         let new_gas_price = std::cmp::max(new_gas_price, min_gas_price);
 
-        let new_total_supply =
-            prev.inner_rest.total_supply + minted_amount.unwrap_or(0) - balance_burnt;
+        let new_total_supply = prev.total_supply() + minted_amount.unwrap_or(0) - balance_burnt;
 
         let now = to_timestamp(Utc::now());
-        let time =
-            if now <= prev.inner_lite.timestamp { prev.inner_lite.timestamp + 1 } else { now };
+        let time = if now <= prev.raw_timestamp() { prev.raw_timestamp() + 1 } else { now };
 
-        let (vrf_value, vrf_proof) =
-            signer.compute_vrf_with_proof(prev.inner_rest.random_value.as_ref());
+        let (vrf_value, vrf_proof) = signer.compute_vrf_with_proof(prev.random_value().as_ref());
         let random_value = hash(vrf_value.0.as_ref());
 
-        let last_ds_final_block = if height == prev.inner_lite.height + 1 {
-            prev.hash()
-        } else {
-            prev.inner_rest.last_ds_final_block
-        };
+        let last_ds_final_block =
+            if height == prev.height() + 1 { prev.hash() } else { prev.last_ds_final_block() };
 
-        let last_final_block = if height == prev.inner_lite.height + 1
-            && prev.inner_rest.last_ds_final_block == prev.prev_hash
-        {
-            prev.prev_hash
-        } else {
-            prev.inner_rest.last_final_block
-        };
+        let last_final_block =
+            if height == prev.height() + 1 && prev.last_ds_final_block() == prev.prev_hash() {
+                prev.prev_hash()
+            } else {
+                prev.last_final_block()
+            };
 
         Block {
             header: BlockHeader::new(
+                protocol_version,
                 height,
-                prev.hash(),
+                prev.hash().clone(),
                 Block::compute_state_root(&chunks),
                 Block::compute_chunk_receipts_root(&chunks),
                 Block::compute_chunk_headers_root(&chunks).0,
@@ -187,8 +183,8 @@ impl Block {
                 new_total_supply,
                 challenges_result,
                 signer,
-                last_final_block,
-                last_ds_final_block,
+                last_final_block.clone(),
+                last_ds_final_block.clone(),
                 approvals,
                 next_bp_hash,
                 block_merkle_root,
@@ -207,15 +203,15 @@ impl Block {
         min_gas_price: Balance,
         gas_price_adjustment_rate: Rational,
     ) -> bool {
-        let gas_used = Self::compute_gas_used(&self.chunks, self.header.inner_lite.height);
-        let gas_limit = Self::compute_gas_limit(&self.chunks, self.header.inner_lite.height);
+        let gas_used = Self::compute_gas_used(&self.chunks, self.header.height());
+        let gas_limit = Self::compute_gas_limit(&self.chunks, self.header.height());
         let expected_price = Self::compute_new_gas_price(
             prev_gas_price,
             gas_used,
             gas_limit,
             gas_price_adjustment_rate,
         );
-        self.header.inner_rest.gas_price == max(expected_price, min_gas_price)
+        self.header.gas_price() == max(expected_price, min_gas_price)
     }
 
     pub fn compute_new_gas_price(
@@ -313,45 +309,45 @@ impl Block {
         )
     }
 
-    pub fn hash(&self) -> CryptoHash {
+    pub fn hash(&self) -> &CryptoHash {
         self.header.hash()
     }
 
     pub fn check_validity(&self) -> bool {
         // Check that state root stored in the header matches the state root of the chunks
         let state_root = Block::compute_state_root(&self.chunks);
-        if self.header.inner_lite.prev_state_root != state_root {
+        if self.header.prev_state_root() != &state_root {
             return false;
         }
 
         // Check that chunk receipts root stored in the header matches the state root of the chunks
         let chunk_receipts_root = Block::compute_chunk_receipts_root(&self.chunks);
-        if self.header.inner_rest.chunk_receipts_root != chunk_receipts_root {
+        if self.header.chunk_receipts_root() != &chunk_receipts_root {
             return false;
         }
 
         // Check that chunk headers root stored in the header matches the chunk headers root of the chunks
         let chunk_headers_root = Block::compute_chunk_headers_root(&self.chunks).0;
-        if self.header.inner_rest.chunk_headers_root != chunk_headers_root {
+        if self.header.chunk_headers_root() != &chunk_headers_root {
             return false;
         }
 
         // Check that chunk tx root stored in the header matches the tx root of the chunks
         let chunk_tx_root = Block::compute_chunk_tx_root(&self.chunks);
-        if self.header.inner_rest.chunk_tx_root != chunk_tx_root {
+        if self.header.chunk_tx_root() != &chunk_tx_root {
             return false;
         }
 
         // Check that chunk included root stored in the header matches the chunk included root of the chunks
         let chunks_included_root =
-            Block::compute_chunks_included(&self.chunks, self.header.inner_lite.height);
-        if self.header.inner_rest.chunks_included != chunks_included_root {
+            Block::compute_chunks_included(&self.chunks, self.header.height());
+        if self.header.chunks_included() != chunks_included_root {
             return false;
         }
 
         // Check that challenges root stored in the header matches the challenges root of the challenges
         let challenges_root = Block::compute_challenges_root(&self.challenges);
-        if self.header.inner_rest.challenges_root != challenges_root {
+        if self.header.challenges_root() != &challenges_root {
             return false;
         }
 

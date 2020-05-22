@@ -5,7 +5,6 @@ use std::sync::Arc;
 use borsh::{BorshDeserialize, BorshSerialize};
 use serde::Serialize;
 
-use near_chain_configs::ProtocolVersion;
 use near_crypto::Signature;
 use near_pool::types::PoolIterator;
 pub use near_primitives::block::{Block, BlockHeader};
@@ -13,6 +12,7 @@ use near_primitives::challenge::{ChallengesResult, SlashedValidator};
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::{merklize, MerklePath};
+use near_primitives::protocol_version::ProtocolVersion;
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{ReceiptProof, ShardChunk, ShardChunkHeader};
 use near_primitives::transaction::{ExecutionOutcomeWithId, SignedTransaction};
@@ -101,6 +101,39 @@ impl ApplyTransactionResult {
             result.push(outcome_with_id.to_hashes());
         }
         merklize(&result)
+    }
+}
+
+/// Compressed information about block.
+/// Useful for epoch manager.
+#[derive(Default, BorshSerialize, BorshDeserialize, Serialize, Clone, Debug)]
+pub struct BlockHeaderInfo {
+    pub hash: CryptoHash,
+    pub prev_hash: CryptoHash,
+    pub height: BlockHeight,
+    pub random_value: CryptoHash,
+    pub last_finalized_height: BlockHeight,
+    pub proposals: Vec<ValidatorStake>,
+    pub slashed_validators: Vec<SlashedValidator>,
+    pub chunk_mask: Vec<bool>,
+    pub total_supply: Balance,
+    pub latest_protocol_version: ProtocolVersion,
+}
+
+impl BlockHeaderInfo {
+    pub fn new(header: &BlockHeader, last_finalized_height: u64) -> Self {
+        Self {
+            hash: *header.hash(),
+            prev_hash: *header.prev_hash(),
+            height: header.height(),
+            random_value: *header.random_value(),
+            last_finalized_height,
+            proposals: header.validator_proposals().to_vec(),
+            slashed_validators: vec![],
+            chunk_mask: header.chunk_mask().to_vec(),
+            total_supply: header.total_supply(),
+            latest_protocol_version: header.latest_protocol_version(),
+        }
     }
 }
 
@@ -308,19 +341,7 @@ pub trait RuntimeAdapter: Send + Sync {
     fn get_epoch_minted_amount(&self, epoch_id: &EpochId) -> Result<Balance, Error>;
 
     /// Add proposals for validators.
-    fn add_validator_proposals(
-        &self,
-        parent_hash: CryptoHash,
-        current_hash: CryptoHash,
-        rng_seed: CryptoHash,
-        height: BlockHeight,
-        last_finalized_height: BlockHeight,
-        proposals: Vec<ValidatorStake>,
-        slashed_validators: Vec<SlashedValidator>,
-        validator_mask: Vec<bool>,
-        total_supply: Balance,
-        protocol_version: ProtocolVersion,
-    ) -> Result<(), Error>;
+    fn add_validator_proposals(&self, block_header_info: BlockHeaderInfo) -> Result<(), Error>;
 
     /// Apply transactions to given state root and return store update and new state root.
     /// Also returns transaction result for each transaction and new receipts.

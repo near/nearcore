@@ -9,6 +9,7 @@ use near_crypto::{KeyType, PublicKey, Signature};
 use near_primitives::account::Account;
 use near_primitives::block::{genesis_chunks, Block};
 use near_primitives::hash::CryptoHash;
+use near_primitives::protocol_version::PROTOCOL_VERSION;
 use near_primitives::test_utils::account_new;
 use near_primitives::transaction::{Action, SignedTransaction, Transaction, TransferAction};
 use near_primitives::types::{EpochId, StateRoot};
@@ -45,6 +46,7 @@ fn create_block() -> Block {
     );
     let signer = InMemoryValidatorSigner::from_random("".to_string(), KeyType::ED25519);
     Block::produce(
+        PROTOCOL_VERSION,
         &genesis.header,
         10,
         vec![genesis.chunks[0].clone()],

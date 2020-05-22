@@ -57,7 +57,7 @@ fn block_header_validity(
     let block_hash = CryptoHash::try_from(key.as_ref()).unwrap();
     match BlockHeader::try_from_slice(value) {
         Ok(header) => {
-            if header.hash() != block_hash {
+            if header.hash() != &block_hash {
                 err!(format!("Invalid Block Header hash stored, {:?}", block_hash))
             } else {
                 Ok(())
@@ -76,7 +76,7 @@ fn block_hash_validity(
     let block_hash = CryptoHash::try_from(key.as_ref()).unwrap();
     match Block::try_from_slice(value) {
         Ok(block) => {
-            if block.hash() != block_hash {
+            if block.hash() != &block_hash {
                 err!(format!("Invalid Block hash stored, {:?}", block_hash))
             } else {
                 Ok(())
@@ -169,12 +169,11 @@ fn block_height_cmp_tail(
     };
     match Block::try_from_slice(value) {
         Ok(block) => {
-            if block.header.inner_lite.height < tail
-                && block.header.inner_lite.height != config.genesis_height
-            {
+            if block.header.height() < tail && block.header.height() != config.genesis_height {
                 err!(format!(
                     "Invalid block height stored: {:?}, tail: {:?}",
-                    block.header.inner_lite.height, tail
+                    block.header.height(),
+                    tail
                 ))
             } else {
                 Ok(())

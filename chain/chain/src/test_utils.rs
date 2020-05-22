@@ -9,13 +9,13 @@ use log::debug;
 use num_rational::Rational;
 use serde::Serialize;
 
-use near_chain_configs::{ProtocolVersion, PROTOCOL_VERSION};
 use near_crypto::{KeyType, PublicKey, SecretKey, Signature};
 use near_pool::types::PoolIterator;
 use near_primitives::account::{AccessKey, Account};
-use near_primitives::challenge::{ChallengesResult, SlashedValidator};
+use near_primitives::challenge::ChallengesResult;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::{hash, CryptoHash};
+use near_primitives::protocol_version::PROTOCOL_VERSION;
 use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum};
 use near_primitives::serialize::to_base;
 use near_primitives::sharding::ShardChunkHeader;
@@ -41,7 +41,7 @@ use near_store::{
 use crate::chain::{Chain, ChainGenesis, NUM_EPOCHS_TO_KEEP_STORE_DATA};
 use crate::error::{Error, ErrorKind};
 use crate::store::ChainStoreAccess;
-use crate::types::ApplyTransactionResult;
+use crate::types::{ApplyTransactionResult, BlockHeaderInfo};
 use crate::{BlockHeader, DoomslugThresholdMode, RuntimeAdapter};
 
 #[derive(
@@ -508,19 +508,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         Ok(res)
     }
 
-    fn add_validator_proposals(
-        &self,
-        _parent_hash: CryptoHash,
-        _current_hash: CryptoHash,
-        _rng_seed: CryptoHash,
-        _height: BlockHeight,
-        _last_finalized_height: BlockHeight,
-        _proposals: Vec<ValidatorStake>,
-        _slashed_validators: Vec<SlashedValidator>,
-        _validator_mask: Vec<bool>,
-        _total_supply: Balance,
-        _protocol_version: ProtocolVersion,
-    ) -> Result<(), Error> {
+    fn add_validator_proposals(&self, _block_header_info: BlockHeaderInfo) -> Result<(), Error> {
         Ok(())
     }
 

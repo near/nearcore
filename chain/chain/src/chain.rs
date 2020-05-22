@@ -13,7 +13,7 @@ use rand::rngs::StdRng;
 use rand::seq::SliceRandom;
 use rand::SeedableRng;
 
-use near_chain_configs::{GenesisConfig, ProtocolVersion, PROTOCOL_VERSION};
+use near_chain_configs::GenesisConfig;
 use near_primitives::block::genesis_chunks;
 use near_primitives::challenge::{
     BlockDoubleSign, Challenge, ChallengeBody, ChallengesResult, ChunkProofs, ChunkState,
@@ -21,6 +21,7 @@ use near_primitives::challenge::{
 };
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::{merklize, verify_path};
+use near_primitives::protocol_version::{ProtocolVersion, PROTOCOL_VERSION};
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{
     ChunkHash, ChunkHashHeight, ReceiptProof, ShardChunk, ShardChunkHeader, ShardProof,
@@ -43,9 +44,9 @@ use crate::store::{
     ChainStore, ChainStoreAccess, ChainStoreUpdate, GCMode, ShardInfo, StateSyncInfo,
 };
 use crate::types::{
-    AcceptedBlock, ApplyTransactionResult, Block, BlockHeader, BlockStatus, BlockSyncResponse,
-    Provenance, ReceiptList, ReceiptProofResponse, ReceiptResponse, RootProof, RuntimeAdapter,
-    ShardStateSyncResponseHeader, StatePartKey, Tip,
+    AcceptedBlock, ApplyTransactionResult, Block, BlockHeader, BlockHeaderInfo, BlockStatus,
+    BlockSyncResponse, Provenance, ReceiptList, ReceiptProofResponse, ReceiptResponse, RootProof,
+    RuntimeAdapter, ShardStateSyncResponseHeader, StatePartKey, Tip,
 };
 use crate::validate::{
     validate_challenge, validate_chunk_proofs, validate_chunk_with_chunk_extra,
@@ -119,12 +120,12 @@ impl OrphanBlockPool {
 
     fn add(&mut self, orphan: Orphan) {
         let height_hashes =
-            self.height_idx.entry(orphan.block.header.inner_lite.height).or_insert_with(|| vec![]);
-        height_hashes.push(orphan.block.hash());
+            self.height_idx.entry(orphan.block.header.height()).or_insert_with(|| vec![]);
+        height_hashes.push(*orphan.block.hash());
         let prev_hash_entries =
-            self.prev_hash_idx.entry(orphan.block.header.prev_hash).or_insert_with(|| vec![]);
-        prev_hash_entries.push(orphan.block.hash());
-        self.orphans.insert(orphan.block.hash(), orphan);
+            self.prev_hash_idx.entry(*orphan.block.header.prev_hash()).or_insert_with(|| vec![]);
+        prev_hash_entries.push(*orphan.block.hash());
+        self.orphans.insert(*orphan.block.hash(), orphan);
 
         if self.orphans.len() > MAX_ORPHAN_SIZE {
             let old_len = self.orphans.len();
@@ -288,7 +289,7 @@ impl Chain {
 
                 // Check that genesis in the store is the same as genesis given in the config.
                 let genesis_hash = store_update.get_block_hash_by_height(chain_genesis.height)?;
-                if genesis_hash != genesis.hash() {
+                if &genesis_hash != genesis.hash() {
                     return Err(ErrorKind::Other(format!(
                         "Genesis mismatch between storage and config: {:?} vs {:?}",
                         genesis_hash,
@@ -314,19 +315,11 @@ impl Chain {
                     for chunk in genesis_chunks {
                         store_update.save_chunk(&chunk.chunk_hash, chunk.clone());
                     }
-                    runtime_adapter.add_validator_proposals(
-                        CryptoHash::default(),
-                        genesis.hash(),
-                        genesis.header.inner_rest.random_value,
-                        genesis.header.inner_lite.height,
+                    runtime_adapter.add_validator_proposals(BlockHeaderInfo::new(
+                        &genesis.header,
                         // genesis height is considered final
                         chain_genesis.height,
-                        vec![],
-                        vec![],
-                        vec![],
-                        chain_genesis.total_supply,
-                        chain_genesis.protocol_version,
-                    )?;
+                    ))?;
                     store_update.save_block_header(genesis.header.clone())?;
                     store_update.save_block(genesis.clone());
                     store_update.save_block_extra(
@@ -424,15 +417,15 @@ impl Chain {
         chain_store: &mut dyn ChainStoreAccess,
     ) -> Result<LightClientBlockView, Error> {
         let final_block_header = {
-            let ret = chain_store.get_block_header(&header.inner_rest.last_final_block)?.clone();
-            let two_ahead = chain_store.get_header_by_height(ret.inner_lite.height + 2)?;
-            if two_ahead.inner_lite.epoch_id != ret.inner_lite.epoch_id {
-                let one_ahead = chain_store.get_header_by_height(ret.inner_lite.height + 1)?;
-                if one_ahead.inner_lite.epoch_id != ret.inner_lite.epoch_id {
-                    let new_final_hash = ret.inner_rest.last_final_block.clone();
+            let ret = chain_store.get_block_header(header.last_final_block())?.clone();
+            let two_ahead = chain_store.get_header_by_height(ret.height() + 2)?;
+            if two_ahead.epoch_id() != ret.epoch_id() {
+                let one_ahead = chain_store.get_header_by_height(ret.height() + 1)?;
+                if one_ahead.inner_lite.epoch_id != ret.epoch_id() {
+                    let new_final_hash = ret.last_final_block().clone();
                     chain_store.get_block_header(&new_final_hash)?.clone()
                 } else {
-                    let new_final_hash = one_ahead.inner_rest.last_final_block.clone();
+                    let new_final_hash = one_ahead.last_final_block().clone();
                     chain_store.get_block_header(&new_final_hash)?.clone()
                 }
             } else {
@@ -807,19 +800,10 @@ impl Chain {
                 chain_update.commit()?;
 
                 // Add validator proposals for given header.
-                self.runtime_adapter.add_validator_proposals(
-                    header.prev_hash,
-                    header.hash(),
-                    header.inner_rest.random_value,
-                    header.inner_lite.height,
-                    self.store.get_block_height(&header.inner_rest.last_final_block)?,
-                    header.inner_rest.validator_proposals.clone(),
-                    vec![],
-                    header.inner_rest.chunk_mask.clone(),
-                    header.inner_rest.total_supply,
-                    // TODO: header.inner_rest.latest_protocol_version,
-                    PROTOCOL_VERSION,
-                )?;
+                self.runtime_adapter.add_validator_proposals(BlockHeaderInfo::new(
+                    &header,
+                    self.store.get_block_height(&header.last_final_block())?,
+                ))?;
             }
         }
 

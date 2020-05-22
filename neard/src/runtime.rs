@@ -11,7 +11,7 @@ use borsh::BorshDeserialize;
 use log::{debug, error, warn};
 
 use near_chain::chain::NUM_EPOCHS_TO_KEEP_STORE_DATA;
-use near_chain::types::ApplyTransactionResult;
+use near_chain::types::{ApplyTransactionResult, BlockHeaderInfo};
 use near_chain::{BlockHeader, Error, ErrorKind, RuntimeAdapter};
 use near_chain_configs::{Genesis, ProtocolVersion};
 use near_crypto::{PublicKey, Signature};
@@ -829,35 +829,23 @@ impl RuntimeAdapter for NightshadeRuntime {
         Ok(epoch_manager.get_epoch_info(epoch_id)?.minted_amount)
     }
 
-    fn add_validator_proposals(
-        &self,
-        parent_hash: CryptoHash,
-        current_hash: CryptoHash,
-        rng_seed: CryptoHash,
-        height: BlockHeight,
-        last_finalized_height: BlockHeight,
-        proposals: Vec<ValidatorStake>,
-        slashed_validators: Vec<SlashedValidator>,
-        chunk_mask: Vec<bool>,
-        total_supply: Balance,
-        protocol_version: ProtocolVersion,
-    ) -> Result<(), Error> {
+    fn add_validator_proposals(&self, block_header_info: BlockHeaderInfo) -> Result<(), Error> {
         // Check that genesis block doesn't have any proposals.
         assert!(height > 0 || (proposals.is_empty() && slashed_validators.is_empty()));
         debug!(target: "runtime", "add validator proposals at block height {} {:?}", height, proposals);
         // Deal with validator proposals and epoch finishing.
         let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
         let block_info = BlockInfo::new(
-            height,
-            last_finalized_height,
-            parent_hash,
-            proposals,
-            chunk_mask,
-            slashed_validators,
-            total_supply,
-            protocol_version,
+            block_header_info.height,
+            block_header_info.last_finalized_height,
+            block_header_info.parent_hash,
+            block_header_info.proposals,
+            block_header_info.chunk_mask,
+            block_header_info.slashed_validators,
+            block_header_info.total_supply,
+            block_header_info.protocol_version,
         );
-        let rng_seed = (rng_seed.0).0;
+        let rng_seed = (block_header_info.rng_seed.0).0;
         // TODO: don't commit here, instead contribute to upstream store update.
         epoch_manager
             .record_block_info(&current_hash, block_info, rng_seed)?
