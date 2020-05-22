@@ -28,6 +28,7 @@ near-pool = { path = "../pool" }
 
 [dev-dependencies]
 near-logger-utils = {path = "../../test-utils/logger"}
+near-store-validator = { path = "../../test-utils/store-validator" }
 
 [features]
 # if enabled, we assert in most situations that are impossible unless some byzantine behavior is observed.

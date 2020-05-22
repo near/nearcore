@@ -35,8 +35,8 @@ client_config_changes['archive'] = True
 
 nodes = start_cluster(
     4, 0, 4, None,
-    [["epoch_length", 6], ["block_producer_kickout_threshold", 80]],
-    client_config_changes)
+    [["epoch_length", 6], ["block_producer_kickout_threshold", 40],
+     ["chunk_producer_kickout_threshold", 40]], client_config_changes)
 
 started = time.time()
 
@@ -160,20 +160,20 @@ get_up_to(23 + first_epoch_switch_height, 24 + first_epoch_switch_height)
 # we still expect 21 + C to be returned. We then move again to 26 + C, and (in the section after the loop)
 # check that the light client block now corresponds to 24 + C, which is in the same epoch as 26 + C.
 for i in range(2):
-    res = get_light_client_block(
-        height_to_hash[19 + first_epoch_switch_height], last_known_block)
+    res = get_light_client_block(height_to_hash[19 + first_epoch_switch_height],
+                                 last_known_block)
     assert res['result']['inner_lite'][
         'height'] == 21 + first_epoch_switch_height, (
             res['result']['inner_lite']['height'],
             21 + first_epoch_switch_height)
 
-    res = get_light_client_block(
-        height_to_hash[20 + first_epoch_switch_height], last_known_block)
+    res = get_light_client_block(height_to_hash[20 + first_epoch_switch_height],
+                                 last_known_block)
     assert res['result']['inner_lite'][
         'height'] == 21 + first_epoch_switch_height
 
-    res = get_light_client_block(
-        height_to_hash[21 + first_epoch_switch_height], last_known_block)
+    res = get_light_client_block(height_to_hash[21 + first_epoch_switch_height],
+                                 last_known_block)
     assert res['result'] is None
 
     get_up_to(i + 25 + first_epoch_switch_height,

@@ -1,25 +1,22 @@
 [package]
-name = "state-viewer"
+name = "store-validator-bin"
 version = "0.1.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2018"
 
 [dependencies]
-clap = "2.33"
 ansi_term = "0.11"
-
-borsh = "0.6"
+clap = "2.33"
 
 near-chain-configs = { path = "../../core/chain-configs" }
-near-crypto = { path = "../../core/crypto" }
-near-logger-utils = {path = "../../test-utils/logger"}
+near-logger-utils = { path = "../../test-utils/logger" }
 near-primitives = { path = "../../core/primitives" }
 near-store = { path = "../../core/store" }
-node-runtime = { path = "../../runtime/runtime" }
 near-chain = { path = "../../chain/chain" }
-near-network = { path = "../../chain/network" }
 neard = { path = "../../neard" }
+near-store-validator = { path = "../store-validator" }
 
 [dev-dependencies]
+testlib = { path = "../../test-utils/testlib" }
 serde_json = "1"
 near-client = { path = "../../chain/client" }
