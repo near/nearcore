@@ -10,6 +10,7 @@ use std::collections::HashMap;
 pub struct MockedExternal {
     pub fake_trie: HashMap<Vec<u8>, Vec<u8>>,
     receipts: Vec<Receipt>,
+    validators: HashMap<AccountId, Balance>,
 }
 
 pub struct MockedValuePtr {
@@ -37,7 +38,9 @@ impl ValuePtr for MockedValuePtr {
 
 impl MockedExternal {
     pub fn new() -> Self {
-        Self::default()
+        let validators =
+            vec![("alice".to_string(), 100), ("bob".to_string(), 1)].into_iter().collect();
+        MockedExternal { fake_trie: Default::default(), receipts: vec![], validators }
     }
 
     /// Get calls to receipt create that were performed during contract call.
@@ -224,6 +227,14 @@ impl External for MockedExternal {
     }
 
     fn reset_touched_nodes_counter(&mut self) {}
+
+    fn validator_stake(&self, account_id: &AccountId) -> Result<Option<Balance>> {
+        Ok(self.validators.get(account_id).cloned())
+    }
+
+    fn validator_total_stake(&self) -> Result<Balance> {
+        Ok(self.validators.values().sum())
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]

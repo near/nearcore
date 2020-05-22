@@ -2,6 +2,7 @@ use near_crypto::{EmptySigner, PublicKey, Signature, Signer};
 
 use crate::account::{AccessKey, AccessKeyPermission, Account};
 use crate::block::Block;
+use crate::errors::EpochError;
 use crate::hash::CryptoHash;
 use crate::merkle::PartialMerkleTree;
 use crate::transaction::{
@@ -9,9 +10,10 @@ use crate::transaction::{
     DeployContractAction, FunctionCallAction, SignedTransaction, StakeAction, Transaction,
     TransferAction,
 };
-use crate::types::{AccountId, Balance, BlockHeight, EpochId, Gas, Nonce};
+use crate::types::{AccountId, Balance, BlockHeight, EpochId, EpochInfoProvider, Gas, Nonce};
 use crate::validator_signer::ValidatorSigner;
 use num_rational::Rational;
+use std::collections::HashMap;
 
 pub fn account_new(amount: Balance, code_hash: CryptoHash) -> Account {
     Account { amount, locked: 0, code_hash, storage_usage: std::mem::size_of::<Account>() as u64 }
@@ -340,5 +342,35 @@ impl Block {
             next_bp_hash,
             block_merkle_root,
         )
+    }
+}
+
+#[derive(Default)]
+pub struct MockEpochInfoProvider {
+    pub validators: HashMap<AccountId, Balance>,
+}
+
+impl MockEpochInfoProvider {
+    pub fn new(validators: impl Iterator<Item = (AccountId, Balance)>) -> Self {
+        MockEpochInfoProvider { validators: validators.collect() }
+    }
+}
+
+impl EpochInfoProvider for MockEpochInfoProvider {
+    fn validator_stake(
+        &self,
+        _epoch_id: &EpochId,
+        _last_block_hash: &CryptoHash,
+        account_id: &AccountId,
+    ) -> Result<Option<Balance>, EpochError> {
+        Ok(self.validators.get(account_id).cloned())
+    }
+
+    fn validator_total_stake(
+        &self,
+        _epoch_id: &EpochId,
+        _last_block_hash: &CryptoHash,
+    ) -> Result<Balance, EpochError> {
+        Ok(self.validators.values().sum())
     }
 }

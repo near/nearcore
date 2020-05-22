@@ -5,7 +5,8 @@ use std::sync::{Arc, RwLock};
 use byteorder::{LittleEndian, ReadBytesExt};
 use log::info;
 
-use near_epoch_manager::{EpochError, EpochManager};
+use near_epoch_manager::EpochManager;
+use near_primitives::errors::EpochError;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::types::{AccountId, EpochId, NumShards, ShardId};
 

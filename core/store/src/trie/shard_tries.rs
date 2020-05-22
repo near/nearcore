@@ -8,6 +8,7 @@ use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{
     RawStateChange, RawStateChangesWithTrieKey, ShardId, StateChangeCause, StateRoot,
 };
+use near_primitives::utils::get_block_shard_id;
 use std::sync::Arc;
 
 #[derive(Clone)]
@@ -239,14 +240,11 @@ impl WrappedTrieChanges {
     ) -> Result<(), Box<dyn std::error::Error>> {
         self.insertions_into(&mut store_update)?;
         self.state_changes_into(&mut store_update);
-        // TODO #2564
-        if self.shard_id == 0 {
-            store_update.set_ser(
-                DBCol::ColTrieChanges,
-                self.block_hash.as_ref(),
-                &self.trie_changes,
-            )?;
-        }
+        store_update.set_ser(
+            DBCol::ColTrieChanges,
+            &get_block_shard_id(&self.block_hash, self.shard_id),
+            &self.trie_changes,
+        )?;
         Ok(())
     }
 }
