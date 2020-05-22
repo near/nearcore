@@ -1,5 +1,7 @@
 use near_crypto::{InMemorySigner, KeyType, PublicKey, Signer};
 use near_pool::{types::PoolIterator, TransactionPool};
+use near_primitives::test_utils::MockEpochInfoProvider;
+use near_primitives::types::{AccountInfo, EpochId, EpochInfoProvider};
 use near_primitives::{account::AccessKey, test_utils::account_new};
 use near_primitives::{
     account::Account,
@@ -36,6 +38,7 @@ pub struct GenesisConfig {
     pub epoch_length: u64,
     pub runtime_config: RuntimeConfig,
     pub state_records: Vec<StateRecord>,
+    pub validators: Vec<AccountInfo>,
 }
 
 impl Default for GenesisConfig {
@@ -48,6 +51,7 @@ impl Default for GenesisConfig {
             epoch_length: DEFAULT_EPOCH_LENGTH,
             runtime_config: RuntimeConfig::default(),
             state_records: vec![],
+            validators: vec![],
         }
     }
 }
@@ -117,6 +121,7 @@ pub struct RuntimeStandalone {
     runtime: Runtime,
     tries: ShardTries,
     pending_receipts: Vec<Receipt>,
+    epoch_info_provider: Box<dyn EpochInfoProvider>,
 }
 
 impl RuntimeStandalone {
@@ -130,6 +135,7 @@ impl RuntimeStandalone {
         store_update.merge(s_update);
         store_update.commit().unwrap();
         genesis_block.state_root = state_root;
+        let validators = genesis.validators.clone();
         Self {
             genesis,
             tries,
@@ -139,6 +145,9 @@ impl RuntimeStandalone {
             cur_block: genesis_block,
             tx_pool: TransactionPool::new(),
             pending_receipts: vec![],
+            epoch_info_provider: Box::new(MockEpochInfoProvider::new(
+                validators.into_iter().map(|info| (info.account_id, info.amount)),
+            )),
         }
     }
 
@@ -194,11 +203,13 @@ impl RuntimeStandalone {
     pub fn produce_block(&mut self) -> Result<(), RuntimeError> {
         let apply_state = ApplyState {
             block_index: self.cur_block.block_height,
-            epoch_length: 0, // TODO: support for epochs
             epoch_height: self.cur_block.block_height,
             gas_price: self.cur_block.gas_price,
             block_timestamp: self.cur_block.block_timestamp,
             gas_limit: None,
+            // not used
+            last_block_hash: CryptoHash::default(),
+            epoch_id: EpochId::default(),
         };
 
         let apply_result = self.runtime.apply(
@@ -208,6 +219,7 @@ impl RuntimeStandalone {
             &apply_state,
             &self.pending_receipts,
             &Self::prepare_transactions(&mut self.tx_pool),
+            self.epoch_info_provider.as_ref(),
         )?;
         self.pending_receipts = apply_result.outgoing_receipts;
         apply_result.outcomes.iter().for_each(|outcome| {
@@ -278,11 +290,14 @@ impl RuntimeStandalone {
             trie_update,
             self.cur_block.block_height,
             self.cur_block.block_timestamp,
+            &CryptoHash::default(),
             self.cur_block.epoch_height,
+            &EpochId::default(),
             account_id,
             method_name,
             args,
             &mut logs,
+            self.epoch_info_provider.as_ref(),
         )?;
         Ok((result, logs))
     }

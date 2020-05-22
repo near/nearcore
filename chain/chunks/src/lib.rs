@@ -178,7 +178,7 @@ impl SealsManager {
         parent_hash: &CryptoHash,
         height: BlockHeight,
         shard_id: ShardId,
-    ) -> Result<&mut Seal, Error> {
+    ) -> Result<&mut Seal, near_chain::Error> {
         Ok(self.seals.entry(chunk_hash.clone()).or_insert({
             let chunk_producer = self.runtime_adapter.get_chunk_producer(
                 &self.runtime_adapter.get_epoch_id_from_prev_block(parent_hash)?,
@@ -296,7 +296,7 @@ impl ShardsManager {
         chunk_hash: &ChunkHash,
         force_request_full: bool,
         request_own_parts_from_others: bool,
-    ) -> Result<(), Error> {
+    ) -> Result<(), near_chain::Error> {
         let mut bp_to_parts = HashMap::new();
 
         let cache_entry = self.encoded_chunks.get(chunk_hash);
@@ -414,7 +414,7 @@ impl ShardsManager {
                 )
                 && self.me.as_ref() != Some(&validator_stake.account_id)
             {
-                block_producers.push(validator_stake.account_id.clone());
+                block_producers.push(validator_stake.account_id);
             }
         }
 
@@ -434,10 +434,10 @@ impl ShardsManager {
             .collect::<HashSet<_>>()
     }
 
-    pub fn request_chunks(
-        &mut self,
-        chunks_to_request: Vec<ShardChunkHeader>,
-    ) -> Result<(), Error> {
+    pub fn request_chunks<T>(&mut self, chunks_to_request: T)
+    where
+        T: IntoIterator<Item = ShardChunkHeader>,
+    {
         for chunk_header in chunks_to_request {
             let ShardChunkHeader {
                 inner:
@@ -467,20 +467,22 @@ impl ShardsManager {
                     added: Instant::now(),
                 },
             );
-            self.request_partial_encoded_chunk(
+            let request_result = self.request_partial_encoded_chunk(
                 height,
                 &parent_hash,
                 shard_id,
                 &chunk_hash,
                 false,
                 false,
-            )?;
+            );
+            if let Err(err) = request_result {
+                error!(target: "chunks", "Error during requesting partial encoded chunk: {}", err);
+            }
         }
-        Ok(())
     }
 
     /// Resends chunk requests if haven't received it within expected time.
-    pub fn resend_chunk_requests(&mut self) -> Result<(), Error> {
+    pub fn resend_chunk_requests(&mut self) {
         // Process chunk one part requests.
         let requests = self.requested_partial_encoded_chunks.fetch();
         for (chunk_hash, chunk_request) in requests {
@@ -500,7 +502,6 @@ impl ShardsManager {
                 }
             }
         }
-        Ok(())
     }
 
     pub fn store_partial_encoded_chunk(
@@ -1275,7 +1276,7 @@ impl ShardsManager {
 
 #[cfg(test)]
 mod test {
-    use crate::{ChunkRequestInfo, ShardsManager};
+    use crate::{ChunkRequestInfo, ShardsManager, CHUNK_REQUEST_RETRY_MS};
     use near_chain::test_utils::KeyValueRuntime;
     use near_network::test_utils::MockNetworkAdapter;
     use near_primitives::hash::hash;
@@ -1301,8 +1302,8 @@ mod test {
                 last_requested: Instant::now(),
             },
         );
-        std::thread::sleep(Duration::from_millis(200));
-        shards_manager.resend_chunk_requests().unwrap();
+        std::thread::sleep(Duration::from_millis(2 * CHUNK_REQUEST_RETRY_MS));
+        shards_manager.resend_chunk_requests();
         assert!(network_adapter.requests.read().unwrap().is_empty());
     }
 }

@@ -8,7 +8,7 @@ sys.path.append('lib')
 
 swap_nodes = False
 if "swap_nodes" in sys.argv:
-    swap_nodes = True # swap nodes 0 and 1 after first sync
+    swap_nodes = True  # swap nodes 0 and 1 after first sync
 
 from cluster import start_cluster
 
@@ -17,21 +17,27 @@ TARGET_HEIGHT_2 = 170
 TARGET_HEIGHT_3 = 250
 TIMEOUT = 300
 
-consensus_config = {"consensus": {"block_fetch_horizon": 20, "block_header_fetch_horizon": 20}}
+consensus_config = {
+    "consensus": {
+        "block_fetch_horizon": 20,
+        "block_header_fetch_horizon": 20
+    }
+}
 
 nodes = start_cluster(
     4, 0, 1, None,
-    [
-        ["epoch_length", 10],
-        ["validators", 0, "amount", "12500000000000000000000000000000"],
-        ["records", 0, "Account", "account", "locked", "12500000000000000000000000000000"],
-        ["validators", 1, "amount", "12500000000000000000000000000000"],
-        ["records", 2, "Account", "account", "locked", "12500000000000000000000000000000"],
-        ['total_supply', "4925000000000000000000000000000000"],
-        ["num_block_producer_seats", 10], ["num_block_producer_seats_per_shard", [10]]
-    ],
-    {1: consensus_config}
-)
+    [["epoch_length", 10],
+     ["validators", 0, "amount", "12500000000000000000000000000000"],
+     [
+         "records", 0, "Account", "account", "locked",
+         "12500000000000000000000000000000"
+     ], ["validators", 1, "amount", "12500000000000000000000000000000"],
+     [
+         "records", 2, "Account", "account", "locked",
+         "12500000000000000000000000000000"
+     ], ['total_supply', "4925000000000000000000000000000000"],
+     ["num_block_producer_seats", 10],
+     ["num_block_producer_seats_per_shard", [10]]], {1: consensus_config})
 
 print('Kill node 1')
 nodes[1].kill()

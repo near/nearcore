@@ -80,10 +80,12 @@ pub enum DBCol {
     ColStateChanges = 34,
     ColBlockRefCount = 35,
     ColTrieChanges = 36,
+    /// Merkle tree of block hashes
+    ColBlockMerkleTree = 37,
 }
 
 // Do not move this line from enum DBCol
-const NUM_COLS: usize = 37;
+const NUM_COLS: usize = 38;
 
 impl std::fmt::Display for DBCol {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
@@ -125,10 +127,18 @@ impl std::fmt::Display for DBCol {
             Self::ColStateChanges => "key value changes",
             Self::ColBlockRefCount => "refcount per block",
             Self::ColTrieChanges => "trie changes",
+            Self::ColBlockMerkleTree => "block merkle tree",
         };
         write!(formatter, "{}", desc)
     }
 }
+
+pub const HEAD_KEY: &[u8; 4] = b"HEAD";
+pub const TAIL_KEY: &[u8; 4] = b"TAIL";
+pub const SYNC_HEAD_KEY: &[u8; 9] = b"SYNC_HEAD";
+pub const HEADER_HEAD_KEY: &[u8; 11] = b"HEADER_HEAD";
+pub const LATEST_KNOWN_KEY: &[u8; 12] = b"LATEST_KNOWN";
+pub const LARGEST_TARGET_HEIGHT_KEY: &[u8; 21] = b"LARGEST_TARGET_HEIGHT";
 
 pub struct DBTransaction {
     pub ops: Vec<DBOp>,

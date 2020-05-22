@@ -572,6 +572,7 @@ mod tests {
             approvals,
             &signer,
             genesis.header.inner_lite.next_bp_hash,
+            CryptoHash::default(),
         );
         b2.header.verify_block_producer(&signer.public_key());
     }

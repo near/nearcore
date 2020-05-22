@@ -1,6 +1,6 @@
 [package]
 name = "node-runtime"
-version = "0.0.1"
+version = "0.9.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2018"
 
@@ -47,5 +47,3 @@ rayon = "^1.1"
 assert_matches = "1.3"
 
 testlib = { path = "../../test-utils/testlib" }
-
-genesis-populate = { path = "../../genesis-tools/genesis-populate"}

@@ -322,7 +322,7 @@ impl Chain {
                         vec![],
                         chain_genesis.total_supply,
                     )?;
-                    store_update.save_block_header(genesis.header.clone());
+                    store_update.save_block_header(genesis.header.clone())?;
                     store_update.save_block(genesis.clone());
                     store_update.save_block_extra(
                         &genesis.hash(),
@@ -418,8 +418,22 @@ impl Chain {
         runtime_adapter: &dyn RuntimeAdapter,
         chain_store: &mut dyn ChainStoreAccess,
     ) -> Result<LightClientBlockView, Error> {
-        let final_block_header =
-            chain_store.get_block_header(&header.inner_rest.last_final_block)?.clone();
+        let final_block_header = {
+            let ret = chain_store.get_block_header(&header.inner_rest.last_final_block)?.clone();
+            let two_ahead = chain_store.get_header_by_height(ret.inner_lite.height + 2)?;
+            if two_ahead.inner_lite.epoch_id != ret.inner_lite.epoch_id {
+                let one_ahead = chain_store.get_header_by_height(ret.inner_lite.height + 1)?;
+                if one_ahead.inner_lite.epoch_id != ret.inner_lite.epoch_id {
+                    let new_final_hash = ret.inner_rest.last_final_block.clone();
+                    chain_store.get_block_header(&new_final_hash)?.clone()
+                } else {
+                    let new_final_hash = one_ahead.inner_rest.last_final_block.clone();
+                    chain_store.get_block_header(&new_final_hash)?.clone()
+                }
+            } else {
+                ret
+            }
+        };
 
         let next_block_producers = get_epoch_block_producers_view(
             &final_block_header.inner_lite.next_epoch_id,
@@ -784,7 +798,7 @@ impl Chain {
                 }
 
                 chain_update.validate_header(header, &Provenance::SYNC, on_challenge)?;
-                chain_update.chain_store_update.save_block_header(header.clone());
+                chain_update.chain_store_update.save_block_header(header.clone())?;
                 chain_update.commit()?;
 
                 // Add validator proposals for given header.
@@ -2826,7 +2840,7 @@ impl<'a> ChainUpdate<'a> {
         F: FnMut(ChallengeBody) -> (),
     {
         self.validate_header(header, provenance, on_challenge)?;
-        self.chain_store_update.save_block_header(header.clone());
+        self.chain_store_update.save_block_header(header.clone())?;
         self.update_header_head_if_not_challenged(header)?;
         Ok(())
     }
@@ -2967,6 +2981,13 @@ impl<'a> ChainUpdate<'a> {
                 || header.inner_rest.last_final_block != expected_last_final_block
             {
                 return Err(ErrorKind::InvalidFinalityInfo.into());
+            }
+
+            let mut block_merkle_tree =
+                self.chain_store_update.get_block_merkle_tree(&header.prev_hash)?.clone();
+            block_merkle_tree.insert(header.prev_hash);
+            if block_merkle_tree.root() != header.inner_lite.block_merkle_root {
+                return Err(ErrorKind::InvalidBlockMerkleRoot.into());
             }
         }
 

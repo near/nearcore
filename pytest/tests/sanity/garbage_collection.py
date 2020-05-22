@@ -11,16 +11,35 @@ from cluster import start_cluster
 TARGET_HEIGHT = 60
 TIMEOUT = 30
 
-consensus_config = {"consensus": {"min_block_production_delay": {"secs": 0, "nanos": 100000000}, "max_block_production_delay": {"secs": 0, "nanos": 400000000}, "max_block_wait_delay": {"secs": 0, "nanos": 400000000}}}
+consensus_config = {
+    "consensus": {
+        "min_block_production_delay": {
+            "secs": 0,
+            "nanos": 100000000
+        },
+        "max_block_production_delay": {
+            "secs": 0,
+            "nanos": 400000000
+        },
+        "max_block_wait_delay": {
+            "secs": 0,
+            "nanos": 400000000
+        }
+    }
+}
 
 nodes = start_cluster(
     2, 0, 1, None,
-    [
-        ["epoch_length", 10], ["num_block_producer_seats", 5], ["num_block_producer_seats_per_shard", [5]], ["validators", 0, "amount", "110000000000000000000000000000000"], ["records", 0, "Account", "account", "locked", "110000000000000000000000000000000"],
-        ["total_supply", "3060000000000000000000000000000000"]
-    ],
-    {0: consensus_config, 1: consensus_config}
-)
+    [["epoch_length", 10], ["num_block_producer_seats", 5],
+     ["num_block_producer_seats_per_shard", [5]],
+     ["validators", 0, "amount", "110000000000000000000000000000000"],
+     [
+         "records", 0, "Account", "account", "locked",
+         "110000000000000000000000000000000"
+     ], ["total_supply", "3060000000000000000000000000000000"]], {
+         0: consensus_config,
+         1: consensus_config
+     })
 
 print('Kill node 1')
 nodes[1].kill()

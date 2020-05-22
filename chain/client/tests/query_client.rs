@@ -2,11 +2,11 @@ use actix::System;
 use futures::{future, FutureExt};
 
 use near_client::test_utils::setup_no_network;
-use near_client::{GetBlock, Query, Status};
+use near_client::{GetBlockWithMerkleTree, Query, Status};
 use near_crypto::KeyType;
 use near_logger_utils::init_test_logger;
 use near_network::{NetworkClientMessages, PeerInfo};
-use near_primitives::block::Block;
+use near_primitives::block::{Block, BlockHeader};
 use near_primitives::types::{BlockIdOrFinality, EpochId};
 use near_primitives::utils::to_timestamp;
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
@@ -46,11 +46,10 @@ fn query_status_not_crash() {
     System::run(|| {
         let (client, view_client) = setup_no_network(vec!["test"], "other", true, false);
         let signer = InMemoryValidatorSigner::from_seed("test", KeyType::ED25519, "test");
-        //let new_block = Arc::new(RwLock::new(None));
-        //let new_block_sent = Arc::new(AtomicBool::new(false));
-        actix::spawn(view_client.send(GetBlock::latest()).then(move |res| {
-            let block = res.unwrap().unwrap();
-            let header = block.header.clone().into();
+        actix::spawn(view_client.send(GetBlockWithMerkleTree::latest()).then(move |res| {
+            let (block, mut block_merkle_tree) = res.unwrap().unwrap();
+            let header: BlockHeader = block.header.clone().into();
+            block_merkle_tree.insert(header.hash);
             let mut next_block = Block::produce(
                 &header,
                 block.header.height + 1,
@@ -65,6 +64,7 @@ fn query_status_not_crash() {
                 vec![],
                 &signer,
                 block.header.next_bp_hash,
+                block_merkle_tree.root(),
             );
             next_block.header.inner_lite.timestamp =
                 to_timestamp(next_block.header.timestamp() + chrono::Duration::seconds(60));
@@ -79,7 +79,6 @@ fn query_status_not_crash() {
                 client
                     .send(NetworkClientMessages::Block(next_block, PeerInfo::random().id, false))
                     .then(move |_| {
-                        //new_block_sent1.store(true, SeqCst);
                         actix::spawn(client.send(Status { is_health_check: true }).then(
                             move |_| {
                                 System::current().stop();

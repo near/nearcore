@@ -2,6 +2,7 @@
 //! This client works completely synchronously and must be operated by some async actor outside.
 
 use std::collections::{HashMap, HashSet};
+use std::iter;
 use std::sync::{Arc, RwLock};
 use std::time::Instant;
 
@@ -282,10 +283,10 @@ impl Client {
         );
 
         // Check that we are were called at the block that we are producer for.
-        let next_block_proposer = self.runtime_adapter.get_block_producer(
-            &self.runtime_adapter.get_epoch_id_from_prev_block(&head.last_block_hash).unwrap(),
-            next_height,
-        )?;
+        let epoch_id =
+            self.runtime_adapter.get_epoch_id_from_prev_block(&head.last_block_hash).unwrap();
+        let next_block_proposer =
+            self.runtime_adapter.get_block_producer(&epoch_id, next_height)?;
 
         let prev = self.chain.get_block_header(&head.last_block_hash)?.clone();
         let prev_hash = head.last_block_hash;
@@ -308,6 +309,18 @@ impl Client {
             &next_block_proposer,
         )? {
             return Ok(None);
+        }
+        let (validator_stake, _) = self.runtime_adapter.get_validator_by_account_id(
+            &epoch_id,
+            &head.last_block_hash,
+            &next_block_proposer,
+        )?;
+        if validator_stake.public_key != validator_signer.public_key() {
+            return Err(Error::BlockProducer(format!(
+                "Validator key doesn't match. Expected {} Actual {}",
+                validator_stake.public_key,
+                validator_signer.public_key()
+            )));
         }
 
         debug!(target: "client", "{:?} Producing block at height {}, parent {} @ {}", validator_signer.validator_id(), next_height, prev.inner_lite.height, format_hash(head.last_block_hash));
@@ -353,8 +366,12 @@ impl Client {
         };
 
         // Get block extra from previous block.
-        let prev_block_extra = self.chain.get_block_extra(&head.last_block_hash)?.clone();
-        let prev_block = self.chain.get_block(&head.last_block_hash)?;
+        let mut block_merkle_tree =
+            self.chain.mut_store().get_block_merkle_tree(&prev_hash)?.clone();
+        block_merkle_tree.insert(prev_hash);
+        let block_merkle_root = block_merkle_tree.root();
+        let prev_block_extra = self.chain.get_block_extra(&prev_hash)?.clone();
+        let prev_block = self.chain.get_block(&prev_hash)?;
         let mut chunks = prev_block.chunks.clone();
 
         // Collect new chunks.
@@ -393,6 +410,7 @@ impl Client {
             vec![],
             &*validator_signer,
             next_bp_hash,
+            block_merkle_root,
         );
 
         // Update latest known even before returning block out, to prevent race conditions.
@@ -615,9 +633,15 @@ impl Client {
             }
         }
 
-        for missing_chunks in blocks_missing_chunks.write().unwrap().drain(..) {
-            self.shards_mgr.request_chunks(missing_chunks).unwrap();
-        }
+        // Request any missing chunks
+        self.shards_mgr.request_chunks(
+            blocks_missing_chunks
+                .write()
+                .unwrap()
+                .drain(..)
+                .flat_map(|missing_chunks| missing_chunks.into_iter()),
+        );
+
         let unwrapped_accepted_blocks = accepted_blocks.write().unwrap().drain(..).collect();
         (unwrapped_accepted_blocks, result)
     }
@@ -654,7 +678,7 @@ impl Client {
                 Ok(self.process_blocks_with_missing_chunks(prev_block_hash))
             }
             ProcessPartialEncodedChunkResult::NeedMorePartsOrReceipts(chunk_header) => {
-                self.shards_mgr.request_chunks(vec![*chunk_header]).unwrap();
+                self.shards_mgr.request_chunks(iter::once(*chunk_header));
                 Ok(vec![])
             }
             ProcessPartialEncodedChunkResult::NeedBlock => {
@@ -913,9 +937,15 @@ impl Client {
             accepted_blocks.write().unwrap().push(accepted_block);
         }, |missing_chunks| blocks_missing_chunks.write().unwrap().push(missing_chunks), |challenge| challenges.write().unwrap().push(challenge));
         self.send_challenges(challenges);
-        for missing_chunks in blocks_missing_chunks.write().unwrap().drain(..) {
-            self.shards_mgr.request_chunks(missing_chunks).unwrap();
-        }
+
+        self.shards_mgr.request_chunks(
+            blocks_missing_chunks
+                .write()
+                .unwrap()
+                .drain(..)
+                .flat_map(|missing_chunks| missing_chunks.into_iter()),
+        );
+
         let unwrapped_accepted_blocks = accepted_blocks.write().unwrap().drain(..).collect();
         unwrapped_accepted_blocks
     }
@@ -1296,9 +1326,14 @@ impl Client {
 
                     self.send_challenges(challenges);
 
-                    for missing_chunks in blocks_missing_chunks.write().unwrap().drain(..) {
-                        self.shards_mgr.request_chunks(missing_chunks).unwrap();
-                    }
+                    self.shards_mgr.request_chunks(
+                        blocks_missing_chunks
+                            .write()
+                            .unwrap()
+                            .drain(..)
+                            .flat_map(|missing_chunks| missing_chunks.into_iter()),
+                    );
+
                     let unwrapped_accepted_blocks =
                         accepted_blocks.write().unwrap().drain(..).collect();
                     return Ok(unwrapped_accepted_blocks);

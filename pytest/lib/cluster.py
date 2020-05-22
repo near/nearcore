@@ -24,6 +24,7 @@ remote_nodes = []
 remote_nodes_lock = threading.Lock()
 cleanup_remote_nodes_atexit_registered = False
 
+
 class DownloadException(Exception):
     pass
 
@@ -31,6 +32,7 @@ class DownloadException(Exception):
 def atexit_cleanup(node):
     print("Cleaning up node %s:%s on script exit" % node.addr())
     print("Executed refmap tests: %s" % node.refmap_tests)
+    print("Executed store validity tests: %s" % node.store_tests)
     try:
         node.cleanup()
     except:
@@ -45,6 +47,7 @@ def atexit_cleanup_remote():
 
 
 class Key(object):
+
     def __init__(self, account_id, pk, sk):
         super(Key, self).__init__()
         self.account_id = account_id
@@ -70,14 +73,27 @@ class Key(object):
 
 
 class BaseNode(object):
-    def _get_command_line(self, near_root, node_dir, boot_key, boot_node_addr, binary_name='neard'):
+
+    def _get_command_line(self,
+                          near_root,
+                          node_dir,
+                          boot_key,
+                          boot_node_addr,
+                          binary_name='neard'):
         if boot_key is None:
             assert boot_node_addr is None
-            return [os.path.join(near_root, binary_name), "--verbose", "", "--home", node_dir, "run"]
+            return [
+                os.path.join(near_root, binary_name), "--verbose", "", "--home",
+                node_dir, "run"
+            ]
         else:
             assert boot_node_addr is not None
             boot_key = boot_key.split(':')[1]
-            return [os.path.join(near_root, binary_name), "--verbose", "", "--home", node_dir, "run", '--boot-nodes', "%s@%s:%s" % (boot_key, boot_node_addr[0], boot_node_addr[1])]
+            return [
+                os.path.join(near_root, binary_name), "--verbose", "", "--home",
+                node_dir, "run", '--boot-nodes',
+                "%s@%s:%s" % (boot_key, boot_node_addr[0], boot_node_addr[1])
+            ]
 
     def wait_for_rpc(self, timeout=1):
         retrying.retry(lambda: self.get_status(), timeout=timeout)
@@ -89,20 +105,26 @@ class BaseNode(object):
             'id': 'dontcare',
             'jsonrpc': '2.0'
         }
-        r = requests.post("http://%s:%s" % self.rpc_addr(), json=j, timeout=timeout)
+        r = requests.post("http://%s:%s" % self.rpc_addr(),
+                          json=j,
+                          timeout=timeout)
         r.raise_for_status()
         return json.loads(r.content)
 
     def send_tx(self, signed_tx):
-        return self.json_rpc('broadcast_tx_async', [base64.b64encode(signed_tx).decode('utf8')])
+        return self.json_rpc('broadcast_tx_async',
+                             [base64.b64encode(signed_tx).decode('utf8')])
 
     def send_tx_and_wait(self, signed_tx, timeout):
-        return self.json_rpc('broadcast_tx_commit', [base64.b64encode(signed_tx).decode('utf8')], timeout=timeout)
+        return self.json_rpc('broadcast_tx_commit',
+                             [base64.b64encode(signed_tx).decode('utf8')],
+                             timeout=timeout)
 
     def get_status(self):
         r = requests.get("http://%s:%s/status" % self.rpc_addr(), timeout=2)
         r.raise_for_status()
         self.check_refmap()
+        self.check_store()
         return json.loads(r.content)
 
     def get_all_heights(self):
@@ -112,7 +134,8 @@ class BaseNode(object):
 
         while True:
             block = self.get_block(hash_)
-            if 'error' in block and 'data' in block['error'] and 'Block Missing' in block['error']['data']:
+            if 'error' in block and 'data' in block[
+                    'error'] and 'Block Missing' in block['error']['data']:
                 break
             elif 'result' not in block:
                 print(block)
@@ -129,18 +152,26 @@ class BaseNode(object):
         return self.json_rpc('validators', [None])
 
     def get_account(self, acc, finality='optimistic'):
-        return self.json_rpc('query', {"request_type": "view_account", "account_id": acc, "finality": finality})
+        return self.json_rpc('query', {
+            "request_type": "view_account",
+            "account_id": acc,
+            "finality": finality
+        })
 
     def get_access_key_list(self, acc, finality='optimistic'):
-        return self.json_rpc('query', {"request_type": "view_access_key_list", "account_id": acc, "finality": finality})
+        return self.json_rpc(
+            'query', {
+                "request_type": "view_access_key_list",
+                "account_id": acc,
+                "finality": finality
+            })
 
     def get_nonce_for_pk(self, acc, pk, finality='optimistic'):
-        for access_key in self.get_access_key_list(acc, finality)['result']['keys']:
+        for access_key in self.get_access_key_list(acc,
+                                                   finality)['result']['keys']:
             if access_key['public_key'] == pk:
                 return access_key['access_key']['nonce']
         return None
-
-
 
     def get_block(self, block_id):
         return self.json_rpc('block', [block_id])
@@ -152,16 +183,22 @@ class BaseNode(object):
         return self.json_rpc('tx', [tx_hash, tx_recipient_id])
 
     def get_changes_in_block(self, changes_in_block_request):
-        return self.json_rpc('EXPERIMENTAL_changes_in_block', changes_in_block_request)
+        return self.json_rpc('EXPERIMENTAL_changes_in_block',
+                             changes_in_block_request)
 
     def get_changes(self, changes_request):
         return self.json_rpc('EXPERIMENTAL_changes', changes_request)
 
     def validators(self):
-        return set(map(lambda v: v['account_id'], self.get_status()['validators']))
+        return set(
+            map(lambda v: v['account_id'],
+                self.get_status()['validators']))
 
     def stop_checking_refmap(self):
         self.is_check_refmap = False
+
+    def stop_checking_store(self):
+        self.is_check_store = False
 
     def check_refmap(self):
         if self.is_check_refmap:
@@ -172,13 +209,26 @@ class BaseNode(object):
             else:
                 self.refmap_tests += 1
                 if res['result'] != 1:
-                    print("ERROR: Block Reference Map for %s:%s in inconsistent state, stopping" % self.addr())
+                    print(
+                        "ERROR: Block Reference Map for %s:%s in inconsistent state, stopping"
+                        % self.addr())
                     self.kill()
 
-
+    def check_store(self):
+        if self.is_check_store:
+            res = self.json_rpc('adv_check_store', [])
+            if not 'result' in res:
+                # cannot check Storage Consistency for the node, possibly not Adversarial Mode is running
+                pass
+            else:
+                if res['result'] == 0:
+                    print("ERROR: Storage for %s:%s in inconsistent state, stopping" % self.addr())
+                    self.kill()
+                self.store_tests += res['result']
 
 class RpcNode(BaseNode):
     """ A running node only interact by rpc queries """
+
     def __init__(self, host, rpc_port):
         super(RpcNode, self).__init__()
         self.host = host
@@ -189,7 +239,14 @@ class RpcNode(BaseNode):
 
 
 class LocalNode(BaseNode):
-    def __init__(self, port, rpc_port, near_root, node_dir, blacklist, binary_name='neard'):
+
+    def __init__(self,
+                 port,
+                 rpc_port,
+                 near_root,
+                 node_dir,
+                 blacklist,
+                 binary_name='neard'):
         super(LocalNode, self).__init__()
         self.port = port
         self.rpc_port = rpc_port
@@ -197,14 +254,17 @@ class LocalNode(BaseNode):
         self.node_dir = node_dir
         self.binary_name = binary_name
         self.refmap_tests = 0
+        self.store_tests = 0
         self.is_check_refmap = True
+        self.is_check_store = True
         self.cleaned = False
         with open(os.path.join(node_dir, "config.json")) as f:
             config_json = json.loads(f.read())
         # assert config_json['network']['addr'] == '0.0.0.0:24567', config_json['network']['addr']
         # assert config_json['rpc']['addr'] == '0.0.0.0:3030', config_json['rpc']['addr']
         # just a sanity assert that the setting name didn't change
-        assert 0 <= config_json['consensus']['min_num_peers'] <= 3, config_json['consensus']['min_num_peers']
+        assert 0 <= config_json['consensus']['min_num_peers'] <= 3, config_json[
+            'consensus']['min_num_peers']
         config_json['network']['addr'] = '0.0.0.0:%s' % port
         config_json['network']['blacklist'] = blacklist
         config_json['rpc']['addr'] = '0.0.0.0:%s' % rpc_port
@@ -212,9 +272,12 @@ class LocalNode(BaseNode):
         with open(os.path.join(node_dir, "config.json"), 'w') as f:
             f.write(json.dumps(config_json, indent=2))
 
-        self.validator_key = Key.from_json_file(os.path.join(node_dir, "validator_key.json"))
-        self.node_key = Key.from_json_file(os.path.join(node_dir, "node_key.json"))
-        self.signer_key = Key.from_json_file(os.path.join(node_dir, "validator_key.json"))
+        self.validator_key = Key.from_json_file(
+            os.path.join(node_dir, "validator_key.json"))
+        self.node_key = Key.from_json_file(
+            os.path.join(node_dir, "node_key.json"))
+        self.signer_key = Key.from_json_file(
+            os.path.join(node_dir, "validator_key.json"))
 
         self.pid = multiprocessing.Value('i', 0)
 
@@ -234,14 +297,18 @@ class LocalNode(BaseNode):
         self.stderr_name = os.path.join(self.node_dir, 'stderr')
         self.stdout = open(self.stdout_name, 'a')
         self.stderr = open(self.stderr_name, 'a')
-        cmd = self._get_command_line(
-            self.near_root, self.node_dir, boot_key, boot_node_addr, self.binary_name)
-        self.pid.value = subprocess.Popen(
-            cmd, stdout=self.stdout, stderr=self.stderr, env=env).pid
+        cmd = self._get_command_line(self.near_root, self.node_dir, boot_key,
+                                     boot_node_addr, self.binary_name)
+        self.pid.value = subprocess.Popen(cmd,
+                                          stdout=self.stdout,
+                                          stderr=self.stderr,
+                                          env=env).pid
         try:
             self.wait_for_rpc(10)
         except:
-            print('=== Error: failed to start node, rpc does not ready in 10 seconds')
+            print(
+                '=== Error: failed to start node, rpc does not ready in 10 seconds'
+            )
             self.stdout.close()
             self.stderr.close()
             if os.environ.get('BUILDKITE'):
@@ -249,7 +316,6 @@ class LocalNode(BaseNode):
                 print(open(self.stdout_name).read())
                 print('=== stderr: ')
                 print(open(self.stderr_name).read())
-
 
     def kill(self):
         if self.pid.value != 0:
@@ -284,6 +350,7 @@ class BotoNode(BaseNode):
 
 
 class GCloudNode(BaseNode):
+
     def __init__(self, *args):
         if len(args) == 1:
             # Get existing instance assume it's ready to run
@@ -322,10 +389,10 @@ class GCloudNode(BaseNode):
         else:
             raise Exception()
 
-
     def _upload_config_files(self, node_dir):
         self.machine.run('bash', input='mkdir -p ~/.near')
-        self.machine.upload(os.path.join(node_dir, '*.json'), f'/home/{self.machine.username}/.near/')
+        self.machine.upload(os.path.join(node_dir, '*.json'),
+                            f'/home/{self.machine.username}/.near/')
         self.validator_key = Key.from_json_file(
             os.path.join(node_dir, "validator_key.json"))
         self.node_key = Key.from_json_file(
@@ -335,7 +402,8 @@ class GCloudNode(BaseNode):
 
     @retry.retry(delay=1, tries=3)
     def _download_binary(self, binary):
-        p = self.machine.run('bash', input=f'''
+        p = self.machine.run('bash',
+                             input=f'''
 /snap/bin/gsutil cp gs://nearprotocol_nearcore_release/{binary} near
 chmod +x near
 ''')
@@ -349,7 +417,9 @@ chmod +x near
         return (self.ip, self.rpc_port)
 
     def start(self, boot_key, boot_node_addr):
-        self.machine.run_detach_tmux("RUST_BACKTRACE=1 "+" ".join(self._get_command_line('.', '.near', boot_key, boot_node_addr)).replace("--verbose", '--verbose ""'))
+        self.machine.run_detach_tmux("RUST_BACKTRACE=1 " + " ".join(
+            self._get_command_line('.', '.near', boot_key, boot_node_addr)).
+                                     replace("--verbose", '--verbose ""'))
         self.wait_for_rpc(timeout=30)
 
     def kill(self):
@@ -370,7 +440,9 @@ chmod +x near
 
         # Get log and delete machine
         rc.run(f'mkdir -p /tmp/pytest_remote_log')
-        self.machine.download('/tmp/python-rc.log', f'/tmp/pytest_remote_log/{self.machine.name}.log')
+        self.machine.download(
+            '/tmp/python-rc.log',
+            f'/tmp/pytest_remote_log/{self.machine.name}.log')
         self.destroy_machine()
 
     def json_rpc(self, method, params, timeout=10):
@@ -382,29 +454,47 @@ chmod +x near
         return json.loads(r.content)
 
     def stop_network(self):
-        rc.run(f'gcloud compute firewall-rules create {self.machine.name}-stop --direction=EGRESS --priority=1000 --network=default --action=DENY --rules=all --target-tags={self.machine.name}')
+        rc.run(
+            f'gcloud compute firewall-rules create {self.machine.name}-stop --direction=EGRESS --priority=1000 --network=default --action=DENY --rules=all --target-tags={self.machine.name}'
+        )
 
     def resume_network(self):
-        rc.run(f'gcloud compute firewall-rules delete {self.machine.name}-stop', input='yes\n')
+        rc.run(f'gcloud compute firewall-rules delete {self.machine.name}-stop',
+               input='yes\n')
 
 
-def spin_up_node(config, near_root, node_dir, ordinal, boot_key, boot_addr, blacklist=[]):
+def spin_up_node(config,
+                 near_root,
+                 node_dir,
+                 ordinal,
+                 boot_key,
+                 boot_addr,
+                 blacklist=[]):
     is_local = config['local']
 
-    print("Starting node %s %s" % (ordinal, ("as BOOT NODE" if boot_addr is None else (
-        "with boot=%s@%s:%s" % (boot_key, boot_addr[0], boot_addr[1])))))
+    print("Starting node %s %s" % (ordinal,
+                                   ("as BOOT NODE" if boot_addr is None else
+                                    ("with boot=%s@%s:%s" %
+                                     (boot_key, boot_addr[0], boot_addr[1])))))
     if is_local:
-        blacklist = ["127.0.0.1:%s" % (24567 + 10 + bl_ordinal) for bl_ordinal in blacklist]
-        node = LocalNode(24567 + 10 + ordinal, 3030 +
-                         10 + ordinal, near_root, node_dir, blacklist, config.get('binary_name', 'near'))
+        blacklist = [
+            "127.0.0.1:%s" % (24567 + 10 + bl_ordinal)
+            for bl_ordinal in blacklist
+        ]
+        node = LocalNode(24567 + 10 + ordinal, 3030 + 10 + ordinal, near_root,
+                         node_dir, blacklist, config.get('binary_name', 'near'))
     else:
         # TODO: Figure out how to know IP address beforehand for remote deployment.
-        assert len(blacklist) == 0, "Blacklist is only supported in LOCAL deployment."
+        assert len(
+            blacklist) == 0, "Blacklist is only supported in LOCAL deployment."
 
-        instance_name = '{}-{}-{}'.format(config['remote'].get('instance_name', 'near-pytest'), ordinal, uuid.uuid4())
+        instance_name = '{}-{}-{}'.format(
+            config['remote'].get('instance_name', 'near-pytest'), ordinal,
+            uuid.uuid4())
         zones = config['remote']['zones']
         zone = zones[ordinal % len(zones)]
-        node = GCloudNode(instance_name, zone, node_dir, config['remote']['binary'])
+        node = GCloudNode(instance_name, zone, node_dir,
+                          config['remote']['binary'])
         with remote_nodes_lock:
             remote_nodes.append(node)
         print(f"node {ordinal} machine created")
@@ -420,18 +510,24 @@ def connect_to_mocknet(config):
         config = load_config()
 
     if 'local' in config:
-        print("Attempt to launch a mocknet test with a regular config", file=sys.stderr)
+        print("Attempt to launch a mocknet test with a regular config",
+              file=sys.stderr)
         sys.exit(1)
 
-    return [RpcNode(node['ip'], node['port']) for node in config['nodes']], [Key(account['account_id'], account['pk'], account['sk']) for account in config['accounts']]
+    return [RpcNode(node['ip'], node['port']) for node in config['nodes']], [
+        Key(account['account_id'], account['pk'], account['sk'])
+        for account in config['accounts']
+    ]
 
 
-def init_cluster(num_nodes, num_observers, num_shards, config, genesis_config_changes, client_config_changes):
+def init_cluster(num_nodes, num_observers, num_shards, config,
+                 genesis_config_changes, client_config_changes):
     """
     Create cluster configuration
     """
     if 'local' not in config and 'nodes' in config:
-        print("Attempt to launch a regular test with a mocknet config", file=sys.stderr)
+        print("Attempt to launch a regular test with a mocknet config",
+              file=sys.stderr)
         sys.exit(1)
 
     is_local = config['local']
@@ -440,15 +536,26 @@ def init_cluster(num_nodes, num_observers, num_shards, config, genesis_config_ch
     print("Creating %s cluster configuration with %s nodes" %
           ("LOCAL" if is_local else "REMOTE", num_nodes + num_observers))
 
-
-    process = subprocess.Popen([os.path.join(near_root, "near"), "testnet", "--v", str(num_nodes), "--shards", str(
-        num_shards), "--n", str(num_observers), "--prefix", "test"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    process = subprocess.Popen([
+        os.path.join(near_root, "near"), "testnet", "--v",
+        str(num_nodes), "--shards",
+        str(num_shards), "--n",
+        str(num_observers), "--prefix", "test"
+    ],
+                               stdout=subprocess.PIPE,
+                               stderr=subprocess.PIPE)
     out, err = process.communicate()
     assert 0 == process.returncode, err
 
-    node_dirs = [line.split()[-1]
-                 for line in err.decode('utf8').split('\n') if '/test' in line]
-    assert len(node_dirs) == num_nodes + num_observers, "node dirs: %s num_nodes: %s num_observers: %s" % (len(node_dirs), num_nodes, num_observers)
+    node_dirs = [
+        line.split()[-1]
+        for line in err.decode('utf8').split('\n')
+        if '/test' in line
+    ]
+    assert len(
+        node_dirs
+    ) == num_nodes + num_observers, "node dirs: %s num_nodes: %s num_observers: %s" % (
+        len(node_dirs), num_nodes, num_observers)
 
     print("Search for stdout and stderr in %s" % node_dirs)
     # apply config changes
@@ -495,22 +602,28 @@ def apply_config_changes(node_dir, client_config_change):
         f.write(json.dumps(config_json, indent=2))
 
 
-def start_cluster(num_nodes, num_observers, num_shards, config, genesis_config_changes, client_config_changes):
+def start_cluster(num_nodes, num_observers, num_shards, config,
+                  genesis_config_changes, client_config_changes):
     if not config:
         config = load_config()
 
     if not os.path.exists(os.path.expanduser("~/.near/test0")):
-        near_root, node_dirs = init_cluster(
-            num_nodes, num_observers, num_shards, config, genesis_config_changes, client_config_changes)
+        near_root, node_dirs = init_cluster(num_nodes, num_observers,
+                                            num_shards, config,
+                                            genesis_config_changes,
+                                            client_config_changes)
     else:
         near_root = config['near_root']
-        node_dirs = subprocess.check_output("find ~/.near/test* -maxdepth 0", shell=True).decode('utf-8').strip().split('\n')
-        node_dirs = list(filter(lambda n: not n.endswith('_finished'), node_dirs))
+        node_dirs = subprocess.check_output(
+            "find ~/.near/test* -maxdepth 0",
+            shell=True).decode('utf-8').strip().split('\n')
+        node_dirs = list(
+            filter(lambda n: not n.endswith('_finished'), node_dirs))
     ret = []
 
     def spin_up_node_and_push(i, boot_key, boot_addr):
-        node = spin_up_node(config, near_root,
-                            node_dirs[i], i, boot_key, boot_addr)
+        node = spin_up_node(config, near_root, node_dirs[i], i, boot_key,
+                            boot_addr)
         while len(ret) < i:
             time.sleep(0.01)
         ret.append(node)
@@ -520,8 +633,9 @@ def start_cluster(num_nodes, num_observers, num_shards, config, genesis_config_c
 
     handles = []
     for i in range(1, num_nodes + num_observers):
-        handle = threading.Thread(target=spin_up_node_and_push, args=(
-            i, boot_node.node_key.pk, boot_node.addr()))
+        handle = threading.Thread(target=spin_up_node_and_push,
+                                  args=(i, boot_node.node_key.pk,
+                                        boot_node.addr()))
         handle.start()
         handles.append(handle)
 
@@ -531,7 +645,11 @@ def start_cluster(num_nodes, num_observers, num_shards, config, genesis_config_c
     return ret
 
 
-DEFAULT_CONFIG = {'local': True, 'near_root': '../target/debug/', 'binary_name': 'neard'}
+DEFAULT_CONFIG = {
+    'local': True,
+    'near_root': '../target/debug/',
+    'binary_name': 'neard'
+}
 CONFIG_ENV_VAR = 'NEAR_PYTEST_CONFIG'
 
 
@@ -549,5 +667,3 @@ def load_config():
     else:
         print(f"Use default config {config}")
     return config
-
-

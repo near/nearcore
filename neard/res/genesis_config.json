@@ -1,6 +1,6 @@
 {
   "config_version": 1,
-  "protocol_version": 12,
+  "protocol_version": 16,
   "genesis_time": "1970-01-01T00:00:00.000000000Z",
   "chain_id": "sample",
   "genesis_height": 0,
@@ -168,7 +168,9 @@
         "touching_trie_node": 5764118571,
         "promise_and_base": 1473816795,
         "promise_and_per_promise": 5613432,
-        "promise_return": 558292404
+        "promise_return": 558292404,
+        "validator_stake_base": 303944908800,
+        "validator_total_stake_base": 303944908800
       },
       "grow_mem_cost": 1,
       "regular_op_cost": 3856371,

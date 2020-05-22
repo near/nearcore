@@ -16,5 +16,7 @@ q = json.loads(open(filename).read(), object_pairs_hook=OrderedDict)
 records = q['records']
 q['records'] = []
 
-open(os.path.join(os.path.dirname(filename), 'genesis_config.json'), 'w').write(json.dumps(q, indent=2))
-open(os.path.join(os.path.dirname(filename), '_genesis_records.json'), 'w').write(json.dumps(records, indent=2))
+open(os.path.join(os.path.dirname(filename), 'genesis_config.json'),
+     'w').write(json.dumps(q, indent=2))
+open(os.path.join(os.path.dirname(filename), '_genesis_records.json'),
+     'w').write(json.dumps(records, indent=2))

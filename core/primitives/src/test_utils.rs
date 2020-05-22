@@ -2,15 +2,18 @@ use near_crypto::{EmptySigner, PublicKey, Signature, Signer};
 
 use crate::account::{AccessKey, AccessKeyPermission, Account};
 use crate::block::Block;
+use crate::errors::EpochError;
 use crate::hash::CryptoHash;
+use crate::merkle::PartialMerkleTree;
 use crate::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
     DeployContractAction, FunctionCallAction, SignedTransaction, StakeAction, Transaction,
     TransferAction,
 };
-use crate::types::{AccountId, Balance, BlockHeight, EpochId, Gas, Nonce};
+use crate::types::{AccountId, Balance, BlockHeight, EpochId, EpochInfoProvider, Gas, Nonce};
 use crate::validator_signer::ValidatorSigner;
 use num_rational::Rational;
+use std::collections::HashMap;
 
 pub fn account_new(amount: Balance, code_hash: CryptoHash) -> Account {
     Account { amount, locked: 0, code_hash, storage_usage: std::mem::size_of::<Account>() as u64 }
@@ -245,7 +248,9 @@ impl Block {
         next_epoch_id: EpochId,
         next_bp_hash: CryptoHash,
         signer: &dyn ValidatorSigner,
+        block_merkle_tree: &mut PartialMerkleTree,
     ) -> Self {
+        block_merkle_tree.insert(prev.hash());
         Self::empty_with_approvals(
             prev,
             height,
@@ -254,6 +259,7 @@ impl Block {
             vec![],
             signer,
             next_bp_hash,
+            block_merkle_tree.root(),
         )
     }
 
@@ -261,6 +267,20 @@ impl Block {
         prev: &Block,
         height: BlockHeight,
         signer: &dyn ValidatorSigner,
+    ) -> Self {
+        Self::empty_with_height_and_block_merkle_tree(
+            prev,
+            height,
+            signer,
+            &mut PartialMerkleTree::default(),
+        )
+    }
+
+    pub fn empty_with_height_and_block_merkle_tree(
+        prev: &Block,
+        height: BlockHeight,
+        signer: &dyn ValidatorSigner,
+        block_merkle_tree: &mut PartialMerkleTree,
     ) -> Self {
         Self::empty_with_epoch(
             prev,
@@ -273,11 +293,25 @@ impl Block {
             },
             prev.header.inner_lite.next_bp_hash,
             signer,
+            block_merkle_tree,
+        )
+    }
+
+    pub fn empty_with_block_merkle_tree(
+        prev: &Block,
+        signer: &dyn ValidatorSigner,
+        block_merkle_tree: &mut PartialMerkleTree,
+    ) -> Self {
+        Self::empty_with_height_and_block_merkle_tree(
+            prev,
+            prev.header.inner_lite.height + 1,
+            signer,
+            block_merkle_tree,
         )
     }
 
     pub fn empty(prev: &Block, signer: &dyn ValidatorSigner) -> Self {
-        Self::empty_with_height(prev, prev.header.inner_lite.height + 1, signer)
+        Self::empty_with_block_merkle_tree(prev, signer, &mut PartialMerkleTree::default())
     }
 
     /// This is not suppose to be used outside of chain tests, because this doesn't refer to correct chunks.
@@ -290,6 +324,7 @@ impl Block {
         approvals: Vec<Option<Signature>>,
         signer: &dyn ValidatorSigner,
         next_bp_hash: CryptoHash,
+        block_merkle_root: CryptoHash,
     ) -> Self {
         Block::produce(
             &prev.header,
@@ -305,6 +340,37 @@ impl Block {
             vec![],
             signer,
             next_bp_hash,
+            block_merkle_root,
         )
+    }
+}
+
+#[derive(Default)]
+pub struct MockEpochInfoProvider {
+    pub validators: HashMap<AccountId, Balance>,
+}
+
+impl MockEpochInfoProvider {
+    pub fn new(validators: impl Iterator<Item = (AccountId, Balance)>) -> Self {
+        MockEpochInfoProvider { validators: validators.collect() }
+    }
+}
+
+impl EpochInfoProvider for MockEpochInfoProvider {
+    fn validator_stake(
+        &self,
+        _epoch_id: &EpochId,
+        _last_block_hash: &CryptoHash,
+        account_id: &AccountId,
+    ) -> Result<Option<Balance>, EpochError> {
+        Ok(self.validators.get(account_id).cloned())
+    }
+
+    fn validator_total_stake(
+        &self,
+        _epoch_id: &EpochId,
+        _last_block_hash: &CryptoHash,
+    ) -> Result<Balance, EpochError> {
+        Ok(self.validators.values().sum())
     }
 }
