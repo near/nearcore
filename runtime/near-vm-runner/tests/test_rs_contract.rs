@@ -152,6 +152,21 @@ def_test_ext!(
 def_test_ext!(ext_account_balance, b"ext_account_balance", &(2u128 + 2).to_le_bytes());
 def_test_ext!(ext_attached_deposit, b"ext_attached_deposit", &2u128.to_le_bytes());
 
+def_test_ext!(
+    ext_validator_stake_alice,
+    b"ext_validator_stake",
+    &(100u128).to_le_bytes(),
+    b"alice"
+);
+def_test_ext!(ext_validator_stake_bob, b"ext_validator_stake", &(1u128).to_le_bytes(), b"bob");
+def_test_ext!(ext_validator_stake_carol, b"ext_validator_stake", &(0u128).to_le_bytes(), b"carol");
+
+def_test_ext!(
+    ext_validator_total_stake,
+    b"ext_validator_total_stake",
+    &(100u128 + 1).to_le_bytes()
+);
+
 #[test]
 pub fn test_out_of_memory() {
     let code = &TEST_CONTRACT;

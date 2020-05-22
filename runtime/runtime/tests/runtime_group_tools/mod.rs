@@ -3,6 +3,7 @@ use near_primitives::account::{AccessKey, Account};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::Receipt;
 use near_primitives::state_record::StateRecord;
+use near_primitives::test_utils::MockEpochInfoProvider;
 use near_primitives::transaction::{ExecutionOutcomeWithId, SignedTransaction};
 use near_primitives::types::Balance;
 use near_store::test_utils::create_tries;
@@ -31,6 +32,7 @@ pub struct StandaloneRuntime {
     pub tries: ShardTries,
     pub signer: InMemorySigner,
     pub root: CryptoHash,
+    pub epoch_info_provider: MockEpochInfoProvider,
 }
 
 impl StandaloneRuntime {
@@ -49,17 +51,23 @@ impl StandaloneRuntime {
         store_update.commit().unwrap();
 
         let apply_state = ApplyState {
-            // Put each runtime into a separate shard.
             block_index: 0,
-            // Epoch length is long enough to avoid corner cases.
-            epoch_length: 4,
+            last_block_hash: Default::default(),
+            epoch_id: Default::default(),
             epoch_height: 0,
             gas_price: 100,
             block_timestamp: 0,
             gas_limit: None,
         };
 
-        Self { apply_state, runtime, tries, signer, root: root }
+        Self {
+            apply_state,
+            runtime,
+            tries,
+            signer,
+            root,
+            epoch_info_provider: MockEpochInfoProvider::default(),
+        }
     }
 
     pub fn process_block(
@@ -76,6 +84,7 @@ impl StandaloneRuntime {
                 &self.apply_state,
                 receipts,
                 transactions,
+                &self.epoch_info_provider,
             )
             .unwrap();
 

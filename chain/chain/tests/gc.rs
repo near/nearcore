@@ -88,7 +88,6 @@ mod tests {
                 }
 
                 let new_root = trie_changes.new_root;
-
                 let wrapped_trie_changes = WrappedTrieChanges::new(
                     tries.clone(),
                     shard_id,

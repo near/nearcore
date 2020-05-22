@@ -9,7 +9,7 @@ use near_primitives::transaction::{
     DeployContractAction, FunctionCallAction, StakeAction, TransferAction,
 };
 use near_primitives::trie_key::TrieKey;
-use near_primitives::types::{AccountId, Balance};
+use near_primitives::types::{AccountId, Balance, EpochId, EpochInfoProvider};
 use near_primitives::utils::create_nonce_with_nonce;
 use near_store::{TrieUpdate, TrieUpdateValuePtr};
 use near_vm_logic::{External, HostError, VMLogicError, ValuePtr};
@@ -24,6 +24,9 @@ pub struct RuntimeExt<'a> {
     gas_price: Balance,
     base_data_id: &'a CryptoHash,
     data_count: u64,
+    epoch_id: &'a EpochId,
+    last_block_hash: &'a CryptoHash,
+    epoch_info_provider: &'a dyn EpochInfoProvider,
 }
 
 pub struct RuntimeExtValuePtr<'a>(TrieUpdateValuePtr<'a>);
@@ -46,6 +49,9 @@ impl<'a> RuntimeExt<'a> {
         signer_public_key: &'a PublicKey,
         gas_price: Balance,
         base_data_id: &'a CryptoHash,
+        epoch_id: &'a EpochId,
+        last_block_hash: &'a CryptoHash,
+        epoch_info_provider: &'a dyn EpochInfoProvider,
     ) -> Self {
         RuntimeExt {
             trie_update,
@@ -56,6 +62,9 @@ impl<'a> RuntimeExt<'a> {
             gas_price,
             base_data_id,
             data_count: 0,
+            epoch_id,
+            last_block_hash,
+            epoch_info_provider,
         }
     }
 
@@ -319,5 +328,17 @@ impl<'a> External for RuntimeExt<'a> {
 
     fn reset_touched_nodes_counter(&mut self) {
         self.trie_update.trie.counter.reset()
+    }
+
+    fn validator_stake(&self, account_id: &AccountId) -> ExtResult<Option<Balance>> {
+        self.epoch_info_provider
+            .validator_stake(self.epoch_id, self.last_block_hash, account_id)
+            .map_err(|e| ExternalError::ValidatorError(e).into())
+    }
+
+    fn validator_total_stake(&self) -> ExtResult<Balance> {
+        self.epoch_info_provider
+            .validator_total_stake(self.epoch_id, self.last_block_hash)
+            .map_err(|e| ExternalError::ValidatorError(e).into())
     }
 }

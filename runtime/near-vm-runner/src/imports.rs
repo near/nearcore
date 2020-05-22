@@ -175,4 +175,9 @@ wrapped_imports! {
     storage_iter_next<[iterator_id: u64, key_register_id: u64, value_register_id: u64] -> [u64]>,
     // Function for the injected gas counter. Automatically called by the gas meter.
     gas<[gas_amount: u32] -> []>,
+    // ###############
+    // # Validator API #
+    // ###############
+    validator_stake<[account_id_len: u64, account_id_ptr: u64, stake_ptr: u64] -> []>,
+    validator_total_stake<[stake_ptr: u64] -> []>,
 }

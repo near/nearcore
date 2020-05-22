@@ -139,9 +139,6 @@ mod test {
         let hash = CryptoHash::default();
         let signature = sk.sign(hash.as_ref());
 
-        let bls_sk = SecretKey::from_random(KeyType::ED25519);
-        let bls_signature = bls_sk.sign(hash.as_ref());
-
         let msg = PeerMessage::Routed(RoutedMessage {
             target: PeerIdOrHash::PeerId(sk.public_key().into()),
             author: sk.public_key().into(),
@@ -151,7 +148,7 @@ mod test {
                 account_id: "test2".to_string(),
                 inner: ApprovalInner::Endorsement(CryptoHash::default()),
                 target_height: 1,
-                signature: bls_signature,
+                signature: signature,
             }),
         });
         test_codec(msg);

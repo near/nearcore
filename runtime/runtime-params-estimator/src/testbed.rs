@@ -5,6 +5,7 @@ use std::path::Path;
 use borsh::BorshDeserialize;
 
 use near_primitives::receipt::Receipt;
+use near_primitives::test_utils::MockEpochInfoProvider;
 use near_primitives::transaction::{ExecutionStatus, SignedTransaction};
 use near_primitives::types::{Gas, MerkleHash, StateRoot};
 use near_store::{create_store, ColState, ShardTries};
@@ -25,6 +26,7 @@ pub struct RuntimeTestbed {
     runtime: Runtime,
     prev_receipts: Vec<Receipt>,
     apply_state: ApplyState,
+    epoch_info_provider: MockEpochInfoProvider,
 }
 
 impl RuntimeTestbed {
@@ -75,13 +77,22 @@ impl RuntimeTestbed {
             // Put each runtime into a separate shard.
             block_index: 0,
             // Epoch length is long enough to avoid corner cases.
-            epoch_length: 4,
+            last_block_hash: Default::default(),
+            epoch_id: Default::default(),
             epoch_height: 0,
             gas_price: 1,
             block_timestamp: 0,
             gas_limit: None,
         };
-        Self { workdir, tries, root, runtime, prev_receipts, apply_state }
+        Self {
+            workdir,
+            tries,
+            root,
+            runtime,
+            prev_receipts,
+            apply_state,
+            epoch_info_provider: MockEpochInfoProvider::default(),
+        }
     }
 
     pub fn process_block(
@@ -98,6 +109,7 @@ impl RuntimeTestbed {
                 &self.apply_state,
                 &self.prev_receipts,
                 transactions,
+                &self.epoch_info_provider,
             )
             .unwrap();
 

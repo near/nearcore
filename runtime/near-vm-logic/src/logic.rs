@@ -609,6 +609,39 @@ impl<'a> VMLogic<'a> {
         Ok(self.context.epoch_height)
     }
 
+    /// Get the stake of an account, if the account is currently a validator. Otherwise returns 0.
+    /// writes the value into the` u128` variable pointed by `stake_ptr`.
+    ///
+    /// # Cost
+    ///
+    /// `base + memory_write_base + memory_write_size * 16 + utf8_decoding_base + utf8_decoding_byte * account_id_len + validator_stake_base`.
+    pub fn validator_stake(
+        &mut self,
+        account_id_len: u64,
+        account_id_ptr: u64,
+        stake_ptr: u64,
+    ) -> Result<()> {
+        self.gas_counter.pay_base(base)?;
+        let account_id = self.read_and_parse_account_id(account_id_ptr, account_id_len)?;
+        self.gas_counter.pay_base(validator_stake_base)?;
+        let balance = self.ext.validator_stake(&account_id)?.unwrap_or_default();
+        self.memory_set_u128(stake_ptr, balance)
+    }
+
+    /// Get the total validator stake of the current epoch.
+    /// Write the u128 value into `stake_ptr`.
+    /// writes the value into the` u128` variable pointed by `stake_ptr`.
+    ///
+    /// # Cost
+    ///
+    /// `base + memory_write_base + memory_write_size * 16 + validator_total_stake_base`
+    pub fn validator_total_stake(&mut self, stake_ptr: u64) -> Result<()> {
+        self.gas_counter.pay_base(base)?;
+        self.gas_counter.pay_base(validator_total_stake_base)?;
+        let total_stake = self.ext.validator_total_stake()?;
+        self.memory_set_u128(stake_ptr, total_stake)
+    }
+
     /// Returns the number of bytes used by the contract if it was saved to the trie as of the
     /// invocation. This includes:
     /// * The data written with storage_* functions during current and previous execution;
