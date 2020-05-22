@@ -1345,7 +1345,7 @@ mod test {
     #[test]
     fn test_get_seal() {
         let fixture = SealsManagerTestFixture::default();
-        let (runtime, mut seals_manager) = fixture.create_seals_manager();
+        let mut seals_manager = fixture.create_seals_manager();
 
         let seal_assert = |seals_manager: &mut SealsManager| {
             let seal = seals_manager
@@ -1371,15 +1371,12 @@ mod test {
         // 2. return the same seal when it is already created
         seal_assert(&mut seals_manager);
         assert_eq!(seals_manager.seals.len(), 1);
-        // `get_chunk_producer` should still have only been called once because the same
-        // seal was produced instead of making a new one.
-        assert_eq!(*runtime.get_chunk_producer_call_count.lock().unwrap(), 1);
     }
 
     #[test]
     fn test_approve_chunk() {
         let fixture = SealsManagerTestFixture::default();
-        let (_, mut seals_manager) = fixture.create_seals_manager();
+        let mut seals_manager = fixture.create_seals_manager();
 
         // SealsManager::approve_chunk should indicate all parts were retrieved
         fixture.create_seal(&mut seals_manager);
@@ -1398,7 +1395,7 @@ mod test {
     #[test]
     fn test_track_seals() {
         let fixture = SealsManagerTestFixture::default();
-        let (runtime, mut seals_manager) = fixture.create_seals_manager();
+        let mut seals_manager = fixture.create_seals_manager();
 
         {
             // create a seal with old timestamp
@@ -1423,10 +1420,7 @@ mod test {
         assert_eq!(seals_manager.seals.len(), 1);
 
         // 2. remove seals older than the GC limit
-        {
-            *runtime.gc_stop_height.lock().unwrap() += fixture.mock_height;
-        }
-        seals_manager.track_seals(&fixture.mock_parent_hash);
+        seals_manager.track_seals(&fixture.mock_distant_block_hash);
         assert!(seals_manager.seals.is_empty());
     }
 }
