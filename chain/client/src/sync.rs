@@ -252,8 +252,8 @@ impl HeaderSync {
                 // Walk backwards to find last known hash.
                 let last_loc = locator.last().unwrap().clone();
                 if let Ok(header) = chain.get_header_by_height(h) {
-                    if header.inner_lite.height != last_loc.0 {
-                        locator.push((header.inner_lite.height, header.hash()));
+                    if header.height() != last_loc.0 {
+                        locator.push((header.height(), *header.hash()));
                     }
                 }
             }
@@ -479,7 +479,7 @@ impl StateSync {
         chain: &mut Chain,
         now: DateTime<Utc>,
     ) -> Result<(bool, bool), near_chain::Error> {
-        let prev_hash = chain.get_block_header(&sync_hash)?.prev_hash.clone();
+        let prev_hash = chain.get_block_header(&sync_hash)?.prev_hash().clone();
         let (request_block, have_block) = if !chain.block_exists(&prev_hash)? {
             match self.last_time_block_requested {
                 None => (true, false),
@@ -690,17 +690,17 @@ impl StateSync {
         sync_hash: &CryptoHash,
     ) -> Result<CryptoHash, near_chain::Error> {
         let mut header = chain.get_block_header(sync_hash)?;
-        let mut epoch_id = header.inner_lite.epoch_id.clone();
-        let mut hash = header.hash.clone();
-        let mut prev_hash = header.prev_hash.clone();
+        let mut epoch_id = header.epoch_id().clone();
+        let mut hash = header.hash().clone();
+        let mut prev_hash = header.prev_hash().clone();
         loop {
             header = chain.get_block_header(&prev_hash)?;
-            if epoch_id != header.inner_lite.epoch_id {
+            if &epoch_id != header.epoch_id() {
                 return Ok(hash);
             }
-            epoch_id = header.inner_lite.epoch_id.clone();
-            hash = header.hash.clone();
-            prev_hash = header.prev_hash.clone();
+            epoch_id = header.epoch_id().clone();
+            hash = header.hash().clone();
+            prev_hash = header.prev_hash().clone();
         }
     }
 
@@ -716,8 +716,8 @@ impl StateSync {
         highest_height_peers: &Vec<FullPeerInfo>,
     ) -> Result<ShardSyncDownload, near_chain::Error> {
         let prev_block_hash =
-            unwrap_or_return!(chain.get_block_header(&sync_hash), Ok(shard_sync_download))
-                .prev_hash;
+            *unwrap_or_return!(chain.get_block_header(&sync_hash), Ok(shard_sync_download))
+                .prev_hash();
         let epoch_hash = unwrap_or_return!(
             runtime_adapter.get_epoch_id_from_prev_block(&prev_block_hash),
             Ok(shard_sync_download)
@@ -877,6 +877,7 @@ mod test {
 
     use super::*;
     use near_primitives::merkle::PartialMerkleTree;
+    use near_primitives::protocol_version::PROTOCOL_VERSION;
     use near_primitives::types::EpochId;
     use near_primitives::validator_signer::InMemoryValidatorSigner;
     use num_rational::Ratio;
@@ -933,7 +934,7 @@ mod test {
             chain_info: PeerChainInfo {
                 genesis_id: GenesisId {
                     chain_id: "unittest".to_string(),
-                    hash: chain.genesis().hash(),
+                    hash: *chain.genesis().hash(),
                 },
                 height: chain2.head().unwrap().height,
                 tracked_shards: vec![],
@@ -951,7 +952,7 @@ mod test {
             NetworkRequests::BlockHeadersRequest {
                 hashes: [3, 1, 0]
                     .iter()
-                    .map(|i| chain.get_block_by_height(*i).unwrap().hash())
+                    .map(|i| *chain.get_block_by_height(*i).unwrap().hash())
                     .collect(),
                 peer_id: peer1.peer_info.id
             }
@@ -1002,7 +1003,7 @@ mod test {
             1000,
             100,
         );
-        let genesis = chain.get_block(&chain.genesis().hash()).unwrap().clone();
+        let genesis = chain.get_block(&chain.genesis().hash().clone()).unwrap().clone();
 
         let mut last_block = &genesis;
         let mut all_blocks = vec![];
@@ -1020,8 +1021,8 @@ mod test {
                             account_id,
                         );
                         Approval::new(
-                            last_block.hash(),
-                            last_block.header.inner_lite.height,
+                            *last_block.hash(),
+                            last_block.header.height(),
                             current_height,
                             &signer,
                         )
@@ -1029,16 +1030,15 @@ mod test {
                     })
                 })
                 .collect();
-            let (epoch_id, next_epoch_id) = if last_block.header.prev_hash == CryptoHash::default()
+            let (epoch_id, next_epoch_id) = if last_block.header.prev_hash()
+                == &CryptoHash::default()
             {
-                (last_block.header.inner_lite.next_epoch_id.clone(), EpochId(last_block.hash()))
+                (last_block.header.next_epoch_id().clone(), EpochId(*last_block.hash()))
             } else {
-                (
-                    last_block.header.inner_lite.epoch_id.clone(),
-                    last_block.header.inner_lite.next_epoch_id.clone(),
-                )
+                (last_block.header.epoch_id().clone(), last_block.header.next_epoch_id().clone())
             };
             let block = Block::produce(
+                PROTOCOL_VERSION,
                 &last_block.header,
                 current_height,
                 last_block.chunks.clone(),
@@ -1051,10 +1051,10 @@ mod test {
                 vec![],
                 vec![],
                 &*signers[3],
-                last_block.header.inner_lite.next_bp_hash.clone(),
+                last_block.header.next_bp_hash().clone(),
                 block_merkle_tree.root(),
             );
-            block_merkle_tree.insert(block.hash());
+            block_merkle_tree.insert(*block.hash());
 
             all_blocks.push(block);
 
@@ -1066,7 +1066,7 @@ mod test {
         // banned
         for _iter in 0..12 {
             let block = &all_blocks[last_added_block_ord];
-            let current_height = block.header.inner_lite.height;
+            let current_height = block.header.height();
             set_syncing_peer(&mut header_sync);
             header_sync.header_sync_due(
                 &SyncStatus::HeaderSync { current_height, highest_height },
@@ -1083,7 +1083,7 @@ mod test {
         // Now the same, but only 20 heights / sec
         for _iter in 0..12 {
             let block = &all_blocks[last_added_block_ord];
-            let current_height = block.header.inner_lite.height;
+            let current_height = block.header.height();
             set_syncing_peer(&mut header_sync);
             header_sync.header_sync_due(
                 &SyncStatus::HeaderSync { current_height, highest_height },

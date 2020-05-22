@@ -9,6 +9,7 @@ use std::sync::Arc;
 use borsh::BorshSerialize;
 use indicatif::{ProgressBar, ProgressStyle};
 
+use near_chain::types::BlockHeaderInfo;
 use near_chain::{Block, Chain, ChainStore, RuntimeAdapter, Tip};
 use near_chain_configs::Genesis;
 use near_crypto::{InMemorySigner, KeyType};
@@ -199,20 +200,7 @@ impl GenesisBuilder {
         let mut store = ChainStore::new(self.store.clone(), self.genesis.config.genesis_height);
         let mut store_update = store.store_update();
 
-        self.runtime
-            .add_validator_proposals(
-                CryptoHash::default(),
-                genesis.hash(),
-                genesis.header.inner_rest.random_value,
-                genesis.header.inner_lite.height,
-                0,
-                vec![],
-                vec![],
-                vec![],
-                self.genesis.config.total_supply.clone(),
-                self.genesis.config.protocol_version,
-            )
-            .unwrap();
+        self.runtime.add_validator_proposals(BlockHeaderInfo::new(&genesis.header, 0)).unwrap();
         store_update
             .save_block_header(genesis.header.clone())
             .expect("save genesis block header shouldn't fail");

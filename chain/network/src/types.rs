@@ -17,7 +17,6 @@ use tracing::{error, warn};
 
 use near_chain::types::ShardStateSyncResponse;
 use near_chain::{Block, BlockHeader};
-use near_chain_configs::PROTOCOL_VERSION;
 use near_crypto::{PublicKey, SecretKey, Signature};
 use near_metrics;
 use near_primitives::block::{Approval, ApprovalMessage, GenesisId};
@@ -25,6 +24,7 @@ use near_primitives::challenge::Challenge;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::network::{AnnounceAccount, PeerId};
+use near_primitives::protocol_version::PROTOCOL_VERSION;
 use near_primitives::sharding::{
     ChunkHash, PartialEncodedChunk, PartialEncodedChunkPart, ReceiptProof,
 };

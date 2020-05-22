@@ -416,7 +416,7 @@ impl Doomslug {
     /// * `stakes`    - the vector of validator stakes in the current epoch
     pub fn can_approved_block_be_produced(
         mode: DoomslugThresholdMode,
-        approvals: &Vec<Option<Signature>>,
+        approvals: &[Option<Signature>],
         stakes: &Vec<(Balance, Balance)>,
     ) -> bool {
         if mode == DoomslugThresholdMode::NoApprovals {

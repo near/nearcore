@@ -1,7 +1,8 @@
 use std::fs::File;
 use std::path::Path;
 
-use near_chain_configs::{Genesis, GenesisConfig, GENESIS_CONFIG_VERSION, PROTOCOL_VERSION};
+use near_chain_configs::{Genesis, GenesisConfig, GENESIS_CONFIG_VERSION};
+use near_primitives::protocol_version::PROTOCOL_VERSION;
 use near_primitives::types::{Balance, NumShards, ShardId};
 use near_primitives::utils::get_num_seats_per_shard;
 use neard::config::{

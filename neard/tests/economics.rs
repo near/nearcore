@@ -75,7 +75,7 @@ fn test_burn_mint() {
     });
     let signer = InMemorySigner::from_seed("test0", KeyType::ED25519, "test0");
     let initial_total_supply = env.chain_genesis.total_supply;
-    let genesis_hash = env.clients[0].chain.genesis().hash();
+    let genesis_hash = *env.clients[0].chain.genesis().hash();
     env.clients[0].process_tx(
         SignedTransaction::send_money(
             1,
@@ -96,7 +96,7 @@ fn test_burn_mint() {
         //        print_accounts(&mut env);
         //        assert_eq!(
         //            calc_total_supply(&mut env),
-        //            env.clients[0].chain.get_block_by_height(i + 1).unwrap().header.inner_rest.total_supply
+        //            env.clients[0].chain.get_block_by_height(i + 1).unwrap().header.total_supply()
         //        );
     }
 
@@ -105,17 +105,14 @@ fn test_burn_mint() {
     // We burn half of the cost when tx executed and the other half in the next block for the receipt processing.
     let half_transfer_cost = fee_helper.transfer_cost() / 2;
     assert_eq!(
-        block3.header.inner_rest.total_supply,
+        block3.header.total_supply(),
         // supply + 1% of protocol rewards + 3/4 * 9% of validator rewards.
         initial_total_supply * 10775 / 10000 - half_transfer_cost
     );
     assert_eq!(block3.chunks[0].inner.balance_burnt, half_transfer_cost);
     // Block 4: subtract 2nd part of transfer.
     let block4 = env.clients[0].chain.get_block_by_height(4).unwrap().clone();
-    assert_eq!(
-        block4.header.inner_rest.total_supply,
-        block3.header.inner_rest.total_supply - half_transfer_cost
-    );
+    assert_eq!(block4.header.total_supply(), block3.header.total_supply() - half_transfer_cost);
     assert_eq!(block4.chunks[0].inner.balance_burnt, half_transfer_cost);
     // Check that Protocol Treasury account got it's 1% as well.
     assert_eq!(
@@ -125,8 +122,8 @@ fn test_burn_mint() {
     // Block 5: reward from previous block.
     let block5 = env.clients[0].chain.get_block_by_height(5).unwrap().clone();
     assert_eq!(
-        block5.header.inner_rest.total_supply,
+        block5.header.total_supply(),
         // previous supply + 10%
-        block4.header.inner_rest.total_supply * 110 / 100
+        block4.header.total_supply() * 110 / 100
     );
 }

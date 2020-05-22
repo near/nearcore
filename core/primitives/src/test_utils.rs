@@ -2,6 +2,7 @@ use near_crypto::{EmptySigner, PublicKey, Signature, Signer};
 
 use crate::account::{AccessKey, AccessKeyPermission, Account};
 use crate::block::Block;
+use crate::block_header::{BlockHeader, BlockHeaderV2};
 use crate::hash::CryptoHash;
 use crate::merkle::PartialMerkleTree;
 use crate::protocol_version::PROTOCOL_VERSION;
@@ -236,6 +237,26 @@ impl SignedTransaction {
 
     pub fn empty(block_hash: CryptoHash) -> Self {
         Self::from_actions(0, "".to_string(), "".to_string(), &EmptySigner {}, vec![], block_hash)
+    }
+}
+
+impl BlockHeader {
+    pub fn mut_header(&mut self) -> &mut BlockHeaderV2 {
+        match self {
+            BlockHeader::BlockHeaderV2(header) => header,
+            _ => panic!("Invalid block header version"),
+        }
+    }
+
+    pub fn resign(&mut self, signer: &dyn ValidatorSigner) {
+        let (hash, signature) = signer.sign_block_header_parts(
+            *self.prev_hash(),
+            &self.inner_lite_bytes(),
+            &self.inner_rest_bytes(),
+        );
+        let mut header = self.mut_header();
+        header.hash = hash;
+        header.signature = signature;
     }
 }
 

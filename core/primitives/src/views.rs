@@ -15,11 +15,13 @@ use near_crypto::{PublicKey, Signature};
 
 use crate::account::{AccessKey, AccessKeyPermission, Account, FunctionCallPermission};
 use crate::block::{Block, BlockHeader};
+use crate::block_header::{BlockHeaderInnerLite, BlockHeaderInnerRestV2, BlockHeaderV2};
 use crate::challenge::{Challenge, ChallengesResult};
 use crate::errors::TxExecutionError;
 use crate::hash::{hash, CryptoHash};
 use crate::logging;
 use crate::merkle::MerklePath;
+use crate::protocol_version::ProtocolVersion;
 use crate::receipt::{ActionReceipt, DataReceipt, DataReceiver, Receipt, ReceiptEnum};
 use crate::rpc::RpcPagination;
 use crate::serialize::{
@@ -34,8 +36,8 @@ use crate::transaction::{
     FunctionCallAction, SignedTransaction, StakeAction, TransferAction,
 };
 use crate::types::{
-    AccountId, AccountWithPublicKey, Balance, BlockHeight, FunctionArgs, Gas, Nonce, NumBlocks,
-    ShardId, StateChangeCause, StateChangeKind, StateChangeValue, StateChangeWithCause,
+    AccountId, AccountWithPublicKey, Balance, BlockHeight, EpochId, FunctionArgs, Gas, Nonce,
+    NumBlocks, ShardId, StateChangeCause, StateChangeKind, StateChangeValue, StateChangeWithCause,
     StateChangesRequest, StateRoot, StorageUsage, StoreKey, StoreValue, ValidatorKickoutReason,
     ValidatorStake, Version,
 };
@@ -345,6 +347,7 @@ pub struct BlockHeaderView {
     pub block_merkle_root: CryptoHash,
     pub approvals: Vec<Option<Signature>>,
     pub signature: Signature,
+    pub latest_protocol_version: ProtocolVersion,
 }
 
 impl From<BlockHeader> for BlockHeaderView {
@@ -381,51 +384,53 @@ impl From<BlockHeader> for BlockHeaderView {
             block_merkle_root: header.block_merkle_root().clone(),
             approvals: header.approvals().to_vec(),
             signature: header.signature().clone(),
+            latest_protocol_version: header.latest_protocol_version(),
         }
     }
 }
 
-//impl From<BlockHeaderView> for BlockHeader {
-//    fn from(view: BlockHeaderView) -> Self {
-//        let mut header = Self {
-//            prev_hash: view.prev_hash,
-//            inner_lite: BlockHeaderInnerLite {
-//                height: view.height,
-//                epoch_id: EpochId(view.epoch_id),
-//                next_epoch_id: EpochId(view.next_epoch_id),
-//                prev_state_root: view.prev_state_root,
-//                outcome_root: view.outcome_root,
-//                timestamp: view.timestamp,
-//                next_bp_hash: view.next_bp_hash,
-//                block_merkle_root: view.block_merkle_root,
-//            },
-//            inner_rest: BlockHeaderInnerRestV2 {
-//                chunk_receipts_root: view.chunk_receipts_root,
-//                chunk_headers_root: view.chunk_headers_root,
-//                chunk_tx_root: view.chunk_tx_root,
-//                chunks_included: view.chunks_included,
-//                challenges_root: view.challenges_root,
-//                random_value: view.random_value,
-//                validator_proposals: view
-//                    .validator_proposals
-//                    .into_iter()
-//                    .map(|v| v.into())
-//                    .collect(),
-//                chunk_mask: view.chunk_mask,
-//                gas_price: view.gas_price,
-//                total_supply: view.total_supply,
-//                challenges_result: view.challenges_result,
-//                last_final_block: view.last_final_block,
-//                last_ds_final_block: view.last_ds_final_block,
-//                approvals: view.approvals.clone(),
-//            },
-//            signature: view.signature,
-//            hash: CryptoHash::default(),
-//        };
-//        header.init();
-//        header
-//    }
-//}
+impl From<BlockHeaderView> for BlockHeader {
+    fn from(view: BlockHeaderView) -> Self {
+        let mut header = BlockHeader::BlockHeaderV2(BlockHeaderV2 {
+            prev_hash: view.prev_hash,
+            inner_lite: BlockHeaderInnerLite {
+                height: view.height,
+                epoch_id: EpochId(view.epoch_id),
+                next_epoch_id: EpochId(view.next_epoch_id),
+                prev_state_root: view.prev_state_root,
+                outcome_root: view.outcome_root,
+                timestamp: view.timestamp,
+                next_bp_hash: view.next_bp_hash,
+                block_merkle_root: view.block_merkle_root,
+            },
+            inner_rest: BlockHeaderInnerRestV2 {
+                chunk_receipts_root: view.chunk_receipts_root,
+                chunk_headers_root: view.chunk_headers_root,
+                chunk_tx_root: view.chunk_tx_root,
+                chunks_included: view.chunks_included,
+                challenges_root: view.challenges_root,
+                random_value: view.random_value,
+                validator_proposals: view
+                    .validator_proposals
+                    .into_iter()
+                    .map(|v| v.into())
+                    .collect(),
+                chunk_mask: view.chunk_mask,
+                gas_price: view.gas_price,
+                total_supply: view.total_supply,
+                challenges_result: view.challenges_result,
+                last_final_block: view.last_final_block,
+                last_ds_final_block: view.last_ds_final_block,
+                approvals: view.approvals.clone(),
+                latest_protocol_version: view.latest_protocol_version,
+            },
+            signature: view.signature,
+            hash: CryptoHash::default(),
+        });
+        header.init();
+        header
+    }
+}
 
 #[derive(Serialize, Debug, Clone, BorshDeserialize, BorshSerialize)]
 pub struct BlockHeaderInnerLiteView {

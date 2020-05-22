@@ -5,9 +5,9 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use num_rational::Rational;
 use serde::Serialize;
 
-use near_chain_configs::ProtocolVersion;
 use near_primitives::challenge::SlashedValidator;
 use near_primitives::hash::CryptoHash;
+use near_primitives::protocol_version::ProtocolVersion;
 use near_primitives::serialize::to_base;
 use near_primitives::types::{
     AccountId, Balance, BlockChunkValidatorStats, BlockHeight, BlockHeightDelta, EpochHeight,

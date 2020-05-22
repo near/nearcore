@@ -5,8 +5,8 @@ use std::sync::Arc;
 use ansi_term::Color::Red;
 use clap::{App, Arg, SubCommand};
 
+use near_chain::types::BlockHeaderInfo;
 use near_chain::{ChainStore, ChainStoreAccess, RuntimeAdapter};
-use near_chain_configs::PROTOCOL_VERSION;
 use near_logger_utils::init_integration_logger;
 use near_network::peer_store::PeerStore;
 use near_primitives::block::BlockHeader;
@@ -60,13 +60,10 @@ fn load_trie_stop_at_height(
                         continue;
                     }
                 };
-                let last_final_block_hash = chain_store
-                    .get_block_header(&cur_block_hash)
-                    .unwrap()
-                    .inner_rest
-                    .last_final_block;
+                let last_final_block_hash =
+                    *chain_store.get_block_header(&cur_block_hash).unwrap().last_final_block();
                 let last_final_block = chain_store.get_block(&last_final_block_hash).unwrap();
-                if last_final_block.header.inner_lite.height >= height {
+                if last_final_block.header.height() >= height {
                     break last_final_block.clone();
                 } else {
                     cur_height += 1;
@@ -105,12 +102,12 @@ fn print_chain(
         if let Ok(block_hash) = chain_store.get_block_hash_by_height(height) {
             let header = chain_store.get_block_header(&block_hash).unwrap().clone();
             if height == 0 {
-                println!("{: >3} {}", header.inner_lite.height, format_hash(header.hash()));
+                println!("{: >3} {}", header.height(), format_hash(*header.hash()));
             } else {
-                let parent_header = chain_store.get_block_header(&header.prev_hash).unwrap();
-                let epoch_id = runtime.get_epoch_id_from_prev_block(&header.prev_hash).unwrap();
+                let parent_header = chain_store.get_block_header(header.prev_hash()).unwrap();
+                let epoch_id = runtime.get_epoch_id_from_prev_block(header.prev_hash()).unwrap();
                 cur_epoch_id = Some(epoch_id.clone());
-                if runtime.is_next_block_epoch_start(&header.prev_hash).unwrap() {
+                if runtime.is_next_block_epoch_start(header.prev_hash()).unwrap() {
                     println!("{:?}", account_id_to_blocks);
                     account_id_to_blocks = HashMap::new();
                     println!(
@@ -122,18 +119,18 @@ fn print_chain(
                     );
                 }
                 let block_producer =
-                    runtime.get_block_producer(&epoch_id, header.inner_lite.height).unwrap();
+                    runtime.get_block_producer(&epoch_id, header.height()).unwrap();
                 account_id_to_blocks
                     .entry(block_producer.clone())
                     .and_modify(|e| *e += 1)
                     .or_insert(1);
                 println!(
                     "{: >3} {} | {: >10} | parent: {: >3} {}",
-                    header.inner_lite.height,
-                    format_hash(header.hash()),
+                    header.height(),
+                    format_hash(*header.hash()),
                     block_producer,
-                    parent_header.inner_lite.height,
-                    format_hash(parent_header.hash()),
+                    parent_header.height(),
+                    format_hash(*parent_header.hash()),
                 );
             }
         } else {
@@ -172,19 +169,10 @@ fn replay_chain(
         if let Ok(block_hash) = chain_store.get_block_hash_by_height(height) {
             let header = chain_store.get_block_header(&block_hash).unwrap().clone();
             runtime
-                .add_validator_proposals(
-                    header.prev_hash,
-                    header.hash(),
-                    header.inner_rest.random_value,
-                    header.inner_lite.height,
-                    chain_store.get_block_height(&header.inner_rest.last_final_block).unwrap(),
-                    header.inner_rest.validator_proposals,
-                    vec![],
-                    header.inner_rest.chunk_mask,
-                    header.inner_rest.total_supply,
-                    // TODO: !!!
-                    PROTOCOL_VERSION,
-                )
+                .add_validator_proposals(BlockHeaderInfo::new(
+                    &header,
+                    chain_store.get_block_height(&header.last_final_block()).unwrap(),
+                ))
                 .unwrap();
         }
     }
@@ -264,10 +252,7 @@ fn main() {
         }
         ("state", Some(_args)) => {
             let (runtime, state_roots, header) = load_trie(store, &home_dir, &near_config);
-            println!(
-                "Storage roots are {:?}, block height is {}",
-                state_roots, header.inner_lite.height
-            );
+            println!("Storage roots are {:?}, block height is {}", state_roots, header.height());
             for (shard_id, state_root) in state_roots.iter().enumerate() {
                 let trie = runtime.get_trie_for_shard(shard_id as u64);
                 let trie = TrieIterator::new(&trie, &state_root).unwrap();
@@ -283,7 +268,7 @@ fn main() {
             let height = args.value_of("height").map(|s| s.parse::<u64>().unwrap());
             let (runtime, state_roots, header) =
                 load_trie_stop_at_height(store, home_dir, &near_config, height);
-            let height = header.inner_lite.height;
+            let height = header.height();
             let home_dir = PathBuf::from(&home_dir);
 
             let new_genesis =

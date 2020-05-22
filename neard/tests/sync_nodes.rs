@@ -15,6 +15,7 @@ use near_network::test_utils::{convert_boot_nodes, open_port, WaitOrTimeout};
 use near_network::{NetworkClientMessages, PeerInfo};
 use near_primitives::block::Approval;
 use near_primitives::merkle::PartialMerkleTree;
+use near_primitives::protocol_version::PROTOCOL_VERSION;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{BlockHeightDelta, EpochId, ValidatorStake};
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
@@ -33,33 +34,28 @@ fn add_blocks(
     let mut prev = &blocks[blocks.len() - 1];
     let mut block_merkle_tree = PartialMerkleTree::default();
     for block in blocks.iter() {
-        block_merkle_tree.insert(block.hash());
+        block_merkle_tree.insert(*block.hash());
     }
     for _ in 0..num {
-        let epoch_id = match prev.header.inner_lite.height + 1 {
+        let epoch_id = match prev.header.height() + 1 {
             height if height <= epoch_length => EpochId::default(),
             height => {
-                EpochId(blocks[(((height - 1) / epoch_length - 1) * epoch_length) as usize].hash())
+                EpochId(*blocks[(((height - 1) / epoch_length - 1) * epoch_length) as usize].hash())
             }
         };
         let next_epoch_id = EpochId(
-            blocks[(((prev.header.inner_lite.height) / epoch_length) * epoch_length) as usize]
-                .hash(),
+            *blocks[(((prev.header.height()) / epoch_length) * epoch_length) as usize].hash(),
         );
         let block = Block::produce(
+            PROTOCOL_VERSION,
             &prev.header,
-            prev.header.inner_lite.height + 1,
+            prev.header.height() + 1,
             blocks[0].chunks.clone(),
             epoch_id,
             next_epoch_id,
             vec![Some(
-                Approval::new(
-                    prev.hash(),
-                    prev.header.inner_lite.height,
-                    prev.header.inner_lite.height + 1,
-                    signer,
-                )
-                .signature,
+                Approval::new(*prev.hash(), prev.header.height(), prev.header.height() + 1, signer)
+                    .signature,
             )],
             Rational::from_integer(0),
             0,
@@ -75,7 +71,7 @@ fn add_blocks(
             .unwrap(),
             block_merkle_tree.root(),
         );
-        block_merkle_tree.insert(block.hash());
+        block_merkle_tree.insert(*block.hash());
         let _ = client.do_send(NetworkClientMessages::Block(
             block.clone(),
             PeerInfo::random().id,
@@ -234,7 +230,7 @@ fn sync_state_stake_change() {
         let dir2 = tempfile::Builder::new().prefix("sync_state_stake_change_2").tempdir().unwrap();
         let (client1, view_client1) = start_with_config(dir1.path(), near1.clone());
 
-        let genesis_hash = genesis_block(genesis).hash();
+        let genesis_hash = *genesis_block(genesis).hash();
         let signer = Arc::new(InMemorySigner::from_seed("test1", KeyType::ED25519, "test1"));
         let unstake_transaction = SignedTransaction::stake(
             1,

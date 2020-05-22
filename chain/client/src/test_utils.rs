@@ -11,7 +11,7 @@ use rand::{thread_rng, Rng};
 
 use near_chain::test_utils::KeyValueRuntime;
 use near_chain::{Chain, ChainGenesis, DoomslugThresholdMode, Provenance, RuntimeAdapter};
-use near_chain_configs::{ClientConfig, PROTOCOL_VERSION};
+use near_chain_configs::ClientConfig;
 use near_crypto::{InMemorySigner, KeyType, PublicKey};
 #[cfg(feature = "metric_recorder")]
 use near_network::recorder::MetricRecorder;
@@ -26,6 +26,7 @@ use near_network::{
 };
 use near_primitives::block::{ApprovalInner, Block, GenesisId};
 use near_primitives::hash::{hash, CryptoHash};
+use near_primitives::protocol_version::PROTOCOL_VERSION;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, BlockHeightDelta, NumBlocks, NumSeats, NumShards,
@@ -85,7 +86,7 @@ pub fn setup(
         DoomslugThresholdMode::NoApprovals
     };
     let mut chain = Chain::new(runtime.clone(), &chain_genesis, doomslug_threshold_mode).unwrap();
-    let genesis_block = chain.get_block(&chain.genesis().hash()).unwrap().clone();
+    let genesis_block = chain.get_block(&chain.genesis().hash().clone()).unwrap().clone();
 
     let signer =
         Arc::new(InMemoryValidatorSigner::from_seed(account_id, KeyType::ED25519, account_id));
@@ -353,12 +354,12 @@ pub fn setup_mock_all_validators(
 
                             let my_height = &mut last_height1[my_ord];
 
-                            *my_height = max(*my_height, block.header.inner_lite.height);
+                            *my_height = max(*my_height, block.header.height());
 
                             hash_to_height1
                                 .write()
                                 .unwrap()
-                                .insert(block.header.hash(), block.header.inner_lite.height);
+                                .insert(*block.header.hash(), block.header.height());
                         }
                         NetworkRequests::PartialEncodedChunkRequest {
                             account_id: their_account_id,
@@ -687,7 +688,7 @@ pub fn setup_mock_all_validators(
     hash_to_height
         .write()
         .unwrap()
-        .insert(genesis_block.read().unwrap().as_ref().unwrap().header.clone().hash(), 0);
+        .insert(*genesis_block.read().unwrap().as_ref().unwrap().header.clone().hash(), 0);
     *locked_connectors = ret.clone();
     let value = genesis_block.read().unwrap();
     (value.clone().unwrap(), ret)
@@ -895,10 +896,10 @@ impl TestEnv {
             .query(
                 0,
                 &last_block.chunks[0].inner.prev_state_root,
-                last_block.header.inner_lite.height,
-                last_block.header.inner_lite.timestamp,
-                &last_block.header.hash,
-                &last_block.header.inner_lite.epoch_id,
+                last_block.header.height(),
+                last_block.header.raw_timestamp(),
+                last_block.header.hash(),
+                last_block.header.epoch_id(),
                 &QueryRequest::ViewAccount { account_id },
             )
             .unwrap();

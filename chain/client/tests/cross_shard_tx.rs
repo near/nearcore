@@ -430,7 +430,7 @@ mod tests {
                 ))),
             );
             *connectors.write().unwrap() = conn;
-            let block_hash = genesis_block.hash();
+            let block_hash = *genesis_block.hash();
 
             let connectors_ = connectors.write().unwrap();
             let iteration = Arc::new(AtomicUsize::new(0));

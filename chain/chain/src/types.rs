@@ -519,11 +519,11 @@ impl Tip {
     /// Creates a new tip based on provided header.
     pub fn from_header(header: &BlockHeader) -> Tip {
         Tip {
-            height: header.inner_lite.height,
-            last_block_hash: header.hash(),
-            prev_block_hash: header.prev_hash,
-            epoch_id: header.inner_lite.epoch_id.clone(),
-            next_epoch_id: header.inner_lite.next_epoch_id.clone(),
+            height: header.height(),
+            last_block_hash: *header.hash(),
+            prev_block_hash: *header.prev_hash(),
+            epoch_id: header.epoch_id().clone(),
+            next_epoch_id: header.next_epoch_id().clone(),
         }
     }
 }
@@ -586,15 +586,15 @@ mod tests {
         let b1 = Block::empty(&genesis, &signer);
         assert!(b1.header.verify_block_producer(&signer.public_key()));
         let other_signer = InMemoryValidatorSigner::from_seed("other2", KeyType::ED25519, "other2");
-        let approvals = vec![Some(Approval::new(b1.hash(), 1, 2, &other_signer).signature)];
+        let approvals = vec![Some(Approval::new(*b1.hash(), 1, 2, &other_signer).signature)];
         let b2 = Block::empty_with_approvals(
             &b1,
             2,
-            b1.header.inner_lite.epoch_id.clone(),
-            EpochId(genesis.hash()),
+            b1.header.epoch_id().clone(),
+            EpochId(*genesis.hash()),
             approvals,
             &signer,
-            genesis.header.inner_lite.next_bp_hash,
+            *genesis.header.next_bp_hash(),
             CryptoHash::default(),
         );
         b2.header.verify_block_producer(&signer.public_key());

@@ -2,10 +2,10 @@ use std::collections::{BTreeMap, HashMap};
 
 use num_rational::Rational;
 
-use near_chain_configs::PROTOCOL_VERSION;
 use near_crypto::{KeyType, SecretKey};
 use near_primitives::challenge::SlashedValidator;
 use near_primitives::hash::{hash, CryptoHash};
+use near_primitives::protocol_version::PROTOCOL_VERSION;
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, BlockHeightDelta, EpochHeight, NumSeats, NumShards,
     ValidatorId, ValidatorKickoutReason, ValidatorStake,

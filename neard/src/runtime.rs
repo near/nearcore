@@ -13,13 +13,13 @@ use log::{debug, error, warn};
 use near_chain::chain::NUM_EPOCHS_TO_KEEP_STORE_DATA;
 use near_chain::types::{ApplyTransactionResult, BlockHeaderInfo};
 use near_chain::{BlockHeader, Error, ErrorKind, RuntimeAdapter};
-use near_chain_configs::{Genesis, ProtocolVersion};
+use near_chain_configs::Genesis;
 use near_crypto::{PublicKey, Signature};
 use near_epoch_manager::{BlockInfo, EpochConfig, EpochError, EpochManager, RewardCalculator};
 use near_pool::types::PoolIterator;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::block::{Approval, ApprovalInner};
-use near_primitives::challenge::{ChallengesResult, SlashedValidator};
+use near_primitives::challenge::ChallengesResult;
 use near_primitives::errors::{InvalidTxError, RuntimeError};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::Receipt;
@@ -416,8 +416,8 @@ impl RuntimeAdapter for NightshadeRuntime {
 
     fn verify_block_signature(&self, header: &BlockHeader) -> Result<(), Error> {
         let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
-        let validator = epoch_manager
-            .get_block_producer_info(&header.inner_lite.epoch_id, header.inner_lite.height)?;
+        let validator =
+            epoch_manager.get_block_producer_info(&header.epoch_id(), header.height())?;
         if !header.verify_block_producer(&validator.public_key) {
             return Err(ErrorKind::InvalidBlockProposer.into());
         }
@@ -573,16 +573,16 @@ impl RuntimeAdapter for NightshadeRuntime {
 
     fn verify_header_signature(&self, header: &BlockHeader) -> Result<bool, Error> {
         let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
-        let block_producer = epoch_manager
-            .get_block_producer_info(&header.inner_lite.epoch_id, header.inner_lite.height)?;
-        let slashed = match epoch_manager.get_slashed_validators(&header.prev_hash) {
+        let block_producer =
+            epoch_manager.get_block_producer_info(&header.epoch_id(), header.height())?;
+        let slashed = match epoch_manager.get_slashed_validators(header.prev_hash()) {
             Ok(slashed) => slashed,
-            Err(_) => return Err(EpochError::MissingBlock(header.prev_hash).into()),
+            Err(_) => return Err(EpochError::MissingBlock(*header.prev_hash()).into()),
         };
         if slashed.contains_key(&block_producer.account_id) {
             return Ok(false);
         }
-        Ok(header.signature.verify(header.hash.as_ref(), &block_producer.public_key))
+        Ok(header.signature().verify(header.hash().as_ref(), &block_producer.public_key))
     }
 
     fn verify_chunk_header_signature(&self, header: &ShardChunkHeader) -> Result<bool, Error> {
@@ -831,24 +831,28 @@ impl RuntimeAdapter for NightshadeRuntime {
 
     fn add_validator_proposals(&self, block_header_info: BlockHeaderInfo) -> Result<(), Error> {
         // Check that genesis block doesn't have any proposals.
-        assert!(height > 0 || (proposals.is_empty() && slashed_validators.is_empty()));
-        debug!(target: "runtime", "add validator proposals at block height {} {:?}", height, proposals);
+        assert!(
+            block_header_info.height > 0
+                || (block_header_info.proposals.is_empty()
+                    && block_header_info.slashed_validators.is_empty())
+        );
+        debug!(target: "runtime", "add validator proposals at block height {} {:?}", block_header_info.height, block_header_info.proposals);
         // Deal with validator proposals and epoch finishing.
         let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
         let block_info = BlockInfo::new(
             block_header_info.height,
             block_header_info.last_finalized_height,
-            block_header_info.parent_hash,
+            block_header_info.prev_hash,
             block_header_info.proposals,
             block_header_info.chunk_mask,
             block_header_info.slashed_validators,
             block_header_info.total_supply,
-            block_header_info.protocol_version,
+            block_header_info.latest_protocol_version,
         );
-        let rng_seed = (block_header_info.rng_seed.0).0;
+        let rng_seed = (block_header_info.random_value.0).0;
         // TODO: don't commit here, instead contribute to upstream store update.
         epoch_manager
-            .record_block_info(&current_hash, block_info, rng_seed)?
+            .record_block_info(&block_header_info.hash, block_info, rng_seed)?
             .commit()
             .map_err(|err| err.into())
     }
@@ -1248,6 +1252,7 @@ mod test {
     use near_chain::{ReceiptResult, Tip};
     use near_crypto::{InMemorySigner, KeyType, Signer};
     use near_logger_utils::init_test_logger;
+    use near_primitives::challenge::SlashedValidator;
     use near_primitives::transaction::{
         Action, CreateAccountAction, DeleteAccountAction, StakeAction,
     };
@@ -1373,18 +1378,18 @@ mod test {
             store_update.commit().unwrap();
             let genesis_hash = hash(&vec![0]);
             runtime
-                .add_validator_proposals(
-                    CryptoHash::default(),
-                    genesis_hash,
-                    [0; 32].as_ref().try_into().unwrap(),
-                    0,
-                    0,
-                    vec![],
-                    vec![],
-                    vec![],
-                    genesis_total_supply,
-                    genesis_protocol_version,
-                )
+                .add_validator_proposals(BlockHeaderInfo {
+                    prev_hash: CryptoHash::default(),
+                    hash: genesis_hash,
+                    random_value: [0; 32].as_ref().try_into().unwrap(),
+                    height: 0,
+                    last_finalized_height: 0,
+                    proposals: vec![],
+                    slashed_validators: vec![],
+                    chunk_mask: vec![],
+                    total_supply: genesis_total_supply,
+                    latest_protocol_version: genesis_protocol_version,
+                })
                 .unwrap();
             Self {
                 runtime,
@@ -1440,18 +1445,18 @@ mod test {
                 self.last_shard_proposals.insert(i as ShardId, proposals);
             }
             self.runtime
-                .add_validator_proposals(
-                    self.head.last_block_hash,
-                    new_hash,
-                    [0; 32].as_ref().try_into().unwrap(),
-                    self.head.height + 1,
-                    self.head.height.saturating_sub(1),
-                    self.last_proposals.clone(),
-                    challenges_result,
+                .add_validator_proposals(BlockHeaderInfo {
+                    prev_hash: self.head.last_block_hash,
+                    hash: new_hash,
+                    random_value: [0; 32].as_ref().try_into().unwrap(),
+                    height: self.head.height + 1,
+                    last_finalized_height: self.head.height.saturating_sub(1),
+                    proposals: self.last_proposals.clone(),
+                    slashed_validators: challenges_result,
                     chunk_mask,
-                    self.runtime.genesis.config.total_supply,
-                    self.runtime.genesis.config.protocol_version,
-                )
+                    total_supply: self.runtime.genesis.config.total_supply,
+                    latest_protocol_version: self.runtime.genesis.config.protocol_version,
+                })
                 .unwrap();
             self.last_receipts = new_receipts;
             self.last_proposals = all_proposals;
@@ -1854,18 +1859,18 @@ mod test {
             };
             new_env
                 .runtime
-                .add_validator_proposals(
+                .add_validator_proposals(BlockHeaderInfo {
                     prev_hash,
-                    cur_hash,
-                    [0; 32].as_ref().try_into().unwrap(),
-                    i,
-                    i.saturating_sub(2),
-                    new_env.last_proposals.clone(),
-                    vec![],
-                    vec![true],
-                    new_env.runtime.genesis.config.total_supply,
-                    new_env.runtime.genesis.config.protocol_version,
-                )
+                    hash: cur_hash,
+                    random_value: [0; 32].as_ref().try_into().unwrap(),
+                    height: i,
+                    last_finalized_height: i.saturating_sub(2),
+                    proposals: new_env.last_proposals.clone(),
+                    slashed_validators: vec![],
+                    chunk_mask: vec![true],
+                    total_supply: new_env.runtime.genesis.config.total_supply,
+                    latest_protocol_version: new_env.runtime.genesis.config.protocol_version,
+                })
                 .unwrap();
             new_env.head.height = i;
             new_env.head.last_block_hash = cur_hash;

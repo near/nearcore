@@ -3,7 +3,6 @@ use std::convert::TryFrom;
 use actix::{Actor, System};
 use futures::{future, FutureExt};
 
-use near_chain_configs::PROTOCOL_VERSION;
 use near_crypto::{KeyType, PublicKey, Signature};
 use near_jsonrpc::client::new_client;
 use near_jsonrpc_client::ChunkId;
@@ -11,6 +10,7 @@ use near_logger_utils::init_test_logger;
 use near_network::test_utils::WaitOrTimeout;
 use near_primitives::account::{AccessKey, AccessKeyPermission};
 use near_primitives::hash::CryptoHash;
+use near_primitives::protocol_version::PROTOCOL_VERSION;
 use near_primitives::rpc::{RpcGenesisRecordsRequest, RpcPagination, RpcQueryRequest};
 use near_primitives::types::{BlockId, BlockIdOrFinality, Finality, ShardId};
 use near_primitives::views::{QueryRequest, QueryResponseKind};

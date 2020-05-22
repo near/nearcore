@@ -7,9 +7,10 @@ use near_crypto::KeyType;
 use near_logger_utils::init_test_logger;
 use near_network::{NetworkClientMessages, PeerInfo};
 use near_primitives::block::{Block, BlockHeader};
+use near_primitives::protocol_version::PROTOCOL_VERSION;
 use near_primitives::types::{BlockIdOrFinality, EpochId};
 use near_primitives::utils::to_timestamp;
-use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
+use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_primitives::views::{QueryRequest, QueryResponseKind};
 use num_rational::Rational;
 
@@ -49,8 +50,9 @@ fn query_status_not_crash() {
         actix::spawn(view_client.send(GetBlockWithMerkleTree::latest()).then(move |res| {
             let (block, mut block_merkle_tree) = res.unwrap().unwrap();
             let header: BlockHeader = block.header.clone().into();
-            block_merkle_tree.insert(header.hash);
+            block_merkle_tree.insert(*header.hash());
             let mut next_block = Block::produce(
+                PROTOCOL_VERSION,
                 &header,
                 block.header.height + 1,
                 block.chunks.into_iter().map(|c| c.into()).collect(),
@@ -66,15 +68,10 @@ fn query_status_not_crash() {
                 block.header.next_bp_hash,
                 block_merkle_tree.root(),
             );
-            next_block.header.inner_lite.timestamp =
+            next_block.header.mut_header().inner_lite.timestamp =
                 to_timestamp(next_block.header.timestamp() + chrono::Duration::seconds(60));
-            let (hash, signature) = signer.sign_block_header_parts(
-                next_block.header.prev_hash,
-                &next_block.header.inner_lite,
-                &next_block.header.inner_rest,
-            );
-            next_block.header.hash = hash;
-            next_block.header.signature = signature;
+            next_block.header.resign(&signer);
+
             actix::spawn(
                 client
                     .send(NetworkClientMessages::Block(next_block, PeerInfo::random().id, false))

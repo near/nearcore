@@ -10,11 +10,11 @@ use actix::{
 };
 use tracing::{debug, error, info, warn};
 
-use near_chain_configs::PROTOCOL_VERSION;
 use near_metrics;
 use near_primitives::block::GenesisId;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
+use near_primitives::protocol_version::PROTOCOL_VERSION;
 use near_primitives::unwrap_option_or_return;
 use near_primitives::utils::DisplayOption;
 
@@ -108,16 +108,16 @@ impl Tracker {
         self.sent_bytes.increment(size);
     }
 
-    fn has_received(&self, hash: CryptoHash) -> bool {
-        self.received.contains(&hash)
+    fn has_received(&self, hash: &CryptoHash) -> bool {
+        self.received.contains(hash)
     }
 
     fn push_received(&mut self, hash: CryptoHash) {
         self.received.push(hash);
     }
 
-    fn has_request(&self, hash: CryptoHash) -> bool {
-        self.requested.contains(&hash)
+    fn has_request(&self, hash: &CryptoHash) -> bool {
+        self.requested.contains(hash)
     }
 
     fn push_request(&mut self, hash: CryptoHash) {
@@ -410,11 +410,10 @@ impl Peer {
         let network_client_msg = match msg {
             PeerMessage::Block(block) => {
                 near_metrics::inc_counter(&metrics::PEER_BLOCK_RECEIVED_TOTAL);
-                let block_hash = block.hash();
+                let block_hash = *block.hash();
                 self.tracker.push_received(block_hash);
-                self.chain_info.height =
-                    max(self.chain_info.height, block.header.inner_lite.height);
-                NetworkClientMessages::Block(block, peer_id, self.tracker.has_request(block_hash))
+                self.chain_info.height = max(self.chain_info.height, block.header.height());
+                NetworkClientMessages::Block(block, peer_id, self.tracker.has_request(&block_hash))
             }
             PeerMessage::Transaction(transaction) => {
                 near_metrics::inc_counter(&metrics::PEER_TRANSACTION_RECEIVED_TOTAL);

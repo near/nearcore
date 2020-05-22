@@ -206,39 +206,27 @@ pub enum BlockHeader {
 }
 
 impl BlockHeader {
-    pub fn compute_inner_hash<T: BorshSerialize>(inner_lite: &T, inner_rest: &[u8]) -> CryptoHash {
-        let hash_lite = hash(&inner_lite.try_to_vec().expect("Failed to serialize"));
+    pub fn compute_inner_hash(inner_lite: &[u8], inner_rest: &[u8]) -> CryptoHash {
+        let hash_lite = hash(inner_lite);
         let hash_rest = hash(inner_rest);
         combine_hash(hash_lite, hash_rest)
     }
-    // &inner_rest.try_to_vec().expect("Failed to serialize")
 
-    pub fn compute_hash<T: BorshSerialize>(
-        prev_hash: CryptoHash,
-        inner_lite: &T,
-        inner_rest: &[u8],
-    ) -> CryptoHash {
+    pub fn compute_hash(prev_hash: CryptoHash, inner_lite: &[u8], inner_rest: &[u8]) -> CryptoHash {
         let hash_inner = BlockHeader::compute_inner_hash(inner_lite, inner_rest);
 
         return combine_hash(hash_inner, prev_hash);
     }
 
     pub fn init(&mut self) {
+        let hash = BlockHeader::compute_hash(
+            *self.prev_hash(),
+            &self.inner_lite_bytes(),
+            &self.inner_rest_bytes(),
+        );
         match self {
-            BlockHeader::BlockHeaderV1(header) => {
-                header.hash = BlockHeader::compute_hash(
-                    header.prev_hash,
-                    &header.inner_lite,
-                    &header.inner_rest.try_to_vec().expect("Failed to serialize"),
-                )
-            }
-            BlockHeader::BlockHeaderV2(header) => {
-                header.hash = BlockHeader::compute_hash(
-                    header.prev_hash,
-                    &header.inner_lite,
-                    &header.inner_rest.try_to_vec().expect("Failed to serialize"),
-                )
-            }
+            BlockHeader::BlockHeaderV1(header) => header.hash = hash,
+            BlockHeader::BlockHeaderV2(header) => header.hash = hash,
         }
     }
 
@@ -299,7 +287,7 @@ impl BlockHeader {
                 };
                 let (hash, signature) = signer.sign_block_header_parts(
                     prev_hash,
-                    &inner_lite,
+                    &inner_lite.try_to_vec().expect("Failed to serialize"),
                     &inner_rest.try_to_vec().expect("Failed to serialize"),
                 );
                 Self::BlockHeaderV1(BlockHeaderV1 {
@@ -330,7 +318,7 @@ impl BlockHeader {
                 };
                 let (hash, signature) = signer.sign_block_header_parts(
                     prev_hash,
-                    &inner_lite,
+                    &inner_lite.try_to_vec().expect("Failed to serialize"),
                     &inner_rest.try_to_vec().expect("Failed to serialize"),
                 );
                 Self::BlockHeaderV2(BlockHeaderV2 {
@@ -385,7 +373,7 @@ impl BlockHeader {
         };
         let hash = BlockHeader::compute_hash(
             CryptoHash::default(),
-            &inner_lite,
+            &inner_lite.try_to_vec().expect("Failed to serialize"),
             &inner_rest.try_to_vec().expect("Failed to serialize"),
         );
         // Genesis always has v1 of BlockHeader.
@@ -590,6 +578,28 @@ impl BlockHeader {
         match self {
             BlockHeader::BlockHeaderV1(_header) => PROTOCOL_VERSION_V14,
             BlockHeader::BlockHeaderV2(header) => header.inner_rest.latest_protocol_version,
+        }
+    }
+
+    pub fn inner_lite_bytes(&self) -> Vec<u8> {
+        match self {
+            BlockHeader::BlockHeaderV1(header) => {
+                header.inner_lite.try_to_vec().expect("Failed to serialize")
+            }
+            BlockHeader::BlockHeaderV2(header) => {
+                header.inner_lite.try_to_vec().expect("Failed to serialize")
+            }
+        }
+    }
+
+    pub fn inner_rest_bytes(&self) -> Vec<u8> {
+        match self {
+            BlockHeader::BlockHeaderV1(header) => {
+                header.inner_rest.try_to_vec().expect("Failed to serialize")
+            }
+            BlockHeader::BlockHeaderV2(header) => {
+                header.inner_rest.try_to_vec().expect("Failed to serialize")
+            }
         }
     }
 }

@@ -12,9 +12,7 @@ use log::info;
 use num_rational::Rational;
 use serde::{Deserialize, Serialize};
 
-use near_chain_configs::{
-    ClientConfig, Genesis, GenesisConfig, GENESIS_CONFIG_VERSION, PROTOCOL_VERSION,
-};
+use near_chain_configs::{ClientConfig, Genesis, GenesisConfig, GENESIS_CONFIG_VERSION};
 use near_crypto::{InMemorySigner, KeyFile, KeyType, PublicKey, Signer};
 use near_jsonrpc::RpcConfig;
 use near_network::test_utils::open_port;
@@ -23,6 +21,7 @@ use near_network::utils::blacklist_from_iter;
 use near_network::NetworkConfig;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::hash::CryptoHash;
+use near_primitives::protocol_version::PROTOCOL_VERSION;
 use near_primitives::state_record::StateRecord;
 use near_primitives::types::{
     AccountId, AccountInfo, Balance, BlockHeightDelta, Gas, NumBlocks, NumSeats, NumShards, ShardId,

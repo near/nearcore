@@ -1057,9 +1057,9 @@ mod tests {
 
     use num_rational::Rational;
 
-    use near_chain_configs::PROTOCOL_VERSION;
     use near_primitives::challenge::SlashedValidator;
     use near_primitives::hash::hash;
+    use near_primitives::protocol_version::PROTOCOL_VERSION;
     use near_primitives::types::ValidatorKickoutReason::NotEnoughBlocks;
     use near_store::test_utils::create_test_store;
 

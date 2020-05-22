@@ -92,12 +92,12 @@ fn repro_1183() {
                                 .0
                                 .do_send(NetworkClientMessages::Transaction {
                                     transaction: SignedTransaction::send_money(
-                                        block.header.inner_lite.height * 16 + nonce_delta,
+                                        block.header.height() * 16 + nonce_delta,
                                         from.to_string(),
                                         to.to_string(),
                                         &InMemorySigner::from_seed(from, KeyType::ED25519, from),
                                         1,
-                                        block.header.prev_hash,
+                                        *block.header.prev_hash(),
                                     ),
                                     is_forwarded: false,
                                     check_only: false,
@@ -109,7 +109,7 @@ fn repro_1183() {
                     *last_block = Some(block.clone());
                     *delayed_one_parts = vec![];
 
-                    if block.header.inner_lite.height >= 25 {
+                    if block.header.height() >= 25 {
                         System::current().stop();
                     }
                     (NetworkResponses::NoResponse, false)
@@ -167,7 +167,7 @@ fn test_sync_from_achival_node() {
             Box::new(move |_: String, msg: &NetworkRequests| -> (NetworkResponses, bool) {
                 if let NetworkRequests::Block { block } = msg {
                     let mut largest_height = largest_height.write().unwrap();
-                    *largest_height = max(block.header.inner_lite.height, *largest_height);
+                    *largest_height = max(block.header.height(), *largest_height);
                 }
                 if *largest_height.read().unwrap() >= 50 {
                     System::current().stop();
@@ -184,8 +184,8 @@ fn test_sync_from_achival_node() {
                                     ))
                                 }
                             }
-                            if block.header.inner_lite.height <= 10 {
-                                blocks.write().unwrap().insert(block.hash(), block.clone());
+                            if block.header.height() <= 10 {
+                                blocks.write().unwrap().insert(*block.hash(), block.clone());
                             }
                             (NetworkResponses::NoResponse, false)
                         }
@@ -215,7 +215,7 @@ fn test_sync_from_achival_node() {
                     }
                     match msg {
                         NetworkRequests::Block { block } => {
-                            if block.header.inner_lite.height <= 10 {
+                            if block.header.height() <= 10 {
                                 block_counter += 1;
                             }
                             (NetworkResponses::NoResponse, true)
