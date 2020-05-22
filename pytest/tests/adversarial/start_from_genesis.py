@@ -20,6 +20,8 @@ nodes = start_cluster(
     [["epoch_length", 100], ["block_producer_kickout_threshold", 80]], {})
 if not doomslug:
     # we expect inconsistency in store in node 0
+    # because we're going to turn off doomslug
+    # and allow applying blocks without proper validation
     nodes[0].stop_checking_store()
 
 started = time.time()

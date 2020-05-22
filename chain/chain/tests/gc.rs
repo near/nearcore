@@ -10,20 +10,20 @@ mod tests {
     use near_crypto::KeyType;
     use near_primitives::block::Block;
     use near_primitives::merkle::PartialMerkleTree;
-    use near_primitives::types::{NumBlocks, StateRoot};
+    use near_primitives::types::{NumBlocks, NumShards, StateRoot};
     use near_primitives::validator_signer::InMemoryValidatorSigner;
     use near_store::test_utils::{create_test_store, gen_changes};
     use near_store::{ShardTries, StoreUpdate, Trie, WrappedTrieChanges};
     use near_store_validator::StoreValidator;
     use rand::Rng;
 
-    fn get_chain(num_shards: u64) -> Chain {
+    fn get_chain(num_shards: NumShards) -> Chain {
         get_chain_with_epoch_length_and_num_shards(10, num_shards)
     }
 
     fn get_chain_with_epoch_length_and_num_shards(
         epoch_length: NumBlocks,
-        num_shards: u64,
+        num_shards: NumShards,
     ) -> Chain {
         let store = create_test_store();
         let chain_genesis = ChainGenesis::test();
