@@ -82,10 +82,11 @@ pub enum DBCol {
     ColTrieChanges = 36,
     /// Merkle tree of block hashes
     ColBlockMerkleTree = 37,
+    ColChunkHashesByHeight = 38,
 }
 
 // Do not move this line from enum DBCol
-const NUM_COLS: usize = 38;
+const NUM_COLS: usize = 39;
 
 impl std::fmt::Display for DBCol {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
@@ -128,6 +129,7 @@ impl std::fmt::Display for DBCol {
             Self::ColBlockRefCount => "refcount per block",
             Self::ColTrieChanges => "trie changes",
             Self::ColBlockMerkleTree => "block merkle tree",
+            Self::ColChunkHashesByHeight => "chunk hashes indexed by height_created",
         };
         write!(formatter, "{}", desc)
     }
