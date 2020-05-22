@@ -21,10 +21,7 @@ use near_primitives::sharding::{
     ChunkHash, ChunkHashHeight, ReceiptProof, ShardChunk, ShardChunkHeader, ShardProof,
 };
 use near_primitives::transaction::ExecutionOutcomeWithIdAndProof;
-use near_primitives::types::{
-    AccountId, Balance, BlockExtra, BlockHeight, BlockHeightDelta, ChunkExtra, EpochId, Gas,
-    NumBlocks, ShardId, StateHeaderKey,
-};
+use near_primitives::types::{AccountId, Balance, BlockExtra, BlockHeight, BlockHeightDelta, ChunkExtra, EpochId, Gas, NumBlocks, ShardId, StateHeaderKey, ValidatorStake};
 use near_primitives::unwrap_or_return;
 use near_primitives::views::{
     ExecutionOutcomeWithIdView, ExecutionStatusView, FinalExecutionOutcomeView,
@@ -380,9 +377,7 @@ impl Chain {
         self.doomslug_threshold_mode = DoomslugThresholdMode::NoApprovals
     }
 
-    pub fn compute_bp_hash_inner<'a, T>(bps: T) -> Result<CryptoHash, Error>
-    where
-        T: BorshSerialize
+    pub fn compute_bp_hash_inner(bps: Vec<ValidatorStake>) -> Result<CryptoHash, Error>
     {
         Ok(hash(&bps.try_to_vec()?))
     }
