@@ -6,7 +6,7 @@ use borsh::BorshSerialize;
 use near_primitives::hash::CryptoHash;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{
-    RawStateChange, RawStateChangesWithTrieKey, ShardId, StateChangeCause, StateRoot,
+    NumShards, RawStateChange, RawStateChangesWithTrieKey, ShardId, StateChangeCause, StateRoot,
 };
 use near_primitives::utils::get_block_shard_id;
 use std::sync::Arc;
@@ -17,7 +17,8 @@ pub struct ShardTries {
 }
 
 impl ShardTries {
-    pub fn new(storage: Arc<Store>, num_shards: ShardId) -> Self {
+    pub fn new(storage: Arc<Store>, num_shards: NumShards) -> Self {
+        assert_ne!(num_shards, 0);
         let tries = Arc::new(
             (0..num_shards)
                 .map(|shard_id| Arc::new(Trie::new(Arc::clone(&storage), shard_id)))

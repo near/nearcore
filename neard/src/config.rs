@@ -637,7 +637,7 @@ pub fn init_configs(
     chain_id: Option<&str>,
     account_id: Option<&str>,
     test_seed: Option<&str>,
-    num_shards: ShardId,
+    num_shards: NumShards,
     fast: bool,
     genesis: Option<&str>,
 ) {

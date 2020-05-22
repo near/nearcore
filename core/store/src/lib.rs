@@ -21,7 +21,6 @@ use near_primitives::receipt::{Receipt, ReceivedData};
 use near_primitives::serialize::to_base;
 use near_primitives::trie_key::{trie_key_parsers, TrieKey};
 use near_primitives::types::AccountId;
-pub use validate::StoreValidator;
 
 use crate::db::{DBOp, DBTransaction, Database, RocksDB};
 pub use crate::trie::{
@@ -33,7 +32,6 @@ pub use crate::trie::{
 mod db;
 pub mod test_utils;
 mod trie;
-mod validate;
 
 pub struct Store {
     storage: Arc<dyn Database>,

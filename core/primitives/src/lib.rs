@@ -5,6 +5,8 @@ extern crate jemallocator;
 #[global_allocator]
 static ALLOC: jemallocator::Jemalloc = jemallocator::Jemalloc;
 
+pub use borsh;
+
 pub mod account;
 pub mod block;
 pub mod challenge;
