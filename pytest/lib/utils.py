@@ -271,7 +271,7 @@ def collect_gcloud_config(num_nodes):
     os.environ[CONFIG_ENV_VAR] = outfile
 
 
-def wait_for_blocks_or_timeout(node, num_blocks, timeout, callback=None):
+def wait_for_blocks_or_timeout(node, num_blocks, timeout, callback=None, check_sec=1):
     status = node.get_status()
     start_height = status['sync_info']['latest_block_height']
     max_height = 0
@@ -283,3 +283,4 @@ def wait_for_blocks_or_timeout(node, num_blocks, timeout, callback=None):
         if callback is not None:
             if callback():
                 break
+        time.sleep(check_sec)

@@ -24,7 +24,7 @@ use near_primitives::challenge::Challenge;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::network::{AnnounceAccount, PeerId};
-use near_primitives::protocol_version::PROTOCOL_VERSION;
+use near_primitives::protocol_version::PROTOCOL_VERSION_V14;
 use near_primitives::sharding::{
     ChunkHash, PartialEncodedChunk, PartialEncodedChunkPart, ReceiptProof,
 };
@@ -178,7 +178,8 @@ impl Handshake {
         edge_info: EdgeInfo,
     ) -> Self {
         Handshake {
-            version: PROTOCOL_VERSION,
+            // TODO: figure out how we are going to indicate backward compatible versions of protocol.
+            version: PROTOCOL_VERSION_V14,
             peer_id,
             target_peer_id,
             listen_port,

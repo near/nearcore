@@ -164,6 +164,7 @@ impl ApprovalMessage {
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, Eq, PartialEq)]
+#[borsh_init(init)]
 pub struct BlockHeaderV1 {
     pub prev_hash: CryptoHash,
 
@@ -178,6 +179,16 @@ pub struct BlockHeaderV1 {
     /// Cached value of hash for this block.
     #[borsh_skip]
     pub hash: CryptoHash,
+}
+
+impl BlockHeaderV1 {
+    pub fn init(&mut self) {
+        self.hash = BlockHeader::compute_hash(
+            self.prev_hash,
+            &self.inner_lite.try_to_vec().expect("Failed to serialize"),
+            &self.inner_rest.try_to_vec().expect("Failed to serialize"),
+        );
+    }
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, Eq, PartialEq)]
@@ -637,7 +648,7 @@ mod tests {
             CryptoHash::default(),
         );
         let block_header_v1_enc = "11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111AuX3ahfw71vXubTc6dKkCTnEitpHVEc9bSeZNTJeeVz5mu7wocuVidGE4qAkz4DYZcqsy3YDpBg6VcPLLmXNhQMDJTHpcvKfoUqvLnWcueRvAgQRCxpSr66XUCNwHdP1bvyCT6cFzCcWGBuHM4PsPvPAWVQEkFC9zaTYDGaazC7mAuwq7Dc5NyKG8DjKD3XqAJoZAgq5F2f5xoUa69X6n51MZmNC7QaenrooR1q";
-        match block_header {
+        match &block_header {
             BlockHeader::BlockHeaderV1(header) => {
                 assert_eq!(to_base(header.try_to_vec().unwrap()), block_header_v1_enc)
             }
@@ -646,6 +657,7 @@ mod tests {
         let block_header_v1 =
             BlockHeaderV1::try_from_slice(&from_base(block_header_v1_enc).unwrap())
                 .expect("Failed to deserialize old block header");
+        assert_eq!(&block_header_v1.hash, block_header.hash());
         assert_eq!(
             BlockHeader::BlockHeaderV1(block_header_v1).latest_protocol_version(),
             PROTOCOL_VERSION_V14
