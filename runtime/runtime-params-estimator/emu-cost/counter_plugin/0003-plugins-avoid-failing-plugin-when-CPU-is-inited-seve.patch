@@ -1,0 +1,36 @@
+From 40a54f4e8f17266137ed50a4831d48409a4d5f3d Mon Sep 17 00:00:00 2001
+From: Nikolay Igotti <igotti@gmail.com>
+Date: Sun, 19 Apr 2020 21:43:34 +0300
+Subject: [PATCH 3/3] plugins: avoid failing plugin when CPU is inited several
+ times
+
+In linux-user multithreaded scenarious CPU could be inited many times with the same id,
+so avoid assertions on already present hashtable entry.
+
+Signed-off-by: Nikolay Igotti <igotti@gmail.com>
+---
+ plugins/core.c | 5 +----
+ 1 file changed, 1 insertion(+), 4 deletions(-)
+
+diff --git a/plugins/core.c b/plugins/core.c
+index 51bfc94787..889cc6441a 100644
+--- a/plugins/core.c
++++ b/plugins/core.c
+@@ -196,13 +196,10 @@ plugin_register_cb_udata(qemu_plugin_id_t id, enum qemu_plugin_event ev,
+ 
+ void qemu_plugin_vcpu_init_hook(CPUState *cpu)
+ {
+-    bool success;
+-
+     qemu_rec_mutex_lock(&plugin.lock);
+     plugin_cpu_update__locked(&cpu->cpu_index, NULL, NULL);
+-    success = g_hash_table_insert(plugin.cpu_ht, &cpu->cpu_index,
++    g_hash_table_insert(plugin.cpu_ht, &cpu->cpu_index,
+                                   &cpu->cpu_index);
+-    g_assert(success);
+     qemu_rec_mutex_unlock(&plugin.lock);
+ 
+     plugin_vcpu_cb__simple(cpu, QEMU_PLUGIN_EV_VCPU_INIT);
+-- 
+2.24.2 (Apple Git-127)
+

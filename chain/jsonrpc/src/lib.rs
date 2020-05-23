@@ -49,7 +49,7 @@ mod metrics;
 
 /// Maximum byte size of the json payload.
 const JSON_PAYLOAD_MAX_SIZE: usize = 2 * 1024 * 1024;
-const QUERY_DATA_MAX_SIZE: usize = 2 * 1024;
+const QUERY_DATA_MAX_SIZE: usize = 10 * 1024;
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug)]
 pub struct RpcPollingConfig {
