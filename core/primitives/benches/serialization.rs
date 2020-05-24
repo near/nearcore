@@ -37,6 +37,7 @@ fn create_transaction() -> SignedTransaction {
 fn create_block() -> Block {
     let genesis_chunks = genesis_chunks(vec![StateRoot::default()], 1, 1_000, 0);
     let genesis = Block::genesis(
+        PROTOCOL_VERSION,
         genesis_chunks.into_iter().map(|chunk| chunk.header).collect(),
         Utc::now(),
         0,

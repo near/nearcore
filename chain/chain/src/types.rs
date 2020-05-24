@@ -340,6 +340,9 @@ pub trait RuntimeAdapter: Send + Sync {
     /// Amount of tokens minted in given epoch.
     fn get_epoch_minted_amount(&self, epoch_id: &EpochId) -> Result<Balance, Error>;
 
+    /// Epoch active protocol version.
+    fn get_epoch_protocol_version(&self, epoch_id: &EpochId) -> Result<ProtocolVersion, Error>;
+
     /// Add proposals for validators.
     fn add_validator_proposals(&self, block_header_info: BlockHeaderInfo) -> Result<(), Error>;
 
@@ -563,6 +566,7 @@ mod tests {
     use near_crypto::KeyType;
     use near_primitives::block::{genesis_chunks, Approval};
     use near_primitives::merkle::verify_path;
+    use near_primitives::protocol_version::PROTOCOL_VERSION;
     use near_primitives::transaction::{ExecutionOutcome, ExecutionStatus};
     use near_primitives::validator_signer::InMemoryValidatorSigner;
 
@@ -575,6 +579,7 @@ mod tests {
         let num_shards = 32;
         let genesis_chunks = genesis_chunks(vec![StateRoot::default()], num_shards, 1_000_000, 0);
         let genesis = Block::genesis(
+            PROTOCOL_VERSION,
             genesis_chunks.into_iter().map(|chunk| chunk.header).collect(),
             Utc::now(),
             0,

@@ -22,6 +22,7 @@ use near_primitives::block::{Approval, ApprovalInner};
 use near_primitives::challenge::ChallengesResult;
 use near_primitives::errors::{InvalidTxError, RuntimeError};
 use near_primitives::hash::{hash, CryptoHash};
+use near_primitives::protocol_version::ProtocolVersion;
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::state_record::StateRecord;
@@ -827,6 +828,11 @@ impl RuntimeAdapter for NightshadeRuntime {
     fn get_epoch_minted_amount(&self, epoch_id: &EpochId) -> Result<Balance, Error> {
         let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
         Ok(epoch_manager.get_epoch_info(epoch_id)?.minted_amount)
+    }
+
+    fn get_epoch_protocol_version(&self, epoch_id: &EpochId) -> Result<ProtocolVersion, Error> {
+        let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
+        Ok(epoch_manager.get_epoch_info(epoch_id)?.protocol_version)
     }
 
     fn add_validator_proposals(&self, block_header_info: BlockHeaderInfo) -> Result<(), Error> {

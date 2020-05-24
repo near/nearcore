@@ -15,7 +15,7 @@ use near_crypto::{PublicKey, Signature};
 
 use crate::account::{AccessKey, AccessKeyPermission, Account, FunctionCallPermission};
 use crate::block::{Block, BlockHeader};
-use crate::block_header::{BlockHeaderInnerLite, BlockHeaderInnerRestV2, BlockHeaderV2};
+use crate::block_header::{BlockHeaderInnerLite, BlockHeaderInnerRest, BlockHeaderV1};
 use crate::challenge::{Challenge, ChallengesResult};
 use crate::errors::TxExecutionError;
 use crate::hash::{hash, CryptoHash};
@@ -391,7 +391,7 @@ impl From<BlockHeader> for BlockHeaderView {
 
 impl From<BlockHeaderView> for BlockHeader {
     fn from(view: BlockHeaderView) -> Self {
-        let mut header = BlockHeader::BlockHeaderV2(BlockHeaderV2 {
+        let mut header = BlockHeader::BlockHeaderV1(BlockHeaderV1 {
             prev_hash: view.prev_hash,
             inner_lite: BlockHeaderInnerLite {
                 height: view.height,
@@ -403,7 +403,7 @@ impl From<BlockHeaderView> for BlockHeader {
                 next_bp_hash: view.next_bp_hash,
                 block_merkle_root: view.block_merkle_root,
             },
-            inner_rest: BlockHeaderInnerRestV2 {
+            inner_rest: BlockHeaderInnerRest {
                 chunk_receipts_root: view.chunk_receipts_root,
                 chunk_headers_root: view.chunk_headers_root,
                 chunk_tx_root: view.chunk_tx_root,

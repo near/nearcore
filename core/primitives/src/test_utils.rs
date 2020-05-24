@@ -2,7 +2,7 @@ use near_crypto::{EmptySigner, PublicKey, Signature, Signer};
 
 use crate::account::{AccessKey, AccessKeyPermission, Account};
 use crate::block::Block;
-use crate::block_header::{BlockHeader, BlockHeaderV2};
+use crate::block_header::{BlockHeader, BlockHeaderV1};
 use crate::hash::CryptoHash;
 use crate::merkle::PartialMerkleTree;
 use crate::protocol_version::PROTOCOL_VERSION;
@@ -241,10 +241,9 @@ impl SignedTransaction {
 }
 
 impl BlockHeader {
-    pub fn mut_header(&mut self) -> &mut BlockHeaderV2 {
+    pub fn mut_header(&mut self) -> &mut BlockHeaderV1 {
         match self {
-            BlockHeader::BlockHeaderV2(header) => header,
-            _ => panic!("Invalid block header version"),
+            BlockHeader::BlockHeaderV1(header) => header,
         }
     }
 

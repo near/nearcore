@@ -189,6 +189,7 @@ impl GenesisBuilder {
             self.genesis.config.genesis_height,
         );
         let genesis = Block::genesis(
+            self.genesis.config.protocol_version,
             genesis_chunks.into_iter().map(|chunk| chunk.header).collect(),
             self.genesis.config.genesis_time,
             self.genesis.config.genesis_height,

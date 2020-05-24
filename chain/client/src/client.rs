@@ -18,6 +18,7 @@ use near_chain::{
 };
 use near_chain_configs::ClientConfig;
 use near_chunks::{ProcessPartialEncodedChunkResult, ShardsManager};
+use near_network::types::PartialEncodedChunkResponseMsg;
 use near_network::{FullPeerInfo, NetworkAdapter, NetworkClientResponses, NetworkRequests};
 use near_primitives::block::{Approval, ApprovalInner, ApprovalMessage, Block, BlockHeader};
 use near_primitives::challenge::{Challenge, ChallengeBody};
@@ -37,8 +38,6 @@ use crate::metrics;
 use crate::sync::{BlockSync, HeaderSync, StateSync, StateSyncResult};
 use crate::types::{Error, ShardSyncDownload};
 use crate::SyncStatus;
-use near_network::types::PartialEncodedChunkResponseMsg;
-use near_primitives::protocol_version::PROTOCOL_VERSION;
 
 const NUM_REBROADCAST_BLOCKS: usize = 30;
 
@@ -382,11 +381,11 @@ impl Client {
 
         let prev_header = &prev_block.header;
 
+        let next_epoch_id =
+            self.runtime_adapter.get_next_epoch_id_from_prev_block(&head.last_block_hash)?;
+
         let minted_amount =
             if self.runtime_adapter.is_next_block_epoch_start(&head.last_block_hash)? {
-                let next_epoch_id = self
-                    .runtime_adapter
-                    .get_next_epoch_id_from_prev_block(&head.last_block_hash)?;
                 Some(self.runtime_adapter.get_epoch_minted_amount(&next_epoch_id)?)
             } else {
                 None
@@ -396,8 +395,7 @@ impl Client {
         // TODO(2445): Enable challenges when they are working correctly.
         // let challenges = self.challenges.drain().map(|(_, challenge)| challenge).collect();
 
-        // MOO
-        let protocol_version = PROTOCOL_VERSION;
+        let protocol_version = self.runtime_adapter.get_epoch_protocol_version(&next_epoch_id)?;
 
         let block = Block::produce(
             protocol_version,
@@ -1361,8 +1359,12 @@ impl Client {
 
 #[cfg(test)]
 mod test {
-    use crate::test_utils::TestEnv;
+    use std::collections::HashMap;
+    use std::path::Path;
+    use std::sync::Arc;
+
     use cached::Cached;
+
     use near_chain::{ChainGenesis, RuntimeAdapter};
     use near_chain_configs::Genesis;
     use near_crypto::KeyType;
@@ -1371,9 +1373,8 @@ mod test {
     use near_primitives::validator_signer::InMemoryValidatorSigner;
     use near_store::test_utils::create_test_store;
     use neard::config::GenesisExt;
-    use std::collections::HashMap;
-    use std::path::Path;
-    use std::sync::Arc;
+
+    use crate::test_utils::TestEnv;
 
     #[test]
     fn test_pending_approvals() {

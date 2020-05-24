@@ -271,6 +271,7 @@ impl Chain {
             chain_genesis.height,
         );
         let genesis = Block::genesis(
+            chain_genesis.protocol_version,
             genesis_chunks.iter().map(|chunk| chunk.header.clone()).collect(),
             chain_genesis.time,
             chain_genesis.height,

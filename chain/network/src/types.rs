@@ -19,7 +19,7 @@ use near_chain::types::ShardStateSyncResponse;
 use near_chain::{Block, BlockHeader};
 use near_crypto::{PublicKey, SecretKey, Signature};
 use near_metrics;
-use near_primitives::block::{Approval, ApprovalMessage, GenesisId, LegacyBlock};
+use near_primitives::block::{Approval, ApprovalMessage, GenesisId};
 use near_primitives::challenge::Challenge;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::{hash, CryptoHash};
@@ -38,7 +38,6 @@ use crate::peer::Peer;
 #[cfg(feature = "metric_recorder")]
 use crate::recorder::MetricRecorder;
 use crate::routing::{Edge, EdgeInfo, RoutingTableInfo};
-use near_primitives::block_header::BlockHeaderV1;
 
 /// Number of hops a message is allowed to travel before being dropped.
 /// This is used to avoid infinite loop because of inconsistent view of the network
@@ -413,14 +412,10 @@ pub enum PeerMessage {
     PeersResponse(Vec<PeerInfo>),
 
     BlockHeadersRequest(Vec<CryptoHash>),
-    /// Legacy BlockHeader request.
-    /// TODO(2713): leave space but remove usage.
-    BlockHeadersLegacy(Vec<BlockHeaderV1>),
+    BlockHeaders(Vec<BlockHeader>),
 
     BlockRequest(CryptoHash),
-    /// Legacy Block response.
-    /// TODO(2713): leave space but remove usage.
-    BlockLegacy(LegacyBlock),
+    Block(Block),
 
     Transaction(SignedTransaction),
     Routed(RoutedMessage),
@@ -429,9 +424,6 @@ pub enum PeerMessage {
     Disconnect,
 
     Challenge(Challenge),
-
-    BlockHeaders(Vec<BlockHeader>),
-    Block(Block),
 }
 
 impl fmt::Display for PeerMessage {
@@ -447,10 +439,8 @@ impl fmt::Display for PeerMessage {
             PeerMessage::PeersResponse(_) => f.write_str("PeersResponse"),
             PeerMessage::BlockHeadersRequest(_) => f.write_str("BlockHeaderRequest"),
             PeerMessage::BlockHeaders(_) => f.write_str("BlockHeaders"),
-            PeerMessage::BlockHeadersLegacy(_) => f.write_str("BlockHeadersLegacy"),
             PeerMessage::BlockRequest(_) => f.write_str("BlockRequest"),
             PeerMessage::Block(_) => f.write_str("Block"),
-            PeerMessage::BlockLegacy(_) => f.write_str("BlockLegacy"),
             PeerMessage::Transaction(_) => f.write_str("Transaction"),
             PeerMessage::Routed(routed_message) => match routed_message.body {
                 RoutedMessageBody::BlockApproval(_) => f.write_str("BlockApproval"),
@@ -537,10 +527,6 @@ impl PeerMessage {
                     size as i64,
                 );
             }
-            PeerMessage::BlockHeadersLegacy(_) => {
-                near_metrics::inc_counter(&metrics::BLOCK_HEADERS_RECEIVED_TOTAL);
-                near_metrics::inc_counter_by(&metrics::BLOCK_HEADERS_RECEIVED_BYTES, size as i64);
-            }
             PeerMessage::BlockHeaders(_) => {
                 near_metrics::inc_counter(&metrics::BLOCK_HEADERS_RECEIVED_TOTAL);
                 near_metrics::inc_counter_by(&metrics::BLOCK_HEADERS_RECEIVED_BYTES, size as i64);
@@ -550,10 +536,6 @@ impl PeerMessage {
                 near_metrics::inc_counter_by(&metrics::BLOCK_REQUEST_RECEIVED_BYTES, size as i64);
             }
             PeerMessage::Block(_) => {
-                near_metrics::inc_counter(&metrics::BLOCK_RECEIVED_TOTAL);
-                near_metrics::inc_counter_by(&metrics::BLOCK_RECEIVED_BYTES, size as i64);
-            }
-            PeerMessage::BlockLegacy(_) => {
                 near_metrics::inc_counter(&metrics::BLOCK_RECEIVED_TOTAL);
                 near_metrics::inc_counter_by(&metrics::BLOCK_RECEIVED_BYTES, size as i64);
             }
@@ -691,9 +673,7 @@ impl PeerMessage {
     pub fn is_client_message(&self) -> bool {
         match self {
             PeerMessage::Block(_)
-            | PeerMessage::BlockLegacy(_)
             | PeerMessage::BlockHeaders(_)
-            | PeerMessage::BlockHeadersLegacy(_)
             | PeerMessage::Transaction(_)
             | PeerMessage::Challenge(_) => true,
             PeerMessage::Routed(r) => match r.body {

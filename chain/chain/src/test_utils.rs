@@ -15,7 +15,7 @@ use near_primitives::account::{AccessKey, Account};
 use near_primitives::challenge::ChallengesResult;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::{hash, CryptoHash};
-use near_primitives::protocol_version::PROTOCOL_VERSION;
+use near_primitives::protocol_version::{ProtocolVersion, PROTOCOL_VERSION};
 use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum};
 use near_primitives::serialize::to_base;
 use near_primitives::sharding::ShardChunkHeader;
@@ -882,6 +882,10 @@ impl RuntimeAdapter for KeyValueRuntime {
 
     fn get_epoch_minted_amount(&self, _epoch_id: &EpochId) -> Result<Balance, Error> {
         Ok(0)
+    }
+
+    fn get_epoch_protocol_version(&self, _epoch_id: &EpochId) -> Result<ProtocolVersion, Error> {
+        Ok(PROTOCOL_VERSION)
     }
 
     fn get_validator_info(&self, _block_hash: &CryptoHash) -> Result<EpochValidatorInfo, Error> {

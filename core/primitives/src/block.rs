@@ -19,31 +19,6 @@ use crate::types::{Balance, BlockHeight, EpochId, Gas, NumShards, StateRoot};
 use crate::utils::to_timestamp;
 use crate::validator_signer::{EmptyValidatorSigner, ValidatorSigner};
 
-/// Legacy Block before BlockHeader were updatable.
-/// TOOD(2713): Delete after move past version 14.
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, Eq, PartialEq)]
-pub struct LegacyBlock {
-    pub header: BlockHeaderV1,
-    pub chunks: Vec<ShardChunkHeader>,
-    pub challenges: Challenges,
-
-    // Data to confirm the correctness of randomness beacon output
-    pub vrf_value: near_crypto::vrf::Value,
-    pub vrf_proof: near_crypto::vrf::Proof,
-}
-
-impl From<LegacyBlock> for Block {
-    fn from(block: LegacyBlock) -> Self {
-        Self {
-            header: BlockHeader::BlockHeaderV1(block.header),
-            chunks: block.chunks,
-            challenges: block.challenges,
-            vrf_proof: block.vrf_proof,
-            vrf_value: block.vrf_value,
-        }
-    }
-}
-
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, Eq, PartialEq)]
 pub struct Block {
     pub header: BlockHeader,
@@ -94,6 +69,7 @@ pub fn genesis_chunks(
 impl Block {
     /// Returns genesis block for given genesis date and state root.
     pub fn genesis(
+        genesis_protocol_version: ProtocolVersion,
         chunks: Vec<ShardChunkHeader>,
         timestamp: DateTime<Utc>,
         height: BlockHeight,
@@ -104,6 +80,7 @@ impl Block {
         let challenges = vec![];
         Block {
             header: BlockHeader::genesis(
+                genesis_protocol_version,
                 height,
                 Block::compute_state_root(&chunks),
                 Block::compute_chunk_receipts_root(&chunks),
