@@ -62,28 +62,38 @@ impl StoreValidator {
             _ => format!("{:?}", key),
         }
     }
+    fn validate_col(&mut self, col: DBCol) {
+        for (key, value) in self.store.clone().iter(col) {
+            match col {
+                DBCol::ColBlockHeader => {
+                    // Block Header Hash is valid
+                    self.check(&validate::block_header_validity, &key, &value, col);
+                }
+                DBCol::ColBlock => {
+                    // Block Hash is valid
+                    self.check(&validate::block_hash_validity, &key, &value, col);
+                    // Block Header for current Block exists
+                    self.check(&validate::block_header_exists, &key, &value, col);
+                    // Block Height is greater or equal to tail, or to Genesis Height
+                    self.check(&validate::block_height_cmp_tail, &key, &value, col);
+                    // Chunks for current Block exist
+                    self.check(&validate::block_chunks_exist, &key, &value, col);
+                }
+                DBCol::ColChunks => {
+                    // Chunk Hash is valid
+                    self.check(&validate::chunk_basic_validity, &key, &value, col);
+                    // There is a State Root in the Trie
+                    self.check(&validate::chunks_state_roots_in_trie, &key, &value, col);
+                }
+                _ => unimplemented!(),
+            }
+        }
+    }
     pub fn validate(&mut self) {
         self.check(&validate::nothing, &[0], &[0], DBCol::ColBlockMisc);
-        for (key, value) in self.store.clone().iter(DBCol::ColBlockHeader) {
-            // Block Header Hash is valid
-            self.check(&validate::block_header_validity, &key, &value, DBCol::ColBlockHeader);
-        }
-        for (key, value) in self.store.clone().iter(DBCol::ColBlock) {
-            // Block Hash is valid
-            self.check(&validate::block_hash_validity, &key, &value, DBCol::ColBlock);
-            // Block Header for current Block exists
-            self.check(&validate::block_header_exists, &key, &value, DBCol::ColBlock);
-            // Block Height is greater or equal to tail, or to Genesis Height
-            self.check(&validate::block_height_cmp_tail, &key, &value, DBCol::ColBlock);
-        }
-        for (key, value) in self.store.clone().iter(DBCol::ColChunks) {
-            // Chunk Hash is valid
-            self.check(&validate::chunk_hash_validity, &key, &value, DBCol::ColChunks);
-            // Block for current Chunk exists
-            self.check(&validate::block_of_chunk_exists, &key, &value, DBCol::ColChunks);
-            // There is a State Root in the Trie
-            self.check(&validate::chunks_state_roots_in_trie, &key, &value, DBCol::ColChunks);
-        }
+        self.validate_col(DBCol::ColBlockHeader);
+        self.validate_col(DBCol::ColBlock);
+        self.validate_col(DBCol::ColChunks);
     }
 
     fn check(
