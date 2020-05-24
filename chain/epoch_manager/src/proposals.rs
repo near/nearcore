@@ -1,19 +1,20 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::iter;
 
+use near_primitives::errors::EpochError;
 use near_primitives::types::{
     AccountId, Balance, NumSeats, ValidatorId, ValidatorKickoutReason, ValidatorStake,
 };
 
-use crate::types::{EpochConfig, EpochError, EpochInfo, RngSeed};
+use crate::types::{EpochConfig, EpochInfo, RngSeed};
 
 /// Find threshold of stake per seat, given provided stakes and required number of seats.
 fn find_threshold(stakes: &[Balance], num_seats: NumSeats) -> Result<Balance, EpochError> {
-    let stakes_sum: Balance = stakes.iter().sum();
-    if stakes_sum < num_seats.into() {
-        return Err(EpochError::ThresholdError(stakes_sum, num_seats));
+    let stake_sum: Balance = stakes.iter().sum();
+    if stake_sum < num_seats.into() {
+        return Err(EpochError::ThresholdError { stake_sum, num_seats });
     }
-    let (mut left, mut right): (Balance, Balance) = (1, stakes_sum + 1);
+    let (mut left, mut right): (Balance, Balance) = (1, stake_sum + 1);
     'outer: loop {
         if left == right - 1 {
             break Ok(left);

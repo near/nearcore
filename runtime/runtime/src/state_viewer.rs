@@ -10,7 +10,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::serialize::to_base64;
 use near_primitives::trie_key::trie_key_parsers;
 use near_primitives::types::EpochHeight;
-use near_primitives::types::{AccountId, BlockHeight};
+use near_primitives::types::{AccountId, BlockHeight, EpochId, EpochInfoProvider};
 use near_primitives::utils::is_valid_account_id;
 use near_primitives::views::{StateItem, ViewStateResult};
 use near_runtime_fees::RuntimeFeesConfig;
@@ -88,11 +88,14 @@ impl TrieViewer {
         mut state_update: TrieUpdate,
         block_height: BlockHeight,
         block_timestamp: u64,
+        last_block_hash: &CryptoHash,
         epoch_height: EpochHeight,
+        epoch_id: &EpochId,
         contract_id: &AccountId,
         method_name: &str,
         args: &[u8],
         logs: &mut Vec<String>,
+        epoch_info_provider: &dyn EpochInfoProvider,
     ) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
         let now = Instant::now();
         if !is_valid_account_id(contract_id) {
@@ -116,6 +119,9 @@ impl TrieViewer {
                 &public_key,
                 0,
                 &empty_hash,
+                epoch_id,
+                last_block_hash,
+                epoch_info_provider,
             );
 
             let context = VMContext {
@@ -183,6 +189,7 @@ mod tests {
     };
 
     use super::*;
+    use near_primitives::test_utils::MockEpochInfoProvider;
 
     #[test]
     fn test_view_call() {
@@ -193,11 +200,14 @@ mod tests {
             root,
             1,
             1,
+            &CryptoHash::default(),
             0,
+            &EpochId::default(),
             &AccountId::from("test.contract"),
             "run_test",
             &[],
             &mut logs,
+            &MockEpochInfoProvider::default(),
         );
 
         assert_eq!(result.unwrap(), encode_int(10));
@@ -212,11 +222,14 @@ mod tests {
             root,
             1,
             1,
+            &CryptoHash::default(),
             0,
+            &EpochId::default(),
             &"bad!contract".to_string(),
             "run_test",
             &[],
             &mut logs,
+            &MockEpochInfoProvider::default(),
         );
 
         let err = result.unwrap_err();
@@ -235,11 +248,14 @@ mod tests {
             root,
             1,
             1,
+            &CryptoHash::default(),
             0,
+            &EpochId::default(),
             &AccountId::from("test.contract"),
             "run_test_with_storage_change",
             &[],
             &mut logs,
+            &MockEpochInfoProvider::default(),
         );
         let err = result.unwrap_err();
         assert!(
@@ -257,11 +273,14 @@ mod tests {
             root,
             1,
             1,
+            &CryptoHash::default(),
             0,
+            &EpochId::default(),
             &AccountId::from("test.contract"),
             "sum_with_input",
             &args,
             &mut logs,
+            &MockEpochInfoProvider::default(),
         );
         assert_eq!(view_call_result.unwrap(), 3u64.to_le_bytes().to_vec());
     }
@@ -333,11 +352,14 @@ mod tests {
                 root,
                 1,
                 1,
+                &CryptoHash::default(),
                 0,
+                &EpochId::default(),
                 &AccountId::from("test.contract"),
                 "panic_after_logging",
                 &[],
                 &mut logs,
+                &MockEpochInfoProvider::default(),
             )
             .unwrap_err();
 

@@ -20,8 +20,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{Receipt, ReceivedData};
 use near_primitives::serialize::to_base;
 use near_primitives::trie_key::{trie_key_parsers, TrieKey};
-use near_primitives::types::AccountId;
-pub use validate::StoreValidator;
+use near_primitives::types::{AccountId, DbVersion};
 
 use crate::db::{DBOp, DBTransaction, Database, RocksDB};
 pub use crate::trie::{
@@ -33,7 +32,6 @@ pub use crate::trie::{
 mod db;
 pub mod test_utils;
 mod trie;
-mod validate;
 
 pub struct Store {
     storage: Arc<dyn Database>,
@@ -202,12 +200,8 @@ impl StoreUpdate {
                     .ops
                     .iter()
                     .map(|op| match op {
-                        DBOp::Insert { col, key, .. } => {
-                            (*col as u8, key)
-                        }
-                        DBOp::Delete { col, key } => {
-                            (*col as u8, key)
-                        }
+                        DBOp::Insert { col, key, .. } => (*col as u8, key),
+                        DBOp::Delete { col, key } => (*col as u8, key),
                     })
                     .collect::<std::collections::HashSet<_>>()
                     .len(),
@@ -253,6 +247,10 @@ pub fn read_with_cache<'a, T: BorshDeserialize + 'a>(
         return Ok(cache.cache_get(&key_vec));
     }
     Ok(None)
+}
+
+pub fn get_store_version(path: &str) -> DbVersion {
+    RocksDB::get_version(path).expect("Failed to open the database")
 }
 
 pub fn create_store(path: &str) -> Arc<Store> {

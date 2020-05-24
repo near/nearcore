@@ -1,11 +1,14 @@
-use rocksdb::{
-    BlockBasedOptions, ColumnFamily, ColumnFamilyDescriptor, Direction, IteratorMode, Options,
-    ReadOptions, WriteBatch, DB,
-};
 use std::cmp;
 use std::collections::HashMap;
 use std::io;
 use std::sync::RwLock;
+
+use rocksdb::{
+    BlockBasedOptions, ColumnFamily, ColumnFamilyDescriptor, Direction, IteratorMode, Options,
+    ReadOptions, WriteBatch, DB,
+};
+
+use near_primitives::types::DbVersion;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct DBError(rocksdb::Error);
@@ -32,64 +35,67 @@ impl Into<io::Error> for DBError {
 
 #[derive(PartialEq, Debug, Copy, Clone)]
 pub enum DBCol {
-    ColBlockMisc = 0,
-    ColBlock = 1,
-    ColBlockHeader = 2,
-    ColBlockHeight = 3,
-    ColState = 4,
-    ColChunkExtra = 5,
-    ColTransactionResult = 6,
-    ColOutgoingReceipts = 7,
-    ColIncomingReceipts = 8,
-    ColPeers = 9,
-    ColEpochInfo = 10,
-    ColBlockInfo = 11,
-    ColChunks = 12,
-    ColPartialChunks = 13,
+    /// Column to indicate which version of database this is.
+    ColDbVersion = 0,
+    ColBlockMisc = 1,
+    ColBlock = 2,
+    ColBlockHeader = 3,
+    ColBlockHeight = 4,
+    ColState = 5,
+    ColChunkExtra = 6,
+    ColTransactionResult = 7,
+    ColOutgoingReceipts = 8,
+    ColIncomingReceipts = 9,
+    ColPeers = 10,
+    ColEpochInfo = 11,
+    ColBlockInfo = 12,
+    ColChunks = 13,
+    ColPartialChunks = 14,
     /// Blocks for which chunks need to be applied after the state is downloaded for a particular epoch
-    ColBlocksToCatchup = 14,
+    ColBlocksToCatchup = 15,
     /// Blocks for which the state is being downloaded
-    ColStateDlInfos = 15,
-    ColChallengedBlocks = 16,
-    ColStateHeaders = 17,
-    ColInvalidChunks = 18,
-    ColBlockExtra = 19,
+    ColStateDlInfos = 16,
+    ColChallengedBlocks = 17,
+    ColStateHeaders = 18,
+    ColInvalidChunks = 19,
+    ColBlockExtra = 20,
     /// Store hash of a block per each height, to detect double signs.
-    ColBlockPerHeight = 20,
-    ColStateParts = 21,
-    ColEpochStart = 22,
+    ColBlockPerHeight = 21,
+    ColStateParts = 22,
+    ColEpochStart = 23,
     /// Map account_id to announce_account
-    ColAccountAnnouncements = 23,
+    ColAccountAnnouncements = 24,
     /// Next block hashes in the sequence of the canonical chain blocks
-    ColNextBlockHashes = 24,
+    ColNextBlockHashes = 25,
     /// `LightClientBlock`s corresponding to the last final block of each completed epoch
-    ColEpochLightClientBlocks = 25,
-    ColReceiptIdToShardId = 26,
-    ColNextBlockWithNewChunk = 27,
-    ColLastBlockWithNewChunk = 28,
+    ColEpochLightClientBlocks = 26,
+    ColReceiptIdToShardId = 27,
+    ColNextBlockWithNewChunk = 28,
+    ColLastBlockWithNewChunk = 29,
     /// Map each saved peer on disk with its component id.
-    ColPeerComponent = 29,
+    ColPeerComponent = 30,
     /// Map component id with all edges in this component.
-    ColComponentEdges = 30,
+    ColComponentEdges = 31,
     /// Biggest nonce used.
-    LastComponentNonce = 31,
+    LastComponentNonce = 32,
     /// Transactions
-    ColTransactions = 32,
-    ColChunkPerHeightShard = 33,
+    ColTransactions = 33,
+    ColChunkPerHeightShard = 34,
     /// Changes to key-values that we have recorded.
-    ColStateChanges = 34,
-    ColBlockRefCount = 35,
-    ColTrieChanges = 36,
+    ColStateChanges = 35,
+    ColBlockRefCount = 36,
+    ColTrieChanges = 37,
     /// Merkle tree of block hashes
-    ColBlockMerkleTree = 37,
+    ColBlockMerkleTree = 38,
 }
 
 // Do not move this line from enum DBCol
-const NUM_COLS: usize = 38;
+const NUM_COLS: usize = 39;
 
 impl std::fmt::Display for DBCol {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
         let desc = match self {
+            Self::ColDbVersion => "db version",
             Self::ColBlockMisc => "miscellaneous block data",
             Self::ColBlock => "block data",
             Self::ColBlockHeader => "block header data",
@@ -139,6 +145,7 @@ pub const SYNC_HEAD_KEY: &[u8; 9] = b"SYNC_HEAD";
 pub const HEADER_HEAD_KEY: &[u8; 11] = b"HEADER_HEAD";
 pub const LATEST_KNOWN_KEY: &[u8; 12] = b"LATEST_KNOWN";
 pub const LARGEST_TARGET_HEIGHT_KEY: &[u8; 21] = b"LARGEST_TARGET_HEIGHT";
+pub const VERSION_KEY: &[u8; 7] = b"VERSION";
 
 pub struct DBTransaction {
     pub ops: Vec<DBOp>,
@@ -328,9 +335,22 @@ fn rocksdb_column_options() -> Options {
 }
 
 impl RocksDB {
-    pub fn new<P: AsRef<std::path::Path>>(path: P) -> Result<Self, DBError> {
+    /// Returns version of the database on the disk.
+    pub fn get_version<P: AsRef<std::path::Path>>(path: P) -> Result<DbVersion, DBError> {
+        // Read one column first with version.
+        let db = RocksDB::init_db(path, 1)?;
+        db.get(DBCol::ColDbVersion, VERSION_KEY).map(|result| {
+            serde_json::from_slice(
+                &result
+                    .expect("Failed to find version in first column. Database must be corrupted."),
+            )
+            .expect("Failed to parse version. Database must be corrupted.")
+        })
+    }
+
+    fn init_db<P: AsRef<std::path::Path>>(path: P, num_cols: usize) -> Result<Self, DBError> {
         let options = rocksdb_options();
-        let cf_names: Vec<_> = (0..NUM_COLS).map(|col| format!("col{}", col)).collect();
+        let cf_names: Vec<_> = (0..num_cols).map(|col| format!("col{}", col)).collect();
         let cf_descriptors = cf_names
             .iter()
             .map(|cf_name| ColumnFamilyDescriptor::new(cf_name, rocksdb_column_options()));
@@ -343,6 +363,10 @@ impl RocksDB {
             })
             .collect();
         Ok(Self { db, cfs, read_options: rocksdb_read_options() })
+    }
+
+    pub fn new<P: AsRef<std::path::Path>>(path: P) -> Result<Self, DBError> {
+        RocksDB::init_db(path, NUM_COLS)
     }
 }
 

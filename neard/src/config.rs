@@ -7,12 +7,12 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use chrono::Utc;
-use lazy_static::lazy_static;
 use log::info;
 use num_rational::Rational;
 use serde::{Deserialize, Serialize};
 
-use near_chain_configs::{ClientConfig, Genesis, GenesisConfig, GENESIS_CONFIG_VERSION};
+use lazy_static::lazy_static;
+use near_chain_configs::{ClientConfig, Genesis, GenesisConfig};
 use near_crypto::{InMemorySigner, KeyFile, KeyType, PublicKey, Signer};
 use near_jsonrpc::RpcConfig;
 use near_network::test_utils::open_port;
@@ -24,7 +24,8 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::protocol_version::PROTOCOL_VERSION;
 use near_primitives::state_record::StateRecord;
 use near_primitives::types::{
-    AccountId, AccountInfo, Balance, BlockHeightDelta, Gas, NumBlocks, NumSeats, NumShards, ShardId,
+    AccountId, AccountInfo, Balance, BlockHeightDelta, EpochHeight, Gas, NumBlocks, NumSeats,
+    NumShards, ShardId,
 };
 use near_primitives::utils::{generate_random_string, get_num_seats_per_shard};
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
@@ -118,6 +119,9 @@ pub const NUM_BLOCK_PRODUCER_SEATS: NumSeats = 50;
 /// How much height horizon to give to consider peer up to date.
 pub const HIGHEST_PEER_HORIZON: u64 = 5;
 
+/// Number of epochs before protocol upgrade.
+pub const PROTOCOL_UPGRADE_NUM_EPOCHS: EpochHeight = 2;
+
 pub const CONFIG_FILENAME: &str = "config.json";
 pub const GENESIS_CONFIG_FILENAME: &str = "genesis.json";
 pub const NODE_KEY_FILE: &str = "node_key.json";
@@ -137,6 +141,9 @@ lazy_static! {
 
     /// Maximum inflation rate per year
     pub static ref MAX_INFLATION_RATE: Rational = Rational::new(5, 100);
+
+    /// Protocol upgrade stake threshold.
+    pub static ref PROTOCOL_UPGRADE_STAKE_THRESHOLD: Rational = Rational::new(8, 10);
 }
 
 /// Maximum number of active peers. Hard limit.
@@ -421,13 +428,14 @@ impl Genesis {
         add_protocol_account(&mut records);
         let config = GenesisConfig {
             protocol_version: PROTOCOL_VERSION,
-            config_version: GENESIS_CONFIG_VERSION,
             genesis_time: Utc::now(),
             chain_id: random_chain_id(),
             num_block_producer_seats: num_validator_seats,
             num_block_producer_seats_per_shard: num_validator_seats_per_shard.clone(),
             avg_hidden_validator_seats_per_shard: vec![0; num_validator_seats_per_shard.len()],
             dynamic_resharding: false,
+            protocol_upgrade_stake_threshold: *PROTOCOL_UPGRADE_STAKE_THRESHOLD,
+            protocol_upgrade_num_epochs: PROTOCOL_UPGRADE_NUM_EPOCHS,
             epoch_length: FAST_EPOCH_LENGTH,
             gas_limit: INITIAL_GAS_LIMIT,
             gas_price_adjustment_rate: *GAS_PRICE_ADJUSTMENT_RATE,
@@ -636,7 +644,7 @@ pub fn init_configs(
     chain_id: Option<&str>,
     account_id: Option<&str>,
     test_seed: Option<&str>,
-    num_shards: ShardId,
+    num_shards: NumShards,
     fast: bool,
     genesis: Option<&str>,
 ) {
@@ -737,7 +745,6 @@ pub fn init_configs(
 
             let genesis_config = GenesisConfig {
                 protocol_version: PROTOCOL_VERSION,
-                config_version: GENESIS_CONFIG_VERSION,
                 genesis_time: Utc::now(),
                 chain_id,
                 genesis_height: 0,
@@ -748,6 +755,8 @@ pub fn init_configs(
                 ),
                 avg_hidden_validator_seats_per_shard: (0..num_shards).map(|_| 0).collect(),
                 dynamic_resharding: false,
+                protocol_upgrade_stake_threshold: *PROTOCOL_UPGRADE_STAKE_THRESHOLD,
+                protocol_upgrade_num_epochs: PROTOCOL_UPGRADE_NUM_EPOCHS,
                 epoch_length: if fast { FAST_EPOCH_LENGTH } else { EXPECTED_EPOCH_LENGTH },
                 gas_limit: INITIAL_GAS_LIMIT,
                 gas_price_adjustment_rate: *GAS_PRICE_ADJUSTMENT_RATE,
@@ -923,6 +932,5 @@ mod test {
         let genesis_config_str = include_str!("../res/genesis_config.json");
         let genesis_config = GenesisConfig::from_json(&genesis_config_str);
         assert_eq!(genesis_config.protocol_version, PROTOCOL_VERSION);
-        assert_eq!(genesis_config.config_version, GENESIS_CONFIG_VERSION);
     }
 }

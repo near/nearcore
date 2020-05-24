@@ -16,11 +16,10 @@ use near_primitives::protocol_version::{ProtocolVersion, PROTOCOL_VERSION};
 use near_primitives::serialize::{u128_dec_format, u128_dec_format_compatible};
 use near_primitives::state_record::StateRecord;
 use near_primitives::types::{
-    AccountId, AccountInfo, Balance, BlockHeight, BlockHeightDelta, Gas, NumBlocks, NumSeats,
+    AccountId, AccountInfo, Balance, BlockHeight, BlockHeightDelta, EpochHeight, Gas, NumBlocks,
+    NumSeats,
 };
 use near_runtime_configs::RuntimeConfig;
-
-pub const CONFIG_VERSION: u32 = 1;
 
 fn default_online_min_threshold() -> Rational {
     Rational::new(90, 100)
@@ -30,12 +29,12 @@ fn default_online_max_threshold() -> Rational {
     Rational::new(99, 100)
 }
 
+fn default_protocol_upgrade_stake_threshold() -> Rational {
+    Rational::new(8, 10)
+}
+
 #[derive(Debug, Clone, SmartDefault, Serialize, Deserialize)]
 pub struct GenesisConfig {
-    /// This is a version of a genesis config structure this version of binary works with.
-    /// If the binary tries to load a JSON config with a different version it will panic.
-    /// It's not a major protocol version, but used for automatic config migrations using scripts.
-    pub config_version: u32,
     /// Protocol version that this genesis works with.
     pub protocol_version: ProtocolVersion,
     /// Official time of blockchain start.
@@ -54,6 +53,12 @@ pub struct GenesisConfig {
     pub avg_hidden_validator_seats_per_shard: Vec<NumSeats>,
     /// Enable dynamic re-sharding.
     pub dynamic_resharding: bool,
+    /// Threshold of stake that needs to indicate that they ready for upgrade.
+    #[serde(default = "default_protocol_upgrade_stake_threshold")]
+    #[default(Rational::new(8, 10))]
+    pub protocol_upgrade_stake_threshold: Rational,
+    /// Number of epochs after stake threshold was achieved to start next prtocol version.
+    pub protocol_upgrade_num_epochs: EpochHeight,
     /// Epoch length counted in block heights.
     pub epoch_length: BlockHeightDelta,
     /// Initial gas limit.

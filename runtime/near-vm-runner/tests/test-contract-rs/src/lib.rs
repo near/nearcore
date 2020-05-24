@@ -141,6 +141,11 @@ extern "C" {
     fn storage_iter_prefix(prefix_len: u64, prefix_ptr: u64) -> u64;
     fn storage_iter_range(start_len: u64, start_ptr: u64, end_len: u64, end_ptr: u64) -> u64;
     fn storage_iter_next(iterator_id: u64, key_register_id: u64, value_register_id: u64) -> u64;
+    // ###############
+    // # Validator API #
+    // ###############
+    fn validator_stake(account_id_len: u64, account_id_ptr: u64, stake_ptr: u64);
+    fn validator_total_stake(stake_ptr: u64);
 }
 
 macro_rules! ext_test {
@@ -192,6 +197,8 @@ ext_test!(ext_account_id, current_account_id);
 ext_test_u128!(ext_account_balance, account_balance);
 ext_test_u128!(ext_attached_deposit, attached_deposit);
 
+ext_test_u128!(ext_validator_total_stake, validator_total_stake);
+
 #[no_mangle]
 pub unsafe fn ext_sha256() {
     input(0);
@@ -200,6 +207,20 @@ pub unsafe fn ext_sha256() {
     sha256(bytes.len() as u64, bytes.as_ptr() as *const u64 as u64, 0);
     let result = vec![0; register_len(0) as usize];
     read_register(0, result.as_ptr() as *const u64 as u64);
+    value_return(result.len() as u64, result.as_ptr() as *const u64 as u64);
+}
+
+#[no_mangle]
+pub unsafe fn ext_validator_stake() {
+    input(0);
+    let account_id = vec![0; register_len(0) as usize];
+    read_register(0, account_id.as_ptr() as *const u64 as u64);
+    let result = [0u8; size_of::<u128>()];
+    validator_stake(
+        account_id.len() as u64,
+        account_id.as_ptr() as *const u64 as u64,
+        result.as_ptr() as *const u64 as u64,
+    );
     value_return(result.len() as u64, result.as_ptr() as *const u64 as u64);
 }
 

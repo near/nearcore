@@ -24,8 +24,8 @@ use near_primitives::transaction::{
     TransferAction,
 };
 use near_primitives::types::{
-    AccountId, ApprovalStake, Balance, BlockHeight, EpochId, Gas, Nonce, NumBlocks, ShardId,
-    StateRoot, StateRootNode, ValidatorStake, ValidatorStats,
+    AccountId, ApprovalStake, Balance, BlockHeight, EpochId, Gas, Nonce, NumBlocks, NumShards,
+    ShardId, StateRoot, StateRootNode, ValidatorStake, ValidatorStats,
 };
 use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_primitives::views::{
@@ -62,7 +62,7 @@ pub struct KeyValueRuntime {
     tries: ShardTries,
     validators: Vec<Vec<ValidatorStake>>,
     validator_groups: u64,
-    num_shards: ShardId,
+    num_shards: NumShards,
     epoch_length: u64,
 
     // A mapping state_root => {account id => amounts}, for transactions and receipts
@@ -77,7 +77,7 @@ pub struct KeyValueRuntime {
     epoch_start: RwLock<HashMap<CryptoHash, u64>>,
 }
 
-pub fn account_id_to_shard_id(account_id: &AccountId, num_shards: ShardId) -> ShardId {
+pub fn account_id_to_shard_id(account_id: &AccountId, num_shards: NumShards) -> ShardId {
     u64::from((hash(&account_id.clone().into_bytes()).0).0[0]) % num_shards
 }
 
@@ -102,7 +102,7 @@ impl KeyValueRuntime {
         store: Arc<Store>,
         validators: Vec<Vec<AccountId>>,
         validator_groups: u64,
-        num_shards: ShardId,
+        num_shards: NumShards,
         epoch_length: u64,
     ) -> Self {
         let tries = ShardTries::new(store.clone(), num_shards);
@@ -983,7 +983,7 @@ pub fn setup_with_tx_validity_period(
 pub fn setup_with_validators(
     validators: Vec<AccountId>,
     validator_groups: u64,
-    num_shards: ShardId,
+    num_shards: NumShards,
     epoch_length: u64,
     tx_validity_period: NumBlocks,
 ) -> (Chain, Arc<KeyValueRuntime>, Vec<Arc<InMemoryValidatorSigner>>) {

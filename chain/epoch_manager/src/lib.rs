@@ -6,6 +6,7 @@ use cached::{Cached, SizedCache};
 use log::{debug, warn};
 use primitive_types::U256;
 
+use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{
     AccountId, ApprovalStake, Balance, BlockChunkValidatorStats, BlockHeight, EpochId, ShardId,
@@ -18,9 +19,8 @@ use near_store::{ColBlockInfo, ColEpochInfo, ColEpochStart, Store, StoreUpdate};
 
 use crate::proposals::proposals_to_epoch_info;
 pub use crate::reward_calculator::RewardCalculator;
-use crate::types::EpochError::EpochOutOfBounds;
 use crate::types::EpochSummary;
-pub use crate::types::{BlockInfo, EpochConfig, EpochError, EpochInfo, RngSeed, SlashState};
+pub use crate::types::{BlockInfo, EpochConfig, EpochInfo, RngSeed, SlashState};
 
 mod proposals;
 mod reward_calculator;
@@ -258,9 +258,10 @@ impl EpochManager {
         account_id: &AccountId,
     ) -> Result<ValidatorStats, EpochError> {
         let epoch_info = self.get_epoch_info(&epoch_id)?;
-        let validator_id = *epoch_info.validator_to_index.get(account_id).ok_or_else(|| {
-            EpochError::Other(format!("{} is not a validator in epoch {:?}", account_id, epoch_id))
-        })?;
+        let validator_id = *epoch_info
+            .validator_to_index
+            .get(account_id)
+            .ok_or_else(|| EpochError::NotAValidator(account_id.clone(), epoch_id.clone()))?;
         let block_info = self.get_block_info(last_known_block_hash)?.clone();
         let validator_stats = block_info
             .block_tracker
@@ -309,8 +310,8 @@ impl EpochManager {
             minted_amount,
         ) {
             Ok(next_next_epoch_info) => next_next_epoch_info,
-            Err(EpochError::ThresholdError(amount, num_seats)) => {
-                warn!(target: "epoch_manager", "Not enough stake for required number of seats (all validators tried to unstake?): amount = {} for {}", amount, num_seats);
+            Err(EpochError::ThresholdError { stake_sum, num_seats }) => {
+                warn!(target: "epoch_manager", "Not enough stake for required number of seats (all validators tried to unstake?): amount = {} for {}", stake_sum, num_seats);
                 let mut epoch_info = next_epoch_info.clone();
                 epoch_info.epoch_height += 1;
                 epoch_info
@@ -873,7 +874,7 @@ impl EpochManager {
             (Ok(index1), Ok(index2)) => Ok(index1.cmp(&index2)),
             (Ok(_), Err(_)) => self.get_epoch_info(other_epoch_id).map(|_| Ordering::Less),
             (Err(_), Ok(_)) => self.get_epoch_info(epoch_id).map(|_| Ordering::Greater),
-            (Err(_), Err(_)) => Err(EpochOutOfBounds),
+            (Err(_), Err(_)) => Err(EpochError::EpochOutOfBounds),
         }
     }
 }
@@ -995,7 +996,7 @@ impl EpochManager {
 
     /// Get BlockInfo for a block
     /// # Errors
-    /// EpochError::Other if storage returned an error
+    /// EpochError::IOErr if storage returned an error
     /// EpochError::MissingBlock if block is not in storage
     pub fn get_block_info(&mut self, hash: &CryptoHash) -> Result<&BlockInfo, EpochError> {
         if self.blocks_info.cache_get(hash).is_none() {

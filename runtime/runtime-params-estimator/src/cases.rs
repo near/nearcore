@@ -608,6 +608,9 @@ fn get_ext_costs_config(measurement: &Measurements) -> ExtCostsConfig {
         promise_and_base: measured_to_gas(metric, &measured, promise_and_base),
         promise_and_per_promise: measured_to_gas(metric, &measured, promise_and_per_promise),
         promise_return: measured_to_gas(metric, &measured, promise_return),
+        // TODO: accurately price host functions that expose validator information.
+        validator_stake_base: measured_to_gas(metric, &measured, validator_stake_base),
+        validator_total_stake_base: measured_to_gas(metric, &measured, validator_total_stake_base),
     }
 }
 
@@ -617,7 +620,8 @@ fn get_vm_config(measurement: &Measurements) -> VMConfig {
         // TODO: Figure out whether we need this fee at all. If we do what should be the memory
         // growth cost.
         grow_mem_cost: 1,
-        regular_op_cost: cost_per_op(measurement.gas_metric) as u32,
+        regular_op_cost: ratio_to_gas(measurement.gas_metric, cost_per_op(measurement.gas_metric))
+            as u32,
         limit_config: VMLimitConfig::default(),
     }
 }

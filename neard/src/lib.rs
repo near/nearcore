@@ -9,7 +9,7 @@ use near_chain::ChainGenesis;
 use near_client::{ClientActor, ViewClientActor};
 use near_jsonrpc::start_http;
 use near_network::{NetworkRecipient, PeerManagerActor};
-use near_store::create_store;
+use near_store::{create_store, get_store_version};
 use near_telemetry::TelemetryActor;
 use tracing::trace;
 
@@ -52,7 +52,10 @@ pub fn start_with_config(
     home_dir: &Path,
     config: NearConfig,
 ) -> (Addr<ClientActor>, Addr<ViewClientActor>) {
-    let store = create_store(&get_store_path(home_dir));
+    let path = get_store_path(home_dir);
+    let _db_version = get_store_version(&path);
+    // TODO: add migrations & other stuff here based on `db_version`.
+    let store = create_store(&path);
     near_actix_utils::init_stop_on_panic();
     let runtime = Arc::new(NightshadeRuntime::new(
         home_dir,

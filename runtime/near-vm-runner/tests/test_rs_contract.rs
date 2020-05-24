@@ -1,7 +1,7 @@
 use near_runtime_fees::RuntimeFeesConfig;
 use near_vm_errors::FunctionCallError;
 use near_vm_logic::mocks::mock_external::MockedExternal;
-use near_vm_logic::types::ReturnData;
+use near_vm_logic::types::{Balance, ReturnData};
 use near_vm_logic::{VMConfig, VMContext, VMOutcome};
 use near_vm_runner::{run, VMError};
 use std::mem::size_of;
@@ -82,23 +82,30 @@ pub fn test_read_write() {
 }
 
 macro_rules! def_test_ext {
+    ($name:ident, $method:expr, $expected:expr, $input:expr, $validator:expr) => {
+        #[test]
+        pub fn $name() {
+            run_test_ext($method, $expected, $input, $validator)
+        }
+    };
     ($name:ident, $method:expr, $expected:expr, $input:expr) => {
         #[test]
         pub fn $name() {
-            run_test_ext($method, $expected, $input)
+            run_test_ext($method, $expected, $input, vec![])
         }
     };
     ($name:ident, $method:expr, $expected:expr) => {
         #[test]
         pub fn $name() {
-            run_test_ext($method, $expected, &[])
+            run_test_ext($method, $expected, &[], vec![])
         }
     };
 }
 
-fn run_test_ext(method: &[u8], expected: &[u8], input: &[u8]) {
+fn run_test_ext(method: &[u8], expected: &[u8], input: &[u8], validators: Vec<(&str, Balance)>) {
     let code = &TEST_CONTRACT;
     let mut fake_external = MockedExternal::new();
+    fake_external.validators = validators.into_iter().map(|(s, b)| (s.to_string(), b)).collect();
     let config = VMConfig::default();
     let fees = RuntimeFeesConfig::default();
     let context = create_context(&input);
@@ -151,6 +158,36 @@ def_test_ext!(
 // current_account_balance = context.account_balance + context.attached_deposit;
 def_test_ext!(ext_account_balance, b"ext_account_balance", &(2u128 + 2).to_le_bytes());
 def_test_ext!(ext_attached_deposit, b"ext_attached_deposit", &2u128.to_le_bytes());
+
+def_test_ext!(
+    ext_validator_stake_alice,
+    b"ext_validator_stake",
+    &(100u128).to_le_bytes(),
+    b"alice",
+    vec![("alice", 100), ("bob", 1)]
+);
+def_test_ext!(
+    ext_validator_stake_bob,
+    b"ext_validator_stake",
+    &(1u128).to_le_bytes(),
+    b"bob",
+    vec![("alice", 100), ("bob", 1)]
+);
+def_test_ext!(
+    ext_validator_stake_carol,
+    b"ext_validator_stake",
+    &(0u128).to_le_bytes(),
+    b"carol",
+    vec![("alice", 100), ("bob", 1)]
+);
+
+def_test_ext!(
+    ext_validator_total_stake,
+    b"ext_validator_total_stake",
+    &(100u128 + 1).to_le_bytes(),
+    &[],
+    vec![("alice", 100), ("bob", 1)]
+);
 
 #[test]
 pub fn test_out_of_memory() {
