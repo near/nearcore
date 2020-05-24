@@ -124,9 +124,10 @@ pub(crate) fn chunk_basic_validity(
     if shard_chunk.chunk_hash != chunk_hash {
         return err!("Invalid ShardChunk {:?} stored", shard_chunk);
     }
-    if shard_chunk.header.inner.height_created == 0 {
+    // TODO #2597
+    /*if shard_chunk.header.inner.height_created == 0 {
         return err!("Invalid ShardChunk {:?} stored, height_created == 0", shard_chunk);
-    }
+    }*/
     Ok(())
 }
 
@@ -245,6 +246,10 @@ pub(crate) fn chunk_of_height_exists(
 ) -> Result<(), ErrorMessage> {
     let height: BlockHeight =
         unwrap_or_err!(BlockHeight::try_from_slice(key), "Can't deserialize Height");
+    if height == 0 {
+        // TODO #2597
+        return Ok(());
+    }
     let chunk_hashes: HashSet<ChunkHash> =
         unwrap_or_err!(HashSet::<ChunkHash>::try_from_slice(value), "Can't deserialize Set");
     for chunk_hash in chunk_hashes {
