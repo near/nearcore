@@ -1,3 +1,4 @@
+use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 use std::convert::TryFrom;
 use std::io;
@@ -997,6 +998,7 @@ struct ChainStoreCacheUpdate {
     block_extras: HashMap<CryptoHash, BlockExtra>,
     chunk_extras: HashMap<(CryptoHash, ShardId), ChunkExtra>,
     chunks: HashMap<ChunkHash, ShardChunk>,
+    removed_chunks: HashMap<ChunkHash, BlockHeight>,
     partial_chunks: HashMap<ChunkHash, PartialEncodedChunk>,
     block_hash_per_height: HashMap<BlockHeight, HashMap<EpochId, HashSet<CryptoHash>>>,
     chunk_hash_per_height_shard: HashMap<(BlockHeight, ShardId), ChunkHash>,
@@ -1025,6 +1027,7 @@ impl ChainStoreCacheUpdate {
             block_extras: Default::default(),
             chunk_extras: HashMap::default(),
             chunks: Default::default(),
+            removed_chunks: Default::default(),
             partial_chunks: Default::default(),
             block_hash_per_height: HashMap::default(),
             chunk_hash_per_height_shard: HashMap::default(),
@@ -1922,6 +1925,10 @@ impl<'a> ChainStoreUpdate<'a> {
             // 3d. Delete invalid chunks (ColInvalidChunks)
             store_update.delete(ColInvalidChunks, chunk_header_hash_ref);
             self.chain_store.invalid_chunks.cache_remove(&chunk_header_hash);
+            // 3e. Delete Chunk Hash from ColChunkHashesByHeight
+            self.chain_store_cache_update
+                .removed_chunks
+                .insert(chunk_header.hash.clone(), chunk_header.inner.height_created);
         }
 
         // 4. Delete block_hash-indexed data
@@ -1980,14 +1987,19 @@ impl<'a> ChainStoreUpdate<'a> {
                 store_update.delete(ColBlockPerHeight, &index_to_bytes(height));
                 self.chain_store.block_hash_per_height.cache_remove(&index_to_bytes(height));
                 // 6b. Delete from ColBlockHeight - don't do because: block sync needs it + genesis should be accessible
-                // 6c. Delete Chunks that are too old to be included
                 let chunk_hashes = self.get_all_chunk_hashes_by_height(height)?;
                 for chunk_hash in chunk_hashes {
-                    store_update.delete(ColChunks, chunk_hash.as_ref());
-                    self.chain_store.chunks.cache_remove(&chunk_hash.into());
+                    if let Ok(chunk) = self.get_chunk(&chunk_hash.clone()) {
+                        // 6c. Delete Chunks that are too old to be included from ColChunks and ColChunkHashesByHeight
+                        if chunk.header.height_included == 0 {
+                            self.chain_store.chunks.cache_remove(&chunk_hash.clone().into());
+                            self.chain_store_cache_update
+                                .removed_chunks
+                                .insert(chunk_hash.clone(), height);
+                            store_update.delete(ColChunks, chunk_hash.as_ref());
+                        }
+                    }
                 }
-                // 6d. Delete from ColChunkHashesByHeight
-                store_update.delete(ColChunkHashesByHeight, &index_to_bytes(height));
             }
         };
         self.merge(store_update);
@@ -2068,25 +2080,52 @@ impl<'a> ChainStoreUpdate<'a> {
                 .set_ser(ColChunkPerHeightShard, &key, chunk_hash)
                 .map_err::<Error, _>(|e| e.into())?;
         }
+        let mut chunk_hashes_by_height: HashMap<BlockHeight, HashSet<ChunkHash>> = HashMap::new();
         for (chunk_hash, chunk) in self.chain_store_cache_update.chunks.iter() {
-            let mut hash_set = match self
-                .chain_store
-                .get_all_chunk_hashes_by_height(chunk.header.inner.height_created)
-            {
-                Ok(hash_set) => hash_set.clone(),
-                Err(_) => HashSet::new(),
+            match chunk_hashes_by_height.entry(chunk.header.inner.height_created) {
+                Entry::Occupied(mut entry) => {
+                    entry.get_mut().insert(chunk_hash.clone());
+                }
+                Entry::Vacant(entry) => {
+                    let mut hash_set = match self
+                        .chain_store
+                        .get_all_chunk_hashes_by_height(chunk.header.inner.height_created)
+                    {
+                        Ok(hash_set) => hash_set.clone(),
+                        Err(_) => HashSet::new(),
+                    };
+                    hash_set.insert(chunk_hash.clone());
+                    entry.insert(hash_set);
+                }
             };
-            hash_set.insert(chunk_hash.clone());
-            store_update
-                .set_ser(
-                    ColChunkHashesByHeight,
-                    &index_to_bytes(chunk.header.inner.height_created),
-                    &hash_set,
-                )
-                .map_err::<Error, _>(|e| e.into())?;
             store_update
                 .set_ser(ColChunks, chunk_hash.as_ref(), chunk)
                 .map_err::<Error, _>(|e| e.into())?;
+        }
+        for (chunk_hash, height) in self.chain_store_cache_update.removed_chunks.iter() {
+            match chunk_hashes_by_height.entry(*height) {
+                Entry::Occupied(mut entry) => {
+                    entry.get_mut().remove(chunk_hash);
+                }
+                Entry::Vacant(entry) => {
+                    let mut hash_set =
+                        match self.chain_store.get_all_chunk_hashes_by_height(*height) {
+                            Ok(hash_set) => hash_set.clone(),
+                            Err(_) => HashSet::new(),
+                        };
+                    hash_set.remove(chunk_hash);
+                    entry.insert(hash_set);
+                }
+            };
+        }
+        for (height, hash_set) in chunk_hashes_by_height {
+            if hash_set.is_empty() {
+                store_update.delete(ColChunkHashesByHeight, &index_to_bytes(height));
+            } else {
+                store_update
+                    .set_ser(ColChunkHashesByHeight, &index_to_bytes(height), &hash_set)
+                    .map_err::<Error, _>(|e| e.into())?;
+            }
         }
         for (chunk_hash, partial_chunk) in self.chain_store_cache_update.partial_chunks.iter() {
             store_update
@@ -2260,6 +2299,7 @@ impl<'a> ChainStoreUpdate<'a> {
             block_extras,
             chunk_extras,
             chunks,
+            removed_chunks: _removed_chunks,
             partial_chunks,
             block_hash_per_height,
             chunk_hash_per_height_shard,
