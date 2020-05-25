@@ -1,5 +1,4 @@
 {
-  "config_version": 1,
   "protocol_version": 18,
   "genesis_time": "1970-01-01T00:00:00.000000000Z",
   "chain_id": "sample",
@@ -11,9 +10,12 @@
   "avg_hidden_validator_seats_per_shard": [
     0
   ],
-  "protocol_upgrade_stake_threshold": [8, 10],
-  "protocol_upgrade_num_epochs": 2,
   "dynamic_resharding": false,
+  "protocol_upgrade_stake_threshold": [
+    4,
+    5
+  ],
+  "protocol_upgrade_num_epochs": 2,
   "epoch_length": 500,
   "gas_limit": 1000000000000000,
   "min_gas_price": "5000",
