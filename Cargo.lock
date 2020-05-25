@@ -2040,7 +2040,7 @@ dependencies = [
  "near-store-validator",
  "num-rational",
  "rand 0.7.3",
- "rocksdb",
+ "rocksdb 0.13.0",
  "serde",
  "tracing",
 ]
@@ -2109,7 +2109,7 @@ dependencies = [
  "num-rational",
  "rand 0.7.3",
  "reed-solomon-erasure",
- "rocksdb",
+ "rocksdb 0.13.0",
  "serde",
  "serde_json",
  "strum",
@@ -2355,7 +2355,7 @@ dependencies = [
  "near-primitives",
  "num_cpus",
  "rand 0.7.3",
- "rocksdb",
+ "rocksdb 0.14.0",
  "serde",
  "serde_json",
  "tempfile",
@@ -2494,7 +2494,7 @@ dependencies = [
  "node-runtime",
  "num-rational",
  "rand 0.7.3",
- "rocksdb",
+ "rocksdb 0.13.0",
  "serde",
  "serde_json",
  "tempfile",
@@ -2551,7 +2551,7 @@ dependencies = [
  "num-rational",
  "rand 0.7.3",
  "rayon",
- "rocksdb",
+ "rocksdb 0.13.0",
  "serde",
  "serde_json",
  "sha2",
@@ -3205,6 +3205,16 @@ name = "rocksdb"
 version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "12069b106981c6103d3eab7dd1c86751482d0779a520b7c14954c8b586c1e643"
+dependencies = [
+ "libc",
+ "librocksdb-sys",
+]
+
+[[package]]
+name = "rocksdb"
+version = "0.14.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "61aa17a99a2413cd71c1106691bf59dad7de0cd5099127f90e9d99c429c40d4a"
 dependencies = [
  "libc",
  "librocksdb-sys",

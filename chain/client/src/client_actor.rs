@@ -31,11 +31,11 @@ use near_network::{
 };
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
-use near_primitives::protocol_version::PROTOCOL_VERSION;
 use near_primitives::types::{BlockHeight, EpochId};
 use near_primitives::unwrap_or_return;
 use near_primitives::utils::from_timestamp;
 use near_primitives::validator_signer::ValidatorSigner;
+use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::ValidatorInfo;
 #[cfg(feature = "adversarial")]
 use near_store::ColBlock;

@@ -877,9 +877,9 @@ mod test {
 
     use super::*;
     use near_primitives::merkle::PartialMerkleTree;
-    use near_primitives::protocol_version::PROTOCOL_VERSION;
     use near_primitives::types::EpochId;
     use near_primitives::validator_signer::InMemoryValidatorSigner;
+    use near_primitives::version::PROTOCOL_VERSION;
     use num_rational::Ratio;
 
     #[test]

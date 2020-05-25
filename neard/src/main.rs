@@ -13,8 +13,7 @@ use tracing_subscriber::filter::LevelFilter;
 use tracing_subscriber::EnvFilter;
 
 use git_version::git_version;
-use near_primitives::protocol_version::PROTOCOL_VERSION;
-use near_primitives::types::Version;
+use near_primitives::version::{Version, PROTOCOL_VERSION};
 use neard::config::init_testnet_configs;
 use neard::genesis_validate::validate_genesis;
 use neard::{get_default_home, get_store_path, init_configs, load_config, start_with_config};

@@ -14,9 +14,9 @@ use near_metrics;
 use near_primitives::block::GenesisId;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
-use near_primitives::protocol_version::PROTOCOL_VERSION;
 use near_primitives::unwrap_option_or_return;
 use near_primitives::utils::DisplayOption;
+use near_primitives::version::PROTOCOL_VERSION;
 
 use crate::codec::{bytes_to_peer_message, peer_message_to_bytes, Codec};
 use crate::rate_counter::RateCounter;

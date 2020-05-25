@@ -24,13 +24,13 @@ use near_primitives::challenge::Challenge;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::network::{AnnounceAccount, PeerId};
-use near_primitives::protocol_version::FIRST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION;
 use near_primitives::sharding::{
     ChunkHash, PartialEncodedChunk, PartialEncodedChunkPart, ReceiptProof,
 };
 use near_primitives::transaction::{ExecutionOutcomeWithIdAndProof, SignedTransaction};
 use near_primitives::types::{AccountId, BlockHeight, BlockIdOrFinality, EpochId, ShardId};
 use near_primitives::utils::{from_timestamp, to_timestamp};
+use near_primitives::version::FIRST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION;
 use near_primitives::views::{FinalExecutionOutcomeView, QueryRequest, QueryResponse};
 
 use crate::metrics;

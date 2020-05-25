@@ -10,9 +10,9 @@ use near_logger_utils::init_test_logger;
 use near_network::test_utils::WaitOrTimeout;
 use near_primitives::account::{AccessKey, AccessKeyPermission};
 use near_primitives::hash::CryptoHash;
-use near_primitives::protocol_version::PROTOCOL_VERSION;
 use near_primitives::rpc::{RpcGenesisRecordsRequest, RpcPagination, RpcQueryRequest};
 use near_primitives::types::{BlockId, BlockIdOrFinality, Finality, ShardId};
+use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{QueryRequest, QueryResponseKind};
 
 #[macro_use]

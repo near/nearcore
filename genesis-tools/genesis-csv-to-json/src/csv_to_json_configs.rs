@@ -2,9 +2,9 @@ use std::fs::File;
 use std::path::Path;
 
 use near_chain_configs::{Genesis, GenesisConfig};
-use near_primitives::protocol_version::PROTOCOL_VERSION;
 use near_primitives::types::{Balance, NumShards, ShardId};
 use near_primitives::utils::get_num_seats_per_shard;
+use near_primitives::version::PROTOCOL_VERSION;
 use neard::config::{
     Config, BLOCK_PRODUCER_KICKOUT_THRESHOLD, CHUNK_PRODUCER_KICKOUT_THRESHOLD, CONFIG_FILENAME,
     EXPECTED_EPOCH_LENGTH, FISHERMEN_THRESHOLD, GAS_PRICE_ADJUSTMENT_RATE, GENESIS_CONFIG_FILENAME,

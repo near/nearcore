@@ -6,7 +6,6 @@ use crate::block_header::{BlockHeader, BlockHeaderV1};
 use crate::errors::EpochError;
 use crate::hash::CryptoHash;
 use crate::merkle::PartialMerkleTree;
-use crate::protocol_version::PROTOCOL_VERSION;
 use crate::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
     DeployContractAction, FunctionCallAction, SignedTransaction, StakeAction, Transaction,
@@ -14,6 +13,7 @@ use crate::transaction::{
 };
 use crate::types::{AccountId, Balance, BlockHeight, EpochId, EpochInfoProvider, Gas, Nonce};
 use crate::validator_signer::ValidatorSigner;
+use crate::version::PROTOCOL_VERSION;
 use num_rational::Rational;
 use std::collections::HashMap;
 

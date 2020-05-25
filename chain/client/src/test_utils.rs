@@ -26,12 +26,12 @@ use near_network::{
 };
 use near_primitives::block::{ApprovalInner, Block, GenesisId};
 use near_primitives::hash::{hash, CryptoHash};
-use near_primitives::protocol_version::PROTOCOL_VERSION;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, BlockHeightDelta, NumBlocks, NumSeats, NumShards,
 };
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
+use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{AccountView, QueryRequest, QueryResponseKind};
 use near_store::test_utils::create_test_store;
 use near_store::Store;

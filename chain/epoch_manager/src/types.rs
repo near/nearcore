@@ -6,12 +6,12 @@ use serde::Serialize;
 
 use near_primitives::challenge::SlashedValidator;
 use near_primitives::hash::CryptoHash;
-use near_primitives::protocol_version::ProtocolVersion;
 use near_primitives::types::{
     AccountId, Balance, BlockChunkValidatorStats, BlockHeight, BlockHeightDelta, EpochHeight,
     EpochId, NumSeats, NumShards, ShardId, ValidatorId, ValidatorKickoutReason, ValidatorStake,
     ValidatorStats,
 };
+use near_primitives::version::ProtocolVersion;
 
 use crate::EpochManager;
 

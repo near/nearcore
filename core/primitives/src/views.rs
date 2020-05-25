@@ -21,7 +21,6 @@ use crate::errors::TxExecutionError;
 use crate::hash::{hash, CryptoHash};
 use crate::logging;
 use crate::merkle::MerklePath;
-use crate::protocol_version::ProtocolVersion;
 use crate::receipt::{ActionReceipt, DataReceipt, DataReceiver, Receipt, ReceiptEnum};
 use crate::rpc::RpcPagination;
 use crate::serialize::{
@@ -39,8 +38,9 @@ use crate::types::{
     AccountId, AccountWithPublicKey, Balance, BlockHeight, EpochId, FunctionArgs, Gas, Nonce,
     NumBlocks, ShardId, StateChangeCause, StateChangeKind, StateChangeValue, StateChangeWithCause,
     StateChangesRequest, StateRoot, StorageUsage, StoreKey, StoreValue, ValidatorKickoutReason,
-    ValidatorStake, Version,
+    ValidatorStake,
 };
+use crate::version::{ProtocolVersion, Version};
 
 /// A view of the account
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Eq, PartialEq, Clone)]

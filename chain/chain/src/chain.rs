@@ -20,7 +20,6 @@ use near_primitives::challenge::{
 };
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::{merklize, verify_path};
-use near_primitives::protocol_version::ProtocolVersion;
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{
     ChunkHash, ChunkHashHeight, ReceiptProof, ShardChunk, ShardChunkHeader, ShardProof,
@@ -31,6 +30,7 @@ use near_primitives::types::{
     NumBlocks, ShardId, StateHeaderKey, ValidatorStake,
 };
 use near_primitives::unwrap_or_return;
+use near_primitives::version::ProtocolVersion;
 use near_primitives::views::{
     ExecutionOutcomeWithIdView, ExecutionStatusView, FinalExecutionOutcomeView,
     FinalExecutionStatus, LightClientBlockView,

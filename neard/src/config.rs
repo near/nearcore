@@ -21,7 +21,6 @@ use near_network::utils::blacklist_from_iter;
 use near_network::NetworkConfig;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::hash::CryptoHash;
-use near_primitives::protocol_version::PROTOCOL_VERSION;
 use near_primitives::state_record::StateRecord;
 use near_primitives::types::{
     AccountId, AccountInfo, Balance, BlockHeightDelta, EpochHeight, Gas, NumBlocks, NumSeats,
@@ -29,6 +28,7 @@ use near_primitives::types::{
 };
 use near_primitives::utils::{generate_random_string, get_num_seats_per_shard};
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
+use near_primitives::version::PROTOCOL_VERSION;
 use near_runtime_configs::RuntimeConfig;
 use near_telemetry::TelemetryConfig;
 

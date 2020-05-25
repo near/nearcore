@@ -15,7 +15,6 @@ use near_primitives::account::{AccessKey, Account};
 use near_primitives::challenge::ChallengesResult;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::{hash, CryptoHash};
-use near_primitives::protocol_version::{ProtocolVersion, PROTOCOL_VERSION};
 use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum};
 use near_primitives::serialize::to_base;
 use near_primitives::sharding::ShardChunkHeader;
@@ -28,6 +27,7 @@ use near_primitives::types::{
     ShardId, StateRoot, StateRootNode, ValidatorStake, ValidatorStats,
 };
 use near_primitives::validator_signer::InMemoryValidatorSigner;
+use near_primitives::version::{ProtocolVersion, PROTOCOL_VERSION};
 use near_primitives::views::{
     AccessKeyInfoView, AccessKeyList, CallResult, EpochValidatorInfo, QueryRequest, QueryResponse,
     QueryResponseKind, ViewStateResult,

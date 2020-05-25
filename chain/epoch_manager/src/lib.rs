@@ -1060,8 +1060,8 @@ mod tests {
 
     use near_primitives::challenge::SlashedValidator;
     use near_primitives::hash::hash;
-    use near_primitives::protocol_version::PROTOCOL_VERSION;
     use near_primitives::types::ValidatorKickoutReason::NotEnoughBlocks;
+    use near_primitives::version::PROTOCOL_VERSION;
     use near_store::test_utils::create_test_store;
 
     use crate::test_utils::{

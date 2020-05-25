@@ -11,13 +11,13 @@ pub use crate::block_header::*;
 use crate::challenge::{Challenges, ChallengesResult};
 use crate::hash::{hash, CryptoHash};
 use crate::merkle::{merklize, verify_path, MerklePath};
-use crate::protocol_version::ProtocolVersion;
 use crate::sharding::{
     ChunkHashHeight, EncodedShardChunk, ReedSolomonWrapper, ShardChunk, ShardChunkHeader,
 };
 use crate::types::{Balance, BlockHeight, EpochId, Gas, NumShards, StateRoot};
 use crate::utils::to_timestamp;
 use crate::validator_signer::{EmptyValidatorSigner, ValidatorSigner};
+use crate::version::ProtocolVersion;
 
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, Eq, PartialEq)]
 pub struct Block {

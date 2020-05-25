@@ -22,7 +22,6 @@ use near_primitives::block::{Approval, ApprovalInner};
 use near_primitives::challenge::ChallengesResult;
 use near_primitives::errors::{EpochError, InvalidTxError, RuntimeError};
 use near_primitives::hash::{hash, CryptoHash};
-use near_primitives::protocol_version::ProtocolVersion;
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::state_record::StateRecord;
@@ -33,6 +32,7 @@ use near_primitives::types::{
     MerkleHash, NumShards, ShardId, StateChangeCause, StateRoot, StateRootNode, ValidatorStake,
     ValidatorStats,
 };
+use near_primitives::version::ProtocolVersion;
 use near_primitives::views::{
     AccessKeyInfoView, CallResult, EpochValidatorInfo, QueryError, QueryRequest, QueryResponse,
     QueryResponseKind, ViewStateResult,

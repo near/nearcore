@@ -7,10 +7,10 @@ use near_crypto::{KeyType, PublicKey, Signature};
 use crate::challenge::ChallengesResult;
 use crate::hash::{hash, CryptoHash};
 use crate::merkle::combine_hash;
-use crate::protocol_version::{ProtocolVersion, PROTOCOL_VERSION};
 use crate::types::{AccountId, Balance, BlockHeight, EpochId, MerkleHash, ValidatorStake};
 use crate::utils::{from_timestamp, to_timestamp};
 use crate::validator_signer::ValidatorSigner;
+use crate::version::{ProtocolVersion, PROTOCOL_VERSION};
 
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, Eq, PartialEq)]
 pub struct BlockHeaderInnerLite {

@@ -237,7 +237,7 @@ mod tests {
     use near_store::test_utils::create_test_store;
 
     use super::{account_id_to_shard_id, ShardTracker, POISONED_LOCK_ERR};
-    use near_primitives::protocol_version::PROTOCOL_VERSION;
+    use near_primitives::version::PROTOCOL_VERSION;
     use num_rational::Rational;
 
     const DEFAULT_TOTAL_SUPPLY: u128 = 1_000_000_000_000;

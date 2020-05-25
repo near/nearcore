@@ -23,9 +23,9 @@ use near_network::utils::blacklist_from_iter;
 use near_network::{
     NetworkConfig, NetworkRecipient, NetworkRequests, NetworkResponses, PeerInfo, PeerManagerActor,
 };
-use near_primitives::protocol_version::PROTOCOL_VERSION;
 use near_primitives::types::{AccountId, ValidatorId};
 use near_primitives::validator_signer::InMemoryValidatorSigner;
+use near_primitives::version::PROTOCOL_VERSION;
 use near_store::test_utils::create_test_store;
 use near_telemetry::{TelemetryActor, TelemetryConfig};
 use num_rational::Rational;

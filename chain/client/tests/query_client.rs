@@ -7,10 +7,10 @@ use near_crypto::KeyType;
 use near_logger_utils::init_test_logger;
 use near_network::{NetworkClientMessages, PeerInfo};
 use near_primitives::block::{Block, BlockHeader};
-use near_primitives::protocol_version::PROTOCOL_VERSION;
 use near_primitives::types::{BlockIdOrFinality, EpochId};
 use near_primitives::utils::to_timestamp;
 use near_primitives::validator_signer::InMemoryValidatorSigner;
+use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{QueryRequest, QueryResponseKind};
 use num_rational::Rational;
 

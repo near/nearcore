@@ -20,9 +20,10 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{Receipt, ReceivedData};
 use near_primitives::serialize::to_base;
 use near_primitives::trie_key::{trie_key_parsers, TrieKey};
-use near_primitives::types::{AccountId, DbVersion};
+use near_primitives::types::AccountId;
+use near_primitives::version::{DbVersion, DB_VERSION};
 
-use crate::db::{DBOp, DBTransaction, Database, RocksDB};
+use crate::db::{DBOp, DBTransaction, Database, RocksDB, VERSION_KEY};
 pub use crate::trie::{
     iterator::TrieIterator, update::TrieUpdate, update::TrieUpdateIterator,
     update::TrieUpdateValuePtr, KeyForStateChanges, PartialStorage, ShardTries, Trie, TrieChanges,
@@ -251,6 +252,16 @@ pub fn read_with_cache<'a, T: BorshDeserialize + 'a>(
 
 pub fn get_store_version(path: &str) -> DbVersion {
     RocksDB::get_version(path).expect("Failed to open the database")
+}
+
+pub fn set_store_version(store: &Store) {
+    let mut store_update = store.store_update();
+    store_update.set(
+        DBCol::ColDbVersion,
+        VERSION_KEY,
+        &serde_json::to_vec(&DB_VERSION).expect("Faile to serialize version"),
+    );
+    store_update.commit().expect("Failed to write version to database");
 }
 
 pub fn create_store(path: &str) -> Arc<Store> {

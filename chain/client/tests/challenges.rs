@@ -23,13 +23,13 @@ use near_primitives::challenge::{
 };
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{merklize, MerklePath, PartialMerkleTree};
-use near_primitives::protocol_version::PROTOCOL_VERSION;
 use near_primitives::receipt::Receipt;
 use near_primitives::serialize::BaseDecode;
 use near_primitives::sharding::{EncodedShardChunk, ReedSolomonWrapper};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::StateRoot;
 use near_primitives::validator_signer::InMemoryValidatorSigner;
+use near_primitives::version::PROTOCOL_VERSION;
 use near_store::test_utils::create_test_store;
 use neard::config::{GenesisExt, FISHERMEN_THRESHOLD};
 use neard::NightshadeRuntime;

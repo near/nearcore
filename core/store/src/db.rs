@@ -8,7 +8,7 @@ use rocksdb::{
     ReadOptions, WriteBatch, DB,
 };
 
-use near_primitives::types::DbVersion;
+use near_primitives::version::DbVersion;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct DBError(rocksdb::Error);
@@ -173,7 +173,6 @@ impl DBTransaction {
 pub struct RocksDB {
     db: DB,
     cfs: Vec<*const ColumnFamily>,
-    read_options: ReadOptions,
 }
 
 // DB was already Send+Sync. cf and read_options are const pointers using only functions in
@@ -201,16 +200,15 @@ pub trait Database: Sync + Send {
 
 impl Database for RocksDB {
     fn get(&self, col: DBCol, key: &[u8]) -> Result<Option<Vec<u8>>, DBError> {
-        unsafe { Ok(self.db.get_cf_opt(&*self.cfs[col as usize], key, &self.read_options)?) }
+        let read_options = rocksdb_read_options();
+        unsafe { Ok(self.db.get_cf_opt(&*self.cfs[col as usize], key, &read_options)?) }
     }
 
     fn iter<'a>(&'a self, col: DBCol) -> Box<dyn Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a> {
+        let read_options = rocksdb_read_options();
         unsafe {
             let cf_handle = &*self.cfs[col as usize];
-            let iterator = self
-                .db
-                .iterator_cf_opt(cf_handle, &self.read_options, IteratorMode::Start)
-                .unwrap();
+            let iterator = self.db.iterator_cf_opt(cf_handle, read_options, IteratorMode::Start);
             Box::new(iterator)
         }
     }
@@ -232,10 +230,9 @@ impl Database for RocksDB {
                 .db
                 .iterator_cf_opt(
                     cf_handle,
-                    &read_options,
+                    read_options,
                     IteratorMode::From(key_prefix, Direction::Forward),
                 )
-                .unwrap()
                 .take_while(move |(key, _value)| key.starts_with(key_prefix));
             Box::new(iterator)
         }
@@ -246,10 +243,10 @@ impl Database for RocksDB {
         for op in transaction.ops {
             match op {
                 DBOp::Insert { col, key, value } => unsafe {
-                    batch.put_cf(&*self.cfs[col as usize], key, value)?;
+                    batch.put_cf(&*self.cfs[col as usize], key, value);
                 },
                 DBOp::Delete { col, key } => unsafe {
-                    batch.delete_cf(&*self.cfs[col as usize], key)?;
+                    batch.delete_cf(&*self.cfs[col as usize], key);
                 },
             }
         }
@@ -335,10 +332,9 @@ fn rocksdb_column_options() -> Options {
 }
 
 impl RocksDB {
-    /// Returns version of the database on the disk.
+    /// Returns version of the database state on disk.
     pub fn get_version<P: AsRef<std::path::Path>>(path: P) -> Result<DbVersion, DBError> {
-        // Read one column first with version.
-        let db = RocksDB::init_db(path, 1)?;
+        let db = RocksDB::new_read_only(path)?;
         db.get(DBCol::ColDbVersion, VERSION_KEY).map(|result| {
             serde_json::from_slice(
                 &result
@@ -348,25 +344,25 @@ impl RocksDB {
         })
     }
 
-    fn init_db<P: AsRef<std::path::Path>>(path: P, num_cols: usize) -> Result<Self, DBError> {
+    fn new_read_only<P: AsRef<std::path::Path>>(path: P) -> Result<Self, DBError> {
+        let options = Options::default();
+        let cf_names: Vec<_> = vec!["col0".to_string()];
+        let db = DB::open_cf_for_read_only(&options, path, cf_names.iter(), false)?;
+        let cfs =
+            cf_names.iter().map(|n| db.cf_handle(n).unwrap() as *const ColumnFamily).collect();
+        Ok(Self { db, cfs })
+    }
+
+    pub fn new<P: AsRef<std::path::Path>>(path: P) -> Result<Self, DBError> {
         let options = rocksdb_options();
-        let cf_names: Vec<_> = (0..num_cols).map(|col| format!("col{}", col)).collect();
+        let cf_names: Vec<_> = (0..NUM_COLS).map(|col| format!("col{}", col)).collect();
         let cf_descriptors = cf_names
             .iter()
             .map(|cf_name| ColumnFamilyDescriptor::new(cf_name, rocksdb_column_options()));
         let db = DB::open_cf_descriptors(&options, path, cf_descriptors)?;
-        let cfs = cf_names
-            .iter()
-            .map(|n| {
-                let ptr: *const ColumnFamily = db.cf_handle(n).unwrap();
-                ptr
-            })
-            .collect();
-        Ok(Self { db, cfs, read_options: rocksdb_read_options() })
-    }
-
-    pub fn new<P: AsRef<std::path::Path>>(path: P) -> Result<Self, DBError> {
-        RocksDB::init_db(path, NUM_COLS)
+        let cfs =
+            cf_names.iter().map(|n| db.cf_handle(n).unwrap() as *const ColumnFamily).collect();
+        Ok(Self { db, cfs })
     }
 }
 

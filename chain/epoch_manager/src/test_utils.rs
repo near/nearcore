@@ -5,12 +5,12 @@ use num_rational::Rational;
 use near_crypto::{KeyType, SecretKey};
 use near_primitives::challenge::SlashedValidator;
 use near_primitives::hash::{hash, CryptoHash};
-use near_primitives::protocol_version::PROTOCOL_VERSION;
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, BlockHeightDelta, EpochHeight, NumSeats, NumShards,
     ValidatorId, ValidatorKickoutReason, ValidatorStake,
 };
 use near_primitives::utils::get_num_seats_per_shard;
+use near_primitives::version::PROTOCOL_VERSION;
 use near_store::test_utils::create_test_store;
 
 use crate::types::{EpochConfig, EpochInfo, ValidatorWeight};
