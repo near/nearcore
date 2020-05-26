@@ -200,9 +200,8 @@ impl Database for RocksDB {
     fn iter<'a>(&'a self, col: DBCol) -> Box<dyn Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a> {
         unsafe {
             let cf_handle = &*self.cfs[col as usize];
-            let iterator = self
-                .db
-                .iterator_cf_opt(cf_handle, rocksdb_read_options(), IteratorMode::Start);
+            let iterator =
+                self.db.iterator_cf_opt(cf_handle, rocksdb_read_options(), IteratorMode::Start);
             Box::new(iterator)
         }
     }
@@ -301,7 +300,7 @@ fn rocksdb_options() -> Options {
     opts.set_max_bytes_for_level_base(1024 * 1024 * 512 / 2);
     opts.increase_parallelism(cmp::max(1, num_cpus::get() as i32 / 2));
     opts.set_max_total_wal_size(1 * 1024 * 1024 * 1024);
-    
+
     return opts;
 }
 
