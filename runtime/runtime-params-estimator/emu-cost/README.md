@@ -35,7 +35,7 @@ Start container and build estimator with:
 
 Now start the estimator under QEMU with the counter plugin enabled (note, that Rust compiler produces SSE4, so specify recent CPU):
 
-    docker> /host/qemu-linux/bin/qemu-x86_64 -cpu Westmere-v1 -plugin file=/host/qemu-linux/plugins/libcounter.so ../../target/release/runtime-params-estimator --home /tmp/data --accounts-num 20000 --iters 1 --warmup-iters 1
+    docker> ./emu-cost/counter_plugin/qemu-x86_64 -cpu Westmere-v1 -plugin file=./emu-cost/counter_plugin/libcounter.so ../../target/release/runtime-params-estimator --home /tmp/data --accounts-num 20000 --iters 1 --warmup-iters 1
 
 Note that it may take some time, as we execute instrumented code under the binary translator.
 

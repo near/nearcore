@@ -49,7 +49,7 @@ use crate::types::{
 };
 use crate::StatusResponse;
 #[cfg(feature = "adversarial")]
-use near_store::StoreValidator;
+use near_store_validator::StoreValidator;
 
 /// Multiplier on `max_block_time` to wait until deciding that chain stalled.
 const STATUS_WAIT_TIME_MULTIPLIER: u64 = 10;
@@ -260,8 +260,12 @@ impl Handler<NetworkClientMessages> for ClientActor {
                         info!(target: "adversary", "Check Storage Consistency");
                         let mut genesis = GenesisConfig::default();
                         genesis.genesis_height = self.client.chain.store().get_genesis_height();
-                        let mut store_validator = StoreValidator::default();
-                        store_validator.validate(self.client.chain.store().store(), &genesis);
+                        let mut store_validator = StoreValidator::new(
+                            genesis,
+                            self.client.runtime_adapter.get_tries(),
+                            self.client.chain.store().owned_store(),
+                        );
+                        store_validator.validate();
                         if store_validator.is_failed() {
                             error!(target: "client", "Storage Validation failed, {:?}", store_validator.errors);
                             NetworkClientResponses::AdvResult(0)
@@ -696,7 +700,7 @@ impl ClientActor {
                                 missing_chunks,
                                 missing_chunks.iter().map(|header| header.chunk_hash()).collect::<Vec<_>>()
                             );
-                            self.client.shards_mgr.request_chunks(missing_chunks).unwrap();
+                            self.client.shards_mgr.request_chunks(missing_chunks);
                             Ok(())
                         }
                         _ => {
@@ -809,7 +813,7 @@ impl ClientActor {
                         missing_chunks,
                         missing_chunks.iter().map(|header| header.chunk_hash()).collect::<Vec<_>>()
                     );
-                    self.client.shards_mgr.request_chunks(missing_chunks).unwrap();
+                    self.client.shards_mgr.request_chunks(missing_chunks);
                     NetworkClientResponses::NoResponse
                 }
                 _ => {
@@ -1138,9 +1142,14 @@ impl ClientActor {
                         self.process_accepted_blocks(
                             accepted_blocks.write().unwrap().drain(..).collect(),
                         );
-                        for missing_chunks in blocks_missing_chunks.write().unwrap().drain(..) {
-                            self.client.shards_mgr.request_chunks(missing_chunks).unwrap();
-                        }
+
+                        self.client.shards_mgr.request_chunks(
+                            blocks_missing_chunks
+                                .write()
+                                .unwrap()
+                                .drain(..)
+                                .flat_map(|missing_chunks| missing_chunks.into_iter()),
+                        );
 
                         self.client.sync_status =
                             SyncStatus::BodySync { current_height: 0, highest_height: 0 };

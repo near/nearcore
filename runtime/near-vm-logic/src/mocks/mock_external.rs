@@ -10,6 +10,7 @@ use std::collections::HashMap;
 pub struct MockedExternal {
     pub fake_trie: HashMap<Vec<u8>, Vec<u8>>,
     receipts: Vec<Receipt>,
+    pub validators: HashMap<AccountId, Balance>,
 }
 
 pub struct MockedValuePtr {
@@ -224,6 +225,14 @@ impl External for MockedExternal {
     }
 
     fn reset_touched_nodes_counter(&mut self) {}
+
+    fn validator_stake(&self, account_id: &AccountId) -> Result<Option<Balance>> {
+        Ok(self.validators.get(account_id).cloned())
+    }
+
+    fn validator_total_stake(&self) -> Result<Balance> {
+        Ok(self.validators.values().sum())
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]

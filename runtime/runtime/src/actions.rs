@@ -11,7 +11,7 @@ use near_primitives::transaction::{
     Action, AddKeyAction, DeleteAccountAction, DeleteKeyAction, DeployContractAction,
     FunctionCallAction, StakeAction, TransferAction,
 };
-use near_primitives::types::{AccountId, Balance, ValidatorStake};
+use near_primitives::types::{AccountId, Balance, EpochInfoProvider, ValidatorStake};
 use near_primitives::utils::{
     is_valid_account_id, is_valid_sub_account_id, is_valid_top_level_account_id,
 };
@@ -86,6 +86,7 @@ pub(crate) fn action_function_call(
     action_hash: &CryptoHash,
     config: &RuntimeConfig,
     is_last_action: bool,
+    epoch_info_provider: &dyn EpochInfoProvider,
 ) -> Result<(), RuntimeError> {
     let code = match get_code_with_cache(state_update, account_id, &account) {
         Ok(Some(code)) => code,
@@ -115,6 +116,9 @@ pub(crate) fn action_function_call(
         &action_receipt.signer_public_key,
         action_receipt.gas_price,
         action_hash,
+        &apply_state.epoch_id,
+        &apply_state.last_block_hash,
+        epoch_info_provider,
     );
     // Output data receipts are ignored if the function call is not the last action in the batch.
     let output_data_receivers: Vec<_> = if is_last_action {
@@ -164,6 +168,7 @@ pub(crate) fn action_function_call(
                 .expect("External error deserialization shouldn't fail");
             return match err {
                 ExternalError::StorageError(err) => Err(err.into()),
+                ExternalError::ValidatorError(err) => Err(RuntimeError::ValidatorError(err)),
             };
         }
         Some(VMError::InconsistentStateError(err)) => {

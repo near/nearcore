@@ -25,7 +25,7 @@ use near_primitives::types::{
     AccountId, BlockExtra, BlockHeight, ChunkExtra, EpochId, ShardId, StateChanges,
     StateChangesExt, StateChangesKinds, StateChangesKindsExt, StateChangesRequest, StateHeaderKey,
 };
-use near_primitives::utils::{index_to_bytes, to_timestamp};
+use near_primitives::utils::{get_block_shard_id, index_to_bytes, to_timestamp};
 use near_primitives::views::LightClientBlockView;
 use near_store::{
     read_with_cache, ColBlock, ColBlockExtra, ColBlockHeader, ColBlockHeight, ColBlockMerkleTree,
@@ -55,13 +55,6 @@ pub enum GCMode {
     Fork(ShardTries),
     Canonical(ShardTries),
     StateSync,
-}
-
-fn get_block_shard_id(block_hash: &CryptoHash, shard_id: ShardId) -> Vec<u8> {
-    let mut res = Vec::with_capacity(40);
-    res.extend_from_slice(block_hash.as_ref());
-    res.extend_from_slice(&shard_id.to_le_bytes());
-    res
 }
 
 fn get_height_shard_id(height: BlockHeight, shard_id: ShardId) -> Vec<u8> {
@@ -1794,30 +1787,35 @@ impl<'a> ChainStoreUpdate<'a> {
         gc_mode: GCMode,
     ) -> Result<(), Error> {
         let mut store_update = self.store().store_update();
+        let header = self.get_block_header(&block_hash).expect("block header must exist").clone();
 
         // 1. Apply revert insertions or deletions from ColTrieChanges for Trie
         match gc_mode.clone() {
             GCMode::Fork(tries) => {
                 // If the block is on a fork, we delete the state that's the result of applying this block
-                self.store()
-                    .get_ser(ColTrieChanges, block_hash.as_ref())?
-                    .map(|trie_changes: TrieChanges| {
-                        tries
-                            .revert_insertions(&trie_changes, 0, &mut store_update)
-                            .map_err(|err| ErrorKind::Other(err.to_string()))
-                    })
-                    .unwrap_or(Ok(()))?;
+                for shard_id in 0..header.inner_rest.chunk_mask.len() as ShardId {
+                    self.store()
+                        .get_ser(ColTrieChanges, &get_block_shard_id(&block_hash, shard_id))?
+                        .map(|trie_changes: TrieChanges| {
+                            tries
+                                .revert_insertions(&trie_changes, shard_id, &mut store_update)
+                                .map_err(|err| ErrorKind::Other(err.to_string()))
+                        })
+                        .unwrap_or(Ok(()))?;
+                }
             }
             GCMode::Canonical(tries) => {
                 // If the block is on canonical chain, we delete the state that's before applying this block
-                self.store()
-                    .get_ser(ColTrieChanges, block_hash.as_ref())?
-                    .map(|trie_changes: TrieChanges| {
-                        tries
-                            .apply_deletions(&trie_changes, 0, &mut store_update)
-                            .map_err(|err| ErrorKind::Other(err.to_string()))
-                    })
-                    .unwrap_or(Ok(()))?;
+                for shard_id in 0..header.inner_rest.chunk_mask.len() as ShardId {
+                    self.store()
+                        .get_ser(ColTrieChanges, &get_block_shard_id(&block_hash, shard_id))?
+                        .map(|trie_changes: TrieChanges| {
+                            tries
+                                .apply_deletions(&trie_changes, shard_id, &mut store_update)
+                                .map_err(|err| ErrorKind::Other(err.to_string()))
+                        })
+                        .unwrap_or(Ok(()))?;
+                }
                 // Set `block_hash` on previous one
                 block_hash = self.get_block_header(&block_hash)?.prev_hash;
             }
@@ -2349,7 +2347,7 @@ mod tests {
     use near_primitives::utils::index_to_bytes;
     use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
     use near_store::test_utils::create_test_store;
-    use near_store::StoreValidator;
+    use near_store_validator::StoreValidator;
 
     use crate::chain::{check_refcount_map, MAX_HEIGHTS_TO_CLEAR};
     use crate::store::{ChainStoreAccess, GCMode};
@@ -2742,8 +2740,12 @@ mod tests {
             assert!(check_refcount_map(&mut chain).is_ok());
             let mut genesis = GenesisConfig::default();
             genesis.genesis_height = 0;
-            let mut store_validator = StoreValidator::default();
-            store_validator.validate(&*chain.store().owned_store(), &genesis);
+            let mut store_validator = StoreValidator::new(
+                genesis.clone(),
+                chain.runtime_adapter.get_tries(),
+                chain.store().owned_store(),
+            );
+            store_validator.validate();
             assert!(!store_validator.is_failed());
         }
     }

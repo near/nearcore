@@ -32,6 +32,7 @@ near-network = { path = "../network" }
 near-pool = { path = "../pool" }
 near-chunks = { path = "../chunks" }
 near-telemetry = { path = "../telemetry" }
+near-store-validator = { path = "../../test-utils/store-validator", optional = true }
 
 [dev-dependencies]
 near-logger-utils = { path = "../../test-utils/logger" }
@@ -42,5 +43,5 @@ neard = { path = "../../neard" }
 # if enabled, we assert in most situations that are impossible unless some byzantine behavior is observed.
 byzantine_asserts = ["near-chain/byzantine_asserts"]
 expensive_tests = []
-adversarial = ["near-network/adversarial", "near-chain/adversarial"]
+adversarial = ["near-network/adversarial", "near-chain/adversarial", "near-store-validator"]
 metric_recorder = []

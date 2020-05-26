@@ -1,12 +1,13 @@
 use crate::serialize::u128_dec_format;
-use crate::types::{AccountId, Balance, Gas, Nonce};
+use crate::types::{AccountId, Balance, EpochId, Gas, Nonce};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::PublicKey;
 use serde::{Deserialize, Serialize};
-use std::fmt::Display;
+use std::fmt::{Debug, Display};
 
+use crate::hash::CryptoHash;
 use near_rpc_error_macro::RpcError;
-use near_vm_errors::FunctionCallError;
+use near_vm_errors::{FunctionCallError, VMLogicError};
 
 /// Error returned in the ExecutionOutcome in case of failure
 #[derive(
@@ -55,6 +56,8 @@ pub enum RuntimeError {
     BalanceMismatchError(BalanceMismatchError),
     /// The incoming receipt didn't pass the validation, it's likely a malicious behaviour.
     ReceiptValidationError(ReceiptValidationError),
+    /// Error when accessing validator information. Happens inside epoch manager.
+    ValidatorError(EpochError),
 }
 
 /// Error used by `RuntimeExt`. This error has to be serializable, because it's transferred through
@@ -64,6 +67,14 @@ pub enum ExternalError {
     /// Unexpected error which is typically related to the node storage corruption.
     /// It's possible the input state is invalid or malicious.
     StorageError(StorageError),
+    /// Error when accessing validator information. Happens inside epoch manager.
+    ValidatorError(EpochError),
+}
+
+impl From<ExternalError> for VMLogicError {
+    fn from(err: ExternalError) -> Self {
+        VMLogicError::ExternalError(err.try_to_vec().expect("Borsh serialize cannot fail"))
+    }
 }
 
 /// Internal
@@ -368,7 +379,7 @@ impl Display for InvalidTxError {
             InvalidTxError::SignerDoesNotExist { signer_id } => {
                 write!(f, "Signer {:?} does not exist", signer_id)
             }
-            InvalidTxError::InvalidAccessKeyError(access_key_error) => access_key_error.fmt(f),
+            InvalidTxError::InvalidAccessKeyError(access_key_error) => Display::fmt(&access_key_error, f),
             InvalidTxError::InvalidNonce { tx_nonce, ak_nonce } => write!(
                 f,
                 "Transaction nonce {} must be larger than nonce of the used access key {}",
@@ -632,5 +643,62 @@ impl Display for ActionErrorKind {
                 write!(f, "An new action receipt created during a FunctionCall is not valid: {}", e)
             }
         }
+    }
+}
+
+#[derive(Eq, PartialEq, BorshSerialize, BorshDeserialize, Clone)]
+pub enum EpochError {
+    /// Error calculating threshold from given stakes for given number of seats.
+    /// Only should happened if calling code doesn't check for integer value of stake > number of seats.
+    ThresholdError { stake_sum: Balance, num_seats: u64 },
+    /// Requesting validators for an epoch that wasn't computed yet.
+    EpochOutOfBounds,
+    /// Missing block hash in the storage (means there is some structural issue).
+    MissingBlock(CryptoHash),
+    /// Error due to IO (DB read/write, serialization, etc.).
+    IOErr(String),
+    /// Given account ID is not a validator in the given epoch ID.
+    NotAValidator(AccountId, EpochId),
+}
+
+impl std::error::Error for EpochError {}
+
+impl Display for EpochError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            EpochError::ThresholdError { stake_sum, num_seats } => write!(
+                f,
+                "Total stake {} must be higher than the number of seats {}",
+                stake_sum, num_seats
+            ),
+            EpochError::EpochOutOfBounds => write!(f, "Epoch out of bounds"),
+            EpochError::MissingBlock(hash) => write!(f, "Missing block {}", hash),
+            EpochError::IOErr(err) => write!(f, "IO: {}", err),
+            EpochError::NotAValidator(account_id, epoch_id) => {
+                write!(f, "{} is not a validator in epoch {:?}", account_id, epoch_id)
+            }
+        }
+    }
+}
+
+impl Debug for EpochError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            EpochError::ThresholdError { stake_sum, num_seats } => {
+                write!(f, "ThresholdError({}, {})", stake_sum, num_seats)
+            }
+            EpochError::EpochOutOfBounds => write!(f, "EpochOutOfBounds"),
+            EpochError::MissingBlock(hash) => write!(f, "MissingBlock({})", hash),
+            EpochError::IOErr(err) => write!(f, "IOErr({})", err),
+            EpochError::NotAValidator(account_id, epoch_id) => {
+                write!(f, "NotAValidator({}, {:?})", account_id, epoch_id)
+            }
+        }
+    }
+}
+
+impl From<std::io::Error> for EpochError {
+    fn from(error: std::io::Error) -> Self {
+        EpochError::IOErr(error.to_string())
     }
 }

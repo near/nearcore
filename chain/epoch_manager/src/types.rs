@@ -1,5 +1,4 @@
 use std::collections::{BTreeMap, HashMap};
-use std::fmt;
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use num_rational::Rational;
@@ -7,7 +6,6 @@ use serde::Serialize;
 
 use near_primitives::challenge::SlashedValidator;
 use near_primitives::hash::CryptoHash;
-use near_primitives::serialize::to_base;
 use near_primitives::types::{
     AccountId, Balance, BlockChunkValidatorStats, BlockHeight, BlockHeightDelta, EpochHeight,
     EpochId, NumSeats, NumShards, ShardId, ValidatorId, ValidatorKickoutReason, ValidatorStake,
@@ -187,66 +185,6 @@ impl BlockInfo {
                 .or_insert(ValidatorStats { produced: u64::from(*mask), expected: 1 });
         }
         self.shard_tracker = prev_shard_tracker;
-    }
-}
-
-#[derive(Eq, PartialEq)]
-pub enum EpochError {
-    /// Error calculating threshold from given stakes for given number of seats.
-    /// Only should happened if calling code doesn't check for integer value of stake > number of seats.
-    ThresholdError(Balance, u64),
-    /// Requesting validators for an epoch that wasn't computed yet.
-    EpochOutOfBounds,
-    /// Missing block hash in the storage (means there is some structural issue).
-    MissingBlock(CryptoHash),
-    /// Other error.
-    Other(String),
-}
-
-impl std::error::Error for EpochError {}
-
-impl fmt::Debug for EpochError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            EpochError::ThresholdError(stakes_sum, num_seats) => write!(
-                f,
-                "Total stake {} must be higher than the number of seats {}",
-                stakes_sum, num_seats
-            ),
-            EpochError::EpochOutOfBounds => write!(f, "Epoch out of bounds"),
-            EpochError::MissingBlock(hash) => write!(f, "Missing block {}", hash),
-            EpochError::Other(err) => write!(f, "Other: {}", err),
-        }
-    }
-}
-
-impl fmt::Display for EpochError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            EpochError::ThresholdError(stake, num_seats) => {
-                write!(f, "ThresholdError({}, {})", stake, num_seats)
-            }
-            EpochError::EpochOutOfBounds => write!(f, "EpochOutOfBounds"),
-            EpochError::MissingBlock(hash) => write!(f, "MissingBlock({})", hash),
-            EpochError::Other(err) => write!(f, "Other({})", err),
-        }
-    }
-}
-
-impl From<std::io::Error> for EpochError {
-    fn from(error: std::io::Error) -> Self {
-        EpochError::Other(error.to_string())
-    }
-}
-
-impl From<EpochError> for near_chain::Error {
-    fn from(error: EpochError) -> Self {
-        match error {
-            EpochError::EpochOutOfBounds => near_chain::ErrorKind::EpochOutOfBounds,
-            EpochError::MissingBlock(h) => near_chain::ErrorKind::DBNotFoundErr(to_base(&h)),
-            err => near_chain::ErrorKind::ValidatorError(err.to_string()),
-        }
-        .into()
     }
 }
 
