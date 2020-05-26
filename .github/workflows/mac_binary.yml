@@ -5,7 +5,7 @@ on:
       - master
       - beta
       - stable
-      - mac-binary-release
+      - workaround-release-build
 jobs:
   build_binary:
     runs-on: macOS-latest
@@ -13,7 +13,7 @@ jobs:
     steps:
     - uses: hecrj/setup-rust-action@v1
       with:
-        rust-version: nightly-2020-03-19
+        rust-version: nightly-2020-05-15
     - uses: actions/checkout@master
     - uses: chrislennon/action-aws-cli@v1.1
     - run: scripts/binary-release.sh
