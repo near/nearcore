@@ -251,12 +251,8 @@ impl SealsManager {
                 };
 
                 let chosen = Self::get_random_part_ords(candidates);
-                let demur = ActiveSealDemur {
-                    part_ords: chosen,
-                    chunk_producer,
-                    sent: Utc::now(),
-                    height,
-                };
+                let demur =
+                    ActiveSealDemur { part_ords: chosen, chunk_producer, sent: Utc::now(), height };
 
                 Ok(entry.insert(demur))
             }
@@ -274,8 +270,7 @@ impl SealsManager {
     }
 
     fn approve_chunk(&mut self, chunk_hash: &ChunkHash) {
-        let seal =
-            self.active_demurs.remove(chunk_hash).expect("seal should be already produced");
+        let seal = self.active_demurs.remove(chunk_hash).expect("seal should be already produced");
         Self::insert_past_seal(&mut self.past_seals, seal.height, chunk_hash.clone());
     }
 
