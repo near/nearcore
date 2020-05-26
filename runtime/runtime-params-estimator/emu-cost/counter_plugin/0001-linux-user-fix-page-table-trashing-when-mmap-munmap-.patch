@@ -1,0 +1,32 @@
+From 356132111d690a4c9ee74490805e6cfb134dba63 Mon Sep 17 00:00:00 2001
+From: Nikolay Igotti <igotti@gmail.com>
+Date: Sun, 19 Apr 2020 21:31:41 +0300
+Subject: [PATCH 1/3] linux-user: fix page table trashing when mmap/munmap
+ called frequently on large regions
+
+Some applications, for example Wasmer WebAssembly VM, perform frequent map/unmap of
+huge (6G) regions, so when executed under linux-user it leads to creation of many PTE/PDE
+for the region, and they never get reclaimed. As result, emulator process consumes a lot
+of RAM. To fix this problem we try to reuse VMA, when possible.
+
+Signed-off-by: Nikolay Igotti <igotti@gmail.com>
+---
+ linux-user/mmap.c | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/linux-user/mmap.c b/linux-user/mmap.c
+index e378033797..c1d6163d7a 100644
+--- a/linux-user/mmap.c
++++ b/linux-user/mmap.c
+@@ -650,6 +650,8 @@ int target_munmap(abi_ulong start, abi_ulong len)
+     if (ret == 0) {
+         page_set_flags(start, start + len, 0);
+         tb_invalidate_phys_range(start, start + len);
++        if (start < mmap_next_start)
++            mmap_next_start = start;
+     }
+     mmap_unlock();
+     return ret;
+-- 
+2.24.2 (Apple Git-127)
+
