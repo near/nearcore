@@ -420,9 +420,9 @@ mod tests {
                 block_production_time,
                 drop_chunks,
                 !test_doomslug,
-                5,
+                20,
                 test_doomslug,
-                vec![false; validators.iter().map(|x| x.len()).sum()],
+                vec![true; validators.iter().map(|x| x.len()).sum()],
                 Arc::new(RwLock::new(Box::new(
                     move |_account_id: String, _msg: &NetworkRequests| {
                         (NetworkResponses::NoResponse, true)
