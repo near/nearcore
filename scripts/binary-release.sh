@@ -25,4 +25,4 @@ upload_debug_binary keypair-generator
 upload_debug_binary genesis-csv-to-json
 upload_binary near-vm-runner-standalone
 upload_debug_binary state-viewer
-upload_debug_binary store-validator
+upload_debug_binary store-validator-bin
