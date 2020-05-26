@@ -307,7 +307,7 @@ impl SealsManager {
         let past_seals = &mut self.past_seals;
 
         self.active_demurs.retain(|chunk_hash, seal| {
-            let accepting_period_over =  (now - seal.sent).num_milliseconds() > ACCEPTING_SEAL_PERIOD_MS;
+            let accepting_period_over = (now - seal.sent).num_milliseconds() > ACCEPTING_SEAL_PERIOD_MS;
             let parts_remain = seal.part_ords.len() > NUM_PARTS_LEFT_IN_SEAL;
 
             // note chunk producers that failed to make parts available
