@@ -140,11 +140,11 @@ impl RequestPool {
 #[derive(Debug, Eq, PartialEq)]
 enum Seal<'a> {
     Past,
-    Active(&'a mut ActiveSealChallenge),
+    Active(&'a mut ActiveSealDemur),
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-struct ActiveSealChallenge {
+struct ActiveSealDemur {
     part_ords: HashSet<u64>,
     chunk_producer: AccountId,
     sent: DateTime<Utc>,
@@ -155,9 +155,9 @@ impl Seal<'_> {
     fn process(self, chunk_entry: &EncodedChunksCacheEntry) -> bool {
         match self {
             Seal::Past => true,
-            Seal::Active(challenge) => {
+            Seal::Active(demur) => {
                 let mut res = true;
-                challenge.part_ords.retain(|part_ord| {
+                demur.part_ords.retain(|part_ord| {
                     if !chunk_entry.parts.contains_key(&part_ord) {
                         res = false;
                         true
@@ -173,7 +173,7 @@ impl Seal<'_> {
     fn contains_part_ord(&self, part_ord: &u64) -> bool {
         match self {
             Seal::Past => false,
-            Seal::Active(challenge) => challenge.part_ords.contains(part_ord),
+            Seal::Active(demur) => demur.part_ords.contains(part_ord),
         }
     }
 }
@@ -182,7 +182,7 @@ pub struct SealsManager {
     me: Option<AccountId>,
     runtime_adapter: Arc<dyn RuntimeAdapter>,
 
-    active_challenges: HashMap<ChunkHash, ActiveSealChallenge>,
+    active_demurs: HashMap<ChunkHash, ActiveSealDemur>,
     past_seals: BTreeMap<BlockHeight, HashSet<ChunkHash>>,
     dont_include_chunks_from: SizedCache<AccountId, ()>,
 }
@@ -192,7 +192,7 @@ impl SealsManager {
         Self {
             me,
             runtime_adapter,
-            active_challenges: HashMap::new(),
+            active_demurs: HashMap::new(),
             past_seals: BTreeMap::new(),
             dont_include_chunks_from: SizedCache::with_size(CHUNK_PRODUCER_BLACKLIST_SIZE),
         }
@@ -211,7 +211,7 @@ impl SealsManager {
             // None | Some(hashes) if !hashes.contains(chunk_hash)
             _ => self
                 .get_active_seal(chunk_hash, parent_hash, height, shard_id)
-                .map(|challenge| Seal::Active(challenge)),
+                .map(|demur| Seal::Active(demur)),
         }
     }
 
@@ -221,8 +221,8 @@ impl SealsManager {
         parent_hash: &CryptoHash,
         height: BlockHeight,
         shard_id: ShardId,
-    ) -> Result<&mut ActiveSealChallenge, near_chain::Error> {
-        match self.active_challenges.entry(chunk_hash.clone()) {
+    ) -> Result<&mut ActiveSealDemur, near_chain::Error> {
+        match self.active_demurs.entry(chunk_hash.clone()) {
             Entry::Occupied(entry) => Ok(entry.into_mut()),
             Entry::Vacant(entry) => {
                 let chunk_producer = self.runtime_adapter.get_chunk_producer(
@@ -257,21 +257,21 @@ impl SealsManager {
                     )
                     .cloned()
                     .collect::<HashSet<_>>();
-                let challenge = ActiveSealChallenge {
+                let demur = ActiveSealDemur {
                     part_ords: chosen,
                     chunk_producer,
                     sent: Utc::now(),
                     height,
                 };
 
-                Ok(entry.insert(challenge))
+                Ok(entry.insert(demur))
             }
         }
     }
 
     fn approve_chunk(&mut self, chunk_hash: &ChunkHash) {
         let seal =
-            self.active_challenges.remove(chunk_hash).expect("seal should be already produced");
+            self.active_demurs.remove(chunk_hash).expect("seal should be already produced");
         Self::insert_past_seal(&mut self.past_seals, seal.height, chunk_hash.clone());
     }
 
@@ -302,7 +302,7 @@ impl SealsManager {
         let dont_include_chunks_from = &mut self.dont_include_chunks_from;
         let past_seals = &mut self.past_seals;
 
-        self.active_challenges.retain(|chunk_hash, seal| {
+        self.active_demurs.retain(|chunk_hash, seal| {
             let accepting_period_over =  (now - seal.sent).num_milliseconds() > ACCEPTING_SEAL_PERIOD_MS;
             let parts_remain = seal.part_ords.len() > NUM_PARTS_LEFT_IN_SEAL;
 
@@ -312,7 +312,7 @@ impl SealsManager {
                 dont_include_chunks_from.cache_set(seal.chunk_producer.clone(), ());
                 Self::insert_past_seal(past_seals, seal.height, chunk_hash.clone());
 
-                // Do not retain this challenge, it has expired
+                // Do not retain this demur, it has expired
                 false
             } else {
                 true
@@ -1422,25 +1422,25 @@ mod test {
                     fixture.mock_shard_id,
                 )
                 .unwrap();
-            let challenge = match seal {
-                Seal::Active(challenge) => challenge,
-                Seal::Past => panic!("Expected ActiveSealChallenge"),
+            let demur = match seal {
+                Seal::Active(demur) => demur,
+                Seal::Past => panic!("Expected ActiveSealDemur"),
             };
-            assert_eq!(challenge.part_ords.len(), NUM_PARTS_REQUESTED_IN_SEAL);
-            assert_eq!(challenge.height, fixture.mock_height);
-            assert_eq!(challenge.chunk_producer, fixture.mock_chunk_producer);
+            assert_eq!(demur.part_ords.len(), NUM_PARTS_REQUESTED_IN_SEAL);
+            assert_eq!(demur.height, fixture.mock_height);
+            assert_eq!(demur.chunk_producer, fixture.mock_chunk_producer);
         };
 
         // SealsManger::get_seal should:
 
         // 1. return a new seal when one does not exist
-        assert!(seals_manager.active_challenges.is_empty());
+        assert!(seals_manager.active_demurs.is_empty());
         seal_assert(&mut seals_manager);
-        assert_eq!(seals_manager.active_challenges.len(), 1);
+        assert_eq!(seals_manager.active_demurs.len(), 1);
 
         // 2. return the same seal when it is already created
         seal_assert(&mut seals_manager);
-        assert_eq!(seals_manager.active_challenges.len(), 1);
+        assert_eq!(seals_manager.active_demurs.len(), 1);
     }
 
     #[test]
@@ -1452,7 +1452,7 @@ mod test {
         // move the seal into the past seals map.
         fixture.create_seal(&mut seals_manager);
         seals_manager.approve_chunk(&fixture.mock_chunk_hash);
-        assert!(seals_manager.active_challenges.is_empty());
+        assert!(seals_manager.active_demurs.is_empty());
         assert!(seals_manager.should_trust_chunk_producer(&fixture.mock_chunk_producer));
         assert!(seals_manager
             .past_seals
@@ -1476,13 +1476,13 @@ mod test {
                     fixture.mock_shard_id,
                 )
                 .unwrap();
-            let challenge = match seal {
-                Seal::Active(challenge) => challenge,
-                Seal::Past => panic!("Active challenge expected"),
+            let demur = match seal {
+                Seal::Active(demur) => demur,
+                Seal::Past => panic!("Active demur expected"),
             };
 
             let d = chrono::Duration::milliseconds(2 * ACCEPTING_SEAL_PERIOD_MS);
-            challenge.sent = challenge.sent - d;
+            demur.sent = demur.sent - d;
         }
 
         // SealsManager::track_seals should:
@@ -1491,7 +1491,7 @@ mod test {
         //    move the seal into the past seals map
         seals_manager.track_seals(&fixture.mock_parent_hash);
         assert!(!seals_manager.should_trust_chunk_producer(&fixture.mock_chunk_producer));
-        assert!(seals_manager.active_challenges.is_empty());
+        assert!(seals_manager.active_demurs.is_empty());
         assert!(seals_manager
             .past_seals
             .get(&fixture.mock_height)
@@ -1500,7 +1500,7 @@ mod test {
 
         // 2. remove seals older than the GC limit
         seals_manager.track_seals(&fixture.mock_distant_block_hash);
-        assert!(seals_manager.active_challenges.is_empty());
+        assert!(seals_manager.active_demurs.is_empty());
         assert!(seals_manager.past_seals.is_empty());
     }
 }
