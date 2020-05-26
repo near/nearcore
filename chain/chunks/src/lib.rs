@@ -28,7 +28,8 @@ use near_primitives::sharding::{
 };
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{
-    AccountId, Balance, BlockHeight, Gas, MerkleHash, ShardId, StateRoot, ValidatorStake,
+    AccountId, Balance, BlockHeight, BlockHeightDelta, Gas, MerkleHash, ShardId, StateRoot,
+    ValidatorStake,
 };
 use near_primitives::unwrap_or_return;
 use near_primitives::validator_signer::ValidatorSigner;
@@ -50,6 +51,7 @@ const CHUNK_REQUEST_RETRY_MAX_MS: u64 = 100_000;
 const ACCEPTING_SEAL_PERIOD_MS: i64 = 30_000;
 const NUM_PARTS_REQUESTED_IN_SEAL: usize = 3;
 const NUM_PARTS_LEFT_IN_SEAL: usize = 1;
+const PAST_SEAL_HEIGHT_HORIZON: BlockHeightDelta = 1024;
 
 #[derive(PartialEq, Eq)]
 pub enum ChunkStatus {
@@ -283,20 +285,23 @@ impl SealsManager {
         hashes_at_height.insert(chunk_hash);
     }
 
-    fn prune_past_seals(&mut self, block_hash: &CryptoHash) {
-        if let Ok(gc_stop_height) = self.runtime_adapter.get_gc_stop_height(block_hash) {
-            if let Some(least_height) = self.past_seals.keys().next() {
-                if least_height < &gc_stop_height {
-                    let remaining_seals = self.past_seals.split_off(&gc_stop_height);
-                    self.past_seals = remaining_seals;
-                }
+    fn prune_past_seals(&mut self) {
+        let heights_to_remove = {
+            let mut heights = self.past_seals.keys();
+            if let Some(greatest_height) = heights.next_back() {
+                let min_keep_height = greatest_height.saturating_sub(PAST_SEAL_HEIGHT_HORIZON);
+                heights.copied().take_while(|h| *h < min_keep_height).collect()
+            } else {
+                Vec::new()
             }
+        };
+        for h in heights_to_remove {
+            self.past_seals.remove(&h);
         }
     }
 
-    fn track_seals(&mut self, block_hash: &CryptoHash) {
+    fn track_seals(&mut self) {
         let now = Utc::now();
-        self.prune_past_seals(block_hash);
         let me = &self.me;
         let dont_include_chunks_from = &mut self.dont_include_chunks_from;
         let past_seals = &mut self.past_seals;
@@ -317,6 +322,8 @@ impl SealsManager {
                 true
             }
         });
+
+        self.prune_past_seals();
     }
 
     fn should_trust_chunk_producer(&mut self, chunk_producer: &AccountId) -> bool {
@@ -1020,7 +1027,7 @@ impl ShardsManager {
             header.inner.height_created,
             header.inner.shard_id,
         )?;
-        self.seals_mgr.track_seals(&prev_block_hash);
+        self.seals_mgr.track_seals();
 
         if have_all_parts && self.seals_mgr.should_trust_chunk_producer(&chunk_producer) {
             self.encoded_chunks.insert_chunk_header(header.inner.shard_id, header.clone());
@@ -1374,8 +1381,8 @@ impl ShardsManager {
 mod test {
     use crate::test_utils::SealsManagerTestFixture;
     use crate::{
-        ChunkRequestInfo, Seal, SealsManager, ShardsManager, ACCEPTING_SEAL_PERIOD_MS,
-        CHUNK_REQUEST_RETRY_MS, NUM_PARTS_REQUESTED_IN_SEAL,
+        ChunkRequestInfo, Seal, SealsManager, ShardsManager, CHUNK_REQUEST_RETRY_MS,
+        NUM_PARTS_REQUESTED_IN_SEAL, PAST_SEAL_HEIGHT_HORIZON,
     };
     use near_chain::test_utils::KeyValueRuntime;
     use near_network::test_utils::MockNetworkAdapter;
@@ -1465,30 +1472,19 @@ mod test {
         let fixture = SealsManagerTestFixture::default();
         let mut seals_manager = fixture.create_seals_manager();
 
-        {
-            // create a seal with old timestamp
-            let seal = seals_manager
-                .get_seal(
-                    &fixture.mock_chunk_hash,
-                    &fixture.mock_parent_hash,
-                    fixture.mock_height,
-                    fixture.mock_shard_id,
-                )
-                .unwrap();
-            let demur = match seal {
-                Seal::Active(demur) => demur,
-                Seal::Past => panic!("Active demur expected"),
-            };
-
-            let d = chrono::Duration::milliseconds(2 * ACCEPTING_SEAL_PERIOD_MS);
-            demur.sent = demur.sent - d;
-        }
+        // create a seal with old timestamp
+        fixture.create_expired_seal(
+            &mut seals_manager,
+            &fixture.mock_chunk_hash,
+            &fixture.mock_parent_hash,
+            fixture.mock_height,
+        );
 
         // SealsManager::track_seals should:
 
         // 1. mark the chunk producer as faulty if the parts were not retrieved and
         //    move the seal into the past seals map
-        seals_manager.track_seals(&fixture.mock_parent_hash);
+        seals_manager.track_seals();
         assert!(!seals_manager.should_trust_chunk_producer(&fixture.mock_chunk_producer));
         assert!(seals_manager.active_demurs.is_empty());
         assert!(seals_manager
@@ -1497,9 +1493,15 @@ mod test {
             .unwrap()
             .contains(&fixture.mock_chunk_hash));
 
-        // 2. remove seals older than the GC limit
-        seals_manager.track_seals(&fixture.mock_distant_block_hash);
+        // 2. remove seals older than the USED_SEAL_HEIGHT_HORIZON
+        fixture.create_expired_seal(
+            &mut seals_manager,
+            &fixture.mock_distant_chunk_hash,
+            &fixture.mock_distant_block_hash,
+            fixture.mock_height + PAST_SEAL_HEIGHT_HORIZON + 1,
+        );
+        seals_manager.track_seals();
         assert!(seals_manager.active_demurs.is_empty());
-        assert!(seals_manager.past_seals.is_empty());
+        assert!(seals_manager.past_seals.get(&fixture.mock_height).is_none());
     }
 }
