@@ -250,13 +250,7 @@ impl SealsManager {
                     accumulator
                 };
 
-                let chosen = candidates
-                    .choose_multiple(
-                        &mut rand::thread_rng(),
-                        cmp::min(NUM_PARTS_REQUESTED_IN_SEAL, candidates.len()),
-                    )
-                    .cloned()
-                    .collect::<HashSet<_>>();
+                let chosen = Self::get_random_part_ords(candidates);
                 let demur = ActiveSealDemur {
                     part_ords: chosen,
                     chunk_producer,
@@ -267,6 +261,16 @@ impl SealsManager {
                 Ok(entry.insert(demur))
             }
         }
+    }
+
+    fn get_random_part_ords(candidates: Vec<u64>) -> HashSet<u64> {
+        candidates
+            .choose_multiple(
+                &mut rand::thread_rng(),
+                cmp::min(NUM_PARTS_REQUESTED_IN_SEAL, candidates.len()),
+            )
+            .cloned()
+            .collect()
     }
 
     fn approve_chunk(&mut self, chunk_hash: &ChunkHash) {
