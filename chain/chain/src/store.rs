@@ -36,7 +36,7 @@ use near_store::{
     ColNextBlockHashes, ColNextBlockWithNewChunk, ColOutgoingReceipts, ColPartialChunks,
     ColReceiptIdToShardId, ColState, ColStateChanges, ColStateDlInfos, ColStateHeaders,
     ColTransactionResult, ColTransactions, ColTrieChanges, KeyForStateChanges, ShardTries, Store,
-    StoreUpdate, TrieChanges, WrappedTrieChanges, HEADER_HEAD_KEY, HEAD_KEY,
+    StoreUpdate, TrieChanges, WrappedTrieChanges, CHUNK_TAIL_KEY, HEADER_HEAD_KEY, HEAD_KEY,
     LARGEST_TARGET_HEIGHT_KEY, LATEST_KNOWN_KEY, SYNC_HEAD_KEY, TAIL_KEY,
 };
 
@@ -80,8 +80,10 @@ pub trait ChainStoreAccess {
     fn store(&self) -> &Store;
     /// The chain head.
     fn head(&self) -> Result<Tip, Error>;
-    /// The chain tail height.
+    /// The chain Blocks Tail height.
     fn tail(&self) -> Result<BlockHeight, Error>;
+    /// The chain Chunks Tail height.
+    fn chunk_tail(&self) -> Result<BlockHeight, Error>;
     /// Head of the header chain (not the same thing as head_header).
     fn header_head(&self) -> Result<Tip, Error>;
     /// The "sync" head: last header we received from syncing.
@@ -477,10 +479,18 @@ impl ChainStoreAccess for ChainStore {
         option_to_not_found(self.store.get_ser(ColBlockMisc, HEAD_KEY), "HEAD")
     }
 
-    /// The chain tail height, used by GC.
+    /// The chain Blocks Tail height, used by GC.
     fn tail(&self) -> Result<BlockHeight, Error> {
         self.store
             .get_ser(ColBlockMisc, TAIL_KEY)
+            .map(|option| option.unwrap_or_else(|| self.genesis_height))
+            .map_err(|e| e.into())
+    }
+
+    /// The chain Chunks Tail height, used by GC.
+    fn chunk_tail(&self) -> Result<BlockHeight, Error> {
+        self.store
+            .get_ser(ColBlockMisc, CHUNK_TAIL_KEY)
             .map(|option| option.unwrap_or_else(|| self.genesis_height))
             .map_err(|e| e.into())
     }
@@ -998,7 +1008,6 @@ struct ChainStoreCacheUpdate {
     block_extras: HashMap<CryptoHash, BlockExtra>,
     chunk_extras: HashMap<(CryptoHash, ShardId), ChunkExtra>,
     chunks: HashMap<ChunkHash, ShardChunk>,
-    removed_chunks: HashMap<ChunkHash, BlockHeight>,
     partial_chunks: HashMap<ChunkHash, PartialEncodedChunk>,
     block_hash_per_height: HashMap<BlockHeight, HashMap<EpochId, HashSet<CryptoHash>>>,
     chunk_hash_per_height_shard: HashMap<(BlockHeight, ShardId), ChunkHash>,
@@ -1027,7 +1036,6 @@ impl ChainStoreCacheUpdate {
             block_extras: Default::default(),
             chunk_extras: HashMap::default(),
             chunks: Default::default(),
-            removed_chunks: Default::default(),
             partial_chunks: Default::default(),
             block_hash_per_height: HashMap::default(),
             chunk_hash_per_height_shard: HashMap::default(),
@@ -1059,6 +1067,7 @@ pub struct ChainStoreUpdate<'a> {
     chain_store_cache_update: ChainStoreCacheUpdate,
     head: Option<Tip>,
     tail: Option<BlockHeight>,
+    chunks_tail: Option<BlockHeight>,
     header_head: Option<Tip>,
     sync_head: Option<Tip>,
     largest_target_height: Option<BlockHeight>,
@@ -1081,6 +1090,7 @@ impl<'a> ChainStoreUpdate<'a> {
             chain_store_cache_update: ChainStoreCacheUpdate::new(),
             head: None,
             tail: None,
+            chunks_tail: None,
             header_head: None,
             sync_head: None,
             largest_target_height: None,
@@ -1151,12 +1161,21 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
         }
     }
 
-    /// The chain tail height, used by GC.
+    /// The chain Block Tail height, used by GC.
     fn tail(&self) -> Result<BlockHeight, Error> {
         if let Some(tail) = &self.tail {
             Ok(tail.clone())
         } else {
             self.chain_store.tail()
+        }
+    }
+
+    /// The chain Chunks Tail height, used by GC.
+    fn chunk_tail(&self) -> Result<BlockHeight, Error> {
+        if let Some(chunks_tail) = &self.chunks_tail {
+            Ok(chunks_tail.clone())
+        } else {
+            self.chain_store.chunk_tail()
         }
     }
 
@@ -1795,6 +1814,10 @@ impl<'a> ChainStoreUpdate<'a> {
         self.tail = Some(height);
     }
 
+    pub fn update_chunks_tail(&mut self, height: BlockHeight) {
+        self.chunks_tail = Some(height);
+    }
+
     pub fn clear_state_data(&mut self) {
         let mut store_update = self.store().store_update();
 
@@ -1803,6 +1826,54 @@ impl<'a> ChainStoreUpdate<'a> {
             store_update.delete(ColState, key.as_ref());
         }
         self.merge(store_update);
+    }
+
+    pub fn clear_chunk_data(&mut self, min_chunk_height: BlockHeight) -> Result<(), Error> {
+        let mut store_update = self.store().store_update();
+
+        let chunk_tail = self.chunk_tail()?;
+        for height in chunk_tail..min_chunk_height {
+            let chunk_hashes = self.get_all_chunk_hashes_by_height(height)?;
+            for chunk_hash in chunk_hashes {
+                // 1. Delete chunk-related data
+                let chunk = self.get_chunk(&chunk_hash)?.clone();
+                debug_assert_eq!(chunk.header.inner.height_created, height);
+                // 1a. Delete from receipt_id_to_shard_id (ColReceiptIdToShardId)
+                for receipt in chunk.receipts {
+                    store_update.delete(ColReceiptIdToShardId, receipt.receipt_id.as_ref());
+                    self.chain_store
+                        .receipt_id_to_shard_id
+                        .cache_remove(&receipt.receipt_id.into());
+                }
+                // 1b. Delete from ColTransactions
+                for transaction in chunk.transactions {
+                    store_update.delete(ColTransactions, transaction.get_hash().as_ref());
+                    self.chain_store.transactions.cache_remove(&transaction.get_hash().into());
+                }
+
+                // 2. Delete chunk_hash-indexed data
+                let chunk_header_hash = chunk_hash.clone().into();
+                let chunk_header_hash_ref = chunk_hash.as_ref();
+                // 2a. Delete chunks (ColChunks)
+                store_update.delete(ColChunks, chunk_header_hash_ref);
+                self.chain_store.chunks.cache_remove(&chunk_header_hash);
+                // 2b. Delete chunk extras (ColChunkExtra)
+                store_update.delete(ColChunkExtra, chunk_header_hash_ref);
+                self.chain_store.chunk_extras.cache_remove(&chunk_header_hash);
+                // 2c. Delete partial_chunks (ColPartialChunks)
+                store_update.delete(ColPartialChunks, chunk_header_hash_ref);
+                self.chain_store.partial_chunks.cache_remove(&chunk_header_hash);
+                // 2d. Delete invalid chunks (ColInvalidChunks)
+                store_update.delete(ColInvalidChunks, chunk_header_hash_ref);
+                self.chain_store.invalid_chunks.cache_remove(&chunk_header_hash);
+            }
+            // 3. Delete chunks_tail-related data
+            // 3a. Delete from ColChunkHashesByHeight
+            store_update.delete(ColChunkHashesByHeight, &index_to_bytes(height));
+        }
+        self.update_chunks_tail(min_chunk_height);
+        self.merge(store_update);
+        Ok(())
     }
 
     // Clearing block data of `block_hash`, if on a fork.
@@ -1894,76 +1965,40 @@ impl<'a> ChainStoreUpdate<'a> {
             // 2f. Delete from ColStateParts
             // Already done, check chain.clear_downloaded_parts()
         }
-        for chunk_header in block.chunks {
-            if let Ok(chunk) = self.get_chunk_clone_from_header(&chunk_header) {
-                // 2g. Delete from receipt_id_to_shard_id (ColReceiptIdToShardId)
-                for receipt in chunk.receipts {
-                    store_update.delete(ColReceiptIdToShardId, receipt.receipt_id.as_ref());
-                    self.chain_store
-                        .receipt_id_to_shard_id
-                        .cache_remove(&receipt.receipt_id.into());
-                }
-                // 2h. Delete from ColTransactions
-                for transaction in chunk.transactions {
-                    store_update.delete(ColTransactions, transaction.get_hash().as_ref());
-                    self.chain_store.transactions.cache_remove(&transaction.get_hash().into());
-                }
-            }
 
-            // 3. Delete chunk_hash-indexed data
-            let chunk_header_hash = chunk_header.hash.clone().into();
-            let chunk_header_hash_ref = chunk_header.hash.as_ref();
-            // 3a. Delete chunks (ColChunks)
-            store_update.delete(ColChunks, chunk_header_hash_ref);
-            self.chain_store.chunks.cache_remove(&chunk_header_hash);
-            // 3b. Delete chunk extras (ColChunkExtra)
-            store_update.delete(ColChunkExtra, chunk_header_hash_ref);
-            self.chain_store.chunk_extras.cache_remove(&chunk_header_hash);
-            // 3c. Delete partial_chunks (ColPartialChunks)
-            store_update.delete(ColPartialChunks, chunk_header_hash_ref);
-            self.chain_store.partial_chunks.cache_remove(&chunk_header_hash);
-            // 3d. Delete invalid chunks (ColInvalidChunks)
-            store_update.delete(ColInvalidChunks, chunk_header_hash_ref);
-            self.chain_store.invalid_chunks.cache_remove(&chunk_header_hash);
-            // 3e. Delete Chunk Hash from ColChunkHashesByHeight
-            self.chain_store_cache_update
-                .removed_chunks
-                .insert(chunk_header.hash.clone(), chunk_header.inner.height_created);
-        }
-
-        // 4. Delete block_hash-indexed data
+        // 3. Delete block_hash-indexed data
         let block_hash_ref = block_hash.as_ref();
-        // 4a. Delete block (ColBlock)
+        // 3a. Delete block (ColBlock)
         store_update.delete(ColBlock, block_hash_ref);
         self.chain_store.blocks.cache_remove(&block_hash.into());
-        // 4b. Delete block header (ColBlockHeader) - don't do because header sync needs headers
-        // 4c. Delete block extras (ColBlockExtra)
+        // 3b. Delete block header (ColBlockHeader) - don't do because header sync needs headers
+        // 3c. Delete block extras (ColBlockExtra)
         store_update.delete(ColBlockExtra, block_hash_ref);
         self.chain_store.block_extras.cache_remove(&block_hash.into());
-        // 4d. Delete from next_block_hashes (ColNextBlockHashes)
+        // 3d. Delete from next_block_hashes (ColNextBlockHashes)
         store_update.delete(ColNextBlockHashes, block_hash_ref);
         self.chain_store.next_block_hashes.cache_remove(&block_hash.into());
-        // 4e. Delete from ColChallengedBlocks
+        // 3e. Delete from ColChallengedBlocks
         store_update.delete(ColChallengedBlocks, block_hash_ref);
-        // 4f. Delete from ColBlocksToCatchup
+        // 3f. Delete from ColBlocksToCatchup
         store_update.delete(ColBlocksToCatchup, block_hash_ref);
-        // 4g. Delete from KV state changes
+        // 3g. Delete from KV state changes
         let storage_key = KeyForStateChanges::get_prefix(&block_hash);
-        // 4g1. We should collect all the keys which key prefix equals to `block_hash`
+        // 3g1. We should collect all the keys which key prefix equals to `block_hash`
         let stored_state_changes =
             self.chain_store.store().iter_prefix(ColStateChanges, storage_key.as_ref());
-        // 4g2. Remove from ColStateChanges all found State Changes
+        // 3g2. Remove from ColStateChanges all found State Changes
         for (key, _) in stored_state_changes {
             store_update.delete(ColStateChanges, key.as_ref());
         }
-        // 4h. Delete from ColBlockRefCount
+        // 3h. Delete from ColBlockRefCount
         store_update.delete(ColBlockRefCount, block_hash_ref);
         self.chain_store.block_refcounts.cache_remove(&block_hash.into());
 
         match gc_mode {
             GCMode::Fork(_) => {
-                // 5. Forks only clearing
-                // 5a. Update block_hash_per_height
+                // 4. Forks only clearing
+                // 4a. Update block_hash_per_height
                 let epoch_to_hashes_ref = self.get_all_block_hashes_by_height(height)?;
                 let mut epoch_to_hashes = epoch_to_hashes_ref.clone();
                 let hashes = epoch_to_hashes
@@ -1978,28 +2013,24 @@ impl<'a> ChainStoreUpdate<'a> {
                 self.chain_store
                     .block_hash_per_height
                     .cache_set(index_to_bytes(height), epoch_to_hashes);
-                // 5b. Decreasing block refcount
+                // 4b. Decreasing block refcount
                 self.dec_block_refcount(&block.header.prev_hash)?;
             }
             GCMode::Canonical(_) | GCMode::StateSync => {
-                // 6. Canonical Chain and Post State Sync clearing
-                // 6a. Delete blocks with current height (ColBlockPerHeight)
+                // 5. Canonical Chain and Post State Sync clearing
+                // 5a. Delete blocks with current height (ColBlockPerHeight)
                 store_update.delete(ColBlockPerHeight, &index_to_bytes(height));
                 self.chain_store.block_hash_per_height.cache_remove(&index_to_bytes(height));
-                // 6b. Delete from ColBlockHeight - don't do because: block sync needs it + genesis should be accessible
-                let chunk_hashes = self.get_all_chunk_hashes_by_height(height)?;
-                for chunk_hash in chunk_hashes {
-                    if let Ok(chunk) = self.get_chunk(&chunk_hash.clone()) {
-                        // 6c. Delete Chunks that are too old to be included from ColChunks and ColChunkHashesByHeight
-                        if chunk.header.height_included == 0 {
-                            self.chain_store.chunks.cache_remove(&chunk_hash.clone().into());
-                            self.chain_store_cache_update
-                                .removed_chunks
-                                .insert(chunk_hash.clone(), height);
-                            store_update.delete(ColChunks, chunk_hash.as_ref());
-                        }
+                // 5b. Delete from ColBlockHeight - don't do because: block sync needs it + genesis should be accessible
+
+                // 6. Delete chunks and chunk-indexed data
+                let mut min_chunk_height = self.tail()?;
+                for chunk_header in block.chunks {
+                    if min_chunk_height > chunk_header.inner.height_created {
+                        min_chunk_height = chunk_header.inner.height_created;
                     }
                 }
+                self.clear_chunk_data(min_chunk_height)?;
             }
         };
         self.merge(store_update);
@@ -2102,30 +2133,10 @@ impl<'a> ChainStoreUpdate<'a> {
                 .set_ser(ColChunks, chunk_hash.as_ref(), chunk)
                 .map_err::<Error, _>(|e| e.into())?;
         }
-        for (chunk_hash, height) in self.chain_store_cache_update.removed_chunks.iter() {
-            match chunk_hashes_by_height.entry(*height) {
-                Entry::Occupied(mut entry) => {
-                    entry.get_mut().remove(chunk_hash);
-                }
-                Entry::Vacant(entry) => {
-                    let mut hash_set =
-                        match self.chain_store.get_all_chunk_hashes_by_height(*height) {
-                            Ok(hash_set) => hash_set.clone(),
-                            Err(_) => HashSet::new(),
-                        };
-                    hash_set.remove(chunk_hash);
-                    entry.insert(hash_set);
-                }
-            };
-        }
         for (height, hash_set) in chunk_hashes_by_height {
-            if hash_set.is_empty() {
-                store_update.delete(ColChunkHashesByHeight, &index_to_bytes(height));
-            } else {
-                store_update
-                    .set_ser(ColChunkHashesByHeight, &index_to_bytes(height), &hash_set)
-                    .map_err::<Error, _>(|e| e.into())?;
-            }
+            store_update
+                .set_ser(ColChunkHashesByHeight, &index_to_bytes(height), &hash_set)
+                .map_err::<Error, _>(|e| e.into())?;
         }
         for (chunk_hash, partial_chunk) in self.chain_store_cache_update.partial_chunks.iter() {
             store_update
@@ -2299,7 +2310,6 @@ impl<'a> ChainStoreUpdate<'a> {
             block_extras,
             chunk_extras,
             chunks,
-            removed_chunks: _removed_chunks,
             partial_chunks,
             block_hash_per_height,
             chunk_hash_per_height_shard,
