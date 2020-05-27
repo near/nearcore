@@ -228,7 +228,7 @@ impl Default for ExecutionStatus {
     }
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Serialize, PartialEq, Clone, Default)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, PartialEq, Clone, Default, Debug)]
 struct PartialExecutionOutcome {
     pub receipt_ids: Vec<CryptoHash>,
     pub gas_burnt: Gas,
