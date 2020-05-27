@@ -10,7 +10,7 @@ use chrono::Utc;
 use serde::Serialize;
 use tracing::debug;
 
-use near_primitives::block::Approval;
+use near_primitives::block::{Approval, Tip};
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{MerklePath, PartialMerkleTree};
@@ -42,7 +42,7 @@ use near_store::{
 
 use crate::byzantine_assert;
 use crate::error::{Error, ErrorKind};
-use crate::types::{Block, BlockHeader, LatestKnown, ReceiptProofResponse, ReceiptResponse, Tip};
+use crate::types::{Block, BlockHeader, LatestKnown, ReceiptProofResponse, ReceiptResponse};
 
 /// lru cache size
 const CACHE_SIZE: usize = 100;
@@ -2428,7 +2428,7 @@ mod tests {
 
     use near_chain_configs::GenesisConfig;
     use near_crypto::KeyType;
-    use near_primitives::block::Block;
+    use near_primitives::block::{Block, Tip};
     use near_primitives::errors::InvalidTxError;
     use near_primitives::hash::hash;
     use near_primitives::types::{BlockHeight, EpochId, NumBlocks};
@@ -2440,7 +2440,7 @@ mod tests {
     use crate::chain::{check_refcount_map, MAX_HEIGHTS_TO_CLEAR};
     use crate::store::{ChainStoreAccess, GCMode};
     use crate::test_utils::KeyValueRuntime;
-    use crate::{Chain, ChainGenesis, DoomslugThresholdMode, Tip};
+    use crate::{Chain, ChainGenesis, DoomslugThresholdMode};
 
     fn get_chain() -> Chain {
         get_chain_with_epoch_length(10)

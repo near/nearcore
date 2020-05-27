@@ -12,7 +12,7 @@ use log::{debug, error, info, warn};
 
 use near_chain::types::ShardStateSyncResponse;
 use near_chain::{
-    Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode, ErrorKind, RuntimeAdapter, Tip,
+    Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode, ErrorKind, RuntimeAdapter,
 };
 use near_chain_configs::ClientConfig;
 #[cfg(feature = "adversarial")]
@@ -21,7 +21,7 @@ use near_network::types::{
     NetworkViewClientMessages, NetworkViewClientResponses, ReasonForBan, StateResponseInfo,
 };
 use near_network::{NetworkAdapter, NetworkRequests};
-use near_primitives::block::{BlockHeader, GenesisId};
+use near_primitives::block::{BlockHeader, GenesisId, Tip};
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{verify_path, PartialMerkleTree};
 use near_primitives::network::AnnounceAccount;
