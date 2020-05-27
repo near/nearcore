@@ -286,17 +286,19 @@ impl SealsManager {
     }
 
     fn prune_past_seals(&mut self) {
-        let heights_to_remove = {
+        let maybe_height_limits = {
             let mut heights = self.past_seals.keys();
-            if let Some(greatest_height) = heights.next_back() {
-                let min_keep_height = greatest_height.saturating_sub(PAST_SEAL_HEIGHT_HORIZON);
-                heights.copied().take_while(|h| *h < min_keep_height).collect()
-            } else {
-                Vec::new()
-            }
+            heights.next().and_then(|least_height| {
+                heights.next_back().map(|greatest_height| (*least_height, *greatest_height))
+            })
         };
-        for h in heights_to_remove {
-            self.past_seals.remove(&h);
+
+        if let Some((least_height, greatest_height)) = maybe_height_limits {
+            let min_keep_height = greatest_height.saturating_sub(PAST_SEAL_HEIGHT_HORIZON);
+            if least_height < min_keep_height {
+                let remaining_seals = self.past_seals.split_off(&min_keep_height);
+                self.past_seals = remaining_seals;
+            }
         }
     }
 
