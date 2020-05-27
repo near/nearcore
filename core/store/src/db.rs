@@ -200,10 +200,8 @@ impl Database for RocksDB {
     fn iter<'a>(&'a self, col: DBCol) -> Box<dyn Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a> {
         unsafe {
             let cf_handle = &*self.cfs[col as usize];
-            let iterator = self
-                .db
-                .iterator_cf_opt(cf_handle, &self.read_options, IteratorMode::Start)
-                .unwrap();
+            let iterator =
+                self.db.iterator_cf_opt(cf_handle, rocksdb_read_options(), IteratorMode::Start);
             Box::new(iterator)
         }
     }
@@ -225,10 +223,9 @@ impl Database for RocksDB {
                 .db
                 .iterator_cf_opt(
                     cf_handle,
-                    &read_options,
+                    read_options,
                     IteratorMode::From(key_prefix, Direction::Forward),
                 )
-                .unwrap()
                 .take_while(move |(key, _value)| key.starts_with(key_prefix));
             Box::new(iterator)
         }
@@ -239,10 +236,10 @@ impl Database for RocksDB {
         for op in transaction.ops {
             match op {
                 DBOp::Insert { col, key, value } => unsafe {
-                    batch.put_cf(&*self.cfs[col as usize], key, value)?;
+                    batch.put_cf(&*self.cfs[col as usize], key, value);
                 },
                 DBOp::Delete { col, key } => unsafe {
-                    batch.delete_cf(&*self.cfs[col as usize], key)?;
+                    batch.delete_cf(&*self.cfs[col as usize], key);
                 },
             }
         }
@@ -302,6 +299,7 @@ fn rocksdb_options() -> Options {
     opts.set_write_buffer_size(1024 * 1024 * 512 / 2);
     opts.set_max_bytes_for_level_base(1024 * 1024 * 512 / 2);
     opts.increase_parallelism(cmp::max(1, num_cpus::get() as i32 / 2));
+    opts.set_max_total_wal_size(1 * 1024 * 1024 * 1024);
 
     return opts;
 }
