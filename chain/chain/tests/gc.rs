@@ -257,6 +257,7 @@ mod tests {
         let mut store_validator =
             StoreValidator::new(genesis.clone(), tries1, chain1.store().owned_store());
         store_validator.validate();
+        println!("{:?}", store_validator.errors);
         assert!(!store_validator.is_failed());
         let mut store_validator =
             StoreValidator::new(genesis, tries2, chain2.store().owned_store());

@@ -13,7 +13,17 @@ use crate::validator_signer::ValidatorSigner;
 use reed_solomon_erasure::ReconstructShard;
 
 #[derive(
-    BorshSerialize, BorshDeserialize, Serialize, Hash, Eq, PartialEq, Clone, Debug, Default,
+    BorshSerialize,
+    BorshDeserialize,
+    Serialize,
+    Hash,
+    Eq,
+    PartialEq,
+    Ord,
+    PartialOrd,
+    Clone,
+    Debug,
+    Default,
 )]
 pub struct ChunkHash(pub CryptoHash);
 

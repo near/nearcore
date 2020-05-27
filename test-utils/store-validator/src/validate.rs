@@ -6,8 +6,12 @@ use near_primitives::block::{Block, BlockHeader};
 use near_primitives::borsh;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::{ChunkHash, ShardChunk};
-use near_primitives::types::BlockHeight;
-use near_store::{ColBlockHeader, ColBlockMisc, TrieIterator, TAIL_KEY};
+use near_primitives::types::{BlockHeight, EpochId};
+use near_primitives::utils::index_to_bytes;
+use near_store::{
+    ColBlock, ColBlockHeader, ColBlockMisc, ColBlockPerHeight, ColChunkHashesByHeight, ColChunks,
+    TrieIterator, TAIL_KEY,
+};
 
 use crate::{ErrorMessage, StoreValidator};
 
@@ -179,6 +183,53 @@ pub(crate) fn chunks_state_roots_in_trie(
     let trie = TrieIterator::new(&trie, &state_root).unwrap();
     for item in trie {
         unwrap_or_err!(item, "Can't find ShardChunk {:?} in Trie", shard_chunk);
+    }
+    Ok(())
+}
+
+pub(crate) fn chunks_indexed_by_height_created(
+    sv: &StoreValidator,
+    _key: &[u8],
+    value: &[u8],
+) -> Result<(), ErrorMessage> {
+    let shard_chunk: ShardChunk =
+        unwrap_or_err!(ShardChunk::try_from_slice(value), "Can't deserialize ShardChunk");
+    let height = shard_chunk.header.inner.height_created;
+    let chunk_hashes = unwrap_or_err_db!(
+        sv.store.get_ser::<HashSet<ChunkHash>>(ColChunkHashesByHeight, &index_to_bytes(height)),
+        "Can't get Chunks Set from storage on Height {:?}, no one is responsible for ShardChunk {:?}",
+        height,
+        shard_chunk
+    );
+    if !chunk_hashes.contains(&shard_chunk.chunk_hash) {
+        err!("Can't find ShardChunk {:?} on Height {:?}", shard_chunk, height)
+    } else {
+        Ok(())
+    }
+}
+
+pub(crate) fn chunk_of_height_exists(
+    sv: &StoreValidator,
+    key: &[u8],
+    value: &[u8],
+) -> Result<(), ErrorMessage> {
+    let height: BlockHeight =
+        unwrap_or_err!(BlockHeight::try_from_slice(key), "Can't deserialize Height");
+    if height == 0 {
+        // TODO #2597
+        return Ok(());
+    }
+    let chunk_hashes: HashSet<ChunkHash> =
+        unwrap_or_err!(HashSet::<ChunkHash>::try_from_slice(value), "Can't deserialize Set");
+    for chunk_hash in chunk_hashes {
+        let shard_chunk = unwrap_or_err_db!(
+            sv.store.get_ser::<ShardChunk>(ColChunks, chunk_hash.as_ref()),
+            "Can't get Chunk from storage with ChunkHash {:?}",
+            chunk_hash
+        );
+        if shard_chunk.header.inner.height_created != height {
+            return err!("Invalid ShardChunk {:?} stored at Height {:?}", shard_chunk, height);
+        }
     }
     Ok(())
 }

@@ -84,6 +84,14 @@ impl StoreValidator {
                     self.check(&validate::chunk_basic_validity, &key, &value, col);
                     // There is a State Root in the Trie
                     self.check(&validate::chunks_state_roots_in_trie, &key, &value, col);
+                    // Block for current Chunk exists
+                    self.check(&validate::block_of_chunk_exists, &key, &value, col);
+                    // ShardChunk can be indexed by Height
+                    self.check(&validate::chunks_indexed_by_height_created, &key, &value, col);
+                }
+                DBCol::ColChunkHashesByHeight => {
+                    // ShardChunk which can be indexed by Height exists
+                    self.check(&validate::chunk_of_height_exists, &key, &value, col);
                 }
                 _ => unimplemented!(),
             }
@@ -94,6 +102,7 @@ impl StoreValidator {
         self.validate_col(DBCol::ColBlockHeader);
         self.validate_col(DBCol::ColBlock);
         self.validate_col(DBCol::ColChunks);
+        self.validate_col(DBCol::ColChunkHashesByHeight);
     }
 
     fn check(
