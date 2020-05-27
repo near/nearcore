@@ -1,6 +1,6 @@
 # Survive massive state sync
 #
-# Create 3 nodes, 1 validator and 2 observers tracking shard the single shard 0.
+# Create 3 nodes, 1 validator and 2 observers tracking the single shard 0.
 # Generate a large state using genesis-populate. [*]
 #
 # Spawn validator and first observer and wait for them to make some progress.
@@ -29,7 +29,7 @@
 # 2. Save generated data:
 #
 # ```
-# cp ~/.near/test0_finished ~/.near/backup_genesis
+# cp -r ~/.near/test0_finished ~/.near/backup_genesis
 # ```
 #
 # 3. Run test passing path to backup_genesis
@@ -67,21 +67,28 @@ near_root, node_dirs = init_cluster(
 print("Populating genesis")
 
 if genesis_data is None:
-    genesis_populate_all(near_root=near_root, additional_accounts=additional_accounts, node_dirs=node_dirs)
+    genesis_populate_all(near_root, additional_accounts, node_dirs)
 else:
     for node_dir in node_dirs:
         copy_genesis(genesis_data, node_dir)
 
 print("Genesis generated")
 
+SMALL_HEIGHT = 40
+LARGE_HEIGHT = 100
+TIMEOUT = 150 + SMALL_HEIGHT + LARGE_HEIGHT
+start = time.time()
+
 boot_node = spin_up_node(config, near_root, node_dirs[0], 0, None, None)
 observer = spin_up_node(config, near_root, node_dirs[1], 1, boot_node.node_key.pk, boot_node.addr())
 
-def wait_for_height(target_height, rpc_node, sleep_time=2):
+def wait_for_height(target_height, rpc_node, sleep_time=2, bps_threshold=-1):
     queue = []
     latest_height = 0
 
     while latest_height < target_height:
+        assert time.time() - start < TIMEOUT
+
         # Check current height
         try:
             status = rpc_node.get_status()
@@ -107,14 +114,16 @@ def wait_for_height(target_height, rpc_node, sleep_time=2):
 
         print(f"bps: {bps} queue length: {len(queue)}")
 
+        assert bps >= bps_threshold
+
         time.sleep(sleep_time)
 
-wait_for_height(40, boot_node)
+wait_for_height(SMALL_HEIGHT, boot_node)
 
 observer = spin_up_node(config, near_root, node_dirs[2], 2, boot_node.node_key.pk, boot_node.addr())
 
-# TODO: Check that bps is not degraded
-wait_for_height(100, boot_node)
+# Check that bps is not degraded
+wait_for_height(LARGE_HEIGHT, boot_node, bps_threshold=1)
 
-# TODO: Make sure this node is able to sync
-wait_for_height(40, observer)
+# Make sure observer2 is able to sync
+wait_for_height(SMALL_HEIGHT, observer)
