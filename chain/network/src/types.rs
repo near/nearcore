@@ -447,8 +447,8 @@ impl fmt::Display for PeerMessage {
                 }
                 RoutedMessageBody::QueryRequest { .. } => f.write_str("Query request"),
                 RoutedMessageBody::QueryResponse { .. } => f.write_str("Query response"),
-                RoutedMessageBody::StateRequestHeader(_, _) => f.write_str("StateResponseHeader"),
-                RoutedMessageBody::StateRequestPart(_, _, _) => f.write_str("StateResponsePart"),
+                RoutedMessageBody::StateRequestHeader(_, _) => f.write_str("StateRequestHeader"),
+                RoutedMessageBody::StateRequestPart(_, _, _) => f.write_str("StateRequestPart"),
                 RoutedMessageBody::StateResponse(_) => f.write_str("StateResponse"),
                 RoutedMessageBody::ReceiptOutcomeRequest(_) => {
                     f.write_str("Receipt outcome request")
@@ -615,9 +615,9 @@ impl PeerMessage {
                     );
                 }
                 RoutedMessageBody::StateResponse(_) => {
-                    near_metrics::inc_counter(&metrics::STATE_RESPONSE_RECEIVED_TOTAL);
+                    near_metrics::inc_counter(&metrics::ROUTED_STATE_RESPONSE_RECEIVED_TOTAL);
                     near_metrics::inc_counter_by(
-                        &metrics::STATE_RESPONSE_RECEIVED_BYTES,
+                        &metrics::ROUTED_STATE_RESPONSE_RECEIVED_BYTES,
                         size as i64,
                     );
                 }
