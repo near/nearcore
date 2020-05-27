@@ -1,4 +1,3 @@
-use std::collections::{HashMap, HashSet};
 use std::convert::TryFrom;
 
 use borsh::BorshDeserialize;
@@ -124,58 +123,28 @@ pub(crate) fn chunk_basic_validity(
     if shard_chunk.chunk_hash != chunk_hash {
         return err!("Invalid ShardChunk {:?} stored", shard_chunk);
     }
-    // TODO #2597
+    // TODO #2719
     /*if shard_chunk.header.inner.height_created == 0 {
         return err!("Invalid ShardChunk {:?} stored, height_created == 0", shard_chunk);
     }*/
     Ok(())
 }
 
-pub(crate) fn block_of_chunk_exists(
-    sv: &StoreValidator,
+pub(crate) fn block_chunks_exist(
+    _sv: &StoreValidator,
     _key: &[u8],
     value: &[u8],
 ) -> Result<(), ErrorMessage> {
-    let shard_chunk =
-        unwrap_or_err!(ShardChunk::try_from_slice(value), "Can't deserialize ShardChunk");
-    let height = shard_chunk.header.height_included;
-    if height == 0 {
-        // This ShardChunk is not included into any Block.
-        // Make sure it's height is reasonable.
-        let tail = unwrap_or_err!(
-            sv.store.get_ser::<BlockHeight>(ColBlockMisc, TAIL_KEY),
-            "Can't get Tail from storage"
-        )
-        .unwrap_or(sv.config.genesis_height);
-        return if shard_chunk.header.inner.height_created < tail {
-            err!("ShardChunk {:?} should be deleted, tail = {:?}", shard_chunk, tail)
-        } else {
-            Ok(())
-        };
+    let block = unwrap_or_err!(Block::try_from_slice(value), "Can't deserialize Block");
+    for _chunk_header in block.chunks {
+        // TODO #2717
+        /*unwrap_or_err_db!(
+            sv.store.get_ser::<ShardChunk>(ColChunks, chunk_header.chunk_hash().as_ref()),
+            "Can't get Chunk {:?} from storage",
+            chunk_header
+        );*/
     }
-    let map = unwrap_or_err_db!(
-        sv.store.get_ser::<HashMap<EpochId, HashSet<CryptoHash>>>(
-            ColBlockPerHeight,
-            &index_to_bytes(height),
-        ),
-        "Can't get Map from storage on height {:?}, no one is responsible for ShardChunk {:?}",
-        height,
-        shard_chunk
-    );
-    for (_, set) in map {
-        for block_hash in set {
-            match sv.store.get_ser::<Block>(ColBlock, block_hash.as_ref()) {
-                Ok(Some(block)) => {
-                    if block.chunks.contains(&shard_chunk.header) {
-                        // Block for ShardChunk is found
-                        return Ok(());
-                    }
-                }
-                _ => {}
-            }
-        }
-    }
-    err!("No Block on height {:?} accepts ShardChunk {:?}", height, shard_chunk)
+    Ok(())
 }
 
 pub(crate) fn block_height_cmp_tail(
