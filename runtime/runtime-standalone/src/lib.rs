@@ -166,14 +166,17 @@ impl RuntimeStandalone {
         self.tx_pool.insert_transaction(tx);
         loop {
             self.produce_block()?;
-            let outcome = self.outcomes.get(&outcome_hash).unwrap();
-            match outcome.status {
-                ExecutionStatus::Unknown => unreachable!(), // ExecutionStatus::Unknown is not relevant for a standalone runtime
-                ExecutionStatus::SuccessReceiptId(ref id) => outcome_hash = *id,
-                ExecutionStatus::SuccessValue(_) | ExecutionStatus::Failure(_) => {
-                    return Ok(outcome.clone())
-                }
-            };
+            if let Some(outcome) = self.outcomes.get(&outcome_hash) {
+                match outcome.status {
+                    ExecutionStatus::Unknown => unreachable!(), // ExecutionStatus::Unknown is not relevant for a standalone runtime
+                    ExecutionStatus::SuccessReceiptId(ref id) => outcome_hash = *id,
+                    ExecutionStatus::SuccessValue(_) | ExecutionStatus::Failure(_) => {
+                        return Ok(outcome.clone())
+                    }
+                };
+            } else if self.pending_receipts.is_empty() {
+                unreachable!("Lost an outcome for the receipt hash {}", outcome_hash);
+            }
         }
     }
 

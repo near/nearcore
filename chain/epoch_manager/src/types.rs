@@ -1,9 +1,4 @@
-use std::collections::{BTreeMap, HashMap};
-
 use borsh::{BorshDeserialize, BorshSerialize};
-use num_rational::Rational;
-use serde::Serialize;
-
 use near_primitives::challenge::SlashedValidator;
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{
@@ -11,7 +6,11 @@ use near_primitives::types::{
     EpochId, NumSeats, NumShards, ShardId, ValidatorId, ValidatorKickoutReason, ValidatorStake,
     ValidatorStats,
 };
-use near_primitives::version::ProtocolVersion;
+use near_primitives::version::{ProtocolVersion, PROTOCOL_VERSION};
+use num_rational::Rational;
+use serde::Serialize;
+use smart_default::SmartDefault;
+use std::collections::{BTreeMap, HashMap};
 
 use crate::EpochManager;
 
@@ -47,7 +46,7 @@ pub struct EpochConfig {
 pub struct ValidatorWeight(ValidatorId, u64);
 
 /// Information per epoch.
-#[derive(Default, BorshSerialize, BorshDeserialize, Serialize, Clone, Debug, PartialEq, Eq)]
+#[derive(SmartDefault, BorshSerialize, BorshDeserialize, Serialize, Clone, Debug, PartialEq, Eq)]
 pub struct EpochInfo {
     /// Ordinal of given epoch from genesis.
     /// There can be multiple epochs with the same ordinal in case of long forks.
@@ -75,6 +74,7 @@ pub struct EpochInfo {
     /// Total minted tokens in the epoch.
     pub minted_amount: Balance,
     /// Current protocol version during this epoch.
+    #[default(PROTOCOL_VERSION)]
     pub protocol_version: ProtocolVersion,
 }
 

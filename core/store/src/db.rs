@@ -306,6 +306,7 @@ fn rocksdb_options() -> Options {
     opts.set_write_buffer_size(1024 * 1024 * 512 / 2);
     opts.set_max_bytes_for_level_base(1024 * 1024 * 512 / 2);
     opts.increase_parallelism(cmp::max(1, num_cpus::get() as i32 / 2));
+    opts.set_max_total_wal_size(1 * 1024 * 1024 * 1024);
 
     return opts;
 }
