@@ -40,8 +40,9 @@ fn main() {
     ));
 
     let mut store_validator = StoreValidator::new(
+        near_config.validator_signer.as_ref().map(|x| x.validator_id().clone()),
         near_config.genesis.config.clone(),
-        runtime_adapter.get_tries(),
+        runtime_adapter.clone(),
         store.clone(),
     );
     store_validator.validate();

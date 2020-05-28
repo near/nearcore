@@ -261,8 +261,9 @@ impl Handler<NetworkClientMessages> for ClientActor {
                         let mut genesis = GenesisConfig::default();
                         genesis.genesis_height = self.client.chain.store().get_genesis_height();
                         let mut store_validator = StoreValidator::new(
+                            self.client.validator_signer.as_ref().map(|x| x.validator_id().clone()),
                             genesis,
-                            self.client.runtime_adapter.get_tries(),
+                            self.client.runtime_adapter.clone(),
                             self.client.chain.store().owned_store(),
                         );
                         store_validator.validate();

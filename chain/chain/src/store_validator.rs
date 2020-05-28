@@ -7,7 +7,10 @@ use near_chain_configs::GenesisConfig;
 use near_primitives::borsh;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::ChunkHash;
-use near_store::{DBCol, ShardTries, Store};
+use near_primitives::types::AccountId;
+use near_store::{DBCol, Store};
+
+use crate::RuntimeAdapter;
 
 mod validate;
 
@@ -26,8 +29,9 @@ impl ErrorMessage {
 }
 
 pub struct StoreValidator {
+    me: Option<AccountId>,
     config: GenesisConfig,
-    shard_tries: ShardTries,
+    runtime_adapter: Arc<dyn RuntimeAdapter>,
     store: Arc<Store>,
 
     pub errors: Vec<ErrorMessage>,
@@ -35,10 +39,16 @@ pub struct StoreValidator {
 }
 
 impl StoreValidator {
-    pub fn new(config: GenesisConfig, shard_tries: ShardTries, store: Arc<Store>) -> Self {
+    pub fn new(
+        me: Option<AccountId>,
+        config: GenesisConfig,
+        runtime_adapter: Arc<dyn RuntimeAdapter>,
+        store: Arc<Store>,
+    ) -> Self {
         StoreValidator {
+            me,
             config,
-            shard_tries: shard_tries.clone(),
+            runtime_adapter,
             store: store.clone(),
             errors: vec![],
             tests: 0,

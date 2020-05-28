@@ -153,11 +153,29 @@ pub(crate) fn block_chunks_exist(
 ) -> Result<(), ErrorMessage> {
     let block = unwrap_or_err!(Block::try_from_slice(value), "Can't deserialize Block");
     for chunk_header in block.chunks {
-        unwrap_or_err_db!(
-            sv.store.get_ser::<ShardChunk>(ColChunks, chunk_header.chunk_hash().as_ref()),
-            "Can't get Chunk {:?} from storage",
-            chunk_header
-        );
+        match &sv.me {
+            Some(me) => {
+                if sv.runtime_adapter.cares_about_shard(
+                    Some(&me),
+                    &block.header.prev_hash,
+                    chunk_header.inner.shard_id,
+                    true,
+                ) || sv.runtime_adapter.will_care_about_shard(
+                    Some(&me),
+                    &block.header.prev_hash,
+                    chunk_header.inner.shard_id,
+                    true,
+                ) {
+                    unwrap_or_err_db!(
+                        sv.store
+                            .get_ser::<ShardChunk>(ColChunks, chunk_header.chunk_hash().as_ref()),
+                        "Can't get Chunk {:?} from storage",
+                        chunk_header
+                    );
+                }
+            }
+            _ => {}
+        }
     }
     Ok(())
 }
@@ -194,7 +212,7 @@ pub(crate) fn chunks_state_roots_in_trie(
         unwrap_or_err!(ShardChunk::try_from_slice(value), "Can't deserialize ShardChunk");
     let shard_id = shard_chunk.header.inner.shard_id;
     let state_root = shard_chunk.header.inner.prev_state_root;
-    let trie = sv.shard_tries.get_trie_for_shard(shard_id);
+    let trie = sv.runtime_adapter.get_trie_for_shard(shard_id);
     let trie = TrieIterator::new(&trie, &state_root).unwrap();
     for item in trie {
         unwrap_or_err!(item, "Can't find ShardChunk {:?} in Trie", shard_chunk);
