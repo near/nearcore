@@ -7,4 +7,4 @@ pub use genesis_config::{
 };
 
 /// Current latest version of the protocol
-pub const PROTOCOL_VERSION: u32 = 17;
+pub const PROTOCOL_VERSION: u32 = 18;
