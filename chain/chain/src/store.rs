@@ -2435,10 +2435,10 @@ mod tests {
     use near_primitives::utils::index_to_bytes;
     use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
     use near_store::test_utils::create_test_store;
-    use near_store_validator::StoreValidator;
 
     use crate::chain::{check_refcount_map, MAX_HEIGHTS_TO_CLEAR};
     use crate::store::{ChainStoreAccess, GCMode};
+    use crate::store_validator::StoreValidator;
     use crate::test_utils::KeyValueRuntime;
     use crate::{Chain, ChainGenesis, DoomslugThresholdMode};
 
