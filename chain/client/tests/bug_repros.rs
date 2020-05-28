@@ -1,6 +1,8 @@
 // This test tracks tests that reproduce previously fixed bugs to make sure the regressions we
 // fix do not resurface
 
+use std::cmp::max;
+use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
 use actix::{Addr, System};
@@ -15,8 +17,6 @@ use near_network::types::NetworkRequests::PartialEncodedChunkMessage;
 use near_network::{NetworkClientMessages, NetworkRequests, NetworkResponses, PeerInfo};
 use near_primitives::block::Block;
 use near_primitives::transaction::SignedTransaction;
-use std::cmp::max;
-use std::collections::HashMap;
 
 #[test]
 fn repro_1183() {
