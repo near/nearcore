@@ -1207,3 +1207,12 @@ fn test_block_merkle_proof() {
         test_block_merkle_proof_with_len(i);
     }
 }
+
+#[test]
+fn test_block_merkle_proof_same_hash() {
+    let mut env = TestEnv::new(ChainGenesis::test(), 1, 1);
+    let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap().clone();
+    let proof =
+        env.clients[0].chain.get_block_proof(&genesis_block.hash(), &genesis_block.hash()).unwrap();
+    assert!(proof.is_empty());
+}
