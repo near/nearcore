@@ -247,7 +247,7 @@ pub(crate) fn try_refund_allowance(
         if let AccessKeyPermission::FunctionCall(function_call_permission) =
             &mut access_key.permission
         {
-            if let Some(allowance) = &mut function_call_permission.allowance {
+            if let Some(allowance) = function_call_permission.allowance.as_mut() {
                 let new_allowance = allowance.saturating_add(transfer.deposit);
                 if new_allowance > *allowance {
                     *allowance = new_allowance;
