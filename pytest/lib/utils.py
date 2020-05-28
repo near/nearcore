@@ -268,3 +268,21 @@ def collect_gcloud_config(num_nodes):
     with open(outfile, 'w+') as f:
         json.dump(res, f)
     os.environ[CONFIG_ENV_VAR] = outfile
+
+
+def obj_to_string(obj, extra='    '):
+    if type(obj) == tuple:
+        return "tuple" + '\n' + '\n'.join(
+            (extra + obj_to_string(x, extra + '    '))
+            for x in obj
+        )
+    elif hasattr(obj, "__dict__"):
+        return str(obj.__class__) + '\n' + '\n'.join(
+            extra + (str(item) + ' = ' +
+                     obj_to_string(obj.__dict__[item], extra + '    '))
+        for item in sorted(obj.__dict__))
+
+    else:
+        return str(obj)
+    
+
