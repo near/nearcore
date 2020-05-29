@@ -538,11 +538,13 @@ impl RoutingTable {
     }
 
     pub fn add_route_back(&mut self, hash: CryptoHash, peer_id: PeerId) {
+        trace!(target: "network", "add route back. Hash: {:?} PeerId: {:?} Cache size: {}", hash, peer_id, self.route_back.cache_size());
         self.route_back.cache_set(hash, peer_id);
     }
 
     // Find route back with given hash and removes it from cache.
     fn fetch_route_back(&mut self, hash: CryptoHash) -> Option<PeerId> {
+        debug!(target: "network", "Fetch route back. Hash: {:?} Cache size: {}", hash, self.route_back.cache_size());
         self.route_back.cache_remove(&hash)
     }
 

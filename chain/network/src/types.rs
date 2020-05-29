@@ -438,36 +438,36 @@ impl fmt::Display for PeerMessage {
             PeerMessage::BlockRequest(_) => f.write_str("BlockRequest"),
             PeerMessage::Block(_) => f.write_str("Block"),
             PeerMessage::Transaction(_) => f.write_str("Transaction"),
-            PeerMessage::Routed(routed_message) => match routed_message.body {
-                RoutedMessageBody::BlockApproval(_) => f.write_str("BlockApproval"),
-                RoutedMessageBody::ForwardTx(_) => f.write_str("ForwardTx"),
-                RoutedMessageBody::TxStatusRequest(_, _) => f.write_str("Transaction status query"),
-                RoutedMessageBody::TxStatusResponse(_) => {
-                    f.write_str("Transaction status response")
-                }
-                RoutedMessageBody::QueryRequest { .. } => f.write_str("Query request"),
-                RoutedMessageBody::QueryResponse { .. } => f.write_str("Query response"),
-                RoutedMessageBody::StateRequestHeader(_, _) => f.write_str("StateRequestHeader"),
-                RoutedMessageBody::StateRequestPart(_, _, _) => f.write_str("StateRequestPart"),
-                RoutedMessageBody::StateResponse(_) => f.write_str("StateResponse"),
-                RoutedMessageBody::ReceiptOutcomeRequest(_) => {
-                    f.write_str("Receipt outcome request")
-                }
-                RoutedMessageBody::ReceiptOutComeResponse(_) => {
-                    f.write_str("Receipt outcome response")
-                }
-                RoutedMessageBody::PartialEncodedChunkRequest(_) => {
-                    f.write_str("PartialEncodedChunkRequest")
-                }
-                RoutedMessageBody::PartialEncodedChunkResponse(_) => {
-                    f.write_str("PartialEncodedChunkResponse")
-                }
-                RoutedMessageBody::PartialEncodedChunk(_) => f.write_str("PartialEncodedChunk"),
-                RoutedMessageBody::Ping(_) => f.write_str("Ping"),
-                RoutedMessageBody::Pong(_) => f.write_str("Pong"),
-            },
+            PeerMessage::Routed(routed_message) => routed_message.fmt(f),
             PeerMessage::Disconnect => f.write_str("Disconnect"),
             PeerMessage::Challenge(_) => f.write_str("Challenge"),
+        }
+    }
+}
+
+impl fmt::Display for RoutedMessage {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self.body {
+            RoutedMessageBody::BlockApproval(_) => f.write_str("BlockApproval"),
+            RoutedMessageBody::ForwardTx(_) => f.write_str("ForwardTx"),
+            RoutedMessageBody::TxStatusRequest(_, _) => f.write_str("Transaction status query"),
+            RoutedMessageBody::TxStatusResponse(_) => f.write_str("Transaction status response"),
+            RoutedMessageBody::QueryRequest { .. } => f.write_str("Query request"),
+            RoutedMessageBody::QueryResponse { .. } => f.write_str("Query response"),
+            RoutedMessageBody::StateRequestHeader(_, _) => f.write_str("StateRequestHeader"),
+            RoutedMessageBody::StateRequestPart(_, _, _) => f.write_str("StateRequestPart"),
+            RoutedMessageBody::StateResponse(_) => f.write_str("StateResponse"),
+            RoutedMessageBody::ReceiptOutcomeRequest(_) => f.write_str("Receipt outcome request"),
+            RoutedMessageBody::ReceiptOutComeResponse(_) => f.write_str("Receipt outcome response"),
+            RoutedMessageBody::PartialEncodedChunkRequest(_) => {
+                f.write_str("PartialEncodedChunkRequest")
+            }
+            RoutedMessageBody::PartialEncodedChunkResponse(_) => {
+                f.write_str("PartialEncodedChunkResponse")
+            }
+            RoutedMessageBody::PartialEncodedChunk(_) => f.write_str("PartialEncodedChunk"),
+            RoutedMessageBody::Ping(_) => f.write_str("Ping"),
+            RoutedMessageBody::Pong(_) => f.write_str("Pong"),
         }
     }
 }

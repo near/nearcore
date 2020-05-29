@@ -8,6 +8,7 @@ use ansi_term::Color::{Purple, Yellow};
 use chrono::{DateTime, Duration, Utc};
 use futures::{future, FutureExt};
 use log::{debug, error, info, warn};
+use rand::seq::SliceRandom;
 use rand::{thread_rng, Rng};
 
 use near_chain::types::BlockSyncResponse;
@@ -38,7 +39,11 @@ const BLOCK_SOME_RECEIVED_TIMEOUT: i64 = 1;
 const BLOCK_REQUEST_BROADCAST_OFFSET: u64 = 2;
 
 /// Sync state download timeout in seconds.
-pub const STATE_SYNC_TIMEOUT: i64 = 10;
+// TODO(MarX): Here use small number
+pub const STATE_SYNC_TIMEOUT: i64 = 10000;
+/// Maximum number of state parts to request per peer on each round
+/// when node is trying to download the state.
+pub const MAX_STATE_PART_PER_TARGET: usize = 5;
 
 pub const NS_PER_SECOND: u128 = 1_000_000_000;
 
@@ -751,16 +756,17 @@ impl StateSync {
             }
         }))
         .collect::<Vec<_>>();
+
         if possible_targets.len() == 0 {
             return Ok(shard_sync_download);
         }
 
         // Downloading strategy starts here
         let mut new_shard_sync_download = shard_sync_download.clone();
+
         match shard_sync_download.status {
             ShardSyncStatus::StateDownloadHeader => {
-                let target =
-                    possible_targets[thread_rng().gen_range(0, possible_targets.len())].clone();
+                let target = possible_targets.choose(&mut thread_rng()).cloned().unwrap();
                 assert!(new_shard_sync_download.downloads[0].run_me.load(Ordering::SeqCst));
                 new_shard_sync_download.downloads[0].run_me.store(false, Ordering::SeqCst);
                 new_shard_sync_download.downloads[0].state_requests_count += 1;
@@ -779,36 +785,42 @@ impl StateSync {
                 );
             }
             ShardSyncStatus::StateDownloadParts => {
-                for (i, download) in new_shard_sync_download.downloads.iter_mut().enumerate() {
-                    if download.run_me.load(Ordering::SeqCst) {
-                        let target = possible_targets
-                            [thread_rng().gen_range(0, possible_targets.len())]
-                        .clone();
-                        download.run_me.store(false, Ordering::SeqCst);
-                        download.state_requests_count += 1;
-                        download.last_target = Some(target.clone());
-                        let run_me = download.run_me.clone();
-                        actix::spawn(
-                            self.network_adapter
-                                .send(NetworkRequests::StateRequestPart {
-                                    shard_id,
-                                    sync_hash,
-                                    part_id: i as u64,
-                                    target: target.clone(),
-                                })
-                                .then(move |result| {
-                                    if let Ok(NetworkResponses::RouteNotFound) = result {
-                                        // Send a StateRequestPart on the next iteration
-                                        run_me.store(true, Ordering::SeqCst);
-                                    }
-                                    future::ready(())
-                                }),
-                        );
-                    }
+                let possible_targets_sampler =
+                    SamplerLimited::new(possible_targets, MAX_STATE_PART_PER_TARGET);
+
+                for (part_id, (download, target)) in new_shard_sync_download
+                    .downloads
+                    .iter_mut()
+                    .filter(|download| download.run_me.load(Ordering::SeqCst))
+                    .zip(possible_targets_sampler)
+                    .enumerate()
+                {
+                    download.run_me.store(false, Ordering::SeqCst);
+                    download.state_requests_count += 1;
+                    download.last_target = Some(target.clone());
+                    let run_me = download.run_me.clone();
+
+                    actix::spawn(
+                        self.network_adapter
+                            .send(NetworkRequests::StateRequestPart {
+                                shard_id,
+                                sync_hash,
+                                part_id: part_id as u64,
+                                target: target.clone(),
+                            })
+                            .then(move |result| {
+                                if let Ok(NetworkResponses::RouteNotFound) = result {
+                                    // Send a StateRequestPart on the next iteration
+                                    run_me.store(true, Ordering::SeqCst);
+                                }
+                                future::ready(())
+                            }),
+                    );
                 }
             }
             _ => {}
         }
+
         Ok(new_shard_sync_download)
     }
 
@@ -857,6 +869,68 @@ impl StateSync {
         } else {
             StateSyncResult::Unchanged
         })
+    }
+}
+
+/// Create an abstract collection of elements to be shuffled.
+/// Each element will appear in the shuffled output exactly `limit` times.
+/// Use it as an iterator to access the shuffled collection.
+///
+/// ```
+/// let sampler = SamplerLimited::new(vec![1, 2, 3], 2);
+///
+/// let res = sampler.iter().collect::<Vec<_>>();
+///
+/// assert!(res.len() == 6);
+/// assert!(res.iter().filter(|v| v == 1).count() == 2);
+/// assert!(res.iter().filter(|v| v == 2).count() == 2);
+/// assert!(res.iter().filter(|v| v == 3).count() == 2);
+/// ```
+///
+/// Out of the 90 possible values of res in the code above on of them is:
+///
+/// ```
+/// vec![1, 2, 1, 3, 3, 2]
+/// ```
+struct SamplerLimited<T> {
+    data: Vec<T>,
+    limit: Vec<usize>,
+}
+
+impl<T> SamplerLimited<T> {
+    fn new(data: Vec<T>, limit: usize) -> Self {
+        if limit == 0 {
+            Self { data: vec![], limit: vec![] }
+        } else {
+            let len = data.len();
+            Self { data, limit: vec![limit; len] }
+        }
+    }
+}
+
+impl<T: Clone> Iterator for SamplerLimited<T> {
+    type Item = T;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.limit.is_empty() {
+            None
+        } else {
+            let len = self.limit.len();
+            let ix = thread_rng().gen_range(0, len);
+            self.limit[ix] -= 1;
+
+            if self.limit[ix] == 0 {
+                if ix + 1 != len {
+                    self.limit[ix] = self.limit[len - 1];
+                    self.data.swap(ix, len - 1);
+                }
+
+                self.limit.pop();
+                self.data.pop()
+            } else {
+                Some(self.data[ix].clone())
+            }
+        }
     }
 }
 

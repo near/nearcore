@@ -748,6 +748,7 @@ impl PeerManagerActor {
     ) -> bool {
         if let Some(active_peer) = self.active_peers.get(&peer_id) {
             let msg_kind = format!("{}", message);
+            trace!(target: "network", "Send message: {}", msg_kind);
             active_peer
                 .addr
                 .send(SendMessage { message })
@@ -799,7 +800,7 @@ impl PeerManagerActor {
         // Check if the message is for myself and don't try to send it in that case.
         if let PeerIdOrHash::PeerId(target) = &msg.target {
             if target == &self.peer_id {
-                debug!(target: "network", "{:?} Drop signed message to myself ({:?}). Message: {:?}.", self.config.account_id, self.peer_id, msg);
+                debug!(target: "network", "{:?} Drop signed message to myself ({:?}). Message: {}.", self.config.account_id, self.peer_id, msg);
                 return false;
             }
         }
@@ -808,6 +809,7 @@ impl PeerManagerActor {
             Ok(peer_id) => {
                 // Remember if we expect a response for this message.
                 if msg.author == self.peer_id && msg.expect_response() {
+                    trace!(target: "network", "initiate route back {:?}", msg);
                     self.routing_table.add_route_back(msg.hash(), self.peer_id.clone());
                 }
 
@@ -816,7 +818,7 @@ impl PeerManagerActor {
             Err(find_route_error) => {
                 // TODO(MarX, #1369): Message is dropped here. Define policy for this case.
                 near_metrics::inc_counter(&metrics::DROP_MESSAGE_UNREACHABLE_PEER);
-                debug!(target: "network", "{:?} Drop signed message to {:?} Reason {:?}. Known peers: {:?} Message {:?}",
+                debug!(target: "network", "{:?} Drop signed message to {:?} Reason {:?}. Known peers: {:?} Message {}",
                       self.config.account_id,
                       msg.target,
                       find_route_error,
@@ -1526,6 +1528,7 @@ impl Handler<RoutedMessageFrom> for PeerManagerActor {
         let RoutedMessageFrom { mut msg, from } = msg;
 
         if msg.expect_response() {
+            trace!(target: "network", "Received peer message that requires route back: {}", PeerMessage::Routed(msg.clone()));
             self.routing_table.add_route_back(msg.hash(), from.clone());
         }
 
@@ -1571,6 +1574,7 @@ impl Handler<PeerRequest> for PeerManagerActor {
                 PeerResponse::UpdatedEdge(self.propose_edge(peer, Some(nonce)))
             }
             PeerRequest::RouteBack(body, target) => {
+                trace!(target: "network", "Sending message to route back: {:?}", target);
                 self.send_message_to_peer(
                     ctx,
                     RawRoutedMessage { target: AccountOrPeerIdOrHash::Hash(target), body: *body },
