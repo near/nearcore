@@ -52,8 +52,6 @@ def expensive_tests_in_file(file):
             elif tok == test_pattern:
                 fn = find_fn(content, start)
                 if fn:
-                    if fn == 'test_gc_remove_fork_fail_often':
-                        print('==', fn, level)
                     ret.append(fn)
     return ret
 
