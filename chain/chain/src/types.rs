@@ -522,6 +522,12 @@ pub struct ShardStateSyncResponse {
     pub part: Option<(u64, Vec<u8>)>,
 }
 
+impl ShardStateSyncResponse {
+    pub fn part_id(&self) -> Option<u64> {
+        self.part.as_ref().map(|(part_id, _)| *part_id)
+    }
+}
+
 /// When running block sync response to know if the node needs to sync state,
 /// or the hashes from the blocks that are needed.
 pub enum BlockSyncResponse {

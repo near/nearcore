@@ -39,13 +39,12 @@
 # ```
 #
 
-import sys, time, requests
+import sys, time, requests, os
 from queue import Queue
 
 sys.path.append('lib')
 
 from cluster import init_cluster, spin_up_node, load_config
-from utils import TxContext, LogTracker
 from populate import genesis_populate_all, copy_genesis
 
 if len(sys.argv) >= 2:
@@ -76,7 +75,7 @@ print("Genesis generated")
 
 SMALL_HEIGHT = 40
 LARGE_HEIGHT = 100
-TIMEOUT = 150 + SMALL_HEIGHT + LARGE_HEIGHT + 10**9
+TIMEOUT = 300 + SMALL_HEIGHT + LARGE_HEIGHT
 start = time.time()
 
 boot_node = spin_up_node(config, near_root, node_dirs[0], 0, None, None)
@@ -106,29 +105,25 @@ def wait_for_height(target_height, rpc_node, sleep_time=2, bps_threshold=-1):
             queue.pop(0)
 
         if len(queue) <= 1:
-            bps = 0
+            bps = None
         else:
             head = queue[-1]
             tail = queue[0]
             bps = (head[1] - tail[1]) / (head[0] - tail[0])
 
-            assert bps >= bps_threshold
 
         print(f"bps: {bps} queue length: {len(queue)}")
         time.sleep(sleep_time)
+        assert bps is None or bps >= bps_threshold
 
 
 wait_for_height(SMALL_HEIGHT, boot_node)
 
 observer = spin_up_node(config, near_root, node_dirs[2], 2, boot_node.node_key.pk, boot_node.addr())
 
+
 # Check that bps is not degraded
-
-# Right now when observer 2 starts state sync bps decrease way low than desired.
-# Using a very small (larger than 0) number for now.
-BPS_THRESHOLD = 1e-12
-
-wait_for_height(LARGE_HEIGHT, boot_node, bps_threshold=BPS_THRESHOLD)
+wait_for_height(LARGE_HEIGHT, boot_node, bps_threshold=0.2)
 
 # Make sure observer2 is able to sync
 wait_for_height(SMALL_HEIGHT, observer)
