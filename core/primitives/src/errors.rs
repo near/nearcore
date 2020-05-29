@@ -191,8 +191,6 @@ pub enum ActionsValidationError {
     FunctionCallArgumentsLengthExceeded { length: u64, limit: u64 },
     /// An attempt to stake with a public key that is not convertible to ristretto
     UnsuitableStakingKey { public_key: PublicKey },
-    /// The amount of attached prepaid gas is less than the required minimum.
-    FunctionCallMinimumGasRequired { gas: u64, required_minimum: u64 },
 }
 
 /// Describes the error for validating a receipt.
@@ -297,12 +295,7 @@ impl Display for ActionsValidationError {
                 f,
                 "The staking key must be ristretto compatible ED25519 key. {} is provided instead.",
                 public_key,
-            ),
-            ActionsValidationError::FunctionCallMinimumGasRequired { gas, required_minimum } => write!(
-                f,
-                "The attached amount of gas {} is less the required minimum {} in a FunctionCall action",
-                gas, required_minimum
-            ),
+            )
         }
     }
 }
