@@ -1,7 +1,5 @@
 use crate::actions::get_insufficient_storage_stake;
-use crate::config::{
-    safe_gas_to_balance, total_prepaid_gas, tx_cost, RuntimeConfig, TransactionCost,
-};
+use crate::config::{total_prepaid_gas, tx_cost, RuntimeConfig, TransactionCost};
 use crate::VerificationResult;
 use near_crypto::key_conversion::is_valid_staking_key;
 use near_primitives::account::AccessKeyPermission;
@@ -19,14 +17,13 @@ use near_store::{get_access_key, get_account, set_access_key, set_account, TrieU
 use near_vm_logic::types::Balance;
 use near_vm_logic::VMLimitConfig;
 
-/// Verifies the signed transaction on top of given state, charges transaction fees
-/// and balances, and updates the state for the used account and access keys.
-pub fn verify_and_charge_transaction(
+/// Validates the transaction without using the state. It allows any node to validate a
+/// transaction before forwarding it to the node that tracks the `signer_id` account.
+pub fn validate_transaction(
     config: &RuntimeConfig,
-    state_update: &mut TrieUpdate,
     gas_price: Balance,
     signed_transaction: &SignedTransaction,
-) -> Result<VerificationResult, RuntimeError> {
+) -> Result<TransactionCost, RuntimeError> {
     let transaction = &signed_transaction.transaction;
     let signer_id = &transaction.signer_id;
     if !is_valid_account_id(&signer_id) {
@@ -48,6 +45,25 @@ pub fn verify_and_charge_transaction(
 
     validate_actions(&config.wasm_config.limit_config, &transaction.actions)
         .map_err(|e| InvalidTxError::ActionsValidation(e))?;
+
+    let sender_is_receiver = &transaction.receiver_id == signer_id;
+
+    tx_cost(&config.transaction_costs, &transaction, gas_price, sender_is_receiver)
+        .map_err(|_| InvalidTxError::CostOverflow.into())
+}
+
+/// Verifies the signed transaction on top of given state, charges transaction fees
+/// and balances, and updates the state for the used account and access keys.
+pub fn verify_and_charge_transaction(
+    config: &RuntimeConfig,
+    state_update: &mut TrieUpdate,
+    gas_price: Balance,
+    signed_transaction: &SignedTransaction,
+) -> Result<VerificationResult, RuntimeError> {
+    let TransactionCost { gas_burnt, gas_used, total_cost, burnt_amount } =
+        validate_transaction(config, gas_price, signed_transaction)?;
+    let transaction = &signed_transaction.transaction;
+    let signer_id = &transaction.signer_id;
 
     let mut signer = match get_account(state_update, signer_id)? {
         Some(signer) => signer,
@@ -76,13 +92,7 @@ pub fn verify_and_charge_transaction(
         .into());
     }
 
-    let sender_is_receiver = &transaction.receiver_id == signer_id;
-
     access_key.nonce = transaction.nonce;
-
-    let TransactionCost { gas_burnt, gas_used, total_cost } =
-        tx_cost(&config.transaction_costs, &transaction, gas_price, sender_is_receiver)
-            .map_err(|_| InvalidTxError::CostOverflow)?;
 
     signer.amount =
         signer.amount.checked_sub(total_cost).ok_or_else(|| InvalidTxError::NotEnoughBalance {
@@ -164,9 +174,6 @@ pub fn verify_and_charge_transaction(
 
     set_access_key(state_update, signer_id.clone(), transaction.public_key.clone(), &access_key);
     set_account(state_update, signer_id.clone(), &signer);
-
-    let burnt_amount =
-        safe_gas_to_balance(gas_price, gas_burnt).map_err(|_| InvalidTxError::CostOverflow)?;
 
     Ok(VerificationResult { gas_burnt, gas_used, burnt_amount })
 }
