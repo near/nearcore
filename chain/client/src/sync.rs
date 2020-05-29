@@ -954,7 +954,7 @@ impl StateSync {
 /// Each element will appear in the shuffled output exactly `limit` times.
 /// Use it as an iterator to access the shuffled collection.
 ///
-/// ```
+/// ```rust,ignore
 /// let sampler = SamplerLimited::new(vec![1, 2, 3], 2);
 ///
 /// let res = sampler.collect::<Vec<_>>();
@@ -965,10 +965,10 @@ impl StateSync {
 /// assert!(res.iter().filter(|v| v == 3).count() == 2);
 /// ```
 ///
-/// Out of the 90 possible values of res in the code above on of them is:
+/// Out of the 90 possible values of `res` in the code above on of them is:
 ///
 /// ```
-/// vec![1, 2, 1, 3, 3, 2]
+/// vec![1, 2, 1, 3, 3, 2];
 /// ```
 struct SamplerLimited<T> {
     data: Vec<T>,
