@@ -228,11 +228,32 @@ impl Default for ExecutionStatus {
     }
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Serialize, PartialEq, Clone, Default)]
+/// ExecutionOutcome for proof. Excludes logs.
+#[derive(BorshSerialize, BorshDeserialize, Serialize, PartialEq, Clone)]
 struct PartialExecutionOutcome {
     pub receipt_ids: Vec<CryptoHash>,
     pub gas_burnt: Gas,
-    pub status: ExecutionStatus,
+    pub status: PartialExecutionStatus,
+}
+
+/// ExecutionStatus for proof. Excludes failure debug info.
+#[derive(BorshSerialize, BorshDeserialize, Serialize, PartialEq, Clone)]
+pub enum PartialExecutionStatus {
+    Unknown,
+    Failure,
+    SuccessValue(Vec<u8>),
+    SuccessReceiptId(CryptoHash),
+}
+
+impl From<ExecutionStatus> for PartialExecutionStatus {
+    fn from(status: ExecutionStatus) -> PartialExecutionStatus {
+        match status {
+            ExecutionStatus::Unknown => PartialExecutionStatus::Unknown,
+            ExecutionStatus::Failure(_) => PartialExecutionStatus::Failure,
+            ExecutionStatus::SuccessValue(value) => PartialExecutionStatus::SuccessValue(value),
+            ExecutionStatus::SuccessReceiptId(id) => PartialExecutionStatus::SuccessReceiptId(id),
+        }
+    }
 }
 
 /// Execution outcome for one signed transaction or one receipt.
@@ -255,7 +276,7 @@ impl ExecutionOutcome {
             &PartialExecutionOutcome {
                 receipt_ids: self.receipt_ids.clone(),
                 gas_burnt: self.gas_burnt,
-                status: self.status.clone(),
+                status: self.status.clone().into(),
             }
             .try_to_vec()
             .expect("Failed to serialize"),
