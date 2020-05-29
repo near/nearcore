@@ -255,6 +255,8 @@ mod tests {
             fishermen_threshold: 0,
             online_max_threshold: Rational::from_integer(1),
             online_min_threshold: Rational::new(90, 100),
+            protocol_upgrade_stake_threshold: Rational::new(80, 100),
+            protocol_upgrade_num_epochs: 2,
         };
         let reward_calculator = RewardCalculator {
             max_inflation_rate: Rational::from_integer(0),

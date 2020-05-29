@@ -145,6 +145,8 @@ impl NightshadeRuntime {
             fishermen_threshold: genesis.config.fishermen_threshold,
             online_min_threshold: genesis.config.online_min_threshold,
             online_max_threshold: genesis.config.online_max_threshold,
+            protocol_upgrade_num_epochs: genesis.config.protocol_upgrade_num_epochs,
+            protocol_upgrade_stake_threshold: genesis.config.protocol_upgrade_stake_threshold,
         };
         let reward_calculator = RewardCalculator {
             max_inflation_rate: genesis.config.max_inflation_rate,
