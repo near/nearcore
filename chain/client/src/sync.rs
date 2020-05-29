@@ -788,12 +788,12 @@ impl StateSync {
                 let possible_targets_sampler =
                     SamplerLimited::new(possible_targets, MAX_STATE_PART_PER_TARGET);
 
-                for (part_id, (download, target)) in new_shard_sync_download
+                for ((part_id, download), target) in new_shard_sync_download
                     .downloads
                     .iter_mut()
-                    .filter(|download| download.run_me.load(Ordering::SeqCst))
-                    .zip(possible_targets_sampler)
                     .enumerate()
+                    .filter(|(_, download)| download.run_me.load(Ordering::SeqCst))
+                    .zip(possible_targets_sampler)
                 {
                     download.run_me.store(false, Ordering::SeqCst);
                     download.state_requests_count += 1;
@@ -879,7 +879,7 @@ impl StateSync {
 /// ```
 /// let sampler = SamplerLimited::new(vec![1, 2, 3], 2);
 ///
-/// let res = sampler.iter().collect::<Vec<_>>();
+/// let res = sampler.collect::<Vec<_>>();
 ///
 /// assert!(res.len() == 6);
 /// assert!(res.iter().filter(|v| v == 1).count() == 2);
