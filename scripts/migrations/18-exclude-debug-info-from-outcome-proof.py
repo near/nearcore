@@ -1,8 +1,6 @@
 """
-Make the node adhere to the light client spec.
-Protocol changes include:
-* Change the way the `next_bp_hash` is computed
-* Change the way the approvals are serialized for signatures
+Changes the outcome_root calculation:
+excludes error debug info from `ExecutionOutcome` hash calculation
 
 """
 
