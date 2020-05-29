@@ -159,6 +159,7 @@ impl NightshadeRuntime {
             EpochManager::new(
                 store.clone(),
                 initial_epoch_config,
+                genesis.config.protocol_version,
                 reward_calculator,
                 genesis
                     .config

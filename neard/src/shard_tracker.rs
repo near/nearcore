@@ -269,6 +269,7 @@ mod tests {
             EpochManager::new(
                 store,
                 initial_epoch_config,
+                PROTOCOL_VERSION,
                 reward_calculator,
                 vec![ValidatorStake {
                     account_id: "test".to_string(),

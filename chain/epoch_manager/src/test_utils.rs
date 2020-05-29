@@ -108,6 +108,8 @@ pub fn epoch_config(
         fishermen_threshold,
         online_min_threshold: Rational::new(90, 100),
         online_max_threshold: Rational::new(99, 100),
+        protocol_upgrade_stake_threshold: Rational::new(80, 100),
+        protocol_upgrade_num_epochs: 2,
     }
 }
 
@@ -157,6 +159,7 @@ pub fn setup_epoch_manager(
     EpochManager::new(
         store,
         config,
+        PROTOCOL_VERSION,
         reward_calculator,
         validators.iter().map(|(account_id, balance)| stake(*account_id, *balance)).collect(),
     )
@@ -221,4 +224,30 @@ pub fn record_block(
     proposals: Vec<ValidatorStake>,
 ) {
     record_block_with_slashes(epoch_manager, prev_h, cur_h, height, proposals, vec![]);
+}
+
+pub fn block_info(
+    height: BlockHeight,
+    last_finalized_height: BlockHeight,
+    prev_hash: CryptoHash,
+    epoch_first_block: CryptoHash,
+    chunk_mask: Vec<bool>,
+    total_supply: Balance,
+) -> BlockInfo {
+    BlockInfo {
+        height,
+        last_finalized_height,
+        prev_hash,
+        epoch_first_block,
+        epoch_id: Default::default(),
+        proposals: vec![],
+        chunk_mask,
+        latest_protocol_version: PROTOCOL_VERSION,
+        slashed: Default::default(),
+        total_supply,
+        block_tracker: Default::default(),
+        shard_tracker: Default::default(),
+        all_proposals: vec![],
+        version_tracker: Default::default(),
+    }
 }
