@@ -25,6 +25,9 @@ pub struct VMLimitConfig {
     /// Max burnt gas per view method.
     pub max_gas_burnt_view: Gas,
 
+    /// The minimum amount of prepaid gas required for each function call.
+    pub min_prepaid_gas: Gas,
+
     /// How tall the stack is allowed to grow?
     ///
     /// See https://wiki.parity.io/WebAssembly-StackHeight to find out
@@ -116,6 +119,8 @@ impl Default for VMLimitConfig {
         Self {
             max_gas_burnt: 2 * 10u64.pow(14), // with 10**15 block gas limit this will allow 5 calls.
             max_gas_burnt_view: 2 * 10u64.pow(14), // same as `max_gas_burnt` for now
+
+            min_prepaid_gas: 1, // This is to avoid having a function call with 0 prepaid gas.
 
             // NOTE: Stack height has to be 16K, otherwise Wasmer produces non-deterministic results.
             // For experimentation try `test_stack_overflow`.

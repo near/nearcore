@@ -1,6 +1,6 @@
 {
   "config_version": 1,
-  "protocol_version": 18,
+  "protocol_version": 20,
   "genesis_time": "1970-01-01T00:00:00.000000000Z",
   "chain_id": "sample",
   "genesis_height": 0,
@@ -177,6 +177,7 @@
       "limit_config": {
         "max_gas_burnt": 200000000000000,
         "max_gas_burnt_view": 200000000000000,
+        "min_prepaid_gas": 1,
         "max_stack_height": 16384,
         "initial_memory_pages": 1024,
         "max_memory_pages": 2048,
