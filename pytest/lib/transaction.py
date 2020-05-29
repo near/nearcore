@@ -5,7 +5,6 @@ from ed25519 import SigningKey
 from messages.tx import *
 from messages.crypto import *
 
-
 schema = dict(tx_schema + crypto_schema)
 
 
@@ -125,7 +124,7 @@ def sign_create_account_tx(creator_key, new_account_id, nonce, block_hash):
 
 
 def sign_create_account_with_full_access_key_and_balance_tx(
-    creator_key, new_account_id, new_key, balance, nonce, block_hash):
+        creator_key, new_account_id, new_key, balance, nonce, block_hash):
     create_account_action = create_create_account_action()
     full_access_key_action = create_full_access_key_action(new_key.decoded_pk())
     payment_action = create_payment_action(balance)

@@ -38,30 +38,31 @@ network_schema = [
         SocketAddr, {
             'kind': 'enum',
             'field': 'enum',
-            'values': [
-                ['V4', ([4], 'u16')],
-                ['V6', ([16], 'u16')]
-            ]
+            'values': [['V4', ([4], 'u16')], ['V6', ([16], 'u16')]]
         }
     ],
     [
         PeerMessage, {
-            'kind': 'enum',
-            'field': 'enum',
-            'values': [
-                ['Handshake', Handshake],
-                ['HandshakeFailure', (PeerInfo, HandshakeFailureReason)]
-            ]
+            'kind':
+                'enum',
+            'field':
+                'enum',
+            'values': [['Handshake', Handshake],
+                       ['HandshakeFailure', (PeerInfo, HandshakeFailureReason)]]
         }
     ],
     [
         Handshake, {
-            'kind': 'struct',
+            'kind':
+                'struct',
             'fields': [
                 ['version', 'u32'],
                 ['peer_id', PublicKey],
                 ['target_peer_id', PublicKey],
-                ['listen_port', {'kind': 'option', 'type': 'u16'}],
+                ['listen_port', {
+                    'kind': 'option',
+                    'type': 'u16'
+                }],
                 ['chain_info', PeerChainInfo],
                 ['edge_info', EdgeInfo],
             ]
@@ -69,8 +70,10 @@ network_schema = [
     ],
     [
         HandshakeFailureReason, {
-            'kind': 'enum',
-            'field': 'enum',
+            'kind':
+                'enum',
+            'field':
+                'enum',
             'values': [
                 ['ProtocolVersionMismatch', 'u32'],
                 ['GenesisMismatch', GenesisId],
@@ -80,22 +83,24 @@ network_schema = [
     ],
     [
         PeerInfo, {
-            'kind': 'struct',
-            'fields': [
-                ['id', PublicKey],
-                ['addr', {'kind': 'option', 'type': SocketAddr}],
-                ['account_id', {'kind': 'option', 'type': 'string'}]
-            ]
+            'kind':
+                'struct',
+            'fields': [['id', PublicKey],
+                       ['addr', {
+                           'kind': 'option',
+                           'type': SocketAddr
+                       }], ['account_id', {
+                           'kind': 'option',
+                           'type': 'string'
+                       }]]
         }
     ],
     [
         PeerChainInfo, {
-            'kind': 'struct',
-            'fields': [
-                ['genesis_id', GenesisId],
-                ['height', 'u64'],
-                ['tracked_shards', ['u64']]
-            ]
+            'kind':
+                'struct',
+            'fields': [['genesis_id', GenesisId], ['height', 'u64'],
+                       ['tracked_shards', ['u64']]]
         }
     ],
     [

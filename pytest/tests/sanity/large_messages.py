@@ -10,10 +10,8 @@ N_PROCESSES = 10
 
 buf = bytes([0] * BUFFER_LEN)
 
-nodes = start_cluster(
-    2, 0, 4, None,
-    [], {}
-)
+nodes = start_cluster(2, 0, 4, None, [], {})
+
 
 def one_process(ord_, seconds):
     started = time.time()
@@ -31,7 +29,10 @@ status = nodes[0].get_status()
 last_height = int(status['sync_info']['latest_block_height'])
 
 for seconds in [20, 120]:
-    ps = [multiprocessing.Process(target=one_process, args=(i, seconds)) for i in range(N_PROCESSES)]
+    ps = [
+        multiprocessing.Process(target=one_process, args=(i, seconds))
+        for i in range(N_PROCESSES)
+    ]
 
     for p in ps:
         p.start()
@@ -41,6 +42,6 @@ for seconds in [20, 120]:
 
     status = nodes[0].get_status()
     new_height = int(status['sync_info']['latest_block_height'])
-    assert new_height - last_height > 5, "new height: %s, last_height: %s" % (new_height, last_height)
+    assert new_height - last_height > 5, "new height: %s, last_height: %s" % (
+        new_height, last_height)
     last_height = new_height
-

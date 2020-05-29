@@ -13,11 +13,7 @@ from messages.network import *
 schema = dict(crypto_schema + network_schema)
 my_key_pair_nacl = nacl.signing.SigningKey.generate()
 
-nodes = start_cluster(
-    1, 0, 4, None,
-    [], {}
-)
-
+nodes = start_cluster(1, 0, 4, None, [], {})
 
 with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
     s.connect(nodes[0].addr())
@@ -45,8 +41,10 @@ with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
     assert response.Handshake.chain_info.genesis_id.hash == handshake.Handshake.chain_info.genesis_id.hash
     assert response.Handshake.edge_info.nonce == 1
     assert response.Handshake.peer_id.keyType == 0
-    assert response.Handshake.peer_id.data == base58.b58decode(nodes[0].node_key.pk[len(ED_PREFIX):])
+    assert response.Handshake.peer_id.data == base58.b58decode(
+        nodes[0].node_key.pk[len(ED_PREFIX):])
     assert response.Handshake.target_peer_id.keyType == 0
-    assert response.Handshake.target_peer_id.data == bytes(my_key_pair_nacl.verify_key)
+    assert response.Handshake.target_peer_id.data == bytes(
+        my_key_pair_nacl.verify_key)
     assert response.Handshake.version == handshake.Handshake.version
     assert response.Handshake.listen_port == nodes[0].addr()[1]

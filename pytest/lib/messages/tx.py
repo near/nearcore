@@ -1,5 +1,6 @@
 from messages.crypto import Signature, PublicKey, AccessKey
 
+
 class SignedTransaction:
     pass
 
@@ -121,4 +122,3 @@ tx_schema = [
         }
     ],
 ]
-
