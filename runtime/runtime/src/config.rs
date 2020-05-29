@@ -11,6 +11,7 @@ use near_runtime_fees::RuntimeFeesConfig;
 pub use near_runtime_configs::RuntimeConfig;
 
 /// Describes the cost of converting this transaction into a receipt.
+#[derive(Debug)]
 pub struct TransactionCost {
     /// Total amount of gas burnt for converting this transaction into a receipt.
     pub gas_burnt: Gas,
