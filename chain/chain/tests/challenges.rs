@@ -22,7 +22,7 @@ fn challenges_new_head_prev() {
 
     // The block to be added below after we invalidated fourth block.
     let last_block = Block::empty(&chain.get_block(&hashes[3]).unwrap(), &*signer);
-    assert_eq!(last_block.header.height(), 5);
+    assert_eq!(last_block.header().height(), 5);
 
     let prev = chain.get_block(&hashes[1]).unwrap();
     let challenger_block = Block::empty_with_height(&prev, 3, &*signer);
@@ -102,7 +102,7 @@ fn test_no_challenge_on_same_header() {
         .process_block(&None, block.clone(), Provenance::PRODUCED, |_| {}, |_| {}, |_| {})
         .unwrap();
     assert_eq!(tip.unwrap().height, 1);
-    if let Err(e) = chain.process_block_header(&block.header, |_| panic!("Unexpected Challenge")) {
+    if let Err(e) = chain.process_block_header(block.header(), |_| panic!("Unexpected Challenge")) {
         match e.kind() {
             ErrorKind::Unfit(_) => {}
             _ => panic!("Wrong error kind {}", e),

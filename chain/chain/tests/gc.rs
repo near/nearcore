@@ -66,9 +66,9 @@ mod tests {
                     .save_block_merkle_tree(*prev_block.hash(), PartialMerkleTree::default());
             }
             store_update.save_block(block.clone());
-            store_update.inc_block_refcount(block.header.prev_hash()).unwrap();
-            store_update.save_block_header(block.header.clone()).unwrap();
-            let tip = Tip::from_header(&block.header);
+            store_update.inc_block_refcount(block.header().prev_hash()).unwrap();
+            store_update.save_block_header(block.header().clone()).unwrap();
+            let tip = Tip::from_header(block.header());
             if head.height < tip.height {
                 store_update.save_head(&tip).unwrap();
             }
@@ -81,7 +81,7 @@ mod tests {
                 let trie_changes =
                     trie.update(&state_root, trie_changes_data.iter().cloned()).unwrap();
                 if verbose {
-                    println!("state new {:?} {:?}", block.header.height(), trie_changes_data);
+                    println!("state new {:?} {:?}", block.header().height(), trie_changes_data);
                 }
 
                 let new_root = trie_changes.new_root;
@@ -198,7 +198,7 @@ mod tests {
                     .update(&state_root2, changes1[shard_to_check_trie as usize].iter().cloned())
                     .unwrap();
                 // i == gc_height is the only height should be processed here
-                if block1.header.height() > gc_height || i == gc_height {
+                if block1.header().height() > gc_height || i == gc_height {
                     let mut trie_store_update2 = StoreUpdate::new_with_tries(tries2.clone());
                     tries2
                         .apply_insertions(
@@ -231,7 +231,7 @@ mod tests {
             for i in start_index..start_index + simple_chain.length {
                 let (block1, state_root1, _) = states1[i as usize].clone();
                 let state_root1 = state_root1[shard_to_check_trie as usize];
-                if block1.header.height() > gc_height || i == gc_height {
+                if block1.header().height() > gc_height || i == gc_height {
                     assert!(trie1.iter(&state_root1).is_ok());
                     assert!(trie2.iter(&state_root1).is_ok());
                     let a = trie1

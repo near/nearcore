@@ -157,8 +157,8 @@ pub trait RuntimeAdapter: Send + Sync {
         epoch_id: &EpochId,
         block_height: BlockHeight,
         prev_random_value: &CryptoHash,
-        vrf_value: near_crypto::vrf::Value,
-        vrf_proof: near_crypto::vrf::Proof,
+        vrf_value: &near_crypto::vrf::Value,
+        vrf_proof: &near_crypto::vrf::Proof,
     ) -> Result<(), Error>;
 
     /// Validates a given signed transaction on top of the given state root.
@@ -589,20 +589,20 @@ mod tests {
         );
         let signer = InMemoryValidatorSigner::from_seed("other", KeyType::ED25519, "other");
         let b1 = Block::empty(&genesis, &signer);
-        assert!(b1.header.verify_block_producer(&signer.public_key()));
+        assert!(b1.header().verify_block_producer(&signer.public_key()));
         let other_signer = InMemoryValidatorSigner::from_seed("other2", KeyType::ED25519, "other2");
         let approvals = vec![Some(Approval::new(*b1.hash(), 1, 2, &other_signer).signature)];
         let b2 = Block::empty_with_approvals(
             &b1,
             2,
-            b1.header.epoch_id().clone(),
+            b1.header().epoch_id().clone(),
             EpochId(*genesis.hash()),
             approvals,
             &signer,
-            *genesis.header.next_bp_hash(),
+            *genesis.header().next_bp_hash(),
             CryptoHash::default(),
         );
-        b2.header.verify_block_producer(&signer.public_key());
+        b2.header().verify_block_producer(&signer.public_key());
     }
 
     #[test]

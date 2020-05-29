@@ -201,13 +201,13 @@ impl GenesisBuilder {
         let mut store = ChainStore::new(self.store.clone(), self.genesis.config.genesis_height);
         let mut store_update = store.store_update();
 
-        self.runtime.add_validator_proposals(BlockHeaderInfo::new(&genesis.header, 0)).unwrap();
+        self.runtime.add_validator_proposals(BlockHeaderInfo::new(&genesis.header(), 0)).unwrap();
         store_update
-            .save_block_header(genesis.header.clone())
+            .save_block_header(genesis.header().clone())
             .expect("save genesis block header shouldn't fail");
         store_update.save_block(genesis.clone());
 
-        for (chunk_header, state_root) in genesis.chunks.iter().zip(self.roots.values()) {
+        for (chunk_header, state_root) in genesis.chunks().iter().zip(self.roots.values()) {
             store_update.save_chunk_extra(
                 &genesis.hash(),
                 chunk_header.inner.shard_id,
@@ -222,7 +222,7 @@ impl GenesisBuilder {
             );
         }
 
-        let head = Tip::from_header(&genesis.header);
+        let head = Tip::from_header(&genesis.header());
         store_update.save_head(&head).unwrap();
         store_update.save_sync_head(&head);
         store_update.commit().unwrap();

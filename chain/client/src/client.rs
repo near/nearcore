@@ -147,12 +147,12 @@ impl Client {
     }
 
     pub fn remove_transactions_for_block(&mut self, me: AccountId, block: &Block) {
-        for (shard_id, chunk_header) in block.chunks.iter().enumerate() {
+        for (shard_id, chunk_header) in block.chunks().iter().enumerate() {
             let shard_id = shard_id as ShardId;
-            if block.header.height() == chunk_header.height_included {
+            if block.header().height() == chunk_header.height_included {
                 if self.shards_mgr.cares_about_shard_this_or_next_epoch(
                     Some(&me),
-                    &block.header.prev_hash(),
+                    &block.header().prev_hash(),
                     shard_id,
                     true,
                 ) {
@@ -164,18 +164,18 @@ impl Client {
                 }
             }
         }
-        for challenge in block.challenges.iter() {
+        for challenge in block.challenges().iter() {
             self.challenges.remove(&challenge.hash);
         }
     }
 
     pub fn reintroduce_transactions_for_block(&mut self, me: AccountId, block: &Block) {
-        for (shard_id, chunk_header) in block.chunks.iter().enumerate() {
+        for (shard_id, chunk_header) in block.chunks().iter().enumerate() {
             let shard_id = shard_id as ShardId;
-            if block.header.height() == chunk_header.height_included {
+            if block.header().height() == chunk_header.height_included {
                 if self.shards_mgr.cares_about_shard_this_or_next_epoch(
                     Some(&me),
-                    &block.header.prev_hash(),
+                    &block.header().prev_hash(),
                     shard_id,
                     false,
                 ) {
@@ -187,7 +187,7 @@ impl Client {
                 }
             }
         }
-        for challenge in block.challenges.iter() {
+        for challenge in block.challenges().iter() {
             self.challenges.insert(challenge.hash, challenge.clone());
         }
     }
@@ -372,7 +372,7 @@ impl Client {
         let block_merkle_root = block_merkle_tree.root();
         let prev_block_extra = self.chain.get_block_extra(&prev_hash)?.clone();
         let prev_block = self.chain.get_block(&prev_hash)?;
-        let mut chunks = prev_block.chunks.clone();
+        let mut chunks = prev_block.chunks().clone();
 
         // Collect new chunks.
         for (shard_id, mut chunk_header) in new_chunks {
@@ -380,7 +380,7 @@ impl Client {
             chunks[shard_id as usize] = chunk_header;
         }
 
-        let prev_header = &prev_block.header;
+        let prev_header = &prev_block.header();
 
         let next_epoch_id =
             self.runtime_adapter.get_next_epoch_id_from_prev_block(&head.last_block_hash)?;
@@ -774,7 +774,7 @@ impl Client {
                 .unwrap_or_default();
             let skips = self
                 .pending_approvals
-                .cache_remove(&ApprovalInner::Skip(block.header.height()))
+                .cache_remove(&ApprovalInner::Skip(block.header().height()))
                 .unwrap_or_default();
 
             for (_account_id, approval) in endorsements.into_iter().chain(skips.into_iter()) {
@@ -785,7 +785,7 @@ impl Client {
         }
 
         if status.is_new_head() {
-            self.shards_mgr.update_largest_seen_height(block.header.height());
+            self.shards_mgr.update_largest_seen_height(block.header().height());
             if !self.config.archive {
                 if let Err(err) = self.chain.clear_data(self.runtime_adapter.get_tries()) {
                     error!(target: "client", "Can't clear old data, {:?}", err);
@@ -815,7 +815,7 @@ impl Client {
                     //    remove transactions from the new chain
                     let mut reintroduce_head =
                         self.chain.get_block_header(&prev_head).unwrap().clone();
-                    let mut remove_head = block.header.clone();
+                    let mut remove_head = block.header().clone();
                     assert_ne!(remove_head.hash(), reintroduce_head.hash());
 
                     let mut to_remove = vec![];
@@ -870,19 +870,19 @@ impl Client {
                 for shard_id in 0..self.runtime_adapter.num_shards() {
                     let epoch_id = self
                         .runtime_adapter
-                        .get_epoch_id_from_prev_block(&block.header.hash())
+                        .get_epoch_id_from_prev_block(&block.header().hash())
                         .unwrap();
                     let chunk_proposer = self
                         .runtime_adapter
-                        .get_chunk_producer(&epoch_id, block.header.height() + 1, shard_id)
+                        .get_chunk_producer(&epoch_id, block.header().height() + 1, shard_id)
                         .unwrap();
 
                     if chunk_proposer == *validator_signer.validator_id() {
                         match self.produce_chunk(
                             *block.hash(),
                             &epoch_id,
-                            block.chunks[shard_id as usize].clone(),
-                            block.header.height() + 1,
+                            block.chunks()[shard_id as usize].clone(),
+                            block.header().height() + 1,
                             shard_id,
                         ) {
                             Ok(Some((encoded_chunk, merkle_paths, receipts))) => self
@@ -905,7 +905,7 @@ impl Client {
         }
 
         // Process stored partial encoded chunks
-        let next_height = block.header.height() + 1;
+        let next_height = block.header().height() + 1;
         let mut partial_encoded_chunks =
             self.shards_mgr.get_stored_partial_encoded_chunks(next_height);
         for (_shard_id, partial_encoded_chunk) in partial_encoded_chunks.drain() {

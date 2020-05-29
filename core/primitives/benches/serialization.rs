@@ -48,9 +48,9 @@ fn create_block() -> Block {
     let signer = InMemoryValidatorSigner::from_random("".to_string(), KeyType::ED25519);
     Block::produce(
         PROTOCOL_VERSION,
-        &genesis.header,
+        genesis.header(),
         10,
-        vec![genesis.chunks[0].clone()],
+        vec![genesis.chunks()[0].clone()],
         EpochId::default(),
         EpochId::default(),
         vec![],

@@ -146,7 +146,7 @@ pub(crate) fn block_of_chunk_exists(
                 for block_hash in set {
                     match sv.store.get_ser::<Block>(ColBlock, block_hash.as_ref()) {
                         Ok(Some(block)) => {
-                            if block.chunks.contains(&shard_chunk.header) {
+                            if block.chunks().contains(&shard_chunk.header) {
                                 // Block for ShardChunk is found
                                 return Ok(());
                             }
@@ -176,8 +176,12 @@ pub(crate) fn block_height_cmp_tail(
     )
     .unwrap_or(sv.config.genesis_height);
     let block = unwrap_or_err!(Block::try_from_slice(value), "Can't deserialize Block");
-    if block.header.height() < tail && block.header.height() != sv.config.genesis_height {
-        return err!("Invalid block height stored: {}, tail: {:?}", (block.header.height()), tail);
+    if block.header().height() < tail && block.header().height() != sv.config.genesis_height {
+        return err!(
+            "Invalid block height stored: {}, tail: {:?}",
+            (block.header().height()),
+            tail
+        );
     }
     Ok(())
 }

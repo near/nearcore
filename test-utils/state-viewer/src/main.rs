@@ -63,7 +63,7 @@ fn load_trie_stop_at_height(
                 let last_final_block_hash =
                     *chain_store.get_block_header(&cur_block_hash).unwrap().last_final_block();
                 let last_final_block = chain_store.get_block(&last_final_block_hash).unwrap();
-                if last_final_block.header.height() >= height {
+                if last_final_block.header().height() >= height {
                     break last_final_block.clone();
                 } else {
                     cur_height += 1;
@@ -73,8 +73,8 @@ fn load_trie_stop_at_height(
         }
         None => chain_store.get_block(&head.last_block_hash).unwrap().clone(),
     };
-    let state_roots = last_block.chunks.iter().map(|chunk| chunk.inner.prev_state_root).collect();
-    (runtime, state_roots, last_block.header)
+    let state_roots = last_block.chunks().iter().map(|chunk| chunk.inner.prev_state_root).collect();
+    (runtime, state_roots, last_block.header().clone())
 }
 
 pub fn format_hash(h: CryptoHash) -> String {

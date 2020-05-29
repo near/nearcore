@@ -209,15 +209,15 @@ fn produce_block_with_approvals() {
                     // test1 will only create their approval for height 10 after their doomslug timer
                     // runs 10 iterations, which is way further in the future than them producing the
                     // block
-                    if block.header.num_approvals() == validators.len() as u64 - 2 {
+                    if block.header().num_approvals() == validators.len() as u64 - 2 {
                         System::current().stop();
-                    } else if block.header.height() == 10 {
-                        println!("{}", block.header.height());
+                    } else if block.header().height() == 10 {
+                        println!("{}", block.header().height());
                         println!(
                             "{} != {} -2 (height: {})",
-                            block.header.num_approvals(),
+                            block.header().num_approvals(),
                             validators.len(),
-                            block.header.height()
+                            block.header().height()
                         );
 
                         assert!(false);
@@ -262,7 +262,7 @@ fn produce_block_with_approvals() {
                 let signer = InMemoryValidatorSigner::from_seed(&s, KeyType::ED25519, &s);
                 let approval = Approval::new(
                     *block.hash(),
-                    block.header.height(),
+                    block.header().height(),
                     10, // the height at which "test1" is producing
                     &signer,
                 );
@@ -309,7 +309,7 @@ fn produce_block_with_approvals_arrived_early() {
             Box::new(move |_: String, msg: &NetworkRequests| -> (NetworkResponses, bool) {
                 match msg {
                     NetworkRequests::Block { block } => {
-                        if block.header.height() == 3 {
+                        if block.header().height() == 3 {
                             for (i, (client, _)) in conns.clone().into_iter().enumerate() {
                                 if i > 0 {
                                     client.do_send(NetworkClientMessages::Block(
@@ -321,7 +321,7 @@ fn produce_block_with_approvals_arrived_early() {
                             }
                             *block_holder.write().unwrap() = Some(block.clone());
                             return (NetworkResponses::NoResponse, false);
-                        } else if block.header.height() == 4 {
+                        } else if block.header().height() == 4 {
                             System::current().stop();
                         }
                         (NetworkResponses::NoResponse, true)
@@ -364,9 +364,9 @@ fn invalid_blocks() {
             Box::new(move |msg, _ctx, _client_actor| {
                 match msg {
                     NetworkRequests::Block { block } => {
-                        assert_eq!(block.header.height(), 1);
+                        assert_eq!(block.header().height(), 1);
                         assert_eq!(
-                            block.header.prev_state_root(),
+                            block.header().prev_state_root(),
                             &merklize(&vec![MerkleHash::default()]).0
                         );
                         System::current().stop();
@@ -401,7 +401,7 @@ fn invalid_blocks() {
                 last_block.header.next_bp_hash,
                 CryptoHash::default(),
             );
-            block.header.mut_header().inner_rest.chunk_mask = vec![];
+            block.mut_header().get_mut().inner_rest.chunk_mask = vec![];
             client.do_send(NetworkClientMessages::Block(
                 block.clone(),
                 PeerInfo::random().id,
@@ -453,7 +453,7 @@ fn skip_block_production() {
             Box::new(move |msg, _ctx, _client_actor| {
                 match msg {
                     NetworkRequests::Block { block } => {
-                        if block.header.height() > 3 {
+                        if block.header().height() > 3 {
                             System::current().stop();
                         }
                     }
@@ -609,9 +609,9 @@ fn test_time_attack() {
     let signer = InMemoryValidatorSigner::from_seed("test1", KeyType::ED25519, "test1");
     let genesis = client.chain.get_block_by_height(0).unwrap();
     let mut b1 = Block::empty_with_height(genesis, 1, &signer);
-    b1.header.mut_header().inner_lite.timestamp =
-        to_timestamp(b1.header.timestamp() + chrono::Duration::seconds(60));
-    b1.header.resign(&signer);
+    b1.mut_header().get_mut().inner_lite.timestamp =
+        to_timestamp(b1.header().timestamp() + chrono::Duration::seconds(60));
+    b1.mut_header().resign(&signer);
 
     let _ = client.process_block(b1, Provenance::NONE);
 
@@ -640,7 +640,7 @@ fn test_invalid_approvals() {
     let signer = InMemoryValidatorSigner::from_seed("test1", KeyType::ED25519, "test1");
     let genesis = client.chain.get_block_by_height(0).unwrap();
     let mut b1 = Block::empty_with_height(genesis, 1, &signer);
-    b1.header.mut_header().inner_rest.approvals = (0..100)
+    b1.mut_header().get_mut().inner_rest.approvals = (0..100)
         .map(|i| {
             Some(
                 InMemoryValidatorSigner::from_seed(
@@ -652,7 +652,7 @@ fn test_invalid_approvals() {
             )
         })
         .collect();
-    b1.header.resign(&signer);
+    b1.mut_header().resign(&signer);
 
     let (_, tip) = client.process_block(b1, Provenance::NONE);
     match tip {
@@ -692,8 +692,8 @@ fn test_invalid_gas_price() {
     let signer = InMemoryValidatorSigner::from_seed("test1", KeyType::ED25519, "test1");
     let genesis = client.chain.get_block_by_height(0).unwrap();
     let mut b1 = Block::empty_with_height(genesis, 1, &signer);
-    b1.header.mut_header().inner_rest.gas_price = 0;
-    b1.header.resign(&signer);
+    b1.mut_header().get_mut().inner_rest.gas_price = 0;
+    b1.mut_header().resign(&signer);
 
     let (_, result) = client.process_block(b1, Provenance::NONE);
     match result {
@@ -733,7 +733,7 @@ fn test_minimum_gas_price() {
         env.produce_block(0, i);
     }
     let block = env.clients[0].chain.get_block_by_height(100).unwrap();
-    assert!(block.header.gas_price() >= min_gas_price);
+    assert!(block.header().gas_price() >= min_gas_price);
 }
 
 fn test_gc_with_epoch_length_common(epoch_length: NumBlocks) {
@@ -839,7 +839,7 @@ fn test_gc_long_epoch() {
         assert!(env.clients[0]
             .chain
             .mut_store()
-            .get_all_block_hashes_by_height(block.header.height())
+            .get_all_block_hashes_by_height(block.header().height())
             .is_ok());
     }
     assert!(check_refcount_map(&mut env.clients[0].chain).is_ok());
@@ -1023,7 +1023,7 @@ fn test_gc_tail_update() {
         env.process_block(0, block.clone(), Provenance::PRODUCED);
         blocks.push(block);
     }
-    let headers = blocks.clone().into_iter().map(|b| b.header).collect::<Vec<_>>();
+    let headers = blocks.iter().map(|b| b.header().clone()).collect::<Vec<_>>();
     env.clients[1].sync_block_headers(headers).unwrap();
     // simulate save sync hash block
     let prev_sync_block = blocks[blocks.len() - 3].clone();
@@ -1035,7 +1035,7 @@ fn test_gc_tail_update() {
         .reset_heads_post_state_sync(&None, *sync_block.hash(), |_| {}, |_| {}, |_| {})
         .unwrap();
     env.process_block(1, blocks.pop().unwrap(), Provenance::NONE);
-    assert_eq!(env.clients[1].chain.store().tail().unwrap(), prev_sync_block.header.height());
+    assert_eq!(env.clients[1].chain.store().tail().unwrap(), prev_sync_block.header().height());
     assert!(check_refcount_map(&mut env.clients[0].chain).is_ok());
     assert!(check_refcount_map(&mut env.clients[1].chain).is_ok());
 }
@@ -1119,8 +1119,8 @@ fn test_invalid_block_root() {
     let mut env = TestEnv::new(ChainGenesis::test(), 1, 1);
     let mut b1 = env.clients[0].produce_block(1).unwrap().unwrap();
     let signer = InMemoryValidatorSigner::from_seed("test0", KeyType::ED25519, "test0");
-    b1.header.mut_header().inner_lite.block_merkle_root = CryptoHash::default();
-    b1.header.resign(&signer);
+    b1.mut_header().get_mut().inner_lite.block_merkle_root = CryptoHash::default();
+    b1.mut_header().resign(&signer);
     let (_, tip) = env.clients[0].process_block(b1, Provenance::NONE);
     match tip {
         Err(e) => match e.kind() {

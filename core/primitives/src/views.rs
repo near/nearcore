@@ -539,8 +539,8 @@ impl BlockView {
     pub fn from_author_block(author: AccountId, block: Block) -> Self {
         BlockView {
             author,
-            header: block.header.into(),
-            chunks: block.chunks.into_iter().map(Into::into).collect(),
+            header: block.header().clone().into(),
+            chunks: block.chunks().iter().cloned().map(Into::into).collect(),
         }
     }
 }

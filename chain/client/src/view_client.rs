@@ -388,7 +388,7 @@ impl Handler<GetBlock> for ViewClientActor {
         }
         .and_then(|block| {
             self.runtime_adapter
-                .get_block_producer(&block.header.epoch_id(), block.header.height())
+                .get_block_producer(&block.header().epoch_id(), block.header().height())
                 .map(|author| BlockView::from_author_block(author, block))
         })
         .map_err(|err| err.to_string())
@@ -417,7 +417,7 @@ impl Handler<GetChunk> for ViewClientActor {
             GetChunk::BlockHash(block_hash, shard_id) => {
                 self.chain.get_block(&block_hash).map(Clone::clone).and_then(|block| {
                     let chunk_hash = block
-                        .chunks
+                        .chunks()
                         .get(shard_id as usize)
                         .ok_or_else(|| {
                             near_chain::Error::from(ErrorKind::InvalidShardId(shard_id))
@@ -429,7 +429,7 @@ impl Handler<GetChunk> for ViewClientActor {
             GetChunk::Height(height, shard_id) => {
                 self.chain.get_block_by_height(height).map(Clone::clone).and_then(|block| {
                     let chunk_hash = block
-                        .chunks
+                        .chunks()
                         .get(shard_id as usize)
                         .ok_or_else(|| {
                             near_chain::Error::from(ErrorKind::InvalidShardId(shard_id))
@@ -442,7 +442,7 @@ impl Handler<GetChunk> for ViewClientActor {
         .and_then(|chunk| {
             self.chain
                 .get_block_by_height(chunk.header.height_included)
-                .map(|block| (block.header.epoch_id().clone(), chunk))
+                .map(|block| (block.header().epoch_id().clone(), chunk))
         })
         .and_then(|(epoch_id, chunk)| {
             self.runtime_adapter
@@ -638,9 +638,9 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
                             self.chain.get_next_block_hash_with_new_chunk(&block_hash, shard_id)
                         {
                             if let Ok(block) = self.chain.get_block(&next_block_hash) {
-                                if shard_id < block.chunks.len() as u64 {
+                                if shard_id < block.chunks().len() as u64 {
                                     if verify_path(
-                                        block.chunks[shard_id as usize].inner.outcome_root,
+                                        block.chunks()[shard_id as usize].inner.outcome_root,
                                         &response.proof,
                                         &response.outcome_with_id.to_hashes(),
                                     ) {

@@ -1825,7 +1825,7 @@ impl<'a> ChainStoreUpdate<'a> {
             .get_block(&block_hash)
             .expect("block data is not expected to be already cleaned")
             .clone();
-        let height = block.header.height();
+        let height = block.header().height();
         if height == self.get_genesis_height() {
             if let GCMode::Fork(_) = gc_mode {
                 // Broken GC prerequisites found
@@ -1837,7 +1837,7 @@ impl<'a> ChainStoreUpdate<'a> {
         }
 
         // 2. Delete shard_id-indexed data (shards, receipts, transactions)
-        for shard_id in 0..block.header.chunk_mask().len() as ShardId {
+        for shard_id in 0..block.header().chunk_mask().len() as ShardId {
             // 2a. Delete outgoing receipts (ColOutgoingReceipts)
             store_update.delete(ColOutgoingReceipts, &get_block_shard_id(&block_hash, shard_id));
             self.chain_store
@@ -1865,7 +1865,7 @@ impl<'a> ChainStoreUpdate<'a> {
             // 2f. Delete from ColStateParts
             // Already done, check chain.clear_downloaded_parts()
         }
-        for chunk_header in block.chunks {
+        for chunk_header in block.chunks() {
             if let Ok(chunk) = self.get_chunk_clone_from_header(&chunk_header) {
                 // 2g. Delete from receipt_id_to_shard_id (ColReceiptIdToShardId)
                 for receipt in chunk.receipts {
@@ -1936,7 +1936,7 @@ impl<'a> ChainStoreUpdate<'a> {
                     self.get_all_block_hashes_by_height(height).expect("current height exists");
                 let mut epoch_to_hashes = epoch_to_hashes_ref.clone();
                 let hashes = epoch_to_hashes
-                    .get_mut(&block.header.epoch_id())
+                    .get_mut(&block.header().epoch_id())
                     .expect("current epoch id should exist");
                 hashes.remove(&block_hash);
                 store_update.set_ser(
@@ -1948,7 +1948,7 @@ impl<'a> ChainStoreUpdate<'a> {
                     .block_hash_per_height
                     .cache_set(index_to_bytes(height), epoch_to_hashes);
                 // 5b. Decreasing block refcount
-                self.dec_block_refcount(block.header.prev_hash())?;
+                self.dec_block_refcount(block.header().prev_hash())?;
             }
             GCMode::Canonical(_) => {
                 // 6. Canonical Chain only clearing
@@ -1998,17 +1998,19 @@ impl<'a> ChainStoreUpdate<'a> {
         }
         for (hash, block) in self.chain_store_cache_update.blocks.iter() {
             let mut map =
-                match self.chain_store.get_all_block_hashes_by_height(block.header.height()) {
+                match self.chain_store.get_all_block_hashes_by_height(block.header().height()) {
                     Ok(m) => m.clone(),
                     Err(_) => HashMap::new(),
                 };
-            map.entry(block.header.epoch_id().clone())
+            map.entry(block.header().epoch_id().clone())
                 .or_insert_with(|| HashSet::new())
                 .insert(*hash);
             store_update
-                .set_ser(ColBlockPerHeight, &index_to_bytes(block.header.height()), &map)
+                .set_ser(ColBlockPerHeight, &index_to_bytes(block.header().height()), &map)
                 .map_err::<Error, _>(|e| e.into())?;
-            self.chain_store_cache_update.block_hash_per_height.insert(block.header.height(), map);
+            self.chain_store_cache_update
+                .block_hash_per_height
+                .insert(block.header().height(), map);
             store_update
                 .set_ser(ColBlock, hash.as_ref(), block)
                 .map_err::<Error, _>(|e| e.into())?;
@@ -2377,10 +2379,10 @@ mod tests {
             Arc::new(InMemoryValidatorSigner::from_seed("test1", KeyType::ED25519, "test1"));
         let short_fork = vec![Block::empty_with_height(&genesis, 1, &*signer.clone())];
         let mut store_update = chain.mut_store().store_update();
-        store_update.save_block_header(short_fork[0].header.clone()).unwrap();
+        store_update.save_block_header(short_fork[0].header().clone()).unwrap();
         store_update.commit().unwrap();
 
-        let short_fork_head = short_fork[0].clone().header;
+        let short_fork_head = short_fork[0].header().clone();
         assert!(chain
             .mut_store()
             .check_transaction_validity_period(
@@ -2395,15 +2397,15 @@ mod tests {
         for i in 1..(transaction_validity_period + 3) {
             let block = Block::empty_with_height(&prev_block, i, &*signer.clone());
             prev_block = block.clone();
-            store_update.save_block_header(block.header.clone()).unwrap();
+            store_update.save_block_header(block.header().clone()).unwrap();
             store_update
-                .update_height_if_not_challenged(block.header.height(), *block.hash())
+                .update_height_if_not_challenged(block.header().height(), *block.hash())
                 .unwrap();
             long_fork.push(block);
         }
         store_update.commit().unwrap();
         let valid_base_hash = long_fork[1].hash();
-        let cur_header = &long_fork.last().unwrap().header;
+        let cur_header = &long_fork.last().unwrap().header();
         assert!(chain
             .mut_store()
             .check_transaction_validity_period(
@@ -2436,15 +2438,15 @@ mod tests {
         for i in 1..(transaction_validity_period + 2) {
             let block = Block::empty_with_height(&prev_block, i, &*signer.clone());
             prev_block = block.clone();
-            store_update.save_block_header(block.header.clone()).unwrap();
+            store_update.save_block_header(block.header().clone()).unwrap();
             store_update
-                .update_height_if_not_challenged(block.header.height(), *block.hash())
+                .update_height_if_not_challenged(block.header().height(), *block.hash())
                 .unwrap();
             blocks.push(block);
         }
         store_update.commit().unwrap();
         let valid_base_hash = blocks[1].hash();
-        let cur_header = &blocks.last().unwrap().header;
+        let cur_header = &blocks.last().unwrap().header();
         assert!(chain
             .mut_store()
             .check_transaction_validity_period(
@@ -2459,14 +2461,14 @@ mod tests {
             &*signer.clone(),
         );
         let mut store_update = chain.mut_store().store_update();
-        store_update.save_block_header(new_block.header.clone()).unwrap();
+        store_update.save_block_header(new_block.header().clone()).unwrap();
         store_update
-            .update_height_if_not_challenged(new_block.header.height(), *new_block.hash())
+            .update_height_if_not_challenged(new_block.header().height(), *new_block.hash())
             .unwrap();
         store_update.commit().unwrap();
         assert_eq!(
             chain.mut_store().check_transaction_validity_period(
-                &new_block.header,
+                &new_block.header(),
                 &valid_base_hash,
                 transaction_validity_period
             ),
@@ -2487,12 +2489,12 @@ mod tests {
         for i in 1..(transaction_validity_period + 2) {
             let block = Block::empty_with_height(&prev_block, i, &*signer.clone());
             prev_block = block.clone();
-            store_update.save_block_header(block.header.clone()).unwrap();
+            store_update.save_block_header(block.header().clone()).unwrap();
             short_fork.push(block);
         }
         store_update.commit().unwrap();
 
-        let short_fork_head = short_fork.last().unwrap().clone().header;
+        let short_fork_head = short_fork.last().unwrap().header().clone();
         assert_eq!(
             chain.mut_store().check_transaction_validity_period(
                 &short_fork_head,
@@ -2507,11 +2509,11 @@ mod tests {
         for i in 1..(transaction_validity_period * 5) {
             let block = Block::empty_with_height(&prev_block, i, &*signer.clone());
             prev_block = block.clone();
-            store_update.save_block_header(block.header.clone()).unwrap();
+            store_update.save_block_header(block.header().clone()).unwrap();
             long_fork.push(block);
         }
         store_update.commit().unwrap();
-        let long_fork_head = &long_fork.last().unwrap().header;
+        let long_fork_head = &long_fork.last().unwrap().header();
         assert_eq!(
             chain.mut_store().check_transaction_validity_period(
                 long_fork_head,
@@ -2530,12 +2532,15 @@ mod tests {
             Arc::new(InMemoryValidatorSigner::from_seed("test1", KeyType::ED25519, "test1"));
         let block1 = Block::empty_with_height(&genesis, 1, &*signer.clone());
         let mut block2 = block1.clone();
-        block2.header.mut_header().inner_lite.epoch_id = EpochId(hash(&[1, 2, 3]));
-        block2.header.resign(&*signer);
+        block2.mut_header().get_mut().inner_lite.epoch_id = EpochId(hash(&[1, 2, 3]));
+        block2.mut_header().resign(&*signer);
 
         let mut store_update = chain.mut_store().store_update();
         store_update.chain_store_cache_update.height_to_hashes.insert(1, Some(hash(&[1])));
-        store_update.chain_store_cache_update.blocks.insert(*block1.header.hash(), block1.clone());
+        store_update
+            .chain_store_cache_update
+            .blocks
+            .insert(*block1.header().hash(), block1.clone());
         store_update.commit().unwrap();
 
         let block_hash = chain.mut_store().height.cache_get(&index_to_bytes(1)).cloned();
@@ -2544,7 +2549,10 @@ mod tests {
 
         let mut store_update = chain.mut_store().store_update();
         store_update.chain_store_cache_update.height_to_hashes.insert(1, Some(hash(&[2])));
-        store_update.chain_store_cache_update.blocks.insert(*block2.header.hash(), block2.clone());
+        store_update
+            .chain_store_cache_update
+            .blocks
+            .insert(*block2.header().hash(), block2.clone());
         store_update.commit().unwrap();
 
         let block_hash1 = chain.mut_store().height.cache_get(&index_to_bytes(1)).cloned();
@@ -2570,13 +2578,13 @@ mod tests {
             blocks.push(block.clone());
             let mut store_update = chain.mut_store().store_update();
             store_update.save_block(block.clone());
-            store_update.inc_block_refcount(block.header.prev_hash()).unwrap();
-            store_update.save_head(&Tip::from_header(&block.header)).unwrap();
-            store_update.save_block_header(block.header.clone()).unwrap();
+            store_update.inc_block_refcount(block.header().prev_hash()).unwrap();
+            store_update.save_head(&Tip::from_header(block.header())).unwrap();
+            store_update.save_block_header(block.header().clone()).unwrap();
             store_update
                 .chain_store_cache_update
                 .height_to_hashes
-                .insert(i, Some(*block.header.hash()));
+                .insert(i, Some(*block.header().hash()));
             store_update.save_next_block_hash(&prev_block.hash(), *block.hash());
             store_update.commit().unwrap();
 
@@ -2621,13 +2629,13 @@ mod tests {
             let block = Block::empty_with_height(&prev_block, i, &*signer);
             blocks.push(block.clone());
             store_update.save_block(block.clone());
-            store_update.inc_block_refcount(block.header.prev_hash()).unwrap();
-            store_update.save_head(&Tip::from_header(&block.header)).unwrap();
-            store_update.save_block_header(block.header.clone()).unwrap();
+            store_update.inc_block_refcount(block.header().prev_hash()).unwrap();
+            store_update.save_head(&Tip::from_header(&block.header())).unwrap();
+            store_update.save_block_header(block.header().clone()).unwrap();
             store_update
                 .chain_store_cache_update
                 .height_to_hashes
-                .insert(i, Some(*block.header.hash()));
+                .insert(i, Some(*block.header().hash()));
             store_update.save_next_block_hash(&prev_block.hash(), *block.hash());
             store_update.commit().unwrap();
 
@@ -2686,13 +2694,13 @@ mod tests {
 
             let mut store_update = chain.mut_store().store_update();
             store_update.save_block(block.clone());
-            store_update.inc_block_refcount(block.header.prev_hash()).unwrap();
-            store_update.save_head(&Tip::from_header(&block.header)).unwrap();
-            store_update.save_block_header(block.header.clone()).unwrap();
+            store_update.inc_block_refcount(block.header().prev_hash()).unwrap();
+            store_update.save_head(&Tip::from_header(&block.header())).unwrap();
+            store_update.save_block_header(block.header().clone()).unwrap();
             store_update
                 .chain_store_cache_update
                 .height_to_hashes
-                .insert(i, Some(*block.header.hash()));
+                .insert(i, Some(*block.header().hash()));
             store_update.save_next_block_hash(&prev_block.hash(), *block.hash());
             store_update.commit().unwrap();
 

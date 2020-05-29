@@ -290,8 +290,8 @@ impl RuntimeAdapter for KeyValueRuntime {
         _epoch_id: &EpochId,
         _block_height: BlockHeight,
         _prev_random_value: &CryptoHash,
-        _vrf_value: near_crypto::vrf::Value,
-        _vrf_proof: near_crypto::vrf::Proof,
+        _vrf_value: &near_crypto::vrf::Value,
+        _vrf_proof: &near_crypto::vrf::Proof,
     ) -> Result<(), Error> {
         Ok(())
     }
@@ -1071,13 +1071,13 @@ pub fn display_chain(me: &Option<AccountId>, chain: &mut Chain, tail: bool) {
                 parent_header.height(),
                 format_hash(*parent_header.hash()),
                 if let Some(block) = &maybe_block {
-                    format!("chunks: {}", block.chunks.len())
+                    format!("chunks: {}", block.chunks().len())
                 } else {
                     "-".to_string()
                 }
             );
             if let Some(block) = maybe_block {
-                for chunk_header in block.chunks.iter() {
+                for chunk_header in block.chunks().iter() {
                     let chunk_producer = runtime_adapter
                         .get_chunk_producer(
                             &epoch_id,

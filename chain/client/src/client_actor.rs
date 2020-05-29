@@ -285,7 +285,7 @@ impl Handler<NetworkClientMessages> for ClientActor {
                     .client
                     .chain
                     .mut_store()
-                    .get_all_block_hashes_by_height(block.header.height());
+                    .get_all_block_hashes_by_height(block.header().height());
                 if was_requested || !blocks_at_height.is_ok() {
                     if let SyncStatus::StateSync(sync_hash, _) = &mut self.client.sync_status {
                         if let Ok(header) = self.client.chain.get_block_header(sync_hash) {
@@ -305,12 +305,12 @@ impl Handler<NetworkClientMessages> for ClientActor {
                     match self
                         .client
                         .runtime_adapter
-                        .get_epoch_id_from_prev_block(block.header.prev_hash())
+                        .get_epoch_id_from_prev_block(block.header().prev_hash())
                     {
                         Ok(epoch_id) => {
                             if let Some(hashes) = blocks_at_height.unwrap().get(&epoch_id) {
-                                if !hashes.contains(block.header.hash()) {
-                                    warn!(target: "client", "Rejecting unrequested block {}, height {}", block.header.hash(), block.header.height());
+                                if !hashes.contains(block.header().hash()) {
+                                    warn!(target: "client", "Rejecting unrequested block {}, height {}", block.header().hash(), block.header().height());
                                 }
                             }
                         }
@@ -729,10 +729,10 @@ impl ClientActor {
                 accepted_block.provenance,
             );
             let block = self.client.chain.get_block(&accepted_block.hash).unwrap();
-            let gas_used = Block::compute_gas_used(&block.chunks, block.header.height());
-            let gas_limit = Block::compute_gas_limit(&block.chunks, block.header.height());
+            let gas_used = Block::compute_gas_used(&block.chunks(), block.header().height());
+            let gas_limit = Block::compute_gas_limit(&block.chunks(), block.header().height());
 
-            let last_final_hash = *block.header.last_final_block();
+            let last_final_hash = *block.header().last_final_block();
 
             self.info_helper.block_processed(gas_used, gas_limit);
             self.check_send_announce_account(last_final_hash);
@@ -753,10 +753,11 @@ impl ClientActor {
         } else if provenance == Provenance::NONE {
             // Don't care about challenge here since it will be handled when we actually process
             // the block.
-            if self.client.chain.process_block_header(&block.header, |_| {}).is_ok() {
+            if self.client.chain.process_block_header(&block.header(), |_| {}).is_ok() {
                 let head = self.client.chain.head()?;
                 // do not broadcast blocks that are too far back.
-                if head.height < block.header.height() || &head.epoch_id == block.header.epoch_id()
+                if head.height < block.header().height()
+                    || &head.epoch_id == block.header().epoch_id()
                 {
                     self.client.rebroadcast_block(block.clone());
                 }
@@ -775,14 +776,14 @@ impl ClientActor {
         was_requested: bool,
     ) -> NetworkClientResponses {
         let hash = *block.hash();
-        debug!(target: "client", "{:?} Received block {} <- {} at {} from {}, requested: {}", self.client.validator_signer.as_ref().map(|vs| vs.validator_id()), hash, block.header.prev_hash(), block.header.height(), peer_id, was_requested);
+        debug!(target: "client", "{:?} Received block {} <- {} at {} from {}, requested: {}", self.client.validator_signer.as_ref().map(|vs| vs.validator_id()), hash, block.header().prev_hash(), block.header().height(), peer_id, was_requested);
         // drop the block if it is too far ahead
         let head = unwrap_or_return!(self.client.chain.head(), NetworkClientResponses::NoResponse);
-        if block.header.height() >= head.height + BLOCK_HORIZON {
-            debug!(target: "client", "dropping block {} that is too far ahead. Block height {} current head height {}", block.hash(), block.header.height(), head.height);
+        if block.header().height() >= head.height + BLOCK_HORIZON {
+            debug!(target: "client", "dropping block {} that is too far ahead. Block height {} current head height {}", block.hash(), block.header().height(), head.height);
             return NetworkClientResponses::NoResponse;
         }
-        let prev_hash = *block.header.prev_hash();
+        let prev_hash = *block.header().prev_hash();
         let provenance =
             if was_requested { near_chain::Provenance::SYNC } else { near_chain::Provenance::NONE };
         match self.process_block(block, provenance) {

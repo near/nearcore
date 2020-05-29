@@ -354,12 +354,12 @@ pub fn setup_mock_all_validators(
 
                             let my_height = &mut last_height1[my_ord];
 
-                            *my_height = max(*my_height, block.header.height());
+                            *my_height = max(*my_height, block.header().height());
 
                             hash_to_height1
                                 .write()
                                 .unwrap()
-                                .insert(*block.header.hash(), block.header.height());
+                                .insert(*block.header().hash(), block.header().height());
                         }
                         NetworkRequests::PartialEncodedChunkRequest {
                             account_id: their_account_id,
@@ -688,7 +688,7 @@ pub fn setup_mock_all_validators(
     hash_to_height
         .write()
         .unwrap()
-        .insert(*genesis_block.read().unwrap().as_ref().unwrap().header.clone().hash(), 0);
+        .insert(*genesis_block.read().unwrap().as_ref().unwrap().header().clone().hash(), 0);
     *locked_connectors = ret.clone();
     let value = genesis_block.read().unwrap();
     (value.clone().unwrap(), ret)
@@ -895,11 +895,11 @@ impl TestEnv {
             .runtime_adapter
             .query(
                 0,
-                &last_block.chunks[0].inner.prev_state_root,
-                last_block.header.height(),
-                last_block.header.raw_timestamp(),
-                last_block.header.hash(),
-                last_block.header.epoch_id(),
+                &last_block.chunks()[0].inner.prev_state_root,
+                last_block.header().height(),
+                last_block.header().raw_timestamp(),
+                last_block.header().hash(),
+                last_block.header().epoch_id(),
                 &QueryRequest::ViewAccount { account_id },
             )
             .unwrap();

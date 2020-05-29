@@ -18,7 +18,7 @@ fn chain_sync_headers() {
         ));
     }
     chain
-        .sync_block_headers(blocks.drain(1..).map(|block| block.header).collect(), |_| {
+        .sync_block_headers(blocks.drain(1..).map(|block| block.header().clone()).collect(), |_| {
             panic!("Unexpected")
         })
         .unwrap();

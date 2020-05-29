@@ -68,9 +68,9 @@ fn query_status_not_crash() {
                 block.header.next_bp_hash,
                 block_merkle_tree.root(),
             );
-            next_block.header.mut_header().inner_lite.timestamp =
-                to_timestamp(next_block.header.timestamp() + chrono::Duration::seconds(60));
-            next_block.header.resign(&signer);
+            next_block.mut_header().get_mut().inner_lite.timestamp =
+                to_timestamp(next_block.header().timestamp() + chrono::Duration::seconds(60));
+            next_block.mut_header().resign(&signer);
 
             actix::spawn(
                 client

@@ -1022,7 +1022,7 @@ mod test {
                         );
                         Approval::new(
                             *last_block.hash(),
-                            last_block.header.height(),
+                            last_block.header().height(),
                             current_height,
                             &signer,
                         )
@@ -1030,18 +1030,20 @@ mod test {
                     })
                 })
                 .collect();
-            let (epoch_id, next_epoch_id) = if last_block.header.prev_hash()
-                == &CryptoHash::default()
-            {
-                (last_block.header.next_epoch_id().clone(), EpochId(*last_block.hash()))
-            } else {
-                (last_block.header.epoch_id().clone(), last_block.header.next_epoch_id().clone())
-            };
+            let (epoch_id, next_epoch_id) =
+                if last_block.header().prev_hash() == &CryptoHash::default() {
+                    (last_block.header().next_epoch_id().clone(), EpochId(*last_block.hash()))
+                } else {
+                    (
+                        last_block.header().epoch_id().clone(),
+                        last_block.header().next_epoch_id().clone(),
+                    )
+                };
             let block = Block::produce(
                 PROTOCOL_VERSION,
-                &last_block.header,
+                &last_block.header(),
                 current_height,
-                last_block.chunks.clone(),
+                last_block.chunks().clone(),
                 epoch_id,
                 next_epoch_id,
                 approvals,
@@ -1051,7 +1053,7 @@ mod test {
                 vec![],
                 vec![],
                 &*signers[3],
-                last_block.header.next_bp_hash().clone(),
+                last_block.header().next_bp_hash().clone(),
                 block_merkle_tree.root(),
             );
             block_merkle_tree.insert(*block.hash());
@@ -1066,11 +1068,11 @@ mod test {
         // banned
         for _iter in 0..12 {
             let block = &all_blocks[last_added_block_ord];
-            let current_height = block.header.height();
+            let current_height = block.header().height();
             set_syncing_peer(&mut header_sync);
             header_sync.header_sync_due(
                 &SyncStatus::HeaderSync { current_height, highest_height },
-                &Tip::from_header(&block.header),
+                &Tip::from_header(&block.header()),
             );
 
             last_added_block_ord += 3;
@@ -1083,11 +1085,11 @@ mod test {
         // Now the same, but only 20 heights / sec
         for _iter in 0..12 {
             let block = &all_blocks[last_added_block_ord];
-            let current_height = block.header.height();
+            let current_height = block.header().height();
             set_syncing_peer(&mut header_sync);
             header_sync.header_sync_due(
                 &SyncStatus::HeaderSync { current_height, highest_height },
-                &Tip::from_header(&block.header),
+                &Tip::from_header(&block.header()),
             );
 
             last_added_block_ord += 2;

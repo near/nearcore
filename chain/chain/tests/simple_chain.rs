@@ -40,11 +40,11 @@ fn build_chain_with_orhpans() {
     let last_block = &blocks[blocks.len() - 1];
     let block = Block::produce(
         PROTOCOL_VERSION,
-        &last_block.header,
+        &last_block.header(),
         10,
-        last_block.chunks.clone(),
-        last_block.header.epoch_id().clone(),
-        last_block.header.next_epoch_id().clone(),
+        last_block.chunks().clone(),
+        last_block.header().epoch_id().clone(),
+        last_block.header().next_epoch_id().clone(),
         vec![],
         Rational::from_integer(0),
         0,
@@ -52,7 +52,7 @@ fn build_chain_with_orhpans() {
         vec![],
         vec![],
         &*signer,
-        last_block.header.next_bp_hash().clone(),
+        last_block.header().next_bp_hash().clone(),
         CryptoHash::default(),
     );
     assert_eq!(

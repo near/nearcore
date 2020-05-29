@@ -19,8 +19,16 @@ use crate::utils::to_timestamp;
 use crate::validator_signer::{EmptyValidatorSigner, ValidatorSigner};
 use crate::version::ProtocolVersion;
 
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Clone, Debug, Eq, PartialEq, Default)]
+pub struct GenesisId {
+    /// Chain Id
+    pub chain_id: String,
+    /// Hash of genesis block
+    pub hash: CryptoHash,
+}
+
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, Eq, PartialEq)]
-pub struct Block {
+pub struct BlockV1 {
     pub header: BlockHeader,
     pub chunks: Vec<ShardChunkHeader>,
     pub challenges: Challenges,
@@ -28,6 +36,12 @@ pub struct Block {
     // Data to confirm the correctness of randomness beacon output
     pub vrf_value: near_crypto::vrf::Value,
     pub vrf_proof: near_crypto::vrf::Proof,
+}
+
+/// Versioned Block data structure.
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, Eq, PartialEq)]
+pub enum Block {
+    BlockV1(BlockV1),
 }
 
 pub fn genesis_chunks(
@@ -78,7 +92,7 @@ impl Block {
         next_bp_hash: CryptoHash,
     ) -> Self {
         let challenges = vec![];
-        Block {
+        Block::BlockV1(BlockV1 {
             header: BlockHeader::genesis(
                 genesis_protocol_version,
                 height,
@@ -98,7 +112,7 @@ impl Block {
 
             vrf_value: near_crypto::vrf::Value([0; 32]),
             vrf_proof: near_crypto::vrf::Proof([0; 64]),
-        }
+        })
     }
 
     /// Produces new block from header of previous block, current state root and set of transactions.
@@ -163,7 +177,7 @@ impl Block {
                 prev.last_final_block()
             };
 
-        Block {
+        Block::BlockV1(BlockV1 {
             header: BlockHeader::new(
                 protocol_version,
                 height,
@@ -196,7 +210,7 @@ impl Block {
 
             vrf_value,
             vrf_proof,
-        }
+        })
     }
 
     pub fn verify_gas_price(
@@ -205,15 +219,15 @@ impl Block {
         min_gas_price: Balance,
         gas_price_adjustment_rate: Rational,
     ) -> bool {
-        let gas_used = Self::compute_gas_used(&self.chunks, self.header.height());
-        let gas_limit = Self::compute_gas_limit(&self.chunks, self.header.height());
+        let gas_used = Self::compute_gas_used(self.chunks(), self.header().height());
+        let gas_limit = Self::compute_gas_limit(self.chunks(), self.header().height());
         let expected_price = Self::compute_new_gas_price(
             prev_gas_price,
             gas_used,
             gas_limit,
             gas_price_adjustment_rate,
         );
-        self.header.gas_price() == max(expected_price, min_gas_price)
+        self.header().gas_price() == max(expected_price, min_gas_price)
     }
 
     pub fn compute_new_gas_price(
@@ -234,14 +248,14 @@ impl Block {
         }
     }
 
-    pub fn compute_state_root(chunks: &Vec<ShardChunkHeader>) -> CryptoHash {
+    pub fn compute_state_root(chunks: &[ShardChunkHeader]) -> CryptoHash {
         merklize(
             &chunks.iter().map(|chunk| chunk.inner.prev_state_root).collect::<Vec<CryptoHash>>(),
         )
         .0
     }
 
-    pub fn compute_chunk_receipts_root(chunks: &Vec<ShardChunkHeader>) -> CryptoHash {
+    pub fn compute_chunk_receipts_root(chunks: &[ShardChunkHeader]) -> CryptoHash {
         merklize(
             &chunks
                 .iter()
@@ -252,7 +266,7 @@ impl Block {
     }
 
     pub fn compute_chunk_headers_root(
-        chunks: &Vec<ShardChunkHeader>,
+        chunks: &[ShardChunkHeader],
     ) -> (CryptoHash, Vec<MerklePath>) {
         merklize(
             &chunks
@@ -262,15 +276,15 @@ impl Block {
         )
     }
 
-    pub fn compute_chunk_tx_root(chunks: &Vec<ShardChunkHeader>) -> CryptoHash {
+    pub fn compute_chunk_tx_root(chunks: &[ShardChunkHeader]) -> CryptoHash {
         merklize(&chunks.iter().map(|chunk| chunk.inner.tx_root).collect::<Vec<CryptoHash>>()).0
     }
 
-    pub fn compute_chunks_included(chunks: &Vec<ShardChunkHeader>, height: BlockHeight) -> u64 {
+    pub fn compute_chunks_included(chunks: &[ShardChunkHeader], height: BlockHeight) -> u64 {
         chunks.iter().filter(|chunk| chunk.height_included == height).count() as u64
     }
 
-    pub fn compute_outcome_root(chunks: &Vec<ShardChunkHeader>) -> CryptoHash {
+    pub fn compute_outcome_root(chunks: &[ShardChunkHeader]) -> CryptoHash {
         merklize(&chunks.iter().map(|chunk| chunk.inner.outcome_root).collect::<Vec<CryptoHash>>())
             .0
     }
@@ -311,56 +325,78 @@ impl Block {
         )
     }
 
+    pub fn header(&self) -> &BlockHeader {
+        match self {
+            Block::BlockV1(block) => &block.header,
+        }
+    }
+
+    pub fn chunks(&self) -> &Vec<ShardChunkHeader> {
+        match self {
+            Block::BlockV1(block) => &block.chunks,
+        }
+    }
+
+    pub fn challenges(&self) -> &Challenges {
+        match self {
+            Block::BlockV1(block) => &block.challenges,
+        }
+    }
+
+    pub fn vrf_value(&self) -> &near_crypto::vrf::Value {
+        match self {
+            Block::BlockV1(block) => &block.vrf_value,
+        }
+    }
+
+    pub fn vrf_proof(&self) -> &near_crypto::vrf::Proof {
+        match self {
+            Block::BlockV1(block) => &block.vrf_proof,
+        }
+    }
+
     pub fn hash(&self) -> &CryptoHash {
-        self.header.hash()
+        self.header().hash()
     }
 
     pub fn check_validity(&self) -> bool {
         // Check that state root stored in the header matches the state root of the chunks
-        let state_root = Block::compute_state_root(&self.chunks);
-        if self.header.prev_state_root() != &state_root {
+        let state_root = Block::compute_state_root(self.chunks());
+        if self.header().prev_state_root() != &state_root {
             return false;
         }
 
         // Check that chunk receipts root stored in the header matches the state root of the chunks
-        let chunk_receipts_root = Block::compute_chunk_receipts_root(&self.chunks);
-        if self.header.chunk_receipts_root() != &chunk_receipts_root {
+        let chunk_receipts_root = Block::compute_chunk_receipts_root(self.chunks());
+        if self.header().chunk_receipts_root() != &chunk_receipts_root {
             return false;
         }
 
         // Check that chunk headers root stored in the header matches the chunk headers root of the chunks
-        let chunk_headers_root = Block::compute_chunk_headers_root(&self.chunks).0;
-        if self.header.chunk_headers_root() != &chunk_headers_root {
+        let chunk_headers_root = Block::compute_chunk_headers_root(self.chunks()).0;
+        if self.header().chunk_headers_root() != &chunk_headers_root {
             return false;
         }
 
         // Check that chunk tx root stored in the header matches the tx root of the chunks
-        let chunk_tx_root = Block::compute_chunk_tx_root(&self.chunks);
-        if self.header.chunk_tx_root() != &chunk_tx_root {
+        let chunk_tx_root = Block::compute_chunk_tx_root(self.chunks());
+        if self.header().chunk_tx_root() != &chunk_tx_root {
             return false;
         }
 
         // Check that chunk included root stored in the header matches the chunk included root of the chunks
         let chunks_included_root =
-            Block::compute_chunks_included(&self.chunks, self.header.height());
-        if self.header.chunks_included() != chunks_included_root {
+            Block::compute_chunks_included(self.chunks(), self.header().height());
+        if self.header().chunks_included() != chunks_included_root {
             return false;
         }
 
         // Check that challenges root stored in the header matches the challenges root of the challenges
-        let challenges_root = Block::compute_challenges_root(&self.challenges);
-        if self.header.challenges_root() != &challenges_root {
+        let challenges_root = Block::compute_challenges_root(&self.challenges());
+        if self.header().challenges_root() != &challenges_root {
             return false;
         }
 
         true
     }
-}
-
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Clone, Debug, Eq, PartialEq, Default)]
-pub struct GenesisId {
-    /// Chain Id
-    pub chain_id: String,
-    /// Hash of genesis block
-    pub hash: CryptoHash,
 }

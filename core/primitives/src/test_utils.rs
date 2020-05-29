@@ -243,7 +243,7 @@ impl SignedTransaction {
 }
 
 impl BlockHeader {
-    pub fn mut_header(&mut self) -> &mut BlockHeaderV1 {
+    pub fn get_mut(&mut self) -> &mut BlockHeaderV1 {
         match self {
             BlockHeader::BlockHeaderV1(header) => header,
         }
@@ -255,13 +255,19 @@ impl BlockHeader {
             &self.inner_lite_bytes(),
             &self.inner_rest_bytes(),
         );
-        let mut header = self.mut_header();
+        let mut header = self.get_mut();
         header.hash = hash;
         header.signature = signature;
     }
 }
 
 impl Block {
+    pub fn mut_header(&mut self) -> &mut BlockHeader {
+        match self {
+            Block::BlockV1(block) => &mut block.header,
+        }
+    }
+
     pub fn empty_with_epoch(
         prev: &Block,
         height: BlockHeight,
@@ -306,13 +312,13 @@ impl Block {
         Self::empty_with_epoch(
             prev,
             height,
-            prev.header.epoch_id().clone(),
-            if prev.header.prev_hash() == &CryptoHash::default() {
+            prev.header().epoch_id().clone(),
+            if prev.header().prev_hash() == &CryptoHash::default() {
                 EpochId(*prev.hash())
             } else {
-                prev.header.next_epoch_id().clone()
+                prev.header().next_epoch_id().clone()
             },
-            *prev.header.next_bp_hash(),
+            *prev.header().next_bp_hash(),
             signer,
             block_merkle_tree,
         )
@@ -325,7 +331,7 @@ impl Block {
     ) -> Self {
         Self::empty_with_height_and_block_merkle_tree(
             prev,
-            prev.header.height() + 1,
+            prev.header().height() + 1,
             signer,
             block_merkle_tree,
         )
@@ -349,9 +355,9 @@ impl Block {
     ) -> Self {
         Block::produce(
             PROTOCOL_VERSION,
-            &prev.header,
+            prev.header(),
             height,
-            prev.chunks.clone(),
+            prev.chunks().clone(),
             epoch_id,
             next_epoch_id,
             approvals,

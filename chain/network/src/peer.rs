@@ -413,7 +413,7 @@ impl Peer {
                 near_metrics::inc_counter(&metrics::PEER_BLOCK_RECEIVED_TOTAL);
                 let block_hash = *block.hash();
                 self.tracker.push_received(block_hash);
-                self.chain_info.height = max(self.chain_info.height, block.header.height());
+                self.chain_info.height = max(self.chain_info.height, block.header().height());
                 NetworkClientMessages::Block(block, peer_id, self.tracker.has_request(&block_hash))
             }
             PeerMessage::Transaction(transaction) => {

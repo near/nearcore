@@ -37,25 +37,30 @@ fn add_blocks(
         block_merkle_tree.insert(*block.hash());
     }
     for _ in 0..num {
-        let epoch_id = match prev.header.height() + 1 {
+        let epoch_id = match prev.header().height() + 1 {
             height if height <= epoch_length => EpochId::default(),
             height => {
                 EpochId(*blocks[(((height - 1) / epoch_length - 1) * epoch_length) as usize].hash())
             }
         };
         let next_epoch_id = EpochId(
-            *blocks[(((prev.header.height()) / epoch_length) * epoch_length) as usize].hash(),
+            *blocks[(((prev.header().height()) / epoch_length) * epoch_length) as usize].hash(),
         );
         let block = Block::produce(
             PROTOCOL_VERSION,
-            &prev.header,
-            prev.header.height() + 1,
-            blocks[0].chunks.clone(),
+            &prev.header(),
+            prev.header().height() + 1,
+            blocks[0].chunks().clone(),
             epoch_id,
             next_epoch_id,
             vec![Some(
-                Approval::new(*prev.hash(), prev.header.height(), prev.header.height() + 1, signer)
-                    .signature,
+                Approval::new(
+                    *prev.hash(),
+                    prev.header().height(),
+                    prev.header().height() + 1,
+                    signer,
+                )
+                .signature,
             )],
             Rational::from_integer(0),
             0,

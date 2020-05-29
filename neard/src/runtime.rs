@@ -486,8 +486,8 @@ impl RuntimeAdapter for NightshadeRuntime {
         epoch_id: &EpochId,
         block_height: BlockHeight,
         prev_random_value: &CryptoHash,
-        vrf_value: near_crypto::vrf::Value,
-        vrf_proof: near_crypto::vrf::Proof,
+        vrf_value: &near_crypto::vrf::Value,
+        vrf_proof: &near_crypto::vrf::Proof,
     ) -> Result<(), Error> {
         let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
         let validator = epoch_manager.get_block_producer_info(&epoch_id, block_height)?;
@@ -496,7 +496,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         )
         .unwrap();
 
-        if !public_key.is_vrf_valid(&prev_random_value.as_ref(), &vrf_value, &vrf_proof) {
+        if !public_key.is_vrf_valid(&prev_random_value.as_ref(), vrf_value, vrf_proof) {
             return Err(ErrorKind::InvalidRandomnessBeaconOutput.into());
         }
         Ok(())

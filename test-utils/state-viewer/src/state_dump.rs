@@ -137,7 +137,7 @@ mod test {
         );
         let last_block = env.clients[0].chain.get_block(&head.last_block_hash).unwrap().clone();
         let state_roots =
-            last_block.chunks.iter().map(|chunk| chunk.inner.prev_state_root).collect();
+            last_block.chunks().iter().map(|chunk| chunk.inner.prev_state_root).collect();
         let runtime = NightshadeRuntime::new(
             Path::new("."),
             store.clone(),
@@ -145,7 +145,8 @@ mod test {
             vec![],
             vec![],
         );
-        let new_genesis = state_dump(runtime, state_roots, last_block.header, &genesis.config);
+        let new_genesis =
+            state_dump(runtime, state_roots, last_block.header().clone(), &genesis.config);
         assert_eq!(new_genesis.config.validators.len(), 2);
         validate_genesis(&new_genesis);
     }
@@ -172,7 +173,7 @@ mod test {
         let head = env.clients[0].chain.head().unwrap();
         let last_block = env.clients[0].chain.get_block(&head.last_block_hash).unwrap().clone();
         let state_roots =
-            last_block.chunks.iter().map(|chunk| chunk.inner.prev_state_root).collect();
+            last_block.chunks().iter().map(|chunk| chunk.inner.prev_state_root).collect();
         let runtime = NightshadeRuntime::new(
             Path::new("."),
             store.clone(),
@@ -180,7 +181,8 @@ mod test {
             vec![],
             vec![],
         );
-        let new_genesis = state_dump(runtime, state_roots, last_block.header, &genesis.config);
+        let new_genesis =
+            state_dump(runtime, state_roots, last_block.header().clone(), &genesis.config);
         assert_eq!(
             new_genesis
                 .config
@@ -239,11 +241,11 @@ mod test {
         }
         let last_block = blocks.pop().unwrap();
         let state_roots =
-            last_block.chunks.iter().map(|chunk| chunk.inner.prev_state_root).collect::<Vec<_>>();
+            last_block.chunks().iter().map(|chunk| chunk.inner.prev_state_root).collect::<Vec<_>>();
         let runtime2 = create_runtime(store2);
 
         let _ =
-            state_dump(runtime2, state_roots.clone(), last_block.header.clone(), &genesis.config);
+            state_dump(runtime2, state_roots.clone(), last_block.header().clone(), &genesis.config);
     }
 
     #[test]
@@ -292,7 +294,7 @@ mod test {
         );
         let last_block = env.clients[0].chain.get_block(&head.last_block_hash).unwrap().clone();
         let state_roots =
-            last_block.chunks.iter().map(|chunk| chunk.inner.prev_state_root).collect();
+            last_block.chunks().iter().map(|chunk| chunk.inner.prev_state_root).collect();
         let runtime = NightshadeRuntime::new(
             Path::new("."),
             store.clone(),
@@ -300,7 +302,8 @@ mod test {
             vec![],
             vec![],
         );
-        let new_genesis = state_dump(runtime, state_roots, last_block.header, &genesis.config);
+        let new_genesis =
+            state_dump(runtime, state_roots, last_block.header().clone(), &genesis.config);
         assert_eq!(new_genesis.config.validators.len(), 2);
         validate_genesis(&new_genesis);
     }
