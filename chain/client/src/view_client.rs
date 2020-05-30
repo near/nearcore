@@ -4,9 +4,10 @@
 use std::cmp::Ordering;
 use std::hash::Hash;
 use std::sync::Arc;
+use std::thread;
 use std::time::{Duration, Instant};
 
-use actix::{Actor, Context, Handler};
+use actix::{Actor, Addr, Handler, SyncArbiter, SyncContext};
 use cached::{Cached, SizedCache};
 use log::{debug, error, info, warn};
 
@@ -356,14 +357,14 @@ impl ViewClientActor {
 }
 
 impl Actor for ViewClientActor {
-    type Context = Context<Self>;
+    type Context = SyncContext<Self>;
 }
 
 /// Handles runtime query.
 impl Handler<Query> for ViewClientActor {
     type Result = Result<Option<QueryResponse>, String>;
 
-    fn handle(&mut self, msg: Query, _: &mut Context<Self>) -> Self::Result {
+    fn handle(&mut self, msg: Query, _: &mut Self::Context) -> Self::Result {
         self.handle_query(msg)
     }
 }
@@ -372,7 +373,7 @@ impl Handler<Query> for ViewClientActor {
 impl Handler<GetBlock> for ViewClientActor {
     type Result = Result<BlockView, String>;
 
-    fn handle(&mut self, msg: GetBlock, _: &mut Context<Self>) -> Self::Result {
+    fn handle(&mut self, msg: GetBlock, _: &mut Self::Context) -> Self::Result {
         match msg.0 {
             BlockIdOrFinality::Finality(finality) => {
                 let block_hash =
@@ -401,7 +402,7 @@ impl Handler<GetBlock> for ViewClientActor {
 impl Handler<GetBlockWithMerkleTree> for ViewClientActor {
     type Result = Result<(BlockView, PartialMerkleTree), String>;
 
-    fn handle(&mut self, msg: GetBlockWithMerkleTree, ctx: &mut Context<Self>) -> Self::Result {
+    fn handle(&mut self, msg: GetBlockWithMerkleTree, ctx: &mut Self::Context) -> Self::Result {
         let block_view = self.handle(GetBlock(msg.0), ctx)?;
         self.chain
             .mut_store()
@@ -463,7 +464,7 @@ impl Handler<GetChunk> for ViewClientActor {
 impl Handler<TxStatus> for ViewClientActor {
     type Result = Result<Option<FinalExecutionOutcomeView>, TxStatusError>;
 
-    fn handle(&mut self, msg: TxStatus, _: &mut Context<Self>) -> Self::Result {
+    fn handle(&mut self, msg: TxStatus, _: &mut Self::Context) -> Self::Result {
         self.get_tx_status(msg.tx_hash, msg.signer_account_id)
     }
 }
@@ -471,7 +472,7 @@ impl Handler<TxStatus> for ViewClientActor {
 impl Handler<GetValidatorInfo> for ViewClientActor {
     type Result = Result<EpochValidatorInfo, String>;
 
-    fn handle(&mut self, msg: GetValidatorInfo, _: &mut Context<Self>) -> Self::Result {
+    fn handle(&mut self, msg: GetValidatorInfo, _: &mut Self::Context) -> Self::Result {
         self.maybe_block_id_to_block_hash(msg.block_id)
             .and_then(|block_hash| self.runtime_adapter.get_validator_info(&block_hash))
             .map_err(|err| err.to_string())
@@ -482,7 +483,7 @@ impl Handler<GetValidatorInfo> for ViewClientActor {
 impl Handler<GetStateChangesInBlock> for ViewClientActor {
     type Result = Result<StateChangesKindsView, String>;
 
-    fn handle(&mut self, msg: GetStateChangesInBlock, _: &mut Context<Self>) -> Self::Result {
+    fn handle(&mut self, msg: GetStateChangesInBlock, _: &mut Self::Context) -> Self::Result {
         self.chain
             .store()
             .get_state_changes_in_block(&msg.block_hash)
@@ -495,7 +496,7 @@ impl Handler<GetStateChangesInBlock> for ViewClientActor {
 impl Handler<GetStateChanges> for ViewClientActor {
     type Result = Result<StateChangesView, String>;
 
-    fn handle(&mut self, msg: GetStateChanges, _: &mut Context<Self>) -> Self::Result {
+    fn handle(&mut self, msg: GetStateChanges, _: &mut Self::Context) -> Self::Result {
         self.chain
             .store()
             .get_state_changes(&msg.block_hash, &msg.state_changes_request.into())
@@ -515,7 +516,7 @@ impl Handler<GetStateChanges> for ViewClientActor {
 impl Handler<GetNextLightClientBlock> for ViewClientActor {
     type Result = Result<Option<LightClientBlockView>, String>;
 
-    fn handle(&mut self, request: GetNextLightClientBlock, _: &mut Context<Self>) -> Self::Result {
+    fn handle(&mut self, request: GetNextLightClientBlock, _: &mut Self::Context) -> Self::Result {
         let last_block_header =
             self.chain.get_block_header(&request.last_block_hash).map_err(|err| err.to_string())?;
         let last_epoch_id = last_block_header.inner_lite.epoch_id.clone();
@@ -558,7 +559,7 @@ impl Handler<GetNextLightClientBlock> for ViewClientActor {
 impl Handler<NetworkViewClientMessages> for ViewClientActor {
     type Result = NetworkViewClientResponses;
 
-    fn handle(&mut self, msg: NetworkViewClientMessages, _ctx: &mut Context<Self>) -> Self::Result {
+    fn handle(&mut self, msg: NetworkViewClientMessages, _ctx: &mut Self::Context) -> Self::Result {
         match msg {
             #[cfg(feature = "adversarial")]
             NetworkViewClientMessages::Adversarial(adversarial_msg) => {
@@ -804,4 +805,28 @@ impl Handler<GetGasPrice> for ViewClientActor {
             .map(|b| GasPriceView { gas_price: b.inner_rest.gas_price })
             .map_err(|e| e.to_string())
     }
+}
+
+/// Starts the View Client in a new arbiter (thread).
+pub fn start_view_client(
+    validator_account_id: Option<AccountId>,
+    chain_genesis: ChainGenesis,
+    runtime_adapter: Arc<dyn RuntimeAdapter>,
+    network_adapter: Arc<dyn NetworkAdapter>,
+    config: ClientConfig,
+) -> Addr<ViewClientActor> {
+    SyncArbiter::start(config.view_client_threads, move || {
+        let validator_account_id1 = validator_account_id.clone();
+        let runtime_adapter1 = runtime_adapter.clone();
+        let network_adapter1 = network_adapter.clone();
+        let config1 = config.clone();
+        ViewClientActor::new(
+            validator_account_id1,
+            &chain_genesis,
+            runtime_adapter1,
+            network_adapter1,
+            config1,
+        )
+        .unwrap()
+    })
 }

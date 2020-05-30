@@ -3,6 +3,7 @@ name = "neard"
 version = "1.0.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2018"
+default-run = "neard"
 
 [dependencies]
 actix = "0.9"

@@ -72,6 +72,8 @@ pub struct ClientConfig {
     pub tracked_shards: Vec<ShardId>,
     /// Not clear old data, set `true` for archive nodes.
     pub archive: bool,
+    /// Number of threads for ViewClientActor pool.
+    pub view_client_threads: usize,
 }
 
 impl ClientConfig {
@@ -121,6 +123,7 @@ impl ClientConfig {
             tracked_accounts: vec![],
             tracked_shards: vec![],
             archive,
+            view_client_threads: 1,
         }
     }
 }

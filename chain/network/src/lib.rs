@@ -1,7 +1,7 @@
 #[macro_use]
 extern crate lazy_static;
 
-pub use peer_manager::PeerManagerActor;
+pub use peer_manager::{start_network, PeerManagerActor};
 pub use types::{
     FullPeerInfo, NetworkAdapter, NetworkClientMessages, NetworkClientResponses, NetworkConfig,
     NetworkRecipient, NetworkRequests, NetworkResponses, PeerInfo,

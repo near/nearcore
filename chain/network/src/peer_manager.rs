@@ -1,20 +1,20 @@
-use rand::seq::SliceRandom;
-use std::cmp;
 use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+use std::{cmp, thread};
 
 use actix::actors::resolver::{ConnectAddr, Resolver};
 use actix::io::FramedWrite;
 use actix::{
-    Actor, ActorFuture, Addr, AsyncContext, Context, ContextFutureSpawner, Handler, Recipient,
-    Running, StreamHandler, SystemService, WrapFuture,
+    Actor, ActorFuture, Addr, Arbiter, AsyncContext, Context, ContextFutureSpawner, Handler,
+    Recipient, Running, StreamHandler, SystemService, WrapFuture,
 };
 use chrono::Utc;
 use futures::task::Poll;
 use futures::{future, Stream, StreamExt};
+use rand::seq::SliceRandom;
 use tokio::net::{TcpListener, TcpStream};
 use tokio_util::codec::FramedRead;
 use tracing::{debug, error, info, trace, warn};
@@ -34,11 +34,11 @@ use crate::recorder::{MetricRecorder, PeerMessageMetadata};
 use crate::routing::{Edge, EdgeInfo, EdgeType, ProcessEdgeResult, RoutingTable};
 use crate::types::{
     AccountOrPeerIdOrHash, Ban, BlockedPorts, Consolidate, ConsolidateResponse, FullPeerInfo,
-    InboundTcpConnect, KnownPeerStatus, KnownProducer, NetworkInfo, NetworkViewClientMessages,
-    NetworkViewClientResponses, OutboundTcpConnect, PeerIdOrHash, PeerList, PeerManagerRequest,
-    PeerMessage, PeerRequest, PeerResponse, PeerType, PeersRequest, PeersResponse, Ping, Pong,
-    QueryPeerStats, RawRoutedMessage, ReasonForBan, RoutedMessage, RoutedMessageBody,
-    RoutedMessageFrom, SendMessage, SyncData, Unregister,
+    InboundTcpConnect, KnownPeerStatus, KnownProducer, NetworkInfo, NetworkRecipient,
+    NetworkViewClientMessages, NetworkViewClientResponses, OutboundTcpConnect, PeerIdOrHash,
+    PeerList, PeerManagerRequest, PeerMessage, PeerRequest, PeerResponse, PeerType, PeersRequest,
+    PeersResponse, Ping, Pong, QueryPeerStats, RawRoutedMessage, ReasonForBan, RoutedMessage,
+    RoutedMessageBody, RoutedMessageFrom, SendMessage, SyncData, Unregister,
 };
 use crate::types::{
     KnownPeerState, NetworkClientMessages, NetworkConfig, NetworkRequests, NetworkResponses,
@@ -1599,4 +1599,19 @@ impl Handler<PeerMessageMetadata> for PeerManagerActor {
     fn handle(&mut self, msg: PeerMessageMetadata, _ctx: &mut Self::Context) -> Self::Result {
         self.metric_recorder.handle_peer_message(msg);
     }
+}
+
+/// Starts network in a separate arbiter (thread) and hooks network adapter to the PeerManagerActor.
+pub fn start_network(
+    store: Arc<Store>,
+    network_config: NetworkConfig,
+    client_addr: Recipient<NetworkClientMessages>,
+    view_client_addr: Recipient<NetworkViewClientMessages>,
+    network_adapter: Arc<NetworkRecipient>,
+) {
+    let network_arbiter = Arbiter::new();
+    let network_actor = PeerManagerActor::start_in_arbiter(&network_arbiter, |_ctx| {
+        PeerManagerActor::new(store, network_config, client_addr, view_client_addr).unwrap()
+    });
+    network_adapter.set_recipient(network_actor.recipient());
 }
