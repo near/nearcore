@@ -43,7 +43,7 @@ use near_primitives::views::{
 };
 use near_store::{ColState, ColStateHeaders, ColStateParts, ShardTries, StoreUpdate};
 
-use crate::error::{Error, ErrorKind};
+use crate::error::{Error, ErrorKind, LogTransientStorageError};
 use crate::lightclient::get_epoch_block_producers_view;
 use crate::store::{ChainStore, ChainStoreAccess, ChainStoreUpdate, GCMode};
 use crate::types::{
@@ -1345,8 +1345,9 @@ impl Chain {
         //    Let's call it `current`.
         // 2a. `prev_` means we're working with height before current.
         // 3. In inner loops we use all prefixes with no relation to the context described above.
-        let sync_block =
-            self.get_block(&sync_hash).expect("block has already been checked for existence");
+        let sync_block = self
+            .get_block(&sync_hash)
+            .log_storage_error("block has already been checked for existence")?;
         let sync_block_header = sync_block.header().clone();
         let sync_block_epoch_id = sync_block.header().epoch_id().clone();
         if shard_id as usize >= sync_block.chunks().len() {
@@ -1464,8 +1465,9 @@ impl Chain {
             root_proofs.push(root_proofs_cur);
         }
 
-        let state_root_node =
-            self.runtime_adapter.get_state_root_node(shard_id, &chunk_header.inner.prev_state_root);
+        let state_root_node = self
+            .runtime_adapter
+            .get_state_root_node(shard_id, &chunk_header.inner.prev_state_root)?;
 
         let shard_state_header = ShardStateSyncResponseHeader {
             chunk,
@@ -1497,8 +1499,9 @@ impl Chain {
             return Ok(state_part);
         }
 
-        let sync_block =
-            self.get_block(&sync_hash).expect("block has already been checked for existence");
+        let sync_block = self
+            .get_block(&sync_hash)
+            .log_storage_error("block has already been checked for existence")?;
         let sync_block_header = sync_block.header().clone();
         let sync_block_epoch_id = sync_block.header().epoch_id().clone();
         if shard_id as usize >= sync_block.chunks().len() {
@@ -1515,14 +1518,19 @@ impl Chain {
             return Err(ErrorKind::InvalidStateRequest("shard_id out of bounds".into()).into());
         }
         let state_root = sync_prev_block.chunks()[shard_id as usize].inner.prev_state_root.clone();
-        let state_root_node = self.runtime_adapter.get_state_root_node(shard_id, &state_root);
+        let state_root_node = self
+            .runtime_adapter
+            .get_state_root_node(shard_id, &state_root)
+            .log_storage_error("get_state_root_node fail")?;
         let num_parts = get_num_state_parts(state_root_node.memory_usage);
 
         if part_id >= num_parts {
             return Err(ErrorKind::InvalidStateRequest("part_id out of bound".to_string()).into());
         }
-        let state_part =
-            self.runtime_adapter.obtain_state_part(shard_id, &state_root, part_id, num_parts);
+        let state_part = self
+            .runtime_adapter
+            .obtain_state_part(shard_id, &state_root, part_id, num_parts)
+            .log_storage_error("obtain_state_part fail")?;
 
         // Before saving State Part data, we need to make sure we can calculate and save State Header
         self.get_state_response_header(shard_id, sync_hash)?;

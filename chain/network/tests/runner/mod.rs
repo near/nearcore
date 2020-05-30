@@ -11,7 +11,7 @@ use futures::{future, FutureExt, TryFutureExt};
 use near_chain::test_utils::KeyValueRuntime;
 use near_chain::ChainGenesis;
 use near_chain_configs::ClientConfig;
-use near_client::{ClientActor, ViewClientActor};
+use near_client::{start_view_client, ClientActor};
 use near_crypto::KeyType;
 use near_logger_utils::init_test_logger;
 use near_network::test_utils::{
@@ -91,15 +91,13 @@ pub fn setup_network_node(
         )
         .unwrap()
         .start();
-        let view_client_actor = ViewClientActor::new(
+        let view_client_actor = start_view_client(
             config.account_id.clone(),
-            &chain_genesis,
+            chain_genesis.clone(),
             runtime.clone(),
             network_adapter.clone(),
             client_config,
-        )
-        .unwrap()
-        .start();
+        );
 
         PeerManagerActor::new(
             store.clone(),
