@@ -1,7 +1,7 @@
 use std::cmp::max;
+use std::io;
 use std::net::SocketAddr;
 use std::time::{Duration, Instant};
-use std::{io, thread};
 
 use actix::io::{FramedWrite, WriteHandler};
 use actix::{
@@ -535,7 +535,6 @@ impl Actor for Peer {
     type Context = Context<Peer>;
 
     fn started(&mut self, ctx: &mut Self::Context) {
-        println!("STARTED Peer in arbiter thread {:?}", thread::current().id());
         near_metrics::inc_gauge(&metrics::PEER_CONNECTIONS_TOTAL);
         // Fetch genesis hash from the client.
         self.fetch_client_chain_info(ctx);

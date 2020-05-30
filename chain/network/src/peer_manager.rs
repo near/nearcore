@@ -1,9 +1,9 @@
+use std::cmp;
 use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use std::{cmp, thread};
 
 use actix::actors::resolver::{ConnectAddr, Resolver};
 use actix::io::FramedWrite;
