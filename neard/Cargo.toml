@@ -1,6 +1,6 @@
 [package]
 name = "neard"
-version = "0.4.13"
+version = "1.0.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2018"
 
@@ -8,7 +8,7 @@ edition = "2018"
 actix = "0.9"
 byteorder = "1.2"
 easy-ext = "0.2"
-rocksdb = "0.13"
+rocksdb = "0.14"
 log = "0.4"
 chrono = { version = "0.4.4", features = ["serde"] }
 git-version = "0.3.1"

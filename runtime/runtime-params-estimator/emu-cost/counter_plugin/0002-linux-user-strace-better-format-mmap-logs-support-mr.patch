@@ -1,0 +1,102 @@
+From 70f9186e30be4af206fe89f882a80bb914eb2f2a Mon Sep 17 00:00:00 2001
+From: Nikolay Igotti <igotti@gmail.com>
+Date: Sun, 19 Apr 2020 21:41:04 +0300
+Subject: [PATCH 2/3] linux-user: strace: better format mmap logs, support
+ mremap
+
+On 64-bit platforms strace entries were not properly formatted, also some addresses were printed as integers.
+Also mremap syscall support is added.
+
+Signed-off-by: Nikolay Igotti <igotti@gmail.com>
+---
+ linux-user/strace.c    | 31 +++++++++++++++++++++++++++----
+ linux-user/strace.list |  2 +-
+ 2 files changed, 28 insertions(+), 5 deletions(-)
+
+diff --git a/linux-user/strace.c b/linux-user/strace.c
+index 0d9095c674..3e65ffe356 100644
+--- a/linux-user/strace.c
++++ b/linux-user/strace.c
+@@ -969,6 +969,14 @@ UNUSED static struct flags mmap_flags[] = {
+     FLAG_END,
+ };
+ 
++#ifdef TARGET_NR_mremap
++UNUSED static struct flags mremap_flags[] = {
++    FLAG_GENERIC(MREMAP_MAYMOVE),
++    FLAG_GENERIC(MREMAP_FIXED),
++    FLAG_END,
++};
++#endif
++
+ UNUSED static struct flags clone_flags[] = {
+     FLAG_GENERIC(CLONE_VM),
+     FLAG_GENERIC(CLONE_FS),
+@@ -2654,11 +2662,11 @@ print_mmap(const struct syscallname *name,
+ {
+     print_syscall_prologue(name);
+     print_pointer(arg0, 0);
+-    print_raw_param("%d", arg1, 0);
++    print_raw_param("%lld", (long long)arg1, 0);
+     print_flags(mmap_prot_flags, arg2, 0);
+     print_flags(mmap_flags, arg3, 0);
+     print_raw_param("%d", arg4, 0);
+-    print_raw_param("%#x", arg5, 1);
++    print_raw_param("%#llx", (long long)arg5, 1);
+     print_syscall_epilogue(name);
+ }
+ #define print_mmap2     print_mmap
+@@ -2672,12 +2680,27 @@ print_mprotect(const struct syscallname *name,
+ {
+     print_syscall_prologue(name);
+     print_pointer(arg0, 0);
+-    print_raw_param("%d", arg1, 0);
++    print_raw_param("%lld", (long long)arg1, 0);
+     print_flags(mmap_prot_flags, arg2, 1);
+     print_syscall_epilogue(name);
+ }
+ #endif
+ 
++#ifdef TARGET_NR_mremap
++static void
++print_mremap(const struct syscallname *name,
++    abi_long arg0, abi_long arg1, abi_long arg2,
++    abi_long arg3, abi_long arg4, abi_long arg5)
++{
++    print_syscall_prologue(name);
++    print_pointer(arg0, 0);
++    print_raw_param("%lld", (long long)arg1, 0);
++    print_raw_param("%lld", (long long)arg2, 0);
++    print_flags(mremap_flags, arg3, 1);
++    print_syscall_epilogue(name);
++}
++#endif
++
+ #ifdef TARGET_NR_munmap
+ static void
+ print_munmap(const struct syscallname *name,
+@@ -2686,7 +2709,7 @@ print_munmap(const struct syscallname *name,
+ {
+     print_syscall_prologue(name);
+     print_pointer(arg0, 0);
+-    print_raw_param("%d", arg1, 1);
++    print_raw_param("%lld", (long long)arg1, 1);
+     print_syscall_epilogue(name);
+ }
+ #endif
+diff --git a/linux-user/strace.list b/linux-user/strace.list
+index d49a1e92a8..b3bd1c6229 100644
+--- a/linux-user/strace.list
++++ b/linux-user/strace.list
+@@ -612,7 +612,7 @@
+ { TARGET_NR_mq_unlink, "mq_unlink" , NULL, print_mq_unlink, NULL },
+ #endif
+ #ifdef TARGET_NR_mremap
+-{ TARGET_NR_mremap, "mremap" , NULL, NULL, NULL },
++{ TARGET_NR_mremap, "mremap" , NULL, print_mremap, print_syscall_ret_addr },
+ #endif
+ #ifdef TARGET_NR_msgctl
+ { TARGET_NR_msgctl, "msgctl" , NULL, NULL, NULL },
+-- 
+2.24.2 (Apple Git-127)
+

@@ -8,7 +8,7 @@ edition = "2018"
 byteorder = "1.2"
 derive_more = "0.99.3"
 elastic-array = "0.11"
-rocksdb = "0.13"
+rocksdb = "0.14"
 serde = { version = "1", features = [ "derive" ] }
 cached = "0.12"
 num_cpus = "1.11"
