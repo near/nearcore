@@ -14,7 +14,7 @@ use near_network::test_utils::WaitOrTimeout;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::{compute_root_from_path_and_item, verify_path};
 use near_primitives::serialize::{from_base64, to_base64};
-use near_primitives::transaction::{ExecutionStatus, SignedTransaction};
+use near_primitives::transaction::{PartialExecutionStatus, SignedTransaction};
 use near_primitives::types::{BlockId, BlockIdOrFinality, TransactionOrReceiptId};
 use near_primitives::views::{
     ExecutionOutcomeView, ExecutionStatusView, FinalExecutionStatus, QueryResponseKind,
@@ -457,12 +457,12 @@ fn test_get_validator_info_rpc() {
 
 fn outcome_view_to_hashes(outcome: &ExecutionOutcomeView) -> Vec<CryptoHash> {
     let status = match &outcome.status {
-        ExecutionStatusView::Unknown => ExecutionStatus::Unknown,
+        ExecutionStatusView::Unknown => PartialExecutionStatus::Unknown,
         ExecutionStatusView::SuccessValue(s) => {
-            ExecutionStatus::SuccessValue(from_base64(s).unwrap())
+            PartialExecutionStatus::SuccessValue(from_base64(s).unwrap())
         }
-        ExecutionStatusView::Failure(e) => ExecutionStatus::Failure(e.clone()),
-        ExecutionStatusView::SuccessReceiptId(id) => ExecutionStatus::SuccessReceiptId(*id),
+        ExecutionStatusView::Failure(_) => PartialExecutionStatus::Failure,
+        ExecutionStatusView::SuccessReceiptId(id) => PartialExecutionStatus::SuccessReceiptId(*id),
     };
     let mut result = vec![hash(
         &(outcome.receipt_ids.clone(), outcome.gas_burnt, status)
