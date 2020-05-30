@@ -108,6 +108,8 @@ pub struct PeerManagerActor {
     /// Store all collected metrics from a node.
     #[cfg(feature = "metric_recorder")]
     metric_recorder: MetricRecorder,
+    /// Arbiter (e.g. separate thread) where all peers are operating.
+    peer_arbiter: Arbiter,
 }
 
 impl PeerManagerActor {
@@ -140,6 +142,7 @@ impl PeerManagerActor {
             pending_update_nonce_request: HashMap::new(),
             #[cfg(feature = "metric_recorder")]
             metric_recorder,
+            peer_arbiter: Arbiter::new(),
         })
     }
 
@@ -350,7 +353,7 @@ impl PeerManagerActor {
             }
         };
 
-        Peer::create(move |ctx| {
+        Peer::start_in_arbiter(&self.peer_arbiter, move |ctx| {
             let (read, write) = tokio::io::split(stream);
 
             // TODO: check if peer is banned or known based on IP address and port.
