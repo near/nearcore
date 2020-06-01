@@ -30,7 +30,7 @@ use near_primitives::views::{
     ExecutionOutcomeWithIdView, ExecutionStatusView, FinalExecutionOutcomeView,
     FinalExecutionStatus, LightClientBlockView,
 };
-use near_store::{ColStateHeaders, ColStateParts, ShardTries};
+use near_store::{ColState, ColStateHeaders, ColStateParts, ShardTries, StoreUpdate};
 
 use crate::error::{Error, ErrorKind};
 use crate::lightclient::get_epoch_block_producers_view;
@@ -937,9 +937,15 @@ impl Chain {
             }
         }
 
+        // clear all trie data
+        let mut store_update = StoreUpdate::new_with_tries(self.runtime_adapter.get_tries());
+        let stored_state = self.store().store().iter_prefix(ColState, &[]);
+        for (key, _) in stored_state {
+            store_update.delete(ColState, key.as_ref());
+        }
+
         let mut chain_store_update = self.mut_store().store_update();
-        // Clear all Trie data
-        chain_store_update.clear_state_data();
+        chain_store_update.merge(store_update);
         chain_store_update.update_tail(new_tail);
         chain_store_update.commit()?;
 

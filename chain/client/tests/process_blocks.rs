@@ -35,6 +35,7 @@ use near_primitives::transaction::{SignedTransaction, Transaction};
 use near_primitives::types::{BlockHeight, EpochId, MerkleHash, NumBlocks};
 use near_primitives::utils::to_timestamp;
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
+use near_primitives::views::{QueryRequest, QueryResponseKind};
 use near_store::test_utils::create_test_store;
 use neard::config::{GenesisExt, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use neard::NEAR_BASE;
@@ -1182,4 +1183,63 @@ fn test_incorrect_validator_key_produce_block() {
         Err(near_client::Error::BlockProducer(_)) => {}
         _ => panic!("unexpected result: {:?}", res),
     }
+}
+
+#[test]
+fn test_data_reset_before_state_sync() {
+    let mut genesis = Genesis::test(vec!["test0"], 1);
+    let epoch_length = 5;
+    genesis.config.epoch_length = epoch_length;
+    let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![Arc::new(neard::NightshadeRuntime::new(
+        Path::new("."),
+        create_test_store(),
+        Arc::new(genesis.clone()),
+        vec![],
+        vec![],
+    ))];
+    let mut env = TestEnv::new_with_runtime(ChainGenesis::test(), 1, 1, runtimes);
+    let signer = InMemorySigner::from_seed("test0", KeyType::ED25519, "test0");
+    let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
+    let genesis_hash = genesis_block.hash();
+    let tx = SignedTransaction::create_account(
+        1,
+        "test0".to_string(),
+        "test_account".to_string(),
+        NEAR_BASE,
+        signer.public_key(),
+        &signer,
+        genesis_hash,
+    );
+    env.clients[0].process_tx(tx, false, false);
+    for i in 1..5 {
+        env.produce_block(0, i);
+    }
+    // check that the new account exists
+    let head = env.clients[0].chain.head().unwrap();
+    let head_block = env.clients[0].chain.get_block(&head.last_block_hash).unwrap().clone();
+    let response = env.clients[0]
+        .runtime_adapter
+        .query(
+            0,
+            &head_block.chunks[0].inner.prev_state_root,
+            head.height,
+            0,
+            &head.last_block_hash,
+            &head_block.header.inner_lite.epoch_id,
+            &QueryRequest::ViewAccount { account_id: "test_account".to_string() },
+        )
+        .unwrap();
+    assert!(matches!(response.kind, QueryResponseKind::ViewAccount(_)));
+    env.clients[0].chain.reset_data_pre_state_sync(head_block.hash()).unwrap();
+    // account should not exist after clearing state
+    let response = env.clients[0].runtime_adapter.query(
+        0,
+        &head_block.chunks[0].inner.prev_state_root,
+        head.height,
+        0,
+        &head.last_block_hash,
+        &head_block.header.inner_lite.epoch_id,
+        &QueryRequest::ViewAccount { account_id: "test_account".to_string() },
+    );
+    assert!(response.is_err());
 }
