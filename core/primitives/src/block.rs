@@ -714,3 +714,33 @@ pub struct GenesisId {
     /// Hash of genesis block
     pub hash: CryptoHash,
 }
+
+/// The tip of a fork. A handle to the fork ancestry from its leaf in the
+/// blockchain tree. References the max height and the latest and previous
+/// blocks for convenience
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, PartialEq)]
+pub struct Tip {
+    /// Height of the tip (max height of the fork)
+    pub height: BlockHeight,
+    /// Last block pushed to the fork
+    pub last_block_hash: CryptoHash,
+    /// Previous block
+    pub prev_block_hash: CryptoHash,
+    /// Current epoch id. Used for getting validator info.
+    pub epoch_id: EpochId,
+    /// Next epoch id.
+    pub next_epoch_id: EpochId,
+}
+
+impl Tip {
+    /// Creates a new tip based on provided header.
+    pub fn from_header(header: &BlockHeader) -> Tip {
+        Tip {
+            height: header.inner_lite.height,
+            last_block_hash: header.hash(),
+            prev_block_hash: header.prev_hash,
+            epoch_id: header.inner_lite.epoch_id.clone(),
+            next_epoch_id: header.inner_lite.next_epoch_id.clone(),
+        }
+    }
+}

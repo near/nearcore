@@ -9,7 +9,7 @@ use chrono::Duration;
 use log::{debug, error, info};
 
 use near_chain_configs::GenesisConfig;
-use near_primitives::block::genesis_chunks;
+use near_primitives::block::{genesis_chunks, Tip};
 use near_primitives::challenge::{
     BlockDoubleSign, Challenge, ChallengeBody, ChallengesResult, ChunkProofs, ChunkState,
     MaybeEncodedShardChunk, SlashedValidator,
@@ -42,7 +42,7 @@ use crate::store::{
 use crate::types::{
     AcceptedBlock, ApplyTransactionResult, Block, BlockHeader, BlockStatus, BlockSyncResponse,
     Provenance, ReceiptList, ReceiptProofResponse, ReceiptResponse, RootProof, RuntimeAdapter,
-    ShardStateSyncResponseHeader, StatePartKey, Tip,
+    ShardStateSyncResponseHeader, StatePartKey,
 };
 use crate::validate::{
     validate_challenge, validate_chunk_proofs, validate_chunk_with_chunk_extra,
