@@ -3,6 +3,7 @@ mod tests {
     use std::sync::Arc;
 
     use near_chain::chain::{check_refcount_map, Chain, ChainGenesis};
+    use near_chain::store_validator::StoreValidator;
     use near_chain::test_utils::KeyValueRuntime;
     use near_chain::types::Tip;
     use near_chain::DoomslugThresholdMode;
@@ -14,7 +15,6 @@ mod tests {
     use near_primitives::validator_signer::InMemoryValidatorSigner;
     use near_store::test_utils::{create_test_store, gen_changes};
     use near_store::{ShardTries, StoreUpdate, Trie, WrappedTrieChanges};
-    use near_store_validator::StoreValidator;
     use rand::Rng;
 
     fn get_chain(num_shards: NumShards) -> Chain {
@@ -254,12 +254,20 @@ mod tests {
         }
         let mut genesis = GenesisConfig::default();
         genesis.genesis_height = 0;
-        let mut store_validator =
-            StoreValidator::new(genesis.clone(), tries1, chain1.store().owned_store());
+        let mut store_validator = StoreValidator::new(
+            None,
+            genesis.clone(),
+            chain1.runtime_adapter.clone(),
+            chain1.store().owned_store(),
+        );
         store_validator.validate();
         assert!(!store_validator.is_failed());
-        let mut store_validator =
-            StoreValidator::new(genesis, tries2, chain2.store().owned_store());
+        let mut store_validator = StoreValidator::new(
+            None,
+            genesis,
+            chain2.runtime_adapter.clone(),
+            chain2.store().owned_store(),
+        );
         store_validator.validate();
         assert!(!store_validator.is_failed());
     }

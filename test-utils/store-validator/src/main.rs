@@ -5,17 +5,17 @@ use std::sync::Arc;
 use ansi_term::Color::{Green, Red, White, Yellow};
 use clap::{App, Arg, SubCommand};
 
+use near_chain::store_validator::StoreValidator;
 use near_chain::RuntimeAdapter;
 use near_logger_utils::init_integration_logger;
 use near_store::create_store;
-use near_store_validator::StoreValidator;
 use neard::{get_default_home, get_store_path, load_config};
 
 fn main() {
     init_integration_logger();
 
     let default_home = get_default_home();
-    let matches = App::new("store-validator-bin")
+    let matches = App::new("store-validator")
         .arg(
             Arg::with_name("home")
                 .long("home")
@@ -40,8 +40,9 @@ fn main() {
     ));
 
     let mut store_validator = StoreValidator::new(
+        near_config.validator_signer.as_ref().map(|x| x.validator_id().clone()),
         near_config.genesis.config.clone(),
-        runtime_adapter.get_tries(),
+        runtime_adapter.clone(),
         store.clone(),
     );
     store_validator.validate();

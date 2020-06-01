@@ -110,7 +110,7 @@ pub struct NightshadeRuntime {
     home_dir: PathBuf,
 
     store: Arc<Store>,
-    pub tries: ShardTries,
+    tries: ShardTries,
     trie_viewer: TrieViewer,
     pub runtime: Runtime,
     epoch_manager: SafeEpochManager,
@@ -1342,9 +1342,10 @@ mod test {
 
     use num_rational::Rational;
 
-    use near_chain::{ReceiptResult, Tip};
+    use near_chain::ReceiptResult;
     use near_crypto::{InMemorySigner, KeyType, Signer};
     use near_logger_utils::init_test_logger;
+    use near_primitives::block::Tip;
     use near_primitives::transaction::{
         Action, CreateAccountAction, DeleteAccountAction, StakeAction,
     };
