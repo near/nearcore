@@ -38,7 +38,7 @@ use crate::metrics;
 use crate::sync::{BlockSync, HeaderSync, StateSync, StateSyncResult};
 use crate::types::{Error, ShardSyncDownload};
 use crate::SyncStatus;
-use near_network::types::PartialEncodedChunkResponseMsg;
+use near_network::types::{PartialEncodedChunkForwardMsg, PartialEncodedChunkResponseMsg};
 
 const NUM_REBROADCAST_BLOCKS: usize = 30;
 
@@ -662,6 +662,26 @@ impl Client {
             PartialEncodedChunk { header, parts: response.parts, receipts: response.receipts };
         self.process_partial_encoded_chunk(partial_chunk)
     }
+
+    pub fn process_partial_encoded_chunk_forward(
+        &mut self,
+        forward: PartialEncodedChunkForwardMsg,
+    ) -> Result<Vec<AcceptedBlock>, Error> {
+        let header = match self.shards_mgr.get_partial_encoded_chunk_header(&forward.chunk_hash) {
+            Ok(header) => Ok(header),
+            Err(near_chunks::Error::UnknownChunk) => {
+                // We don't know this chunk yet; cache the forwarded part
+                // to be used after we get the header.
+                self.shards_mgr.insert_chunk_forward(forward);
+                return Err(Error::Chunk(near_chunks::Error::UnknownChunk));
+            }
+            Err(err) => Err(err),
+        }?;
+        let partial_chunk =
+            PartialEncodedChunk { header, parts: forward.parts, receipts: Vec::new() };
+        self.process_partial_encoded_chunk(partial_chunk)
+    }
+
     pub fn process_partial_encoded_chunk(
         &mut self,
         partial_encoded_chunk: PartialEncodedChunk,

@@ -457,6 +457,14 @@ impl Handler<NetworkClientMessages> for ClientActor {
                 }
                 NetworkClientResponses::NoResponse
             }
+            NetworkClientMessages::PartialEncodedChunkForward(forward) => {
+                if let Ok(accepted_blocks) =
+                    self.client.process_partial_encoded_chunk_forward(forward)
+                {
+                    self.process_accepted_blocks(accepted_blocks);
+                }
+                NetworkClientResponses::NoResponse
+            }
             NetworkClientMessages::Challenge(challenge) => {
                 match self.client.process_challenge(challenge) {
                     Ok(_) => {}

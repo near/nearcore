@@ -426,6 +426,18 @@ pub fn setup_mock_all_validators(
                                 create_msg,
                             );
                         }
+                        NetworkRequests::PartialEncodedChunkForward { account_id, forward } => {
+                            let create_msg = || {
+                                NetworkClientMessages::PartialEncodedChunkForward(forward.clone())
+                            };
+                            send_chunks(
+                                Arc::clone(&connectors1),
+                                validators_clone2.iter().flatten().copied().enumerate(),
+                                account_id.as_str(),
+                                drop_chunks,
+                                create_msg,
+                            );
+                        }
                         NetworkRequests::BlockRequest { hash, peer_id } => {
                             for (i, peer_info) in key_pairs.iter().enumerate() {
                                 let peer_id = peer_id.clone();

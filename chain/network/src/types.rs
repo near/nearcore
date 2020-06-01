@@ -240,6 +240,7 @@ pub enum RoutedMessageBody {
     PartialEncodedChunkRequest(PartialEncodedChunkRequestMsg),
     PartialEncodedChunkResponse(PartialEncodedChunkResponseMsg),
     PartialEncodedChunk(PartialEncodedChunk),
+    PartialEncodedChunkForward(PartialEncodedChunkForwardMsg),
     /// Ping/Pong used for testing networking and routing.
     Ping(Ping),
     Pong(Pong),
@@ -463,6 +464,9 @@ impl fmt::Display for PeerMessage {
                     f.write_str("PartialEncodedChunkResponse")
                 }
                 RoutedMessageBody::PartialEncodedChunk(_) => f.write_str("PartialEncodedChunk"),
+                RoutedMessageBody::PartialEncodedChunkForward(_) => {
+                    f.write_str("PartialEncodedChunkForward")
+                }
                 RoutedMessageBody::Ping(_) => f.write_str("Ping"),
                 RoutedMessageBody::Pong(_) => f.write_str("Pong"),
             },
@@ -646,6 +650,15 @@ impl PeerMessage {
                         size as i64,
                     );
                 }
+                RoutedMessageBody::PartialEncodedChunkForward(_) => {
+                    near_metrics::inc_counter(
+                        &metrics::ROUTED_PARTIAL_CHUNK_FORWARD_RECEIVED_TOTAL,
+                    );
+                    near_metrics::inc_counter_by(
+                        &metrics::ROUTED_PARTIAL_CHUNK_FORWARD_RECEIVED_BYTES,
+                        size as i64,
+                    );
+                }
                 RoutedMessageBody::Ping(_) => {
                     near_metrics::inc_counter(&metrics::ROUTED_PING_RECEIVED_TOTAL);
                     near_metrics::inc_counter_by(&metrics::ROUTED_PING_RECEIVED_BYTES, size as i64);
@@ -678,6 +691,7 @@ impl PeerMessage {
                 | RoutedMessageBody::PartialEncodedChunk(_)
                 | RoutedMessageBody::PartialEncodedChunkRequest(_)
                 | RoutedMessageBody::PartialEncodedChunkResponse(_)
+                | RoutedMessageBody::PartialEncodedChunkForward(_)
                 | RoutedMessageBody::StateResponse(_) => true,
                 _ => false,
             },
@@ -1085,6 +1099,11 @@ pub enum NetworkRequests {
         account_id: AccountId,
         partial_encoded_chunk: PartialEncodedChunk,
     },
+    /// Forwarding a chunk part to a validator tracking the shard
+    PartialEncodedChunkForward {
+        account_id: AccountId,
+        forward: PartialEncodedChunkForwardMsg,
+    },
 
     /// Valid transaction but since we are not validators we send this transaction to current validators.
     ForwardTx(AccountId, SignedTransaction),
@@ -1246,6 +1265,8 @@ pub enum NetworkClientMessages {
     PartialEncodedChunkResponse(PartialEncodedChunkResponseMsg),
     /// Information about chunk such as its header, some subset of parts and/or incoming receipts
     PartialEncodedChunk(PartialEncodedChunk),
+    /// Forwarding parts to those tracking the shard (so they don't need to send requests)
+    PartialEncodedChunkForward(PartialEncodedChunkForwardMsg),
 
     /// A challenge to invalidate the block.
     Challenge(Challenge),
@@ -1409,6 +1430,15 @@ pub struct PartialEncodedChunkResponseMsg {
     pub chunk_hash: ChunkHash,
     pub parts: Vec<PartialEncodedChunkPart>,
     pub receipts: Vec<ReceiptProof>,
+}
+
+/// Message for chunk part owners to forward their parts to validators tracking that shard.
+/// This reduces the number of requests a node tracking a shard needs to send to obtain enough
+/// parts to reconstruct the message (in the best case no such requests are needed).
+#[derive(Clone, Debug, Eq, PartialEq, BorshSerialize, BorshDeserialize, Serialize)]
+pub struct PartialEncodedChunkForwardMsg {
+    pub chunk_hash: ChunkHash,
+    pub parts: Vec<PartialEncodedChunkPart>,
 }
 
 /// Adapter to break dependency of sub-components on the network requests.
