@@ -6,7 +6,8 @@ pub use doomslug::{Doomslug, DoomslugBlockProductionReadiness, DoomslugThreshold
 pub use error::{Error, ErrorKind};
 pub use lightclient::create_light_client_block_view;
 pub use store::{ChainStore, ChainStoreAccess, ChainStoreUpdate};
-pub use types::{Block, BlockHeader, BlockStatus, Provenance, ReceiptResult, RuntimeAdapter, Tip};
+pub use store_validator::{ErrorMessage, StoreValidator};
+pub use types::{Block, BlockHeader, BlockStatus, Provenance, ReceiptResult, RuntimeAdapter};
 
 pub mod chain;
 mod doomslug;
@@ -14,6 +15,7 @@ mod error;
 mod lightclient;
 mod metrics;
 mod store;
+pub mod store_validator;
 pub mod test_utils;
 pub mod types;
 pub mod validate;
