@@ -511,10 +511,14 @@ impl Handler<Status> for ClientActor {
                 is_slashed,
             })
             .collect();
+        let protocol_version = self
+            .client
+            .runtime_adapter
+            .get_epoch_protocol_version(&head.epoch_id)
+            .map_err(|err| err.to_string())?;
         Ok(StatusResponse {
             version: self.client.config.version.clone(),
-            // TODO: update this with current one from epoch manager.
-            protocol_version: PROTOCOL_VERSION,
+            protocol_version,
             latest_protocol_version: PROTOCOL_VERSION,
             chain_id: self.client.config.chain_id.clone(),
             rpc_addr: self.client.config.rpc_addr.clone(),
