@@ -111,6 +111,9 @@ impl InfoHelper {
               Blue.bold().paint(format!("CPU: {:.0}%, Mem: {}", cpu_usage, pretty_bytes(memory_usage * 1024)))
         );
         if head.height > 10 {
+            // log::logger().flush();
+            // use std::io::Write;
+            // std::io::stderr().flush().unwrap();
             panic!("hehehe");
         }
 
