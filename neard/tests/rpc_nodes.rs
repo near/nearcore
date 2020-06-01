@@ -524,15 +524,15 @@ fn test_get_execution_outcome(is_tx_successful: bool) {
                     actix::spawn(delay_for(Duration::from_secs(1)).then(move |_| {
                         let mut futures = vec![];
                         for id in vec![TransactionOrReceiptId::Transaction {
-                            hash: final_transaction_outcome.transaction_outcome.id,
-                            sender: "near.0".to_string(),
+                            transaction_hash: final_transaction_outcome.transaction_outcome.id,
+                            sender_id: "near.0".to_string(),
                         }]
                         .into_iter()
                         .chain(
                             final_transaction_outcome.receipts_outcome.into_iter().map(|r| {
                                 TransactionOrReceiptId::Receipt {
-                                    id: r.id,
-                                    receiver: "near.1".to_string(),
+                                    receipt_id: r.id,
+                                    receiver_id: "near.1".to_string(),
                                 }
                             }),
                         ) {

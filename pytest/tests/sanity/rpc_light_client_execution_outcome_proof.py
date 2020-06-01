@@ -163,14 +163,14 @@ def check_transaction_outcome_proof(should_succeed, nonce):
                                                  light_client_block['prev_block_hash']).decode('utf-8')
 
     queries = [
-        {"type": "transaction", "hash": function_call_result['result']['transaction_outcome']['id'], "sender": "test0",
+        {"type": "transaction", "transaction_hash": function_call_result['result']['transaction_outcome']['id'], "sender_id": "test0",
          "light_client_head": light_client_block_hash}
     ]
     outcomes = [(function_call_result['result']['transaction_outcome']['outcome'],
                  function_call_result['result']['transaction_outcome']['id'])]
     for receipt_outcome in function_call_result['result']['receipts_outcome']:
         outcomes.append((receipt_outcome['outcome'], receipt_outcome['id']))
-        queries.append({"type": "receipt", "id": receipt_outcome['id'], "receiver": "test0",
+        queries.append({"type": "receipt", "receipt_id": receipt_outcome['id'], "receiver_id": "test0",
                         "light_client_head": light_client_block_hash})
 
     for query, (outcome, id) in zip(queries, outcomes):

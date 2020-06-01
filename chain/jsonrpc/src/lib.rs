@@ -578,15 +578,12 @@ impl JsonRpcHandler {
         params: Option<Value>,
     ) -> Result<Value, RpcError> {
         let RpcLightClientExecutionProofRequest { id, light_client_head } = parse_params(params)?;
-        let execution_outcome_proof = match self
+        let execution_outcome_proof = self
             .view_client_addr
             .send(GetExecutionOutcome { id })
             .await
             .map_err(|e| RpcError::from(ServerError::from(e)))?
-        {
-            Ok(proof) => proof,
-            Err(e) => return Err(RpcError::server_error(Some(e))),
-        };
+            .map_err(|e| RpcError::server_error(Some(e)))?;
         let block_proof = self
             .view_client_addr
             .send(GetBlockProof {

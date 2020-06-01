@@ -1971,7 +1971,10 @@ impl Chain {
         self.find_chunk_producer_for_forwarding(&epoch_id, shard_id, TX_ROUTING_HEIGHT_HORIZON)
     }
 
-    pub fn check_block_on_canonical_chain(&mut self, block_hash: &CryptoHash) -> Result<(), Error> {
+    pub fn check_block_final_and_canonical(
+        &mut self,
+        block_hash: &CryptoHash,
+    ) -> Result<(), Error> {
         let last_final_block_hash = self.head_header()?.inner_rest.last_final_block;
         let last_final_height = self.get_block_header(&last_final_block_hash)?.inner_lite.height;
         let block_header = self.get_block_header(block_hash)?.clone();

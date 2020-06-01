@@ -562,11 +562,11 @@ impl Handler<GetExecutionOutcome> for ViewClientActor {
 
     fn handle(&mut self, msg: GetExecutionOutcome, _: &mut Context<Self>) -> Self::Result {
         let (id, target_shard_id) = match msg.id {
-            TransactionOrReceiptId::Transaction { hash, sender } => {
-                (hash, self.runtime_adapter.account_id_to_shard_id(&sender))
+            TransactionOrReceiptId::Transaction { transaction_hash, sender_id } => {
+                (transaction_hash, self.runtime_adapter.account_id_to_shard_id(&sender_id))
             }
-            TransactionOrReceiptId::Receipt { id, receiver } => {
-                (id, self.runtime_adapter.account_id_to_shard_id(&receiver))
+            TransactionOrReceiptId::Receipt { receipt_id, receiver_id } => {
+                (receipt_id, self.runtime_adapter.account_id_to_shard_id(&receiver_id))
             }
         };
         match self.chain.get_execution_outcome(&id) {
@@ -627,9 +627,9 @@ impl Handler<GetBlockProof> for ViewClientActor {
     type Result = Result<GetBlockProofResponse, String>;
 
     fn handle(&mut self, msg: GetBlockProof, _: &mut Context<Self>) -> Self::Result {
-        self.chain.check_block_on_canonical_chain(&msg.block_hash).map_err(|e| e.to_string())?;
+        self.chain.check_block_final_and_canonical(&msg.block_hash).map_err(|e| e.to_string())?;
         self.chain
-            .check_block_on_canonical_chain(&msg.head_block_hash)
+            .check_block_final_and_canonical(&msg.head_block_hash)
             .map_err(|e| e.to_string())?;
         let block_header_lite =
             self.chain.get_block_header(&msg.block_hash).map_err(|e| e.to_string())?.clone().into();
