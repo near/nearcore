@@ -3,7 +3,7 @@
 
 use std::cmp::Ordering;
 use std::hash::Hash;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
 
 use actix::{Actor, Addr, Handler, SyncArbiter, SyncContext};
@@ -47,6 +47,22 @@ const QUERY_REQUEST_LIMIT: usize = 500;
 /// Waiting time between requests, in ms
 const REQUEST_WAIT_TIME: u64 = 1000;
 
+const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
+
+/// Request and response manager across all instances of ViewClientActor.
+pub struct ViewClientRequestManager {
+    /// Transaction query that needs to be forwarded to other shards
+    pub tx_status_requests: SizedCache<CryptoHash, Instant>,
+    /// Transaction status response
+    pub tx_status_response: SizedCache<CryptoHash, FinalExecutionOutcomeView>,
+    /// Query requests that need to be forwarded to other shards
+    pub query_requests: SizedCache<String, Instant>,
+    /// Query responses from other nodes (can be errors)
+    pub query_responses: SizedCache<String, Result<QueryResponse, String>>,
+    /// Receipt outcome requests
+    pub receipt_outcome_requests: SizedCache<CryptoHash, Instant>,
+}
+
 /// View client provides currently committed (to the storage) view of the current chain and state.
 pub struct ViewClientActor {
     #[cfg(feature = "adversarial")]
@@ -62,16 +78,19 @@ pub struct ViewClientActor {
     runtime_adapter: Arc<dyn RuntimeAdapter>,
     network_adapter: Arc<dyn NetworkAdapter>,
     pub config: ClientConfig,
-    /// Transaction query that needs to be forwarded to other shards
-    pub tx_status_requests: SizedCache<CryptoHash, Instant>,
-    /// Transaction status response
-    pub tx_status_response: SizedCache<CryptoHash, FinalExecutionOutcomeView>,
-    /// Query requests that need to be forwarded to other shards
-    pub query_requests: SizedCache<String, Instant>,
-    /// Query responses from other nodes (can be errors)
-    pub query_responses: SizedCache<String, Result<QueryResponse, String>>,
-    /// Receipt outcome requests
-    pub receipt_outcome_requests: SizedCache<CryptoHash, Instant>,
+    request_manager: Arc<RwLock<ViewClientRequestManager>>,
+}
+
+impl ViewClientRequestManager {
+    pub fn new() -> Self {
+        Self {
+            tx_status_requests: SizedCache::with_size(QUERY_REQUEST_LIMIT),
+            tx_status_response: SizedCache::with_size(QUERY_REQUEST_LIMIT),
+            query_requests: SizedCache::with_size(QUERY_REQUEST_LIMIT),
+            query_responses: SizedCache::with_size(QUERY_REQUEST_LIMIT),
+            receipt_outcome_requests: SizedCache::with_size(QUERY_REQUEST_LIMIT),
+        }
+    }
 }
 
 impl ViewClientActor {
@@ -81,6 +100,7 @@ impl ViewClientActor {
         runtime_adapter: Arc<dyn RuntimeAdapter>,
         network_adapter: Arc<dyn NetworkAdapter>,
         config: ClientConfig,
+        request_manager: Arc<RwLock<ViewClientRequestManager>>,
     ) -> Result<Self, Error> {
         // TODO: should we create shared ChainStore that is passed to both Client and ViewClient?
         let chain =
@@ -97,11 +117,7 @@ impl ViewClientActor {
             runtime_adapter,
             network_adapter,
             config,
-            tx_status_requests: SizedCache::with_size(QUERY_REQUEST_LIMIT),
-            tx_status_response: SizedCache::with_size(QUERY_REQUEST_LIMIT),
-            query_requests: SizedCache::with_size(QUERY_REQUEST_LIMIT),
-            query_responses: SizedCache::with_size(QUERY_REQUEST_LIMIT),
-            receipt_outcome_requests: SizedCache::with_size(QUERY_REQUEST_LIMIT),
+            request_manager,
         })
     }
 
@@ -138,9 +154,12 @@ impl ViewClientActor {
     }
 
     fn handle_query(&mut self, msg: Query) -> Result<Option<QueryResponse>, String> {
-        if let Some(response) = self.query_responses.cache_remove(&msg.query_id) {
-            self.query_requests.cache_remove(&msg.query_id);
-            return response.map(Some);
+        {
+            let mut request_manager = self.request_manager.write().expect(POISONED_LOCK_ERR);
+            if let Some(response) = request_manager.query_responses.cache_remove(&msg.query_id) {
+                request_manager.query_requests.cache_remove(&msg.query_id);
+                return response.map(Some);
+            }
         }
 
         let header = match msg.block_id_or_finality {
@@ -193,7 +212,8 @@ impl ViewClientActor {
                     }
                 }
                 // route request
-                if Self::need_request(msg.query_id.clone(), &mut self.query_requests) {
+                let mut request_manager = self.request_manager.write().expect(POISONED_LOCK_ERR);
+                if Self::need_request(msg.query_id.clone(), &mut request_manager.query_requests) {
                     let validator = self
                         .chain
                         .find_validator_for_forwarding(shard_id)
@@ -218,7 +238,8 @@ impl ViewClientActor {
     ) -> Result<(), TxStatusError> {
         if let Ok(&dst_shard_id) = self.chain.get_shard_id_for_receipt_id(&receipt_id) {
             if self.chain.get_chunk_extra(last_block_hash, dst_shard_id).is_err() {
-                if Self::need_request(receipt_id, &mut self.receipt_outcome_requests) {
+                let mut request_manager = self.request_manager.write().expect(POISONED_LOCK_ERR);
+                if Self::need_request(receipt_id, &mut request_manager.receipt_outcome_requests) {
                     let validator = self
                         .chain
                         .find_validator_for_forwarding(dst_shard_id)
@@ -237,10 +258,14 @@ impl ViewClientActor {
         tx_hash: CryptoHash,
         signer_account_id: AccountId,
     ) -> Result<Option<FinalExecutionOutcomeView>, TxStatusError> {
-        if let Some(res) = self.tx_status_response.cache_remove(&tx_hash) {
-            self.tx_status_requests.cache_remove(&tx_hash);
-            return Ok(Some(res));
+        {
+            let mut request_manager = self.request_manager.write().expect(POISONED_LOCK_ERR);
+            if let Some(res) = request_manager.tx_status_response.cache_remove(&tx_hash) {
+                request_manager.tx_status_requests.cache_remove(&tx_hash);
+                return Ok(Some(res));
+            }
         }
+
         let head = self.chain.head().map_err(|e| TxStatusError::ChainError(e))?;
         let target_shard_id = self.runtime_adapter.account_id_to_shard_id(&signer_account_id);
         // Check if we are tracking this shard.
@@ -284,7 +309,8 @@ impl ViewClientActor {
                 },
             }
         } else {
-            if Self::need_request(tx_hash, &mut self.tx_status_requests) {
+            let mut request_manager = self.request_manager.write().expect(POISONED_LOCK_ERR);
+            if Self::need_request(tx_hash, &mut request_manager.tx_status_requests) {
                 let target_shard_id =
                     self.runtime_adapter.account_id_to_shard_id(&signer_account_id);
                 let validator = self
@@ -601,8 +627,9 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
             }
             NetworkViewClientMessages::TxStatusResponse(tx_result) => {
                 let tx_hash = tx_result.transaction_outcome.id;
-                if self.tx_status_requests.cache_remove(&tx_hash).is_some() {
-                    self.tx_status_response.cache_set(tx_hash, *tx_result);
+                let mut request_manager = self.request_manager.write().expect(POISONED_LOCK_ERR);
+                if request_manager.tx_status_requests.cache_remove(&tx_hash).is_some() {
+                    request_manager.tx_status_response.cache_set(tx_hash, *tx_result);
                 }
                 NetworkViewClientResponses::NoResponse
             }
@@ -619,8 +646,9 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
                 }
             }
             NetworkViewClientMessages::QueryResponse { query_id, response } => {
-                if self.query_requests.cache_get(&query_id).is_some() {
-                    self.query_responses.cache_set(query_id, response);
+                let mut request_manager = self.request_manager.write().expect(POISONED_LOCK_ERR);
+                if request_manager.query_requests.cache_get(&query_id).is_some() {
+                    request_manager.query_responses.cache_set(query_id, response);
                 }
                 NetworkViewClientResponses::NoResponse
             }
@@ -634,7 +662,13 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
                 }
             }
             NetworkViewClientMessages::ReceiptOutcomeResponse(response) => {
-                if self.receipt_outcome_requests.cache_remove(response.id()).is_some() {
+                let have_request = {
+                    let mut request_manager =
+                        self.request_manager.write().expect(POISONED_LOCK_ERR);
+                    request_manager.receipt_outcome_requests.cache_remove(response.id()).is_some()
+                };
+
+                if have_request {
                     if let Ok(&shard_id) = self.chain.get_shard_id_for_receipt_id(response.id()) {
                         let block_hash = response.block_hash;
                         if let Ok(Some(&next_block_hash)) =
@@ -814,17 +848,20 @@ pub fn start_view_client(
     network_adapter: Arc<dyn NetworkAdapter>,
     config: ClientConfig,
 ) -> Addr<ViewClientActor> {
+    let request_manager = Arc::new(RwLock::new(ViewClientRequestManager::new()));
     SyncArbiter::start(config.view_client_threads, move || {
         let validator_account_id1 = validator_account_id.clone();
         let runtime_adapter1 = runtime_adapter.clone();
         let network_adapter1 = network_adapter.clone();
         let config1 = config.clone();
+        let request_manager1 = request_manager.clone();
         ViewClientActor::new(
             validator_account_id1,
             &chain_genesis,
             runtime_adapter1,
             network_adapter1,
             config1,
+            request_manager1,
         )
         .unwrap()
     })
