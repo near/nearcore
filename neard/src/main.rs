@@ -151,7 +151,9 @@ fn main() {
             );
         }
         ("run", Some(args)) => {
-            // Load configs from home.
+            // Load configs from
+    panic!("hehe");
+    //  home.
             let mut near_config = load_config(home_dir);
             validate_genesis(&near_config.genesis);
             // Set current version in client config.
