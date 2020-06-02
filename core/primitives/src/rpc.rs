@@ -8,9 +8,11 @@ use validator::Validate;
 use validator_derive::Validate;
 
 use crate::hash::CryptoHash;
-use crate::types::BlockIdOrFinality;
+use crate::merkle::MerklePath;
+use crate::types::{BlockIdOrFinality, TransactionOrReceiptId};
 use crate::views::{
-    QueryRequest, StateChangeWithCauseView, StateChangesKindsView, StateChangesRequestView,
+    ExecutionOutcomeWithIdView, LightClientBlockLiteView, QueryRequest, StateChangeWithCauseView,
+    StateChangesKindsView, StateChangesRequestView,
 };
 
 #[derive(Debug, SmartDefault, Serialize, Deserialize, Validate)]
@@ -67,4 +69,19 @@ pub struct RpcStateChangesInBlockResponse {
 pub struct RpcBroadcastTxSyncResponse {
     pub transaction_hash: String,
     pub is_routed: bool,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct RpcLightClientExecutionProofRequest {
+    #[serde(flatten)]
+    pub id: TransactionOrReceiptId,
+    pub light_client_head: CryptoHash,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct RpcLightClientExecutionProofResponse {
+    pub outcome_proof: ExecutionOutcomeWithIdView,
+    pub outcome_root_proof: MerklePath,
+    pub block_header_lite: LightClientBlockLiteView,
+    pub block_proof: MerklePath,
 }
