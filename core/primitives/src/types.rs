@@ -114,7 +114,7 @@ pub enum StateChangeKind {
     AccountTouched { account_id: AccountId },
     AccessKeyTouched { account_id: AccountId },
     DataTouched { account_id: AccountId },
-    ContractCodeTouched { account_id: AccountId },
+    ContractCodeTouched { contract_id: CryptoHash },
 }
 
 pub type StateChangesKinds = Vec<StateChangeKind>;
@@ -134,8 +134,8 @@ impl StateChangesKinds {
                     TrieKey::Account { account_id } => {
                         Some(Ok(StateChangeKind::AccountTouched { account_id }))
                     }
-                    TrieKey::ContractCode { account_id } => {
-                        Some(Ok(StateChangeKind::ContractCodeTouched { account_id }))
+                    TrieKey::ContractCode { contract_id } => {
+                        Some(Ok(StateChangeKind::ContractCodeTouched { contract_id }))
                     }
                     TrieKey::AccessKey { account_id, .. } => {
                         Some(Ok(StateChangeKind::AccessKeyTouched { account_id }))
@@ -216,8 +216,8 @@ pub enum StateChangeValue {
     AccessKeyDeletion { account_id: AccountId, public_key: PublicKey },
     DataUpdate { account_id: AccountId, key: StoreKey, value: StoreValue },
     DataDeletion { account_id: AccountId, key: StoreKey },
-    ContractCodeUpdate { account_id: AccountId, code: Vec<u8> },
-    ContractCodeDeletion { account_id: AccountId },
+    ContractCodeUpdate { contract_id: CryptoHash, code: Vec<u8> },
+    ContractCodeDeletion { contract_id: CryptoHash },
 }
 
 #[derive(Debug)]
@@ -301,8 +301,8 @@ impl StateChanges {
 
         for raw_change in raw_changes {
             let RawStateChangesWithTrieKey { trie_key, changes } = raw_change?;
-            let account_id = match trie_key {
-                TrieKey::ContractCode { account_id } => account_id,
+            let contract_id = match trie_key {
+                TrieKey::ContractCode { contract_id } => contract_id,
                 _ => panic!("Conflicting data stored under TrieKey::ContractCode prefix"),
             };
             state_changes.extend(changes.into_iter().map(|RawStateChange { cause, data }| {
@@ -310,11 +310,11 @@ impl StateChanges {
                     cause,
                     value: if let Some(change_data) = data {
                         StateChangeValue::ContractCodeUpdate {
-                            account_id: account_id.clone(),
+                            contract_id,
                             code: change_data.into(),
                         }
                     } else {
-                        StateChangeValue::ContractCodeDeletion { account_id: account_id.clone() }
+                        StateChangeValue::ContractCodeDeletion { contract_id }
                     },
                 }
             }));

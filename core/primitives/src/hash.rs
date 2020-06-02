@@ -15,6 +15,12 @@ pub struct Digest(pub [u8; 32]);
 #[as_ref(forward)]
 pub struct CryptoHash(pub Digest);
 
+impl From<[u8; 32]> for CryptoHash {
+    fn from(h: [u8; 32]) -> Self {
+        CryptoHash(Digest(h))
+    }
+}
+
 impl<'a> From<&'a CryptoHash> for String {
     fn from(h: &'a CryptoHash) -> Self {
         to_base(&h.0)

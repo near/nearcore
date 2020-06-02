@@ -972,13 +972,13 @@ impl ChainStoreAccess for ChainStore {
             }
             StateChangesRequest::ContractCodeChanges { account_ids } => {
                 let mut changes = StateChanges::new();
-                for account_id in account_ids {
-                    let data_key =
-                        TrieKey::ContractCode { account_id: account_id.clone() }.to_vec();
-                    let storage_key = KeyForStateChanges::new(&block_hash, data_key.as_ref());
-                    let changes_per_key = storage_key.find_exact_iter(&self.store);
-                    changes.extend(StateChanges::from_contract_code_changes(changes_per_key)?);
-                }
+                // for account_id in account_ids {
+                //     let data_key =
+                //         TrieKey::ContractCode { account_id: account_id.clone() }.to_vec();
+                //     let storage_key = KeyForStateChanges::new(&block_hash, data_key.as_ref());
+                //     let changes_per_key = storage_key.find_exact_iter(&self.store);
+                //     changes.extend(StateChanges::from_contract_code_changes(changes_per_key)?);
+                // }
                 changes
             }
             StateChangesRequest::DataChanges { account_ids, key_prefix } => {

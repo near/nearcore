@@ -735,7 +735,7 @@ impl RuntimeAdapter for KeyValueRuntime {
                             |state| *state.amounts.get(account_id).unwrap_or(&0),
                         ),
                         locked: 0,
-                        code_hash: CryptoHash::default(),
+                        contract_ids: Default::default(),
                         storage_usage: 0,
                     }
                     .into(),

@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 
+pub type CryptoHash = [u8; 32];
 pub type AccountId = String;
 pub type PublicKey = Vec<u8>;
 pub type BlockHeight = u64;

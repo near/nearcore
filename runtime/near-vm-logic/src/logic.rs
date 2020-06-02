@@ -890,6 +890,7 @@ impl<'a> VMLogic<'a> {
         &mut self,
         account_id_len: u64,
         account_id_ptr: u64,
+        contract_id_ptr: u64,
         method_name_len: u64,
         method_name_ptr: u64,
         arguments_len: u64,
@@ -900,6 +901,7 @@ impl<'a> VMLogic<'a> {
         let new_promise_idx = self.promise_batch_create(account_id_len, account_id_ptr)?;
         self.promise_batch_action_function_call(
             new_promise_idx,
+            contract_id_ptr,
             method_name_len,
             method_name_ptr,
             arguments_len,
@@ -934,6 +936,7 @@ impl<'a> VMLogic<'a> {
         promise_idx: u64,
         account_id_len: u64,
         account_id_ptr: u64,
+        contract_id_ptr: u64,
         method_name_len: u64,
         method_name_ptr: u64,
         arguments_len: u64,
@@ -945,6 +948,7 @@ impl<'a> VMLogic<'a> {
             self.promise_batch_then(promise_idx, account_id_len, account_id_ptr)?;
         self.promise_batch_action_function_call(
             new_promise_idx,
+            contract_id_ptr,
             method_name_len,
             method_name_ptr,
             arguments_len,
@@ -1262,6 +1266,7 @@ impl<'a> VMLogic<'a> {
     pub fn promise_batch_action_function_call(
         &mut self,
         promise_idx: u64,
+        contract_id_ptr: u64,
         method_name_len: u64,
         method_name_ptr: u64,
         arguments_len: u64,
@@ -1276,6 +1281,8 @@ impl<'a> VMLogic<'a> {
             }
             .into());
         }
+        let mut contract_id = [0; 32];
+        self.memory_get_into(contract_id_ptr, &mut contract_id)?;
         let amount = self.memory_get_u128(amount_ptr)?;
         let method_name = self.get_vec_from_memory_or_register(method_name_ptr, method_name_len)?;
         if method_name.is_empty() {
@@ -1299,7 +1306,14 @@ impl<'a> VMLogic<'a> {
 
         self.deduct_balance(amount)?;
 
-        self.ext.append_action_function_call(receipt_idx, method_name, arguments, amount, gas)?;
+        self.ext.append_action_function_call(
+            receipt_idx,
+            contract_id,
+            method_name,
+            arguments,
+            amount,
+            gas,
+        )?;
         Ok(())
     }
 

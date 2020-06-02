@@ -15,8 +15,13 @@ use crate::validator_signer::ValidatorSigner;
 use num_rational::Rational;
 use std::collections::HashMap;
 
-pub fn account_new(amount: Balance, code_hash: CryptoHash) -> Account {
-    Account { amount, locked: 0, code_hash, storage_usage: std::mem::size_of::<Account>() as u64 }
+pub fn account_new(amount: Balance) -> Account {
+    Account {
+        amount,
+        locked: 0,
+        contract_ids: Default::default(),
+        storage_usage: std::mem::size_of::<Account>() as u64,
+    }
 }
 
 impl Transaction {
@@ -47,12 +52,14 @@ impl Transaction {
 
     pub fn function_call(
         mut self,
+        contract_id: CryptoHash,
         method_name: String,
         args: Vec<u8>,
         gas: Gas,
         deposit: Balance,
     ) -> Self {
         self.actions.push(Action::FunctionCall(FunctionCallAction {
+            contract_id,
             method_name,
             args,
             gas,
@@ -202,6 +209,7 @@ impl SignedTransaction {
         receiver_id: AccountId,
         signer: &dyn Signer,
         deposit: Balance,
+        contract_id: CryptoHash,
         method_name: String,
         args: Vec<u8>,
         gas: Gas,
@@ -212,7 +220,13 @@ impl SignedTransaction {
             signer_id,
             receiver_id,
             signer,
-            vec![Action::FunctionCall(FunctionCallAction { args, method_name, gas, deposit })],
+            vec![Action::FunctionCall(FunctionCallAction {
+                contract_id,
+                args,
+                method_name,
+                gas,
+                deposit,
+            })],
             block_hash,
         )
     }

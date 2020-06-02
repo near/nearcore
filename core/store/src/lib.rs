@@ -377,16 +377,16 @@ pub fn get_access_key_raw(
     )
 }
 
-pub fn set_code(state_update: &mut TrieUpdate, account_id: AccountId, code: &ContractCode) {
-    state_update.set(TrieKey::ContractCode { account_id }, code.code.clone());
+pub fn set_code(state_update: &mut TrieUpdate, contract_id: CryptoHash, code: &ContractCode) {
+    state_update.set(TrieKey::ContractCode { contract_id }, code.code.clone());
 }
 
 pub fn get_code(
     state_update: &TrieUpdate,
-    account_id: &AccountId,
+    contract_id: &CryptoHash,
 ) -> Result<Option<ContractCode>, StorageError> {
     state_update
-        .get(&TrieKey::ContractCode { account_id: account_id.clone() })
+        .get(&TrieKey::ContractCode { contract_id: *contract_id })
         .map(|opt| opt.map(|code| ContractCode::new(code.to_vec())))
 }
 
@@ -396,7 +396,8 @@ pub fn remove_account(
     account_id: &AccountId,
 ) -> Result<(), StorageError> {
     state_update.remove(TrieKey::Account { account_id: account_id.clone() });
-    state_update.remove(TrieKey::ContractCode { account_id: account_id.clone() });
+    // TODO: implement
+    // state_update.remove(TrieKey::ContractCode { account_id: account_id.clone() });
 
     // Removing access keys
     let public_keys = state_update

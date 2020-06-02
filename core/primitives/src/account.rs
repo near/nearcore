@@ -1,5 +1,6 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 
 use crate::hash::CryptoHash;
 use crate::serialize::{option_u128_dec_format, u128_dec_format_compatible};
@@ -15,7 +16,7 @@ pub struct Account {
     #[serde(with = "u128_dec_format_compatible")]
     pub locked: Balance,
     /// Hash of the code stored in the storage for this account.
-    pub code_hash: CryptoHash,
+    pub contract_ids: HashSet<CryptoHash>,
     /// Storage used by the given account, includes account id, this struct, access keys and other data.
     pub storage_usage: StorageUsage,
 }
@@ -97,7 +98,7 @@ mod tests {
         let acc = Account {
             amount: 1_000_000,
             locked: 1_000_000,
-            code_hash: CryptoHash::default(),
+            contract_ids: vec![CryptoHash::default()],
             storage_usage: 100,
         };
         let bytes = acc.try_to_vec().unwrap();

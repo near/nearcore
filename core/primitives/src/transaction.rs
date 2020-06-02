@@ -96,6 +96,7 @@ impl fmt::Debug for DeployContractAction {
 
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Clone)]
 pub struct FunctionCallAction {
+    pub contract_id: CryptoHash,
     pub method_name: String,
     #[serde(with = "base64_format")]
     pub args: Vec<u8>,

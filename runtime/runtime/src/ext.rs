@@ -12,7 +12,9 @@ use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{AccountId, Balance, EpochId, EpochInfoProvider};
 use near_primitives::utils::create_nonce_with_nonce;
 use near_store::{TrieUpdate, TrieUpdateValuePtr};
-use near_vm_logic::{External, HostError, VMLogicError, ValuePtr};
+use near_vm_logic::{
+    types::CryptoHash as VmCryptoHash, External, HostError, VMLogicError, ValuePtr,
+};
 use sha3::{Keccak256, Keccak512};
 
 pub struct RuntimeExt<'a> {
@@ -45,6 +47,7 @@ impl<'a> RuntimeExt<'a> {
     pub fn new(
         trie_update: &'a mut TrieUpdate,
         account_id: &'a AccountId,
+        contract_id: CryptoHash,
         signer_id: &'a AccountId,
         signer_public_key: &'a PublicKey,
         gas_price: Balance,
@@ -178,6 +181,7 @@ impl<'a> External for RuntimeExt<'a> {
     fn append_action_function_call(
         &mut self,
         receipt_index: u64,
+        contract_id: VmCryptoHash,
         method_name: Vec<u8>,
         args: Vec<u8>,
         attached_deposit: u128,
@@ -186,6 +190,7 @@ impl<'a> External for RuntimeExt<'a> {
         self.append_action(
             receipt_index,
             Action::FunctionCall(FunctionCallAction {
+                contract_id: contract_id.into(),
                 method_name: String::from_utf8(method_name)
                     .map_err(|_| HostError::InvalidMethodName)?,
                 args,

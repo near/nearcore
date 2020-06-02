@@ -414,7 +414,6 @@ impl Genesis {
                     TESTING_INIT_BALANCE
                         - if i < num_validator_seats { TESTING_INIT_STAKE } else { 0 },
                     if i < num_validator_seats { TESTING_INIT_STAKE } else { 0 },
-                    CryptoHash::default(),
                 )
                 .into_iter(),
             );
@@ -603,7 +602,6 @@ fn add_protocol_account(records: &mut Vec<StateRecord>) {
         &signer.public_key,
         TESTING_INIT_BALANCE,
         0,
-        CryptoHash::default(),
     ));
 }
 
@@ -616,12 +614,16 @@ fn state_records_account_with_key(
     public_key: &PublicKey,
     amount: u128,
     staked: u128,
-    code_hash: CryptoHash,
 ) -> Vec<StateRecord> {
     vec![
         StateRecord::Account {
             account_id: account_id.to_string(),
-            account: Account { amount, locked: staked, code_hash, storage_usage: 0 },
+            account: Account {
+                amount,
+                locked: staked,
+                contract_ids: Default::default(),
+                storage_usage: 0,
+            },
         },
         StateRecord::AccessKey {
             account_id: account_id.to_string(),
@@ -732,7 +734,6 @@ pub fn init_configs(
                 &signer.public_key(),
                 TESTING_INIT_BALANCE,
                 TESTING_INIT_STAKE,
-                CryptoHash::default(),
             );
             add_protocol_account(&mut records);
 

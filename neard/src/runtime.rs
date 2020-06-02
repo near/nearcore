@@ -1036,7 +1036,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                     Err(e) => Err(e),
                 }
             }
-            QueryRequest::CallFunction { account_id, method_name, args } => {
+            QueryRequest::CallFunction { account_id, contract_id, method_name, args } => {
                 let mut logs = vec![];
                 let epoch_height = {
                     let mut epoch_manager =
@@ -1052,6 +1052,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                     epoch_height,
                     epoch_id,
                     account_id,
+                    *contract_id,
                     method_name,
                     args.as_ref(),
                     &mut logs,
@@ -1265,7 +1266,8 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
         last_block_hash: &CryptoHash,
         epoch_height: EpochHeight,
         epoch_id: &EpochId,
-        contract_id: &AccountId,
+        account_id: &AccountId,
+        contract_id: CryptoHash,
         method_name: &str,
         args: &[u8],
         logs: &mut Vec<String>,
@@ -1279,6 +1281,7 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
             last_block_hash,
             epoch_height,
             epoch_id,
+            account_id,
             contract_id,
             method_name,
             args,

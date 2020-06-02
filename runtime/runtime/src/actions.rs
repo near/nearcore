@@ -65,13 +65,10 @@ pub(crate) fn get_insufficient_storage_stake(
 
 pub(crate) fn get_code_with_cache(
     state_update: &TrieUpdate,
-    account_id: &AccountId,
-    account: &Account,
+    contract_id: CryptoHash,
 ) -> Result<Option<Arc<ContractCode>>, StorageError> {
-    debug!(target:"runtime", "Calling the contract at account {}", account_id);
-    let code_hash = account.code_hash;
-    let code = || get_code(state_update, account_id);
-    crate::cache::get_code(code_hash, code)
+    let code = || get_code(state_update, &contract_id);
+    crate::cache::get_code(contract_id, code)
 }
 
 pub(crate) fn action_function_call(
@@ -89,7 +86,7 @@ pub(crate) fn action_function_call(
     is_last_action: bool,
     epoch_info_provider: &dyn EpochInfoProvider,
 ) -> Result<(), RuntimeError> {
-    let code = match get_code_with_cache(state_update, account_id, &account) {
+    let code = match get_code_with_cache(state_update, function_call.contract_id) {
         Ok(Some(code)) => code,
         Ok(None) => {
             let error = FunctionCallError::CompilationError(CompilationError::CodeDoesNotExist {
@@ -113,6 +110,7 @@ pub(crate) fn action_function_call(
     let mut runtime_ext = RuntimeExt::new(
         state_update,
         account_id,
+        function_call.contract_id,
         &action_receipt.signer_id,
         &action_receipt.signer_public_key,
         action_receipt.gas_price,
@@ -315,7 +313,7 @@ pub(crate) fn action_create_account(
     *account = Some(Account {
         amount: 0,
         locked: 0,
-        code_hash: CryptoHash::default(),
+        contract_ids: Default::default(),
         storage_usage: fee_config.storage_usage_config.num_bytes_account,
     });
 }
@@ -327,24 +325,27 @@ pub(crate) fn action_deploy_contract(
     deploy_contract: &DeployContractAction,
 ) -> Result<(), StorageError> {
     let code = ContractCode::new(deploy_contract.code.clone());
-    let prev_code = get_code(state_update, account_id)?;
-    let prev_code_length = prev_code.map(|code| code.code.len() as u64).unwrap_or_default();
-    account.storage_usage =
-        account.storage_usage.checked_sub(prev_code_length).ok_or_else(|| {
-            StorageError::StorageInconsistentState(format!(
-                "Storage usage integer underflow for account {}",
-                account_id
-            ))
-        })?;
-    account.storage_usage =
-        account.storage_usage.checked_add(code.code.len() as u64).ok_or_else(|| {
-            StorageError::StorageInconsistentState(format!(
-                "Storage usage integer overflow for account {}",
-                account_id
-            ))
-        })?;
-    account.code_hash = code.get_hash();
-    set_code(state_update, account_id.clone(), &code);
+    // let prev_code = get_code(state_update, &code.get_hash())?;
+    // let prev_code_length = prev_code.map(|code| code.code.len() as u64).unwrap_or_default();
+    // account.storage_usage =
+    //     account.storage_usage.checked_sub(prev_code_length).ok_or_else(|| {
+    //         StorageError::StorageInconsistentState(format!(
+    //             "Storage usage integer underflow for account {}",
+    //             account_id
+    //         ))
+    //     })?;
+    let contract_id = code.get_hash();
+    if get_code(state_update, &code.get_hash())?.is_none() {
+        account.storage_usage =
+            account.storage_usage.checked_add(code.code.len() as u64).ok_or_else(|| {
+                StorageError::StorageInconsistentState(format!(
+                    "Storage usage integer overflow for account {}",
+                    account_id
+                ))
+            })?;
+        set_code(state_update, contract_id, &code);
+    }
+    account.contract_ids.insert(contract_id);
     Ok(())
 }
 

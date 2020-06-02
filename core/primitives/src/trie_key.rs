@@ -43,7 +43,7 @@ pub enum TrieKey {
     /// Used to store `primitives::account::Account` struct for a given `AccountId`.
     Account { account_id: AccountId },
     /// Used to store `Vec<u8>` contract code for a given `AccountId`.
-    ContractCode { account_id: AccountId },
+    ContractCode { contract_id: CryptoHash },
     /// Used to store `primitives::account::AccessKey` struct for a given `AccountId` and
     /// a given `public_key` of the `AccessKey`.
     AccessKey { account_id: AccountId, public_key: PublicKey },
@@ -78,7 +78,7 @@ impl TrieKey {
     pub fn len(&self) -> usize {
         match self {
             TrieKey::Account { account_id } => col::ACCOUNT.len() + account_id.len(),
-            TrieKey::ContractCode { account_id } => col::CONTRACT_CODE.len() + account_id.len(),
+            TrieKey::ContractCode { .. } => col::CONTRACT_CODE.len() + size_of::<CryptoHash>(),
             TrieKey::AccessKey { account_id, public_key } => {
                 col::ACCESS_KEY.len() * 2 + account_id.len() + public_key.len()
             }
@@ -125,9 +125,9 @@ impl TrieKey {
                 res.extend(col::ACCOUNT);
                 res.extend(account_id.as_bytes());
             }
-            TrieKey::ContractCode { account_id } => {
+            TrieKey::ContractCode { contract_id } => {
                 res.extend(col::CONTRACT_CODE);
-                res.extend(account_id.as_bytes());
+                res.extend(contract_id.as_ref());
             }
             TrieKey::AccessKey { account_id, public_key } => {
                 res.extend(col::ACCESS_KEY);

@@ -4,6 +4,7 @@
 //! type gets changed, the view should preserve the old shape and only re-map the necessary bits
 //! from the source structure in the relevant `From<SourceStruct>` impl.
 use std::borrow::Cow;
+use std::collections::HashSet;
 use std::convert::{TryFrom, TryInto};
 use std::fmt;
 
@@ -47,7 +48,7 @@ pub struct AccountView {
     pub amount: Balance,
     #[serde(with = "u128_dec_format")]
     pub locked: Balance,
-    pub code_hash: CryptoHash,
+    pub contract_ids: HashSet<CryptoHash>,
     pub storage_usage: StorageUsage,
     /// TODO(2271): deprecated.
     #[serde(default)]
@@ -59,7 +60,7 @@ impl From<Account> for AccountView {
         AccountView {
             amount: account.amount,
             locked: account.locked,
-            code_hash: account.code_hash,
+            contract_ids: account.contract_ids,
             storage_usage: account.storage_usage,
             storage_paid_at: 0,
         }
@@ -71,7 +72,7 @@ impl From<AccountView> for Account {
         Self {
             amount: view.amount,
             locked: view.locked,
-            code_hash: view.code_hash,
+            contract_ids: view.contract_ids,
             storage_usage: view.storage_usage,
         }
     }
@@ -217,6 +218,7 @@ pub enum QueryRequest {
     },
     CallFunction {
         account_id: AccountId,
+        contract_id: CryptoHash,
         method_name: String,
         #[serde(rename = "args_base64", with = "base64_format")]
         args: FunctionArgs,
@@ -578,6 +580,7 @@ pub enum ActionView {
         code: String,
     },
     FunctionCall {
+        contract_id: CryptoHash,
         method_name: String,
         args: String,
         gas: Gas,
@@ -613,6 +616,7 @@ impl From<Action> for ActionView {
                 ActionView::DeployContract { code: to_base64(&hash(&action.code)) }
             }
             Action::FunctionCall(action) => ActionView::FunctionCall {
+                contract_id: action.contract_id,
                 method_name: action.method_name,
                 args: to_base64(&action.args),
                 gas: action.gas,
@@ -643,8 +647,9 @@ impl TryFrom<ActionView> for Action {
             ActionView::DeployContract { code } => {
                 Action::DeployContract(DeployContractAction { code: from_base64(&code)? })
             }
-            ActionView::FunctionCall { method_name, args, gas, deposit } => {
+            ActionView::FunctionCall { contract_id, method_name, args, gas, deposit } => {
                 Action::FunctionCall(FunctionCallAction {
+                    contract_id,
                     method_name,
                     args: from_base64(&args)?,
                     gas,
@@ -1114,7 +1119,7 @@ pub enum StateChangeKindView {
     AccountTouched { account_id: AccountId },
     AccessKeyTouched { account_id: AccountId },
     DataTouched { account_id: AccountId },
-    ContractCodeTouched { account_id: AccountId },
+    ContractCodeTouched { contract_id: CryptoHash },
 }
 
 impl From<StateChangeKind> for StateChangeKindView {
@@ -1125,8 +1130,8 @@ impl From<StateChangeKind> for StateChangeKindView {
                 Self::AccessKeyTouched { account_id }
             }
             StateChangeKind::DataTouched { account_id } => Self::DataTouched { account_id },
-            StateChangeKind::ContractCodeTouched { account_id } => {
-                Self::ContractCodeTouched { account_id }
+            StateChangeKind::ContractCodeTouched { contract_id } => {
+                Self::ContractCodeTouched { contract_id }
             }
         }
     }
@@ -1208,12 +1213,12 @@ pub enum StateChangeValueView {
         key: StoreKey,
     },
     ContractCodeUpdate {
-        account_id: AccountId,
+        contract_id: CryptoHash,
         #[serde(rename = "code_base64", with = "base64_format")]
         code: Vec<u8>,
     },
     ContractCodeDeletion {
-        account_id: AccountId,
+        contract_id: CryptoHash,
     },
 }
 
@@ -1238,11 +1243,11 @@ impl From<StateChangeValue> for StateChangeValueView {
             StateChangeValue::DataDeletion { account_id, key } => {
                 Self::DataDeletion { account_id, key }
             }
-            StateChangeValue::ContractCodeUpdate { account_id, code } => {
-                Self::ContractCodeUpdate { account_id, code }
+            StateChangeValue::ContractCodeUpdate { contract_id, code } => {
+                Self::ContractCodeUpdate { contract_id, code }
             }
-            StateChangeValue::ContractCodeDeletion { account_id } => {
-                Self::ContractCodeDeletion { account_id }
+            StateChangeValue::ContractCodeDeletion { contract_id } => {
+                Self::ContractCodeDeletion { contract_id }
             }
         }
     }

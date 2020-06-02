@@ -1,4 +1,4 @@
-use crate::types::{AccountId, Balance, Gas, PublicKey};
+use crate::types::{AccountId, Balance, CryptoHash, Gas, PublicKey};
 use crate::{External, ValuePtr};
 use near_vm_errors::HostError;
 use serde::{Deserialize, Serialize};
@@ -97,6 +97,7 @@ impl External for MockedExternal {
     fn append_action_function_call(
         &mut self,
         receipt_index: u64,
+        contract_id: CryptoHash,
         method_name: Vec<u8>,
         arguments: Vec<u8>,
         attached_deposit: u128,

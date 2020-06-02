@@ -1,6 +1,6 @@
 //! External dependencies of the near-vm-logic.
 
-use crate::types::{AccountId, Balance, Gas, PublicKey, ReceiptIndex};
+use crate::types::{AccountId, Balance, CryptoHash, Gas, PublicKey, ReceiptIndex};
 use near_vm_errors::VMLogicError;
 
 /// An abstraction over the memory of the smart contract.
@@ -246,6 +246,7 @@ pub trait External {
     fn append_action_function_call(
         &mut self,
         receipt_index: ReceiptIndex,
+        contract_id: CryptoHash,
         method_name: Vec<u8>,
         arguments: Vec<u8>,
         attached_deposit: Balance,
