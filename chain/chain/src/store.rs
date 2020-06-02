@@ -34,9 +34,9 @@ use near_store::{
     ColChallengedBlocks, ColChunkExtra, ColChunkHashesByHeight, ColChunkPerHeightShard, ColChunks,
     ColEpochLightClientBlocks, ColIncomingReceipts, ColInvalidChunks, ColLastBlockWithNewChunk,
     ColNextBlockHashes, ColNextBlockWithNewChunk, ColOutgoingReceipts, ColPartialChunks,
-    ColReceiptIdToShardId, ColState, ColStateChanges, ColStateDlInfos, ColStateHeaders,
-    ColTransactionResult, ColTransactions, ColTrieChanges, KeyForStateChanges, ShardTries, Store,
-    StoreUpdate, TrieChanges, WrappedTrieChanges, CHUNK_TAIL_KEY, HEADER_HEAD_KEY, HEAD_KEY,
+    ColReceiptIdToShardId, ColStateChanges, ColStateDlInfos, ColStateHeaders, ColTransactionResult,
+    ColTransactions, ColTrieChanges, KeyForStateChanges, ShardTries, Store, StoreUpdate,
+    TrieChanges, WrappedTrieChanges, CHUNK_TAIL_KEY, HEADER_HEAD_KEY, HEAD_KEY,
     LARGEST_TARGET_HEIGHT_KEY, LATEST_KNOWN_KEY, SYNC_HEAD_KEY, TAIL_KEY,
 };
 
@@ -1841,16 +1841,6 @@ impl<'a> ChainStoreUpdate<'a> {
 
     pub fn update_chunks_tail(&mut self, height: BlockHeight) {
         self.chunks_tail = Some(height);
-    }
-
-    pub fn clear_state_data(&mut self) {
-        let mut store_update = self.store().store_update();
-
-        let stored_state = self.chain_store.store().iter_prefix(ColState, &[]);
-        for (key, _) in stored_state {
-            store_update.delete(ColState, key.as_ref());
-        }
-        self.merge(store_update);
     }
 
     pub fn clear_chunk_data(&mut self, min_chunk_height: BlockHeight) -> Result<(), Error> {
