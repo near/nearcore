@@ -79,7 +79,7 @@ impl TrieStorage for TrieMemoryPartialStorage {
 const TRIE_MAX_CACHE_SIZE: usize = 10000;
 
 #[cfg(feature = "no_cache")]
-const TRIE_MAX_CACHE_SIZE: usize = 0;
+const TRIE_MAX_CACHE_SIZE: usize = 1;
 
 /// Values above this size are never cached.
 /// Note that Trie inner nodes are always smaller than this.
