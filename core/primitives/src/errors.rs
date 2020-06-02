@@ -169,7 +169,9 @@ pub enum InvalidAccessKeyError {
 }
 
 /// Describes the error for validating a list of actions.
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[derive(
+    BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, PartialEq, Eq, RpcError,
+)]
 pub enum ActionsValidationError {
     /// The total prepaid gas (for all given actions) exceeded the limit.
     TotalPrepaidGasExceeded { total_prepaid_gas: Gas, limit: Gas },
@@ -196,7 +198,9 @@ pub enum ActionsValidationError {
 }
 
 /// Describes the error for validating a receipt.
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[derive(
+    BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, PartialEq, Eq, RpcError,
+)]
 pub enum ReceiptValidationError {
     /// The `predecessor_id` of a Receipt is not valid.
     InvalidPredecessorId { account_id: AccountId },

@@ -179,7 +179,9 @@
     "InvalidAccountId": {
       "name": "InvalidAccountId",
       "subtypes": [],
-      "props": {}
+      "props": {
+        "account_id": ""
+      }
     },
     "InvalidIteratorIndex": {
       "name": "InvalidIteratorIndex",
@@ -455,6 +457,23 @@
         "index": ""
       }
     },
+    "ActionsValidationError": {
+      "name": "ActionsValidationError",
+      "subtypes": [
+        "TotalPrepaidGasExceeded",
+        "TotalNumberOfActionsExceeded",
+        "AddKeyMethodNamesNumberOfBytesExceeded",
+        "AddKeyMethodNameLengthExceeded",
+        "IntegerOverflow",
+        "InvalidAccountId",
+        "ContractSizeExceeded",
+        "FunctionCallMethodNameLengthExceeded",
+        "FunctionCallArgumentsLengthExceeded",
+        "UnsuitableStakingKey",
+        "FunctionCallMinimumGasRequired"
+      ],
+      "props": {}
+    },
     "ActorNoPermission": {
       "name": "ActorNoPermission",
       "subtypes": [],
@@ -469,6 +488,22 @@
       "props": {
         "account_id": "",
         "public_key": ""
+      }
+    },
+    "AddKeyMethodNameLengthExceeded": {
+      "name": "AddKeyMethodNameLengthExceeded",
+      "subtypes": [],
+      "props": {
+        "length": "",
+        "limit": ""
+      }
+    },
+    "AddKeyMethodNamesNumberOfBytesExceeded": {
+      "name": "AddKeyMethodNamesNumberOfBytesExceeded",
+      "subtypes": [],
+      "props": {
+        "limit": "",
+        "total_number_of_bytes": ""
       }
     },
     "BalanceMismatchError": {
@@ -536,6 +571,30 @@
       "subtypes": [],
       "props": {}
     },
+    "FunctionCallArgumentsLengthExceeded": {
+      "name": "FunctionCallArgumentsLengthExceeded",
+      "subtypes": [],
+      "props": {
+        "length": "",
+        "limit": ""
+      }
+    },
+    "FunctionCallMethodNameLengthExceeded": {
+      "name": "FunctionCallMethodNameLengthExceeded",
+      "subtypes": [],
+      "props": {
+        "length": "",
+        "limit": ""
+      }
+    },
+    "FunctionCallMinimumGasRequired": {
+      "name": "FunctionCallMinimumGasRequired",
+      "subtypes": [],
+      "props": {
+        "gas": "",
+        "required_minimum": ""
+      }
+    },
     "InvalidAccessKeyError": {
       "name": "InvalidAccessKeyError",
       "subtypes": [
@@ -553,6 +612,13 @@
       "subtypes": [],
       "props": {}
     },
+    "InvalidDataReceiverId": {
+      "name": "InvalidDataReceiverId",
+      "subtypes": [],
+      "props": {
+        "account_id": ""
+      }
+    },
     "InvalidNonce": {
       "name": "InvalidNonce",
       "subtypes": [],
@@ -561,11 +627,18 @@
         "tx_nonce": ""
       }
     },
+    "InvalidPredecessorId": {
+      "name": "InvalidPredecessorId",
+      "subtypes": [],
+      "props": {
+        "account_id": ""
+      }
+    },
     "InvalidReceiverId": {
       "name": "InvalidReceiverId",
       "subtypes": [],
       "props": {
-        "receiver_id": ""
+        "account_id": ""
       }
     },
     "InvalidSignature": {
@@ -577,7 +650,7 @@
       "name": "InvalidSignerId",
       "subtypes": [],
       "props": {
-        "signer_id": ""
+        "account_id": ""
       }
     },
     "InvalidTxError": {
@@ -632,6 +705,19 @@
         "signer_id": ""
       }
     },
+    "ReceiptValidationError": {
+      "name": "ReceiptValidationError",
+      "subtypes": [
+        "InvalidPredecessorId",
+        "InvalidReceiverId",
+        "InvalidSignerId",
+        "InvalidDataReceiverId",
+        "ReturnedValueLengthExceeded",
+        "NumberInputDataDependenciesExceeded",
+        "ActionsValidation"
+      ],
+      "props": {}
+    },
     "ReceiverMismatch": {
       "name": "ReceiverMismatch",
       "subtypes": [],
@@ -650,6 +736,22 @@
       "subtypes": [],
       "props": {
         "signer_id": ""
+      }
+    },
+    "TotalNumberOfActionsExceeded": {
+      "name": "TotalNumberOfActionsExceeded",
+      "subtypes": [],
+      "props": {
+        "limit": "",
+        "total_number_of_actions": ""
+      }
+    },
+    "TotalPrepaidGasExceeded": {
+      "name": "TotalPrepaidGasExceeded",
+      "subtypes": [],
+      "props": {
+        "limit": "",
+        "total_prepaid_gas": ""
       }
     },
     "TriesToStake": {
@@ -676,6 +778,13 @@
         "InvalidTxError"
       ],
       "props": {}
+    },
+    "UnsuitableStakingKey": {
+      "name": "UnsuitableStakingKey",
+      "subtypes": [],
+      "props": {
+        "public_key": ""
+      }
     },
     "Closed": {
       "name": "Closed",
