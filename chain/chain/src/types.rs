@@ -127,7 +127,9 @@ pub trait RuntimeAdapter: Send + Sync {
         vrf_proof: near_crypto::vrf::Proof,
     ) -> Result<(), Error>;
 
-    /// Validates a given signed transaction on top of the given state root.
+    /// Validates a given signed transaction.
+    /// If the state root is given, then the verification will use the account. Otherwise it will
+    /// only validate the transaction math, limits and signatures.
     /// Returns an option of `InvalidTxError`, it contains `Some(InvalidTxError)` if there is
     /// a validation error, or `None` in case the transaction succeeded.
     /// Throws an `Error` with `ErrorKind::StorageError` in case the runtime throws
@@ -135,7 +137,7 @@ pub trait RuntimeAdapter: Send + Sync {
     fn validate_tx(
         &self,
         gas_price: Balance,
-        state_root: StateRoot,
+        state_root: Option<StateRoot>,
         transaction: &SignedTransaction,
     ) -> Result<Option<InvalidTxError>, Error>;
 

@@ -1179,12 +1179,20 @@ impl Client {
             debug!(target: "client", "Invalid tx: expired or from a different fork -- {:?}", tx);
             return Ok(NetworkClientResponses::InvalidTx(e));
         }
+        let gas_price = cur_block_header.inner_rest.gas_price;
         let epoch_id = self.runtime_adapter.get_epoch_id_from_prev_block(&head.last_block_hash)?;
+
+        // Fast transaction validation without a state root.
+        if let Some(err) =
+            self.runtime_adapter.validate_tx(gas_price, None, &tx).expect("no storage errors")
+        {
+            debug!(target: "client", "Invalid tx during basic validation: {:?}", err);
+            return Ok(NetworkClientResponses::InvalidTx(err));
+        }
 
         if self.runtime_adapter.cares_about_shard(me, &head.last_block_hash, shard_id, true)
             || self.runtime_adapter.will_care_about_shard(me, &head.last_block_hash, shard_id, true)
         {
-            let gas_price = cur_block_header.inner_rest.gas_price;
             let state_root = match self.chain.get_chunk_extra(&head.last_block_hash, shard_id) {
                 Ok(chunk_extra) => chunk_extra.state_root,
                 Err(_) => {
@@ -1202,7 +1210,7 @@ impl Client {
             };
             if let Some(err) = self
                 .runtime_adapter
-                .validate_tx(gas_price, state_root, &tx)
+                .validate_tx(gas_price, Some(state_root), &tx)
                 .expect("no storage errors")
             {
                 debug!(target: "client", "Invalid tx: {:?}", err);
@@ -1248,6 +1256,7 @@ impl Client {
                 return Ok(NetworkClientResponses::NoResponse);
             }
             // We are not tracking this shard, so there is no way to validate this tx. Just rerouting.
+
             self.forward_tx(&epoch_id, tx)?;
             Ok(NetworkClientResponses::RequestRouted)
         }
