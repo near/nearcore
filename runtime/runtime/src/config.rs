@@ -11,6 +11,7 @@ use near_runtime_fees::RuntimeFeesConfig;
 pub use near_runtime_configs::RuntimeConfig;
 
 /// Describes the cost of converting this transaction into a receipt.
+#[derive(Debug)]
 pub struct TransactionCost {
     /// Total amount of gas burnt for converting this transaction into a receipt.
     pub gas_burnt: Gas,
@@ -19,6 +20,8 @@ pub struct TransactionCost {
     pub gas_used: Gas,
     /// Total costs in tokens for this transaction (including all deposits).
     pub total_cost: Balance,
+    /// The amount of tokens burnt by converting this transaction to a receipt.
+    pub burnt_amount: Balance,
 }
 
 pub fn safe_gas_to_balance(gas_price: Balance, gas: Gas) -> Result<Balance, IntegerOverflowError> {
@@ -143,7 +146,8 @@ pub fn tx_cost(
     gas_used = safe_add_gas(gas_used, total_prepaid_gas(&transaction.actions)?)?;
     let mut total_cost = safe_gas_to_balance(gas_price, gas_used)?;
     total_cost = safe_add_balance(total_cost, total_deposit(&transaction.actions)?)?;
-    Ok(TransactionCost { gas_burnt, gas_used, total_cost })
+    let burnt_amount = safe_gas_to_balance(gas_price, gas_burnt)?;
+    Ok(TransactionCost { gas_burnt, gas_used, total_cost, burnt_amount })
 }
 
 /// Total sum of gas that would need to be burnt before we start executing the given actions.

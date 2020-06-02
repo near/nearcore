@@ -9,11 +9,11 @@ use std::sync::Arc;
 use borsh::BorshSerialize;
 use indicatif::{ProgressBar, ProgressStyle};
 
-use near_chain::{Block, Chain, ChainStore, RuntimeAdapter, Tip};
+use near_chain::{Block, Chain, ChainStore, RuntimeAdapter};
 use near_chain_configs::Genesis;
 use near_crypto::{InMemorySigner, KeyType};
 use near_primitives::account::{AccessKey, Account};
-use near_primitives::block::genesis_chunks;
+use near_primitives::block::{genesis_chunks, Tip};
 use near_primitives::contract::ContractCode;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::state_record::StateRecord;

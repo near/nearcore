@@ -38,7 +38,7 @@ use crate::config::{
     total_prepaid_gas, RuntimeConfig,
 };
 use crate::verifier::validate_receipt;
-pub use crate::verifier::verify_and_charge_transaction;
+pub use crate::verifier::{validate_transaction, verify_and_charge_transaction};
 
 mod actions;
 pub mod adapter;
@@ -335,6 +335,17 @@ impl Runtime {
             Action::Transfer(transfer) => {
                 near_metrics::inc_counter(&metrics::ACTION_TRANSFER_TOTAL);
                 action_transfer(account.as_mut().expect(EXPECT_ACCOUNT_EXISTS), transfer)?;
+                // Check if this is a gas refund, then try to refund the access key allowance.
+                if receipt.predecessor_id == system_account()
+                    && action_receipt.signer_id == receipt.receiver_id
+                {
+                    try_refund_allowance(
+                        state_update,
+                        &receipt.receiver_id,
+                        &action_receipt.signer_public_key,
+                        transfer,
+                    )?;
+                }
             }
             Action::Stake(stake) => {
                 near_metrics::inc_counter(&metrics::ACTION_STAKE_TOTAL);
@@ -638,25 +649,26 @@ impl Runtime {
             total_exec_fees(&self.config.transaction_costs, &action_receipt.actions)?,
             self.config.transaction_costs.action_receipt_creation_config.exec_fee(),
         )?;
-        let mut deposit_refund = if result.result.is_err() { total_deposit } else { 0 };
+        let deposit_refund = if result.result.is_err() { total_deposit } else { 0 };
         let gas_refund = if result.result.is_err() {
             safe_add_gas(prepaid_gas, exec_gas)? - result.gas_burnt
         } else {
             safe_add_gas(prepaid_gas, exec_gas)? - result.gas_used
         };
-        let mut gas_balance_refund = safe_gas_to_balance(action_receipt.gas_price, gas_refund)?;
-        if action_receipt.signer_id == receipt.predecessor_id {
-            // Merging 2 refunds
-            deposit_refund = safe_add_balance(deposit_refund, gas_balance_refund)?;
-            gas_balance_refund = 0;
-        }
+        let gas_balance_refund = safe_gas_to_balance(action_receipt.gas_price, gas_refund)?;
         if deposit_refund > 0 {
-            result.new_receipts.push(Receipt::new_refund(&receipt.predecessor_id, deposit_refund));
-        }
-        if gas_balance_refund > 0 {
             result
                 .new_receipts
-                .push(Receipt::new_refund(&action_receipt.signer_id, gas_balance_refund));
+                .push(Receipt::new_balance_refund(&receipt.predecessor_id, deposit_refund));
+        }
+        if gas_balance_refund > 0 {
+            // Gas refunds refund the allowance of the access key, so if the key exists on the
+            // account it will increase the allowance by the refund amount.
+            result.new_receipts.push(Receipt::new_gas_refund(
+                &action_receipt.signer_id,
+                gas_balance_refund,
+                action_receipt.signer_public_key.clone(),
+            ));
         }
         Ok(())
     }
@@ -1406,7 +1418,7 @@ mod tests {
                 root,
                 &Some(validator_accounts_update),
                 &apply_state,
-                &[Receipt::new_refund(&alice_account(), small_refund)],
+                &[Receipt::new_balance_refund(&alice_account(), small_refund)],
                 &[],
                 &epoch_info_provider,
             )

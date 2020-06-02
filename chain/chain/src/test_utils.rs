@@ -484,7 +484,7 @@ impl RuntimeAdapter for KeyValueRuntime {
     fn validate_tx(
         &self,
         _gas_price: Balance,
-        _state_update: StateRoot,
+        _state_update: Option<StateRoot>,
         _transaction: &SignedTransaction,
     ) -> Result<Option<InvalidTxError>, Error> {
         Ok(None)

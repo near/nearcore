@@ -1,6 +1,7 @@
 from serializer import BinarySerializer
 import hashlib, base58
 import nacl.signing
+from utils import combine_hash
 
 ED_PREFIX = "ed25519:"
 
@@ -27,10 +28,6 @@ inner_lite_schema = dict([
         }
     ],
 ])
-
-
-def combine_hash(hash1, hash2):
-    return hashlib.sha256(hash1 + hash2).digest()
 
 
 def compute_block_hash(inner_lite_view, inner_rest_hash, prev_hash):
