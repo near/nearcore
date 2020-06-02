@@ -1056,7 +1056,7 @@ mod tests {
     #[test]
     fn test_validate_receipt_valid() {
         let limit_config = VMLimitConfig::default();
-        validate_receipt(&limit_config, &Receipt::new_refund(&alice_account(), 10))
+        validate_receipt(&limit_config, &Receipt::new_balance_refund(&alice_account(), 10))
             .expect("valid receipt");
     }
 
@@ -1064,7 +1064,7 @@ mod tests {
     fn test_validate_receipt_incorrect_predecessor_id() {
         let limit_config = VMLimitConfig::default();
         let invalid_account_id = "WHAT?".to_string();
-        let mut receipt = Receipt::new_refund(&alice_account(), 10);
+        let mut receipt = Receipt::new_balance_refund(&alice_account(), 10);
         receipt.predecessor_id = invalid_account_id.clone();
         assert_eq!(
             validate_receipt(&limit_config, &receipt).expect_err("expected an error"),
@@ -1077,7 +1077,7 @@ mod tests {
         let limit_config = VMLimitConfig::default();
         let invalid_account_id = "WHAT?".to_string();
         assert_eq!(
-            validate_receipt(&limit_config, &Receipt::new_refund(&invalid_account_id, 10))
+            validate_receipt(&limit_config, &Receipt::new_balance_refund(&invalid_account_id, 10))
                 .expect_err("expected an error"),
             ReceiptValidationError::InvalidReceiverId { account_id: invalid_account_id }
         );
