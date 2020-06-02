@@ -7,7 +7,7 @@ from rc import run, gcloud
 import os
 import tempfile
 import json
-from pprint import pprint
+import hashlib
 
 
 class TxContext:
@@ -268,3 +268,17 @@ def collect_gcloud_config(num_nodes):
     with open(outfile, 'w+') as f:
         json.dump(res, f)
     os.environ[CONFIG_ENV_VAR] = outfile
+
+
+def combine_hash(hash1, hash2):
+    return hashlib.sha256(hash1 + hash2).digest()
+
+
+def compute_merkle_root_from_path(path, leaf_hash):
+    res = base58.b58decode(leaf_hash) if type(leaf_hash) is str else leaf_hash
+    for node in path:
+        if node['direction'] == 'Left':
+            res = combine_hash(base58.b58decode(node['hash']), res)
+        else:
+            res = combine_hash(res, base58.b58decode(node['hash']))
+    return res
