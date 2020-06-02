@@ -1,5 +1,5 @@
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
 use actix::{Actor, Addr, System};
@@ -109,13 +109,13 @@ fn sync_nodes() {
         let system = System::new("NEAR");
 
         let dir1 = tempfile::Builder::new().prefix("sync_nodes_1").tempdir().unwrap();
-        let (client1, _) = start_with_config(dir1.path(), near1);
+        let (client1, _, arbiters) = start_with_config(dir1.path(), near1);
 
         let signer = InMemoryValidatorSigner::from_seed("other", KeyType::ED25519, "other");
         let _ = add_blocks(vec![genesis_block], client1, 13, genesis.config.epoch_length, &signer);
 
         let dir2 = tempfile::Builder::new().prefix("sync_nodes_2").tempdir().unwrap();
-        let (_, view_client2) = start_with_config(dir2.path(), near2);
+        let (_, view_client2, arbiters2) = start_with_config(dir2.path(), near2);
 
         WaitOrTimeout::new(
             Box::new(move |_ctx| {
@@ -134,6 +134,8 @@ fn sync_nodes() {
         .start();
 
         system.run().unwrap();
+        let _ = arbiters.into_iter().map(|mut a| a.join());
+        let _ = arbiters2.into_iter().map(|mut a| a.join());
     });
 }
 
@@ -159,10 +161,10 @@ fn sync_after_sync_nodes() {
         let system = System::new("NEAR");
 
         let dir1 = tempfile::Builder::new().prefix("sync_nodes_1").tempdir().unwrap();
-        let (client1, _) = start_with_config(dir1.path(), near1);
+        let (client1, _, arbiters) = start_with_config(dir1.path(), near1);
 
         let dir2 = tempfile::Builder::new().prefix("sync_nodes_2").tempdir().unwrap();
-        let (_, view_client2) = start_with_config(dir2.path(), near2);
+        let (_, view_client2, arbiters2) = start_with_config(dir2.path(), near2);
 
         let signer = InMemoryValidatorSigner::from_seed("other", KeyType::ED25519, "other");
         let blocks = add_blocks(
@@ -202,6 +204,8 @@ fn sync_after_sync_nodes() {
         .start();
 
         system.run().unwrap();
+        let _ = arbiters.into_iter().map(|mut a| a.join());
+        let _ = arbiters2.into_iter().map(|mut a| a.join());
     });
 }
 
@@ -232,7 +236,7 @@ fn sync_state_stake_change() {
 
         let dir1 = tempfile::Builder::new().prefix("sync_state_stake_change_1").tempdir().unwrap();
         let dir2 = tempfile::Builder::new().prefix("sync_state_stake_change_2").tempdir().unwrap();
-        let (client1, view_client1) = start_with_config(dir1.path(), near1.clone());
+        let (client1, view_client1, arbiters) = start_with_config(dir1.path(), near1.clone());
 
         let genesis_hash = genesis_block(genesis).hash();
         let signer = Arc::new(InMemorySigner::from_seed("test1", KeyType::ED25519, "test1"));
@@ -256,16 +260,21 @@ fn sync_state_stake_change() {
 
         let started = Arc::new(AtomicBool::new(false));
         let dir2_path = dir2.path().to_path_buf();
+        let arbiters_holder = Arc::new(RwLock::new(vec![]));
+        let arbiters_holder2 = arbiters_holder.clone();
         WaitOrTimeout::new(
             Box::new(move |_ctx| {
                 let started_copy = started.clone();
                 let near2_copy = near2.clone();
                 let dir2_path_copy = dir2_path.clone();
+                let arbiters_holder2 = arbiters_holder2.clone();
                 actix::spawn(view_client1.send(GetBlock::latest()).then(move |res| {
                     let latest_height = res.unwrap().unwrap().header.height;
                     if !started_copy.load(Ordering::SeqCst) && latest_height > 10 {
                         started_copy.store(true, Ordering::SeqCst);
-                        let (_, view_client2) = start_with_config(&dir2_path_copy, near2_copy);
+                        let (_, view_client2, arbiters) =
+                            start_with_config(&dir2_path_copy, near2_copy);
+                        *arbiters_holder2.write().unwrap() = arbiters;
 
                         WaitOrTimeout::new(
                             Box::new(move |_ctx| {
@@ -294,5 +303,7 @@ fn sync_state_stake_change() {
         .start();
 
         system.run().unwrap();
+        let _ = arbiters.into_iter().map(|mut a| a.join());
+        let _ = arbiters_holder.write().unwrap().iter_mut().map(|a| a.join());
     });
 }

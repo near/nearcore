@@ -1224,9 +1224,9 @@ pub fn start_client(
     network_adapter: Arc<dyn NetworkAdapter>,
     validator_signer: Option<Arc<dyn ValidatorSigner>>,
     telemetry_actor: Addr<TelemetryActor>,
-) -> Addr<ClientActor> {
+) -> (Addr<ClientActor>, Arbiter) {
     let client_arbiter = Arbiter::new();
-    ClientActor::start_in_arbiter(&client_arbiter, move |_ctx| {
+    let client_addr = ClientActor::start_in_arbiter(&client_arbiter, move |_ctx| {
         ClientActor::new(
             client_config,
             chain_genesis,
@@ -1238,5 +1238,6 @@ pub fn start_client(
             true,
         )
         .unwrap()
-    })
+    });
+    (client_addr, client_arbiter)
 }

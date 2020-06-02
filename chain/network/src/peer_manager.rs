@@ -1027,6 +1027,8 @@ impl Actor for PeerManagerActor {
             active_peer.addr.do_send(msg.clone());
         }
 
+        let _ = self.peer_arbiter.join();
+
         Running::Stop
     }
 }
@@ -1611,10 +1613,11 @@ pub fn start_network(
     client_addr: Recipient<NetworkClientMessages>,
     view_client_addr: Recipient<NetworkViewClientMessages>,
     network_adapter: Arc<NetworkRecipient>,
-) {
+) -> Arbiter {
     let network_arbiter = Arbiter::new();
     let network_actor = PeerManagerActor::start_in_arbiter(&network_arbiter, |_ctx| {
         PeerManagerActor::new(store, network_config, client_addr, view_client_addr).unwrap()
     });
     network_adapter.set_recipient(network_actor.recipient());
+    network_arbiter
 }

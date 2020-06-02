@@ -2,7 +2,7 @@ use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
-use actix::{Actor, Addr, System};
+use actix::{Actor, Addr, Arbiter, System};
 use futures::{future, FutureExt};
 use num_rational::Rational;
 use rand::Rng;
@@ -29,6 +29,7 @@ struct TestNode {
     client: Addr<ClientActor>,
     view_client: Addr<ViewClientActor>,
     genesis_hash: CryptoHash,
+    arbiters: Vec<Arbiter>,
 }
 
 fn init_test_staking(
@@ -70,11 +71,11 @@ fn init_test_staking(
         .enumerate()
         .map(|(i, config)| {
             let genesis_hash = genesis_hash(Arc::clone(&config.genesis));
-            let (client, view_client) = start_with_config(paths[i], config.clone());
+            let (client, view_client, arbiters) = start_with_config(paths[i], config.clone());
             let account_id = format!("near.{}", i);
             let signer =
                 Arc::new(InMemorySigner::from_seed(&account_id, KeyType::ED25519, &account_id));
-            TestNode { account_id, signer, config, client, view_client, genesis_hash }
+            TestNode { account_id, signer, config, client, view_client, genesis_hash, arbiters }
         })
         .collect()
 }
