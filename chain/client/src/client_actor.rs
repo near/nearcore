@@ -1066,15 +1066,16 @@ impl ClientActor {
                 _ => false,
             };
             if sync_state {
-                let (sync_hash, mut new_shard_sync) = match &self.client.sync_status {
-                    SyncStatus::StateSync(sync_hash, shard_sync) => {
-                        (sync_hash.clone(), shard_sync.clone())
-                    }
-                    _ => {
-                        let sync_hash = unwrap_or_run_later!(self.find_sync_hash());
-                        (sync_hash, HashMap::default())
-                    }
-                };
+                let (sync_hash, mut new_shard_sync, just_enter_state_sync) =
+                    match &self.client.sync_status {
+                        SyncStatus::StateSync(sync_hash, shard_sync) => {
+                            (sync_hash.clone(), shard_sync.clone(), false)
+                        }
+                        _ => {
+                            let sync_hash = unwrap_or_run_later!(self.find_sync_hash());
+                            (sync_hash, HashMap::default(), true)
+                        }
+                    };
 
                 let me = self.client.validator_signer.as_ref().map(|x| x.validator_id().clone());
                 let shards_to_sync = (0..self.client.runtime_adapter.num_shards())
@@ -1088,7 +1089,7 @@ impl ClientActor {
                     })
                     .collect();
 
-                if !self.client.config.archive {
+                if !self.client.config.archive && just_enter_state_sync {
                     unwrap_or_run_later!(self.client.chain.reset_data_pre_state_sync(sync_hash));
                 }
 
