@@ -33,7 +33,6 @@ def atexit_cleanup(node):
     print("Cleaning up node %s:%s on script exit" % node.addr())
     print("Executed refmap tests: %s" % node.refmap_tests)
     print("Executed store validity tests: %s" % node.store_tests)
-    # input()
     try:
         node.cleanup()
     except:
@@ -308,8 +307,6 @@ class LocalNode(BaseNode):
                                           stdout=self.stdout,
                                           stderr=self.stderr,
                                           env=env).pid
-        # print(' '.join(cmd).replace('--verbose', '--verbose "" ') + f">{self.stdout_name} 2>{self.stderr_name}")
-        # input()
         try:
             self.wait_for_rpc(10)
         except:
