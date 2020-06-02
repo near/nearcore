@@ -8,6 +8,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
+use num_rational::Rational;
 use serde::{Deserialize, Serialize};
 use smart_default::SmartDefault;
 
@@ -21,6 +22,14 @@ use near_runtime_configs::RuntimeConfig;
 use crate::PROTOCOL_VERSION;
 
 pub const CONFIG_VERSION: u32 = 1;
+
+fn default_online_min_threshold() -> Rational {
+    Rational::new(90, 100)
+}
+
+fn default_online_max_threshold() -> Rational {
+    Rational::new(99, 100)
+}
 
 #[derive(Debug, Clone, SmartDefault, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -58,22 +67,31 @@ pub struct GenesisConfig {
     pub block_producer_kickout_threshold: u8,
     /// Criterion for kicking out chunk producers (this is a number between 0 and 100)
     pub chunk_producer_kickout_threshold: u8,
+    /// Online minimum threshold below which validator doesn't receive reward.
+    #[serde(default = "default_online_min_threshold")]
+    #[default(Rational::new(90, 100))]
+    pub online_min_threshold: Rational,
+    /// Online maximum threshold above which validator gets full reward.
+    #[serde(default = "default_online_max_threshold")]
+    #[default(Rational::new(99, 100))]
+    pub online_max_threshold: Rational,
     /// Gas price adjustment rate
-    pub gas_price_adjustment_rate: u8,
+    #[default(Rational::from_integer(0))]
+    pub gas_price_adjustment_rate: Rational,
     /// Runtime configuration (mostly economics constants).
     pub runtime_config: RuntimeConfig,
     /// List of initial validators.
     pub validators: Vec<AccountInfo>,
     /// Number of blocks for which a given transaction is valid
     pub transaction_validity_period: NumBlocks,
-    /// Developer reward percentage (this is a number between 0 and 100)
-    pub developer_reward_percentage: u8,
-    /// Protocol treasury percentage (this is a number between 0 and 100)
-    pub protocol_reward_percentage: u8,
-    /// Maximum inflation on the total supply every epoch (this is a number between 0 and 100)
-    pub max_inflation_rate: u8,
+    /// Protocol treasury rate
+    #[default(Rational::from_integer(0))]
+    pub protocol_reward_rate: Rational,
+    /// Maximum inflation on the total supply every epoch.
+    #[default(Rational::from_integer(0))]
+    pub max_inflation_rate: Rational,
     /// Total supply of tokens at genesis.
-    #[serde(with = "u128_dec_format", skip_deserializing)]
+    #[serde(with = "u128_dec_format")]
     pub total_supply: Balance,
     /// Expected number of blocks per year
     pub num_blocks_per_year: NumBlocks,
@@ -95,7 +113,7 @@ pub struct GenesisConfig {
     Serialize,
     Deserialize,
 )]
-pub struct GenesisRecords(Vec<StateRecord>);
+pub struct GenesisRecords(pub Vec<StateRecord>);
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -188,12 +206,8 @@ impl Genesis {
 
     /// Reads Genesis from a single file.
     pub fn from_file<P: AsRef<Path>>(path: P) -> Self {
-        let mut genesis: Self = serde_json::from_str(
-            &std::fs::read_to_string(path).expect("Could not read genesis file."),
-        )
-        .expect("Failed to deserialize the genesis records.");
-        genesis.config.total_supply = get_initial_supply(&genesis.records.as_ref());
-        genesis
+        serde_json::from_str(&std::fs::read_to_string(path).expect("Could not read genesis file."))
+            .expect("Failed to deserialize the genesis records.")
     }
 
     /// Reads Genesis from config and records files.

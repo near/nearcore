@@ -68,7 +68,7 @@ pub fn bytes_to_peer_message(bytes: &[u8]) -> Result<PeerMessage, std::io::Error
 #[cfg(test)]
 mod test {
     use near_crypto::{KeyType, SecretKey};
-    use near_primitives::block::Approval;
+    use near_primitives::block::{Approval, ApprovalInner};
     use near_primitives::hash::CryptoHash;
     use near_primitives::network::AnnounceAccount;
     use near_primitives::types::EpochId;
@@ -94,12 +94,12 @@ mod test {
         let peer_info = PeerInfo::random();
         let fake_handshake = Handshake {
             version: 1,
-            peer_id: peer_info.id,
+            peer_id: peer_info.id.clone(),
+            target_peer_id: peer_info.id,
             listen_port: None,
             chain_info: PeerChainInfo {
                 genesis_id: Default::default(),
                 height: 0,
-                score: 0.into(),
                 tracked_shards: vec![],
             },
             edge_info: EdgeInfo::default(),
@@ -139,9 +139,6 @@ mod test {
         let hash = CryptoHash::default();
         let signature = sk.sign(hash.as_ref());
 
-        let bls_sk = SecretKey::from_random(KeyType::ED25519);
-        let bls_signature = bls_sk.sign(hash.as_ref());
-
         let msg = PeerMessage::Routed(RoutedMessage {
             target: PeerIdOrHash::PeerId(sk.public_key().into()),
             author: sk.public_key().into(),
@@ -149,11 +146,9 @@ mod test {
             ttl: 100,
             body: RoutedMessageBody::BlockApproval(Approval {
                 account_id: "test2".to_string(),
-                parent_hash: CryptoHash::default(),
-                reference_hash: Some(CryptoHash::default()),
+                inner: ApprovalInner::Endorsement(CryptoHash::default()),
                 target_height: 1,
-                is_endorsement: true,
-                signature: bls_signature,
+                signature: signature,
             }),
         });
         test_codec(msg);

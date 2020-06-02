@@ -1,19 +1,20 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::iter;
 
+use near_primitives::errors::EpochError;
 use near_primitives::types::{
     AccountId, Balance, NumSeats, ValidatorId, ValidatorKickoutReason, ValidatorStake,
 };
 
-use crate::types::{EpochConfig, EpochError, EpochInfo, RngSeed};
+use crate::types::{EpochConfig, EpochInfo, RngSeed};
 
 /// Find threshold of stake per seat, given provided stakes and required number of seats.
 fn find_threshold(stakes: &[Balance], num_seats: NumSeats) -> Result<Balance, EpochError> {
-    let stakes_sum: Balance = stakes.iter().sum();
-    if stakes_sum < num_seats.into() {
-        return Err(EpochError::ThresholdError(stakes_sum, num_seats));
+    let stake_sum: Balance = stakes.iter().sum();
+    if stake_sum < num_seats.into() {
+        return Err(EpochError::ThresholdError { stake_sum, num_seats });
     }
-    let (mut left, mut right): (Balance, Balance) = (1, stakes_sum + 1);
+    let (mut left, mut right): (Balance, Balance) = (1, stake_sum + 1);
     'outer: loop {
         if left == right - 1 {
             break Ok(left);
@@ -39,7 +40,7 @@ pub fn proposals_to_epoch_info(
     proposals: Vec<ValidatorStake>,
     mut validator_kickout: HashMap<AccountId, ValidatorKickoutReason>,
     validator_reward: HashMap<AccountId, Balance>,
-    inflation: Balance,
+    minted_amount: Balance,
 ) -> Result<EpochInfo, EpochError> {
     // Combine proposals with rollovers.
     let mut ordered_proposals = BTreeMap::new();
@@ -71,9 +72,11 @@ pub fn proposals_to_epoch_info(
     }
 
     for r in epoch_info.fishermen.iter() {
-        if !ordered_proposals.contains_key(&r.account_id)
-            && !validator_kickout.contains_key(&r.account_id)
-        {
+        if validator_kickout.contains_key(&r.account_id) {
+            stake_change.insert(r.account_id.clone(), 0);
+            continue;
+        }
+        if !ordered_proposals.contains_key(&r.account_id) {
             // safe to do this here because fishermen from previous epoch is guaranteed to have no
             // duplicates.
             fishermen.push(r.clone());
@@ -195,14 +198,16 @@ pub fn proposals_to_epoch_info(
         hidden_validators_settlement: vec![],
         stake_change,
         validator_reward,
-        inflation,
         validator_kickout,
         fishermen_to_index,
+        minted_amount,
     })
 }
 
 #[cfg(test)]
 mod tests {
+    use num_rational::Rational;
+
     use crate::test_utils::{change_stake, epoch_config, epoch_info, stake};
 
     use super::*;
@@ -252,7 +257,9 @@ mod tests {
                     avg_hidden_validator_seats_per_shard: vec![6, 2, 2, 2, 2],
                     block_producer_kickout_threshold: 90,
                     chunk_producer_kickout_threshold: 60,
-                    fishermen_threshold: 10
+                    fishermen_threshold: 10,
+                    online_min_threshold: Rational::new(90, 100),
+                    online_max_threshold: Rational::new(99, 100),
                 },
                 [0; 32],
                 &EpochInfo::default(),

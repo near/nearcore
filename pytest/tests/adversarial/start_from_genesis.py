@@ -4,18 +4,25 @@ sys.path.append('lib')
 
 from cluster import start_cluster
 
-overtake = False # create a new chain which is shorter than current one
+overtake = False  # create a new chain which is shorter than current one
 if "overtake" in sys.argv:
-    overtake = True # create a new chain which is longer than current one
+    overtake = True  # create a new chain which is longer than current one
 
 doomslug = True
 if "doomslug_off" in sys.argv:
-    doomslug = False # turn off doomslug
+    doomslug = False  # turn off doomslug
 
 TIMEOUT = 300
 BLOCKS = 30
 
-nodes = start_cluster(2, 1, 2, None, [["epoch_length", 100], ["block_producer_kickout_threshold", 80]], {})
+nodes = start_cluster(
+    2, 1, 2, None,
+    [["epoch_length", 100], ["block_producer_kickout_threshold", 80]], {})
+if not doomslug:
+    # we expect inconsistency in store in node 0
+    # because we're going to turn off doomslug
+    # and allow applying blocks without proper validation
+    nodes[0].stop_checking_store()
 
 started = time.time()
 
@@ -33,7 +40,7 @@ while True:
 
 print("Got to %s blocks, getting to fun stuff" % BLOCKS)
 
-nodes[0].kill() # to disallow syncing
+nodes[0].kill()  # to disallow syncing
 nodes[1].kill()
 nodes[1].reset_data()
 

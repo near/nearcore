@@ -12,6 +12,8 @@ use near_store::test_utils::create_test_store;
 use crate::types::{EpochConfig, EpochInfo, ValidatorWeight};
 use crate::RewardCalculator;
 use crate::{BlockInfo, EpochManager};
+use near_primitives::challenge::SlashedValidator;
+use num_rational::Rational;
 
 pub const DEFAULT_GAS_PRICE: u128 = 100;
 pub const DEFAULT_TOTAL_SUPPLY: u128 = 1_000_000_000_000;
@@ -38,15 +40,18 @@ pub fn epoch_info(
     stake_change: BTreeMap<AccountId, Balance>,
     validator_kickout: Vec<(&str, ValidatorKickoutReason)>,
     validator_reward: HashMap<AccountId, Balance>,
-    inflation: u128,
+    minted_amount: Balance,
 ) -> EpochInfo {
     accounts.sort();
     let validator_to_index = accounts.iter().enumerate().fold(HashMap::new(), |mut acc, (i, x)| {
         acc.insert(x.0.to_string(), i as u64);
         acc
     });
-    let fishermen_to_index =
-        fishermen.iter().enumerate().map(|(i, (s, _))| (s.to_string(), i as ValidatorId)).collect();
+    let fishermen_to_index = fishermen
+        .iter()
+        .enumerate()
+        .map(|(i, (s, _))| ((*s).to_string(), i as ValidatorId))
+        .collect();
     let account_to_validators = |accounts: Vec<(&str, Balance)>| -> Vec<ValidatorStake> {
         accounts
             .into_iter()
@@ -70,8 +75,8 @@ pub fn epoch_info(
         fishermen_to_index,
         stake_change,
         validator_reward,
-        inflation,
         validator_kickout,
+        minted_amount,
     }
 }
 
@@ -98,6 +103,8 @@ pub fn epoch_config(
         block_producer_kickout_threshold,
         chunk_producer_kickout_threshold,
         fishermen_threshold,
+        online_min_threshold: Rational::new(90, 100),
+        online_max_threshold: Rational::new(99, 100),
     }
 }
 
@@ -109,12 +116,13 @@ pub fn stake(account_id: &str, amount: Balance) -> ValidatorStake {
 /// No-op reward calculator. Will produce no reward
 pub fn default_reward_calculator() -> RewardCalculator {
     RewardCalculator {
-        max_inflation_rate: 0,
+        max_inflation_rate: Rational::from_integer(0),
         num_blocks_per_year: 1,
         epoch_length: 1,
-        validator_reward_percentage: 0,
-        protocol_reward_percentage: 0,
+        protocol_reward_percentage: Rational::from_integer(0),
         protocol_treasury_account: "near".to_string(),
+        online_min_threshold: Rational::new(90, 100),
+        online_max_threshold: Rational::new(99, 100),
     }
 }
 
@@ -174,6 +182,33 @@ pub fn setup_default_epoch_manager(
     )
 }
 
+pub fn record_block_with_slashes(
+    epoch_manager: &mut EpochManager,
+    prev_h: CryptoHash,
+    cur_h: CryptoHash,
+    height: BlockHeight,
+    proposals: Vec<ValidatorStake>,
+    slashed: Vec<SlashedValidator>,
+) {
+    epoch_manager
+        .record_block_info(
+            &cur_h,
+            BlockInfo::new(
+                height,
+                height.saturating_sub(2),
+                prev_h,
+                proposals,
+                vec![],
+                slashed,
+                DEFAULT_TOTAL_SUPPLY,
+            ),
+            [0; 32],
+        )
+        .unwrap()
+        .commit()
+        .unwrap();
+}
+
 pub fn record_block(
     epoch_manager: &mut EpochManager,
     prev_h: CryptoHash,
@@ -181,13 +216,5 @@ pub fn record_block(
     height: BlockHeight,
     proposals: Vec<ValidatorStake>,
 ) {
-    epoch_manager
-        .record_block_info(
-            &cur_h,
-            BlockInfo::new(height, 0, prev_h, proposals, vec![], vec![], 0, DEFAULT_TOTAL_SUPPLY),
-            [0; 32],
-        )
-        .unwrap()
-        .commit()
-        .unwrap();
+    record_block_with_slashes(epoch_manager, prev_h, cur_h, height, proposals, vec![]);
 }

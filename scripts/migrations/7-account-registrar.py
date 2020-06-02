@@ -4,8 +4,7 @@ https://github.com/nearprotocol/NEPs/pull/45
 
 Changes:
  - Introduce `account_creation_config` in `RuntimeConfig`.
- - Set `min_allowed_top_level_account_length` to 11. Means any top-level account ID with 10 chars or less
-   can only be created by `registrar`
+ - Set `min_allowed_top_level_account_length` to 0. Means any top-level account ID can still be created by anyone.
  - Set `registrar_account_id` to `registrar`.
  - Creates a new `registrar` account with `near` access keys and 1M $N.
 """
@@ -18,13 +17,14 @@ from collections import OrderedDict
 home = sys.argv[1]
 output_home = sys.argv[2]
 
-config = json.load(open(os.path.join(home, 'output.json')), object_pairs_hook=OrderedDict)
+config = json.load(open(os.path.join(home, 'output.json')),
+                   object_pairs_hook=OrderedDict)
 
 assert config['protocol_version'] == 6
 
 config['protocol_version'] = 7
 config['runtime_config']['account_creation_config'] = {
-    'min_allowed_top_level_account_length': 11,
+    'min_allowed_top_level_account_length': 0,
     'registrar_account_id': 'registrar',
 }
 
@@ -34,15 +34,18 @@ near_access_key_records = []
 
 # Removing existing `registrar` account.
 for record in config['records']:
-    if ('Account' in record) and (record['Account']['account_id'] == 'registrar'):
+    if ('Account' in record) and (
+            record['Account']['account_id'] == 'registrar'):
         continue
-    if ('AccessKey' in record) and (record['AccessKey']['account_id'] == 'registrar'):
+    if ('AccessKey' in record) and (
+            record['AccessKey']['account_id'] == 'registrar'):
         continue
-    if ('AccessKey' in record) and (record['AccessKey']['account_id'] == 'near'):
+    if ('AccessKey' in record) and (
+            record['AccessKey']['account_id'] == 'near'):
         near_access_key_records.append(record['AccessKey'])
     records.append(record)
 
-assert(len(near_access_key_records) > 0)
+assert (len(near_access_key_records) > 0)
 
 records.append({
     'Account': {
@@ -65,7 +68,6 @@ for access_key_record in near_access_key_records:
             'account_id': 'registrar',
         }
     })
-
 
 config['records'] = records
 

@@ -2,9 +2,9 @@ use actix::System;
 use futures::{future, FutureExt};
 
 use near_jsonrpc::client::new_http_client;
-use near_primitives::test_utils::init_test_logger;
+use near_logger_utils::init_test_logger;
 
-mod test_utils;
+pub mod test_utils;
 
 /// Retrieve client status via HTTP GET.
 #[test]
@@ -12,9 +12,9 @@ fn test_status() {
     init_test_logger();
 
     System::run(|| {
-        let (_view_client_addr, addr) = test_utils::start_all(false);
+        let (_view_client_addr, addr) = test_utils::start_all(test_utils::NodeType::NonValidator);
 
-        let mut client = new_http_client(&format!("http://{}", addr));
+        let client = new_http_client(&format!("http://{}", addr));
         actix::spawn(client.status().then(|res| {
             let res = res.unwrap();
             assert_eq!(res.chain_id, "unittest");

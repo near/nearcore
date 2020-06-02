@@ -7,10 +7,10 @@ use std::{env, thread};
 use log::error;
 use rand::Rng;
 
-use near::config::NearConfig;
 use near_chain_configs::Genesis;
 use near_crypto::{InMemorySigner, KeyType, Signer};
 use near_primitives::types::AccountId;
+use neard::config::NearConfig;
 
 use crate::node::Node;
 use crate::user::rpc_user::RpcUser;
@@ -115,9 +115,25 @@ impl ProcessNode {
 
     /// Side effect: writes chain spec file
     pub fn get_start_node_command(&self) -> Command {
-        let mut command = Command::new("cargo");
-        command.args(&["run", "-p", "near", "--", "--home", &self.work_dir, "run"]);
-        command
+        if let Err(_) = std::env::var("NIGHTLY_RUNNER") {
+            let mut command = Command::new("cargo");
+            command.args(&[
+                "run",
+                "-p",
+                "neard",
+                "--bin",
+                "neard",
+                "--",
+                "--home",
+                &self.work_dir,
+                "run",
+            ]);
+            command
+        } else {
+            let mut command = Command::new("normal_target/debug/neard");
+            command.args(&["--home", &self.work_dir, "run"]);
+            command
+        }
     }
 }
 

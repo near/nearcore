@@ -5,15 +5,14 @@ authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2018"
 
 [dependencies]
-actix = "0.9.0"
+actix = "0.9"
 futures = "0.3"
 rand = "0.7"
 chrono = "0.4.6"
 log = "0.4"
 borsh = "0.6.1"
-serde = "1.0"
-serde_derive = "1.0"
-cached = "0.12.0"
+serde = { version = "1", features = [ "derive" ] }
+cached = "0.12"
 reed-solomon-erasure = "4"
 
 near-crypto = { path = "../../core/crypto" }

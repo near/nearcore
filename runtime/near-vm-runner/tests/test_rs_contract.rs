@@ -1,14 +1,14 @@
 use near_runtime_fees::RuntimeFeesConfig;
 use near_vm_errors::FunctionCallError;
 use near_vm_logic::mocks::mock_external::MockedExternal;
-use near_vm_logic::types::ReturnData;
+use near_vm_logic::types::{Balance, ReturnData};
 use near_vm_logic::{VMConfig, VMContext, VMOutcome};
 use near_vm_runner::{run, VMError};
 use std::mem::size_of;
 
-mod utils;
+pub mod test_utils;
 
-use crate::utils::{
+use self::test_utils::{
     CURRENT_ACCOUNT_ID, PREDECESSOR_ACCOUNT_ID, SIGNER_ACCOUNT_ID, SIGNER_ACCOUNT_PK,
 };
 
@@ -42,7 +42,7 @@ fn arr_u64_to_u8(value: &[u64]) -> Vec<u8> {
 }
 
 fn create_context(input: &[u8]) -> VMContext {
-    crate::utils::create_context(input.to_owned())
+    test_utils::create_context(input.to_owned())
 }
 
 #[test]
@@ -82,23 +82,30 @@ pub fn test_read_write() {
 }
 
 macro_rules! def_test_ext {
+    ($name:ident, $method:expr, $expected:expr, $input:expr, $validator:expr) => {
+        #[test]
+        pub fn $name() {
+            run_test_ext($method, $expected, $input, $validator)
+        }
+    };
     ($name:ident, $method:expr, $expected:expr, $input:expr) => {
         #[test]
         pub fn $name() {
-            run_test_ext($method, $expected, $input)
+            run_test_ext($method, $expected, $input, vec![])
         }
     };
     ($name:ident, $method:expr, $expected:expr) => {
         #[test]
         pub fn $name() {
-            run_test_ext($method, $expected, &[])
+            run_test_ext($method, $expected, &[], vec![])
         }
     };
 }
 
-fn run_test_ext(method: &[u8], expected: &[u8], input: &[u8]) {
+fn run_test_ext(method: &[u8], expected: &[u8], input: &[u8], validators: Vec<(&str, Balance)>) {
     let code = &TEST_CONTRACT;
     let mut fake_external = MockedExternal::new();
+    fake_external.validators = validators.into_iter().map(|(s, b)| (s.to_string(), b)).collect();
     let config = VMConfig::default();
     let fees = RuntimeFeesConfig::default();
     let context = create_context(&input);
@@ -138,7 +145,7 @@ def_test_ext!(ext_block_index, b"ext_block_index", &10u64.to_le_bytes());
 def_test_ext!(ext_block_timestamp, b"ext_block_timestamp", &42u64.to_le_bytes());
 def_test_ext!(ext_storage_usage, b"ext_storage_usage", &12u64.to_le_bytes());
 // TODO: mock used_gas
-def_test_ext!(ext_used_gas, b"ext_used_gas", &[116, 54, 169, 11, 0, 0, 0, 0]);
+def_test_ext!(ext_used_gas, b"ext_used_gas", &[212, 193, 242, 19, 0, 0, 0, 0]);
 def_test_ext!(
     ext_sha256,
     b"ext_sha256",
@@ -151,6 +158,36 @@ def_test_ext!(
 // current_account_balance = context.account_balance + context.attached_deposit;
 def_test_ext!(ext_account_balance, b"ext_account_balance", &(2u128 + 2).to_le_bytes());
 def_test_ext!(ext_attached_deposit, b"ext_attached_deposit", &2u128.to_le_bytes());
+
+def_test_ext!(
+    ext_validator_stake_alice,
+    b"ext_validator_stake",
+    &(100u128).to_le_bytes(),
+    b"alice",
+    vec![("alice", 100), ("bob", 1)]
+);
+def_test_ext!(
+    ext_validator_stake_bob,
+    b"ext_validator_stake",
+    &(1u128).to_le_bytes(),
+    b"bob",
+    vec![("alice", 100), ("bob", 1)]
+);
+def_test_ext!(
+    ext_validator_stake_carol,
+    b"ext_validator_stake",
+    &(0u128).to_le_bytes(),
+    b"carol",
+    vec![("alice", 100), ("bob", 1)]
+);
+
+def_test_ext!(
+    ext_validator_total_stake,
+    b"ext_validator_total_stake",
+    &(100u128 + 1).to_le_bytes(),
+    &[],
+    vec![("alice", 100), ("bob", 1)]
+);
 
 #[test]
 pub fn test_out_of_memory() {
@@ -172,10 +209,5 @@ pub fn test_out_of_memory() {
         &fees,
         &promise_results,
     );
-    assert_eq!(
-        result.1,
-        Some(VMError::FunctionCallError(FunctionCallError::WasmTrap {
-            msg: "unknown".to_string()
-        }))
-    );
+    assert_eq!(result.1, Some(VMError::FunctionCallError(FunctionCallError::WasmUnknownError)));
 }

@@ -4,27 +4,30 @@ use std::fmt;
 use std::net::{AddrParseError, IpAddr, SocketAddr};
 use std::str::FromStr;
 use std::sync::RwLock;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use actix::dev::{MessageResponse, ResponseChannel};
 use actix::{Actor, Addr, MailboxError, Message, Recipient};
 use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::{DateTime, Utc};
 use futures::{future::BoxFuture, FutureExt};
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use tokio::net::TcpStream;
+use tracing::{error, warn};
 
 use near_chain::types::ShardStateSyncResponse;
 use near_chain::{Block, BlockHeader};
 use near_chain_configs::PROTOCOL_VERSION;
 use near_crypto::{PublicKey, SecretKey, Signature};
 use near_metrics;
-use near_primitives::block::{Approval, ApprovalMessage, BlockScore, GenesisId, ScoreAndHeight};
+use near_primitives::block::{Approval, ApprovalMessage, GenesisId};
 use near_primitives::challenge::Challenge;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::network::{AnnounceAccount, PeerId};
-use near_primitives::sharding::{ChunkHash, PartialEncodedChunk};
+use near_primitives::sharding::{
+    ChunkHash, PartialEncodedChunk, PartialEncodedChunkPart, ReceiptProof,
+};
 use near_primitives::transaction::{ExecutionOutcomeWithIdAndProof, SignedTransaction};
 use near_primitives::types::{AccountId, BlockHeight, BlockIdOrFinality, EpochId, ShardId};
 use near_primitives::utils::{from_timestamp, to_timestamp};
@@ -40,6 +43,10 @@ use crate::routing::{Edge, EdgeInfo, RoutingTableInfo};
 /// This is used to avoid infinite loop because of inconsistent view of the network
 /// by different nodes.
 pub const ROUTED_MESSAGE_TTL: u8 = 100;
+/// On every message from peer don't update `last_time_received_message`
+/// but wait some "small" timeout between updates to avoid a lot of messages between
+/// Peer and PeerManager.
+pub const UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE: Duration = Duration::from_secs(60);
 
 /// Peer information.
 #[derive(BorshSerialize, BorshDeserialize, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -63,7 +70,7 @@ impl PeerInfo {
 
 // Note, `Display` automatically implements `ToString` which must be reciprocal to `FromStr`.
 impl fmt::Display for PeerInfo {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.id)?;
         if let Some(addr) = &self.addr {
             write!(f, "@{}", addr)?;
@@ -121,16 +128,8 @@ pub struct PeerChainInfo {
     pub genesis_id: GenesisId,
     /// Last known chain height of the peer.
     pub height: BlockHeight,
-    /// Last known chain score of the peer.
-    pub score: BlockScore,
     /// Shards that the peer is tracking
     pub tracked_shards: Vec<ShardId>,
-}
-
-impl PeerChainInfo {
-    pub fn score_and_height(&self) -> ScoreAndHeight {
-        ScoreAndHeight { score: self.score, height: self.height }
-    }
 }
 
 /// Peer type.
@@ -159,6 +158,8 @@ pub struct Handshake {
     pub version: u32,
     /// Sender's peer id.
     pub peer_id: PeerId,
+    /// Receiver's peer id.
+    pub target_peer_id: PeerId,
     /// Sender's listening addr.
     pub listen_port: Option<u16>,
     /// Peer's chain information.
@@ -170,11 +171,19 @@ pub struct Handshake {
 impl Handshake {
     pub fn new(
         peer_id: PeerId,
+        target_peer_id: PeerId,
         listen_port: Option<u16>,
         chain_info: PeerChainInfo,
         edge_info: EdgeInfo,
     ) -> Self {
-        Handshake { version: PROTOCOL_VERSION, peer_id, listen_port, chain_info, edge_info }
+        Handshake {
+            version: PROTOCOL_VERSION,
+            peer_id,
+            target_peer_id,
+            listen_port,
+            chain_info,
+            edge_info,
+        }
     }
 }
 
@@ -190,6 +199,7 @@ pub struct AnnounceAccountRoute {
 pub enum HandshakeFailureReason {
     ProtocolVersionMismatch(u32),
     GenesisMismatch(GenesisId),
+    InvalidTarget,
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Serialize, PartialEq, Eq, Clone, Debug)]
@@ -228,6 +238,7 @@ pub enum RoutedMessageBody {
     StateRequestPart(ShardId, CryptoHash, u64),
     StateResponse(StateResponseInfo),
     PartialEncodedChunkRequest(PartialEncodedChunkRequestMsg),
+    PartialEncodedChunkResponse(PartialEncodedChunkResponseMsg),
     PartialEncodedChunk(PartialEncodedChunk),
     /// Ping/Pong used for testing networking and routing.
     Ping(Ping),
@@ -412,7 +423,7 @@ pub enum PeerMessage {
 }
 
 impl fmt::Display for PeerMessage {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             PeerMessage::Handshake(_) => f.write_str("Handshake"),
             PeerMessage::HandshakeFailure(_, _) => f.write_str("HandshakeFailure"),
@@ -436,8 +447,8 @@ impl fmt::Display for PeerMessage {
                 }
                 RoutedMessageBody::QueryRequest { .. } => f.write_str("Query request"),
                 RoutedMessageBody::QueryResponse { .. } => f.write_str("Query response"),
-                RoutedMessageBody::StateRequestHeader(_, _) => f.write_str("StateResponseHeader"),
-                RoutedMessageBody::StateRequestPart(_, _, _) => f.write_str("StateResponsePart"),
+                RoutedMessageBody::StateRequestHeader(_, _) => f.write_str("StateRequestHeader"),
+                RoutedMessageBody::StateRequestPart(_, _, _) => f.write_str("StateRequestPart"),
                 RoutedMessageBody::StateResponse(_) => f.write_str("StateResponse"),
                 RoutedMessageBody::ReceiptOutcomeRequest(_) => {
                     f.write_str("Receipt outcome request")
@@ -447,6 +458,9 @@ impl fmt::Display for PeerMessage {
                 }
                 RoutedMessageBody::PartialEncodedChunkRequest(_) => {
                     f.write_str("PartialEncodedChunkRequest")
+                }
+                RoutedMessageBody::PartialEncodedChunkResponse(_) => {
+                    f.write_str("PartialEncodedChunkResponse")
                 }
                 RoutedMessageBody::PartialEncodedChunk(_) => f.write_str("PartialEncodedChunk"),
                 RoutedMessageBody::Ping(_) => f.write_str("Ping"),
@@ -601,9 +615,9 @@ impl PeerMessage {
                     );
                 }
                 RoutedMessageBody::StateResponse(_) => {
-                    near_metrics::inc_counter(&metrics::STATE_RESPONSE_RECEIVED_TOTAL);
+                    near_metrics::inc_counter(&metrics::ROUTED_STATE_RESPONSE_RECEIVED_TOTAL);
                     near_metrics::inc_counter_by(
-                        &metrics::STATE_RESPONSE_RECEIVED_BYTES,
+                        &metrics::ROUTED_STATE_RESPONSE_RECEIVED_BYTES,
                         size as i64,
                     );
                 }
@@ -613,6 +627,15 @@ impl PeerMessage {
                     );
                     near_metrics::inc_counter_by(
                         &metrics::ROUTED_PARTIAL_CHUNK_REQUEST_RECEIVED_BYTES,
+                        size as i64,
+                    );
+                }
+                RoutedMessageBody::PartialEncodedChunkResponse(_) => {
+                    near_metrics::inc_counter(
+                        &metrics::ROUTED_PARTIAL_CHUNK_RESPONSE_RECEIVED_TOTAL,
+                    );
+                    near_metrics::inc_counter_by(
+                        &metrics::ROUTED_PARTIAL_CHUNK_RESPONSE_RECEIVED_BYTES,
                         size as i64,
                     );
                 }
@@ -654,6 +677,7 @@ impl PeerMessage {
                 | RoutedMessageBody::ForwardTx(_)
                 | RoutedMessageBody::PartialEncodedChunk(_)
                 | RoutedMessageBody::PartialEncodedChunkRequest(_)
+                | RoutedMessageBody::PartialEncodedChunkResponse(_)
                 | RoutedMessageBody::StateResponse(_) => true,
                 _ => false,
             },
@@ -698,12 +722,24 @@ pub struct NetworkConfig {
     pub handshake_timeout: Duration,
     pub reconnect_delay: Duration,
     pub bootstrap_peers_period: Duration,
-    pub max_peer: u32,
+    /// Maximum number of active peers. Hard limit.
+    pub max_num_peers: u32,
+    /// Minimum outbound connections a peer should have to avoid eclipse attacks.
+    pub minimum_outbound_peers: u32,
+    /// Lower bound of the ideal number of connections.
+    pub ideal_connections_lo: u32,
+    /// Upper bound of the ideal number of connections.
+    pub ideal_connections_hi: u32,
+    /// Peers which last message is was within this period of time are considered active recent peers.
+    pub peer_recent_time_window: Duration,
+    /// Number of peers to keep while removing a connection.
+    /// Used to avoid disconnecting from peers we have been connected since long time.
+    pub safe_set_size: u32,
     /// Duration of the ban for misbehaving peers.
     pub ban_window: Duration,
     /// Remove expired peers.
     pub peer_expiration_duration: Duration,
-    /// Maximum number of peer addresses we should ever send.
+    /// Maximum number of peer addresses we should ever send on PeersRequest.
     pub max_send_peers: u32,
     /// Duration for checking on stats from the peers.
     pub peer_stats_period: Duration,
@@ -729,6 +765,43 @@ pub struct NetworkConfig {
     /// are satisfied.
     /// This flag should be ALWAYS FALSE. Only set to true for testing purposes.
     pub outbound_disabled: bool,
+}
+
+impl NetworkConfig {
+    pub fn verify(&self) {
+        if self.ideal_connections_lo + 1 >= self.ideal_connections_hi {
+            error!(target: "network",
+            "Invalid ideal_connections values. lo({}) > hi({}).",
+            self.ideal_connections_lo, self.ideal_connections_hi);
+        }
+
+        if self.ideal_connections_hi >= self.max_num_peers {
+            error!(target: "network",
+                "max_num_peers({}) is below ideal_connections_hi({}) which may lead to connection saturation and declining new connections.",
+                self.max_num_peers, self.ideal_connections_hi
+            );
+        }
+
+        if self.outbound_disabled {
+            warn!(target: "network", "Outbound connections are disabled.");
+        }
+
+        if self.safe_set_size <= self.minimum_outbound_peers {
+            error!(target: "network",
+                "safe_set_size({}) must be larger than minimum_outbound_peers({}).",
+                self.safe_set_size,
+                self.minimum_outbound_peers
+            );
+        }
+
+        if UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE * 2 > self.peer_recent_time_window {
+            error!(
+                target: "network",
+                "Very short peer_recent_time_window({}). it should be at least twice update_interval_last_time_received_message({}).",
+                self.peer_recent_time_window.as_secs(), UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE.as_secs()
+            );
+        }
+    }
 }
 
 /// Used to match a socket addr by IP:Port or only by IP
@@ -760,7 +833,7 @@ impl FromStr for PatternAddr {
 }
 
 /// Status of the known peers.
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Eq, PartialEq, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Eq, PartialEq, Debug, Clone)]
 pub enum KnownPeerStatus {
     Unknown,
     NotConnected,
@@ -768,8 +841,17 @@ pub enum KnownPeerStatus {
     Banned(ReasonForBan, u64),
 }
 
+impl KnownPeerStatus {
+    pub fn is_banned(&self) -> bool {
+        match self {
+            KnownPeerStatus::Banned(_, _) => true,
+            _ => false,
+        }
+    }
+}
+
 /// Information node stores about known peers.
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone)]
 pub struct KnownPeerState {
     pub peer_info: PeerInfo,
     pub status: KnownPeerStatus,
@@ -855,7 +937,7 @@ impl Message for Consolidate {
 #[derive(MessageResponse, Debug)]
 pub enum ConsolidateResponse {
     Accept(Option<EdgeInfo>),
-    InvalidNonce(Edge),
+    InvalidNonce(Box<Edge>),
     Reject,
 }
 
@@ -864,6 +946,7 @@ pub enum ConsolidateResponse {
 #[rtype(result = "()")]
 pub struct Unregister {
     pub peer_id: PeerId,
+    pub peer_type: PeerType,
 }
 
 pub struct PeerList {
@@ -873,7 +956,9 @@ pub struct PeerList {
 /// Message from peer to peer manager
 pub enum PeerRequest {
     UpdateEdge((PeerId, u64)),
-    RouteBack(RoutedMessageBody, CryptoHash),
+    RouteBack(Box<RoutedMessageBody>, CryptoHash),
+    UpdatePeerInfo(PeerInfo),
+    ReceivedMessage(PeerId, Instant),
 }
 
 impl Message for PeerRequest {
@@ -928,6 +1013,8 @@ pub enum ReasonForBan {
     InvalidEdge = 10,
 }
 
+/// Banning signal sent from Peer instance to PeerManager
+/// just before Peer instance is stopped.
 #[derive(Message)]
 #[rtype(result = "()")]
 pub struct Ban {
@@ -991,7 +1078,7 @@ pub enum NetworkRequests {
     /// Information about chunk such as its header, some subset of parts and/or incoming receipts
     PartialEncodedChunkResponse {
         route_back: CryptoHash,
-        partial_encoded_chunk: PartialEncodedChunk,
+        response: PartialEncodedChunkResponseMsg,
     },
     /// Information about chunk such as its header, some subset of parts and/or incoming receipts
     PartialEncodedChunkMessage {
@@ -1042,7 +1129,7 @@ pub enum PeerManagerRequest {
     UnregisterPeer,
 }
 
-/// Combines peer address info and chain information.
+/// Combines peer address info, chain and edge information.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct FullPeerInfo {
     pub peer_info: PeerInfo,
@@ -1089,7 +1176,7 @@ pub enum NetworkResponses {
     RoutingTableInfo(RoutingTableInfo),
     PingPongInfo { pings: HashMap<usize, Ping>, pongs: HashMap<usize, Pong> },
     BanPeer(ReasonForBan),
-    EdgeUpdate(Edge),
+    EdgeUpdate(Box<Edge>),
     RouteNotFound,
 }
 
@@ -1125,7 +1212,8 @@ pub enum NetworkAdversarialMessage {
     AdvDisableDoomslug,
     AdvGetSavedBlocks,
     AdvCheckRefMap,
-    AdvSetSyncInfo(u64, u64),
+    AdvCheckStorageConsistency,
+    AdvSetSyncInfo(u64),
 }
 
 #[derive(Debug)]
@@ -1136,7 +1224,13 @@ pub enum NetworkClientMessages {
     Adversarial(NetworkAdversarialMessage),
 
     /// Received transaction.
-    Transaction(SignedTransaction),
+    Transaction {
+        transaction: SignedTransaction,
+        /// Whether the transaction is forwarded from other nodes.
+        is_forwarded: bool,
+        /// Whether the transaction needs to be submitted.
+        check_only: bool,
+    },
     /// Received block, possibly requested.
     Block(Block, PeerId, bool),
     /// Received list of headers for syncing.
@@ -1148,6 +1242,8 @@ pub enum NetworkClientMessages {
 
     /// Request chunk parts and/or receipts.
     PartialEncodedChunkRequest(PartialEncodedChunkRequestMsg, CryptoHash),
+    /// Response to a request for  chunk parts and/or receipts.
+    PartialEncodedChunkResponse(PartialEncodedChunkResponseMsg),
     /// Information about chunk such as its header, some subset of parts and/or incoming receipts
     PartialEncodedChunk(PartialEncodedChunk),
 
@@ -1173,6 +1269,9 @@ pub enum NetworkClientResponses {
     InvalidTx(InvalidTxError),
     /// The request is routed to other shards
     RequestRouted,
+    /// The node being queried does not track the shard needed and therefore cannot provide userful
+    /// response.
+    DoesNotTrackShard,
     /// Ban peer for malicious behavior.
     Ban { ban_reason: ReasonForBan },
 }
@@ -1200,7 +1299,7 @@ pub enum NetworkViewClientMessages {
     /// Transaction status query
     TxStatus { tx_hash: CryptoHash, signer_account_id: AccountId },
     /// Transaction status response
-    TxStatusResponse(FinalExecutionOutcomeView),
+    TxStatusResponse(Box<FinalExecutionOutcomeView>),
     /// General query
     Query { query_id: String, block_id_or_finality: BlockIdOrFinality, request: QueryRequest },
     /// Query response
@@ -1208,7 +1307,7 @@ pub enum NetworkViewClientMessages {
     /// Request for receipt outcome
     ReceiptOutcomeRequest(CryptoHash),
     /// Receipt outcome response
-    ReceiptOutcomeResponse(ExecutionOutcomeWithIdAndProof),
+    ReceiptOutcomeResponse(Box<ExecutionOutcomeWithIdAndProof>),
     /// Request a block.
     BlockRequest(CryptoHash),
     /// Request headers.
@@ -1227,24 +1326,19 @@ pub enum NetworkViewClientMessages {
 
 pub enum NetworkViewClientResponses {
     /// Transaction execution outcome
-    TxStatus(FinalExecutionOutcomeView),
+    TxStatus(Box<FinalExecutionOutcomeView>),
     /// Response to general queries
     QueryResponse { query_id: String, response: Result<QueryResponse, String> },
     /// Receipt outcome response
-    ReceiptOutcomeResponse(ExecutionOutcomeWithIdAndProof),
+    ReceiptOutcomeResponse(Box<ExecutionOutcomeWithIdAndProof>),
     /// Block response.
-    Block(Block),
+    Block(Box<Block>),
     /// Headers response.
     BlockHeaders(Vec<BlockHeader>),
     /// Chain information.
-    ChainInfo {
-        genesis_id: GenesisId,
-        height: BlockHeight,
-        score: BlockScore,
-        tracked_shards: Vec<ShardId>,
-    },
+    ChainInfo { genesis_id: GenesisId, height: BlockHeight, tracked_shards: Vec<ShardId> },
     /// Response to state request.
-    StateResponse(StateResponseInfo),
+    StateResponse(Box<StateResponseInfo>),
     /// Valid announce accounts.
     AnnounceAccount(Vec<AnnounceAccount>),
     /// Ban peer for malicious behavior.
@@ -1308,6 +1402,13 @@ pub struct PartialEncodedChunkRequestMsg {
     pub chunk_hash: ChunkHash,
     pub part_ords: Vec<u64>,
     pub tracking_shards: HashSet<ShardId>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, BorshSerialize, BorshDeserialize, Serialize)]
+pub struct PartialEncodedChunkResponseMsg {
+    pub chunk_hash: ChunkHash,
+    pub parts: Vec<PartialEncodedChunkPart>,
+    pub receipts: Vec<ReceiptProof>,
 }
 
 /// Adapter to break dependency of sub-components on the network requests.

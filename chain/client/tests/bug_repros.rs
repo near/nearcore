@@ -10,10 +10,10 @@ use near_chain::test_utils::account_id_to_shard_id;
 use near_client::test_utils::setup_mock_all_validators;
 use near_client::{ClientActor, ViewClientActor};
 use near_crypto::{InMemorySigner, KeyType};
+use near_logger_utils::init_test_logger;
 use near_network::types::NetworkRequests::PartialEncodedChunkMessage;
 use near_network::{NetworkClientMessages, NetworkRequests, NetworkResponses, PeerInfo};
 use near_primitives::block::Block;
-use near_primitives::test_utils::init_test_logger;
 use near_primitives::transaction::SignedTransaction;
 use std::cmp::max;
 use std::collections::HashMap;
@@ -90,8 +90,8 @@ fn repro_1183() {
                             connectors1.write().unwrap()
                                 [account_id_to_shard_id(&from.to_string(), 4) as usize]
                                 .0
-                                .do_send(NetworkClientMessages::Transaction(
-                                    SignedTransaction::send_money(
+                                .do_send(NetworkClientMessages::Transaction {
+                                    transaction: SignedTransaction::send_money(
                                         block.header.inner_lite.height * 16 + nonce_delta,
                                         from.to_string(),
                                         to.to_string(),
@@ -99,7 +99,9 @@ fn repro_1183() {
                                         1,
                                         block.header.prev_hash,
                                     ),
-                                ));
+                                    is_forwarded: false,
+                                    check_only: false,
+                                });
                             nonce_delta += 1
                         }
                     }

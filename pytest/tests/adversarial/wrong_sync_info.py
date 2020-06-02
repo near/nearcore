@@ -12,9 +12,10 @@ from utils import LogTracker
 
 TIMEOUT = 300
 BLOCKS = 30
-LARGE_WEIGHT = 1267650600
 
-nodes = start_cluster(2, 1, 2, None, [["epoch_length", 7], ["block_producer_kickout_threshold", 80]], {})
+nodes = start_cluster(
+    2, 1, 2, None,
+    [["epoch_length", 7], ["block_producer_kickout_threshold", 80]], {})
 
 started = time.time()
 
@@ -36,7 +37,7 @@ while True:
 
 print("Got to %s blocks, getting to fun stuff" % BLOCKS)
 
-res = nodes[1].json_rpc('adv_set_weight', [1000, LARGE_WEIGHT])
+res = nodes[1].json_rpc('adv_set_weight', 1000)
 assert 'result' in res, res
 res = nodes[1].json_rpc('adv_disable_header_sync', [])
 assert 'result' in res, res

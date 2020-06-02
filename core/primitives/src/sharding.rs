@@ -13,7 +13,17 @@ use crate::validator_signer::ValidatorSigner;
 use reed_solomon_erasure::ReconstructShard;
 
 #[derive(
-    BorshSerialize, BorshDeserialize, Serialize, Hash, Eq, PartialEq, Clone, Debug, Default,
+    BorshSerialize,
+    BorshDeserialize,
+    Serialize,
+    Hash,
+    Eq,
+    PartialEq,
+    Ord,
+    PartialOrd,
+    Clone,
+    Debug,
+    Default,
 )]
 pub struct ChunkHash(pub CryptoHash);
 
@@ -51,8 +61,6 @@ pub struct ShardChunkHeaderInner {
     pub gas_used: Gas,
     /// Gas limit voted by validators.
     pub gas_limit: Gas,
-    /// Total validator reward in previous chunk
-    pub validator_reward: Balance,
     /// Total balance burnt in previous chunk
     pub balance_burnt: Balance,
     /// Outgoing receipts merkle root.
@@ -101,7 +109,6 @@ impl ShardChunkHeader {
         shard_id: ShardId,
         gas_used: Gas,
         gas_limit: Gas,
-        validator_reward: Balance,
         balance_burnt: Balance,
         outgoing_receipts_root: CryptoHash,
         tx_root: CryptoHash,
@@ -118,7 +125,6 @@ impl ShardChunkHeader {
             shard_id,
             gas_used,
             gas_limit,
-            validator_reward,
             balance_burnt,
             outgoing_receipts_root,
             tx_root,
@@ -131,9 +137,7 @@ impl ShardChunkHeader {
 
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, Eq, PartialEq)]
 pub struct PartialEncodedChunk {
-    pub shard_id: u64,
-    pub chunk_hash: ChunkHash,
-    pub header: Option<ShardChunkHeader>,
+    pub header: ShardChunkHeader,
     pub parts: Vec<PartialEncodedChunkPart>,
     pub receipts: Vec<ReceiptProof>,
 }
@@ -218,7 +222,6 @@ impl EncodedShardChunk {
         rs: &mut ReedSolomonWrapper,
         gas_used: Gas,
         gas_limit: Gas,
-        validator_reward: Balance,
         balance_burnt: Balance,
 
         tx_root: CryptoHash,
@@ -259,7 +262,6 @@ impl EncodedShardChunk {
             shard_id,
             gas_used,
             gas_limit,
-            validator_reward,
             balance_burnt,
             outgoing_receipts_root,
             tx_root,
@@ -280,7 +282,6 @@ impl EncodedShardChunk {
         shard_id: ShardId,
         gas_used: Gas,
         gas_limit: Gas,
-        validator_reward: Balance,
         balance_burnt: Balance,
         outgoing_receipts_root: CryptoHash,
         tx_root: CryptoHash,
@@ -306,7 +307,6 @@ impl EncodedShardChunk {
             shard_id,
             gas_used,
             gas_limit,
-            validator_reward,
             balance_burnt,
             outgoing_receipts_root,
             tx_root,
@@ -324,7 +324,6 @@ impl EncodedShardChunk {
     pub fn create_partial_encoded_chunk(
         &self,
         part_ords: Vec<u64>,
-        include_header: bool,
         receipts: Vec<ReceiptProof>,
         merkle_paths: &[MerklePath],
     ) -> PartialEncodedChunk {
@@ -337,13 +336,7 @@ impl EncodedShardChunk {
             })
             .collect();
 
-        PartialEncodedChunk {
-            shard_id: self.header.inner.shard_id,
-            chunk_hash: self.header.chunk_hash(),
-            header: if include_header { Some(self.header.clone()) } else { None },
-            parts,
-            receipts,
-        }
+        PartialEncodedChunk { header: self.header.clone(), parts, receipts }
     }
 
     pub fn decode_chunk(&self, data_parts: usize) -> Result<ShardChunk, std::io::Error> {
@@ -368,8 +361,9 @@ impl EncodedShardChunk {
     }
 }
 
-/// An reed solomon instance should not consume more than 20MB of memory.
-const RS_MAX_MEMORY: u64 = 20 * 1024 * 1024;
+/// The ttl for a reed solomon instance to control memory usage. This number below corresponds to
+/// roughly 60MB of memory usage.
+const RS_TTL: u64 = 2 * 1024;
 
 /// Wrapper around reed solomon which occasionally resets the underlying
 /// reed solomon instead to work around the memory leak in reed solomon
@@ -383,7 +377,7 @@ impl ReedSolomonWrapper {
     pub fn new(data_shards: usize, parity_shards: usize) -> Self {
         ReedSolomonWrapper {
             rs: ReedSolomon::new(data_shards, parity_shards).unwrap(),
-            ttl: RS_MAX_MEMORY / (data_shards * data_shards) as u64 + 1,
+            ttl: RS_TTL,
         }
     }
 

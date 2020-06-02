@@ -35,16 +35,12 @@ impl EncodedChunksCacheEntry {
     pub fn merge_in_partial_encoded_chunk(&mut self, partial_encoded_chunk: &PartialEncodedChunk) {
         for part_info in partial_encoded_chunk.parts.iter() {
             let part_ord = part_info.part_ord;
-            if !self.parts.contains_key(&part_ord) {
-                self.parts.insert(part_ord, part_info.clone());
-            }
+            self.parts.entry(part_ord).or_insert_with(|| part_info.clone());
         }
 
         for receipt in partial_encoded_chunk.receipts.iter() {
             let shard_id = receipt.1.to_shard_id;
-            if !self.receipts.contains_key(&shard_id) {
-                self.receipts.insert(shard_id, receipt.clone());
-            }
+            self.receipts.entry(shard_id).or_insert_with(|| receipt.clone());
         }
     }
 }
@@ -79,11 +75,11 @@ impl EncodedChunksCache {
     pub fn get_or_insert_from_header(
         &mut self,
         chunk_hash: ChunkHash,
-        chunk_header: Option<&ShardChunkHeader>,
+        chunk_header: ShardChunkHeader,
     ) -> &mut EncodedChunksCacheEntry {
-        self.encoded_chunks.entry(chunk_hash).or_insert_with(|| {
-            EncodedChunksCacheEntry::from_chunk_header(chunk_header.unwrap().clone())
-        })
+        self.encoded_chunks
+            .entry(chunk_hash)
+            .or_insert_with(|| EncodedChunksCacheEntry::from_chunk_header(chunk_header))
     }
 
     pub fn height_within_front_horizon(&self, height: BlockHeight) -> bool {
@@ -98,23 +94,13 @@ impl EncodedChunksCache {
         self.height_within_front_horizon(height) || self.height_within_rear_horizon(height)
     }
 
-    pub fn merge_in_partial_encoded_chunk(
-        &mut self,
-        partial_encoded_chunk: &PartialEncodedChunk,
-    ) -> bool {
-        let chunk_hash = partial_encoded_chunk.chunk_hash.clone();
-        if self.encoded_chunks.contains_key(&chunk_hash) || partial_encoded_chunk.header.is_some() {
-            let entry = self.get_or_insert_from_header(
-                chunk_hash.clone(),
-                partial_encoded_chunk.header.as_ref(),
-            );
-            let height = entry.header.inner.height_created;
-            entry.merge_in_partial_encoded_chunk(&partial_encoded_chunk);
-            self.height_map.entry(height).or_insert_with(|| HashSet::default()).insert(chunk_hash);
-            return true;
-        } else {
-            return false;
-        }
+    pub fn merge_in_partial_encoded_chunk(&mut self, partial_encoded_chunk: &PartialEncodedChunk) {
+        let chunk_hash = partial_encoded_chunk.header.chunk_hash();
+        let entry = self
+            .get_or_insert_from_header(chunk_hash.clone(), partial_encoded_chunk.header.clone());
+        let height = entry.header.inner.height_created;
+        entry.merge_in_partial_encoded_chunk(&partial_encoded_chunk);
+        self.height_map.entry(height).or_insert_with(|| HashSet::default()).insert(chunk_hash);
     }
 
     pub fn remove_from_cache_if_outside_horizon(&mut self, chunk_hash: &ChunkHash) {
@@ -196,16 +182,13 @@ mod tests {
         let mut cache = EncodedChunksCache::new();
         let signer = InMemoryValidatorSigner::from_random("test".to_string(), KeyType::ED25519);
         let partial_encoded_chunk = PartialEncodedChunk {
-            shard_id: 0,
-            chunk_hash: Default::default(),
-            header: Some(ShardChunkHeader::new(
+            header: ShardChunkHeader::new(
                 CryptoHash::default(),
                 CryptoHash::default(),
                 CryptoHash::default(),
                 CryptoHash::default(),
                 1,
                 1,
-                0,
                 0,
                 0,
                 0,
@@ -214,11 +197,11 @@ mod tests {
                 CryptoHash::default(),
                 vec![],
                 &signer,
-            )),
+            ),
             parts: vec![],
             receipts: vec![],
         };
-        assert!(cache.merge_in_partial_encoded_chunk(&partial_encoded_chunk));
+        cache.merge_in_partial_encoded_chunk(&partial_encoded_chunk);
         cache.update_largest_seen_height::<ChunkRequestInfo>(2000, &HashMap::default());
         assert!(cache.encoded_chunks.is_empty());
         assert!(cache.height_map.is_empty());

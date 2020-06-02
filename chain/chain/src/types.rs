@@ -7,8 +7,7 @@ use serde::Serialize;
 
 use near_crypto::Signature;
 use near_pool::types::PoolIterator;
-use near_primitives::block::{Approval, BlockScore, ScoreAndHeight};
-pub use near_primitives::block::{Block, BlockHeader};
+pub use near_primitives::block::{Block, BlockHeader, Tip};
 use near_primitives::challenge::{ChallengesResult, SlashedValidator};
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::{hash, CryptoHash};
@@ -17,11 +16,11 @@ use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{ReceiptProof, ShardChunk, ShardChunkHeader};
 use near_primitives::transaction::{ExecutionOutcomeWithId, SignedTransaction};
 use near_primitives::types::{
-    AccountId, Balance, BlockHeight, EpochId, Gas, MerkleHash, ShardId, StateRoot, StateRootNode,
-    ValidatorStake, ValidatorStats,
+    AccountId, ApprovalStake, Balance, BlockHeight, EpochId, Gas, MerkleHash, ShardId, StateRoot,
+    StateRootNode, ValidatorStake, ValidatorStats,
 };
 use near_primitives::views::{EpochValidatorInfo, QueryRequest, QueryResponse};
-use near_store::{PartialStorage, Store, StoreUpdate, Trie, WrappedTrieChanges};
+use near_store::{PartialStorage, ShardTries, Store, StoreUpdate, Trie, WrappedTrieChanges};
 
 use crate::error::Error;
 
@@ -87,7 +86,6 @@ pub struct ApplyTransactionResult {
     pub receipt_result: ReceiptResult,
     pub validator_proposals: Vec<ValidatorStake>,
     pub total_gas_burnt: Gas,
-    pub total_validator_reward: Balance,
     pub total_balance_burnt: Balance,
     pub proof: Option<PartialStorage>,
 }
@@ -113,8 +111,10 @@ pub trait RuntimeAdapter: Send + Sync {
     /// StoreUpdate can be discarded if the chain past the genesis.
     fn genesis_state(&self) -> (Arc<Store>, StoreUpdate, Vec<StateRoot>);
 
+    fn get_tries(&self) -> ShardTries;
+
     /// Returns trie.
-    fn get_trie(&self) -> Arc<Trie>;
+    fn get_trie_for_shard(&self, shard_id: ShardId) -> Arc<Trie>;
 
     /// Verify block producer validity
     fn verify_block_signature(&self, header: &BlockHeader) -> Result<(), Error>;
@@ -127,17 +127,17 @@ pub trait RuntimeAdapter: Send + Sync {
         vrf_proof: near_crypto::vrf::Proof,
     ) -> Result<(), Error>;
 
-    /// Validates a given signed transaction on top of the given state root.
+    /// Validates a given signed transaction.
+    /// If the state root is given, then the verification will use the account. Otherwise it will
+    /// only validate the transaction math, limits and signatures.
     /// Returns an option of `InvalidTxError`, it contains `Some(InvalidTxError)` if there is
     /// a validation error, or `None` in case the transaction succeeded.
     /// Throws an `Error` with `ErrorKind::StorageError` in case the runtime throws
     /// `RuntimeError::StorageError`.
     fn validate_tx(
         &self,
-        block_height: BlockHeight,
-        block_timestamp: u64,
         gas_price: Balance,
-        state_root: StateRoot,
+        state_root: Option<StateRoot>,
         transaction: &SignedTransaction,
     ) -> Result<Option<InvalidTxError>, Error>;
 
@@ -150,10 +150,9 @@ pub trait RuntimeAdapter: Send + Sync {
     /// `RuntimeError::StorageError`.
     fn prepare_transactions(
         &self,
-        block_height: BlockHeight,
-        block_timestamp: u64,
         gas_price: Balance,
         gas_limit: Gas,
+        shard_id: ShardId,
         state_root: StateRoot,
         max_number_of_transactions: usize,
         pool_iterator: &mut dyn PoolIterator,
@@ -188,11 +187,12 @@ pub trait RuntimeAdapter: Send + Sync {
     fn verify_chunk_header_signature(&self, header: &ShardChunkHeader) -> Result<bool, Error>;
 
     /// Verify aggregated bls signature
-    fn verify_approval_signature(
+    fn verify_approval(
         &self,
-        epoch_id: &EpochId,
         prev_block_hash: &CryptoHash,
-        approvals: &[Approval],
+        prev_block_height: BlockHeight,
+        block_height: BlockHeight,
+        approvals: &[Option<Signature>],
     ) -> Result<bool, Error>;
 
     /// Epoch block producers ordered by their order in the proposals.
@@ -202,6 +202,11 @@ pub trait RuntimeAdapter: Send + Sync {
         epoch_id: &EpochId,
         last_known_block_hash: &CryptoHash,
     ) -> Result<Vec<(ValidatorStake, bool)>, Error>;
+
+    fn get_epoch_block_approvers_ordered(
+        &self,
+        parent_hash: &CryptoHash,
+    ) -> Result<Vec<ApprovalStake>, Error>;
 
     /// Block producers for given height for the main block. Return error if outside of known boundaries.
     fn get_block_producer(
@@ -297,14 +302,11 @@ pub trait RuntimeAdapter: Send + Sync {
     /// Get the block height for which garbage collection should not go over
     fn get_gc_stop_height(&self, block_hash: &CryptoHash) -> Result<BlockHeight, Error>;
 
-    /// Get inflation for a certain epoch
-    fn get_epoch_inflation(&self, epoch_id: &EpochId) -> Result<Balance, Error>;
+    /// Check if epoch exists.
+    fn epoch_exists(&self, epoch_id: &EpochId) -> bool;
 
-    fn push_final_block_back_if_needed(
-        &self,
-        parent_hash: CryptoHash,
-        last_final_hash: CryptoHash,
-    ) -> Result<CryptoHash, Error>;
+    /// Amount of tokens minted in given epoch.
+    fn get_epoch_minted_amount(&self, epoch_id: &EpochId) -> Result<Balance, Error>;
 
     /// Add proposals for validators.
     fn add_validator_proposals(
@@ -317,7 +319,6 @@ pub trait RuntimeAdapter: Send + Sync {
         proposals: Vec<ValidatorStake>,
         slashed_validators: Vec<SlashedValidator>,
         validator_mask: Vec<bool>,
-        validator_reward: Balance,
         total_supply: Balance,
     ) -> Result<(), Error>;
 
@@ -392,6 +393,7 @@ pub trait RuntimeAdapter: Send + Sync {
     /// Query runtime with given `path` and `data`.
     fn query(
         &self,
+        shard_id: ShardId,
         state_root: &StateRoot,
         block_height: BlockHeight,
         block_timestamp: u64,
@@ -403,7 +405,13 @@ pub trait RuntimeAdapter: Send + Sync {
     fn get_validator_info(&self, block_hash: &CryptoHash) -> Result<EpochValidatorInfo, Error>;
 
     /// Get the part of the state from given state root.
-    fn obtain_state_part(&self, state_root: &StateRoot, part_id: u64, num_parts: u64) -> Vec<u8>;
+    fn obtain_state_part(
+        &self,
+        shard_id: ShardId,
+        state_root: &StateRoot,
+        part_id: u64,
+        num_parts: u64,
+    ) -> Vec<u8>;
 
     /// Validate state part that expected to be given state root with provided data.
     /// Returns false if the resulting part doesn't match the expected one.
@@ -416,12 +424,17 @@ pub trait RuntimeAdapter: Send + Sync {
     ) -> bool;
 
     /// Should be executed after accepting all the parts to set up a new state.
-    fn confirm_state(&self, state_root: &StateRoot, parts: &Vec<Vec<u8>>) -> Result<(), Error>;
+    fn confirm_state(
+        &self,
+        shard_id: ShardId,
+        state_root: &StateRoot,
+        parts: &Vec<Vec<u8>>,
+    ) -> Result<(), Error>;
 
     /// Returns StateRootNode of a state.
     /// Panics if requested hash is not in storage.
     /// Never returns Error
-    fn get_state_root_node(&self, state_root: &StateRoot) -> StateRootNode;
+    fn get_state_root_node(&self, shard_id: ShardId, state_root: &StateRoot) -> StateRootNode;
 
     /// Validate StateRootNode of a state.
     fn validate_state_root_node(
@@ -437,7 +450,7 @@ pub trait RuntimeAdapter: Send + Sync {
     ) -> Result<Ordering, Error>;
 
     /// Build receipts hashes.
-    fn build_receipts_hashes(&self, receipts: &Vec<Receipt>) -> Vec<CryptoHash> {
+    fn build_receipts_hashes(&self, receipts: &[Receipt]) -> Vec<CryptoHash> {
         let mut receipts_hashes = vec![];
         for shard_id in 0..self.num_shards() {
             // importance to save the same order while filtering
@@ -464,40 +477,6 @@ pub struct LatestKnown {
     pub seen: u64,
 }
 
-/// The tip of a fork. A handle to the fork ancestry from its leaf in the
-/// blockchain tree. References the max height and the latest and previous
-/// blocks for convenience and the score.
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, PartialEq)]
-pub struct Tip {
-    /// Height of the tip (max height of the fork)
-    pub height: BlockHeight,
-    /// Last block pushed to the fork
-    pub last_block_hash: CryptoHash,
-    /// Previous block
-    pub prev_block_hash: CryptoHash,
-    /// The score on that fork
-    pub score: BlockScore,
-    /// Previous epoch id. Used for getting validator info.
-    pub epoch_id: EpochId,
-}
-
-impl Tip {
-    /// Creates a new tip based on provided header.
-    pub fn from_header(header: &BlockHeader) -> Tip {
-        Tip {
-            height: header.inner_lite.height,
-            last_block_hash: header.hash(),
-            prev_block_hash: header.prev_hash,
-            score: header.inner_rest.score,
-            epoch_id: header.inner_lite.epoch_id.clone(),
-        }
-    }
-
-    pub fn score_and_height(&self) -> ScoreAndHeight {
-        ScoreAndHeight { score: self.score, height: self.height }
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, Serialize)]
 pub struct ShardStateSyncResponseHeader {
     pub chunk: ShardChunk,
@@ -515,12 +494,23 @@ pub struct ShardStateSyncResponse {
     pub part: Option<(u64, Vec<u8>)>,
 }
 
+/// When running block sync response to know if the node needs to sync state,
+/// or the hashes from the blocks that are needed.
+pub enum BlockSyncResponse {
+    /// State is needed before we start fetching recent blocks.
+    StateNeeded,
+    /// We are up to date with state, list of block hashes that need to be fetched.
+    BlocksNeeded(Vec<CryptoHash>),
+    /// We are up to date, nothing is required.
+    None,
+}
+
 #[cfg(test)]
 mod tests {
     use chrono::Utc;
 
     use near_crypto::KeyType;
-    use near_primitives::block::genesis_chunks;
+    use near_primitives::block::{genesis_chunks, Approval};
     use near_primitives::merkle::verify_path;
     use near_primitives::transaction::{ExecutionOutcome, ExecutionStatus};
     use near_primitives::validator_signer::InMemoryValidatorSigner;
@@ -539,13 +529,13 @@ mod tests {
             0,
             100,
             1_000_000_000,
-            Chain::compute_bp_hash_inner(&vec![]).unwrap(),
+            Chain::compute_bp_hash_inner(vec![]).unwrap(),
         );
         let signer = InMemoryValidatorSigner::from_seed("other", KeyType::ED25519, "other");
         let b1 = Block::empty(&genesis, &signer);
         assert!(b1.header.verify_block_producer(&signer.public_key()));
         let other_signer = InMemoryValidatorSigner::from_seed("other2", KeyType::ED25519, "other2");
-        let approvals = vec![Approval::new(b1.hash(), Some(b1.hash()), 2, true, &other_signer)];
+        let approvals = vec![Some(Approval::new(b1.hash(), 1, 2, &other_signer).signature)];
         let b2 = Block::empty_with_approvals(
             &b1,
             2,
@@ -554,6 +544,7 @@ mod tests {
             approvals,
             &signer,
             genesis.header.inner_lite.next_bp_hash,
+            CryptoHash::default(),
         );
         b2.header.verify_block_producer(&signer.public_key());
     }

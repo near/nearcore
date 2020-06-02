@@ -3,15 +3,10 @@
 //! * sir -- sender is receiver. Receipts that are directed by an account to itself are guaranteed
 //!   to not be cross-shard which is cheaper than cross-shard. Conversely, when sender is not a
 //!   receiver it might or might not be a cross-shard communication.
+use num_rational::Rational;
 use serde::{Deserialize, Serialize};
-pub type Gas = u64;
 
-#[derive(Debug, Serialize, Deserialize, Clone, Hash, PartialEq, Eq)]
-#[serde(deny_unknown_fields)]
-pub struct Fraction {
-    pub numerator: u64,
-    pub denominator: u64,
-}
+pub type Gas = u64;
 
 /// Costs associated with an object that can only be sent over the network (and executed
 /// by the receiver).
@@ -55,7 +50,7 @@ pub struct RuntimeFeesConfig {
     pub storage_usage_config: StorageUsageConfig,
 
     /// Fraction of the burnt gas to reward to the contract account for execution.
-    pub burnt_gas_reward: Fraction,
+    pub burnt_gas_reward: Rational,
 }
 
 /// Describes the cost of creating a data receipt, `DataReceipt`.
@@ -125,66 +120,87 @@ pub struct StorageUsageConfig {
 
 impl Default for RuntimeFeesConfig {
     fn default() -> Self {
+        #[allow(clippy::unreadable_literal)]
         Self {
             action_receipt_creation_config: Fee {
-                send_sir: 924119500000,
-                send_not_sir: 924119500000,
-                execution: 924119500000,
+                send_sir: 108059500000,
+                send_not_sir: 108059500000,
+                execution: 108059500000,
             },
             data_receipt_creation_config: DataReceiptCreationConfig {
                 base_cost: Fee {
-                    send_sir: 539890689500,
-                    send_not_sir: 539890689500,
-                    execution: 539890689500,
+                    send_sir: 4697339419375,
+                    send_not_sir: 4697339419375,
+                    execution: 4697339419375,
                 },
                 cost_per_byte: Fee {
-                    send_sir: 14234654,
-                    send_not_sir: 14234654,
-                    execution: 14234654,
+                    send_sir: 59357464,
+                    send_not_sir: 59357464,
+                    execution: 59357464,
                 },
             },
             action_creation_config: ActionCreationConfig {
-                create_account_cost: Fee { send_sir: 0, send_not_sir: 0, execution: 0 },
+                create_account_cost: Fee {
+                    send_sir: 99607375000,
+                    send_not_sir: 99607375000,
+                    execution: 99607375000,
+                },
                 deploy_contract_cost: Fee {
-                    send_sir: 513359000000,
-                    send_not_sir: 513359000000,
-                    execution: 513359000000,
+                    send_sir: 184765750000,
+                    send_not_sir: 184765750000,
+                    execution: 184765750000,
                 },
                 deploy_contract_cost_per_byte: Fee {
-                    send_sir: 27106233,
-                    send_not_sir: 27106233,
-                    execution: 27106233,
+                    send_sir: 6812999,
+                    send_not_sir: 6812999,
+                    execution: 6812999,
                 },
                 function_call_cost: Fee {
-                    send_sir: 1367372500000,
-                    send_not_sir: 1367372500000,
-                    execution: 1367372500000,
+                    send_sir: 2319861500000,
+                    send_not_sir: 2319861500000,
+                    execution: 2319861500000,
                 },
                 function_call_cost_per_byte: Fee {
-                    send_sir: 2354953,
-                    send_not_sir: 2354953,
-                    execution: 2354953,
+                    send_sir: 2235934,
+                    send_not_sir: 2235934,
+                    execution: 2235934,
                 },
                 transfer_cost: Fee {
-                    send_sir: 13025000000,
-                    send_not_sir: 13025000000,
-                    execution: 13025000000,
+                    send_sir: 115123062500,
+                    send_not_sir: 115123062500,
+                    execution: 115123062500,
                 },
-                stake_cost: Fee { send_sir: 0, send_not_sir: 0, execution: 0 },
+                stake_cost: Fee {
+                    send_sir: 141715687500,
+                    send_not_sir: 141715687500,
+                    execution: 102217625000,
+                },
                 add_key_cost: AccessKeyCreationConfig {
-                    full_access_cost: Fee { send_sir: 0, send_not_sir: 0, execution: 0 },
-                    function_call_cost: Fee { send_sir: 0, send_not_sir: 0, execution: 0 },
+                    full_access_cost: Fee {
+                        send_sir: 101765125000,
+                        send_not_sir: 101765125000,
+                        execution: 101765125000,
+                    },
+                    function_call_cost: Fee {
+                        send_sir: 102217625000,
+                        send_not_sir: 102217625000,
+                        execution: 102217625000,
+                    },
                     function_call_cost_per_byte: Fee {
-                        send_sir: 37538150,
-                        send_not_sir: 37538150,
-                        execution: 37538150,
+                        send_sir: 1925331,
+                        send_not_sir: 1925331,
+                        execution: 1925331,
                     },
                 },
-                delete_key_cost: Fee { send_sir: 0, send_not_sir: 0, execution: 0 },
+                delete_key_cost: Fee {
+                    send_sir: 94946625000,
+                    send_not_sir: 94946625000,
+                    execution: 94946625000,
+                },
                 delete_account_cost: Fee {
-                    send_sir: 454830000000,
-                    send_not_sir: 454830000000,
-                    execution: 454830000000,
+                    send_sir: 147489000000,
+                    send_not_sir: 147489000000,
+                    execution: 147489000000,
                 },
             },
             storage_usage_config: StorageUsageConfig {
@@ -193,7 +209,7 @@ impl Default for RuntimeFeesConfig {
                 num_bytes_account: 100,
                 num_extra_bytes_record: 40,
             },
-            burnt_gas_reward: Fraction { numerator: 3, denominator: 10 },
+            burnt_gas_reward: Rational::new(3, 10),
         }
     }
 }
@@ -221,13 +237,13 @@ impl RuntimeFeesConfig {
                     function_call_cost_per_byte: free.clone(),
                 },
                 delete_key_cost: free.clone(),
-                delete_account_cost: free.clone(),
+                delete_account_cost: free,
             },
             storage_usage_config: StorageUsageConfig {
                 num_bytes_account: 0,
                 num_extra_bytes_record: 0,
             },
-            burnt_gas_reward: Fraction { numerator: 0, denominator: 1 },
+            burnt_gas_reward: Rational::from_integer(0),
         }
     }
 }

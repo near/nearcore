@@ -4,16 +4,26 @@
 # and sync
 
 import sys, time
+import fcntl
 
 sys.path.append('lib')
 
 from cluster import start_cluster
 from utils import LogTracker
 
-TIMEOUT = 600
-BLOCKS = 105 # should be enough to trigger state sync for node 1 later, see comments there
+fcntl.fcntl(1, fcntl.F_SETFL, 0)  # no cache when execute from nightly runner
 
-nodes = start_cluster(2, 0, 2, None, [["num_block_producer_seats", 199], ["num_block_producer_seats_per_shard", [24, 25, 25, 25, 25, 25, 25, 25]], ["epoch_length", 10], ["block_producer_kickout_threshold", 80]], {})
+print('start state sync2')
+print('start state sync2', file=sys.stderr)
+TIMEOUT = 600
+BLOCKS = 105  # should be enough to trigger state sync for node 1 later, see comments there
+
+nodes = start_cluster(
+    2, 0, 2, None,
+    [["num_block_producer_seats", 199],
+     ["num_block_producer_seats_per_shard", [99, 100]], ["epoch_length", 10],
+     ["block_producer_kickout_threshold", 80]], {})
+print('cluster started')
 
 started = time.time()
 
@@ -33,6 +43,7 @@ nodes[0].kill()
 nodes[0].reset_data()
 tracker = LogTracker(nodes[0])
 nodes[0].start(nodes[1].node_key.pk, nodes[1].addr())
+time.sleep(3)
 
 while True:
     assert time.time() - started < TIMEOUT
@@ -44,4 +55,3 @@ while True:
 
 # make sure `nodes[0]` actually state synced
 assert tracker.check("transition to State Sync")
-

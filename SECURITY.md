@@ -3,11 +3,11 @@
 Reference client for NEAR is held to highest security standard.
 This document defines the policy how to report vulnerabilities and receive updates when security patches are released.
 
-If you have any suggestions or comments about the security policy, please contact [NEAR Security Team](mailto:security@nearprotocol.com).
+If you have any suggestions or comments about the security policy, please email the [NEAR Security Team](mailto:security@nearprotocol.com) at security@nearprotocol.com
 
 ## Reporting a vulnerability
 
-All security issues and questions should be reported by sending email to [NEAR Security Team](mailto:security@nearprotocol.com).
+All security issues and questions should be reported by sending email to [NEAR Security Team](mailto:security@nearprotocol.com) at security@nearprotocol.com.
 This will be acknowledged within 24 hours by the NEAR Security Team and kick of review process.
 You will receive a more detailed response to the email within 72 hours indicating perceived severity and the next steps in handling your report.
 
@@ -25,6 +25,24 @@ This process may take time, especially when coordinating with network participan
 The goal will be to address issues in as short period as possible, but it's important that the process described above to ensure that disclosures are handled in consistent manner.  
 
 *Note:* If Security Team identifies that an issue is mission critical and requires subset of network participants to update prior to newsletter announcement - this will be done in manual way by communicating via direct channels. 
+
+## Reward
+
+The discovery of the security vulnerabilities that include but are not limited to the following categories will be rewarded proportionally to their severity:
+* Algorithmic, implementation, and economic issues that violate safety of the blockchain;
+* Algorithmic, implementation, and economic issues that stall the blockchain or significantly throttle liveness;
+* Algorithmic, implementation, and economic issues in the standard contracts developed by NEAR;
+* Issues that expose the private data of the users, the developers, or the validators;
+
+The following are the neccessary conditions for the reward:
+* The vulnerability is disclosed to NEAR before it is disclosed publicly and NEAR is given sufficient time to fix it;
+* The vulnerability is not disclosed to anyone else except the finder and NEAR before it is fixed;
+* The vulnerability is not exploited until it is fixed.
+
+### Rewards platform
+
+We are using https://gitcoin.co/ to reward tokens. Meaning that every security vulnerability that you submit to us will be processed like a general work-item by an external contributor. To receive the reward you would need to register on https://gitcoin.co/ and be able to receive the reward through it. Example of a reward for a security vulnerability finding: https://gitcoin.co/issue/near/community/5/4359
+
 
 ## Receive Security Updates
 

@@ -1,10 +1,13 @@
+use crate::testbed_runners::end_count;
+use crate::testbed_runners::start_count;
+use crate::testbed_runners::GasMetric;
 use near_runtime_fees::RuntimeFeesConfig;
 use near_vm_logic::mocks::mock_external::MockedExternal;
 use near_vm_logic::{VMConfig, VMContext, VMOutcome};
 use near_vm_runner::VMError;
+use num_rational::Ratio;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
-use std::time::Instant;
 
 const CURRENT_ACCOUNT_ID: &str = "alice";
 const SIGNER_ACCOUNT_ID: &str = "bob";
@@ -56,17 +59,42 @@ fn call() -> (Option<VMOutcome>, Option<VMError>) {
     )
 }
 
-const NUM_ITERATIONS: usize = 10;
+const NUM_ITERATIONS: u64 = 10;
 
-/// Amount of nanosec it takes to execute the most CPU demanding operation.
-pub fn nanosec_per_op() -> f64 {
+/// Cost of the most CPU demanding operation.
+pub fn cost_per_op(gas_metric: GasMetric) -> Ratio<u64> {
     // Call once for the warmup.
     let (outcome, _) = call();
     let outcome = outcome.unwrap();
-    let start = Instant::now();
+    let start = start_count(gas_metric);
     for _ in 0..NUM_ITERATIONS {
         call();
     }
-    let duration = Instant::now().duration_since(start).as_nanos() as f64;
-    duration / (outcome.burnt_gas as f64 * NUM_ITERATIONS as f64)
+    let measured = end_count(gas_metric, &start);
+    // We are given by measurement burnt gas
+    //   gas_burned(call) = outcome.burnt_gas
+    // and raw 'measured' value counting x86 insns.
+    // And know that
+    //   measured = NUM_ITERATIONS * x86_insns(call)
+    // Gas that was burned could be computed in two ways:
+    // As number of WASM instructions by cost of a single instruction.
+    //   gas_burned(call) = gas_cost_per_wasm_op * wasm_insns(call)
+    // and as normalized x86 insns count.
+    //   gas_burned(call) = measured * GAS_IN_MEASURE_UNIT / DIVISOR
+    // Divisor here is essentially a normalizing factor matching insn count
+    // to the notion of 1M gas as nanosecond of computations.
+    // So
+    //   outcome.burnt_gas = wasm_insns(call) *
+    //       VMConfig::default().regular_op_cost
+    //   gas_cost_per_wasm_op = (measured * GAS_IN_MEASURE_UNIT *
+    //       VMConfig::default().regular_op_cost) /
+    //       (DIVISOR * NUM_ITERATIONS * outcome.burnt_gas)
+    // Enough to return just
+    //    (measured * VMConfig::default().regular_op_cost) /
+    //       (outcome.burnt_gas * NUM_ITERATIONS),
+    // as remaining can be computed with ratio_to_gas().
+    Ratio::new(
+        measured * (VMConfig::default().regular_op_cost as u64),
+        NUM_ITERATIONS * outcome.burnt_gas,
+    )
 }

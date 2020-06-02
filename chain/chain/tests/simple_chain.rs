@@ -1,7 +1,8 @@
 use near_chain::test_utils::setup;
 use near_chain::{Block, ChainStoreAccess, ErrorKind, Provenance};
+use near_logger_utils::init_test_logger;
 use near_primitives::hash::CryptoHash;
-use near_primitives::test_utils::init_test_logger;
+use num_rational::Rational;
 
 #[test]
 fn empty_chain() {
@@ -43,17 +44,14 @@ fn build_chain_with_orhpans() {
         last_block.header.inner_lite.epoch_id.clone(),
         last_block.header.inner_lite.next_epoch_id.clone(),
         vec![],
-        0,
+        Rational::from_integer(0),
         0,
         Some(0),
         vec![],
         vec![],
         &*signer,
-        0.into(),
-        CryptoHash::default(),
-        CryptoHash::default(),
-        CryptoHash::default(),
         last_block.header.inner_lite.next_bp_hash.clone(),
+        CryptoHash::default(),
     );
     assert_eq!(
         chain

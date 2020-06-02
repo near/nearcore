@@ -14,12 +14,12 @@ macro_rules! wrapped_imports {
             $(
                 #[allow(unused_parens)]
                 fn $func( ctx: &mut Ctx, $( $arg_name: $arg_type ),* ) -> Result<($( $returns ),*)> {
-                    let logic: &mut VMLogic = unsafe { &mut *(ctx.data as *mut VMLogic) };
+                    let logic: &mut VMLogic<'_> = unsafe { &mut *(ctx.data as *mut VMLogic<'_>) };
                     logic.$func( $( $arg_name, )* )
                 }
             )*
 
-            pub(crate) fn build(memory: Memory, logic: &mut VMLogic) -> ImportObject {
+            pub(crate) fn build(memory: Memory, logic: &mut VMLogic<'_>) -> ImportObject {
                 let raw_ptr = logic as *mut _ as *mut c_void;
                 let import_reference = ImportReference(raw_ptr);
                 imports! {
@@ -175,4 +175,9 @@ wrapped_imports! {
     storage_iter_next<[iterator_id: u64, key_register_id: u64, value_register_id: u64] -> [u64]>,
     // Function for the injected gas counter. Automatically called by the gas meter.
     gas<[gas_amount: u32] -> []>,
+    // ###############
+    // # Validator API #
+    // ###############
+    validator_stake<[account_id_len: u64, account_id_ptr: u64, stake_ptr: u64] -> []>,
+    validator_total_stake<[stake_ptr: u64] -> []>,
 }

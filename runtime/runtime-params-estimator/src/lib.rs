@@ -1,3 +1,5 @@
+#![feature(llvm_asm)]
+
 // Lists all cases that we want to measure.
 pub mod cases;
 // Generates runtime fees from the measurements.

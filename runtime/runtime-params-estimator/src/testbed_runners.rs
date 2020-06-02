@@ -7,6 +7,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::{Action, SignedTransaction};
 use rand::Rng;
 use std::collections::{HashMap, HashSet};
+use std::convert::TryInto;
 use std::path::PathBuf;
 use std::time::Instant;
 
@@ -24,6 +25,14 @@ fn warmup_total_transactions(config: &Config) -> usize {
     config.block_sizes.iter().sum::<usize>() * config.warmup_iters_per_block
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum GasMetric {
+    // If we measure gas in number of executed instructions, must run under simulator.
+    ICount,
+    // If we measure gas in elapsed time.
+    Time,
+}
+
 /// Configuration which we use to run measurements.
 #[derive(Debug, Clone)]
 pub struct Config {
@@ -37,6 +46,8 @@ pub struct Config {
     pub block_sizes: Vec<usize>,
     /// Where state dump is located in case we need to create a testbed.
     pub state_dump_path: String,
+    /// Metric used for counting.
+    pub metric: GasMetric,
 }
 
 /// Measure the speed of transactions containing certain simple actions.
@@ -89,6 +100,76 @@ pub fn measure_actions(
     measure_transactions(metric, measurements, config, testbed, &mut f, false)
 }
 
+// TODO: super-ugly, can achieve the same via higher-level wrappers over POSIX read().
+#[cfg(any(target_arch = "x86_64"))]
+#[inline(always)]
+pub unsafe fn syscall3(mut n: usize, a1: usize, a2: usize, a3: usize) -> usize {
+    llvm_asm!("syscall"
+         : "+{rax}"(n)
+         : "{rdi}"(a1) "{rsi}"(a2) "{rdx}"(a3)
+         : "rcx", "r11", "memory"
+         : "volatile");
+    n
+}
+
+const CATCH_BASE: usize = 0xcafebabe;
+
+pub enum Consumed {
+    Instant(Instant),
+    None,
+}
+
+fn start_count_instructions() -> Consumed {
+    let mut buf: i8 = 0;
+    unsafe {
+        syscall3(
+            0, /* sys_read */
+            CATCH_BASE,
+            std::mem::transmute::<*mut i8, usize>(&mut buf),
+            1,
+        );
+    }
+    Consumed::None
+}
+
+fn end_count_instructions() -> u64 {
+    let mut result: u64 = 0;
+    unsafe {
+        syscall3(
+            0, /* sys_read */
+            CATCH_BASE + 1,
+            std::mem::transmute::<*mut u64, usize>(&mut result),
+            8,
+        );
+    }
+    result
+}
+
+fn start_count_time() -> Consumed {
+    Consumed::Instant(Instant::now())
+}
+
+fn end_count_time(consumed: &Consumed) -> u64 {
+    match *consumed {
+        Consumed::Instant(instant) => instant.elapsed().as_nanos().try_into().unwrap(),
+        Consumed::None => panic!("Must not be so"),
+    }
+}
+
+pub fn start_count(metric: GasMetric) -> Consumed {
+    return match metric {
+        GasMetric::ICount => start_count_instructions(),
+        GasMetric::Time => start_count_time(),
+    };
+}
+
+pub fn end_count(metric: GasMetric, consumed: &Consumed) -> u64 {
+    return match metric {
+        GasMetric::ICount => end_count_instructions(),
+        GasMetric::Time => end_count_time(consumed),
+    };
+}
+
 /// Measure the speed of the transactions, given a transactions-generator function.
 /// Returns testbed so that it can be reused.
 pub fn measure_transactions<F>(
@@ -138,10 +219,10 @@ where
     for block_size in config.block_sizes.clone() {
         for _ in 0..config.iter_per_block {
             let block: Vec<_> = (0..block_size).map(|_| (*f)()).collect();
-            let start_time = Instant::now();
+            let start = start_count(config.metric);
             testbed.process_block(&block, allow_failures);
-            let end_time = Instant::now();
-            measurements.record_measurement(metric.clone(), block_size, end_time - start_time);
+            let measured = end_count(config.metric, &start);
+            measurements.record_measurement(metric.clone(), block_size, measured);
             bar.inc(block_size as _);
             bar.set_message(format!("Block size: {}", block_size).as_str());
         }

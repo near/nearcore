@@ -14,13 +14,13 @@ mod tests {
     use near_client::test_utils::setup_mock_all_validators;
     use near_client::{ClientActor, Query, ViewClientActor};
     use near_crypto::{InMemorySigner, KeyType};
+    use near_logger_utils::init_integration_logger;
     use near_network::types::AccountOrPeerIdOrHash;
     use near_network::{NetworkClientMessages, NetworkRequests, NetworkResponses, PeerInfo};
     use near_primitives::hash::hash as hash_func;
     use near_primitives::hash::CryptoHash;
     use near_primitives::receipt::Receipt;
     use near_primitives::sharding::ChunkHash;
-    use near_primitives::test_utils::init_integration_logger;
     use near_primitives::transaction::SignedTransaction;
     use near_primitives::types::{BlockHeight, BlockHeightDelta, BlockIdOrFinality};
     use near_primitives::views::{QueryRequest, QueryResponseKind::ViewAccount};
@@ -64,9 +64,13 @@ mod tests {
         block_hash: CryptoHash,
     ) {
         let signer = InMemorySigner::from_seed("test1", KeyType::ED25519, "test1");
-        connector.do_send(NetworkClientMessages::Transaction(SignedTransaction::send_money(
-            nonce, from, to, &signer, amount, block_hash,
-        )));
+        connector.do_send(NetworkClientMessages::Transaction {
+            transaction: SignedTransaction::send_money(
+                nonce, from, to, &signer, amount, block_hash,
+            ),
+            is_forwarded: false,
+            check_only: false,
+        });
     }
 
     enum ReceiptsSyncPhases {
@@ -127,7 +131,7 @@ mod tests {
             let seen_hashes_with_state = Arc::new(RwLock::new(HashSet::<CryptoHash>::new()));
 
             let connectors1 = connectors.clone();
-            let mut block_prod_time: u64 = 1200;
+            let mut block_prod_time: u64 = 1600;
             if sync_hold {
                 block_prod_time *= STATE_SYNC_TIMEOUT as u64;
             }
@@ -218,17 +222,18 @@ mod tests {
                                         .flatten()
                                         .collect();
                                     if receipts.len() > 0 {
-                                        assert_eq!(partial_encoded_chunk.shard_id, source_shard_id);
+                                        assert_eq!(
+                                            partial_encoded_chunk.header.inner.shard_id,
+                                            source_shard_id
+                                        );
                                         seen_heights_with_receipts.insert(
-                                            partial_encoded_chunk
-                                                .header
-                                                .as_ref()
-                                                .unwrap()
-                                                .inner
-                                                .height_created,
+                                            partial_encoded_chunk.header.inner.height_created,
                                         );
                                     } else {
-                                        assert_ne!(partial_encoded_chunk.shard_id, source_shard_id);
+                                        assert_ne!(
+                                            partial_encoded_chunk.header.inner.shard_id,
+                                            source_shard_id
+                                        );
                                     }
                                     // Do not propagate any one parts, this will prevent any chunk from
                                     //    being included in the block
@@ -432,7 +437,7 @@ mod tests {
                 key_pairs.clone(),
                 validator_groups,
                 true,
-                1500,
+                1800,
                 false,
                 false,
                 5,
@@ -576,37 +581,14 @@ mod tests {
                                     ..
                                 } = msg
                                 {
-                                    if partial_encoded_chunk
-                                        .header
-                                        .as_ref()
-                                        .unwrap()
-                                        .inner
-                                        .height_created
-                                        == 22
-                                    {
+                                    if partial_encoded_chunk.header.inner.height_created == 22 {
                                         seen_heights_same_block.insert(
-                                            partial_encoded_chunk
-                                                .header
-                                                .as_ref()
-                                                .unwrap()
-                                                .inner
-                                                .prev_block_hash,
+                                            partial_encoded_chunk.header.inner.prev_block_hash,
                                         );
                                     }
                                     if skip_15 {
-                                        if partial_encoded_chunk
-                                            .header
-                                            .as_ref()
-                                            .unwrap()
-                                            .inner
-                                            .height_created
-                                            == 14
-                                            || partial_encoded_chunk
-                                                .header
-                                                .as_ref()
-                                                .unwrap()
-                                                .inner
-                                                .height_created
+                                        if partial_encoded_chunk.header.inner.height_created == 14
+                                            || partial_encoded_chunk.header.inner.height_created
                                                 == 15
                                         {
                                             return (NetworkResponses::NoResponse, false);
@@ -811,13 +793,8 @@ mod tests {
                                     account_id,
                                 } = msg
                                 {
-                                    let height = partial_encoded_chunk
-                                        .header
-                                        .as_ref()
-                                        .unwrap()
-                                        .inner
-                                        .height_created;
-                                    let shard_id = partial_encoded_chunk.shard_id;
+                                    let height = partial_encoded_chunk.header.inner.height_created;
+                                    let shard_id = partial_encoded_chunk.header.inner.shard_id;
                                     if height == 12 && shard_id == 0 {
                                         // "test3.6" is the chunk producer on height 12, shard_id 0
                                         assert_eq!(sender_account_id, malicious_node);
@@ -830,7 +807,7 @@ mod tests {
                                         if *account_id == victim_node {
                                             // "test3.5" is a block producer of block on height 12, sending to it
                                             *grieving_chunk_hash =
-                                                partial_encoded_chunk.chunk_hash.clone();
+                                                partial_encoded_chunk.header.chunk_hash();
                                         } else {
                                             return (NetworkResponses::NoResponse, false);
                                         }
@@ -860,10 +837,10 @@ mod tests {
                                 }
                                 if let NetworkRequests::PartialEncodedChunkResponse {
                                     route_back: _,
-                                    partial_encoded_chunk,
+                                    response,
                                 } = msg
                                 {
-                                    if partial_encoded_chunk.chunk_hash == *grieving_chunk_hash {
+                                    if response.chunk_hash == *grieving_chunk_hash {
                                         // Only victim_node knows some parts of grieving_chunk_hash
                                         // It's not enough to restore the chunk completely
                                         assert_eq!(sender_account_id, victim_node);
@@ -874,13 +851,8 @@ mod tests {
                                     account_id,
                                 } = msg
                                 {
-                                    let height = partial_encoded_chunk
-                                        .header
-                                        .as_ref()
-                                        .unwrap()
-                                        .inner
-                                        .height_created;
-                                    let shard_id = partial_encoded_chunk.shard_id;
+                                    let height = partial_encoded_chunk.header.inner.height_created;
+                                    let shard_id = partial_encoded_chunk.header.inner.shard_id;
                                     if height == 42 && shard_id == 2 {
                                         // "test3.6" is the chunk producer on height 42, shard_id 2
                                         assert_eq!(sender_account_id, malicious_node);
@@ -972,7 +944,7 @@ mod tests {
                             partial_encoded_chunk,
                         } = msg
                         {
-                            let header = partial_encoded_chunk.header.as_ref().unwrap();
+                            let header = &partial_encoded_chunk.header;
                             if seen_chunk_same_sender.contains(&(
                                 account_id.clone(),
                                 header.inner.height_created,
@@ -1009,29 +981,21 @@ mod tests {
                         }
                         if let NetworkRequests::PartialEncodedChunkResponse {
                             route_back,
-                            partial_encoded_chunk,
+                            response,
                         } = msg
                         {
                             if verbose {
                                 if responded.contains(&(
                                     route_back.clone(),
-                                    partial_encoded_chunk
-                                        .parts
-                                        .iter()
-                                        .map(|x| x.part_ord)
-                                        .collect(),
-                                    partial_encoded_chunk.chunk_hash.clone(),
+                                    response.parts.iter().map(|x| x.part_ord).collect(),
+                                    response.chunk_hash.clone(),
                                 )) {
                                     println!("=== SAME RESPONSE AGAIN!");
                                 }
                                 responded.insert((
                                     route_back.clone(),
-                                    partial_encoded_chunk
-                                        .parts
-                                        .iter()
-                                        .map(|x| x.part_ord)
-                                        .collect(),
-                                    partial_encoded_chunk.chunk_hash.clone(),
+                                    response.parts.iter().map(|x| x.part_ord).collect(),
+                                    response.chunk_hash.clone(),
                                 ));
                             }
                         }

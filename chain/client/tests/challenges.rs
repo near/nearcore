@@ -5,8 +5,6 @@ use std::sync::Arc;
 
 use borsh::BorshSerialize;
 
-use near::config::{GenesisExt, FISHERMEN_THRESHOLD};
-use near::NightshadeRuntime;
 use near_chain::chain::BlockEconomicsConfig;
 use near_chain::validate::validate_challenge;
 use near_chain::{
@@ -17,21 +15,24 @@ use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
 use near_client::Client;
 use near_crypto::{InMemorySigner, KeyType, Signer};
+use near_logger_utils::init_test_logger;
 use near_network::test_utils::MockNetworkAdapter;
 use near_network::NetworkRequests;
 use near_primitives::challenge::{
     BlockDoubleSign, Challenge, ChallengeBody, ChunkProofs, MaybeEncodedShardChunk,
 };
 use near_primitives::hash::CryptoHash;
-use near_primitives::merkle::{merklize, MerklePath};
+use near_primitives::merkle::{merklize, MerklePath, PartialMerkleTree};
 use near_primitives::receipt::Receipt;
 use near_primitives::serialize::BaseDecode;
 use near_primitives::sharding::{EncodedShardChunk, ReedSolomonWrapper};
-use near_primitives::test_utils::init_test_logger;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::StateRoot;
 use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_store::test_utils::create_test_store;
+use neard::config::{GenesisExt, FISHERMEN_THRESHOLD};
+use neard::NightshadeRuntime;
+use num_rational::Rational;
 
 #[test]
 fn test_verify_block_double_sign_challenge() {
@@ -43,6 +44,8 @@ fn test_verify_block_double_sign_challenge() {
     env.process_block(0, b1.clone(), Provenance::NONE);
 
     let signer = InMemoryValidatorSigner::from_seed("test0", KeyType::ED25519, "test0");
+    let mut block_merkle_tree = PartialMerkleTree::default();
+    block_merkle_tree.insert(genesis.hash());
     let b2 = Block::produce(
         &genesis.header,
         2,
@@ -50,17 +53,14 @@ fn test_verify_block_double_sign_challenge() {
         b1.header.inner_lite.epoch_id.clone(),
         b1.header.inner_lite.next_epoch_id.clone(),
         vec![],
-        0,
+        Rational::from_integer(0),
         0,
         None,
         vec![],
         vec![],
         &signer,
-        0.into(),
-        CryptoHash::default(),
-        CryptoHash::default(),
-        CryptoHash::default(),
         b1.header.inner_lite.next_bp_hash.clone(),
+        block_merkle_tree.root(),
     );
     let epoch_id = b1.header.inner_lite.epoch_id.clone();
     let valid_challenge = Challenge::produce(
@@ -143,7 +143,6 @@ fn create_chunk(
             last_block.chunks[0].clone(),
             2,
             0,
-            0,
         )
         .unwrap()
         .unwrap();
@@ -166,7 +165,6 @@ fn create_chunk(
             &mut rs,
             chunk.header.inner.gas_used,
             chunk.header.inner.gas_limit,
-            chunk.header.inner.validator_reward,
             chunk.header.inner.balance_burnt,
             tx_root,
             chunk.header.inner.validator_proposals.clone(),
@@ -187,6 +185,9 @@ fn create_chunk(
         chunk.header.hash = hash;
         chunk.header.signature = signature;
     }
+    let mut block_merkle_tree =
+        client.chain.mut_store().get_block_merkle_tree(&last_block.hash()).unwrap().clone();
+    block_merkle_tree.insert(last_block.hash());
     let block = Block::produce(
         &last_block.header,
         2,
@@ -194,17 +195,14 @@ fn create_chunk(
         last_block.header.inner_lite.epoch_id.clone(),
         last_block.header.inner_lite.next_epoch_id.clone(),
         vec![],
-        0,
+        Rational::from_integer(0),
         0,
         None,
         vec![],
         vec![],
         &*client.validator_signer.as_ref().unwrap().clone(),
-        0.into(),
-        CryptoHash::default(),
-        CryptoHash::default(),
-        CryptoHash::default(),
         last_block.header.inner_lite.next_bp_hash,
+        block_merkle_tree.root(),
     );
     (chunk, merkle_paths, receipts, block)
 }
@@ -363,7 +361,7 @@ fn challenge(
 fn test_verify_chunk_invalid_state_challenge() {
     let store1 = create_test_store();
     let genesis = Genesis::test(vec!["test0", "test1"], 1);
-    let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![Arc::new(near::NightshadeRuntime::new(
+    let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![Arc::new(neard::NightshadeRuntime::new(
         Path::new("."),
         store1,
         Arc::new(genesis),
@@ -375,14 +373,18 @@ fn test_verify_chunk_invalid_state_challenge() {
     let validator_signer = InMemoryValidatorSigner::from_seed("test0", KeyType::ED25519, "test0");
     let genesis_hash = env.clients[0].chain.genesis().hash();
     env.produce_block(0, 1);
-    env.clients[0].process_tx(SignedTransaction::send_money(
-        0,
-        "test0".to_string(),
-        "test1".to_string(),
-        &signer,
-        1000,
-        genesis_hash,
-    ));
+    env.clients[0].process_tx(
+        SignedTransaction::send_money(
+            0,
+            "test0".to_string(),
+            "test1".to_string(),
+            &signer,
+            1000,
+            genesis_hash,
+        ),
+        false,
+        false,
+    );
     env.produce_block(0, 2);
 
     // Invalid chunk & block.
@@ -402,7 +404,6 @@ fn test_verify_chunk_invalid_state_challenge() {
             0,
             0,
             1_000,
-            0,
             0,
             vec![],
             vec![],
@@ -428,6 +429,9 @@ fn test_verify_chunk_invalid_state_challenge() {
         .unwrap();
 
     invalid_chunk.header.height_included = last_block.header.inner_lite.height + 1;
+    let mut block_merkle_tree =
+        client.chain.mut_store().get_block_merkle_tree(&last_block.hash()).unwrap().clone();
+    block_merkle_tree.insert(last_block.hash());
     let block = Block::produce(
         &last_block.header,
         last_block.header.inner_lite.height + 1,
@@ -435,17 +439,14 @@ fn test_verify_chunk_invalid_state_challenge() {
         last_block.header.inner_lite.epoch_id.clone(),
         last_block.header.inner_lite.next_epoch_id.clone(),
         vec![],
-        0,
+        Rational::from_integer(0),
         0,
         None,
         vec![],
         vec![],
         &validator_signer,
-        0.into(),
-        CryptoHash::default(),
-        CryptoHash::default(),
-        CryptoHash::default(),
         last_block.header.inner_lite.next_bp_hash,
+        block_merkle_tree.root(),
     );
 
     let challenge_body = {
@@ -454,6 +455,10 @@ fn test_verify_chunk_invalid_state_challenge() {
         let adapter = chain.runtime_adapter.clone();
         let epoch_length = chain.epoch_length;
         let empty_block_pool = OrphanBlockPool::new();
+        let economics_config = BlockEconomicsConfig {
+            gas_price_adjustment_rate: Rational::from_integer(0),
+            min_gas_price: 0,
+        };
 
         let mut chain_update = ChainUpdate::new(
             chain.mut_store(),
@@ -461,7 +466,7 @@ fn test_verify_chunk_invalid_state_challenge() {
             &empty_block_pool,
             &empty_block_pool,
             epoch_length,
-            &BlockEconomicsConfig { gas_price_adjustment_rate: 0, min_gas_price: 0 },
+            &economics_config,
             DoomslugThresholdMode::NoApprovals,
         );
 
@@ -520,7 +525,9 @@ fn test_verify_chunk_invalid_state_challenge() {
 }
 
 /// Receive invalid state transition in chunk as next chunk producer.
+/// TODO(2445): Enable challenges when they are working correctly.
 #[test]
+#[ignore]
 fn test_receive_invalid_chunk_as_chunk_producer() {
     init_test_logger();
     let mut env = TestEnv::new(ChainGenesis::test(), 2, 1);
@@ -555,7 +562,6 @@ fn test_receive_invalid_chunk_as_chunk_producer() {
     assert!(env.clients[1]
         .process_partial_encoded_chunk(chunk.create_partial_encoded_chunk(
             vec![0],
-            true,
             one_part_receipt_proofs,
             &vec![merkle_paths[0].clone()]
         ))
@@ -595,7 +601,9 @@ fn test_receive_two_chunks_from_one_producer() {}
 fn test_receive_two_blocks_from_one_producer() {}
 
 /// Receive challenges in the blocks.
+/// TODO(2445): Enable challenges when they are working correctly.
 #[test]
+#[ignore]
 fn test_block_challenge() {
     init_test_logger();
     let mut env = TestEnv::new(ChainGenesis::test(), 1, 1);
@@ -619,14 +627,16 @@ fn test_block_challenge() {
 
 /// Make sure that fisherman can initiate challenges while an account that is neither a fisherman nor
 /// a validator cannot.
+// TODO(2445): Enable challenges when they are working correctly.
 #[test]
+#[ignore]
 fn test_fishermen_challenge() {
     init_test_logger();
     let mut genesis = Genesis::test(vec!["test0", "test1", "test2"], 1);
     genesis.config.epoch_length = 5;
     let genesis = Arc::new(genesis);
     let create_runtime = || -> Arc<NightshadeRuntime> {
-        Arc::new(near::NightshadeRuntime::new(
+        Arc::new(neard::NightshadeRuntime::new(
             Path::new("."),
             create_test_store(),
             Arc::clone(&genesis),
@@ -649,7 +659,7 @@ fn test_fishermen_challenge() {
         signer.public_key(),
         genesis_hash,
     );
-    env.clients[0].process_tx(stake_transaction);
+    env.clients[0].process_tx(stake_transaction, false, false);
     for i in 1..=11 {
         env.produce_block(0, i);
     }
@@ -687,14 +697,14 @@ fn test_challenge_in_different_epoch() {
     let genesis = Arc::new(genesis);
     //    genesis.config.validator_kickout_threshold = 10;
     let network_adapter = Arc::new(MockNetworkAdapter::default());
-    let runtime1 = Arc::new(near::NightshadeRuntime::new(
+    let runtime1 = Arc::new(neard::NightshadeRuntime::new(
         Path::new("."),
         create_test_store(),
         Arc::clone(&genesis),
         vec![],
         vec![],
     ));
-    let runtime2 = Arc::new(near::NightshadeRuntime::new(
+    let runtime2 = Arc::new(neard::NightshadeRuntime::new(
         Path::new("."),
         create_test_store(),
         genesis,

@@ -6,8 +6,8 @@ use futures::{future, FutureExt};
 
 use near_client::test_utils::setup_mock_all_validators;
 use near_client::{ClientActor, Query, ViewClientActor};
+use near_logger_utils::init_test_logger;
 use near_network::{NetworkRequests, NetworkResponses, PeerInfo};
-use near_primitives::test_utils::init_test_logger;
 use near_primitives::types::BlockIdOrFinality;
 use near_primitives::views::{QueryRequest, QueryResponseKind::ViewAccount};
 
@@ -74,6 +74,7 @@ fn test_keyvalue_runtime_balances() {
     .unwrap();
 }
 
+#[cfg(feature = "expensive_tests")]
 #[cfg(test)]
 mod tests {
     use std::collections::HashSet;
@@ -87,11 +88,11 @@ mod tests {
     use near_client::test_utils::setup_mock_all_validators;
     use near_client::{ClientActor, Query, ViewClientActor};
     use near_crypto::{InMemorySigner, KeyType};
+    use near_logger_utils::init_test_logger;
     use near_network::{
         NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkResponses, PeerInfo,
     };
     use near_primitives::hash::CryptoHash;
-    use near_primitives::test_utils::init_test_logger;
     use near_primitives::transaction::SignedTransaction;
     use near_primitives::types::{AccountId, BlockIdOrFinality};
     use near_primitives::views::{QueryRequest, QueryResponse, QueryResponseKind::ViewAccount};
@@ -111,14 +112,18 @@ mod tests {
         actix::spawn(
             connectors.write().unwrap()[connector_ordinal]
                 .0
-                .send(NetworkClientMessages::Transaction(SignedTransaction::send_money(
-                    nonce,
-                    from.clone(),
-                    to.clone(),
-                    &signer,
-                    amount,
-                    block_hash,
-                )))
+                .send(NetworkClientMessages::Transaction {
+                    transaction: SignedTransaction::send_money(
+                        nonce,
+                        from.clone(),
+                        to.clone(),
+                        &signer,
+                        amount,
+                        block_hash,
+                    ),
+                    is_forwarded: false,
+                    check_only: false,
+                })
                 .then(move |x| {
                     match x.unwrap() {
                         NetworkClientResponses::NoResponse
@@ -366,9 +371,6 @@ mod tests {
         test_doomslug: bool,
         block_production_time: u64,
     ) {
-        if !cfg!(feature = "expensive_tests") {
-            return;
-        }
         let validator_groups = 4;
         init_test_logger();
         System::run(move || {

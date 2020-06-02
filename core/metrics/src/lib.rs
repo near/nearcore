@@ -113,7 +113,9 @@ pub fn observe(histogram: &Result<Histogram>, value: f64) {
 
 /// Stops a timer created with `start_timer(..)`.
 pub fn stop_timer(timer: Option<HistogramTimer>) {
-    timer.map(|t| t.observe_duration());
+    if let Some(t) = timer {
+        t.observe_duration();
+    }
 }
 
 pub fn inc_counter(counter: &Result<IntCounter>) {
@@ -121,6 +123,14 @@ pub fn inc_counter(counter: &Result<IntCounter>) {
         counter.inc();
     } else {
         error!(target: "metrics", "Failed to fetch counter");
+    }
+}
+
+pub fn get_counter(counter: &Result<IntCounter>) -> std::result::Result<i64, String> {
+    if let Ok(counter) = counter {
+        Ok(counter.get())
+    } else {
+        Err("Failed to fetch counter".to_string())
     }
 }
 

@@ -1,14 +1,13 @@
 use near_crypto::{InMemorySigner, KeyType};
-use near_primitives::account::AccessKey;
+use near_primitives::account::{AccessKey, Account};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::Receipt;
-use near_primitives::serialize::to_base64;
 use near_primitives::state_record::StateRecord;
+use near_primitives::test_utils::MockEpochInfoProvider;
 use near_primitives::transaction::{ExecutionOutcomeWithId, SignedTransaction};
-use near_primitives::types::{Balance, MerkleHash};
-use near_primitives::views::AccountView;
-use near_store::test_utils::create_trie;
-use near_store::{Trie, TrieUpdate};
+use near_primitives::types::Balance;
+use near_store::test_utils::create_tries;
+use near_store::ShardTries;
 use node_runtime::{ApplyState, Runtime};
 use random_config::random_config;
 use std::collections::HashMap;
@@ -30,9 +29,10 @@ pub const NEAR_BASE: Balance = 1_000_000_000_000_000_000_000_000;
 pub struct StandaloneRuntime {
     pub apply_state: ApplyState,
     pub runtime: Runtime,
-    pub trie: Arc<Trie>,
+    pub tries: ShardTries,
     pub signer: InMemorySigner,
     pub root: CryptoHash,
+    pub epoch_info_provider: MockEpochInfoProvider,
 }
 
 impl StandaloneRuntime {
@@ -40,28 +40,34 @@ impl StandaloneRuntime {
         self.signer.account_id.clone()
     }
 
-    pub fn new(signer: InMemorySigner, state_records: &[StateRecord], trie: Arc<Trie>) -> Self {
+    pub fn new(signer: InMemorySigner, state_records: &[StateRecord], tries: ShardTries) -> Self {
         let mut runtime_config = random_config();
         runtime_config.wasm_config.limit_config.max_total_prepaid_gas = u64::max_value();
 
         let runtime = Runtime::new(runtime_config);
-        let trie_update = TrieUpdate::new(trie.clone(), MerkleHash::default());
 
-        let (store_update, root) = runtime.apply_genesis_state(trie_update, &[], state_records);
+        let (store_update, root) =
+            runtime.apply_genesis_state(tries.clone(), 0, &[], state_records);
         store_update.commit().unwrap();
 
         let apply_state = ApplyState {
-            // Put each runtime into a separate shard.
             block_index: 0,
-            // Epoch length is long enough to avoid corner cases.
-            epoch_length: 4,
+            last_block_hash: Default::default(),
+            epoch_id: Default::default(),
             epoch_height: 0,
             gas_price: 100,
             block_timestamp: 0,
             gas_limit: None,
         };
 
-        Self { apply_state, runtime, trie, signer, root: root }
+        Self {
+            apply_state,
+            runtime,
+            tries,
+            signer,
+            root,
+            epoch_info_provider: MockEpochInfoProvider::default(),
+        }
     }
 
     pub fn process_block(
@@ -71,10 +77,18 @@ impl StandaloneRuntime {
     ) -> (Vec<Receipt>, Vec<ExecutionOutcomeWithId>) {
         let apply_result = self
             .runtime
-            .apply(self.trie.clone(), self.root, &None, &self.apply_state, receipts, transactions)
+            .apply(
+                self.tries.get_trie_for_shard(0),
+                self.root,
+                &None,
+                &self.apply_state,
+                receipts,
+                transactions,
+                &self.epoch_info_provider,
+            )
             .unwrap();
 
-        let (store_update, root) = apply_result.trie_changes.into(self.trie.clone()).unwrap();
+        let (store_update, root) = self.tries.apply_all(&apply_result.trie_changes, 0).unwrap();
         self.root = root;
         store_update.commit().unwrap();
         self.apply_state.block_index += 1;
@@ -117,8 +131,11 @@ impl RuntimeGroup {
 
         for signer in signers {
             res.mailboxes.0.lock().unwrap().insert(signer.account_id.clone(), Default::default());
-            let runtime =
-                Arc::new(Mutex::new(StandaloneRuntime::new(signer, &state_records, create_trie())));
+            let runtime = Arc::new(Mutex::new(StandaloneRuntime::new(
+                signer,
+                &state_records,
+                create_tries(),
+            )));
             res.runtimes.push(runtime);
         }
         Arc::new(res)
@@ -139,12 +156,11 @@ impl RuntimeGroup {
             if i < num_existing_accounts {
                 state_records.push(StateRecord::Account {
                     account_id: account_id.to_string(),
-                    account: AccountView {
+                    account: Account {
                         amount: TESTING_INIT_BALANCE,
                         locked: TESTING_INIT_STAKE,
-                        code_hash: code_hash.clone().into(),
+                        code_hash,
                         storage_usage: 0,
-                        storage_paid_at: 0,
                     },
                 });
                 state_records.push(StateRecord::AccessKey {
@@ -153,7 +169,7 @@ impl RuntimeGroup {
                     access_key: AccessKey::full_access().into(),
                 });
                 state_records
-                    .push(StateRecord::Contract { account_id, code: to_base64(contract_code) });
+                    .push(StateRecord::Contract { account_id, code: contract_code.to_vec() });
             }
             signers.push(signer);
         }

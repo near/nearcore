@@ -1,18 +1,16 @@
 use std::fs;
 use std::path::PathBuf;
-use std::sync::Arc;
 
 use byteorder::{ByteOrder, LittleEndian};
 
-use near::config::GenesisExt;
 use near_chain_configs::Genesis;
+use near_primitives::account::Account;
 use near_primitives::hash::{hash, CryptoHash};
-use near_primitives::serialize::to_base64;
 use near_primitives::state_record::StateRecord;
-use near_primitives::types::{AccountId, MerkleHash, StateRoot};
-use near_primitives::views::AccountView;
-use near_store::test_utils::create_trie;
-use near_store::{Trie, TrieUpdate};
+use near_primitives::types::{AccountId, StateRoot};
+use near_store::test_utils::create_tries;
+use near_store::{ShardTries, TrieUpdate};
+use neard::config::GenesisExt;
 use node_runtime::{state_viewer::TrieViewer, Runtime};
 
 pub fn alice_account() -> AccountId {
@@ -36,7 +34,6 @@ const DEFAULT_TEST_CONTRACT: &[u8] =
     include_bytes!("../../../runtime/near-vm-runner/tests/res/test_contract_rs.wasm");
 
 lazy_static::lazy_static! {
-    static ref DEFAULT_TEST_CONTRACT_BASE64: String = to_base64(&DEFAULT_TEST_CONTRACT);
     static ref DEFAULT_TEST_CONTRACT_HASH: CryptoHash = hash(&DEFAULT_TEST_CONTRACT);
 }
 
@@ -53,27 +50,26 @@ pub fn add_test_contract(genesis: &mut Genesis, account_id: &AccountId) {
     if !is_account_record_found {
         genesis.records.as_mut().push(StateRecord::Account {
             account_id: account_id.clone(),
-            account: AccountView {
+            account: Account {
                 amount: 0,
                 locked: 0,
                 code_hash: *DEFAULT_TEST_CONTRACT_HASH,
                 storage_usage: 0,
-                storage_paid_at: 0,
             },
         });
     }
     genesis.records.as_mut().push(StateRecord::Contract {
         account_id: account_id.clone(),
-        code: DEFAULT_TEST_CONTRACT_BASE64.clone(),
+        code: DEFAULT_TEST_CONTRACT.to_vec(),
     });
 }
 
-pub fn get_runtime_and_trie_from_genesis(genesis: &Genesis) -> (Runtime, Arc<Trie>, StateRoot) {
-    let trie = create_trie();
+pub fn get_runtime_and_trie_from_genesis(genesis: &Genesis) -> (Runtime, ShardTries, StateRoot) {
+    let tries = create_tries();
     let runtime = Runtime::new(genesis.config.runtime_config.clone());
-    let trie_update = TrieUpdate::new(trie.clone(), MerkleHash::default());
     let (store_update, genesis_root) = runtime.apply_genesis_state(
-        trie_update,
+        tries.clone(),
+        0,
         &genesis
             .config
             .validators
@@ -89,19 +85,19 @@ pub fn get_runtime_and_trie_from_genesis(genesis: &Genesis) -> (Runtime, Arc<Tri
         &genesis.records.as_ref(),
     );
     store_update.commit().unwrap();
-    (runtime, trie, genesis_root)
+    (runtime, tries, genesis_root)
 }
 
-pub fn get_runtime_and_trie() -> (Runtime, Arc<Trie>, StateRoot) {
+pub fn get_runtime_and_trie() -> (Runtime, ShardTries, StateRoot) {
     let mut genesis = Genesis::test(vec![&alice_account(), &bob_account(), "carol.near"], 3);
     add_test_contract(&mut genesis, &AccountId::from("test.contract"));
     get_runtime_and_trie_from_genesis(&genesis)
 }
 
 pub fn get_test_trie_viewer() -> (TrieViewer, TrieUpdate) {
-    let (_, trie, root) = get_runtime_and_trie();
+    let (_, tries, root) = get_runtime_and_trie();
     let trie_viewer = TrieViewer::new();
-    let state_update = TrieUpdate::new(trie, root);
+    let state_update = tries.new_trie_update(0, root);
     (trie_viewer, state_update)
 }
 

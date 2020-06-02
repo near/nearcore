@@ -6,6 +6,7 @@ use near_crypto::PublicKey;
 
 use crate::account::{AccessKey, Account};
 use crate::challenge::ChallengesResult;
+use crate::errors::EpochError;
 use crate::hash::CryptoHash;
 use crate::serialize::u128_dec_format;
 use crate::trie_key::TrieKey;
@@ -58,12 +59,12 @@ pub enum Finality {
     #[serde(rename = "near-final")]
     DoomSlug,
     #[serde(rename = "final")]
-    NFG,
+    Final,
 }
 
 impl Default for Finality {
     fn default() -> Self {
-        Finality::NFG
+        Finality::Final
     }
 }
 
@@ -400,9 +401,32 @@ pub struct ValidatorStake {
     pub stake: Balance,
 }
 
+/// Stores validator and its stake for two consecutive epochs.
+/// It is necessary because the blocks on the epoch boundary need to contain approvals from both
+/// epochs.
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, PartialEq, Eq)]
+pub struct ApprovalStake {
+    /// Account that stakes money.
+    pub account_id: AccountId,
+    /// Public key of the proposed validator.
+    pub public_key: PublicKey,
+    /// Stake / weight of the validator.
+    pub stake_this_epoch: Balance,
+    pub stake_next_epoch: Balance,
+}
+
 impl ValidatorStake {
     pub fn new(account_id: AccountId, public_key: PublicKey, stake: Balance) -> Self {
         ValidatorStake { account_id, public_key, stake }
+    }
+
+    pub fn get_approval_stake(&self, is_next_epoch: bool) -> ApprovalStake {
+        ApprovalStake {
+            account_id: self.account_id.clone(),
+            public_key: self.public_key.clone(),
+            stake_this_epoch: if is_next_epoch { 0 } else { self.stake },
+            stake_next_epoch: if is_next_epoch { self.stake } else { 0 },
+        }
     }
 }
 
@@ -425,8 +449,6 @@ pub struct ChunkExtra {
     pub gas_used: Gas,
     /// Gas limit, allows to increase or decrease limit based on expected time vs real time for computing the chunk.
     pub gas_limit: Gas,
-    /// Total validation execution reward after processing the current chunk.
-    pub validator_reward: Balance,
     /// Total balance burnt after processing the current chunk.
     pub balance_burnt: Balance,
 }
@@ -438,7 +460,6 @@ impl ChunkExtra {
         validator_proposals: Vec<ValidatorStake>,
         gas_used: Gas,
         gas_limit: Gas,
-        validator_reward: Balance,
         balance_burnt: Balance,
     ) -> Self {
         Self {
@@ -447,7 +468,6 @@ impl ChunkExtra {
             validator_proposals,
             gas_used,
             gas_limit,
-            validator_reward,
             balance_burnt,
         }
     }
@@ -506,10 +526,42 @@ pub enum ValidatorKickoutReason {
     /// Validator unstaked themselves.
     Unstaked,
     /// Validator stake is now below threshold
-    NotEnoughStake { stake: Balance, threshold: Balance },
+    NotEnoughStake {
+        #[serde(with = "u128_dec_format", rename = "stake_u128")]
+        stake: Balance,
+        #[serde(with = "u128_dec_format", rename = "threshold_u128")]
+        threshold: Balance,
+    },
     /// Enough stake but is not chosen because of seat limits.
     DidNotGetASeat,
 }
 
 #[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize, Serialize)]
 pub struct StateHeaderKey(pub ShardId, pub CryptoHash);
+
+#[derive(Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum TransactionOrReceiptId {
+    Transaction { transaction_hash: CryptoHash, sender_id: AccountId },
+    Receipt { receipt_id: CryptoHash, receiver_id: AccountId },
+}
+
+/// Provides information about current epoch validators.
+/// Used to break dependency between epoch manager and runtime.
+pub trait EpochInfoProvider {
+    /// Get current stake of a validator in the given epoch.
+    /// If the account is not a validator, returns `None`.
+    fn validator_stake(
+        &self,
+        epoch_id: &EpochId,
+        last_block_hash: &CryptoHash,
+        account_id: &AccountId,
+    ) -> Result<Option<Balance>, EpochError>;
+
+    /// Get the total stake of the given epoch.
+    fn validator_total_stake(
+        &self,
+        epoch_id: &EpochId,
+        last_block_hash: &CryptoHash,
+    ) -> Result<Balance, EpochError>;
+}

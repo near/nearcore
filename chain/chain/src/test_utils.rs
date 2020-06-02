@@ -11,7 +11,6 @@ use serde::Serialize;
 use near_crypto::{KeyType, PublicKey, SecretKey, Signature};
 use near_pool::types::PoolIterator;
 use near_primitives::account::{AccessKey, Account};
-use near_primitives::block::{Approval, Block};
 use near_primitives::challenge::{ChallengesResult, SlashedValidator};
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::{hash, CryptoHash};
@@ -23,8 +22,8 @@ use near_primitives::transaction::{
     TransferAction,
 };
 use near_primitives::types::{
-    AccountId, Balance, BlockHeight, EpochId, Gas, Nonce, NumBlocks, ShardId, StateRoot,
-    StateRootNode, ValidatorStake, ValidatorStats,
+    AccountId, ApprovalStake, Balance, BlockHeight, EpochId, Gas, Nonce, NumBlocks, NumShards,
+    ShardId, StateRoot, StateRootNode, ValidatorStake, ValidatorStats,
 };
 use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_primitives::views::{
@@ -33,7 +32,8 @@ use near_primitives::views::{
 };
 use near_store::test_utils::create_test_store;
 use near_store::{
-    ColBlockHeader, PartialStorage, Store, StoreUpdate, Trie, TrieChanges, WrappedTrieChanges,
+    ColBlockHeader, PartialStorage, ShardTries, Store, StoreUpdate, Trie, TrieChanges,
+    WrappedTrieChanges,
 };
 
 use crate::chain::{Chain, ChainGenesis, NUM_EPOCHS_TO_KEEP_STORE_DATA};
@@ -41,6 +41,7 @@ use crate::error::{Error, ErrorKind};
 use crate::store::ChainStoreAccess;
 use crate::types::ApplyTransactionResult;
 use crate::{BlockHeader, DoomslugThresholdMode, RuntimeAdapter};
+use num_rational::Rational;
 
 #[derive(
     BorshSerialize, BorshDeserialize, Serialize, Hash, PartialEq, Eq, Ord, PartialOrd, Clone, Debug,
@@ -57,11 +58,10 @@ struct KVState {
 /// Simple key value runtime for tests.
 pub struct KeyValueRuntime {
     store: Arc<Store>,
-    trie: Arc<Trie>,
-    root: StateRoot,
+    tries: ShardTries,
     validators: Vec<Vec<ValidatorStake>>,
     validator_groups: u64,
-    num_shards: ShardId,
+    num_shards: NumShards,
     epoch_length: u64,
 
     // A mapping state_root => {account id => amounts}, for transactions and receipts
@@ -70,12 +70,13 @@ pub struct KeyValueRuntime {
 
     headers_cache: RwLock<HashMap<CryptoHash, BlockHeader>>,
     hash_to_epoch: RwLock<HashMap<CryptoHash, EpochId>>,
+    hash_to_next_epoch_approvals_req: RwLock<HashMap<CryptoHash, bool>>,
     hash_to_next_epoch: RwLock<HashMap<CryptoHash, EpochId>>,
     hash_to_valset: RwLock<HashMap<EpochId, u64>>,
     epoch_start: RwLock<HashMap<CryptoHash, u64>>,
 }
 
-pub fn account_id_to_shard_id(account_id: &AccountId, num_shards: ShardId) -> ShardId {
+pub fn account_id_to_shard_id(account_id: &AccountId, num_shards: NumShards) -> ShardId {
     u64::from((hash(&account_id.clone().into_bytes()).0).0[0]) % num_shards
 }
 
@@ -100,10 +101,10 @@ impl KeyValueRuntime {
         store: Arc<Store>,
         validators: Vec<Vec<AccountId>>,
         validator_groups: u64,
-        num_shards: ShardId,
+        num_shards: NumShards,
         epoch_length: u64,
     ) -> Self {
-        let trie = Arc::new(Trie::new(store.clone()));
+        let tries = ShardTries::new(store.clone(), num_shards);
         let mut initial_amounts = HashMap::new();
         for (i, validator) in validators.iter().flatten().enumerate() {
             initial_amounts.insert(validator.clone(), (1000 + 100 * i) as u128);
@@ -131,8 +132,7 @@ impl KeyValueRuntime {
         state_size.insert(StateRoot::default(), data_len);
         KeyValueRuntime {
             store,
-            trie,
-            root: StateRoot::default(),
+            tries,
             validators: validators
                 .iter()
                 .map(|account_ids| {
@@ -154,14 +154,11 @@ impl KeyValueRuntime {
             state_size: RwLock::new(state_size),
             headers_cache: RwLock::new(HashMap::new()),
             hash_to_epoch: RwLock::new(HashMap::new()),
+            hash_to_next_epoch_approvals_req: RwLock::new(HashMap::new()),
             hash_to_next_epoch: RwLock::new(map_with_default_hash1),
-            hash_to_valset: RwLock::new(map_with_default_hash3.clone()),
-            epoch_start: RwLock::new(map_with_default_hash2.clone()),
+            hash_to_valset: RwLock::new(map_with_default_hash3),
+            epoch_start: RwLock::new(map_with_default_hash2),
         }
-    }
-
-    pub fn get_root(&self) -> CryptoHash {
-        self.root
     }
 
     fn get_block_header(&self, hash: &CryptoHash) -> Result<Option<BlockHeader>, Error> {
@@ -188,6 +185,8 @@ impl KeyValueRuntime {
             .ok_or_else(|| ErrorKind::DBNotFoundErr(to_base(&prev_hash)))?;
 
         let mut hash_to_epoch = self.hash_to_epoch.write().unwrap();
+        let mut hash_to_next_epoch_approvals_req =
+            self.hash_to_next_epoch_approvals_req.write().unwrap();
         let mut hash_to_next_epoch = self.hash_to_next_epoch.write().unwrap();
         let mut hash_to_valset = self.hash_to_valset.write().unwrap();
         let mut epoch_start_map = self.epoch_start.write().unwrap();
@@ -202,8 +201,23 @@ impl KeyValueRuntime {
 
         let prev_epoch_start = *epoch_start_map.get(&prev_prev_hash).unwrap();
 
+        let last_final_height =
+            if prev_block_header.inner_rest.last_final_block == CryptoHash::default() {
+                0
+            } else {
+                self.get_block_header(&prev_block_header.inner_rest.last_final_block)
+                    .unwrap()
+                    .unwrap()
+                    .inner_lite
+                    .height
+            };
+
         let increment_epoch = prev_prev_hash == CryptoHash::default() // genesis is in its own epoch
-            || prev_block_header.inner_lite.height - prev_epoch_start >= self.epoch_length;
+            || last_final_height + 3 >= prev_epoch_start + self.epoch_length;
+
+        let needs_next_epoch_approvals = !increment_epoch
+            && last_final_height + 3 < prev_epoch_start + self.epoch_length
+            && prev_block_header.inner_lite.height + 3 >= prev_epoch_start + self.epoch_length;
 
         let (epoch, next_epoch, valset, epoch_start) = if increment_epoch {
             let new_valset = match prev_valset {
@@ -214,7 +228,7 @@ impl KeyValueRuntime {
                 prev_next_epoch.clone(),
                 EpochId(prev_hash),
                 new_valset,
-                prev_block_header.inner_lite.height,
+                prev_block_header.inner_lite.height + 1,
             )
         } else {
             (
@@ -227,11 +241,12 @@ impl KeyValueRuntime {
 
         hash_to_next_epoch.insert(prev_hash, next_epoch.clone());
         hash_to_epoch.insert(prev_hash, epoch.clone());
+        hash_to_next_epoch_approvals_req.insert(prev_hash.clone(), needs_next_epoch_approvals);
         hash_to_valset.insert(epoch.clone(), valset);
         hash_to_valset.insert(next_epoch.clone(), valset + 1);
         epoch_start_map.insert(prev_hash, epoch_start);
 
-        Ok((epoch, valset as usize % self.validators.len(), next_epoch.clone()))
+        Ok((epoch, valset as usize % self.validators.len(), next_epoch))
     }
 
     fn get_valset_for_epoch(&self, epoch_id: &EpochId) -> Result<usize, Error> {
@@ -256,8 +271,12 @@ impl RuntimeAdapter for KeyValueRuntime {
         )
     }
 
-    fn get_trie(&self) -> Arc<Trie> {
-        self.trie.clone()
+    fn get_tries(&self) -> ShardTries {
+        self.tries.clone()
+    }
+
+    fn get_trie_for_shard(&self, shard_id: ShardId) -> Arc<Trie> {
+        self.tries.get_trie_for_shard(shard_id)
     }
 
     fn verify_block_signature(&self, header: &BlockHeader) -> Result<(), Error> {
@@ -300,11 +319,12 @@ impl RuntimeAdapter for KeyValueRuntime {
         Ok(true)
     }
 
-    fn verify_approval_signature(
+    fn verify_approval(
         &self,
-        _epoch_id: &EpochId,
         _prev_block_hash: &CryptoHash,
-        _approvals: &[Approval],
+        _prev_block_height: BlockHeight,
+        _block_height: BlockHeight,
+        _approvals: &[Option<Signature>],
     ) -> Result<bool, Error> {
         Ok(true)
     }
@@ -316,6 +336,30 @@ impl RuntimeAdapter for KeyValueRuntime {
     ) -> Result<Vec<(ValidatorStake, bool)>, Error> {
         let validators = &self.validators[self.get_valset_for_epoch(epoch_id)?];
         Ok(validators.iter().map(|x| (x.clone(), false)).collect())
+    }
+
+    fn get_epoch_block_approvers_ordered(
+        &self,
+        parent_hash: &CryptoHash,
+    ) -> Result<Vec<ApprovalStake>, Error> {
+        let (_cur_epoch, cur_valset, next_epoch) =
+            self.get_epoch_and_valset(parent_hash.clone())?;
+        let mut validators = self.validators[cur_valset]
+            .iter()
+            .map(|x| x.get_approval_stake(false))
+            .collect::<Vec<_>>();
+        if *self.hash_to_next_epoch_approvals_req.write().unwrap().get(parent_hash).unwrap() {
+            let validators_copy = validators.clone();
+            validators.extend(
+                self.validators[self.get_valset_for_epoch(&next_epoch)?]
+                    .iter()
+                    .filter(|x| {
+                        !validators_copy.iter().any(|entry| entry.account_id == x.account_id)
+                    })
+                    .map(|x| x.get_approval_stake(true)),
+            );
+        }
+        Ok(validators)
     }
 
     fn get_block_producer(
@@ -439,10 +483,8 @@ impl RuntimeAdapter for KeyValueRuntime {
 
     fn validate_tx(
         &self,
-        _block_height: BlockHeight,
-        _block_timestamp: u64,
         _gas_price: Balance,
-        _state_update: StateRoot,
+        _state_update: Option<StateRoot>,
         _transaction: &SignedTransaction,
     ) -> Result<Option<InvalidTxError>, Error> {
         Ok(None)
@@ -450,10 +492,9 @@ impl RuntimeAdapter for KeyValueRuntime {
 
     fn prepare_transactions(
         &self,
-        _block_height: BlockHeight,
-        _block_timestamp: u64,
         _gas_price: Balance,
         _gas_limit: Gas,
+        _shard_id: ShardId,
         _state_root: StateRoot,
         _max_number_of_transactions: usize,
         transactions: &mut dyn PoolIterator,
@@ -476,7 +517,6 @@ impl RuntimeAdapter for KeyValueRuntime {
         _proposals: Vec<ValidatorStake>,
         _slashed_validators: Vec<SlashedValidator>,
         _validator_mask: Vec<bool>,
-        _validator_reward: Balance,
         _total_supply: Balance,
     ) -> Result<(), Error> {
         Ok(())
@@ -641,7 +681,8 @@ impl RuntimeAdapter for KeyValueRuntime {
 
         Ok(ApplyTransactionResult {
             trie_changes: WrappedTrieChanges::new(
-                self.trie.clone(),
+                self.get_tries(),
+                shard_id,
                 TrieChanges::empty(state_root),
                 Default::default(),
                 block_hash.clone(),
@@ -651,7 +692,6 @@ impl RuntimeAdapter for KeyValueRuntime {
             receipt_result: new_receipts,
             validator_proposals: vec![],
             total_gas_burnt: 0,
-            total_validator_reward: 0,
             total_balance_burnt: 0,
             proof: None,
         })
@@ -678,6 +718,7 @@ impl RuntimeAdapter for KeyValueRuntime {
 
     fn query(
         &self,
+        _shard_id: ShardId,
         state_root: &StateRoot,
         block_height: BlockHeight,
         _block_timestamp: u64,
@@ -736,7 +777,13 @@ impl RuntimeAdapter for KeyValueRuntime {
         }
     }
 
-    fn obtain_state_part(&self, state_root: &StateRoot, part_id: u64, num_parts: u64) -> Vec<u8> {
+    fn obtain_state_part(
+        &self,
+        _shard_id: ShardId,
+        state_root: &StateRoot,
+        part_id: u64,
+        num_parts: u64,
+    ) -> Vec<u8> {
         assert!(part_id < num_parts);
         let state = self.state.read().unwrap().get(&state_root).unwrap().clone();
         let data = state.try_to_vec().expect("should never fall");
@@ -761,7 +808,12 @@ impl RuntimeAdapter for KeyValueRuntime {
         true
     }
 
-    fn confirm_state(&self, state_root: &StateRoot, parts: &Vec<Vec<u8>>) -> Result<(), Error> {
+    fn confirm_state(
+        &self,
+        _shard_id: ShardId,
+        state_root: &StateRoot,
+        parts: &Vec<Vec<u8>>,
+    ) -> Result<(), Error> {
         let mut data = vec![];
         for part in parts {
             data.push(part.clone());
@@ -775,7 +827,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         Ok(())
     }
 
-    fn get_state_root_node(&self, state_root: &StateRoot) -> StateRootNode {
+    fn get_state_root_node(&self, _shard_id: ShardId, state_root: &StateRoot) -> StateRootNode {
         StateRootNode {
             data: self
                 .state
@@ -839,7 +891,11 @@ impl RuntimeAdapter for KeyValueRuntime {
         Ok(block_height.saturating_sub(NUM_EPOCHS_TO_KEEP_STORE_DATA * self.epoch_length))
     }
 
-    fn get_epoch_inflation(&self, _epoch_id: &EpochId) -> Result<u128, Error> {
+    fn epoch_exists(&self, _epoch_id: &EpochId) -> bool {
+        true
+    }
+
+    fn get_epoch_minted_amount(&self, _epoch_id: &EpochId) -> Result<Balance, Error> {
         Ok(0)
     }
 
@@ -851,15 +907,8 @@ impl RuntimeAdapter for KeyValueRuntime {
             next_fishermen: vec![],
             current_proposals: vec![],
             prev_epoch_kickout: vec![],
+            epoch_start_height: 0,
         })
-    }
-
-    fn push_final_block_back_if_needed(
-        &self,
-        _prev_block: CryptoHash,
-        last_final: CryptoHash,
-    ) -> Result<CryptoHash, Error> {
-        Ok(last_final)
     }
 
     fn compare_epoch_id(
@@ -889,10 +938,16 @@ impl RuntimeAdapter for KeyValueRuntime {
 
     fn get_validator_by_account_id(
         &self,
-        _epoch_id: &EpochId,
+        epoch_id: &EpochId,
         _last_known_block_hash: &CryptoHash,
-        _account_id: &String,
+        account_id: &String,
     ) -> Result<(ValidatorStake, bool), Error> {
+        let validators = &self.validators[self.get_valset_for_epoch(epoch_id)?];
+        for validator_stake in validators.iter() {
+            if &validator_stake.account_id == account_id {
+                return Ok((validator_stake.clone(), false));
+            }
+        }
         Err(ErrorKind::NotAValidator.into())
     }
 
@@ -914,7 +969,7 @@ pub fn setup_with_tx_validity_period(
     tx_validity_period: NumBlocks,
 ) -> (Chain, Arc<KeyValueRuntime>, Arc<InMemoryValidatorSigner>) {
     let store = create_test_store();
-    let runtime = Arc::new(KeyValueRuntime::new(store.clone()));
+    let runtime = Arc::new(KeyValueRuntime::new(store));
     let chain = Chain::new(
         runtime.clone(),
         &ChainGenesis::new(
@@ -923,8 +978,8 @@ pub fn setup_with_tx_validity_period(
             1_000_000,
             100,
             1_000_000_000,
-            0,
-            0,
+            Rational::from_integer(0),
+            Rational::from_integer(0),
             tx_validity_period,
             10,
         ),
@@ -938,7 +993,7 @@ pub fn setup_with_tx_validity_period(
 pub fn setup_with_validators(
     validators: Vec<AccountId>,
     validator_groups: u64,
-    num_shards: ShardId,
+    num_shards: NumShards,
     epoch_length: u64,
     tx_validity_period: NumBlocks,
 ) -> (Chain, Arc<KeyValueRuntime>, Vec<Arc<InMemoryValidatorSigner>>) {
@@ -948,7 +1003,7 @@ pub fn setup_with_validators(
         .map(|x| Arc::new(InMemoryValidatorSigner::from_seed(x.as_str(), KeyType::ED25519, x)))
         .collect();
     let runtime = Arc::new(KeyValueRuntime::new_with_validators(
-        store.clone(),
+        store,
         vec![validators],
         validator_groups,
         num_shards,
@@ -962,8 +1017,8 @@ pub fn setup_with_validators(
             1_000_000,
             100,
             1_000_000_000,
-            0,
-            0,
+            Rational::from_integer(0),
+            Rational::from_integer(0),
             tx_validity_period,
             epoch_length,
         ),
@@ -1079,53 +1134,10 @@ impl ChainGenesis {
             gas_limit: 1_000_000,
             min_gas_price: 0,
             total_supply: 1_000_000_000,
-            max_inflation_rate: 0,
-            gas_price_adjustment_rate: 0,
+            max_inflation_rate: Rational::from_integer(0),
+            gas_price_adjustment_rate: Rational::from_integer(0),
             transaction_validity_period: 100,
             epoch_length: 5,
         }
     }
-}
-
-pub fn new_block_no_epoch_switches(
-    prev_block: &Block,
-    height: BlockHeight,
-    approvals: Vec<&str>,
-    signer: &InMemoryValidatorSigner,
-) -> Block {
-    let approvals = approvals
-        .into_iter()
-        .map(|account_id| {
-            let signer =
-                InMemoryValidatorSigner::from_seed(account_id, KeyType::ED25519, account_id);
-            Approval::new(prev_block.hash(), Some(prev_block.hash()), height, true, &signer)
-        })
-        .collect();
-    let (epoch_id, next_epoch_id) = if prev_block.header.prev_hash == CryptoHash::default() {
-        (prev_block.header.inner_lite.next_epoch_id.clone(), EpochId(prev_block.hash()))
-    } else {
-        (
-            prev_block.header.inner_lite.epoch_id.clone(),
-            prev_block.header.inner_lite.next_epoch_id.clone(),
-        )
-    };
-    Block::produce(
-        &prev_block.header,
-        height,
-        prev_block.chunks.clone(),
-        epoch_id,
-        next_epoch_id,
-        approvals,
-        0,
-        0,
-        Some(0),
-        vec![],
-        vec![],
-        signer,
-        0.into(),
-        CryptoHash::default(),
-        CryptoHash::default(),
-        CryptoHash::default(),
-        prev_block.header.inner_lite.next_bp_hash.clone(),
-    )
 }

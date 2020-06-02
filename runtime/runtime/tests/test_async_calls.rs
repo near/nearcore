@@ -610,7 +610,7 @@ fn test_create_account_with_transfer_and_full_key() {
         }, "id": 0 },
         {"action_transfer": {
             "promise_index": 0,
-            "amount": "1000000",
+            "amount": "10000000000000000000000000",
         }, "id": 0 },
         {"action_add_key_with_full_access": {
             "promise_index": 0,
@@ -653,7 +653,7 @@ fn test_create_account_with_transfer_and_full_key() {
                      actions,
                      a0, Action::CreateAccount(CreateAccountAction{}), {},
                      a1, Action::Transfer(TransferAction{deposit}), {
-                        assert_eq!(*deposit, 1000000);
+                        assert_eq!(*deposit, 10000000000000000000000000);
                      },
                      a2, Action::AddKey(AddKeyAction{public_key, access_key}), {
                         assert_eq!(public_key, &signer_new_account.public_key);

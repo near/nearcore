@@ -1,12 +1,13 @@
 use crate::serialize::u128_dec_format;
-use crate::types::{AccountId, Balance, Gas, Nonce};
+use crate::types::{AccountId, Balance, EpochId, Gas, Nonce};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::PublicKey;
 use serde::{Deserialize, Serialize};
-use std::fmt::Display;
+use std::fmt::{Debug, Display};
 
+use crate::hash::CryptoHash;
 use near_rpc_error_macro::RpcError;
-use near_vm_errors::FunctionCallError;
+use near_vm_errors::{FunctionCallError, VMLogicError};
 
 /// Error returned in the ExecutionOutcome in case of failure
 #[derive(
@@ -20,7 +21,7 @@ pub enum TxExecutionError {
 }
 
 impl Display for TxExecutionError {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
         match self {
             TxExecutionError::ActionError(e) => write!(f, "{}", e),
             TxExecutionError::InvalidTxError(e) => write!(f, "{}", e),
@@ -55,6 +56,8 @@ pub enum RuntimeError {
     BalanceMismatchError(BalanceMismatchError),
     /// The incoming receipt didn't pass the validation, it's likely a malicious behaviour.
     ReceiptValidationError(ReceiptValidationError),
+    /// Error when accessing validator information. Happens inside epoch manager.
+    ValidatorError(EpochError),
 }
 
 /// Error used by `RuntimeExt`. This error has to be serializable, because it's transferred through
@@ -64,6 +67,14 @@ pub enum ExternalError {
     /// Unexpected error which is typically related to the node storage corruption.
     /// It's possible the input state is invalid or malicious.
     StorageError(StorageError),
+    /// Error when accessing validator information. Happens inside epoch manager.
+    ValidatorError(EpochError),
+}
+
+impl From<ExternalError> for VMLogicError {
+    fn from(err: ExternalError) -> Self {
+        VMLogicError::ExternalError(err.try_to_vec().expect("Borsh serialize cannot fail"))
+    }
 }
 
 /// Internal
@@ -82,7 +93,7 @@ pub enum StorageError {
 }
 
 impl std::fmt::Display for StorageError {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
         f.write_str(&format!("{:?}", self))
     }
 }
@@ -178,6 +189,8 @@ pub enum ActionsValidationError {
     FunctionCallMethodNameLengthExceeded { length: u64, limit: u64 },
     /// The length of the arguments exceeded the limit in a Function Call action.
     FunctionCallArgumentsLengthExceeded { length: u64, limit: u64 },
+    /// An attempt to stake with a public key that is not convertible to ristretto
+    UnsuitableStakingKey { public_key: PublicKey },
 }
 
 /// Describes the error for validating a receipt.
@@ -200,7 +213,7 @@ pub enum ReceiptValidationError {
 }
 
 impl Display for ReceiptValidationError {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
         match self {
             ReceiptValidationError::InvalidPredecessorId { account_id } => {
                 write!(f, "The predecessor_id `{}` of a Receipt is not valid.", account_id)
@@ -232,7 +245,7 @@ impl Display for ReceiptValidationError {
 }
 
 impl Display for ActionsValidationError {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
         match self {
             ActionsValidationError::TotalPrepaidGasExceeded { total_prepaid_gas, limit } => {
                 write!(f, "The total prepaid gas {} exceeds the limit {}", total_prepaid_gas, limit)
@@ -278,6 +291,11 @@ impl Display for ActionsValidationError {
                 "The length of the arguments {} exceeds the maximum allowed length {} in a FunctionCall action",
                 length, limit
             ),
+            ActionsValidationError::UnsuitableStakingKey { public_key } => write!(
+                f,
+                "The staking key must be ristretto compatible ED25519 key. {} is provided instead.",
+                public_key,
+            )
         }
     }
 }
@@ -339,8 +357,6 @@ pub enum ActionErrorKind {
         #[serde(with = "u128_dec_format")]
         balance: Balance,
     },
-    /// An attempt to stake with a key that is not convertable to ristretto
-    UnsuitableStakingKey { public_key: PublicKey },
     /// An error occurred during a `FunctionCall` Action.
     FunctionCallError(FunctionCallError),
     /// Error occurs when a new `ActionReceipt` created by the `FunctionCall` action fails
@@ -355,7 +371,7 @@ impl From<ActionErrorKind> for ActionError {
 }
 
 impl Display for InvalidTxError {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
         match self {
             InvalidTxError::InvalidSignerId { signer_id } => {
                 write!(f, "Invalid signer account ID {:?} according to requirements", signer_id)
@@ -363,7 +379,7 @@ impl Display for InvalidTxError {
             InvalidTxError::SignerDoesNotExist { signer_id } => {
                 write!(f, "Signer {:?} does not exist", signer_id)
             }
-            InvalidTxError::InvalidAccessKeyError(access_key_error) => access_key_error.fmt(f),
+            InvalidTxError::InvalidAccessKeyError(access_key_error) => Display::fmt(&access_key_error, f),
             InvalidTxError::InvalidNonce { tx_nonce, ak_nonce } => write!(
                 f,
                 "Transaction nonce {} must be larger than nonce of the used access key {}",
@@ -406,7 +422,7 @@ impl From<InvalidAccessKeyError> for InvalidTxError {
 }
 
 impl Display for InvalidAccessKeyError {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
         match self {
             InvalidAccessKeyError::AccessKeyNotFound { account_id, public_key } => write!(
                 f,
@@ -472,15 +488,15 @@ pub struct BalanceMismatchError {
     #[serde(with = "u128_dec_format")]
     pub final_postponed_receipts_balance: Balance,
     #[serde(with = "u128_dec_format")]
-    pub total_validator_reward: Balance,
+    pub tx_burnt_amount: Balance,
     #[serde(with = "u128_dec_format")]
-    pub total_balance_burnt: Balance,
+    pub slashed_burnt_amount: Balance,
     #[serde(with = "u128_dec_format")]
-    pub total_balance_slashed: Balance,
+    pub other_burnt_amount: Balance,
 }
 
 impl Display for BalanceMismatchError {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
         // Using saturating add to avoid overflow in display
         let initial_balance = self
             .incoming_validator_rewards
@@ -493,9 +509,9 @@ impl Display for BalanceMismatchError {
             .saturating_add(self.outgoing_receipts_balance)
             .saturating_add(self.new_delayed_receipts_balance)
             .saturating_add(self.final_postponed_receipts_balance)
-            .saturating_add(self.total_validator_reward)
-            .saturating_add(self.total_balance_burnt)
-            .saturating_add(self.total_balance_slashed);
+            .saturating_add(self.tx_burnt_amount)
+            .saturating_add(self.slashed_burnt_amount)
+            .saturating_add(self.other_burnt_amount);
         write!(
             f,
             "Balance Mismatch Error. The input balance {} doesn't match output balance {}\n\
@@ -510,9 +526,9 @@ impl Display for BalanceMismatchError {
              \tOutgoing receipts balance sum: {}\n\
              \tNew delayed receipts balance sum: {}\n\
              \tFinal postponed receipts balance sum: {}\n\
-             \tTotal validators reward: {}\n\
-             \tTotal balance burnt: {}\n\
-             \tTotal balance slashed: {}",
+             \tTx fees burnt amount: {}\n\
+             \tSlashed amount: {}\n\
+             \tOther burnt amount: {}",
             initial_balance,
             final_balance,
             self.incoming_validator_rewards,
@@ -524,9 +540,9 @@ impl Display for BalanceMismatchError {
             self.outgoing_receipts_balance,
             self.new_delayed_receipts_balance,
             self.final_postponed_receipts_balance,
-            self.total_validator_reward,
-            self.total_balance_burnt,
-            self.total_balance_slashed,
+            self.tx_burnt_amount,
+            self.slashed_burnt_amount,
+            self.other_burnt_amount,
         )
     }
 }
@@ -565,13 +581,13 @@ impl From<InvalidTxError> for RuntimeError {
 }
 
 impl Display for ActionError {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
         write!(f, "Action #{}: {}", self.index.unwrap_or_default(), self.kind)
     }
 }
 
 impl Display for ActionErrorKind {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
         match self {
             ActionErrorKind::AccountAlreadyExists { account_id } => {
                 write!(f, "Can't create a new account {:?}, because it already exists", account_id)
@@ -599,9 +615,6 @@ impl Display for ActionErrorKind {
                 "Account {:?} tries to stake {}, but has staked {} and only has {}",
                 account_id, stake, locked, balance
             ),
-            ActionErrorKind::UnsuitableStakingKey { public_key } => {
-                write!(f, "The staking key must be ED25519. {} is provided instead.", public_key)
-            }
             ActionErrorKind::CreateAccountOnlyByRegistrar { account_id, registrar_account_id, predecessor_id } => write!(
                 f,
                 "A top-level account ID {:?} can't be created by {:?}, short top-level account IDs can only be created by {:?}",
@@ -630,5 +643,62 @@ impl Display for ActionErrorKind {
                 write!(f, "An new action receipt created during a FunctionCall is not valid: {}", e)
             }
         }
+    }
+}
+
+#[derive(Eq, PartialEq, BorshSerialize, BorshDeserialize, Clone)]
+pub enum EpochError {
+    /// Error calculating threshold from given stakes for given number of seats.
+    /// Only should happened if calling code doesn't check for integer value of stake > number of seats.
+    ThresholdError { stake_sum: Balance, num_seats: u64 },
+    /// Requesting validators for an epoch that wasn't computed yet.
+    EpochOutOfBounds,
+    /// Missing block hash in the storage (means there is some structural issue).
+    MissingBlock(CryptoHash),
+    /// Error due to IO (DB read/write, serialization, etc.).
+    IOErr(String),
+    /// Given account ID is not a validator in the given epoch ID.
+    NotAValidator(AccountId, EpochId),
+}
+
+impl std::error::Error for EpochError {}
+
+impl Display for EpochError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            EpochError::ThresholdError { stake_sum, num_seats } => write!(
+                f,
+                "Total stake {} must be higher than the number of seats {}",
+                stake_sum, num_seats
+            ),
+            EpochError::EpochOutOfBounds => write!(f, "Epoch out of bounds"),
+            EpochError::MissingBlock(hash) => write!(f, "Missing block {}", hash),
+            EpochError::IOErr(err) => write!(f, "IO: {}", err),
+            EpochError::NotAValidator(account_id, epoch_id) => {
+                write!(f, "{} is not a validator in epoch {:?}", account_id, epoch_id)
+            }
+        }
+    }
+}
+
+impl Debug for EpochError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            EpochError::ThresholdError { stake_sum, num_seats } => {
+                write!(f, "ThresholdError({}, {})", stake_sum, num_seats)
+            }
+            EpochError::EpochOutOfBounds => write!(f, "EpochOutOfBounds"),
+            EpochError::MissingBlock(hash) => write!(f, "MissingBlock({})", hash),
+            EpochError::IOErr(err) => write!(f, "IOErr({})", err),
+            EpochError::NotAValidator(account_id, epoch_id) => {
+                write!(f, "NotAValidator({}, {:?})", account_id, epoch_id)
+            }
+        }
+    }
+}
+
+impl From<std::io::Error> for EpochError {
+    fn from(error: std::io::Error) -> Self {
+        EpochError::IOErr(error.to_string())
     }
 }

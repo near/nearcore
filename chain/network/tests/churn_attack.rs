@@ -1,6 +1,4 @@
-use actix::System;
-
-pub use runner::{Action, Runner};
+pub use runner::*;
 
 mod runner;
 
@@ -10,23 +8,18 @@ mod runner;
 /// a connection among them.
 #[test]
 fn churn_attack() {
-    System::run(|| {
-        let mut runner = Runner::new(4, 4).enable_outbound().max_peer(2);
+    let mut runner = Runner::new(4, 4).enable_outbound().max_num_peers(2);
 
-        runner.push(Action::AddEdge(0, 1));
-        runner.push(Action::AddEdge(2, 3));
-        runner.push(Action::AddEdge(3, 0));
-        runner.push(Action::AddEdge(1, 2));
-        runner
-            .push(Action::CheckRoutingTable(0, vec![(1, vec![1]), (3, vec![3]), (2, vec![1, 3])]));
-        runner
-            .push(Action::CheckRoutingTable(2, vec![(1, vec![1]), (3, vec![3]), (0, vec![1, 3])]));
-        runner.push(Action::Stop(1));
-        runner.push(Action::Stop(3));
-        runner.push(Action::CheckRoutingTable(0, vec![(2, vec![2])]));
-        runner.push(Action::CheckRoutingTable(2, vec![(0, vec![0])]));
+    runner.push(Action::AddEdge(0, 1));
+    runner.push(Action::AddEdge(2, 3));
+    runner.push(Action::AddEdge(3, 0));
+    runner.push(Action::AddEdge(1, 2));
+    runner.push(Action::CheckRoutingTable(0, vec![(1, vec![1]), (3, vec![3]), (2, vec![1, 3])]));
+    runner.push(Action::CheckRoutingTable(2, vec![(1, vec![1]), (3, vec![3]), (0, vec![1, 3])]));
+    runner.push(Action::Stop(1));
+    runner.push(Action::Stop(3));
+    runner.push(Action::CheckRoutingTable(0, vec![(2, vec![2])]));
+    runner.push(Action::CheckRoutingTable(2, vec![(0, vec![0])]));
 
-        runner.run();
-    })
-    .unwrap();
+    start_test(runner);
 }

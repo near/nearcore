@@ -187,9 +187,9 @@ pub(crate) fn check_balance(
         outgoing_receipts_balance,
         new_delayed_receipts_balance,
         final_postponed_receipts_balance,
-        stats.total_validator_reward,
-        stats.total_balance_burnt,
-        stats.total_balance_slashed
+        stats.tx_burnt_amount,
+        stats.slashed_burnt_amount,
+        stats.other_burnt_amount
     );
     if initial_balance != final_balance {
         Err(BalanceMismatchError {
@@ -204,9 +204,9 @@ pub(crate) fn check_balance(
             outgoing_receipts_balance,
             new_delayed_receipts_balance,
             final_postponed_receipts_balance,
-            total_validator_reward: stats.total_validator_reward,
-            total_balance_burnt: stats.total_balance_burnt,
-            total_balance_slashed: stats.total_balance_slashed,
+            tx_burnt_amount: stats.tx_burnt_amount,
+            slashed_burnt_amount: stats.slashed_burnt_amount,
+            other_burnt_amount: stats.other_burnt_amount,
         }
         .into())
     } else {
@@ -219,14 +219,14 @@ mod tests {
     use super::*;
     use crate::ApplyStats;
     use near_crypto::{InMemorySigner, KeyType};
-    use near_primitives::account::Account;
     use near_primitives::hash::{hash, CryptoHash};
     use near_primitives::receipt::ActionReceipt;
+    use near_primitives::test_utils::account_new;
     use near_primitives::transaction::{Action, TransferAction};
     use near_primitives::types::{MerkleHash, StateChangeCause};
     use near_runtime_fees::RuntimeFeesConfig;
-    use near_store::test_utils::create_trie;
-    use near_store::{set_account, TrieUpdate};
+    use near_store::set_account;
+    use near_store::test_utils::create_tries;
     use testlib::runtime_utils::{alice_account, bob_account};
 
     use assert_matches::assert_matches;
@@ -239,10 +239,10 @@ mod tests {
 
     #[test]
     fn test_check_balance_no_op() {
-        let trie = create_trie();
+        let tries = create_tries();
         let root = MerkleHash::default();
-        let initial_state = TrieUpdate::new(trie.clone(), root);
-        let final_state = TrieUpdate::new(trie.clone(), root);
+        let initial_state = tries.new_trie_update(0, root);
+        let final_state = tries.new_trie_update(0, root);
         let transaction_costs = RuntimeFeesConfig::default();
         check_balance(
             &transaction_costs,
@@ -259,17 +259,17 @@ mod tests {
 
     #[test]
     fn test_check_balance_unaccounted_refund() {
-        let trie = create_trie();
+        let tries = create_tries();
         let root = MerkleHash::default();
-        let initial_state = TrieUpdate::new(trie.clone(), root);
-        let final_state = TrieUpdate::new(trie.clone(), root);
+        let initial_state = tries.new_trie_update(0, root);
+        let final_state = tries.new_trie_update(0, root);
         let transaction_costs = RuntimeFeesConfig::default();
         let err = check_balance(
             &transaction_costs,
             &initial_state,
             &final_state,
             &None,
-            &[Receipt::new_refund(&alice_account(), 1000)],
+            &[Receipt::new_balance_refund(&alice_account(), 1000)],
             &[],
             &[],
             &ApplyStats::default(),
@@ -280,20 +280,20 @@ mod tests {
 
     #[test]
     fn test_check_balance_refund() {
-        let trie = create_trie();
+        let tries = create_tries();
         let root = MerkleHash::default();
         let account_id = alice_account();
 
         let initial_balance = TESTING_INIT_BALANCE;
         let refund_balance = 1000;
 
-        let mut initial_state = TrieUpdate::new(trie.clone(), root);
-        let initial_account = Account::new(initial_balance, hash(&[]));
+        let mut initial_state = tries.new_trie_update(0, root);
+        let initial_account = account_new(initial_balance, hash(&[]));
         set_account(&mut initial_state, account_id.clone(), &initial_account);
         initial_state.commit(StateChangeCause::NotWritableToDisk);
 
-        let mut final_state = TrieUpdate::new(trie.clone(), root);
-        let final_account = Account::new(initial_balance + refund_balance, hash(&[]));
+        let mut final_state = tries.new_trie_update(0, root);
+        let final_account = account_new(initial_balance + refund_balance, hash(&[]));
         set_account(&mut final_state, account_id.clone(), &final_account);
         final_state.commit(StateChangeCause::NotWritableToDisk);
 
@@ -303,7 +303,7 @@ mod tests {
             &initial_state,
             &final_state,
             &None,
-            &[Receipt::new_refund(&account_id, refund_balance)],
+            &[Receipt::new_balance_refund(&account_id, refund_balance)],
             &[],
             &[],
             &ApplyStats::default(),
@@ -313,7 +313,7 @@ mod tests {
 
     #[test]
     fn test_check_balance_tx_to_receipt() {
-        let trie = create_trie();
+        let tries = create_tries();
         let root = MerkleHash::default();
         let account_id = alice_account();
 
@@ -325,17 +325,16 @@ mod tests {
             + cfg.action_creation_config.transfer_cost.exec_fee();
         let send_gas = cfg.action_receipt_creation_config.send_fee(false)
             + cfg.action_creation_config.transfer_cost.send_fee(false);
-        let contract_reward = (send_gas * cfg.burnt_gas_reward.numerator
-            / cfg.burnt_gas_reward.denominator) as Balance
-            * gas_price;
+        let contract_reward = send_gas as u128 * *cfg.burnt_gas_reward.numer() as u128 * gas_price
+            / (*cfg.burnt_gas_reward.denom() as u128);
         let total_validator_reward = send_gas as Balance * gas_price - contract_reward;
-        let mut initial_state = TrieUpdate::new(trie.clone(), root);
-        let initial_account = Account::new(initial_balance, hash(&[]));
+        let mut initial_state = tries.new_trie_update(0, root);
+        let initial_account = account_new(initial_balance, hash(&[]));
         set_account(&mut initial_state, account_id.clone(), &initial_account);
         initial_state.commit(StateChangeCause::NotWritableToDisk);
 
-        let mut final_state = TrieUpdate::new(trie.clone(), root);
-        let final_account = Account::new(
+        let mut final_state = tries.new_trie_update(0, root);
+        let final_account = account_new(
             initial_balance - (exec_gas + send_gas) as Balance * gas_price - deposit
                 + contract_reward,
             hash(&[]),
@@ -375,9 +374,9 @@ mod tests {
             &[tx],
             &[receipt],
             &ApplyStats {
-                total_validator_reward,
-                total_balance_burnt: 0,
-                total_balance_slashed: 0,
+                tx_burnt_amount: total_validator_reward,
+                other_burnt_amount: 0,
+                slashed_burnt_amount: 0,
             },
         )
         .unwrap();
@@ -385,16 +384,16 @@ mod tests {
 
     #[test]
     fn test_total_balance_overflow_returns_unexpected_overflow() {
-        let trie = create_trie();
+        let tries = create_tries();
         let root = MerkleHash::default();
         let alice_id = alice_account();
         let bob_id = bob_account();
         let gas_price = 100;
         let deposit = 1000;
 
-        let mut initial_state = TrieUpdate::new(trie.clone(), root);
-        let alice = Account::new(std::u128::MAX, hash(&[]));
-        let bob = Account::new(1u128, hash(&[]));
+        let mut initial_state = tries.new_trie_update(0, root);
+        let alice = account_new(std::u128::MAX, hash(&[]));
+        let bob = account_new(1u128, hash(&[]));
 
         set_account(&mut initial_state, alice_id.clone(), &alice);
         set_account(&mut initial_state, bob_id.clone(), &bob);

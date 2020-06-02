@@ -1,16 +1,16 @@
 use std::fs::File;
 use std::path::Path;
 
-use near::config::{
-    Config, BLOCK_PRODUCER_KICKOUT_THRESHOLD, CHUNK_PRODUCER_KICKOUT_THRESHOLD, CONFIG_FILENAME,
-    DEVELOPER_PERCENT, EXPECTED_EPOCH_LENGTH, FISHERMEN_THRESHOLD, GAS_PRICE_ADJUSTMENT_RATE,
-    GENESIS_CONFIG_FILENAME, INITIAL_GAS_LIMIT, MAX_INFLATION_RATE, MIN_GAS_PRICE, NODE_KEY_FILE,
-    NUM_BLOCKS_PER_YEAR, NUM_BLOCK_PRODUCER_SEATS, PROTOCOL_PERCENT, TRANSACTION_VALIDITY_PERIOD,
-};
-use near::NEAR_BASE;
 use near_chain_configs::{Genesis, GenesisConfig, GENESIS_CONFIG_VERSION, PROTOCOL_VERSION};
 use near_primitives::types::{Balance, NumShards, ShardId};
 use near_primitives::utils::get_num_seats_per_shard;
+use neard::config::{
+    Config, BLOCK_PRODUCER_KICKOUT_THRESHOLD, CHUNK_PRODUCER_KICKOUT_THRESHOLD, CONFIG_FILENAME,
+    EXPECTED_EPOCH_LENGTH, FISHERMEN_THRESHOLD, GAS_PRICE_ADJUSTMENT_RATE, GENESIS_CONFIG_FILENAME,
+    INITIAL_GAS_LIMIT, MAX_INFLATION_RATE, MIN_GAS_PRICE, NODE_KEY_FILE, NUM_BLOCKS_PER_YEAR,
+    NUM_BLOCK_PRODUCER_SEATS, PROTOCOL_REWARD_RATE, TRANSACTION_VALIDITY_PERIOD,
+};
+use neard::NEAR_BASE;
 
 const ACCOUNTS_FILE: &str = "accounts.csv";
 const NUM_SHARDS: NumShards = 8;
@@ -42,7 +42,6 @@ pub fn csv_to_json_configs(home: &Path, chain_id: String, tracked_shards: Vec<Sh
     // Construct `config.json`.
     let mut config = Config::default();
     config.tracked_shards = tracked_shards;
-    config.telemetry.endpoints.push(near::config::DEFAULT_TELEMETRY_URL.to_string());
 
     // Construct genesis config.
     let (records, validators, peer_info, treasury, genesis_time) =
@@ -67,13 +66,12 @@ pub fn csv_to_json_configs(home: &Path, chain_id: String, tracked_shards: Vec<Sh
         dynamic_resharding: false,
         epoch_length: EXPECTED_EPOCH_LENGTH,
         gas_limit: INITIAL_GAS_LIMIT,
-        gas_price_adjustment_rate: GAS_PRICE_ADJUSTMENT_RATE,
+        gas_price_adjustment_rate: *GAS_PRICE_ADJUSTMENT_RATE,
         block_producer_kickout_threshold: BLOCK_PRODUCER_KICKOUT_THRESHOLD,
         validators,
         transaction_validity_period: TRANSACTION_VALIDITY_PERIOD,
-        developer_reward_percentage: DEVELOPER_PERCENT,
-        protocol_reward_percentage: PROTOCOL_PERCENT,
-        max_inflation_rate: MAX_INFLATION_RATE,
+        protocol_reward_rate: *PROTOCOL_REWARD_RATE,
+        max_inflation_rate: *MAX_INFLATION_RATE,
         num_blocks_per_year: NUM_BLOCKS_PER_YEAR,
         protocol_treasury_account: treasury,
         chunk_producer_kickout_threshold: CHUNK_PRODUCER_KICKOUT_THRESHOLD,

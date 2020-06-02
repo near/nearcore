@@ -1,8 +1,11 @@
 use std::cell::RefCell;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
+use std::convert::TryInto;
 
 use rand::seq::SliceRandom;
 use rand::{Rng, SeedableRng};
+
+use num_rational::Ratio;
 
 use near_crypto::{InMemorySigner, KeyType, PublicKey};
 use near_primitives::account::{AccessKey, AccessKeyPermission, FunctionCallPermission};
@@ -16,8 +19,9 @@ use crate::ext_costs_generator::ExtCostsGenerator;
 use crate::runtime_fees_generator::RuntimeFeesGenerator;
 use crate::stats::Measurements;
 use crate::testbed::RuntimeTestbed;
+use crate::testbed_runners::GasMetric;
 use crate::testbed_runners::{get_account_id, measure_actions, measure_transactions, Config};
-use crate::wasmer_estimator::nanosec_per_op;
+use crate::wasmer_estimator::cost_per_op;
 use near_runtime_fees::{
     AccessKeyCreationConfig, ActionCreationConfig, DataReceiptCreationConfig, Fee,
     RuntimeFeesConfig,
@@ -26,7 +30,7 @@ use near_vm_logic::{ExtCosts, ExtCostsConfig, VMConfig, VMLimitConfig};
 use node_runtime::config::RuntimeConfig;
 
 /// How much gas there is in a nanosecond worth of computation.
-const GAS_IN_NANOS: f64 = 1_000_000f64;
+const GAS_IN_MEASURE_UNIT: u64 = 1_000_000u64;
 
 fn measure_function(
     metric: Metric,
@@ -55,7 +59,7 @@ fn measure_function(
         SignedTransaction::from_actions(
             nonce as u64,
             account_id.clone(),
-            account_id.clone(),
+            account_id,
             &signer,
             vec![function_call],
             CryptoHash::default(),
@@ -131,23 +135,6 @@ pub enum Metric {
     storage_has_key_10b_key_10b_value_1k,
     storage_has_key_10kib_key_10b_value_1k,
     storage_has_key_10b_key_10kib_value_1k,
-    storage_iter_prefix_10b_1k,
-    storage_iter_prefix_10kib_1k,
-    storage_iter_range_10b_from_10b_to_1k,
-    storage_iter_range_10kib_from_10b_to_1k,
-    storage_iter_range_10b_from_10kib_to_1k,
-
-    storage_next_10b_from_10b_to_1k_10b_key_10b_value,
-    storage_next_10kib_from_10b_to_1k_10b_key_10b_value,
-    storage_next_10b_from_10kib_to_1k_10b_key_10b_value,
-
-    storage_next_10b_from_10b_to_1k_10kib_key_10b_value,
-    storage_next_10kib_from_10b_to_1k_10kib_key_10b_value,
-    storage_next_10b_from_10kib_to_1k_10kib_key_10b_value,
-
-    storage_next_10b_from_10b_to_1k_10b_key_10kib_value,
-    storage_next_10kib_from_10b_to_1k_10b_key_10kib_value,
-    storage_next_10b_from_10kib_to_1k_10b_key_10kib_value,
 
     promise_and_100k,
     promise_and_100k_on_1k_and,
@@ -160,7 +147,7 @@ pub enum Metric {
 }
 
 pub fn run(mut config: Config) -> RuntimeConfig {
-    let mut m = Measurements::new();
+    let mut m = Measurements::new(config.metric);
     config.block_sizes = vec![100];
     // Measure the speed of processing empty receipts.
     measure_actions(Metric::Receipt, &mut m, &config, None, vec![], false, false);
@@ -189,7 +176,10 @@ pub fn run(mut config: Config) -> RuntimeConfig {
             account_id,
             other_account_id,
             &signer,
-            vec![Action::CreateAccount(CreateAccountAction {})],
+            vec![
+                Action::CreateAccount(CreateAccountAction {}),
+                Action::Transfer(TransferAction { deposit: 10u128.pow(26) }),
+            ],
             CryptoHash::default(),
         )
     };
@@ -221,7 +211,7 @@ pub fn run(mut config: Config) -> RuntimeConfig {
         SignedTransaction::from_actions(
             nonce as u64,
             account_id.clone(),
-            account_id.clone(),
+            account_id,
             &signer,
             vec![Action::DeleteAccount(DeleteAccountAction { beneficiary_id })],
             CryptoHash::default(),
@@ -313,7 +303,7 @@ pub fn run(mut config: Config) -> RuntimeConfig {
         SignedTransaction::from_actions(
             nonce as u64,
             account_id.clone(),
-            account_id.clone(),
+            account_id,
             &signer,
             vec![Action::DeleteKey(DeleteKeyAction { public_key: signer.public_key.clone() })],
             CryptoHash::default(),
@@ -322,15 +312,14 @@ pub fn run(mut config: Config) -> RuntimeConfig {
     measure_transactions(Metric::ActionDeleteAccessKey, &mut m, &config, None, &mut f, false);
 
     // Measure the speed of staking.
+    let public_key: PublicKey =
+        "22skMptHjFWNyuEWY22ftn2AbLPSYpmYwGJRGwpNHbTV".to_string().try_into().unwrap();
     measure_actions(
         Metric::ActionStake,
         &mut m,
         &config,
         None,
-        vec![Action::Stake(StakeAction {
-            stake: 1,
-            public_key: PublicKey::empty(KeyType::ED25519),
-        })],
+        vec![Action::Stake(StakeAction { stake: 1, public_key: public_key })],
         true,
         true,
     );
@@ -357,7 +346,7 @@ pub fn run(mut config: Config) -> RuntimeConfig {
         SignedTransaction::from_actions(
             nonce as u64,
             account_id.clone(),
-            account_id.clone(),
+            account_id,
             &signer,
             vec![Action::DeployContract(DeployContractAction { code: curr_code.borrow().clone() })],
             CryptoHash::default(),
@@ -418,6 +407,7 @@ pub fn run(mut config: Config) -> RuntimeConfig {
 
     config.block_sizes = vec![2];
 
+    // When adding new functions do not forget to rebuild the test contract by running `test-contract/build.sh`.
     let v = calls_helper! {
     cpu_ram_soak_test => cpu_ram_soak_test,
     base_1M => base_1M,
@@ -446,29 +436,15 @@ pub fn run(mut config: Config) -> RuntimeConfig {
     storage_write_10b_key_10b_value_1k => storage_write_10b_key_10b_value_1k,
     storage_read_10b_key_10b_value_1k => storage_read_10b_key_10b_value_1k,
     storage_has_key_10b_key_10b_value_1k => storage_has_key_10b_key_10b_value_1k,
-    storage_iter_prefix_10b_1k => storage_iter_prefix_10b_1k,
-    storage_iter_range_10b_from_10b_to_1k => storage_iter_range_10b_from_10b_to_1k,
-    storage_next_10b_from_10b_to_1k_10b_key_10b_value =>   storage_next_10b_from_10b_to_1k,
-    storage_next_10kib_from_10b_to_1k_10b_key_10b_value =>   storage_next_10kib_from_10b_to_1k,
-    storage_next_10b_from_10kib_to_1k_10b_key_10b_value =>   storage_next_10b_from_10kib_to_1k,
     storage_remove_10b_key_10b_value_1k => storage_remove_10b_key_10b_value_1k,
     storage_write_10kib_key_10b_value_1k => storage_write_10kib_key_10b_value_1k,
     storage_read_10kib_key_10b_value_1k => storage_read_10kib_key_10b_value_1k,
     storage_has_key_10kib_key_10b_value_1k => storage_has_key_10kib_key_10b_value_1k,
-    storage_iter_prefix_10kib_1k => storage_iter_prefix_10kib_1k,
-    storage_iter_range_10kib_from_10b_to_1k => storage_iter_range_10kib_from_10b_to_1k,
-    storage_iter_range_10b_from_10kib_to_1k => storage_iter_range_10b_from_10kib_to_1k,
-    storage_next_10b_from_10b_to_1k_10kib_key_10b_value =>   storage_next_10b_from_10b_to_1k ,
-    storage_next_10kib_from_10b_to_1k_10kib_key_10b_value =>   storage_next_10kib_from_10b_to_1k,
-    storage_next_10b_from_10kib_to_1k_10kib_key_10b_value =>   storage_next_10b_from_10kib_to_1k ,
     storage_remove_10kib_key_10b_value_1k => storage_remove_10kib_key_10b_value_1k,
     storage_write_10b_key_10kib_value_1k => storage_write_10b_key_10kib_value_1k,
     storage_write_10b_key_10kib_value_1k_evict => storage_write_10b_key_10kib_value_1k,
     storage_read_10b_key_10kib_value_1k => storage_read_10b_key_10kib_value_1k,
     storage_has_key_10b_key_10kib_value_1k => storage_has_key_10b_key_10kib_value_1k,
-    storage_next_10b_from_10b_to_1k_10b_key_10kib_value =>      storage_next_10b_from_10b_to_1k,
-    storage_next_10kib_from_10b_to_1k_10b_key_10kib_value =>   storage_next_10kib_from_10b_to_1k ,
-    storage_next_10b_from_10kib_to_1k_10b_key_10kib_value =>   storage_next_10b_from_10kib_to_1k ,
     storage_remove_10b_key_10kib_value_1k =>   storage_remove_10b_key_10kib_value_1k ,
     promise_and_100k => promise_and_100k,
     promise_and_100k_on_1k_and => promise_and_100k_on_1k_and,
@@ -503,43 +479,71 @@ pub fn run(mut config: Config) -> RuntimeConfig {
     //    m.plot(PathBuf::from(&config.state_dump_path).as_path());
 }
 
-/// Converts time of a certain action to a fee, spliting it evenly between send and execution fee.
-fn f64_to_fee(value: f64) -> Fee {
-    let value = if value >= 0f64 { value } else { 0f64 };
-    let value: u64 = (value * GAS_IN_NANOS) as u64;
+fn ratio_to_gas(gas_metric: GasMetric, value: Ratio<u64>) -> u64 {
+    let divisor = match gas_metric {
+        // We use factor of 8 to approximately match the price of SHA256 operation between
+        // time-based and icount-based metric as measured on 3.2Ghz Core i5.
+        GasMetric::ICount => 8u64,
+        GasMetric::Time => 1u64,
+    };
+    Ratio::<u64>::new(*value.numer() * GAS_IN_MEASURE_UNIT, *value.denom() * divisor).to_integer()
+}
+
+/// Converts cost of a certain action to a fee, spliting it evenly between send and execution fee.
+fn measured_to_fee(gas_metric: GasMetric, value: Ratio<u64>) -> Fee {
+    let value = ratio_to_gas(gas_metric, value);
     Fee { send_sir: value / 2, send_not_sir: value / 2, execution: value / 2 }
 }
 
-fn f64_to_gas(value: f64) -> u64 {
-    let value = if value >= 0f64 { value } else { 0f64 };
-    (value * GAS_IN_NANOS) as u64
+fn measured_to_gas(
+    gas_metric: GasMetric,
+    measured: &BTreeMap<ExtCosts, Ratio<u64>>,
+    cost: ExtCosts,
+) -> u64 {
+    match measured.get(&cost) {
+        Some(value) => ratio_to_gas(gas_metric, *value),
+        None => panic!("cost {} not found", cost as u32),
+    }
 }
 
 fn get_runtime_fees_config(measurement: &Measurements) -> RuntimeFeesConfig {
-    use crate::runtime_fees_generator::ReceiptFeesFloat::*;
+    use crate::runtime_fees_generator::ReceiptFees::*;
     let generator = RuntimeFeesGenerator::new(measurement);
-    let pure = generator.compute();
+    let measured = generator.compute();
+    let metric = measurement.gas_metric;
     RuntimeFeesConfig {
-        action_receipt_creation_config: f64_to_fee(pure[&ActionReceiptCreation]),
+        action_receipt_creation_config: measured_to_fee(metric, measured[&ActionReceiptCreation]),
         data_receipt_creation_config: DataReceiptCreationConfig {
-            base_cost: f64_to_fee(pure[&DataReceiptCreationBase]),
-            cost_per_byte: f64_to_fee(pure[&DataReceiptCreationPerByte]),
+            base_cost: measured_to_fee(metric, measured[&DataReceiptCreationBase]),
+            cost_per_byte: measured_to_fee(metric, measured[&DataReceiptCreationPerByte]),
         },
         action_creation_config: ActionCreationConfig {
-            create_account_cost: f64_to_fee(pure[&ActionCreateAccount]),
-            deploy_contract_cost: f64_to_fee(pure[&ActionDeployContractBase]),
-            deploy_contract_cost_per_byte: f64_to_fee(pure[&ActionDeployContractPerByte]),
-            function_call_cost: f64_to_fee(pure[&ActionFunctionCallBase]),
-            function_call_cost_per_byte: f64_to_fee(pure[&ActionFunctionCallPerByte]),
-            transfer_cost: f64_to_fee(pure[&ActionTransfer]),
-            stake_cost: f64_to_fee(pure[&ActionStake]),
+            create_account_cost: measured_to_fee(metric, measured[&ActionCreateAccount]),
+            deploy_contract_cost: measured_to_fee(metric, measured[&ActionDeployContractBase]),
+            deploy_contract_cost_per_byte: measured_to_fee(
+                metric,
+                measured[&ActionDeployContractPerByte],
+            ),
+            function_call_cost: measured_to_fee(metric, measured[&ActionFunctionCallBase]),
+            function_call_cost_per_byte: measured_to_fee(
+                metric,
+                measured[&ActionFunctionCallPerByte],
+            ),
+            transfer_cost: measured_to_fee(metric, measured[&ActionTransfer]),
+            stake_cost: measured_to_fee(metric, measured[&ActionStake]),
             add_key_cost: AccessKeyCreationConfig {
-                full_access_cost: f64_to_fee(pure[&ActionAddFullAccessKey]),
-                function_call_cost: f64_to_fee(pure[&ActionAddFunctionAccessKeyBase]),
-                function_call_cost_per_byte: f64_to_fee(pure[&ActionAddFunctionAccessKeyPerByte]),
+                full_access_cost: measured_to_fee(metric, measured[&ActionAddFullAccessKey]),
+                function_call_cost: measured_to_fee(
+                    metric,
+                    measured[&ActionAddFunctionAccessKeyBase],
+                ),
+                function_call_cost_per_byte: measured_to_fee(
+                    metric,
+                    measured[&ActionAddFunctionAccessKeyPerByte],
+                ),
             },
-            delete_key_cost: f64_to_fee(pure[&ActionDeleteKey]),
-            delete_account_cost: f64_to_fee(pure[&ActionDeleteAccount]),
+            delete_key_cost: measured_to_fee(metric, measured[&ActionDeleteKey]),
+            delete_account_cost: measured_to_fee(metric, measured[&ActionDeleteAccount]),
         },
         ..Default::default()
     }
@@ -547,55 +551,66 @@ fn get_runtime_fees_config(measurement: &Measurements) -> RuntimeFeesConfig {
 
 fn get_ext_costs_config(measurement: &Measurements) -> ExtCostsConfig {
     let mut generator = ExtCostsGenerator::new(measurement);
-    let pure = generator.compute();
+    let measured = generator.compute();
+    let metric = measurement.gas_metric;
     use ExtCosts::*;
     ExtCostsConfig {
-        base: f64_to_gas(pure[&base]),
-        read_memory_base: f64_to_gas(pure[&read_memory_base]),
-        read_memory_byte: f64_to_gas(pure[&read_memory_byte]),
-        write_memory_base: f64_to_gas(pure[&write_memory_base]),
-        write_memory_byte: f64_to_gas(pure[&write_memory_byte]),
-        read_register_base: f64_to_gas(pure[&read_register_base]),
-        read_register_byte: f64_to_gas(pure[&read_register_byte]),
-        write_register_base: f64_to_gas(pure[&write_register_base]),
-        write_register_byte: f64_to_gas(pure[&write_register_byte]),
-        utf8_decoding_base: f64_to_gas(pure[&utf8_decoding_base]),
-        utf8_decoding_byte: f64_to_gas(pure[&utf8_decoding_byte]),
-        utf16_decoding_base: f64_to_gas(pure[&utf16_decoding_base]),
-        utf16_decoding_byte: f64_to_gas(pure[&utf16_decoding_byte]),
-        sha256_base: f64_to_gas(pure[&sha256_base]),
-        sha256_byte: f64_to_gas(pure[&sha256_byte]),
-        keccak256_base: f64_to_gas(pure[&keccak256_base]),
-        keccak256_byte: f64_to_gas(pure[&keccak256_byte]),
-        keccak512_base: f64_to_gas(pure[&keccak512_base]),
-        keccak512_byte: f64_to_gas(pure[&keccak512_byte]),
-        log_base: f64_to_gas(pure[&log_base]),
-        log_byte: f64_to_gas(pure[&log_byte]),
-        storage_write_base: f64_to_gas(pure[&storage_write_base]),
-        storage_write_key_byte: f64_to_gas(pure[&storage_write_key_byte]),
-        storage_write_value_byte: f64_to_gas(pure[&storage_write_value_byte]),
-        storage_write_evicted_byte: f64_to_gas(pure[&storage_write_evicted_byte]),
-        storage_read_base: f64_to_gas(pure[&storage_read_base]),
-        storage_read_key_byte: f64_to_gas(pure[&storage_read_key_byte]),
-        storage_read_value_byte: f64_to_gas(pure[&storage_read_value_byte]),
-        storage_remove_base: f64_to_gas(pure[&storage_remove_base]),
-        storage_remove_key_byte: f64_to_gas(pure[&storage_remove_key_byte]),
-        storage_remove_ret_value_byte: f64_to_gas(pure[&storage_remove_ret_value_byte]),
-        storage_has_key_base: f64_to_gas(pure[&storage_has_key_base]),
-        storage_has_key_byte: f64_to_gas(pure[&storage_has_key_byte]),
-        storage_iter_create_prefix_base: f64_to_gas(pure[&storage_iter_create_prefix_base]),
-        storage_iter_create_prefix_byte: f64_to_gas(pure[&storage_iter_create_prefix_byte]),
-        storage_iter_create_range_base: f64_to_gas(pure[&storage_iter_create_range_base]),
-        storage_iter_create_from_byte: f64_to_gas(pure[&storage_iter_create_from_byte]),
-        storage_iter_create_to_byte: f64_to_gas(pure[&storage_iter_create_to_byte]),
-        storage_iter_next_base: f64_to_gas(pure[&storage_iter_next_base]),
-        storage_iter_next_key_byte: f64_to_gas(pure[&storage_iter_next_key_byte]),
-        storage_iter_next_value_byte: f64_to_gas(pure[&storage_iter_next_value_byte]),
+        base: measured_to_gas(metric, &measured, base),
+        read_memory_base: measured_to_gas(metric, &measured, read_memory_base),
+        read_memory_byte: measured_to_gas(metric, &measured, read_memory_byte),
+        write_memory_base: measured_to_gas(metric, &measured, write_memory_base),
+        write_memory_byte: measured_to_gas(metric, &measured, write_memory_byte),
+        read_register_base: measured_to_gas(metric, &measured, read_register_base),
+        read_register_byte: measured_to_gas(metric, &measured, read_register_byte),
+        write_register_base: measured_to_gas(metric, &measured, write_register_base),
+        write_register_byte: measured_to_gas(metric, &measured, write_register_byte),
+        utf8_decoding_base: measured_to_gas(metric, &measured, utf8_decoding_base),
+        utf8_decoding_byte: measured_to_gas(metric, &measured, utf8_decoding_byte),
+        utf16_decoding_base: measured_to_gas(metric, &measured, utf16_decoding_base),
+        utf16_decoding_byte: measured_to_gas(metric, &measured, utf16_decoding_byte),
+        sha256_base: measured_to_gas(metric, &measured, sha256_base),
+        sha256_byte: measured_to_gas(metric, &measured, sha256_byte),
+        keccak256_base: measured_to_gas(metric, &measured, keccak256_base),
+        keccak256_byte: measured_to_gas(metric, &measured, keccak256_byte),
+        keccak512_base: measured_to_gas(metric, &measured, keccak512_base),
+        keccak512_byte: measured_to_gas(metric, &measured, keccak512_byte),
+        log_base: measured_to_gas(metric, &measured, log_base),
+        log_byte: measured_to_gas(metric, &measured, log_byte),
+        storage_write_base: measured_to_gas(metric, &measured, storage_write_base),
+        storage_write_key_byte: measured_to_gas(metric, &measured, storage_write_key_byte),
+        storage_write_value_byte: measured_to_gas(metric, &measured, storage_write_value_byte),
+        storage_write_evicted_byte: measured_to_gas(metric, &measured, storage_write_evicted_byte),
+        storage_read_base: measured_to_gas(metric, &measured, storage_read_base),
+        storage_read_key_byte: measured_to_gas(metric, &measured, storage_read_key_byte),
+        storage_read_value_byte: measured_to_gas(metric, &measured, storage_read_value_byte),
+        storage_remove_base: measured_to_gas(metric, &measured, storage_remove_base),
+        storage_remove_key_byte: measured_to_gas(metric, &measured, storage_remove_key_byte),
+        storage_remove_ret_value_byte: measured_to_gas(
+            metric,
+            &measured,
+            storage_remove_ret_value_byte,
+        ),
+        storage_has_key_base: measured_to_gas(metric, &measured, storage_has_key_base),
+        storage_has_key_byte: measured_to_gas(metric, &measured, storage_has_key_byte),
+        // TODO: storage_iter_* operations below are deprecated, so just hardcode zero price,
+        // and remove those operations ASAP.
+        storage_iter_create_prefix_base: 0,
+        storage_iter_create_prefix_byte: 0,
+        storage_iter_create_range_base: 0,
+        storage_iter_create_from_byte: 0,
+        storage_iter_create_to_byte: 0,
+        storage_iter_next_base: 0,
+        storage_iter_next_key_byte: 0,
+        storage_iter_next_value_byte: 0,
         // TODO: Actually compute it once our storage is complete.
-        touching_trie_node: 1,
-        promise_and_base: f64_to_gas(pure[&promise_and_base]),
-        promise_and_per_promise: f64_to_gas(pure[&promise_and_per_promise]),
-        promise_return: f64_to_gas(pure[&promise_return]),
+        // TODO: temporary value, as suggested by @nearmax, divisor is log_16(20000) ~ 3.57 ~ 7/2.
+        touching_trie_node: measured_to_gas(metric, &measured, storage_read_base) * 2 / 7,
+        promise_and_base: measured_to_gas(metric, &measured, promise_and_base),
+        promise_and_per_promise: measured_to_gas(metric, &measured, promise_and_per_promise),
+        promise_return: measured_to_gas(metric, &measured, promise_return),
+        // TODO: accurately price host functions that expose validator information.
+        validator_stake_base: measured_to_gas(metric, &measured, validator_stake_base),
+        validator_total_stake_base: measured_to_gas(metric, &measured, validator_total_stake_base),
     }
 }
 
@@ -605,7 +620,8 @@ fn get_vm_config(measurement: &Measurements) -> VMConfig {
         // TODO: Figure out whether we need this fee at all. If we do what should be the memory
         // growth cost.
         grow_mem_cost: 1,
-        regular_op_cost: f64_to_gas(nanosec_per_op()) as u32,
+        regular_op_cost: ratio_to_gas(measurement.gas_metric, cost_per_op(measurement.gas_metric))
+            as u32,
         limit_config: VMLimitConfig::default(),
     }
 }

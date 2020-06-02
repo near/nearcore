@@ -11,7 +11,7 @@ use std::sync::RwLock;
 pub struct DBError(rocksdb::Error);
 
 impl std::fmt::Display for DBError {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
         self.0.fmt(formatter)
     }
 }
@@ -56,39 +56,42 @@ pub enum DBCol {
     ColBlockExtra = 19,
     /// Store hash of a block per each height, to detect double signs.
     ColBlockPerHeight = 20,
-    ColLastApprovalPerAccount = 21,
-    ColMyLastApprovalsPerChain = 22,
-    ColStateParts = 23,
-    ColEpochStart = 24,
+    ColStateParts = 21,
+    ColEpochStart = 22,
     /// Map account_id to announce_account
-    ColAccountAnnouncements = 25,
+    ColAccountAnnouncements = 23,
     /// Next block hashes in the sequence of the canonical chain blocks
-    ColNextBlockHashes = 26,
+    ColNextBlockHashes = 24,
     /// `LightClientBlock`s corresponding to the last final block of each completed epoch
-    ColEpochLightClientBlocks = 27,
-    ColReceiptIdToShardId = 28,
-    ColNextBlockWithNewChunk = 29,
-    ColLastBlockWithNewChunk = 30,
+    ColEpochLightClientBlocks = 25,
+    ColReceiptIdToShardId = 26,
+    ColNextBlockWithNewChunk = 27,
+    ColLastBlockWithNewChunk = 28,
     /// Map each saved peer on disk with its component id.
-    ColPeerComponent = 31,
+    ColPeerComponent = 29,
     /// Map component id with all edges in this component.
-    ColComponentEdges = 32,
+    ColComponentEdges = 30,
     /// Biggest nonce used.
-    LastComponentNonce = 33,
+    LastComponentNonce = 31,
     /// Transactions
-    ColTransactions = 34,
-    ColChunkPerHeightShard = 35,
+    ColTransactions = 32,
+    ColChunkPerHeightShard = 33,
     /// Changes to key-values that we have recorded.
-    ColStateChanges = 36,
-    ColBlockRefCount = 37,
-    ColTrieChanges = 38,
+    ColStateChanges = 34,
+    ColBlockRefCount = 35,
+    ColTrieChanges = 36,
+    /// Merkle tree of block hashes
+    ColBlockMerkleTree = 37,
+    ColChunkHashesByHeight = 38,
+    /// Block ordinals.
+    ColBlockOrdinal = 39,
 }
 
 // Do not move this line from enum DBCol
-const NUM_COLS: usize = 39;
+const NUM_COLS: usize = 40;
 
 impl std::fmt::Display for DBCol {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
         let desc = match self {
             Self::ColBlockMisc => "miscellaneous block data",
             Self::ColBlock => "block data",
@@ -111,8 +114,6 @@ impl std::fmt::Display for DBCol {
             Self::ColInvalidChunks => "invalid chunks",
             Self::ColBlockExtra => "extra block information",
             Self::ColBlockPerHeight => "hash of block per height",
-            Self::ColLastApprovalPerAccount => "last approval per account",
-            Self::ColMyLastApprovalsPerChain => "my last approval per chain",
             Self::ColStateParts => "state parts",
             Self::ColEpochStart => "epoch start",
             Self::ColAccountAnnouncements => "account announcements",
@@ -129,10 +130,21 @@ impl std::fmt::Display for DBCol {
             Self::ColStateChanges => "key value changes",
             Self::ColBlockRefCount => "refcount per block",
             Self::ColTrieChanges => "trie changes",
+            Self::ColBlockMerkleTree => "block merkle tree",
+            Self::ColChunkHashesByHeight => "chunk hashes indexed by height_created",
+            Self::ColBlockOrdinal => "block ordinal",
         };
         write!(formatter, "{}", desc)
     }
 }
+
+pub const HEAD_KEY: &[u8; 4] = b"HEAD";
+pub const TAIL_KEY: &[u8; 4] = b"TAIL";
+pub const CHUNK_TAIL_KEY: &[u8; 10] = b"CHUNK_TAIL";
+pub const SYNC_HEAD_KEY: &[u8; 9] = b"SYNC_HEAD";
+pub const HEADER_HEAD_KEY: &[u8; 11] = b"HEADER_HEAD";
+pub const LATEST_KNOWN_KEY: &[u8; 12] = b"LATEST_KNOWN";
+pub const LARGEST_TARGET_HEIGHT_KEY: &[u8; 21] = b"LARGEST_TARGET_HEIGHT";
 
 pub struct DBTransaction {
     pub ops: Vec<DBOp>,
@@ -194,10 +206,8 @@ impl Database for RocksDB {
     fn iter<'a>(&'a self, col: DBCol) -> Box<dyn Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a> {
         unsafe {
             let cf_handle = &*self.cfs[col as usize];
-            let iterator = self
-                .db
-                .iterator_cf_opt(cf_handle, &self.read_options, IteratorMode::Start)
-                .unwrap();
+            let iterator =
+                self.db.iterator_cf_opt(cf_handle, rocksdb_read_options(), IteratorMode::Start);
             Box::new(iterator)
         }
     }
@@ -219,10 +229,9 @@ impl Database for RocksDB {
                 .db
                 .iterator_cf_opt(
                     cf_handle,
-                    &read_options,
+                    read_options,
                     IteratorMode::From(key_prefix, Direction::Forward),
                 )
-                .unwrap()
                 .take_while(move |(key, _value)| key.starts_with(key_prefix));
             Box::new(iterator)
         }
@@ -233,10 +242,10 @@ impl Database for RocksDB {
         for op in transaction.ops {
             match op {
                 DBOp::Insert { col, key, value } => unsafe {
-                    batch.put_cf(&*self.cfs[col as usize], key, value)?;
+                    batch.put_cf(&*self.cfs[col as usize], key, value);
                 },
                 DBOp::Delete { col, key } => unsafe {
-                    batch.delete_cf(&*self.cfs[col as usize], key)?;
+                    batch.delete_cf(&*self.cfs[col as usize], key);
                 },
             }
         }
@@ -296,6 +305,7 @@ fn rocksdb_options() -> Options {
     opts.set_write_buffer_size(1024 * 1024 * 512 / 2);
     opts.set_max_bytes_for_level_base(1024 * 1024 * 512 / 2);
     opts.increase_parallelism(cmp::max(1, num_cpus::get() as i32 / 2));
+    opts.set_max_total_wal_size(1 * 1024 * 1024 * 1024);
 
     return opts;
 }
