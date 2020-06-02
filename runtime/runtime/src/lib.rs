@@ -38,7 +38,7 @@ use crate::config::{
     total_prepaid_gas, RuntimeConfig,
 };
 use crate::verifier::validate_receipt;
-pub use crate::verifier::verify_and_charge_transaction;
+pub use crate::verifier::{validate_transaction, verify_and_charge_transaction};
 
 mod actions;
 pub mod adapter;
