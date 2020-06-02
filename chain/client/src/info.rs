@@ -110,12 +110,6 @@ impl InfoHelper {
               Green.bold().paint(format!("{:.2} bps {}", avg_bls, gas_used_per_sec(avg_gas_used))),
               Blue.bold().paint(format!("CPU: {:.0}%, Mem: {}", cpu_usage, pretty_bytes(memory_usage * 1024)))
         );
-        if head.height > 10 {
-            // log::logger().flush();
-            // use std::io::Write;
-            // std::io::stderr().flush().unwrap();
-            panic!("hehehe");
-        }
 
         self.started = Instant::now();
         self.num_blocks_processed = 0;
