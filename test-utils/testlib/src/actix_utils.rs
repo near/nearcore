@@ -1,4 +1,6 @@
 use std::sync::mpsc;
+use std::thread;
+use std::time::Duration;
 
 use actix::System;
 
@@ -32,6 +34,8 @@ impl ShutdownableThread {
 impl Drop for ShutdownableThread {
     fn drop(&mut self) {
         self.shutdown();
+        // Leaving some time for all threads to stop after system is stopped.
+        thread::sleep(Duration::from_millis(100));
         self.join.take().unwrap().join().unwrap();
     }
 }

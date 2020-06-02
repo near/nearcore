@@ -586,7 +586,7 @@ impl Handler<GetNextLightClientBlock> for ViewClientActor {
 impl Handler<GetExecutionOutcome> for ViewClientActor {
     type Result = Result<GetExecutionOutcomeResponse, String>;
 
-    fn handle(&mut self, msg: GetExecutionOutcome, _: &mut Context<Self>) -> Self::Result {
+    fn handle(&mut self, msg: GetExecutionOutcome, _: &mut Self::Context) -> Self::Result {
         let (id, target_shard_id) = match msg.id {
             TransactionOrReceiptId::Transaction { transaction_hash, sender_id } => {
                 (transaction_hash, self.runtime_adapter.account_id_to_shard_id(&sender_id))
@@ -652,7 +652,7 @@ impl Handler<GetExecutionOutcome> for ViewClientActor {
 impl Handler<GetBlockProof> for ViewClientActor {
     type Result = Result<GetBlockProofResponse, String>;
 
-    fn handle(&mut self, msg: GetBlockProof, _: &mut Context<Self>) -> Self::Result {
+    fn handle(&mut self, msg: GetBlockProof, _: &mut Self::Context) -> Self::Result {
         self.chain.check_block_final_and_canonical(&msg.block_hash).map_err(|e| e.to_string())?;
         self.chain
             .check_block_final_and_canonical(&msg.head_block_hash)
