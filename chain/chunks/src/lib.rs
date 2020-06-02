@@ -1487,15 +1487,16 @@ impl ShardsManager {
 
 #[cfg(test)]
 mod test {
-    use crate::test_utils::SealsManagerTestFixture;
+    use crate::test_utils::{ChunkForwardingTestFixture, SealsManagerTestFixture};
     use crate::{
-        ChunkRequestInfo, Seal, SealsManager, ShardsManager, CHUNK_REQUEST_RETRY_MS,
-        NUM_PARTS_REQUESTED_IN_SEAL, PAST_SEAL_HEIGHT_HORIZON,
+        ChunkRequestInfo, ProcessPartialEncodedChunkResult, Seal, SealsManager, ShardsManager,
+        CHUNK_REQUEST_RETRY_MS, NUM_PARTS_REQUESTED_IN_SEAL, PAST_SEAL_HEIGHT_HORIZON,
     };
     use near_chain::test_utils::KeyValueRuntime;
     use near_network::test_utils::MockNetworkAdapter;
+    use near_network::types::{NetworkRequests, PartialEncodedChunkForwardMsg};
     use near_primitives::hash::hash;
-    use near_primitives::sharding::ChunkHash;
+    use near_primitives::sharding::{ChunkHash, PartialEncodedChunk};
     use near_store::test_utils::create_test_store;
     use std::sync::Arc;
     use std::time::{Duration, Instant};
@@ -1611,5 +1612,106 @@ mod test {
         seals_manager.track_seals();
         assert!(seals_manager.active_demurs.is_empty());
         assert!(seals_manager.past_seals.get(&fixture.mock_height).is_none());
+    }
+
+    #[test]
+    fn test_chunk_forwarding() {
+        // When ShardsManager receives parts it owns, it should forward them to the shard trackers
+        // and not request any parts (yet).
+        let mut fixture = ChunkForwardingTestFixture::default();
+        let mut shards_manager = ShardsManager::new(
+            Some(fixture.mock_chunk_part_owner.clone()),
+            fixture.mock_runtime.clone(),
+            fixture.mock_network.clone(),
+        );
+        let partial_encoded_chunk = fixture.make_partial_encoded_chunk(&fixture.mock_part_ords);
+        let result = shards_manager
+            .process_partial_encoded_chunk(
+                partial_encoded_chunk,
+                &mut fixture.chain_store,
+                &mut fixture.rs,
+            )
+            .unwrap();
+        match result {
+            ProcessPartialEncodedChunkResult::NeedMorePartsOrReceipts(_) => {
+                shards_manager.request_chunks(std::iter::once(fixture.mock_chunk_header.clone()))
+            }
+
+            _ => panic!("Expected to need more parts!"),
+        }
+        let count_forwards_and_requests = |fixture: &ChunkForwardingTestFixture| -> (usize, usize) {
+            let mut forwards_count = 0;
+            let mut requests_count = 0;
+            fixture.mock_network.requests.read().unwrap().iter().for_each(|r| match r {
+                NetworkRequests::PartialEncodedChunkForward { .. } => forwards_count += 1,
+                NetworkRequests::PartialEncodedChunkRequest { .. } => requests_count += 1,
+                _ => (),
+            });
+            (forwards_count, requests_count)
+        };
+
+        let (forwards_count, requests_count) = count_forwards_and_requests(&fixture);
+        assert!(forwards_count > 0);
+        assert_eq!(requests_count, 0);
+
+        // After some time, we should send requests if we have not been forwarded the parts
+        // we need.
+        std::thread::sleep(Duration::from_millis(2 * CHUNK_REQUEST_RETRY_MS));
+        shards_manager.resend_chunk_requests();
+        let (_, requests_count) = count_forwards_and_requests(&fixture);
+        assert!(requests_count > 0);
+    }
+
+    #[test]
+    fn test_receive_forward_before_header() {
+        // When a node receives a chunk forward before the chunk header, it should store
+        // the forward and use it when it receives the header
+        let mut fixture = ChunkForwardingTestFixture::default();
+        let mut shards_manager = ShardsManager::new(
+            Some(fixture.mock_shard_tracker.clone()),
+            fixture.mock_runtime.clone(),
+            fixture.mock_network.clone(),
+        );
+        let (most_parts, other_parts) = {
+            let mut most_parts = fixture.mock_chunk_parts.clone();
+            let n = most_parts.len();
+            let other_parts = most_parts.split_off(n - (n / 4));
+            (most_parts, other_parts)
+        };
+        let forward = PartialEncodedChunkForwardMsg {
+            chunk_hash: fixture.mock_chunk_header.chunk_hash(),
+            parts: most_parts,
+        };
+        shards_manager.insert_chunk_forward(forward);
+        let partial_encoded_chunk = PartialEncodedChunk {
+            header: fixture.mock_chunk_header.clone(),
+            parts: other_parts,
+            receipts: Vec::new(),
+        };
+        let result = shards_manager
+            .process_partial_encoded_chunk(
+                partial_encoded_chunk,
+                &mut fixture.chain_store,
+                &mut fixture.rs,
+            )
+            .unwrap();
+
+        match result {
+            ProcessPartialEncodedChunkResult::HaveAllPartsAndReceipts(_) => (),
+            other_result => panic!("Expected HaveAllPartsAndReceipts, but got {:?}", other_result),
+        }
+        // No requests should have been sent since all the required parts were contained in the
+        // forwarded parts.
+        assert!(fixture
+            .mock_network
+            .requests
+            .read()
+            .unwrap()
+            .iter()
+            .find(|r| match r {
+                NetworkRequests::PartialEncodedChunkRequest { .. } => true,
+                _ => false,
+            })
+            .is_none());
     }
 }
