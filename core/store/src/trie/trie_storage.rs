@@ -74,35 +74,38 @@ impl TrieStorage for TrieMemoryPartialStorage {
     }
 }
 
+/// Maximum number of cache entries.
+#[cfg(not(feature = "no_cache"))]
+const TRIE_MAX_CACHE_SIZE: usize = 10000;
+
+#[cfg(feature = "no_cache")]
+const TRIE_MAX_CACHE_SIZE: usize = 0;
+
+/// Values above this size are never cached.
+/// Note that Trie inner nodes are always smaller than this.
+const TRIE_MAX_VALUE_CACHED: usize = 4000;
+
 pub struct TrieCachingStorage {
     pub(crate) store: Arc<Store>,
-    pub(crate) cache: Arc<Mutex<SizedCache<CryptoHash, Option<Vec<u8>>>>>,
+    pub(crate) cache: Arc<Mutex<SizedCache<CryptoHash, Vec<u8>>>>,
     pub(crate) shard_id: ShardId,
 }
 
 impl TrieCachingStorage {
     pub fn new(store: Arc<Store>, shard_id: ShardId) -> TrieCachingStorage {
-        // TODO defend from huge values in cache
         TrieCachingStorage {
             store,
-            cache: Arc::new(Mutex::new(SizedCache::with_size(10000))),
+            cache: Arc::new(Mutex::new(SizedCache::with_size(TRIE_MAX_CACHE_SIZE))),
             shard_id,
         }
     }
 
-    fn vec_to_rc(val: &Option<Vec<u8>>) -> Result<u32, StorageError> {
-        val.as_ref()
-            .map(|vec| decode_trie_node_with_rc(&vec).map(|(_bytes, rc)| rc))
-            .unwrap_or_else(|| Ok(0))
+    fn vec_to_rc(val: &Vec<u8>) -> Result<u32, StorageError> {
+        decode_trie_node_with_rc(&val).map(|(_bytes, rc)| rc)
     }
 
-    fn vec_to_bytes(val: &Option<Vec<u8>>) -> Result<Vec<u8>, StorageError> {
-        val.as_ref()
-            .map(|vec| decode_trie_node_with_rc(&vec).map(|(bytes, _rc)| bytes.to_vec()))
-            // not StorageError::TrieNodeMissing because it's only for TrieMemoryPartialStorage
-            .unwrap_or_else(|| {
-                Err(StorageError::StorageInconsistentState("Trie node missing".to_string()))
-            })
+    fn vec_to_bytes(val: &Vec<u8>) -> Result<Vec<u8>, StorageError> {
+        decode_trie_node_with_rc(&val).map(|(bytes, _rc)| bytes.to_vec())
     }
 
     pub(crate) fn get_shard_id_and_hash_from_key(
@@ -128,7 +131,7 @@ impl TrieCachingStorage {
     /// StorageError::StorageInternalError if the storage fails internally.
     pub fn retrieve_rc(&self, hash: &CryptoHash) -> Result<u32, StorageError> {
         let mut guard = self.cache.lock().expect(POISONED_LOCK_ERR);
-        if let Some(val) = (*guard).cache_get(hash) {
+        if let Some(val) = guard.cache_get(hash) {
             Self::vec_to_rc(val)
         } else {
             let key = Self::get_key_from_shard_id_and_hash(self.shard_id, hash);
@@ -136,9 +139,28 @@ impl TrieCachingStorage {
                 .store
                 .get(ColState, key.as_ref())
                 .map_err(|_| StorageError::StorageInternalError)?;
-            let rc = Self::vec_to_rc(&val);
-            (*guard).cache_set(*hash, val);
-            rc
+            if let Some(val) = val {
+                let rc = Self::vec_to_rc(&val);
+                if val.len() < TRIE_MAX_VALUE_CACHED {
+                    guard.cache_set(*hash, val);
+                }
+                rc
+            } else {
+                Ok(0)
+            }
+        }
+    }
+
+    pub fn update_cache(&self, ops: Vec<(CryptoHash, Option<Vec<u8>>)>) {
+        let mut guard = self.cache.lock().expect(POISONED_LOCK_ERR);
+        for (hash, value) in ops {
+            if let Some(value) = value {
+                if value.len() < TRIE_MAX_VALUE_CACHED && guard.cache_get(&hash).is_some() {
+                    guard.cache_set(hash, value);
+                }
+            } else {
+                guard.cache_remove(&hash);
+            }
         }
     }
 }
@@ -146,7 +168,7 @@ impl TrieCachingStorage {
 impl TrieStorage for TrieCachingStorage {
     fn retrieve_raw_bytes(&self, hash: &CryptoHash) -> Result<Vec<u8>, StorageError> {
         let mut guard = self.cache.lock().expect(POISONED_LOCK_ERR);
-        if let Some(val) = (*guard).cache_get(hash) {
+        if let Some(val) = guard.cache_get(hash) {
             Self::vec_to_bytes(val)
         } else {
             let key = Self::get_key_from_shard_id_and_hash(self.shard_id, hash);
@@ -154,9 +176,16 @@ impl TrieStorage for TrieCachingStorage {
                 .store
                 .get(ColState, key.as_ref())
                 .map_err(|_| StorageError::StorageInternalError)?;
-            let raw_node = Self::vec_to_bytes(&val);
-            (*guard).cache_set(*hash, val);
-            raw_node
+            if let Some(val) = val {
+                let raw_node = Self::vec_to_bytes(&val);
+                if val.len() < TRIE_MAX_VALUE_CACHED {
+                    guard.cache_set(*hash, val);
+                }
+                raw_node
+            } else {
+                // not StorageError::TrieNodeMissing because it's only for TrieMemoryPartialStorage
+                Err(StorageError::StorageInconsistentState("Trie node missing".to_string()))
+            }
         }
     }
 
