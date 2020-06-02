@@ -324,6 +324,12 @@ class LocalNode(BaseNode):
     def kill(self):
         if self.pid.value != 0:
             os.kill(self.pid.value, signal.SIGKILL)
+            while True:
+                try:
+                    os.kill(self.pid.value, 0)
+                    break
+                except OSError:
+                    break
             self.pid.value = 0
 
     def reset_data(self):
