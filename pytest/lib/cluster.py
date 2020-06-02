@@ -195,11 +195,14 @@ class BaseNode(object):
                 self.get_status()['validators']))
 
     def stop_checking_refmap(self):
-        print("WARN: Stopping checking Reference Map for inconsistency for %s:%s" % self.addr())
+        print(
+            "WARN: Stopping checking Reference Map for inconsistency for %s:%s"
+            % self.addr())
         self.is_check_refmap = False
 
     def stop_checking_store(self):
-        print("WARN: Stopping checking Storage for inconsistency for %s:%s" % self.addr())
+        print("WARN: Stopping checking Storage for inconsistency for %s:%s" %
+              self.addr())
         self.is_check_store = False
 
     def check_refmap(self):
@@ -226,9 +229,12 @@ class BaseNode(object):
                 pass
             else:
                 if res['result'] == 0:
-                    print("ERROR: Storage for %s:%s in inconsistent state, stopping" % self.addr())
+                    print(
+                        "ERROR: Storage for %s:%s in inconsistent state, stopping"
+                        % self.addr())
                     self.kill()
                 self.store_tests += res['result']
+
 
 class RpcNode(BaseNode):
     """ A running node only interact by rpc queries """
@@ -303,10 +309,11 @@ class LocalNode(BaseNode):
         self.stderr = open(self.stderr_name, 'a')
         cmd = self._get_command_line(self.near_root, self.node_dir, boot_key,
                                      boot_node_addr, self.binary_name)
-        self.pid.value = subprocess.Popen(cmd,
-                                          stdout=self.stdout,
-                                          stderr=self.stderr,
-                                          env=env).pid
+        self.process = subprocess.Popen(cmd,
+                                        stdout=self.stdout,
+                                        stderr=self.stderr,
+                                        env=env)
+        self.pid.value = self.process.pid
         try:
             self.wait_for_rpc(10)
         except:
@@ -323,14 +330,11 @@ class LocalNode(BaseNode):
 
     def kill(self):
         if self.pid.value != 0:
-            os.kill(self.pid.value, signal.SIGKILL)
-            while True:
-                try:
-                    os.kill(self.pid.value, 0)
-                    break
-                except OSError:
-                    break
+            self.process.kill()
+            while self.process.poll() is None:
+                time.sleep(0.1)
             self.pid.value = 0
+            self.process = None
 
     def reset_data(self):
         shutil.rmtree(os.path.join(self.node_dir, "data"))
@@ -343,6 +347,12 @@ class LocalNode(BaseNode):
         target_path = self.node_dir + '_finished'
         if os.path.exists(target_path) and os.path.isdir(target_path):
             shutil.rmtree(target_path)
+        # This works
+        time.sleep(5)
+        # This doesn't:
+        # if '0' in target_path:
+        #     print("i'm node0")
+        #     time.sleep(20)
         os.rename(self.node_dir, target_path)
         self.cleaned = True
 

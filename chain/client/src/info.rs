@@ -148,6 +148,10 @@ impl InfoHelper {
         } else {
             serde_json::to_value(&info).expect("Telemetry must serialize to json")
         };
+
+        if head.height > 10 {
+            panic!("INTENTIONAL");
+        }
         telemetry(&self.telemetry_actor, content);
     }
 }
