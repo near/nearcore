@@ -424,7 +424,7 @@ impl From<BlockHeaderView> for BlockHeader {
     }
 }
 
-#[derive(Serialize, Debug, Clone, BorshDeserialize, BorshSerialize)]
+#[derive(Serialize, Deserialize, Debug, Clone, BorshDeserialize, BorshSerialize)]
 pub struct BlockHeaderInnerLiteView {
     pub height: BlockHeight,
     pub epoch_id: CryptoHash,
@@ -434,6 +434,21 @@ pub struct BlockHeaderInnerLiteView {
     pub timestamp: u64,
     pub next_bp_hash: CryptoHash,
     pub block_merkle_root: CryptoHash,
+}
+
+impl From<BlockHeaderInnerLite> for BlockHeaderInnerLiteView {
+    fn from(header_lite: BlockHeaderInnerLite) -> Self {
+        BlockHeaderInnerLiteView {
+            height: header_lite.height,
+            epoch_id: header_lite.epoch_id.0,
+            next_epoch_id: header_lite.next_epoch_id.0,
+            prev_state_root: header_lite.prev_state_root,
+            outcome_root: header_lite.outcome_root,
+            timestamp: header_lite.timestamp,
+            next_bp_hash: header_lite.next_bp_hash,
+            block_merkle_root: header_lite.block_merkle_root,
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -1016,6 +1031,23 @@ pub struct LightClientBlockView {
     pub inner_rest_hash: CryptoHash,
     pub next_bps: Option<Vec<ValidatorStakeView>>,
     pub approvals_after_next: Vec<Option<Signature>>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, BorshDeserialize, BorshSerialize)]
+pub struct LightClientBlockLiteView {
+    pub prev_block_hash: CryptoHash,
+    pub inner_rest_hash: CryptoHash,
+    pub inner_lite: BlockHeaderInnerLiteView,
+}
+
+impl From<BlockHeader> for LightClientBlockLiteView {
+    fn from(header: BlockHeader) -> Self {
+        Self {
+            prev_block_hash: header.prev_hash,
+            inner_rest_hash: header.inner_rest.hash(),
+            inner_lite: header.inner_lite.into(),
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug)]
