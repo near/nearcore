@@ -9,8 +9,8 @@ use std::time::{Duration, Instant};
 use actix::actors::resolver::{ConnectAddr, Resolver};
 use actix::io::FramedWrite;
 use actix::{
-    Actor, ActorFuture, Addr, AsyncContext, Context, ContextFutureSpawner, Handler, Recipient,
-    Running, StreamHandler, SystemService, WrapFuture,
+    Actor, ActorFuture, Addr, Arbiter, AsyncContext, Context, ContextFutureSpawner, Handler,
+    Recipient, Running, StreamHandler, SystemService, WrapFuture,
 };
 use chrono::Utc;
 use futures::task::Poll;
@@ -350,7 +350,9 @@ impl PeerManagerActor {
             }
         };
 
-        Peer::create(move |ctx| {
+        // Start every peer actor on separate thread.
+        let arbiter = Arbiter::new();
+        Peer::start_in_arbiter(&arbiter, move |ctx| {
             let (read, write) = tokio::io::split(stream);
 
             // TODO: check if peer is banned or known based on IP address and port.
