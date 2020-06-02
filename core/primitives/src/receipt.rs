@@ -40,8 +40,10 @@ impl Receipt {
         self.receipt_id
     }
 
-    /// Generates a receipt with a transfer from system for a given balance without a receipt_id
-    pub fn new_refund(receiver_id: &AccountId, refund: Balance) -> Self {
+    /// Generates a receipt with a transfer from system for a given balance without a receipt_id.
+    /// This should be used for token refunds instead of gas refunds. It doesn't refund the
+    /// allowance of the access key. For gas refunds use `new_gas_refund`.
+    pub fn new_balance_refund(receiver_id: &AccountId, refund: Balance) -> Self {
         Receipt {
             predecessor_id: system_account(),
             receiver_id: receiver_id.clone(),
@@ -50,6 +52,33 @@ impl Receipt {
             receipt: ReceiptEnum::Action(ActionReceipt {
                 signer_id: system_account(),
                 signer_public_key: PublicKey::empty(KeyType::ED25519),
+                gas_price: 0,
+                output_data_receivers: vec![],
+                input_data_ids: vec![],
+                actions: vec![Action::Transfer(TransferAction { deposit: refund })],
+            }),
+        }
+    }
+
+    /// Generates a receipt with a transfer action from system for a given balance without a
+    /// receipt_id. It contains `signer_id` and `signer_public_key` to indicate this is a gas
+    /// refund. The execution of this receipt will try to refund the allowance of the
+    /// access key with the given public key.
+    /// NOTE: The access key may be replaced by the owner, so the execution can't rely that the
+    /// access key is the same and it should use best effort for the refund.
+    pub fn new_gas_refund(
+        receiver_id: &AccountId,
+        refund: Balance,
+        signer_public_key: PublicKey,
+    ) -> Self {
+        Receipt {
+            predecessor_id: system_account(),
+            receiver_id: receiver_id.clone(),
+            receipt_id: CryptoHash::default(),
+
+            receipt: ReceiptEnum::Action(ActionReceipt {
+                signer_id: receiver_id.clone(),
+                signer_public_key,
                 gas_price: 0,
                 output_data_receivers: vec![],
                 input_data_ids: vec![],
