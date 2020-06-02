@@ -15,9 +15,9 @@ output_home = sys.argv[2]
 
 config = json.load(open(os.path.join(home, 'output.json')), object_pairs_hook=OrderedDict)
 
-assert config['protocol_version'] == 19
+assert config['protocol_version'] == 20
 
-config['protocol_version'] = 20
+config['protocol_version'] = 21
 config['runtime_config']['wasm_config']['limit_config']['min_prepaid_gas'] = 1
 
 json.dump(config, open(os.path.join(output_home, 'output.json'), 'w'), indent=2)
