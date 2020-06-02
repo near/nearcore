@@ -326,7 +326,8 @@ class LocalNode(BaseNode):
             os.kill(self.pid.value, signal.SIGKILL)
             while True:
                 try:
-                    os.kill(pid, 0)
+                    os.kill(self.pid.value, 0)
+                    break
                 except OSError:
                     break
             self.pid.value = 0
