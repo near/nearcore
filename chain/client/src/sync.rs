@@ -11,9 +11,10 @@ use log::{debug, error, info, warn};
 use rand::{thread_rng, Rng};
 
 use near_chain::types::BlockSyncResponse;
-use near_chain::{Chain, RuntimeAdapter, Tip};
+use near_chain::{Chain, RuntimeAdapter};
 use near_network::types::{AccountOrPeerIdOrHash, NetworkResponses, ReasonForBan};
 use near_network::{FullPeerInfo, NetworkAdapter, NetworkRequests};
+use near_primitives::block::Tip;
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{AccountId, BlockHeight, BlockHeightDelta, NumBlocks, ShardId};
 use near_primitives::unwrap_or_return;

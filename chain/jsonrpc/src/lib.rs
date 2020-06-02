@@ -20,9 +20,9 @@ use validator::Validate;
 
 use near_chain_configs::Genesis;
 use near_client::{
-    ClientActor, GetBlock, GetChunk, GetGasPrice, GetNetworkInfo, GetNextLightClientBlock,
-    GetStateChanges, GetStateChangesInBlock, GetValidatorInfo, Query, Status, TxStatus,
-    TxStatusError, ViewClientActor,
+    ClientActor, GetBlock, GetBlockProof, GetChunk, GetExecutionOutcome, GetGasPrice,
+    GetNetworkInfo, GetNextLightClientBlock, GetStateChanges, GetStateChangesInBlock,
+    GetValidatorInfo, Query, Status, TxStatus, TxStatusError, ViewClientActor,
 };
 use near_crypto::PublicKey;
 pub use near_jsonrpc_client as client;
@@ -35,9 +35,9 @@ use near_network::{NetworkClientMessages, NetworkClientResponses};
 use near_primitives::errors::{InvalidTxError, TxExecutionError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::rpc::{
-    RpcBroadcastTxSyncResponse, RpcGenesisRecordsRequest, RpcQueryRequest,
-    RpcStateChangesInBlockRequest, RpcStateChangesInBlockResponse, RpcStateChangesRequest,
-    RpcStateChangesResponse,
+    RpcBroadcastTxSyncResponse, RpcGenesisRecordsRequest, RpcLightClientExecutionProofRequest,
+    RpcLightClientExecutionProofResponse, RpcQueryRequest, RpcStateChangesInBlockRequest,
+    RpcStateChangesInBlockResponse, RpcStateChangesRequest, RpcStateChangesResponse,
 };
 use near_primitives::serialize::{from_base, from_base64, BaseEncode};
 use near_primitives::transaction::SignedTransaction;
@@ -227,6 +227,9 @@ impl JsonRpcHandler {
             "EXPERIMENTAL_changes" => self.changes_in_block_by_type(request.params).await,
             "EXPERIMENTAL_changes_in_block" => self.changes_in_block(request.params).await,
             "next_light_client_block" => self.next_light_client_block(request.params).await,
+            "EXPERIMENTAL_light_client_proof" => {
+                self.light_client_execution_outcome_proof(request.params).await
+            }
             "network_info" => self.network_info().await,
             "gas_price" => self.gas_price(request.params).await,
             _ => Err(RpcError::method_not_found(request.method)),
@@ -568,6 +571,34 @@ impl JsonRpcHandler {
     async fn next_light_client_block(&self, params: Option<Value>) -> Result<Value, RpcError> {
         let (last_block_hash,) = parse_params::<(CryptoHash,)>(params)?;
         jsonify(self.view_client_addr.send(GetNextLightClientBlock { last_block_hash }).await)
+    }
+
+    async fn light_client_execution_outcome_proof(
+        &self,
+        params: Option<Value>,
+    ) -> Result<Value, RpcError> {
+        let RpcLightClientExecutionProofRequest { id, light_client_head } = parse_params(params)?;
+        let execution_outcome_proof = self
+            .view_client_addr
+            .send(GetExecutionOutcome { id })
+            .await
+            .map_err(|e| RpcError::from(ServerError::from(e)))?
+            .map_err(|e| RpcError::server_error(Some(e)))?;
+        let block_proof = self
+            .view_client_addr
+            .send(GetBlockProof {
+                block_hash: execution_outcome_proof.outcome_proof.block_hash,
+                head_block_hash: light_client_head,
+            })
+            .await
+            .map_err(|e| RpcError::from(ServerError::from(e)))?;
+        let res = block_proof.map(|block_proof| RpcLightClientExecutionProofResponse {
+            outcome_proof: execution_outcome_proof.outcome_proof,
+            outcome_root_proof: execution_outcome_proof.outcome_root_proof,
+            block_header_lite: block_proof.block_header_lite,
+            block_proof: block_proof.proof,
+        });
+        jsonify(Ok(res))
     }
 
     async fn network_info(&self) -> Result<Value, RpcError> {

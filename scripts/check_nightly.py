@@ -19,13 +19,13 @@ def find_first(str1, candidates, start):
         return -1, None
     
 
-
 def find_fn(str1, start):
     fn_start = str1.find('fn ', start)
     match = re.search(r'[a-zA-Z0-9_]+', str1[fn_start+3:])
     if match:
         return match.group(0)
     return None
+
 
 def expensive_tests_in_file(file):
     with(open(file)) as f:
@@ -62,7 +62,8 @@ def nightly_tests():
     ret = set()
     for test in tests:
         t = test.strip().split(' ')
-        if t[0] == 'expensive':
+        if t[0] == 'expensive' or (t[0] == '#' and t[1] == 'expensive'):
+            # It's okay to comment out a very expensive test intentionally
             ret.add(t[-1].split('::')[-1])
     return ret
 

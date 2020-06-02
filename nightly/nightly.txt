@@ -22,6 +22,7 @@ pytest sanity/rpc_tx_forwarding.py
 pytest --timeout=240 sanity/skip_epoch.py
 pytest --timeout=240 sanity/one_val.py
 pytest --timeout=240 sanity/lightclnt.py
+pytest sanity/rpc_light_client_execution_outcome_proof.py
 pytest --timeout=240 sanity/rpc_query.py
 pytest --timeout=240 sanity/block_sync.py
 pytest --timeout=240 sanity/validator_switch.py
@@ -70,7 +71,6 @@ expensive --timeout=1800 near-client catching_up tests::test_all_chunks_accepted
 expensive near-client catching_up tests::test_catchup_sanity_blocks_produced_doomslug
 expensive near-client catching_up tests::test_catchup_receipts_sync_hold
 expensive near-client catching_up tests::test_chunk_grieving
-expensive near-client catching_up tests::test_all_chunks_accepted_1000_slow
 
 expensive nearcore test_catchup test_catchup
 
@@ -120,8 +120,6 @@ expensive nearcore test_cases_testnet_rpc test::test_add_key_testnet
 expensive nearcore test_cases_testnet_rpc test::test_delete_access_key_testnet
 expensive nearcore test_cases_testnet_rpc test::test_add_access_key_with_allowance_testnet
 expensive nearcore test_cases_testnet_rpc test::test_delete_access_key_with_allowance_testnet
-# The next test is disabled due to #2208
-# expensive nearcore test_cases_testnet_rpc test::test_access_key_smart_contract_testnet
 expensive nearcore test_cases_testnet_rpc test::test_access_key_smart_contract_testnet
 
 # GC tests
