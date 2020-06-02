@@ -27,15 +27,7 @@ impl Default for SealsManagerTestFixture {
     fn default() -> Self {
         let store = near_store::test_utils::create_test_store();
         // 12 validators, 3 shards => 4 validators per shard
-        let letters = (b'A'..=b'Z')
-            .take(12)
-            .map(|c| {
-                let mut s = String::with_capacity(1);
-                s.push(c as char);
-                s
-            })
-            .collect();
-        let validators = vec![letters];
+        let validators = make_validators(12);
         let mock_runtime =
             KeyValueRuntime::new_with_validators(Arc::clone(&store), validators, 1, 3, 5);
 
@@ -124,4 +116,21 @@ impl SealsManagerTestFixture {
         let d = chrono::Duration::milliseconds(2 * ACCEPTING_SEAL_PERIOD_MS);
         demur.sent = demur.sent - d;
     }
+}
+
+fn make_validators(n: usize) -> Vec<Vec<AccountId>> {
+    if n > 26 {
+        panic!("I can't make that many validators!");
+    }
+
+    let letters = (b'A'..=b'Z')
+        .take(n)
+        .map(|c| {
+            let mut s = String::with_capacity(1);
+            s.push(c as char);
+            s
+        })
+        .collect();
+
+    vec![letters]
 }
