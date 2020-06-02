@@ -29,7 +29,7 @@ use near_network::{
 use near_primitives::block::{Approval, ApprovalInner, BlockHeader};
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::{hash, CryptoHash};
-use near_primitives::merkle::merklize;
+use near_primitives::merkle::{merklize, verify_hash};
 use near_primitives::sharding::{EncodedShardChunk, ReedSolomonWrapper};
 use near_primitives::transaction::{SignedTransaction, Transaction};
 use near_primitives::types::{BlockHeight, EpochId, MerkleHash, NumBlocks};
@@ -1183,6 +1183,39 @@ fn test_incorrect_validator_key_produce_block() {
         Err(near_client::Error::BlockProducer(_)) => {}
         _ => panic!("unexpected result: {:?}", res),
     }
+}
+
+fn test_block_merkle_proof_with_len(n: NumBlocks) {
+    let mut env = TestEnv::new(ChainGenesis::test(), 1, 1);
+    let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap().clone();
+    let mut blocks = vec![genesis_block.clone()];
+    for i in 1..n {
+        let block = env.clients[0].produce_block(i).unwrap().unwrap();
+        blocks.push(block.clone());
+        env.process_block(0, block, Provenance::PRODUCED);
+    }
+    let head = blocks.pop().unwrap();
+    let root = head.header.inner_lite.block_merkle_root;
+    for block in blocks {
+        let proof = env.clients[0].chain.get_block_proof(&block.hash(), &head.hash()).unwrap();
+        assert!(verify_hash(root, &proof, block.hash()));
+    }
+}
+
+#[test]
+fn test_block_merkle_proof() {
+    for i in 0..50 {
+        test_block_merkle_proof_with_len(i);
+    }
+}
+
+#[test]
+fn test_block_merkle_proof_same_hash() {
+    let mut env = TestEnv::new(ChainGenesis::test(), 1, 1);
+    let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap().clone();
+    let proof =
+        env.clients[0].chain.get_block_proof(&genesis_block.hash(), &genesis_block.hash()).unwrap();
+    assert!(proof.is_empty());
 }
 
 #[test]

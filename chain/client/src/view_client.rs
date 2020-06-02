@@ -12,7 +12,7 @@ use log::{debug, error, info, warn};
 
 use near_chain::types::ShardStateSyncResponse;
 use near_chain::{
-    Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode, ErrorKind, RuntimeAdapter, Tip,
+    Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode, ErrorKind, RuntimeAdapter,
 };
 use near_chain_configs::ClientConfig;
 #[cfg(feature = "adversarial")]
@@ -21,12 +21,13 @@ use near_network::types::{
     NetworkViewClientMessages, NetworkViewClientResponses, ReasonForBan, StateResponseInfo,
 };
 use near_network::{NetworkAdapter, NetworkRequests};
-use near_primitives::block::{BlockHeader, GenesisId};
+use near_primitives::block::{BlockHeader, GenesisId, Tip};
 use near_primitives::hash::CryptoHash;
-use near_primitives::merkle::{verify_path, PartialMerkleTree};
+use near_primitives::merkle::{merklize, verify_path, PartialMerkleTree};
 use near_primitives::network::AnnounceAccount;
 use near_primitives::types::{
     AccountId, BlockHeight, BlockId, BlockIdOrFinality, Finality, MaybeBlockId,
+    TransactionOrReceiptId,
 };
 use near_primitives::views::{
     BlockView, ChunkView, EpochValidatorInfo, FinalExecutionOutcomeView, FinalExecutionStatus,
@@ -35,11 +36,12 @@ use near_primitives::views::{
 };
 
 use crate::types::{
-    Error, GetBlock, GetBlockWithMerkleTree, GetGasPrice, Query, TxStatus, TxStatusError,
+    Error, GetBlock, GetBlockProof, GetBlockProofResponse, GetBlockWithMerkleTree,
+    GetExecutionOutcome, GetGasPrice, Query, TxStatus, TxStatusError,
 };
 use crate::{
-    sync, GetChunk, GetNextLightClientBlock, GetStateChanges, GetStateChangesInBlock,
-    GetValidatorInfo,
+    sync, GetChunk, GetExecutionOutcomeResponse, GetNextLightClientBlock, GetStateChanges,
+    GetStateChangesInBlock, GetValidatorInfo,
 };
 
 /// Max number of queries that we keep.
@@ -552,6 +554,90 @@ impl Handler<GetNextLightClientBlock> for ViewClientActor {
                 }
             }
         }
+    }
+}
+
+impl Handler<GetExecutionOutcome> for ViewClientActor {
+    type Result = Result<GetExecutionOutcomeResponse, String>;
+
+    fn handle(&mut self, msg: GetExecutionOutcome, _: &mut Context<Self>) -> Self::Result {
+        let (id, target_shard_id) = match msg.id {
+            TransactionOrReceiptId::Transaction { transaction_hash, sender_id } => {
+                (transaction_hash, self.runtime_adapter.account_id_to_shard_id(&sender_id))
+            }
+            TransactionOrReceiptId::Receipt { receipt_id, receiver_id } => {
+                (receipt_id, self.runtime_adapter.account_id_to_shard_id(&receiver_id))
+            }
+        };
+        match self.chain.get_execution_outcome(&id) {
+            Ok(outcome) => {
+                let mut outcome_proof = outcome.clone();
+                let next_block_hash = self
+                    .chain
+                    .get_next_block_hash_with_new_chunk(&outcome_proof.block_hash, target_shard_id)
+                    .map_err(|e| e.to_string())?
+                    .cloned();
+                match next_block_hash {
+                    Some(h) => {
+                        outcome_proof.block_hash = h;
+                        // Here we assume the number of shards is small so this reconstruction
+                        // should be fast
+                        let outcome_roots = self
+                            .chain
+                            .get_block(&h)
+                            .map_err(|e| e.to_string())?
+                            .chunks
+                            .iter()
+                            .map(|header| header.inner.outcome_root)
+                            .collect::<Vec<_>>();
+                        if target_shard_id >= (outcome_roots.len() as u64) {
+                            return Err(format!("Inconsistent state. Total number of shards is {} but the execution outcome is in shard {}", outcome_roots.len(), target_shard_id));
+                        }
+                        Ok(GetExecutionOutcomeResponse {
+                            outcome_proof: outcome_proof.into(),
+                            outcome_root_proof: merklize(&outcome_roots).1
+                                [target_shard_id as usize]
+                                .clone(),
+                        })
+                    }
+                    None => Err(format!("{} has not been confirmed", id)),
+                }
+            }
+            Err(e) => match e.kind() {
+                ErrorKind::DBNotFoundErr(_) => {
+                    let head = self.chain.head().map_err(|e| TxStatusError::ChainError(e))?;
+                    if self.runtime_adapter.cares_about_shard(
+                        self.validator_account_id.as_ref(),
+                        &head.last_block_hash,
+                        target_shard_id,
+                        true,
+                    ) {
+                        Err(format!("{} does not exist", id))
+                    } else {
+                        Err(format!("Node doesn't track the shard where {} is executed", id))
+                    }
+                }
+                _ => Err(e.to_string()),
+            },
+        }
+    }
+}
+
+impl Handler<GetBlockProof> for ViewClientActor {
+    type Result = Result<GetBlockProofResponse, String>;
+
+    fn handle(&mut self, msg: GetBlockProof, _: &mut Context<Self>) -> Self::Result {
+        self.chain.check_block_final_and_canonical(&msg.block_hash).map_err(|e| e.to_string())?;
+        self.chain
+            .check_block_final_and_canonical(&msg.head_block_hash)
+            .map_err(|e| e.to_string())?;
+        let block_header_lite =
+            self.chain.get_block_header(&msg.block_hash).map_err(|e| e.to_string())?.clone().into();
+        let block_proof = self
+            .chain
+            .get_block_proof(&msg.block_hash, &msg.head_block_hash)
+            .map_err(|e| e.to_string())?;
+        Ok(GetBlockProofResponse { block_header_lite, proof: block_proof })
     }
 }
 
