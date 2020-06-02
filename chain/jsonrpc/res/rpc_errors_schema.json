@@ -1,5 +1,417 @@
 {
   "schema": {
+    "BadUTF16": {
+      "name": "BadUTF16",
+      "subtypes": [],
+      "props": {}
+    },
+    "BadUTF8": {
+      "name": "BadUTF8",
+      "subtypes": [],
+      "props": {}
+    },
+    "BalanceExceeded": {
+      "name": "BalanceExceeded",
+      "subtypes": [],
+      "props": {}
+    },
+    "BreakpointTrap": {
+      "name": "BreakpointTrap",
+      "subtypes": [],
+      "props": {}
+    },
+    "CallIndirectOOB": {
+      "name": "CallIndirectOOB",
+      "subtypes": [],
+      "props": {}
+    },
+    "CannotAppendActionToJointPromise": {
+      "name": "CannotAppendActionToJointPromise",
+      "subtypes": [],
+      "props": {}
+    },
+    "CannotReturnJointPromise": {
+      "name": "CannotReturnJointPromise",
+      "subtypes": [],
+      "props": {}
+    },
+    "CodeDoesNotExist": {
+      "name": "CodeDoesNotExist",
+      "subtypes": [],
+      "props": {
+        "account_id": ""
+      }
+    },
+    "CompilationError": {
+      "name": "CompilationError",
+      "subtypes": [
+        "CodeDoesNotExist",
+        "PrepareError",
+        "WasmerCompileError"
+      ],
+      "props": {}
+    },
+    "ContractSizeExceeded": {
+      "name": "ContractSizeExceeded",
+      "subtypes": [],
+      "props": {
+        "limit": "",
+        "size": ""
+      }
+    },
+    "Deprecated": {
+      "name": "Deprecated",
+      "subtypes": [],
+      "props": {
+        "method_name": ""
+      }
+    },
+    "Deserialization": {
+      "name": "Deserialization",
+      "subtypes": [],
+      "props": {}
+    },
+    "EmptyMethodName": {
+      "name": "EmptyMethodName",
+      "subtypes": [],
+      "props": {}
+    },
+    "FunctionCallError": {
+      "name": "FunctionCallError",
+      "subtypes": [
+        "CompilationError",
+        "LinkError",
+        "MethodResolveError",
+        "WasmTrap",
+        "WasmUnknownError",
+        "HostError"
+      ],
+      "props": {}
+    },
+    "GasExceeded": {
+      "name": "GasExceeded",
+      "subtypes": [],
+      "props": {}
+    },
+    "GasInstrumentation": {
+      "name": "GasInstrumentation",
+      "subtypes": [],
+      "props": {}
+    },
+    "GasLimitExceeded": {
+      "name": "GasLimitExceeded",
+      "subtypes": [],
+      "props": {}
+    },
+    "GenericTrap": {
+      "name": "GenericTrap",
+      "subtypes": [],
+      "props": {}
+    },
+    "GuestPanic": {
+      "name": "GuestPanic",
+      "subtypes": [],
+      "props": {
+        "panic_msg": ""
+      }
+    },
+    "HostError": {
+      "name": "HostError",
+      "subtypes": [
+        "BadUTF16",
+        "BadUTF8",
+        "GasExceeded",
+        "GasLimitExceeded",
+        "BalanceExceeded",
+        "EmptyMethodName",
+        "GuestPanic",
+        "IntegerOverflow",
+        "InvalidPromiseIndex",
+        "CannotAppendActionToJointPromise",
+        "CannotReturnJointPromise",
+        "InvalidPromiseResultIndex",
+        "InvalidRegisterId",
+        "IteratorWasInvalidated",
+        "MemoryAccessViolation",
+        "InvalidReceiptIndex",
+        "InvalidIteratorIndex",
+        "InvalidAccountId",
+        "InvalidMethodName",
+        "InvalidPublicKey",
+        "ProhibitedInView",
+        "NumberOfLogsExceeded",
+        "KeyLengthExceeded",
+        "ValueLengthExceeded",
+        "TotalLogLengthExceeded",
+        "NumberPromisesExceeded",
+        "NumberInputDataDependenciesExceeded",
+        "ReturnedValueLengthExceeded",
+        "ContractSizeExceeded",
+        "Deprecated"
+      ],
+      "props": {}
+    },
+    "IllegalArithmetic": {
+      "name": "IllegalArithmetic",
+      "subtypes": [],
+      "props": {}
+    },
+    "IncorrectCallIndirectSignature": {
+      "name": "IncorrectCallIndirectSignature",
+      "subtypes": [],
+      "props": {}
+    },
+    "Instantiate": {
+      "name": "Instantiate",
+      "subtypes": [],
+      "props": {}
+    },
+    "IntegerOverflow": {
+      "name": "IntegerOverflow",
+      "subtypes": [],
+      "props": {}
+    },
+    "InternalMemoryDeclared": {
+      "name": "InternalMemoryDeclared",
+      "subtypes": [],
+      "props": {}
+    },
+    "InvalidAccountId": {
+      "name": "InvalidAccountId",
+      "subtypes": [],
+      "props": {}
+    },
+    "InvalidIteratorIndex": {
+      "name": "InvalidIteratorIndex",
+      "subtypes": [],
+      "props": {
+        "iterator_index": ""
+      }
+    },
+    "InvalidMethodName": {
+      "name": "InvalidMethodName",
+      "subtypes": [],
+      "props": {}
+    },
+    "InvalidPromiseIndex": {
+      "name": "InvalidPromiseIndex",
+      "subtypes": [],
+      "props": {
+        "promise_idx": ""
+      }
+    },
+    "InvalidPromiseResultIndex": {
+      "name": "InvalidPromiseResultIndex",
+      "subtypes": [],
+      "props": {
+        "result_idx": ""
+      }
+    },
+    "InvalidPublicKey": {
+      "name": "InvalidPublicKey",
+      "subtypes": [],
+      "props": {}
+    },
+    "InvalidReceiptIndex": {
+      "name": "InvalidReceiptIndex",
+      "subtypes": [],
+      "props": {
+        "receipt_index": ""
+      }
+    },
+    "InvalidRegisterId": {
+      "name": "InvalidRegisterId",
+      "subtypes": [],
+      "props": {
+        "register_id": ""
+      }
+    },
+    "IteratorWasInvalidated": {
+      "name": "IteratorWasInvalidated",
+      "subtypes": [],
+      "props": {
+        "iterator_index": ""
+      }
+    },
+    "KeyLengthExceeded": {
+      "name": "KeyLengthExceeded",
+      "subtypes": [],
+      "props": {
+        "length": "",
+        "limit": ""
+      }
+    },
+    "LinkError": {
+      "name": "LinkError",
+      "subtypes": [],
+      "props": {
+        "msg": ""
+      }
+    },
+    "Memory": {
+      "name": "Memory",
+      "subtypes": [],
+      "props": {}
+    },
+    "MemoryAccessViolation": {
+      "name": "MemoryAccessViolation",
+      "subtypes": [],
+      "props": {}
+    },
+    "MemoryOutOfBounds": {
+      "name": "MemoryOutOfBounds",
+      "subtypes": [],
+      "props": {}
+    },
+    "MethodEmptyName": {
+      "name": "MethodEmptyName",
+      "subtypes": [],
+      "props": {}
+    },
+    "MethodInvalidSignature": {
+      "name": "MethodInvalidSignature",
+      "subtypes": [],
+      "props": {}
+    },
+    "MethodNotFound": {
+      "name": "MethodNotFound",
+      "subtypes": [],
+      "props": {}
+    },
+    "MethodResolveError": {
+      "name": "MethodResolveError",
+      "subtypes": [
+        "MethodEmptyName",
+        "MethodUTF8Error",
+        "MethodNotFound",
+        "MethodInvalidSignature"
+      ],
+      "props": {}
+    },
+    "MethodUTF8Error": {
+      "name": "MethodUTF8Error",
+      "subtypes": [],
+      "props": {}
+    },
+    "MisalignedAtomicAccess": {
+      "name": "MisalignedAtomicAccess",
+      "subtypes": [],
+      "props": {}
+    },
+    "NumberInputDataDependenciesExceeded": {
+      "name": "NumberInputDataDependenciesExceeded",
+      "subtypes": [],
+      "props": {
+        "limit": "",
+        "number_of_input_data_dependencies": ""
+      }
+    },
+    "NumberOfLogsExceeded": {
+      "name": "NumberOfLogsExceeded",
+      "subtypes": [],
+      "props": {
+        "limit": ""
+      }
+    },
+    "NumberPromisesExceeded": {
+      "name": "NumberPromisesExceeded",
+      "subtypes": [],
+      "props": {
+        "limit": "",
+        "number_of_promises": ""
+      }
+    },
+    "PrepareError": {
+      "name": "PrepareError",
+      "subtypes": [
+        "Serialization",
+        "Deserialization",
+        "InternalMemoryDeclared",
+        "GasInstrumentation",
+        "StackHeightInstrumentation",
+        "Instantiate",
+        "Memory"
+      ],
+      "props": {}
+    },
+    "ProhibitedInView": {
+      "name": "ProhibitedInView",
+      "subtypes": [],
+      "props": {
+        "method_name": ""
+      }
+    },
+    "ReturnedValueLengthExceeded": {
+      "name": "ReturnedValueLengthExceeded",
+      "subtypes": [],
+      "props": {
+        "length": "",
+        "limit": ""
+      }
+    },
+    "Serialization": {
+      "name": "Serialization",
+      "subtypes": [],
+      "props": {}
+    },
+    "StackHeightInstrumentation": {
+      "name": "StackHeightInstrumentation",
+      "subtypes": [],
+      "props": {}
+    },
+    "StackOverflow": {
+      "name": "StackOverflow",
+      "subtypes": [],
+      "props": {}
+    },
+    "TotalLogLengthExceeded": {
+      "name": "TotalLogLengthExceeded",
+      "subtypes": [],
+      "props": {
+        "length": "",
+        "limit": ""
+      }
+    },
+    "Unreachable": {
+      "name": "Unreachable",
+      "subtypes": [],
+      "props": {}
+    },
+    "ValueLengthExceeded": {
+      "name": "ValueLengthExceeded",
+      "subtypes": [],
+      "props": {
+        "length": "",
+        "limit": ""
+      }
+    },
+    "WasmTrap": {
+      "name": "WasmTrap",
+      "subtypes": [
+        "Unreachable",
+        "IncorrectCallIndirectSignature",
+        "MemoryOutOfBounds",
+        "CallIndirectOOB",
+        "IllegalArithmetic",
+        "MisalignedAtomicAccess",
+        "BreakpointTrap",
+        "StackOverflow",
+        "GenericTrap"
+      ],
+      "props": {}
+    },
+    "WasmUnknownError": {
+      "name": "WasmUnknownError",
+      "subtypes": [],
+      "props": {}
+    },
+    "WasmerCompileError": {
+      "name": "WasmerCompileError",
+      "subtypes": [],
+      "props": {
+        "msg": ""
+      }
+    },
     "AccessKeyNotFound": {
       "name": "AccessKeyNotFound",
       "subtypes": [],
