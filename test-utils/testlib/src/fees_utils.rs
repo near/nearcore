@@ -13,10 +13,14 @@ impl FeeHelper {
         Self { cfg, gas_price }
     }
 
+    pub fn gas_to_balance(&self, gas: Gas) -> Balance {
+        gas as Balance * self.gas_price
+    }
+
     pub fn gas_burnt_to_reward(&self, gas_burnt: Gas) -> Balance {
         let gas_reward = gas_burnt * *self.cfg.burnt_gas_reward.numer() as u64
             / *self.cfg.burnt_gas_reward.denom() as u64;
-        gas_reward as Balance * self.gas_price
+        self.gas_to_balance(gas_reward)
     }
 
     pub fn create_account_cost(&self) -> Balance {
@@ -24,7 +28,7 @@ impl FeeHelper {
             + self.cfg.action_creation_config.create_account_cost.exec_fee();
         let send_gas = self.cfg.action_receipt_creation_config.send_fee(false)
             + self.cfg.action_creation_config.create_account_cost.send_fee(false);
-        (exec_gas + send_gas) as Balance * self.gas_price
+        self.gas_to_balance(exec_gas + send_gas)
     }
 
     pub fn create_account_transfer_full_key_cost(&self) -> Balance {
@@ -36,7 +40,7 @@ impl FeeHelper {
             + self.cfg.action_creation_config.create_account_cost.send_fee(false)
             + self.cfg.action_creation_config.transfer_cost.send_fee(false)
             + self.cfg.action_creation_config.add_key_cost.full_access_cost.send_fee(false);
-        (exec_gas + send_gas) as Balance * self.gas_price
+        self.gas_to_balance(exec_gas + send_gas)
     }
 
     pub fn create_account_transfer_full_key_cost_no_reward(&self) -> Balance {
@@ -48,7 +52,7 @@ impl FeeHelper {
             + self.cfg.action_creation_config.create_account_cost.send_fee(false)
             + self.cfg.action_creation_config.transfer_cost.send_fee(false)
             + self.cfg.action_creation_config.add_key_cost.full_access_cost.send_fee(false);
-        (exec_gas + send_gas) as Balance * self.gas_price
+        self.gas_to_balance(exec_gas + send_gas)
     }
 
     pub fn create_account_transfer_full_key_cost_fail_on_create_account(&self) -> Balance {
@@ -58,7 +62,7 @@ impl FeeHelper {
             + self.cfg.action_creation_config.create_account_cost.send_fee(false)
             + self.cfg.action_creation_config.transfer_cost.send_fee(false)
             + self.cfg.action_creation_config.add_key_cost.full_access_cost.send_fee(false);
-        (exec_gas + send_gas) as Balance * self.gas_price
+        self.gas_to_balance(exec_gas + send_gas)
     }
 
     pub fn deploy_contract_cost(&self, num_bytes: u64) -> Balance {
@@ -69,7 +73,7 @@ impl FeeHelper {
             + self.cfg.action_creation_config.deploy_contract_cost.send_fee(true)
             + num_bytes
                 * self.cfg.action_creation_config.deploy_contract_cost_per_byte.send_fee(true);
-        (exec_gas + send_gas) as Balance * self.gas_price
+        self.gas_to_balance(exec_gas + send_gas)
     }
 
     pub fn function_call_exec_gas(&self, num_bytes: u64) -> Gas {
@@ -84,7 +88,7 @@ impl FeeHelper {
             + self.cfg.action_creation_config.function_call_cost.send_fee(false)
             + num_bytes
                 * self.cfg.action_creation_config.function_call_cost_per_byte.send_fee(false);
-        (exec_gas + send_gas + prepaid_gas) as Balance * self.gas_price
+        self.gas_to_balance(exec_gas + send_gas + prepaid_gas)
     }
 
     pub fn transfer_cost(&self) -> Balance {
@@ -92,7 +96,7 @@ impl FeeHelper {
             + self.cfg.action_creation_config.transfer_cost.exec_fee();
         let send_gas = self.cfg.action_receipt_creation_config.send_fee(false)
             + self.cfg.action_creation_config.transfer_cost.send_fee(false);
-        (exec_gas + send_gas) as Balance * self.gas_price
+        self.gas_to_balance(exec_gas + send_gas)
     }
 
     pub fn stake_cost(&self) -> Balance {
@@ -100,7 +104,7 @@ impl FeeHelper {
             + self.cfg.action_creation_config.stake_cost.exec_fee();
         let send_gas = self.cfg.action_receipt_creation_config.send_fee(true)
             + self.cfg.action_creation_config.stake_cost.send_fee(true);
-        (exec_gas + send_gas) as Balance * self.gas_price
+        self.gas_to_balance(exec_gas + send_gas)
     }
 
     pub fn add_key_cost(&self, num_bytes: u64) -> Balance {
@@ -122,7 +126,7 @@ impl FeeHelper {
                     .add_key_cost
                     .function_call_cost_per_byte
                     .send_fee(true);
-        (exec_gas + send_gas) as Balance * self.gas_price
+        self.gas_to_balance(exec_gas + send_gas)
     }
 
     pub fn add_key_full_cost(&self) -> Balance {
@@ -130,7 +134,7 @@ impl FeeHelper {
             + self.cfg.action_creation_config.add_key_cost.full_access_cost.exec_fee();
         let send_gas = self.cfg.action_receipt_creation_config.send_fee(true)
             + self.cfg.action_creation_config.add_key_cost.full_access_cost.send_fee(true);
-        (exec_gas + send_gas) as Balance * self.gas_price
+        self.gas_to_balance(exec_gas + send_gas)
     }
 
     pub fn delete_key_cost(&self) -> Balance {
@@ -138,7 +142,7 @@ impl FeeHelper {
             + self.cfg.action_creation_config.delete_key_cost.exec_fee();
         let send_gas = self.cfg.action_receipt_creation_config.send_fee(true)
             + self.cfg.action_creation_config.delete_key_cost.send_fee(true);
-        (exec_gas + send_gas) as Balance * self.gas_price
+        self.gas_to_balance(exec_gas + send_gas)
     }
 
     pub fn delete_account_cost(&self) -> Balance {
@@ -146,6 +150,6 @@ impl FeeHelper {
             + self.cfg.action_creation_config.delete_account_cost.exec_fee();
         let send_gas = self.cfg.action_receipt_creation_config.send_fee(false)
             + self.cfg.action_creation_config.delete_account_cost.send_fee(false);
-        (exec_gas + send_gas) as Balance * self.gas_price
+        self.gas_to_balance(exec_gas + send_gas)
     }
 }

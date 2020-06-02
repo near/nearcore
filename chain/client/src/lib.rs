@@ -4,7 +4,8 @@ extern crate lazy_static;
 pub use crate::client::Client;
 pub use crate::client_actor::ClientActor;
 pub use crate::types::{
-    Error, GetBlock, GetBlockWithMerkleTree, GetChunk, GetGasPrice, GetNetworkInfo,
+    Error, GetBlock, GetBlockProof, GetBlockProofResponse, GetBlockWithMerkleTree, GetChunk,
+    GetExecutionOutcome, GetExecutionOutcomeResponse, GetGasPrice, GetNetworkInfo,
     GetNextLightClientBlock, GetStateChanges, GetStateChangesInBlock, GetValidatorInfo, Query,
     Status, StatusResponse, SyncStatus, TxStatus, TxStatusError,
 };
