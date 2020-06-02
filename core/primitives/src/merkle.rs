@@ -95,18 +95,35 @@ pub fn merklize<T: BorshSerialize>(arr: &[T]) -> (MerkleHash, Vec<MerklePath>) {
 
 /// Verify merkle path for given item and corresponding path.
 pub fn verify_path<T: BorshSerialize>(root: MerkleHash, path: &MerklePath, item: &T) -> bool {
-    let mut hash = hash(&item.try_to_vec().expect("Failed to serialize"));
+    let hash = hash(&item.try_to_vec().expect("Failed to serialize"));
+    verify_hash(root, path, hash)
+}
+
+pub fn verify_hash(root: MerkleHash, path: &MerklePath, item_hash: MerkleHash) -> bool {
+    compute_root_from_path(path, item_hash) == root
+}
+
+pub fn compute_root_from_path(path: &MerklePath, item_hash: MerkleHash) -> MerkleHash {
+    let mut res = item_hash;
     for item in path {
         match item.direction {
             Direction::Left => {
-                hash = combine_hash(item.hash, hash);
+                res = combine_hash(item.hash, res);
             }
             Direction::Right => {
-                hash = combine_hash(hash, item.hash);
+                res = combine_hash(res, item.hash);
             }
         }
     }
-    hash == root
+    res
+}
+
+pub fn compute_root_from_path_and_item<T: BorshSerialize>(
+    path: &MerklePath,
+    item: &T,
+) -> MerkleHash {
+    let hash = hash(&item.try_to_vec().expect("Failed to serialize"));
+    compute_root_from_path(path, hash)
 }
 
 /// Merkle tree that only maintains the path for the next leaf, i.e,
@@ -147,6 +164,14 @@ impl PartialMerkleTree {
         self.path.push(node);
         self.size += 1;
     }
+
+    pub fn size(&self) -> u64 {
+        self.size
+    }
+
+    pub fn get_path(&self) -> &[MerkleHash] {
+        &self.path
+    }
 }
 
 #[cfg(test)]
@@ -164,7 +189,6 @@ mod tests {
         let (root, paths) = merklize(&arr);
         assert_eq!(paths.len() as u32, n);
         for (i, item) in arr.iter().enumerate() {
-            println!("i: {} item: {:?} path: {:?}", i, item, paths[i]);
             assert!(verify_path(root, &paths[i], item));
         }
     }

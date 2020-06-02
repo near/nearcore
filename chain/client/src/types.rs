@@ -11,14 +11,16 @@ use serde::{Deserialize, Serialize};
 use near_network::types::{AccountOrPeerIdOrHash, KnownProducer};
 use near_network::PeerInfo;
 use near_primitives::hash::CryptoHash;
-use near_primitives::merkle::PartialMerkleTree;
+use near_primitives::merkle::{MerklePath, PartialMerkleTree};
 use near_primitives::sharding::ChunkHash;
-use near_primitives::types::{AccountId, BlockHeight, BlockIdOrFinality, MaybeBlockId, ShardId};
+use near_primitives::types::{
+    AccountId, BlockHeight, BlockIdOrFinality, MaybeBlockId, ShardId, TransactionOrReceiptId,
+};
 use near_primitives::utils::generate_random_string;
 use near_primitives::views::{
-    BlockView, ChunkView, EpochValidatorInfo, FinalExecutionOutcomeView, GasPriceView,
-    LightClientBlockView, QueryRequest, QueryResponse, StateChangesKindsView,
-    StateChangesRequestView, StateChangesView,
+    BlockView, ChunkView, EpochValidatorInfo, ExecutionOutcomeWithIdView,
+    FinalExecutionOutcomeView, GasPriceView, LightClientBlockLiteView, LightClientBlockView,
+    QueryRequest, QueryResponse, StateChangesKindsView, StateChangesRequestView, StateChangesView,
 };
 pub use near_primitives::views::{StatusResponse, StatusSyncInfo};
 
@@ -294,4 +296,31 @@ pub struct GetStateChangesInBlock {
 
 impl Message for GetStateChangesInBlock {
     type Result = Result<StateChangesKindsView, String>;
+}
+
+pub struct GetExecutionOutcome {
+    pub id: TransactionOrReceiptId,
+}
+
+pub struct GetExecutionOutcomeResponse {
+    pub outcome_proof: ExecutionOutcomeWithIdView,
+    pub outcome_root_proof: MerklePath,
+}
+
+impl Message for GetExecutionOutcome {
+    type Result = Result<GetExecutionOutcomeResponse, String>;
+}
+
+pub struct GetBlockProof {
+    pub block_hash: CryptoHash,
+    pub head_block_hash: CryptoHash,
+}
+
+pub struct GetBlockProofResponse {
+    pub block_header_lite: LightClientBlockLiteView,
+    pub proof: MerklePath,
+}
+
+impl Message for GetBlockProof {
+    type Result = Result<GetBlockProofResponse, String>;
 }

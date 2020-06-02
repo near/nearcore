@@ -23,15 +23,15 @@ use near_primitives::transaction::{
 };
 use near_primitives::trie_key::{trie_key_parsers, TrieKey};
 use near_primitives::types::{
-    AccountId, BlockExtra, BlockHeight, ChunkExtra, EpochId, ShardId, StateChanges,
+    AccountId, BlockExtra, BlockHeight, ChunkExtra, EpochId, NumBlocks, ShardId, StateChanges,
     StateChangesExt, StateChangesKinds, StateChangesKindsExt, StateChangesRequest, StateHeaderKey,
 };
 use near_primitives::utils::{get_block_shard_id, index_to_bytes, to_timestamp};
 use near_primitives::views::LightClientBlockView;
 use near_store::{
     read_with_cache, ColBlock, ColBlockExtra, ColBlockHeader, ColBlockHeight, ColBlockMerkleTree,
-    ColBlockMisc, ColBlockPerHeight, ColBlockRefCount, ColBlocksToCatchup, ColChallengedBlocks,
-    ColChunkExtra, ColChunkHashesByHeight, ColChunkPerHeightShard, ColChunks,
+    ColBlockMisc, ColBlockOrdinal, ColBlockPerHeight, ColBlockRefCount, ColBlocksToCatchup,
+    ColChallengedBlocks, ColChunkExtra, ColChunkHashesByHeight, ColChunkPerHeightShard, ColChunks,
     ColEpochLightClientBlocks, ColIncomingReceipts, ColInvalidChunks, ColLastBlockWithNewChunk,
     ColNextBlockHashes, ColNextBlockWithNewChunk, ColOutgoingReceipts, ColPartialChunks,
     ColReceiptIdToShardId, ColState, ColStateChanges, ColStateDlInfos, ColStateHeaders,
@@ -254,6 +254,19 @@ pub trait ChainStoreAccess {
         &mut self,
         block_hash: &CryptoHash,
     ) -> Result<&PartialMerkleTree, Error>;
+
+    fn get_block_hash_from_ordinal(
+        &mut self,
+        block_ordinal: NumBlocks,
+    ) -> Result<&CryptoHash, Error>;
+
+    fn get_block_merkle_tree_from_ordinal(
+        &mut self,
+        block_ordinal: NumBlocks,
+    ) -> Result<&PartialMerkleTree, Error> {
+        let block_hash = *self.get_block_hash_from_ordinal(block_ordinal)?;
+        self.get_block_merkle_tree(&block_hash)
+    }
 }
 
 /// All chain-related database operations.
@@ -310,6 +323,8 @@ pub struct ChainStore {
     block_refcounts: SizedCache<Vec<u8>, u64>,
     /// Cache of block hash -> block merkle tree at the current block
     block_merkle_tree: SizedCache<Vec<u8>, PartialMerkleTree>,
+    /// Cache of block ordinal to block hash.
+    block_ordinal_to_hash: SizedCache<Vec<u8>, CryptoHash>,
 }
 
 pub fn option_to_not_found<T>(res: io::Result<Option<T>>, field_name: &str) -> Result<T, Error> {
@@ -349,6 +364,7 @@ impl ChainStore {
             last_block_with_new_chunk: SizedCache::with_size(CHUNK_CACHE_SIZE),
             transactions: SizedCache::with_size(CHUNK_CACHE_SIZE),
             block_merkle_tree: SizedCache::with_size(CACHE_SIZE),
+            block_ordinal_to_hash: SizedCache::with_size(CACHE_SIZE),
         }
     }
 
@@ -999,9 +1015,25 @@ impl ChainStoreAccess for ChainStore {
             &format!("BLOCK MERKLE TREE: {}", block_hash),
         )
     }
+
+    fn get_block_hash_from_ordinal(
+        &mut self,
+        block_ordinal: NumBlocks,
+    ) -> Result<&CryptoHash, Error> {
+        option_to_not_found(
+            read_with_cache(
+                &*self.store,
+                ColBlockOrdinal,
+                &mut self.block_ordinal_to_hash,
+                &index_to_bytes(block_ordinal),
+            ),
+            &format!("BLOCK ORDINAL: {}", block_ordinal),
+        )
+    }
 }
 
 /// Cache update for ChainStore
+#[derive(Default)]
 struct ChainStoreCacheUpdate {
     blocks: HashMap<CryptoHash, Block>,
     headers: HashMap<CryptoHash, BlockHeader>,
@@ -1026,35 +1058,12 @@ struct ChainStoreCacheUpdate {
     transactions: HashSet<SignedTransaction>,
     block_refcounts: HashMap<CryptoHash, u64>,
     block_merkle_tree: HashMap<CryptoHash, PartialMerkleTree>,
+    block_ordinal_to_hash: HashMap<NumBlocks, CryptoHash>,
 }
 
 impl ChainStoreCacheUpdate {
     pub fn new() -> Self {
-        Self {
-            blocks: Default::default(),
-            headers: Default::default(),
-            block_extras: Default::default(),
-            chunk_extras: HashMap::default(),
-            chunks: Default::default(),
-            partial_chunks: Default::default(),
-            block_hash_per_height: HashMap::default(),
-            chunk_hash_per_height_shard: HashMap::default(),
-            height_to_hashes: Default::default(),
-            next_block_hashes: HashMap::default(),
-            epoch_light_client_blocks: HashMap::default(),
-            my_last_approvals: HashMap::default(),
-            last_approvals_per_account: HashMap::default(),
-            outgoing_receipts: HashMap::default(),
-            incoming_receipts: HashMap::default(),
-            outcomes: Default::default(),
-            invalid_chunks: Default::default(),
-            receipt_id_to_shard_id: Default::default(),
-            next_block_with_new_chunk: Default::default(),
-            last_block_with_new_chunk: Default::default(),
-            transactions: Default::default(),
-            block_refcounts: HashMap::default(),
-            block_merkle_tree: HashMap::default(),
-        }
+        Self::default()
     }
 }
 
@@ -1504,6 +1513,19 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
             self.chain_store.get_block_merkle_tree(block_hash)
         }
     }
+
+    fn get_block_hash_from_ordinal(
+        &mut self,
+        block_ordinal: NumBlocks,
+    ) -> Result<&CryptoHash, Error> {
+        if let Some(block_hash) =
+            self.chain_store_cache_update.block_ordinal_to_hash.get(&block_ordinal)
+        {
+            Ok(block_hash)
+        } else {
+            self.chain_store.get_block_hash_from_ordinal(block_ordinal)
+        }
+    }
 }
 
 impl<'a> ChainStoreUpdate<'a> {
@@ -1650,6 +1672,9 @@ impl<'a> ChainStoreUpdate<'a> {
         block_hash: CryptoHash,
         block_merkle_tree: PartialMerkleTree,
     ) {
+        self.chain_store_cache_update
+            .block_ordinal_to_hash
+            .insert(block_merkle_tree.size(), block_hash);
         self.chain_store_cache_update.block_merkle_tree.insert(block_hash, block_merkle_tree);
     }
 
@@ -2216,6 +2241,11 @@ impl<'a> ChainStoreUpdate<'a> {
         {
             store_update.set_ser(ColBlockMerkleTree, block_hash.as_ref(), block_merkle_tree)?;
         }
+        for (block_ordinal, block_hash) in
+            self.chain_store_cache_update.block_ordinal_to_hash.iter()
+        {
+            store_update.set_ser(ColBlockOrdinal, &index_to_bytes(*block_ordinal), block_hash)?;
+        }
         for mut wrapped_trie_changes in self.trie_changes.drain(..) {
             wrapped_trie_changes
                 .wrapped_into(&mut store_update)
@@ -2328,6 +2358,7 @@ impl<'a> ChainStoreUpdate<'a> {
             transactions,
             block_refcounts,
             block_merkle_tree,
+            block_ordinal_to_hash,
         } = self.chain_store_cache_update;
         for (hash, block) in blocks {
             self.chain_store.blocks.cache_set(hash.into(), block);
@@ -2414,6 +2445,11 @@ impl<'a> ChainStoreUpdate<'a> {
         }
         for (block_hash, merkle_tree) in block_merkle_tree {
             self.chain_store.block_merkle_tree.cache_set(block_hash.into(), merkle_tree);
+        }
+        for (block_ordinal, block_hash) in block_ordinal_to_hash {
+            self.chain_store
+                .block_ordinal_to_hash
+                .cache_set(index_to_bytes(block_ordinal), block_hash);
         }
 
         Ok(())
