@@ -1,7 +1,7 @@
 """
-Introduce minimum required attached gas
+Require the amount of attached gas to be a positive number.
 Protocol changes include:
-* Introduce min_prepaid_gas
+* Add validation and a new error when the attached gas amount is 0.
 
 """
 
@@ -18,6 +18,5 @@ config = json.load(open(os.path.join(home, 'output.json')), object_pairs_hook=Or
 assert config['protocol_version'] == 20
 
 config['protocol_version'] = 21
-config['runtime_config']['wasm_config']['limit_config']['min_prepaid_gas'] = 1
 
 json.dump(config, open(os.path.join(output_home, 'output.json'), 'w'), indent=2)

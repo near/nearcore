@@ -314,11 +314,8 @@ fn validate_function_call_action(
     limit_config: &VMLimitConfig,
     action: &FunctionCallAction,
 ) -> Result<(), ActionsValidationError> {
-    if action.gas < limit_config.min_prepaid_gas {
-        return Err(ActionsValidationError::FunctionCallMinimumGasRequired {
-            gas: action.gas,
-            required_minimum: limit_config.min_prepaid_gas,
-        });
+    if action.gas == 0 {
+        return Err(ActionsValidationError::FunctionCallZeroAttachedGas);
     }
 
     if action.method_name.len() as u64 > limit_config.max_length_method_name {
@@ -1343,10 +1340,7 @@ mod tests {
                 }),
             )
             .expect_err("expected an error"),
-            ActionsValidationError::FunctionCallMinimumGasRequired {
-                gas: 0,
-                required_minimum: VMLimitConfig::default().min_prepaid_gas,
-            },
+            ActionsValidationError::FunctionCallZeroAttachedGas,
         );
     }
 

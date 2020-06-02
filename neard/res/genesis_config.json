@@ -177,7 +177,6 @@
       "limit_config": {
         "max_gas_burnt": 200000000000000,
         "max_gas_burnt_view": 200000000000000,
-        "min_prepaid_gas": 1,
         "max_stack_height": 16384,
         "initial_memory_pages": 1024,
         "max_memory_pages": 2048,

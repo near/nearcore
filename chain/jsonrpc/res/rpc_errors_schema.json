@@ -470,7 +470,7 @@
         "FunctionCallMethodNameLengthExceeded",
         "FunctionCallArgumentsLengthExceeded",
         "UnsuitableStakingKey",
-        "FunctionCallMinimumGasRequired"
+        "FunctionCallZeroAttachedGas"
       ],
       "props": {}
     },
@@ -587,13 +587,10 @@
         "limit": ""
       }
     },
-    "FunctionCallMinimumGasRequired": {
-      "name": "FunctionCallMinimumGasRequired",
+    "FunctionCallZeroAttachedGas": {
+      "name": "FunctionCallZeroAttachedGas",
       "subtypes": [],
-      "props": {
-        "gas": "",
-        "required_minimum": ""
-      }
+      "props": {}
     },
     "InvalidAccessKeyError": {
       "name": "InvalidAccessKeyError",
