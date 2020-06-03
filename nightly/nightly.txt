@@ -34,6 +34,7 @@ pytest --timeout=120 sanity/garbage_collection1.py
 pytest --timeout=300 sanity/gc_after_sync.py
 pytest --timeout=300 sanity/gc_sync_after_sync.py
 pytest --timeout=300 sanity/gc_sync_after_sync.py swap_nodes
+pytest --timeout=300 tests/sanity/large_messages.py
 
 # python tests for smart contract deployment and invocation
 pytest contracts/deploy_call_smart_contract.py
@@ -45,6 +46,9 @@ pytest contracts/gibberish.py
 # pytest --timeout=2000 stress/stress.py 3 2 4 0 staking transactions node_set
 
 # pytest stress/network_stress.py
+
+# python spec tests
+pytest tests/spec/network/handshake.py
 
 # python adversarial tests
 pytest --timeout=600 adversarial/fork_sync.py
