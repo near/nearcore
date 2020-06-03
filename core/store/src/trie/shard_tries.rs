@@ -4,11 +4,11 @@ use crate::trie::trie_storage::TrieCachingStorage;
 use crate::{StorageError, Store, StoreUpdate, Trie, TrieChanges, TrieUpdate};
 use borsh::BorshSerialize;
 use near_primitives::hash::CryptoHash;
+use near_primitives::sharding::ChunkHash;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{
     NumShards, RawStateChange, RawStateChangesWithTrieKey, ShardId, StateChangeCause, StateRoot,
 };
-use near_primitives::utils::get_block_shard_id;
 use std::sync::Arc;
 
 #[derive(Clone)]
@@ -184,6 +184,7 @@ pub struct WrappedTrieChanges {
     trie_changes: TrieChanges,
     state_changes: Vec<RawStateChangesWithTrieKey>,
     block_hash: CryptoHash,
+    chunk_hash: ChunkHash,
 }
 
 impl WrappedTrieChanges {
@@ -193,8 +194,9 @@ impl WrappedTrieChanges {
         trie_changes: TrieChanges,
         state_changes: Vec<RawStateChangesWithTrieKey>,
         block_hash: CryptoHash,
+        chunk_hash: ChunkHash,
     ) -> Self {
-        WrappedTrieChanges { tries, shard_id, trie_changes, state_changes, block_hash }
+        WrappedTrieChanges { tries, shard_id, trie_changes, state_changes, block_hash, chunk_hash }
     }
 
     pub fn insertions_into(&self, store_update: &mut StoreUpdate) -> Result<(), StorageError> {
@@ -243,7 +245,7 @@ impl WrappedTrieChanges {
         self.state_changes_into(&mut store_update);
         store_update.set_ser(
             DBCol::ColTrieChanges,
-            &get_block_shard_id(&self.block_hash, self.shard_id),
+            self.chunk_hash.as_ref(),
             &self.trie_changes,
         )?;
         Ok(())

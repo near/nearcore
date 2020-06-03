@@ -94,6 +94,7 @@ mod tests {
                     trie_changes,
                     Default::default(),
                     block.hash(),
+                    block.chunks[shard_id as usize].chunk_hash(),
                 );
                 store_update.save_trie_changes(wrapped_trie_changes);
 

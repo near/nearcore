@@ -1725,6 +1725,7 @@ impl Chain {
         num_parts: u64,
     ) -> Result<(), Error> {
         let shard_state_header = self.get_received_state_header(shard_id, sync_hash)?;
+        let chunk_hash = shard_state_header.chunk.chunk_hash.clone();
         let mut height = shard_state_header.chunk.header.height_included;
         let state_root = shard_state_header.chunk.header.inner.prev_state_root.clone();
         let mut parts = vec![];
@@ -1764,7 +1765,12 @@ impl Chain {
             );
             // Result of successful execution of set_state_finalize_on_height is bool,
             // should we commit and continue or stop.
-            if chain_update.set_state_finalize_on_height(height, shard_id, sync_hash)? {
+            if chain_update.set_state_finalize_on_height(
+                chunk_hash.clone(),
+                height,
+                shard_id,
+                sync_hash,
+            )? {
                 chain_update.commit()?;
             } else {
                 break;
@@ -2573,6 +2579,7 @@ impl<'a> ChainUpdate<'a> {
         let apply_result = self
             .runtime_adapter
             .apply_transactions_with_optional_storage_proof(
+                chunk_header.hash.clone(),
                 chunk_header.inner.shard_id,
                 &prev_chunk.header.inner.prev_state_root,
                 prev_chunk.header.height_included,
@@ -2699,6 +2706,7 @@ impl<'a> ChainUpdate<'a> {
                     let mut apply_result = self
                         .runtime_adapter
                         .apply_transactions(
+                            chunk.chunk_hash,
                             shard_id,
                             &chunk.header.inner.prev_state_root,
                             chunk_header.height_included,
@@ -2764,6 +2772,7 @@ impl<'a> ChainUpdate<'a> {
                     let apply_result = self
                         .runtime_adapter
                         .apply_transactions(
+                            chunk_header.hash.clone(),
                             shard_id,
                             &new_extra.state_root,
                             block.header.inner_lite.height,
@@ -3364,6 +3373,7 @@ impl<'a> ChainUpdate<'a> {
 
         let gas_limit = chunk.header.inner.gas_limit;
         let mut apply_result = self.runtime_adapter.apply_transactions(
+            chunk.chunk_hash.clone(),
             shard_id,
             &chunk.header.inner.prev_state_root,
             chunk.header.height_included,
@@ -3423,6 +3433,7 @@ impl<'a> ChainUpdate<'a> {
 
     pub fn set_state_finalize_on_height(
         &mut self,
+        chunk_hash: ChunkHash,
         height: BlockHeight,
         shard_id: ShardId,
         sync_hash: CryptoHash,
@@ -3445,6 +3456,7 @@ impl<'a> ChainUpdate<'a> {
             self.chain_store_update.get_chunk_extra(&prev_block_header.hash(), shard_id)?.clone();
 
         let apply_result = self.runtime_adapter.apply_transactions(
+            chunk_hash,
             shard_id,
             &chunk_extra.state_root,
             block_header.inner_lite.height,

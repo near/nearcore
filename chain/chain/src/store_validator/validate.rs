@@ -213,7 +213,11 @@ pub(crate) fn chunks_state_roots_in_trie(
     let shard_id = shard_chunk.header.inner.shard_id;
     let state_root = shard_chunk.header.inner.prev_state_root;
     let trie = sv.runtime_adapter.get_trie_for_shard(shard_id);
-    let trie = TrieIterator::new(&trie, &state_root).unwrap();
+    let trie = unwrap_or_err!(
+        TrieIterator::new(&trie, &state_root),
+        "Trie node missing, {:?}",
+        state_root
+    );
     for item in trie {
         unwrap_or_err!(item, "Can't find ShardChunk {:?} in Trie", shard_chunk);
     }

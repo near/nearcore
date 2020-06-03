@@ -1,7 +1,7 @@
 """
-Getting data from ColTrieChanges is changed.
+ColChunkHashesByHeight appeared.
 
-https://github.com/nearprotocol/nearcore/pull/2592
+https://github.com/nearprotocol/nearcore/pull/2716
 
 """
 

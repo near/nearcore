@@ -1843,47 +1843,73 @@ impl<'a> ChainStoreUpdate<'a> {
         self.chunks_tail = Some(height);
     }
 
-    pub fn clear_chunk_data(&mut self, min_chunk_height: BlockHeight) -> Result<(), Error> {
+    pub fn clear_chunk_data(
+        &mut self,
+        min_chunk_height: BlockHeight,
+        gc_mode: GCMode,
+    ) -> Result<(), Error> {
         let mut store_update = self.store().store_update();
 
         let chunk_tail = self.chunk_tail()?;
         for height in chunk_tail..min_chunk_height {
             let chunk_hashes = self.get_all_chunk_hashes_by_height(height)?;
             for chunk_hash in chunk_hashes {
-                // 1. Delete chunk-related data
                 let chunk = self.get_chunk(&chunk_hash)?.clone();
                 debug_assert_eq!(chunk.header.inner.height_created, height);
-                // 1a. Delete from receipt_id_to_shard_id (ColReceiptIdToShardId)
+
+                // 1. Apply deletions from ColTrieChanges for Trie
+                match gc_mode.clone() {
+                    GCMode::Canonical(tries) => {
+                        // If the block is on canonical chain, we delete the state that's before applying this block
+                        self.store()
+                            .get_ser(ColTrieChanges, chunk.header.hash.as_ref())?
+                            .map(|trie_changes: TrieChanges| {
+                                tries
+                                    .apply_deletions(
+                                        &trie_changes,
+                                        chunk.header.inner.shard_id,
+                                        &mut store_update,
+                                    )
+                                    .map_err(|err| ErrorKind::Other(err.to_string()))
+                            })
+                            .unwrap_or(Ok(()))?;
+                    }
+                    _ => { /* do nothing */ }
+                }
+
+                // 2. Delete chunk-related data
+                // 2a. Delete from receipt_id_to_shard_id (ColReceiptIdToShardId)
                 for receipt in chunk.receipts {
                     store_update.delete(ColReceiptIdToShardId, receipt.receipt_id.as_ref());
                     self.chain_store
                         .receipt_id_to_shard_id
                         .cache_remove(&receipt.receipt_id.into());
                 }
-                // 1b. Delete from ColTransactions
+                // 2b. Delete from ColTransactions
                 for transaction in chunk.transactions {
                     store_update.delete(ColTransactions, transaction.get_hash().as_ref());
                     self.chain_store.transactions.cache_remove(&transaction.get_hash().into());
                 }
 
-                // 2. Delete chunk_hash-indexed data
+                // 3. Delete chunk_hash-indexed data
                 let chunk_header_hash = chunk_hash.clone().into();
                 let chunk_header_hash_ref = chunk_hash.as_ref();
-                // 2a. Delete chunks (ColChunks)
+                // 3a. Delete chunks (ColChunks)
                 store_update.delete(ColChunks, chunk_header_hash_ref);
                 self.chain_store.chunks.cache_remove(&chunk_header_hash);
-                // 2b. Delete chunk extras (ColChunkExtra)
+                // 3b. Delete chunk extras (ColChunkExtra)
                 store_update.delete(ColChunkExtra, chunk_header_hash_ref);
                 self.chain_store.chunk_extras.cache_remove(&chunk_header_hash);
-                // 2c. Delete partial_chunks (ColPartialChunks)
+                // 3c. Delete partial_chunks (ColPartialChunks)
                 store_update.delete(ColPartialChunks, chunk_header_hash_ref);
                 self.chain_store.partial_chunks.cache_remove(&chunk_header_hash);
-                // 2d. Delete invalid chunks (ColInvalidChunks)
+                // 3d. Delete invalid chunks (ColInvalidChunks)
                 store_update.delete(ColInvalidChunks, chunk_header_hash_ref);
                 self.chain_store.invalid_chunks.cache_remove(&chunk_header_hash);
             }
-            // 3. Delete chunks_tail-related data
-            // 3a. Delete from ColChunkHashesByHeight
+
+            // 4. Delete chunks_tail-related data
+            // 4a. Delete from ColChunkHashesByHeight
             store_update.delete(ColChunkHashesByHeight, &index_to_bytes(height));
         }
         self.update_chunks_tail(min_chunk_height);
@@ -1899,35 +1925,30 @@ impl<'a> ChainStoreUpdate<'a> {
         gc_mode: GCMode,
     ) -> Result<(), Error> {
         let mut store_update = self.store().store_update();
-        let header = self.get_block_header(&block_hash).expect("block header must exist").clone();
+        let block = self.get_block(&block_hash).expect("block must exist").clone();
 
-        // 1. Apply revert insertions or deletions from ColTrieChanges for Trie
+        // 1. Apply revert insertions from ColTrieChanges for Trie
         match gc_mode.clone() {
             GCMode::Fork(tries) => {
                 // If the block is on a fork, we delete the state that's the result of applying this block
-                for shard_id in 0..header.inner_rest.chunk_mask.len() as ShardId {
-                    self.store()
-                        .get_ser(ColTrieChanges, &get_block_shard_id(&block_hash, shard_id))?
-                        .map(|trie_changes: TrieChanges| {
-                            tries
-                                .revert_insertions(&trie_changes, shard_id, &mut store_update)
-                                .map_err(|err| ErrorKind::Other(err.to_string()))
-                        })
-                        .unwrap_or(Ok(()))?;
+                for chunk_header in block.chunks.iter() {
+                    if block.header.inner_rest.chunk_mask[chunk_header.inner.shard_id as usize] {
+                        self.store()
+                            .get_ser(ColTrieChanges, chunk_header.hash.as_ref())?
+                            .map(|trie_changes: TrieChanges| {
+                                tries
+                                    .revert_insertions(
+                                        &trie_changes,
+                                        chunk_header.inner.shard_id,
+                                        &mut store_update,
+                                    )
+                                    .map_err(|err| ErrorKind::Other(err.to_string()))
+                            })
+                            .unwrap_or(Ok(()))?;
+                    }
                 }
             }
-            GCMode::Canonical(tries) => {
-                // If the block is on canonical chain, we delete the state that's before applying this block
-                for shard_id in 0..header.inner_rest.chunk_mask.len() as ShardId {
-                    self.store()
-                        .get_ser(ColTrieChanges, &get_block_shard_id(&block_hash, shard_id))?
-                        .map(|trie_changes: TrieChanges| {
-                            tries
-                                .apply_deletions(&trie_changes, shard_id, &mut store_update)
-                                .map_err(|err| ErrorKind::Other(err.to_string()))
-                        })
-                        .unwrap_or(Ok(()))?;
-                }
+            GCMode::Canonical(_) => {
                 // Set `block_hash` on previous one
                 block_hash = self.get_block_header(&block_hash)?.prev_hash;
             }
@@ -2045,7 +2066,7 @@ impl<'a> ChainStoreUpdate<'a> {
                         min_chunk_height = chunk_header.inner.height_created;
                     }
                 }
-                self.clear_chunk_data(min_chunk_height)?;
+                self.clear_chunk_data(min_chunk_height, gc_mode)?;
             }
         };
         self.merge(store_update);

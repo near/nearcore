@@ -16,7 +16,7 @@ use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum};
 use near_primitives::serialize::to_base;
-use near_primitives::sharding::ShardChunkHeader;
+use near_primitives::sharding::{ChunkHash, ShardChunkHeader};
 use near_primitives::transaction::{
     Action, ExecutionOutcome, ExecutionOutcomeWithId, ExecutionStatus, SignedTransaction,
     TransferAction,
@@ -524,6 +524,7 @@ impl RuntimeAdapter for KeyValueRuntime {
 
     fn apply_transactions_with_optional_storage_proof(
         &self,
+        chunk_hash: ChunkHash,
         shard_id: ShardId,
         state_root: &StateRoot,
         _height: BlockHeight,
@@ -686,6 +687,7 @@ impl RuntimeAdapter for KeyValueRuntime {
                 TrieChanges::empty(state_root),
                 Default::default(),
                 block_hash.clone(),
+                chunk_hash,
             ),
             new_root: state_root,
             outcomes: tx_results,
@@ -699,6 +701,7 @@ impl RuntimeAdapter for KeyValueRuntime {
 
     fn check_state_transition(
         &self,
+        _chunk_hash: ChunkHash,
         _partial_storage: PartialStorage,
         _shard_id: ShardId,
         _state_root: &StateRoot,

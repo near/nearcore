@@ -24,7 +24,7 @@ use near_primitives::challenge::{ChallengesResult, SlashedValidator};
 use near_primitives::errors::{EpochError, InvalidTxError, RuntimeError};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::Receipt;
-use near_primitives::sharding::ShardChunkHeader;
+use near_primitives::sharding::{ChunkHash, ShardChunkHeader};
 use near_primitives::state_record::StateRecord;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::trie_key::trie_key_parsers;
@@ -272,6 +272,7 @@ impl NightshadeRuntime {
     /// Processes state update.
     fn process_state_update(
         &self,
+        chunk_hash: ChunkHash,
         trie: Arc<Trie>,
         state_root: CryptoHash,
         shard_id: ShardId,
@@ -417,6 +418,7 @@ impl NightshadeRuntime {
                 apply_result.trie_changes,
                 apply_result.state_changes,
                 block_hash.clone(),
+                chunk_hash,
             ),
             new_root: apply_result.state_root,
             outcomes: apply_result.outcomes,
@@ -940,6 +942,7 @@ impl RuntimeAdapter for NightshadeRuntime {
 
     fn apply_transactions_with_optional_storage_proof(
         &self,
+        chunk_hash: ChunkHash,
         shard_id: ShardId,
         state_root: &StateRoot,
         height: BlockHeight,
@@ -957,6 +960,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         let trie = self.get_trie_for_shard(shard_id);
         let trie = if generate_storage_proof { Arc::new(trie.recording_reads()) } else { trie };
         match self.process_state_update(
+            chunk_hash,
             trie,
             *state_root,
             shard_id,
@@ -983,6 +987,7 @@ impl RuntimeAdapter for NightshadeRuntime {
 
     fn check_state_transition(
         &self,
+        chunk_hash: ChunkHash,
         partial_storage: PartialStorage,
         shard_id: ShardId,
         state_root: &StateRoot,
@@ -999,6 +1004,7 @@ impl RuntimeAdapter for NightshadeRuntime {
     ) -> Result<ApplyTransactionResult, Error> {
         let trie = Arc::new(Trie::from_recorded_storage(partial_storage));
         self.process_state_update(
+            chunk_hash,
             trie,
             *state_root,
             shard_id,
@@ -1384,6 +1390,7 @@ mod test {
     impl NightshadeRuntime {
         fn update(
             &self,
+            chunk_hash: ChunkHash,
             state_root: &StateRoot,
             shard_id: ShardId,
             height: BlockHeight,
@@ -1399,6 +1406,7 @@ mod test {
         ) -> (StateRoot, Vec<ValidatorStake>, ReceiptResult) {
             let mut result = self
                 .apply_transactions(
+                    chunk_hash,
                     shard_id,
                     &state_root,
                     height,
@@ -1512,6 +1520,7 @@ mod test {
             let mut new_receipts = HashMap::new();
             for i in 0..num_shards {
                 let (state_root, proposals, receipts) = self.runtime.update(
+                    ChunkHash(hash(&vec![(self.head.height + 1 + (i + 1) * 701701) as u8])),
                     &self.state_roots[i as usize],
                     i,
                     self.head.height + 1,

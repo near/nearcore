@@ -13,7 +13,7 @@ use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::{merklize, MerklePath};
 use near_primitives::receipt::Receipt;
-use near_primitives::sharding::{ReceiptProof, ShardChunk, ShardChunkHeader};
+use near_primitives::sharding::{ChunkHash, ReceiptProof, ShardChunk, ShardChunkHeader};
 use near_primitives::transaction::{ExecutionOutcomeWithId, SignedTransaction};
 use near_primitives::types::{
     AccountId, ApprovalStake, Balance, BlockHeight, EpochId, Gas, MerkleHash, ShardId, StateRoot,
@@ -326,6 +326,7 @@ pub trait RuntimeAdapter: Send + Sync {
     /// Also returns transaction result for each transaction and new receipts.
     fn apply_transactions(
         &self,
+        chunk_hash: ChunkHash,
         shard_id: ShardId,
         state_root: &StateRoot,
         height: BlockHeight,
@@ -340,6 +341,7 @@ pub trait RuntimeAdapter: Send + Sync {
         challenges_result: &ChallengesResult,
     ) -> Result<ApplyTransactionResult, Error> {
         self.apply_transactions_with_optional_storage_proof(
+            chunk_hash,
             shard_id,
             state_root,
             height,
@@ -358,6 +360,7 @@ pub trait RuntimeAdapter: Send + Sync {
 
     fn apply_transactions_with_optional_storage_proof(
         &self,
+        chunk_hash: ChunkHash,
         shard_id: ShardId,
         state_root: &StateRoot,
         height: BlockHeight,
@@ -375,6 +378,7 @@ pub trait RuntimeAdapter: Send + Sync {
 
     fn check_state_transition(
         &self,
+        chunk_hash: ChunkHash,
         partial_storage: PartialStorage,
         shard_id: ShardId,
         state_root: &StateRoot,

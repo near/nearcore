@@ -300,6 +300,7 @@ fn validate_chunk_state_challenge(
     let partial_storage = PartialStorage { nodes: chunk_state.partial_state.clone() };
     let result = runtime_adapter
         .check_state_transition(
+            chunk_state.chunk_header.hash.clone(),
             partial_storage,
             chunk_state.prev_chunk.header.inner.shard_id,
             &chunk_state.prev_chunk.header.inner.prev_state_root,
