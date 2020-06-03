@@ -81,7 +81,7 @@ const TRIE_MAX_CACHE_SIZE: usize = 10000;
 #[cfg(feature = "no_cache")]
 const TRIE_MAX_CACHE_SIZE: usize = 1;
 
-/// Values above this size are never cached.
+/// Values above this size (in bytes) are never cached.
 /// Note that Trie inner nodes are always smaller than this.
 const TRIE_MAX_VALUE_CACHED: usize = 4000;
 
