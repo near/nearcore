@@ -27,7 +27,6 @@ assert config['protocol_version'] == 5
 
 config['protocol_version'] = 6
 config['runtime_config'].pop('storage_cost_byte_per_block')
-config['runtime_config'].pop('poke_threshold')
 config['runtime_config'].pop('account_length_baseline_cost_per_block')
 config['runtime_config']['storage_amount_per_byte'] = "90949470177292823791"
 
