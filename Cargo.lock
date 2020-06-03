@@ -2037,7 +2037,6 @@ dependencies = [
  "near-pool",
  "near-primitives",
  "near-store",
- "near-store-validator",
  "num-rational",
  "rand 0.7.3",
  "rocksdb",
@@ -2103,7 +2102,6 @@ dependencies = [
  "near-pool",
  "near-primitives",
  "near-store",
- "near-store-validator",
  "near-telemetry",
  "neard",
  "num-rational",
@@ -2360,15 +2358,6 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
-]
-
-[[package]]
-name = "near-store-validator"
-version = "0.1.0"
-dependencies = [
- "near-chain-configs",
- "near-primitives",
- "near-store",
 ]
 
 [[package]]
@@ -3562,7 +3551,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
 
 [[package]]
-name = "store-validator-bin"
+name = "store-validator"
 version = "0.1.0"
 dependencies = [
  "ansi_term",
@@ -3573,7 +3562,6 @@ dependencies = [
  "near-logger-utils",
  "near-primitives",
  "near-store",
- "near-store-validator",
  "neard",
  "serde_json",
  "testlib",

@@ -39,14 +39,16 @@ fn init_logging(verbose: Option<&str>) {
     }
 
     if let Ok(rust_log) = env::var("RUST_LOG") {
-        for directive in rust_log.split(',').filter_map(|s| match s.parse() {
-            Ok(directive) => Some(directive),
-            Err(err) => {
-                eprintln!("Ignoring directive `{}`: {}", s, err);
-                None
+        if !rust_log.is_empty() {
+            for directive in rust_log.split(',').filter_map(|s| match s.parse() {
+                Ok(directive) => Some(directive),
+                Err(err) => {
+                    eprintln!("Ignoring directive `{}`: {}", s, err);
+                    None
+                }
+            }) {
+                env_filter = env_filter.add_directive(directive);
             }
-        }) {
-            env_filter = env_filter.add_directive(directive);
         }
     }
     tracing_subscriber::fmt::Subscriber::builder()

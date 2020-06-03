@@ -10,7 +10,8 @@ use cached::{Cached, SizedCache};
 
 pub use db::DBCol::{self, *};
 pub use db::{
-    HEADER_HEAD_KEY, HEAD_KEY, LARGEST_TARGET_HEIGHT_KEY, LATEST_KNOWN_KEY, SYNC_HEAD_KEY, TAIL_KEY,
+    CHUNK_TAIL_KEY, HEADER_HEAD_KEY, HEAD_KEY, LARGEST_TARGET_HEIGHT_KEY, LATEST_KNOWN_KEY,
+    SYNC_HEAD_KEY, TAIL_KEY,
 };
 use near_crypto::PublicKey;
 use near_primitives::account::{AccessKey, Account};

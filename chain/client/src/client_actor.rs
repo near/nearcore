@@ -13,6 +13,8 @@ use log::{debug, error, info, warn};
 use near_chain::check_refcount_map;
 use near_chain::test_utils::format_hash;
 use near_chain::types::AcceptedBlock;
+#[cfg(feature = "adversarial")]
+use near_chain::StoreValidator;
 use near_chain::{
     byzantine_assert, Block, BlockHeader, ChainGenesis, ChainStoreAccess, Provenance,
     RuntimeAdapter,
@@ -39,8 +41,6 @@ use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::ValidatorInfo;
 #[cfg(feature = "adversarial")]
 use near_store::ColBlock;
-#[cfg(feature = "adversarial")]
-use near_store_validator::StoreValidator;
 use near_telemetry::TelemetryActor;
 
 use crate::client::Client;
@@ -262,8 +262,9 @@ impl Handler<NetworkClientMessages> for ClientActor {
                         let mut genesis = GenesisConfig::default();
                         genesis.genesis_height = self.client.chain.store().get_genesis_height();
                         let mut store_validator = StoreValidator::new(
+                            self.client.validator_signer.as_ref().map(|x| x.validator_id().clone()),
                             genesis,
-                            self.client.runtime_adapter.get_tries(),
+                            self.client.runtime_adapter.clone(),
                             self.client.chain.store().owned_store(),
                         );
                         store_validator.validate();
@@ -1073,15 +1074,16 @@ impl ClientActor {
                 _ => false,
             };
             if sync_state {
-                let (sync_hash, mut new_shard_sync) = match &self.client.sync_status {
-                    SyncStatus::StateSync(sync_hash, shard_sync) => {
-                        (sync_hash.clone(), shard_sync.clone())
-                    }
-                    _ => {
-                        let sync_hash = unwrap_or_run_later!(self.find_sync_hash());
-                        (sync_hash, HashMap::default())
-                    }
-                };
+                let (sync_hash, mut new_shard_sync, just_enter_state_sync) =
+                    match &self.client.sync_status {
+                        SyncStatus::StateSync(sync_hash, shard_sync) => {
+                            (sync_hash.clone(), shard_sync.clone(), false)
+                        }
+                        _ => {
+                            let sync_hash = unwrap_or_run_later!(self.find_sync_hash());
+                            (sync_hash, HashMap::default(), true)
+                        }
+                    };
 
                 let me = self.client.validator_signer.as_ref().map(|x| x.validator_id().clone());
                 let shards_to_sync = (0..self.client.runtime_adapter.num_shards())
@@ -1095,7 +1097,7 @@ impl ClientActor {
                     })
                     .collect();
 
-                if !self.client.config.archive {
+                if !self.client.config.archive && just_enter_state_sync {
                     unwrap_or_run_later!(self.client.chain.reset_data_pre_state_sync(sync_hash));
                 }
 

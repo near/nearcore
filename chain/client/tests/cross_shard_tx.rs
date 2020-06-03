@@ -74,6 +74,7 @@ fn test_keyvalue_runtime_balances() {
     .unwrap();
 }
 
+#[cfg(feature = "expensive_tests")]
 #[cfg(test)]
 mod tests {
     use std::collections::HashSet;
@@ -370,9 +371,6 @@ mod tests {
         test_doomslug: bool,
         block_production_time: u64,
     ) {
-        if !cfg!(feature = "expensive_tests") {
-            return;
-        }
         let validator_groups = 4;
         init_test_logger();
         System::run(move || {

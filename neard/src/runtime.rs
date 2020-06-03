@@ -43,7 +43,10 @@ use near_store::{
 };
 use node_runtime::adapter::ViewRuntimeAdapter;
 use node_runtime::state_viewer::TrieViewer;
-use node_runtime::{verify_and_charge_transaction, ApplyState, Runtime, ValidatorAccountsUpdate};
+use node_runtime::{
+    validate_transaction, verify_and_charge_transaction, ApplyState, Runtime,
+    ValidatorAccountsUpdate,
+};
 
 use crate::shard_tracker::{account_id_to_shard_id, ShardTracker};
 
@@ -109,7 +112,7 @@ pub struct NightshadeRuntime {
     home_dir: PathBuf,
 
     store: Arc<Store>,
-    pub tries: ShardTries,
+    tries: ShardTries,
     trie_viewer: TrieViewer,
     pub runtime: Runtime,
     epoch_manager: SafeEpochManager,
@@ -508,25 +511,42 @@ impl RuntimeAdapter for NightshadeRuntime {
     fn validate_tx(
         &self,
         gas_price: Balance,
-        state_root: StateRoot,
+        state_root: Option<StateRoot>,
         transaction: &SignedTransaction,
     ) -> Result<Option<InvalidTxError>, Error> {
-        let shard_id = self.account_id_to_shard_id(&transaction.transaction.signer_id);
-        let mut state_update = self.get_tries().new_trie_update(shard_id, state_root);
+        if let Some(state_root) = state_root {
+            let shard_id = self.account_id_to_shard_id(&transaction.transaction.signer_id);
+            let mut state_update = self.get_tries().new_trie_update(shard_id, state_root);
 
-        match verify_and_charge_transaction(
-            &self.runtime.config,
-            &mut state_update,
-            gas_price,
-            &transaction,
-        ) {
-            Ok(_) => Ok(None),
-            Err(RuntimeError::InvalidTxError(err)) => {
-                debug!(target: "runtime", "Tx {:?} validation failed: {:?}", transaction, err);
-                Ok(Some(err))
+            match verify_and_charge_transaction(
+                &self.runtime.config,
+                &mut state_update,
+                gas_price,
+                &transaction,
+            ) {
+                Ok(_) => Ok(None),
+                Err(RuntimeError::InvalidTxError(err)) => {
+                    debug!(target: "runtime", "Tx {:?} validation failed: {:?}", transaction, err);
+                    Ok(Some(err))
+                }
+                Err(RuntimeError::StorageError(err)) => {
+                    Err(Error::from(ErrorKind::StorageError(err)))
+                }
+                Err(err) => unreachable!("Unexpected RuntimeError error {:?}", err),
             }
-            Err(RuntimeError::StorageError(err)) => Err(Error::from(ErrorKind::StorageError(err))),
-            Err(err) => unreachable!("Unexpected RuntimeError error {:?}", err),
+        } else {
+            // Doing basic validation without a state root
+            match validate_transaction(&self.runtime.config, gas_price, &transaction) {
+                Ok(_) => Ok(None),
+                Err(RuntimeError::InvalidTxError(err)) => {
+                    debug!(target: "runtime", "Tx {:?} validation failed: {:?}", transaction, err);
+                    Ok(Some(err))
+                }
+                Err(RuntimeError::StorageError(err)) => {
+                    Err(Error::from(ErrorKind::StorageError(err)))
+                }
+                Err(err) => unreachable!("Unexpected RuntimeError error {:?}", err),
+            }
         }
     }
 
@@ -1326,9 +1346,10 @@ mod test {
 
     use num_rational::Rational;
 
-    use near_chain::{ReceiptResult, Tip};
+    use near_chain::ReceiptResult;
     use near_crypto::{InMemorySigner, KeyType, Signer};
     use near_logger_utils::init_test_logger;
+    use near_primitives::block::Tip;
     use near_primitives::challenge::SlashedValidator;
     use near_primitives::transaction::{
         Action, CreateAccountAction, DeleteAccountAction, StakeAction,

@@ -13,13 +13,15 @@ use rand::seq::SliceRandom;
 use rand::SeedableRng;
 
 use near_chain_configs::GenesisConfig;
-use near_primitives::block::genesis_chunks;
+use near_primitives::block::{genesis_chunks, Tip};
 use near_primitives::challenge::{
     BlockDoubleSign, Challenge, ChallengeBody, ChallengesResult, ChunkProofs, ChunkState,
     MaybeEncodedShardChunk, SlashedValidator,
 };
 use near_primitives::hash::{hash, CryptoHash};
-use near_primitives::merkle::{merklize, verify_path};
+use near_primitives::merkle::{
+    combine_hash, merklize, verify_path, Direction, MerklePath, MerklePathItem,
+};
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{
     ChunkHash, ChunkHashHeight, ReceiptProof, ShardChunk, ShardChunkHeader, ShardProof,
@@ -27,7 +29,7 @@ use near_primitives::sharding::{
 use near_primitives::transaction::ExecutionOutcomeWithIdAndProof;
 use near_primitives::types::{
     AccountId, Balance, BlockExtra, BlockHeight, BlockHeightDelta, ChunkExtra, EpochId, Gas,
-    NumBlocks, ShardId, StateHeaderKey, ValidatorStake,
+    MerkleHash, NumBlocks, ShardId, StateHeaderKey, ValidatorStake,
 };
 use near_primitives::unwrap_or_return;
 use near_primitives::version::ProtocolVersion;
@@ -35,7 +37,7 @@ use near_primitives::views::{
     ExecutionOutcomeWithIdView, ExecutionStatusView, FinalExecutionOutcomeView,
     FinalExecutionStatus, LightClientBlockView,
 };
-use near_store::{ColStateHeaders, ColStateParts, ShardTries};
+use near_store::{ColState, ColStateHeaders, ColStateParts, ShardTries, StoreUpdate};
 
 use crate::error::{Error, ErrorKind};
 use crate::lightclient::get_epoch_block_producers_view;
@@ -45,7 +47,7 @@ use crate::store::{
 use crate::types::{
     AcceptedBlock, ApplyTransactionResult, Block, BlockHeader, BlockHeaderInfo, BlockStatus,
     BlockSyncResponse, Provenance, ReceiptList, ReceiptProofResponse, ReceiptResponse, RootProof,
-    RuntimeAdapter, ShardStateSyncResponseHeader, StatePartKey, Tip,
+    RuntimeAdapter, ShardStateSyncResponseHeader, StatePartKey,
 };
 use crate::validate::{
     validate_challenge, validate_chunk_proofs, validate_chunk_with_chunk_extra,
@@ -930,9 +932,15 @@ impl Chain {
             }
         }
 
+        // clear all trie data
+        let mut store_update = StoreUpdate::new_with_tries(self.runtime_adapter.get_tries());
+        let stored_state = self.store().store().iter_prefix(ColState, &[]);
+        for (key, _) in stored_state {
+            store_update.delete(ColState, key.as_ref());
+        }
+
         let mut chain_store_update = self.mut_store().store_update();
-        // Clear all Trie data
-        chain_store_update.clear_state_data();
+        chain_store_update.merge(store_update);
         chain_store_update.update_tail(new_tail);
         chain_store_update.commit()?;
 
@@ -1956,6 +1964,192 @@ impl Chain {
         let head = self.head()?;
         let epoch_id = self.runtime_adapter.get_epoch_id_from_prev_block(&head.last_block_hash)?;
         self.find_chunk_producer_for_forwarding(&epoch_id, shard_id, TX_ROUTING_HEIGHT_HORIZON)
+    }
+
+    pub fn check_block_final_and_canonical(
+        &mut self,
+        block_hash: &CryptoHash,
+    ) -> Result<(), Error> {
+        let last_final_block_hash = self.head_header()?.last_final_block().clone();
+        let last_final_height = self.get_block_header(&last_final_block_hash)?.height();
+        let block_header = self.get_block_header(block_hash)?.clone();
+        if block_header.height() <= last_final_height {
+            self.is_on_current_chain(&block_header)
+        } else {
+            Err(ErrorKind::Other(format!("{} not on current chain", block_hash)).into())
+        }
+    }
+}
+
+/// Implement block merkle proof retrieval.
+impl Chain {
+    fn combine_maybe_hashes(
+        hash1: Option<MerkleHash>,
+        hash2: Option<MerkleHash>,
+    ) -> Option<MerkleHash> {
+        match (hash1, hash2) {
+            (Some(h1), Some(h2)) => Some(combine_hash(h1, h2)),
+            (Some(h1), None) => Some(h1),
+            (None, Some(_)) => {
+                debug_assert!(false, "Inconsistent state in merkle proof computation: left node is None but right node exists");
+                None
+            }
+            _ => None,
+        }
+    }
+
+    /// Get node at given position (index, level). If the node does not exist, return `None`.
+    fn get_merkle_tree_node(
+        &mut self,
+        index: u64,
+        level: u64,
+        counter: u64,
+        tree_size: u64,
+        tree_nodes: &mut HashMap<(u64, u64), Option<MerkleHash>>,
+    ) -> Result<Option<MerkleHash>, Error> {
+        if let Some(hash) = tree_nodes.get(&(index, level)) {
+            Ok(hash.clone())
+        } else {
+            if level == 0 {
+                let maybe_hash = if index >= tree_size {
+                    None
+                } else {
+                    Some(*self.mut_store().get_block_hash_from_ordinal(index)?)
+                };
+                tree_nodes.insert((index, level), maybe_hash.clone());
+                Ok(maybe_hash)
+            } else {
+                let cur_tree_size = (index + 1) * counter;
+                let maybe_hash = if cur_tree_size > tree_size {
+                    let left_hash = self.get_merkle_tree_node(
+                        index * 2,
+                        level - 1,
+                        counter / 2,
+                        tree_size,
+                        tree_nodes,
+                    )?;
+                    let right_hash = self.reconstruct_merkle_tree_node(
+                        index * 2 + 1,
+                        level - 1,
+                        counter / 2,
+                        tree_size,
+                        tree_nodes,
+                    )?;
+                    Self::combine_maybe_hashes(left_hash, right_hash)
+                } else {
+                    Some(
+                        *self
+                            .mut_store()
+                            .get_block_merkle_tree_from_ordinal(cur_tree_size)?
+                            .get_path()
+                            .last()
+                            .ok_or_else(|| {
+                                ErrorKind::Other("Merkle tree node missing".to_string())
+                            })?,
+                    )
+                };
+                tree_nodes.insert((index, level), maybe_hash.clone());
+                Ok(maybe_hash)
+            }
+        }
+    }
+
+    /// Reconstruct node at given position (index, level). If the node does not exist, return `None`.
+    fn reconstruct_merkle_tree_node(
+        &mut self,
+        index: u64,
+        level: u64,
+        counter: u64,
+        tree_size: u64,
+        tree_nodes: &mut HashMap<(u64, u64), Option<MerkleHash>>,
+    ) -> Result<Option<MerkleHash>, Error> {
+        if let Some(hash) = tree_nodes.get(&(index, level)) {
+            Ok(hash.clone())
+        } else {
+            if level == 0 {
+                let maybe_hash = if index >= tree_size {
+                    None
+                } else {
+                    Some(*self.mut_store().get_block_hash_from_ordinal(index)?)
+                };
+                tree_nodes.insert((index, level), maybe_hash.clone());
+                Ok(maybe_hash)
+            } else {
+                let left_hash = self.get_merkle_tree_node(
+                    index * 2,
+                    level - 1,
+                    counter / 2,
+                    tree_size,
+                    tree_nodes,
+                )?;
+                let right_hash = self.reconstruct_merkle_tree_node(
+                    index * 2 + 1,
+                    level - 1,
+                    counter / 2,
+                    tree_size,
+                    tree_nodes,
+                )?;
+                let maybe_hash = Self::combine_maybe_hashes(left_hash, right_hash);
+                tree_nodes.insert((index, level), maybe_hash.clone());
+
+                Ok(maybe_hash)
+            }
+        }
+    }
+
+    /// Get merkle proof for block with hash `block_hash` in the merkle tree of `head_block_hash`.
+    pub fn get_block_proof(
+        &mut self,
+        block_hash: &CryptoHash,
+        head_block_hash: &CryptoHash,
+    ) -> Result<MerklePath, Error> {
+        let leaf_index = self.mut_store().get_block_merkle_tree(block_hash)?.size();
+        let tree_size = self.mut_store().get_block_merkle_tree(head_block_hash)?.size();
+        if leaf_index >= tree_size {
+            if block_hash == head_block_hash {
+                // special case if the block to prove is the same as head
+                return Ok(vec![]);
+            }
+            return Err(ErrorKind::Other(format!(
+                "block {} is ahead of head block {}",
+                block_hash, head_block_hash
+            ))
+            .into());
+        }
+        let mut level = 0;
+        let mut counter = 1;
+        let mut cur_index = leaf_index;
+        let mut path = vec![];
+        let mut tree_nodes = HashMap::new();
+        let mut iter = tree_size;
+        while iter >= 1 {
+            if cur_index % 2 == 0 {
+                cur_index += 1
+            } else {
+                cur_index -= 1;
+            }
+            let direction = if cur_index % 2 == 0 { Direction::Left } else { Direction::Right };
+            let maybe_hash = if cur_index % 2 == 1 {
+                // node not immediately available. Needs to be reconstructed
+                self.reconstruct_merkle_tree_node(
+                    cur_index,
+                    level,
+                    counter,
+                    tree_size,
+                    &mut tree_nodes,
+                )?
+            } else {
+                self.get_merkle_tree_node(cur_index, level, counter, tree_size, &mut tree_nodes)?
+            };
+            if let Some(hash) = maybe_hash {
+                path.push(MerklePathItem { hash, direction });
+            }
+            cur_index /= 2;
+            iter /= 2;
+            level += 1;
+            counter *= 2;
+        }
+        Ok(path)
     }
 }
 

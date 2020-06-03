@@ -432,7 +432,7 @@ impl From<BlockHeaderView> for BlockHeader {
     }
 }
 
-#[derive(Serialize, Debug, Clone, BorshDeserialize, BorshSerialize)]
+#[derive(Serialize, Deserialize, Debug, Clone, BorshDeserialize, BorshSerialize)]
 pub struct BlockHeaderInnerLiteView {
     pub height: BlockHeight,
     pub epoch_id: CryptoHash,
@@ -442,6 +442,23 @@ pub struct BlockHeaderInnerLiteView {
     pub timestamp: u64,
     pub next_bp_hash: CryptoHash,
     pub block_merkle_root: CryptoHash,
+}
+
+impl From<BlockHeader> for BlockHeaderInnerLiteView {
+    fn from(header: BlockHeader) -> Self {
+        match header {
+            BlockHeader::BlockHeaderV1(header) => BlockHeaderInnerLiteView {
+                height: header.inner_lite.height,
+                epoch_id: header.inner_lite.epoch_id.0,
+                next_epoch_id: header.inner_lite.next_epoch_id.0,
+                prev_state_root: header.inner_lite.prev_state_root,
+                outcome_root: header.inner_lite.outcome_root,
+                timestamp: header.inner_lite.timestamp,
+                next_bp_hash: header.inner_lite.next_bp_hash,
+                block_merkle_root: header.inner_lite.block_merkle_root,
+            },
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -1024,6 +1041,23 @@ pub struct LightClientBlockView {
     pub inner_rest_hash: CryptoHash,
     pub next_bps: Option<Vec<ValidatorStakeView>>,
     pub approvals_after_next: Vec<Option<Signature>>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, BorshDeserialize, BorshSerialize)]
+pub struct LightClientBlockLiteView {
+    pub prev_block_hash: CryptoHash,
+    pub inner_rest_hash: CryptoHash,
+    pub inner_lite: BlockHeaderInnerLiteView,
+}
+
+impl From<BlockHeader> for LightClientBlockLiteView {
+    fn from(header: BlockHeader) -> Self {
+        Self {
+            prev_block_hash: header.prev_hash().clone(),
+            inner_rest_hash: hash(&header.inner_rest_bytes()),
+            inner_lite: header.into(),
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug)]
