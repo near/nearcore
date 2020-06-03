@@ -458,10 +458,13 @@ impl Handler<NetworkClientMessages> for ClientActor {
                 NetworkClientResponses::NoResponse
             }
             NetworkClientMessages::PartialEncodedChunkForward(forward) => {
-                if let Ok(accepted_blocks) =
-                    self.client.process_partial_encoded_chunk_forward(forward)
-                {
-                    self.process_accepted_blocks(accepted_blocks);
+                match self.client.process_partial_encoded_chunk_forward(forward) {
+                    Ok(accepted_blocks) => self.process_accepted_blocks(accepted_blocks),
+                    // Unknown chunk is normal if we get parts before the header
+                    Err(Error::Chunk(near_chunks::Error::UnknownChunk)) => (),
+                    Err(err) => {
+                        error!(target: "client", "Error processing forwarded chunk: {}", err)
+                    }
                 }
                 NetworkClientResponses::NoResponse
             }

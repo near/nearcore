@@ -938,7 +938,7 @@ impl ShardsManager {
         Ok(header)
     }
 
-    pub fn insert_chunk_forward(&mut self, forward: PartialEncodedChunkForwardMsg) {
+    pub fn insert_forwarded_chunk(&mut self, forward: PartialEncodedChunkForwardMsg) {
         let chunk_hash = forward.chunk_hash.clone();
         let num_total_parts = self.runtime_adapter.num_total_parts() as u64;
         match self.chunk_forwards_cache.cache_get_mut(&chunk_hash) {
@@ -1714,7 +1714,7 @@ mod test {
             &fixture.mock_chunk_header,
             most_parts,
         );
-        shards_manager.insert_chunk_forward(forward);
+        shards_manager.insert_forwarded_chunk(forward);
         let partial_encoded_chunk = PartialEncodedChunk {
             header: fixture.mock_chunk_header.clone(),
             parts: other_parts,

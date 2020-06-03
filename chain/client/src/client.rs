@@ -674,7 +674,7 @@ impl Client {
             Err(near_chunks::Error::UnknownChunk) => {
                 // We don't know this chunk yet; cache the forwarded part
                 // to be used after we get the header.
-                self.shards_mgr.insert_chunk_forward(forward);
+                self.shards_mgr.insert_forwarded_chunk(forward);
                 return Err(Error::Chunk(near_chunks::Error::UnknownChunk));
             }
             Err(err) => Err(err),
