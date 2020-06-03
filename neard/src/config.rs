@@ -259,7 +259,7 @@ fn default_sync_step_period() -> Duration {
 }
 
 fn default_view_client_threads() -> usize {
-    num_cpus::get()
+    4
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
