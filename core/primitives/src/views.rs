@@ -391,7 +391,7 @@ impl From<BlockHeader> for BlockHeaderView {
 
 impl From<BlockHeaderView> for BlockHeader {
     fn from(view: BlockHeaderView) -> Self {
-        let mut header = BlockHeader::BlockHeaderV1(BlockHeaderV1 {
+        let mut header = BlockHeaderV1 {
             prev_hash: view.prev_hash,
             inner_lite: BlockHeaderInnerLite {
                 height: view.height,
@@ -426,9 +426,9 @@ impl From<BlockHeaderView> for BlockHeader {
             },
             signature: view.signature,
             hash: CryptoHash::default(),
-        });
+        };
         header.init();
-        header
+        BlockHeader::BlockHeaderV1(Box::new(header))
     }
 }
 

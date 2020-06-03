@@ -130,6 +130,7 @@ impl ApprovalMessage {
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, Eq, PartialEq)]
+#[borsh_init(init)]
 pub struct BlockHeaderV1 {
     pub prev_hash: CryptoHash,
 
@@ -146,10 +147,19 @@ pub struct BlockHeaderV1 {
     pub hash: CryptoHash,
 }
 
+impl BlockHeaderV1 {
+    pub fn init(&mut self) {
+        self.hash = BlockHeader::compute_hash(
+            self.prev_hash,
+            &self.inner_lite.try_to_vec().expect("Failed to serialize"),
+            &self.inner_rest.try_to_vec().expect("Failed to serialize"),
+        );
+    }
+}
+
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, Eq, PartialEq)]
-#[borsh_init(init)]
 pub enum BlockHeader {
-    BlockHeaderV1(BlockHeaderV1),
+    BlockHeaderV1(Box<BlockHeaderV1>),
 }
 
 impl BlockHeader {
@@ -163,17 +173,6 @@ impl BlockHeader {
         let hash_inner = BlockHeader::compute_inner_hash(inner_lite, inner_rest);
 
         return combine_hash(hash_inner, prev_hash);
-    }
-
-    pub fn init(&mut self) {
-        let hash = BlockHeader::compute_hash(
-            *self.prev_hash(),
-            &self.inner_lite_bytes(),
-            &self.inner_rest_bytes(),
-        );
-        match self {
-            BlockHeader::BlockHeaderV1(header) => header.hash = hash,
-        }
     }
 
     pub fn new(
@@ -235,7 +234,13 @@ impl BlockHeader {
             &inner_lite.try_to_vec().expect("Failed to serialize"),
             &inner_rest.try_to_vec().expect("Failed to serialize"),
         );
-        Self::BlockHeaderV1(BlockHeaderV1 { prev_hash, inner_lite, inner_rest, signature, hash })
+        Self::BlockHeaderV1(Box::new(BlockHeaderV1 {
+            prev_hash,
+            inner_lite,
+            inner_rest,
+            signature,
+            hash,
+        }))
     }
 
     pub fn genesis(
@@ -285,13 +290,13 @@ impl BlockHeader {
             &inner_rest.try_to_vec().expect("Failed to serialize"),
         );
         // Genesis always has v1 of BlockHeader.
-        Self::BlockHeaderV1(BlockHeaderV1 {
+        Self::BlockHeaderV1(Box::new(BlockHeaderV1 {
             prev_hash: CryptoHash::default(),
             inner_lite,
             inner_rest,
             signature: Signature::empty(KeyType::ED25519),
             hash,
-        })
+        }))
     }
 
     pub fn hash(&self) -> &CryptoHash {

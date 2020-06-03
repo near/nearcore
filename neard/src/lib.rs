@@ -33,14 +33,11 @@ pub fn store_path_exists(path: &String) -> bool {
 pub fn get_store_path(base_path: &Path) -> String {
     let mut store_path = base_path.to_owned();
     store_path.push(STORE_PATH);
-    match fs::canonicalize(store_path.clone()) {
-        Ok(path) => {
-            info!(target: "near", "Opening store database at {:?}", path);
-        }
-        _ => {
-            info!(target: "near", "Did not find {:?} path, will be creating new store database", store_path);
-        }
-    };
+    if fs::canonicalize(store_path.clone()).is_ok() {
+        info!(target: "near", "Opening store database at {:?}", store_path);
+    } else {
+        info!(target: "near", "Did not find {:?} path, will be creating new store database", store_path);
+    }
     store_path.to_str().unwrap().to_owned()
 }
 

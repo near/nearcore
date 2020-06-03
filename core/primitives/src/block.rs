@@ -41,7 +41,7 @@ pub struct BlockV1 {
 /// Versioned Block data structure.
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, Eq, PartialEq)]
 pub enum Block {
-    BlockV1(BlockV1),
+    BlockV1(Box<BlockV1>),
 }
 
 pub fn genesis_chunks(
@@ -92,7 +92,7 @@ impl Block {
         next_bp_hash: CryptoHash,
     ) -> Self {
         let challenges = vec![];
-        Block::BlockV1(BlockV1 {
+        Block::BlockV1(Box::new(BlockV1 {
             header: BlockHeader::genesis(
                 genesis_protocol_version,
                 height,
@@ -112,7 +112,7 @@ impl Block {
 
             vrf_value: near_crypto::vrf::Value([0; 32]),
             vrf_proof: near_crypto::vrf::Proof([0; 64]),
-        })
+        }))
     }
 
     /// Produces new block from header of previous block, current state root and set of transactions.
@@ -177,7 +177,7 @@ impl Block {
                 prev.last_final_block()
             };
 
-        Block::BlockV1(BlockV1 {
+        Block::BlockV1(Box::new(BlockV1 {
             header: BlockHeader::new(
                 protocol_version,
                 height,
@@ -210,7 +210,7 @@ impl Block {
 
             vrf_value,
             vrf_proof,
-        })
+        }))
     }
 
     pub fn verify_gas_price(
