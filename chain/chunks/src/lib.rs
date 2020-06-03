@@ -884,6 +884,38 @@ impl ShardsManager {
         }
     }
 
+    pub fn validate_partial_encoded_chunk_forward(
+        &mut self,
+        forward: &PartialEncodedChunkForwardMsg,
+    ) -> Result<(), Error> {
+        let valid_hash = forward.is_valid_hash(); // check hash
+
+        if !valid_hash {
+            return Err(Error::InvalidPartMessage);
+        }
+
+        // check signature
+        let valid_signature = self.runtime_adapter.verify_chunk_signature_with_header_parts(
+            &forward.chunk_hash,
+            &forward.signature,
+            &forward.prev_block_hash,
+            forward.height_created,
+            forward.shard_id,
+        )?;
+
+        if !valid_signature {
+            return Err(Error::InvalidChunkSignature);
+        }
+
+        // check part merkle proofs
+        let num_total_parts = self.runtime_adapter.num_total_parts();
+        for part_info in forward.parts.iter() {
+            self.validate_part(forward.merkle_root, part_info, num_total_parts)?;
+        }
+
+        Ok(())
+    }
+
     /// Gets the header associated with the chunk hash from the `encoded_chunks` cache.
     /// An error is returned if the chunk is not present or the hash in the associated
     /// header does not match the given hash.
@@ -1170,10 +1202,10 @@ impl ShardsManager {
             return Ok(());
         }
 
-        let forward = PartialEncodedChunkForwardMsg {
-            chunk_hash: partial_encoded_chunk.header.chunk_hash(),
-            parts: owned_parts,
-        };
+        let forward = PartialEncodedChunkForwardMsg::from_header_and_parts(
+            &partial_encoded_chunk.header,
+            owned_parts,
+        );
 
         let block_producers =
             self.runtime_adapter.get_epoch_block_producers_ordered(&epoch_id, &parent_hash)?;
@@ -1678,10 +1710,10 @@ mod test {
             let other_parts = most_parts.split_off(n - (n / 4));
             (most_parts, other_parts)
         };
-        let forward = PartialEncodedChunkForwardMsg {
-            chunk_hash: fixture.mock_chunk_header.chunk_hash(),
-            parts: most_parts,
-        };
+        let forward = PartialEncodedChunkForwardMsg::from_header_and_parts(
+            &fixture.mock_chunk_header,
+            most_parts,
+        );
         shards_manager.insert_chunk_forward(forward);
         let partial_encoded_chunk = PartialEncodedChunk {
             header: fixture.mock_chunk_header.clone(),

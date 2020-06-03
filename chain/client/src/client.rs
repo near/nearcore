@@ -667,6 +667,8 @@ impl Client {
         &mut self,
         forward: PartialEncodedChunkForwardMsg,
     ) -> Result<Vec<AcceptedBlock>, Error> {
+        self.shards_mgr.validate_partial_encoded_chunk_forward(&forward)?;
+
         let header = match self.shards_mgr.get_partial_encoded_chunk_header(&forward.chunk_hash) {
             Ok(header) => Ok(header),
             Err(near_chunks::Error::UnknownChunk) => {

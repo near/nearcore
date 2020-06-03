@@ -96,13 +96,17 @@ impl ShardChunkHeader {
     }
 
     pub fn compute_hash(inner: &ShardChunkHeaderInner) -> ChunkHash {
-        let inner_bytes = inner.try_to_vec().expect("Failed to serialize");
-        let inner_hash = hash(&inner_bytes);
+        let inner_hash = Self::inner_header_hash(inner);
         let mut input_bytes: Vec<u8> = Vec::with_capacity(2 * inner_hash.as_ref().len());
         input_bytes.extend(inner_hash.as_ref());
         input_bytes.extend(inner.encoded_merkle_root.as_ref());
 
         ChunkHash(hash(&input_bytes))
+    }
+
+    pub fn inner_header_hash(inner: &ShardChunkHeaderInner) -> CryptoHash {
+        let inner_bytes = inner.try_to_vec().expect("Failed to serialize");
+        hash(&inner_bytes)
     }
 
     pub fn chunk_hash(&self) -> ChunkHash {
