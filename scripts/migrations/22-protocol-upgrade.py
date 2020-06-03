@@ -16,9 +16,9 @@ output_home = sys.argv[2]
 
 config = json.load(open(os.path.join(home, 'output.json')), object_pairs_hook=OrderedDict)
 
-assert config['protocol_version'] == 18
+assert config['protocol_version'] == 21
 
-config['protocol_version'] = 19
+config['protocol_version'] = 22
 
 config.pop('config_version')
 config['protocol_upgrade_stake_threshold'] = [4, 5]
