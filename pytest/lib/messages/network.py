@@ -1,4 +1,5 @@
 from messages.crypto import Signature, PublicKey
+from messages.tx import SignedTransaction
 
 
 class SocketAddr:
@@ -33,6 +34,18 @@ class GenesisId:
     pass
 
 
+class Edge:
+    pass
+
+
+class SyncData:
+    pass
+
+
+class AnnounceAccount:
+    pass
+
+
 network_schema = [
     [
         SocketAddr, {
@@ -48,7 +61,18 @@ network_schema = [
             'field':
                 'enum',
             'values': [['Handshake', Handshake],
-                       ['HandshakeFailure', (PeerInfo, HandshakeFailureReason)]]
+                       ['HandshakeFailure', (PeerInfo, HandshakeFailureReason)],
+                       ['LastEdge', Edge],
+                       ['Sync', SyncData],
+                       ['RequestUpdateNonce', EdgeInfo],
+                       ['ResponseUpdateNonce', Edge],
+                       ['PeersRequest', ()],
+                       ['PeersResponse', [PeerInfo]],
+                       ['BlockHeadersRequest', [[32]]],
+                       ['BlockHeaders', ()], # TODO
+                       ['BlockRequest', [32]],
+                       ['Block', Block],
+                       ['Transaction', SignedTransaction]]
         }
     ],
     [
@@ -104,6 +128,28 @@ network_schema = [
         }
     ],
     [
+        Edge, {
+            'kind': 'struct',
+            'fields': [
+                ['peer0', PublicKey],
+                ['peer1', PublicKey],
+                ['nonce', 'u64'],
+                ['signature0', Signature],
+                ['signature1', Signature],
+                ['removal_info', {'kind': 'option', 'type': (bool, Signature)}],
+            ]
+        }
+    ],
+    [
+        SyncData, {
+            'kind': 'struct',
+            'fields': [
+                ['edges', [Edge]],
+                ['accounts', [AnnounceAccount]],
+            ]
+        }
+    ],
+    [
         EdgeInfo, {
             'kind': 'struct',
             'fields': [
@@ -120,5 +166,16 @@ network_schema = [
                 ['hash', [32]],
             ]
         }
-    ]
+    ],
+    [
+        AnnounceAccount, {
+            'kind': 'struct',
+            'fields': [
+                ['account_id', 'string'],
+                ['peer_id', PublicKey],
+                ['epoch_id', [32]],
+                ['signature', Signature],
+            ]
+        }
+    ],
 ]
