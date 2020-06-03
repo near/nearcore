@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use borsh::{BorshDeserialize, BorshSerialize};
+use borsh::BorshDeserialize;
 
 use near_crypto::PublicKey;
 use near_primitives::block::{Block, BlockHeader};
@@ -8,9 +8,9 @@ use near_primitives::challenge::{
     BlockDoubleSign, Challenge, ChallengeBody, ChallengesResult, ChunkProofs, ChunkState,
     MaybeEncodedShardChunk,
 };
-use near_primitives::hash::{hash, CryptoHash};
+use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::merklize;
-use near_primitives::sharding::{ChunkHash, ShardChunk, ShardChunkHeader};
+use near_primitives::sharding::{ShardChunk, ShardChunkHeader};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, ChunkExtra, EpochId, Nonce};
 use near_store::PartialStorage;
@@ -25,7 +25,7 @@ const GAS_LIMIT_ADJUSTMENT_FACTOR: u64 = 1000;
 /// Verifies that chunk's proofs in the header match the body.
 pub fn validate_chunk_proofs(chunk: &ShardChunk, runtime_adapter: &dyn RuntimeAdapter) -> bool {
     // 1. Checking chunk.header.hash
-    if chunk.header.hash != ChunkHash(hash(&chunk.header.inner.try_to_vec().unwrap())) {
+    if chunk.header.hash != ShardChunkHeader::compute_hash(&chunk.header.inner) {
         byzantine_assert!(false);
         return false;
     }

@@ -11,7 +11,7 @@ use crate::block::{
 use crate::challenge::ChallengeBody;
 use crate::hash::{hash, CryptoHash};
 use crate::network::{AnnounceAccount, PeerId};
-use crate::sharding::{ChunkHash, ShardChunkHeaderInner};
+use crate::sharding::{ChunkHash, ShardChunkHeader, ShardChunkHeaderInner};
 use crate::telemetry::TelemetryInfo;
 use crate::types::{AccountId, BlockHeight, EpochId};
 
@@ -97,7 +97,7 @@ impl ValidatorSigner for EmptyValidatorSigner {
         &self,
         chunk_header_inner: &ShardChunkHeaderInner,
     ) -> (ChunkHash, Signature) {
-        let hash = ChunkHash(hash(&chunk_header_inner.try_to_vec().expect("Failed to serialize")));
+        let hash = ShardChunkHeader::compute_hash(chunk_header_inner);
         (hash, Signature::default())
     }
 
@@ -193,7 +193,7 @@ impl ValidatorSigner for InMemoryValidatorSigner {
         &self,
         chunk_header_inner: &ShardChunkHeaderInner,
     ) -> (ChunkHash, Signature) {
-        let hash = ChunkHash(hash(&chunk_header_inner.try_to_vec().expect("Failed to serialize")));
+        let hash = ShardChunkHeader::compute_hash(chunk_header_inner);
         let signature = self.signer.sign(hash.as_ref());
         (hash, signature)
     }
