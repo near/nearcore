@@ -314,6 +314,10 @@ fn validate_function_call_action(
     limit_config: &VMLimitConfig,
     action: &FunctionCallAction,
 ) -> Result<(), ActionsValidationError> {
+    if action.gas == 0 {
+        return Err(ActionsValidationError::FunctionCallZeroAttachedGas);
+    }
+
     if action.method_name.len() as u64 > limit_config.max_length_method_name {
         return Err(ActionsValidationError::FunctionCallMethodNameLengthExceeded {
             length: action.method_name.len() as u64,
@@ -1321,6 +1325,23 @@ mod tests {
             }),
         )
         .expect("valid action");
+    }
+
+    #[test]
+    fn test_validate_action_invalid_function_call_zero_gas() {
+        assert_eq!(
+            validate_action(
+                &VMLimitConfig::default(),
+                &Action::FunctionCall(FunctionCallAction {
+                    method_name: "new".to_string(),
+                    args: vec![],
+                    gas: 0,
+                    deposit: 0,
+                }),
+            )
+            .expect_err("expected an error"),
+            ActionsValidationError::FunctionCallZeroAttachedGas,
+        );
     }
 
     #[test]
