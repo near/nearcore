@@ -83,7 +83,7 @@ const TRIE_MAX_CACHE_SIZE: usize = 1;
 
 /// Values above this size (in bytes) are never cached.
 /// Note that Trie inner nodes are always smaller than this.
-const TRIE_MAX_VALUE_CACHED: usize = 4000;
+const TRIE_LIMIT_CACHED_VALUE_SIZE: usize = 4000;
 
 pub struct TrieCachingStorage {
     pub(crate) store: Arc<Store>,
@@ -141,7 +141,7 @@ impl TrieCachingStorage {
                 .map_err(|_| StorageError::StorageInternalError)?;
             if let Some(val) = val {
                 let rc = Self::vec_to_rc(&val);
-                if val.len() < TRIE_MAX_VALUE_CACHED {
+                if val.len() < TRIE_LIMIT_CACHED_VALUE_SIZE {
                     guard.cache_set(*hash, val);
                 }
                 rc
@@ -155,7 +155,7 @@ impl TrieCachingStorage {
         let mut guard = self.cache.lock().expect(POISONED_LOCK_ERR);
         for (hash, value) in ops {
             if let Some(value) = value {
-                if value.len() < TRIE_MAX_VALUE_CACHED && guard.cache_get(&hash).is_some() {
+                if value.len() < TRIE_LIMIT_CACHED_VALUE_SIZE && guard.cache_get(&hash).is_some() {
                     guard.cache_set(hash, value);
                 }
             } else {
@@ -178,7 +178,7 @@ impl TrieStorage for TrieCachingStorage {
                 .map_err(|_| StorageError::StorageInternalError)?;
             if let Some(val) = val {
                 let raw_node = Self::vec_to_bytes(&val);
-                if val.len() < TRIE_MAX_VALUE_CACHED {
+                if val.len() < TRIE_LIMIT_CACHED_VALUE_SIZE {
                     guard.cache_set(*hash, val);
                 }
                 raw_node
