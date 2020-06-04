@@ -27,3 +27,7 @@ rand = "0.7"
 [[bench]]
 name = "trie_bench"
 harness = false
+
+[features]
+default = []
+no_cache = []
