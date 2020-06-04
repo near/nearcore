@@ -207,11 +207,7 @@ impl EpochManager {
         let mut versions = HashMap::new();
         for (validator_id, version) in last_block_info.version_tracker.iter() {
             let stake = epoch_info.validators[*validator_id as usize].stake;
-            if let Some(value) = versions.get_mut(version) {
-                *value += stake
-            } else {
-                versions.insert(version, stake);
-            }
+            *versions.entry(version).or_insert(0) += stake;
         }
         let total_block_producer_stake: u128 = epoch_info
             .block_producers_settlement

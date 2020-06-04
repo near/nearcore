@@ -39,6 +39,7 @@ pub struct BlockV1 {
 }
 
 /// Versioned Block data structure.
+/// For each next version, document what are the changes between versions.
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, Eq, PartialEq)]
 pub enum Block {
     BlockV1(Box<BlockV1>),
