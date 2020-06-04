@@ -2071,6 +2071,7 @@ dependencies = [
  "log",
  "near-chain",
  "near-crypto",
+ "near-logger-utils",
  "near-network",
  "near-pool",
  "near-primitives",
