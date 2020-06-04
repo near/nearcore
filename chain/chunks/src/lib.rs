@@ -1,5 +1,5 @@
 use std::cmp;
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{btree_map, hash_map, BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -36,7 +36,6 @@ use near_primitives::validator_signer::ValidatorSigner;
 
 use crate::chunk_cache::{EncodedChunksCache, EncodedChunksCacheEntry};
 pub use crate::types::Error;
-use std::collections::hash_map::Entry;
 
 mod chunk_cache;
 #[cfg(test)]
@@ -225,8 +224,8 @@ impl SealsManager {
         shard_id: ShardId,
     ) -> Result<&mut ActiveSealDemur, near_chain::Error> {
         match self.active_demurs.entry(chunk_hash.clone()) {
-            Entry::Occupied(entry) => Ok(entry.into_mut()),
-            Entry::Vacant(entry) => {
+            hash_map::Entry::Occupied(entry) => Ok(entry.into_mut()),
+            hash_map::Entry::Vacant(entry) => {
                 let chunk_producer = self.runtime_adapter.get_chunk_producer(
                     &self.runtime_adapter.get_epoch_id_from_prev_block(parent_hash)?,
                     height,
@@ -234,7 +233,6 @@ impl SealsManager {
                 )?;
                 let candidates = {
                     let n = self.runtime_adapter.num_total_parts();
-
                     // `n` is an upper bound for elements in the accumulator; declaring with
                     // this capacity up front will mean no further allocations will occur
                     // from `push` calls in the loop.
@@ -272,9 +270,37 @@ impl SealsManager {
             .collect()
     }
 
-    fn approve_chunk(&mut self, chunk_hash: &ChunkHash) {
-        if let Some(seal) = self.active_demurs.remove(chunk_hash) {
-            Self::insert_past_seal(&mut self.past_seals, seal.height, chunk_hash.clone());
+    fn approve_chunk(&mut self, height: BlockHeight, chunk_hash: &ChunkHash) {
+        let maybe_seal = self.active_demurs.remove(chunk_hash);
+        match maybe_seal {
+            None => match self.past_seals.entry(height) {
+                btree_map::Entry::Vacant(vacant) => {
+                    warn!(
+                        target: "chunks",
+                        "A chunk at height {} with hash {:?} was approved without an active seal demur and no past seals were found at the same height",
+                        height,
+                        chunk_hash
+                    );
+                    let mut hashes = HashSet::new();
+                    hashes.insert(chunk_hash.clone());
+                    vacant.insert(hashes);
+                }
+                btree_map::Entry::Occupied(mut occupied) => {
+                    let hashes = occupied.get_mut();
+                    if !hashes.contains(chunk_hash) {
+                        warn!(
+                            target: "chunks",
+                            "Approved chunk at height {} with hash {:?} was not an active seal demur or a past seal",
+                            height,
+                            chunk_hash
+                        );
+                        hashes.insert(chunk_hash.clone());
+                    }
+                }
+            },
+            Some(seal) => {
+                Self::insert_past_seal(&mut self.past_seals, seal.height, chunk_hash.clone());
+            }
         }
     }
 
@@ -1074,6 +1100,7 @@ impl ShardsManager {
         }
 
         if can_reconstruct {
+            let height = header.inner.height_created;
             let mut encoded_chunk =
                 EncodedShardChunk::from_header(header, self.runtime_adapter.num_total_parts());
 
@@ -1086,7 +1113,7 @@ impl ShardsManager {
 
             assert!(successfully_decoded);
 
-            self.seals_mgr.approve_chunk(&chunk_hash);
+            self.seals_mgr.approve_chunk(height, &chunk_hash);
 
             self.encoded_chunks.remove_from_cache_if_outside_horizon(&chunk_hash);
             self.requested_partial_encoded_chunks.remove(&chunk_hash);
@@ -1542,7 +1569,7 @@ mod test {
         // SealsManager::approve_chunk should indicate all parts were retrieved and
         // move the seal into the past seals map.
         fixture.create_seal(&mut seals_manager);
-        seals_manager.approve_chunk(&fixture.mock_chunk_hash);
+        seals_manager.approve_chunk(fixture.mock_height, &fixture.mock_chunk_hash);
         assert!(seals_manager.active_demurs.is_empty());
         assert!(seals_manager.should_trust_chunk_producer(&fixture.mock_chunk_producer));
         assert!(seals_manager
