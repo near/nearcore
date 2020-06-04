@@ -22,5 +22,9 @@ near-network = { path = "../network" }
 near-chain = { path = "../chain" }
 near-pool = { path = "../pool" }
 
+[dev-dependencies]
+near-logger-utils = { path = "../../test-utils/logger" }
+
 [features]
 byzantine_asserts = ["near-chain/byzantine_asserts"]
+expensive_tests = []
