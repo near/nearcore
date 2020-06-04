@@ -157,6 +157,8 @@ impl BlockHeaderV1 {
     }
 }
 
+/// Versioned BlockHeader data structure.
+/// For each next version, document what are the changes between versions.
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, Eq, PartialEq)]
 pub enum BlockHeader {
     BlockHeaderV1(Box<BlockHeaderV1>),
