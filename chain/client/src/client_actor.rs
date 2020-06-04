@@ -1226,7 +1226,9 @@ pub fn start_client(
     validator_signer: Option<Arc<dyn ValidatorSigner>>,
     telemetry_actor: Addr<TelemetryActor>,
 ) -> (Addr<ClientActor>, Arbiter) {
-    let client_arbiter = Arbiter::new();
+    // TOOD(2796): figure out that our storage can handle parallel reads while Client actor is writing.
+    // let client_arbiter = Arbiter::new();
+    let client_arbiter = Arbiter::current();
     let client_addr = ClientActor::start_in_arbiter(&client_arbiter, move |_ctx| {
         ClientActor::new(
             client_config,

@@ -6,7 +6,7 @@ use std::hash::Hash;
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
 
-use actix::{Actor, Addr, Handler, SyncArbiter, SyncContext};
+use actix::{Actor, Addr, Arbiter, Context, Handler};
 use cached::{Cached, SizedCache};
 use log::{debug, error, info, warn};
 
@@ -384,7 +384,7 @@ impl ViewClientActor {
 }
 
 impl Actor for ViewClientActor {
-    type Context = SyncContext<Self>;
+    type Context = Context<Self>;
 }
 
 /// Handles runtime query.
@@ -935,7 +935,9 @@ pub fn start_view_client(
     config: ClientConfig,
 ) -> Addr<ViewClientActor> {
     let request_manager = Arc::new(RwLock::new(ViewClientRequestManager::new()));
-    SyncArbiter::start(config.view_client_threads, move || {
+    // TOOD(2796): figure out that our storage can handle reads while Client actor is writing.
+    //    SyncArbiter::start(config.view_client_threads, move || {
+    ViewClientActor::start_in_arbiter(&Arbiter::current(), move |_ctx| {
         let validator_account_id1 = validator_account_id.clone();
         let runtime_adapter1 = runtime_adapter.clone();
         let network_adapter1 = network_adapter.clone();
