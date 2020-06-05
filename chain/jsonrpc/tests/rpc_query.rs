@@ -13,7 +13,7 @@ use near_primitives::account::{AccessKey, AccessKeyPermission};
 use near_primitives::hash::CryptoHash;
 use near_primitives::rpc::{RpcGenesisRecordsRequest, RpcPagination, RpcQueryRequest};
 use near_primitives::types::{BlockId, BlockIdOrFinality, Finality, ShardId};
-use near_primitives::views::{QueryRequest, QueryResponseKind};
+use near_primitives::views::{EpochValidatorInfo, QueryRequest, QueryResponseKind};
 
 #[macro_use]
 pub mod test_utils;
@@ -659,6 +659,26 @@ fn test_view_state_non_existing_account_invalid_prefix() {
         assert!(
             !matches!(query_response.kind, QueryResponseKind::ViewState(_)),
             "queried view account for not exsiting account, but received success instead of error"
+        );
+    });
+}
+
+#[test]
+#[ignore] // https://github.com/nearprotocol/nearcore/issues/2800
+fn test_validators_non_existing_block_hash() {
+    test_with_client!(test_utils::NodeType::NonValidator, client, async move {
+        let validators_response = client
+            .validators(Some(near_primitives::types::BlockId::Hash(
+                near_primitives::hash::CryptoHash::try_from(
+                    "123PXBoQKnTnARA49ctEzAiradrAAAEtLRCJGpjH24qC",
+                )
+                .unwrap(),
+            )))
+            .await;
+
+        assert!(
+            validators_response.is_err(),
+            "validators for non exsiting block hash, but received success instead of error"
         );
     });
 }

@@ -1,6 +1,8 @@
 #![no_main]
 use actix::System;
 use libfuzzer_sys::{arbitrary, fuzz_target};
+use rust_base58::ToBase58;
+use serde::ser::{Serialize, Serializer};
 use serde_json::json;
 use tokio;
 
@@ -13,6 +15,13 @@ static NODE_INIT: std::sync::Once = std::sync::Once::new();
 #[serde(tag = "method", content = "params", rename_all = "snake_case")]
 enum JsonRpcRequest {
     Query(RpcQueryRequest),
+    Block(RpcBlockRequest),
+    Chunk(RpcChunkRequest),
+    Tx(RpcTxStatusRequest),
+    Validators(RpcValidatorsRequest),
+    GasPrice(RpcGasPriceRequest),
+    BroadcastTxAsync(RpcBroadcastTx),
+    BroadcastTxCommit(RpcBroadcastTx),
 }
 
 #[derive(Debug, arbitrary::Arbitrary, serde::Serialize)]
@@ -52,6 +61,49 @@ enum Finality {
     Final,
 }
 
+#[derive(Debug, arbitrary::Arbitrary, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+enum RpcBlockRequest {
+    BlockId(u64),
+    Finality(Finality),
+}
+
+#[derive(Debug, arbitrary::Arbitrary)]
+struct Base58String([u8; 32]);
+
+#[derive(Debug, arbitrary::Arbitrary)]
+struct Base64String([u8; 32]);
+
+#[derive(Debug, arbitrary::Arbitrary, serde::Serialize)]
+#[serde(untagged, rename_all = "snake_case")]
+enum RpcChunkRequest {
+    ChunkHash([Base58String; 1]),
+}
+
+#[derive(Debug, arbitrary::Arbitrary, serde::Serialize)]
+#[serde(untagged)]
+enum RpcTxStatusRequest {
+    Transaction(Base58String, String),
+}
+
+#[derive(Debug, arbitrary::Arbitrary, serde::Serialize)]
+#[serde(untagged)]
+enum RpcValidatorsRequest {
+    BlockHash([Base58String; 1]),
+}
+
+#[derive(Debug, arbitrary::Arbitrary, serde::Serialize)]
+#[serde(untagged)]
+enum RpcGasPriceRequest {
+    BlockHash([Base58String; 1]),
+}
+
+#[derive(Debug, arbitrary::Arbitrary, serde::Serialize)]
+#[serde(untagged)]
+enum RpcBroadcastTx {
+    SignedTransaction([Base64String; 1]),
+}
+
 impl JsonRpcRequest {
     fn json(&self) -> serde_json::Value {
         let mut request_data = serde_json::to_value(self).unwrap();
@@ -59,6 +111,24 @@ impl JsonRpcRequest {
         request_data_obj.insert("jsonrpc".to_string(), json!("2.0"));
         request_data_obj.insert("id".to_string(), json!("dontcare"));
         request_data
+    }
+}
+
+impl Serialize for Base58String {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_newtype_struct("Base58String", &self.0.to_base58())
+    }
+}
+
+impl Serialize for Base64String {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_newtype_struct("Base58String", &base64::encode(&self.0))
     }
 }
 
