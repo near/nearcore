@@ -920,14 +920,11 @@ impl Chain {
     pub fn reset_data_pre_state_sync(&mut self, sync_hash: CryptoHash) -> Result<(), Error> {
         // Get header we were syncing into.
         let header = self.get_block_header(&sync_hash)?;
-        let hash = header.prev_hash;
-        let prev_header = self.get_block_header(&hash)?;
-        let tip = Tip::from_header(prev_header);
+        let gc_height = header.inner_lite.height;
 
-        // GC all the data from current tail up to `tip.height`
-        let new_tail = tip.height;
+        // GC all the data from current tail up to `gc_height`
         let tail = self.store.tail()?;
-        for height in tail..new_tail {
+        for height in tail..gc_height {
             if let Ok(blocks_current_height) = self.store.get_all_block_hashes_by_height(height) {
                 let blocks_current_height =
                     blocks_current_height.values().flatten().cloned().collect::<Vec<_>>();
@@ -939,18 +936,22 @@ impl Chain {
             }
         }
 
+        // Clear Chunks data
+        let mut chain_store_update = self.mut_store().store_update();
+        chain_store_update.clear_chunk_data(gc_height)?;
+        chain_store_update.commit()?;
+
         // clear all trie data
         let mut store_update = StoreUpdate::new_with_tries(self.runtime_adapter.get_tries());
         let stored_state = self.store().store().iter_prefix(ColState, &[]);
         for (key, _) in stored_state {
             store_update.delete(ColState, key.as_ref());
         }
-
         let mut chain_store_update = self.mut_store().store_update();
         chain_store_update.merge(store_update);
-        chain_store_update.update_tail(new_tail);
+        // The reason to reset tail here is not to allow Tail be greater than Head
+        chain_store_update.reset_tail();
         chain_store_update.commit()?;
-
         Ok(())
     }
 
@@ -972,11 +973,18 @@ impl Chain {
         // Get header we were syncing into.
         let header = self.get_block_header(&sync_hash)?;
         let hash = header.prev_hash;
-        let prev_header = self.get_block_header(&hash)?;
-        let tip = Tip::from_header(prev_header);
+        let prev_block = self.get_block(&hash)?;
+        let new_tail = prev_block.header.inner_lite.height;
+        let new_chunk_tail =
+            prev_block.chunks.iter().map(|x| x.inner.height_created).min().unwrap();
+        let tip = Tip::from_header(&prev_block.header);
         // Update related heads now.
         let mut chain_store_update = self.mut_store().store_update();
         chain_store_update.save_body_head(&tip)?;
+        // New Tail can not be earlier than `prev_block.header.inner_lite.height`
+        chain_store_update.update_tail(new_tail);
+        // New Chunk Tail can not be earlier than minimum of height_created in Block `prev_block`
+        chain_store_update.update_chunk_tail(new_chunk_tail);
         chain_store_update.commit()?;
 
         // Check if there are any orphans unlocked by this state sync.
