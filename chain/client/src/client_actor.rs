@@ -515,11 +515,16 @@ impl Handler<Status> for ClientActor {
                 is_slashed,
             })
             .collect();
+
         let protocol_version = self
             .client
             .runtime_adapter
             .get_epoch_protocol_version(&head.epoch_id)
             .map_err(|err| err.to_string())?;
+
+        let validator_account_id =
+            self.client.validator_signer.as_ref().map(|vs| vs.validator_id()).cloned();
+
         Ok(StatusResponse {
             version: self.client.config.version.clone(),
             protocol_version,
@@ -534,6 +539,7 @@ impl Handler<Status> for ClientActor {
                 latest_block_time: from_timestamp(latest_block_time),
                 syncing: self.client.sync_status.is_syncing(),
             },
+            validator_account_id,
         })
     }
 }
