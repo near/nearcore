@@ -10,8 +10,8 @@ use near_primitives::sharding::{ChunkHash, ShardChunk};
 use near_primitives::types::BlockHeight;
 use near_primitives::utils::index_to_bytes;
 use near_store::{
-    ColBlockHeader, ColBlockMisc, ColChunkHashesByHeight, ColChunks, TrieIterator, CHUNK_TAIL_KEY,
-    HEAD_KEY, TAIL_KEY,
+    ColBlockHeader, ColBlockMisc, ColChunkHashesByHeight, ColChunks, CHUNK_TAIL_KEY, HEAD_KEY,
+    TAIL_KEY,
 };
 
 use crate::{ErrorMessage, StoreValidator};
@@ -61,7 +61,7 @@ macro_rules! unwrap_or_err_db {
 // All validations start here
 
 pub(crate) fn head_tail_validity(
-    sv: &StoreValidator,
+    sv: &mut StoreValidator,
     _key: &[u8],
     _value: &[u8],
 ) -> Result<(), ErrorMessage> {
@@ -89,7 +89,7 @@ pub(crate) fn head_tail_validity(
 }
 
 pub(crate) fn block_header_validity(
-    _sv: &StoreValidator,
+    _sv: &mut StoreValidator,
     key: &[u8],
     value: &[u8],
 ) -> Result<(), ErrorMessage> {
@@ -104,7 +104,7 @@ pub(crate) fn block_header_validity(
 }
 
 pub(crate) fn block_hash_validity(
-    _sv: &StoreValidator,
+    _sv: &mut StoreValidator,
     key: &[u8],
     value: &[u8],
 ) -> Result<(), ErrorMessage> {
@@ -118,7 +118,7 @@ pub(crate) fn block_hash_validity(
 }
 
 pub(crate) fn block_header_exists(
-    sv: &StoreValidator,
+    sv: &mut StoreValidator,
     key: &[u8],
     _value: &[u8],
 ) -> Result<(), ErrorMessage> {
@@ -132,7 +132,7 @@ pub(crate) fn block_header_exists(
 }
 
 pub(crate) fn chunk_basic_validity(
-    _sv: &StoreValidator,
+    _sv: &mut StoreValidator,
     key: &[u8],
     value: &[u8],
 ) -> Result<(), ErrorMessage> {
@@ -147,7 +147,7 @@ pub(crate) fn chunk_basic_validity(
 }
 
 pub(crate) fn block_chunks_exist(
-    sv: &StoreValidator,
+    sv: &mut StoreValidator,
     _key: &[u8],
     value: &[u8],
 ) -> Result<(), ErrorMessage> {
@@ -181,7 +181,7 @@ pub(crate) fn block_chunks_exist(
 }
 
 pub(crate) fn block_height_cmp_tail(
-    sv: &StoreValidator,
+    sv: &mut StoreValidator,
     _key: &[u8],
     value: &[u8],
 ) -> Result<(), ErrorMessage> {
@@ -194,34 +194,51 @@ pub(crate) fn block_height_cmp_tail(
     if block.header.inner_lite.height < tail
         && block.header.inner_lite.height != sv.config.genesis_height
     {
-        return err!(
-            "Invalid block height stored: {}, tail: {:?}",
-            (block.header.inner_lite.height),
-            tail
-        );
+        sv.block_heights_less_tail.push(block.hash());
     }
     Ok(())
 }
 
-pub(crate) fn chunks_state_roots_in_trie(
-    sv: &StoreValidator,
+pub(crate) fn block_height_cmp_tail_count(
+    sv: &mut StoreValidator,
     _key: &[u8],
-    value: &[u8],
+    _value: &[u8],
 ) -> Result<(), ErrorMessage> {
+    if sv.block_heights_less_tail.len() < 2 {
+        Ok(())
+    } else {
+        let len = sv.block_heights_less_tail.len();
+        let blocks = &sv.block_heights_less_tail;
+        err!("Found {:?} Blocks with height lower than Tail, {:?}", len, blocks)
+    }
+}
+
+pub(crate) fn chunks_state_roots_in_trie(
+    _sv: &mut StoreValidator,
+    _key: &[u8],
+    _value: &[u8],
+) -> Result<(), ErrorMessage> {
+    // TODO enable after fixing #2623
+    /*
     let shard_chunk: ShardChunk =
         unwrap_or_err!(ShardChunk::try_from_slice(value), "Can't deserialize ShardChunk");
     let shard_id = shard_chunk.header.inner.shard_id;
     let state_root = shard_chunk.header.inner.prev_state_root;
     let trie = sv.runtime_adapter.get_trie_for_shard(shard_id);
-    let trie = TrieIterator::new(&trie, &state_root).unwrap();
+    let trie = unwrap_or_err!(
+        TrieIterator::new(&trie, &state_root),
+        "Trie Node Missing for ShardChunk {:?}",
+        shard_chunk
+    );
     for item in trie {
         unwrap_or_err!(item, "Can't find ShardChunk {:?} in Trie", shard_chunk);
     }
+    */
     Ok(())
 }
 
 pub(crate) fn chunks_indexed_by_height_created(
-    sv: &StoreValidator,
+    sv: &mut StoreValidator,
     _key: &[u8],
     value: &[u8],
 ) -> Result<(), ErrorMessage> {
@@ -242,7 +259,7 @@ pub(crate) fn chunks_indexed_by_height_created(
 }
 
 pub(crate) fn chunk_of_height_exists(
-    sv: &StoreValidator,
+    sv: &mut StoreValidator,
     key: &[u8],
     value: &[u8],
 ) -> Result<(), ErrorMessage> {

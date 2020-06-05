@@ -34,6 +34,7 @@ pub struct StoreValidator {
     runtime_adapter: Arc<dyn RuntimeAdapter>,
     store: Arc<Store>,
 
+    block_heights_less_tail: Vec<CryptoHash>,
     pub errors: Vec<ErrorMessage>,
     tests: u64,
 }
@@ -50,6 +51,7 @@ impl StoreValidator {
             config,
             runtime_adapter,
             store: store.clone(),
+            block_heights_less_tail: vec![],
             errors: vec![],
             tests: 0,
         }
@@ -69,7 +71,7 @@ impl StoreValidator {
                 format!("{:?}", CryptoHash::try_from(key.as_ref()))
             }
             DBCol::ColChunks => format!("{:?}", ChunkHash::try_from_slice(key.as_ref())),
-            _ => format!("{:?}", key),
+            _ => format!("{:?}", std::str::from_utf8(key)),
         }
     }
     fn validate_col(&mut self, col: DBCol) {
@@ -104,9 +106,14 @@ impl StoreValidator {
                 _ => unimplemented!(),
             }
         }
+        self.check_simple(&validate::block_height_cmp_tail_count, "TAIL", DBCol::ColBlockMisc);
     }
     pub fn validate(&mut self) {
-        self.check(&validate::head_tail_validity, &[0], &[0], DBCol::ColBlockMisc);
+        self.check_simple(
+            &validate::head_tail_validity,
+            "HEAD, TAIL, CHUNK_TAIL",
+            DBCol::ColBlockMisc,
+        );
         self.validate_col(DBCol::ColBlockHeader);
         self.validate_col(DBCol::ColBlock);
         self.validate_col(DBCol::ColChunks);
@@ -115,7 +122,7 @@ impl StoreValidator {
 
     fn check(
         &mut self,
-        f: &dyn Fn(&StoreValidator, &[u8], &[u8]) -> Result<(), ErrorMessage>,
+        f: &dyn Fn(&mut StoreValidator, &[u8], &[u8]) -> Result<(), ErrorMessage>,
         key: &[u8],
         value: &[u8],
         col: DBCol,
@@ -131,5 +138,14 @@ impl StoreValidator {
                 self.errors.push(e)
             }
         }
+    }
+
+    fn check_simple(
+        &mut self,
+        f: &dyn Fn(&mut StoreValidator, &[u8], &[u8]) -> Result<(), ErrorMessage>,
+        key: &str,
+        col: DBCol,
+    ) {
+        self.check(f, key.as_ref(), &[0], col)
     }
 }
