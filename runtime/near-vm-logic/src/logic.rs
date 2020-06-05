@@ -23,7 +23,7 @@ pub struct VMLogic<'a> {
     /// receipts creation.
     ext: &'a mut dyn External,
     /// Part of Context API and Economics API that was extracted from the receipt.
-    context: VMContext,
+    pub context: VMContext,
     /// Parameters of Wasm and economic parameters.
     config: &'a VMConfig,
     /// Fees for creating (async) actions on runtime.

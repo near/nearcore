@@ -1,5 +1,5 @@
 use near_vm_errors::{CompilationError, FunctionCallError, MethodResolveError, PrepareError};
-use near_vm_logic::{HostError, ReturnData, VMOutcome};
+use near_vm_logic::{HostError, ReturnData, VMKind, VMOutcome};
 use near_vm_runner::VMError;
 
 pub mod test_utils;
@@ -428,4 +428,45 @@ fn test_bad_many_imports() {
     } else {
         panic!(result.1);
     }
+}
+
+fn external_call_contract() -> Vec<u8> {
+    wabt::wat2wasm(
+        r#"
+            (module
+              (import "env" "prepaid_gas" (func (;0;) (result i64)))
+              (export "hello" (func 1))
+              (func (;1;)
+                  (drop (call 0))
+                  )
+            )"#,
+    )
+    .unwrap()
+}
+
+#[test]
+fn test_external_call_ok() {
+    match VMKind::default() {
+        VMKind::Wasmer => {
+            println!("Running Wasmer!");
+        }
+        VMKind::Wasmtime => {
+            println!("Running Wasmtime!");
+        }
+    };
+    assert_eq!(
+        make_simple_contract_call(&external_call_contract(), b"hello"),
+        (Some(vm_outcome_with_gas(272974500)), None)
+    );
+}
+
+#[test]
+fn test_external_call_error() {
+    assert_eq!(
+        make_simple_contract_call_with_gas(&external_call_contract(), b"hello", 100),
+        (
+            Some(vm_outcome_with_gas(100)),
+            Some(VMError::FunctionCallError(FunctionCallError::HostError(HostError::GasExceeded)))
+        )
+    );
 }

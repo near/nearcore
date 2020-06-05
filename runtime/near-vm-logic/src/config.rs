@@ -1,10 +1,35 @@
 use crate::types::Gas;
 use serde::{Deserialize, Serialize};
+use std::env;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
+#[derive(Clone, Debug, Hash, Serialize, Deserialize)]
+pub enum VMKind {
+    /// Wasmer VM.
+    Wasmer,
+    /// Wasmtime VM.
+    Wasmtime,
+}
+
+impl Default for VMKind {
+    fn default() -> Self {
+        match env::var("NEAR_VM") {
+            Ok(val) => match val.as_ref() {
+                "wasmtime" => VMKind::Wasmtime,
+                "wasmer" => VMKind::Wasmer,
+                _ => VMKind::Wasmer,
+            }
+            Err(_) => VMKind::Wasmer
+        }
+    }
+}
+
 #[derive(Clone, Debug, Hash, Serialize, Deserialize, PartialEq, Eq)]
 pub struct VMConfig {
+    /// Virtual machine kind.
+    pub vm_kind: VMKind,
+
     /// Costs for runtime externals
     pub ext_costs: ExtCostsConfig,
 
@@ -79,6 +104,7 @@ pub struct VMLimitConfig {
 impl Default for VMConfig {
     fn default() -> VMConfig {
         VMConfig {
+            vm_kind: VMKind::default(),
             ext_costs: ExtCostsConfig::default(),
             grow_mem_cost: 1,
             regular_op_cost: 3856371,
@@ -98,6 +124,7 @@ impl VMConfig {
 
     pub fn free() -> Self {
         Self {
+            vm_kind: VMKind::default(),
             ext_costs: ExtCostsConfig::free(),
             grow_mem_cost: 0,
             regular_op_cost: 0,
