@@ -1962,6 +1962,11 @@ impl<'a> ChainStoreUpdate<'a> {
         // 2. Delete shard_id-indexed data (shards, receipts, transactions)
         for shard_id in 0..block.header.inner_rest.chunk_mask.len() as ShardId {
             // 2a. Delete outgoing receipts (ColOutgoingReceipts)
+            ColOutgoingReceipts.gc(
+                &[],
+                &mut store_update,
+                Some(&mut self.chain_store.outgoing_receipts),
+            );
             store_update.delete(ColOutgoingReceipts, &get_block_shard_id(&block_hash, shard_id));
             self.chain_store
                 .outgoing_receipts

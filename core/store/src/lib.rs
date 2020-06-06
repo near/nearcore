@@ -433,3 +433,17 @@ pub fn remove_account(
     }
     Ok(())
 }
+
+impl DBCol {
+    pub fn gc<V>(
+        &self,
+        key: &[u8],
+        store_update: &mut StoreUpdate,
+        cache: Option<&mut impl Cached<Vec<u8>, V>>,
+    ) {
+        match *self {
+            DBCol::ColBlockMisc => {}
+            _ => {}
+        }
+    }
+}
