@@ -226,24 +226,23 @@ impl StoreUpdate {
     }
 
     fn inc_gc(&mut self, column: DBCol) {
-        if let Some(count) = self.gc_count.get(&(column as u64)) {
-            let count: u64 = count + 1;
-            self.set_ser(
-                DBCol::ColGCCount,
-                &borsh::ser::BorshSerialize::try_to_vec(&count).unwrap(),
-                &count,
-            )
-            .unwrap();
-            self.gc_count.insert(column as u64, count);
+        let new_count: u64 = if let Some(count) = self.gc_count.get(&(column as u64)) {
+            count + 1
+        } else if let Ok(Some(count)) = self.storage.get(
+            DBCol::ColGCCount,
+            &borsh::ser::BorshSerialize::try_to_vec(&(column as u64)).unwrap(),
+        ) {
+            borsh::de::BorshDeserialize::try_from_slice(&count).unwrap()
         } else {
-            self.gc_count.insert(1 as u64, 1);
-            self.set_ser(
-                DBCol::ColGCCount,
-                &borsh::ser::BorshSerialize::try_to_vec(&(1 as u64)).unwrap(),
-                &(1 as u64),
-            )
-            .unwrap();
-        }
+            1
+        };
+        self.set_ser(
+            DBCol::ColGCCount,
+            &borsh::ser::BorshSerialize::try_to_vec(&(column as u64)).unwrap(),
+            &new_count,
+        )
+        .unwrap();
+        self.gc_count.insert(column as u64, new_count);
     }
 }
 
