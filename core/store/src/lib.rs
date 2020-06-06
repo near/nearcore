@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::fs::File;
 use std::io::{Read, Write};
 use std::path::Path;
@@ -130,6 +131,7 @@ impl Store {
 
 /// Keeps track of current changes to the database and can commit all of them to the database.
 pub struct StoreUpdate {
+    gc_count: HashMap<u64, u64>,
     storage: Arc<dyn Database>,
     transaction: DBTransaction,
     /// Optionally has reference to the trie to clear cache on the commit.
@@ -139,13 +141,13 @@ pub struct StoreUpdate {
 impl StoreUpdate {
     pub fn new(storage: Arc<dyn Database>) -> Self {
         let transaction = storage.transaction();
-        StoreUpdate { storage, transaction, tries: None }
+        StoreUpdate { storage, transaction, tries: None, gc_count: HashMap::new() }
     }
 
     pub fn new_with_tries(tries: ShardTries) -> Self {
         let storage = tries.get_store().storage.clone();
         let transaction = storage.transaction();
-        StoreUpdate { storage, transaction, tries: Some(tries) }
+        StoreUpdate { storage, transaction, tries: Some(tries), gc_count: HashMap::new() }
     }
 
     pub fn set(&mut self, column: DBCol, key: &[u8], value: &[u8]) {
@@ -221,6 +223,27 @@ impl StoreUpdate {
             tries.update_cache(&self.transaction)?;
         }
         self.storage.write(self.transaction).map_err(|e| e.into())
+    }
+
+    fn inc_gc(&mut self, column: DBCol) {
+        if let Some(count) = self.gc_count.get(&(column as u64)) {
+            let count: u64 = count + 1;
+            self.set_ser(
+                DBCol::ColGCCount,
+                &borsh::ser::BorshSerialize::try_to_vec(&count).unwrap(),
+                &count,
+            )
+            .unwrap();
+            self.gc_count.insert(column as u64, count);
+        } else {
+            self.gc_count.insert(1 as u64, 1);
+            self.set_ser(
+                DBCol::ColGCCount,
+                &borsh::ser::BorshSerialize::try_to_vec(&(1 as u64)).unwrap(),
+                &(1 as u64),
+            )
+            .unwrap();
+        }
     }
 }
 
@@ -445,6 +468,7 @@ impl DBCol {
             DBCol::ColOutgoingReceipts => {
                 store_update.delete(ColOutgoingReceipts, key);
                 cache.unwrap().cache_remove(key);
+                store_update.inc_gc(ColOutgoingReceipts);
             }
             _ => {}
         }
