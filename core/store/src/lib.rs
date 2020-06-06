@@ -437,12 +437,15 @@ pub fn remove_account(
 impl DBCol {
     pub fn gc<V>(
         &self,
-        key: &[u8],
+        key: &Vec<u8>,
         store_update: &mut StoreUpdate,
         cache: Option<&mut impl Cached<Vec<u8>, V>>,
     ) {
         match *self {
-            DBCol::ColBlockMisc => {}
+            DBCol::ColOutgoingReceipts => {
+                store_update.delete(ColOutgoingReceipts, key);
+                cache.unwrap().cache_remove(key);
+            }
             _ => {}
         }
     }

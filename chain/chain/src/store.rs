@@ -1963,14 +1963,10 @@ impl<'a> ChainStoreUpdate<'a> {
         for shard_id in 0..block.header.inner_rest.chunk_mask.len() as ShardId {
             // 2a. Delete outgoing receipts (ColOutgoingReceipts)
             ColOutgoingReceipts.gc(
-                &[],
+                &get_block_shard_id(&block_hash, shard_id),
                 &mut store_update,
                 Some(&mut self.chain_store.outgoing_receipts),
             );
-            store_update.delete(ColOutgoingReceipts, &get_block_shard_id(&block_hash, shard_id));
-            self.chain_store
-                .outgoing_receipts
-                .cache_remove(&get_block_shard_id(&block_hash, shard_id));
             // 2b. Delete incoming receipts (ColIncomingReceipts)
             store_update.delete(ColIncomingReceipts, &get_block_shard_id(&block_hash, shard_id));
             self.chain_store
