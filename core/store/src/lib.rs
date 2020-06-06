@@ -232,7 +232,8 @@ impl StoreUpdate {
             DBCol::ColGCCount,
             &borsh::ser::BorshSerialize::try_to_vec(&(column as u64)).unwrap(),
         ) {
-            borsh::de::BorshDeserialize::try_from_slice(&count).unwrap() + 1
+            let count: u64 = borsh::de::BorshDeserialize::try_from_slice(&count).unwrap();
+            count + 1
         } else {
             1
         };
