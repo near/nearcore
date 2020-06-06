@@ -119,6 +119,9 @@ pub const NUM_BLOCK_PRODUCER_SEATS: NumSeats = 50;
 /// How much height horizon to give to consider peer up to date.
 pub const HIGHEST_PEER_HORIZON: u64 = 5;
 
+/// The minimum stake required for staking is last seat price divided by this number.
+pub const MINIMUM_STAKE_DIVISOR: u64 = 10;
+
 pub const CONFIG_FILENAME: &str = "config.json";
 pub const GENESIS_CONFIG_FILENAME: &str = "genesis.json";
 pub const NODE_KEY_FILE: &str = "node_key.json";
@@ -770,6 +773,7 @@ pub fn init_configs(
                 protocol_treasury_account: account_id,
                 fishermen_threshold: FISHERMEN_THRESHOLD,
                 min_gas_price: MIN_GAS_PRICE,
+                minimum_stake_divisor: MINIMUM_STAKE_DIVISOR,
             };
             let genesis = Genesis::new(genesis_config, records.into());
             genesis.to_file(&dir.join(config.genesis_file));

@@ -31,6 +31,10 @@ fn default_online_max_threshold() -> Rational {
     Rational::new(99, 100)
 }
 
+fn default_minimum_stake_divisor() -> u64 {
+    10
+}
+
 #[derive(Debug, Clone, SmartDefault, Serialize, Deserialize)]
 pub struct GenesisConfig {
     /// This is a version of a genesis config structure this version of binary works with.
@@ -99,6 +103,10 @@ pub struct GenesisConfig {
     /// Fishermen stake threshold.
     #[serde(with = "u128_dec_format")]
     pub fishermen_threshold: Balance,
+    /// The minimum stake required for staking is last seat price divided by this number.
+    #[serde(default = "default_minimum_stake_divisor")]
+    #[default(10)]
+    pub minimum_stake_divisor: u64,
 }
 
 /// Records in storage at genesis (get split into shards at genesis creation).

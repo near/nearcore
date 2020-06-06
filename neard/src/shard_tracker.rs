@@ -254,6 +254,7 @@ mod tests {
             fishermen_threshold: 0,
             online_max_threshold: Rational::from_integer(1),
             online_min_threshold: Rational::new(90, 100),
+            minimum_stake_divisor: 1,
         };
         let reward_calculator = RewardCalculator {
             max_inflation_rate: Rational::from_integer(0),
@@ -289,7 +290,16 @@ mod tests {
         epoch_manager
             .record_block_info(
                 &cur_h,
-                BlockInfo::new(height, 0, prev_h, proposals, vec![], vec![], DEFAULT_TOTAL_SUPPLY),
+                BlockInfo::new(
+                    height,
+                    0,
+                    prev_h,
+                    prev_h,
+                    proposals,
+                    vec![],
+                    vec![],
+                    DEFAULT_TOTAL_SUPPLY,
+                ),
                 [0; 32],
             )
             .unwrap()

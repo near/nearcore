@@ -1,5 +1,5 @@
 use std::cmp::max;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
 use borsh::{BorshDeserialize, BorshSerialize};
@@ -128,7 +128,7 @@ pub struct ActionResult {
     pub result: Result<ReturnData, ActionError>,
     pub logs: Vec<LogEntry>,
     pub new_receipts: Vec<Receipt>,
-    pub validator_proposals: Vec<ValidatorStake>,
+    pub validator_proposals: BTreeMap<AccountId, ValidatorStake>,
 }
 
 impl ActionResult {
@@ -154,7 +154,7 @@ impl ActionResult {
         }
         if self.result.is_ok() {
             self.new_receipts.append(&mut next_result.new_receipts);
-            self.validator_proposals.append(&mut next_result.validator_proposals);
+            self.validator_proposals.extend(next_result.validator_proposals.into_iter());
         } else {
             self.new_receipts.clear();
             self.validator_proposals.clear();
@@ -172,7 +172,7 @@ impl Default for ActionResult {
             result: Ok(ReturnData::None),
             logs: vec![],
             new_receipts: vec![],
-            validator_proposals: vec![],
+            validator_proposals: BTreeMap::default(),
         }
     }
 }
@@ -354,7 +354,9 @@ impl Runtime {
                     &mut result,
                     account_id,
                     stake,
-                );
+                    &apply_state.last_block_hash,
+                    epoch_info_provider,
+                )?;
             }
             Action::AddKey(add_key) => {
                 near_metrics::inc_counter(&metrics::ACTION_ADD_KEY_TOTAL);
@@ -401,7 +403,7 @@ impl Runtime {
         apply_state: &ApplyState,
         receipt: &Receipt,
         outgoing_receipts: &mut Vec<Receipt>,
-        validator_proposals: &mut Vec<ValidatorStake>,
+        validator_proposals: &mut BTreeMap<AccountId, ValidatorStake>,
         stats: &mut ApplyStats,
         epoch_info_provider: &dyn EpochInfoProvider,
     ) -> Result<ExecutionOutcomeWithId, RuntimeError> {
@@ -515,7 +517,7 @@ impl Runtime {
         }
 
         // Moving validator proposals
-        validator_proposals.append(&mut result.validator_proposals);
+        validator_proposals.extend(result.validator_proposals.into_iter());
 
         // Committing or rolling back state.
         match &result.result {
@@ -679,7 +681,7 @@ impl Runtime {
         apply_state: &ApplyState,
         receipt: &Receipt,
         outgoing_receipts: &mut Vec<Receipt>,
-        validator_proposals: &mut Vec<ValidatorStake>,
+        validator_proposals: &mut BTreeMap<AccountId, ValidatorStake>,
         stats: &mut ApplyStats,
         epoch_info_provider: &dyn EpochInfoProvider,
     ) -> Result<Option<ExecutionOutcomeWithId>, RuntimeError> {
@@ -976,7 +978,7 @@ impl Runtime {
         }
 
         let mut outgoing_receipts = Vec::new();
-        let mut validator_proposals = vec![];
+        let mut validator_proposals = BTreeMap::new();
         let mut local_receipts = vec![];
         let mut outcomes = vec![];
         let mut total_gas_burnt = 0;
@@ -1104,7 +1106,7 @@ impl Runtime {
         Ok(ApplyResult {
             state_root,
             trie_changes,
-            validator_proposals,
+            validator_proposals: validator_proposals.into_iter().map(|(_, p)| p).collect(),
             outgoing_receipts,
             outcomes,
             state_changes,

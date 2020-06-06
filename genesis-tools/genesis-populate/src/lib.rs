@@ -206,6 +206,7 @@ impl GenesisBuilder {
                 genesis.header.inner_rest.random_value,
                 genesis.header.inner_lite.height,
                 0,
+                genesis.hash(),
                 vec![],
                 vec![],
                 vec![],

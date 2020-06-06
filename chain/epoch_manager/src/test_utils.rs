@@ -9,6 +9,7 @@ use near_primitives::types::{
 use near_primitives::utils::get_num_seats_per_shard;
 use near_store::test_utils::create_test_store;
 
+use crate::proposals::find_threshold;
 use crate::types::{EpochConfig, EpochInfo, ValidatorWeight};
 use crate::RewardCalculator;
 use crate::{BlockInfo, EpochManager};
@@ -32,7 +33,7 @@ pub fn change_stake(stake_changes: Vec<(&str, Balance)>) -> BTreeMap<AccountId, 
 
 pub fn epoch_info(
     epoch_height: EpochHeight,
-    mut accounts: Vec<(&str, Balance)>,
+    accounts: Vec<(&str, Balance)>,
     block_producers_settlement: Vec<ValidatorId>,
     chunk_producers_settlement: Vec<Vec<ValidatorId>>,
     hidden_validators_settlement: Vec<ValidatorWeight>,
@@ -42,6 +43,37 @@ pub fn epoch_info(
     validator_reward: HashMap<AccountId, Balance>,
     minted_amount: Balance,
 ) -> EpochInfo {
+    let num_seats = block_producers_settlement.len() as u64;
+    epoch_info_with_num_seats(
+        epoch_height,
+        accounts,
+        block_producers_settlement,
+        chunk_producers_settlement,
+        hidden_validators_settlement,
+        fishermen,
+        stake_change,
+        validator_kickout,
+        validator_reward,
+        minted_amount,
+        num_seats,
+    )
+}
+
+pub fn epoch_info_with_num_seats(
+    epoch_height: EpochHeight,
+    mut accounts: Vec<(&str, Balance)>,
+    block_producers_settlement: Vec<ValidatorId>,
+    chunk_producers_settlement: Vec<Vec<ValidatorId>>,
+    hidden_validators_settlement: Vec<ValidatorWeight>,
+    fishermen: Vec<(&str, Balance)>,
+    stake_change: BTreeMap<AccountId, Balance>,
+    validator_kickout: Vec<(&str, ValidatorKickoutReason)>,
+    validator_reward: HashMap<AccountId, Balance>,
+    minted_amount: Balance,
+    num_seats: NumSeats,
+) -> EpochInfo {
+    let seat_price =
+        find_threshold(&accounts.iter().map(|(_, s)| *s).collect::<Vec<_>>(), num_seats).unwrap();
     accounts.sort();
     let validator_to_index = accounts.iter().enumerate().fold(HashMap::new(), |mut acc, (i, x)| {
         acc.insert(x.0.to_string(), i as u64);
@@ -77,6 +109,7 @@ pub fn epoch_info(
         validator_reward,
         validator_kickout,
         minted_amount,
+        seat_price,
     }
 }
 
@@ -105,6 +138,7 @@ pub fn epoch_config(
         fishermen_threshold,
         online_min_threshold: Rational::new(90, 100),
         online_max_threshold: Rational::new(99, 100),
+        minimum_stake_divisor: 1,
     }
 }
 
@@ -182,6 +216,34 @@ pub fn setup_default_epoch_manager(
     )
 }
 
+pub fn record_block_with_final_block_hash(
+    epoch_manager: &mut EpochManager,
+    prev_h: CryptoHash,
+    cur_h: CryptoHash,
+    last_final_block_hash: CryptoHash,
+    height: BlockHeight,
+    proposals: Vec<ValidatorStake>,
+) {
+    epoch_manager
+        .record_block_info(
+            &cur_h,
+            BlockInfo::new(
+                height,
+                height.saturating_sub(2),
+                last_final_block_hash,
+                prev_h,
+                proposals,
+                vec![],
+                vec![],
+                DEFAULT_TOTAL_SUPPLY,
+            ),
+            [0; 32],
+        )
+        .unwrap()
+        .commit()
+        .unwrap();
+}
+
 pub fn record_block_with_slashes(
     epoch_manager: &mut EpochManager,
     prev_h: CryptoHash,
@@ -196,6 +258,7 @@ pub fn record_block_with_slashes(
             BlockInfo::new(
                 height,
                 height.saturating_sub(2),
+                prev_h,
                 prev_h,
                 proposals,
                 vec![],

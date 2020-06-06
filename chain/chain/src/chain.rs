@@ -318,6 +318,7 @@ impl Chain {
                         genesis.header.inner_lite.height,
                         // genesis height is considered final
                         chain_genesis.height,
+                        genesis.hash(),
                         vec![],
                         vec![],
                         vec![],
@@ -795,6 +796,7 @@ impl Chain {
                     header.inner_rest.random_value,
                     header.inner_lite.height,
                     self.store.get_block_height(&header.inner_rest.last_final_block)?,
+                    header.inner_rest.last_final_block,
                     header.inner_rest.validator_proposals.clone(),
                     vec![],
                     header.inner_rest.chunk_mask.clone(),
@@ -2937,6 +2939,7 @@ impl<'a> ChainUpdate<'a> {
             block.header.inner_rest.random_value,
             block.header.inner_lite.height,
             last_finalized_height,
+            block.header.inner_rest.last_final_block,
             block.header.inner_rest.validator_proposals.clone(),
             block.header.inner_rest.challenges_result.clone(),
             block.header.inner_rest.chunk_mask.clone(),

@@ -367,6 +367,13 @@ pub enum ActionErrorKind {
         #[serde(with = "u128_dec_format")]
         balance: Balance,
     },
+    InsufficientStake {
+        account_id: AccountId,
+        #[serde(with = "u128_dec_format")]
+        stake: Balance,
+        #[serde(with = "u128_dec_format")]
+        minimum_stake: Balance,
+    },
     /// An error occurred during a `FunctionCall` Action.
     FunctionCallError(FunctionCallError),
     /// Error occurs when a new `ActionReceipt` created by the `FunctionCall` action fails
@@ -590,6 +597,12 @@ impl From<InvalidTxError> for RuntimeError {
     }
 }
 
+impl From<EpochError> for RuntimeError {
+    fn from(e: EpochError) -> Self {
+        RuntimeError::ValidatorError(e)
+    }
+}
+
 impl Display for ActionError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
         write!(f, "Action #{}: {}", self.index.unwrap_or_default(), self.kind)
@@ -652,6 +665,7 @@ impl Display for ActionErrorKind {
             ActionErrorKind::NewReceiptValidationError(e) => {
                 write!(f, "An new action receipt created during a FunctionCall is not valid: {}", e)
             }
+            ActionErrorKind::InsufficientStake { account_id, stake, minimum_stake } => write!(f, "Account {} tries to stake {} but minimum required stake is {}", account_id, stake, minimum_stake)
         }
     }
 }

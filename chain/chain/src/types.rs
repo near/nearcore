@@ -316,6 +316,7 @@ pub trait RuntimeAdapter: Send + Sync {
         rng_seed: CryptoHash,
         height: BlockHeight,
         last_finalized_height: BlockHeight,
+        last_final_block_hash: CryptoHash,
         proposals: Vec<ValidatorStake>,
         slashed_validators: Vec<SlashedValidator>,
         validator_mask: Vec<bool>,

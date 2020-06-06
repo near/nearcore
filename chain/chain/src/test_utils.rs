@@ -514,6 +514,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         _rng_seed: CryptoHash,
         _height: BlockHeight,
         _last_finalized_height: BlockHeight,
+        _last_final_block_hash: CryptoHash,
         _proposals: Vec<ValidatorStake>,
         _slashed_validators: Vec<SlashedValidator>,
         _validator_mask: Vec<bool>,
