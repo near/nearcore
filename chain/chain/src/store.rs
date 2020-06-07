@@ -2479,11 +2479,13 @@ mod tests {
     use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
     use near_store::test_utils::create_test_store;
 
-    use crate::chain::{check_refcount_map, MAX_HEIGHTS_TO_CLEAR};
+    use crate::chain::check_refcount_map;
     use crate::store::{ChainStoreAccess, GCMode};
     use crate::store_validator::StoreValidator;
     use crate::test_utils::KeyValueRuntime;
     use crate::{Chain, ChainGenesis, DoomslugThresholdMode};
+
+    const MAX_HEIGHTS_TO_CLEAR: u64 = 100;
 
     fn get_chain() -> Chain {
         get_chain_with_epoch_length(10)
