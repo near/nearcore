@@ -1,4 +1,3 @@
-use std::collections::HashSet;
 use std::convert::TryFrom;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -18,18 +17,13 @@ mod validate;
 
 #[derive(Debug)]
 pub struct StoreValidatorCache {
-    functions_executed: HashSet<String>,
     block_heights_less_tail: Vec<CryptoHash>,
     is_block_height_cmp_tail_prepared: bool,
 }
 
 impl StoreValidatorCache {
     fn new() -> Self {
-        Self {
-            functions_executed: HashSet::new(),
-            block_heights_less_tail: vec![],
-            is_block_height_cmp_tail_prepared: false,
-        }
+        Self { block_heights_less_tail: vec![], is_block_height_cmp_tail_prepared: false }
     }
 }
 
@@ -150,11 +144,6 @@ impl StoreValidator {
         self.check_simple(&validate::block_height_cmp_tail, "TAIL", DBCol::ColBlockMisc);
         self.validate_col(DBCol::ColChunks);
         self.validate_col(DBCol::ColChunkHashesByHeight);
-
-        if let None = self.timeout {
-            // All functions must be executed if no timeout was set
-            assert_eq!(self.inner.functions_executed.len() as u64, validate::TOTAL_FUNCTIONS);
-        }
     }
 
     fn check(
