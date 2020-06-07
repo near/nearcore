@@ -17,7 +17,7 @@ use near_primitives::sharding::{ReceiptProof, ShardChunk, ShardChunkHeader};
 use near_primitives::transaction::{ExecutionOutcomeWithId, SignedTransaction};
 use near_primitives::types::{
     AccountId, ApprovalStake, Balance, BlockHeight, EpochId, Gas, MerkleHash, ShardId, StateRoot,
-    StateRootNode, ValidatorStake, ValidatorStats,
+    StateRootNode, ValidatorStake,
 };
 use near_primitives::views::{EpochValidatorInfo, QueryRequest, QueryResponse};
 use near_store::{PartialStorage, ShardTries, Store, StoreUpdate, Trie, WrappedTrieChanges};
@@ -236,14 +236,6 @@ pub trait RuntimeAdapter: Send + Sync {
         last_known_block_hash: &CryptoHash,
         account_id: &AccountId,
     ) -> Result<(ValidatorStake, bool), Error>;
-
-    /// Number of missed blocks for given block producer.
-    fn get_num_validator_blocks(
-        &self,
-        epoch_id: &EpochId,
-        last_known_block_hash: &CryptoHash,
-        account_id: &AccountId,
-    ) -> Result<ValidatorStats, Error>;
 
     /// Get current number of shards.
     fn num_shards(&self) -> ShardId;

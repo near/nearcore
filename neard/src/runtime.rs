@@ -31,7 +31,6 @@ use near_primitives::trie_key::trie_key_parsers;
 use near_primitives::types::{
     AccountId, ApprovalStake, Balance, BlockHeight, EpochHeight, EpochId, EpochInfoProvider, Gas,
     MerkleHash, NumShards, ShardId, StateChangeCause, StateRoot, StateRootNode, ValidatorStake,
-    ValidatorStats,
 };
 use near_primitives::views::{
     AccessKeyInfoView, CallResult, EpochValidatorInfo, QueryError, QueryRequest, QueryResponse,
@@ -787,18 +786,6 @@ impl RuntimeAdapter for NightshadeRuntime {
             Ok(None) => Err(ErrorKind::NotAValidator.into()),
             Err(e) => Err(e.into()),
         }
-    }
-
-    fn get_num_validator_blocks(
-        &self,
-        epoch_id: &EpochId,
-        last_known_block_hash: &CryptoHash,
-        account_id: &AccountId,
-    ) -> Result<ValidatorStats, Error> {
-        let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
-        epoch_manager
-            .get_num_validator_blocks(epoch_id, last_known_block_hash, account_id)
-            .map_err(Error::from)
     }
 
     fn num_shards(&self) -> NumShards {

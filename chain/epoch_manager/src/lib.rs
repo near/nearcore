@@ -256,7 +256,7 @@ impl EpochManager {
     }
 
     /// Returns number of produced and expected blocks by given validator.
-    pub fn get_num_validator_blocks(
+    fn get_num_validator_blocks(
         &mut self,
         epoch_id: &EpochId,
         last_known_block_hash: &CryptoHash,
