@@ -73,9 +73,6 @@ const NEAR_BASE: Balance = 1_000_000_000_000_000_000_000_000;
 /// Number of epochs for which we keep store data
 pub const NUM_EPOCHS_TO_KEEP_STORE_DATA: u64 = 5;
 
-/// Maximum number of heights to clear per one GC run
-pub const MAX_HEIGHTS_TO_CLEAR: u64 = 100;
-
 /// Block economics config taken from genesis config
 pub struct BlockEconomicsConfig {
     pub gas_price_adjustment_rate: Rational,
@@ -540,7 +537,11 @@ impl Chain {
     //    and the Trie is updated with having only Genesis data.
     // 4. State Sync Clearing happens in `reset_data_pre_state_sync()`.
     //
-    pub fn clear_data(&mut self, tries: ShardTries) -> Result<(), Error> {
+    pub fn clear_data(
+        &mut self,
+        tries: ShardTries,
+        gc_step_size: BlockHeightDelta,
+    ) -> Result<(), Error> {
         let head = self.store.head()?;
         let tail = self.store.tail()?;
         let mut gc_stop_height = self.runtime_adapter.get_gc_stop_height(&head.last_block_hash)?;
@@ -551,7 +552,7 @@ impl Chain {
             .into());
         }
         // To avoid network slowdown, we limit the number of heights to clear per GC execution
-        gc_stop_height = min(gc_stop_height, tail + MAX_HEIGHTS_TO_CLEAR);
+        gc_stop_height = min(gc_stop_height, tail + gc_step_size);
 
         // Forks Cleaning
         for height in tail..gc_stop_height {

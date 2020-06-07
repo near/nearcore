@@ -784,7 +784,10 @@ impl Client {
         if status.is_new_head() {
             self.shards_mgr.update_largest_seen_height(block.header.inner_lite.height);
             if !self.config.archive {
-                if let Err(err) = self.chain.clear_data(self.runtime_adapter.get_tries()) {
+                if let Err(err) = self
+                    .chain
+                    .clear_data(self.runtime_adapter.get_tries(), self.config.gc_step_size)
+                {
                     error!(target: "client", "Can't clear old data, {:?}", err);
                     debug_assert!(false);
                 };
