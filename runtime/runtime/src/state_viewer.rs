@@ -92,7 +92,7 @@ impl TrieViewer {
         epoch_height: EpochHeight,
         epoch_id: &EpochId,
         account_id: &AccountId,
-        contract_id: CryptoHash,
+        protocol_id: CryptoHash,
         method_name: &str,
         args: &[u8],
         logs: &mut Vec<String>,
@@ -100,13 +100,13 @@ impl TrieViewer {
     ) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
         let now = Instant::now();
         if !is_valid_account_id(account_id) {
-            return Err(format!("Contract ID {:?} is not valid", contract_id).into());
+            return Err(format!("Contract ID {:?} is not valid", protocol_id).into());
         }
         let root = state_update.get_root();
         let account = get_account(&state_update, account_id)?
-            .ok_or_else(|| format!("Account {:?} doesn't exist", contract_id))?;
-        let code = get_code_with_cache(&state_update, contract_id)?.ok_or_else(|| {
-            format!("cannot find contract code for account {}", contract_id.clone())
+            .ok_or_else(|| format!("Account {:?} doesn't exist", protocol_id))?;
+        let code = get_code_with_cache(&state_update, protocol_id)?.ok_or_else(|| {
+            format!("cannot find contract code for account {}", protocol_id.clone())
         })?;
         // TODO(#1015): Add ability to pass public key and originator_id
         let originator_id = account_id;
@@ -116,7 +116,7 @@ impl TrieViewer {
             let mut runtime_ext = RuntimeExt::new(
                 &mut state_update,
                 account_id,
-                contract_id,
+                protocol_id,
                 originator_id,
                 &public_key,
                 0,

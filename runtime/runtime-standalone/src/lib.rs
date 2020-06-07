@@ -6,7 +6,7 @@ use near_primitives::{account::AccessKey, test_utils::account_new};
 use near_primitives::{
     account::Account,
     errors::RuntimeError,
-    hash::CryptoHash,
+    hash::{hash, CryptoHash},
     receipt::Receipt,
     state_record::StateRecord,
     transaction::{ExecutionOutcome, ExecutionStatus, SignedTransaction},
@@ -59,7 +59,7 @@ impl Default for GenesisConfig {
 impl GenesisConfig {
     pub fn init_root_signer(&mut self, account_id: &AccountId) -> InMemorySigner {
         let signer = InMemorySigner::from_seed(account_id, KeyType::ED25519, "test");
-        let root_account = account_new(std::u128::MAX, CryptoHash::default());
+        let root_account = account_new(std::u128::MAX);
 
         self.state_records
             .push(StateRecord::Account { account_id: account_id.clone(), account: root_account });
@@ -283,6 +283,7 @@ impl RuntimeStandalone {
     pub fn view_method_call(
         &self,
         account_id: &AccountId,
+        protocol_id: CryptoHash,
         method_name: &str,
         args: &[u8],
     ) -> Result<(Vec<u8>, Vec<String>), Box<dyn std::error::Error>> {
@@ -297,6 +298,7 @@ impl RuntimeStandalone {
             self.cur_block.epoch_height,
             &EpochId::default(),
             account_id,
+            protocol_id,
             method_name,
             args,
             &mut logs,
@@ -373,7 +375,7 @@ mod tests {
             runtime.view_account(&"alice".into()),
             Some(Account {
                 amount: 165437999999999999999000,
-                code_hash: CryptoHash::default(),
+                protocol_ids: Default::default(),
                 locked: 0,
                 storage_usage: 182,
             })
@@ -384,14 +386,23 @@ mod tests {
     fn test_cross_contract_call() {
         let (mut runtime, signer) = init_runtime_and_signer(&"root".into());
 
+        let status_message_code =
+            include_bytes!("../contracts/status-message/res/status_message.wasm").as_ref();
+        let caller_code = include_bytes!(
+            "../contracts/cross-contract-high-level/res/cross_contract_high_level.wasm"
+        )
+        .as_ref();
+
+        let status_message_contract_id = hash(status_message_code);
+
+        let caller_contract_id = hash(caller_code);
+
         assert!(matches!(
             runtime.resolve_tx(SignedTransaction::create_contract(
                 1,
                 signer.account_id.clone(),
                 "status".into(),
-                include_bytes!("../contracts/status-message/res/status_message.wasm")
-                    .as_ref()
-                    .into(),
+                status_message_code.into(),
                 23082408900000000000001000,
                 signer.public_key(),
                 &signer,
@@ -405,11 +416,7 @@ mod tests {
                 2,
                 signer.account_id.clone(),
                 "caller".into(),
-                include_bytes!(
-                    "../contracts/cross-contract-high-level/res/cross_contract_high_level.wasm"
-                )
-                .as_ref()
-                .into(),
+                caller_contract_id.into(),
                 23082408900000000000001000,
                 signer.public_key(),
                 &signer,
@@ -423,8 +430,10 @@ mod tests {
                 3,
                 signer.account_id.clone(),
                 "caller".into(),
+                caller_contract_id.into(),
                 &signer,
                 0,
+                caller_contract_id,
                 "simple_call".into(),
                 "{\"account_id\": \"status\", \"message\": \"caller status is ok!\"}"
                     .as_bytes()

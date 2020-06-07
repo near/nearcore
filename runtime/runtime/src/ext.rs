@@ -47,7 +47,7 @@ impl<'a> RuntimeExt<'a> {
     pub fn new(
         trie_update: &'a mut TrieUpdate,
         account_id: &'a AccountId,
-        contract_id: CryptoHash,
+        protocol_id: CryptoHash,
         signer_id: &'a AccountId,
         signer_public_key: &'a PublicKey,
         gas_price: Balance,
@@ -181,7 +181,7 @@ impl<'a> External for RuntimeExt<'a> {
     fn append_action_function_call(
         &mut self,
         receipt_index: u64,
-        contract_id: VmCryptoHash,
+        protocol_id: VmCryptoHash,
         method_name: Vec<u8>,
         args: Vec<u8>,
         attached_deposit: u128,
@@ -190,7 +190,7 @@ impl<'a> External for RuntimeExt<'a> {
         self.append_action(
             receipt_index,
             Action::FunctionCall(FunctionCallAction {
-                contract_id: contract_id.into(),
+                protocol_id: protocol_id.into(),
                 method_name: String::from_utf8(method_name)
                     .map_err(|_| HostError::InvalidMethodName)?,
                 args,

@@ -362,10 +362,10 @@ def sign_deploy_contract_tx(signer_key, code, nonce, blockHash):
                                           signer_key.decoded_sk())
 
 
-def sign_function_call_tx(signer_key, contract_id, methodName, args, gas,
+def sign_function_call_tx(signer_key, protocol_id, methodName, args, gas,
                           deposit, nonce, blockHash):
     action = create_function_call_action(methodName, args, gas, deposit)
-    return sign_and_serialize_transaction(contract_id, nonce, [action],
+    return sign_and_serialize_transaction(protocol_id, nonce, [action],
                                           blockHash, signer_key.account_id,
                                           signer_key.decoded_pk(),
                                           signer_key.decoded_sk())

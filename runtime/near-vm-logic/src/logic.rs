@@ -468,6 +468,18 @@ impl<'a> VMLogic<'a> {
     // # Context API #
     // ###############
 
+    pub fn call_protocol(
+        &mut self,
+        protocol_id: u64,
+        method_name_len: u64,
+        method_name_ptr: u64,
+        arguments_len: u64,
+        arguments_ptr: u64,
+    ) -> Result<()> {
+        self.gas_counter.pay_base(base)?;
+        Ok(())
+    }
+
     /// Saves the account id of the current contract that we execute into the register.
     ///
     /// # Errors
@@ -1281,8 +1293,8 @@ impl<'a> VMLogic<'a> {
             }
             .into());
         }
-        let mut contract_id = [0; 32];
-        self.memory_get_into(contract_id_ptr, &mut contract_id)?;
+        let mut protocol_id = [0; 32];
+        self.memory_get_into(contract_id_ptr, &mut protocol_id)?;
         let amount = self.memory_get_u128(amount_ptr)?;
         let method_name = self.get_vec_from_memory_or_register(method_name_ptr, method_name_len)?;
         if method_name.is_empty() {
@@ -1308,7 +1320,7 @@ impl<'a> VMLogic<'a> {
 
         self.ext.append_action_function_call(
             receipt_idx,
-            contract_id,
+            protocol_id,
             method_name,
             arguments,
             amount,

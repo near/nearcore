@@ -19,7 +19,7 @@ pub fn account_new(amount: Balance) -> Account {
     Account {
         amount,
         locked: 0,
-        contract_ids: Default::default(),
+        protocol_ids: Default::default(),
         storage_usage: std::mem::size_of::<Account>() as u64,
     }
 }
@@ -52,14 +52,14 @@ impl Transaction {
 
     pub fn function_call(
         mut self,
-        contract_id: CryptoHash,
+        protocol_id: CryptoHash,
         method_name: String,
         args: Vec<u8>,
         gas: Gas,
         deposit: Balance,
     ) -> Self {
         self.actions.push(Action::FunctionCall(FunctionCallAction {
-            contract_id,
+            protocol_id,
             method_name,
             args,
             gas,
@@ -209,7 +209,7 @@ impl SignedTransaction {
         receiver_id: AccountId,
         signer: &dyn Signer,
         deposit: Balance,
-        contract_id: CryptoHash,
+        protocol_id: CryptoHash,
         method_name: String,
         args: Vec<u8>,
         gas: Gas,
@@ -221,7 +221,7 @@ impl SignedTransaction {
             receiver_id,
             signer,
             vec![Action::FunctionCall(FunctionCallAction {
-                contract_id,
+                protocol_id,
                 args,
                 method_name,
                 gas,

@@ -25,7 +25,7 @@ pub trait ViewRuntimeAdapter {
         epoch_height: EpochHeight,
         epoch_id: &EpochId,
         account_id: &AccountId,
-        contract_id: CryptoHash,
+        protocol_id: CryptoHash,
         method_name: &str,
         args: &[u8],
         logs: &mut Vec<String>,

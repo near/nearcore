@@ -70,13 +70,13 @@ impl Generator {
             node.nonces[ind] += 1;
             let nonce = node.nonces[ind];
             let signer = node.signers[ind].clone();
-            let contract_id = signer.account_id.clone();
+            let protocol_id = signer.account_id.clone();
             let block_hash = node.get_current_block_hash().unwrap();
 
             res.push(SignedTransaction::from_actions(
                 nonce,
-                contract_id.clone(),
-                contract_id,
+                protocol_id.clone(),
+                protocol_id,
                 &*signer,
                 vec![Action::DeployContract(DeployContractAction { code: wasm_binary.to_vec() })],
                 block_hash,

@@ -43,7 +43,7 @@ pub enum TrieKey {
     /// Used to store `primitives::account::Account` struct for a given `AccountId`.
     Account { account_id: AccountId },
     /// Used to store `Vec<u8>` contract code for a given `AccountId`.
-    ContractCode { contract_id: CryptoHash },
+    ContractCode { protocol_id: CryptoHash },
     /// Used to store `primitives::account::AccessKey` struct for a given `AccountId` and
     /// a given `public_key` of the `AccessKey`.
     AccessKey { account_id: AccountId, public_key: PublicKey },
@@ -125,9 +125,9 @@ impl TrieKey {
                 res.extend(col::ACCOUNT);
                 res.extend(account_id.as_bytes());
             }
-            TrieKey::ContractCode { contract_id } => {
+            TrieKey::ContractCode { protocol_id } => {
                 res.extend(col::CONTRACT_CODE);
-                res.extend(contract_id.as_ref());
+                res.extend(protocol_id.as_ref());
             }
             TrieKey::AccessKey { account_id, public_key } => {
                 res.extend(col::ACCESS_KEY);

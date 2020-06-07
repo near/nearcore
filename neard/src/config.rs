@@ -621,7 +621,7 @@ fn state_records_account_with_key(
             account: Account {
                 amount,
                 locked: staked,
-                contract_ids: Default::default(),
+                protocol_ids: Default::default(),
                 storage_usage: 0,
             },
         },

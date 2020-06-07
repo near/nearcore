@@ -436,8 +436,8 @@ impl JsonRpcHandler {
                 || RpcError::server_error(Some("Not enough query parameters provided".to_string()));
             let query_command = path_parts.next().ok_or_else(make_err)?;
             let account_id = AccountId::from(path_parts.next().ok_or_else(make_err)?);
-            let contract_id = CryptoHash::try_from(path_parts.next().ok_or_else(make_err)?)
-                .map_err(|_| RpcError::server_error(Some(format!("Cannot decode contract_id"))))?;
+            let protocol_id = CryptoHash::try_from(path_parts.next().ok_or_else(make_err)?)
+                .map_err(|_| RpcError::server_error(Some(format!("Cannot decode protocol_id"))))?;
             let maybe_extra_arg = path_parts.next();
 
             let request = match query_command {
@@ -454,7 +454,7 @@ impl JsonRpcHandler {
                 "call" => match maybe_extra_arg {
                     Some(method_name) => QueryRequest::CallFunction {
                         account_id,
-                        contract_id,
+                        protocol_id,
                         method_name: method_name.to_string(),
                         args: data.into(),
                     },

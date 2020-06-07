@@ -114,7 +114,7 @@ pub trait User {
     fn function_call(
         &self,
         signer_id: AccountId,
-        contract_id: AccountId,
+        protocol_id: AccountId,
         method_name: &str,
         args: Vec<u8>,
         gas: Gas,
@@ -122,7 +122,7 @@ pub trait User {
     ) -> Result<FinalExecutionOutcomeView, ServerError> {
         self.sign_and_commit_actions(
             signer_id,
-            contract_id,
+            protocol_id,
             vec![Action::FunctionCall(FunctionCallAction {
                 method_name: method_name.to_string(),
                 args,

@@ -65,10 +65,10 @@ pub(crate) fn get_insufficient_storage_stake(
 
 pub(crate) fn get_code_with_cache(
     state_update: &TrieUpdate,
-    contract_id: CryptoHash,
+    protocol_id: CryptoHash,
 ) -> Result<Option<Arc<ContractCode>>, StorageError> {
-    let code = || get_code(state_update, &contract_id);
-    crate::cache::get_code(contract_id, code)
+    let code = || get_code(state_update, &protocol_id);
+    crate::cache::get_code(protocol_id, code)
 }
 
 pub(crate) fn action_function_call(
@@ -86,7 +86,7 @@ pub(crate) fn action_function_call(
     is_last_action: bool,
     epoch_info_provider: &dyn EpochInfoProvider,
 ) -> Result<(), RuntimeError> {
-    let code = match get_code_with_cache(state_update, function_call.contract_id) {
+    let code = match get_code_with_cache(state_update, function_call.protocol_id) {
         Ok(Some(code)) => code,
         Ok(None) => {
             let error = FunctionCallError::CompilationError(CompilationError::CodeDoesNotExist {
@@ -110,7 +110,7 @@ pub(crate) fn action_function_call(
     let mut runtime_ext = RuntimeExt::new(
         state_update,
         account_id,
-        function_call.contract_id,
+        function_call.protocol_id,
         &action_receipt.signer_id,
         &action_receipt.signer_public_key,
         action_receipt.gas_price,
@@ -313,7 +313,7 @@ pub(crate) fn action_create_account(
     *account = Some(Account {
         amount: 0,
         locked: 0,
-        contract_ids: Default::default(),
+        protocol_ids: Default::default(),
         storage_usage: fee_config.storage_usage_config.num_bytes_account,
     });
 }
@@ -334,7 +334,7 @@ pub(crate) fn action_deploy_contract(
     //             account_id
     //         ))
     //     })?;
-    let contract_id = code.get_hash();
+    let protocol_id = code.get_hash();
     if get_code(state_update, &code.get_hash())?.is_none() {
         account.storage_usage =
             account.storage_usage.checked_add(code.code.len() as u64).ok_or_else(|| {
@@ -343,9 +343,9 @@ pub(crate) fn action_deploy_contract(
                     account_id
                 ))
             })?;
-        set_code(state_update, contract_id, &code);
+        set_code(state_update, protocol_id, &code);
     }
-    account.contract_ids.insert(contract_id);
+    account.protocol_ids.insert(protocol_id);
     Ok(())
 }
 

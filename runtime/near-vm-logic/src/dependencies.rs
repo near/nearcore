@@ -246,7 +246,7 @@ pub trait External {
     fn append_action_function_call(
         &mut self,
         receipt_index: ReceiptIndex,
-        contract_id: CryptoHash,
+        protocol_id: CryptoHash,
         method_name: Vec<u8>,
         arguments: Vec<u8>,
         attached_deposit: Balance,

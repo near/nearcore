@@ -97,7 +97,7 @@ impl External for MockedExternal {
     fn append_action_function_call(
         &mut self,
         receipt_index: u64,
-        contract_id: CryptoHash,
+        protocol_id: CryptoHash,
         method_name: Vec<u8>,
         arguments: Vec<u8>,
         attached_deposit: u128,
