@@ -8,7 +8,7 @@ use near_chain_configs::GenesisConfig;
 use near_primitives::borsh;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::ChunkHash;
-use near_primitives::types::AccountId;
+use near_primitives::types::{AccountId, BlockHeight};
 use near_store::{DBCol, Store};
 
 use crate::RuntimeAdapter;
@@ -87,6 +87,7 @@ impl StoreValidator {
     }
     fn col_to_key(col: DBCol, key: &[u8]) -> String {
         match col {
+            DBCol::ColBlockHeight => format!("{:?}", BlockHeight::try_from_slice(key.as_ref())),
             DBCol::ColBlockHeader | DBCol::ColBlock => {
                 format!("{:?}", CryptoHash::try_from(key.as_ref()))
             }
@@ -109,13 +110,17 @@ impl StoreValidator {
                     // Chunks for current Block exist
                     self.check(&validate::block_chunks_exist, &key, &value, col);
                 }
+                DBCol::ColBlockHeight => {
+                    // Block on the Canonical Chain is stored properly
+                    self.check(&validate::block_indexed_by_height, &key, &value, col);
+                }
                 DBCol::ColChunks => {
                     // Chunk Hash is valid
                     self.check(&validate::chunk_basic_validity, &key, &value, col);
                     // There is a State Root in the Trie
-                    self.check(&validate::chunks_state_roots_in_trie, &key, &value, col);
+                    self.check(&validate::chunk_state_roots_in_trie, &key, &value, col);
                     // ShardChunk can be indexed by Height
-                    self.check(&validate::chunks_indexed_by_height_created, &key, &value, col);
+                    self.check(&validate::chunk_indexed_by_height_created, &key, &value, col);
                 }
                 DBCol::ColChunkHashesByHeight => {
                     // ShardChunk which can be indexed by Height exists
@@ -139,6 +144,7 @@ impl StoreValidator {
             DBCol::ColBlockMisc,
         );
         self.validate_col(DBCol::ColBlockHeader);
+        self.validate_col(DBCol::ColBlockHeight);
         self.validate_col(DBCol::ColBlock);
         // There is no more than one Block which Height is lower than Tail and not equal to Genesis
         self.check_simple(&validate::block_height_cmp_tail, "TAIL", DBCol::ColBlockMisc);
