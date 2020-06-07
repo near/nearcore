@@ -18,7 +18,7 @@ use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockHeightDelta, BlockIdOrFinality, NumSeats};
 use near_primitives::views::{QueryRequest, QueryResponseKind, ValidatorInfo};
 use neard::config::{GenesisExt, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
-use neard::{load_test_config, start_with_config, NearConfig};
+use neard::{load_test_config, start_with_config, NearConfig, NEAR_BASE};
 use testlib::{genesis_hash, test_helpers::heavy_test};
 
 #[derive(Clone)]
@@ -37,6 +37,7 @@ fn init_test_staking(
     num_validator_seats: NumSeats,
     epoch_length: BlockHeightDelta,
     enable_rewards: bool,
+    minimum_stake_divisor: u64,
 ) -> Vec<TestNode> {
     init_integration_logger();
 
@@ -47,6 +48,7 @@ fn init_test_staking(
     genesis.config.num_block_producer_seats = num_node_seats;
     genesis.config.block_producer_kickout_threshold = 20;
     genesis.config.chunk_producer_kickout_threshold = 20;
+    genesis.config.minimum_stake_divisor = minimum_stake_divisor;
     if !enable_rewards {
         genesis.config.max_inflation_rate = Rational::from_integer(0);
         genesis.config.min_gas_price = 0;
@@ -97,6 +99,7 @@ fn test_stake_nodes() {
             1,
             10,
             false,
+            10,
         );
 
         let tx = SignedTransaction::stake(
@@ -173,9 +176,10 @@ fn test_validator_kickout() {
             4,
             8,
             false,
+            (TESTING_INIT_STAKE / NEAR_BASE) as u64 + 1,
         );
         let mut rng = rand::thread_rng();
-        let stakes = (0..num_nodes / 2).map(|_| rng.gen_range(1, 100));
+        let stakes = (0..num_nodes / 2).map(|_| NEAR_BASE + rng.gen_range(1, 100));
         let stake_transactions = stakes.enumerate().map(|(i, stake)| {
             let test_node = &test_nodes[i];
             let signer = Arc::new(InMemorySigner::from_seed(
@@ -297,7 +301,7 @@ fn test_validator_kickout() {
                 ));
             }),
             100,
-            20000,
+            60000,
         )
         .start();
 
@@ -321,6 +325,7 @@ fn test_validator_join() {
             2,
             16,
             false,
+            10,
         );
         let signer = Arc::new(InMemorySigner::from_seed(
             &test_nodes[1].account_id,
@@ -463,6 +468,7 @@ fn test_inflation() {
             1,
             epoch_length,
             true,
+            10,
         );
         let initial_total_supply = test_nodes[0].config.genesis.config.total_supply;
         let max_inflation_rate = test_nodes[0].config.genesis.config.max_inflation_rate;
