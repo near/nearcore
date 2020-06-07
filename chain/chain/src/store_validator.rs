@@ -105,15 +105,13 @@ impl StoreValidator {
             match col {
                 DBCol::ColBlockHeader => {
                     // Block Header Hash is valid
-                    self.check(&validate::block_header_validity, &key, &value, col);
+                    self.check(&validate::block_header_basic_validity, &key, &value, col);
                 }
                 DBCol::ColBlock => {
                     // Block Hash is valid
-                    self.check(&validate::block_hash_validity, &key, &value, col);
+                    self.check(&validate::block_basic_validity, &key, &value, col);
                     // Block Header for current Block exists
                     self.check(&validate::block_header_exists, &key, &value, col);
-                    // Block Height is greater or equal to tail, or to Genesis Height
-                    self.check(&validate::block_height_cmp_tail_prepare, &key, &value, col);
                     // Chunks for current Block exist
                     self.check(&validate::block_chunks_exist, &key, &value, col);
                 }
@@ -148,6 +146,7 @@ impl StoreValidator {
         );
         self.validate_col(DBCol::ColBlockHeader);
         self.validate_col(DBCol::ColBlock);
+        // There is no more than one Block which Height is lower than Tail and not equal to Genesis
         self.check_simple(&validate::block_height_cmp_tail, "TAIL", DBCol::ColBlockMisc);
         self.validate_col(DBCol::ColChunks);
         self.validate_col(DBCol::ColChunkHashesByHeight);
