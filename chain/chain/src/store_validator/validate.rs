@@ -88,7 +88,7 @@ pub(crate) fn head_tail_validity(
     Ok(())
 }
 
-pub(crate) fn block_header_validity(
+pub(crate) fn block_header_basic_validity(
     _sv: &mut StoreValidator,
     key: &[u8],
     value: &[u8],
@@ -103,7 +103,7 @@ pub(crate) fn block_header_validity(
     Ok(())
 }
 
-pub(crate) fn block_hash_validity(
+pub(crate) fn block_basic_validity(
     sv: &mut StoreValidator,
     key: &[u8],
     value: &[u8],
@@ -134,6 +134,18 @@ pub(crate) fn block_hash_validity(
     if !block_hashes.contains(&block_hash) {
         return err!("Block {:?} is not found in ColBlockPerHeight", block);
     }
+    
+    let tail = unwrap_or_err!(
+        sv.store.get_ser::<BlockHeight>(ColBlockMisc, TAIL_KEY),
+        "Can't get Tail from storage"
+    )
+    .unwrap_or(sv.config.genesis_height);
+    if block.header.inner_lite.height < tail
+        && block.header.inner_lite.height != sv.config.genesis_height
+    {
+        sv.inner.block_heights_less_tail.push(block.hash());
+    }
+    sv.inner.is_block_height_cmp_tail_prepared = true;
     Ok(())
 }
 
@@ -203,32 +215,14 @@ pub(crate) fn block_chunks_exist(
 pub(crate) fn block_height_cmp_tail(
     sv: &mut StoreValidator,
     _key: &[u8],
-    value: &[u8],
-) -> Result<(), ErrorMessage> {
-    let tail = unwrap_or_err!(
-        sv.store.get_ser::<BlockHeight>(ColBlockMisc, TAIL_KEY),
-        "Can't get Tail from storage"
-    )
-    .unwrap_or(sv.config.genesis_height);
-    let block = unwrap_or_err!(Block::try_from_slice(value), "Can't deserialize Block");
-    if block.header.inner_lite.height < tail
-        && block.header.inner_lite.height != sv.config.genesis_height
-    {
-        sv.block_heights_less_tail.push(block.hash());
-    }
-    Ok(())
-}
-
-pub(crate) fn block_height_cmp_tail_count(
-    sv: &mut StoreValidator,
-    _key: &[u8],
     _value: &[u8],
 ) -> Result<(), ErrorMessage> {
-    if sv.block_heights_less_tail.len() < 2 {
+    assert!(sv.inner.is_block_height_cmp_tail_prepared);
+    if sv.inner.block_heights_less_tail.len() < 2 {
         Ok(())
     } else {
-        let len = sv.block_heights_less_tail.len();
-        let blocks = &sv.block_heights_less_tail;
+        let len = sv.inner.block_heights_less_tail.len();
+        let blocks = &sv.inner.block_heights_less_tail;
         err!("Found {:?} Blocks with height lower than Tail, {:?}", len, blocks)
     }
 }
