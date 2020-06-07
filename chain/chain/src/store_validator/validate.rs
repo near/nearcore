@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::convert::TryFrom;
 
 use borsh::BorshDeserialize;
@@ -7,11 +7,11 @@ use near_primitives::block::{Block, BlockHeader, Tip};
 use near_primitives::borsh;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::{ChunkHash, ShardChunk};
-use near_primitives::types::BlockHeight;
+use near_primitives::types::{BlockHeight, EpochId};
 use near_primitives::utils::index_to_bytes;
 use near_store::{
-    ColBlockHeader, ColBlockMisc, ColChunkHashesByHeight, ColChunks, CHUNK_TAIL_KEY, HEAD_KEY,
-    TAIL_KEY,
+    ColBlockHeader, ColBlockHeight, ColBlockMisc, ColBlockPerHeight, ColChunkHashesByHeight,
+    ColChunks, CHUNK_TAIL_KEY, HEAD_KEY, TAIL_KEY,
 };
 
 use crate::{ErrorMessage, StoreValidator};
@@ -104,15 +104,35 @@ pub(crate) fn block_header_validity(
 }
 
 pub(crate) fn block_hash_validity(
-    _sv: &mut StoreValidator,
+    sv: &mut StoreValidator,
     key: &[u8],
     value: &[u8],
 ) -> Result<(), ErrorMessage> {
     let block_hash =
         unwrap_or_err!(CryptoHash::try_from(key.as_ref()), "Can't deserialize Block Hash");
     let block = unwrap_or_err!(Block::try_from_slice(value), "Can't deserialize Block");
+
+    // 1. Block Hash is valid
     if block.hash() != block_hash {
         return err!("Invalid Block stored, hash = {:?}, block = {:?}", block_hash, block);
+    }
+
+    // 2. Block is in ColBlockPerHeight
+    let height = block.header.inner_lite.height;
+    let block_hashes: HashSet<CryptoHash> = unwrap_or_err_db!(
+        sv.store.get_ser::<HashMap<EpochId, HashSet<CryptoHash>>>(
+            ColBlockPerHeight,
+            &index_to_bytes(height)
+        ),
+        "Can't get HashMap for Height {:?} from ColBlockPerHeight",
+        height
+    )
+    .values()
+    .flatten()
+    .cloned()
+    .collect();
+    if !block_hashes.contains(&block_hash) {
+        return err!("Block {:?} is not found in ColBlockPerHeight", block);
     }
     Ok(())
 }
@@ -213,7 +233,66 @@ pub(crate) fn block_height_cmp_tail_count(
     }
 }
 
-pub(crate) fn chunks_state_roots_in_trie(
+pub(crate) fn block_indexed_by_height(
+    sv: &mut StoreValidator,
+    key: &[u8],
+    value: &[u8],
+) -> Result<(), ErrorMessage> {
+    let height: BlockHeight =
+        unwrap_or_err!(BlockHeight::try_from_slice(key), "Can't deserialize Height");
+    let hash = unwrap_or_err!(CryptoHash::try_from(value), "Can't deserialize Block Hash");
+
+    // 1. Block Header exists
+    let header = unwrap_or_err_db!(
+        sv.store.get_ser::<BlockHeader>(ColBlockHeader, hash.as_ref()),
+        "Can't get Block Header {:?} from ColBlockHeader",
+        hash
+    );
+
+    // 2. Height is valid
+    if header.inner_lite.height != height {
+        return err!("Block on Height {:?} doesn't have required Height, {:?}", height, header);
+    }
+
+    // 3. If prev Block exists, it's also on the Canonical Chain
+    if height != sv.config.genesis_height {
+        let prev_hash = header.prev_hash;
+        let prev_header = unwrap_or_err_db!(
+            sv.store.get_ser::<BlockHeader>(ColBlockHeader, prev_hash.as_ref()),
+            "Can't get prev Block Header {:?} from ColBlockHeader",
+            prev_hash
+        );
+        let prev_height = prev_header.inner_lite.height;
+        let same_prev_hash = unwrap_or_err_db!(
+            sv.store.get_ser::<CryptoHash>(ColBlockHeight, &index_to_bytes(prev_height)),
+            "Can't get prev Block Hash from ColBlockHeight by Height, {:?}, {:?}",
+            prev_height,
+            prev_header
+        );
+        if prev_hash != same_prev_hash {
+            return err!(
+                "Prev Block Hashes in ColBlockHeight and ColBlockHeader are different, {:?}, {:?}",
+                prev_hash,
+                same_prev_hash
+            );
+        }
+
+        // 4. There are no Blocks in range (prev_height, height) on the Canonical Chain
+        for cur_height in prev_height + 1..height {
+            let cur_hash = unwrap_or_err!(
+                sv.store.get_ser::<CryptoHash>(ColBlockHeight, &index_to_bytes(cur_height)),
+                "DB error while getting Block Hash from ColBlockHeight by Height {:?}",
+                cur_height
+            );
+            if cur_hash.is_some() {
+                return err!("Unexpected Block on the Canonical Chain is found between Heights {:?} and {:?}, {:?}", prev_height, height, cur_hash);
+            }
+        }
+    }
+    Ok(())
+}
+
+pub(crate) fn chunk_state_roots_in_trie(
     _sv: &mut StoreValidator,
     _key: &[u8],
     _value: &[u8],
@@ -237,7 +316,7 @@ pub(crate) fn chunks_state_roots_in_trie(
     Ok(())
 }
 
-pub(crate) fn chunks_indexed_by_height_created(
+pub(crate) fn chunk_indexed_by_height_created(
     sv: &mut StoreValidator,
     _key: &[u8],
     value: &[u8],
