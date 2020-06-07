@@ -17,13 +17,25 @@ mod validate;
 
 #[derive(Debug)]
 pub struct StoreValidatorCache {
+    head: BlockHeight,
+    tail: BlockHeight,
+    chunk_tail: BlockHeight,
     block_heights_less_tail: Vec<CryptoHash>,
+
+    is_misc_set: bool,
     is_block_height_cmp_tail_prepared: bool,
 }
 
 impl StoreValidatorCache {
     fn new() -> Self {
-        Self { block_heights_less_tail: vec![], is_block_height_cmp_tail_prepared: false }
+        Self {
+            head: 0,
+            tail: 0,
+            chunk_tail: 0,
+            block_heights_less_tail: vec![],
+            is_misc_set: false,
+            is_block_height_cmp_tail_prepared: false,
+        }
     }
 }
 
@@ -112,7 +124,7 @@ impl StoreValidator {
                 }
                 DBCol::ColBlockHeight => {
                     // Block on the Canonical Chain is stored properly
-                    self.check(&validate::block_indexed_by_height, &key, &value, col);
+                    self.check(&validate::block_on_canonical_chain, &key, &value, col);
                 }
                 DBCol::ColChunks => {
                     // Chunk Hash is valid
