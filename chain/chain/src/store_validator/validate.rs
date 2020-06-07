@@ -75,16 +75,16 @@ pub(crate) fn head_tail_validity<T, U>(
         sv.store.get_ser::<Tip>(ColBlockMisc, HEAD_KEY),
         "Can't get Head from storage"
     );
+    sv.inner.head = head.height;
+    sv.inner.tail = tail;
+    sv.inner.chunk_tail = chunk_tail;
+    sv.inner.is_misc_set = true;
     if chunk_tail > tail {
         return err!("chunk_tail > tail, {:?} > {:?}", chunk_tail, tail);
     }
     if tail > head.height {
         return err!("tail > head.height, {:?} > {:?}", tail, head);
     }
-    sv.inner.head = head.height;
-    sv.inner.tail = tail;
-    sv.inner.chunk_tail = chunk_tail;
-    sv.inner.is_misc_set = true;
     Ok(())
 }
 
@@ -104,7 +104,9 @@ pub(crate) fn block_header_height_validity(
     _block_hash: &CryptoHash,
     header: &BlockHeader,
 ) -> Result<(), ErrorMessage> {
-    assert!(sv.inner.is_misc_set);
+    if !sv.inner.is_misc_set {
+        return err!("Can't validate, is_misc_set == false");
+    }
     let height = header.inner_lite.height;
     let head = sv.inner.head;
     if height > head {
@@ -129,7 +131,9 @@ pub(crate) fn block_height_validity(
     _block_hash: &CryptoHash,
     block: &Block,
 ) -> Result<(), ErrorMessage> {
-    assert!(sv.inner.is_misc_set);
+    if !sv.inner.is_misc_set {
+        return err!("Can't validate, is_misc_set == false");
+    }
     let head = sv.inner.head;
     let height = block.header.inner_lite.height;
     if height > head {
@@ -196,7 +200,9 @@ pub(crate) fn chunk_tail_validity(
     _chunk_hash: &ChunkHash,
     shard_chunk: &ShardChunk,
 ) -> Result<(), ErrorMessage> {
-    assert!(sv.inner.is_misc_set);
+    if !sv.inner.is_misc_set {
+        return err!("Can't validate, is_misc_set == false");
+    }
     let chunk_tail = sv.inner.chunk_tail;
     let height = shard_chunk.header.inner.height_created;
     if height < chunk_tail {
@@ -304,7 +310,9 @@ pub(crate) fn block_height_cmp_tail<T, U>(
     _key: &T,
     _value: &U,
 ) -> Result<(), ErrorMessage> {
-    assert!(sv.inner.is_block_height_cmp_tail_prepared);
+    if !sv.inner.is_misc_set {
+        return err!("Can't validate, is_block_height_cmp_tail_prepared == false");
+    }
     if sv.inner.block_heights_less_tail.len() < 2 {
         Ok(())
     } else {
