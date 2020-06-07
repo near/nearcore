@@ -457,10 +457,12 @@ impl PeerManagerActor {
                 requests.push(active_peer.addr.send(msg.clone()));
             }
         }
-        future::try_join_all(requests)
+        future::join_all(requests)
             .into_actor(self)
-            .map(|x, _, _| {
-                let _ignore = x.map_err(|e| error!(target: "network", "Failed sending broadcast message(query_active_peers): {}", e));
+            .map(|res, _, _| {
+                if let Err(e) = res.into_iter().collect::<Result<Vec<_>, _>>() {
+                    error!(target: "network", "Failed sending broadcast message(query_active_peers): {}", e)
+                }
             })
             .spawn(ctx);
     }
@@ -720,10 +722,13 @@ impl PeerManagerActor {
         let requests: Vec<_> =
             self.active_peers.values().map(|peer| peer.addr.send(msg.clone())).collect();
 
-        future::try_join_all(requests)
+        future::join_all(requests)
             .into_actor(self)
-            .map(|res, _, _| res.map_err(|e| error!(target: "network", "Failed sending broadcast message(broadcast_message): {}", e)))
-            .map(|_, _, _| ())
+            .map(|res, _, _| {
+                if let Err(e) = res.into_iter().collect::<Result<Vec<_>, _>>() {
+                    error!(target: "network", "Failed sending broadcast message(broadcast_message): {}", e)
+                }
+            })
             .spawn(ctx);
     }
 
