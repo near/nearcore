@@ -2713,7 +2713,7 @@ mod tests {
         assert!(check_refcount_map(&mut chain).is_ok());
         chain.epoch_length = 1;
         let trie = chain.runtime_adapter.get_tries();
-        assert!(chain.clear_data(trie).is_ok());
+        assert!(chain.clear_data(trie, MAX_HEIGHTS_TO_CLEAR).is_ok());
 
         assert!(chain.get_block(&blocks[0].hash()).is_ok());
 
@@ -2831,7 +2831,7 @@ mod tests {
 
         for iter in 0..10 {
             println!("ITERATION #{:?}", iter);
-            assert!(chain.clear_data(trie.clone()).is_ok());
+            assert!(chain.clear_data(trie.clone(), MAX_HEIGHTS_TO_CLEAR).is_ok());
 
             assert!(chain.get_block(&blocks[0].hash()).is_ok());
 
