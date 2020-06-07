@@ -1,10 +1,6 @@
 use std::collections::{HashMap, HashSet};
-use std::convert::TryFrom;
-
-use borsh::BorshDeserialize;
 
 use near_primitives::block::{Block, BlockHeader, Tip};
-use near_primitives::borsh;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::{ChunkHash, ShardChunk};
 use near_primitives::types::{BlockHeight, EpochId};
@@ -23,7 +19,7 @@ macro_rules! get_parent_function_name {
             std::any::type_name::<T>()
         }
         let name = type_name_of(f);
-        (&name[..name.len() - 3].split("::").last().unwrap()).to_string()
+        &name[..name.len() - 3].split("::").last().unwrap()
     }};
 }
 
@@ -60,10 +56,10 @@ macro_rules! unwrap_or_err_db {
 
 // All validations start here
 
-pub(crate) fn head_tail_validity(
+pub(crate) fn head_tail_validity<T, U>(
     sv: &mut StoreValidator,
-    _key: &[u8],
-    _value: &[u8],
+    _key: &T,
+    _value: &U,
 ) -> Result<(), ErrorMessage> {
     let tail = unwrap_or_err!(
         sv.store.get_ser::<BlockHeight>(ColBlockMisc, TAIL_KEY),
@@ -92,69 +88,68 @@ pub(crate) fn head_tail_validity(
     Ok(())
 }
 
-pub(crate) fn block_header_basic_validity(
-    sv: &mut StoreValidator,
-    key: &[u8],
-    value: &[u8],
+pub(crate) fn block_header_hash_validity(
+    _sv: &mut StoreValidator,
+    block_hash: &CryptoHash,
+    header: &BlockHeader,
 ) -> Result<(), ErrorMessage> {
-    assert!(sv.inner.is_misc_set);
-    let block_hash =
-        unwrap_or_err!(CryptoHash::try_from(key.as_ref()), "Can't deserialize Block Hash");
-    let header =
-        unwrap_or_err!(BlockHeader::try_from_slice(value), "Can't deserialize Block Header");
-
-    // 1. Block Header Hash is valid
-    if header.hash() != block_hash {
+    if header.hash() != *block_hash {
         return err!("Invalid Block Header stored, hash = {:?}, header = {:?}", block_hash, header);
     }
+    Ok(())
+}
 
-    // 2. Block Header Height is not higher than Head
+pub(crate) fn block_header_height_validity(
+    sv: &mut StoreValidator,
+    _block_hash: &CryptoHash,
+    header: &BlockHeader,
+) -> Result<(), ErrorMessage> {
+    assert!(sv.inner.is_misc_set);
     let height = header.inner_lite.height;
     let head = sv.inner.head;
     if height > head {
         return err!("Invalid Block Header stored, Head = {:?}, header = {:?}", head, header);
     }
+    Ok(())
+}
 
-    // 3. Block Header is in ColBlockHeight
-    let same_block_hash = unwrap_or_err_db!(
-        sv.store.get_ser::<CryptoHash>(ColBlockHeight, &index_to_bytes(height)),
-        "Can't get Block Hash for Height {:?} from ColBlockHeight",
-        height
-    );
-    if block_hash != same_block_hash {
-        return err!(
-            "Block Hashes in ColBlockHeight and ColBlockHeader at Height {:?} are different, {:?}, {:?}",
-            height,
-            block_hash,
-            same_block_hash
-        );
+pub(crate) fn block_hash_validity(
+    _sv: &mut StoreValidator,
+    block_hash: &CryptoHash,
+    block: &Block,
+) -> Result<(), ErrorMessage> {
+    if block.hash() != *block_hash {
+        return err!("Invalid Block stored, hash = {:?}, block = {:?}", block_hash, block);
     }
     Ok(())
 }
 
-pub(crate) fn block_basic_validity(
+pub(crate) fn block_height_validity(
     sv: &mut StoreValidator,
-    key: &[u8],
-    value: &[u8],
+    _block_hash: &CryptoHash,
+    block: &Block,
 ) -> Result<(), ErrorMessage> {
     assert!(sv.inner.is_misc_set);
-    let block_hash =
-        unwrap_or_err!(CryptoHash::try_from(key.as_ref()), "Can't deserialize Block Hash");
-    let block = unwrap_or_err!(Block::try_from_slice(value), "Can't deserialize Block");
-
-    // 1. Block Hash is valid
-    if block.hash() != block_hash {
-        return err!("Invalid Block stored, hash = {:?}, block = {:?}", block_hash, block);
-    }
-
-    // 2. Block Height is not higher than Head
     let head = sv.inner.head;
     let height = block.header.inner_lite.height;
     if height > head {
         return err!("Invalid Block stored, Head = {:?}, block = {:?}", head, block);
     }
 
-    // 3. Block is in ColBlockPerHeight
+    let tail = sv.inner.tail;
+    if height < tail && height != sv.config.genesis_height {
+        sv.inner.block_heights_less_tail.push(block.hash());
+    }
+    sv.inner.is_block_height_cmp_tail_prepared = true;
+    Ok(())
+}
+
+pub(crate) fn block_indexed_by_height(
+    sv: &mut StoreValidator,
+    block_hash: &CryptoHash,
+    block: &Block,
+) -> Result<(), ErrorMessage> {
+    let height = block.header.inner_lite.height;
     let block_hashes: HashSet<CryptoHash> = unwrap_or_err_db!(
         sv.store.get_ser::<HashMap<EpochId, HashSet<CryptoHash>>>(
             ColBlockPerHeight,
@@ -170,22 +165,14 @@ pub(crate) fn block_basic_validity(
     if !block_hashes.contains(&block_hash) {
         return err!("Block {:?} is not found in ColBlockPerHeight", block);
     }
-
-    let tail = sv.inner.tail;
-    if height < tail && height != sv.config.genesis_height {
-        sv.inner.block_heights_less_tail.push(block.hash());
-    }
-    sv.inner.is_block_height_cmp_tail_prepared = true;
     Ok(())
 }
 
 pub(crate) fn block_header_exists(
     sv: &mut StoreValidator,
-    key: &[u8],
-    _value: &[u8],
+    block_hash: &CryptoHash,
+    _block: &Block,
 ) -> Result<(), ErrorMessage> {
-    let block_hash =
-        unwrap_or_err!(CryptoHash::try_from(key.as_ref()), "Can't deserialize Block Hash");
     unwrap_or_err_db!(
         sv.store.get_ser::<BlockHeader>(ColBlockHeader, block_hash.as_ref()),
         "Can't get Block Header from storage"
@@ -193,23 +180,23 @@ pub(crate) fn block_header_exists(
     Ok(())
 }
 
-pub(crate) fn chunk_basic_validity(
-    sv: &mut StoreValidator,
-    key: &[u8],
-    value: &[u8],
+pub(crate) fn chunk_hash_validity(
+    _sv: &mut StoreValidator,
+    chunk_hash: &ChunkHash,
+    shard_chunk: &ShardChunk,
 ) -> Result<(), ErrorMessage> {
-    assert!(sv.inner.is_misc_set);
-    let chunk_hash =
-        unwrap_or_err!(ChunkHash::try_from_slice(key.as_ref()), "Can't deserialize Chunk Hash");
-    let shard_chunk =
-        unwrap_or_err!(ShardChunk::try_from_slice(value), "Can't deserialize ShardChunk");
-
-    // 1. Chunk Hash is valid
-    if shard_chunk.chunk_hash != chunk_hash {
+    if shard_chunk.chunk_hash != *chunk_hash {
         return err!("Invalid ShardChunk {:?} stored", shard_chunk);
     }
+    Ok(())
+}
 
-    // 2. Chunk Height Created is not lower than Chunk Tail
+pub(crate) fn chunk_tail_validity(
+    sv: &mut StoreValidator,
+    _chunk_hash: &ChunkHash,
+    shard_chunk: &ShardChunk,
+) -> Result<(), ErrorMessage> {
+    assert!(sv.inner.is_misc_set);
     let chunk_tail = sv.inner.chunk_tail;
     let height = shard_chunk.header.inner.height_created;
     if height < chunk_tail {
@@ -222,14 +209,52 @@ pub(crate) fn chunk_basic_validity(
     Ok(())
 }
 
+pub(crate) fn chunk_state_roots_in_trie(
+    _sv: &mut StoreValidator,
+    _chunk_hash: &ChunkHash,
+    _shard_chunk: &ShardChunk,
+) -> Result<(), ErrorMessage> {
+    // TODO enable after fixing #2623
+    /*
+    let shard_id = shard_chunk.header.inner.shard_id;
+    let state_root = shard_chunk.header.inner.prev_state_root;
+    let trie = sv.runtime_adapter.get_trie_for_shard(shard_id);
+    let trie = unwrap_or_err!(
+        TrieIterator::new(&trie, &state_root),
+        "Trie Node Missing for ShardChunk {:?}",
+        shard_chunk
+    );
+    for item in trie {
+        unwrap_or_err!(item, "Can't find ShardChunk {:?} in Trie", shard_chunk);
+    }
+    */
+    Ok(())
+}
+
+pub(crate) fn chunk_indexed_by_height_created(
+    sv: &mut StoreValidator,
+    _chunk_hash: &ChunkHash,
+    shard_chunk: &ShardChunk,
+) -> Result<(), ErrorMessage> {
+    let height = shard_chunk.header.inner.height_created;
+    let chunk_hashes = unwrap_or_err_db!(
+        sv.store.get_ser::<HashSet<ChunkHash>>(ColChunkHashesByHeight, &index_to_bytes(height)),
+        "Can't get Chunks Set from storage on Height {:?}, no one is responsible for ShardChunk {:?}",
+        height,
+        shard_chunk
+    );
+    if !chunk_hashes.contains(&shard_chunk.chunk_hash) {
+        return err!("Can't find ShardChunk {:?} on Height {:?}", shard_chunk, height);
+    }
+    Ok(())
+}
+
 pub(crate) fn block_chunks_exist(
     sv: &mut StoreValidator,
-    _key: &[u8],
-    value: &[u8],
+    _block_hash: &CryptoHash,
+    block: &Block,
 ) -> Result<(), ErrorMessage> {
-    let block = unwrap_or_err!(Block::try_from_slice(value), "Can't deserialize Block");
     for chunk_header in block.chunks.iter() {
-        // 1. Chunks that we care exist
         match &sv.me {
             Some(me) => {
                 if sv.runtime_adapter.cares_about_shard(
@@ -253,8 +278,16 @@ pub(crate) fn block_chunks_exist(
             }
             _ => {}
         }
+    }
+    Ok(())
+}
 
-        // 2. Chunks Height Created is not greater than Block Height
+pub(crate) fn block_chunks_height_validity(
+    _sv: &mut StoreValidator,
+    _block_hash: &CryptoHash,
+    block: &Block,
+) -> Result<(), ErrorMessage> {
+    for chunk_header in block.chunks.iter() {
         if chunk_header.inner.height_created > block.header.inner_lite.height {
             return err!(
                 "Invalid ShardChunk included, chunk_header = {:?}, block = {:?}",
@@ -266,10 +299,10 @@ pub(crate) fn block_chunks_exist(
     Ok(())
 }
 
-pub(crate) fn block_height_cmp_tail(
+pub(crate) fn block_height_cmp_tail<T, U>(
     sv: &mut StoreValidator,
-    _key: &[u8],
-    _value: &[u8],
+    _key: &T,
+    _value: &U,
 ) -> Result<(), ErrorMessage> {
     assert!(sv.inner.is_block_height_cmp_tail_prepared);
     if sv.inner.block_heights_less_tail.len() < 2 {
@@ -281,29 +314,33 @@ pub(crate) fn block_height_cmp_tail(
     }
 }
 
-pub(crate) fn block_on_canonical_chain(
+pub(crate) fn canonical_header_validity(
     sv: &mut StoreValidator,
-    key: &[u8],
-    value: &[u8],
+    height: &BlockHeight,
+    hash: &CryptoHash,
 ) -> Result<(), ErrorMessage> {
-    let height: BlockHeight =
-        unwrap_or_err!(BlockHeight::try_from_slice(key), "Can't deserialize Height");
-    let hash = unwrap_or_err!(CryptoHash::try_from(value), "Can't deserialize Block Hash");
-
-    // 1. Block Header exists
     let header = unwrap_or_err_db!(
         sv.store.get_ser::<BlockHeader>(ColBlockHeader, hash.as_ref()),
         "Can't get Block Header {:?} from ColBlockHeader",
         hash
     );
-
-    // 2. Height is valid
-    if header.inner_lite.height != height {
+    if header.inner_lite.height != *height {
         return err!("Block on Height {:?} doesn't have required Height, {:?}", height, header);
     }
+    Ok(())
+}
 
-    // 3. If prev Block exists, it's also on the Canonical Chain
-    if height != sv.config.genesis_height {
+pub(crate) fn canonical_prev_block_validity(
+    sv: &mut StoreValidator,
+    height: &BlockHeight,
+    hash: &CryptoHash,
+) -> Result<(), ErrorMessage> {
+    if *height != sv.config.genesis_height {
+        let header = unwrap_or_err_db!(
+            sv.store.get_ser::<BlockHeader>(ColBlockHeader, hash.as_ref()),
+            "Can't get Block Header {:?} from ColBlockHeader",
+            hash
+        );
         let prev_hash = header.prev_hash;
         let prev_header = unwrap_or_err_db!(
             sv.store.get_ser::<BlockHeader>(ColBlockHeader, prev_hash.as_ref()),
@@ -326,8 +363,7 @@ pub(crate) fn block_on_canonical_chain(
             );
         }
 
-        // 4. There are no Blocks in range (prev_height, height) on the Canonical Chain
-        for cur_height in prev_height + 1..height {
+        for cur_height in prev_height + 1..*height {
             let cur_hash = unwrap_or_err!(
                 sv.store.get_ser::<CryptoHash>(ColBlockHeight, &index_to_bytes(cur_height)),
                 "DB error while getting Block Hash from ColBlockHeight by Height {:?}",
@@ -341,67 +377,18 @@ pub(crate) fn block_on_canonical_chain(
     Ok(())
 }
 
-pub(crate) fn chunk_state_roots_in_trie(
-    _sv: &mut StoreValidator,
-    _key: &[u8],
-    _value: &[u8],
-) -> Result<(), ErrorMessage> {
-    // TODO enable after fixing #2623
-    /*
-    let shard_chunk: ShardChunk =
-        unwrap_or_err!(ShardChunk::try_from_slice(value), "Can't deserialize ShardChunk");
-    let shard_id = shard_chunk.header.inner.shard_id;
-    let state_root = shard_chunk.header.inner.prev_state_root;
-    let trie = sv.runtime_adapter.get_trie_for_shard(shard_id);
-    let trie = unwrap_or_err!(
-        TrieIterator::new(&trie, &state_root),
-        "Trie Node Missing for ShardChunk {:?}",
-        shard_chunk
-    );
-    for item in trie {
-        unwrap_or_err!(item, "Can't find ShardChunk {:?} in Trie", shard_chunk);
-    }
-    */
-    Ok(())
-}
-
-pub(crate) fn chunk_indexed_by_height_created(
-    sv: &mut StoreValidator,
-    _key: &[u8],
-    value: &[u8],
-) -> Result<(), ErrorMessage> {
-    let shard_chunk: ShardChunk =
-        unwrap_or_err!(ShardChunk::try_from_slice(value), "Can't deserialize ShardChunk");
-    let height = shard_chunk.header.inner.height_created;
-    let chunk_hashes = unwrap_or_err_db!(
-        sv.store.get_ser::<HashSet<ChunkHash>>(ColChunkHashesByHeight, &index_to_bytes(height)),
-        "Can't get Chunks Set from storage on Height {:?}, no one is responsible for ShardChunk {:?}",
-        height,
-        shard_chunk
-    );
-    if !chunk_hashes.contains(&shard_chunk.chunk_hash) {
-        err!("Can't find ShardChunk {:?} on Height {:?}", shard_chunk, height)
-    } else {
-        Ok(())
-    }
-}
-
 pub(crate) fn chunk_of_height_exists(
     sv: &mut StoreValidator,
-    key: &[u8],
-    value: &[u8],
+    height: &BlockHeight,
+    chunk_hashes: &HashSet<ChunkHash>,
 ) -> Result<(), ErrorMessage> {
-    let height: BlockHeight =
-        unwrap_or_err!(BlockHeight::try_from_slice(key), "Can't deserialize Height");
-    let chunk_hashes: HashSet<ChunkHash> =
-        unwrap_or_err!(HashSet::<ChunkHash>::try_from_slice(value), "Can't deserialize Set");
     for chunk_hash in chunk_hashes {
         let shard_chunk = unwrap_or_err_db!(
             sv.store.get_ser::<ShardChunk>(ColChunks, chunk_hash.as_ref()),
             "Can't get Chunk from storage with ChunkHash {:?}",
             chunk_hash
         );
-        if shard_chunk.header.inner.height_created != height {
+        if shard_chunk.header.inner.height_created != *height {
             return err!("Invalid ShardChunk {:?} stored at Height {:?}", shard_chunk, height);
         }
     }
