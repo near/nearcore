@@ -1,5 +1,7 @@
+use std::collections::HashSet;
 use std::convert::TryFrom;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use borsh::BorshDeserialize;
 
@@ -13,6 +15,23 @@ use near_store::{DBCol, Store};
 use crate::RuntimeAdapter;
 
 mod validate;
+
+#[derive(Debug)]
+pub struct StoreValidatorCache {
+    functions_executed: HashSet<String>,
+    block_heights_less_tail: Vec<CryptoHash>,
+    is_block_height_cmp_tail_prepared: bool,
+}
+
+impl StoreValidatorCache {
+    fn new() -> Self {
+        Self {
+            functions_executed: HashSet::new(),
+            block_heights_less_tail: vec![],
+            is_block_height_cmp_tail_prepared: false,
+        }
+    }
+}
 
 #[derive(Debug)]
 pub struct ErrorMessage {
@@ -33,8 +52,10 @@ pub struct StoreValidator {
     config: GenesisConfig,
     runtime_adapter: Arc<dyn RuntimeAdapter>,
     store: Arc<Store>,
+    inner: StoreValidatorCache,
+    timeout: Option<u64>,
+    start_time: Instant,
 
-    block_heights_less_tail: Vec<CryptoHash>,
     pub errors: Vec<ErrorMessage>,
     tests: u64,
 }
@@ -51,10 +72,15 @@ impl StoreValidator {
             config,
             runtime_adapter,
             store: store.clone(),
-            block_heights_less_tail: vec![],
+            inner: StoreValidatorCache::new(),
+            timeout: None,
+            start_time: Instant::now(),
             errors: vec![],
             tests: 0,
         }
+    }
+    pub fn set_timeout(&mut self, timeout: u64) {
+        self.timeout = Some(timeout)
     }
     pub fn is_failed(&self) -> bool {
         self.tests == 0 || self.errors.len() > 0
@@ -87,7 +113,7 @@ impl StoreValidator {
                     // Block Header for current Block exists
                     self.check(&validate::block_header_exists, &key, &value, col);
                     // Block Height is greater or equal to tail, or to Genesis Height
-                    self.check(&validate::block_height_cmp_tail, &key, &value, col);
+                    self.check(&validate::block_height_cmp_tail_prepare, &key, &value, col);
                     // Chunks for current Block exist
                     self.check(&validate::block_chunks_exist, &key, &value, col);
                 }
@@ -105,10 +131,16 @@ impl StoreValidator {
                 }
                 _ => unimplemented!(),
             }
+            if let Some(timeout) = self.timeout {
+                if self.start_time.elapsed() > Duration::from_millis(timeout) {
+                    return;
+                }
+            }
         }
-        self.check_simple(&validate::block_height_cmp_tail_count, "TAIL", DBCol::ColBlockMisc);
     }
     pub fn validate(&mut self) {
+        self.start_time = Instant::now();
+
         self.check_simple(
             &validate::head_tail_validity,
             "HEAD, TAIL, CHUNK_TAIL",
@@ -116,8 +148,14 @@ impl StoreValidator {
         );
         self.validate_col(DBCol::ColBlockHeader);
         self.validate_col(DBCol::ColBlock);
+        self.check_simple(&validate::block_height_cmp_tail, "TAIL", DBCol::ColBlockMisc);
         self.validate_col(DBCol::ColChunks);
         self.validate_col(DBCol::ColChunkHashesByHeight);
+
+        if let None = self.timeout {
+            // All functions must be executed if no timeout was set
+            assert_eq!(self.inner.functions_executed.len() as u64, validate::TOTAL_FUNCTIONS);
+        }
     }
 
     fn check(

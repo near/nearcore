@@ -16,6 +16,8 @@ use near_store::{
 
 use crate::{ErrorMessage, StoreValidator};
 
+pub const TOTAL_FUNCTIONS: u64 = 11;
+
 macro_rules! get_parent_function_name {
     () => {{
         fn f() {}
@@ -65,6 +67,7 @@ pub(crate) fn head_tail_validity(
     _key: &[u8],
     _value: &[u8],
 ) -> Result<(), ErrorMessage> {
+    sv.inner.functions_executed.insert(get_parent_function_name!());
     let tail = unwrap_or_err!(
         sv.store.get_ser::<BlockHeight>(ColBlockMisc, TAIL_KEY),
         "Can't get Tail from storage"
@@ -89,10 +92,11 @@ pub(crate) fn head_tail_validity(
 }
 
 pub(crate) fn block_header_validity(
-    _sv: &mut StoreValidator,
+    sv: &mut StoreValidator,
     key: &[u8],
     value: &[u8],
 ) -> Result<(), ErrorMessage> {
+    sv.inner.functions_executed.insert(get_parent_function_name!());
     let block_hash =
         unwrap_or_err!(CryptoHash::try_from(key.as_ref()), "Can't deserialize Block Hash");
     let header =
@@ -104,10 +108,11 @@ pub(crate) fn block_header_validity(
 }
 
 pub(crate) fn block_hash_validity(
-    _sv: &mut StoreValidator,
+    sv: &mut StoreValidator,
     key: &[u8],
     value: &[u8],
 ) -> Result<(), ErrorMessage> {
+    sv.inner.functions_executed.insert(get_parent_function_name!());
     let block_hash =
         unwrap_or_err!(CryptoHash::try_from(key.as_ref()), "Can't deserialize Block Hash");
     let block = unwrap_or_err!(Block::try_from_slice(value), "Can't deserialize Block");
@@ -122,6 +127,7 @@ pub(crate) fn block_header_exists(
     key: &[u8],
     _value: &[u8],
 ) -> Result<(), ErrorMessage> {
+    sv.inner.functions_executed.insert(get_parent_function_name!());
     let block_hash =
         unwrap_or_err!(CryptoHash::try_from(key.as_ref()), "Can't deserialize Block Hash");
     unwrap_or_err_db!(
@@ -132,10 +138,11 @@ pub(crate) fn block_header_exists(
 }
 
 pub(crate) fn chunk_basic_validity(
-    _sv: &mut StoreValidator,
+    sv: &mut StoreValidator,
     key: &[u8],
     value: &[u8],
 ) -> Result<(), ErrorMessage> {
+    sv.inner.functions_executed.insert(get_parent_function_name!());
     let chunk_hash =
         unwrap_or_err!(ChunkHash::try_from_slice(key.as_ref()), "Can't deserialize Chunk Hash");
     let shard_chunk =
@@ -151,6 +158,7 @@ pub(crate) fn block_chunks_exist(
     _key: &[u8],
     value: &[u8],
 ) -> Result<(), ErrorMessage> {
+    sv.inner.functions_executed.insert(get_parent_function_name!());
     let block = unwrap_or_err!(Block::try_from_slice(value), "Can't deserialize Block");
     for chunk_header in block.chunks {
         match &sv.me {
@@ -180,11 +188,12 @@ pub(crate) fn block_chunks_exist(
     Ok(())
 }
 
-pub(crate) fn block_height_cmp_tail(
+pub(crate) fn block_height_cmp_tail_prepare(
     sv: &mut StoreValidator,
     _key: &[u8],
     value: &[u8],
 ) -> Result<(), ErrorMessage> {
+    sv.inner.functions_executed.insert(get_parent_function_name!());
     let tail = unwrap_or_err!(
         sv.store.get_ser::<BlockHeight>(ColBlockMisc, TAIL_KEY),
         "Can't get Tail from storage"
@@ -194,30 +203,34 @@ pub(crate) fn block_height_cmp_tail(
     if block.header.inner_lite.height < tail
         && block.header.inner_lite.height != sv.config.genesis_height
     {
-        sv.block_heights_less_tail.push(block.hash());
+        sv.inner.block_heights_less_tail.push(block.hash());
     }
+    sv.inner.is_block_height_cmp_tail_prepared = true;
     Ok(())
 }
 
-pub(crate) fn block_height_cmp_tail_count(
+pub(crate) fn block_height_cmp_tail(
     sv: &mut StoreValidator,
     _key: &[u8],
     _value: &[u8],
 ) -> Result<(), ErrorMessage> {
-    if sv.block_heights_less_tail.len() < 2 {
+    sv.inner.functions_executed.insert(get_parent_function_name!());
+    assert!(sv.inner.is_block_height_cmp_tail_prepared);
+    if sv.inner.block_heights_less_tail.len() < 2 {
         Ok(())
     } else {
-        let len = sv.block_heights_less_tail.len();
-        let blocks = &sv.block_heights_less_tail;
+        let len = sv.inner.block_heights_less_tail.len();
+        let blocks = &sv.inner.block_heights_less_tail;
         err!("Found {:?} Blocks with height lower than Tail, {:?}", len, blocks)
     }
 }
 
 pub(crate) fn chunks_state_roots_in_trie(
-    _sv: &mut StoreValidator,
+    sv: &mut StoreValidator,
     _key: &[u8],
     _value: &[u8],
 ) -> Result<(), ErrorMessage> {
+    sv.inner.functions_executed.insert(get_parent_function_name!());
     // TODO enable after fixing #2623
     /*
     let shard_chunk: ShardChunk =
@@ -242,6 +255,7 @@ pub(crate) fn chunks_indexed_by_height_created(
     _key: &[u8],
     value: &[u8],
 ) -> Result<(), ErrorMessage> {
+    sv.inner.functions_executed.insert(get_parent_function_name!());
     let shard_chunk: ShardChunk =
         unwrap_or_err!(ShardChunk::try_from_slice(value), "Can't deserialize ShardChunk");
     let height = shard_chunk.header.inner.height_created;
@@ -263,6 +277,7 @@ pub(crate) fn chunk_of_height_exists(
     key: &[u8],
     value: &[u8],
 ) -> Result<(), ErrorMessage> {
+    sv.inner.functions_executed.insert(get_parent_function_name!());
     let height: BlockHeight =
         unwrap_or_err!(BlockHeight::try_from_slice(key), "Can't deserialize Height");
     let chunk_hashes: HashSet<ChunkHash> =
