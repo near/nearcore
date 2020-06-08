@@ -9,6 +9,7 @@ pub use borsh;
 
 pub mod account;
 pub mod block;
+pub mod block_header;
 pub mod challenge;
 pub mod contract;
 pub mod errors;
@@ -28,4 +29,5 @@ pub mod trie_key;
 pub mod types;
 pub mod utils;
 pub mod validator_signer;
+pub mod version;
 pub mod views;

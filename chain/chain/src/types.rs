@@ -19,6 +19,7 @@ use near_primitives::types::{
     AccountId, ApprovalStake, Balance, BlockHeight, EpochId, Gas, MerkleHash, ShardId, StateRoot,
     StateRootNode, ValidatorStake, ValidatorStats,
 };
+use near_primitives::version::ProtocolVersion;
 use near_primitives::views::{EpochValidatorInfo, QueryRequest, QueryResponse};
 use near_store::{PartialStorage, ShardTries, Store, StoreUpdate, Trie, WrappedTrieChanges};
 
@@ -103,6 +104,39 @@ impl ApplyTransactionResult {
     }
 }
 
+/// Compressed information about block.
+/// Useful for epoch manager.
+#[derive(Default, BorshSerialize, BorshDeserialize, Serialize, Clone, Debug)]
+pub struct BlockHeaderInfo {
+    pub hash: CryptoHash,
+    pub prev_hash: CryptoHash,
+    pub height: BlockHeight,
+    pub random_value: CryptoHash,
+    pub last_finalized_height: BlockHeight,
+    pub proposals: Vec<ValidatorStake>,
+    pub slashed_validators: Vec<SlashedValidator>,
+    pub chunk_mask: Vec<bool>,
+    pub total_supply: Balance,
+    pub latest_protocol_version: ProtocolVersion,
+}
+
+impl BlockHeaderInfo {
+    pub fn new(header: &BlockHeader, last_finalized_height: u64) -> Self {
+        Self {
+            hash: *header.hash(),
+            prev_hash: *header.prev_hash(),
+            height: header.height(),
+            random_value: *header.random_value(),
+            last_finalized_height,
+            proposals: header.validator_proposals().to_vec(),
+            slashed_validators: vec![],
+            chunk_mask: header.chunk_mask().to_vec(),
+            total_supply: header.total_supply(),
+            latest_protocol_version: header.latest_protocol_version(),
+        }
+    }
+}
+
 /// Bridge between the chain and the runtime.
 /// Main function is to update state given transactions.
 /// Additionally handles validators.
@@ -123,8 +157,8 @@ pub trait RuntimeAdapter: Send + Sync {
         epoch_id: &EpochId,
         block_height: BlockHeight,
         prev_random_value: &CryptoHash,
-        vrf_value: near_crypto::vrf::Value,
-        vrf_proof: near_crypto::vrf::Proof,
+        vrf_value: &near_crypto::vrf::Value,
+        vrf_proof: &near_crypto::vrf::Proof,
     ) -> Result<(), Error>;
 
     /// Validates a given signed transaction.
@@ -308,19 +342,11 @@ pub trait RuntimeAdapter: Send + Sync {
     /// Amount of tokens minted in given epoch.
     fn get_epoch_minted_amount(&self, epoch_id: &EpochId) -> Result<Balance, Error>;
 
+    /// Epoch active protocol version.
+    fn get_epoch_protocol_version(&self, epoch_id: &EpochId) -> Result<ProtocolVersion, Error>;
+
     /// Add proposals for validators.
-    fn add_validator_proposals(
-        &self,
-        parent_hash: CryptoHash,
-        current_hash: CryptoHash,
-        rng_seed: CryptoHash,
-        height: BlockHeight,
-        last_finalized_height: BlockHeight,
-        proposals: Vec<ValidatorStake>,
-        slashed_validators: Vec<SlashedValidator>,
-        validator_mask: Vec<bool>,
-        total_supply: Balance,
-    ) -> Result<(), Error>;
+    fn add_validator_proposals(&self, block_header_info: BlockHeaderInfo) -> Result<(), Error>;
 
     /// Apply transactions to given state root and return store update and new state root.
     /// Also returns transaction result for each transaction and new receipts.
@@ -514,6 +540,7 @@ mod tests {
     use near_primitives::merkle::verify_path;
     use near_primitives::transaction::{ExecutionOutcome, ExecutionStatus};
     use near_primitives::validator_signer::InMemoryValidatorSigner;
+    use near_primitives::version::PROTOCOL_VERSION;
 
     use crate::Chain;
 
@@ -524,6 +551,7 @@ mod tests {
         let num_shards = 32;
         let genesis_chunks = genesis_chunks(vec![StateRoot::default()], num_shards, 1_000_000, 0);
         let genesis = Block::genesis(
+            PROTOCOL_VERSION,
             genesis_chunks.into_iter().map(|chunk| chunk.header).collect(),
             Utc::now(),
             0,
@@ -533,20 +561,20 @@ mod tests {
         );
         let signer = InMemoryValidatorSigner::from_seed("other", KeyType::ED25519, "other");
         let b1 = Block::empty(&genesis, &signer);
-        assert!(b1.header.verify_block_producer(&signer.public_key()));
+        assert!(b1.header().verify_block_producer(&signer.public_key()));
         let other_signer = InMemoryValidatorSigner::from_seed("other2", KeyType::ED25519, "other2");
-        let approvals = vec![Some(Approval::new(b1.hash(), 1, 2, &other_signer).signature)];
+        let approvals = vec![Some(Approval::new(*b1.hash(), 1, 2, &other_signer).signature)];
         let b2 = Block::empty_with_approvals(
             &b1,
             2,
-            b1.header.inner_lite.epoch_id.clone(),
-            EpochId(genesis.hash()),
+            b1.header().epoch_id().clone(),
+            EpochId(*genesis.hash()),
             approvals,
             &signer,
-            genesis.header.inner_lite.next_bp_hash,
+            *genesis.header().next_bp_hash(),
             CryptoHash::default(),
         );
-        b2.header.verify_block_producer(&signer.public_key());
+        b2.header().verify_block_producer(&signer.public_key());
     }
 
     #[test]

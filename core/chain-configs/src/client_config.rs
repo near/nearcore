@@ -4,7 +4,8 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
-use near_primitives::types::{AccountId, BlockHeightDelta, NumBlocks, NumSeats, ShardId, Version};
+use near_primitives::types::{AccountId, BlockHeightDelta, NumBlocks, NumSeats, ShardId};
+use near_primitives::version::Version;
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct ClientConfig {

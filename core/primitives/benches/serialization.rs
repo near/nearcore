@@ -13,6 +13,7 @@ use near_primitives::test_utils::account_new;
 use near_primitives::transaction::{Action, SignedTransaction, Transaction, TransferAction};
 use near_primitives::types::{EpochId, StateRoot};
 use near_primitives::validator_signer::InMemoryValidatorSigner;
+use near_primitives::version::PROTOCOL_VERSION;
 use num_rational::Rational;
 
 fn create_transaction() -> SignedTransaction {
@@ -36,6 +37,7 @@ fn create_transaction() -> SignedTransaction {
 fn create_block() -> Block {
     let genesis_chunks = genesis_chunks(vec![StateRoot::default()], 1, 1_000, 0);
     let genesis = Block::genesis(
+        PROTOCOL_VERSION,
         genesis_chunks.into_iter().map(|chunk| chunk.header).collect(),
         Utc::now(),
         0,
@@ -45,9 +47,10 @@ fn create_block() -> Block {
     );
     let signer = InMemoryValidatorSigner::from_random("".to_string(), KeyType::ED25519);
     Block::produce(
-        &genesis.header,
+        PROTOCOL_VERSION,
+        genesis.header(),
         10,
-        vec![genesis.chunks[0].clone()],
+        vec![genesis.chunks()[0].clone()],
         EpochId::default(),
         EpochId::default(),
         vec![],
