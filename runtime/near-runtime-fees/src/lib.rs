@@ -22,6 +22,7 @@ pub struct Fee {
 }
 
 impl Fee {
+    #[inline]
     pub fn send_fee(&self, sir: bool) -> Gas {
         if sir {
             self.send_sir
@@ -49,6 +50,9 @@ pub struct RuntimeFeesConfig {
 
     /// Fraction of the burnt gas to reward to the contract account for execution.
     pub burnt_gas_reward: Rational,
+
+    /// Pessimistic gas price inflation ratio.
+    pub pessimistic_gas_price_inflation_ratio: Rational,
 }
 
 /// Describes the cost of creating a data receipt, `DataReceipt`.
@@ -204,6 +208,7 @@ impl Default for RuntimeFeesConfig {
                 num_extra_bytes_record: 40,
             },
             burnt_gas_reward: Rational::new(3, 10),
+            pessimistic_gas_price_inflation_ratio: Rational::new(103, 101),
         }
     }
 }
@@ -238,6 +243,17 @@ impl RuntimeFeesConfig {
                 num_extra_bytes_record: 0,
             },
             burnt_gas_reward: Rational::from_integer(0),
+            pessimistic_gas_price_inflation_ratio: Rational::from_integer(0),
         }
+    }
+
+    /// The minimum amount of gas required to create and execute a new receipt.
+    /// This amount is used to determine how many receipts can be created, send and executed for
+    /// some amount of prepaid gas.
+    pub fn minimum_new_receipt_gas(&self) -> Gas {
+        std::cmp::min(
+            self.action_receipt_creation_config.send_fee(true),
+            self.action_receipt_creation_config.send_fee(false),
+        ) + self.action_receipt_creation_config.exec_fee()
     }
 }

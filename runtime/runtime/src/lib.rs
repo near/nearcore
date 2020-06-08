@@ -89,8 +89,13 @@ pub struct ValidatorAccountsUpdate {
 
 #[derive(Debug)]
 pub struct VerificationResult {
+    /// The amount gas that was burnt to convert the transaction into a receipt and send it.
     pub gas_burnt: Gas,
-    pub gas_used: Gas,
+    /// The remaining amount of gas in the receipt.
+    pub gas_remaining: Gas,
+    /// The gas price at which the gas was purchased in the receipt.
+    pub receipt_gas_price: Balance,
+    /// The balance that was burnt to convert the transaction into a receipt and send it.
     pub burnt_amount: Balance,
 }
 
