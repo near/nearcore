@@ -13,7 +13,7 @@ use near_primitives::account::{AccessKey, AccessKeyPermission};
 use near_primitives::hash::CryptoHash;
 use near_primitives::rpc::{RpcGenesisRecordsRequest, RpcPagination, RpcQueryRequest};
 use near_primitives::types::{BlockId, BlockIdOrFinality, Finality, ShardId};
-use near_primitives::views::{EpochValidatorInfo, QueryRequest, QueryResponseKind};
+use near_primitives::views::{QueryRequest, QueryResponseKind};
 
 #[macro_use]
 pub mod test_utils;
@@ -550,6 +550,48 @@ fn test_gas_price() {
     test_with_client!(test_utils::NodeType::NonValidator, client, async move {
         let gas_price = client.gas_price(None).await.unwrap();
         assert!(gas_price.gas_price > 0);
+    });
+}
+
+#[test]
+fn test_invalid_methods() {
+    test_with_client!(test_utils::NodeType::NonValidator, client, async move {
+        let method_names = vec![
+            serde_json::json!(
+                "\u{0}\u{0}\u{0}k\u{0}\u{0}\u{0}\u{0}\u{0}\u{0}\u{0}\u{0}\u{0}\u{0}SRP"
+            ),
+            serde_json::json!(null),
+            serde_json::json!(true),
+            serde_json::json!(false),
+            serde_json::json!(0),
+            serde_json::json!(""),
+        ];
+
+        for method_name in method_names {
+            let json = serde_json::json!({
+                "jsonrpc": "2.0",
+                "id": "dontcare",
+                "method": &method_name,
+                "params": serde_json::json!([]),
+            });
+            let response = &mut client
+                .client
+                .post(&client.server_addr)
+                .header("Content-Type", "application/json")
+                .send_json(&json)
+                .await
+                .unwrap();
+
+            let response =
+                serde_json::from_value::<serde_json::Value>(response.json().await.unwrap())
+                    .unwrap();
+
+            assert!(
+                response["error"] != serde_json::json!(null),
+                "Invalid method {:?} must return error",
+                method_name
+            );
+        }
     });
 }
 
