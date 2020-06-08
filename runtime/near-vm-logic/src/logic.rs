@@ -5,7 +5,7 @@ use crate::dependencies::{External, MemoryLike};
 use crate::gas_counter::GasCounter;
 use crate::types::{
     AccountId, Balance, EpochHeight, Gas, PromiseIndex, PromiseResult, ReceiptIndex, ReturnData,
-    StorageUsage,
+    StorageUsage, CryptoHash
 };
 use crate::utils::split_method_names;
 use crate::{ExtCosts, HostError, VMLogicError, ValuePtr};
@@ -538,6 +538,34 @@ impl<'a> VMLogic<'a> {
         self.internal_write_register(register_id, self.context.signer_account_pk.clone())
     }
 
+    pub fn current_origin_id(&mut self, register_id: u64) -> Result<()> {
+        self.gas_counter.pay_base(base)?;
+
+        if self.context.is_view {
+            return Err(HostError::ProhibitedInView {
+                method_name: "current_origin_id".to_string(),
+            }
+            .into());
+        }
+        self.internal_write_register(register_id, self.context.current_origin_id.to_vec())
+    }
+
+    pub fn predecessor_origin_id(&mut self, register_id: u64) -> Result<()> {
+        self.gas_counter.pay_base(base)?;
+
+        if self.context.is_view {
+            return Err(HostError::ProhibitedInView {
+                method_name: "predecessor_origin_id".to_string(),
+            }
+            .into());
+        }
+        self.internal_write_register(register_id, self.context.predecessor_origin_id.to_vec())
+    }
+
+    pub fn call_contract(&mut self, origin_id: CryptoHash) {
+        
+    }
+
     /// All contract calls are a result of a receipt, this receipt might be created by a transaction
     /// that does function invocation on the contract or another contract as a result of
     /// cross-contract call. Saves the bytes of the predecessor account id into the register.
@@ -1063,7 +1091,8 @@ impl<'a> VMLogic<'a> {
         let account_id = self.read_and_parse_account_id(account_id_ptr, account_id_len)?;
         let sir = account_id == self.context.current_account_id;
         self.pay_gas_for_new_receipt(sir, &[])?;
-        let new_receipt_idx = self.ext.create_receipt(vec![], account_id.clone())?;
+        let new_receipt_idx =
+            self.ext.create_receipt(vec![], self.context.current_origin_id, account_id.clone())?;
         self.receipt_to_account.insert(new_receipt_idx, account_id);
 
         self.checked_push_promise(Promise::Receipt(new_receipt_idx))
@@ -1126,7 +1155,11 @@ impl<'a> VMLogic<'a> {
             .collect();
         self.pay_gas_for_new_receipt(sir, &deps)?;
 
-        let new_receipt_idx = self.ext.create_receipt(receipt_dependencies, account_id.clone())?;
+        let new_receipt_idx = self.ext.create_receipt(
+            receipt_dependencies,
+            self.context.current_origin_id,
+            account_id.clone(),
+        )?;
         self.receipt_to_account.insert(new_receipt_idx, account_id);
 
         self.checked_push_promise(Promise::Receipt(new_receipt_idx))
@@ -1299,7 +1332,14 @@ impl<'a> VMLogic<'a> {
 
         self.deduct_balance(amount)?;
 
-        self.ext.append_action_function_call(receipt_idx, method_name, arguments, amount, gas)?;
+        self.ext.append_action_function_call(
+            receipt_idx,
+            self.context.current_origin_id,
+            method_name,
+            arguments,
+            amount,
+            gas,
+        )?;
         Ok(())
     }
 

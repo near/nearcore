@@ -12,12 +12,17 @@ use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{AccountId, Balance, EpochId, EpochInfoProvider};
 use near_primitives::utils::create_nonce_with_nonce;
 use near_store::{TrieUpdate, TrieUpdateValuePtr};
-use near_vm_logic::{External, HostError, VMLogicError, ValuePtr};
+use near_vm_logic::{
+    types::CryptoHash as LogicCryptoHash, External, HostError, VMLogicError, ValuePtr,
+};
 use sha3::{Keccak256, Keccak512};
+use std::collections::HashSet;
 
 pub struct RuntimeExt<'a> {
     trie_update: &'a mut TrieUpdate,
     account_id: &'a AccountId,
+    current_origin_id: CryptoHash,
+    contract_ids: HashSet<CryptoHash>,
     action_receipts: Vec<(AccountId, ActionReceipt)>,
     signer_id: &'a AccountId,
     signer_public_key: &'a PublicKey,
@@ -45,6 +50,8 @@ impl<'a> RuntimeExt<'a> {
     pub fn new(
         trie_update: &'a mut TrieUpdate,
         account_id: &'a AccountId,
+        current_origin_id: CryptoHash,
+        contract_ids: HashSet<CryptoHash>,
         signer_id: &'a AccountId,
         signer_public_key: &'a PublicKey,
         gas_price: Balance,
@@ -56,6 +63,8 @@ impl<'a> RuntimeExt<'a> {
         RuntimeExt {
             trie_update,
             account_id,
+            current_origin_id,
+            contract_ids,
             action_receipts: vec![],
             signer_id,
             signer_public_key,
@@ -69,7 +78,11 @@ impl<'a> RuntimeExt<'a> {
     }
 
     pub fn create_storage_key(&self, key: &[u8]) -> TrieKey {
-        TrieKey::ContractData { account_id: self.account_id.clone(), key: key.to_vec() }
+        TrieKey::ContractData {
+            origin_id: self.current_origin_id,
+            account_id: self.account_id.clone(),
+            key: key.to_vec(),
+        }
     }
 
     fn new_data_id(&mut self) -> CryptoHash {
@@ -135,7 +148,21 @@ impl<'a> External for RuntimeExt<'a> {
         self.trie_update.get_ref(&storage_key).map(|x| x.is_some()).map_err(wrap_storage_error)
     }
 
-    fn create_receipt(&mut self, receipt_indices: Vec<u64>, receiver_id: String) -> ExtResult<u64> {
+    fn contract_call(
+        origin_id: LogicCryptoHash,
+        method_name: Vec<u8>,
+        args: Vec<u8>,
+        prepaid_gas: Gas,
+    ) {
+        
+    }
+
+    fn create_receipt(
+        &mut self,
+        receipt_indices: Vec<u64>,
+        origin_id: LogicCryptoHash,
+        receiver_id: String,
+    ) -> ExtResult<u64> {
         let mut input_data_ids = vec![];
         for receipt_index in receipt_indices {
             let data_id = self.new_data_id();
@@ -151,6 +178,7 @@ impl<'a> External for RuntimeExt<'a> {
         let new_receipt = ActionReceipt {
             signer_id: self.signer_id.clone(),
             signer_public_key: self.signer_public_key.clone(),
+            origin_id: origin_id.into(),
             gas_price: self.gas_price,
             output_data_receivers: vec![],
             input_data_ids,
@@ -178,6 +206,7 @@ impl<'a> External for RuntimeExt<'a> {
     fn append_action_function_call(
         &mut self,
         receipt_index: u64,
+        origin_id: LogicCryptoHash,
         method_name: Vec<u8>,
         args: Vec<u8>,
         attached_deposit: u128,
@@ -186,6 +215,7 @@ impl<'a> External for RuntimeExt<'a> {
         self.append_action(
             receipt_index,
             Action::FunctionCall(FunctionCallAction {
+                origin_id: origin_id.into(),
                 method_name: String::from_utf8(method_name)
                     .map_err(|_| HostError::InvalidMethodName)?,
                 args,

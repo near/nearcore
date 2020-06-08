@@ -1,4 +1,4 @@
-use crate::types::{AccountId, Balance, Gas, PublicKey};
+use crate::types::{AccountId, Balance, CryptoHash, Gas, PublicKey};
 use crate::{External, ValuePtr};
 use near_vm_errors::HostError;
 use serde::{Deserialize, Serialize};
@@ -71,12 +71,17 @@ impl External for MockedExternal {
         Ok(self.fake_trie.contains_key(key))
     }
 
-    fn create_receipt(&mut self, receipt_indices: Vec<u64>, receiver_id: String) -> Result<u64> {
+    fn create_receipt(
+        &mut self,
+        receipt_indices: Vec<u64>,
+        origin_id: CryptoHash,
+        receiver_id: String,
+    ) -> Result<u64> {
         if let Some(index) = receipt_indices.iter().find(|&&el| el >= self.receipts.len() as u64) {
             return Err(HostError::InvalidReceiptIndex { receipt_index: *index }.into());
         }
         let res = self.receipts.len() as u64;
-        self.receipts.push(Receipt { receipt_indices, receiver_id, actions: vec![] });
+        self.receipts.push(Receipt { receipt_indices, receiver_id, origin_id, actions: vec![] });
         Ok(res)
     }
 
@@ -97,6 +102,7 @@ impl External for MockedExternal {
     fn append_action_function_call(
         &mut self,
         receipt_index: u64,
+        origin_id: CryptoHash,
         method_name: Vec<u8>,
         arguments: Vec<u8>,
         attached_deposit: u128,
@@ -104,6 +110,7 @@ impl External for MockedExternal {
     ) -> Result<()> {
         self.receipts.get_mut(receipt_index as usize).unwrap().actions.push(Action::FunctionCall(
             FunctionCallAction {
+                origin_id,
                 method_name,
                 args: arguments,
                 deposit: attached_deposit,
@@ -238,6 +245,7 @@ impl External for MockedExternal {
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Receipt {
     receipt_indices: Vec<u64>,
+    origin_id: CryptoHash,
     receiver_id: String,
     actions: Vec<Action>,
 }
@@ -262,6 +270,7 @@ pub struct DeployContractAction {
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct FunctionCallAction {
+    origin_id: CryptoHash,
     #[serde(with = "crate::serde_with::bytes_as_str")]
     method_name: Vec<u8>,
     /// Most function calls still take JSON as input, so we'll keep it there as a string.

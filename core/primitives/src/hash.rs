@@ -33,6 +33,14 @@ impl AsMut<[u8]> for CryptoHash {
     }
 }
 
+impl From<[u8; 32]> for CryptoHash {
+    fn from(bytes: [u8; 32]) -> CryptoHash {
+        let mut hash = CryptoHash::default();
+        (hash.0).0 = bytes;
+        hash
+    }
+}
+
 impl BaseDecode for CryptoHash {}
 
 impl borsh::BorshSerialize for CryptoHash {

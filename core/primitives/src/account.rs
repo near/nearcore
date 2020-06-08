@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use borsh::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
 
@@ -15,7 +17,8 @@ pub struct Account {
     #[serde(with = "u128_dec_format_compatible")]
     pub locked: Balance,
     /// Hash of the code stored in the storage for this account.
-    pub code_hash: CryptoHash,
+    /// Origin -> contrat code hash
+    pub contract_ids: HashMap<CryptoHash, CryptoHash>,
     /// Storage used by the given account, includes account id, this struct, access keys and other data.
     pub storage_usage: StorageUsage,
 }

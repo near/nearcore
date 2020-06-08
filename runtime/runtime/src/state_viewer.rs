@@ -91,30 +91,32 @@ impl TrieViewer {
         last_block_hash: &CryptoHash,
         epoch_height: EpochHeight,
         epoch_id: &EpochId,
-        contract_id: &AccountId,
+        origin_id: CryptoHash,
+        account_id: &AccountId,
         method_name: &str,
         args: &[u8],
         logs: &mut Vec<String>,
         epoch_info_provider: &dyn EpochInfoProvider,
     ) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
         let now = Instant::now();
-        if !is_valid_account_id(contract_id) {
-            return Err(format!("Contract ID {:?} is not valid", contract_id).into());
+        if !is_valid_account_id(account_id) {
+            return Err(format!("Contract ID {:?} is not valid", account_id).into());
         }
         let root = state_update.get_root();
-        let account = get_account(&state_update, contract_id)?
-            .ok_or_else(|| format!("Account {:?} doesn't exist", contract_id))?;
-        let code = get_code_with_cache(&state_update, contract_id, &account)?.ok_or_else(|| {
-            format!("cannot find contract code for account {}", contract_id.clone())
-        })?;
+        let account = get_account(&state_update, account_id)?
+            .ok_or_else(|| format!("Account {:?} doesn't exist", account_id))?;
+        let code = get_code_with_cache(&state_update, origin_id, account_id, &account)?
+            .ok_or_else(|| {
+                format!("cannot find contract code for account {}", account_id.clone())
+            })?;
         // TODO(#1015): Add ability to pass public key and originator_id
-        let originator_id = contract_id;
+        let originator_id = account_id;
         let public_key = PublicKey::empty(KeyType::ED25519);
         let (outcome, err) = {
             let empty_hash = CryptoHash::default();
             let mut runtime_ext = RuntimeExt::new(
                 &mut state_update,
-                contract_id,
+                account_id,
                 originator_id,
                 &public_key,
                 0,
@@ -125,7 +127,9 @@ impl TrieViewer {
             );
 
             let context = VMContext {
-                current_account_id: contract_id.clone(),
+                current_account_id: account_id.clone(),
+                current_origin_id: (origin_id.0).0,
+                predecessor_origin_id: (CryptoHash::default().0).0,
                 signer_account_id: originator_id.clone(),
                 signer_account_pk: public_key.try_to_vec().expect("Failed to serialize"),
                 predecessor_account_id: originator_id.clone(),

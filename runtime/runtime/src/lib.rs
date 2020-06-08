@@ -236,6 +236,7 @@ impl Runtime {
                     receipt: ReceiptEnum::Action(ActionReceipt {
                         signer_id: transaction.signer_id.clone(),
                         signer_public_key: transaction.public_key.clone(),
+                        origin_id: signed_transaction.get_hash(),
                         gas_price: apply_state.gas_price,
                         output_data_receivers: vec![],
                         input_data_ids: vec![],
@@ -309,6 +310,7 @@ impl Runtime {
                 near_metrics::inc_counter(&metrics::ACTION_DEPLOY_CONTRACT_TOTAL);
                 action_deploy_contract(
                     state_update,
+                    action_receipt.origin_id,
                     account.as_mut().expect(EXPECT_ACCOUNT_EXISTS),
                     &account_id,
                     deploy_contract,
@@ -1192,8 +1194,11 @@ impl Runtime {
                 StateRecord::Contract { account_id, code } => {
                     let acc = get_account(&state_update, &account_id).expect("Failed to read state").expect("Code state record should be preceded by the corresponding account record");
                     let code = ContractCode::new(code);
-                    set_code(&mut state_update, account_id, &code);
-                    assert_eq!(code.get_hash(), acc.code_hash);
+                    // TODO: set a proper origin_id
+                    set_code(&mut state_update, CryptoHash::default(), account_id, &code);
+                    // let contract_ids = HashMap::new();
+                    // contract_ids.insert(CryptoHash::default(), code.get_hash());
+                    // assert_eq!(code.get_hash(), HashMap::default());
                 }
                 StateRecord::AccessKey { account_id, public_key, access_key } => {
                     set_access_key(&mut state_update, account_id, public_key, &access_key);

@@ -1,9 +1,13 @@
-use crate::types::{AccountId, Balance, BlockHeight, EpochHeight, Gas, PublicKey, StorageUsage};
+use crate::types::{
+    AccountId, Balance, BlockHeight, CryptoHash, EpochHeight, Gas, PublicKey, StorageUsage,
+};
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Clone)]
 /// Context for the contract execution.
 pub struct VMContext {
+    pub current_origin_id: CryptoHash,
+    pub predecessor_origin_id: CryptoHash,
     /// The account id of the current contract that we are executing.
     pub current_account_id: AccountId,
     /// The account id of that signed the original transaction that led to this

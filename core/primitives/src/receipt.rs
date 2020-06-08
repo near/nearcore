@@ -52,6 +52,7 @@ impl Receipt {
             receipt: ReceiptEnum::Action(ActionReceipt {
                 signer_id: system_account(),
                 signer_public_key: PublicKey::empty(KeyType::ED25519),
+                origin_id: Default::default(),
                 gas_price: 0,
                 output_data_receivers: vec![],
                 input_data_ids: vec![],
@@ -79,6 +80,7 @@ impl Receipt {
             receipt: ReceiptEnum::Action(ActionReceipt {
                 signer_id: receiver_id.clone(),
                 signer_public_key,
+                origin_id: Default::default(),
                 gas_price: 0,
                 output_data_receivers: vec![],
                 input_data_ids: vec![],
@@ -102,6 +104,7 @@ pub struct ActionReceipt {
     pub signer_id: AccountId,
     /// An access key which was used to sign the original transaction
     pub signer_public_key: PublicKey,
+    pub origin_id: CryptoHash,
     /// A gas_price which has been used to buy gas in the original transaction
     #[serde(with = "u128_dec_format_compatible")]
     pub gas_price: Balance,

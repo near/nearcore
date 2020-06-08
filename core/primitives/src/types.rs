@@ -134,7 +134,7 @@ impl StateChangesKinds {
                     TrieKey::Account { account_id } => {
                         Some(Ok(StateChangeKind::AccountTouched { account_id }))
                     }
-                    TrieKey::ContractCode { account_id } => {
+                    TrieKey::ContractCode { origin_id, account_id } => {
                         Some(Ok(StateChangeKind::ContractCodeTouched { account_id }))
                     }
                     TrieKey::AccessKey { account_id, .. } => {
@@ -216,7 +216,7 @@ pub enum StateChangeValue {
     AccessKeyDeletion { account_id: AccountId, public_key: PublicKey },
     DataUpdate { account_id: AccountId, key: StoreKey, value: StoreValue },
     DataDeletion { account_id: AccountId, key: StoreKey },
-    ContractCodeUpdate { account_id: AccountId, code: Vec<u8> },
+    ContractCodeUpdate { origin_id: CryptoHash, account_id: AccountId, code: Vec<u8> },
     ContractCodeDeletion { account_id: AccountId },
 }
 
@@ -301,8 +301,8 @@ impl StateChanges {
 
         for raw_change in raw_changes {
             let RawStateChangesWithTrieKey { trie_key, changes } = raw_change?;
-            let account_id = match trie_key {
-                TrieKey::ContractCode { account_id } => account_id,
+            let (origin_id, account_id) = match trie_key {
+                TrieKey::ContractCode { origin_id, account_id } => (origin_id, account_id),
                 _ => panic!("Conflicting data stored under TrieKey::ContractCode prefix"),
             };
             state_changes.extend(changes.into_iter().map(|RawStateChange { cause, data }| {
@@ -310,6 +310,7 @@ impl StateChanges {
                     cause,
                     value: if let Some(change_data) = data {
                         StateChangeValue::ContractCodeUpdate {
+                            origin_id,
                             account_id: account_id.clone(),
                             code: change_data.into(),
                         }

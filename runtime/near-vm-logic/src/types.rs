@@ -10,6 +10,7 @@ pub type PromiseIndex = u64;
 pub type ReceiptIndex = u64;
 pub type IteratorIndex = u64;
 pub type StorageUsage = u64;
+pub type CryptoHash = [u8; 32];
 
 #[derive(Debug, PartialEq, Serialize, Deserialize, Clone)]
 pub enum ReturnData {

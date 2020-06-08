@@ -43,7 +43,7 @@ pub enum TrieKey {
     /// Used to store `primitives::account::Account` struct for a given `AccountId`.
     Account { account_id: AccountId },
     /// Used to store `Vec<u8>` contract code for a given `AccountId`.
-    ContractCode { account_id: AccountId },
+    ContractCode { origin_id: CryptoHash, account_id: AccountId },
     /// Used to store `primitives::account::AccessKey` struct for a given `AccountId` and
     /// a given `public_key` of the `AccessKey`.
     AccessKey { account_id: AccountId, public_key: PublicKey },
@@ -71,14 +71,16 @@ pub enum TrieKey {
     DelayedReceipt { index: u64 },
     /// Used to store a key-value record `Vec<u8>` within a contract deployed on a given `AccountId`
     /// and a given key.
-    ContractData { account_id: AccountId, key: Vec<u8> },
+    ContractData { origin_id: CryptoHash, account_id: AccountId, key: Vec<u8> },
 }
 
 impl TrieKey {
     pub fn len(&self) -> usize {
         match self {
             TrieKey::Account { account_id } => col::ACCOUNT.len() + account_id.len(),
-            TrieKey::ContractCode { account_id } => col::CONTRACT_CODE.len() + account_id.len(),
+            TrieKey::ContractCode { origin_id, account_id } => {
+                col::CONTRACT_CODE.len() + account_id.len() + size_of::<CryptoHash>()
+            }
             TrieKey::AccessKey { account_id, public_key } => {
                 col::ACCESS_KEY.len() * 2 + account_id.len() + public_key.len()
             }
@@ -125,8 +127,9 @@ impl TrieKey {
                 res.extend(col::ACCOUNT);
                 res.extend(account_id.as_bytes());
             }
-            TrieKey::ContractCode { account_id } => {
+            TrieKey::ContractCode { origin_id, account_id } => {
                 res.extend(col::CONTRACT_CODE);
+                res.extend(origin_id.as_ref());
                 res.extend(account_id.as_bytes());
             }
             TrieKey::AccessKey { account_id, public_key } => {
@@ -472,9 +475,12 @@ mod tests {
     #[test]
     fn test_key_for_code_consistency() {
         for account_id in OK_ACCOUNT_IDS.iter().map(|x| AccountId::from(*x)) {
-            let key = TrieKey::ContractCode { account_id: account_id.clone() };
+            let key = TrieKey::ContractCode {
+                origin_id: CryptoHash::default(),
+                account_id: account_id.clone(),
+            };
             let raw_key = key.to_vec();
-            assert_eq!(raw_key.len(), key.len());
+            assert_eq!(raw_key.len(), key.len() + 32);
             assert_eq!(
                 trie_key_parsers::parse_account_id_from_contract_code_key(&raw_key).unwrap(),
                 account_id

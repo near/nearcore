@@ -65,12 +65,14 @@ pub(crate) fn get_insufficient_storage_stake(
 
 pub(crate) fn get_code_with_cache(
     state_update: &TrieUpdate,
+    origin_id: CryptoHash,
     account_id: &AccountId,
     account: &Account,
 ) -> Result<Option<Arc<ContractCode>>, StorageError> {
     debug!(target:"runtime", "Calling the contract at account {}", account_id);
-    let code_hash = account.code_hash;
-    let code = || get_code(state_update, account_id);
+    // TODO: check
+    let code_hash = account.contract_ids.get(&origin_id).copied().unwrap_or_default();
+    let code = || get_code(state_update, origin_id, account_id);
     crate::cache::get_code(code_hash, code)
 }
 
@@ -89,19 +91,21 @@ pub(crate) fn action_function_call(
     is_last_action: bool,
     epoch_info_provider: &dyn EpochInfoProvider,
 ) -> Result<(), RuntimeError> {
-    let code = match get_code_with_cache(state_update, account_id, &account) {
-        Ok(Some(code)) => code,
-        Ok(None) => {
-            let error = FunctionCallError::CompilationError(CompilationError::CodeDoesNotExist {
-                account_id: account_id.clone(),
-            });
-            result.result = Err(ActionErrorKind::FunctionCallError(error).into());
-            return Ok(());
-        }
-        Err(e) => {
-            return Err(e.into());
-        }
-    };
+    let code =
+        match get_code_with_cache(state_update, action_receipt.origin_id, account_id, &account) {
+            Ok(Some(code)) => code,
+            Ok(None) => {
+                let error =
+                    FunctionCallError::CompilationError(CompilationError::CodeDoesNotExist {
+                        account_id: account_id.clone(),
+                    });
+                result.result = Err(ActionErrorKind::FunctionCallError(error).into());
+                return Ok(());
+            }
+            Err(e) => {
+                return Err(e.into());
+            }
+        };
 
     if account.amount.checked_add(function_call.deposit).is_none() {
         return Err(StorageError::StorageInconsistentState(
@@ -129,6 +133,8 @@ pub(crate) fn action_function_call(
     };
     let context = VMContext {
         current_account_id: account_id.clone(),
+        current_origin_id: (function_call.origin_id.0).0,
+        predecessor_origin_id: (action_receipt.origin_id.0).0,
         signer_account_id: action_receipt.signer_id.clone(),
         signer_account_pk: action_receipt
             .signer_public_key
@@ -315,20 +321,22 @@ pub(crate) fn action_create_account(
     *account = Some(Account {
         amount: 0,
         locked: 0,
-        code_hash: CryptoHash::default(),
+        contract_ids: Default::default(),
         storage_usage: fee_config.storage_usage_config.num_bytes_account,
     });
 }
 
 pub(crate) fn action_deploy_contract(
     state_update: &mut TrieUpdate,
+    origin_id: CryptoHash,
     account: &mut Account,
     account_id: &AccountId,
     deploy_contract: &DeployContractAction,
 ) -> Result<(), StorageError> {
     let code = ContractCode::new(deploy_contract.code.clone());
-    let prev_code = get_code(state_update, account_id)?;
+    let prev_code = get_code(state_update, origin_id, account_id)?;
     let prev_code_length = prev_code.map(|code| code.code.len() as u64).unwrap_or_default();
+    // TODO: check
     account.storage_usage =
         account.storage_usage.checked_sub(prev_code_length).ok_or_else(|| {
             StorageError::StorageInconsistentState(format!(
@@ -343,8 +351,8 @@ pub(crate) fn action_deploy_contract(
                 account_id
             ))
         })?;
-    account.code_hash = code.get_hash();
-    set_code(state_update, account_id.clone(), &code);
+    account.contract_ids.insert(origin_id, code.get_hash());
+    set_code(state_update, origin_id, account_id.clone(), &code);
     Ok(())
 }
 

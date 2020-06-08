@@ -283,6 +283,7 @@ impl RuntimeStandalone {
     pub fn view_method_call(
         &self,
         account_id: &AccountId,
+        origin_id: CryptoHash,
         method_name: &str,
         args: &[u8],
     ) -> Result<(Vec<u8>, Vec<String>), Box<dyn std::error::Error>> {
@@ -296,6 +297,7 @@ impl RuntimeStandalone {
             &CryptoHash::default(),
             self.cur_block.epoch_height,
             &EpochId::default(),
+            origin_id,
             account_id,
             method_name,
             args,
@@ -373,7 +375,7 @@ mod tests {
             runtime.view_account(&"alice".into()),
             Some(Account {
                 amount: 165437999999999999999000,
-                code_hash: CryptoHash::default(),
+                contract_ids: Default::default(),
                 locked: 0,
                 storage_usage: 182,
             })
@@ -400,21 +402,25 @@ mod tests {
             Ok(ExecutionOutcome { status: ExecutionStatus::SuccessValue(_), .. })
         ));
 
+        let create_contract_tx = SignedTransaction::create_contract(
+            2,
+            signer.account_id.clone(),
+            "caller".into(),
+            include_bytes!(
+                "../contracts/cross-contract-high-level/res/cross_contract_high_level.wasm"
+            )
+            .as_ref()
+            .into(),
+            23082408900000000000001000,
+            signer.public_key(),
+            &signer,
+            CryptoHash::default(),
+        );
+
+        let cross_contract_origin_id = create_contract_tx.get_hash();
+
         assert!(matches!(
-            runtime.resolve_tx(SignedTransaction::create_contract(
-                2,
-                signer.account_id.clone(),
-                "caller".into(),
-                include_bytes!(
-                    "../contracts/cross-contract-high-level/res/cross_contract_high_level.wasm"
-                )
-                .as_ref()
-                .into(),
-                23082408900000000000001000,
-                signer.public_key(),
-                &signer,
-                CryptoHash::default(),
-            )),
+            runtime.resolve_tx(create_contract_tx),
             Ok(ExecutionOutcome { status: ExecutionStatus::SuccessValue(_), .. })
         ));
 
@@ -425,6 +431,7 @@ mod tests {
                 "caller".into(),
                 &signer,
                 0,
+                cross_contract_origin_id,
                 "simple_call".into(),
                 "{\"account_id\": \"status\", \"message\": \"caller status is ok!\"}"
                     .as_bytes()

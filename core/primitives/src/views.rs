@@ -4,6 +4,7 @@
 //! type gets changed, the view should preserve the old shape and only re-map the necessary bits
 //! from the source structure in the relevant `From<SourceStruct>` impl.
 use std::borrow::Cow;
+use std::collections::HashMap;
 use std::convert::{TryFrom, TryInto};
 use std::fmt;
 
@@ -47,7 +48,7 @@ pub struct AccountView {
     pub amount: Balance,
     #[serde(with = "u128_dec_format")]
     pub locked: Balance,
-    pub code_hash: CryptoHash,
+    pub contract_ids: HashMap<CryptoHash, CryptoHash>,
     pub storage_usage: StorageUsage,
     /// TODO(2271): deprecated.
     #[serde(default)]
@@ -59,7 +60,7 @@ impl From<Account> for AccountView {
         AccountView {
             amount: account.amount,
             locked: account.locked,
-            code_hash: account.code_hash,
+            contract_ids: Default::default(),
             storage_usage: account.storage_usage,
             storage_paid_at: 0,
         }
@@ -71,7 +72,7 @@ impl From<AccountView> for Account {
         Self {
             amount: view.amount,
             locked: view.locked,
-            code_hash: view.code_hash,
+            contract_ids: view.contract_ids,
             storage_usage: view.storage_usage,
         }
     }
@@ -578,6 +579,7 @@ pub enum ActionView {
         code: String,
     },
     FunctionCall {
+        origin_id: CryptoHash,
         method_name: String,
         args: String,
         gas: Gas,
@@ -613,6 +615,7 @@ impl From<Action> for ActionView {
                 ActionView::DeployContract { code: to_base64(&hash(&action.code)) }
             }
             Action::FunctionCall(action) => ActionView::FunctionCall {
+                origin_id: action.origin_id,
                 method_name: action.method_name,
                 args: to_base64(&action.args),
                 gas: action.gas,
@@ -643,8 +646,9 @@ impl TryFrom<ActionView> for Action {
             ActionView::DeployContract { code } => {
                 Action::DeployContract(DeployContractAction { code: from_base64(&code)? })
             }
-            ActionView::FunctionCall { method_name, args, gas, deposit } => {
+            ActionView::FunctionCall { origin_id, method_name, args, gas, deposit } => {
                 Action::FunctionCall(FunctionCallAction {
+                    origin_id,
                     method_name,
                     args: from_base64(&args)?,
                     gas,
@@ -889,6 +893,7 @@ pub enum ReceiptEnumView {
     Action {
         signer_id: AccountId,
         signer_public_key: PublicKey,
+        origin_id: CryptoHash,
         #[serde(with = "u128_dec_format")]
         gas_price: Balance,
         output_data_receivers: Vec<DataReceiverView>,
@@ -912,6 +917,7 @@ impl From<Receipt> for ReceiptView {
                 ReceiptEnum::Action(action_receipt) => ReceiptEnumView::Action {
                     signer_id: action_receipt.signer_id,
                     signer_public_key: action_receipt.signer_public_key,
+                    origin_id: action_receipt.origin_id,
                     gas_price: action_receipt.gas_price,
                     output_data_receivers: action_receipt
                         .output_data_receivers
@@ -948,6 +954,7 @@ impl TryFrom<ReceiptView> for Receipt {
                 ReceiptEnumView::Action {
                     signer_id,
                     signer_public_key,
+                    origin_id,
                     gas_price,
                     output_data_receivers,
                     input_data_ids,
@@ -955,6 +962,7 @@ impl TryFrom<ReceiptView> for Receipt {
                 } => ReceiptEnum::Action(ActionReceipt {
                     signer_id,
                     signer_public_key,
+                    origin_id,
                     gas_price,
                     output_data_receivers: output_data_receivers
                         .into_iter()
@@ -1208,6 +1216,7 @@ pub enum StateChangeValueView {
         key: StoreKey,
     },
     ContractCodeUpdate {
+        origin_id: CryptoHash,
         account_id: AccountId,
         #[serde(rename = "code_base64", with = "base64_format")]
         code: Vec<u8>,
@@ -1238,8 +1247,8 @@ impl From<StateChangeValue> for StateChangeValueView {
             StateChangeValue::DataDeletion { account_id, key } => {
                 Self::DataDeletion { account_id, key }
             }
-            StateChangeValue::ContractCodeUpdate { account_id, code } => {
-                Self::ContractCodeUpdate { account_id, code }
+            StateChangeValue::ContractCodeUpdate { origin_id, account_id, code } => {
+                Self::ContractCodeUpdate { origin_id, account_id, code }
             }
             StateChangeValue::ContractCodeDeletion { account_id } => {
                 Self::ContractCodeDeletion { account_id }
