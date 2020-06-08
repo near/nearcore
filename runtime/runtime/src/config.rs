@@ -10,6 +10,11 @@ use near_runtime_fees::RuntimeFeesConfig;
 // Just re-exporting RuntimeConfig for backwards compatibility.
 pub use near_runtime_configs::RuntimeConfig;
 
+use num_bigint::BigUint;
+use num_rational::Rational;
+use num_traits::cast::ToPrimitive;
+use num_traits::pow::Pow;
+
 /// Describes the cost of converting this transaction into a receipt.
 #[derive(Debug)]
 pub struct TransactionCost {
@@ -22,6 +27,19 @@ pub struct TransactionCost {
     pub total_cost: Balance,
     /// The amount of tokens burnt by converting this transaction to a receipt.
     pub burnt_amount: Balance,
+}
+
+/// Multiplies `gas_price` by the power of `inflation_base` with exponent `inflation_exponent`.
+pub fn safe_gas_price_inflated(
+    gas_price: Balance,
+    inflation_base: Rational,
+    inflation_exponent: u8,
+) -> Result<Balance, IntegerOverflowError> {
+    let numer = BigUint::from(*inflation_base.numer() as usize).pow(inflation_exponent);
+    let denom = BigUint::from(*inflation_base.denom() as usize).pow(inflation_exponent);
+    // Rounding up
+    let inflated_gas_price: BigUint = (numer * gas_price + &denom - 1u8) / denom;
+    inflated_gas_price.to_u128().ok_or_else(|| IntegerOverflowError {})
 }
 
 pub fn safe_gas_to_balance(gas_price: Balance, gas: Gas) -> Result<Balance, IntegerOverflowError> {
@@ -141,13 +159,15 @@ pub fn tx_cost(
         gas_burnt,
         total_send_fees(&config, sender_is_receiver, &transaction.actions)?,
     )?;
-    let mut gas_used = safe_add_gas(gas_burnt, config.action_receipt_creation_config.exec_fee())?;
-    gas_used = safe_add_gas(gas_used, total_exec_fees(&config, &transaction.actions)?)?;
-    gas_used = safe_add_gas(gas_used, total_prepaid_gas(&transaction.actions)?)?;
-    let mut total_cost = safe_gas_to_balance(gas_price, gas_used)?;
+    let mut exec_gas = safe_add_gas(gas_burnt, config.action_receipt_creation_config.exec_fee())?;
+    exec_gas = safe_add_gas(exec_gas, total_exec_fees(&config, &transaction.actions)?)?;
+    // gas_used = safe_add_gas(gas_used, total_prepaid_gas(&transaction.actions)?)?;
+    let total_prepaid_gas = total_prepaid_gas(&transaction.actions)?;
+    let mut total_cost = safe_gas_to_balance(gas_price, exec_gas)?;
     total_cost = safe_add_balance(total_cost, total_deposit(&transaction.actions)?)?;
     let burnt_amount = safe_gas_to_balance(gas_price, gas_burnt)?;
-    Ok(TransactionCost { gas_burnt, gas_used, total_cost, burnt_amount })
+    // TODO
+    Ok(TransactionCost { gas_burnt, gas_used: exec_gas, total_cost, burnt_amount })
 }
 
 /// Total sum of gas that would need to be burnt before we start executing the given actions.
@@ -174,4 +194,18 @@ pub fn total_deposit(actions: &[Action]) -> Result<Balance, IntegerOverflowError
 /// Get the total sum of prepaid gas for given actions.
 pub fn total_prepaid_gas(actions: &[Action]) -> Result<Gas, IntegerOverflowError> {
     actions.iter().try_fold(0, |acc, action| safe_add_gas(acc, action.get_prepaid_gas()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_safe_gas_price_inflated() {
+        assert_eq!(safe_gas_price_inflated(10000, Rational::new(101, 100), 1).unwrap(), 10100);
+        assert_eq!(safe_gas_price_inflated(10000, Rational::new(101, 100), 2).unwrap(), 10201);
+        // Rounded up
+        assert_eq!(safe_gas_price_inflated(10000, Rational::new(101, 100), 3).unwrap(), 10304);
+        assert_eq!(safe_gas_price_inflated(10000, Rational::new(101, 100), 32).unwrap(), 13750);
+    }
 }
