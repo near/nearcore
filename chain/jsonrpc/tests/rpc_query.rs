@@ -3,7 +3,6 @@ use std::convert::TryFrom;
 use actix::{Actor, System};
 use futures::{future, FutureExt};
 
-use near_chain_configs::PROTOCOL_VERSION;
 use near_crypto::{KeyType, PublicKey, Signature};
 use near_jsonrpc::client::new_client;
 use near_jsonrpc_client::ChunkId;
@@ -13,6 +12,7 @@ use near_primitives::account::{AccessKey, AccessKeyPermission};
 use near_primitives::hash::CryptoHash;
 use near_primitives::rpc::{RpcGenesisRecordsRequest, RpcPagination, RpcQueryRequest};
 use near_primitives::types::{BlockId, BlockIdOrFinality, Finality, ShardId};
+use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{QueryRequest, QueryResponseKind};
 
 #[macro_use]
@@ -457,7 +457,6 @@ fn test_health_ok() {
 fn test_genesis_config() {
     test_with_client!(test_utils::NodeType::NonValidator, client, async move {
         let genesis_config = client.EXPERIMENTAL_genesis_config().await.unwrap();
-        assert_eq!(genesis_config["config_version"].as_u64().unwrap(), 1);
         assert_eq!(genesis_config["protocol_version"].as_u64().unwrap(), PROTOCOL_VERSION as u64);
         assert!(!genesis_config["chain_id"].as_str().unwrap().is_empty());
         assert!(!genesis_config.as_object().unwrap().contains_key("records"));

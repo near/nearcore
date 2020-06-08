@@ -35,6 +35,7 @@ pytest --timeout=300 sanity/gc_after_sync.py
 pytest --timeout=300 sanity/gc_sync_after_sync.py
 pytest --timeout=300 sanity/gc_sync_after_sync.py swap_nodes
 pytest --timeout=300 tests/sanity/large_messages.py
+pytest --timeout=300 sanity/upgradable.py
 
 # python tests for smart contract deployment and invocation
 pytest contracts/deploy_call_smart_contract.py
