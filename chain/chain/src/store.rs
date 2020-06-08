@@ -2813,6 +2813,7 @@ mod tests {
     }
 
     /// Test that MAX_HEIGHTS_TO_CLEAR works properly
+    #[cfg(feature = "expensive_tests")]
     #[test]
     fn test_clear_old_data_too_many_heights() {
         let mut chain = get_chain_with_epoch_length(1);
