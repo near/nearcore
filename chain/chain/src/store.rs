@@ -2479,11 +2479,13 @@ mod tests {
     use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
     use near_store::test_utils::create_test_store;
 
-    use crate::chain::{check_refcount_map, MAX_HEIGHTS_TO_CLEAR};
+    use crate::chain::check_refcount_map;
     use crate::store::{ChainStoreAccess, GCMode};
     use crate::store_validator::StoreValidator;
     use crate::test_utils::KeyValueRuntime;
     use crate::{Chain, ChainGenesis, DoomslugThresholdMode};
+
+    const MAX_HEIGHTS_TO_CLEAR: u64 = 100;
 
     fn get_chain() -> Chain {
         get_chain_with_epoch_length(10)
@@ -2730,7 +2732,7 @@ mod tests {
         assert!(check_refcount_map(&mut chain).is_ok());
         chain.epoch_length = 1;
         let trie = chain.runtime_adapter.get_tries();
-        assert!(chain.clear_data(trie).is_ok());
+        assert!(chain.clear_data(trie, MAX_HEIGHTS_TO_CLEAR).is_ok());
 
         assert!(chain.get_block(&blocks[0].hash()).is_ok());
 
@@ -2848,7 +2850,7 @@ mod tests {
 
         for iter in 0..10 {
             println!("ITERATION #{:?}", iter);
-            assert!(chain.clear_data(trie.clone()).is_ok());
+            assert!(chain.clear_data(trie.clone(), MAX_HEIGHTS_TO_CLEAR).is_ok());
 
             assert!(chain.get_block(&blocks[0].hash()).is_ok());
 

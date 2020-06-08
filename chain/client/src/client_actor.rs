@@ -257,7 +257,9 @@ impl Handler<NetworkClientMessages> for ClientActor {
                         }
                     }
                     NetworkAdversarialMessage::AdvCheckStorageConsistency => {
-                        info!(target: "adversary", "Check Storage Consistency");
+                        // timeout is set to 1.5 seconds to give some room as we wait in Nightly for 2 seconds
+                        let timeout = 1500;
+                        info!(target: "adversary", "Check Storage Consistency, timeout set to {:?} milliseconds", timeout);
                         let mut genesis = GenesisConfig::default();
                         genesis.genesis_height = self.client.chain.store().get_genesis_height();
                         let mut store_validator = StoreValidator::new(
@@ -266,6 +268,7 @@ impl Handler<NetworkClientMessages> for ClientActor {
                             self.client.runtime_adapter.clone(),
                             self.client.chain.store().owned_store(),
                         );
+                        store_validator.set_timeout(timeout);
                         store_validator.validate();
                         if store_validator.is_failed() {
                             error!(target: "client", "Storage Validation failed, {:?}", store_validator.errors);
