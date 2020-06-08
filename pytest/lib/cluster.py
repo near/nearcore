@@ -217,8 +217,6 @@ class BaseNode(object):
                     self.kill()
 
     def check_store(self):
-        # TODO #2597 enable
-        return
         if self.is_check_store:
             res = self.json_rpc('adv_check_store', [])
             if not 'result' in res:

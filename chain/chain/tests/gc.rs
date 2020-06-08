@@ -3,11 +3,9 @@ mod tests {
     use std::sync::Arc;
 
     use near_chain::chain::{check_refcount_map, Chain, ChainGenesis};
-    use near_chain::store_validator::StoreValidator;
     use near_chain::test_utils::KeyValueRuntime;
     use near_chain::types::Tip;
     use near_chain::DoomslugThresholdMode;
-    use near_chain_configs::GenesisConfig;
     use near_crypto::KeyType;
     use near_primitives::block::Block;
     use near_primitives::merkle::PartialMerkleTree;
@@ -149,7 +147,7 @@ mod tests {
 
         assert!(check_refcount_map(&mut chain1).is_ok());
         // GC execution
-        let clear_data = chain1.clear_data(tries1.clone());
+        let clear_data = chain1.clear_data(tries1.clone(), 100);
         if clear_data.is_err() {
             println!("clear data failed = {:?}", clear_data);
             assert!(false);
@@ -249,24 +247,6 @@ mod tests {
             }
             start_index += simple_chain.length;
         }
-        let mut genesis = GenesisConfig::default();
-        genesis.genesis_height = 0;
-        let mut store_validator = StoreValidator::new(
-            None,
-            genesis.clone(),
-            chain1.runtime_adapter.clone(),
-            chain1.store().owned_store(),
-        );
-        store_validator.validate();
-        assert!(!store_validator.is_failed());
-        let mut store_validator = StoreValidator::new(
-            None,
-            genesis,
-            chain2.runtime_adapter.clone(),
-            chain2.store().owned_store(),
-        );
-        store_validator.validate();
-        assert!(!store_validator.is_failed());
     }
 
     // from is an index in blocks array, length is the number of blocks in a chain on top of blocks[from],

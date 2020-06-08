@@ -74,9 +74,6 @@ const NEAR_BASE: Balance = 1_000_000_000_000_000_000_000_000;
 /// Number of epochs for which we keep store data
 pub const NUM_EPOCHS_TO_KEEP_STORE_DATA: u64 = 5;
 
-/// Maximum number of heights to clear per one GC run
-pub const MAX_HEIGHTS_TO_CLEAR: u64 = 100;
-
 /// Block economics config taken from genesis config
 pub struct BlockEconomicsConfig {
     pub gas_price_adjustment_rate: Rational,
@@ -540,7 +537,11 @@ impl Chain {
     //    and the Trie is updated with having only Genesis data.
     // 4. State Sync Clearing happens in `reset_data_pre_state_sync()`.
     //
-    pub fn clear_data(&mut self, tries: ShardTries) -> Result<(), Error> {
+    pub fn clear_data(
+        &mut self,
+        tries: ShardTries,
+        gc_step_size: BlockHeightDelta,
+    ) -> Result<(), Error> {
         let head = self.store.head()?;
         let tail = self.store.tail()?;
         let mut gc_stop_height = self.runtime_adapter.get_gc_stop_height(&head.last_block_hash)?;
@@ -551,7 +552,7 @@ impl Chain {
             .into());
         }
         // To avoid network slowdown, we limit the number of heights to clear per GC execution
-        gc_stop_height = min(gc_stop_height, tail + MAX_HEIGHTS_TO_CLEAR);
+        gc_stop_height = min(gc_stop_height, tail + gc_step_size);
 
         // Forks Cleaning
         for height in tail..gc_stop_height {
@@ -913,14 +914,11 @@ impl Chain {
     pub fn reset_data_pre_state_sync(&mut self, sync_hash: CryptoHash) -> Result<(), Error> {
         // Get header we were syncing into.
         let header = self.get_block_header(&sync_hash)?;
-        let hash = *header.prev_hash();
-        let prev_header = self.get_block_header(&hash)?;
-        let tip = Tip::from_header(prev_header);
+        let gc_height = header.height();
 
-        // GC all the data from current tail up to `tip.height`
-        let new_tail = tip.height;
+        // GC all the data from current tail up to `gc_height`
         let tail = self.store.tail()?;
-        for height in tail..new_tail {
+        for height in tail..gc_height {
             if let Ok(blocks_current_height) = self.store.get_all_block_hashes_by_height(height) {
                 let blocks_current_height =
                     blocks_current_height.values().flatten().cloned().collect::<Vec<_>>();
@@ -932,18 +930,22 @@ impl Chain {
             }
         }
 
+        // Clear Chunks data
+        let mut chain_store_update = self.mut_store().store_update();
+        chain_store_update.clear_chunk_data(gc_height)?;
+        chain_store_update.commit()?;
+
         // clear all trie data
         let mut store_update = StoreUpdate::new_with_tries(self.runtime_adapter.get_tries());
         let stored_state = self.store().store().iter_prefix(ColState, &[]);
         for (key, _) in stored_state {
             store_update.delete(ColState, key.as_ref());
         }
-
         let mut chain_store_update = self.mut_store().store_update();
         chain_store_update.merge(store_update);
-        chain_store_update.update_tail(new_tail);
+        // The reason to reset tail here is not to allow Tail be greater than Head
+        chain_store_update.reset_tail();
         chain_store_update.commit()?;
-
         Ok(())
     }
 
@@ -965,11 +967,18 @@ impl Chain {
         // Get header we were syncing into.
         let header = self.get_block_header(&sync_hash)?;
         let hash = *header.prev_hash();
-        let prev_header = self.get_block_header(&hash)?;
-        let tip = Tip::from_header(prev_header);
+        let prev_block = self.get_block(&hash)?;
+        let new_tail = prev_block.header().height();
+        let new_chunk_tail =
+            prev_block.chunks().iter().map(|x| x.inner.height_created).min().unwrap();
+        let tip = Tip::from_header(prev_block.header());
         // Update related heads now.
         let mut chain_store_update = self.mut_store().store_update();
         chain_store_update.save_body_head(&tip)?;
+        // New Tail can not be earlier than `prev_block.header.inner_lite.height`
+        chain_store_update.update_tail(new_tail);
+        // New Chunk Tail can not be earlier than minimum of height_created in Block `prev_block`
+        chain_store_update.update_chunk_tail(new_chunk_tail);
         chain_store_update.commit()?;
 
         // Check if there are any orphans unlocked by this state sync.

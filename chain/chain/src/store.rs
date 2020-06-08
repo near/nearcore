@@ -1073,7 +1073,7 @@ pub struct ChainStoreUpdate<'a> {
     chain_store_cache_update: ChainStoreCacheUpdate,
     head: Option<Tip>,
     tail: Option<BlockHeight>,
-    chunks_tail: Option<BlockHeight>,
+    chunk_tail: Option<BlockHeight>,
     header_head: Option<Tip>,
     sync_head: Option<Tip>,
     largest_target_height: Option<BlockHeight>,
@@ -1096,7 +1096,7 @@ impl<'a> ChainStoreUpdate<'a> {
             chain_store_cache_update: ChainStoreCacheUpdate::new(),
             head: None,
             tail: None,
-            chunks_tail: None,
+            chunk_tail: None,
             header_head: None,
             sync_head: None,
             largest_target_height: None,
@@ -1178,8 +1178,8 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
 
     /// The chain Chunks Tail height, used by GC.
     fn chunk_tail(&self) -> Result<BlockHeight, Error> {
-        if let Some(chunks_tail) = &self.chunks_tail {
-            Ok(chunks_tail.clone())
+        if let Some(chunk_tail) = &self.chunk_tail {
+            Ok(chunk_tail.clone())
         } else {
             self.chain_store.chunk_tail()
         }
@@ -1832,12 +1832,17 @@ impl<'a> ChainStoreUpdate<'a> {
         }
     }
 
+    pub fn reset_tail(&mut self) {
+        self.tail = None;
+        self.chunk_tail = None;
+    }
+
     pub fn update_tail(&mut self, height: BlockHeight) {
         self.tail = Some(height);
     }
 
-    pub fn update_chunks_tail(&mut self, height: BlockHeight) {
-        self.chunks_tail = Some(height);
+    pub fn update_chunk_tail(&mut self, height: BlockHeight) {
+        self.chunk_tail = Some(height);
     }
 
     pub fn clear_chunk_data(&mut self, min_chunk_height: BlockHeight) -> Result<(), Error> {
@@ -1845,6 +1850,9 @@ impl<'a> ChainStoreUpdate<'a> {
 
         let chunk_tail = self.chunk_tail()?;
         for height in chunk_tail..min_chunk_height {
+            if height == self.get_genesis_height() {
+                continue;
+            }
             let chunk_hashes = self.get_all_chunk_hashes_by_height(height)?;
             for chunk_hash in chunk_hashes {
                 // 1. Delete chunk-related data
@@ -1883,7 +1891,7 @@ impl<'a> ChainStoreUpdate<'a> {
             // 3a. Delete from ColChunkHashesByHeight
             store_update.delete(ColChunkHashesByHeight, &index_to_bytes(height));
         }
-        self.update_chunks_tail(min_chunk_height);
+        self.update_chunk_tail(min_chunk_height);
         self.merge(store_update);
         Ok(())
     }
@@ -2028,8 +2036,8 @@ impl<'a> ChainStoreUpdate<'a> {
                 // 4b. Decreasing block refcount
                 self.dec_block_refcount(block.header().prev_hash())?;
             }
-            GCMode::Canonical(_) | GCMode::StateSync => {
-                // 5. Canonical Chain and Post State Sync clearing
+            GCMode::Canonical(_) => {
+                // 5. Canonical Chain clearing
                 // 5a. Delete blocks with current height (ColBlockPerHeight)
                 store_update.delete(ColBlockPerHeight, &index_to_bytes(height));
                 self.chain_store.block_hash_per_height.cache_remove(&index_to_bytes(height));
@@ -2043,6 +2051,15 @@ impl<'a> ChainStoreUpdate<'a> {
                     }
                 }
                 self.clear_chunk_data(min_chunk_height)?;
+            }
+            GCMode::StateSync => {
+                // 7. State Sync clearing
+                // 7a. Delete blocks with current height (ColBlockPerHeight)
+                store_update.delete(ColBlockPerHeight, &index_to_bytes(height));
+                self.chain_store.block_hash_per_height.cache_remove(&index_to_bytes(height));
+                // 7b. Delete from ColBlockHeight - don't do because: block sync needs it + genesis should be accessible
+
+                // Chunks deleted separately
             }
         };
         self.merge(store_update);
@@ -2457,11 +2474,13 @@ mod tests {
     use near_primitives::validator_signer::InMemoryValidatorSigner;
     use near_store::test_utils::create_test_store;
 
-    use crate::chain::{check_refcount_map, MAX_HEIGHTS_TO_CLEAR};
+    use crate::chain::check_refcount_map;
     use crate::store::{ChainStoreAccess, GCMode};
     use crate::store_validator::StoreValidator;
     use crate::test_utils::KeyValueRuntime;
     use crate::{Chain, ChainGenesis, DoomslugThresholdMode};
+
+    const MAX_HEIGHTS_TO_CLEAR: u64 = 100;
 
     fn get_chain() -> Chain {
         get_chain_with_epoch_length(10)
@@ -2708,7 +2727,7 @@ mod tests {
         assert!(check_refcount_map(&mut chain).is_ok());
         chain.epoch_length = 1;
         let trie = chain.runtime_adapter.get_tries();
-        assert!(chain.clear_data(trie).is_ok());
+        assert!(chain.clear_data(trie, MAX_HEIGHTS_TO_CLEAR).is_ok());
 
         assert!(chain.get_block(&blocks[0].hash()).is_ok());
 
@@ -2826,7 +2845,7 @@ mod tests {
 
         for iter in 0..10 {
             println!("ITERATION #{:?}", iter);
-            assert!(chain.clear_data(trie.clone()).is_ok());
+            assert!(chain.clear_data(trie.clone(), MAX_HEIGHTS_TO_CLEAR).is_ok());
 
             assert!(chain.get_block(&blocks[0].hash()).is_ok());
 
