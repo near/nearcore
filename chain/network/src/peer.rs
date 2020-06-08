@@ -8,7 +8,7 @@ use actix::{
     Actor, ActorContext, ActorFuture, Addr, AsyncContext, Context, ContextFutureSpawner, Handler,
     Recipient, Running, StreamHandler, WrapFuture,
 };
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, info, trace, warn};
 
 use near_chain_configs::PROTOCOL_VERSION;
 use near_metrics;
@@ -282,7 +282,7 @@ impl Peer {
     }
 
     fn ban_peer(&mut self, ctx: &mut Context<Peer>, ban_reason: ReasonForBan) {
-        info!(target: "network", "Banning peer {} for {:?}", self.peer_info, ban_reason);
+        warn!(target: "network", "Banning peer {} for {:?}", self.peer_info, ban_reason);
         self.peer_status = PeerStatus::Banned(ban_reason);
         // On stopping Banned signal will be sent to PeerManager
         ctx.stop();
@@ -611,10 +611,10 @@ impl StreamHandler<Vec<u8>> for Peer {
             (_, PeerStatus::Connecting, PeerMessage::HandshakeFailure(peer_info, reason)) => {
                 match reason {
                     HandshakeFailureReason::GenesisMismatch(genesis) => {
-                        error!(target: "network", "Attempting to connect to a node ({}) with a different genesis block. Our genesis: {:?}, their genesis: {:?}", peer_info, self.genesis_id, genesis);
+                        warn!(target: "network", "Attempting to connect to a node ({}) with a different genesis block. Our genesis: {:?}, their genesis: {:?}", peer_info, self.genesis_id, genesis);
                     }
                     HandshakeFailureReason::ProtocolVersionMismatch(version) => {
-                        error!(target: "network", "Unable to connect to a node ({}) due to a network protocol version mismatch. Our version: {}, their: {}", peer_info, PROTOCOL_VERSION, version);
+                        warn!(target: "network", "Unable to connect to a node ({}) due to a network protocol version mismatch. Our version: {}, their: {}", peer_info, PROTOCOL_VERSION, version);
                     }
                     HandshakeFailureReason::InvalidTarget => {
                         debug!(target: "network", "Peer found was not what expected. Updating peer info with {:?}", peer_info);
@@ -627,7 +627,7 @@ impl StreamHandler<Vec<u8>> for Peer {
                 debug!(target: "network", "{:?}: Received handshake {:?}", self.node_info.id, handshake);
 
                 if handshake.chain_info.genesis_id != self.genesis_id {
-                    info!(target: "network", "Received connection from node with different genesis.");
+                    debug!(target: "network", "Received connection from node with different genesis.");
                     ctx.address().do_send(SendMessage {
                         message: PeerMessage::HandshakeFailure(
                             self.node_info.clone(),
@@ -639,7 +639,7 @@ impl StreamHandler<Vec<u8>> for Peer {
                 }
 
                 if handshake.version != PROTOCOL_VERSION {
-                    info!(target: "network", "Received connection from node with different network protocol version.");
+                    debug!(target: "network", "Received connection from node with different network protocol version.");
                     self.send_message(PeerMessage::HandshakeFailure(
                         self.node_info.clone(),
                         HandshakeFailureReason::ProtocolVersionMismatch(PROTOCOL_VERSION),
@@ -671,7 +671,7 @@ impl StreamHandler<Vec<u8>> for Peer {
                     handshake.peer_id.clone(),
                     &handshake.edge_info,
                 ) {
-                    info!(target: "network", "Received invalid signature on handshake. Disconnecting this peer.");
+                    warn!(target: "network", "Received invalid signature on handshake. Disconnecting peer {}", handshake.peer_id);
                     self.ban_peer(ctx, ReasonForBan::InvalidSignature);
                     return;
                 }
@@ -681,7 +681,7 @@ impl StreamHandler<Vec<u8>> for Peer {
                     if handshake.edge_info.nonce
                         != self.edge_info.as_ref().map(|edge_info| edge_info.nonce).unwrap()
                     {
-                        info!(target: "network", "Received invalid nonce on handshake. Disconnecting this peer.");
+                        warn!(target: "network", "Received invalid nonce on handshake. Disconnecting peer {}", handshake.peer_id);
                         ctx.stop();
                         return;
                     }
@@ -820,7 +820,7 @@ impl StreamHandler<Vec<u8>> for Peer {
                     .do_send(NetworkRequests::Sync { peer_id: self.peer_id().unwrap(), sync_data });
             }
             (_, PeerStatus::Ready, PeerMessage::Routed(routed_message)) => {
-                debug!(target: "network", "Received routed message from {} to {:?}.", self.peer_info, routed_message.target);
+                trace!(target: "network", "Received routed message from {} to {:?}.", self.peer_info, routed_message.target);
 
                 // Receive invalid routed message from peer.
                 if !routed_message.verify() {
