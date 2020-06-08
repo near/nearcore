@@ -457,7 +457,22 @@ pub fn remove_account(
     Ok(())
 }
 
+pub const GC_NOCACHE: Option<&mut SizedCache<Vec<u8>, ()>> = None;
+
 impl DBCol {
+    fn delete_key_from_column<V>(
+        &self,
+        key: &Vec<u8>,
+        store_update: &mut StoreUpdate,
+        cache: Option<&mut impl Cached<Vec<u8>, V>>,
+    ) {
+        store_update.delete(*self, key);
+        if let Some(cache) = cache {
+            cache.cache_remove(key);
+        }
+        store_update.inc_gc(*self);
+    }
+
     pub fn gc<V>(
         &self,
         key: &Vec<u8>,
@@ -465,12 +480,39 @@ impl DBCol {
         cache: Option<&mut impl Cached<Vec<u8>, V>>,
     ) {
         match *self {
-            DBCol::ColOutgoingReceipts => {
-                store_update.delete(ColOutgoingReceipts, key);
-                cache.unwrap().cache_remove(key);
-                store_update.inc_gc(ColOutgoingReceipts);
+            ColOutgoingReceipts
+            | ColIncomingReceipts
+            | ColChunkPerHeightShard
+            | ColNextBlockWithNewChunk
+            | ColStateHeaders
+            | ColBlock
+            | ColBlockExtra
+            | ColNextBlockHashes
+            | ColChallengedBlocks
+            | ColBlocksToCatchup
+            | ColStateChanges
+            | ColBlockRefCount
+            | ColReceiptIdToShardId
+            | ColTransactions
+            | ColChunks
+            | ColChunkExtra
+            | ColPartialChunks
+            | ColInvalidChunks
+            | ColChunkHashesByHeight
+            | ColStateParts
+            | ColState => {
+                self.delete_key_from_column(key, store_update, cache);
             }
-            _ => {}
+            ColBlockPerHeight => {
+                if key.is_empty() {
+                    store_update.inc_gc(*self);
+                } else {
+                    self.delete_key_from_column(key, store_update, cache);
+                }
+            }
+            _ => {
+                store_update.inc_gc(*self);
+            }
         }
     }
 }
