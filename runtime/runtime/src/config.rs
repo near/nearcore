@@ -167,9 +167,12 @@ pub fn tx_cost(
     // If signer is equals to receiver the receipt will be processed at the same block as this
     // transaction. Otherwise it will processed in the next block and the gas might be inflated.
     let initial_receipt_hop = if transaction.signer_id == transaction.receiver_id { 0 } else { 1 };
+    let minimum_new_receipt_gas = config.minimum_new_receipt_gas();
+    // In case the config is free, we don't care about the maximum depth.
+    let maximum_depth =
+        if minimum_new_receipt_gas > 0 { prepaid_gas / minimum_new_receipt_gas } else { 0 };
     let inflation_exponent =
-        u8::try_from(initial_receipt_hop + prepaid_gas / config.minimum_new_receipt_gas())
-            .map_err(|_| IntegerOverflowError {})?;
+        u8::try_from(initial_receipt_hop + maximum_depth).map_err(|_| IntegerOverflowError {})?;
     let receipt_gas_price = safe_gas_price_inflated(
         gas_price,
         config.pessimistic_gas_price_inflation_ratio,

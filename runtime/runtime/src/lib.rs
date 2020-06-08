@@ -104,6 +104,9 @@ pub struct ApplyStats {
     pub tx_burnt_amount: Balance,
     pub slashed_burnt_amount: Balance,
     pub other_burnt_amount: Balance,
+    /// This is a negative amount. This amount was not charged from the account that issued
+    /// the transaction. It's likely due to the delayed queue of the receipts.
+    pub gas_deficit_amount: Balance,
 }
 
 pub struct ApplyResult {
@@ -241,7 +244,7 @@ impl Runtime {
                     receipt: ReceiptEnum::Action(ActionReceipt {
                         signer_id: transaction.signer_id.clone(),
                         signer_public_key: transaction.public_key.clone(),
-                        gas_price: apply_state.gas_price,
+                        gas_price: verification_result.receipt_gas_price,
                         output_data_receivers: vec![],
                         input_data_ids: vec![],
                         actions: transaction.actions.clone(),
@@ -516,7 +519,13 @@ impl Runtime {
             }
         } else {
             // Calculating and generating refunds
-            self.generate_refund_receipts(receipt, action_receipt, &mut result)?;
+            self.generate_refund_receipts(
+                apply_state.gas_price,
+                stats,
+                receipt,
+                action_receipt,
+                &mut result,
+            )?;
         }
 
         // Moving validator proposals
@@ -538,7 +547,7 @@ impl Runtime {
         let receiver_gas_reward = result.gas_burnt_for_function_call
             * *self.config.transaction_costs.burnt_gas_reward.numer() as u64
             / *self.config.transaction_costs.burnt_gas_reward.denom() as u64;
-        let mut tx_burnt_amount = safe_gas_to_balance(action_receipt.gas_price, result.gas_burnt)?;
+        let mut tx_burnt_amount = safe_gas_to_balance(apply_state.gas_price, result.gas_burnt)?;
         if receiver_gas_reward > 0 {
             let mut account = get_account(state_update, account_id)?;
             if let Some(ref mut account) = account {
@@ -644,6 +653,8 @@ impl Runtime {
 
     fn generate_refund_receipts(
         &self,
+        current_gas_price: Balance,
+        stats: &mut ApplyStats,
         receipt: &Receipt,
         action_receipt: &ActionReceipt,
         result: &mut ActionResult,
@@ -660,7 +671,36 @@ impl Runtime {
         } else {
             safe_add_gas(prepaid_gas, exec_gas)? - result.gas_used
         };
-        let gas_balance_refund = safe_gas_to_balance(action_receipt.gas_price, gas_refund)?;
+        // Refund for the unused portion of the gas at the price at which this gas was purchased.
+        let mut gas_balance_refund = safe_gas_to_balance(action_receipt.gas_price, gas_refund)?;
+        if current_gas_price > action_receipt.gas_price {
+            // In a rare scenario, when the current gas price is higher than the purchased gas
+            // price, the difference is subtracted from the refund. If the refund doesn't have
+            // enough balance to cover the difference, then the remaining balance is considered
+            // the deficit and it's reported in the stats for the balance checker.
+            let gas_deficit_amount = safe_gas_to_balance(
+                current_gas_price - action_receipt.gas_price,
+                result.gas_burnt,
+            )?;
+            if gas_balance_refund >= gas_deficit_amount {
+                gas_balance_refund -= gas_deficit_amount;
+            } else {
+                stats.gas_deficit_amount = safe_add_balance(
+                    stats.gas_deficit_amount,
+                    gas_deficit_amount - gas_balance_refund,
+                )?;
+                gas_balance_refund = 0;
+            }
+        } else {
+            // Refund for the difference of the purchased gas price and the the current gas price.
+            gas_balance_refund = safe_add_balance(
+                gas_balance_refund,
+                safe_gas_to_balance(
+                    action_receipt.gas_price - current_gas_price,
+                    result.gas_burnt,
+                )?,
+            )?;
+        }
         if deposit_refund > 0 {
             result
                 .new_receipts

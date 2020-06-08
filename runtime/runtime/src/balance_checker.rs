@@ -180,7 +180,10 @@ pub(crate) fn check_balance(
         initial_accounts_balance,
         incoming_receipts_balance,
         processed_delayed_receipts_balance,
-        initial_postponed_receipts_balance
+        initial_postponed_receipts_balance,
+        // This amount should be subtracted from the final balance, but it's the same as to add it
+        // to the initial balance instead.
+        stats.gas_deficit_amount
     );
     let final_balance = safe_add_balance_apply!(
         final_accounts_balance,
@@ -207,6 +210,7 @@ pub(crate) fn check_balance(
             tx_burnt_amount: stats.tx_burnt_amount,
             slashed_burnt_amount: stats.slashed_burnt_amount,
             other_burnt_amount: stats.other_burnt_amount,
+            gas_deficit_amount: stats.gas_deficit_amount,
         }
         .into())
     } else {
@@ -375,6 +379,7 @@ mod tests {
             &[receipt],
             &ApplyStats {
                 tx_burnt_amount: total_validator_reward,
+                gas_deficit_amount: 0,
                 other_burnt_amount: 0,
                 slashed_burnt_amount: 0,
             },
