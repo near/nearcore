@@ -264,7 +264,7 @@ fn default_sync_step_period() -> Duration {
     Duration::from_millis(10)
 }
 
-fn default_gc_step_size() -> BlockHeightDelta {
+fn default_gc_blocks_limit() -> NumBlocks {
     2
 }
 
@@ -355,8 +355,8 @@ pub struct Config {
     pub tracked_accounts: Vec<AccountId>,
     pub tracked_shards: Vec<ShardId>,
     pub archive: bool,
-    #[serde(default = "default_gc_step_size")]
-    pub gc_step_size: BlockHeightDelta,
+    #[serde(default = "default_gc_blocks_limit")]
+    pub gc_blocks_limit: NumBlocks,
 }
 
 impl Default for Config {
@@ -373,7 +373,7 @@ impl Default for Config {
             tracked_accounts: vec![],
             tracked_shards: vec![],
             archive: false,
-            gc_step_size: default_gc_step_size(),
+            gc_blocks_limit: default_gc_blocks_limit(),
         }
     }
 }
@@ -537,7 +537,7 @@ impl NearConfig {
                 tracked_accounts: config.tracked_accounts,
                 tracked_shards: config.tracked_shards,
                 archive: config.archive,
-                gc_step_size: config.gc_step_size,
+                gc_blocks_limit: config.gc_blocks_limit,
             },
             network_config: NetworkConfig {
                 public_key: network_key_pair.public_key,
