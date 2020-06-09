@@ -291,7 +291,7 @@ impl PeerManagerActor {
     /// This function should only be called after Peer instance is stopped.
     /// Note: Use `try_ban_peer` if there might be a Peer instance still active.
     fn ban_peer(&mut self, ctx: &mut Context<Self>, peer_id: &PeerId, ban_reason: ReasonForBan) {
-        info!(target: "network", "Banning peer {:?} for {:?}", peer_id, ban_reason);
+        warn!(target: "network", "Banning peer {:?} for {:?}", peer_id, ban_reason);
         self.remove_active_peer(ctx, peer_id, None);
         unwrap_or_error!(self.peer_store.peer_ban(peer_id, ban_reason), "Failed to save peer data");
     }
@@ -851,13 +851,13 @@ impl PeerManagerActor {
             Err(find_route_error) => {
                 // TODO(MarX, #1369): Message is dropped here. Define policy for this case.
                 near_metrics::inc_counter(&metrics::DROP_MESSAGE_UNKNOWN_ACCOUNT);
-                debug!(target: "network", "{:?} Drop message to {} Reason {:?}. Known peers: {:?} Message {:?}",
+                debug!(target: "network", "{:?} Drop message to {} Reason {:?}. Message {:?}",
                        self.config.account_id,
                        account_id,
                        find_route_error,
-                       self.routing_table.get_accounts_keys(),
                        msg,
                 );
+                trace!(target: "network", "Known peers: {:?}", self.routing_table.get_accounts_keys());
                 return false;
             }
         };
@@ -1266,7 +1266,9 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                                 .collect();
 
                             // Add accounts to the routing table.
-                            debug!(target: "network", "{:?} Received new accounts: {:?}", act.config.account_id, accounts);
+                            if !accounts.is_empty() {
+                                debug!(target: "network", "{:?} Received new accounts: {:?}", act.config.account_id, accounts);
+                            }
                             for account in accounts.iter() {
                                 act.routing_table.add_account(account.clone());
                             }
