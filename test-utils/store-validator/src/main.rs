@@ -57,7 +57,7 @@ fn main() {
     );
     for error in store_validator.errors.iter() {
         println!(
-            "{} > {} > {} > {}",
+            "{}  {}  {}  {}",
             Red.bold().paint(&error.func.to_string()),
             Yellow.bold().paint(&error.col.unwrap().to_string()),
             White.bold().paint(error.key.as_ref().unwrap()),

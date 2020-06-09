@@ -655,14 +655,14 @@ impl ShardsManager {
                 .entry(shard_id)
                 .and_modify(|stored_chunk| {
                     let epoch_id = unwrap_or_return!(
-                        runtime_adapter.get_epoch_id_from_prev_block(&known_header.prev_hash)
+                        runtime_adapter.get_epoch_id_from_prev_block(known_header.prev_hash())
                     );
                     let block_producer =
                         unwrap_or_return!(runtime_adapter.get_block_producer(&epoch_id, height));
                     if runtime_adapter
                         .verify_validator_signature(
                             &epoch_id,
-                            &known_header.prev_hash,
+                            &known_header.prev_hash(),
                             &block_producer,
                             header.hash.as_ref(),
                             &header.signature,

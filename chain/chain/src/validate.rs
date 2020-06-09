@@ -154,32 +154,30 @@ fn validate_double_sign(
 ) -> Result<(CryptoHash, Vec<AccountId>), Error> {
     let left_block_header = BlockHeader::try_from_slice(&block_double_sign.left_block_header)?;
     let right_block_header = BlockHeader::try_from_slice(&block_double_sign.right_block_header)?;
-    let block_producer = runtime_adapter.get_block_producer(
-        &left_block_header.inner_lite.epoch_id,
-        left_block_header.inner_lite.height,
-    )?;
+    let block_producer = runtime_adapter
+        .get_block_producer(&left_block_header.epoch_id(), left_block_header.height())?;
     if left_block_header.hash() != right_block_header.hash()
-        && left_block_header.inner_lite.height == right_block_header.inner_lite.height
+        && left_block_header.height() == right_block_header.height()
         && runtime_adapter.verify_validator_signature(
-            &left_block_header.inner_lite.epoch_id,
-            &left_block_header.prev_hash,
+            &left_block_header.epoch_id(),
+            &left_block_header.prev_hash(),
             &block_producer,
             left_block_header.hash().as_ref(),
-            &left_block_header.signature,
+            left_block_header.signature(),
         )?
         && runtime_adapter.verify_validator_signature(
-            &right_block_header.inner_lite.epoch_id,
-            &right_block_header.prev_hash,
+            &right_block_header.epoch_id(),
+            &right_block_header.prev_hash(),
             &block_producer,
             right_block_header.hash().as_ref(),
-            &right_block_header.signature,
+            right_block_header.signature(),
         )?
     {
         // Deterministically return header with higher hash.
         Ok(if left_block_header.hash() > right_block_header.hash() {
-            (left_block_header.hash(), vec![block_producer])
+            (*left_block_header.hash(), vec![block_producer])
         } else {
-            (right_block_header.hash(), vec![block_producer])
+            (*right_block_header.hash(), vec![block_producer])
         })
     } else {
         Err(ErrorKind::MaliciousChallenge.into())
@@ -226,10 +224,10 @@ fn validate_chunk_proofs_challenge(
         MaybeEncodedShardChunk::Decoded(chunk) => &chunk.header,
     };
     let chunk_producer = validate_chunk_authorship(runtime_adapter, &chunk_header)?;
-    let account_to_slash_for_valid_challenge = Ok((block_header.hash(), vec![chunk_producer]));
+    let account_to_slash_for_valid_challenge = Ok((*block_header.hash(), vec![chunk_producer]));
     if !Block::validate_chunk_header_proof(
         &chunk_header,
-        &block_header.inner_rest.chunk_headers_root,
+        &block_header.chunk_headers_root(),
         &chunk_proofs.merkle_proof,
     ) {
         // Merkle proof is invalid. It's a malicious challenge.
@@ -279,7 +277,7 @@ fn validate_chunk_state_challenge(
     let _ = validate_chunk_authorship(runtime_adapter, &chunk_state.prev_chunk.header)?;
     if !Block::validate_chunk_header_proof(
         &chunk_state.prev_chunk.header,
-        &prev_block_header.inner_rest.chunk_headers_root,
+        &prev_block_header.chunk_headers_root(),
         &chunk_state.prev_merkle_proof,
     ) {
         return Err(ErrorKind::MaliciousChallenge.into());
@@ -290,7 +288,7 @@ fn validate_chunk_state_challenge(
     let chunk_producer = validate_chunk_authorship(runtime_adapter, &chunk_state.chunk_header)?;
     if !Block::validate_chunk_header_proof(
         &chunk_state.chunk_header,
-        &block_header.inner_rest.chunk_headers_root,
+        &block_header.chunk_headers_root(),
         &chunk_state.merkle_proof,
     ) {
         return Err(ErrorKind::MaliciousChallenge.into());
@@ -303,14 +301,14 @@ fn validate_chunk_state_challenge(
             partial_storage,
             chunk_state.prev_chunk.header.inner.shard_id,
             &chunk_state.prev_chunk.header.inner.prev_state_root,
-            block_header.inner_lite.height,
-            block_header.inner_lite.timestamp,
-            &block_header.prev_hash,
+            block_header.height(),
+            block_header.raw_timestamp(),
+            &block_header.prev_hash(),
             &block_header.hash(),
             &chunk_state.prev_chunk.receipts,
             &chunk_state.prev_chunk.transactions,
             &[],
-            prev_block_header.inner_rest.gas_price,
+            prev_block_header.gas_price(),
             chunk_state.prev_chunk.header.inner.gas_limit,
             &ChallengesResult::default(),
         )
@@ -321,7 +319,7 @@ fn validate_chunk_state_challenge(
         || result.validator_proposals != chunk_state.chunk_header.inner.validator_proposals
         || result.total_gas_burnt != chunk_state.chunk_header.inner.gas_used
     {
-        Ok((block_header.hash(), vec![chunk_producer]))
+        Ok((*block_header.hash(), vec![chunk_producer]))
     } else {
         // If all the data matches, this is actually valid chunk and challenge is malicious.
         Err(ErrorKind::MaliciousChallenge.into())

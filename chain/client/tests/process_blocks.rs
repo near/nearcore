@@ -26,7 +26,7 @@ use near_network::{
     FullPeerInfo, NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkResponses,
     PeerInfo,
 };
-use near_primitives::block::{Approval, ApprovalInner, BlockHeader};
+use near_primitives::block::{Approval, ApprovalInner};
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::{merklize, verify_hash};
@@ -35,6 +35,7 @@ use near_primitives::transaction::{SignedTransaction, Transaction};
 use near_primitives::types::{BlockHeight, EpochId, MerkleHash, NumBlocks};
 use near_primitives::utils::to_timestamp;
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
+use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{QueryRequest, QueryResponseKind};
 use near_store::test_utils::create_test_store;
 use neard::config::{GenesisExt, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
@@ -119,8 +120,7 @@ fn produce_blocks_with_tx() {
         );
         near_network::test_utils::wait_or_panic(5000);
         actix::spawn(view_client.send(GetBlock::latest()).then(move |res| {
-            let header: BlockHeader = res.unwrap().unwrap().header.into();
-            let block_hash = header.hash;
+            let block_hash = res.unwrap().unwrap().header.hash;
             client.do_send(NetworkClientMessages::Transaction {
                 transaction: SignedTransaction::empty(block_hash),
                 is_forwarded: false,
@@ -163,6 +163,7 @@ fn receive_network_block() {
             let signer = InMemoryValidatorSigner::from_seed("test1", KeyType::ED25519, "test1");
             block_merkle_tree.insert(last_block.header.hash);
             let block = Block::produce(
+                PROTOCOL_VERSION,
                 &last_block.header.clone().into(),
                 last_block.header.height + 1,
                 last_block.chunks.into_iter().map(Into::into).collect(),
@@ -209,15 +210,15 @@ fn produce_block_with_approvals() {
                     // test1 will only create their approval for height 10 after their doomslug timer
                     // runs 10 iterations, which is way further in the future than them producing the
                     // block
-                    if block.header.num_approvals() == validators.len() as u64 - 2 {
+                    if block.header().num_approvals() == validators.len() as u64 - 2 {
                         System::current().stop();
-                    } else if block.header.inner_lite.height == 10 {
-                        println!("{}", block.header.inner_lite.height);
+                    } else if block.header().height() == 10 {
+                        println!("{}", block.header().height());
                         println!(
                             "{} != {} -2 (height: {})",
-                            block.header.num_approvals(),
+                            block.header().num_approvals(),
                             validators.len(),
-                            block.header.inner_lite.height
+                            block.header().height()
                         );
 
                         assert!(false);
@@ -231,6 +232,7 @@ fn produce_block_with_approvals() {
             let signer1 = InMemoryValidatorSigner::from_seed("test2", KeyType::ED25519, "test2");
             block_merkle_tree.insert(last_block.header.hash);
             let block = Block::produce(
+                PROTOCOL_VERSION,
                 &last_block.header.clone().into(),
                 last_block.header.height + 1,
                 last_block.chunks.into_iter().map(Into::into).collect(),
@@ -260,8 +262,8 @@ fn produce_block_with_approvals() {
                 let s = if i > 10 { "test1".to_string() } else { format!("test{}", i) };
                 let signer = InMemoryValidatorSigner::from_seed(&s, KeyType::ED25519, &s);
                 let approval = Approval::new(
-                    block.hash(),
-                    block.header.inner_lite.height,
+                    *block.hash(),
+                    block.header().height(),
                     10, // the height at which "test1" is producing
                     &signer,
                 );
@@ -308,7 +310,7 @@ fn produce_block_with_approvals_arrived_early() {
             Box::new(move |_: String, msg: &NetworkRequests| -> (NetworkResponses, bool) {
                 match msg {
                     NetworkRequests::Block { block } => {
-                        if block.header.inner_lite.height == 3 {
+                        if block.header().height() == 3 {
                             for (i, (client, _)) in conns.clone().into_iter().enumerate() {
                                 if i > 0 {
                                     client.do_send(NetworkClientMessages::Block(
@@ -320,7 +322,7 @@ fn produce_block_with_approvals_arrived_early() {
                             }
                             *block_holder.write().unwrap() = Some(block.clone());
                             return (NetworkResponses::NoResponse, false);
-                        } else if block.header.inner_lite.height == 4 {
+                        } else if block.header().height() == 4 {
                             System::current().stop();
                         }
                         (NetworkResponses::NoResponse, true)
@@ -363,10 +365,10 @@ fn invalid_blocks() {
             Box::new(move |msg, _ctx, _client_actor| {
                 match msg {
                     NetworkRequests::Block { block } => {
-                        assert_eq!(block.header.inner_lite.height, 1);
+                        assert_eq!(block.header().height(), 1);
                         assert_eq!(
-                            block.header.inner_lite.prev_state_root,
-                            merklize(&vec![MerkleHash::default()]).0
+                            block.header().prev_state_root(),
+                            &merklize(&vec![MerkleHash::default()]).0
                         );
                         System::current().stop();
                     }
@@ -380,6 +382,7 @@ fn invalid_blocks() {
             let signer = InMemoryValidatorSigner::from_seed("test", KeyType::ED25519, "test");
             // Send block with invalid chunk mask
             let mut block = Block::produce(
+                PROTOCOL_VERSION,
                 &last_block.header.clone().into(),
                 last_block.header.height + 1,
                 last_block.chunks.iter().cloned().map(Into::into).collect(),
@@ -399,7 +402,7 @@ fn invalid_blocks() {
                 last_block.header.next_bp_hash,
                 CryptoHash::default(),
             );
-            block.header.inner_rest.chunk_mask = vec![];
+            block.mut_header().get_mut().inner_rest.chunk_mask = vec![];
             client.do_send(NetworkClientMessages::Block(
                 block.clone(),
                 PeerInfo::random().id,
@@ -409,6 +412,7 @@ fn invalid_blocks() {
             // Send proper block.
             block_merkle_tree.insert(last_block.header.hash);
             let block2 = Block::produce(
+                PROTOCOL_VERSION,
                 &last_block.header.clone().into(),
                 last_block.header.height + 1,
                 last_block.chunks.into_iter().map(Into::into).collect(),
@@ -450,7 +454,7 @@ fn skip_block_production() {
             Box::new(move |msg, _ctx, _client_actor| {
                 match msg {
                     NetworkRequests::Block { block } => {
-                        if block.header.inner_lite.height > 3 {
+                        if block.header().height() > 3 {
                             System::current().stop();
                         }
                     }
@@ -560,7 +564,7 @@ fn test_process_invalid_tx() {
             public_key: signer.public_key(),
             nonce: 0,
             receiver_id: "".to_string(),
-            block_hash: client.chain.genesis().hash(),
+            block_hash: *client.chain.genesis().hash(),
             actions: vec![],
         },
     );
@@ -606,15 +610,9 @@ fn test_time_attack() {
     let signer = InMemoryValidatorSigner::from_seed("test1", KeyType::ED25519, "test1");
     let genesis = client.chain.get_block_by_height(0).unwrap();
     let mut b1 = Block::empty_with_height(genesis, 1, &signer);
-    b1.header.inner_lite.timestamp =
-        to_timestamp(b1.header.timestamp() + chrono::Duration::seconds(60));
-    let (hash, signature) = signer.sign_block_header_parts(
-        b1.header.prev_hash,
-        &b1.header.inner_lite,
-        &b1.header.inner_rest,
-    );
-    b1.header.hash = hash;
-    b1.header.signature = signature;
+    b1.mut_header().get_mut().inner_lite.timestamp =
+        to_timestamp(b1.header().timestamp() + chrono::Duration::seconds(60));
+    b1.mut_header().resign(&signer);
 
     let _ = client.process_block(b1, Provenance::NONE);
 
@@ -643,7 +641,7 @@ fn test_invalid_approvals() {
     let signer = InMemoryValidatorSigner::from_seed("test1", KeyType::ED25519, "test1");
     let genesis = client.chain.get_block_by_height(0).unwrap();
     let mut b1 = Block::empty_with_height(genesis, 1, &signer);
-    b1.header.inner_rest.approvals = (0..100)
+    b1.mut_header().get_mut().inner_rest.approvals = (0..100)
         .map(|i| {
             Some(
                 InMemoryValidatorSigner::from_seed(
@@ -651,17 +649,12 @@ fn test_invalid_approvals() {
                     KeyType::ED25519,
                     &format!("test{}", i),
                 )
-                .sign_approval(&ApprovalInner::Endorsement(genesis.hash()), 1),
+                .sign_approval(&ApprovalInner::Endorsement(*genesis.hash()), 1),
             )
         })
         .collect();
-    let (hash, signature) = signer.sign_block_header_parts(
-        b1.header.prev_hash,
-        &b1.header.inner_lite,
-        &b1.header.inner_rest,
-    );
-    b1.header.hash = hash;
-    b1.header.signature = signature;
+    b1.mut_header().resign(&signer);
+
     let (_, tip) = client.process_block(b1, Provenance::NONE);
     match tip {
         Err(e) => match e.kind() {
@@ -700,14 +693,8 @@ fn test_invalid_gas_price() {
     let signer = InMemoryValidatorSigner::from_seed("test1", KeyType::ED25519, "test1");
     let genesis = client.chain.get_block_by_height(0).unwrap();
     let mut b1 = Block::empty_with_height(genesis, 1, &signer);
-    b1.header.inner_rest.gas_price = 0;
-    let (hash, signature) = signer.sign_block_header_parts(
-        b1.header.prev_hash,
-        &b1.header.inner_lite,
-        &b1.header.inner_rest,
-    );
-    b1.header.hash = hash;
-    b1.header.signature = signature;
+    b1.mut_header().get_mut().inner_rest.gas_price = 0;
+    b1.mut_header().resign(&signer);
 
     let (_, result) = client.process_block(b1, Provenance::NONE);
     match result {
@@ -747,7 +734,7 @@ fn test_minimum_gas_price() {
         env.produce_block(0, i);
     }
     let block = env.clients[0].chain.get_block_by_height(100).unwrap();
-    assert!(block.header.inner_rest.gas_price >= min_gas_price);
+    assert!(block.header().gas_price() >= min_gas_price);
 }
 
 fn test_gc_with_epoch_length_common(epoch_length: NumBlocks) {
@@ -773,7 +760,7 @@ fn test_gc_with_epoch_length_common(epoch_length: NumBlocks) {
     for i in 1..=epoch_length * (NUM_EPOCHS_TO_KEEP_STORE_DATA + 1) {
         println!("height = {}", i);
         if i < epoch_length {
-            let block_hash = blocks[i as usize - 1].hash();
+            let block_hash = *blocks[i as usize - 1].hash();
             assert!(matches!(
                 env.clients[0].chain.get_block(&block_hash).unwrap_err().kind(),
                 ErrorKind::BlockMissing(missing_block_hash) if missing_block_hash == block_hash
@@ -853,7 +840,7 @@ fn test_gc_long_epoch() {
         assert!(env.clients[0]
             .chain
             .mut_store()
-            .get_all_block_hashes_by_height(block.header.inner_lite.height)
+            .get_all_block_hashes_by_height(block.header().height())
             .is_ok());
     }
     assert!(check_refcount_map(&mut env.clients[0].chain).is_ok());
@@ -891,7 +878,7 @@ fn test_tx_forwarding() {
     chain_genesis.epoch_length = 100;
     let mut env = TestEnv::new(chain_genesis, 50, 50);
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
-    let genesis_hash = genesis_block.hash();
+    let genesis_hash = *genesis_block.hash();
     // forward to 2 chunk producers
     env.clients[0].process_tx(SignedTransaction::empty(genesis_hash), false, false);
     assert_eq!(env.network_adapters[0].requests.read().unwrap().len(), 4);
@@ -903,7 +890,7 @@ fn test_tx_forwarding_no_double_forwarding() {
     chain_genesis.epoch_length = 100;
     let mut env = TestEnv::new(chain_genesis, 50, 50);
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
-    let genesis_hash = genesis_block.hash();
+    let genesis_hash = *genesis_block.hash();
     env.clients[0].process_tx(SignedTransaction::empty(genesis_hash), true, false);
     assert!(env.network_adapters[0].requests.read().unwrap().is_empty());
 }
@@ -933,7 +920,7 @@ fn test_tx_forward_around_epoch_boundary() {
     chain_genesis.epoch_length = epoch_length;
     chain_genesis.gas_limit = genesis.config.gas_limit;
     let mut env = TestEnv::new_with_runtime(chain_genesis, 3, 2, runtimes);
-    let genesis_hash = env.clients[0].chain.genesis().hash();
+    let genesis_hash = *env.clients[0].chain.genesis().hash();
     let signer = InMemorySigner::from_seed("test1", KeyType::ED25519, "test1");
     let tx = SignedTransaction::stake(
         1,
@@ -1037,22 +1024,23 @@ fn test_gc_tail_update() {
         env.process_block(0, block.clone(), Provenance::PRODUCED);
         blocks.push(block);
     }
-    let headers = blocks.clone().into_iter().map(|b| b.header).collect::<Vec<_>>();
+    let headers = blocks.iter().map(|b| b.header().clone()).collect::<Vec<_>>();
     env.clients[1].sync_block_headers(headers).unwrap();
     // simulate save sync hash block
     let prev_sync_block = blocks[blocks.len() - 3].clone();
     let sync_block = blocks[blocks.len() - 2].clone();
-    env.clients[1].chain.reset_data_pre_state_sync(sync_block.hash()).unwrap();
-    env.clients[1].chain.save_block(&sync_block).unwrap();
+    env.clients[1].chain.reset_data_pre_state_sync(*sync_block.hash()).unwrap();
+    let mut store_update = env.clients[1].chain.mut_store().store_update();
+    store_update.save_block(prev_sync_block.clone());
+    store_update.inc_block_refcount(&prev_sync_block.hash()).unwrap();
+    store_update.save_block(sync_block.clone());
+    store_update.commit().unwrap();
     env.clients[1]
         .chain
-        .reset_heads_post_state_sync(&None, sync_block.hash(), |_| {}, |_| {}, |_| {})
+        .reset_heads_post_state_sync(&None, *sync_block.hash(), |_| {}, |_| {}, |_| {})
         .unwrap();
     env.process_block(1, blocks.pop().unwrap(), Provenance::NONE);
-    assert_eq!(
-        env.clients[1].chain.store().tail().unwrap(),
-        prev_sync_block.header.inner_lite.height
-    );
+    assert_eq!(env.clients[1].chain.store().tail().unwrap(), prev_sync_block.header().height());
     assert!(check_refcount_map(&mut env.clients[0].chain).is_ok());
     assert!(check_refcount_map(&mut env.clients[1].chain).is_ok());
 }
@@ -1103,7 +1091,7 @@ fn test_gas_price_change() {
     ))];
     let mut env = TestEnv::new_with_runtime(chain_genesis, 1, 1, runtimes);
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
-    let genesis_hash = genesis_block.hash();
+    let genesis_hash = *genesis_block.hash();
     let signer = InMemorySigner::from_seed("test1", KeyType::ED25519, "test1");
     let tx = SignedTransaction::send_money(
         1,
@@ -1136,14 +1124,8 @@ fn test_invalid_block_root() {
     let mut env = TestEnv::new(ChainGenesis::test(), 1, 1);
     let mut b1 = env.clients[0].produce_block(1).unwrap().unwrap();
     let signer = InMemoryValidatorSigner::from_seed("test0", KeyType::ED25519, "test0");
-    b1.header.inner_lite.block_merkle_root = CryptoHash::default();
-    let (hash, signature) = signer.sign_block_header_parts(
-        b1.header.prev_hash,
-        &b1.header.inner_lite,
-        &b1.header.inner_rest,
-    );
-    b1.header.hash = hash;
-    b1.header.signature = signature;
+    b1.mut_header().get_mut().inner_lite.block_merkle_root = CryptoHash::default();
+    b1.mut_header().resign(&signer);
     let (_, tip) = env.clients[0].process_block(b1, Provenance::NONE);
     match tip {
         Err(e) => match e.kind() {
@@ -1195,10 +1177,10 @@ fn test_block_merkle_proof_with_len(n: NumBlocks) {
         env.process_block(0, block, Provenance::PRODUCED);
     }
     let head = blocks.pop().unwrap();
-    let root = head.header.inner_lite.block_merkle_root;
+    let root = head.header().block_merkle_root();
     for block in blocks {
         let proof = env.clients[0].chain.get_block_proof(&block.hash(), &head.hash()).unwrap();
-        assert!(verify_hash(root, &proof, block.hash()));
+        assert!(verify_hash(*root, &proof, *block.hash()));
     }
 }
 
@@ -1233,7 +1215,7 @@ fn test_data_reset_before_state_sync() {
     let mut env = TestEnv::new_with_runtime(ChainGenesis::test(), 1, 1, runtimes);
     let signer = InMemorySigner::from_seed("test0", KeyType::ED25519, "test0");
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
-    let genesis_hash = genesis_block.hash();
+    let genesis_hash = *genesis_block.hash();
     let tx = SignedTransaction::create_account(
         1,
         "test0".to_string(),
@@ -1254,24 +1236,24 @@ fn test_data_reset_before_state_sync() {
         .runtime_adapter
         .query(
             0,
-            &head_block.chunks[0].inner.prev_state_root,
+            &head_block.chunks()[0].inner.prev_state_root,
             head.height,
             0,
             &head.last_block_hash,
-            &head_block.header.inner_lite.epoch_id,
+            head_block.header().epoch_id(),
             &QueryRequest::ViewAccount { account_id: "test_account".to_string() },
         )
         .unwrap();
     assert!(matches!(response.kind, QueryResponseKind::ViewAccount(_)));
-    env.clients[0].chain.reset_data_pre_state_sync(head_block.hash()).unwrap();
+    env.clients[0].chain.reset_data_pre_state_sync(*head_block.hash()).unwrap();
     // account should not exist after clearing state
     let response = env.clients[0].runtime_adapter.query(
         0,
-        &head_block.chunks[0].inner.prev_state_root,
+        &head_block.chunks()[0].inner.prev_state_root,
         head.height,
         0,
         &head.last_block_hash,
-        &head_block.header.inner_lite.epoch_id,
+        head_block.header().epoch_id(),
         &QueryRequest::ViewAccount { account_id: "test_account".to_string() },
     );
     assert!(response.is_err());

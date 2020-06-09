@@ -24,7 +24,7 @@ pub mod user;
 
 /// Compute genesis hash from genesis.
 pub fn genesis_hash(genesis: Arc<Genesis>) -> CryptoHash {
-    genesis_header(genesis).hash
+    *genesis_header(genesis).hash()
 }
 
 /// Utility to generate genesis header from config for testing purposes.
@@ -44,7 +44,7 @@ pub fn genesis_block(genesis: Arc<Genesis>) -> Block {
     let chain_genesis = ChainGenesis::from(&genesis);
     let runtime = Arc::new(NightshadeRuntime::new(dir.path(), store, genesis, vec![], vec![]));
     let mut chain = Chain::new(runtime, &chain_genesis, DoomslugThresholdMode::TwoThirds).unwrap();
-    chain.get_block(&chain.genesis().hash()).unwrap().clone()
+    chain.get_block(&chain.genesis().hash().clone()).unwrap().clone()
 }
 
 pub fn start_nodes(

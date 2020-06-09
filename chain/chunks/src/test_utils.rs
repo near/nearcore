@@ -1,7 +1,7 @@
-use crate::{
-    Seal, SealsManager, ShardsManager, ACCEPTING_SEAL_PERIOD_MS, PAST_SEAL_HEIGHT_HORIZON,
-};
+use std::sync::Arc;
+
 use chrono::Utc;
+
 use near_chain::test_utils::KeyValueRuntime;
 use near_chain::types::RuntimeAdapter;
 use near_chain::ChainStore;
@@ -16,8 +16,12 @@ use near_primitives::sharding::{
 use near_primitives::types::{AccountId, ShardId};
 use near_primitives::types::{BlockHeight, MerkleHash};
 use near_primitives::validator_signer::InMemoryValidatorSigner;
+use near_primitives::version::PROTOCOL_VERSION;
 use near_store::Store;
-use std::sync::Arc;
+
+use crate::{
+    Seal, SealsManager, ShardsManager, ACCEPTING_SEAL_PERIOD_MS, PAST_SEAL_HEIGHT_HORIZON,
+};
 
 pub struct SealsManagerTestFixture {
     pub mock_chunk_producer: AccountId,
@@ -55,6 +59,7 @@ impl Default for SealsManagerTestFixture {
         // in the header is used to check that the `SealsManager` seals cache is properly
         // cleared.
         let mock_distant_block_header = BlockHeader::genesis(
+            PROTOCOL_VERSION,
             mock_height + PAST_SEAL_HEIGHT_HORIZON + 1,
             Default::default(),
             Default::default(),
@@ -67,7 +72,7 @@ impl Default for SealsManagerTestFixture {
             Default::default(),
             Default::default(),
         );
-        let mock_distant_block_hash = mock_distant_block_header.hash.clone();
+        let mock_distant_block_hash = mock_distant_block_header.hash().clone();
         Self::store_block_header(store, mock_distant_block_header);
 
         Self {
@@ -86,7 +91,7 @@ impl Default for SealsManagerTestFixture {
 
 impl SealsManagerTestFixture {
     fn store_block_header(store: Arc<Store>, header: BlockHeader) {
-        let mut chain_store = ChainStore::new(store, header.inner_lite.height);
+        let mut chain_store = ChainStore::new(store, header.height());
         let mut update = chain_store.store_update();
         update.save_block_header(header).unwrap();
         update.commit().unwrap();
