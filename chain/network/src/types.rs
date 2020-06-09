@@ -17,7 +17,6 @@ use tracing::{error, warn};
 
 use near_chain::types::ShardStateSyncResponse;
 use near_chain::{Block, BlockHeader};
-use near_chain_configs::PROTOCOL_VERSION;
 use near_crypto::{PublicKey, SecretKey, Signature};
 use near_metrics;
 use near_primitives::block::{Approval, ApprovalMessage, GenesisId};
@@ -31,6 +30,7 @@ use near_primitives::sharding::{
 use near_primitives::transaction::{ExecutionOutcomeWithIdAndProof, SignedTransaction};
 use near_primitives::types::{AccountId, BlockHeight, BlockIdOrFinality, EpochId, ShardId};
 use near_primitives::utils::{from_timestamp, to_timestamp};
+use near_primitives::version::FIRST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION;
 use near_primitives::views::{FinalExecutionOutcomeView, QueryRequest, QueryResponse};
 
 use crate::metrics;
@@ -177,7 +177,8 @@ impl Handshake {
         edge_info: EdgeInfo,
     ) -> Self {
         Handshake {
-            version: PROTOCOL_VERSION,
+            // TODO: figure out how we are going to indicate backward compatible versions of protocol.
+            version: FIRST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION,
             peer_id,
             target_peer_id,
             listen_port,
@@ -391,6 +392,9 @@ impl SyncData {
     }
 }
 
+/// Warning, position of each message type in this enum defines the protocol due to serialization.
+/// DO NOT MOVE, REORDER, DELETE items from the list. Only add new items to the end.
+/// If need to remove old items - replace with `None`.
 #[derive(BorshSerialize, BorshDeserialize, Serialize, PartialEq, Eq, Clone, Debug)]
 // TODO(#1313): Use Box
 #[allow(clippy::large_enum_variant)]

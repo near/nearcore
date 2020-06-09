@@ -8,6 +8,7 @@ import os
 import tempfile
 import json
 import hashlib
+import time
 
 
 class TxContext:
@@ -284,7 +285,7 @@ def obj_to_string(obj, extra='    '):
 
     else:
         return str(obj)
-    
+
 
 def combine_hash(hash1, hash2):
     return hashlib.sha256(hash1 + hash2).digest()
@@ -298,3 +299,18 @@ def compute_merkle_root_from_path(path, leaf_hash):
         else:
             res = combine_hash(res, base58.b58decode(node['hash']))
     return res
+
+
+def wait_for_blocks_or_timeout(node, num_blocks, timeout, callback=None, check_sec=1):
+    status = node.get_status()
+    start_height = status['sync_info']['latest_block_height']
+    max_height = 0
+    started = time.time()
+    while max_height < start_height + num_blocks:
+        assert time.time() - started < timeout
+        status = node.get_status()
+        max_height = status['sync_info']['latest_block_height']
+        if callback is not None:
+            if callback():
+                break
+        time.sleep(check_sec)

@@ -4,14 +4,14 @@ use std::sync::Arc;
 
 use actix::{Actor, Addr};
 use log::info;
+use tracing::trace;
 
 use near_chain::ChainGenesis;
 use near_client::{ClientActor, ViewClientActor};
 use near_jsonrpc::start_http;
 use near_network::{NetworkRecipient, PeerManagerActor};
-use near_store::create_store;
+use near_store::{create_store, get_store_version, set_store_version, Store};
 use near_telemetry::TelemetryActor;
-use tracing::trace;
 
 pub use crate::config::{init_configs, load_config, load_test_config, NearConfig, NEAR_BASE};
 pub use crate::runtime::NightshadeRuntime;
@@ -23,15 +23,18 @@ mod shard_tracker;
 
 const STORE_PATH: &str = "data";
 
+pub fn store_path_exists<P: AsRef<Path>>(path: P) -> bool {
+    fs::canonicalize(path).is_ok()
+}
+
 pub fn get_store_path(base_path: &Path) -> String {
     let mut store_path = base_path.to_owned();
     store_path.push(STORE_PATH);
-    match fs::canonicalize(store_path.clone()) {
-        Ok(path) => info!(target: "near", "Opening store database at {:?}", path),
-        _ => {
-            info!(target: "near", "Did not find {:?} path, will be creating new store database", store_path)
-        }
-    };
+    if store_path_exists(&store_path) {
+        info!(target: "near", "Opening store database at {:?}", store_path);
+    } else {
+        info!(target: "near", "Did not find {:?} path, will be creating new store database", store_path);
+    }
     store_path.to_str().unwrap().to_owned()
 }
 
@@ -48,11 +51,30 @@ pub fn get_default_home() -> String {
     }
 }
 
+/// Function checks current version of the database and applies migrations to the database.
+pub fn apply_store_migrations(path: &String) {
+    let _db_version = get_store_version(path);
+    // Add migrations here based on `db_version`.
+}
+
+pub fn init_and_migrate_store(home_dir: &Path) -> Arc<Store> {
+    let path = get_store_path(home_dir);
+    let store_exists = store_path_exists(&path);
+    if store_exists {
+        apply_store_migrations(&path);
+    }
+    let store = create_store(&path);
+    if !store_exists {
+        set_store_version(&store);
+    }
+    store
+}
+
 pub fn start_with_config(
     home_dir: &Path,
     config: NearConfig,
 ) -> (Addr<ClientActor>, Addr<ViewClientActor>) {
-    let store = create_store(&get_store_path(home_dir));
+    let store = init_and_migrate_store(home_dir);
     near_actix_utils::init_stop_on_panic();
     let runtime = Arc::new(NightshadeRuntime::new(
         home_dir,

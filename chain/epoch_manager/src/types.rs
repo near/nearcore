@@ -1,9 +1,4 @@
-use std::collections::{BTreeMap, HashMap};
-
 use borsh::{BorshDeserialize, BorshSerialize};
-use num_rational::Rational;
-use serde::Serialize;
-
 use near_primitives::challenge::SlashedValidator;
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{
@@ -11,6 +6,11 @@ use near_primitives::types::{
     EpochId, NumSeats, NumShards, ShardId, ValidatorId, ValidatorKickoutReason, ValidatorStake,
     ValidatorStats,
 };
+use near_primitives::version::{ProtocolVersion, PROTOCOL_VERSION};
+use num_rational::Rational;
+use serde::Serialize;
+use smart_default::SmartDefault;
+use std::collections::{BTreeMap, HashMap};
 
 use crate::EpochManager;
 
@@ -40,13 +40,17 @@ pub struct EpochConfig {
     pub online_max_threshold: Rational,
     /// Stake threshold for becoming a fisherman.
     pub fishermen_threshold: Balance,
+    /// Threshold of stake that needs to indicate that they ready for upgrade.
+    pub protocol_upgrade_stake_threshold: Rational,
+    /// Number of epochs after stake threshold was achieved to start next prtocol version.
+    pub protocol_upgrade_num_epochs: EpochHeight,
 }
 
 #[derive(Default, BorshSerialize, BorshDeserialize, Serialize, Clone, Debug, PartialEq, Eq)]
 pub struct ValidatorWeight(ValidatorId, u64);
 
 /// Information per epoch.
-#[derive(Default, BorshSerialize, BorshDeserialize, Serialize, Clone, Debug, PartialEq, Eq)]
+#[derive(SmartDefault, BorshSerialize, BorshDeserialize, Serialize, Clone, Debug, PartialEq, Eq)]
 pub struct EpochInfo {
     /// Ordinal of given epoch from genesis.
     /// There can be multiple epochs with the same ordinal in case of long forks.
@@ -73,6 +77,9 @@ pub struct EpochInfo {
     pub validator_kickout: HashMap<AccountId, ValidatorKickoutReason>,
     /// Total minted tokens in the epoch.
     pub minted_amount: Balance,
+    /// Current protocol version during this epoch.
+    #[default(PROTOCOL_VERSION)]
+    pub protocol_version: ProtocolVersion,
 }
 
 /// Information per each block.
@@ -85,7 +92,9 @@ pub struct BlockInfo {
     pub epoch_id: EpochId,
     pub proposals: Vec<ValidatorStake>,
     pub chunk_mask: Vec<bool>,
-    /// Validators slashed since the start of epoch or in previous epoch
+    /// Latest protocol version this validator observes.
+    pub latest_protocol_version: ProtocolVersion,
+    /// Validators slashed since the start of epoch or in previous epoch.
     pub slashed: HashMap<AccountId, SlashState>,
     /// Total supply at this block.
     pub total_supply: Balance,
@@ -95,6 +104,8 @@ pub struct BlockInfo {
     pub shard_tracker: HashMap<ShardId, HashMap<ValidatorId, ValidatorStats>>,
     /// All proposals in this epoch up to this block.
     pub all_proposals: Vec<ValidatorStake>,
+    /// Protocol versions per validator.
+    pub version_tracker: HashMap<ValidatorId, ProtocolVersion>,
 }
 
 impl BlockInfo {
@@ -106,6 +117,7 @@ impl BlockInfo {
         validator_mask: Vec<bool>,
         slashed: Vec<SlashedValidator>,
         total_supply: Balance,
+        latest_protocol_version: ProtocolVersion,
     ) -> Self {
         Self {
             height,
@@ -122,12 +134,15 @@ impl BlockInfo {
                 })
                 .collect(),
             total_supply,
-            // These values are not set. This code is suboptimal
+            latest_protocol_version,
+            // TODO(2610): These values are "tip" and maintain latest in the current chain.
+            // Current implementation is suboptimal and should be improved.
             epoch_first_block: CryptoHash::default(),
             epoch_id: EpochId::default(),
             block_tracker: HashMap::default(),
             shard_tracker: HashMap::default(),
             all_proposals: vec![],
+            version_tracker: HashMap::default(),
         }
     }
 
@@ -186,16 +201,28 @@ impl BlockInfo {
         }
         self.shard_tracker = prev_shard_tracker;
     }
+
+    pub fn update_version_tracker(
+        &mut self,
+        epoch_info: &EpochInfo,
+        mut prev_version_tracker: HashMap<ValidatorId, ProtocolVersion>,
+    ) {
+        let block_producer_id = EpochManager::block_producer_from_info(epoch_info, self.height);
+        prev_version_tracker.insert(block_producer_id, self.latest_protocol_version);
+        self.version_tracker = prev_version_tracker;
+    }
 }
 
 pub struct EpochSummary {
     pub prev_epoch_last_block_hash: CryptoHash,
-    // Proposals from the epoch, only the latest one per account
+    /// Proposals from the epoch, only the latest one per account
     pub all_proposals: Vec<ValidatorStake>,
-    // Kickout set, includes slashed
+    /// Kickout set, includes slashed
     pub validator_kickout: HashMap<AccountId, ValidatorKickoutReason>,
-    // Only for validators who met the threshold and didn't get slashed
+    /// Only for validators who met the threshold and didn't get slashed
     pub validator_block_chunk_stats: HashMap<AccountId, BlockChunkValidatorStats>,
+    /// Protocol version for next epoch.
+    pub next_version: ProtocolVersion,
 }
 
 /// State that a slashed validator can be in.

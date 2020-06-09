@@ -513,25 +513,25 @@ dependencies = [
 
 [[package]]
 name = "borsh"
-version = "0.6.1"
+version = "0.6.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
- "borsh-derive 0.6.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "borsh-derive 0.6.2 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
 name = "borsh-derive"
-version = "0.6.1"
+version = "0.6.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
- "borsh-derive-internal 0.6.1 (registry+https://github.com/rust-lang/crates.io-index)",
- "borsh-schema-derive-internal 0.6.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "borsh-derive-internal 0.6.2 (registry+https://github.com/rust-lang/crates.io-index)",
+ "borsh-schema-derive-internal 0.6.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "syn 1.0.18 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
 name = "borsh-derive-internal"
-version = "0.6.1"
+version = "0.6.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
  "proc-macro2 1.0.10 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -541,7 +541,7 @@ dependencies = [
 
 [[package]]
 name = "borsh-schema-derive-internal"
-version = "0.6.1"
+version = "0.6.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
  "proc-macro2 1.0.10 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -1238,7 +1238,7 @@ dependencies = [
 name = "genesis-populate"
 version = "0.1.0"
 dependencies = [
- "borsh 0.6.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "borsh 0.6.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "byteorder 1.3.4 (registry+https://github.com/rust-lang/crates.io-index)",
  "clap 2.33.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "indicatif 0.13.0 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -1641,7 +1641,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 name = "loadtester"
 version = "0.1.0"
 dependencies = [
- "borsh 0.6.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "borsh 0.6.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "byteorder 1.3.4 (registry+https://github.com/rust-lang/crates.io-index)",
  "clap 2.33.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "env_logger 0.7.1 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -1839,7 +1839,7 @@ dependencies = [
 name = "near-chain"
 version = "0.1.0"
 dependencies = [
- "borsh 0.6.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "borsh 0.6.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "cached 0.12.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "chrono 0.4.11 (registry+https://github.com/rust-lang/crates.io-index)",
  "failure 0.1.7 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -1880,7 +1880,7 @@ name = "near-chunks"
 version = "0.1.0"
 dependencies = [
  "actix 0.9.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "borsh 0.6.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "borsh 0.6.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "cached 0.12.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "chrono 0.4.11 (registry+https://github.com/rust-lang/crates.io-index)",
  "futures 0.3.4 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -1903,7 +1903,7 @@ version = "0.1.0"
 dependencies = [
  "actix 0.9.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "ansi_term 0.11.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "borsh 0.6.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "borsh 0.6.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "cached 0.12.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "chrono 0.4.11 (registry+https://github.com/rust-lang/crates.io-index)",
  "futures 0.3.4 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -1938,7 +1938,7 @@ version = "0.1.0"
 dependencies = [
  "arrayref 0.3.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "blake2 0.8.1 (registry+https://github.com/rust-lang/crates.io-index)",
- "borsh 0.6.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "borsh 0.6.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "bs58 0.3.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "c2-chacha 0.2.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "curve25519-dalek 2.0.0 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -1960,7 +1960,7 @@ dependencies = [
 name = "near-epoch-manager"
 version = "0.0.1"
 dependencies = [
- "borsh 0.6.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "borsh 0.6.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "cached 0.12.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "log 0.4.8 (registry+https://github.com/rust-lang/crates.io-index)",
  "near-chain 0.1.0",
@@ -1973,6 +1973,7 @@ dependencies = [
  "rand 0.7.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde 1.0.106 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_json 1.0.51 (registry+https://github.com/rust-lang/crates.io-index)",
+ "smart-default 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
@@ -1982,7 +1983,7 @@ dependencies = [
  "actix 0.9.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "actix-cors 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "actix-web 2.0.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "borsh 0.6.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "borsh 0.6.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "futures 0.3.4 (registry+https://github.com/rust-lang/crates.io-index)",
  "lazy_static 1.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "near-chain-configs 0.1.0",
@@ -2036,7 +2037,7 @@ version = "0.1.0"
 dependencies = [
  "actix 0.9.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "bencher 0.1.5 (registry+https://github.com/rust-lang/crates.io-index)",
- "borsh 0.6.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "borsh 0.6.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "byteorder 1.3.4 (registry+https://github.com/rust-lang/crates.io-index)",
  "bytes 0.5.4 (registry+https://github.com/rust-lang/crates.io-index)",
  "cached 0.12.0 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -2067,7 +2068,7 @@ dependencies = [
 name = "near-pool"
 version = "0.1.0"
 dependencies = [
- "borsh 0.6.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "borsh 0.6.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "near-crypto 0.1.0",
  "near-primitives 0.1.0",
  "rand 0.7.3 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -2079,7 +2080,7 @@ version = "0.1.0"
 dependencies = [
  "base64 0.11.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "bencher 0.1.5 (registry+https://github.com/rust-lang/crates.io-index)",
- "borsh 0.6.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "borsh 0.6.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "bs58 0.3.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "byteorder 1.3.4 (registry+https://github.com/rust-lang/crates.io-index)",
  "chrono 0.4.11 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -2161,7 +2162,7 @@ name = "near-store"
 version = "0.1.0"
 dependencies = [
  "bencher 0.1.5 (registry+https://github.com/rust-lang/crates.io-index)",
- "borsh 0.6.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "borsh 0.6.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "byteorder 1.3.4 (registry+https://github.com/rust-lang/crates.io-index)",
  "cached 0.12.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "derive_more 0.99.5 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -2172,6 +2173,7 @@ dependencies = [
  "rand 0.7.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "rocksdb 0.14.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde 1.0.106 (registry+https://github.com/rust-lang/crates.io-index)",
+ "serde_json 1.0.51 (registry+https://github.com/rust-lang/crates.io-index)",
  "tempfile 3.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
@@ -2193,7 +2195,7 @@ dependencies = [
 name = "near-vm-errors"
 version = "0.9.1"
 dependencies = [
- "borsh 0.6.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "borsh 0.6.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "near-rpc-error-macro 0.1.0",
  "serde 1.0.106 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
@@ -2271,7 +2273,7 @@ name = "neard"
 version = "1.0.0"
 dependencies = [
  "actix 0.9.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "borsh 0.6.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "borsh 0.6.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "byteorder 1.3.4 (registry+https://github.com/rust-lang/crates.io-index)",
  "chrono 0.4.11 (registry+https://github.com/rust-lang/crates.io-index)",
  "clap 2.33.0 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -2336,7 +2338,7 @@ version = "0.9.0"
 dependencies = [
  "assert_matches 1.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "base64 0.11.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "borsh 0.6.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "borsh 0.6.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "byteorder 1.3.4 (registry+https://github.com/rust-lang/crates.io-index)",
  "cached 0.12.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "indicatif 0.13.0 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -2947,7 +2949,7 @@ dependencies = [
 name = "runtime-params-estimator"
 version = "0.9.0"
 dependencies = [
- "borsh 0.6.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "borsh 0.6.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "clap 2.33.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "csv 1.1.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "gnuplot 0.0.32 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -3239,7 +3241,7 @@ name = "state-viewer"
 version = "0.1.0"
 dependencies = [
  "ansi_term 0.11.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "borsh 0.6.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "borsh 0.6.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "clap 2.33.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "near-chain 0.1.0",
  "near-chain-configs 0.1.0",
@@ -3393,7 +3395,7 @@ version = "0.1.0"
 dependencies = [
  "actix 0.9.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "assert_matches 1.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "borsh 0.6.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "borsh 0.6.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "byteorder 1.3.4 (registry+https://github.com/rust-lang/crates.io-index)",
  "clap 2.33.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "futures 0.3.4 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -4097,10 +4099,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 "checksum blake3 0.3.4 (registry+https://github.com/rust-lang/crates.io-index)" = "423897d97e11b810c9da22458400b28ec866991c711409073662eb34dc44bfff"
 "checksum block-buffer 0.7.3 (registry+https://github.com/rust-lang/crates.io-index)" = "c0940dc441f31689269e10ac70eb1002a3a1d3ad1390e030043662eb7fe4688b"
 "checksum block-padding 0.1.5 (registry+https://github.com/rust-lang/crates.io-index)" = "fa79dedbb091f449f1f39e53edf88d5dbe95f895dae6135a8d7b881fb5af73f5"
-"checksum borsh 0.6.1 (registry+https://github.com/rust-lang/crates.io-index)" = "2f9dada4c07fa726bc195503048581e7b1719407f7fbef82741f7b149d3921b3"
-"checksum borsh-derive 0.6.1 (registry+https://github.com/rust-lang/crates.io-index)" = "47c6bed3dd7695230e85bd51b6a4e4e4dc7550c1974a79c11e98a8a055211a61"
-"checksum borsh-derive-internal 0.6.1 (registry+https://github.com/rust-lang/crates.io-index)" = "d34f80970434cd6524ae676b277d024b87dd93ecdd3f53bf470d61730dc6cb80"
-"checksum borsh-schema-derive-internal 0.6.1 (registry+https://github.com/rust-lang/crates.io-index)" = "b3b93230d3769ea99ac75a8a7fee2a229defbc56fe8816c9cde8ed78c848aa33"
+"checksum borsh 0.6.2 (registry+https://github.com/rust-lang/crates.io-index)" = "c7769f8f6fdc6ac7617bbc8bc7ef9dc263cd459d99d21cf2ab4afc3bc8d7d70d"
+"checksum borsh-derive 0.6.2 (registry+https://github.com/rust-lang/crates.io-index)" = "d2689a82a5fe57f9e71997b16bea340da338c7fb8db400b8d9d55b59010540d8"
+"checksum borsh-derive-internal 0.6.2 (registry+https://github.com/rust-lang/crates.io-index)" = "39b621f19e9891a34f679034fa2238260e27c0eddfe2804e9fb282061cf9b294"
+"checksum borsh-schema-derive-internal 0.6.2 (registry+https://github.com/rust-lang/crates.io-index)" = "befebdb9e223ae4528b3d597dbbfb5c68566822d2a3de3e260f235360773ba29"
 "checksum brotli-sys 0.3.2 (registry+https://github.com/rust-lang/crates.io-index)" = "4445dea95f4c2b41cde57cc9fee236ae4dbae88d8fcbdb4750fc1bb5d86aaecd"
 "checksum brotli2 0.3.2 (registry+https://github.com/rust-lang/crates.io-index)" = "0cb036c3eade309815c15ddbacec5b22c4d1f3983a774ab2eac2e3e9ea85568e"
 "checksum bs58 0.3.1 (registry+https://github.com/rust-lang/crates.io-index)" = "476e9cd489f9e121e02ffa6014a8ef220ecb15c05ed23fc34cca13925dc283fb"

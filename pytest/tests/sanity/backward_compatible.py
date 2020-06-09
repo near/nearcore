@@ -22,8 +22,9 @@ def main():
         shutil.rmtree(node_root)
     subprocess.check_output('mkdir -p /tmp/near', shell=True)
 
-    near_root, (stable_branch,
-                current_branch) = branches.prepare_ab_test("beta")
+    # near_root, (stable_branch,
+    #             current_branch) = branches.prepare_ab_test("beta")
+    (near_root, (stable_branch, current_branch)) = ('../target/debug', ('beta', 'upgradability'))
 
     # Setup local network.
     subprocess.call([
