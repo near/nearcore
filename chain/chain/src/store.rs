@@ -2480,8 +2480,6 @@ mod tests {
     use crate::test_utils::KeyValueRuntime;
     use crate::{Chain, ChainGenesis, DoomslugThresholdMode};
 
-    const MAX_HEIGHTS_TO_CLEAR: u64 = 100;
-
     fn get_chain() -> Chain {
         get_chain_with_epoch_length(10)
     }
@@ -2812,10 +2810,20 @@ mod tests {
         assert!(chain.mut_store().get_next_block_hash(blocks[6].hash()).is_ok());
     }
 
-    /// Test that MAX_HEIGHTS_TO_CLEAR works properly
+    /// Test that `gc_blocks_limit` works properly
     #[cfg(feature = "expensive_tests")]
     #[test]
     fn test_clear_old_data_too_many_heights() {
+        for i in 1..10 {
+            println!("gc_blocks_limit == {:?}", i);
+            test_clear_old_data_too_many_heights_common(i);
+        }
+        test_clear_old_data_too_many_heights_common(25);
+        test_clear_old_data_too_many_heights_common(50);
+        test_clear_old_data_too_many_heights_common(87);
+    }
+
+    fn test_clear_old_data_too_many_heights_common(gc_blocks_limit: NumBlocks) {
         let mut chain = get_chain_with_epoch_length(1);
         let genesis = chain.get_block_by_height(0).unwrap().clone();
         let signer =
@@ -2846,13 +2854,13 @@ mod tests {
 
         for iter in 0..10 {
             println!("ITERATION #{:?}", iter);
-            assert!(chain.clear_data(trie.clone(), 100).is_ok());
+            assert!(chain.clear_data(trie.clone(), gc_blocks_limit).is_ok());
 
             assert!(chain.get_block(&blocks[0].hash()).is_ok());
 
             // epoch didn't change so no data is garbage collected.
             for i in 1..1000 {
-                if i < (iter + 1) * (MAX_HEIGHTS_TO_CLEAR - 1) as usize {
+                if i < (iter + 1) * gc_blocks_limit as usize {
                     assert!(chain.get_block(&blocks[i].hash()).is_err());
                     assert!(chain
                         .mut_store()
