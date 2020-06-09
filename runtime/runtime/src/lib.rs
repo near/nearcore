@@ -552,7 +552,7 @@ impl Runtime {
             let mut account = get_account(state_update, account_id)?;
             if let Some(ref mut account) = account {
                 let receiver_reward =
-                    safe_gas_to_balance(action_receipt.gas_price, receiver_gas_reward)?;
+                    safe_gas_to_balance(apply_state.gas_price, receiver_gas_reward)?;
                 // Validators receive the remaining execution reward that was not given to the
                 // account holder. If the account doesn't exist by the end of the execution, the
                 // validators receive the full reward.
