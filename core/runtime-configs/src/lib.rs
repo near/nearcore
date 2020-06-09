@@ -7,7 +7,7 @@ use near_runtime_fees::RuntimeFeesConfig;
 use near_vm_logic::VMConfig;
 
 /// The structure that holds the parameters of the runtime, mostly economics.
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 #[serde(default)]
 pub struct RuntimeConfig {
     /// Amount of yN per byte required to have on the account.
@@ -47,7 +47,7 @@ impl RuntimeConfig {
 }
 
 /// The structure describes configuration for creation of new accounts.
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 pub struct AccountCreationConfig {
     /// The minimum length of the top-level account ID that is allowed to be created by any account.
     pub min_allowed_top_level_account_length: u8,
@@ -62,5 +62,21 @@ impl Default for AccountCreationConfig {
             min_allowed_top_level_account_length: 0,
             registrar_account_id: AccountId::from("registrar"),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_max_prepaid_gas() {
+        let config = RuntimeConfig::default();
+        assert!(
+            config.wasm_config.limit_config.max_total_prepaid_gas
+                / config.transaction_costs.min_receipt_with_function_call_gas()
+                <= 63,
+            "The maximum desired depth of receipts should be at most 63"
+        );
     }
 }

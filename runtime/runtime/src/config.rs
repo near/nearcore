@@ -167,7 +167,7 @@ pub fn tx_cost(
     // If signer is equals to receiver the receipt will be processed at the same block as this
     // transaction. Otherwise it will processed in the next block and the gas might be inflated.
     let initial_receipt_hop = if transaction.signer_id == transaction.receiver_id { 0 } else { 1 };
-    let minimum_new_receipt_gas = config.minimum_new_receipt_gas();
+    let minimum_new_receipt_gas = config.min_receipt_with_function_call_gas();
     // In case the config is free, we don't care about the maximum depth.
     let maximum_depth =
         if minimum_new_receipt_gas > 0 { prepaid_gas / minimum_new_receipt_gas } else { 0 };
