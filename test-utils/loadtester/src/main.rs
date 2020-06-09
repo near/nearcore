@@ -13,8 +13,9 @@ use log::info;
 
 use git_version::git_version;
 use near_crypto::Signer;
-use near_primitives::types::{NumSeats, NumShards, Version};
+use near_primitives::types::{NumSeats, NumShards};
 use near_primitives::validator_signer::ValidatorSigner;
+use near_primitives::version::Version;
 use near_store::{create_store, ColState};
 use neard::config::create_testnet_configs;
 use neard::{get_default_home, get_store_path};

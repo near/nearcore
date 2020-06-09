@@ -1,5 +1,5 @@
 use near_primitives::block::BlockHeader;
-use near_primitives::hash::CryptoHash;
+use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::types::EpochId;
 use near_primitives::views::{BlockHeaderInnerLiteView, LightClientBlockView, ValidatorStakeView};
 
@@ -36,32 +36,31 @@ pub fn create_light_client_block_view(
     chain_store: &mut dyn ChainStoreAccess,
     next_block_producers: Option<Vec<ValidatorStakeView>>,
 ) -> Result<LightClientBlockView, Error> {
-    let inner_lite = block_header.inner_lite.clone();
     let inner_lite_view = BlockHeaderInnerLiteView {
-        height: inner_lite.height,
-        epoch_id: inner_lite.epoch_id.0,
-        next_epoch_id: inner_lite.next_epoch_id.0,
-        prev_state_root: inner_lite.prev_state_root,
-        outcome_root: inner_lite.outcome_root,
-        timestamp: inner_lite.timestamp,
-        next_bp_hash: inner_lite.next_bp_hash,
-        block_merkle_root: inner_lite.block_merkle_root,
+        height: block_header.height(),
+        epoch_id: block_header.epoch_id().0,
+        next_epoch_id: block_header.next_epoch_id().0,
+        prev_state_root: *block_header.prev_state_root(),
+        outcome_root: *block_header.outcome_root(),
+        timestamp: block_header.raw_timestamp(),
+        next_bp_hash: *block_header.next_bp_hash(),
+        block_merkle_root: *block_header.block_merkle_root(),
     };
-    let inner_rest_hash = block_header.inner_rest.hash();
+    let inner_rest_hash = hash(&block_header.inner_rest_bytes());
 
     let next_block_hash = chain_store.get_next_block_hash(&block_header.hash())?.clone();
     let next_block_header = chain_store.get_block_header(&next_block_hash)?;
     let next_block_inner_hash = BlockHeader::compute_inner_hash(
-        &next_block_header.inner_lite,
-        &next_block_header.inner_rest,
+        &next_block_header.inner_lite_bytes(),
+        &next_block_header.inner_rest_bytes(),
     );
 
     let after_next_block_hash = chain_store.get_next_block_hash(&next_block_hash)?.clone();
     let after_next_block_header = chain_store.get_block_header(&after_next_block_hash)?;
-    let approvals_after_next = after_next_block_header.inner_rest.approvals.clone();
+    let approvals_after_next = after_next_block_header.approvals().to_vec();
 
     Ok(LightClientBlockView {
-        prev_block_hash: block_header.prev_hash,
+        prev_block_hash: *block_header.prev_hash(),
         next_block_inner_hash,
         inner_lite: inner_lite_view,
         inner_rest_hash,
