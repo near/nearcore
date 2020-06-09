@@ -123,8 +123,10 @@ class BaseNode(object):
     def get_status(self):
         r = requests.get("http://%s:%s/status" % self.rpc_addr(), timeout=2)
         r.raise_for_status()
-        self.check_refmap()
-        self.check_store()
+        if json.loads(r.content)['sync_info']['syncing'] == False:
+            # Storage is not guaranteed to be in consistent state while syncing
+            self.check_refmap()
+            self.check_store()
         return json.loads(r.content)
 
     def get_all_heights(self):
