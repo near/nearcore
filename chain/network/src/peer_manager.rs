@@ -1154,6 +1154,17 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                     NetworkResponses::RouteNotFound
                 }
             }
+            NetworkRequests::PartialEncodedChunkForward { account_id, forward } => {
+                if self.send_message_to_account(
+                    ctx,
+                    &account_id,
+                    RoutedMessageBody::PartialEncodedChunkForward(forward),
+                ) {
+                    NetworkResponses::NoResponse
+                } else {
+                    NetworkResponses::RouteNotFound
+                }
+            }
             NetworkRequests::ForwardTx(account_id, tx) => {
                 if self.send_message_to_account(ctx, &account_id, RoutedMessageBody::ForwardTx(tx))
                 {

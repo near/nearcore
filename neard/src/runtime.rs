@@ -23,7 +23,7 @@ use near_primitives::challenge::ChallengesResult;
 use near_primitives::errors::{EpochError, InvalidTxError, RuntimeError};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::Receipt;
-use near_primitives::sharding::ShardChunkHeader;
+use near_primitives::sharding::ChunkHash;
 use near_primitives::state_record::StateRecord;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::trie_key::trie_key_parsers;
@@ -670,19 +670,24 @@ impl RuntimeAdapter for NightshadeRuntime {
         Ok(header.signature().verify(header.hash().as_ref(), &block_producer.public_key))
     }
 
-    fn verify_chunk_header_signature(&self, header: &ShardChunkHeader) -> Result<bool, Error> {
-        let epoch_id = self.get_epoch_id_from_prev_block(&header.inner.prev_block_hash)?;
+    fn verify_chunk_signature_with_header_parts(
+        &self,
+        chunk_hash: &ChunkHash,
+        signature: &Signature,
+        prev_block_hash: &CryptoHash,
+        height_created: BlockHeight,
+        shard_id: ShardId,
+    ) -> Result<bool, Error> {
+        let epoch_id = self.get_epoch_id_from_prev_block(prev_block_hash)?;
         let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
-        if let Ok(chunk_producer) = epoch_manager.get_chunk_producer_info(
-            &epoch_id,
-            header.inner.height_created,
-            header.inner.shard_id,
-        ) {
-            let slashed = epoch_manager.get_slashed_validators(&header.inner.prev_block_hash)?;
+        if let Ok(chunk_producer) =
+            epoch_manager.get_chunk_producer_info(&epoch_id, height_created, shard_id)
+        {
+            let slashed = epoch_manager.get_slashed_validators(prev_block_hash)?;
             if slashed.contains_key(&chunk_producer.account_id) {
                 return Ok(false);
             }
-            Ok(header.signature.verify(header.chunk_hash().as_ref(), &chunk_producer.public_key))
+            Ok(signature.verify(chunk_hash.as_ref(), &chunk_producer.public_key))
         } else {
             Err(ErrorKind::NotAValidator.into())
         }

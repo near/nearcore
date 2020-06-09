@@ -8,6 +8,10 @@ use futures::{future, FutureExt};
 use log::info;
 
 use near_chain::ChainGenesis;
+use near_chunks::{
+    CHUNK_REQUEST_RETRY_MS, CHUNK_REQUEST_SWITCH_TO_FULL_FETCH_MS,
+    CHUNK_REQUEST_SWITCH_TO_OTHERS_MS,
+};
 use near_client::test_utils::{setup_mock_all_validators, TestEnv};
 use near_client::{ClientActor, GetBlock, ViewClientActor};
 use near_crypto::KeyType;
@@ -23,21 +27,21 @@ use testlib::test_helpers::heavy_test;
 #[test]
 fn chunks_produced_and_distributed_all_in_all_shards() {
     heavy_test(|| {
-        chunks_produced_and_distributed_common(1, false, 1500);
+        chunks_produced_and_distributed_common(1, false, 3 * CHUNK_REQUEST_RETRY_MS);
     });
 }
 
 #[test]
 fn chunks_produced_and_distributed_2_vals_per_shard() {
     heavy_test(|| {
-        chunks_produced_and_distributed_common(2, false, 1500);
+        chunks_produced_and_distributed_common(2, false, 3 * CHUNK_REQUEST_RETRY_MS);
     });
 }
 
 #[test]
 fn chunks_produced_and_distributed_one_val_per_shard() {
     heavy_test(|| {
-        chunks_produced_and_distributed_common(4, false, 1500);
+        chunks_produced_and_distributed_common(4, false, 3 * CHUNK_REQUEST_RETRY_MS);
     });
 }
 
@@ -49,7 +53,7 @@ fn chunks_produced_and_distributed_one_val_per_shard() {
 #[test]
 fn chunks_recovered_from_others() {
     heavy_test(|| {
-        chunks_produced_and_distributed_common(2, true, 1500);
+        chunks_produced_and_distributed_common(2, true, 3 * CHUNK_REQUEST_SWITCH_TO_OTHERS_MS);
     });
 }
 
@@ -61,7 +65,7 @@ fn chunks_recovered_from_others() {
 #[should_panic]
 fn chunks_recovered_from_full_timeout_too_short() {
     heavy_test(|| {
-        chunks_produced_and_distributed_common(4, true, 1500);
+        chunks_produced_and_distributed_common(4, true, 3 * CHUNK_REQUEST_SWITCH_TO_OTHERS_MS / 2);
     });
 }
 
@@ -70,7 +74,7 @@ fn chunks_recovered_from_full_timeout_too_short() {
 #[test]
 fn chunks_recovered_from_full() {
     heavy_test(|| {
-        chunks_produced_and_distributed_common(4, true, 4000);
+        chunks_produced_and_distributed_common(4, true, 2 * CHUNK_REQUEST_SWITCH_TO_FULL_FETCH_MS);
     });
 }
 
@@ -194,6 +198,15 @@ fn chunks_produced_and_distributed_common(
                         partial_chunk_msgs += 1;
                         if drop_from_1_to_4 && from_whom == "test1" && to_whom == "test4" {
                             println!("Dropping Partial Encoded Chunk Message from test1 to test4");
+                            return (NetworkResponses::NoResponse, false);
+                        }
+                    }
+                    NetworkRequests::PartialEncodedChunkForward {
+                        account_id: to_whom,
+                        ..
+                    } => {
+                        if drop_from_1_to_4 && from_whom == "test1" && to_whom == "test4" {
+                            println!("Dropping Partial Encoded Chunk Forward Message from test1 to test4");
                             return (NetworkResponses::NoResponse, false);
                         }
                     }

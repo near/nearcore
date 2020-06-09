@@ -24,7 +24,7 @@ use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::sharding::{
-    ChunkHash, PartialEncodedChunk, PartialEncodedChunkPart, ReceiptProof,
+    ChunkHash, PartialEncodedChunk, PartialEncodedChunkPart, ReceiptProof, ShardChunkHeader,
 };
 use near_primitives::transaction::{ExecutionOutcomeWithIdAndProof, SignedTransaction};
 use near_primitives::types::{AccountId, BlockHeight, BlockIdOrFinality, EpochId, ShardId};
@@ -249,6 +249,7 @@ pub enum RoutedMessageBody {
     PartialEncodedChunkRequest(PartialEncodedChunkRequestMsg),
     PartialEncodedChunkResponse(PartialEncodedChunkResponseMsg),
     PartialEncodedChunk(PartialEncodedChunk),
+    PartialEncodedChunkForward(PartialEncodedChunkForwardMsg),
     /// Ping/Pong used for testing networking and routing.
     Ping(Ping),
     Pong(Pong),
@@ -472,6 +473,7 @@ impl PeerMessage {
                 | RoutedMessageBody::PartialEncodedChunk(_)
                 | RoutedMessageBody::PartialEncodedChunkRequest(_)
                 | RoutedMessageBody::PartialEncodedChunkResponse(_)
+                | RoutedMessageBody::PartialEncodedChunkForward(_)
                 | RoutedMessageBody::StateResponse(_) => true,
                 _ => false,
             },
@@ -879,6 +881,11 @@ pub enum NetworkRequests {
         account_id: AccountId,
         partial_encoded_chunk: PartialEncodedChunk,
     },
+    /// Forwarding a chunk part to a validator tracking the shard
+    PartialEncodedChunkForward {
+        account_id: AccountId,
+        forward: PartialEncodedChunkForwardMsg,
+    },
 
     /// Valid transaction but since we are not validators we send this transaction to current validators.
     ForwardTx(AccountId, SignedTransaction),
@@ -1040,6 +1047,8 @@ pub enum NetworkClientMessages {
     PartialEncodedChunkResponse(PartialEncodedChunkResponseMsg),
     /// Information about chunk such as its header, some subset of parts and/or incoming receipts
     PartialEncodedChunk(PartialEncodedChunk),
+    /// Forwarding parts to those tracking the shard (so they don't need to send requests)
+    PartialEncodedChunkForward(PartialEncodedChunkForwardMsg),
 
     /// A challenge to invalidate the block.
     Challenge(Challenge),
@@ -1203,6 +1212,48 @@ pub struct PartialEncodedChunkResponseMsg {
     pub chunk_hash: ChunkHash,
     pub parts: Vec<PartialEncodedChunkPart>,
     pub receipts: Vec<ReceiptProof>,
+}
+
+/// Message for chunk part owners to forward their parts to validators tracking that shard.
+/// This reduces the number of requests a node tracking a shard needs to send to obtain enough
+/// parts to reconstruct the message (in the best case no such requests are needed).
+#[derive(Clone, Debug, Eq, PartialEq, BorshSerialize, BorshDeserialize, Serialize)]
+pub struct PartialEncodedChunkForwardMsg {
+    pub chunk_hash: ChunkHash,
+    pub inner_header_hash: CryptoHash,
+    pub merkle_root: CryptoHash,
+    pub signature: Signature,
+    pub prev_block_hash: CryptoHash,
+    pub height_created: BlockHeight,
+    pub shard_id: ShardId,
+    pub parts: Vec<PartialEncodedChunkPart>,
+}
+
+impl PartialEncodedChunkForwardMsg {
+    pub fn from_header_and_parts(
+        header: &ShardChunkHeader,
+        parts: Vec<PartialEncodedChunkPart>,
+    ) -> Self {
+        Self {
+            chunk_hash: header.chunk_hash(),
+            inner_header_hash: ShardChunkHeader::inner_header_hash(&header.inner),
+            merkle_root: header.inner.encoded_merkle_root,
+            signature: header.signature.clone(),
+            prev_block_hash: header.inner.prev_block_hash,
+            height_created: header.inner.height_created,
+            shard_id: header.inner.shard_id,
+            parts,
+        }
+    }
+
+    pub fn is_valid_hash(&self) -> bool {
+        let mut input_data = Vec::with_capacity(2 * self.inner_header_hash.as_ref().len());
+        input_data.extend(self.inner_header_hash.as_ref());
+        input_data.extend(self.merkle_root.as_ref());
+        let correct_hash = hash(&input_data);
+
+        ChunkHash(correct_hash) == self.chunk_hash
+    }
 }
 
 /// Adapter to break dependency of sub-components on the network requests.
