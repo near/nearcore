@@ -7,7 +7,7 @@ use near_primitives::types::{BlockHeight, EpochId};
 use near_primitives::utils::index_to_bytes;
 use near_store::{
     ColBlockHeader, ColBlockHeight, ColBlockMisc, ColBlockPerHeight, ColChunkHashesByHeight,
-    ColChunks, CHUNK_TAIL_KEY, HEAD_KEY, TAIL_KEY,
+    ColChunks, CHUNK_TAIL_KEY, HEADER_HEAD_KEY, HEAD_KEY, TAIL_KEY,
 };
 
 use crate::{ErrorMessage, StoreValidator};
@@ -75,7 +75,12 @@ pub(crate) fn head_tail_validity<T, U>(
         sv.store.get_ser::<Tip>(ColBlockMisc, HEAD_KEY),
         "Can't get Head from storage"
     );
+    let header_head = unwrap_or_err_db!(
+        sv.store.get_ser::<Tip>(ColBlockMisc, HEADER_HEAD_KEY),
+        "Can't get Header Head from storage"
+    );
     sv.inner.head = head.height;
+    sv.inner.header_head = header_head.height;
     sv.inner.tail = tail;
     sv.inner.chunk_tail = chunk_tail;
     sv.inner.is_misc_set = true;
@@ -84,6 +89,9 @@ pub(crate) fn head_tail_validity<T, U>(
     }
     if tail > head.height {
         return err!("tail > head.height, {:?} > {:?}", tail, head);
+    }
+    if head.height > header_head.height {
+        return err!("head.height > header_head.height, {:?} > {:?}", tail, head);
     }
     Ok(())
 }
@@ -108,7 +116,7 @@ pub(crate) fn block_header_height_validity(
         return err!("Can't validate, is_misc_set == false");
     }
     let height = header.height();
-    let head = sv.inner.head;
+    let head = sv.inner.header_head;
     if height > head {
         return err!("Invalid Block Header stored, Head = {:?}, header = {:?}", head, header);
     }
@@ -134,17 +142,17 @@ pub(crate) fn block_height_validity(
     if !sv.inner.is_misc_set {
         return err!("Can't validate, is_misc_set == false");
     }
-    let head = sv.inner.head;
     let height = block.header().height();
-    if height > head {
-        return err!("Invalid Block stored, Head = {:?}, block = {:?}", head, block);
-    }
-
     let tail = sv.inner.tail;
     if height < tail && height != sv.config.genesis_height {
         sv.inner.block_heights_less_tail.push(*block.hash());
     }
     sv.inner.is_block_height_cmp_tail_prepared = true;
+
+    let head = sv.inner.head;
+    if height > head {
+        return err!("Invalid Block stored, Head = {:?}, block = {:?}", head, block);
+    }
     Ok(())
 }
 
