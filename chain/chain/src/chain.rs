@@ -557,7 +557,7 @@ impl Chain {
             if gc_blocks_remaining == 0 {
                 return Ok(());
             }
-            self.clear_forks_data(tries.clone(), height, gc_blocks_remaining)?;
+            self.clear_forks_data(tries.clone(), height, &mut gc_blocks_remaining)?;
         }
 
         // Canonical Chain Clearing
@@ -600,7 +600,7 @@ impl Chain {
         &mut self,
         tries: ShardTries,
         height: BlockHeight,
-        mut gc_blocks_remaining: NumBlocks,
+        gc_blocks_remaining: &mut NumBlocks,
     ) -> Result<(), Error> {
         if let Ok(blocks_current_height) = self.store.get_all_block_hashes_by_height(height) {
             let blocks_current_height =
@@ -608,7 +608,7 @@ impl Chain {
             for block_hash in blocks_current_height.iter() {
                 let mut current_hash = *block_hash;
                 loop {
-                    if gc_blocks_remaining == 0 {
+                    if *gc_blocks_remaining == 0 {
                         return Ok(());
                     }
                     // Block `block_hash` is not on the Canonical Chain
@@ -624,7 +624,7 @@ impl Chain {
                         chain_store_update
                             .clear_block_data(current_hash, GCMode::Fork(tries.clone()))?;
                         chain_store_update.commit()?;
-                        gc_blocks_remaining -= 1;
+                        *gc_blocks_remaining -= 1;
 
                         current_hash = prev_hash;
                     } else {
