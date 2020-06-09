@@ -62,8 +62,8 @@ def nightly_tests():
     ret = set()
     for test in tests:
         t = test.strip().split(' ')
-        if t[0] == 'expensive' or (t[0] == '#' and t[1] == 'expensive'):
-            # It's okay to comment out a very expensive test intentionally
+        if t[0] == 'expensive' or (t[0] == '#' and t[1] == 'expensive') or t[0] == 'lib' or (t[0] == '#' and t[1] == 'lib'):
+            # It's okay to comment out a test intentionally
             ret.add(t[-1].split('::')[-1])
     return ret
 

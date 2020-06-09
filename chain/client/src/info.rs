@@ -15,9 +15,9 @@ use near_primitives::serialize::to_base;
 use near_primitives::telemetry::{
     TelemetryAgentInfo, TelemetryChainInfo, TelemetryInfo, TelemetrySystemInfo,
 };
-use near_primitives::types::Version;
 use near_primitives::types::{BlockHeight, Gas};
 use near_primitives::validator_signer::ValidatorSigner;
+use near_primitives::version::Version;
 use near_telemetry::{telemetry, TelemetryActor};
 
 use crate::types::ShardSyncStatus;

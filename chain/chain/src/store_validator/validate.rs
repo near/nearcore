@@ -7,7 +7,7 @@ use near_primitives::types::{BlockHeight, EpochId};
 use near_primitives::utils::index_to_bytes;
 use near_store::{
     ColBlockHeader, ColBlockHeight, ColBlockMisc, ColBlockPerHeight, ColChunkHashesByHeight,
-    ColChunks, CHUNK_TAIL_KEY, HEAD_KEY, TAIL_KEY,
+    ColChunks, CHUNK_TAIL_KEY, HEADER_HEAD_KEY, HEAD_KEY, TAIL_KEY,
 };
 
 use crate::{ErrorMessage, StoreValidator};
@@ -75,7 +75,12 @@ pub(crate) fn head_tail_validity<T, U>(
         sv.store.get_ser::<Tip>(ColBlockMisc, HEAD_KEY),
         "Can't get Head from storage"
     );
+    let header_head = unwrap_or_err_db!(
+        sv.store.get_ser::<Tip>(ColBlockMisc, HEADER_HEAD_KEY),
+        "Can't get Header Head from storage"
+    );
     sv.inner.head = head.height;
+    sv.inner.header_head = header_head.height;
     sv.inner.tail = tail;
     sv.inner.chunk_tail = chunk_tail;
     sv.inner.is_misc_set = true;
@@ -85,6 +90,9 @@ pub(crate) fn head_tail_validity<T, U>(
     if tail > head.height {
         return err!("tail > head.height, {:?} > {:?}", tail, head);
     }
+    if head.height > header_head.height {
+        return err!("head.height > header_head.height, {:?} > {:?}", tail, head);
+    }
     Ok(())
 }
 
@@ -93,7 +101,7 @@ pub(crate) fn block_header_hash_validity(
     block_hash: &CryptoHash,
     header: &BlockHeader,
 ) -> Result<(), ErrorMessage> {
-    if header.hash() != *block_hash {
+    if header.hash() != block_hash {
         return err!("Invalid Block Header stored, hash = {:?}, header = {:?}", block_hash, header);
     }
     Ok(())
@@ -107,8 +115,8 @@ pub(crate) fn block_header_height_validity(
     if !sv.inner.is_misc_set {
         return err!("Can't validate, is_misc_set == false");
     }
-    let height = header.inner_lite.height;
-    let head = sv.inner.head;
+    let height = header.height();
+    let head = sv.inner.header_head;
     if height > head {
         return err!("Invalid Block Header stored, Head = {:?}, header = {:?}", head, header);
     }
@@ -120,7 +128,7 @@ pub(crate) fn block_hash_validity(
     block_hash: &CryptoHash,
     block: &Block,
 ) -> Result<(), ErrorMessage> {
-    if block.hash() != *block_hash {
+    if block.hash() != block_hash {
         return err!("Invalid Block stored, hash = {:?}, block = {:?}", block_hash, block);
     }
     Ok(())
@@ -134,17 +142,17 @@ pub(crate) fn block_height_validity(
     if !sv.inner.is_misc_set {
         return err!("Can't validate, is_misc_set == false");
     }
+    let height = block.header().height();
+    let tail = sv.inner.tail;
+    if height < tail && height != sv.config.genesis_height {
+        sv.inner.block_heights_less_tail.push(*block.hash());
+    }
+    sv.inner.is_block_height_cmp_tail_prepared = true;
+
     let head = sv.inner.head;
-    let height = block.header.inner_lite.height;
     if height > head {
         return err!("Invalid Block stored, Head = {:?}, block = {:?}", head, block);
     }
-
-    let tail = sv.inner.tail;
-    if height < tail && height != sv.config.genesis_height {
-        sv.inner.block_heights_less_tail.push(block.hash());
-    }
-    sv.inner.is_block_height_cmp_tail_prepared = true;
     Ok(())
 }
 
@@ -153,7 +161,7 @@ pub(crate) fn block_indexed_by_height(
     block_hash: &CryptoHash,
     block: &Block,
 ) -> Result<(), ErrorMessage> {
-    let height = block.header.inner_lite.height;
+    let height = block.header().height();
     let block_hashes: HashSet<CryptoHash> = unwrap_or_err_db!(
         sv.store.get_ser::<HashMap<EpochId, HashSet<CryptoHash>>>(
             ColBlockPerHeight,
@@ -260,17 +268,17 @@ pub(crate) fn block_chunks_exist(
     _block_hash: &CryptoHash,
     block: &Block,
 ) -> Result<(), ErrorMessage> {
-    for chunk_header in block.chunks.iter() {
+    for chunk_header in block.chunks().iter() {
         match &sv.me {
             Some(me) => {
                 if sv.runtime_adapter.cares_about_shard(
                     Some(&me),
-                    &block.header.prev_hash,
+                    block.header().prev_hash(),
                     chunk_header.inner.shard_id,
                     true,
                 ) || sv.runtime_adapter.will_care_about_shard(
                     Some(&me),
-                    &block.header.prev_hash,
+                    block.header().prev_hash(),
                     chunk_header.inner.shard_id,
                     true,
                 ) {
@@ -293,8 +301,8 @@ pub(crate) fn block_chunks_height_validity(
     _block_hash: &CryptoHash,
     block: &Block,
 ) -> Result<(), ErrorMessage> {
-    for chunk_header in block.chunks.iter() {
-        if chunk_header.inner.height_created > block.header.inner_lite.height {
+    for chunk_header in block.chunks().iter() {
+        if chunk_header.inner.height_created > block.header().height() {
             return err!(
                 "Invalid ShardChunk included, chunk_header = {:?}, block = {:?}",
                 chunk_header,
@@ -332,7 +340,7 @@ pub(crate) fn canonical_header_validity(
         "Can't get Block Header {:?} from ColBlockHeader",
         hash
     );
-    if header.inner_lite.height != *height {
+    if header.height() != *height {
         return err!("Block on Height {:?} doesn't have required Height, {:?}", height, header);
     }
     Ok(())
@@ -349,13 +357,13 @@ pub(crate) fn canonical_prev_block_validity(
             "Can't get Block Header {:?} from ColBlockHeader",
             hash
         );
-        let prev_hash = header.prev_hash;
+        let prev_hash = *header.prev_hash();
         let prev_header = unwrap_or_err_db!(
             sv.store.get_ser::<BlockHeader>(ColBlockHeader, prev_hash.as_ref()),
             "Can't get prev Block Header {:?} from ColBlockHeader",
             prev_hash
         );
-        let prev_height = prev_header.inner_lite.height;
+        let prev_height = prev_header.height();
         let same_prev_hash = unwrap_or_err_db!(
             sv.store.get_ser::<CryptoHash>(ColBlockHeight, &index_to_bytes(prev_height)),
             "Can't get prev Block Hash from ColBlockHeight by Height, {:?}, {:?}",

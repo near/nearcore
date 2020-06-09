@@ -22,6 +22,7 @@ const STORAGE_COMMON_FAILURE: &str = "STORAGE_COMMON_FAILURE";
 #[derive(Debug)]
 pub struct StoreValidatorCache {
     head: BlockHeight,
+    header_head: BlockHeight,
     tail: BlockHeight,
     chunk_tail: BlockHeight,
     block_heights_less_tail: Vec<CryptoHash>,
@@ -34,6 +35,7 @@ impl StoreValidatorCache {
     fn new() -> Self {
         Self {
             head: 0,
+            header_head: 0,
             tail: 0,
             chunk_tail: 0,
             block_heights_less_tail: vec![],

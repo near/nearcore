@@ -237,6 +237,7 @@ mod tests {
     use near_store::test_utils::create_test_store;
 
     use super::{account_id_to_shard_id, ShardTracker, POISONED_LOCK_ERR};
+    use near_primitives::version::PROTOCOL_VERSION;
     use num_rational::Rational;
 
     const DEFAULT_TOTAL_SUPPLY: u128 = 1_000_000_000_000;
@@ -254,6 +255,8 @@ mod tests {
             fishermen_threshold: 0,
             online_max_threshold: Rational::from_integer(1),
             online_min_threshold: Rational::new(90, 100),
+            protocol_upgrade_stake_threshold: Rational::new(80, 100),
+            protocol_upgrade_num_epochs: 2,
         };
         let reward_calculator = RewardCalculator {
             max_inflation_rate: Rational::from_integer(0),
@@ -268,6 +271,7 @@ mod tests {
             EpochManager::new(
                 store,
                 initial_epoch_config,
+                PROTOCOL_VERSION,
                 reward_calculator,
                 vec![ValidatorStake {
                     account_id: "test".to_string(),
@@ -289,7 +293,16 @@ mod tests {
         epoch_manager
             .record_block_info(
                 &cur_h,
-                BlockInfo::new(height, 0, prev_h, proposals, vec![], vec![], DEFAULT_TOTAL_SUPPLY),
+                BlockInfo::new(
+                    height,
+                    0,
+                    prev_h,
+                    proposals,
+                    vec![],
+                    vec![],
+                    DEFAULT_TOTAL_SUPPLY,
+                    PROTOCOL_VERSION,
+                ),
                 [0; 32],
             )
             .unwrap()

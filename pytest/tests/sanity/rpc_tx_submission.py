@@ -9,8 +9,8 @@ from utils import TxContext
 from transaction import sign_payment_tx
 
 nodes = start_cluster(
-    2, 0, 1, None,
-    [["min_gas_price", 0], ['max_inflation_rate', [0, 1]], ["epoch_length", 10],
+    2, 1, 1, None,
+    [["min_gas_price", 0], ['max_inflation_rate', [0, 1]], ["epoch_length", 100],
      ["block_producer_kickout_threshold", 70]], {})
 
 time.sleep(3)
@@ -37,7 +37,8 @@ for i in range(3):
                                 [base64.b64encode(tx).decode('utf8')])
         assert 'error' not in res, res
         time.sleep(5)
-        tx_query_res = nodes[0].json_rpc('tx', [res['result'], 'test0'])
+        tx_hash = res['result'] if i == 1 else res['result']['transaction_hash']
+        tx_query_res = nodes[0].json_rpc('tx', [tx_hash, 'test0'])
         assert 'error' not in tx_query_res, tx_query_res
     time.sleep(1)
 
@@ -55,3 +56,10 @@ tx = sign_payment_tx(nodes[0].signer_key, 'test1', 100, 1,
 res = nodes[0].json_rpc('EXPERIMENTAL_check_tx',
                         [base64.b64encode(tx).decode('utf8')])
 assert 'TxExecutionError' in res['error']['data'], res
+
+tx = sign_payment_tx(nodes[0].signer_key, 'test1', 100, 10,
+                     base58.b58decode(hash_.encode('utf8')))
+res = nodes[2].json_rpc('EXPERIMENTAL_check_tx',
+                        [base64.b64encode(tx).decode('utf8')])
+
+assert "Node doesn't track this shard" in res['error']['data'], res
