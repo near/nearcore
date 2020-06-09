@@ -67,8 +67,8 @@ pub struct ClientConfig {
     pub chunk_request_retry_period: Duration,
     /// Behind this horizon header fetch kicks in.
     pub block_header_fetch_horizon: BlockHeightDelta,
-    /// Number of heights to garbage collect at every gc call.
-    pub gc_step_size: BlockHeightDelta,
+    /// Number of blocks to garbage collect at every gc call.
+    pub gc_blocks_limit: NumBlocks,
     /// Accounts that this client tracks
     pub tracked_accounts: Vec<AccountId>,
     /// Shards that this client tracks
@@ -121,7 +121,7 @@ impl ClientConfig {
                 Duration::from_millis(min_block_prod_time / 5),
             ),
             block_header_fetch_horizon: 50,
-            gc_step_size: 100,
+            gc_blocks_limit: 100,
             tracked_accounts: vec![],
             tracked_shards: vec![],
             archive,

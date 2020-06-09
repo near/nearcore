@@ -119,7 +119,7 @@ impl Approval {
     }
 
     pub fn get_data_for_sig(inner: &ApprovalInner, target_height: BlockHeight) -> Vec<u8> {
-        [inner.try_to_vec().unwrap().as_ref(), target_height.to_be_bytes().as_ref()].concat()
+        [inner.try_to_vec().unwrap().as_ref(), target_height.to_le_bytes().as_ref()].concat()
     }
 }
 
