@@ -32,7 +32,7 @@ use near_primitives::views::{
     ExecutionOutcomeWithIdView, ExecutionStatusView, FinalExecutionOutcomeView,
     FinalExecutionStatus, LightClientBlockView,
 };
-use near_store::{ColState, ColStateHeaders, ColStateParts, ShardTries, StoreUpdate, GC_NOCACHE};
+use near_store::{ColState, ColStateHeaders, ColStateParts, ShardTries};
 
 use crate::error::{Error, ErrorKind};
 use crate::lightclient::get_epoch_block_producers_view;
@@ -942,13 +942,18 @@ impl Chain {
         chain_store_update.commit()?;
 
         // clear all trie data
-        let mut store_update = StoreUpdate::new_with_tries(self.runtime_adapter.get_tries());
         let stored_state = self.store().store().iter_prefix(ColState, &[]);
+
+        let mut keys: Vec<Vec<u8>> = vec![];
         for (key, _) in stored_state {
-            ColState.gc(&key.into(), &mut store_update, GC_NOCACHE);
+            keys.push(key.into());
         }
+
         let mut chain_store_update = self.mut_store().store_update();
-        chain_store_update.merge(store_update);
+        for key in keys {
+            chain_store_update.gc_col(ColState, &key)?;
+        }
+
         // The reason to reset tail here is not to allow Tail be greater than Head
         chain_store_update.reset_tail();
         chain_store_update.commit()?;
@@ -1787,12 +1792,12 @@ impl Chain {
         sync_hash: CryptoHash,
         num_parts: u64,
     ) -> Result<(), Error> {
-        let mut store_update = self.store.owned_store().store_update();
+        let mut chain_store_update = self.mut_store().store_update();
         for part_id in 0..num_parts {
             let key = StatePartKey(sync_hash, shard_id, part_id).try_to_vec()?;
-            ColStateParts.gc(&key.into(), &mut store_update, GC_NOCACHE);
+            chain_store_update.gc_col(ColStateParts, &key.into())?;
         }
-        Ok(store_update.commit()?)
+        Ok(chain_store_update.commit()?)
     }
 
     /// Apply transactions in chunks for the next epoch in blocks that were blocked on the state sync

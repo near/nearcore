@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::fs::File;
 use std::io::{Read, Write};
 use std::path::Path;
@@ -131,7 +130,6 @@ impl Store {
 
 /// Keeps track of current changes to the database and can commit all of them to the database.
 pub struct StoreUpdate {
-    gc_count: HashMap<u64, u64>,
     storage: Arc<dyn Database>,
     transaction: DBTransaction,
     /// Optionally has reference to the trie to clear cache on the commit.
@@ -141,13 +139,13 @@ pub struct StoreUpdate {
 impl StoreUpdate {
     pub fn new(storage: Arc<dyn Database>) -> Self {
         let transaction = storage.transaction();
-        StoreUpdate { storage, transaction, tries: None, gc_count: HashMap::new() }
+        StoreUpdate { storage, transaction, tries: None }
     }
 
     pub fn new_with_tries(tries: ShardTries) -> Self {
         let storage = tries.get_store().storage.clone();
         let transaction = storage.transaction();
-        StoreUpdate { storage, transaction, tries: Some(tries), gc_count: HashMap::new() }
+        StoreUpdate { storage, transaction, tries: Some(tries) }
     }
 
     pub fn set(&mut self, column: DBCol, key: &[u8], value: &[u8]) {
@@ -223,27 +221,6 @@ impl StoreUpdate {
             tries.update_cache(&self.transaction)?;
         }
         self.storage.write(self.transaction).map_err(|e| e.into())
-    }
-
-    fn inc_gc(&mut self, column: DBCol) {
-        let new_count: u64 = if let Some(count) = self.gc_count.get(&(column as u64)) {
-            count + 1
-        } else if let Ok(Some(count)) = self.storage.get(
-            DBCol::ColGCCount,
-            &borsh::ser::BorshSerialize::try_to_vec(&(column as u64)).unwrap(),
-        ) {
-            let count: u64 = borsh::de::BorshDeserialize::try_from_slice(&count).unwrap();
-            count + 1
-        } else {
-            1
-        };
-        self.set_ser(
-            DBCol::ColGCCount,
-            &borsh::ser::BorshSerialize::try_to_vec(&(column as u64)).unwrap(),
-            &new_count,
-        )
-        .unwrap();
-        self.gc_count.insert(column as u64, new_count);
     }
 }
 
@@ -455,64 +432,4 @@ pub fn remove_account(
         state_update.remove(TrieKey::ContractData { account_id: account_id.clone(), key });
     }
     Ok(())
-}
-
-pub const GC_NOCACHE: Option<&mut SizedCache<Vec<u8>, ()>> = None;
-
-impl DBCol {
-    fn delete_key_from_column<V>(
-        &self,
-        key: &Vec<u8>,
-        store_update: &mut StoreUpdate,
-        cache: Option<&mut impl Cached<Vec<u8>, V>>,
-    ) {
-        store_update.delete(*self, key);
-        if let Some(cache) = cache {
-            cache.cache_remove(key);
-        }
-        store_update.inc_gc(*self);
-    }
-
-    pub fn gc<V>(
-        &self,
-        key: &Vec<u8>,
-        store_update: &mut StoreUpdate,
-        cache: Option<&mut impl Cached<Vec<u8>, V>>,
-    ) {
-        match *self {
-            ColOutgoingReceipts
-            | ColIncomingReceipts
-            | ColChunkPerHeightShard
-            | ColNextBlockWithNewChunk
-            | ColStateHeaders
-            | ColBlock
-            | ColBlockExtra
-            | ColNextBlockHashes
-            | ColChallengedBlocks
-            | ColBlocksToCatchup
-            | ColStateChanges
-            | ColBlockRefCount
-            | ColReceiptIdToShardId
-            | ColTransactions
-            | ColChunks
-            | ColChunkExtra
-            | ColPartialChunks
-            | ColInvalidChunks
-            | ColChunkHashesByHeight
-            | ColStateParts
-            | ColState => {
-                self.delete_key_from_column(key, store_update, cache);
-            }
-            ColBlockPerHeight => {
-                if key.is_empty() {
-                    store_update.inc_gc(*self);
-                } else {
-                    self.delete_key_from_column(key, store_update, cache);
-                }
-            }
-            _ => {
-                store_update.inc_gc(*self);
-            }
-        }
-    }
 }
