@@ -7,8 +7,9 @@ from cluster import init_cluster, spin_up_node, load_config, LocalNode
 from peer import *
 from messages.crypto import *
 from messages.network import *
+from messages.block import *
 
-schema = dict(crypto_schema + network_schema)
+schema = dict(crypto_schema + network_schema + block_schema)
 
 config = load_config()
 near_root, node_dirs = init_cluster(
@@ -29,6 +30,7 @@ def proxify_node(node, incoming_handler, response_handler, stopped, error):
         try:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s_inc:
                 s_inc.settimeout(1)
+                s_inc.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
                 s_inc.bind(("127.0.0.1", new_port))
                 s_inc.listen()
                 while 0 == stopped.value and 0 == error.value:
@@ -111,7 +113,7 @@ def handler(msg, peer):
         obj = BinarySerializer(schema).deserialize(msg, PeerMessage)
         assert BinarySerializer(schema).serialize(obj) == msg
 
-        print(type(obj))
+        print("   > ", obj.enum)
 
         if obj.enum == 'Handshake':
             obj.Handshake.listen_port += 100
@@ -119,6 +121,8 @@ def handler(msg, peer):
 
     except:
         print("ERROR", int(msg[0]), peer)
+        if msg[0] == 13:
+            raise
         #raise
 
     return True

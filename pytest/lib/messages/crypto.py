@@ -21,6 +21,15 @@ class FunctionCallPermission:
 class FullAccessPermission:
     pass
 
+class Direction:
+    pass
+
+class MerklePath:
+    pass
+
+class ShardProof:
+    pass
+
 
 crypto_schema = [
     [
@@ -73,5 +82,18 @@ crypto_schema = [
     [FullAccessPermission, {
         'kind': 'struct',
         'fields': []
+    }],
+    [Direction, {
+        'kind': 'enum',
+        'field': 'enum',
+        'values': [['Left', ()], ['Right', ()]],
+    }],
+    [MerklePath, {
+        'kind': 'struct',
+        'fields': [['f1', [([32], Direction)]]],
+    }],
+    [ShardProof, {
+        'kind': 'struct',
+        'fields': [['from_shard_id', 'u64'], ['to_shard_id', 'u64'], ['proof', MerklePath]],
     }],
 ]

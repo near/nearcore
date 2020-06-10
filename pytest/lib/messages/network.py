@@ -1,5 +1,6 @@
 from messages.crypto import Signature, PublicKey
 from messages.tx import SignedTransaction
+from messages.block import Block, Approval, PartialEncodedChunk
 
 
 class SocketAddr:
@@ -46,6 +47,21 @@ class AnnounceAccount:
     pass
 
 
+class RoutedMessage:
+    pass
+
+
+class PeerIdOrHash:
+    pass
+
+
+class RoutedMessageBody:
+    pass
+
+class PingPong:
+    pass
+
+
 network_schema = [
     [
         SocketAddr, {
@@ -72,7 +88,10 @@ network_schema = [
                        ['BlockHeaders', ()], # TODO
                        ['BlockRequest', [32]],
                        ['Block', Block],
-                       ['Transaction', SignedTransaction]]
+                       ['Transaction', SignedTransaction],
+                       ['Routed', RoutedMessage],
+                       ['Disconnect', ()],
+                       ['Challenge', None]] # TODO
         }
     ],
     [
@@ -176,6 +195,58 @@ network_schema = [
                 ['epoch_id', [32]],
                 ['signature', Signature],
             ]
+        }
+    ],
+    [
+        RoutedMessage, {
+            'kind': 'struct',
+            'fields': [
+                ['target', PeerIdOrHash],
+                ['author', PublicKey],
+                ['signature', Signature],
+                ['ttl', 'u8'],
+                ['body', RoutedMessageBody],
+            ]
+        }
+    ],
+    [
+        PeerIdOrHash, {
+            'kind': 'enum',
+            'field': 'enum',
+            'values': [
+                ['PeerId', PublicKey],
+                ['Hash', [32]],
+            ]
+        }
+    ],
+    [
+        RoutedMessageBody, {
+            'kind': 'enum',
+            'field': 'enum',
+            'values': [
+                ['BlockApproval', Approval],
+                ['ForwardTx', SignedTransaction],
+                ['TxStatusRequest', ('string', [32])],
+                ['TxStatusResponse', None], # TODO
+                ['QueryRequest', None], # TODO
+                ['QueryResponse', None], # TODO
+                ['ReceiptOutcomeRequest', [32]],
+                ['ReceiptOutcomeResponse', None], # TODO
+                ['StateRequestHeader', ('u64', [32])],
+                ['StateRequestPart', ('u64', [32], 'u64')],
+                ['StateResponseInfo', None], # TODO
+                ['PartialEncodedChunkRequest', None], # TODO
+                ['PartialEncodedChunkResponse', None], # TODO
+                ['PartialEncodedChunk', PartialEncodedChunk], # TODO
+                ['Ping', PingPong],
+                ['Pong', PingPong],
+            ]
+        }
+    ],
+    [
+        PingPong, {
+            'kind': 'struct',
+            'fields': [['nonce', 'u64'], ['source', PublicKey]]
         }
     ],
 ]

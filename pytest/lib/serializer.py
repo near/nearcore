@@ -121,12 +121,18 @@ class BinarySerializer:
         if structSchema['kind'] == 'struct':
             ret = type_()
             for fieldName, fieldType in structSchema['fields']:
+                #print(">", fieldName, fieldType) # MOO
                 setattr(ret, fieldName, self.deserialize_field(fieldType))
+                #print("<", getattr(ret, fieldName)) # MOO
             return ret
         elif structSchema['kind'] == 'enum':
             ret = type_()
             value_ord = self.deserialize_num(1)
-            value_schema = structSchema['values'][value_ord]
+            try: # MOO
+                value_schema = structSchema['values'][value_ord]
+            except:
+                print(value_ord, type_)
+                raise
             setattr(ret, structSchema['field'], value_schema[0])
             setattr(ret, value_schema[0], self.deserialize_field(value_schema[1]))
 
