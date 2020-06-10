@@ -235,7 +235,7 @@ impl StoreValidator {
                     ) {
                         // ShardChunk should exist for current TrieChanges
                         self.check(
-                            &validate::trie_changes_chunk_exists,
+                            &validate::trie_changes_chunk_extra_exists,
                             &(block_hash, shard_id),
                             &trie_changes,
                             col,
