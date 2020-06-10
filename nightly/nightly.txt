@@ -138,7 +138,7 @@ expensive --timeout=600 near-chain gc tests::test_gc_star_large
 
 # lib tests
 lib near-chunks test::test_seal_removal
-lib near-chain store::tests::test_clear_old_data_too_many_heights
+lib --timeout=300 near-chain store::tests::test_clear_old_data_too_many_heights
 
 # other tests
 expensive nearcore test_simple test::test_2_10_multiple_nodes
