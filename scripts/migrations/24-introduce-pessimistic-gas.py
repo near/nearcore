@@ -15,9 +15,9 @@ output_home = sys.argv[2]
 
 config = json.load(open(os.path.join(home, 'output.json')), object_pairs_hook=OrderedDict)
 
-assert config['protocol_version'] == 22
+assert config['protocol_version'] == 23
 
-config['protocol_version'] = 23
+config['protocol_version'] = 24
 
 config.pop('config_version')
 config['runtime_config']['transaction_costs']['pessimistic_gas_price_inflation_ratio'] = [103, 100]
