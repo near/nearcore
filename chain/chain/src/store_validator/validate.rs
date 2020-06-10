@@ -7,8 +7,8 @@ use near_primitives::types::{BlockHeight, EpochId, ShardId};
 use near_primitives::utils::index_to_bytes;
 use near_store::{
     ColBlock, ColBlockHeader, ColBlockHeight, ColBlockMisc, ColBlockPerHeight,
-    ColChunkHashesByHeight, ColChunks, TrieChanges, CHUNK_TAIL_KEY, HEADER_HEAD_KEY, HEAD_KEY,
-    TAIL_KEY,
+    ColChunkHashesByHeight, ColChunks, TrieChanges, TrieIterator, CHUNK_TAIL_KEY, HEADER_HEAD_KEY,
+    HEAD_KEY, TAIL_KEY,
 };
 
 use crate::{ErrorMessage, StoreValidator};
@@ -224,28 +224,6 @@ pub(crate) fn chunk_tail_validity(
     Ok(())
 }
 
-pub(crate) fn chunk_state_roots_in_trie(
-    _sv: &mut StoreValidator,
-    _chunk_hash: &ChunkHash,
-    _shard_chunk: &ShardChunk,
-) -> Result<(), ErrorMessage> {
-    // TODO enable after fixing #2623
-    /*
-    let shard_id = shard_chunk.header.inner.shard_id;
-    let state_root = shard_chunk.header.inner.prev_state_root;
-    let trie = sv.runtime_adapter.get_trie_for_shard(shard_id);
-    let trie = unwrap_or_err!(
-        TrieIterator::new(&trie, &state_root),
-        "Trie Node Missing for ShardChunk {:?}",
-        shard_chunk
-    );
-    for item in trie {
-        unwrap_or_err!(item, "Can't find ShardChunk {:?} in Trie", shard_chunk);
-    }
-    */
-    Ok(())
-}
-
 pub(crate) fn chunk_indexed_by_height_created(
     sv: &mut StoreValidator,
     _chunk_hash: &ChunkHash,
@@ -399,7 +377,7 @@ pub(crate) fn trie_changes_chunk_exists(
     (block_hash, shard_id): &(CryptoHash, ShardId),
     trie_changes: &TrieChanges,
 ) -> Result<(), ErrorMessage> {
-    let trie_root = trie_changes.new_root;
+    let state_root = trie_changes.new_root;
     // 1. Block with `block_hash` should be available
     let block = unwrap_or_err_db!(
         sv.store.get_ser::<Block>(ColBlock, block_hash.as_ref()),
@@ -410,20 +388,35 @@ pub(crate) fn trie_changes_chunk_exists(
         if chunk_header.inner.shard_id == *shard_id {
             let chunk_hash = &chunk_header.hash;
             // 3. ShardChunk with `chunk_hash` should be available
-            unwrap_or_err_db!(
+            let shard_chunk = unwrap_or_err_db!(
                 sv.store.get_ser::<ShardChunk>(ColChunks, chunk_hash.as_ref()),
                 "Can't get Chunk from storage with ChunkHash {:?}",
                 chunk_hash
             );
-            let chunk_root = chunk_header.inner.prev_state_root;
-            return if trie_root == chunk_root {
+            let trie = sv.runtime_adapter.get_trie_for_shard(*shard_id);
+            let trie_iterator = unwrap_or_err!(
+                TrieIterator::new(&trie, &state_root),
+                "Trie Node Missing for ShardChunk {:?}",
+                shard_chunk
+            );
+            // 4. ShardChunk `shard_chunk` should be available in Trie
+            for item in trie_iterator {
+                unwrap_or_err!(item, "Can't find ShardChunk {:?} in Trie", shard_chunk);
+            }
+            let chunk_state_root = chunk_header.inner.prev_state_root;
+            return if state_root == chunk_state_root {
                 Ok(())
             } else {
-                err!("Trie Node discrepancy, {:?} != {:?}", trie_root, chunk_root)
+                err!(
+                    "Trie Node discrepancy, {:?} != {:?}, ShardChunk {:?}",
+                    state_root,
+                    chunk_state_root,
+                    shard_chunk
+                )
             };
         }
     }
-    err!("Trie Node Missing, {:?}", trie_root)
+    err!("Trie Node Missing, {:?}", state_root)
 }
 
 pub(crate) fn chunk_of_height_exists(

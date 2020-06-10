@@ -217,13 +217,6 @@ impl StoreValidator {
                         self.check(&validate::chunk_hash_validity, &chunk_hash, &shard_chunk, col);
                         // Chunk Height Created is not lower than Chunk Tail
                         self.check(&validate::chunk_tail_validity, &chunk_hash, &shard_chunk, col);
-                        // There is a State Root in the Trie
-                        self.check(
-                            &validate::chunk_state_roots_in_trie,
-                            &chunk_hash,
-                            &shard_chunk,
-                            col,
-                        );
                         // ShardChunk can be indexed by Height
                         self.check(
                             &validate::chunk_indexed_by_height_created,
