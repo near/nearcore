@@ -32,6 +32,7 @@ nodes = start_cluster(
     2, 0, 1, None,
     [["epoch_length", 10], ["num_block_producer_seats", 5],
      ["num_block_producer_seats_per_shard", [5]],
+     ["chunk_producer_kickout_threshold", 80],
      ["validators", 0, "amount", "110000000000000000000000000000000"],
      [
          "records", 0, "Account", "account", "locked",
