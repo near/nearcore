@@ -551,3 +551,175 @@ fn test_gas_price() {
         assert!(gas_price.gas_price > 0);
     });
 }
+
+#[test]
+fn test_invalid_methods() {
+    test_with_client!(test_utils::NodeType::NonValidator, client, async move {
+        let method_names = vec![
+            serde_json::json!(
+                "\u{0}\u{0}\u{0}k\u{0}\u{0}\u{0}\u{0}\u{0}\u{0}\u{0}\u{0}\u{0}\u{0}SRP"
+            ),
+            serde_json::json!(null),
+            serde_json::json!(true),
+            serde_json::json!(false),
+            serde_json::json!(0),
+            serde_json::json!(""),
+        ];
+
+        for method_name in method_names {
+            let json = serde_json::json!({
+                "jsonrpc": "2.0",
+                "id": "dontcare",
+                "method": &method_name,
+                "params": serde_json::json!([]),
+            });
+            let response = &mut client
+                .client
+                .post(&client.server_addr)
+                .header("Content-Type", "application/json")
+                .send_json(&json)
+                .await
+                .unwrap();
+
+            let response =
+                serde_json::from_value::<serde_json::Value>(response.json().await.unwrap())
+                    .unwrap();
+
+            assert!(
+                response["error"] != serde_json::json!(null),
+                "Invalid method {:?} must return error",
+                method_name
+            );
+        }
+    });
+}
+
+#[test]
+#[ignore] // https://github.com/nearprotocol/nearcore/issues/2789
+fn test_query_view_account_non_existing_account_must_return_error() {
+    test_with_client!(test_utils::NodeType::NonValidator, client, async move {
+        let query_response = client
+            .query(RpcQueryRequest {
+                block_id_or_finality: BlockIdOrFinality::latest(),
+                request: QueryRequest::ViewAccount { account_id: "invalidaccount".to_string() },
+            })
+            .await
+            .unwrap();
+
+        assert!(
+            !matches!(query_response.kind, QueryResponseKind::ViewAccount(_)),
+            "queried view account for not exsiting account, but received success instead of error"
+        );
+    });
+}
+
+#[test]
+#[ignore] // https://github.com/nearprotocol/nearcore/issues/2790
+fn test_view_access_key_non_existing_account_id_and_public_key_must_return_error() {
+    test_with_client!(test_utils::NodeType::NonValidator, client, async move {
+        let query_response = client
+            .query(RpcQueryRequest {
+                block_id_or_finality: BlockIdOrFinality::latest(),
+                request: QueryRequest::ViewAccessKey {
+                    account_id: "\u{0}\u{0}\u{0}\u{0}\u{0}9".to_string(),
+                    public_key: PublicKey::try_from("99999999999999999999999999999999999999999999")
+                        .unwrap(),
+                },
+            })
+            .await
+            .unwrap();
+
+        assert!(
+            !matches!(query_response.kind, QueryResponseKind::AccessKey(_)),
+            "queried access key with not existing account and public key, received success instead of error"
+        );
+    });
+}
+
+#[test]
+#[ignore] // https://github.com/nearprotocol/nearcore/issues/2791
+fn test_call_function_non_existing_account_method_name() {
+    test_with_client!(test_utils::NodeType::NonValidator, client, async move {
+        let query_response = client
+            .query(RpcQueryRequest {
+                block_id_or_finality: BlockIdOrFinality::latest(),
+                request: QueryRequest::CallFunction {
+                    method_name:
+                        "\u{0}\u{0}\u{0}k\u{0}\u{0}\u{0}\u{0}\u{0}\u{0}\u{0}\u{0}\u{0}\u{0}SRP"
+                            .to_string(),
+                    args: vec![].into(),
+                    account_id: "\u{0}\u{0}\u{0}\u{0}\u{0}\u{0}\u{0}\u{0}\u{0}\u{0}".to_string(),
+                },
+            })
+            .await
+            .unwrap();
+
+        assert!(
+            !matches!(query_response.kind, QueryResponseKind::CallResult(_)),
+            "queried call function with not existing account and method name, received success instead of error"
+        );
+    });
+}
+
+#[test]
+#[ignore] // https://github.com/nearprotocol/nearcore/issues/2792
+fn test_view_access_key_list_non_existing_account() {
+    test_with_client!(test_utils::NodeType::NonValidator, client, async move {
+        let query_response = client
+            .query(RpcQueryRequest {
+                block_id_or_finality: BlockIdOrFinality::latest(),
+                request: QueryRequest::ViewAccessKeyList {
+                    account_id: "\u{c}\u{c}\u{c}\u{c}\u{c}\u{c}\u{c}\u{c}\u{c}\u{c}\u{c}\u{c}\u{c}\u{c}\u{c}\u{c}\u{c}\u{c}\u{c}\u{c}\u{c}\u{0}\u{0}\u{0}\u{0}\u{0}\u{0},".to_string(),
+                },
+            })
+            .await
+            .unwrap();
+
+        assert!(
+            !matches!(query_response.kind, QueryResponseKind::AccessKeyList(_)),
+            "queried access key list with not existing account, received success instead of error"
+        );
+    });
+}
+
+#[test]
+#[ignore] // https://github.com/nearprotocol/nearcore/issues/2793
+fn test_view_state_non_existing_account_invalid_prefix() {
+    test_with_client!(test_utils::NodeType::NonValidator, client, async move {
+        let query_response = client
+            .query(RpcQueryRequest {
+                block_id_or_finality: BlockIdOrFinality::latest(),
+                request: QueryRequest::ViewState {
+                    account_id: "\u{0}\u{0}\u{0}\u{0}\u{0}\u{4}\u{0}\u{0}\u{0}\u{8}\u{0}\u{0}\u{0}\u{0}\u{0}eeeeeeeeeeeeeeeeeeeeeeeeeeeee".to_string(),
+                    prefix: "eeeeeeeeeeee".as_bytes().to_vec().into(),
+                },
+            })
+            .await
+            .unwrap();
+
+        assert!(
+            !matches!(query_response.kind, QueryResponseKind::ViewState(_)),
+            "queried view account for not exsiting account, but received success instead of error"
+        );
+    });
+}
+
+#[test]
+#[ignore] // https://github.com/nearprotocol/nearcore/issues/2800
+fn test_validators_non_existing_block_hash() {
+    test_with_client!(test_utils::NodeType::NonValidator, client, async move {
+        let validators_response = client
+            .validators(Some(near_primitives::types::BlockId::Hash(
+                near_primitives::hash::CryptoHash::try_from(
+                    "123PXBoQKnTnARA49ctEzAiradrAAAEtLRCJGpjH24qC",
+                )
+                .unwrap(),
+            )))
+            .await;
+
+        assert!(
+            validators_response.is_err(),
+            "validators for non exsiting block hash, but received success instead of error"
+        );
+    });
+}

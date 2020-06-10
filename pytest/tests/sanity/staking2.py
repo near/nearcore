@@ -79,7 +79,8 @@ def doit(seq=[]):
     config = None
     nodes = start_cluster(2, 1, 1, config,
                           [["epoch_length", EPOCH_LENGTH],
-                           ["block_producer_kickout_threshold", 40]],
+                           ["block_producer_kickout_threshold", 40],
+                           ["chunk_producer_kickout_threshold", 40]],
                           {2: {
                               "tracked_shards": [0]
                           }})
