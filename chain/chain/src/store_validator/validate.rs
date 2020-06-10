@@ -3,11 +3,12 @@ use std::collections::{HashMap, HashSet};
 use near_primitives::block::{Block, BlockHeader, Tip};
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::{ChunkHash, ShardChunk};
-use near_primitives::types::{BlockHeight, EpochId};
+use near_primitives::types::{BlockHeight, EpochId, ShardId};
 use near_primitives::utils::index_to_bytes;
 use near_store::{
-    ColBlockHeader, ColBlockHeight, ColBlockMisc, ColBlockPerHeight, ColChunkHashesByHeight,
-    ColChunks, CHUNK_TAIL_KEY, HEADER_HEAD_KEY, HEAD_KEY, TAIL_KEY,
+    ColBlock, ColBlockHeader, ColBlockHeight, ColBlockMisc, ColBlockPerHeight,
+    ColChunkHashesByHeight, ColChunks, TrieChanges, CHUNK_TAIL_KEY, HEADER_HEAD_KEY, HEAD_KEY,
+    TAIL_KEY,
 };
 
 use crate::{ErrorMessage, StoreValidator};
@@ -391,6 +392,38 @@ pub(crate) fn canonical_prev_block_validity(
         }
     }
     Ok(())
+}
+
+pub(crate) fn trie_changes_chunk_exists(
+    sv: &mut StoreValidator,
+    (block_hash, shard_id): &(CryptoHash, ShardId),
+    trie_changes: &TrieChanges,
+) -> Result<(), ErrorMessage> {
+    let trie_root = trie_changes.new_root;
+    // 1. Block with `block_hash` should be available
+    let block = unwrap_or_err_db!(
+        sv.store.get_ser::<Block>(ColBlock, block_hash.as_ref()),
+        "Can't get Block from DB"
+    );
+    // 2. There should be ShardChunk with ShardId `shard_id`
+    for chunk_header in block.chunks().iter() {
+        if chunk_header.inner.shard_id == *shard_id {
+            let chunk_hash = &chunk_header.hash;
+            // 3. ShardChunk with `chunk_hash` should be available
+            unwrap_or_err_db!(
+                sv.store.get_ser::<ShardChunk>(ColChunks, chunk_hash.as_ref()),
+                "Can't get Chunk from storage with ChunkHash {:?}",
+                chunk_hash
+            );
+            let chunk_root = chunk_header.inner.prev_state_root;
+            return if trie_root == chunk_root {
+                Ok(())
+            } else {
+                err!("Trie Node discrepancy, {:?} != {:?}", trie_root, chunk_root)
+            };
+        }
+    }
+    err!("Trie Node Missing, {:?}", trie_root)
 }
 
 pub(crate) fn chunk_of_height_exists(
