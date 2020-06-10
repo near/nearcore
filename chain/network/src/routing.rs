@@ -29,7 +29,7 @@ use crate::{
 };
 
 const ANNOUNCE_ACCOUNT_CACHE_SIZE: usize = 10_000;
-const ROUTE_BACK_CACHE_SIZE: usize = 10_000;
+const ROUTE_BACK_CACHE_SIZE: usize = 1000_000;
 const PING_PONG_CACHE_SIZE: usize = 1_000;
 const ROUND_ROBIN_MAX_NONCE_DIFFERENCE_ALLOWED: usize = 10;
 const ROUND_ROBIN_NONCE_CACHE_SIZE: usize = 10_000;
