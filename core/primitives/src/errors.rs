@@ -173,7 +173,7 @@ pub enum InvalidAccessKeyError {
     BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, PartialEq, Eq, RpcError,
 )]
 pub enum ActionsValidationError {
-    /// The total prepaid gas (for all given actions) exceeded the limit.
+    /// The delete action must be a final aciton in transaction
     DeleteActionMustBeFinal,
     /// The total prepaid gas (for all given actions) exceeded the limit.
     TotalPrepaidGasExceeded { total_prepaid_gas: Gas, limit: Gas },
