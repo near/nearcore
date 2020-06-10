@@ -2814,7 +2814,7 @@ mod tests {
     #[cfg(feature = "expensive_tests")]
     #[test]
     fn test_clear_old_data_too_many_heights() {
-        for i in 1..10 {
+        for i in 1..5 {
             println!("gc_blocks_limit == {:?}", i);
             test_clear_old_data_too_many_heights_common(i);
         }
