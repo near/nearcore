@@ -19,7 +19,6 @@ assert config['protocol_version'] == 23
 
 config['protocol_version'] = 24
 
-config.pop('config_version')
 config['runtime_config']['transaction_costs']['pessimistic_gas_price_inflation_ratio'] = [103, 100]
 config['runtime_config']['wasm_config']['limit_config']['max_total_prepaid_gas'] = 300000000000000
 
