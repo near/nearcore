@@ -388,12 +388,11 @@ pub(crate) fn trie_changes_chunk_extra_exists(
         if chunk_header.inner.shard_id == *shard_id {
             let chunk_hash = &chunk_header.hash;
             // 3. ShardChunk with `chunk_hash` should be available
-            // TODO Misha
-            /*unwrap_or_err_db!(
-                sv.store.get_ser::<ShardChunk>(ColChunkExtra, chunk_hash.as_ref()),
+            unwrap_or_err_db!(
+                sv.store.get_ser::<ShardChunk>(ColChunks, chunk_hash.as_ref()),
                 "Can't get Chunk from storage with ChunkHash {:?}",
                 chunk_hash
-            );*/
+            );
             // 4. Chunk Extra with `block_hash` and `shard_id` should be available
             let chunk_extra = unwrap_or_err_db!(
                 sv.store.get_ser::<ChunkExtra>(
