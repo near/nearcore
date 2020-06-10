@@ -1,3 +1,8 @@
+use std::collections::HashMap;
+use std::convert::TryInto;
+
+use num_rational::Rational;
+
 use near_crypto::{EmptySigner, PublicKey, Signature, Signer};
 
 use crate::account::{AccessKey, AccessKeyPermission, Account};
@@ -14,8 +19,6 @@ use crate::transaction::{
 use crate::types::{AccountId, Balance, BlockHeight, EpochId, EpochInfoProvider, Gas, Nonce};
 use crate::validator_signer::ValidatorSigner;
 use crate::version::PROTOCOL_VERSION;
-use num_rational::Rational;
-use std::collections::HashMap;
 
 pub fn account_new(amount: Balance, code_hash: CryptoHash) -> Account {
     Account { amount, locked: 0, code_hash, storage_usage: std::mem::size_of::<Account>() as u64 }
@@ -238,7 +241,14 @@ impl SignedTransaction {
     }
 
     pub fn empty(block_hash: CryptoHash) -> Self {
-        Self::from_actions(0, "".to_string(), "".to_string(), &EmptySigner {}, vec![], block_hash)
+        Self::from_actions(
+            0,
+            "test".try_into().unwrap(),
+            "test".try_into().unwrap(),
+            &EmptySigner {},
+            vec![],
+            block_hash,
+        )
     }
 }
 

@@ -8,6 +8,7 @@ static ALLOC: jemallocator::Jemalloc = jemallocator::Jemalloc;
 pub use borsh;
 
 pub mod account;
+pub mod account_id;
 pub mod block;
 pub mod block_header;
 pub mod challenge;

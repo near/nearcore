@@ -359,10 +359,10 @@ mod tests {
     fn test_verify_transaction() {
         let signer = InMemorySigner::from_random("test".to_string(), KeyType::ED25519);
         let transaction = Transaction {
-            signer_id: "".to_string(),
+            signer_id: "test".try_into().unwrap(),
             public_key: signer.public_key(),
             nonce: 0,
-            receiver_id: "".to_string(),
+            receiver_id: "test".try_into().unwrap(),
             block_hash: Default::default(),
             actions: vec![],
         }
@@ -386,10 +386,10 @@ mod tests {
         let public_key: PublicKey =
             "22skMptHjFWNyuEWY22ftn2AbLPSYpmYwGJRGwpNHbTV".to_string().try_into().unwrap();
         let transaction = Transaction {
-            signer_id: "test.near".to_string(),
+            signer_id: "test.near".try_into().unwrap(),
             public_key: public_key.clone(),
             nonce: 1,
-            receiver_id: "123".to_string(),
+            receiver_id: "123".try_into().unwrap(),
             block_hash: Default::default(),
             actions: vec![
                 Action::CreateAccount(CreateAccountAction {}),
@@ -408,13 +408,15 @@ mod tests {
                         nonce: 0,
                         permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
                             allowance: None,
-                            receiver_id: "zzz".to_string(),
+                            receiver_id: "zzz".try_into().unwrap(),
                             method_names: vec!["www".to_string()],
                         }),
                     },
                 }),
                 Action::DeleteKey(DeleteKeyAction { public_key }),
-                Action::DeleteAccount(DeleteAccountAction { beneficiary_id: "123".to_string() }),
+                Action::DeleteAccount(DeleteAccountAction {
+                    beneficiary_id: "123".try_into().unwrap(),
+                }),
             ],
         };
         let signed_tx = SignedTransaction::new(Signature::empty(KeyType::ED25519), transaction);
