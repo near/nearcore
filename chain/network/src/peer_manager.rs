@@ -291,7 +291,7 @@ impl PeerManagerActor {
     /// This function should only be called after Peer instance is stopped.
     /// Note: Use `try_ban_peer` if there might be a Peer instance still active.
     fn ban_peer(&mut self, ctx: &mut Context<Self>, peer_id: &PeerId, ban_reason: ReasonForBan) {
-        info!(target: "network", "Banning peer {:?} for {:?}", peer_id, ban_reason);
+        warn!(target: "network", "Banning peer {:?} for {:?}", peer_id, ban_reason);
         self.remove_active_peer(ctx, peer_id, None);
         unwrap_or_error!(self.peer_store.peer_ban(peer_id, ban_reason), "Failed to save peer data");
     }
@@ -449,7 +449,7 @@ impl PeerManagerActor {
 
     /// Query current peers for more peers.
     fn query_active_peers_for_more_peers(&mut self, ctx: &mut Context<Self>) {
-        let mut requests = vec![];
+        let mut requests = futures::stream::FuturesUnordered::new();
         let msg = SendMessage { message: PeerMessage::PeersRequest };
         for (_, active_peer) in self.active_peers.iter_mut() {
             if active_peer.last_time_peer_requested.elapsed().as_secs() > REQUEST_PEERS_SECS {
@@ -457,12 +457,13 @@ impl PeerManagerActor {
                 requests.push(active_peer.addr.send(msg.clone()));
             }
         }
-        future::try_join_all(requests)
-            .into_actor(self)
-            .map(|x, _, _| {
-                let _ignore = x.map_err(|e| error!(target: "network", "Failed sending broadcast message(query_active_peers): {}", e));
-            })
-            .spawn(ctx);
+        ctx.spawn(async move {
+            while let Some(response) = requests.next().await {
+                if let Err(e) = response {
+                    error!(target: "network", "Failed sending broadcast message(query_active_peers): {}", e);
+                }
+            }
+        }.into_actor(self));
     }
 
     /// Add an edge update to the routing table and return if it is a new edge update.
@@ -717,14 +718,16 @@ impl PeerManagerActor {
     fn broadcast_message(&self, ctx: &mut Context<Self>, msg: SendMessage) {
         // TODO(MarX, #1363): Implement smart broadcasting. (MST)
 
-        let requests: Vec<_> =
+        let mut requests: futures::stream::FuturesUnordered<_> =
             self.active_peers.values().map(|peer| peer.addr.send(msg.clone())).collect();
 
-        future::try_join_all(requests)
-            .into_actor(self)
-            .map(|res, _, _| res.map_err(|e| error!(target: "network", "Failed sending broadcast message(broadcast_message): {}", e)))
-            .map(|_, _, _| ())
-            .spawn(ctx);
+        ctx.spawn(async move {
+            while let Some(response) = requests.next().await {
+                if let Err(e) = response {
+                    error!(target: "network", "Failed sending broadcast message(query_active_peers): {}", e);
+                }
+            }
+        }.into_actor(self));
     }
 
     fn announce_account(&mut self, ctx: &mut Context<Self>, announce_account: AnnounceAccount) {
@@ -848,13 +851,13 @@ impl PeerManagerActor {
             Err(find_route_error) => {
                 // TODO(MarX, #1369): Message is dropped here. Define policy for this case.
                 near_metrics::inc_counter(&metrics::DROP_MESSAGE_UNKNOWN_ACCOUNT);
-                debug!(target: "network", "{:?} Drop message to {} Reason {:?}. Known peers: {:?} Message {:?}",
+                debug!(target: "network", "{:?} Drop message to {} Reason {:?}. Message {:?}",
                        self.config.account_id,
                        account_id,
                        find_route_error,
-                       self.routing_table.get_accounts_keys(),
                        msg,
                 );
+                trace!(target: "network", "Known peers: {:?}", self.routing_table.get_accounts_keys());
                 return false;
             }
         };
@@ -1263,7 +1266,9 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                                 .collect();
 
                             // Add accounts to the routing table.
-                            debug!(target: "network", "{:?} Received new accounts: {:?}", act.config.account_id, accounts);
+                            if !accounts.is_empty() {
+                                debug!(target: "network", "{:?} Received new accounts: {:?}", act.config.account_id, accounts);
+                            }
                             for account in accounts.iter() {
                                 act.routing_table.add_account(account.clone());
                             }

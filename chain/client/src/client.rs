@@ -789,7 +789,7 @@ impl Client {
             if !self.config.archive {
                 if let Err(err) = self
                     .chain
-                    .clear_data(self.runtime_adapter.get_tries(), self.config.gc_step_size)
+                    .clear_data(self.runtime_adapter.get_tries(), self.config.gc_blocks_limit)
                 {
                     error!(target: "client", "Can't clear old data, {:?}", err);
                     debug_assert!(false);
