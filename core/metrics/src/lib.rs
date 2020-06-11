@@ -126,6 +126,12 @@ pub fn inc_counter(counter: &Result<IntCounter>) {
     }
 }
 
+pub fn inc_counter_opt(counter: Option<&IntCounter>) {
+    if let Some(counter) = counter {
+        counter.inc();
+    }
+}
+
 pub fn get_counter(counter: &Result<IntCounter>) -> std::result::Result<i64, String> {
     if let Ok(counter) = counter {
         Ok(counter.get())
@@ -139,6 +145,12 @@ pub fn inc_counter_by(counter: &Result<IntCounter>, value: i64) {
         counter.inc_by(value);
     } else {
         error!(target: "metrics", "Failed to fetch histogram");
+    }
+}
+
+pub fn inc_counter_by_opt(counter: Option<&IntCounter>, value: i64) {
+    if let Some(counter) = counter {
+        counter.inc_by(value);
     }
 }
 

@@ -33,6 +33,7 @@ use crate::types::{
 };
 use crate::PeerManagerActor;
 use crate::{metrics, NetworkResponses};
+use metrics::NetworkMetrics;
 
 type WriteHalf = tokio::io::WriteHalf<tokio::net::TcpStream>;
 
@@ -156,6 +157,8 @@ pub struct Peer {
     edge_info: Option<EdgeInfo>,
     /// Last time an update of received message was sent to PeerManager
     last_time_received_message_update: Instant,
+    /// Dynamic Prometheus metrics
+    network_metrics: NetworkMetrics,
 }
 
 impl Peer {
@@ -170,6 +173,7 @@ impl Peer {
         client_addr: Recipient<NetworkClientMessages>,
         view_client_addr: Recipient<NetworkViewClientMessages>,
         edge_info: Option<EdgeInfo>,
+        network_metrics: NetworkMetrics,
     ) -> Self {
         Peer {
             node_info,
@@ -187,6 +191,7 @@ impl Peer {
             chain_info: Default::default(),
             edge_info,
             last_time_received_message_update: Instant::now(),
+            network_metrics,
         }
     }
 
@@ -609,7 +614,13 @@ impl StreamHandler<Vec<u8>> for Peer {
             self.peer_manager_addr.do_send(metadata);
         }
 
-        peer_msg.record(msg.len());
+        self.network_metrics
+            .inc(NetworkMetrics::peer_message_total_rx(&peer_msg.msg_variant()).as_ref());
+
+        self.network_metrics.inc_by(
+            NetworkMetrics::peer_message_bytes_rx(&peer_msg.msg_variant()).as_ref(),
+            msg.len() as i64,
+        );
 
         match (self.peer_type, self.peer_status, peer_msg) {
             (_, PeerStatus::Connecting, PeerMessage::HandshakeFailure(peer_info, reason)) => {
