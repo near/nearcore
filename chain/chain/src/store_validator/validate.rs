@@ -377,7 +377,7 @@ pub(crate) fn trie_changes_chunk_extra_exists(
     (block_hash, shard_id): &(CryptoHash, ShardId),
     trie_changes: &TrieChanges,
 ) -> Result<(), ErrorMessage> {
-    let state_root = trie_changes.new_root;
+    let new_root = trie_changes.new_root;
     // 1. Block with `block_hash` should be available
     let block = unwrap_or_err_db!(
         sv.store.get_ser::<Block>(ColBlock, block_hash.as_ref()),
@@ -405,7 +405,7 @@ pub(crate) fn trie_changes_chunk_extra_exists(
             );
             let trie = sv.runtime_adapter.get_trie_for_shard(*shard_id);
             let trie_iterator = unwrap_or_err!(
-                TrieIterator::new(&trie, &state_root),
+                TrieIterator::new(&trie, &new_root),
                 "Trie Node Missing for ShardChunk {:?}",
                 chunk_header
             );
@@ -413,20 +413,35 @@ pub(crate) fn trie_changes_chunk_extra_exists(
             for item in trie_iterator {
                 unwrap_or_err!(item, "Can't find ShardChunk {:?} in Trie", chunk_header);
             }
-            let chunk_state_root = chunk_extra.state_root;
-            return if state_root == chunk_state_root {
+            // 6. Prev State Roots should be equal
+            #[cfg(feature = "adversarial")]
+            {
+                let prev_state_root = chunk_header.inner.prev_state_root;
+                let old_root = trie_changes.adv_get_old_root();
+                if prev_state_root != old_root {
+                    return err!(
+                        "Prev State Root discrepancy, {:?} != {:?}, ShardChunk {:?}",
+                        old_root,
+                        prev_state_root,
+                        chunk_header
+                    );
+                }
+            }
+            // 7. State Roots should be equal
+            let state_root = chunk_extra.state_root;
+            return if state_root == new_root {
                 Ok(())
             } else {
                 err!(
-                    "Trie Node discrepancy, {:?} != {:?}, ShardChunk {:?}",
+                    "State Root discrepancy, {:?} != {:?}, ShardChunk {:?}",
+                    new_root,
                     state_root,
-                    chunk_state_root,
                     chunk_header
                 )
             };
         }
     }
-    err!("Trie Node Missing, {:?}", state_root)
+    err!("ShardChunk is not included into Block {:?}", block)
 }
 
 pub(crate) fn chunk_of_height_exists(

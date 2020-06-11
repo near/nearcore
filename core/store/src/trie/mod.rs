@@ -454,6 +454,11 @@ impl TrieChanges {
     pub fn empty(old_root: StateRoot) -> Self {
         TrieChanges { old_root, new_root: old_root, insertions: vec![], deletions: vec![] }
     }
+
+    #[cfg(feature = "adversarial")]
+    pub fn adv_get_old_root(&self) -> StateRoot {
+        self.old_root
+    }
 }
 
 impl Trie {
