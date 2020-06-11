@@ -15,6 +15,7 @@ pub mod contract;
 pub mod errors;
 pub mod hash;
 pub mod logging;
+pub mod math;
 pub mod merkle;
 pub mod network;
 pub mod receipt;
