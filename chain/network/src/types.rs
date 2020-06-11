@@ -18,7 +18,6 @@ use tracing::{error, warn};
 use near_chain::types::ShardStateSyncResponse;
 use near_chain::{Block, BlockHeader};
 use near_crypto::{PublicKey, SecretKey, Signature};
-use near_metrics;
 use near_primitives::block::{Approval, ApprovalMessage, GenesisId};
 use near_primitives::challenge::Challenge;
 use near_primitives::errors::InvalidTxError;
@@ -33,7 +32,6 @@ use near_primitives::utils::{from_timestamp, to_timestamp};
 use near_primitives::version::FIRST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION;
 use near_primitives::views::{FinalExecutionOutcomeView, QueryRequest, QueryResponse};
 
-use crate::metrics;
 use crate::peer::Peer;
 #[cfg(feature = "metric_recorder")]
 use crate::recorder::MetricRecorder;
@@ -216,7 +214,17 @@ pub struct Pong {
 }
 
 // TODO(#1313): Use Box
-#[derive(BorshSerialize, BorshDeserialize, Serialize, PartialEq, Eq, Clone, Debug)]
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    Serialize,
+    PartialEq,
+    Eq,
+    Clone,
+    Debug,
+    strum::AsStaticStr,
+    strum::EnumVariantNames,
+)]
 #[allow(clippy::large_enum_variant)]
 pub enum RoutedMessageBody {
     BlockApproval(Approval),
@@ -395,7 +403,17 @@ impl SyncData {
 /// Warning, position of each message type in this enum defines the protocol due to serialization.
 /// DO NOT MOVE, REORDER, DELETE items from the list. Only add new items to the end.
 /// If need to remove old items - replace with `None`.
-#[derive(BorshSerialize, BorshDeserialize, Serialize, PartialEq, Eq, Clone, Debug)]
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    Serialize,
+    PartialEq,
+    Eq,
+    Clone,
+    Debug,
+    strum::AsStaticStr,
+    strum::EnumVariantNames,
+)]
 // TODO(#1313): Use Box
 #[allow(clippy::large_enum_variant)]
 pub enum PeerMessage {
@@ -428,245 +446,17 @@ pub enum PeerMessage {
 
 impl fmt::Display for PeerMessage {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            PeerMessage::Handshake(_) => f.write_str("Handshake"),
-            PeerMessage::HandshakeFailure(_, _) => f.write_str("HandshakeFailure"),
-            PeerMessage::Sync(_) => f.write_str("Sync"),
-            PeerMessage::RequestUpdateNonce(_) => f.write_str("RequestUpdateNonce"),
-            PeerMessage::ResponseUpdateNonce(_) => f.write_str("ResponseUpdateNonce"),
-            PeerMessage::LastEdge(_) => f.write_str("LastEdge"),
-            PeerMessage::PeersRequest => f.write_str("PeersRequest"),
-            PeerMessage::PeersResponse(_) => f.write_str("PeersResponse"),
-            PeerMessage::BlockHeadersRequest(_) => f.write_str("BlockHeaderRequest"),
-            PeerMessage::BlockHeaders(_) => f.write_str("BlockHeaders"),
-            PeerMessage::BlockRequest(_) => f.write_str("BlockRequest"),
-            PeerMessage::Block(_) => f.write_str("Block"),
-            PeerMessage::Transaction(_) => f.write_str("Transaction"),
-            PeerMessage::Routed(routed_message) => match routed_message.body {
-                RoutedMessageBody::BlockApproval(_) => f.write_str("BlockApproval"),
-                RoutedMessageBody::ForwardTx(_) => f.write_str("ForwardTx"),
-                RoutedMessageBody::TxStatusRequest(_, _) => f.write_str("Transaction status query"),
-                RoutedMessageBody::TxStatusResponse(_) => {
-                    f.write_str("Transaction status response")
-                }
-                RoutedMessageBody::QueryRequest { .. } => f.write_str("Query request"),
-                RoutedMessageBody::QueryResponse { .. } => f.write_str("Query response"),
-                RoutedMessageBody::StateRequestHeader(_, _) => f.write_str("StateRequestHeader"),
-                RoutedMessageBody::StateRequestPart(_, _, _) => f.write_str("StateRequestPart"),
-                RoutedMessageBody::StateResponse(_) => f.write_str("StateResponse"),
-                RoutedMessageBody::ReceiptOutcomeRequest(_) => {
-                    f.write_str("Receipt outcome request")
-                }
-                RoutedMessageBody::ReceiptOutComeResponse(_) => {
-                    f.write_str("Receipt outcome response")
-                }
-                RoutedMessageBody::PartialEncodedChunkRequest(_) => {
-                    f.write_str("PartialEncodedChunkRequest")
-                }
-                RoutedMessageBody::PartialEncodedChunkResponse(_) => {
-                    f.write_str("PartialEncodedChunkResponse")
-                }
-                RoutedMessageBody::PartialEncodedChunk(_) => f.write_str("PartialEncodedChunk"),
-                RoutedMessageBody::Ping(_) => f.write_str("Ping"),
-                RoutedMessageBody::Pong(_) => f.write_str("Pong"),
-            },
-            PeerMessage::Disconnect => f.write_str("Disconnect"),
-            PeerMessage::Challenge(_) => f.write_str("Challenge"),
-        }
+        f.write_str(format!("{}", self.msg_variant()).as_ref())
     }
 }
 
 impl PeerMessage {
-    pub fn record(&self, size: usize) {
+    pub fn msg_variant(&self) -> &str {
         match self {
-            PeerMessage::Handshake(_) => {
-                near_metrics::inc_counter(&metrics::HANDSHAKE_RECEIVED_TOTAL);
-                near_metrics::inc_counter_by(&metrics::HANDSHAKE_RECEIVED_BYTES, size as i64);
+            PeerMessage::Routed(routed_message) => {
+                strum::AsStaticRef::as_static(&routed_message.body)
             }
-            PeerMessage::HandshakeFailure(_, _) => {
-                near_metrics::inc_counter(&metrics::HANDSHAKE_FAILURE_RECEIVED_TOTAL);
-                near_metrics::inc_counter_by(
-                    &metrics::HANDSHAKE_FAILURE_RECEIVED_BYTES,
-                    size as i64,
-                );
-            }
-            PeerMessage::Sync(_) => {
-                near_metrics::inc_counter(&metrics::SYNC_RECEIVED_TOTAL);
-                near_metrics::inc_counter_by(&metrics::SYNC_RECEIVED_BYTES, size as i64);
-            }
-            PeerMessage::RequestUpdateNonce(_) => {
-                near_metrics::inc_counter(&metrics::REQUEST_UPDATE_NONCE_RECEIVED_TOTAL);
-                near_metrics::inc_counter_by(
-                    &metrics::REQUEST_UPDATE_NONCE_RECEIVED_BYTES,
-                    size as i64,
-                );
-            }
-            PeerMessage::ResponseUpdateNonce(_) => {
-                near_metrics::inc_counter(&metrics::RESPONSE_UPDATE_NONCE_RECEIVED_TOTAL);
-                near_metrics::inc_counter_by(
-                    &metrics::RESPONSE_UPDATE_NONCE_RECEIVED_BYTES,
-                    size as i64,
-                );
-            }
-            PeerMessage::LastEdge(_) => {
-                near_metrics::inc_counter(&metrics::LAST_EDGE_RECEIVED_TOTAL);
-                near_metrics::inc_counter_by(&metrics::LAST_EDGE_RECEIVED_BYTES, size as i64);
-            }
-            PeerMessage::PeersRequest => {
-                near_metrics::inc_counter(&metrics::PEERS_REQUEST_RECEIVED_TOTAL);
-                near_metrics::inc_counter_by(&metrics::PEERS_REQUEST_RECEIVED_BYTES, size as i64);
-            }
-            PeerMessage::PeersResponse(_) => {
-                near_metrics::inc_counter(&metrics::PEERS_RESPONSE_RECEIVED_TOTAL);
-                near_metrics::inc_counter_by(&metrics::PEERS_RESPONSE_RECEIVED_BYTES, size as i64);
-            }
-            PeerMessage::BlockHeadersRequest(_) => {
-                near_metrics::inc_counter(&metrics::BLOCK_HEADERS_REQUEST_RECEIVED_TOTAL);
-                near_metrics::inc_counter_by(
-                    &metrics::BLOCK_HEADERS_REQUEST_RECEIVED_BYTES,
-                    size as i64,
-                );
-            }
-            PeerMessage::BlockHeaders(_) => {
-                near_metrics::inc_counter(&metrics::BLOCK_HEADERS_RECEIVED_TOTAL);
-                near_metrics::inc_counter_by(&metrics::BLOCK_HEADERS_RECEIVED_BYTES, size as i64);
-            }
-            PeerMessage::BlockRequest(_) => {
-                near_metrics::inc_counter(&metrics::BLOCK_REQUEST_RECEIVED_TOTAL);
-                near_metrics::inc_counter_by(&metrics::BLOCK_REQUEST_RECEIVED_BYTES, size as i64);
-            }
-            PeerMessage::Block(_) => {
-                near_metrics::inc_counter(&metrics::BLOCK_RECEIVED_TOTAL);
-                near_metrics::inc_counter_by(&metrics::BLOCK_RECEIVED_BYTES, size as i64);
-            }
-            PeerMessage::Transaction(_) => {
-                near_metrics::inc_counter(&metrics::TRANSACTION_RECEIVED_TOTAL);
-                near_metrics::inc_counter_by(&metrics::TRANSACTION_RECEIVED_BYTES, size as i64);
-            }
-            PeerMessage::Routed(routed_message) => match routed_message.body {
-                RoutedMessageBody::BlockApproval(_) => {
-                    near_metrics::inc_counter(&metrics::ROUTED_BLOCK_APPROVAL_RECEIVED_TOTAL);
-                    near_metrics::inc_counter_by(
-                        &metrics::ROUTED_BLOCK_APPROVAL_RECEIVED_BYTES,
-                        size as i64,
-                    );
-                }
-                RoutedMessageBody::ForwardTx(_) => {
-                    near_metrics::inc_counter(&metrics::ROUTED_FORWARD_TX_RECEIVED_TOTAL);
-                    near_metrics::inc_counter_by(
-                        &metrics::ROUTED_FORWARD_TX_RECEIVED_BYTES,
-                        size as i64,
-                    );
-                }
-                RoutedMessageBody::TxStatusRequest(_, _) => {
-                    near_metrics::inc_counter(&metrics::ROUTED_TX_STATUS_REQUEST_RECEIVED_TOTAL);
-                    near_metrics::inc_counter_by(
-                        &metrics::ROUTED_TX_STATUS_REQUEST_RECEIVED_BYTES,
-                        size as i64,
-                    );
-                }
-                RoutedMessageBody::TxStatusResponse(_) => {
-                    near_metrics::inc_counter(&metrics::ROUTED_TX_STATUS_RESPONSE_RECEIVED_TOTAL);
-                    near_metrics::inc_counter_by(
-                        &metrics::ROUTED_TX_STATUS_RESPONSE_RECEIVED_BYTES,
-                        size as i64,
-                    );
-                }
-                RoutedMessageBody::QueryRequest { .. } => {
-                    near_metrics::inc_counter(&metrics::ROUTED_QUERY_REQUEST_RECEIVED_TOTAL);
-                    near_metrics::inc_counter_by(
-                        &metrics::ROUTED_QUERY_REQUEST_RECEIVED_BYTES,
-                        size as i64,
-                    );
-                }
-                RoutedMessageBody::QueryResponse { .. } => {
-                    near_metrics::inc_counter(&metrics::ROUTED_QUERY_RESPONSE_RECEIVED_TOTAL);
-                    near_metrics::inc_counter_by(
-                        &metrics::ROUTED_QUERY_RESPONSE_RECEIVED_BYTES,
-                        size as i64,
-                    );
-                }
-                RoutedMessageBody::ReceiptOutcomeRequest(_) => {
-                    near_metrics::inc_counter(
-                        &metrics::ROUTED_RECEIPT_OUTCOME_REQUEST_RECEIVED_TOTAL,
-                    );
-                    near_metrics::inc_counter_by(
-                        &metrics::ROUTED_RECEIPT_OUTCOME_REQUEST_RECEIVED_BYTES,
-                        size as i64,
-                    );
-                }
-                RoutedMessageBody::ReceiptOutComeResponse(_) => {
-                    near_metrics::inc_counter(
-                        &metrics::ROUTED_RECEIPT_OUTCOME_RESPONSE_RECEIVED_TOTAL,
-                    );
-                    near_metrics::inc_counter_by(
-                        &metrics::ROUTED_RECEIPT_OUTCOME_RESPONSE_RECEIVED_BYTES,
-                        size as i64,
-                    );
-                }
-                RoutedMessageBody::StateRequestHeader(_, _) => {
-                    near_metrics::inc_counter(&metrics::ROUTED_STATE_REQUEST_HEADER_RECEIVED_TOTAL);
-                    near_metrics::inc_counter_by(
-                        &metrics::ROUTED_STATE_REQUEST_HEADER_RECEIVED_BYTES,
-                        size as i64,
-                    );
-                }
-                RoutedMessageBody::StateRequestPart(_, _, _) => {
-                    near_metrics::inc_counter(&metrics::ROUTED_STATE_REQUEST_PART_RECEIVED_TOTAL);
-                    near_metrics::inc_counter_by(
-                        &metrics::ROUTED_STATE_REQUEST_PART_RECEIVED_BYTES,
-                        size as i64,
-                    );
-                }
-                RoutedMessageBody::StateResponse(_) => {
-                    near_metrics::inc_counter(&metrics::ROUTED_STATE_RESPONSE_RECEIVED_TOTAL);
-                    near_metrics::inc_counter_by(
-                        &metrics::ROUTED_STATE_RESPONSE_RECEIVED_BYTES,
-                        size as i64,
-                    );
-                }
-                RoutedMessageBody::PartialEncodedChunkRequest(_) => {
-                    near_metrics::inc_counter(
-                        &metrics::ROUTED_PARTIAL_CHUNK_REQUEST_RECEIVED_TOTAL,
-                    );
-                    near_metrics::inc_counter_by(
-                        &metrics::ROUTED_PARTIAL_CHUNK_REQUEST_RECEIVED_BYTES,
-                        size as i64,
-                    );
-                }
-                RoutedMessageBody::PartialEncodedChunkResponse(_) => {
-                    near_metrics::inc_counter(
-                        &metrics::ROUTED_PARTIAL_CHUNK_RESPONSE_RECEIVED_TOTAL,
-                    );
-                    near_metrics::inc_counter_by(
-                        &metrics::ROUTED_PARTIAL_CHUNK_RESPONSE_RECEIVED_BYTES,
-                        size as i64,
-                    );
-                }
-                RoutedMessageBody::PartialEncodedChunk(_) => {
-                    near_metrics::inc_counter(&metrics::ROUTED_PARTIAL_CHUNK_RECEIVED_TOTAL);
-                    near_metrics::inc_counter_by(
-                        &metrics::ROUTED_PARTIAL_CHUNK_RECEIVED_BYTES,
-                        size as i64,
-                    );
-                }
-                RoutedMessageBody::Ping(_) => {
-                    near_metrics::inc_counter(&metrics::ROUTED_PING_RECEIVED_TOTAL);
-                    near_metrics::inc_counter_by(&metrics::ROUTED_PING_RECEIVED_BYTES, size as i64);
-                }
-                RoutedMessageBody::Pong(_) => {
-                    near_metrics::inc_counter(&metrics::ROUTED_PONG_RECEIVED_TOTAL);
-                    near_metrics::inc_counter_by(&metrics::ROUTED_PONG_RECEIVED_BYTES, size as i64);
-                }
-            },
-            PeerMessage::Disconnect => {
-                near_metrics::inc_counter(&metrics::DISCONNECT_RECEIVED_TOTAL);
-                near_metrics::inc_counter_by(&metrics::DISCONNECT_RECEIVED_BYTES, size as i64);
-            }
-            PeerMessage::Challenge(_) => {
-                near_metrics::inc_counter(&metrics::CHALLENGE_RECEIVED_TOTAL);
-                near_metrics::inc_counter_by(&metrics::CHALLENGE_RECEIVED_BYTES, size as i64);
-            }
+            _ => strum::AsStaticRef::as_static(self),
         }
     }
 
