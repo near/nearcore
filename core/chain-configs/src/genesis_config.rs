@@ -33,6 +33,8 @@ fn default_protocol_upgrade_stake_threshold() -> Rational {
     Rational::new(8, 10)
 }
 
+const MAX_GAS_PRICE: Balance = 10_000_000_000_000_000_000_000;
+
 #[derive(Debug, Clone, SmartDefault, Serialize, Deserialize)]
 pub struct GenesisConfig {
     /// Protocol version that this genesis works with.
@@ -66,6 +68,9 @@ pub struct GenesisConfig {
     /// Minimum gas price. It is also the initial gas price.
     #[serde(with = "u128_dec_format_compatible")]
     pub min_gas_price: Balance,
+    #[serde(with = "u128_dec_format")]
+    #[default(MAX_GAS_PRICE)]
+    pub max_gas_price: Balance,
     /// Criterion for kicking out block producers (this is a number between 0 and 100)
     pub block_producer_kickout_threshold: u8,
     /// Criterion for kicking out chunk producers (this is a number between 0 and 100)

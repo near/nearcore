@@ -358,6 +358,7 @@ impl Client {
 
         let gas_price_adjustment_rate = self.chain.block_economics_config.gas_price_adjustment_rate;
         let min_gas_price = self.chain.block_economics_config.min_gas_price;
+        let max_gas_price = self.chain.block_economics_config.max_gas_price;
 
         let next_bp_hash = if prev_epoch_id != epoch_id {
             Chain::compute_bp_hash(&*self.runtime_adapter, next_epoch_id.clone(), &prev_hash)?
@@ -408,6 +409,7 @@ impl Client {
             approvals,
             gas_price_adjustment_rate,
             min_gas_price,
+            max_gas_price,
             minted_amount,
             prev_block_extra.challenges_result,
             vec![],
