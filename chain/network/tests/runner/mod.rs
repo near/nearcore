@@ -65,6 +65,7 @@ pub fn setup_network_node(
         1_000_000,
         100,
         1_000_000_000,
+        1_000_000_000,
         Rational::from_integer(0),
         Rational::from_integer(0),
         1000,

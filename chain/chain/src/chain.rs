@@ -77,6 +77,7 @@ pub const NUM_EPOCHS_TO_KEEP_STORE_DATA: u64 = 5;
 pub struct BlockEconomicsConfig {
     pub gas_price_adjustment_rate: Rational,
     pub min_gas_price: Balance,
+    pub max_gas_price: Balance,
 }
 
 enum ApplyChunksMode {
@@ -180,6 +181,7 @@ pub struct ChainGenesis {
     pub height: BlockHeight,
     pub gas_limit: Gas,
     pub min_gas_price: Balance,
+    pub max_gas_price: Balance,
     pub total_supply: Balance,
     pub max_inflation_rate: Rational,
     pub gas_price_adjustment_rate: Rational,
@@ -194,6 +196,7 @@ impl ChainGenesis {
         height: BlockHeight,
         gas_limit: Gas,
         min_gas_price: Balance,
+        max_gas_price: Balance,
         total_supply: Balance,
         max_inflation_rate: Rational,
         gas_price_adjustment_rate: Rational,
@@ -206,6 +209,7 @@ impl ChainGenesis {
             height,
             gas_limit,
             min_gas_price,
+            max_gas_price,
             total_supply,
             max_inflation_rate,
             gas_price_adjustment_rate,
@@ -227,6 +231,7 @@ where
             genesis_config.genesis_height,
             genesis_config.gas_limit,
             genesis_config.min_gas_price,
+            genesis_config.max_gas_price,
             genesis_config.total_supply,
             genesis_config.max_inflation_rate,
             genesis_config.gas_price_adjustment_rate,
@@ -368,6 +373,7 @@ impl Chain {
             block_economics_config: BlockEconomicsConfig {
                 gas_price_adjustment_rate: chain_genesis.gas_price_adjustment_rate,
                 min_gas_price: chain_genesis.min_gas_price,
+                max_gas_price: chain_genesis.max_gas_price,
             },
             doomslug_threshold_mode,
         })
@@ -2886,6 +2892,7 @@ impl<'a> ChainUpdate<'a> {
         if !block.verify_gas_price(
             prev_gas_price,
             self.block_economics_config.min_gas_price,
+            self.block_economics_config.max_gas_price,
             self.block_economics_config.gas_price_adjustment_rate,
         ) {
             byzantine_assert!(false);

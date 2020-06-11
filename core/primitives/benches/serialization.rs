@@ -56,6 +56,7 @@ fn create_block() -> Block {
         vec![],
         Rational::from_integer(0),
         0,
+        0,
         Some(0),
         vec![],
         vec![],

@@ -48,6 +48,7 @@ fn build_chain_with_orhpans() {
         vec![],
         Rational::from_integer(0),
         0,
+        100,
         Some(0),
         vec![],
         vec![],
