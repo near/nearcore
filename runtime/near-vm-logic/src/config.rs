@@ -136,6 +136,7 @@ impl Default for VMLimitConfig {
 
             // Updating the maximum prepaid gas to limit the maximum depth of a transaction to 64
             // blocks.
+            // This based on `63 * min_receipt_with_function_call_gas()`. Where 63 is max depth - 1.
             max_total_prepaid_gas: 300 * 10u64.pow(12),
 
             // Safety limit. Unlikely to hit it for most common transactions and receipts.
