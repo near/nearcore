@@ -5,8 +5,8 @@ use std::time::{Duration, Instant};
 
 use actix::io::{FramedWrite, WriteHandler};
 use actix::{
-    Actor, ActorContext, ActorFuture, Addr, AsyncContext, Context, ContextFutureSpawner, Handler,
-    Recipient, Running, StreamHandler, WrapFuture,
+    Actor, ActorContext, ActorFuture, Addr, Arbiter, AsyncContext, Context, ContextFutureSpawner,
+    Handler, Recipient, Running, StreamHandler, WrapFuture,
 };
 use tracing::{debug, error, info, trace, warn};
 
@@ -568,6 +568,10 @@ impl Actor for Peer {
             }
         }
         Running::Stop
+    }
+
+    fn stopped(&mut self, _ctx: &mut Self::Context) {
+        Arbiter::current().stop();
     }
 }
 
