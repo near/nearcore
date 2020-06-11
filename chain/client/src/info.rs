@@ -8,6 +8,7 @@ use log::info;
 use sysinfo::{get_current_pid, set_open_files_limit, Pid, ProcessExt, System, SystemExt};
 
 use near_chain_configs::ClientConfig;
+use near_metrics::set_gauge;
 use near_network::types::NetworkInfo;
 use near_primitives::block::Tip;
 use near_primitives::network::PeerId;
@@ -20,6 +21,7 @@ use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::Version;
 use near_telemetry::{telemetry, TelemetryActor};
 
+use crate::metrics;
 use crate::types::ShardSyncStatus;
 use crate::SyncStatus;
 
@@ -110,6 +112,13 @@ impl InfoHelper {
               Green.bold().paint(format!("{:.2} bps {}", avg_bls, gas_used_per_sec(avg_gas_used))),
               Blue.bold().paint(format!("CPU: {:.0}%, Mem: {}", cpu_usage, pretty_bytes(memory_usage * 1024)))
         );
+
+        set_gauge(&metrics::IS_VALIDATOR, is_validator as i64);
+        set_gauge(&metrics::RECEIVED_BYTES_PER_SECOND, network_info.received_bytes_per_sec as i64);
+        set_gauge(&metrics::SENT_BYTES_PER_SECOND, network_info.sent_bytes_per_sec as i64);
+        set_gauge(&metrics::BLOCKS_PER_MINUTE, (avg_bls * (60 as f64)) as i64);
+        set_gauge(&metrics::CPU_USAGE, cpu_usage as i64);
+        set_gauge(&metrics::MEMORY_USAGE, memory_usage as i64);
 
         self.started = Instant::now();
         self.num_blocks_processed = 0;

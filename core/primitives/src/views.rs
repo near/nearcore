@@ -266,6 +266,8 @@ pub struct StatusResponse {
     pub validators: Vec<ValidatorInfo>,
     /// Sync status of the node.
     pub sync_info: StatusSyncInfo,
+    /// Validator id of the node
+    pub validator_account_id: Option<AccountId>,
 }
 
 impl TryFrom<QueryResponse> for AccountView {

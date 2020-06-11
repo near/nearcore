@@ -9,8 +9,8 @@ use std::time::{Duration, Instant};
 use actix::actors::resolver::{ConnectAddr, Resolver};
 use actix::io::FramedWrite;
 use actix::{
-    Actor, ActorFuture, Addr, AsyncContext, Context, ContextFutureSpawner, Handler, Recipient,
-    Running, StreamHandler, SystemService, WrapFuture,
+    Actor, ActorFuture, Addr, Arbiter, AsyncContext, Context, ContextFutureSpawner, Handler,
+    Recipient, Running, StreamHandler, SystemService, WrapFuture,
 };
 use chrono::Utc;
 use futures::task::Poll;
@@ -44,6 +44,7 @@ use crate::types::{
     KnownPeerState, NetworkClientMessages, NetworkConfig, NetworkRequests, NetworkResponses,
     PeerInfo,
 };
+use metrics::NetworkMetrics;
 
 /// How often to request peers from active peers.
 const REQUEST_PEERS_SECS: u64 = 60;
@@ -105,6 +106,8 @@ pub struct PeerManagerActor {
     monitor_peers_attempts: u64,
     /// Active peers we have sent new edge update, but we haven't received response so far.
     pending_update_nonce_request: HashMap<PeerId, u64>,
+    /// Dynamic Prometheus metrics
+    network_metrics: NetworkMetrics,
     /// Store all collected metrics from a node.
     #[cfg(feature = "metric_recorder")]
     metric_recorder: MetricRecorder,
@@ -138,6 +141,7 @@ impl PeerManagerActor {
             routing_table,
             monitor_peers_attempts: 0,
             pending_update_nonce_request: HashMap::new(),
+            network_metrics: NetworkMetrics::new(),
             #[cfg(feature = "metric_recorder")]
             metric_recorder,
         })
@@ -350,7 +354,11 @@ impl PeerManagerActor {
             }
         };
 
-        Peer::create(move |ctx| {
+        let network_metrics = self.network_metrics.clone();
+
+        // Start every peer actor on separate thread.
+        let arbiter = Arbiter::new();
+        Peer::start_in_arbiter(&arbiter, move |ctx| {
             let (read, write) = tokio::io::split(stream);
 
             // TODO: check if peer is banned or known based on IP address and port.
@@ -366,6 +374,7 @@ impl PeerManagerActor {
                     .map(Result::unwrap),
                 ctx,
             );
+
             Peer::new(
                 PeerInfo { id: peer_id, addr: Some(server_addr), account_id },
                 remote_addr,
@@ -377,6 +386,7 @@ impl PeerManagerActor {
                 client_addr,
                 view_client_addr,
                 edge_info,
+                network_metrics,
             )
         });
     }
@@ -818,7 +828,11 @@ impl PeerManagerActor {
             }
             Err(find_route_error) => {
                 // TODO(MarX, #1369): Message is dropped here. Define policy for this case.
-                near_metrics::inc_counter(&metrics::DROP_MESSAGE_UNREACHABLE_PEER);
+                self.network_metrics.inc(
+                    NetworkMetrics::peer_message_dropped(strum::AsStaticRef::as_static(&msg.body))
+                        .as_str(),
+                );
+
                 debug!(target: "network", "{:?} Drop signed message to {:?} Reason {:?}. Known peers: {:?} Message {:?}",
                       self.config.account_id,
                       msg.target,
