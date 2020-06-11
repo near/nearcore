@@ -460,6 +460,7 @@
     "ActionsValidationError": {
       "name": "ActionsValidationError",
       "subtypes": [
+        "DeleteActionMustBeFinal",
         "TotalPrepaidGasExceeded",
         "TotalNumberOfActionsExceeded",
         "AddKeyMethodNamesNumberOfBytesExceeded",
@@ -552,6 +553,11 @@
       "props": {
         "account_id": ""
       }
+    },
+    "DeleteActionMustBeFinal": {
+      "name": "DeleteActionMustBeFinal",
+      "subtypes": [],
+      "props": {}
     },
     "DeleteKeyDoesNotExist": {
       "name": "DeleteKeyDoesNotExist",

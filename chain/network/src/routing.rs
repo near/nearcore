@@ -664,10 +664,11 @@ impl RoutingTable {
 
     /// Recalculate routing table.
     pub fn update(&mut self) {
+        let _routing_table_recalculation =
+            near_metrics::start_timer(&metrics::ROUTING_TABLE_RECALCULATION_HISTOGRAM);
+
         trace!(target: "network", "Update routing table.");
         self.recalculation_scheduled = None;
-
-        let start = Instant::now();
 
         self.peer_forwarding = self.raw_graph.calculate_distance();
 
@@ -678,13 +679,7 @@ impl RoutingTable {
 
         self.try_save_edges();
 
-        let duration = Instant::now().duration_since(start).as_millis();
-
         near_metrics::inc_counter_by(&metrics::ROUTING_TABLE_RECALCULATIONS, 1);
-        near_metrics::set_gauge(
-            &metrics::ROUTING_TABLE_RECALCULATION_MILLISECONDS,
-            duration as i64,
-        );
         near_metrics::set_gauge(&metrics::PEER_REACHABLE, self.peer_forwarding.len() as i64);
     }
 

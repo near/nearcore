@@ -19,7 +19,7 @@ tracing = "0.1.13"
 strum ="0.18"
 strum_macros = "0.18"
 
-borsh = "0.6.1"
+borsh = "0.6.2"
 
 near-chain-configs = { path = "../../core/chain-configs" }
 near-crypto = { path = "../../core/crypto" }

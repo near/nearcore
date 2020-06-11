@@ -18,8 +18,9 @@ rand = "0.7"
 byteorder = "1.2"
 lazy_static = "1.4"
 tracing = "0.1.13"
+strum = { version = "0.18", features = ["derive"] }
 
-borsh = "0.6.1"
+borsh = "0.6.2"
 cached = "0.12"
 
 near-chain-configs = { path = "../../core/chain-configs" }

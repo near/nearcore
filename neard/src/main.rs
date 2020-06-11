@@ -13,7 +13,7 @@ use tracing_subscriber::filter::LevelFilter;
 use tracing_subscriber::EnvFilter;
 
 use git_version::git_version;
-use near_primitives::types::Version;
+use near_primitives::version::{Version, PROTOCOL_VERSION};
 use neard::config::init_testnet_configs;
 use neard::genesis_validate::validate_genesis;
 use neard::{get_default_home, get_store_path, init_configs, load_config, start_with_config};
@@ -100,7 +100,7 @@ fn main() {
         .get_matches();
 
     init_logging(matches.value_of("verbose"));
-    info!(target: "near", "Version: {}, Build: {}", version.version, version.build);
+    info!(target: "near", "Version: {}, Build: {}, Latest Protocol: {}", version.version, version.build, PROTOCOL_VERSION);
 
     #[cfg(feature = "adversarial")]
     {

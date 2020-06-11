@@ -14,7 +14,6 @@ use near_crypto::KeyType;
 use near_logger_utils::{init_integration_logger, init_test_logger};
 use near_network::types::PartialEncodedChunkRequestMsg;
 use near_network::{NetworkClientMessages, NetworkRequests, NetworkResponses, PeerInfo};
-use near_primitives::block::BlockHeader;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::sharding::{PartialEncodedChunk, ShardChunkHeader};
 use near_primitives::transaction::SignedTransaction;
@@ -123,63 +122,63 @@ fn chunks_produced_and_distributed_common(
             Arc::new(RwLock::new(Box::new(move |from_whom: String, msg: &NetworkRequests| {
                 match msg {
                     NetworkRequests::Block { block } => {
-                        check_height(block.hash(), block.header.inner_lite.height);
-                        check_height(block.header.prev_hash, block.header.inner_lite.height - 1);
+                        check_height(*block.hash(), block.header().height());
+                        check_height(*block.header().prev_hash(), block.header().height() - 1);
 
-                        let h = block.header.inner_lite.height;
+                        let h = block.header().height();
 
                         let mut height_to_hash = height_to_hash.write().unwrap();
-                        height_to_hash.insert(h, block.hash());
+                        height_to_hash.insert(h, *block.hash());
 
                         let mut height_to_epoch = height_to_epoch.write().unwrap();
-                        height_to_epoch.insert(h, block.header.inner_lite.epoch_id.clone());
+                        height_to_epoch.insert(h, block.header().epoch_id().clone());
 
                         println!(
                             "[{:?}]: BLOCK {} HEIGHT {}; HEADER HEIGHTS: {} / {} / {} / {};\nAPPROVALS: {:?}",
                             Instant::now(),
                             block.hash(),
-                            block.header.inner_lite.height,
-                            block.chunks[0].inner.height_created,
-                            block.chunks[1].inner.height_created,
-                            block.chunks[2].inner.height_created,
-                            block.chunks[3].inner.height_created,
-                            block.header.inner_rest.approvals,
+                            block.header().height(),
+                            block.chunks()[0].inner.height_created,
+                            block.chunks()[1].inner.height_created,
+                            block.chunks()[2].inner.height_created,
+                            block.chunks()[3].inner.height_created,
+                            block.header().approvals(),
                         );
 
                         if h > 1 {
                             // Make sure doomslug finality is computed correctly.
-                            assert_eq!(block.header.inner_rest.last_ds_final_block, *height_to_hash.get(&(h - 1)).unwrap());
+                            assert_eq!(block.header().last_ds_final_block(), height_to_hash.get(&(h - 1)).unwrap());
 
                             // Make sure epoch length actually corresponds to the desired epoch length
                             // The switches are expected at 0->1, 5->6 and 10->11
                             let prev_epoch_id = height_to_epoch.get(&(h - 1)).unwrap().clone();
-                            assert_eq!(block.header.inner_lite.epoch_id == prev_epoch_id, h % 5 != 1);
+                            assert_eq!(block.header().epoch_id() == &prev_epoch_id, h % 5 != 1);
 
                             // Make sure that the blocks leading to the epoch switch have twice as
                             // many approval slots
-                            assert_eq!(block.header.inner_rest.approvals.len() == 8, h % 5 == 0 || h % 5 == 4);
+                            assert_eq!(block.header().approvals().len() == 8, h % 5 == 0 || h % 5 == 4);
                         }
                         if h > 2 {
                             // Make sure BFT finality is computed correctly
-                            assert_eq!(block.header.inner_rest.last_final_block, *height_to_hash.get(&(h - 2)).unwrap());
+                            assert_eq!(block.header().last_final_block(), height_to_hash.get(&(h - 2)).unwrap());
                         }
 
-                        if block.header.inner_lite.height > 1 {
+                        if block.header().height() > 1 {
                             for shard_id in 0..4 {
                                 // If messages from 1 to 4 are dropped, 4 at their heights will
                                 //    receive the block significantly later than the chunks, and
                                 //    thus would discard the chunks
-                                if !drop_from_1_to_4 || block.header.inner_lite.height % 4 != 3 {
+                                if !drop_from_1_to_4 || block.header().height() % 4 != 3 {
                                     assert_eq!(
-                                        block.header.inner_lite.height,
-                                        block.chunks[shard_id].inner.height_created
+                                        block.header().height(),
+                                        block.chunks()[shard_id].inner.height_created
                                     );
                                 }
                             }
                         }
 
-                        if block.header.inner_lite.height >= 12 {
-                            println!("PREV BLOCK HASH: {}", block.header.prev_hash);
+                        if block.header().height() >= 12 {
+                            println!("PREV BLOCK HASH: {}", block.header().prev_hash());
                             println!(
                                 "STATS: responses: {} requests: {}",
                                 partial_chunk_msgs, partial_chunk_request_msgs
@@ -226,8 +225,7 @@ fn chunks_produced_and_distributed_common(
 
         let view_client = connectors.write().unwrap()[0].1.clone();
         actix::spawn(view_client.send(GetBlock::latest()).then(move |res| {
-            let header: BlockHeader = res.unwrap().unwrap().header.into();
-            let block_hash = header.hash;
+            let block_hash = res.unwrap().unwrap().header.hash;
             let connectors_ = connectors.write().unwrap();
             connectors_[0]
                 .0
@@ -254,7 +252,7 @@ fn test_request_chunk_restart() {
     }
     let block1 = env.clients[0].chain.get_block_by_height(3).unwrap().clone();
     let request = PartialEncodedChunkRequestMsg {
-        chunk_hash: block1.chunks[0].chunk_hash(),
+        chunk_hash: block1.chunks()[0].chunk_hash(),
         part_ords: vec![0],
         tracking_shards: HashSet::default(),
     };
@@ -275,7 +273,7 @@ fn test_request_chunk_restart() {
     );
     let response = env.network_adapters[0].pop().unwrap();
     if let NetworkRequests::PartialEncodedChunkResponse { response: response_body, .. } = response {
-        assert_eq!(response_body.chunk_hash, block1.chunks[0].chunk_hash());
+        assert_eq!(response_body.chunk_hash, block1.chunks()[0].chunk_hash());
     } else {
         println!("{:?}", response);
         assert!(false);
@@ -307,12 +305,12 @@ fn store_partial_encoded_chunk_sanity() {
         parts: vec![],
         receipts: vec![],
     };
-    let block_hash = env.clients[0].chain.genesis().hash();
+    let block_hash = *env.clients[0].chain.genesis().hash();
     let block = env.clients[0].chain.get_block(&block_hash).unwrap().clone();
     assert_eq!(env.clients[0].shards_mgr.get_stored_partial_encoded_chunks(1).len(), 0);
     env.clients[0]
         .shards_mgr
-        .store_partial_encoded_chunk(&block.header, partial_encoded_chunk.clone());
+        .store_partial_encoded_chunk(&block.header(), partial_encoded_chunk.clone());
     assert_eq!(env.clients[0].shards_mgr.get_stored_partial_encoded_chunks(1).len(), 1);
     assert_eq!(
         env.clients[0].shards_mgr.get_stored_partial_encoded_chunks(1)[&0],
@@ -323,7 +321,7 @@ fn store_partial_encoded_chunk_sanity() {
     partial_encoded_chunk.header.hash.0 = hash(&[123]);
     env.clients[0]
         .shards_mgr
-        .store_partial_encoded_chunk(&block.header, partial_encoded_chunk.clone());
+        .store_partial_encoded_chunk(&block.header(), partial_encoded_chunk.clone());
     assert_eq!(env.clients[0].shards_mgr.get_stored_partial_encoded_chunks(1).len(), 1);
     assert_eq!(
         env.clients[0].shards_mgr.get_stored_partial_encoded_chunks(1)[&0],
@@ -352,7 +350,7 @@ fn store_partial_encoded_chunk_sanity() {
     assert_eq!(env.clients[0].shards_mgr.get_stored_partial_encoded_chunks(1).len(), 1);
     env.clients[0]
         .shards_mgr
-        .store_partial_encoded_chunk(&block.header, partial_encoded_chunk2.clone());
+        .store_partial_encoded_chunk(&block.header(), partial_encoded_chunk2.clone());
     assert_eq!(env.clients[0].shards_mgr.get_stored_partial_encoded_chunks(1).len(), 2);
     assert_eq!(
         env.clients[0].shards_mgr.get_stored_partial_encoded_chunks(1)[&0],
@@ -385,18 +383,18 @@ fn store_partial_encoded_chunk_sanity() {
     partial_encoded_chunk3.header = h.clone();
     env.clients[0]
         .shards_mgr
-        .store_partial_encoded_chunk(&block.header, partial_encoded_chunk3.clone());
+        .store_partial_encoded_chunk(&block.header(), partial_encoded_chunk3.clone());
     assert_eq!(env.clients[0].shards_mgr.get_stored_partial_encoded_chunks(2).len(), 0);
     h.inner.height_created = 9;
     partial_encoded_chunk3.header = h.clone();
     env.clients[0]
         .shards_mgr
-        .store_partial_encoded_chunk(&block.header, partial_encoded_chunk3.clone());
+        .store_partial_encoded_chunk(&block.header(), partial_encoded_chunk3.clone());
     assert_eq!(env.clients[0].shards_mgr.get_stored_partial_encoded_chunks(9).len(), 0);
     h.inner.height_created = 5;
     partial_encoded_chunk3.header = h.clone();
     env.clients[0]
         .shards_mgr
-        .store_partial_encoded_chunk(&block.header, partial_encoded_chunk3.clone());
+        .store_partial_encoded_chunk(&block.header(), partial_encoded_chunk3.clone());
     assert_eq!(env.clients[0].shards_mgr.get_stored_partial_encoded_chunks(5).len(), 1);
 }

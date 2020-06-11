@@ -154,8 +154,8 @@ macro_rules! jsonrpc_client {
     ) => (
         $(#[$struct_attr])*
         pub struct $struct_name {
-            server_addr: String,
-            client: Client,
+            pub server_addr: String,
+            pub client: Client,
         }
 
         impl $struct_name {

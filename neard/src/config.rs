@@ -7,14 +7,12 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use chrono::Utc;
-use lazy_static::lazy_static;
 use log::info;
 use num_rational::Rational;
 use serde::{Deserialize, Serialize};
 
-use near_chain_configs::{
-    ClientConfig, Genesis, GenesisConfig, GENESIS_CONFIG_VERSION, PROTOCOL_VERSION,
-};
+use lazy_static::lazy_static;
+use near_chain_configs::{ClientConfig, Genesis, GenesisConfig};
 use near_crypto::{InMemorySigner, KeyFile, KeyType, PublicKey, Signer};
 use near_jsonrpc::RpcConfig;
 use near_network::test_utils::open_port;
@@ -25,10 +23,12 @@ use near_primitives::account::{AccessKey, Account};
 use near_primitives::hash::CryptoHash;
 use near_primitives::state_record::StateRecord;
 use near_primitives::types::{
-    AccountId, AccountInfo, Balance, BlockHeightDelta, Gas, NumBlocks, NumSeats, NumShards, ShardId,
+    AccountId, AccountInfo, Balance, BlockHeightDelta, EpochHeight, Gas, NumBlocks, NumSeats,
+    NumShards, ShardId,
 };
 use near_primitives::utils::{generate_random_string, get_num_seats_per_shard};
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
+use near_primitives::version::PROTOCOL_VERSION;
 use near_runtime_configs::RuntimeConfig;
 use near_telemetry::TelemetryConfig;
 
@@ -119,13 +119,16 @@ pub const NUM_BLOCK_PRODUCER_SEATS: NumSeats = 50;
 /// How much height horizon to give to consider peer up to date.
 pub const HIGHEST_PEER_HORIZON: u64 = 5;
 
+/// Number of epochs before protocol upgrade.
+pub const PROTOCOL_UPGRADE_NUM_EPOCHS: EpochHeight = 2;
+
 pub const CONFIG_FILENAME: &str = "config.json";
 pub const GENESIS_CONFIG_FILENAME: &str = "genesis.json";
 pub const NODE_KEY_FILE: &str = "node_key.json";
 pub const VALIDATOR_KEY_FILE: &str = "validator_key.json";
 
-pub const MAINNET_TELEMETRY_URL: &str = "https://explorer.nearprotocol.com/api/nodes";
-pub const NETWORK_TELEMETRY_URL: &str = "https://explorer.{}.nearprotocol.com/api/nodes";
+pub const MAINNET_TELEMETRY_URL: &str = "https://explorer.mainnet.near.org/api/nodes";
+pub const NETWORK_TELEMETRY_URL: &str = "https://explorer.{}.near.org/api/nodes";
 
 lazy_static! {
     /// The rate at which the gas price can be adjusted (alpha in the formula).
@@ -138,6 +141,9 @@ lazy_static! {
 
     /// Maximum inflation rate per year
     pub static ref MAX_INFLATION_RATE: Rational = Rational::new(5, 100);
+
+    /// Protocol upgrade stake threshold.
+    pub static ref PROTOCOL_UPGRADE_STAKE_THRESHOLD: Rational = Rational::new(8, 10);
 }
 
 /// Maximum number of active peers. Hard limit.
@@ -258,6 +264,10 @@ fn default_sync_step_period() -> Duration {
     Duration::from_millis(10)
 }
 
+fn default_gc_blocks_limit() -> NumBlocks {
+    2
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Consensus {
     /// Minimum number of peers to start syncing.
@@ -345,6 +355,8 @@ pub struct Config {
     pub tracked_accounts: Vec<AccountId>,
     pub tracked_shards: Vec<ShardId>,
     pub archive: bool,
+    #[serde(default = "default_gc_blocks_limit")]
+    pub gc_blocks_limit: NumBlocks,
 }
 
 impl Default for Config {
@@ -361,6 +373,7 @@ impl Default for Config {
             tracked_accounts: vec![],
             tracked_shards: vec![],
             archive: false,
+            gc_blocks_limit: default_gc_blocks_limit(),
         }
     }
 }
@@ -422,13 +435,14 @@ impl Genesis {
         add_protocol_account(&mut records);
         let config = GenesisConfig {
             protocol_version: PROTOCOL_VERSION,
-            config_version: GENESIS_CONFIG_VERSION,
             genesis_time: Utc::now(),
             chain_id: random_chain_id(),
             num_block_producer_seats: num_validator_seats,
             num_block_producer_seats_per_shard: num_validator_seats_per_shard.clone(),
             avg_hidden_validator_seats_per_shard: vec![0; num_validator_seats_per_shard.len()],
             dynamic_resharding: false,
+            protocol_upgrade_stake_threshold: *PROTOCOL_UPGRADE_STAKE_THRESHOLD,
+            protocol_upgrade_num_epochs: PROTOCOL_UPGRADE_NUM_EPOCHS,
             epoch_length: FAST_EPOCH_LENGTH,
             gas_limit: INITIAL_GAS_LIMIT,
             gas_price_adjustment_rate: *GAS_PRICE_ADJUSTMENT_RATE,
@@ -523,6 +537,7 @@ impl NearConfig {
                 tracked_accounts: config.tracked_accounts,
                 tracked_shards: config.tracked_shards,
                 archive: config.archive,
+                gc_blocks_limit: config.gc_blocks_limit,
             },
             network_config: NetworkConfig {
                 public_key: network_key_pair.public_key,
@@ -738,7 +753,6 @@ pub fn init_configs(
 
             let genesis_config = GenesisConfig {
                 protocol_version: PROTOCOL_VERSION,
-                config_version: GENESIS_CONFIG_VERSION,
                 genesis_time: Utc::now(),
                 chain_id,
                 genesis_height: 0,
@@ -749,6 +763,8 @@ pub fn init_configs(
                 ),
                 avg_hidden_validator_seats_per_shard: (0..num_shards).map(|_| 0).collect(),
                 dynamic_resharding: false,
+                protocol_upgrade_stake_threshold: *PROTOCOL_UPGRADE_STAKE_THRESHOLD,
+                protocol_upgrade_num_epochs: PROTOCOL_UPGRADE_NUM_EPOCHS,
                 epoch_length: if fast { FAST_EPOCH_LENGTH } else { EXPECTED_EPOCH_LENGTH },
                 gas_limit: INITIAL_GAS_LIMIT,
                 gas_price_adjustment_rate: *GAS_PRICE_ADJUSTMENT_RATE,
@@ -924,6 +940,5 @@ mod test {
         let genesis_config_str = include_str!("../res/genesis_config.json");
         let genesis_config = GenesisConfig::from_json(&genesis_config_str);
         assert_eq!(genesis_config.protocol_version, PROTOCOL_VERSION);
-        assert_eq!(genesis_config.config_version, GENESIS_CONFIG_VERSION);
     }
 }

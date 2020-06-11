@@ -323,6 +323,8 @@ impl JsonRpcHandler {
     ) -> Result<Value, RpcError> {
         let tx = parse_tx(params)?;
         let tx_hash = (&tx.get_hash()).to_base();
+        let does_not_track_shard_err =
+            "Node doesn't track this shard. Cannot determine whether the transaction is valid";
         match self.send_tx(tx, check_only).await? {
             NetworkClientResponses::ValidTx => {
                 if check_only {
@@ -336,7 +338,7 @@ impl JsonRpcHandler {
             }
             NetworkClientResponses::RequestRouted => {
                 if check_only {
-                    Err(RpcError::server_error(Some("Node doesn't track this shard. Cannot determine whether the transaction is valid".to_string())))
+                    Err(RpcError::server_error(Some(does_not_track_shard_err.to_string())))
                 } else {
                     jsonify(Ok(Ok(RpcBroadcastTxSyncResponse {
                         transaction_hash: tx_hash,
@@ -346,6 +348,9 @@ impl JsonRpcHandler {
             }
             NetworkClientResponses::InvalidTx(err) => {
                 Err(RpcError::server_error(Some(ServerError::TxExecutionError(err.into()))))
+            }
+            NetworkClientResponses::DoesNotTrackShard => {
+                Err(RpcError::server_error(Some(does_not_track_shard_err.to_string())))
             }
             _ => {
                 // this is only possible if something went wrong with the node internally.
