@@ -6,7 +6,7 @@ use std::cmp;
 use std::collections::HashMap;
 use std::io;
 use std::sync::RwLock;
-
+use strum_macros::EnumIter;
 #[derive(Debug, Clone, PartialEq)]
 pub struct DBError(rocksdb::Error);
 
@@ -30,7 +30,7 @@ impl Into<io::Error> for DBError {
     }
 }
 
-#[derive(PartialEq, Debug, Copy, Clone)]
+#[derive(PartialEq, Debug, Copy, Clone, EnumIter)]
 pub enum DBCol {
     ColBlockMisc = 0,
     ColBlock = 1,

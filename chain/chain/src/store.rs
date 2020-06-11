@@ -2043,18 +2043,21 @@ impl<'a> ChainStoreUpdate<'a> {
         Ok(())
     }
 
-    fn inc_gc(&mut self, col: DBCol) {
-        let new_count: u64 = if let Some(count) = self.gc_count.get(&(col as u64)) {
-            count + 1
+    fn get_gc_count(&self, col: DBCol) -> u64 {
+        if let Some(count) = self.gc_count.get(&(col as u64)) {
+            *count
         } else if let Ok(Some(count)) = self
             .store()
             .get(DBCol::ColGCCount, &borsh::ser::BorshSerialize::try_to_vec(&(col as u64)).unwrap())
         {
-            let count: u64 = borsh::de::BorshDeserialize::try_from_slice(&count).unwrap();
-            count + 1
+            borsh::de::BorshDeserialize::try_from_slice(&count).unwrap()
         } else {
-            1
-        };
+            0
+        }
+    }
+
+    fn inc_gc(&mut self, col: DBCol) {
+        let new_count: u64 = self.get_gc_count(col) + 1;
         self.gc_count.insert(col as u64, new_count);
     }
 
@@ -2584,6 +2587,7 @@ mod tests {
     use std::sync::Arc;
 
     use cached::Cached;
+    use strum::IntoEnumIterator;
 
     use near_chain_configs::GenesisConfig;
     use near_crypto::KeyType;
@@ -2600,6 +2604,8 @@ mod tests {
     use crate::store_validator::StoreValidator;
     use crate::test_utils::KeyValueRuntime;
     use crate::{Chain, ChainGenesis, DoomslugThresholdMode};
+
+    use near_store::DBCol;
 
     fn get_chain() -> Chain {
         get_chain_with_epoch_length(10)
@@ -2865,6 +2871,30 @@ mod tests {
             }
         }
         assert!(check_refcount_map(&mut chain).is_ok());
+
+        let store_update = chain.mut_store().store_update();
+
+        let gced_cols = [
+            DBCol::ColBlock,
+            DBCol::ColOutgoingReceipts,
+            DBCol::ColIncomingReceipts,
+            DBCol::ColBlocksToCatchup,
+            DBCol::ColChallengedBlocks,
+            DBCol::ColStateHeaders,
+            DBCol::ColBlockExtra,
+            DBCol::ColBlockPerHeight,
+            DBCol::ColNextBlockHashes,
+            DBCol::ColNextBlockWithNewChunk,
+            DBCol::ColChunkPerHeightShard,
+            DBCol::ColBlockRefCount,
+        ];
+        for i in DBCol::iter() {
+            if gced_cols.contains(&i) {
+                assert!(store_update.get_gc_count(i) == 7);
+            } else {
+                assert!(store_update.get_gc_count(i) == 0);
+            }
+        }
     }
 
     #[test]
