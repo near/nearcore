@@ -2011,7 +2011,7 @@ impl<'a> ChainStoreUpdate<'a> {
         self.gc_col(ColBlockRefCount, &block_hash_vec)?;
 
         // 4. Update or delete block_hash_per_height
-        self.gc_col(ColBlockPerHeight, &block_hash_vec)?;
+        self.gc_col_block_per_height(&block_hash, height, &block.header.inner_lite.epoch_id)?;
 
         match gc_mode {
             GCMode::Fork(_) => {
@@ -2058,9 +2058,36 @@ impl<'a> ChainStoreUpdate<'a> {
         self.gc_count.insert(col as u64, new_count);
     }
 
+    pub fn gc_col_block_per_height(
+        &mut self,
+        block_hash: &CryptoHash,
+        height: u64,
+        epoch_id: &EpochId,
+    ) -> Result<(), Error> {
+        let mut store_update = self.store().store_update();
+        let epoch_to_hashes_ref = self.get_all_block_hashes_by_height(height)?;
+        let mut epoch_to_hashes = epoch_to_hashes_ref.clone();
+        let hashes = epoch_to_hashes.get_mut(epoch_id).expect("current epoch id should exist");
+        hashes.remove(&block_hash);
+        if hashes.is_empty() {
+            epoch_to_hashes.remove(epoch_id);
+        }
+        if epoch_to_hashes.is_empty() {
+            store_update.delete(ColBlockPerHeight, &index_to_bytes(height));
+            self.chain_store.block_hash_per_height.cache_remove(&index_to_bytes(height));
+        } else {
+            store_update.set_ser(ColBlockPerHeight, &index_to_bytes(height), &epoch_to_hashes)?;
+            self.chain_store
+                .block_hash_per_height
+                .cache_set(index_to_bytes(height), epoch_to_hashes);
+        }
+        self.inc_gc(DBCol::ColBlockPerHeight);
+        self.merge(store_update);
+        Ok(())
+    }
+
     pub fn gc_col(&mut self, col: DBCol, key: &Vec<u8>) -> Result<(), Error> {
         let mut store_update = self.store().store_update();
-        self.inc_gc(col);
         match col {
             DBCol::ColOutgoingReceipts => {
                 store_update.delete(col, key);
@@ -2142,37 +2169,11 @@ impl<'a> ChainStoreUpdate<'a> {
             }
             DBCol::ColTrieChanges => {}
             DBCol::ColBlockPerHeight => {
-                let block_hash: CryptoHash = CryptoHash::try_from(key.as_slice()).unwrap();
-                let block = self
-                    .get_block(&block_hash)
-                    .expect("block data is not expected to be already cleaned")
-                    .clone();
-                let height = block.header.inner_lite.height;
-                let epoch_to_hashes_ref = self.get_all_block_hashes_by_height(height)?;
-                let mut epoch_to_hashes = epoch_to_hashes_ref.clone();
-                let hashes = epoch_to_hashes
-                    .get_mut(&block.header.inner_lite.epoch_id)
-                    .expect("current epoch id should exist");
-                hashes.remove(&block_hash);
-                if hashes.is_empty() {
-                    epoch_to_hashes.remove(&block.header.inner_lite.epoch_id);
-                }
-                if epoch_to_hashes.is_empty() {
-                    store_update.delete(ColBlockPerHeight, &index_to_bytes(height));
-                    self.chain_store.block_hash_per_height.cache_remove(&index_to_bytes(height));
-                } else {
-                    store_update.set_ser(
-                        ColBlockPerHeight,
-                        &index_to_bytes(height),
-                        &epoch_to_hashes,
-                    )?;
-                    self.chain_store
-                        .block_hash_per_height
-                        .cache_set(index_to_bytes(height), epoch_to_hashes);
-                }
+                panic!("Must use gc_col_glock_per_height method to gc ColBlockPerHeight");
             }
             _ => {}
         }
+        self.inc_gc(col);
         self.merge(store_update);
         Ok(())
     }
@@ -2440,15 +2441,15 @@ impl<'a> ChainStoreUpdate<'a> {
         for (chunk_hash, chunk) in self.chain_store_cache_update.invalid_chunks.iter() {
             store_update.set_ser(ColInvalidChunks, chunk_hash.as_ref(), chunk)?;
         }
-        for other in self.store_updates.drain(..) {
-            store_update.merge(other);
-        }
         for (col, count) in self.gc_count.iter() {
             store_update.set_ser(
                 DBCol::ColGCCount,
                 &borsh::ser::BorshSerialize::try_to_vec(col).unwrap(),
                 count,
             )?;
+        }
+        for other in self.store_updates.drain(..) {
+            store_update.merge(other);
         }
         Ok(store_update)
     }
