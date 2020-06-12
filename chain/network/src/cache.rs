@@ -3,6 +3,10 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
 use std::collections::btree_map;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
+
+type Time = u64;
+type Size = i64;
+
 /// Cache to store route back messages.
 ///
 /// The interface of the cache is similar to a regular HashMap:
@@ -40,25 +44,25 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 ///     $capacity / number_of_active_connections$ entries.
 pub struct RouteBackCache {
     /// Maximum number of records allowed in the cache.
-    capacity: i64,
+    capacity: u64,
     /// Maximum time allowed before removing a record from the cache.
-    evict_timeout: i64,
+    evict_timeout: u64,
     /// Main map from message hash to time where it was created + target peer
     /// Size: O(capacity)
-    main: HashMap<CryptoHash, (i64, PeerId)>,
+    main: HashMap<CryptoHash, (Time, PeerId)>,
     /// Number of records allocated by each PeerId.
     /// The size is stored with negative sign, to order in PeerId in decreasing order.
     /// Size: O(number of active connections)
-    size_per_target: BTreeSet<(i64, PeerId)>,
+    size_per_target: BTreeSet<(Size, PeerId)>,
     /// List of all hashes associated with each PeerId. Hashes within each PeerId
     /// are sorted by the time they arrived from older to newer.
     /// Size: O(capacity)
-    record_per_target: BTreeMap<PeerId, BTreeSet<(i64, CryptoHash)>>,
+    record_per_target: BTreeMap<PeerId, BTreeSet<(Time, CryptoHash)>>,
 }
 
 impl RouteBackCache {
     fn is_full(&self) -> bool {
-        self.capacity == self.main.len() as i64
+        self.capacity == self.main.len() as u64
     }
 
     fn remove_frequent(&mut self) {
@@ -76,8 +80,6 @@ impl RouteBackCache {
             if entry.get().is_empty() {
                 entry.remove();
             }
-        } else {
-            unreachable!();
         }
 
         self.size_per_target.remove(&(size, target.clone()));
@@ -91,7 +93,7 @@ impl RouteBackCache {
 
     fn remove_evicted(&mut self) {
         if self.is_full() {
-            let now = Utc::now().timestamp_millis();
+            let now = Utc::now().timestamp_millis() as Time;
             let remove_until = now.saturating_sub(self.evict_timeout);
 
             let mut new_size_per_target = BTreeSet::new();
@@ -109,7 +111,7 @@ impl RouteBackCache {
                 *value = keep;
 
                 if !value.is_empty() {
-                    new_size_per_target.insert((-(value.len() as i64), key.clone()));
+                    new_size_per_target.insert((-(value.len() as Size), key.clone()));
                 } else {
                     remove_empty.push(key.clone());
                 }
@@ -131,8 +133,8 @@ impl RouteBackCache {
         assert!(capacity > 0);
 
         Self {
-            capacity: capacity as i64,
-            evict_timeout: evict_timeout as i64,
+            capacity,
+            evict_timeout,
             main: HashMap::new(),
             size_per_target: BTreeSet::new(),
             record_per_target: BTreeMap::new(),
@@ -186,7 +188,7 @@ impl RouteBackCache {
             self.remove_frequent();
         }
 
-        let now = Utc::now().timestamp_millis();
+        let now = Utc::now().timestamp_millis() as Time;
 
         self.main.insert(hash, (now, target.clone()));
 
@@ -211,7 +213,7 @@ mod test {
 
     /// Check internal state of the cache is ok
     fn check_consistency(cache: &RouteBackCache) {
-        assert!(cache.main.len() as i64 <= cache.capacity);
+        assert!(cache.main.len() as u64 <= cache.capacity);
         assert_eq!(cache.size_per_target.len(), cache.record_per_target.len());
 
         for (neg_size, target) in cache.size_per_target.iter() {
