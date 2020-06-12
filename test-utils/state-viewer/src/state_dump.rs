@@ -16,14 +16,12 @@ pub fn state_dump(
 ) -> Genesis {
     println!(
         "Generating genesis from state data of #{} / {}",
-        last_block_header.inner_lite.height, last_block_header.hash
+        last_block_header.height(),
+        last_block_header.hash()
     );
-    let genesis_height = last_block_header.inner_lite.height + 1;
+    let genesis_height = last_block_header.height() + 1;
     let block_producers = runtime
-        .get_epoch_block_producers_ordered(
-            &last_block_header.inner_lite.epoch_id,
-            &last_block_header.hash,
-        )
+        .get_epoch_block_producers_ordered(&last_block_header.epoch_id(), last_block_header.hash())
         .unwrap();
     let validators = block_producers
         .into_iter()
@@ -112,7 +110,7 @@ mod test {
     fn test_dump_state_preserve_validators() {
         let epoch_length = 4;
         let (store, genesis, mut env) = setup(epoch_length);
-        let genesis_hash = env.clients[0].chain.genesis().hash();
+        let genesis_hash = *env.clients[0].chain.genesis().hash();
         let signer = InMemorySigner::from_seed("test1", KeyType::ED25519, "test1");
         let tx = SignedTransaction::stake(
             1,
@@ -139,7 +137,7 @@ mod test {
         );
         let last_block = env.clients[0].chain.get_block(&head.last_block_hash).unwrap().clone();
         let state_roots =
-            last_block.chunks.iter().map(|chunk| chunk.inner.prev_state_root).collect();
+            last_block.chunks().iter().map(|chunk| chunk.inner.prev_state_root).collect();
         let runtime = NightshadeRuntime::new(
             Path::new("."),
             store.clone(),
@@ -147,7 +145,8 @@ mod test {
             vec![],
             vec![],
         );
-        let new_genesis = state_dump(runtime, state_roots, last_block.header, &genesis.config);
+        let new_genesis =
+            state_dump(runtime, state_roots, last_block.header().clone(), &genesis.config);
         assert_eq!(new_genesis.config.validators.len(), 2);
         validate_genesis(&new_genesis);
     }
@@ -157,7 +156,7 @@ mod test {
     fn test_dump_state_return_locked() {
         let epoch_length = 4;
         let (store, genesis, mut env) = setup(epoch_length);
-        let genesis_hash = env.clients[0].chain.genesis().hash();
+        let genesis_hash = *env.clients[0].chain.genesis().hash();
         let signer = InMemorySigner::from_seed("test1", KeyType::ED25519, "test1");
         let tx = SignedTransaction::stake(
             1,
@@ -174,7 +173,7 @@ mod test {
         let head = env.clients[0].chain.head().unwrap();
         let last_block = env.clients[0].chain.get_block(&head.last_block_hash).unwrap().clone();
         let state_roots =
-            last_block.chunks.iter().map(|chunk| chunk.inner.prev_state_root).collect();
+            last_block.chunks().iter().map(|chunk| chunk.inner.prev_state_root).collect();
         let runtime = NightshadeRuntime::new(
             Path::new("."),
             store.clone(),
@@ -182,7 +181,8 @@ mod test {
             vec![],
             vec![],
         );
-        let new_genesis = state_dump(runtime, state_roots, last_block.header, &genesis.config);
+        let new_genesis =
+            state_dump(runtime, state_roots, last_block.header().clone(), &genesis.config);
         assert_eq!(
             new_genesis
                 .config
@@ -218,7 +218,7 @@ mod test {
         chain_genesis.epoch_length = epoch_length;
         chain_genesis.gas_limit = genesis.config.gas_limit;
         let mut env = TestEnv::new_with_runtime(chain_genesis, 2, 1, runtimes);
-        let genesis_hash = env.clients[0].chain.genesis().hash();
+        let genesis_hash = *env.clients[0].chain.genesis().hash();
         let signer = InMemorySigner::from_seed("test1", KeyType::ED25519, "test1");
         let tx = SignedTransaction::send_money(
             1,
@@ -241,11 +241,11 @@ mod test {
         }
         let last_block = blocks.pop().unwrap();
         let state_roots =
-            last_block.chunks.iter().map(|chunk| chunk.inner.prev_state_root).collect::<Vec<_>>();
+            last_block.chunks().iter().map(|chunk| chunk.inner.prev_state_root).collect::<Vec<_>>();
         let runtime2 = create_runtime(store2);
 
         let _ =
-            state_dump(runtime2, state_roots.clone(), last_block.header.clone(), &genesis.config);
+            state_dump(runtime2, state_roots.clone(), last_block.header().clone(), &genesis.config);
     }
 
     #[test]
@@ -267,7 +267,7 @@ mod test {
         let mut chain_genesis = ChainGenesis::test();
         chain_genesis.epoch_length = epoch_length;
         let mut env = TestEnv::new_with_runtime(chain_genesis, 1, 2, runtimes);
-        let genesis_hash = env.clients[0].chain.genesis().hash();
+        let genesis_hash = *env.clients[0].chain.genesis().hash();
         let signer = InMemorySigner::from_seed("test1", KeyType::ED25519, "test1");
         let tx = SignedTransaction::stake(
             1,
@@ -294,7 +294,7 @@ mod test {
         );
         let last_block = env.clients[0].chain.get_block(&head.last_block_hash).unwrap().clone();
         let state_roots =
-            last_block.chunks.iter().map(|chunk| chunk.inner.prev_state_root).collect();
+            last_block.chunks().iter().map(|chunk| chunk.inner.prev_state_root).collect();
         let runtime = NightshadeRuntime::new(
             Path::new("."),
             store.clone(),
@@ -302,7 +302,8 @@ mod test {
             vec![],
             vec![],
         );
-        let new_genesis = state_dump(runtime, state_roots, last_block.header, &genesis.config);
+        let new_genesis =
+            state_dump(runtime, state_roots, last_block.header().clone(), &genesis.config);
         assert_eq!(new_genesis.config.validators.len(), 2);
         validate_genesis(&new_genesis);
     }

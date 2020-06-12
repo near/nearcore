@@ -260,7 +260,13 @@ pub(crate) fn validate_actions(
         });
     }
 
-    for action in actions {
+    let mut iter = actions.iter().peekable();
+    while let Some(action) = iter.next() {
+        if let Action::DeleteAccount(_) = action {
+            if iter.peek().is_some() {
+                return Err(ActionsValidationError::DeleteActionMustBeFinal);
+            }
+        }
         validate_action(limit_config, action)?;
     }
 
@@ -314,6 +320,10 @@ fn validate_function_call_action(
     limit_config: &VMLimitConfig,
     action: &FunctionCallAction,
 ) -> Result<(), ActionsValidationError> {
+    if action.gas == 0 {
+        return Err(ActionsValidationError::FunctionCallZeroAttachedGas);
+    }
+
     if action.method_name.len() as u64 > limit_config.max_length_method_name {
         return Err(ActionsValidationError::FunctionCallMethodNameLengthExceeded {
             length: action.method_name.len() as u64,
@@ -1301,6 +1311,39 @@ mod tests {
         );
     }
 
+    #[test]
+    fn test_validate_delete_must_be_final() {
+        let mut limit_config = VMLimitConfig::default();
+        limit_config.max_actions_per_receipt = 3;
+        assert_eq!(
+            validate_actions(
+                &limit_config,
+                &vec![
+                    Action::DeleteAccount(DeleteAccountAction { beneficiary_id: "bob".into() }),
+                    Action::CreateAccount(CreateAccountAction {}),
+                ]
+            )
+            .expect_err("Expected an error"),
+            ActionsValidationError::DeleteActionMustBeFinal,
+        );
+    }
+
+    #[test]
+    fn test_validate_delete_must_work_if_its_final() {
+        let mut limit_config = VMLimitConfig::default();
+        limit_config.max_actions_per_receipt = 3;
+        assert_eq!(
+            validate_actions(
+                &limit_config,
+                &vec![
+                    Action::CreateAccount(CreateAccountAction {}),
+                    Action::DeleteAccount(DeleteAccountAction { beneficiary_id: "bob".into() }),
+                ]
+            ),
+            Ok(()),
+        );
+    }
+
     // Individual actions
 
     #[test]
@@ -1321,6 +1364,23 @@ mod tests {
             }),
         )
         .expect("valid action");
+    }
+
+    #[test]
+    fn test_validate_action_invalid_function_call_zero_gas() {
+        assert_eq!(
+            validate_action(
+                &VMLimitConfig::default(),
+                &Action::FunctionCall(FunctionCallAction {
+                    method_name: "new".to_string(),
+                    args: vec![],
+                    gas: 0,
+                    deposit: 0,
+                }),
+            )
+            .expect_err("expected an error"),
+            ActionsValidationError::FunctionCallZeroAttachedGas,
+        );
     }
 
     #[test]

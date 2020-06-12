@@ -123,9 +123,12 @@ class BaseNode(object):
     def get_status(self):
         r = requests.get("http://%s:%s/status" % self.rpc_addr(), timeout=2)
         r.raise_for_status()
-        self.check_refmap()
-        self.check_store()
-        return json.loads(r.content)
+        status = json.loads(r.content)
+        if status['sync_info']['syncing'] == False:
+            # Storage is not guaranteed to be in consistent state while syncing
+            self.check_refmap()
+            self.check_store()
+        return status
 
     def get_all_heights(self):
         status = self.get_status()
@@ -217,8 +220,6 @@ class BaseNode(object):
                     self.kill()
 
     def check_store(self):
-        # TODO #2597 enable
-        return
         if self.is_check_store:
             res = self.json_rpc('adv_check_store', [])
             if not 'result' in res:
@@ -324,12 +325,6 @@ class LocalNode(BaseNode):
     def kill(self):
         if self.pid.value != 0:
             os.kill(self.pid.value, signal.SIGKILL)
-            while True:
-                try:
-                    os.kill(self.pid.value, 0)
-                    break
-                except OSError:
-                    break
             self.pid.value = 0
 
     def reset_data(self):

@@ -8,7 +8,6 @@ use std::sync::{Arc, Mutex};
 use borsh::{BorshDeserialize, BorshSerialize};
 
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
-use cached::Cached;
 
 use near_primitives::challenge::PartialState;
 use near_primitives::hash::{hash, CryptoHash};
@@ -455,6 +454,11 @@ impl TrieChanges {
     pub fn empty(old_root: StateRoot) -> Self {
         TrieChanges { old_root, new_root: old_root, insertions: vec![], deletions: vec![] }
     }
+
+    #[cfg(feature = "adversarial")]
+    pub fn adv_get_old_root(&self) -> StateRoot {
+        self.old_root
+    }
 }
 
 impl Trie {
@@ -748,14 +752,7 @@ impl Trie {
     pub fn update_cache(&self, ops: Vec<(CryptoHash, Option<Vec<u8>>)>) {
         let storage =
             self.storage.as_caching_storage().expect("Storage should be TrieCachingStorage");
-        let mut guard = storage.cache.lock().expect(POISONED_LOCK_ERR);
-        for (hash, value) in ops {
-            if value.is_none() {
-                guard.cache_remove(&hash);
-            } else {
-                guard.cache_set(hash, value);
-            }
-        }
+        storage.update_cache(ops)
     }
 }
 

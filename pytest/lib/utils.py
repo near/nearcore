@@ -8,6 +8,7 @@ import os
 import tempfile
 import json
 import hashlib
+import time
 
 
 class TxContext:
@@ -270,6 +271,22 @@ def collect_gcloud_config(num_nodes):
     os.environ[CONFIG_ENV_VAR] = outfile
 
 
+def obj_to_string(obj, extra='    '):
+    if type(obj) == tuple:
+        return "tuple" + '\n' + '\n'.join(
+            (extra + obj_to_string(x, extra + '    '))
+            for x in obj
+        )
+    elif hasattr(obj, "__dict__"):
+        return str(obj.__class__) + '\n' + '\n'.join(
+            extra + (str(item) + ' = ' +
+                     obj_to_string(obj.__dict__[item], extra + '    '))
+        for item in sorted(obj.__dict__))
+
+    else:
+        return str(obj)
+
+
 def combine_hash(hash1, hash2):
     return hashlib.sha256(hash1 + hash2).digest()
 
@@ -282,3 +299,18 @@ def compute_merkle_root_from_path(path, leaf_hash):
         else:
             res = combine_hash(res, base58.b58decode(node['hash']))
     return res
+
+
+def wait_for_blocks_or_timeout(node, num_blocks, timeout, callback=None, check_sec=1):
+    status = node.get_status()
+    start_height = status['sync_info']['latest_block_height']
+    max_height = 0
+    started = time.time()
+    while max_height < start_height + num_blocks:
+        assert time.time() - started < timeout
+        status = node.get_status()
+        max_height = status['sync_info']['latest_block_height']
+        if callback is not None:
+            if callback():
+                break
+        time.sleep(check_sec)

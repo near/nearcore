@@ -82,32 +82,31 @@ mod tests {
 
                     match msg {
                         NetworkRequests::Block { block } => {
-                            if !all_blocks.contains_key(&block.header.inner_lite.height) {
+                            if !all_blocks.contains_key(&block.header().height()) {
                                 println!(
                                     "BLOCK @{} EPOCH: {:?}, APPROVALS: {:?}",
-                                    block.header.inner_lite.height,
-                                    block.header.inner_lite.epoch_id,
+                                    block.header().height(),
+                                    block.header().epoch_id(),
                                     block
-                                        .header
-                                        .inner_rest
-                                        .approvals
+                                        .header()
+                                        .approvals()
                                         .iter()
                                         .map(|x| if x.is_some() { 1 } else { 0 })
                                         .collect::<Vec<_>>()
                                 );
                             }
-                            all_blocks.insert(block.header.inner_lite.height, block.clone());
-                            block_to_prev_block.insert(block.hash(), block.header.prev_hash);
-                            block_to_height.insert(block.hash(), block.header.inner_lite.height);
+                            all_blocks.insert(block.header().height(), block.clone());
+                            block_to_prev_block.insert(*block.hash(), *block.header().prev_hash());
+                            block_to_height.insert(*block.hash(), block.header().height());
 
-                            if *largest_block_height / 20 < block.header.inner_lite.height / 20 {
+                            if *largest_block_height / 20 < block.header().height() / 20 {
                                 // Periodically verify the finality
                                 println!("VERIFYING FINALITY CONDITIONS");
                                 for block in all_blocks.values() {
                                     if let Some(prev_hash) = block_to_prev_block.get(&block.hash())
                                     {
                                         if let Some(prev_height) = block_to_height.get(prev_hash) {
-                                            let cur_height = block.header.inner_lite.height;
+                                            let cur_height = block.header().height();
                                             for f in final_block_heights.iter() {
                                                 if f < &cur_height && f > prev_height {
                                                     assert!(
@@ -126,26 +125,22 @@ mod tests {
                                 }
                             }
 
-                            if block.header.inner_lite.height > *largest_block_height + 3 {
-                                *largest_block_height = block.header.inner_lite.height;
+                            if block.header().height() > *largest_block_height + 3 {
+                                *largest_block_height = block.header().height();
                                 if delayed_blocks.len() < 2 {
                                     delayed_blocks.push(block.clone());
                                     return (NetworkResponses::NoResponse, false);
                                 }
                             }
-                            *largest_block_height = std::cmp::max(
-                                block.header.inner_lite.height,
-                                *largest_block_height,
-                            );
+                            *largest_block_height =
+                                std::cmp::max(block.header().height(), *largest_block_height);
 
                             let mut new_delayed_blocks = vec![];
                             for delayed_block in delayed_blocks.iter() {
                                 if delayed_block.hash() == block.hash() {
                                     return (NetworkResponses::NoResponse, false);
                                 }
-                                if delayed_block.header.inner_lite.height
-                                    <= block.header.inner_lite.height + 2
-                                {
+                                if delayed_block.header().height() <= block.header().height() + 2 {
                                     for target_ord in 0..24 {
                                         connectors1.write().unwrap()[target_ord].0.do_send(
                                             NetworkClientMessages::Block(
@@ -162,7 +157,7 @@ mod tests {
                             *delayed_blocks = new_delayed_blocks;
 
                             let mut heights = vec![];
-                            let mut cur_hash = block.hash();
+                            let mut cur_hash = *block.hash();
                             while let Some(height) = block_to_height.get(&cur_hash) {
                                 heights.push(height);
                                 cur_hash = block_to_prev_block.get(&cur_hash).unwrap().clone();
@@ -178,7 +173,7 @@ mod tests {
                                 is_final,
                                 delayed_blocks
                                     .iter()
-                                    .map(|x| x.header.inner_lite.height)
+                                    .map(|x| x.header().height())
                                     .collect::<Vec<_>>(),
                                 block.hash(),
                                 heights,

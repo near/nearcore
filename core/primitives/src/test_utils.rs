@@ -2,6 +2,7 @@ use near_crypto::{EmptySigner, PublicKey, Signature, Signer};
 
 use crate::account::{AccessKey, AccessKeyPermission, Account};
 use crate::block::Block;
+use crate::block_header::{BlockHeader, BlockHeaderV1};
 use crate::errors::EpochError;
 use crate::hash::CryptoHash;
 use crate::merkle::PartialMerkleTree;
@@ -12,6 +13,7 @@ use crate::transaction::{
 };
 use crate::types::{AccountId, Balance, BlockHeight, EpochId, EpochInfoProvider, Gas, Nonce};
 use crate::validator_signer::ValidatorSigner;
+use crate::version::PROTOCOL_VERSION;
 use num_rational::Rational;
 use std::collections::HashMap;
 
@@ -240,7 +242,32 @@ impl SignedTransaction {
     }
 }
 
+impl BlockHeader {
+    pub fn get_mut(&mut self) -> &mut BlockHeaderV1 {
+        match self {
+            BlockHeader::BlockHeaderV1(header) => header,
+        }
+    }
+
+    pub fn resign(&mut self, signer: &dyn ValidatorSigner) {
+        let (hash, signature) = signer.sign_block_header_parts(
+            *self.prev_hash(),
+            &self.inner_lite_bytes(),
+            &self.inner_rest_bytes(),
+        );
+        let mut header = self.get_mut();
+        header.hash = hash;
+        header.signature = signature;
+    }
+}
+
 impl Block {
+    pub fn mut_header(&mut self) -> &mut BlockHeader {
+        match self {
+            Block::BlockV1(block) => &mut block.header,
+        }
+    }
+
     pub fn empty_with_epoch(
         prev: &Block,
         height: BlockHeight,
@@ -250,7 +277,7 @@ impl Block {
         signer: &dyn ValidatorSigner,
         block_merkle_tree: &mut PartialMerkleTree,
     ) -> Self {
-        block_merkle_tree.insert(prev.hash());
+        block_merkle_tree.insert(*prev.hash());
         Self::empty_with_approvals(
             prev,
             height,
@@ -285,13 +312,13 @@ impl Block {
         Self::empty_with_epoch(
             prev,
             height,
-            prev.header.inner_lite.epoch_id.clone(),
-            if prev.header.prev_hash == CryptoHash::default() {
-                EpochId(prev.hash())
+            prev.header().epoch_id().clone(),
+            if prev.header().prev_hash() == &CryptoHash::default() {
+                EpochId(*prev.hash())
             } else {
-                prev.header.inner_lite.next_epoch_id.clone()
+                prev.header().next_epoch_id().clone()
             },
-            prev.header.inner_lite.next_bp_hash,
+            *prev.header().next_bp_hash(),
             signer,
             block_merkle_tree,
         )
@@ -304,7 +331,7 @@ impl Block {
     ) -> Self {
         Self::empty_with_height_and_block_merkle_tree(
             prev,
-            prev.header.inner_lite.height + 1,
+            prev.header().height() + 1,
             signer,
             block_merkle_tree,
         )
@@ -327,13 +354,15 @@ impl Block {
         block_merkle_root: CryptoHash,
     ) -> Self {
         Block::produce(
-            &prev.header,
+            PROTOCOL_VERSION,
+            prev.header(),
             height,
-            prev.chunks.clone(),
+            prev.chunks().clone(),
             epoch_id,
             next_epoch_id,
             approvals,
             Rational::from_integer(0),
+            0,
             0,
             Some(0),
             vec![],

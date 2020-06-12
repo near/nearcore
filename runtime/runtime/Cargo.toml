@@ -16,7 +16,7 @@ sha3 = "0.8"
 lazy_static = "1.4"
 num-rational = "0.2.4"
 
-borsh = "0.6.1"
+borsh = "0.6.2"
 cached = "0.12.0"
 
 near-crypto = { path = "../../core/crypto" }
@@ -36,7 +36,7 @@ dump_errors_schema = ["near-vm-errors/dump_errors_schema"]
 # Use this feature to enable counting of fees and costs applied.
 costs_counting = ["near-vm-logic/costs_counting", "near-vm-runner/costs_counting"]
 
-no_cache = ["near-vm-runner/no_cache"]
+no_cache = ["near-vm-runner/no_cache", "near-store/no_cache"]
 
 [dev-dependencies]
 tempfile = "3"

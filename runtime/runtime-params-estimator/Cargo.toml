@@ -14,7 +14,7 @@ serde_json = "1"
 csv = "1.1.1"
 clap = "2.33"
 
-borsh = "0.6.1"
+borsh = "0.6.2"
 num-rational = "0.2.4"
 
 near-runtime-fees = { path = "../../runtime/near-runtime-fees" }
@@ -22,6 +22,6 @@ near-crypto = { path = "../../core/crypto" }
 near-vm-logic = {path = "../../runtime/near-vm-logic" , features = ["costs_counting"]}
 near-vm-runner = {path = "../../runtime/near-vm-runner" , features = ["costs_counting", "no_cache"]}
 node-runtime = { path = "../../runtime/runtime" , features = ["costs_counting", "no_cache"]}
-near-store = { path = "../../core/store" }
+near-store = { path = "../../core/store", features = ["no_cache"] }
 near-primitives = { path = "../../core/primitives" }
 neard = { path = "../../neard" }

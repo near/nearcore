@@ -34,6 +34,8 @@ pytest --timeout=120 sanity/garbage_collection1.py
 pytest --timeout=300 sanity/gc_after_sync.py
 pytest --timeout=300 sanity/gc_sync_after_sync.py
 pytest --timeout=300 sanity/gc_sync_after_sync.py swap_nodes
+pytest --timeout=300 tests/sanity/large_messages.py
+pytest --timeout=300 sanity/upgradable.py
 
 # python tests for smart contract deployment and invocation
 pytest contracts/deploy_call_smart_contract.py
@@ -45,6 +47,9 @@ pytest contracts/gibberish.py
 # pytest --timeout=2000 stress/stress.py 3 2 4 0 staking transactions node_set
 
 # pytest stress/network_stress.py
+
+# python spec tests
+pytest tests/spec/network/handshake.py
 
 # python adversarial tests
 pytest --timeout=600 adversarial/fork_sync.py
@@ -124,12 +129,16 @@ expensive nearcore test_cases_testnet_rpc test::test_delete_access_key_with_allo
 expensive nearcore test_cases_testnet_rpc test::test_access_key_smart_contract_testnet
 
 # GC tests
-expensive --timeout=600 near-chain gc tests::test_gc_remove_fork_large
+expensive --timeout=900 near-chain gc tests::test_gc_remove_fork_large
 expensive --timeout=1200 near-chain gc tests::test_gc_not_remove_fork_large
 expensive --timeout=1200 near-chain gc tests::test_gc_boundaries_large
-expensive --timeout=600 near-chain gc tests::test_gc_random_large
+expensive --timeout=900 near-chain gc tests::test_gc_random_large
 expensive --timeout=600 near-chain gc tests::test_gc_pine
 expensive --timeout=600 near-chain gc tests::test_gc_star_large
+
+# lib tests
+lib near-chunks test::test_seal_removal
+lib --timeout=300 near-chain store::tests::test_clear_old_data_too_many_heights
 
 # other tests
 expensive nearcore test_simple test::test_2_10_multiple_nodes

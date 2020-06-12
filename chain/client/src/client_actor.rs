@@ -13,6 +13,8 @@ use log::{debug, error, info, warn};
 use near_chain::check_refcount_map;
 use near_chain::test_utils::format_hash;
 use near_chain::types::AcceptedBlock;
+#[cfg(feature = "adversarial")]
+use near_chain::StoreValidator;
 use near_chain::{
     byzantine_assert, Block, BlockHeader, ChainGenesis, ChainStoreAccess, Provenance,
     RuntimeAdapter,
@@ -35,6 +37,7 @@ use near_primitives::types::{BlockHeight, EpochId};
 use near_primitives::unwrap_or_return;
 use near_primitives::utils::from_timestamp;
 use near_primitives::validator_signer::ValidatorSigner;
+use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::ValidatorInfo;
 #[cfg(feature = "adversarial")]
 use near_store::ColBlock;
@@ -48,8 +51,6 @@ use crate::types::{
     StatusSyncInfo, SyncStatus,
 };
 use crate::StatusResponse;
-#[cfg(feature = "adversarial")]
-use near_chain::store_validator::StoreValidator;
 
 /// Multiplier on `max_block_time` to wait until deciding that chain stalled.
 const STATUS_WAIT_TIME_MULTIPLIER: u64 = 10;
@@ -257,7 +258,9 @@ impl Handler<NetworkClientMessages> for ClientActor {
                         }
                     }
                     NetworkAdversarialMessage::AdvCheckStorageConsistency => {
-                        info!(target: "adversary", "Check Storage Consistency");
+                        // timeout is set to 1.5 seconds to give some room as we wait in Nightly for 2 seconds
+                        let timeout = 1500;
+                        info!(target: "adversary", "Check Storage Consistency, timeout set to {:?} milliseconds", timeout);
                         let mut genesis = GenesisConfig::default();
                         genesis.genesis_height = self.client.chain.store().get_genesis_height();
                         let mut store_validator = StoreValidator::new(
@@ -266,6 +269,7 @@ impl Handler<NetworkClientMessages> for ClientActor {
                             self.client.runtime_adapter.clone(),
                             self.client.chain.store().owned_store(),
                         );
+                        store_validator.set_timeout(timeout);
                         store_validator.validate();
                         if store_validator.is_failed() {
                             error!(target: "client", "Storage Validation failed, {:?}", store_validator.errors);
@@ -285,16 +289,16 @@ impl Handler<NetworkClientMessages> for ClientActor {
                     .client
                     .chain
                     .mut_store()
-                    .get_all_block_hashes_by_height(block.header.inner_lite.height);
+                    .get_all_block_hashes_by_height(block.header().height());
                 if was_requested || !blocks_at_height.is_ok() {
                     if let SyncStatus::StateSync(sync_hash, _) = &mut self.client.sync_status {
                         if let Ok(header) = self.client.chain.get_block_header(sync_hash) {
-                            if block.hash() == header.prev_hash {
+                            if block.hash() == header.prev_hash() {
                                 if let Err(_) = self.client.chain.save_block(&block) {
                                     error!(target: "client", "Failed to save a block during state sync");
                                 }
                                 return NetworkClientResponses::NoResponse;
-                            } else if &block.hash() == sync_hash {
+                            } else if block.hash() == sync_hash {
                                 self.client.chain.save_orphan(&block);
                                 return NetworkClientResponses::NoResponse;
                             }
@@ -305,12 +309,12 @@ impl Handler<NetworkClientMessages> for ClientActor {
                     match self
                         .client
                         .runtime_adapter
-                        .get_epoch_id_from_prev_block(&block.header.prev_hash)
+                        .get_epoch_id_from_prev_block(block.header().prev_hash())
                     {
                         Ok(epoch_id) => {
                             if let Some(hashes) = blocks_at_height.unwrap().get(&epoch_id) {
-                                if !hashes.contains(&block.header.hash) {
-                                    warn!(target: "client", "Rejecting unrequested block {}, height {}", block.header.hash, block.header.inner_lite.height);
+                                if !hashes.contains(block.header().hash()) {
+                                    warn!(target: "client", "Rejecting unrequested block {}, height {}", block.header().hash(), block.header().height());
                                 }
                             }
                         }
@@ -484,7 +488,7 @@ impl Handler<Status> for ClientActor {
             .chain
             .get_block_header(&head.last_block_hash)
             .map_err(|err| err.to_string())?;
-        let latest_block_time = header.inner_lite.timestamp.clone();
+        let latest_block_time = header.raw_timestamp().clone();
         if msg.is_health_check {
             let now = Utc::now();
             let block_timestamp = from_timestamp(latest_block_time);
@@ -511,18 +515,31 @@ impl Handler<Status> for ClientActor {
                 is_slashed,
             })
             .collect();
+
+        let protocol_version = self
+            .client
+            .runtime_adapter
+            .get_epoch_protocol_version(&head.epoch_id)
+            .map_err(|err| err.to_string())?;
+
+        let validator_account_id =
+            self.client.validator_signer.as_ref().map(|vs| vs.validator_id()).cloned();
+
         Ok(StatusResponse {
             version: self.client.config.version.clone(),
+            protocol_version,
+            latest_protocol_version: PROTOCOL_VERSION,
             chain_id: self.client.config.chain_id.clone(),
             rpc_addr: self.client.config.rpc_addr.clone(),
             validators,
             sync_info: StatusSyncInfo {
                 latest_block_hash: head.last_block_hash.into(),
                 latest_block_height: head.height,
-                latest_state_root: header.inner_lite.prev_state_root.clone().into(),
+                latest_state_root: header.prev_state_root().clone().into(),
                 latest_block_time: from_timestamp(latest_block_time),
                 syncing: self.client.sync_status.is_syncing(),
             },
+            validator_account_id,
         })
     }
 }
@@ -688,7 +705,7 @@ impl ClientActor {
     fn produce_block(&mut self, next_height: BlockHeight) -> Result<(), Error> {
         match self.client.produce_block(next_height) {
             Ok(Some(block)) => {
-                let block_hash = block.hash();
+                let block_hash = *block.hash();
                 let res = self.process_block(block, Provenance::PRODUCED);
                 match &res {
                     Ok(_) => Ok(()),
@@ -726,10 +743,10 @@ impl ClientActor {
                 accepted_block.provenance,
             );
             let block = self.client.chain.get_block(&accepted_block.hash).unwrap();
-            let gas_used = Block::compute_gas_used(&block.chunks, block.header.inner_lite.height);
-            let gas_limit = Block::compute_gas_limit(&block.chunks, block.header.inner_lite.height);
+            let gas_used = Block::compute_gas_used(&block.chunks(), block.header().height());
+            let gas_limit = Block::compute_gas_limit(&block.chunks(), block.header().height());
 
-            let last_final_hash = block.header.inner_rest.last_final_block;
+            let last_final_hash = *block.header().last_final_block();
 
             self.info_helper.block_processed(gas_used, gas_limit);
             self.check_send_announce_account(last_final_hash);
@@ -750,11 +767,11 @@ impl ClientActor {
         } else if provenance == Provenance::NONE {
             // Don't care about challenge here since it will be handled when we actually process
             // the block.
-            if self.client.chain.process_block_header(&block.header, |_| {}).is_ok() {
+            if self.client.chain.process_block_header(&block.header(), |_| {}).is_ok() {
                 let head = self.client.chain.head()?;
                 // do not broadcast blocks that are too far back.
-                if head.height < block.header.inner_lite.height
-                    || head.epoch_id == block.header.inner_lite.epoch_id
+                if head.height < block.header().height()
+                    || &head.epoch_id == block.header().epoch_id()
                 {
                     self.client.rebroadcast_block(block.clone());
                 }
@@ -772,15 +789,15 @@ impl ClientActor {
         peer_id: PeerId,
         was_requested: bool,
     ) -> NetworkClientResponses {
-        let hash = block.hash();
-        debug!(target: "client", "{:?} Received block {} <- {} at {} from {}, requested: {}", self.client.validator_signer.as_ref().map(|vs| vs.validator_id()), hash, block.header.prev_hash, block.header.inner_lite.height, peer_id, was_requested);
+        let hash = *block.hash();
+        debug!(target: "client", "{:?} Received block {} <- {} at {} from {}, requested: {}", self.client.validator_signer.as_ref().map(|vs| vs.validator_id()), hash, block.header().prev_hash(), block.header().height(), peer_id, was_requested);
         // drop the block if it is too far ahead
         let head = unwrap_or_return!(self.client.chain.head(), NetworkClientResponses::NoResponse);
-        if block.header.inner_lite.height >= head.height + BLOCK_HORIZON {
-            debug!(target: "client", "dropping block {} that is too far ahead. Block height {} current head height {}", block.hash(), block.header.inner_lite.height, head.height);
+        if block.header().height() >= head.height + BLOCK_HORIZON {
+            debug!(target: "client", "dropping block {} that is too far ahead. Block height {} current head height {}", block.hash(), block.header().height(), head.height);
             return NetworkClientResponses::NoResponse;
         }
-        let prev_hash = block.header.prev_hash;
+        let prev_hash = *block.header().prev_hash();
         let provenance =
             if was_requested { near_chain::Provenance::SYNC } else { near_chain::Provenance::NONE };
         match self.process_block(block, provenance) {
@@ -943,7 +960,7 @@ impl ClientActor {
         let header_head = self.client.chain.header_head()?;
         let mut sync_hash = header_head.prev_block_hash;
         for _ in 0..self.client.config.state_fetch_horizon {
-            sync_hash = self.client.chain.get_block_header(&sync_hash)?.prev_hash;
+            sync_hash = *self.client.chain.get_block_header(&sync_hash)?.prev_hash();
         }
         let epoch_start_sync_hash =
             StateSync::get_epoch_start_sync_hash(&mut self.client.chain, &sync_hash)?;
@@ -1110,7 +1127,9 @@ impl ClientActor {
                                 highest_height_peer(&self.network_info.highest_height_peers)
                             {
                                 if let Ok(header) = self.client.chain.get_block_header(&sync_hash) {
-                                    for hash in vec![header.prev_hash, header.hash].into_iter() {
+                                    for hash in
+                                        vec![*header.prev_hash(), *header.hash()].into_iter()
+                                    {
                                         self.request_block_by_hash(
                                             hash,
                                             peer_info.peer_info.id.clone(),
