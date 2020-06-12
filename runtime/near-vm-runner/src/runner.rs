@@ -85,3 +85,22 @@ pub fn with_vm_variants(runner: fn(VMKind) -> ()) {
     #[cfg(feature = "wasmtime_vm")]
     runner(VMKind::Wasmtime);
 }
+
+/// Used for testing cost of compiling a module
+pub fn compile_module(vm_kind: VMKind, code: &Vec<u8>) {
+    match vm_kind {
+        VMKind::Wasmer => {
+            use crate::wasmer_runner::compile_module;
+            compile_module(code);
+        }
+        #[cfg(feature = "wasmtime_vm")]
+        VMKind::Wasmtime => {
+            use crate::wasmtime_runner::compile_module;
+            compile_module(code);
+        }
+        #[cfg(not(feature = "wasmtime_vm"))]
+        VMKind::Wasmtime => {
+            panic!("Wasmtime is not supported, compile with '--features wasmtime_vm'")
+        }
+    }
+}

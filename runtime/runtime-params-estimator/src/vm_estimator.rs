@@ -1,10 +1,11 @@
+use crate::stats::fit;
 use crate::testbed_runners::end_count;
 use crate::testbed_runners::start_count;
 use crate::testbed_runners::GasMetric;
 use near_runtime_fees::RuntimeFeesConfig;
 use near_vm_logic::mocks::mock_external::MockedExternal;
-use near_vm_logic::{VMConfig, VMContext, VMOutcome};
-use near_vm_runner::VMError;
+use near_vm_logic::{VMConfig, VMContext, VMKind, VMOutcome};
+use near_vm_runner::{compile_module, prepare, VMError};
 use num_rational::Ratio;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
@@ -97,4 +98,29 @@ pub fn cost_per_op(gas_metric: GasMetric) -> Ratio<u64> {
         measured * (VMConfig::default().regular_op_cost as u64),
         NUM_ITERATIONS * outcome.burnt_gas,
     )
+}
+
+const RATIO_PRECISION: u64 = 1_000;
+
+fn compile(code: &[u8], gas_metric: GasMetric, vm_kind: VMKind) -> (f64, f64) {
+    let prepared_code = prepare::prepare_contract(code, &VMConfig::default()).unwrap();
+    let start = start_count(gas_metric);
+    for _ in 0..NUM_ITERATIONS {
+        compile_module(vm_kind, &prepared_code);
+    }
+    let end = end_count(gas_metric, &start) as f64;
+    (code.len() as f64, end / (NUM_ITERATIONS as f64))
+}
+
+/// Cost of the most CPU demanding operation.
+pub fn cost_to_compile(gas_metric: GasMetric, vm_kind: VMKind) -> (Ratio<u64>, u64) {
+    // Call once for the warmup.
+    let (sx, sy) =
+        compile(include_bytes!("../test-contract/res/small_contract.wasm"), gas_metric, vm_kind);
+    let (mx, my) =
+        compile(include_bytes!("../test-contract/res/medium_contract.wasm"), gas_metric, vm_kind);
+    let (lx, ly) =
+        compile(include_bytes!("../test-contract/res/large_contract.wasm"), gas_metric, vm_kind);
+    let (m, b) = fit(&vec![sx, mx, lx], &vec![sy, my, ly]);
+    (Ratio::new((m * (RATIO_PRECISION as f64)) as u64, RATIO_PRECISION), b as u64)
 }

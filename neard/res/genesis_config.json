@@ -1,5 +1,5 @@
 {
-  "protocol_version": 28,
+  "protocol_version": 29,
   "genesis_time": "1970-01-01T00:00:00.000000000Z",
   "chain_id": "sample",
   "genesis_height": 0,
@@ -134,8 +134,8 @@
     "wasm_config": {
       "ext_costs": {
         "base": 265261758,
-        "contract_load_byte": 1096628,
-        "contract_compile": 1197896600,
+        "contract_compile_base": 35394267,
+        "contract_compile_bytes": 220125,
         "read_memory_base": 2584050225,
         "read_memory_byte": 3801396,
         "write_memory_base": 2780731725,
