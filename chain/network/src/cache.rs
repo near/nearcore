@@ -305,14 +305,14 @@ mod test {
     /// Check that old element from peer0 is removed, even while peer1 has more elements.
     #[test]
     fn prefer_evict() {
-        let mut cache = RouteBackCache::new(3, 50);
+        let mut cache = RouteBackCache::new(3, 1000);
         let (peer0, hash0) = create_message(0);
         let (peer1, hash1) = create_message(1);
         let (_, hash2) = create_message(2);
         let (peer3, hash3) = create_message(3);
 
         cache.insert(hash0, peer0.clone());
-        thread::sleep(Duration::from_millis(50));
+        thread::sleep(Duration::from_millis(1000));
         cache.insert(hash1, peer1.clone());
         cache.insert(hash2, peer1.clone());
         cache.insert(hash3, peer3.clone());
@@ -335,7 +335,7 @@ mod test {
         let (peer3, hash3) = create_message(3);
 
         cache.insert(hash0, peer0.clone());
-        thread::sleep(Duration::from_millis(50));
+        thread::sleep(Duration::from_millis(1000));
         cache.insert(hash1, peer1.clone());
         cache.insert(hash2, peer1.clone());
         cache.insert(hash3, peer3.clone());
