@@ -66,6 +66,8 @@ pub fn apply_store_migrations(path: &String) {
         // version 1 => 2: add gc column
         // Does not need to do anything since open db with option `create_missing_column_families`
         // Nevertheless need to bump db version, because db_version 1 binary can't open db_version 2 db
+        let store = create_store(&path);
+        set_store_version(&store);
     }
 }
 
