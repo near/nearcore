@@ -6,6 +6,7 @@ use near_vm_logic::{External, VMConfig, VMContext, VMKind, VMOutcome};
 /// `run` does the following:
 /// - deserializes and validate the `code` binary (see `prepare::prepare_contract`)
 /// - injects gas counting into
+/// - adds fee to VMLogic's GasCounter for size of contract
 /// - instantiates (links) `VMLogic` externs with the imports of the binary
 /// - calls the `method_name` with `context.input`
 ///   - updates `ext` with new receipts, created during the execution
