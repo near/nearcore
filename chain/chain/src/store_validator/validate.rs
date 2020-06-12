@@ -414,6 +414,8 @@ pub(crate) fn trie_changes_chunk_extra_exists(
                 unwrap_or_err!(item, "Can't find ShardChunk {:?} in Trie", chunk_header);
             }
             // 6. Prev State Roots should be equal
+            // TODO #2623: enable
+            /*
             #[cfg(feature = "adversarial")]
             {
                 let prev_state_root = chunk_header.inner.prev_state_root;
@@ -427,6 +429,7 @@ pub(crate) fn trie_changes_chunk_extra_exists(
                     );
                 }
             }
+            */
             // 7. State Roots should be equal
             let state_root = chunk_extra.state_root;
             return if state_root == new_root {
