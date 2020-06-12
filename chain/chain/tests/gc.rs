@@ -6,7 +6,6 @@ mod tests {
     use near_chain::test_utils::KeyValueRuntime;
     use near_chain::types::Tip;
     use near_chain::DoomslugThresholdMode;
-    use near_chain_configs::GenesisConfig;
     use near_crypto::KeyType;
     use near_primitives::block::Block;
     use near_primitives::merkle::PartialMerkleTree;
@@ -14,7 +13,6 @@ mod tests {
     use near_primitives::validator_signer::InMemoryValidatorSigner;
     use near_store::test_utils::{create_test_store, gen_changes};
     use near_store::{ShardTries, StoreUpdate, Trie, WrappedTrieChanges};
-    use near_store_validator::StoreValidator;
     use rand::Rng;
 
     fn get_chain(num_shards: NumShards) -> Chain {
@@ -63,12 +61,12 @@ mod tests {
             let mut store_update = chain.mut_store().store_update();
             if i == 0 {
                 store_update
-                    .save_block_merkle_tree(prev_block.hash(), PartialMerkleTree::default());
+                    .save_block_merkle_tree(*prev_block.hash(), PartialMerkleTree::default());
             }
             store_update.save_block(block.clone());
-            store_update.inc_block_refcount(&block.header.prev_hash).unwrap();
-            store_update.save_block_header(block.header.clone()).unwrap();
-            let tip = Tip::from_header(&block.header);
+            store_update.inc_block_refcount(block.header().prev_hash()).unwrap();
+            store_update.save_block_header(block.header().clone()).unwrap();
+            let tip = Tip::from_header(block.header());
             if head.height < tip.height {
                 store_update.save_head(&tip).unwrap();
             }
@@ -81,10 +79,7 @@ mod tests {
                 let trie_changes =
                     trie.update(&state_root, trie_changes_data.iter().cloned()).unwrap();
                 if verbose {
-                    println!(
-                        "state new {:?} {:?}",
-                        block.header.inner_lite.height, trie_changes_data
-                    );
+                    println!("state new {:?} {:?}", block.header().height(), trie_changes_data);
                 }
 
                 let new_root = trie_changes.new_root;
@@ -93,7 +88,7 @@ mod tests {
                     shard_id,
                     trie_changes,
                     Default::default(),
-                    block.hash(),
+                    *block.hash(),
                 );
                 store_update.save_trie_changes(wrapped_trie_changes);
 
@@ -152,7 +147,7 @@ mod tests {
 
         assert!(check_refcount_map(&mut chain1).is_ok());
         // GC execution
-        let clear_data = chain1.clear_data(tries1.clone());
+        let clear_data = chain1.clear_data(tries1.clone(), 100);
         if clear_data.is_err() {
             println!("clear data failed = {:?}", clear_data);
             assert!(false);
@@ -201,7 +196,7 @@ mod tests {
                     .update(&state_root2, changes1[shard_to_check_trie as usize].iter().cloned())
                     .unwrap();
                 // i == gc_height is the only height should be processed here
-                if block1.header.inner_lite.height > gc_height || i == gc_height {
+                if block1.header().height() > gc_height || i == gc_height {
                     let mut trie_store_update2 = StoreUpdate::new_with_tries(tries2.clone());
                     tries2
                         .apply_insertions(
@@ -234,7 +229,7 @@ mod tests {
             for i in start_index..start_index + simple_chain.length {
                 let (block1, state_root1, _) = states1[i as usize].clone();
                 let state_root1 = state_root1[shard_to_check_trie as usize];
-                if block1.header.inner_lite.height > gc_height || i == gc_height {
+                if block1.header().height() > gc_height || i == gc_height {
                     assert!(trie1.iter(&state_root1).is_ok());
                     assert!(trie2.iter(&state_root1).is_ok());
                     let a = trie1
@@ -252,16 +247,6 @@ mod tests {
             }
             start_index += simple_chain.length;
         }
-        let mut genesis = GenesisConfig::default();
-        genesis.genesis_height = 0;
-        let mut store_validator =
-            StoreValidator::new(genesis.clone(), tries1, chain1.store().owned_store());
-        store_validator.validate();
-        assert!(!store_validator.is_failed());
-        let mut store_validator =
-            StoreValidator::new(genesis, tries2, chain2.store().owned_store());
-        store_validator.validate();
-        assert!(!store_validator.is_failed());
     }
 
     // from is an index in blocks array, length is the number of blocks in a chain on top of blocks[from],

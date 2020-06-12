@@ -14,7 +14,8 @@ use serde::{Deserialize, Serialize};
 use near_crypto::{PublicKey, Signature};
 
 use crate::account::{AccessKey, AccessKeyPermission, Account, FunctionCallPermission};
-use crate::block::{Block, BlockHeader, BlockHeaderInnerLite, BlockHeaderInnerRest};
+use crate::block::{Block, BlockHeader};
+use crate::block_header::{BlockHeaderInnerLite, BlockHeaderInnerRest, BlockHeaderV1};
 use crate::challenge::{Challenge, ChallengesResult};
 use crate::errors::TxExecutionError;
 use crate::hash::{hash, CryptoHash};
@@ -37,8 +38,9 @@ use crate::types::{
     AccountId, AccountWithPublicKey, Balance, BlockHeight, EpochId, FunctionArgs, Gas, Nonce,
     NumBlocks, ShardId, StateChangeCause, StateChangeKind, StateChangeValue, StateChangeWithCause,
     StateChangesRequest, StateRoot, StorageUsage, StoreKey, StoreValue, ValidatorKickoutReason,
-    ValidatorStake, Version,
+    ValidatorStake,
 };
+use crate::version::{ProtocolVersion, Version};
 
 /// A view of the account
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Eq, PartialEq, Clone)]
@@ -254,12 +256,18 @@ pub struct StatusResponse {
     pub version: Version,
     /// Unique chain id.
     pub chain_id: String,
+    /// Currently active protocol version.
+    pub protocol_version: u32,
+    /// Latest protocol version that this client supports.
+    pub latest_protocol_version: u32,
     /// Address for RPC server.
     pub rpc_addr: String,
     /// Current epoch validators.
     pub validators: Vec<ValidatorInfo>,
     /// Sync status of the node.
     pub sync_info: StatusSyncInfo,
+    /// Validator id of the node
+    pub validator_account_id: Option<AccountId>,
 }
 
 impl TryFrom<QueryResponse> for AccountView {
@@ -341,50 +349,51 @@ pub struct BlockHeaderView {
     pub block_merkle_root: CryptoHash,
     pub approvals: Vec<Option<Signature>>,
     pub signature: Signature,
+    pub latest_protocol_version: ProtocolVersion,
 }
 
 impl From<BlockHeader> for BlockHeaderView {
     fn from(header: BlockHeader) -> Self {
         Self {
-            height: header.inner_lite.height,
-            epoch_id: header.inner_lite.epoch_id.0,
-            next_epoch_id: header.inner_lite.next_epoch_id.0,
-            hash: header.hash,
-            prev_hash: header.prev_hash,
-            prev_state_root: header.inner_lite.prev_state_root,
-            chunk_receipts_root: header.inner_rest.chunk_receipts_root,
-            chunk_headers_root: header.inner_rest.chunk_headers_root,
-            chunk_tx_root: header.inner_rest.chunk_tx_root,
-            chunks_included: header.inner_rest.chunks_included,
-            challenges_root: header.inner_rest.challenges_root,
-            outcome_root: header.inner_lite.outcome_root,
-            timestamp: header.inner_lite.timestamp,
-            random_value: header.inner_rest.random_value,
+            height: header.height(),
+            epoch_id: header.epoch_id().0,
+            next_epoch_id: header.next_epoch_id().0,
+            hash: header.hash().clone(),
+            prev_hash: header.prev_hash().clone(),
+            prev_state_root: header.prev_state_root().clone(),
+            chunk_receipts_root: header.chunk_receipts_root().clone(),
+            chunk_headers_root: header.chunk_headers_root().clone(),
+            chunk_tx_root: header.chunk_tx_root().clone(),
+            chunks_included: header.chunks_included(),
+            challenges_root: header.challenges_root().clone(),
+            outcome_root: header.outcome_root().clone(),
+            timestamp: header.raw_timestamp(),
+            random_value: header.random_value().clone(),
             validator_proposals: header
-                .inner_rest
-                .validator_proposals
-                .into_iter()
-                .map(|v| v.into())
+                .validator_proposals()
+                .iter()
+                .map(|v| v.clone().into())
                 .collect(),
-            chunk_mask: header.inner_rest.chunk_mask,
-            gas_price: header.inner_rest.gas_price,
+            chunk_mask: header.chunk_mask().to_vec(),
+            gas_price: header.gas_price(),
             rent_paid: 0,
             validator_reward: 0,
-            total_supply: header.inner_rest.total_supply,
-            challenges_result: header.inner_rest.challenges_result,
-            last_final_block: header.inner_rest.last_final_block,
-            last_ds_final_block: header.inner_rest.last_ds_final_block,
-            next_bp_hash: header.inner_lite.next_bp_hash,
-            block_merkle_root: header.inner_lite.block_merkle_root,
-            approvals: header.inner_rest.approvals.clone(),
-            signature: header.signature,
+            total_supply: header.total_supply(),
+            challenges_result: header.challenges_result().clone(),
+            last_final_block: header.last_final_block().clone(),
+            last_ds_final_block: header.last_ds_final_block().clone(),
+            next_bp_hash: header.next_bp_hash().clone(),
+            block_merkle_root: header.block_merkle_root().clone(),
+            approvals: header.approvals().to_vec(),
+            signature: header.signature().clone(),
+            latest_protocol_version: header.latest_protocol_version(),
         }
     }
 }
 
 impl From<BlockHeaderView> for BlockHeader {
     fn from(view: BlockHeaderView) -> Self {
-        let mut header = Self {
+        let mut header = BlockHeaderV1 {
             prev_hash: view.prev_hash,
             inner_lite: BlockHeaderInnerLite {
                 height: view.height,
@@ -415,16 +424,17 @@ impl From<BlockHeaderView> for BlockHeader {
                 last_final_block: view.last_final_block,
                 last_ds_final_block: view.last_ds_final_block,
                 approvals: view.approvals.clone(),
+                latest_protocol_version: view.latest_protocol_version,
             },
             signature: view.signature,
             hash: CryptoHash::default(),
         };
         header.init();
-        header
+        BlockHeader::BlockHeaderV1(Box::new(header))
     }
 }
 
-#[derive(Serialize, Debug, Clone, BorshDeserialize, BorshSerialize)]
+#[derive(Serialize, Deserialize, Debug, Clone, BorshDeserialize, BorshSerialize)]
 pub struct BlockHeaderInnerLiteView {
     pub height: BlockHeight,
     pub epoch_id: CryptoHash,
@@ -434,6 +444,23 @@ pub struct BlockHeaderInnerLiteView {
     pub timestamp: u64,
     pub next_bp_hash: CryptoHash,
     pub block_merkle_root: CryptoHash,
+}
+
+impl From<BlockHeader> for BlockHeaderInnerLiteView {
+    fn from(header: BlockHeader) -> Self {
+        match header {
+            BlockHeader::BlockHeaderV1(header) => BlockHeaderInnerLiteView {
+                height: header.inner_lite.height,
+                epoch_id: header.inner_lite.epoch_id.0,
+                next_epoch_id: header.inner_lite.next_epoch_id.0,
+                prev_state_root: header.inner_lite.prev_state_root,
+                outcome_root: header.inner_lite.outcome_root,
+                timestamp: header.inner_lite.timestamp,
+                next_bp_hash: header.inner_lite.next_bp_hash,
+                block_merkle_root: header.inner_lite.block_merkle_root,
+            },
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -531,8 +558,8 @@ impl BlockView {
     pub fn from_author_block(author: AccountId, block: Block) -> Self {
         BlockView {
             author,
-            header: block.header.into(),
-            chunks: block.chunks.into_iter().map(Into::into).collect(),
+            header: block.header().clone().into(),
+            chunks: block.chunks().iter().cloned().map(Into::into).collect(),
         }
     }
 }
@@ -1016,6 +1043,23 @@ pub struct LightClientBlockView {
     pub inner_rest_hash: CryptoHash,
     pub next_bps: Option<Vec<ValidatorStakeView>>,
     pub approvals_after_next: Vec<Option<Signature>>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, BorshDeserialize, BorshSerialize)]
+pub struct LightClientBlockLiteView {
+    pub prev_block_hash: CryptoHash,
+    pub inner_rest_hash: CryptoHash,
+    pub inner_lite: BlockHeaderInnerLiteView,
+}
+
+impl From<BlockHeader> for LightClientBlockLiteView {
+    fn from(header: BlockHeader) -> Self {
+        Self {
+            prev_block_hash: header.prev_hash().clone(),
+            inner_rest_hash: hash(&header.inner_rest_bytes()),
+            inner_lite: header.into(),
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug)]

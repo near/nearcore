@@ -169,8 +169,12 @@ pub enum InvalidAccessKeyError {
 }
 
 /// Describes the error for validating a list of actions.
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[derive(
+    BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, PartialEq, Eq, RpcError,
+)]
 pub enum ActionsValidationError {
+    /// The delete action must be a final aciton in transaction
+    DeleteActionMustBeFinal,
     /// The total prepaid gas (for all given actions) exceeded the limit.
     TotalPrepaidGasExceeded { total_prepaid_gas: Gas, limit: Gas },
     /// The number of actions exceeded the given limit.
@@ -189,12 +193,16 @@ pub enum ActionsValidationError {
     FunctionCallMethodNameLengthExceeded { length: u64, limit: u64 },
     /// The length of the arguments exceeded the limit in a Function Call action.
     FunctionCallArgumentsLengthExceeded { length: u64, limit: u64 },
-    /// An attempt to stake with a public key that is not convertible to ristretto
+    /// An attempt to stake with a public key that is not convertible to ristretto.
     UnsuitableStakingKey { public_key: PublicKey },
+    /// The attached amount of gas in a FunctionCall action has to be a positive number.
+    FunctionCallZeroAttachedGas,
 }
 
 /// Describes the error for validating a receipt.
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[derive(
+    BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, PartialEq, Eq, RpcError,
+)]
 pub enum ReceiptValidationError {
     /// The `predecessor_id` of a Receipt is not valid.
     InvalidPredecessorId { account_id: AccountId },
@@ -247,6 +255,9 @@ impl Display for ReceiptValidationError {
 impl Display for ActionsValidationError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
         match self {
+            ActionsValidationError::DeleteActionMustBeFinal => {
+                write!(f, "The delete action must be the last action in transaction")
+            }
             ActionsValidationError::TotalPrepaidGasExceeded { total_prepaid_gas, limit } => {
                 write!(f, "The total prepaid gas {} exceeds the limit {}", total_prepaid_gas, limit)
             }
@@ -295,7 +306,11 @@ impl Display for ActionsValidationError {
                 f,
                 "The staking key must be ristretto compatible ED25519 key. {} is provided instead.",
                 public_key,
-            )
+            ),
+            ActionsValidationError::FunctionCallZeroAttachedGas => write!(
+                f,
+                "The attached amount of gas in a FunctionCall action has to be a positive number",
+            ),
         }
     }
 }

@@ -473,13 +473,6 @@ impl ChunkExtra {
     }
 }
 
-/// Data structure for semver version and github tag or commit.
-#[derive(Serialize, Deserialize, Clone, Debug, Default)]
-pub struct Version {
-    pub version: String,
-    pub build: String,
-}
-
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum BlockId {
@@ -538,6 +531,13 @@ pub enum ValidatorKickoutReason {
 
 #[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize, Serialize)]
 pub struct StateHeaderKey(pub ShardId, pub CryptoHash);
+
+#[derive(Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum TransactionOrReceiptId {
+    Transaction { transaction_hash: CryptoHash, sender_id: AccountId },
+    Receipt { receipt_id: CryptoHash, receiver_id: AccountId },
+}
 
 /// Provides information about current epoch validators.
 /// Used to break dependency between epoch manager and runtime.

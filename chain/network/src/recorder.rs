@@ -205,7 +205,7 @@ impl From<&PeerMessage> for PeerMessageMetadata {
     fn from(msg: &PeerMessage) -> Self {
         let hash = match msg {
             PeerMessage::Challenge(challenge) => Some(challenge.hash),
-            PeerMessage::Block(block) => Some(block.hash()),
+            PeerMessage::Block(block) => Some(*block.hash()),
             _ => None,
         };
 

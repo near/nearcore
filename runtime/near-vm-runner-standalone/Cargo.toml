@@ -27,3 +27,7 @@ base64 = "0.11"
 near-vm-logic = { path = "../near-vm-logic", version = "0.9.1"}
 near-vm-runner = { path = "../near-vm-runner", version = "0.9.1" }
 near-runtime-fees = { path = "../near-runtime-fees", version = "0.9.1" }
+
+[features]
+default = []
+no_cache = ["near-vm-runner/no_cache"]

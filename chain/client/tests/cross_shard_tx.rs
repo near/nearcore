@@ -74,6 +74,7 @@ fn test_keyvalue_runtime_balances() {
     .unwrap();
 }
 
+#[cfg(feature = "expensive_tests")]
 #[cfg(test)]
 mod tests {
     use std::collections::HashSet;
@@ -370,9 +371,6 @@ mod tests {
         test_doomslug: bool,
         block_production_time: u64,
     ) {
-        if !cfg!(feature = "expensive_tests") {
-            return;
-        }
         let validator_groups = 4;
         init_test_logger();
         System::run(move || {
@@ -430,7 +428,7 @@ mod tests {
                 ))),
             );
             *connectors.write().unwrap() = conn;
-            let block_hash = genesis_block.hash();
+            let block_hash = *genesis_block.hash();
 
             let connectors_ = connectors.write().unwrap();
             let iteration = Arc::new(AtomicUsize::new(0));

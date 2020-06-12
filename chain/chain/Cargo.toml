@@ -17,7 +17,7 @@ lazy_static = "1.4"
 num-rational = "0.2.4"
 tracing = "0.1.13"
 
-borsh = "0.6.1"
+borsh = "0.6.2"
 
 near-chain-configs = { path = "../../core/chain-configs" }
 near-crypto = { path = "../../core/crypto" }
@@ -28,7 +28,6 @@ near-pool = { path = "../pool" }
 
 [dev-dependencies]
 near-logger-utils = {path = "../../test-utils/logger"}
-near-store-validator = { path = "../../test-utils/store-validator" }
 
 [features]
 # if enabled, we assert in most situations that are impossible unless some byzantine behavior is observed.

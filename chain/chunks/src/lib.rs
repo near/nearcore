@@ -1,5 +1,5 @@
 use std::cmp;
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{btree_map, hash_map, BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -36,7 +36,6 @@ use near_primitives::validator_signer::ValidatorSigner;
 
 use crate::chunk_cache::{EncodedChunksCache, EncodedChunksCacheEntry};
 pub use crate::types::Error;
-use std::collections::hash_map::Entry;
 
 mod chunk_cache;
 #[cfg(test)]
@@ -225,8 +224,8 @@ impl SealsManager {
         shard_id: ShardId,
     ) -> Result<&mut ActiveSealDemur, near_chain::Error> {
         match self.active_demurs.entry(chunk_hash.clone()) {
-            Entry::Occupied(entry) => Ok(entry.into_mut()),
-            Entry::Vacant(entry) => {
+            hash_map::Entry::Occupied(entry) => Ok(entry.into_mut()),
+            hash_map::Entry::Vacant(entry) => {
                 let chunk_producer = self.runtime_adapter.get_chunk_producer(
                     &self.runtime_adapter.get_epoch_id_from_prev_block(parent_hash)?,
                     height,
@@ -271,9 +270,38 @@ impl SealsManager {
             .collect()
     }
 
-    fn approve_chunk(&mut self, chunk_hash: &ChunkHash) {
-        let seal = self.active_demurs.remove(chunk_hash).expect("seal should be already produced");
-        Self::insert_past_seal(&mut self.past_seals, seal.height, chunk_hash.clone());
+    fn approve_chunk(&mut self, height: BlockHeight, chunk_hash: &ChunkHash) {
+        let maybe_seal = self.active_demurs.remove(chunk_hash);
+        match maybe_seal {
+            None => match self.past_seals.entry(height) {
+                btree_map::Entry::Vacant(vacant) => {
+                    warn!(
+                        target: "chunks",
+                        "A chunk at height {} with hash {:?} was approved without an active seal demur and no past seals were found at the same height",
+                        height,
+                        chunk_hash
+                    );
+                    let mut hashes = HashSet::new();
+                    hashes.insert(chunk_hash.clone());
+                    vacant.insert(hashes);
+                }
+                btree_map::Entry::Occupied(mut occupied) => {
+                    let hashes = occupied.get_mut();
+                    if !hashes.contains(chunk_hash) {
+                        warn!(
+                            target: "chunks",
+                            "Approved chunk at height {} with hash {:?} was not an active seal demur or a past seal",
+                            height,
+                            chunk_hash
+                        );
+                        hashes.insert(chunk_hash.clone());
+                    }
+                }
+            },
+            Some(seal) => {
+                Self::insert_past_seal(&mut self.past_seals, seal.height, chunk_hash.clone());
+            }
+        }
     }
 
     fn insert_past_seal(
@@ -630,14 +658,14 @@ impl ShardsManager {
                 .entry(shard_id)
                 .and_modify(|stored_chunk| {
                     let epoch_id = unwrap_or_return!(
-                        runtime_adapter.get_epoch_id_from_prev_block(&known_header.prev_hash)
+                        runtime_adapter.get_epoch_id_from_prev_block(known_header.prev_hash())
                     );
                     let block_producer =
                         unwrap_or_return!(runtime_adapter.get_block_producer(&epoch_id, height));
                     if runtime_adapter
                         .verify_validator_signature(
                             &epoch_id,
-                            &known_header.prev_hash,
+                            &known_header.prev_hash(),
                             &block_producer,
                             header.hash.as_ref(),
                             &header.signature,
@@ -1072,6 +1100,7 @@ impl ShardsManager {
         }
 
         if can_reconstruct {
+            let height = header.inner.height_created;
             let mut encoded_chunk =
                 EncodedShardChunk::from_header(header, self.runtime_adapter.num_total_parts());
 
@@ -1084,7 +1113,7 @@ impl ShardsManager {
 
             assert!(successfully_decoded);
 
-            self.seals_mgr.approve_chunk(&chunk_hash);
+            self.seals_mgr.approve_chunk(height, &chunk_hash);
 
             self.encoded_chunks.remove_from_cache_if_outside_horizon(&chunk_hash);
             self.requested_partial_encoded_chunks.remove(&chunk_hash);
@@ -1383,13 +1412,18 @@ impl ShardsManager {
 mod test {
     use crate::test_utils::SealsManagerTestFixture;
     use crate::{
-        ChunkRequestInfo, Seal, SealsManager, ShardsManager, CHUNK_REQUEST_RETRY_MS,
-        NUM_PARTS_REQUESTED_IN_SEAL, PAST_SEAL_HEIGHT_HORIZON,
+        ChunkRequestInfo, Seal, SealsManager, ShardsManager, ACCEPTING_SEAL_PERIOD_MS,
+        CHUNK_REQUEST_RETRY_MS, NUM_PARTS_REQUESTED_IN_SEAL, PAST_SEAL_HEIGHT_HORIZON,
     };
     use near_chain::test_utils::KeyValueRuntime;
+    use near_chain::{ChainStore, RuntimeAdapter};
+    use near_crypto::KeyType;
+    use near_logger_utils::init_test_logger;
     use near_network::test_utils::MockNetworkAdapter;
-    use near_primitives::hash::hash;
-    use near_primitives::sharding::ChunkHash;
+    use near_primitives::hash::{hash, CryptoHash};
+    use near_primitives::merkle::merklize;
+    use near_primitives::sharding::{ChunkHash, ReedSolomonWrapper};
+    use near_primitives::validator_signer::InMemoryValidatorSigner;
     use near_store::test_utils::create_test_store;
     use std::sync::Arc;
     use std::time::{Duration, Instant};
@@ -1414,6 +1448,82 @@ mod test {
         std::thread::sleep(Duration::from_millis(2 * CHUNK_REQUEST_RETRY_MS));
         shards_manager.resend_chunk_requests();
         assert!(network_adapter.requests.read().unwrap().is_empty());
+    }
+
+    #[cfg(feature = "expensive_tests")]
+    #[test]
+    fn test_seal_removal() {
+        init_test_logger();
+        let runtime_adapter = Arc::new(KeyValueRuntime::new_with_validators(
+            create_test_store(),
+            vec![vec![
+                "test".to_string(),
+                "test1".to_string(),
+                "test2".to_string(),
+                "test3".to_string(),
+            ]],
+            1,
+            1,
+            5,
+        ));
+        let network_adapter = Arc::new(MockNetworkAdapter::default());
+        let mut chain_store = ChainStore::new(create_test_store(), 0);
+        let mut shards_manager = ShardsManager::new(
+            Some("test".to_string()),
+            runtime_adapter.clone(),
+            network_adapter.clone(),
+        );
+        let signer = InMemoryValidatorSigner::from_seed("test", KeyType::ED25519, "test");
+        let mut rs = ReedSolomonWrapper::new(4, 10);
+        let (encoded_chunk, proof) = shards_manager
+            .create_encoded_shard_chunk(
+                CryptoHash::default(),
+                CryptoHash::default(),
+                CryptoHash::default(),
+                1,
+                0,
+                0,
+                0,
+                0,
+                vec![],
+                vec![],
+                &vec![],
+                merklize(&runtime_adapter.build_receipts_hashes(&[])).0,
+                CryptoHash::default(),
+                &signer,
+                &mut rs,
+            )
+            .unwrap();
+        shards_manager.requested_partial_encoded_chunks.insert(
+            encoded_chunk.header.hash.clone(),
+            ChunkRequestInfo {
+                height: encoded_chunk.header.inner.height_created,
+                parent_hash: encoded_chunk.header.inner.prev_block_hash,
+                shard_id: encoded_chunk.header.inner.shard_id,
+                last_requested: Instant::now(),
+                added: Instant::now(),
+            },
+        );
+        shards_manager
+            .request_partial_encoded_chunk(
+                encoded_chunk.header.inner.height_created,
+                &encoded_chunk.header.inner.prev_block_hash,
+                encoded_chunk.header.inner.shard_id,
+                &encoded_chunk.header.hash,
+                false,
+                false,
+            )
+            .unwrap();
+        let partial_encoded_chunk1 =
+            encoded_chunk.create_partial_encoded_chunk(vec![0, 1], vec![], &proof);
+        let partial_encoded_chunk2 =
+            encoded_chunk.create_partial_encoded_chunk(vec![2, 3, 4], vec![], &proof);
+        std::thread::sleep(Duration::from_millis(ACCEPTING_SEAL_PERIOD_MS as u64 + 100));
+        for partial_encoded_chunk in vec![partial_encoded_chunk1, partial_encoded_chunk2] {
+            shards_manager
+                .process_partial_encoded_chunk(partial_encoded_chunk, &mut chain_store, &mut rs)
+                .unwrap();
+        }
     }
 
     #[test]
@@ -1459,7 +1569,7 @@ mod test {
         // SealsManager::approve_chunk should indicate all parts were retrieved and
         // move the seal into the past seals map.
         fixture.create_seal(&mut seals_manager);
-        seals_manager.approve_chunk(&fixture.mock_chunk_hash);
+        seals_manager.approve_chunk(fixture.mock_height, &fixture.mock_chunk_hash);
         assert!(seals_manager.active_demurs.is_empty());
         assert!(seals_manager.should_trust_chunk_producer(&fixture.mock_chunk_producer));
         assert!(seals_manager

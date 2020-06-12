@@ -12,7 +12,7 @@ use log::{debug, error, info, trace, warn};
 
 use near_chain::types::ShardStateSyncResponse;
 use near_chain::{
-    Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode, ErrorKind, RuntimeAdapter, Tip,
+    Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode, ErrorKind, RuntimeAdapter,
 };
 use near_chain_configs::ClientConfig;
 #[cfg(feature = "adversarial")]
@@ -21,12 +21,13 @@ use near_network::types::{
     NetworkViewClientMessages, NetworkViewClientResponses, ReasonForBan, StateResponseInfo,
 };
 use near_network::{NetworkAdapter, NetworkRequests};
-use near_primitives::block::{BlockHeader, GenesisId};
+use near_primitives::block::{BlockHeader, GenesisId, Tip};
 use near_primitives::hash::CryptoHash;
-use near_primitives::merkle::{verify_path, PartialMerkleTree};
+use near_primitives::merkle::{merklize, verify_path, PartialMerkleTree};
 use near_primitives::network::AnnounceAccount;
 use near_primitives::types::{
     AccountId, BlockHeight, BlockId, BlockIdOrFinality, Finality, MaybeBlockId,
+    TransactionOrReceiptId,
 };
 use near_primitives::views::{
     BlockView, ChunkView, EpochValidatorInfo, FinalExecutionOutcomeView, FinalExecutionStatus,
@@ -35,11 +36,12 @@ use near_primitives::views::{
 };
 
 use crate::types::{
-    Error, GetBlock, GetBlockWithMerkleTree, GetGasPrice, Query, TxStatus, TxStatusError,
+    Error, GetBlock, GetBlockProof, GetBlockProofResponse, GetBlockWithMerkleTree,
+    GetExecutionOutcome, GetGasPrice, Query, TxStatus, TxStatusError,
 };
 use crate::{
-    sync, GetChunk, GetNextLightClientBlock, GetStateChanges, GetStateChangesInBlock,
-    GetValidatorInfo,
+    sync, GetChunk, GetExecutionOutcomeResponse, GetNextLightClientBlock, GetStateChanges,
+    GetStateChangesInBlock, GetValidatorInfo,
 };
 
 /// Max number of queries that we keep.
@@ -111,7 +113,7 @@ impl ViewClientActor {
     ) -> Result<CryptoHash, near_chain::Error> {
         match block_id {
             None => Ok(self.chain.head()?.last_block_hash),
-            Some(BlockId::Height(height)) => Ok(self.chain.get_header_by_height(height)?.hash()),
+            Some(BlockId::Height(height)) => Ok(*self.chain.get_header_by_height(height)?.hash()),
             Some(BlockId::Hash(block_hash)) => Ok(block_hash),
         }
     }
@@ -131,9 +133,9 @@ impl ViewClientActor {
     fn get_block_hash_by_finality(&mut self, finality: &Finality) -> Result<CryptoHash, Error> {
         let head_header = self.chain.head_header()?;
         match finality {
-            Finality::None => Ok(head_header.hash),
-            Finality::DoomSlug => Ok(head_header.inner_rest.last_ds_final_block),
-            Finality::Final => Ok(head_header.inner_rest.last_final_block),
+            Finality::None => Ok(*head_header.hash()),
+            Finality::DoomSlug => Ok(*head_header.last_ds_final_block()),
+            Finality::Final => Ok(*head_header.last_final_block()),
         }
     }
 
@@ -169,17 +171,17 @@ impl ViewClientActor {
 
         // If we have state for the shard that we query return query result directly.
         // Otherwise route query to peers.
-        match self.chain.get_chunk_extra(&header.hash, shard_id) {
+        match self.chain.get_chunk_extra(header.hash(), shard_id) {
             Ok(chunk_extra) => {
                 let state_root = chunk_extra.state_root;
                 self.runtime_adapter
                     .query(
                         shard_id,
                         &state_root,
-                        header.inner_lite.height,
-                        header.inner_lite.timestamp,
-                        &header.hash,
-                        &header.inner_lite.epoch_id,
+                        header.height(),
+                        header.raw_timestamp(),
+                        header.hash(),
+                        header.epoch_id(),
                         &msg.request,
                     )
                     .map(Some)
@@ -314,7 +316,7 @@ impl ViewClientActor {
         let mut headers = vec![];
         let max_height = self.chain.header_head()?.height;
         // TODO: this may be inefficient if there are a lot of skipped blocks.
-        for h in header.inner_lite.height + 1..=max_height {
+        for h in header.height() + 1..=max_height {
             if let Ok(header) = self.chain.get_header_by_height(h) {
                 headers.push(header.clone());
                 if headers.len() >= sync::MAX_BLOCK_HEADERS as usize {
@@ -388,10 +390,7 @@ impl Handler<GetBlock> for ViewClientActor {
         }
         .and_then(|block| {
             self.runtime_adapter
-                .get_block_producer(
-                    &block.header.inner_lite.epoch_id,
-                    block.header.inner_lite.height,
-                )
+                .get_block_producer(&block.header().epoch_id(), block.header().height())
                 .map(|author| BlockView::from_author_block(author, block))
         })
         .map_err(|err| err.to_string())
@@ -420,7 +419,7 @@ impl Handler<GetChunk> for ViewClientActor {
             GetChunk::BlockHash(block_hash, shard_id) => {
                 self.chain.get_block(&block_hash).map(Clone::clone).and_then(|block| {
                     let chunk_hash = block
-                        .chunks
+                        .chunks()
                         .get(shard_id as usize)
                         .ok_or_else(|| {
                             near_chain::Error::from(ErrorKind::InvalidShardId(shard_id))
@@ -432,7 +431,7 @@ impl Handler<GetChunk> for ViewClientActor {
             GetChunk::Height(height, shard_id) => {
                 self.chain.get_block_by_height(height).map(Clone::clone).and_then(|block| {
                     let chunk_hash = block
-                        .chunks
+                        .chunks()
                         .get(shard_id as usize)
                         .ok_or_else(|| {
                             near_chain::Error::from(ErrorKind::InvalidShardId(shard_id))
@@ -445,7 +444,7 @@ impl Handler<GetChunk> for ViewClientActor {
         .and_then(|chunk| {
             self.chain
                 .get_block_by_height(chunk.header.height_included)
-                .map(|block| (block.header.inner_lite.epoch_id.clone(), chunk))
+                .map(|block| (block.header().epoch_id().clone(), chunk))
         })
         .and_then(|(epoch_id, chunk)| {
             self.runtime_adapter
@@ -518,9 +517,9 @@ impl Handler<GetNextLightClientBlock> for ViewClientActor {
     fn handle(&mut self, request: GetNextLightClientBlock, _: &mut Context<Self>) -> Self::Result {
         let last_block_header =
             self.chain.get_block_header(&request.last_block_hash).map_err(|err| err.to_string())?;
-        let last_epoch_id = last_block_header.inner_lite.epoch_id.clone();
-        let last_next_epoch_id = last_block_header.inner_lite.next_epoch_id.clone();
-        let last_height = last_block_header.inner_lite.height;
+        let last_epoch_id = last_block_header.epoch_id().clone();
+        let last_next_epoch_id = last_block_header.next_epoch_id().clone();
+        let last_height = last_block_header.height();
         let head = self.chain.head().map_err(|err| err.to_string())?;
 
         if last_epoch_id == head.epoch_id || last_next_epoch_id == head.epoch_id {
@@ -552,6 +551,90 @@ impl Handler<GetNextLightClientBlock> for ViewClientActor {
                 }
             }
         }
+    }
+}
+
+impl Handler<GetExecutionOutcome> for ViewClientActor {
+    type Result = Result<GetExecutionOutcomeResponse, String>;
+
+    fn handle(&mut self, msg: GetExecutionOutcome, _: &mut Context<Self>) -> Self::Result {
+        let (id, target_shard_id) = match msg.id {
+            TransactionOrReceiptId::Transaction { transaction_hash, sender_id } => {
+                (transaction_hash, self.runtime_adapter.account_id_to_shard_id(&sender_id))
+            }
+            TransactionOrReceiptId::Receipt { receipt_id, receiver_id } => {
+                (receipt_id, self.runtime_adapter.account_id_to_shard_id(&receiver_id))
+            }
+        };
+        match self.chain.get_execution_outcome(&id) {
+            Ok(outcome) => {
+                let mut outcome_proof = outcome.clone();
+                let next_block_hash = self
+                    .chain
+                    .get_next_block_hash_with_new_chunk(&outcome_proof.block_hash, target_shard_id)
+                    .map_err(|e| e.to_string())?
+                    .cloned();
+                match next_block_hash {
+                    Some(h) => {
+                        outcome_proof.block_hash = h;
+                        // Here we assume the number of shards is small so this reconstruction
+                        // should be fast
+                        let outcome_roots = self
+                            .chain
+                            .get_block(&h)
+                            .map_err(|e| e.to_string())?
+                            .chunks()
+                            .iter()
+                            .map(|header| header.inner.outcome_root)
+                            .collect::<Vec<_>>();
+                        if target_shard_id >= (outcome_roots.len() as u64) {
+                            return Err(format!("Inconsistent state. Total number of shards is {} but the execution outcome is in shard {}", outcome_roots.len(), target_shard_id));
+                        }
+                        Ok(GetExecutionOutcomeResponse {
+                            outcome_proof: outcome_proof.into(),
+                            outcome_root_proof: merklize(&outcome_roots).1
+                                [target_shard_id as usize]
+                                .clone(),
+                        })
+                    }
+                    None => Err(format!("{} has not been confirmed", id)),
+                }
+            }
+            Err(e) => match e.kind() {
+                ErrorKind::DBNotFoundErr(_) => {
+                    let head = self.chain.head().map_err(|e| TxStatusError::ChainError(e))?;
+                    if self.runtime_adapter.cares_about_shard(
+                        self.validator_account_id.as_ref(),
+                        &head.last_block_hash,
+                        target_shard_id,
+                        true,
+                    ) {
+                        Err(format!("{} does not exist", id))
+                    } else {
+                        Err(format!("Node doesn't track the shard where {} is executed", id))
+                    }
+                }
+                _ => Err(e.to_string()),
+            },
+        }
+    }
+}
+
+impl Handler<GetBlockProof> for ViewClientActor {
+    type Result = Result<GetBlockProofResponse, String>;
+
+    fn handle(&mut self, msg: GetBlockProof, _: &mut Context<Self>) -> Self::Result {
+        self.chain.check_block_final_and_canonical(&msg.block_hash).map_err(|e| e.to_string())?;
+        self.chain
+            .check_block_final_and_canonical(&msg.head_block_hash)
+            .map_err(|e| e.to_string())?;
+        let block_header_lite =
+            self.chain.get_block_header(&msg.block_hash).map_err(|e| e.to_string())?.clone().into();
+        let block_proof = self
+            .chain
+            .get_block_proof(&msg.block_hash, &msg.head_block_hash)
+            .map_err(|e| e.to_string())?;
+        Ok(GetBlockProofResponse { block_header_lite, proof: block_proof })
     }
 }
 
@@ -641,9 +724,9 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
                             self.chain.get_next_block_hash_with_new_chunk(&block_hash, shard_id)
                         {
                             if let Ok(block) = self.chain.get_block(&next_block_hash) {
-                                if shard_id < block.chunks.len() as u64 {
+                                if shard_id < block.chunks().len() as u64 {
                                     if verify_path(
-                                        block.chunks[shard_id as usize].inner.outcome_root,
+                                        block.chunks()[shard_id as usize].inner.outcome_root,
                                         &response.proof,
                                         &response.outcome_with_id.to_hashes(),
                                     ) {
@@ -692,7 +775,7 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
                     NetworkViewClientResponses::ChainInfo {
                         genesis_id: GenesisId {
                             chain_id: self.config.chain_id.clone(),
-                            hash: self.chain.genesis().hash(),
+                            hash: *self.chain.genesis().hash(),
                         },
                         height,
                         tracked_shards: self.config.tracked_shards.clone(),
@@ -803,8 +886,6 @@ impl Handler<GetGasPrice> for ViewClientActor {
         let header = self
             .maybe_block_id_to_block_hash(msg.block_id)
             .and_then(|block_hash| self.chain.get_block_header(&block_hash));
-        header
-            .map(|b| GasPriceView { gas_price: b.inner_rest.gas_price })
-            .map_err(|e| e.to_string())
+        header.map(|b| GasPriceView { gas_price: b.gas_price() }).map_err(|e| e.to_string())
     }
 }

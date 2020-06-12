@@ -13,7 +13,7 @@ use tracing_subscriber::filter::LevelFilter;
 use tracing_subscriber::EnvFilter;
 
 use git_version::git_version;
-use near_primitives::types::Version;
+use near_primitives::version::{Version, PROTOCOL_VERSION};
 use neard::config::init_testnet_configs;
 use neard::genesis_validate::validate_genesis;
 use neard::{get_default_home, get_store_path, init_configs, load_config, start_with_config};
@@ -39,14 +39,16 @@ fn init_logging(verbose: Option<&str>) {
     }
 
     if let Ok(rust_log) = env::var("RUST_LOG") {
-        for directive in rust_log.split(',').filter_map(|s| match s.parse() {
-            Ok(directive) => Some(directive),
-            Err(err) => {
-                eprintln!("Ignoring directive `{}`: {}", s, err);
-                None
+        if !rust_log.is_empty() {
+            for directive in rust_log.split(',').filter_map(|s| match s.parse() {
+                Ok(directive) => Some(directive),
+                Err(err) => {
+                    eprintln!("Ignoring directive `{}`: {}", s, err);
+                    None
+                }
+            }) {
+                env_filter = env_filter.add_directive(directive);
             }
-        }) {
-            env_filter = env_filter.add_directive(directive);
         }
     }
     tracing_subscriber::fmt::Subscriber::builder()
@@ -98,7 +100,7 @@ fn main() {
         .get_matches();
 
     init_logging(matches.value_of("verbose"));
-    info!(target: "near", "Version: {}, Build: {}", version.version, version.build);
+    info!(target: "near", "Version: {}, Build: {}, Latest Protocol: {}", version.version, version.build, PROTOCOL_VERSION);
 
     #[cfg(feature = "adversarial")]
     {
