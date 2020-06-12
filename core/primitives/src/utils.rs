@@ -1,5 +1,5 @@
 use std::cmp::max;
-use std::convert::AsRef;
+use std::convert::{AsRef, TryFrom};
 use std::fmt;
 
 use byteorder::{LittleEndian, WriteBytesExt};
@@ -25,6 +25,17 @@ pub fn get_block_shard_id(block_hash: &CryptoHash, shard_id: ShardId) -> Vec<u8>
     res.extend_from_slice(block_hash.as_ref());
     res.extend_from_slice(&shard_id.to_le_bytes());
     res
+}
+
+pub fn get_block_shard_id_rev(
+    key: &[u8],
+) -> Result<(CryptoHash, ShardId), Box<dyn std::error::Error>> {
+    let block_hash_vec: Vec<u8> = key[0..32].iter().cloned().collect();
+    let block_hash = CryptoHash::try_from(block_hash_vec)?;
+    let mut shard_id_arr: [u8; 8] = Default::default();
+    shard_id_arr.copy_from_slice(&key[key.len() - 8..]);
+    let shard_id = ShardId::from_le_bytes(shard_id_arr);
+    Ok((block_hash, shard_id))
 }
 
 pub fn create_nonce_with_nonce(base: &CryptoHash, salt: u64) -> CryptoHash {

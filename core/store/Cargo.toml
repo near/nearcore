@@ -32,3 +32,4 @@ harness = false
 [features]
 default = []
 no_cache = []
+adversarial = []
