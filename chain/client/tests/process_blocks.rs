@@ -176,6 +176,7 @@ fn receive_network_block() {
                 vec![],
                 Rational::from_integer(0),
                 0,
+                100,
                 None,
                 vec![],
                 vec![],
@@ -245,6 +246,7 @@ fn produce_block_with_approvals() {
                 vec![],
                 Rational::from_integer(0),
                 0,
+                100,
                 Some(0),
                 vec![],
                 vec![],
@@ -395,6 +397,7 @@ fn invalid_blocks() {
                 vec![],
                 Rational::from_integer(0),
                 0,
+                100,
                 Some(0),
                 vec![],
                 vec![],
@@ -425,6 +428,7 @@ fn invalid_blocks() {
                 vec![],
                 Rational::from_integer(0),
                 0,
+                100,
                 Some(0),
                 vec![],
                 vec![],
@@ -1116,6 +1120,48 @@ fn test_gas_price_change() {
     env.clients[0].process_tx(tx, false, false);
     for i in 2..=4 {
         env.produce_block(0, i);
+    }
+}
+
+#[test]
+fn test_gas_price_overflow() {
+    let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
+    let min_gas_price = 1000000;
+    let max_gas_price = 10_u128.pow(20);
+    let gas_limit = 450000000000;
+    let gas_price_adjustment_rate = Rational::from_integer(1);
+    genesis.config.min_gas_price = min_gas_price;
+    genesis.config.gas_limit = gas_limit;
+    genesis.config.gas_price_adjustment_rate = gas_price_adjustment_rate;
+    genesis.config.transaction_validity_period = 100000;
+    genesis.config.epoch_length = 43200;
+    genesis.config.max_gas_price = max_gas_price;
+    let genesis = Arc::new(genesis);
+    let chain_genesis = ChainGenesis::from(&genesis);
+    let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![Arc::new(neard::NightshadeRuntime::new(
+        Path::new("."),
+        create_test_store(),
+        genesis,
+        vec![],
+        vec![],
+    ))];
+    let mut env = TestEnv::new_with_runtime(chain_genesis, 1, 1, runtimes);
+    let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
+    let genesis_hash = *genesis_block.hash();
+    let signer = InMemorySigner::from_seed("test1", KeyType::ED25519, "test1");
+    for i in 1..100 {
+        let tx = SignedTransaction::send_money(
+            i,
+            "test1".to_string(),
+            "test0".to_string(),
+            &signer,
+            1,
+            genesis_hash,
+        );
+        env.clients[0].process_tx(tx, false, false);
+        let block = env.clients[0].produce_block(i).unwrap().unwrap();
+        assert!(block.header().gas_price() <= max_gas_price);
+        env.process_block(0, block, Provenance::PRODUCED);
     }
 }
 

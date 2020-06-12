@@ -11,7 +11,8 @@ use near_primitives::borsh;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::{ChunkHash, ShardChunk};
 use near_primitives::types::{AccountId, BlockHeight};
-use near_store::{DBCol, Store};
+use near_primitives::utils::get_block_shard_id_rev;
+use near_store::{DBCol, Store, TrieChanges};
 
 use crate::RuntimeAdapter;
 
@@ -216,18 +217,27 @@ impl StoreValidator {
                         self.check(&validate::chunk_hash_validity, &chunk_hash, &shard_chunk, col);
                         // Chunk Height Created is not lower than Chunk Tail
                         self.check(&validate::chunk_tail_validity, &chunk_hash, &shard_chunk, col);
-                        // There is a State Root in the Trie
-                        self.check(
-                            &validate::chunk_state_roots_in_trie,
-                            &chunk_hash,
-                            &shard_chunk,
-                            col,
-                        );
                         // ShardChunk can be indexed by Height
                         self.check(
                             &validate::chunk_indexed_by_height_created,
                             &chunk_hash,
                             &shard_chunk,
+                            col,
+                        );
+                    }
+                }
+                DBCol::ColTrieChanges => {
+                    if let Some(((block_hash, shard_id), trie_changes)) = self.unwrap_kv(
+                        get_block_shard_id_rev(key_ref),
+                        TrieChanges::try_from_slice(value_ref),
+                        key_ref,
+                        col,
+                    ) {
+                        // ShardChunk should exist for current TrieChanges
+                        self.check(
+                            &validate::trie_changes_chunk_extra_exists,
+                            &(block_hash, shard_id),
+                            &trie_changes,
                             col,
                         );
                     }
@@ -267,6 +277,7 @@ impl StoreValidator {
         // There is no more than one Block which Height is lower than Tail and not equal to Genesis
         self.check(&validate::block_height_cmp_tail, &"TAIL", &0, DBCol::ColBlockMisc);
         self.validate_col(DBCol::ColChunks);
+        self.validate_col(DBCol::ColTrieChanges);
         self.validate_col(DBCol::ColChunkHashesByHeight);
     }
 

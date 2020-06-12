@@ -64,6 +64,7 @@ fn add_blocks(
             )],
             Rational::from_integer(0),
             0,
+            1000,
             Some(0),
             vec![],
             vec![],

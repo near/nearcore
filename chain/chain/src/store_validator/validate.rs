@@ -3,11 +3,12 @@ use std::collections::{HashMap, HashSet};
 use near_primitives::block::{Block, BlockHeader, Tip};
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::{ChunkHash, ShardChunk};
-use near_primitives::types::{BlockHeight, EpochId};
-use near_primitives::utils::index_to_bytes;
+use near_primitives::types::{BlockHeight, ChunkExtra, EpochId, ShardId};
+use near_primitives::utils::{get_block_shard_id, index_to_bytes};
 use near_store::{
-    ColBlockHeader, ColBlockHeight, ColBlockMisc, ColBlockPerHeight, ColChunkHashesByHeight,
-    ColChunks, CHUNK_TAIL_KEY, HEADER_HEAD_KEY, HEAD_KEY, TAIL_KEY,
+    ColBlock, ColBlockHeader, ColBlockHeight, ColBlockMisc, ColBlockPerHeight, ColChunkExtra,
+    ColChunkHashesByHeight, ColChunks, TrieChanges, TrieIterator, CHUNK_TAIL_KEY, HEADER_HEAD_KEY,
+    HEAD_KEY, TAIL_KEY,
 };
 
 use crate::{ErrorMessage, StoreValidator};
@@ -223,28 +224,6 @@ pub(crate) fn chunk_tail_validity(
     Ok(())
 }
 
-pub(crate) fn chunk_state_roots_in_trie(
-    _sv: &mut StoreValidator,
-    _chunk_hash: &ChunkHash,
-    _shard_chunk: &ShardChunk,
-) -> Result<(), ErrorMessage> {
-    // TODO enable after fixing #2623
-    /*
-    let shard_id = shard_chunk.header.inner.shard_id;
-    let state_root = shard_chunk.header.inner.prev_state_root;
-    let trie = sv.runtime_adapter.get_trie_for_shard(shard_id);
-    let trie = unwrap_or_err!(
-        TrieIterator::new(&trie, &state_root),
-        "Trie Node Missing for ShardChunk {:?}",
-        shard_chunk
-    );
-    for item in trie {
-        unwrap_or_err!(item, "Can't find ShardChunk {:?} in Trie", shard_chunk);
-    }
-    */
-    Ok(())
-}
-
 pub(crate) fn chunk_indexed_by_height_created(
     sv: &mut StoreValidator,
     _chunk_hash: &ChunkHash,
@@ -391,6 +370,81 @@ pub(crate) fn canonical_prev_block_validity(
         }
     }
     Ok(())
+}
+
+pub(crate) fn trie_changes_chunk_extra_exists(
+    sv: &mut StoreValidator,
+    (block_hash, shard_id): &(CryptoHash, ShardId),
+    trie_changes: &TrieChanges,
+) -> Result<(), ErrorMessage> {
+    let new_root = trie_changes.new_root;
+    // 1. Block with `block_hash` should be available
+    let block = unwrap_or_err_db!(
+        sv.store.get_ser::<Block>(ColBlock, block_hash.as_ref()),
+        "Can't get Block from DB"
+    );
+    // 2. There should be ShardChunk with ShardId `shard_id`
+    for chunk_header in block.chunks().iter() {
+        if chunk_header.inner.shard_id == *shard_id {
+            let chunk_hash = &chunk_header.hash;
+            // 3. ShardChunk with `chunk_hash` should be available
+            unwrap_or_err_db!(
+                sv.store.get_ser::<ShardChunk>(ColChunks, chunk_hash.as_ref()),
+                "Can't get Chunk from storage with ChunkHash {:?}",
+                chunk_hash
+            );
+            // 4. Chunk Extra with `block_hash` and `shard_id` should be available
+            let chunk_extra = unwrap_or_err_db!(
+                sv.store.get_ser::<ChunkExtra>(
+                    ColChunkExtra,
+                    &get_block_shard_id(block_hash, *shard_id)
+                ),
+                "Can't get Chunk Extra from storage with key {:?} {:?}",
+                block_hash,
+                shard_id
+            );
+            let trie = sv.runtime_adapter.get_trie_for_shard(*shard_id);
+            let trie_iterator = unwrap_or_err!(
+                TrieIterator::new(&trie, &new_root),
+                "Trie Node Missing for ShardChunk {:?}",
+                chunk_header
+            );
+            // 5. ShardChunk `shard_chunk` should be available in Trie
+            for item in trie_iterator {
+                unwrap_or_err!(item, "Can't find ShardChunk {:?} in Trie", chunk_header);
+            }
+            // 6. Prev State Roots should be equal
+            // TODO #2623: enable
+            /*
+            #[cfg(feature = "adversarial")]
+            {
+                let prev_state_root = chunk_header.inner.prev_state_root;
+                let old_root = trie_changes.adv_get_old_root();
+                if prev_state_root != old_root {
+                    return err!(
+                        "Prev State Root discrepancy, {:?} != {:?}, ShardChunk {:?}",
+                        old_root,
+                        prev_state_root,
+                        chunk_header
+                    );
+                }
+            }
+            */
+            // 7. State Roots should be equal
+            let state_root = chunk_extra.state_root;
+            return if state_root == new_root {
+                Ok(())
+            } else {
+                err!(
+                    "State Root discrepancy, {:?} != {:?}, ShardChunk {:?}",
+                    new_root,
+                    state_root,
+                    chunk_header
+                )
+            };
+        }
+    }
+    err!("ShardChunk is not included into Block {:?}", block)
 }
 
 pub(crate) fn chunk_of_height_exists(
