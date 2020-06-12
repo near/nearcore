@@ -507,7 +507,7 @@ impl Runtime {
         }
 
         // If the receipt is a refund, then we consider it free without burnt gas.
-        if receipt.predecessor_id == system_account() {
+        let gas_deficit_amount = if receipt.predecessor_id == system_account() {
             result.gas_burnt = 0;
             result.gas_used = 0;
             // If the refund fails tokens are burned.
@@ -517,16 +517,17 @@ impl Runtime {
                     total_deposit(&action_receipt.actions)?,
                 )?
             }
+            0
         } else {
             // Calculating and generating refunds
             self.generate_refund_receipts(
                 apply_state.gas_price,
-                stats,
                 receipt,
                 action_receipt,
                 &mut result,
-            )?;
-        }
+            )?
+        };
+        stats.gas_deficit_amount = safe_add_balance(stats.gas_deficit_amount, gas_deficit_amount)?;
 
         // Moving validator proposals
         validator_proposals.append(&mut result.validator_proposals);
@@ -543,16 +544,21 @@ impl Runtime {
             }
         };
 
+        // `gas_deficit_amount` is strictly less than `gas_price * gas_burnt`.
+        let mut tx_burnt_amount =
+            safe_gas_to_balance(apply_state.gas_price, result.gas_burnt)? - gas_deficit_amount;
+
         // Adding burnt gas reward for function calls if the account exists.
         let receiver_gas_reward = result.gas_burnt_for_function_call
             * *self.config.transaction_costs.burnt_gas_reward.numer() as u64
             / *self.config.transaction_costs.burnt_gas_reward.denom() as u64;
-        let mut tx_burnt_amount = safe_gas_to_balance(apply_state.gas_price, result.gas_burnt)?;
-        if receiver_gas_reward > 0 {
+        // The balance that the current account should receive as a reward for function call
+        // execution.
+        let receiver_reward = safe_gas_to_balance(apply_state.gas_price, receiver_gas_reward)?
+            .saturating_sub(gas_deficit_amount);
+        if receiver_reward > 0 {
             let mut account = get_account(state_update, account_id)?;
             if let Some(ref mut account) = account {
-                let receiver_reward =
-                    safe_gas_to_balance(apply_state.gas_price, receiver_gas_reward)?;
                 // Validators receive the remaining execution reward that was not given to the
                 // account holder. If the account doesn't exist by the end of the execution, the
                 // validators receive the full reward.
@@ -654,11 +660,10 @@ impl Runtime {
     fn generate_refund_receipts(
         &self,
         current_gas_price: Balance,
-        stats: &mut ApplyStats,
         receipt: &Receipt,
         action_receipt: &ActionReceipt,
         result: &mut ActionResult,
-    ) -> Result<(), RuntimeError> {
+    ) -> Result<Balance, RuntimeError> {
         let total_deposit = total_deposit(&action_receipt.actions)?;
         let prepaid_gas = total_prepaid_gas(&action_receipt.actions)?;
         let exec_gas = safe_add_gas(
@@ -673,22 +678,21 @@ impl Runtime {
         };
         // Refund for the unused portion of the gas at the price at which this gas was purchased.
         let mut gas_balance_refund = safe_gas_to_balance(action_receipt.gas_price, gas_refund)?;
+        let mut gas_deficit_amount = 0;
         if current_gas_price > action_receipt.gas_price {
             // In a rare scenario, when the current gas price is higher than the purchased gas
             // price, the difference is subtracted from the refund. If the refund doesn't have
             // enough balance to cover the difference, then the remaining balance is considered
             // the deficit and it's reported in the stats for the balance checker.
-            let gas_deficit_amount = safe_gas_to_balance(
+            gas_deficit_amount = safe_gas_to_balance(
                 current_gas_price - action_receipt.gas_price,
                 result.gas_burnt,
             )?;
             if gas_balance_refund >= gas_deficit_amount {
                 gas_balance_refund -= gas_deficit_amount;
+                gas_deficit_amount = 0;
             } else {
-                stats.gas_deficit_amount = safe_add_balance(
-                    stats.gas_deficit_amount,
-                    gas_deficit_amount - gas_balance_refund,
-                )?;
+                gas_deficit_amount -= gas_balance_refund;
                 gas_balance_refund = 0;
             }
         } else {
@@ -715,7 +719,7 @@ impl Runtime {
                 action_receipt.signer_public_key.clone(),
             ));
         }
-        Ok(())
+        Ok(gas_deficit_amount)
     }
 
     fn process_receipt(
