@@ -1,6 +1,7 @@
 use std::collections::{BTreeMap, HashMap};
 
 use borsh::{BorshDeserialize, BorshSerialize};
+use log::error;
 use num_rational::Rational;
 use serde::Serialize;
 
@@ -155,7 +156,7 @@ impl EpochInfoAggregator {
         }
     }
 
-    pub fn update_trackers(
+    pub fn update(
         &mut self,
         block_info: &BlockInfo,
         epoch_info: &EpochInfo,
@@ -199,6 +200,54 @@ impl EpochInfoAggregator {
                     stats.expected += 1;
                 })
                 .or_insert(ValidatorStats { produced: u64::from(*mask), expected: 1 });
+        }
+
+        // Step 3: update proposals
+        for proposal in block_info.proposals.iter() {
+            self.all_proposals
+                .entry(proposal.account_id.clone())
+                .or_insert_with(|| proposal.clone());
+        }
+    }
+
+    pub fn merge(&mut self, new_aggregator: EpochInfoAggregator, overwrite: bool) {
+        if self.epoch_id != new_aggregator.epoch_id {
+            debug_assert!(false);
+            error!(target: "epoch_manager", "Trying to merge an aggregator with epoch id {:?}, but our epoch id is {:?}", new_aggregator.epoch_id, self.epoch_id);
+            return;
+        }
+        if overwrite {
+            *self = new_aggregator;
+        } else {
+            // merge block tracker
+            for (block_producer_id, stats) in new_aggregator.block_tracker {
+                self.block_tracker
+                    .entry(block_producer_id)
+                    .and_modify(|e| {
+                        e.expected += stats.expected;
+                        e.produced += stats.produced
+                    })
+                    .or_insert_with(|| stats);
+            }
+            // merge shard tracker
+            for (shard_id, stats) in new_aggregator.shard_tracker {
+                self.shard_tracker
+                    .entry(shard_id)
+                    .and_modify(|e| {
+                        for (chunk_producer_id, stat) in stats.iter() {
+                            e.entry(*chunk_producer_id)
+                                .and_modify(|entry| {
+                                    entry.expected += stat.expected;
+                                    entry.produced += stat.produced;
+                                })
+                                .or_insert_with(|| stat.clone());
+                        }
+                    })
+                    .or_insert_with(|| stats);
+            }
+            // merge proposals
+            self.all_proposals.extend(new_aggregator.all_proposals.into_iter());
+            self.last_block_hash = new_aggregator.last_block_hash;
         }
     }
 }

@@ -30,6 +30,7 @@ mod types;
 const EPOCH_CACHE_SIZE: usize = 10;
 const BLOCK_CACHE_SIZE: usize = 1000;
 const AGGREGATOR_KEY: &[u8] = b"AGGREGATOR";
+const AGGREGATOR_SAVE_PERIOD: u64 = 1000;
 
 /// Tracks epoch information across different forks, such as validators.
 /// Note: that even after garbage collection, the data about genesis epoch should be in the store.
@@ -412,12 +413,19 @@ impl EpochManager {
 
                 // Save current block info.
                 self.save_block_info(&mut store_update, current_hash, block_info.clone())?;
+
+                // Find the last block hash to properly update epoch info aggregator. We only update
+                // the aggregator if there is a change in the last final block or it is the epoch
+                // start.
                 let last_block_hash = match self.get_block_info(&block_info.last_final_block_hash) {
                     Ok(final_block_info) => {
                         if final_block_info.epoch_id != block_info.epoch_id {
                             if is_epoch_start {
                                 Some(current_hash)
                             } else {
+                                // This means there has been no final block in the epoch yet and
+                                // we have already done the update at epoch start. Therefore we
+                                // do no need to do anything.
                                 None
                             }
                         } else {
@@ -438,7 +446,7 @@ impl EpochManager {
                     self.save_epoch_info_aggregator(
                         &mut store_update,
                         epoch_info_aggregator,
-                        is_epoch_start || block_info.height % 1000 == 0,
+                        is_epoch_start || block_info.height % AGGREGATOR_SAVE_PERIOD == 0,
                     )?;
                 }
 
@@ -1105,25 +1113,25 @@ impl EpochManager {
             epoch_change = true;
         }
         let epoch_info = self.get_epoch_info(epoch_id)?.clone();
-        let mut proposals: HashMap<AccountId, ValidatorStake> = HashMap::default();
+        let mut new_aggregator = EpochInfoAggregator::new(epoch_id.clone(), *last_block_hash);
         let mut cur_hash = *last_block_hash;
+        let mut overwrite = false;
         while cur_hash != aggregator.last_block_hash || epoch_change {
             // Avoid cloning
             let prev_hash = self.get_block_info(&cur_hash)?.prev_hash;
             let prev_height = self.get_block_info(&prev_hash)?.height;
             let block_info = self.get_block_info(&cur_hash)?;
             if &block_info.epoch_id != epoch_id || block_info.prev_hash == CryptoHash::default() {
+                // This means that we reached the previous epoch and still hasn't seen
+                // `aggregator.last_block_hash` and therefore implies that a fork has happened.
+                // In this case, the new aggregator should overwrite the old one.
+                overwrite = true;
                 break;
             }
-            aggregator.update_trackers(&block_info, &epoch_info, prev_height);
-
-            for proposal in block_info.proposals.iter() {
-                proposals.entry(proposal.account_id.clone()).or_insert_with(|| proposal.clone());
-            }
+            new_aggregator.update(&block_info, &epoch_info, prev_height);
             cur_hash = block_info.prev_hash;
         }
-        aggregator.all_proposals.extend(proposals.into_iter());
-        aggregator.last_block_hash = *last_block_hash;
+        aggregator.merge(new_aggregator, overwrite);
 
         Ok(aggregator)
     }
@@ -2447,7 +2455,7 @@ mod tests {
     fn test_epoch_info_aggregator_reorg_past_final_block() {
         let stake_amount = 1_000_000;
         let validators = vec![("test1", stake_amount), ("test2", stake_amount)];
-        let epoch_length = 5;
+        let epoch_length = 6;
         let mut em = setup_epoch_manager(
             validators,
             epoch_length,
@@ -2471,7 +2479,7 @@ mod tests {
             3,
             vec![stake("test1", stake_amount - 1)],
         );
-        record_block_with_final_block_hash(&mut em, h[3], h[4], h[2], 4, vec![]);
+        record_block_with_final_block_hash(&mut em, h[3], h[4], h[3], 4, vec![]);
         record_block_with_final_block_hash(&mut em, h[2], h[5], h[1], 5, vec![]);
         let epoch_id = em.get_epoch_id(&h[5]).unwrap();
         let aggregator = em.get_and_update_epoch_info_aggregator(&epoch_id, &h[5], false).unwrap();
@@ -2480,6 +2488,52 @@ mod tests {
             vec![
                 (0, ValidatorStats { produced: 2, expected: 3 }),
                 (1, ValidatorStats { produced: 1, expected: 2 })
+            ]
+            .into_iter()
+            .collect()
+        );
+        assert!(aggregator.all_proposals.is_empty());
+    }
+
+    #[test]
+    fn test_epoch_info_aggregator_reorg_beginning_of_epoch() {
+        let stake_amount = 1_000_000;
+        let validators = vec![("test1", stake_amount), ("test2", stake_amount)];
+        let epoch_length = 4;
+        let mut em = setup_epoch_manager(
+            validators,
+            epoch_length,
+            1,
+            2,
+            0,
+            10,
+            10,
+            0,
+            default_reward_calculator(),
+        );
+        let h = hash_range(10);
+        record_block(&mut em, Default::default(), h[0], 0, vec![]);
+        for i in 1..5 {
+            record_block(&mut em, h[i - 1], h[i], i as u64, vec![]);
+        }
+        record_block(&mut em, h[4], h[5], 5, vec![stake("test1", stake_amount - 1)]);
+        record_block_with_final_block_hash(
+            &mut em,
+            h[5],
+            h[6],
+            h[4],
+            6,
+            vec![stake("test2", stake_amount - 100)],
+        );
+        // reorg
+        record_block(&mut em, h[4], h[7], 7, vec![]);
+        let epoch_id = em.get_epoch_id(&h[7]).unwrap();
+        let aggregator = em.get_and_update_epoch_info_aggregator(&epoch_id, &h[7], true).unwrap();
+        assert_eq!(
+            aggregator.block_tracker,
+            vec![
+                (0, ValidatorStats { produced: 1, expected: 2 }),
+                (1, ValidatorStats { produced: 0, expected: 1 })
             ]
             .into_iter()
             .collect()
