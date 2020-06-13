@@ -4,6 +4,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use borsh::BorshDeserialize;
+use enum_iterator::IntoEnumIterator;
 
 use near_chain_configs::GenesisConfig;
 use near_primitives::block::{Block, BlockHeader};
@@ -99,176 +100,102 @@ impl StoreValidator {
     fn process_error<K: std::fmt::Debug>(&mut self, err: StoreValidatorError, key: K, col: DBCol) {
         self.errors.push(ErrorMessage { key: format!("{:?}", key), col, err })
     }
-    fn unwrap_kv<K, V, E1: std::fmt::Debug, E2: std::fmt::Debug>(
-        &mut self,
-        key: Result<K, E1>,
-        value: Result<V, E2>,
-        key_ref: &[u8],
-        col: DBCol,
-    ) -> Option<(K, V)> {
-        match key {
-            Ok(key_data) => match value {
-                Ok(value_data) => Some((key_data, value_data)),
-                Err(e) => {
-                    self.process_error(
-                        StoreValidatorError::CorruptedValue(format!("{:?}", e)),
-                        key_ref,
-                        col,
-                    );
-                    None
-                }
-            },
-            Err(e) => {
-                self.process_error(
-                    StoreValidatorError::CorruptedKey(format!("{:?}", e)),
-                    key_ref,
-                    col,
-                );
-                None
-            }
-        }
-    }
-    fn validate_col(&mut self, col: DBCol) {
+    fn validate_col(&mut self, col: DBCol) -> Result<(), StoreValidatorError> {
         for (key, value) in self.store.clone().iter(col) {
             let key_ref = key.as_ref();
             let value_ref = value.as_ref();
             match col {
                 DBCol::ColBlockHeader => {
-                    if let Some((block_hash, header)) = self.unwrap_kv(
-                        CryptoHash::try_from(key_ref),
-                        BlockHeader::try_from_slice(value_ref),
-                        key_ref,
-                        col,
-                    ) {
-                        // Block Header Hash is valid
-                        self.check(
-                            &validate::block_header_hash_validity,
-                            &block_hash,
-                            &header,
-                            col,
-                        );
-                        // Block Header Height is valid
-                        self.check(
-                            &validate::block_header_height_validity,
-                            &block_hash,
-                            &header,
-                            col,
-                        );
-                    }
+                    let block_hash = CryptoHash::try_from(key_ref)?;
+                    let header = BlockHeader::try_from_slice(value_ref)?;
+                    // Block Header Hash is valid
+                    self.check(&validate::block_header_hash_validity, &block_hash, &header, col);
+                    // Block Header Height is valid
+                    self.check(&validate::block_header_height_validity, &block_hash, &header, col);
                 }
                 DBCol::ColBlock => {
-                    if let Some((block_hash, block)) = self.unwrap_kv(
-                        CryptoHash::try_from(key_ref),
-                        Block::try_from_slice(value_ref),
-                        key_ref,
-                        col,
-                    ) {
-                        // Block Hash is valid
-                        self.check(&validate::block_hash_validity, &block_hash, &block, col);
-                        // Block Height is valid
-                        self.check(&validate::block_height_validity, &block_hash, &block, col);
-                        // Block can be indexed by its Height
-                        self.check(&validate::block_indexed_by_height, &block_hash, &block, col);
-                        // Block Header for current Block exists
-                        self.check(&validate::block_header_exists, &block_hash, &block, col);
-                        // Chunks for current Block exist
-                        self.check(&validate::block_chunks_exist, &block_hash, &block, col);
-                        // Chunks for current Block have Height Created not higher than Block Height
-                        self.check(
-                            &validate::block_chunks_height_validity,
-                            &block_hash,
-                            &block,
-                            col,
-                        );
-                    }
+                    let block_hash = CryptoHash::try_from(key_ref)?;
+                    let block = Block::try_from_slice(value_ref)?;
+                    // Block Hash is valid
+                    self.check(&validate::block_hash_validity, &block_hash, &block, col);
+                    // Block Height is valid
+                    self.check(&validate::block_height_validity, &block_hash, &block, col);
+                    // Block can be indexed by its Height
+                    self.check(&validate::block_indexed_by_height, &block_hash, &block, col);
+                    // Block Header for current Block exists
+                    self.check(&validate::block_header_exists, &block_hash, &block, col);
+                    // Chunks for current Block exist
+                    self.check(&validate::block_chunks_exist, &block_hash, &block, col);
+                    // Chunks for current Block have Height Created not higher than Block Height
+                    self.check(&validate::block_chunks_height_validity, &block_hash, &block, col);
                 }
                 DBCol::ColBlockHeight => {
-                    if let Some((height, hash)) = self.unwrap_kv(
-                        BlockHeight::try_from_slice(key_ref),
-                        CryptoHash::try_from(value_ref),
-                        key_ref,
-                        col,
-                    ) {
-                        // Block on the Canonical Chain is stored properly
-                        self.check(&validate::canonical_header_validity, &height, &hash, col);
-                        // If prev Block exists, it's also on the Canonical Chain and
-                        // there are no Blocks in range (prev_height, height) on the Canonical Chain
-                        self.check(&validate::canonical_prev_block_validity, &height, &hash, col);
-                    }
+                    let height = BlockHeight::try_from_slice(key_ref)?;
+                    let hash = CryptoHash::try_from(value_ref)?;
+                    // Block on the Canonical Chain is stored properly
+                    self.check(&validate::canonical_header_validity, &height, &hash, col);
+                    // If prev Block exists, it's also on the Canonical Chain and
+                    // there are no Blocks in range (prev_height, height) on the Canonical Chain
+                    self.check(&validate::canonical_prev_block_validity, &height, &hash, col);
                 }
                 DBCol::ColChunks => {
-                    if let Some((chunk_hash, shard_chunk)) = self.unwrap_kv(
-                        ChunkHash::try_from_slice(key_ref),
-                        ShardChunk::try_from_slice(value_ref),
-                        key_ref,
+                    let chunk_hash = ChunkHash::try_from_slice(key_ref)?;
+                    let shard_chunk = ShardChunk::try_from_slice(value_ref)?;
+                    // Chunk Hash is valid
+                    self.check(&validate::chunk_hash_validity, &chunk_hash, &shard_chunk, col);
+                    // Chunk Height Created is not lower than Chunk Tail
+                    self.check(&validate::chunk_tail_validity, &chunk_hash, &shard_chunk, col);
+                    // ShardChunk can be indexed by Height
+                    self.check(
+                        &validate::chunk_indexed_by_height_created,
+                        &chunk_hash,
+                        &shard_chunk,
                         col,
-                    ) {
-                        // Chunk Hash is valid
-                        self.check(&validate::chunk_hash_validity, &chunk_hash, &shard_chunk, col);
-                        // Chunk Height Created is not lower than Chunk Tail
-                        self.check(&validate::chunk_tail_validity, &chunk_hash, &shard_chunk, col);
-                        // ShardChunk can be indexed by Height
-                        self.check(
-                            &validate::chunk_indexed_by_height_created,
-                            &chunk_hash,
-                            &shard_chunk,
-                            col,
-                        );
-                    }
+                    );
                 }
                 DBCol::ColTrieChanges => {
-                    if let Some(((block_hash, shard_id), trie_changes)) = self.unwrap_kv(
-                        get_block_shard_id_rev(key_ref),
-                        TrieChanges::try_from_slice(value_ref),
-                        key_ref,
+                    let (block_hash, shard_id) = get_block_shard_id_rev(key_ref)?;
+                    let trie_changes = TrieChanges::try_from_slice(value_ref)?;
+                    // ShardChunk should exist for current TrieChanges
+                    self.check(
+                        &validate::trie_changes_chunk_extra_exists,
+                        &(block_hash, shard_id),
+                        &trie_changes,
                         col,
-                    ) {
-                        // ShardChunk should exist for current TrieChanges
-                        self.check(
-                            &validate::trie_changes_chunk_extra_exists,
-                            &(block_hash, shard_id),
-                            &trie_changes,
-                            col,
-                        );
-                    }
+                    );
                 }
                 DBCol::ColChunkHashesByHeight => {
-                    if let Some((height, chunk_hashes)) = self.unwrap_kv(
-                        BlockHeight::try_from_slice(key_ref),
-                        HashSet::<ChunkHash>::try_from_slice(value_ref),
-                        key_ref,
-                        col,
-                    ) {
-                        // ShardChunk which can be indexed by Height exists
-                        self.check(&validate::chunk_of_height_exists, &height, &chunk_hashes, col);
-                    }
+                    let height = BlockHeight::try_from_slice(key_ref)?;
+                    let chunk_hashes = HashSet::<ChunkHash>::try_from_slice(value_ref)?;
+                    // ShardChunk which can be indexed by Height exists
+                    self.check(&validate::chunk_of_height_exists, &height, &chunk_hashes, col);
                 }
-                _ => unimplemented!(),
+                _ => {}
             }
             if let Some(timeout) = self.timeout {
                 if self.start_time.elapsed() > Duration::from_millis(timeout) {
-                    return;
+                    return Ok(());
                 }
             }
         }
+        Ok(())
     }
     pub fn validate(&mut self) {
         self.start_time = Instant::now();
 
-        self.check(
-            &validate::head_tail_validity,
-            &"HEAD, TAIL, CHUNK_TAIL",
-            &0,
-            DBCol::ColBlockMisc,
-        );
-        self.validate_col(DBCol::ColBlockHeader);
-        self.validate_col(DBCol::ColBlockHeight);
-        self.validate_col(DBCol::ColBlock);
+        // Check Head-Tail validity and fill cache with their values
+        if let Err(e) = validate::head_tail_validity(self) {
+            self.process_error(e, "HEAD / HEADER_HEAD / TAIL / CHUNK_TAIL", DBCol::ColBlockMisc)
+        }
+        for col in DBCol::into_enum_iter() {
+            if let Err(e) = self.validate_col(col) {
+                self.process_error(e, col.to_string(), col)
+            }
+        }
         // There is no more than one Block which Height is lower than Tail and not equal to Genesis
-        self.check(&validate::block_height_cmp_tail, &"TAIL", &0, DBCol::ColBlockMisc);
-        self.validate_col(DBCol::ColChunks);
-        self.validate_col(DBCol::ColTrieChanges);
-        self.validate_col(DBCol::ColChunkHashesByHeight);
+        if let Err(e) = validate::block_height_cmp_tail(self) {
+            self.process_error(e, "TAIL", DBCol::ColBlockMisc)
+        }
     }
 
     fn check<K: std::fmt::Debug, V>(
@@ -278,9 +205,8 @@ impl StoreValidator {
         value: &V,
         col: DBCol,
     ) {
-        let result = f(self, key, value);
         self.tests += 1;
-        match result {
+        match f(self, key, value) {
             Ok(_) => {}
             Err(e) => {
                 self.process_error(e, key, col);

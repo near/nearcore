@@ -17,10 +17,10 @@ use crate::StoreValidator;
 
 #[derive(Error, Debug)]
 pub enum StoreValidatorError {
-    #[error("DB is corrupted: can't read Key, {0}")]
-    CorruptedKey(String),
-    #[error("DB is corrupted: can't read Value, {0}")]
-    CorruptedValue(String),
+    #[error(transparent)]
+    IOError(#[from] std::io::Error),
+    #[error("DB is corrupted")]
+    DBCorruption(#[from] Box<dyn std::error::Error>),
     #[error("Function {func_name:?}: data is invalid, {reason:?}")]
     InvalidData { func_name: String, reason: String },
     #[error("Function {func_name:?}: data that expected to exist in DB is not found, {reason:?}")]
@@ -109,11 +109,7 @@ macro_rules! unwrap_or_err_db {
 
 // All validations start here
 
-pub(crate) fn head_tail_validity<T, U>(
-    sv: &mut StoreValidator,
-    _key: &T,
-    _value: &U,
-) -> Result<(), StoreValidatorError> {
+pub(crate) fn head_tail_validity(sv: &mut StoreValidator) -> Result<(), StoreValidatorError> {
     let tail = unwrap_or_err!(
         sv.store.get_ser::<BlockHeight>(ColBlockMisc, TAIL_KEY),
         "Can't get Tail from storage"
@@ -337,11 +333,7 @@ pub(crate) fn block_chunks_height_validity(
     Ok(())
 }
 
-pub(crate) fn block_height_cmp_tail<T, U>(
-    sv: &mut StoreValidator,
-    _key: &T,
-    _value: &U,
-) -> Result<(), StoreValidatorError> {
+pub(crate) fn block_height_cmp_tail(sv: &mut StoreValidator) -> Result<(), StoreValidatorError> {
     check_cached!(
         sv.inner.is_block_height_cmp_tail_prepared,
         "call block_height_validity before running block_height_cmp_tail"

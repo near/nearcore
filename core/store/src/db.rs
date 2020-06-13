@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use std::io;
 use std::sync::RwLock;
 
+use enum_iterator::IntoEnumIterator;
 use rocksdb::{
     BlockBasedOptions, ColumnFamily, ColumnFamilyDescriptor, Direction, IteratorMode, Options,
     ReadOptions, WriteBatch, DB,
@@ -33,7 +34,7 @@ impl Into<io::Error> for DBError {
     }
 }
 
-#[derive(PartialEq, Debug, Copy, Clone)]
+#[derive(PartialEq, Debug, Copy, Clone, IntoEnumIterator)]
 pub enum DBCol {
     /// Column to indicate which version of database this is.
     ColDbVersion = 0,
