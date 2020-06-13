@@ -13,12 +13,11 @@ use near_primitives::sharding::{ChunkHash, ShardChunk};
 use near_primitives::types::{AccountId, BlockHeight};
 use near_primitives::utils::get_block_shard_id_rev;
 use near_store::{DBCol, Store, TrieChanges};
+use validate::StoreValidatorError;
 
 use crate::RuntimeAdapter;
 
 mod validate;
-
-const STORAGE_COMMON_FAILURE: &str = "STORAGE_COMMON_FAILURE";
 
 #[derive(Debug)]
 pub struct StoreValidatorCache {
@@ -48,16 +47,9 @@ impl StoreValidatorCache {
 
 #[derive(Debug)]
 pub struct ErrorMessage {
-    pub col: Option<DBCol>,
-    pub key: Option<String>,
-    pub func: String,
-    pub reason: String,
-}
-
-impl ErrorMessage {
-    fn new(func: &str, reason: String) -> Self {
-        Self { col: None, key: None, func: func.to_string(), reason }
-    }
+    pub col: DBCol,
+    pub key: String,
+    pub err: StoreValidatorError,
 }
 
 pub struct StoreValidator {
@@ -104,10 +96,8 @@ impl StoreValidator {
     pub fn tests_done(&self) -> u64 {
         self.tests
     }
-    fn process_error<K: std::fmt::Debug>(&mut self, mut e: ErrorMessage, key: K, col: DBCol) {
-        e.col = Some(col);
-        e.key = Some(format!("{:?}", key));
-        self.errors.push(e)
+    fn process_error<K: std::fmt::Debug>(&mut self, err: StoreValidatorError, key: K, col: DBCol) {
+        self.errors.push(ErrorMessage { key: format!("{:?}", key), col, err })
     }
     fn unwrap_kv<K, V, E1: std::fmt::Debug, E2: std::fmt::Debug>(
         &mut self,
@@ -120,20 +110,20 @@ impl StoreValidator {
             Ok(key_data) => match value {
                 Ok(value_data) => Some((key_data, value_data)),
                 Err(e) => {
-                    let err = ErrorMessage::new(
-                        STORAGE_COMMON_FAILURE,
-                        format!("Can't deserialize Value, {:?}", e),
+                    self.process_error(
+                        StoreValidatorError::CorruptedValue(format!("{:?}", e)),
+                        key_ref,
+                        col,
                     );
-                    self.process_error(err, key_ref, col);
                     None
                 }
             },
             Err(e) => {
-                let err = ErrorMessage::new(
-                    STORAGE_COMMON_FAILURE,
-                    format!("Can't deserialize Key, {:?}", e),
+                self.process_error(
+                    StoreValidatorError::CorruptedKey(format!("{:?}", e)),
+                    key_ref,
+                    col,
                 );
-                self.process_error(err, key_ref, col);
                 None
             }
         }
@@ -283,7 +273,7 @@ impl StoreValidator {
 
     fn check<K: std::fmt::Debug, V>(
         &mut self,
-        f: &dyn Fn(&mut StoreValidator, &K, &V) -> Result<(), ErrorMessage>,
+        f: &dyn Fn(&mut StoreValidator, &K, &V) -> Result<(), StoreValidatorError>,
         key: &K,
         value: &V,
         col: DBCol,

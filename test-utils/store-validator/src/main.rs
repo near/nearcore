@@ -2,7 +2,7 @@ use std::path::Path;
 use std::process;
 use std::sync::Arc;
 
-use ansi_term::Color::{Green, Red, White, Yellow};
+use ansi_term::Color::{Green, Red, Yellow};
 use clap::{App, Arg, SubCommand};
 
 use near_chain::store_validator::StoreValidator;
@@ -57,11 +57,10 @@ fn main() {
     );
     for error in store_validator.errors.iter() {
         println!(
-            "{}  {}  {}  {}",
-            Red.bold().paint(&error.func.to_string()),
-            Yellow.bold().paint(&error.col.unwrap().to_string()),
-            White.bold().paint(error.key.as_ref().unwrap()),
-            error.reason
+            "{}  {}  {}",
+            Red.bold().paint(&error.col.to_string()),
+            Yellow.bold().paint(&error.key),
+            error.err
         );
     }
     if store_validator.is_failed() {
