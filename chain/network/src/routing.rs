@@ -32,6 +32,7 @@ use crate::{
 const ANNOUNCE_ACCOUNT_CACHE_SIZE: usize = 10_000;
 const ROUTE_BACK_CACHE_SIZE: u64 = 1_000_000;
 const ROUTE_BACK_CACHE_EVICT_TIMEOUT: u64 = 120_000; // 120 seconds
+const ROUTE_BACK_CACHE_REMOVE_BATCH: u64 = 100;
 const PING_PONG_CACHE_SIZE: usize = 1_000;
 const ROUND_ROBIN_MAX_NONCE_DIFFERENCE_ALLOWED: usize = 10;
 const ROUND_ROBIN_NONCE_CACHE_SIZE: usize = 10_000;
@@ -298,7 +299,11 @@ impl RoutingTable {
             account_peers: SizedCache::with_size(ANNOUNCE_ACCOUNT_CACHE_SIZE),
             peer_forwarding: HashMap::new(),
             edges_info: HashMap::new(),
-            route_back: RouteBackCache::new(ROUTE_BACK_CACHE_SIZE, ROUTE_BACK_CACHE_EVICT_TIMEOUT),
+            route_back: RouteBackCache::new(
+                ROUTE_BACK_CACHE_SIZE,
+                ROUTE_BACK_CACHE_EVICT_TIMEOUT,
+                ROUTE_BACK_CACHE_REMOVE_BATCH,
+            ),
             peer_last_time_reachable: HashMap::new(),
             store,
             raw_graph: Graph::new(peer_id),
