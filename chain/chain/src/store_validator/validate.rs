@@ -27,10 +27,10 @@ pub enum StoreValidatorError {
     NotFound { func_name: String, reason: String },
     #[error("Function {func_name:?}: {reason:?}, expected {expected:?}, found {found:?}")]
     Discrepancy { func_name: String, reason: String, expected: String, found: String },
-    #[error("Function {func_name:?}: inner Store Validator error, cache not set")]
-    CacheNotFound { func_name: String },
-    #[error("Function {func_name:?}: error {error:?}")]
-    Other { func_name: String, error: String },
+    #[error("Function {func_name:?}: inner Store Validator error, cache {cache:?} not set")]
+    CacheNotFound { func_name: String, cache: String },
+    #[error("Function {func_name:?}: validation failed, {error:?}")]
+    ValidationFailed { func_name: String, error: String },
 }
 
 macro_rules! get_parent_function_name {
@@ -46,7 +46,7 @@ macro_rules! get_parent_function_name {
 
 macro_rules! err {
     ($($x: tt),*) => (
-        return Err(StoreValidatorError::Other { func_name: get_parent_function_name!(), error: format!($($x),*) } );
+        return Err(StoreValidatorError::ValidationFailed { func_name: get_parent_function_name!(), error: format!($($x),*) } );
     )
 }
 
@@ -68,6 +68,7 @@ macro_rules! check_cached {
         if !$obj {
             return Err(StoreValidatorError::CacheNotFound {
                 func_name: get_parent_function_name!(),
+                cache: format!($($x),*),
             });
         }
     };
@@ -159,7 +160,7 @@ pub(crate) fn block_header_height_validity(
     _block_hash: &CryptoHash,
     header: &BlockHeader,
 ) -> Result<(), StoreValidatorError> {
-    check_cached!(sv.inner.is_misc_set, "misc is not set");
+    check_cached!(sv.inner.is_misc_set, "misc");
     let height = header.height();
     let head = sv.inner.header_head;
     if height > head {
@@ -182,7 +183,7 @@ pub(crate) fn block_height_validity(
     _block_hash: &CryptoHash,
     block: &Block,
 ) -> Result<(), StoreValidatorError> {
-    check_cached!(sv.inner.is_misc_set, "misc is not set");
+    check_cached!(sv.inner.is_misc_set, "misc");
     let height = block.header().height();
     let tail = sv.inner.tail;
     if height < tail && height != sv.config.genesis_height {
@@ -252,7 +253,7 @@ pub(crate) fn chunk_tail_validity(
     _chunk_hash: &ChunkHash,
     shard_chunk: &ShardChunk,
 ) -> Result<(), StoreValidatorError> {
-    check_cached!(sv.inner.is_misc_set, "misc is not set");
+    check_cached!(sv.inner.is_misc_set, "misc");
     let chunk_tail = sv.inner.chunk_tail;
     let height = shard_chunk.header.inner.height_created;
     if height < chunk_tail {
@@ -334,10 +335,7 @@ pub(crate) fn block_chunks_height_validity(
 }
 
 pub(crate) fn block_height_cmp_tail(sv: &mut StoreValidator) -> Result<(), StoreValidatorError> {
-    check_cached!(
-        sv.inner.is_block_height_cmp_tail_prepared,
-        "call block_height_validity before running block_height_cmp_tail"
-    );
+    check_cached!(sv.inner.is_block_height_cmp_tail_prepared, "is_block_height_cmp_tail_prepared");
     if sv.inner.block_heights_less_tail.len() >= 2 {
         let len = sv.inner.block_heights_less_tail.len();
         let blocks = &sv.inner.block_heights_less_tail;
