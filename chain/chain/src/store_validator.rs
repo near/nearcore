@@ -4,7 +4,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use borsh::BorshDeserialize;
-use enum_iterator::IntoEnumIterator;
+use strum::IntoEnumIterator;
 
 use near_chain_configs::GenesisConfig;
 use near_primitives::block::{Block, BlockHeader};
@@ -187,7 +187,7 @@ impl StoreValidator {
         if let Err(e) = validate::head_tail_validity(self) {
             self.process_error(e, "HEAD / HEADER_HEAD / TAIL / CHUNK_TAIL", DBCol::ColBlockMisc)
         }
-        for col in DBCol::into_enum_iter() {
+        for col in DBCol::iter() {
             if let Err(e) = self.validate_col(col) {
                 self.process_error(e, col.to_string(), col)
             }
