@@ -447,7 +447,7 @@ pub(crate) fn trie_changes_chunk_extra_exists(
                 unwrap_or_err!(item, "Can't find ShardChunk {:?} in Trie", chunk_header);
             }
             // 6. Prev State Roots should be equal
-            // TODO #2623: enable
+            // TODO #2843: enable
             /*
             #[cfg(feature = "adversarial")]
             {
@@ -466,6 +466,7 @@ pub(crate) fn trie_changes_chunk_extra_exists(
                 "State Root discrepancy, ShardChunk {:?}",
                 chunk_header
             );
+            return Ok(());
         }
     }
     err!("ShardChunk is not included into Block {:?}", block)
