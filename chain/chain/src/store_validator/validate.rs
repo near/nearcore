@@ -24,7 +24,7 @@ pub enum StoreValidatorError {
     #[error("Function {func_name:?}: data is invalid, {reason:?}")]
     InvalidData { func_name: String, reason: String },
     #[error("Function {func_name:?}: data that expected to exist in DB is not found, {reason:?}")]
-    NotFound { func_name: String, reason: String },
+    DBNotFound { func_name: String, reason: String },
     #[error("Function {func_name:?}: {reason:?}, expected {expected:?}, found {found:?}")]
     Discrepancy { func_name: String, reason: String, expected: String, found: String },
     #[error("Function {func_name:?}: inner Store Validator error, cache {cache:?} not set")]
@@ -93,13 +93,13 @@ macro_rules! unwrap_or_err_db {
         match $obj {
             Ok(Some(value)) => value,
             Err(e) => {
-                return Err(StoreValidatorError::NotFound {
+                return Err(StoreValidatorError::DBNotFound {
                     func_name: get_parent_function_name!(),
                     reason: format!("{}, error: {}", format!($($x),*), e)
                 })
             }
             _ => {
-                return Err(StoreValidatorError::NotFound {
+                return Err(StoreValidatorError::DBNotFound {
                     func_name: get_parent_function_name!(),
                     reason: format!($($x),*)
                 })
