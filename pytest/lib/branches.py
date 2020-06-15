@@ -29,7 +29,7 @@ def escaped(branch):
 
 
 def compile_current():
-    """ Compile current branch """
+    """Compile current branch."""
     branch = current_branch()
     try:
         # Accommodate rename from near to neard
@@ -44,14 +44,16 @@ def compile_current():
     subprocess.check_output(['git', 'checkout', '../Cargo.lock'])
 
 
-def download_binary(branch):
-    url = f'https://s3-us-west-1.amazonaws.com/build.nearprotocol.com/nearcore/Linux/{branch}/near'
+def download_binary(uname, branch):
+    """Download binary for given platform and branch."""
+    url = f'https://s3-us-west-1.amazonaws.com/build.nearprotocol.com/nearcore/{uname}/{branch}/near'
+    print(f'Downloading near & state-viewer for {branch}@{uname}')
     subprocess.check_output([
         'curl', '--proto', '=https', '--tlsv1.2', '-sSfL', url, '-o',
         f'../target/debug/near-{branch}'
     ])
     subprocess.check_output(['chmod', '+x', f'../target/debug/near-{branch}'])
-    url = f'https://s3-us-west-1.amazonaws.com/build.nearprotocol.com/nearcore/Linux/{branch}/state-viewer'
+    url = f'https://s3-us-west-1.amazonaws.com/build.nearprotocol.com/nearcore/{uname}/{branch}/state-viewer'
     subprocess.check_output([
         'curl', '--proto', '=https', '--tlsv1.2', '-sSfL', url, '-o',
         f'../target/debug/state-viewer-{branch}'
@@ -61,11 +63,12 @@ def download_binary(branch):
 
 
 def prepare_ab_test(other_branch):
-    compile_current()
-    if os.environ.get('BUILDKITE') and other_branch in [
-            'master', 'beta', 'stable'
-    ]:
-        download_binary(other_branch)
-    else:
-        compile_binary(other_branch)
+    # Use NEAR_AB_BINARY_EXISTS to avoid rebuild / re-download when testing locally.
+    if not os.environ.get('NEAR_AB_BINARY_EXISTS'):
+        compile_current()
+        uname = os.uname()[0]
+        if other_branch in ['master', 'beta', 'stable'] and uname in ['Linux', 'Darwin']:
+            download_binary(uname, other_branch)
+        else:
+            compile_binary(other_branch)
     return '../target/debug/', [other_branch, escaped(current_branch())]

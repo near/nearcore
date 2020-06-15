@@ -473,13 +473,6 @@ impl ChunkExtra {
     }
 }
 
-/// Data structure for semver version and github tag or commit.
-#[derive(Serialize, Deserialize, Clone, Debug, Default)]
-pub struct Version {
-    pub version: String,
-    pub build: String,
-}
-
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum BlockId {

@@ -38,7 +38,7 @@ fn test_tx_propagation() {
         let (genesis_config, rpc_addrs, clients) = start_nodes(4, &dirs, 2, 2, 10, 0);
         let view_client = clients[0].1.clone();
 
-        let genesis_hash = genesis_block(genesis_config).hash();
+        let genesis_hash = *genesis_block(genesis_config).hash();
         let signer = InMemorySigner::from_seed("near.1", KeyType::ED25519, "near.1");
         let transaction = SignedTransaction::send_money(
             1,
@@ -117,7 +117,7 @@ fn test_tx_propagation_through_rpc() {
         let (genesis_config, rpc_addrs, clients) = start_nodes(4, &dirs, 2, 2, 10, 0);
         let view_client = clients[0].1.clone();
 
-        let genesis_hash = genesis_block(genesis_config).hash();
+        let genesis_hash = *genesis_block(genesis_config).hash();
         let signer = InMemorySigner::from_seed("near.1", KeyType::ED25519, "near.1");
         let transaction = SignedTransaction::send_money(
             1,
@@ -182,7 +182,7 @@ fn test_tx_status_with_light_client() {
         let (genesis_config, rpc_addrs, clients) = start_nodes(4, &dirs, 2, 2, 10, 0);
         let view_client = clients[0].1.clone();
 
-        let genesis_hash = genesis_block(genesis_config).hash();
+        let genesis_hash = *genesis_block(genesis_config).hash();
         let signer = InMemorySigner::from_seed("near.1", KeyType::ED25519, "near.1");
         let transaction = SignedTransaction::send_money(
             1,
@@ -255,7 +255,7 @@ fn test_tx_status_with_light_client1() {
         let (genesis_config, rpc_addrs, clients) = start_nodes(4, &dirs, 2, 2, 10, 0);
         let view_client = clients[0].1.clone();
 
-        let genesis_hash = genesis_block(genesis_config).hash();
+        let genesis_hash = *genesis_block(genesis_config).hash();
         let signer = InMemorySigner::from_seed("near.3", KeyType::ED25519, "near.3");
         let transaction = SignedTransaction::send_money(
             1,
@@ -488,7 +488,7 @@ fn test_get_execution_outcome(is_tx_successful: bool) {
         let (genesis_config, rpc_addrs, clients) = start_nodes(1, &dirs, 1, 1, 1000, 0);
         let view_client = clients[0].1.clone();
 
-        let genesis_hash = genesis_block(genesis_config).hash();
+        let genesis_hash = *genesis_block(genesis_config).hash();
         let signer = InMemorySigner::from_seed("near.0", KeyType::ED25519, "near.0");
         let transaction = if is_tx_successful {
             SignedTransaction::send_money(

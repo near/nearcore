@@ -15,13 +15,11 @@ use smart_default::SmartDefault;
 use near_primitives::serialize::{u128_dec_format, u128_dec_format_compatible};
 use near_primitives::state_record::StateRecord;
 use near_primitives::types::{
-    AccountId, AccountInfo, Balance, BlockHeight, BlockHeightDelta, Gas, NumBlocks, NumSeats,
+    AccountId, AccountInfo, Balance, BlockHeight, BlockHeightDelta, EpochHeight, Gas, NumBlocks,
+    NumSeats,
 };
+use near_primitives::version::{ProtocolVersion, PROTOCOL_VERSION};
 use near_runtime_configs::RuntimeConfig;
-
-use crate::PROTOCOL_VERSION;
-
-pub const CONFIG_VERSION: u32 = 1;
 
 fn default_online_min_threshold() -> Rational {
     Rational::new(90, 100)
@@ -35,14 +33,16 @@ fn default_minimum_stake_divisor() -> u64 {
     10
 }
 
+fn default_protocol_upgrade_stake_threshold() -> Rational {
+    Rational::new(8, 10)
+}
+
+const MAX_GAS_PRICE: Balance = 10_000_000_000_000_000_000_000;
+
 #[derive(Debug, Clone, SmartDefault, Serialize, Deserialize)]
 pub struct GenesisConfig {
-    /// This is a version of a genesis config structure this version of binary works with.
-    /// If the binary tries to load a JSON config with a different version it will panic.
-    /// It's not a major protocol version, but used for automatic config migrations using scripts.
-    pub config_version: u32,
     /// Protocol version that this genesis works with.
-    pub protocol_version: u32,
+    pub protocol_version: ProtocolVersion,
     /// Official time of blockchain start.
     #[default(Utc::now())]
     pub genesis_time: DateTime<Utc>,
@@ -59,6 +59,12 @@ pub struct GenesisConfig {
     pub avg_hidden_validator_seats_per_shard: Vec<NumSeats>,
     /// Enable dynamic re-sharding.
     pub dynamic_resharding: bool,
+    /// Threshold of stake that needs to indicate that they ready for upgrade.
+    #[serde(default = "default_protocol_upgrade_stake_threshold")]
+    #[default(Rational::new(8, 10))]
+    pub protocol_upgrade_stake_threshold: Rational,
+    /// Number of epochs after stake threshold was achieved to start next prtocol version.
+    pub protocol_upgrade_num_epochs: EpochHeight,
     /// Epoch length counted in block heights.
     pub epoch_length: BlockHeightDelta,
     /// Initial gas limit.
@@ -66,6 +72,9 @@ pub struct GenesisConfig {
     /// Minimum gas price. It is also the initial gas price.
     #[serde(with = "u128_dec_format_compatible")]
     pub min_gas_price: Balance,
+    #[serde(with = "u128_dec_format")]
+    #[default(MAX_GAS_PRICE)]
+    pub max_gas_price: Balance,
     /// Criterion for kicking out block producers (this is a number between 0 and 100)
     pub block_producer_kickout_threshold: u8,
     /// Criterion for kicking out chunk producers (this is a number between 0 and 100)

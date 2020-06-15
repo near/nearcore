@@ -173,6 +173,8 @@ pub enum InvalidAccessKeyError {
     BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, PartialEq, Eq, RpcError,
 )]
 pub enum ActionsValidationError {
+    /// The delete action must be a final aciton in transaction
+    DeleteActionMustBeFinal,
     /// The total prepaid gas (for all given actions) exceeded the limit.
     TotalPrepaidGasExceeded { total_prepaid_gas: Gas, limit: Gas },
     /// The number of actions exceeded the given limit.
@@ -253,6 +255,9 @@ impl Display for ReceiptValidationError {
 impl Display for ActionsValidationError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
         match self {
+            ActionsValidationError::DeleteActionMustBeFinal => {
+                write!(f, "The delete action must be the last action in transaction")
+            }
             ActionsValidationError::TotalPrepaidGasExceeded { total_prepaid_gas, limit } => {
                 write!(f, "The total prepaid gas {} exceeds the limit {}", total_prepaid_gas, limit)
             }

@@ -28,6 +28,7 @@ members = [
     "chain/network",
     "chain/jsonrpc",
     "chain/jsonrpc/client",
+    "chain/jsonrpc/test-utils",
     "test-utils/testlib",
     "test-utils/loadtester",
     "test-utils/state-viewer",
@@ -94,6 +95,6 @@ opt-level = 3 # bs58 library is too slow to use in debug
 expensive_tests = ["neard/expensive_tests"]
 regression_tests = []
 old_tests = []
-adversarial = ["neard/adversarial", "near-jsonrpc/adversarial"]
+adversarial = ["neard/adversarial", "near-jsonrpc/adversarial", "near-store/adversarial"]
 no_cache = ["node-runtime/no_cache", "near-store/no_cache"]
 metric_recorder = ["neard/metric_recorder"]

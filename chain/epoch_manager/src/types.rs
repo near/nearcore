@@ -1,10 +1,5 @@
-use std::collections::{BTreeMap, HashMap};
-
 use borsh::{BorshDeserialize, BorshSerialize};
 use log::error;
-use num_rational::Rational;
-use serde::Serialize;
-
 use near_primitives::challenge::SlashedValidator;
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{
@@ -12,6 +7,11 @@ use near_primitives::types::{
     EpochId, NumSeats, NumShards, ShardId, ValidatorId, ValidatorKickoutReason, ValidatorStake,
     ValidatorStats,
 };
+use near_primitives::version::{ProtocolVersion, PROTOCOL_VERSION};
+use num_rational::Rational;
+use serde::Serialize;
+use smart_default::SmartDefault;
+use std::collections::{BTreeMap, HashMap};
 
 use crate::EpochManager;
 
@@ -43,13 +43,17 @@ pub struct EpochConfig {
     pub fishermen_threshold: Balance,
     /// The minimum stake required for staking is last seat price divided by this number.
     pub minimum_stake_divisor: u64,
+    /// Threshold of stake that needs to indicate that they ready for upgrade.
+    pub protocol_upgrade_stake_threshold: Rational,
+    /// Number of epochs after stake threshold was achieved to start next prtocol version.
+    pub protocol_upgrade_num_epochs: EpochHeight,
 }
 
 #[derive(Default, BorshSerialize, BorshDeserialize, Serialize, Clone, Debug, PartialEq, Eq)]
 pub struct ValidatorWeight(ValidatorId, u64);
 
 /// Information per epoch.
-#[derive(Default, BorshSerialize, BorshDeserialize, Serialize, Clone, Debug, PartialEq, Eq)]
+#[derive(SmartDefault, BorshSerialize, BorshDeserialize, Serialize, Clone, Debug, PartialEq, Eq)]
 pub struct EpochInfo {
     /// Ordinal of given epoch from genesis.
     /// There can be multiple epochs with the same ordinal in case of long forks.
@@ -78,6 +82,9 @@ pub struct EpochInfo {
     pub minted_amount: Balance,
     /// Seat price of this epoch.
     pub seat_price: Balance,
+    /// Current protocol version during this epoch.
+    #[default(PROTOCOL_VERSION)]
+    pub protocol_version: ProtocolVersion,
 }
 
 /// Information per each block.
@@ -91,7 +98,9 @@ pub struct BlockInfo {
     pub epoch_id: EpochId,
     pub proposals: Vec<ValidatorStake>,
     pub chunk_mask: Vec<bool>,
-    /// Validators slashed since the start of epoch or in previous epoch
+    /// Latest protocol version this validator observes.
+    pub latest_protocol_version: ProtocolVersion,
+    /// Validators slashed since the start of epoch or in previous epoch.
     pub slashed: HashMap<AccountId, SlashState>,
     /// Total supply at this block.
     pub total_supply: Balance,
@@ -107,6 +116,7 @@ impl BlockInfo {
         validator_mask: Vec<bool>,
         slashed: Vec<SlashedValidator>,
         total_supply: Balance,
+        latest_protocol_version: ProtocolVersion,
     ) -> Self {
         Self {
             height,
@@ -250,16 +260,28 @@ impl EpochInfoAggregator {
             self.last_block_hash = new_aggregator.last_block_hash;
         }
     }
+
+    pub fn update_version_tracker(
+        &mut self,
+        epoch_info: &EpochInfo,
+        mut prev_version_tracker: HashMap<ValidatorId, ProtocolVersion>,
+    ) {
+        let block_producer_id = EpochManager::block_producer_from_info(epoch_info, self.height);
+        prev_version_tracker.insert(block_producer_id, self.latest_protocol_version);
+        self.version_tracker = prev_version_tracker;
+    }
 }
 
 pub struct EpochSummary {
     pub prev_epoch_last_block_hash: CryptoHash,
-    // Proposals from the epoch, only the latest one per account
+    /// Proposals from the epoch, only the latest one per account
     pub all_proposals: Vec<ValidatorStake>,
-    // Kickout set, includes slashed
+    /// Kickout set, includes slashed
     pub validator_kickout: HashMap<AccountId, ValidatorKickoutReason>,
-    // Only for validators who met the threshold and didn't get slashed
+    /// Only for validators who met the threshold and didn't get slashed
     pub validator_block_chunk_stats: HashMap<AccountId, BlockChunkValidatorStats>,
+    /// Protocol version for next epoch.
+    pub next_version: ProtocolVersion,
 }
 
 /// State that a slashed validator can be in.

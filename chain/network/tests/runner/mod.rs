@@ -25,6 +25,7 @@ use near_network::{
 };
 use near_primitives::types::{AccountId, ValidatorId};
 use near_primitives::validator_signer::InMemoryValidatorSigner;
+use near_primitives::version::PROTOCOL_VERSION;
 use near_store::test_utils::create_test_store;
 use near_telemetry::{TelemetryActor, TelemetryConfig};
 use num_rational::Rational;
@@ -64,10 +65,12 @@ pub fn setup_network_node(
         1_000_000,
         100,
         1_000_000_000,
+        1_000_000_000,
         Rational::from_integer(0),
         Rational::from_integer(0),
         1000,
         5,
+        PROTOCOL_VERSION,
     );
 
     let peer_manager = PeerManagerActor::create(move |ctx| {

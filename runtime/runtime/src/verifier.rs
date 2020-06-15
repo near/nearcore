@@ -260,7 +260,13 @@ pub(crate) fn validate_actions(
         });
     }
 
-    for action in actions {
+    let mut iter = actions.iter().peekable();
+    while let Some(action) = iter.next() {
+        if let Action::DeleteAccount(_) = action {
+            if iter.peek().is_some() {
+                return Err(ActionsValidationError::DeleteActionMustBeFinal);
+            }
+        }
         validate_action(limit_config, action)?;
     }
 
@@ -1302,6 +1308,39 @@ mod tests {
                 total_number_of_actions: 2,
                 limit: 1
             },
+        );
+    }
+
+    #[test]
+    fn test_validate_delete_must_be_final() {
+        let mut limit_config = VMLimitConfig::default();
+        limit_config.max_actions_per_receipt = 3;
+        assert_eq!(
+            validate_actions(
+                &limit_config,
+                &vec![
+                    Action::DeleteAccount(DeleteAccountAction { beneficiary_id: "bob".into() }),
+                    Action::CreateAccount(CreateAccountAction {}),
+                ]
+            )
+            .expect_err("Expected an error"),
+            ActionsValidationError::DeleteActionMustBeFinal,
+        );
+    }
+
+    #[test]
+    fn test_validate_delete_must_work_if_its_final() {
+        let mut limit_config = VMLimitConfig::default();
+        limit_config.max_actions_per_receipt = 3;
+        assert_eq!(
+            validate_actions(
+                &limit_config,
+                &vec![
+                    Action::CreateAccount(CreateAccountAction {}),
+                    Action::DeleteAccount(DeleteAccountAction { beneficiary_id: "bob".into() }),
+                ]
+            ),
+            Ok(()),
         );
     }
 

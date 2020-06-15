@@ -5,9 +5,7 @@ use borsh::BorshSerialize;
 
 use near_crypto::{InMemorySigner, KeyType, PublicKey, Signature, Signer};
 
-use crate::block::{
-    Approval, ApprovalInner, BlockHeader, BlockHeaderInnerLite, BlockHeaderInnerRest,
-};
+use crate::block::{Approval, ApprovalInner, BlockHeader};
 use crate::challenge::ChallengeBody;
 use crate::hash::{hash, CryptoHash};
 use crate::network::{AnnounceAccount, PeerId};
@@ -30,8 +28,8 @@ pub trait ValidatorSigner: Sync + Send {
     fn sign_block_header_parts(
         &self,
         prev_hash: CryptoHash,
-        inner_lite: &BlockHeaderInnerLite,
-        inner_rest: &BlockHeaderInnerRest,
+        inner_lite: &[u8],
+        inner_rest: &[u8],
     ) -> (CryptoHash, Signature);
 
     /// Signs given inner of the chunk header.
@@ -86,8 +84,8 @@ impl ValidatorSigner for EmptyValidatorSigner {
     fn sign_block_header_parts(
         &self,
         prev_hash: CryptoHash,
-        inner_lite: &BlockHeaderInnerLite,
-        inner_rest: &BlockHeaderInnerRest,
+        inner_lite: &[u8],
+        inner_rest: &[u8],
     ) -> (CryptoHash, Signature) {
         let hash = BlockHeader::compute_hash(prev_hash, inner_lite, inner_rest);
         (hash, Signature::default())
@@ -182,8 +180,8 @@ impl ValidatorSigner for InMemoryValidatorSigner {
     fn sign_block_header_parts(
         &self,
         prev_hash: CryptoHash,
-        inner_lite: &BlockHeaderInnerLite,
-        inner_rest: &BlockHeaderInnerRest,
+        inner_lite: &[u8],
+        inner_rest: &[u8],
     ) -> (CryptoHash, Signature) {
         let hash = BlockHeader::compute_hash(prev_hash, inner_lite, inner_rest);
         (hash, self.signer.sign(hash.as_ref()))

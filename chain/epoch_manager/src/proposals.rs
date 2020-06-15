@@ -5,6 +5,7 @@ use near_primitives::errors::EpochError;
 use near_primitives::types::{
     AccountId, Balance, NumSeats, ValidatorId, ValidatorKickoutReason, ValidatorStake,
 };
+use near_primitives::version::ProtocolVersion;
 
 use crate::types::{EpochConfig, EpochInfo, RngSeed};
 
@@ -44,6 +45,7 @@ pub fn proposals_to_epoch_info(
     mut validator_kickout: HashMap<AccountId, ValidatorKickoutReason>,
     validator_reward: HashMap<AccountId, Balance>,
     minted_amount: Balance,
+    next_version: ProtocolVersion,
 ) -> Result<EpochInfo, EpochError> {
     // Combine proposals with rollovers.
     let mut ordered_proposals = BTreeMap::new();
@@ -205,12 +207,15 @@ pub fn proposals_to_epoch_info(
         fishermen_to_index,
         minted_amount,
         seat_price: threshold,
+        protocol_version: next_version,
     })
 }
 
 #[cfg(test)]
 mod tests {
     use num_rational::Rational;
+
+    use near_primitives::version::PROTOCOL_VERSION;
 
     use crate::test_utils::{
         change_stake, epoch_config, epoch_info, epoch_info_with_num_seats, stake,
@@ -237,7 +242,8 @@ mod tests {
                 vec![stake("test1", 1_000_000)],
                 HashMap::default(),
                 HashMap::default(),
-                0
+                0,
+                PROTOCOL_VERSION,
             )
             .unwrap(),
             epoch_info_with_num_seats(
@@ -268,6 +274,8 @@ mod tests {
                     online_min_threshold: Rational::new(90, 100),
                     online_max_threshold: Rational::new(99, 100),
                     minimum_stake_divisor: 1
+                    protocol_upgrade_stake_threshold: Rational::new(80, 100),
+                    protocol_upgrade_num_epochs: 2,
                 },
                 [0; 32],
                 &EpochInfo::default(),
@@ -280,6 +288,7 @@ mod tests {
                 HashMap::default(),
                 HashMap::default(),
                 0,
+                PROTOCOL_VERSION
             )
             .unwrap(),
             epoch_info_with_num_seats(
@@ -326,7 +335,8 @@ mod tests {
                 ],
                 HashMap::default(),
                 HashMap::default(),
-                0
+                0,
+                PROTOCOL_VERSION
             )
             .unwrap(),
             epoch_info(
@@ -365,7 +375,8 @@ mod tests {
                 vec![stake("test1", 9), stake("test2", 9), stake("test3", 9), stake("test4", 9)],
                 HashMap::default(),
                 HashMap::default(),
-                0
+                0,
+                PROTOCOL_VERSION
             )
             .unwrap(),
             epoch_info
