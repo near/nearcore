@@ -174,6 +174,10 @@ fn default_peer_recent_time_window() -> Duration {
 fn default_safe_set_size() -> u32 {
     20
 }
+/// Time to persist Accounts Id in the router without removing them in seconds.
+fn default_ttl_account_id_router() -> Duration {
+    Duration::from_secs(TTL_ACCOUNT_ID_ROUTER)
+}
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Network {
@@ -215,6 +219,9 @@ pub struct Network {
     /// It can be IP:Port or IP (to blacklist all connections coming from this address).
     #[serde(default)]
     pub blacklist: Vec<String>,
+    /// Time to persist Accounts Id in the router without removing them in seconds.
+    #[serde(default = "default_ttl_account_id_router")]
+    pub ttl_account_id_router: Duration,
 }
 
 impl Default for Network {
@@ -234,6 +241,7 @@ impl Default for Network {
             skip_sync_wait: false,
             ban_window: Duration::from_secs(3 * 60 * 60),
             blacklist: vec![],
+            ttl_account_id_router: default_ttl_account_id_router(),
         }
     }
 }
@@ -530,7 +538,7 @@ impl NearConfig {
                 epoch_length: genesis.config.epoch_length,
                 num_block_producer_seats: genesis.config.num_block_producer_seats,
                 announce_account_horizon: genesis.config.epoch_length / 2,
-                ttl_account_id_router: Duration::from_secs(TTL_ACCOUNT_ID_ROUTER),
+                ttl_account_id_router: config.network.ttl_account_id_router,
                 // TODO(1047): this should be adjusted depending on the speed of sync of state.
                 block_fetch_horizon: config.consensus.block_fetch_horizon,
                 state_fetch_horizon: config.consensus.state_fetch_horizon,
@@ -574,7 +582,7 @@ impl NearConfig {
                 max_send_peers: 512,
                 peer_expiration_duration: Duration::from_secs(7 * 24 * 60 * 60),
                 peer_stats_period: Duration::from_secs(5),
-                ttl_account_id_router: Duration::from_secs(TTL_ACCOUNT_ID_ROUTER),
+                ttl_account_id_router: config.network.ttl_account_id_router,
                 routed_message_ttl: ROUTED_MESSAGE_TTL,
                 max_routes_to_store: MAX_ROUTES_TO_STORE,
                 highest_peer_horizon: HIGHEST_PEER_HORIZON,

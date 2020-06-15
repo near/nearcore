@@ -590,11 +590,10 @@ impl ClientActor {
         }
 
         // First check that we currently have an AccountId
-        if self.client.validator_signer.is_none() {
-            // There is no account id associated with this client
-            return;
-        }
-        let validator_signer = self.client.validator_signer.as_ref().unwrap();
+        let validator_signer = match self.client.validator_signer.as_ref() {
+            None => return,
+            Some(signer) => signer,
+        };
 
         let now = Instant::now();
         // Check that we haven't announced it too recently
@@ -615,14 +614,14 @@ impl ClientActor {
             .get_next_epoch_id_from_prev_block(&prev_block_hash));
 
         // Check client is part of the futures validators
-        if let Ok(validators) = self
-            .client
-            .runtime_adapter
-            .get_epoch_block_producers_ordered(&next_epoch_id, &prev_block_hash)
+        if let Ok((validator_stake, is_slashed)) =
+            self.client.runtime_adapter.get_validator_by_account_id(
+                &next_epoch_id,
+                &prev_block_hash,
+                validator_signer.validator_id(),
+            )
         {
-            if validators.iter().any(|(validator_stake, _)| {
-                &validator_stake.account_id == validator_signer.validator_id()
-            }) {
+            if !is_slashed && validator_stake.public_key == validator_signer.public_key() {
                 debug!(target: "client", "Sending announce account for {}", validator_signer.validator_id());
                 self.last_validator_announce_time = Some(now);
                 let signature = self.sign_announce_account(&next_epoch_id).unwrap();
