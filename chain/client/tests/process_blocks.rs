@@ -1207,7 +1207,7 @@ fn test_incorrect_validator_key_produce_block() {
     )
     .unwrap();
     let res = client.produce_block(1);
-    matches!(res, Ok(None));
+    assert!(matches!(res, Ok(None)));
 }
 
 fn test_block_merkle_proof_with_len(n: NumBlocks) {
