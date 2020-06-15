@@ -1123,8 +1123,9 @@ impl EpochManager {
             let block_info = self.get_block_info(&cur_hash)?;
             if &block_info.epoch_id != epoch_id || block_info.prev_hash == CryptoHash::default() {
                 // This means that we reached the previous epoch and still hasn't seen
-                // `aggregator.last_block_hash` and therefore implies that a fork has happened.
-                // In this case, the new aggregator should overwrite the old one.
+                // `aggregator.last_block_hash` and therefore implies either a fork has happened
+                // or we are at the start of an epoch. In this case, the new aggregator should
+                // overwrite the old one.
                 overwrite = true;
                 break;
             }
