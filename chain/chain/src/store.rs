@@ -1652,16 +1652,14 @@ impl<'a> ChainStoreUpdate<'a> {
         self.chain_store_cache_update.chunk_extras.insert((*block_hash, shard_id), chunk_extra);
     }
 
-    pub fn save_chunk(&mut self, chunk_hash: &ChunkHash, chunk: ShardChunk) {
-        self.chain_store_cache_update.chunks.insert(chunk_hash.clone(), chunk);
+    pub fn save_chunk(&mut self, chunk: ShardChunk) {
+        self.chain_store_cache_update.chunks.insert(chunk.chunk_hash.clone(), chunk);
     }
 
-    pub fn save_partial_chunk(
-        &mut self,
-        chunk_hash: &ChunkHash,
-        partial_chunk: PartialEncodedChunk,
-    ) {
-        self.chain_store_cache_update.partial_chunks.insert(chunk_hash.clone(), partial_chunk);
+    pub fn save_partial_chunk(&mut self, partial_chunk: PartialEncodedChunk) {
+        self.chain_store_cache_update
+            .partial_chunks
+            .insert(partial_chunk.header.hash.clone(), partial_chunk);
     }
 
     pub fn save_block_merkle_tree(

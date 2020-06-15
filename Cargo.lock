@@ -2035,6 +2035,8 @@ dependencies = [
  "rand 0.7.3",
  "rocksdb",
  "serde",
+ "strum",
+ "thiserror",
  "tracing",
 ]
 
@@ -2285,6 +2287,7 @@ dependencies = [
  "near-rpc-error-macro",
  "near-vm-errors",
  "num-rational",
+ "primitive-types",
  "rand 0.7.3",
  "reed-solomon-erasure",
  "regex",
@@ -2366,6 +2369,8 @@ dependencies = [
  "rocksdb",
  "serde",
  "serde_json",
+ "strum",
+ "strum_macros",
  "tempfile",
 ]
 
@@ -2462,7 +2467,7 @@ dependencies = [
 
 [[package]]
 name = "neard"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "actix",
  "borsh",

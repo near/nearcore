@@ -316,7 +316,7 @@ impl Chain {
             Err(err) => match err.kind() {
                 ErrorKind::DBNotFoundErr(_) => {
                     for chunk in genesis_chunks {
-                        store_update.save_chunk(&chunk.chunk_hash, chunk.clone());
+                        store_update.save_chunk(chunk.clone());
                     }
                     runtime_adapter.add_validator_proposals(BlockHeaderInfo::new(
                         &genesis.header(),
@@ -3387,7 +3387,7 @@ impl<'a> ChainUpdate<'a> {
         let (outcome_root, outcome_proofs) =
             ApplyTransactionResult::compute_outcomes_proof(&apply_result.outcomes);
 
-        self.chain_store_update.save_chunk(&chunk.chunk_hash, chunk.clone());
+        self.chain_store_update.save_chunk(chunk.clone());
 
         self.chain_store_update.save_trie_changes(apply_result.trie_changes);
         let chunk_extra = ChunkExtra::new(
