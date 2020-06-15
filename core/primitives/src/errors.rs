@@ -508,8 +508,6 @@ pub struct BalanceMismatchError {
     pub slashed_burnt_amount: Balance,
     #[serde(with = "u128_dec_format")]
     pub other_burnt_amount: Balance,
-    #[serde(with = "u128_dec_format")]
-    pub gas_deficit_amount: Balance,
 }
 
 impl Display for BalanceMismatchError {
@@ -520,8 +518,7 @@ impl Display for BalanceMismatchError {
             .saturating_add(self.initial_accounts_balance)
             .saturating_add(self.incoming_receipts_balance)
             .saturating_add(self.processed_delayed_receipts_balance)
-            .saturating_add(self.initial_postponed_receipts_balance)
-            .saturating_add(self.gas_deficit_amount);
+            .saturating_add(self.initial_postponed_receipts_balance);
         let final_balance = self
             .final_accounts_balance
             .saturating_add(self.outgoing_receipts_balance)
@@ -539,7 +536,6 @@ impl Display for BalanceMismatchError {
              \tIncoming receipts balance sum: {}\n\
              \tProcessed delayed receipts balance sum: {}\n\
              \tInitial postponed receipts balance sum: {}\n\
-             \tThe total deficit for difference in the gas prices sum: {}\n\
              Outputs:\n\
              \tFinal accounts balance sum: {}\n\
              \tOutgoing receipts balance sum: {}\n\
@@ -555,7 +551,6 @@ impl Display for BalanceMismatchError {
             self.incoming_receipts_balance,
             self.processed_delayed_receipts_balance,
             self.initial_postponed_receipts_balance,
-            self.gas_deficit_amount,
             self.final_accounts_balance,
             self.outgoing_receipts_balance,
             self.new_delayed_receipts_balance,

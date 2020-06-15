@@ -1343,7 +1343,7 @@ mod tests {
     use near_primitives::errors::ReceiptValidationError;
     use near_primitives::hash::hash;
     use near_primitives::test_utils::{account_new, MockEpochInfoProvider};
-    use near_primitives::transaction::TransferAction;
+    use near_primitives::transaction::{FunctionCallAction, TransferAction};
     use near_primitives::types::MerkleHash;
     use near_store::test_utils::create_tries;
     use testlib::runtime_utils::{alice_account, bob_account};
@@ -1897,5 +1897,153 @@ mod tests {
                 ReceiptValidationError::InvalidPredecessorId { account_id: invalid_account_id }
             )))
         )
+    }
+
+    #[test]
+    fn test_apply_deficit_gas_for_transfer() {
+        let initial_balance = to_yocto(1_000_000);
+        let initial_locked = to_yocto(500_000);
+        let small_transfer = to_yocto(10_000);
+        let gas_limit = 10u64.pow(15);
+        let (runtime, tries, root, apply_state, _, epoch_info_provider) =
+            setup_runtime(initial_balance, initial_locked, gas_limit);
+
+        let n = 1;
+        let mut receipts = generate_receipts(small_transfer, n);
+        if let ReceiptEnum::Action(action_receipt) = &mut receipts.get_mut(0).unwrap().receipt {
+            action_receipt.gas_price = GAS_PRICE / 10;
+        }
+
+        let result = runtime
+            .apply(
+                tries.get_trie_for_shard(0),
+                root,
+                &None,
+                &apply_state,
+                &receipts,
+                &[],
+                &epoch_info_provider,
+            )
+            .unwrap();
+        assert_eq!(result.stats.gas_deficit_amount, result.stats.tx_burnt_amount * 9)
+    }
+
+    #[test]
+    fn test_apply_deficit_gas_for_function_call_covered() {
+        let initial_balance = to_yocto(1_000_000);
+        let initial_locked = to_yocto(500_000);
+        let gas_limit = 10u64.pow(15);
+        let (runtime, tries, root, apply_state, _, epoch_info_provider) =
+            setup_runtime(initial_balance, initial_locked, gas_limit);
+
+        let gas = 2 * 10u64.pow(14);
+        let gas_price = GAS_PRICE / 10;
+        let actions = vec![Action::FunctionCall(FunctionCallAction {
+            method_name: "hello".to_string(),
+            args: b"world".to_vec(),
+            gas,
+            deposit: 0,
+        })];
+
+        let expected_gas_burnt = safe_add_gas(
+            runtime.config.transaction_costs.action_receipt_creation_config.exec_fee(),
+            total_exec_fees(&runtime.config.transaction_costs, &actions).unwrap(),
+        )
+        .unwrap();
+        let receipts = vec![Receipt {
+            predecessor_id: bob_account(),
+            receiver_id: alice_account(),
+            receipt_id: create_nonce_with_nonce(&CryptoHash::default(), 0),
+            receipt: ReceiptEnum::Action(ActionReceipt {
+                signer_id: bob_account(),
+                signer_public_key: PublicKey::empty(KeyType::ED25519),
+                gas_price,
+                output_data_receivers: vec![],
+                input_data_ids: vec![],
+                actions,
+            }),
+        }];
+        let total_receipt_cost = Balance::from(gas + expected_gas_burnt) * gas_price;
+        let expected_gas_burnt_amount = Balance::from(expected_gas_burnt) * GAS_PRICE;
+        let expected_refund = total_receipt_cost - expected_gas_burnt_amount;
+
+        let result = runtime
+            .apply(
+                tries.get_trie_for_shard(0),
+                root,
+                &None,
+                &apply_state,
+                &receipts,
+                &[],
+                &epoch_info_provider,
+            )
+            .unwrap();
+        // We used part of the prepaid gas to paying extra fees.
+        assert_eq!(result.stats.gas_deficit_amount, 0);
+        // The refund is less than the received amount.
+        match &result.outgoing_receipts[0].receipt {
+            ReceiptEnum::Action(ActionReceipt { actions, .. }) => {
+                assert!(
+                    matches!(actions[0], Action::Transfer(TransferAction { deposit }) if deposit == expected_refund)
+                );
+            }
+            _ => unreachable!(),
+        };
+    }
+
+    #[test]
+    fn test_apply_deficit_gas_for_function_call_partial() {
+        let initial_balance = to_yocto(1_000_000);
+        let initial_locked = to_yocto(500_000);
+        let gas_limit = 10u64.pow(15);
+        let (runtime, tries, root, apply_state, _, epoch_info_provider) =
+            setup_runtime(initial_balance, initial_locked, gas_limit);
+
+        let gas = 1_000_000;
+        let gas_price = GAS_PRICE / 10;
+        let actions = vec![Action::FunctionCall(FunctionCallAction {
+            method_name: "hello".to_string(),
+            args: b"world".to_vec(),
+            gas,
+            deposit: 0,
+        })];
+
+        let expected_gas_burnt = safe_add_gas(
+            runtime.config.transaction_costs.action_receipt_creation_config.exec_fee(),
+            total_exec_fees(&runtime.config.transaction_costs, &actions).unwrap(),
+        )
+        .unwrap();
+        let receipts = vec![Receipt {
+            predecessor_id: bob_account(),
+            receiver_id: alice_account(),
+            receipt_id: create_nonce_with_nonce(&CryptoHash::default(), 0),
+            receipt: ReceiptEnum::Action(ActionReceipt {
+                signer_id: bob_account(),
+                signer_public_key: PublicKey::empty(KeyType::ED25519),
+                gas_price,
+                output_data_receivers: vec![],
+                input_data_ids: vec![],
+                actions,
+            }),
+        }];
+        let total_receipt_cost = Balance::from(gas + expected_gas_burnt) * gas_price;
+        let expected_gas_burnt_amount = Balance::from(expected_gas_burnt) * GAS_PRICE;
+        let expected_deficit = expected_gas_burnt_amount - total_receipt_cost;
+
+        let result = runtime
+            .apply(
+                tries.get_trie_for_shard(0),
+                root,
+                &None,
+                &apply_state,
+                &receipts,
+                &[],
+                &epoch_info_provider,
+            )
+            .unwrap();
+        // Used full prepaid gas, but it still not enough to cover deficit.
+        assert_eq!(result.stats.gas_deficit_amount, expected_deficit);
+        // Burnt all the fees + all prepaid gas.
+        assert_eq!(result.stats.tx_burnt_amount, total_receipt_cost);
     }
 }
