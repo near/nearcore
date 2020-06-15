@@ -2,7 +2,6 @@ use std::cmp;
 use std::collections::HashMap;
 use std::io;
 use std::sync::RwLock;
-use strum_macros::EnumIter;
 
 use rocksdb::{
     BlockBasedOptions, ColumnFamily, ColumnFamilyDescriptor, Direction, IteratorMode, Options,
