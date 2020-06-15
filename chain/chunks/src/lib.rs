@@ -1242,7 +1242,7 @@ impl ShardsManager {
                 .collect(),
         };
 
-        store_update.save_partial_chunk(&chunk_entry.header.chunk_hash(), partial_chunk);
+        store_update.save_partial_chunk(partial_chunk);
     }
 
     pub fn decode_and_persist_encoded_chunk(
@@ -1274,7 +1274,7 @@ impl ShardsManager {
             );
 
             // Decoded a valid chunk, store it in the permanent store
-            store_update.save_chunk(&chunk_hash, shard_chunk);
+            store_update.save_chunk(shard_chunk);
             store_update.commit()?;
 
             self.requested_partial_encoded_chunks.remove(&chunk_hash);
