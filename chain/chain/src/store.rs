@@ -1856,28 +1856,21 @@ impl<'a> ChainStoreUpdate<'a> {
                 // 1. Delete chunk-related data
                 let chunk = self.get_chunk(&chunk_hash)?.clone();
                 debug_assert_eq!(chunk.header.inner.height_created, height);
-                // 1a. Delete from receipt_id_to_shard_id (ColReceiptIdToShardId)
                 for receipt in chunk.receipts {
                     self.gc_col(ColReceiptIdToShardId, &receipt.receipt_id.into())?;
                 }
-                // 1b. Delete from ColTransactions
                 for transaction in chunk.transactions {
                     self.gc_col(ColTransactions, &transaction.get_hash().into())?;
                 }
 
                 // 2. Delete chunk_hash-indexed data
                 let chunk_header_hash = chunk_hash.clone().into();
-                // 2a. Delete chunks (ColChunks)
                 self.gc_col(ColChunks, &chunk_header_hash)?;
-                // 2b. Delete chunk extras (ColChunkExtra)
                 self.gc_col(ColChunkExtra, &chunk_header_hash)?;
-                // 2c. Delete partial_chunks (ColPartialChunks)
                 self.gc_col(ColPartialChunks, &chunk_header_hash)?;
-                // 2d. Delete invalid chunks (ColInvalidChunks)
                 self.gc_col(ColInvalidChunks, &chunk_header_hash)?;
             }
             // 3. Delete chunks_tail-related data
-            // 3a. Delete from ColChunkHashesByHeight
             self.gc_col(ColChunkHashesByHeight, &index_to_bytes(height))?;
         }
         self.update_chunk_tail(min_chunk_height);
@@ -1964,48 +1957,33 @@ impl<'a> ChainStoreUpdate<'a> {
         // 2. Delete shard_id-indexed data (shards, receipts, transactions)
         for shard_id in 0..block.header().chunk_mask().len() as ShardId {
             let height_shard_id = get_block_shard_id(&block_hash, shard_id);
-            // 2a. Delete outgoing receipts (ColOutgoingReceipts)
             self.gc_col(ColOutgoingReceipts, &height_shard_id)?;
-            // 2b. Delete incoming receipts (ColIncomingReceipts)
             self.gc_col(ColIncomingReceipts, &height_shard_id)?;
-            // 2c. Delete from chunk_hash_per_height_shard (ColChunkPerHeightShard)
             self.gc_col(ColChunkPerHeightShard, &height_shard_id)?;
-            // 2d. Delete from next_block_with_new_chunk (ColNextBlockWithNewChunk)
             self.gc_col(ColNextBlockWithNewChunk, &height_shard_id)?;
-            // 2e. Delete from ColStateHeaders
             let key = StateHeaderKey(shard_id, block_hash).try_to_vec()?;
             self.gc_col(ColStateHeaders, &key)?;
-            // 2f. Delete from ColStateParts
             // Already done, check chain.clear_downloaded_parts()
         }
 
         // 3. Delete block_hash-indexed data
+        // Don't delete block header (ColBlockHeader) - because header sync needs headers
         let block_hash_vec: Vec<u8> = block_hash.as_ref().into();
-        // 3a. Delete block (ColBlock)
         self.gc_col(ColBlock, &block_hash_vec)?;
-        // 3b. Delete block header (ColBlockHeader) - don't do because header sync needs headers
-        // 3c. Delete block extras (ColBlockExtra)
         self.gc_col(ColBlockExtra, &block_hash_vec)?;
-        // 3d. Delete from next_block_hashes (ColNextBlockHashes)
         self.gc_col(ColNextBlockHashes, &block_hash_vec)?;
-        // 3e. Delete from ColChallengedBlocks
         self.gc_col(ColChallengedBlocks, &block_hash_vec)?;
-        // 3f. Delete from ColBlocksToCatchup
         self.gc_col(ColBlocksToCatchup, &block_hash_vec)?;
-        // 3g. Delete from KV state changes
         let storage_key = KeyForStateChanges::get_prefix(&block_hash);
-        // 3g1. We should collect all the keys which key prefix equals to `block_hash`
         let stored_state_changes: Vec<Vec<u8>> = self
             .chain_store
             .store()
             .iter_prefix(ColStateChanges, storage_key.as_ref())
             .map(|key| key.0.into())
             .collect();
-        // 3g2. Remove from ColStateChanges all found State Changes
         for key in stored_state_changes {
             self.gc_col(ColStateChanges, &key)?;
         }
-        // 3h. Delete from ColBlockRefCount
         self.gc_col(ColBlockRefCount, &block_hash_vec)?;
 
         // 4. Update or delete block_hash_per_height
@@ -2014,12 +1992,10 @@ impl<'a> ChainStoreUpdate<'a> {
         match gc_mode {
             GCMode::Fork(_) => {
                 // 5. Forks only clearing
-                // 5a. Decreasing block refcount
                 self.dec_block_refcount(block.header().prev_hash())?;
             }
             GCMode::Canonical(_) => {
                 // 6. Canonical Chain clearing
-                // 6a. Delete from ColBlockHeight - don't do because: block sync needs it + genesis should be accessible
 
                 // 7. Delete chunks and chunk-indexed data
                 let mut min_chunk_height = self.tail()?;
@@ -2032,8 +2008,7 @@ impl<'a> ChainStoreUpdate<'a> {
             }
             GCMode::StateSync => {
                 // 8. State Sync clearing
-                // 8a. Delete from ColBlockHeight - don't do because: block sync needs it + genesis should be accessible
-
+                // Don't delete from ColBlockHeight because: block sync needs it + genesis should be accessible
                 // Chunks deleted separately
             }
         };
@@ -2172,7 +2147,9 @@ impl<'a> ChainStoreUpdate<'a> {
             DBCol::ColBlockPerHeight => {
                 panic!("Must use gc_col_glock_per_height method to gc ColBlockPerHeight");
             }
-            _ => {}
+            _ => {
+                unimplemented!();
+            }
         }
         self.inc_gc(col);
         self.merge(store_update);
