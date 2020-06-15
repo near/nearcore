@@ -57,6 +57,7 @@ fn test_verify_block_double_sign_challenge() {
         vec![],
         Rational::from_integer(0),
         0,
+        100,
         None,
         vec![],
         vec![],
@@ -200,6 +201,7 @@ fn create_chunk(
         vec![],
         Rational::from_integer(0),
         0,
+        100,
         None,
         vec![],
         vec![],
@@ -445,6 +447,7 @@ fn test_verify_chunk_invalid_state_challenge() {
         vec![],
         Rational::from_integer(0),
         0,
+        100,
         None,
         vec![],
         vec![],
@@ -462,6 +465,7 @@ fn test_verify_chunk_invalid_state_challenge() {
         let economics_config = BlockEconomicsConfig {
             gas_price_adjustment_rate: Rational::from_integer(0),
             min_gas_price: 0,
+            max_gas_price: 100,
         };
 
         let mut chain_update = ChainUpdate::new(

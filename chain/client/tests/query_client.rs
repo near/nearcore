@@ -61,6 +61,7 @@ fn query_status_not_crash() {
                 vec![],
                 Rational::from_integer(0),
                 0,
+                100,
                 None,
                 vec![],
                 vec![],

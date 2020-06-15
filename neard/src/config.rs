@@ -786,6 +786,7 @@ pub fn init_configs(
                 protocol_treasury_account: account_id,
                 fishermen_threshold: FISHERMEN_THRESHOLD,
                 min_gas_price: MIN_GAS_PRICE,
+                ..Default::default()
             };
             let genesis = Genesis::new(genesis_config, records.into());
             genesis.to_file(&dir.join(config.genesis_file));

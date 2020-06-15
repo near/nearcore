@@ -2,10 +2,10 @@ use std::cmp::max;
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::{DateTime, Utc};
-use num_rational::Rational;
-use serde::Serialize;
-
 use near_crypto::Signature;
+use num_rational::Rational;
+use primitive_types::U256;
+use serde::Serialize;
 
 pub use crate::block_header::*;
 use crate::challenge::{Challenges, ChallengesResult};
@@ -127,6 +127,7 @@ impl Block {
         approvals: Vec<Option<Signature>>,
         gas_price_adjustment_rate: Rational,
         min_gas_price: Balance,
+        max_gas_price: Balance,
         minted_amount: Option<Balance>,
         challenges_result: ChallengesResult,
         challenges: Challenges,
@@ -157,8 +158,9 @@ impl Block {
             gas_used,
             gas_limit,
             gas_price_adjustment_rate,
+            min_gas_price,
+            max_gas_price,
         );
-        let new_gas_price = std::cmp::max(new_gas_price, min_gas_price);
 
         let new_total_supply = prev.total_supply() + minted_amount.unwrap_or(0) - balance_burnt;
 
@@ -218,6 +220,7 @@ impl Block {
         &self,
         prev_gas_price: Balance,
         min_gas_price: Balance,
+        max_gas_price: Balance,
         gas_price_adjustment_rate: Rational,
     ) -> bool {
         let gas_used = Self::compute_gas_used(self.chunks(), self.header().height());
@@ -227,8 +230,10 @@ impl Block {
             gas_used,
             gas_limit,
             gas_price_adjustment_rate,
+            min_gas_price,
+            max_gas_price,
         );
-        self.header().gas_price() == max(expected_price, min_gas_price)
+        self.header().gas_price() == expected_price
     }
 
     pub fn compute_new_gas_price(
@@ -236,6 +241,8 @@ impl Block {
         gas_used: Gas,
         gas_limit: Gas,
         gas_price_adjustment_rate: Rational,
+        min_gas_price: Balance,
+        max_gas_price: Balance,
     ) -> Balance {
         if gas_limit == 0 {
             prev_gas_price
@@ -245,7 +252,13 @@ impl Block {
                 + 2 * *gas_price_adjustment_rate.numer() as u128 * u128::from(gas_used);
             let denominator =
                 2 * *gas_price_adjustment_rate.denom() as u128 * u128::from(gas_limit);
-            prev_gas_price * numerator / denominator
+            let new_gas_price =
+                U256::from(prev_gas_price) * U256::from(numerator) / U256::from(denominator);
+            if new_gas_price > U256::from(max_gas_price) {
+                max_gas_price
+            } else {
+                max(new_gas_price.as_u128(), min_gas_price)
+            }
         }
     }
 

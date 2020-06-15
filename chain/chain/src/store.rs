@@ -1652,16 +1652,14 @@ impl<'a> ChainStoreUpdate<'a> {
         self.chain_store_cache_update.chunk_extras.insert((*block_hash, shard_id), chunk_extra);
     }
 
-    pub fn save_chunk(&mut self, chunk_hash: &ChunkHash, chunk: ShardChunk) {
-        self.chain_store_cache_update.chunks.insert(chunk_hash.clone(), chunk);
+    pub fn save_chunk(&mut self, chunk: ShardChunk) {
+        self.chain_store_cache_update.chunks.insert(chunk.chunk_hash.clone(), chunk);
     }
 
-    pub fn save_partial_chunk(
-        &mut self,
-        chunk_hash: &ChunkHash,
-        partial_chunk: PartialEncodedChunk,
-    ) {
-        self.chain_store_cache_update.partial_chunks.insert(chunk_hash.clone(), partial_chunk);
+    pub fn save_partial_chunk(&mut self, partial_chunk: PartialEncodedChunk) {
+        self.chain_store_cache_update
+            .partial_chunks
+            .insert(partial_chunk.header.hash.clone(), partial_chunk);
     }
 
     pub fn save_block_merkle_tree(
@@ -1916,6 +1914,12 @@ impl<'a> ChainStoreUpdate<'a> {
                         .map(|trie_changes: TrieChanges| {
                             tries
                                 .revert_insertions(&trie_changes, shard_id, &mut store_update)
+                                .map(|_| {
+                                    store_update.delete(
+                                        ColTrieChanges,
+                                        &get_block_shard_id(&block_hash, shard_id),
+                                    );
+                                })
                                 .map_err(|err| ErrorKind::Other(err.to_string()))
                         })
                         .unwrap_or(Ok(()))?;
@@ -1929,6 +1933,12 @@ impl<'a> ChainStoreUpdate<'a> {
                         .map(|trie_changes: TrieChanges| {
                             tries
                                 .apply_deletions(&trie_changes, shard_id, &mut store_update)
+                                .map(|_| {
+                                    store_update.delete(
+                                        ColTrieChanges,
+                                        &get_block_shard_id(&block_hash, shard_id),
+                                    );
+                                })
                                 .map_err(|err| ErrorKind::Other(err.to_string()))
                         })
                         .unwrap_or(Ok(()))?;
@@ -1937,7 +1947,10 @@ impl<'a> ChainStoreUpdate<'a> {
                 block_hash = *self.get_block_header(&block_hash)?.prev_hash();
             }
             GCMode::StateSync => {
-                // Do nothing here
+                // Not apply the data from ColTrieChanges
+                for shard_id in 0..header.chunk_mask().len() as ShardId {
+                    store_update.delete(ColTrieChanges, &get_block_shard_id(&block_hash, shard_id));
+                }
             }
         }
 

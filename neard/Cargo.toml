@@ -1,6 +1,6 @@
 [package]
 name = "neard"
-version = "1.0.0"
+version = "1.1.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2018"
 
@@ -46,7 +46,7 @@ tempfile = "3"
 testlib = { path = "../test-utils/testlib" }
 
 [features]
-adversarial =  ["near-client/adversarial", "near-network/adversarial"]
+adversarial =  ["near-client/adversarial", "near-network/adversarial", "near-store/adversarial"]
 expensive_tests = ["near-client/expensive_tests", "near-epoch-manager/expensive_tests", "near-chain/expensive_tests"]
 metric_recorder = ["near-network/metric_recorder", "near-client/metric_recorder"]
 

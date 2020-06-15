@@ -73,6 +73,7 @@ pub fn setup(
         0,
         1_000_000,
         100,
+        1_000_000_000,
         3_000_000_000_000_000_000_000_000_000_000_000,
         Rational::from_integer(0),
         Rational::from_integer(0),
