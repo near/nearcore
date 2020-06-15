@@ -30,7 +30,6 @@ use near_primitives::trie_key::trie_key_parsers;
 use near_primitives::types::{
     AccountId, ApprovalStake, Balance, BlockHeight, EpochHeight, EpochId, EpochInfoProvider, Gas,
     MerkleHash, NumShards, ShardId, StateChangeCause, StateRoot, StateRootNode, ValidatorStake,
-    ValidatorStats,
 };
 use near_primitives::version::ProtocolVersion;
 use near_primitives::views::{
@@ -103,6 +102,11 @@ impl EpochInfoProvider for SafeEpochManager {
             })
             .sum())
     }
+
+    fn minimum_stake(&self, prev_block_hash: &CryptoHash) -> Result<Balance, EpochError> {
+        let mut epoch_manager = self.0.write().expect(POISONED_LOCK_ERR);
+        epoch_manager.minimum_stake(prev_block_hash)
+    }
 }
 
 /// Defines Nightshade state transition and validator rotation.
@@ -150,6 +154,7 @@ impl NightshadeRuntime {
             online_max_threshold: genesis.config.online_max_threshold,
             protocol_upgrade_num_epochs: genesis.config.protocol_upgrade_num_epochs,
             protocol_upgrade_stake_threshold: genesis.config.protocol_upgrade_stake_threshold,
+            minimum_stake_divisor: genesis.config.minimum_stake_divisor,
         };
         let reward_calculator = RewardCalculator {
             max_inflation_rate: genesis.config.max_inflation_rate,
@@ -788,18 +793,6 @@ impl RuntimeAdapter for NightshadeRuntime {
         }
     }
 
-    fn get_num_validator_blocks(
-        &self,
-        epoch_id: &EpochId,
-        last_known_block_hash: &CryptoHash,
-        account_id: &AccountId,
-    ) -> Result<ValidatorStats, Error> {
-        let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
-        epoch_manager
-            .get_num_validator_blocks(epoch_id, last_known_block_hash, account_id)
-            .map_err(Error::from)
-    }
-
     fn num_shards(&self) -> NumShards {
         // TODO: should be dynamic.
         self.genesis.config.num_block_producer_seats_per_shard.len() as NumShards
@@ -927,6 +920,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         let block_info = BlockInfo::new(
             block_header_info.height,
             block_header_info.last_finalized_height,
+            block_header_info.last_finalized_block_hash,
             block_header_info.prev_hash,
             block_header_info.proposals,
             block_header_info.chunk_mask,
@@ -1362,9 +1356,7 @@ mod test {
     use near_store::create_store;
     use node_runtime::config::RuntimeConfig;
 
-    use crate::config::{
-        GenesisExt, FISHERMEN_THRESHOLD, TESTING_INIT_BALANCE, TESTING_INIT_STAKE,
-    };
+    use crate::config::{GenesisExt, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
     use crate::get_store_path;
 
     use super::*;
@@ -1482,6 +1474,7 @@ mod test {
                     random_value: [0; 32].as_ref().try_into().unwrap(),
                     height: 0,
                     last_finalized_height: 0,
+                    last_finalized_block_hash: CryptoHash::default(),
                     proposals: vec![],
                     slashed_validators: vec![],
                     chunk_mask: vec![],
@@ -1549,6 +1542,7 @@ mod test {
                     random_value: [0; 32].as_ref().try_into().unwrap(),
                     height: self.head.height + 1,
                     last_finalized_height: self.head.height.saturating_sub(1),
+                    last_finalized_block_hash: self.head.last_block_hash,
                     proposals: self.last_proposals.clone(),
                     slashed_validators: challenges_result,
                     chunk_mask,
@@ -1963,6 +1957,7 @@ mod test {
                     random_value: [0; 32].as_ref().try_into().unwrap(),
                     height: i,
                     last_finalized_height: i.saturating_sub(2),
+                    last_finalized_block_hash: prev_hash,
                     proposals: new_env.last_proposals.clone(),
                     slashed_validators: vec![],
                     chunk_mask: vec![true],
@@ -2431,7 +2426,7 @@ mod test {
         let num_nodes = 4;
         let validators = (0..num_nodes).map(|i| format!("test{}", i + 1)).collect::<Vec<_>>();
         let mut env = TestEnv::new(
-            "test_validator_stake_change_multiple_times",
+            "test_fishermen_stake",
             vec![validators.clone()],
             4,
             vec![],
@@ -2446,9 +2441,10 @@ mod test {
             .iter()
             .map(|id| InMemorySigner::from_seed(id, KeyType::ED25519, id))
             .collect();
+        let fishermen_stake = TESTING_INIT_STAKE / 10 + 1;
 
-        let staking_transaction = stake(1, &signers[0], &block_producers[0], FISHERMEN_THRESHOLD);
-        let staking_transaction1 = stake(1, &signers[1], &block_producers[1], FISHERMEN_THRESHOLD);
+        let staking_transaction = stake(1, &signers[0], &block_producers[0], fishermen_stake);
+        let staking_transaction1 = stake(1, &signers[1], &block_producers[1], fishermen_stake);
         env.step_default(vec![staking_transaction, staking_transaction1]);
         let account = env.view_account(&block_producers[0].validator_id());
         assert_eq!(account.amount, TESTING_INIT_BALANCE - TESTING_INIT_STAKE);
@@ -2457,8 +2453,8 @@ mod test {
             env.step_default(vec![]);
         }
         let account0 = env.view_account(&block_producers[0].validator_id());
-        assert_eq!(account0.locked, FISHERMEN_THRESHOLD);
-        assert_eq!(account0.amount, TESTING_INIT_BALANCE - FISHERMEN_THRESHOLD);
+        assert_eq!(account0.locked, fishermen_stake);
+        assert_eq!(account0.amount, TESTING_INIT_BALANCE - fishermen_stake);
         let response = env.runtime.get_validator_info(&env.head.last_block_hash).unwrap();
         assert_eq!(
             response
@@ -2469,8 +2465,7 @@ mod test {
             vec!["test1", "test2"]
         );
         let staking_transaction = stake(2, &signers[0], &block_producers[0], TESTING_INIT_STAKE);
-        let staking_transaction2 =
-            stake(2, &signers[1], &block_producers[1], FISHERMEN_THRESHOLD / 2);
+        let staking_transaction2 = stake(2, &signers[1], &block_producers[1], 0);
         env.step_default(vec![staking_transaction, staking_transaction2]);
 
         for _ in 13..=25 {
@@ -2495,7 +2490,7 @@ mod test {
         let num_nodes = 2;
         let validators = (0..num_nodes).map(|i| format!("test{}", i + 1)).collect::<Vec<_>>();
         let mut env = TestEnv::new(
-            "test_validator_stake_change_multiple_times",
+            "test_fishermen_unstake",
             vec![validators.clone()],
             2,
             vec![],
@@ -2510,16 +2505,17 @@ mod test {
             .iter()
             .map(|id| InMemorySigner::from_seed(id, KeyType::ED25519, id))
             .collect();
+        let fishermen_stake = TESTING_INIT_STAKE / 10 + 1;
 
-        let staking_transaction = stake(1, &signers[0], &block_producers[0], FISHERMEN_THRESHOLD);
+        let staking_transaction = stake(1, &signers[0], &block_producers[0], fishermen_stake);
         env.step_default(vec![staking_transaction]);
         for _ in 2..9 {
             env.step_default(vec![]);
         }
 
         let account0 = env.view_account(&block_producers[0].validator_id());
-        assert_eq!(account0.locked, FISHERMEN_THRESHOLD);
-        assert_eq!(account0.amount, TESTING_INIT_BALANCE - FISHERMEN_THRESHOLD);
+        assert_eq!(account0.locked, fishermen_stake);
+        assert_eq!(account0.amount, TESTING_INIT_BALANCE - fishermen_stake);
         let response = env.runtime.get_validator_info(&env.head.last_block_hash).unwrap();
         assert_eq!(
             response
@@ -2632,5 +2628,67 @@ mod test {
         for _ in 15..=17 {
             env.step_default(vec![]);
         }
+    }
+
+    #[test]
+    fn test_proposal_deduped() {
+        let num_nodes = 2;
+        let validators = (0..num_nodes).map(|i| format!("test{}", i + 1)).collect::<Vec<_>>();
+        let mut env = TestEnv::new(
+            "test_proposal_deduped",
+            vec![validators.clone()],
+            4,
+            vec![],
+            vec![],
+            false,
+        );
+        let block_producers: Vec<_> = validators
+            .iter()
+            .map(|id| InMemoryValidatorSigner::from_seed(id, KeyType::ED25519, id))
+            .collect();
+        let signers: Vec<_> = validators
+            .iter()
+            .map(|id| InMemorySigner::from_seed(id, KeyType::ED25519, id))
+            .collect();
+
+        let staking_transaction1 =
+            stake(1, &signers[1], &block_producers[1], TESTING_INIT_STAKE - 100);
+        let staking_transaction2 =
+            stake(2, &signers[1], &block_producers[1], TESTING_INIT_STAKE - 10);
+        env.step_default(vec![staking_transaction1, staking_transaction2]);
+        assert_eq!(env.last_proposals.len(), 1);
+        assert_eq!(env.last_proposals[0].stake, TESTING_INIT_STAKE - 10);
+    }
+
+    #[test]
+    fn test_insufficient_stake() {
+        let num_nodes = 2;
+        let validators = (0..num_nodes).map(|i| format!("test{}", i + 1)).collect::<Vec<_>>();
+        let mut env = TestEnv::new(
+            "test_proposal_deduped",
+            vec![validators.clone()],
+            4,
+            vec![],
+            vec![],
+            false,
+        );
+        let block_producers: Vec<_> = validators
+            .iter()
+            .map(|id| InMemoryValidatorSigner::from_seed(id, KeyType::ED25519, id))
+            .collect();
+        let signers: Vec<_> = validators
+            .iter()
+            .map(|id| InMemorySigner::from_seed(id, KeyType::ED25519, id))
+            .collect();
+
+        let staking_transaction1 = stake(1, &signers[1], &block_producers[1], 100);
+        let staking_transaction2 =
+            stake(2, &signers[1], &block_producers[1], TESTING_INIT_STAKE / 10 - 1);
+        env.step_default(vec![staking_transaction1, staking_transaction2]);
+        assert!(env.last_proposals.is_empty());
+        let staking_transaction3 = stake(3, &signers[1], &block_producers[1], 0);
+        env.step_default(vec![staking_transaction3]);
+        assert_eq!(env.last_proposals.len(), 1);
+        assert_eq!(env.last_proposals[0].stake, 0);
     }
 }

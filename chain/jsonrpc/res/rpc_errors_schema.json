@@ -450,6 +450,7 @@
         "LackBalanceForState",
         "TriesToUnstake",
         "TriesToStake",
+        "InsufficientStake",
         "FunctionCallError",
         "NewReceiptValidationError"
       ],
@@ -597,6 +598,15 @@
       "name": "FunctionCallZeroAttachedGas",
       "subtypes": [],
       "props": {}
+    },
+    "InsufficientStake": {
+      "name": "InsufficientStake",
+      "subtypes": [],
+      "props": {
+        "account_id": "",
+        "minimum_stake": "",
+        "stake": ""
+      }
     },
     "InvalidAccessKeyError": {
       "name": "InvalidAccessKeyError",
