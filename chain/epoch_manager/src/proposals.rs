@@ -273,7 +273,7 @@ mod tests {
                     fishermen_threshold: 10,
                     online_min_threshold: Rational::new(90, 100),
                     online_max_threshold: Rational::new(99, 100),
-                    minimum_stake_divisor: 1
+                    minimum_stake_divisor: 1,
                     protocol_upgrade_stake_threshold: Rational::new(80, 100),
                     protocol_upgrade_num_epochs: 2,
                 },

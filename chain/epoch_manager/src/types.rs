@@ -125,6 +125,7 @@ impl BlockInfo {
             prev_hash,
             proposals,
             chunk_mask: validator_mask,
+            latest_protocol_version,
             slashed: slashed
                 .into_iter()
                 .map(|s| {
@@ -147,6 +148,8 @@ pub struct EpochInfoAggregator {
     pub block_tracker: HashMap<ValidatorId, ValidatorStats>,
     /// For each shard, a map of validator id to (num_chunks_produced, num_chunks_expected) so far in the given epoch.
     pub shard_tracker: HashMap<ShardId, HashMap<ValidatorId, ValidatorStats>>,
+    /// Latest protocol version that each validator supports.
+    pub version_tracker: HashMap<ValidatorId, ProtocolVersion>,
     /// All proposals in this epoch up to this block.
     pub all_proposals: BTreeMap<AccountId, ValidatorStake>,
     /// Id of the epoch that this aggregator is in.
@@ -160,6 +163,7 @@ impl EpochInfoAggregator {
         Self {
             block_tracker: Default::default(),
             shard_tracker: Default::default(),
+            version_tracker: Default::default(),
             all_proposals: BTreeMap::default(),
             epoch_id,
             last_block_hash,
@@ -212,7 +216,14 @@ impl EpochInfoAggregator {
                 .or_insert(ValidatorStats { produced: u64::from(*mask), expected: 1 });
         }
 
-        // Step 3: update proposals
+        // Step 3: update version tracker
+        let block_producer_id =
+            EpochManager::block_producer_from_info(epoch_info, block_info.height);
+        self.version_tracker
+            .entry(block_producer_id)
+            .or_insert_with(|| block_info.latest_protocol_version);
+
+        // Step 4: update proposals
         for proposal in block_info.proposals.iter() {
             self.all_proposals
                 .entry(proposal.account_id.clone())
@@ -255,20 +266,12 @@ impl EpochInfoAggregator {
                     })
                     .or_insert_with(|| stats);
             }
+            // merge version tracker
+            self.version_tracker.extend(new_aggregator.version_tracker.into_iter());
             // merge proposals
             self.all_proposals.extend(new_aggregator.all_proposals.into_iter());
             self.last_block_hash = new_aggregator.last_block_hash;
         }
-    }
-
-    pub fn update_version_tracker(
-        &mut self,
-        epoch_info: &EpochInfo,
-        mut prev_version_tracker: HashMap<ValidatorId, ProtocolVersion>,
-    ) {
-        let block_producer_id = EpochManager::block_producer_from_info(epoch_info, self.height);
-        prev_version_tracker.insert(block_producer_id, self.latest_protocol_version);
-        self.version_tracker = prev_version_tracker;
     }
 }
 

@@ -298,6 +298,7 @@ mod tests {
                     height,
                     0,
                     prev_h,
+                    prev_h,
                     proposals,
                     vec![],
                     vec![],

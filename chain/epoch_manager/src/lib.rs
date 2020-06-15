@@ -206,6 +206,7 @@ impl EpochManager {
             block_tracker: block_validator_tracker,
             shard_tracker: chunk_validator_tracker,
             all_proposals,
+            version_tracker,
             ..
         } = self.get_and_update_epoch_info_aggregator(
             &last_block_info.epoch_id,
@@ -218,7 +219,7 @@ impl EpochManager {
         // Next protocol version calculation.
         // Implements https://github.com/nearprotocol/NEPs/pull/64/files#diff-45f773511fe4321b446c3c4226324873R76
         let mut versions = HashMap::new();
-        for (validator_id, version) in last_block_info.version_tracker.iter() {
+        for (validator_id, version) in version_tracker.iter() {
             let stake = epoch_info.validators[*validator_id as usize].stake;
             *versions.entry(version).or_insert(0) += stake;
         }
@@ -1137,15 +1138,16 @@ impl EpochManager {
         } else {
             self.epoch_info_aggregator.take()
         };
+        let mut epoch_change = false;
         let mut aggregator = if let Some(aggregator) = epoch_info_aggregator_cache {
             aggregator
         } else {
+            epoch_change = true;
             self.store
                 .get_ser(ColEpochInfo, AGGREGATOR_KEY)
                 .map_err(EpochError::from)?
                 .unwrap_or_else(|| EpochInfoAggregator::new(epoch_id.clone(), *last_block_hash))
         };
-        let mut epoch_change = false;
         if &aggregator.epoch_id != epoch_id {
             aggregator = EpochInfoAggregator::new(epoch_id.clone(), *last_block_hash);
             epoch_change = true;
@@ -1855,21 +1857,29 @@ mod tests {
         epoch_manager
             .record_block_info(
                 &h[0],
-                block_info(0, 0, Default::default(), h[0], vec![true], total_supply),
+                block_info(
+                    0,
+                    0,
+                    Default::default(),
+                    Default::default(),
+                    h[0],
+                    vec![true],
+                    total_supply,
+                ),
                 rng_seed,
             )
             .unwrap();
         epoch_manager
             .record_block_info(
                 &h[1],
-                block_info(1, 1, h[0], h[1], vec![true], total_supply),
+                block_info(1, 1, h[0], h[0], h[1], vec![true], total_supply),
                 rng_seed,
             )
             .unwrap();
         epoch_manager
             .record_block_info(
                 &h[2],
-                block_info(2, 2, h[1], h[1], vec![true], total_supply),
+                block_info(2, 2, h[1], h[1], h[1], vec![true], total_supply),
                 rng_seed,
             )
             .unwrap();
@@ -1940,21 +1950,29 @@ mod tests {
         epoch_manager
             .record_block_info(
                 &h[0],
-                block_info(0, 0, Default::default(), h[0], vec![true], total_supply),
+                block_info(
+                    0,
+                    0,
+                    Default::default(),
+                    Default::default(),
+                    h[0],
+                    vec![true],
+                    total_supply,
+                ),
                 rng_seed,
             )
             .unwrap();
         epoch_manager
             .record_block_info(
                 &h[1],
-                block_info(1, 1, h[0], h[1], vec![true], total_supply),
+                block_info(1, 1, h[0], h[0], h[1], vec![true], total_supply),
                 rng_seed,
             )
             .unwrap();
         epoch_manager
             .record_block_info(
                 &h[2],
-                block_info(2, 2, h[1], h[1], vec![true], total_supply),
+                block_info(2, 2, h[1], h[1], h[1], vec![true], total_supply),
                 rng_seed,
             )
             .unwrap();
@@ -2044,21 +2062,29 @@ mod tests {
         epoch_manager
             .record_block_info(
                 &h[0],
-                block_info(0, 0, Default::default(), h[0], vec![true], total_supply),
+                block_info(
+                    0,
+                    0,
+                    Default::default(),
+                    Default::default(),
+                    h[0],
+                    vec![true],
+                    total_supply,
+                ),
                 rng_seed,
             )
             .unwrap();
         epoch_manager
             .record_block_info(
                 &h[1],
-                block_info(1, 1, h[0], h[1], vec![true, false], total_supply),
+                block_info(1, 1, h[0], h[0], h[1], vec![true, false], total_supply),
                 rng_seed,
             )
             .unwrap();
         epoch_manager
             .record_block_info(
                 &h[2],
-                block_info(2, 2, h[1], h[1], vec![true, true], total_supply),
+                block_info(2, 2, h[1], h[1], h[1], vec![true, true], total_supply),
                 rng_seed,
             )
             .unwrap();
@@ -2155,21 +2181,29 @@ mod tests {
         epoch_manager
             .record_block_info(
                 &h[0],
-                block_info(0, 0, Default::default(), h[0], vec![], total_supply),
+                block_info(
+                    0,
+                    0,
+                    Default::default(),
+                    Default::default(),
+                    h[0],
+                    vec![],
+                    total_supply,
+                ),
                 rng_seed,
             )
             .unwrap();
         epoch_manager
             .record_block_info(
                 &h[1],
-                block_info(1, 1, h[0], h[1], vec![true, true, true], total_supply),
+                block_info(1, 1, h[0], h[0], h[1], vec![true, true, true], total_supply),
                 rng_seed,
             )
             .unwrap();
         epoch_manager
             .record_block_info(
                 &h[3],
-                block_info(3, 3, h[1], h[2], vec![true, true, true], total_supply),
+                block_info(3, 3, h[1], h[1], h[2], vec![true, true, true], total_supply),
                 rng_seed,
             )
             .unwrap();
@@ -2219,7 +2253,7 @@ mod tests {
         epoch_manager
             .record_block_info(
                 &h[3],
-                block_info(3, 1, h[1], h[1], vec![false], total_supply),
+                block_info(3, 1, h[1], h[1], h[1], vec![false], total_supply),
                 rng_seed,
             )
             .unwrap();
@@ -2499,19 +2533,19 @@ mod tests {
         record_block(&mut em, Default::default(), h[0], 0, vec![]);
         em.record_block_info(
             &h[1],
-            block_info(1, 1, h[0], h[1], vec![true, true, true, false], total_supply),
+            block_info(1, 1, h[0], h[0], h[1], vec![true, true, true, false], total_supply),
             rng_seed,
         )
         .unwrap();
         em.record_block_info(
             &h[2],
-            block_info(2, 2, h[1], h[1], vec![true, true, true, false], total_supply),
+            block_info(2, 2, h[1], h[1], h[1], vec![true, true, true, false], total_supply),
             rng_seed,
         )
         .unwrap();
         em.record_block_info(
             &h[3],
-            block_info(3, 3, h[2], h[3], vec![true, true, true, true], total_supply),
+            block_info(3, 3, h[2], h[2], h[3], vec![true, true, true, true], total_supply),
             rng_seed,
         )
         .unwrap();
@@ -2877,7 +2911,7 @@ mod tests {
         .unwrap();
         let h = hash_range(8);
         record_block(&mut epoch_manager, CryptoHash::default(), h[0], 0, vec![]);
-        let mut block_info1 = block_info(1, 1, h[0], h[0], vec![], DEFAULT_TOTAL_SUPPLY);
+        let mut block_info1 = block_info(1, 1, h[0], h[0], h[0], vec![], DEFAULT_TOTAL_SUPPLY);
         block_info1.latest_protocol_version = 0;
         epoch_manager.record_block_info(&h[1], block_info1, [0; 32]).unwrap();
         for i in 2..6 {

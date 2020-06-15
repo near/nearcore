@@ -242,6 +242,7 @@ pub fn record_block_with_final_block_hash(
                 vec![],
                 vec![],
                 DEFAULT_TOTAL_SUPPLY,
+                PROTOCOL_VERSION,
             ),
             [0; 32],
         )
@@ -292,6 +293,7 @@ pub fn record_block(
 pub fn block_info(
     height: BlockHeight,
     last_finalized_height: BlockHeight,
+    last_final_block_hash: CryptoHash,
     prev_hash: CryptoHash,
     epoch_first_block: CryptoHash,
     chunk_mask: Vec<bool>,
@@ -300,6 +302,7 @@ pub fn block_info(
     BlockInfo {
         height,
         last_finalized_height,
+        last_final_block_hash,
         prev_hash,
         epoch_first_block,
         epoch_id: Default::default(),
@@ -308,9 +311,5 @@ pub fn block_info(
         latest_protocol_version: PROTOCOL_VERSION,
         slashed: Default::default(),
         total_supply,
-        block_tracker: Default::default(),
-        shard_tracker: Default::default(),
-        all_proposals: vec![],
-        version_tracker: Default::default(),
     }
 }
