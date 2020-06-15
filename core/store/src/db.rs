@@ -8,6 +8,7 @@ use rocksdb::{
     BlockBasedOptions, ColumnFamily, ColumnFamilyDescriptor, Direction, IteratorMode, Options,
     ReadOptions, WriteBatch, DB,
 };
+use strum_macros::EnumIter;
 
 use near_primitives::version::DbVersion;
 

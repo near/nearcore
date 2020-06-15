@@ -1,5 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
+use thiserror::Error;
+
 use near_primitives::block::{Block, BlockHeader, Tip};
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::{ChunkHash, ShardChunk};
@@ -11,7 +13,25 @@ use near_store::{
     HEAD_KEY, TAIL_KEY,
 };
 
-use crate::{ErrorMessage, StoreValidator};
+use crate::StoreValidator;
+
+#[derive(Error, Debug)]
+pub enum StoreValidatorError {
+    #[error(transparent)]
+    IOError(#[from] std::io::Error),
+    #[error("DB is corrupted")]
+    DBCorruption(#[from] Box<dyn std::error::Error>),
+    #[error("Function {func_name:?}: data is invalid, {reason:?}")]
+    InvalidData { func_name: String, reason: String },
+    #[error("Function {func_name:?}: data that expected to exist in DB is not found, {reason:?}")]
+    DBNotFound { func_name: String, reason: String },
+    #[error("Function {func_name:?}: {reason:?}, expected {expected:?}, found {found:?}")]
+    Discrepancy { func_name: String, reason: String, expected: String, found: String },
+    #[error("Function {func_name:?}: inner Store Validator error, cache {cache:?} not set")]
+    CacheNotFound { func_name: String, cache: String },
+    #[error("Function {func_name:?}: validation failed, {error:?}")]
+    ValidationFailed { func_name: String, error: String },
+}
 
 macro_rules! get_parent_function_name {
     () => {{
@@ -20,14 +40,38 @@ macro_rules! get_parent_function_name {
             std::any::type_name::<T>()
         }
         let name = type_name_of(f);
-        &name[..name.len() - 3].split("::").last().unwrap()
+        (&name[..name.len() - 3].split("::").last().unwrap()).to_string()
     }};
 }
 
 macro_rules! err {
     ($($x: tt),*) => (
-        Err(ErrorMessage::new(get_parent_function_name!(), format!($($x),*)))
+        return Err(StoreValidatorError::ValidationFailed { func_name: get_parent_function_name!(), error: format!($($x),*) } );
     )
+}
+
+macro_rules! check_discrepancy {
+    ($arg1: expr, $arg2: expr, $($x: tt),*) => {
+        if $arg1 != $arg2 {
+            return Err(StoreValidatorError::Discrepancy {
+                func_name: get_parent_function_name!(),
+                reason: format!($($x),*),
+                expected: format!("{:?}", $arg1),
+                found: format!("{:?}", $arg2),
+            });
+        }
+    };
+}
+
+macro_rules! check_cached {
+    ($obj: expr, $($x: tt),*) => {
+        if !$obj {
+            return Err(StoreValidatorError::CacheNotFound {
+                func_name: get_parent_function_name!(),
+                cache: format!($($x),*),
+            });
+        }
+    };
 }
 
 macro_rules! unwrap_or_err {
@@ -35,7 +79,10 @@ macro_rules! unwrap_or_err {
         match $obj {
             Ok(value) => value,
             Err(e) => {
-                return Err(ErrorMessage::new(get_parent_function_name!(), format!("{}, error: {}", format!($($x),*), e)))
+                return Err(StoreValidatorError::InvalidData {
+                    func_name: get_parent_function_name!(),
+                    reason: format!("{}, error: {}", format!($($x),*), e)
+                })
             }
         };
     };
@@ -46,10 +93,16 @@ macro_rules! unwrap_or_err_db {
         match $obj {
             Ok(Some(value)) => value,
             Err(e) => {
-                return Err(ErrorMessage::new(get_parent_function_name!(), format!("{}, error: {}", format!($($x),*), e)))
+                return Err(StoreValidatorError::DBNotFound {
+                    func_name: get_parent_function_name!(),
+                    reason: format!("{}, error: {}", format!($($x),*), e)
+                })
             }
             _ => {
-                return Err(ErrorMessage::new(get_parent_function_name!(), format!($($x),*)))
+                return Err(StoreValidatorError::DBNotFound {
+                    func_name: get_parent_function_name!(),
+                    reason: format!($($x),*)
+                })
             }
         };
     };
@@ -57,11 +110,7 @@ macro_rules! unwrap_or_err_db {
 
 // All validations start here
 
-pub(crate) fn head_tail_validity<T, U>(
-    sv: &mut StoreValidator,
-    _key: &T,
-    _value: &U,
-) -> Result<(), ErrorMessage> {
+pub(crate) fn head_tail_validity(sv: &mut StoreValidator) -> Result<(), StoreValidatorError> {
     let tail = unwrap_or_err!(
         sv.store.get_ser::<BlockHeight>(ColBlockMisc, TAIL_KEY),
         "Can't get Tail from storage"
@@ -86,13 +135,13 @@ pub(crate) fn head_tail_validity<T, U>(
     sv.inner.chunk_tail = chunk_tail;
     sv.inner.is_misc_set = true;
     if chunk_tail > tail {
-        return err!("chunk_tail > tail, {:?} > {:?}", chunk_tail, tail);
+        err!("chunk_tail > tail, {:?} > {:?}", chunk_tail, tail);
     }
     if tail > head.height {
-        return err!("tail > head.height, {:?} > {:?}", tail, head);
+        err!("tail > head.height, {:?} > {:?}", tail, head);
     }
     if head.height > header_head.height {
-        return err!("head.height > header_head.height, {:?} > {:?}", tail, head);
+        err!("head.height > header_head.height, {:?} > {:?}", tail, head);
     }
     Ok(())
 }
@@ -101,10 +150,8 @@ pub(crate) fn block_header_hash_validity(
     _sv: &mut StoreValidator,
     block_hash: &CryptoHash,
     header: &BlockHeader,
-) -> Result<(), ErrorMessage> {
-    if header.hash() != block_hash {
-        return err!("Invalid Block Header stored, hash = {:?}, header = {:?}", block_hash, header);
-    }
+) -> Result<(), StoreValidatorError> {
+    check_discrepancy!(header.hash(), block_hash, "Invalid Block Header stored");
     Ok(())
 }
 
@@ -112,14 +159,12 @@ pub(crate) fn block_header_height_validity(
     sv: &mut StoreValidator,
     _block_hash: &CryptoHash,
     header: &BlockHeader,
-) -> Result<(), ErrorMessage> {
-    if !sv.inner.is_misc_set {
-        return err!("Can't validate, is_misc_set == false");
-    }
+) -> Result<(), StoreValidatorError> {
+    check_cached!(sv.inner.is_misc_set, "misc");
     let height = header.height();
     let head = sv.inner.header_head;
     if height > head {
-        return err!("Invalid Block Header stored, Head = {:?}, header = {:?}", head, header);
+        err!("Invalid Block Header stored, Head = {:?}, header = {:?}", head, header);
     }
     Ok(())
 }
@@ -128,10 +173,8 @@ pub(crate) fn block_hash_validity(
     _sv: &mut StoreValidator,
     block_hash: &CryptoHash,
     block: &Block,
-) -> Result<(), ErrorMessage> {
-    if block.hash() != block_hash {
-        return err!("Invalid Block stored, hash = {:?}, block = {:?}", block_hash, block);
-    }
+) -> Result<(), StoreValidatorError> {
+    check_discrepancy!(block.hash(), block_hash, "Invalid Block stored");
     Ok(())
 }
 
@@ -139,10 +182,8 @@ pub(crate) fn block_height_validity(
     sv: &mut StoreValidator,
     _block_hash: &CryptoHash,
     block: &Block,
-) -> Result<(), ErrorMessage> {
-    if !sv.inner.is_misc_set {
-        return err!("Can't validate, is_misc_set == false");
-    }
+) -> Result<(), StoreValidatorError> {
+    check_cached!(sv.inner.is_misc_set, "misc");
     let height = block.header().height();
     let tail = sv.inner.tail;
     if height < tail && height != sv.config.genesis_height {
@@ -152,7 +193,7 @@ pub(crate) fn block_height_validity(
 
     let head = sv.inner.head;
     if height > head {
-        return err!("Invalid Block stored, Head = {:?}, block = {:?}", head, block);
+        err!("Invalid Block stored, Head = {:?}, block = {:?}", head, block);
     }
     Ok(())
 }
@@ -161,7 +202,7 @@ pub(crate) fn block_indexed_by_height(
     sv: &mut StoreValidator,
     block_hash: &CryptoHash,
     block: &Block,
-) -> Result<(), ErrorMessage> {
+) -> Result<(), StoreValidatorError> {
     let height = block.header().height();
     let block_hashes: HashSet<CryptoHash> = unwrap_or_err_db!(
         sv.store.get_ser::<HashMap<EpochId, HashSet<CryptoHash>>>(
@@ -176,7 +217,7 @@ pub(crate) fn block_indexed_by_height(
     .cloned()
     .collect();
     if !block_hashes.contains(&block_hash) {
-        return err!("Block {:?} is not found in ColBlockPerHeight", block);
+        err!("Block {:?} is not found in ColBlockPerHeight", block);
     }
     Ok(())
 }
@@ -185,7 +226,7 @@ pub(crate) fn block_header_exists(
     sv: &mut StoreValidator,
     block_hash: &CryptoHash,
     _block: &Block,
-) -> Result<(), ErrorMessage> {
+) -> Result<(), StoreValidatorError> {
     unwrap_or_err_db!(
         sv.store.get_ser::<BlockHeader>(ColBlockHeader, block_hash.as_ref()),
         "Can't get Block Header from storage"
@@ -197,10 +238,13 @@ pub(crate) fn chunk_hash_validity(
     _sv: &mut StoreValidator,
     chunk_hash: &ChunkHash,
     shard_chunk: &ShardChunk,
-) -> Result<(), ErrorMessage> {
-    if shard_chunk.chunk_hash != *chunk_hash {
-        return err!("Invalid ShardChunk {:?} stored", shard_chunk);
-    }
+) -> Result<(), StoreValidatorError> {
+    check_discrepancy!(
+        shard_chunk.chunk_hash,
+        *chunk_hash,
+        "Invalid ShardChunk {:?} stored",
+        shard_chunk
+    );
     Ok(())
 }
 
@@ -208,14 +252,12 @@ pub(crate) fn chunk_tail_validity(
     sv: &mut StoreValidator,
     _chunk_hash: &ChunkHash,
     shard_chunk: &ShardChunk,
-) -> Result<(), ErrorMessage> {
-    if !sv.inner.is_misc_set {
-        return err!("Can't validate, is_misc_set == false");
-    }
+) -> Result<(), StoreValidatorError> {
+    check_cached!(sv.inner.is_misc_set, "misc");
     let chunk_tail = sv.inner.chunk_tail;
     let height = shard_chunk.header.inner.height_created;
     if height < chunk_tail {
-        return err!(
+        err!(
             "Invalid ShardChunk stored, chunk_tail = {:?}, ShardChunk = {:?}",
             chunk_tail,
             shard_chunk
@@ -228,7 +270,7 @@ pub(crate) fn chunk_indexed_by_height_created(
     sv: &mut StoreValidator,
     _chunk_hash: &ChunkHash,
     shard_chunk: &ShardChunk,
-) -> Result<(), ErrorMessage> {
+) -> Result<(), StoreValidatorError> {
     let height = shard_chunk.header.inner.height_created;
     let chunk_hashes = unwrap_or_err_db!(
         sv.store.get_ser::<HashSet<ChunkHash>>(ColChunkHashesByHeight, &index_to_bytes(height)),
@@ -237,7 +279,7 @@ pub(crate) fn chunk_indexed_by_height_created(
         shard_chunk
     );
     if !chunk_hashes.contains(&shard_chunk.chunk_hash) {
-        return err!("Can't find ShardChunk {:?} on Height {:?}", shard_chunk, height);
+        err!("Can't find ShardChunk {:?} on Height {:?}", shard_chunk, height);
     }
     Ok(())
 }
@@ -246,7 +288,7 @@ pub(crate) fn block_chunks_exist(
     sv: &mut StoreValidator,
     _block_hash: &CryptoHash,
     block: &Block,
-) -> Result<(), ErrorMessage> {
+) -> Result<(), StoreValidatorError> {
     for chunk_header in block.chunks().iter() {
         match &sv.me {
             Some(me) => {
@@ -279,10 +321,10 @@ pub(crate) fn block_chunks_height_validity(
     _sv: &mut StoreValidator,
     _block_hash: &CryptoHash,
     block: &Block,
-) -> Result<(), ErrorMessage> {
+) -> Result<(), StoreValidatorError> {
     for chunk_header in block.chunks().iter() {
         if chunk_header.inner.height_created > block.header().height() {
-            return err!(
+            err!(
                 "Invalid ShardChunk included, chunk_header = {:?}, block = {:?}",
                 chunk_header,
                 block
@@ -292,35 +334,28 @@ pub(crate) fn block_chunks_height_validity(
     Ok(())
 }
 
-pub(crate) fn block_height_cmp_tail<T, U>(
-    sv: &mut StoreValidator,
-    _key: &T,
-    _value: &U,
-) -> Result<(), ErrorMessage> {
-    if !sv.inner.is_misc_set {
-        return err!("Can't validate, is_block_height_cmp_tail_prepared == false");
-    }
-    if sv.inner.block_heights_less_tail.len() < 2 {
-        Ok(())
-    } else {
+pub(crate) fn block_height_cmp_tail(sv: &mut StoreValidator) -> Result<(), StoreValidatorError> {
+    check_cached!(sv.inner.is_block_height_cmp_tail_prepared, "is_block_height_cmp_tail_prepared");
+    if sv.inner.block_heights_less_tail.len() >= 2 {
         let len = sv.inner.block_heights_less_tail.len();
         let blocks = &sv.inner.block_heights_less_tail;
         err!("Found {:?} Blocks with height lower than Tail, {:?}", len, blocks)
     }
+    Ok(())
 }
 
 pub(crate) fn canonical_header_validity(
     sv: &mut StoreValidator,
     height: &BlockHeight,
     hash: &CryptoHash,
-) -> Result<(), ErrorMessage> {
+) -> Result<(), StoreValidatorError> {
     let header = unwrap_or_err_db!(
         sv.store.get_ser::<BlockHeader>(ColBlockHeader, hash.as_ref()),
         "Can't get Block Header {:?} from ColBlockHeader",
         hash
     );
     if header.height() != *height {
-        return err!("Block on Height {:?} doesn't have required Height, {:?}", height, header);
+        err!("Block on Height {:?} doesn't have required Height, {:?}", height, header);
     }
     Ok(())
 }
@@ -329,7 +364,7 @@ pub(crate) fn canonical_prev_block_validity(
     sv: &mut StoreValidator,
     height: &BlockHeight,
     hash: &CryptoHash,
-) -> Result<(), ErrorMessage> {
+) -> Result<(), StoreValidatorError> {
     if *height != sv.config.genesis_height {
         let header = unwrap_or_err_db!(
             sv.store.get_ser::<BlockHeader>(ColBlockHeader, hash.as_ref()),
@@ -349,14 +384,12 @@ pub(crate) fn canonical_prev_block_validity(
             prev_height,
             prev_header
         );
-        if prev_hash != same_prev_hash {
-            return err!(
-                "Prev Block Hashes in ColBlockHeight and ColBlockHeader at height {:?} are different, {:?}, {:?}",
-                prev_height,
-                prev_hash,
-                same_prev_hash
-            );
-        }
+        check_discrepancy!(
+            prev_hash,
+            same_prev_hash,
+            "Prev Block Hashes in ColBlockHeight and ColBlockHeader at height {:?} are different",
+            prev_height
+        );
 
         for cur_height in prev_height + 1..*height {
             let cur_hash = unwrap_or_err!(
@@ -365,7 +398,7 @@ pub(crate) fn canonical_prev_block_validity(
                 cur_height
             );
             if cur_hash.is_some() {
-                return err!("Unexpected Block on the Canonical Chain is found between Heights {:?} and {:?}, {:?}", prev_height, height, cur_hash);
+                err!("Unexpected Block on the Canonical Chain is found between Heights {:?} and {:?}, {:?}", prev_height, height, cur_hash);
             }
         }
     }
@@ -376,7 +409,7 @@ pub(crate) fn trie_changes_chunk_extra_exists(
     sv: &mut StoreValidator,
     (block_hash, shard_id): &(CryptoHash, ShardId),
     trie_changes: &TrieChanges,
-) -> Result<(), ErrorMessage> {
+) -> Result<(), StoreValidatorError> {
     let new_root = trie_changes.new_root;
     // 1. Block with `block_hash` should be available
     let block = unwrap_or_err_db!(
@@ -414,34 +447,26 @@ pub(crate) fn trie_changes_chunk_extra_exists(
                 unwrap_or_err!(item, "Can't find ShardChunk {:?} in Trie", chunk_header);
             }
             // 6. Prev State Roots should be equal
-            // TODO #2623: enable
+            // TODO #2843: enable
             /*
             #[cfg(feature = "adversarial")]
             {
-                let prev_state_root = chunk_header.inner.prev_state_root;
-                let old_root = trie_changes.adv_get_old_root();
-                if prev_state_root != old_root {
-                    return err!(
-                        "Prev State Root discrepancy, {:?} != {:?}, ShardChunk {:?}",
-                        old_root,
-                        prev_state_root,
-                        chunk_header
-                    );
-                }
+                check_discrepancy!(
+                    chunk_header.inner.prev_state_root,
+                    trie_changes.adv_get_old_root(),
+                    "Prev State Root discrepancy, ShardChunk {:?}",
+                    chunk_header
+                );
             }
             */
             // 7. State Roots should be equal
-            let state_root = chunk_extra.state_root;
-            return if state_root == new_root {
-                Ok(())
-            } else {
-                err!(
-                    "State Root discrepancy, {:?} != {:?}, ShardChunk {:?}",
-                    new_root,
-                    state_root,
-                    chunk_header
-                )
-            };
+            check_discrepancy!(
+                chunk_extra.state_root,
+                new_root,
+                "State Root discrepancy, ShardChunk {:?}",
+                chunk_header
+            );
+            return Ok(());
         }
     }
     err!("ShardChunk is not included into Block {:?}", block)
@@ -451,16 +476,19 @@ pub(crate) fn chunk_of_height_exists(
     sv: &mut StoreValidator,
     height: &BlockHeight,
     chunk_hashes: &HashSet<ChunkHash>,
-) -> Result<(), ErrorMessage> {
+) -> Result<(), StoreValidatorError> {
     for chunk_hash in chunk_hashes {
         let shard_chunk = unwrap_or_err_db!(
             sv.store.get_ser::<ShardChunk>(ColChunks, chunk_hash.as_ref()),
             "Can't get Chunk from storage with ChunkHash {:?}",
             chunk_hash
         );
-        if shard_chunk.header.inner.height_created != *height {
-            return err!("Invalid ShardChunk {:?} stored at Height {:?}", shard_chunk, height);
-        }
+        check_discrepancy!(
+            shard_chunk.header.inner.height_created,
+            *height,
+            "Invalid ShardChunk {:?} stored",
+            shard_chunk
+        );
     }
     Ok(())
 }
