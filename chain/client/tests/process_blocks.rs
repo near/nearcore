@@ -1207,10 +1207,7 @@ fn test_incorrect_validator_key_produce_block() {
     )
     .unwrap();
     let res = client.produce_block(1);
-    match res {
-        Err(near_client::Error::BlockProducer(_)) => {}
-        _ => panic!("unexpected result: {:?}", res),
-    }
+    assert!(matches!(res, Ok(None)));
 }
 
 fn test_block_merkle_proof_with_len(n: NumBlocks) {
