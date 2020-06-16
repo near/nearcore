@@ -1857,21 +1857,21 @@ impl<'a> ChainStoreUpdate<'a> {
                 let chunk = self.get_chunk(&chunk_hash)?.clone();
                 debug_assert_eq!(chunk.header.inner.height_created, height);
                 for receipt in chunk.receipts {
-                    self.gc_col(ColReceiptIdToShardId, &receipt.receipt_id.into())?;
+                    self.gc_col(ColReceiptIdToShardId, &receipt.receipt_id.into());
                 }
                 for transaction in chunk.transactions {
-                    self.gc_col(ColTransactions, &transaction.get_hash().into())?;
+                    self.gc_col(ColTransactions, &transaction.get_hash().into());
                 }
 
                 // 2. Delete chunk_hash-indexed data
                 let chunk_header_hash = chunk_hash.clone().into();
-                self.gc_col(ColChunks, &chunk_header_hash)?;
-                self.gc_col(ColChunkExtra, &chunk_header_hash)?;
-                self.gc_col(ColPartialChunks, &chunk_header_hash)?;
-                self.gc_col(ColInvalidChunks, &chunk_header_hash)?;
+                self.gc_col(ColChunks, &chunk_header_hash);
+                self.gc_col(ColChunkExtra, &chunk_header_hash);
+                self.gc_col(ColPartialChunks, &chunk_header_hash);
+                self.gc_col(ColInvalidChunks, &chunk_header_hash);
             }
             // 3. Delete chunks_tail-related data
-            self.gc_col(ColChunkHashesByHeight, &index_to_bytes(height))?;
+            self.gc_col(ColChunkHashesByHeight, &index_to_bytes(height));
         }
         self.update_chunk_tail(min_chunk_height);
         Ok(())
@@ -1901,8 +1901,7 @@ impl<'a> ChainStoreUpdate<'a> {
                                     self.gc_col(
                                         ColTrieChanges,
                                         &get_block_shard_id(&block_hash, shard_id),
-                                    )
-                                    .unwrap();
+                                    );
                                 })
                                 .map_err(|err| ErrorKind::Other(err.to_string()))
                         })
@@ -1921,8 +1920,7 @@ impl<'a> ChainStoreUpdate<'a> {
                                     self.gc_col(
                                         ColTrieChanges,
                                         &get_block_shard_id(&block_hash, shard_id),
-                                    )
-                                    .unwrap();
+                                    );
                                 })
                                 .map_err(|err| ErrorKind::Other(err.to_string()))
                         })
@@ -1957,23 +1955,23 @@ impl<'a> ChainStoreUpdate<'a> {
         // 2. Delete shard_id-indexed data (shards, receipts, transactions)
         for shard_id in 0..block.header().chunk_mask().len() as ShardId {
             let height_shard_id = get_block_shard_id(&block_hash, shard_id);
-            self.gc_col(ColOutgoingReceipts, &height_shard_id)?;
-            self.gc_col(ColIncomingReceipts, &height_shard_id)?;
-            self.gc_col(ColChunkPerHeightShard, &height_shard_id)?;
-            self.gc_col(ColNextBlockWithNewChunk, &height_shard_id)?;
+            self.gc_col(ColOutgoingReceipts, &height_shard_id);
+            self.gc_col(ColIncomingReceipts, &height_shard_id);
+            self.gc_col(ColChunkPerHeightShard, &height_shard_id);
+            self.gc_col(ColNextBlockWithNewChunk, &height_shard_id);
             let key = StateHeaderKey(shard_id, block_hash).try_to_vec()?;
-            self.gc_col(ColStateHeaders, &key)?;
+            self.gc_col(ColStateHeaders, &key);
             // Already done, check chain.clear_downloaded_parts()
         }
 
         // 3. Delete block_hash-indexed data
         // Don't delete block header (ColBlockHeader) - because header sync needs headers
         let block_hash_vec: Vec<u8> = block_hash.as_ref().into();
-        self.gc_col(ColBlock, &block_hash_vec)?;
-        self.gc_col(ColBlockExtra, &block_hash_vec)?;
-        self.gc_col(ColNextBlockHashes, &block_hash_vec)?;
-        self.gc_col(ColChallengedBlocks, &block_hash_vec)?;
-        self.gc_col(ColBlocksToCatchup, &block_hash_vec)?;
+        self.gc_col(ColBlock, &block_hash_vec);
+        self.gc_col(ColBlockExtra, &block_hash_vec);
+        self.gc_col(ColNextBlockHashes, &block_hash_vec);
+        self.gc_col(ColChallengedBlocks, &block_hash_vec);
+        self.gc_col(ColBlocksToCatchup, &block_hash_vec);
         let storage_key = KeyForStateChanges::get_prefix(&block_hash);
         let stored_state_changes: Vec<Vec<u8>> = self
             .chain_store
@@ -1982,9 +1980,9 @@ impl<'a> ChainStoreUpdate<'a> {
             .map(|key| key.0.into())
             .collect();
         for key in stored_state_changes {
-            self.gc_col(ColStateChanges, &key)?;
+            self.gc_col(ColStateChanges, &key);
         }
-        self.gc_col(ColBlockRefCount, &block_hash_vec)?;
+        self.gc_col(ColBlockRefCount, &block_hash_vec);
 
         // 4. Update or delete block_hash_per_height
         self.gc_col_block_per_height(&block_hash, height, &block.header().epoch_id())?;
@@ -2062,7 +2060,7 @@ impl<'a> ChainStoreUpdate<'a> {
         Ok(())
     }
 
-    pub fn gc_col(&mut self, col: DBCol, key: &Vec<u8>) -> Result<(), Error> {
+    pub fn gc_col(&mut self, col: DBCol, key: &Vec<u8>) {
         let mut store_update = self.store().store_update();
         match col {
             DBCol::ColOutgoingReceipts => {
@@ -2143,7 +2141,9 @@ impl<'a> ChainStoreUpdate<'a> {
             DBCol::ColState => {
                 store_update.delete(col, key);
             }
-            DBCol::ColTrieChanges => {}
+            DBCol::ColTrieChanges => {
+                store_update.delete(col, key);
+            }
             DBCol::ColBlockPerHeight => {
                 panic!("Must use gc_col_glock_per_height method to gc ColBlockPerHeight");
             }
@@ -2153,7 +2153,6 @@ impl<'a> ChainStoreUpdate<'a> {
         }
         self.inc_gc(col);
         self.merge(store_update);
-        Ok(())
     }
 
     /// Merge another StoreUpdate into this one
