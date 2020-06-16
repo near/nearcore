@@ -8,7 +8,8 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::types::{AccountId, Balance, EpochId, ValidatorKickoutReason, ValidatorStake};
 use rand::prelude::StdRng;
 use rand::{Rng, SeedableRng};
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::iter::FromIterator;
 
 const DEBUG_PRINT: bool = false;
 
@@ -177,7 +178,7 @@ fn validate(
         println!("== End block infos ==");
     }
 
-    verify_block_stats(epoch_manager, heights, &block_infos);
+    verify_block_stats(epoch_manager, heights, &block_infos, &block_hashes);
     verify_slashes(epoch_manager, &block_infos, &slashes_per_block);
     verify_proposals(epoch_manager, &block_infos);
     verify_epochs(&epoch_infos);
@@ -241,6 +242,7 @@ fn verify_epochs(epoch_infos: &Vec<EpochInfo>) {
 }
 
 fn verify_proposals(epoch_manager: &mut EpochManager, block_infos: &Vec<BlockInfo>) {
+    let mut proposals = BTreeMap::default();
     for i in 1..block_infos.len() {
         let prev_block_info = &block_infos[i - 1];
         let block_info = &block_infos[i];
@@ -256,21 +258,20 @@ fn verify_proposals(epoch_manager: &mut EpochManager, block_infos: &Vec<BlockInf
             } else {
                 assert_ne!(prev_block_info.epoch_id, block_info.epoch_id, "epoch id changes");
             }
-            assert_eq!(
-                block_info.proposals, block_info.all_proposals,
-                "all_proposals reset on new epoch"
+            let aggregator = epoch_manager
+                .get_and_update_epoch_info_aggregator(
+                    &prev_block_info.epoch_id,
+                    &block_info.prev_hash,
+                    true,
+                )
+                .unwrap();
+            assert_eq!(aggregator.all_proposals, proposals, "Proposals do not match");
+            proposals = BTreeMap::from_iter(
+                block_info.proposals.iter().map(|p| (p.account_id.clone(), p.clone())),
             );
         } else {
-            assert_eq!(
-                prev_block_info
-                    .all_proposals
-                    .iter()
-                    .chain(block_info.proposals.iter())
-                    .cloned()
-                    .collect::<Vec<_>>(),
-                block_info.all_proposals,
-                "proposals get accumulated within an epoch"
-            );
+            proposals
+                .extend(block_info.proposals.iter().map(|p| (p.account_id.clone(), p.clone())));
         }
     }
 }
@@ -336,6 +337,7 @@ fn verify_block_stats(
     epoch_manager: &mut EpochManager,
     heights: Vec<u64>,
     block_infos: &Vec<BlockInfo>,
+    block_hashes: &[CryptoHash],
 ) {
     for i in 1..block_infos.len() {
         let prev_epoch_end =
@@ -344,30 +346,37 @@ fn verify_block_stats(
         let blocks_in_epoch = (i - heights.binary_search(&prev_epoch_end_height).unwrap()) as u64;
         let blocks_in_epoch_expected = heights[i] - prev_epoch_end_height;
         {
+            let aggregator = epoch_manager
+                .get_and_update_epoch_info_aggregator(
+                    &block_infos[i].epoch_id,
+                    &block_hashes[i],
+                    true,
+                )
+                .unwrap();
             let epoch_info = epoch_manager.get_epoch_info(&block_infos[i].epoch_id).unwrap();
-            for key in block_infos[i].block_tracker.keys().copied() {
+            for key in aggregator.block_tracker.keys().copied() {
                 assert!(key < epoch_info.validators.len() as u64);
             }
-            for shard_stats in block_infos[i].shard_tracker.values() {
+            for shard_stats in aggregator.shard_tracker.values() {
                 for key in shard_stats.keys().copied() {
                     assert!(key < epoch_info.validators.len() as u64);
                 }
             }
             let sum_produced =
-                block_infos[i].block_tracker.values().map(|value| value.produced).sum::<u64>();
+                aggregator.block_tracker.values().map(|value| value.produced).sum::<u64>();
             let sum_expected =
-                block_infos[i].block_tracker.values().map(|value| value.expected).sum::<u64>();
+                aggregator.block_tracker.values().map(|value| value.expected).sum::<u64>();
             assert_eq!(sum_produced, blocks_in_epoch);
             assert_eq!(sum_expected, blocks_in_epoch_expected);
-            for shard_id in 0..(block_infos[i].shard_tracker.len() as u64) {
-                let sum_produced = block_infos[i]
+            for shard_id in 0..(aggregator.shard_tracker.len() as u64) {
+                let sum_produced = aggregator
                     .shard_tracker
                     .get(&shard_id)
                     .unwrap()
                     .values()
                     .map(|value| value.produced)
                     .sum::<u64>();
-                let sum_expected = block_infos[i]
+                let sum_expected = aggregator
                     .shard_tracker
                     .get(&shard_id)
                     .unwrap()

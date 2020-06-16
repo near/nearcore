@@ -255,6 +255,7 @@ mod tests {
             fishermen_threshold: 0,
             online_max_threshold: Rational::from_integer(1),
             online_min_threshold: Rational::new(90, 100),
+            minimum_stake_divisor: 1,
             protocol_upgrade_stake_threshold: Rational::new(80, 100),
             protocol_upgrade_num_epochs: 2,
         };
@@ -296,6 +297,7 @@ mod tests {
                 BlockInfo::new(
                     height,
                     0,
+                    prev_h,
                     prev_h,
                     proposals,
                     vec![],

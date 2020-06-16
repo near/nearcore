@@ -1,5 +1,5 @@
 use std::cmp::max;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use borsh::{BorshDeserialize, BorshSerialize};
@@ -354,7 +354,9 @@ impl Runtime {
                     &mut result,
                     account_id,
                     stake,
-                );
+                    &apply_state.last_block_hash,
+                    epoch_info_provider,
+                )?;
             }
             Action::AddKey(add_key) => {
                 near_metrics::inc_counter(&metrics::ACTION_ADD_KEY_TOTAL);
@@ -1100,11 +1102,22 @@ impl Runtime {
 
         let (trie_changes, state_changes) = state_update.finalize()?;
 
+        // Dedup proposals from the same account.
+        // The order is deterministically changed.
+        let mut unique_proposals = vec![];
+        let mut account_ids = HashSet::new();
+        for proposal in validator_proposals.into_iter().rev() {
+            if !account_ids.contains(&proposal.account_id) {
+                account_ids.insert(proposal.account_id.clone());
+                unique_proposals.push(proposal);
+            }
+        }
+
         let state_root = trie_changes.new_root;
         Ok(ApplyResult {
             state_root,
             trie_changes,
-            validator_proposals,
+            validator_proposals: unique_proposals,
             outgoing_receipts,
             outcomes,
             state_changes,

@@ -316,11 +316,8 @@ impl Client {
             &next_block_proposer,
         )?;
         if validator_stake.public_key != validator_signer.public_key() {
-            return Err(Error::BlockProducer(format!(
-                "Validator key doesn't match. Expected {} Actual {}",
-                validator_stake.public_key,
-                validator_signer.public_key()
-            )));
+            debug!(target: "client", "Local validator key {} does not match expected validator key {}, skipping block production", validator_signer.public_key(), validator_stake.public_key);
+            return Ok(None);
         }
 
         debug!(target: "client", "{:?} Producing block at height {}, parent {} @ {}", validator_signer.validator_id(), next_height, prev.height(), format_hash(head.last_block_hash));

@@ -2035,6 +2035,8 @@ dependencies = [
  "rand 0.7.3",
  "rocksdb",
  "serde",
+ "strum",
+ "thiserror",
  "tracing",
 ]
 
@@ -2367,6 +2369,8 @@ dependencies = [
  "rocksdb",
  "serde",
  "serde_json",
+ "strum",
+ "strum_macros",
  "tempfile",
 ]
 

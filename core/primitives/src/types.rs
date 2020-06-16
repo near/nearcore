@@ -557,4 +557,6 @@ pub trait EpochInfoProvider {
         epoch_id: &EpochId,
         last_block_hash: &CryptoHash,
     ) -> Result<Balance, EpochError>;
+
+    fn minimum_stake(&self, prev_block_hash: &CryptoHash) -> Result<Balance, EpochError>;
 }
