@@ -37,7 +37,7 @@ use near_store::{
     ColReceiptIdToShardId, ColStateChanges, ColStateDlInfos, ColStateHeaders, ColTransactionResult,
     ColTransactions, ColTrieChanges, DBCol, KeyForStateChanges, ShardTries, Store, StoreUpdate,
     TrieChanges, WrappedTrieChanges, CHUNK_TAIL_KEY, HEADER_HEAD_KEY, HEAD_KEY,
-    LARGEST_TARGET_HEIGHT_KEY, LATEST_KNOWN_KEY, SYNC_HEAD_KEY, TAIL_KEY,
+    LARGEST_TARGET_HEIGHT_KEY, LATEST_KNOWN_KEY, NUM_COLS, SYNC_HEAD_KEY, TAIL_KEY,
 };
 
 use crate::byzantine_assert;
@@ -47,6 +47,32 @@ use crate::types::{Block, BlockHeader, LatestKnown, ReceiptProofResponse, Receip
 /// lru cache size
 const CACHE_SIZE: usize = 100;
 const CHUNK_CACHE_SIZE: usize = 1024;
+
+lazy_static! {
+    pub static ref COL_GC: Vec<bool> = {
+        let mut col_gc = vec![true; NUM_COLS];
+        col_gc[DBCol::ColDbVersion as usize] = false; // DB version is unrelated to GC
+        col_gc[DBCol::ColBlockMisc as usize] = false;
+        col_gc[DBCol::ColBlockHeader as usize] = false;
+        col_gc[DBCol::ColGCCount as usize] = false; // GC count it self isn't GCed
+        col_gc[DBCol::ColBlockHeight as usize] = false;
+        col_gc[DBCol::ColTransactionResult as usize] = false;
+        col_gc[DBCol::ColPeers as usize] = false; // Peers is unrelated to GC
+        col_gc[DBCol::ColEpochInfo as usize] = false;
+        col_gc[DBCol::ColStateDlInfos as usize] = false;
+        col_gc[DBCol::ColBlockInfo as usize] = false;
+        col_gc[DBCol::ColBlockMerkleTree as usize] = false;
+        col_gc[DBCol::ColEpochStart as usize] = false;
+        col_gc[DBCol::ColAccountAnnouncements as usize] = false;
+        col_gc[DBCol::ColEpochLightClientBlocks as usize] = false;
+        col_gc[DBCol::ColLastBlockWithNewChunk as usize] = false;
+        col_gc[DBCol::ColPeerComponent as usize] = false; // Peer related info doesn't GC
+        col_gc[DBCol::LastComponentNonce as usize] = false;
+        col_gc[DBCol::ColComponentEdges as usize] = false;
+        col_gc[DBCol::ColBlockOrdinal as usize] = false;
+        col_gc
+    };
+}
 
 #[derive(Debug, PartialEq, BorshSerialize, BorshDeserialize, Serialize)]
 pub struct ShardInfo(pub ShardId, pub ChunkHash);
@@ -2072,6 +2098,7 @@ impl<'a> ChainStoreUpdate<'a> {
     }
 
     pub fn gc_col(&mut self, col: DBCol, key: &Vec<u8>) {
+        assert!(COL_GC[col as usize]);
         let mut store_update = self.store().store_update();
         match col {
             DBCol::ColOutgoingReceipts => {
@@ -2158,25 +2185,9 @@ impl<'a> ChainStoreUpdate<'a> {
             DBCol::ColBlockPerHeight => {
                 panic!("Must use gc_col_glock_per_height method to gc ColBlockPerHeight");
             }
-            DBCol::ColDbVersion // DB version is unrelated to GC
-            | DBCol::ColBlockMisc
-            | DBCol::ColBlockHeader
-            | DBCol::ColGCCount // GC count it self isn't GCed
-            | DBCol::ColBlockHeight
-            | DBCol::ColTransactionResult
-            | DBCol::ColPeers // Peers is unrelated to GC
-            | DBCol::ColEpochInfo
-            | DBCol::ColStateDlInfos
-            | DBCol::ColBlockInfo
-            | DBCol::ColBlockMerkleTree
-            | DBCol::ColEpochStart
-            | DBCol::ColAccountAnnouncements
-            | DBCol::ColEpochLightClientBlocks
-            | DBCol::ColLastBlockWithNewChunk
-            | DBCol::ColPeerComponent // Peer related info doesn't GC
-            | DBCol::LastComponentNonce
-            | DBCol::ColComponentEdges
-            | DBCol::ColBlockOrdinal => {}
+            _ => {
+                unreachable!();
+            }
         }
         self.inc_gc(col);
         self.merge(store_update);
