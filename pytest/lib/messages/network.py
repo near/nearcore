@@ -1,6 +1,6 @@
 from messages.crypto import Signature, PublicKey
 from messages.tx import SignedTransaction
-from messages.block import Block, Approval, PartialEncodedChunk
+from messages.block import Block, Approval, PartialEncodedChunk, PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg, BlockHeader
 
 
 class SocketAddr:
@@ -58,6 +58,7 @@ class PeerIdOrHash:
 class RoutedMessageBody:
     pass
 
+
 class PingPong:
     pass
 
@@ -85,7 +86,7 @@ network_schema = [
                        ['PeersRequest', ()],
                        ['PeersResponse', [PeerInfo]],
                        ['BlockHeadersRequest', [[32]]],
-                       ['BlockHeaders', ()], # TODO
+                       ['BlockHeaders', [BlockHeader]],
                        ['BlockRequest', [32]],
                        ['Block', Block],
                        ['Transaction', SignedTransaction],
@@ -155,7 +156,7 @@ network_schema = [
                 ['nonce', 'u64'],
                 ['signature0', Signature],
                 ['signature1', Signature],
-                ['removal_info', {'kind': 'option', 'type': (bool, Signature)}],
+                ['removal_info', {'kind': 'option', 'type': ('u8', Signature)}],
             ]
         }
     ],
@@ -235,9 +236,9 @@ network_schema = [
                 ['StateRequestHeader', ('u64', [32])],
                 ['StateRequestPart', ('u64', [32], 'u64')],
                 ['StateResponseInfo', None], # TODO
-                ['PartialEncodedChunkRequest', None], # TODO
-                ['PartialEncodedChunkResponse', None], # TODO
-                ['PartialEncodedChunk', PartialEncodedChunk], # TODO
+                ['PartialEncodedChunkRequest', PartialEncodedChunkRequestMsg],
+                ['PartialEncodedChunkResponse', PartialEncodedChunkResponseMsg],
+                ['PartialEncodedChunk', PartialEncodedChunk],
                 ['Ping', PingPong],
                 ['Pong', PingPong],
             ]

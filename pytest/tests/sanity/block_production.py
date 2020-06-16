@@ -20,7 +20,7 @@ BLOCKS = 50
 
 nodes = start_cluster(
     4, 0, 4, None,
-    [["epoch_length", 10], ["block_producer_kickout_threshold", 80]], {})
+    [["epoch_length", 10], ["block_producer_kickout_threshold", 60], ["chunk_producer_kickout_threshold", 60]], {})
 
 started = time.time()
 

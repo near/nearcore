@@ -72,7 +72,7 @@ crypto_schema = [
             'fields': [
                 ['allowance', {
                     'kind': 'option',
-                    type: 'u128'
+                    'type': 'u128'
                 }],
                 ['receiverId', 'string'],
                 ['methodNames', ['string']],

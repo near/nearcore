@@ -1,4 +1,5 @@
 from messages.crypto import PublicKey, Signature, MerklePath, ShardProof
+from messages.tx import Receipt
 
 class Block:
     pass
@@ -41,6 +42,14 @@ class ReceiptProof:
 
 
 class PartialEncodedChunk:
+    pass
+
+
+class PartialEncodedChunkRequestMsg:
+    pass
+
+
+class PartialEncodedChunkResponseMsg:
     pass
 
 
@@ -180,7 +189,7 @@ block_schema = [
         ReceiptProof, {
             'kind': 'struct',
             'fields': [
-                ['f1', [()]], # MOO () => Receipt
+                ['f1', [Receipt]],
                 ['f2', ShardProof],
             ]
         }
@@ -190,6 +199,26 @@ block_schema = [
             'kind': 'struct',
             'fields': [
                 ['header', ShardChunkHeader],
+                ['parts', [PartialEncodedChunkPart]],
+                ['receipts', [ReceiptProof]]
+            ]
+        }
+    ],
+    [
+        PartialEncodedChunkRequestMsg, {
+            'kind': 'struct',
+            'fields': [
+                ['chunk_hash', [32]],
+                ['part_ords', ['u64']],
+                ['tracking_shards', ['u64']]
+            ]
+        }
+    ],
+    [
+        PartialEncodedChunkResponseMsg, {
+            'kind': 'struct',
+            'fields': [
+                ['chunk_hash', [32]],
                 ['parts', [PartialEncodedChunkPart]],
                 ['receipts', [ReceiptProof]]
             ]

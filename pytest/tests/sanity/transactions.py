@@ -14,10 +14,14 @@ from transaction import sign_payment_tx
 
 TIMEOUT = 240
 
+def moo(obj, addr):
+    print(type(obj))
+    return True
+
 nodes = start_cluster(
     4, 0, 4, None,
     [["min_gas_price", 0], ["max_inflation_rate", [0, 1]], ["epoch_length", 10],
-     ["block_producer_kickout_threshold", 70]], {})
+     ["block_producer_kickout_threshold", 70]], {}, moo)
 
 started = time.time()
 
@@ -38,7 +42,6 @@ while True:
     hash_ = status['sync_info']['latest_block_hash']
 
     if step == 0:
-        print(f'step {step}')
         if height >= 1:
             tx = sign_payment_tx(nodes[0].signer_key, 'test1', 100, 1,
                                  base58.b58decode(hash_.encode('utf8')))
