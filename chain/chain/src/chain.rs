@@ -1330,9 +1330,8 @@ impl Chain {
     ) -> Result<ShardStateSyncResponseHeader, Error> {
         // Check cache
         let key = StateHeaderKey(shard_id, sync_hash).try_to_vec()?;
-        match self.store.owned_store().get_ser(ColStateHeaders, &key) {
-            Ok(Some(header)) => return Ok(header),
-            _ => {}
+        if let Ok(Some(header)) = self.store.owned_store().get_ser(ColStateHeaders, &key) {
+            return Ok(header);
         }
 
         // Consistency rules:
@@ -1498,9 +1497,8 @@ impl Chain {
     ) -> Result<Vec<u8>, Error> {
         // Check cache
         let key = StatePartKey(sync_hash, shard_id, part_id).try_to_vec()?;
-        match self.store.owned_store().get_ser(ColStateParts, &key) {
-            Ok(Some(state_part)) => return Ok(state_part),
-            _ => {}
+        if let Ok(Some(state_part)) = self.store.owned_store().get_ser(ColStateParts, &key) {
+            return Ok(state_part);
         }
 
         let sync_block =
