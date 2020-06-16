@@ -2145,9 +2145,25 @@ impl<'a> ChainStoreUpdate<'a> {
             DBCol::ColBlockPerHeight => {
                 panic!("Must use gc_col_glock_per_height method to gc ColBlockPerHeight");
             }
-            _ => {
-                unimplemented!();
-            }
+            DBCol::ColDbVersion
+            | DBCol::ColBlockMisc
+            | DBCol::ColBlockHeader
+            | DBCol::ColGCCount
+            | DBCol::ColBlockHeight
+            | DBCol::ColTransactionResult
+            | DBCol::ColPeers
+            | DBCol::ColEpochInfo
+            | DBCol::ColStateDlInfos
+            | DBCol::ColBlockInfo
+            | DBCol::ColBlockMerkleTree
+            | DBCol::ColEpochStart
+            | DBCol::ColAccountAnnouncements
+            | DBCol::ColEpochLightClientBlocks
+            | DBCol::ColLastBlockWithNewChunk
+            | DBCol::ColPeerComponent
+            | DBCol::LastComponentNonce
+            | DBCol::ColComponentEdges
+            | DBCol::ColBlockOrdinal => {}
         }
         self.inc_gc(col);
         self.merge(store_update);
