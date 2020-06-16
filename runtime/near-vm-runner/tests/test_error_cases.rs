@@ -348,26 +348,31 @@ fn test_bad_import_2() {
 
 #[test]
 fn test_bad_import_3() {
+    let msg = match VMKind::default() {
+        VMKind::Wasmer => "link error: Incorrect import type, namespace: env, name: input, expected type: global, found type: function",
+        VMKind::Wasmtime => "\"incompatible import type for `env::input` specified\\ndesired signature was: Global(GlobalType { content: I32, mutability: Const })\\nsignatures available:\\n\\n  * Func(FuncType { params: [I64], results: [] })\\n\"",
+    }.to_string();
     assert_eq!(
         make_simple_contract_call(&bad_import_global("env"), b"hello"),
         (
             Some(vm_outcome_with_gas(0)),
-            Some(VMError::FunctionCallError(FunctionCallError::LinkError{
-                msg: "link error: Incorrect import type, namespace: env, name: input, expected type: global, found type: function".to_string()
-            }))
+            Some(VMError::FunctionCallError(FunctionCallError::LinkError { msg: msg }))
         )
     );
 }
 
 #[test]
 fn test_bad_import_4() {
+    let msg = match VMKind::default() {
+        VMKind::Wasmer => "link error: Import not found, namespace: env, name: wtf",
+        VMKind::Wasmtime => "\"unknown import: `env::wtf` has not been defined\"",
+    }
+    .to_string();
     assert_eq!(
         make_simple_contract_call(&bad_import_func("env"), b"hello"),
         (
             Some(vm_outcome_with_gas(0)),
-            Some(VMError::FunctionCallError(FunctionCallError::LinkError {
-                msg: "link error: Import not found, namespace: env, name: wtf".to_string()
-            }))
+            Some(VMError::FunctionCallError(FunctionCallError::LinkError { msg: msg }))
         )
     );
 }

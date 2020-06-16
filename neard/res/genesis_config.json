@@ -132,6 +132,7 @@
       ]
     },
     "wasm_config": {
+      "vm_kind": "Wasmer",
       "ext_costs": {
         "base": 265261758,
         "read_memory_base": 2584050225,

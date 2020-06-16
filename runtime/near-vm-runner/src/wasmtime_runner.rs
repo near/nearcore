@@ -1,12 +1,13 @@
 use crate::errors::IntoVMError;
 use crate::{imports, prepare};
 use near_runtime_fees::RuntimeFeesConfig;
-use near_vm_errors::FunctionCallError::LinkError;
+use near_vm_errors::FunctionCallError::{LinkError, WasmUnknownError};
 use near_vm_errors::{FunctionCallError, MethodResolveError, VMError, VMLogicError};
 use near_vm_logic::types::PromiseResult;
 use near_vm_logic::{External, MemoryLike, VMConfig, VMContext, VMLogic, VMOutcome};
 use std::ffi::c_void;
 use std::str;
+use wasmtime::ExternType::Func;
 use wasmtime::{Engine, Limits, Linker, Memory, MemoryType, Module, Store};
 
 pub struct WasmtimeMemory(Memory);
@@ -59,28 +60,42 @@ impl MemoryLike for WasmtimeMemory {
     }
 }
 
+fn trap_to_error(trap: &wasmtime::Trap) -> VMError {
+    if trap.i32_exit_status() == Some(239) {
+        match imports::last_wasmtime_error() {
+            Some(VMLogicError::HostError(h)) => {
+                VMError::FunctionCallError(FunctionCallError::HostError(h.clone()))
+            }
+            Some(VMLogicError::ExternalError(s)) => VMError::ExternalError(s.clone()),
+            Some(VMLogicError::InconsistentStateError(e)) => {
+                VMError::InconsistentStateError(e.clone())
+            }
+            None => panic!("Error is not properly set"),
+        }
+    } else {
+        // VMError::FunctionCallError(LinkError { msg: format!("{:#?}", trap) })
+        VMError::FunctionCallError(WasmUnknownError)
+    }
+}
+
 impl IntoVMError for anyhow::Error {
     fn into_vm_error(self) -> VMError {
         // TODO: incorrect
-        VMError::FunctionCallError(LinkError { msg: format!("{:#?}", self) })
+        let cause = self.root_cause();
+        match cause.downcast_ref::<wasmtime::Trap>() {
+            Some(trap) => trap_to_error(trap),
+            None => VMError::FunctionCallError(LinkError { msg: format!("{:#?}", cause) }),
+        }
     }
 }
 
 impl IntoVMError for wasmtime::Trap {
     fn into_vm_error(self) -> VMError {
         if self.i32_exit_status() == Some(239) {
-            match imports::last_wasmtime_error() {
-                Some(VMLogicError::HostError(h)) => {
-                    VMError::FunctionCallError(FunctionCallError::HostError(h.clone()))
-                }
-                Some(VMLogicError::ExternalError(s)) => VMError::ExternalError(s.clone()),
-                Some(VMLogicError::InconsistentStateError(e)) => {
-                    VMError::InconsistentStateError(e.clone())
-                }
-                None => panic!("Error is not properly set"),
-            }
+            trap_to_error(&self)
         } else {
-            VMError::FunctionCallError(LinkError { msg: format!("{:#?}", self) })
+            // VMError::FunctionCallError(LinkError { msg: format!("{:#?}", self) })
+            VMError::FunctionCallError(WasmUnknownError)
         }
     }
 }
@@ -103,7 +118,10 @@ pub fn run_wasmtime<'a>(
         wasm_config.limit_config.max_memory_pages,
     )
     .unwrap();
-    let prepared_code = prepare::prepare_contract(code, wasm_config).unwrap();
+    let prepared_code = match prepare::prepare_contract(code, wasm_config) {
+        Ok(code) => code,
+        Err(err) => return (None, Some(VMError::from(err))),
+    };
     let module = Module::new(&engine, prepared_code).unwrap();
     // Note that we don't clone the actual backing memory, just increase the RC.
     let memory_copy = memory.clone();
@@ -114,8 +132,57 @@ pub fn run_wasmtime<'a>(
     // lifetimes of the logic instance and pass raw pointers here.
     let raw_logic = &mut logic as *mut _ as *mut c_void;
     imports::link_wasmtime(&mut linker, memory_copy, raw_logic);
+    let func_name = match str::from_utf8(method_name) {
+        Ok(name) => name,
+        Err(_) => {
+            return (
+                None,
+                Some(VMError::FunctionCallError(FunctionCallError::MethodResolveError(
+                    MethodResolveError::MethodUTF8Error,
+                ))),
+            )
+        }
+    };
+    if method_name.is_empty() {
+        return (
+            None,
+            Some(VMError::FunctionCallError(FunctionCallError::MethodResolveError(
+                MethodResolveError::MethodEmptyName,
+            ))),
+        );
+    }
+    match module.get_export(func_name) {
+        Some(export) => match export {
+            Func(func_type) => {
+                if !func_type.params().is_empty() || !func_type.results().is_empty() {
+                    return (
+                        None,
+                        Some(VMError::FunctionCallError(FunctionCallError::MethodResolveError(
+                            MethodResolveError::MethodInvalidSignature,
+                        ))),
+                    );
+                }
+            }
+            _ => {
+                return (
+                    None,
+                    Some(VMError::FunctionCallError(FunctionCallError::MethodResolveError(
+                        MethodResolveError::MethodNotFound,
+                    ))),
+                )
+            }
+        },
+        None => {
+            return (
+                None,
+                Some(VMError::FunctionCallError(FunctionCallError::MethodResolveError(
+                    MethodResolveError::MethodNotFound,
+                ))),
+            )
+        }
+    }
     match linker.instantiate(&module) {
-        Ok(instance) => match instance.get_func(str::from_utf8(method_name).unwrap()) {
+        Ok(instance) => match instance.get_func(func_name) {
             Some(func) => match func.get0::<()>() {
                 Ok(run) => match run() {
                     Ok(_) => (Some(logic.outcome()), None),

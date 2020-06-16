@@ -1,6 +1,5 @@
 #[cfg(not(feature = "no_cache"))]
 use cached::{cached_key, SizedCache};
-use wasmer_runtime;
 
 use crate::errors::IntoVMError;
 use crate::prepare;
@@ -25,4 +24,14 @@ cached_key! {
         let prepared_code = prepare::prepare_contract(code, config)?;
         wasmer_runtime::compile(&prepared_code).map_err(|err| err.into_vm_error())
     }
+}
+
+#[cfg(feature = "no_cache")]
+pub(crate) fn compile_module(
+    _code_hash: Vec<u8>,
+    code: &[u8],
+    config: &VMConfig,
+) -> Result<wasmer_runtime::Module, VMError> {
+    let prepared_code = prepare::prepare_contract(code, config)?;
+    wasmer_runtime::compile(&prepared_code).map_err(|err| err.into_vm_error())
 }
