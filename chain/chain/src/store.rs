@@ -2060,6 +2060,17 @@ impl<'a> ChainStoreUpdate<'a> {
         Ok(())
     }
 
+    pub fn gc_col_state(&mut self, tries: ShardTries, keys: Vec<Vec<u8>>) {
+        let mut store_update = StoreUpdate::new_with_tries(tries);
+
+        for key in keys.iter() {
+            store_update.delete(DBCol::ColState, key.as_ref());
+            self.inc_gc(DBCol::ColState);
+        }
+
+        self.merge(store_update);
+    }
+
     pub fn gc_col(&mut self, col: DBCol, key: &Vec<u8>) {
         let mut store_update = self.store().store_update();
         match col {
@@ -2139,7 +2150,7 @@ impl<'a> ChainStoreUpdate<'a> {
                 store_update.delete(col, key);
             }
             DBCol::ColState => {
-                store_update.delete(col, key);
+                panic!("Must use gc_col_state method to gc ColState");
             }
             DBCol::ColTrieChanges => {
                 store_update.delete(col, key);
