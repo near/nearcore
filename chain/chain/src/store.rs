@@ -2035,7 +2035,7 @@ impl<'a> ChainStoreUpdate<'a> {
     pub fn gc_col_block_per_height(
         &mut self,
         block_hash: &CryptoHash,
-        height: u64,
+        height: BlockHeight,
         epoch_id: &EpochId,
     ) -> Result<(), Error> {
         let mut store_update = self.store().store_update();
@@ -2141,9 +2141,7 @@ impl<'a> ChainStoreUpdate<'a> {
             DBCol::ColState => {
                 store_update.delete(col, key);
             }
-            DBCol::ColTrieChanges => {
-                store_update.delete(col, key);
-            }
+            DBCol::ColTrieChanges => {}
             DBCol::ColBlockPerHeight => {
                 panic!("Must use gc_col_glock_per_height method to gc ColBlockPerHeight");
             }
