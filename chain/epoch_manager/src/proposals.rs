@@ -10,7 +10,10 @@ use near_primitives::version::ProtocolVersion;
 use crate::types::{EpochConfig, EpochInfo, RngSeed};
 
 /// Find threshold of stake per seat, given provided stakes and required number of seats.
-fn find_threshold(stakes: &[Balance], num_seats: NumSeats) -> Result<Balance, EpochError> {
+pub(crate) fn find_threshold(
+    stakes: &[Balance],
+    num_seats: NumSeats,
+) -> Result<Balance, EpochError> {
     let stake_sum: Balance = stakes.iter().sum();
     if stake_sum < num_seats.into() {
         return Err(EpochError::ThresholdError { stake_sum, num_seats });
@@ -203,6 +206,7 @@ pub fn proposals_to_epoch_info(
         validator_kickout,
         fishermen_to_index,
         minted_amount,
+        seat_price: threshold,
         protocol_version: next_version,
     })
 }
@@ -213,7 +217,9 @@ mod tests {
 
     use near_primitives::version::PROTOCOL_VERSION;
 
-    use crate::test_utils::{change_stake, epoch_config, epoch_info, stake};
+    use crate::test_utils::{
+        change_stake, epoch_config, epoch_info, epoch_info_with_num_seats, stake,
+    };
 
     use super::*;
 
@@ -240,7 +246,7 @@ mod tests {
                 PROTOCOL_VERSION,
             )
             .unwrap(),
-            epoch_info(
+            epoch_info_with_num_seats(
                 1,
                 vec![("test1", 1_000_000)],
                 vec![0],
@@ -250,7 +256,8 @@ mod tests {
                 change_stake(vec![("test1", 1_000_000)]),
                 vec![],
                 HashMap::default(),
-                0
+                0,
+                3
             )
         );
         assert_eq!(
@@ -266,6 +273,7 @@ mod tests {
                     fishermen_threshold: 10,
                     online_min_threshold: Rational::new(90, 100),
                     online_max_threshold: Rational::new(99, 100),
+                    minimum_stake_divisor: 1,
                     protocol_upgrade_stake_threshold: Rational::new(80, 100),
                     protocol_upgrade_num_epochs: 2,
                 },
@@ -283,7 +291,7 @@ mod tests {
                 PROTOCOL_VERSION
             )
             .unwrap(),
-            epoch_info(
+            epoch_info_with_num_seats(
                 1,
                 vec![("test1", 1_000_000), ("test2", 1_000_000), ("test3", 1_000_000)],
                 vec![0, 1, 0, 0, 1, 2],
@@ -305,7 +313,8 @@ mod tests {
                 ]),
                 vec![],
                 HashMap::default(),
-                0
+                0,
+                20
             )
         );
     }

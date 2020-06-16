@@ -13,6 +13,7 @@ use near_primitives::utils::get_num_seats_per_shard;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::test_utils::create_test_store;
 
+use crate::proposals::find_threshold;
 use crate::types::{EpochConfig, EpochInfo, ValidatorWeight};
 use crate::RewardCalculator;
 use crate::{BlockInfo, EpochManager};
@@ -34,7 +35,7 @@ pub fn change_stake(stake_changes: Vec<(&str, Balance)>) -> BTreeMap<AccountId, 
 
 pub fn epoch_info(
     epoch_height: EpochHeight,
-    mut accounts: Vec<(&str, Balance)>,
+    accounts: Vec<(&str, Balance)>,
     block_producers_settlement: Vec<ValidatorId>,
     chunk_producers_settlement: Vec<Vec<ValidatorId>>,
     hidden_validators_settlement: Vec<ValidatorWeight>,
@@ -44,6 +45,37 @@ pub fn epoch_info(
     validator_reward: HashMap<AccountId, Balance>,
     minted_amount: Balance,
 ) -> EpochInfo {
+    let num_seats = block_producers_settlement.len() as u64;
+    epoch_info_with_num_seats(
+        epoch_height,
+        accounts,
+        block_producers_settlement,
+        chunk_producers_settlement,
+        hidden_validators_settlement,
+        fishermen,
+        stake_change,
+        validator_kickout,
+        validator_reward,
+        minted_amount,
+        num_seats,
+    )
+}
+
+pub fn epoch_info_with_num_seats(
+    epoch_height: EpochHeight,
+    mut accounts: Vec<(&str, Balance)>,
+    block_producers_settlement: Vec<ValidatorId>,
+    chunk_producers_settlement: Vec<Vec<ValidatorId>>,
+    hidden_validators_settlement: Vec<ValidatorWeight>,
+    fishermen: Vec<(&str, Balance)>,
+    stake_change: BTreeMap<AccountId, Balance>,
+    validator_kickout: Vec<(&str, ValidatorKickoutReason)>,
+    validator_reward: HashMap<AccountId, Balance>,
+    minted_amount: Balance,
+    num_seats: NumSeats,
+) -> EpochInfo {
+    let seat_price =
+        find_threshold(&accounts.iter().map(|(_, s)| *s).collect::<Vec<_>>(), num_seats).unwrap();
     accounts.sort();
     let validator_to_index = accounts.iter().enumerate().fold(HashMap::new(), |mut acc, (i, x)| {
         acc.insert(x.0.to_string(), i as u64);
@@ -80,6 +112,7 @@ pub fn epoch_info(
         validator_kickout,
         minted_amount,
         protocol_version: PROTOCOL_VERSION,
+        seat_price,
     }
 }
 
@@ -110,6 +143,7 @@ pub fn epoch_config(
         online_max_threshold: Rational::new(99, 100),
         protocol_upgrade_stake_threshold: Rational::new(80, 100),
         protocol_upgrade_num_epochs: 2,
+        minimum_stake_divisor: 1,
     }
 }
 
@@ -188,6 +222,35 @@ pub fn setup_default_epoch_manager(
     )
 }
 
+pub fn record_block_with_final_block_hash(
+    epoch_manager: &mut EpochManager,
+    prev_h: CryptoHash,
+    cur_h: CryptoHash,
+    last_final_block_hash: CryptoHash,
+    height: BlockHeight,
+    proposals: Vec<ValidatorStake>,
+) {
+    epoch_manager
+        .record_block_info(
+            &cur_h,
+            BlockInfo::new(
+                height,
+                height.saturating_sub(2),
+                last_final_block_hash,
+                prev_h,
+                proposals,
+                vec![],
+                vec![],
+                DEFAULT_TOTAL_SUPPLY,
+                PROTOCOL_VERSION,
+            ),
+            [0; 32],
+        )
+        .unwrap()
+        .commit()
+        .unwrap();
+}
+
 pub fn record_block_with_slashes(
     epoch_manager: &mut EpochManager,
     prev_h: CryptoHash,
@@ -202,6 +265,7 @@ pub fn record_block_with_slashes(
             BlockInfo::new(
                 height,
                 height.saturating_sub(2),
+                prev_h,
                 prev_h,
                 proposals,
                 vec![],
@@ -229,6 +293,7 @@ pub fn record_block(
 pub fn block_info(
     height: BlockHeight,
     last_finalized_height: BlockHeight,
+    last_final_block_hash: CryptoHash,
     prev_hash: CryptoHash,
     epoch_first_block: CryptoHash,
     chunk_mask: Vec<bool>,
@@ -237,6 +302,7 @@ pub fn block_info(
     BlockInfo {
         height,
         last_finalized_height,
+        last_final_block_hash,
         prev_hash,
         epoch_first_block,
         epoch_id: Default::default(),
@@ -245,9 +311,5 @@ pub fn block_info(
         latest_protocol_version: PROTOCOL_VERSION,
         slashed: Default::default(),
         total_supply,
-        block_tracker: Default::default(),
-        shard_tracker: Default::default(),
-        all_proposals: vec![],
-        version_tracker: Default::default(),
     }
 }
