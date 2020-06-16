@@ -2141,17 +2141,19 @@ impl<'a> ChainStoreUpdate<'a> {
             DBCol::ColState => {
                 store_update.delete(col, key);
             }
-            DBCol::ColTrieChanges => {}
+            DBCol::ColTrieChanges => {
+                store_update.delete(col, key);
+            }
             DBCol::ColBlockPerHeight => {
                 panic!("Must use gc_col_glock_per_height method to gc ColBlockPerHeight");
             }
-            DBCol::ColDbVersion
+            DBCol::ColDbVersion // DB version is unrelated to GC
             | DBCol::ColBlockMisc
             | DBCol::ColBlockHeader
-            | DBCol::ColGCCount
+            | DBCol::ColGCCount // GC count it self isn't GCed
             | DBCol::ColBlockHeight
             | DBCol::ColTransactionResult
-            | DBCol::ColPeers
+            | DBCol::ColPeers // Peers is unrelated to GC
             | DBCol::ColEpochInfo
             | DBCol::ColStateDlInfos
             | DBCol::ColBlockInfo
@@ -2160,7 +2162,7 @@ impl<'a> ChainStoreUpdate<'a> {
             | DBCol::ColAccountAnnouncements
             | DBCol::ColEpochLightClientBlocks
             | DBCol::ColLastBlockWithNewChunk
-            | DBCol::ColPeerComponent
+            | DBCol::ColPeerComponent // Peer related info doesn't GC
             | DBCol::LastComponentNonce
             | DBCol::ColComponentEdges
             | DBCol::ColBlockOrdinal => {}
