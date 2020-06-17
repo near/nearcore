@@ -5,6 +5,7 @@ use std::sync::Arc;
 use ansi_term::Color::Red;
 use clap::{App, Arg, SubCommand};
 
+use crate::gc::garbage_collect;
 use near_chain::types::BlockHeaderInfo;
 use near_chain::{ChainStore, ChainStoreAccess, RuntimeAdapter};
 use near_logger_utils::init_integration_logger;
@@ -19,6 +20,7 @@ use near_store::{create_store, Store, TrieIterator};
 use neard::{get_default_home, get_store_path, load_config, NearConfig, NightshadeRuntime};
 use state_dump::state_dump;
 
+mod gc;
 mod state_dump;
 
 fn load_trie(
@@ -236,6 +238,14 @@ fn main() {
                 )
                 .help("replay headers from chain"),
         )
+        .subcommand(
+            SubCommand::with_name("gc").arg(
+                Arg::with_name("num_blocks")
+                    .long("num_blocks")
+                    .help("Number of blocks to garbage collect")
+                    .takes_value(true),
+            ),
+        )
         .get_matches();
 
     let home_dir = matches.value_of("home").map(|dir| Path::new(dir)).unwrap();
@@ -294,6 +304,11 @@ fn main() {
                 args.value_of("start_index").map(|s| s.parse::<u64>().unwrap()).unwrap();
             let end_index = args.value_of("end_index").map(|s| s.parse::<u64>().unwrap()).unwrap();
             replay_chain(store, home_dir, &near_config, start_index, end_index);
+        }
+        ("gc", Some(args)) => {
+            let num_blocks_to_gc =
+                args.value_of("num_blocks").map(|s| s.parse::<u64>().unwrap()).unwrap();
+            garbage_collect(store, home_dir, &near_config, num_blocks_to_gc);
         }
         (_, _) => unreachable!(),
     }
