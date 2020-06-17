@@ -14,6 +14,9 @@ pub const TESTING_INIT_BALANCE: u128 = 1_000_000_000 * NEAR_BASE;
 /// One NEAR, divisible by 10^24.
 pub const NEAR_BASE: u128 = 1_000_000_000_000_000_000_000_000;
 
+/// Max prepaid amount of gas.
+const MAX_GAS: u64 = 300_000_000_000_000;
+
 fn setup_test_contract(wasm_binary: &[u8]) -> RuntimeNode {
     let node = RuntimeNode::new(&"alice.near".to_string());
     let account_id = node.account_id().unwrap();
@@ -27,7 +30,7 @@ fn setup_test_contract(wasm_binary: &[u8]) -> RuntimeNode {
         )
         .unwrap();
     assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(to_base64(&[])));
-    assert_eq!(transaction_result.receipts_outcome.len(), 1);
+    assert_eq!(transaction_result.receipts_outcome.len(), 2);
 
     let transaction_result =
         node_user.deploy_contract("test_contract".to_string(), wasm_binary.to_vec()).unwrap();
@@ -55,7 +58,7 @@ fn test_evil_deep_trie() {
                 "test_contract".to_string(),
                 "insert_strings",
                 input_data.to_vec(),
-                10u64.pow(16),
+                MAX_GAS,
                 0,
             )
             .unwrap();
@@ -76,7 +79,7 @@ fn test_evil_deep_trie() {
                 "test_contract".to_string(),
                 "delete_strings",
                 input_data.to_vec(),
-                10u64.pow(16),
+                MAX_GAS,
                 0,
             )
             .unwrap();
@@ -100,7 +103,7 @@ fn test_evil_deep_recursion() {
                 "test_contract".to_string(),
                 "recurse",
                 n_bytes.clone(),
-                10u64.pow(16),
+                MAX_GAS,
                 0,
             )
             .unwrap();
@@ -128,7 +131,7 @@ fn test_evil_abort() {
             "test_contract".to_string(),
             "abort_with_zero",
             vec![],
-            10u64.pow(16),
+            MAX_GAS,
             0,
         )
         .unwrap();

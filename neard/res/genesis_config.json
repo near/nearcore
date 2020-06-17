@@ -1,5 +1,5 @@
 {
-  "protocol_version": 25,
+  "protocol_version": 26,
   "genesis_time": "1970-01-01T00:00:00.000000000Z",
   "chain_id": "sample",
   "genesis_height": 0,
@@ -125,6 +125,10 @@
       "burnt_gas_reward": [
         3,
         10
+      ],
+      "pessimistic_gas_price_inflation_ratio": [
+        103,
+        100
       ]
     },
     "wasm_config": {
@@ -190,7 +194,7 @@
         "max_number_registers": 100,
         "max_number_logs": 100,
         "max_total_log_length": 16384,
-        "max_total_prepaid_gas": 10000000000000000,
+        "max_total_prepaid_gas": 300000000000000,
         "max_actions_per_receipt": 100,
         "max_number_bytes_method_names": 2000,
         "max_length_method_name": 256,

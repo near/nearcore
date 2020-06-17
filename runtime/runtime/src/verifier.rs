@@ -60,7 +60,7 @@ pub fn verify_and_charge_transaction(
     gas_price: Balance,
     signed_transaction: &SignedTransaction,
 ) -> Result<VerificationResult, RuntimeError> {
-    let TransactionCost { gas_burnt, gas_used, total_cost, burnt_amount } =
+    let TransactionCost { gas_burnt, gas_remaining, receipt_gas_price, total_cost, burnt_amount } =
         validate_transaction(config, gas_price, signed_transaction)?;
     let transaction = &signed_transaction.transaction;
     let signer_id = &transaction.signer_id;
@@ -175,7 +175,7 @@ pub fn verify_and_charge_transaction(
     set_access_key(state_update, signer_id.clone(), transaction.public_key.clone(), &access_key);
     set_account(state_update, signer_id.clone(), &signer);
 
-    Ok(VerificationResult { gas_burnt, gas_used, burnt_amount })
+    Ok(VerificationResult { gas_burnt, gas_remaining, receipt_gas_price, burnt_amount })
 }
 
 /// Validates a given receipt. Checks validity of the predecessor and receiver account IDs and
@@ -507,8 +507,6 @@ mod tests {
                 .expect("valid transaction");
         // Should not be free. Burning for sending
         assert!(verification_result.gas_burnt > 0);
-        // Transfer action is not free, so execution cost is added on top.
-        assert!(verification_result.gas_used > verification_result.gas_burnt);
         // All burned gas goes to the validators at current gas price
         assert_eq!(
             verification_result.burnt_amount,
@@ -520,7 +518,9 @@ mod tests {
         assert_eq!(
             account.amount,
             TESTING_INIT_BALANCE
-                - Balance::from(verification_result.gas_used) * gas_price
+                - Balance::from(verification_result.gas_remaining)
+                    * verification_result.receipt_gas_price
+                - verification_result.burnt_amount
                 - deposit
         );
 

@@ -429,7 +429,7 @@ mod tests {
                 "{\"account_id\": \"status\", \"message\": \"caller status is ok!\"}"
                     .as_bytes()
                     .to_vec(),
-                10000000000000000,
+                300_000_000_000_000,
                 CryptoHash::default(),
             )),
             Ok(ExecutionOutcome { status: ExecutionStatus::SuccessValue(_), .. })
