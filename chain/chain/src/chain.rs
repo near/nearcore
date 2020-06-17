@@ -36,7 +36,7 @@ use near_primitives::views::{
     ExecutionOutcomeWithIdView, ExecutionStatusView, FinalExecutionOutcomeView,
     FinalExecutionStatus, LightClientBlockView,
 };
-use near_store::{ColState, ColStateHeaders, ColStateParts, ShardTries};
+use near_store::{ColState, ColStateHeaders, ColStateParts, ShardTries, StoreUpdate};
 
 use crate::error::{Error, ErrorKind};
 use crate::lightclient::get_epoch_block_producers_view;
@@ -956,7 +956,12 @@ impl Chain {
             self.store().store().iter_prefix(ColState, &[]).map(|kv| kv.0.into()).collect();
         let tries = self.runtime_adapter.get_tries();
         let mut chain_store_update = self.mut_store().store_update();
-        chain_store_update.gc_col_state(tries, keys);
+        let mut store_update = StoreUpdate::new_with_tries(tries);
+        for key in keys.iter() {
+            store_update.delete(ColState, key.as_ref());
+            chain_store_update.gc_col(ColState, key);
+        }
+        chain_store_update.merge(store_update);
 
         // The reason to reset tail here is not to allow Tail be greater than Head
         chain_store_update.reset_tail();

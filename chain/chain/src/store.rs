@@ -49,13 +49,13 @@ const CACHE_SIZE: usize = 100;
 const CHUNK_CACHE_SIZE: usize = 1024;
 
 lazy_static! {
-    pub static ref COL_GC: Vec<bool> = {
+    pub static ref SHOULD_COL_GC: Vec<bool> = {
         let mut col_gc = vec![true; NUM_COLS];
         col_gc[DBCol::ColDbVersion as usize] = false; // DB version is unrelated to GC
         col_gc[DBCol::ColBlockMisc as usize] = false;
-        col_gc[DBCol::ColBlockHeader as usize] = false;
+        col_gc[DBCol::ColBlockHeader as usize] = false; // header sync needs headers
         col_gc[DBCol::ColGCCount as usize] = false; // GC count it self isn't GCed
-        col_gc[DBCol::ColBlockHeight as usize] = false;
+        col_gc[DBCol::ColBlockHeight as usize] = false; // block sync needs it + genesis should be accessible
         col_gc[DBCol::ColTransactionResult as usize] = false;
         col_gc[DBCol::ColPeers as usize] = false; // Peers is unrelated to GC
         col_gc[DBCol::ColEpochInfo as usize] = false;
@@ -1991,7 +1991,6 @@ impl<'a> ChainStoreUpdate<'a> {
         }
 
         // 3. Delete block_hash-indexed data
-        // Don't delete block header (ColBlockHeader) - because header sync needs headers
         let block_hash_vec: Vec<u8> = block_hash.as_ref().into();
         self.gc_col(ColBlock, &block_hash_vec);
         self.gc_col(ColBlockExtra, &block_hash_vec);
@@ -2019,9 +2018,8 @@ impl<'a> ChainStoreUpdate<'a> {
                 self.dec_block_refcount(block.header().prev_hash())?;
             }
             GCMode::Canonical(_) => {
-                // 6. Canonical Chain clearing
-
-                // 7. Delete chunks and chunk-indexed data
+                // 6. Canonical Chain only clearing
+                // Delete chunks and chunk-indexed data
                 let mut min_chunk_height = self.tail()?;
                 for chunk_header in block.chunks() {
                     if min_chunk_height > chunk_header.inner.height_created {
@@ -2031,8 +2029,7 @@ impl<'a> ChainStoreUpdate<'a> {
                 self.clear_chunk_data(min_chunk_height)?;
             }
             GCMode::StateSync => {
-                // 8. State Sync clearing
-                // Don't delete from ColBlockHeight because: block sync needs it + genesis should be accessible
+                // 7. State Sync clearing
                 // Chunks deleted separately
             }
         };
@@ -2067,7 +2064,8 @@ impl<'a> ChainStoreUpdate<'a> {
         let mut store_update = self.store().store_update();
         let epoch_to_hashes_ref = self.get_all_block_hashes_by_height(height)?;
         let mut epoch_to_hashes = epoch_to_hashes_ref.clone();
-        let hashes = epoch_to_hashes.get_mut(epoch_id).expect("current epoch id should exist");
+        let hashes =
+            epoch_to_hashes.get_mut(epoch_id).ok_or("current epoch id should exist".to_string())?;
         hashes.remove(&block_hash);
         if hashes.is_empty() {
             epoch_to_hashes.remove(epoch_id);
@@ -2086,19 +2084,8 @@ impl<'a> ChainStoreUpdate<'a> {
         Ok(())
     }
 
-    pub fn gc_col_state(&mut self, tries: ShardTries, keys: Vec<Vec<u8>>) {
-        let mut store_update = StoreUpdate::new_with_tries(tries);
-
-        for key in keys.iter() {
-            store_update.delete(DBCol::ColState, key.as_ref());
-            self.inc_gc(DBCol::ColState);
-        }
-
-        self.merge(store_update);
-    }
-
     pub fn gc_col(&mut self, col: DBCol, key: &Vec<u8>) {
-        assert!(COL_GC[col as usize]);
+        assert!(SHOULD_COL_GC[col as usize]);
         let mut store_update = self.store().store_update();
         match col {
             DBCol::ColOutgoingReceipts => {
@@ -2177,7 +2164,7 @@ impl<'a> ChainStoreUpdate<'a> {
                 store_update.delete(col, key);
             }
             DBCol::ColState => {
-                panic!("Must use gc_col_state method to gc ColState");
+                // Only call to increase gc count, actual gc happened depends on different GCModes
             }
             DBCol::ColTrieChanges => {
                 store_update.delete(col, key);
@@ -2185,7 +2172,25 @@ impl<'a> ChainStoreUpdate<'a> {
             DBCol::ColBlockPerHeight => {
                 panic!("Must use gc_col_glock_per_height method to gc ColBlockPerHeight");
             }
-            _ => {
+            DBCol::ColDbVersion
+            | DBCol::ColBlockMisc
+            | DBCol::ColBlockHeader
+            | DBCol::ColGCCount
+            | DBCol::ColBlockHeight
+            | DBCol::ColTransactionResult
+            | DBCol::ColPeers
+            | DBCol::ColEpochInfo
+            | DBCol::ColStateDlInfos
+            | DBCol::ColBlockInfo
+            | DBCol::ColBlockMerkleTree
+            | DBCol::ColEpochStart
+            | DBCol::ColAccountAnnouncements
+            | DBCol::ColEpochLightClientBlocks
+            | DBCol::ColLastBlockWithNewChunk
+            | DBCol::ColPeerComponent
+            | DBCol::LastComponentNonce
+            | DBCol::ColComponentEdges
+            | DBCol::ColBlockOrdinal => {
                 unreachable!();
             }
         }
@@ -2457,7 +2462,7 @@ impl<'a> ChainStoreUpdate<'a> {
         for (col, count) in self.gc_count.iter() {
             store_update.set_ser(
                 DBCol::ColGCCount,
-                &borsh::ser::BorshSerialize::try_to_vec(col).unwrap(),
+                &borsh::ser::BorshSerialize::try_to_vec(col).expect("Failed to deserialize DBCol"),
                 count,
             )?;
         }
