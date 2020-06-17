@@ -227,9 +227,7 @@ impl JsonRpcHandler {
             "EXPERIMENTAL_changes" => self.changes_in_block_by_type(request.params).await,
             "EXPERIMENTAL_changes_in_block" => self.changes_in_block(request.params).await,
             "next_light_client_block" => self.next_light_client_block(request.params).await,
-            "EXPERIMENTAL_light_client_proof" => {
-                self.light_client_execution_outcome_proof(request.params).await
-            }
+            "light_client_proof" => self.light_client_execution_outcome_proof(request.params).await,
             "network_info" => self.network_info().await,
             "gas_price" => self.gas_price(request.params).await,
             _ => Err(RpcError::method_not_found(request.method)),

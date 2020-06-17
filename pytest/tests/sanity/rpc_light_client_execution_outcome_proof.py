@@ -174,7 +174,7 @@ def check_transaction_outcome_proof(should_succeed, nonce):
                         "light_client_head": light_client_block_hash})
 
     for query, (outcome, id) in zip(queries, outcomes):
-        res = nodes[0].json_rpc('EXPERIMENTAL_light_client_proof', query, timeout=10)
+        res = nodes[0].json_rpc('light_client_proof', query, timeout=10)
         assert 'error' not in res, res
         light_client_proof = res['result']
         # check that execution outcome root proof is valid
