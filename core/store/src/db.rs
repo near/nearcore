@@ -3,6 +3,8 @@ use std::collections::HashMap;
 use std::io;
 use std::sync::RwLock;
 
+use borsh::{BorshDeserialize, BorshSerialize};
+
 use rocksdb::{
     BlockBasedOptions, ColumnFamily, ColumnFamilyDescriptor, Direction, IteratorMode, Options,
     ReadOptions, WriteBatch, DB,
@@ -34,7 +36,7 @@ impl Into<io::Error> for DBError {
     }
 }
 
-#[derive(PartialEq, Debug, Copy, Clone, EnumIter)]
+#[derive(PartialEq, Debug, Copy, Clone, EnumIter, BorshDeserialize, BorshSerialize)]
 pub enum DBCol {
     /// Column to indicate which version of database this is.
     ColDbVersion = 0,

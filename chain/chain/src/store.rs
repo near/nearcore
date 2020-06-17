@@ -8,6 +8,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use cached::{Cached, SizedCache};
 use chrono::Utc;
 use serde::Serialize;
+use strum::IntoEnumIterator;
 use tracing::debug;
 
 use near_primitives::block::{Approval, Tip};
@@ -1090,6 +1091,8 @@ impl ChainStoreCacheUpdate {
     }
 }
 
+type GCCount = u64;
+
 /// Provides layer to update chain without touching the underlying database.
 /// This serves few purposes, main one is that even if executable exists/fails during update the database is in consistent state.
 pub struct ChainStoreUpdate<'a> {
@@ -1112,7 +1115,7 @@ pub struct ChainStoreUpdate<'a> {
     add_state_dl_infos: Vec<StateSyncInfo>,
     remove_state_dl_infos: Vec<CryptoHash>,
     challenged_blocks: HashSet<CryptoHash>,
-    gc_count: HashMap<u64, u64>,
+    gc_count: Vec<GCCount>,
 }
 
 impl<'a> ChainStoreUpdate<'a> {
@@ -1134,7 +1137,7 @@ impl<'a> ChainStoreUpdate<'a> {
             add_state_dl_infos: vec![],
             remove_state_dl_infos: vec![],
             challenged_blocks: HashSet::default(),
-            gc_count: HashMap::default(),
+            gc_count: vec![0; NUM_COLS],
         }
     }
 
@@ -2037,12 +2040,12 @@ impl<'a> ChainStoreUpdate<'a> {
         Ok(())
     }
 
-    fn get_gc_count(&self, col: DBCol) -> u64 {
-        if let Some(count) = self.gc_count.get(&(col as u64)) {
-            *count
+    fn get_gc_count(&self, col: DBCol) -> GCCount {
+        if self.gc_count[col as usize] != 0 {
+            self.gc_count[col as usize]
         } else if let Ok(Some(count)) = self
             .store()
-            .get(DBCol::ColGCCount, &borsh::ser::BorshSerialize::try_to_vec(&(col as u64)).unwrap())
+            .get(DBCol::ColGCCount, &borsh::ser::BorshSerialize::try_to_vec(&col).unwrap())
         {
             borsh::de::BorshDeserialize::try_from_slice(&count).unwrap()
         } else {
@@ -2051,8 +2054,8 @@ impl<'a> ChainStoreUpdate<'a> {
     }
 
     fn inc_gc(&mut self, col: DBCol) {
-        let new_count: u64 = self.get_gc_count(col) + 1;
-        self.gc_count.insert(col as u64, new_count);
+        let new_count = self.get_gc_count(col) + 1;
+        self.gc_count[col as usize] = new_count;
     }
 
     pub fn gc_col_block_per_height(
@@ -2459,11 +2462,11 @@ impl<'a> ChainStoreUpdate<'a> {
         for (chunk_hash, chunk) in self.chain_store_cache_update.invalid_chunks.iter() {
             store_update.set_ser(ColInvalidChunks, chunk_hash.as_ref(), chunk)?;
         }
-        for (col, count) in self.gc_count.iter() {
+        for col in DBCol::iter() {
             store_update.set_ser(
                 DBCol::ColGCCount,
-                &borsh::ser::BorshSerialize::try_to_vec(col).expect("Failed to deserialize DBCol"),
-                count,
+                &borsh::ser::BorshSerialize::try_to_vec(&col).expect("Failed to deserialize DBCol"),
+                &self.gc_count[col as usize],
             )?;
         }
         for other in self.store_updates.drain(..) {
