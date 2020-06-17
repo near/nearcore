@@ -1,6 +1,6 @@
 use crate::db::{DBCol, DBOp, DBTransaction};
 use crate::trie::encode_trie_node_with_rc;
-use crate::trie::trie_storage::TrieCachingStorage;
+use crate::trie::trie_storage::{TrieCache, TrieCachingStorage};
 use crate::{StorageError, Store, StoreUpdate, Trie, TrieChanges, TrieUpdate};
 use borsh::BorshSerialize;
 use near_primitives::hash::CryptoHash;
@@ -9,40 +9,41 @@ use near_primitives::types::{
     NumShards, RawStateChange, RawStateChangesWithTrieKey, ShardId, StateChangeCause, StateRoot,
 };
 use near_primitives::utils::get_block_shard_id;
+use std::rc::Rc;
 use std::sync::Arc;
 
 #[derive(Clone)]
 pub struct ShardTries {
-    pub(crate) tries: Arc<Vec<Arc<Trie>>>,
+    pub(crate) store: Arc<Store>,
+    pub(crate) caches: Arc<Vec<TrieCache>>,
 }
 
 impl ShardTries {
-    pub fn new(storage: Arc<Store>, num_shards: NumShards) -> Self {
+    pub fn new(store: Arc<Store>, num_shards: NumShards) -> Self {
         assert_ne!(num_shards, 0);
-        let tries = Arc::new(
-            (0..num_shards)
-                .map(|shard_id| Arc::new(Trie::new(Arc::clone(&storage), shard_id)))
-                .collect::<Vec<_>>(),
-        );
-        ShardTries { tries }
+        let caches = Arc::new((0..num_shards).map(|_| TrieCache::new()).collect::<Vec<_>>());
+        ShardTries { store, caches }
     }
 
     pub fn new_trie_update(&self, shard_id: ShardId, state_root: CryptoHash) -> TrieUpdate {
-        TrieUpdate::new(self.get_trie_for_shard(shard_id), state_root)
+        TrieUpdate::new(Rc::new(self.get_trie_for_shard(shard_id)), state_root)
     }
 
-    pub fn get_trie_for_shard(&self, shard_id: ShardId) -> Arc<Trie> {
-        return Arc::clone(&self.tries[shard_id as usize]);
+    pub fn get_trie_for_shard(&self, shard_id: ShardId) -> Trie {
+        let store = Box::new(TrieCachingStorage::new(
+            self.store.clone(),
+            self.caches[shard_id as usize].clone(),
+            shard_id,
+        ));
+        return Trie::new(store, shard_id);
     }
 
     pub fn get_store(&self) -> Arc<Store> {
-        Arc::clone(
-            &self.tries[0].storage.as_caching_storage().expect("Always caching storage").store,
-        )
+        self.store.clone()
     }
 
     pub fn update_cache(&self, transaction: &DBTransaction) -> std::io::Result<()> {
-        let mut shards = vec![Vec::new(); self.tries.len()];
+        let mut shards = vec![Vec::new(); self.caches.len()];
         for op in &transaction.ops {
             match op {
                 DBOp::Insert { col, ref key, ref value } if *col == DBCol::ColState => {
@@ -57,7 +58,7 @@ impl ShardTries {
             }
         }
         for (shard_id, ops) in shards.into_iter().enumerate() {
-            self.tries[shard_id].update_cache(ops);
+            self.caches[shard_id].update_cache(ops);
         }
         Ok(())
     }

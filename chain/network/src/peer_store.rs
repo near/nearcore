@@ -82,7 +82,7 @@ impl PeerStore {
             }
         }
 
-        for (key, value) in store.iter(ColPeers) {
+        for (key, value) in store.iter_unsafe(ColPeers) {
             let key: Vec<u8> = key.into();
             let value: Vec<u8> = value.into();
             let peer_id: PeerId = key.try_into()?;
