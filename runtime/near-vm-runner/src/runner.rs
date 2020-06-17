@@ -24,9 +24,32 @@ pub fn run<'a>(
     fees_config: &'a RuntimeFeesConfig,
     promise_results: &'a [PromiseResult],
 ) -> (Option<VMOutcome>, Option<VMError>) {
+    run_vm(
+        code_hash,
+        code,
+        method_name,
+        ext,
+        context,
+        wasm_config,
+        fees_config,
+        promise_results,
+        VMKind::default(),
+    )
+}
+pub fn run_vm<'a>(
+    code_hash: Vec<u8>,
+    code: &[u8],
+    method_name: &[u8],
+    ext: &mut dyn External,
+    context: VMContext,
+    wasm_config: &'a VMConfig,
+    fees_config: &'a RuntimeFeesConfig,
+    promise_results: &'a [PromiseResult],
+    vm_kind: VMKind,
+) -> (Option<VMOutcome>, Option<VMError>) {
     use crate::wasmer_runner::run_wasmer;
     use crate::wasmtime_runner::run_wasmtime;
-    match VMKind::default() {
+    match vm_kind {
         VMKind::Wasmer => run_wasmer(
             code_hash,
             code,

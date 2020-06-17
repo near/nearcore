@@ -205,13 +205,11 @@ pub fn run_wasmer<'a>(
         Ok(x) => x,
         Err(err) => return (None, Some(err)),
     };
-    let mut memory = match WasmerMemory::new(
+    let mut memory = WasmerMemory::new(
         wasm_config.limit_config.initial_memory_pages,
         wasm_config.limit_config.max_memory_pages,
-    ) {
-        Ok(x) => x,
-        Err(_err) => panic!("Cannot create memory for a contract call"),
-    };
+    )
+    .expect("Cannot create memory for a contract call");
     // Note that we don't clone the actual backing memory, just increase the RC.
     let memory_copy = memory.clone();
 

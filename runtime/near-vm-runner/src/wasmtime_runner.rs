@@ -39,6 +39,7 @@ impl MemoryLike for WasmtimeMemory {
 
     fn read_memory(&self, offset: u64, buffer: &mut [u8]) {
         let offset = offset as usize;
+        // data_unchecked() is unsafe.
         unsafe {
             for i in 0..buffer.len() {
                 buffer[i] = self.0.data_unchecked()[i + offset];
@@ -47,10 +48,12 @@ impl MemoryLike for WasmtimeMemory {
     }
 
     fn read_memory_u8(&self, offset: u64) -> u8 {
+        // data_unchecked() is unsafe.
         unsafe { self.0.data_unchecked()[offset as usize] }
     }
 
     fn write_memory(&mut self, offset: u64, buffer: &[u8]) {
+        // data_unchecked_mut() is unsafe.
         unsafe {
             let offset = offset as usize;
             for i in 0..buffer.len() {

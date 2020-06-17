@@ -36,11 +36,11 @@ macro_rules! wrapped_imports {
             pub mod wasmtime_ext {
             use near_vm_logic::{VMLogic, VMLogicError};
             use std::ffi::c_void;
-            use std::cell::RefCell;
+            use std::cell::{RefCell, UnsafeCell};
             use wasmtime::Trap;
 
             thread_local! {
-                pub static CALLER_CONTEXT: RefCell<*mut c_void> = RefCell::new(0 as *mut c_void);
+                pub static CALLER_CONTEXT: UnsafeCell<*mut c_void> = UnsafeCell::new(0 as *mut c_void);
                 pub static EMBEDDER_ERROR: RefCell<Option<VMLogicError>> = RefCell::new(None);
             }
 
@@ -49,7 +49,9 @@ macro_rules! wrapped_imports {
                 #[allow(unused_parens)]
                 pub fn $func( $( $arg_name: rust2wasm!($arg_type) ),* ) -> VMResult<($( rust2wasm!($returns)),*)> {
                     let data = CALLER_CONTEXT.with(|caller_context| {
-                        unsafe { *caller_context.as_ptr() }
+                        unsafe {
+                            *caller_context.get()
+                        }
                     });
                     let logic: &mut VMLogic<'_> = unsafe { &mut *(data as *mut VMLogic<'_>) };
                     match logic.$func( $( $arg_name as $arg_type, )* ) {
@@ -91,7 +93,9 @@ macro_rules! wrapped_imports {
                     raw_logic: *mut c_void,
              ) {
                 wasmtime_ext::CALLER_CONTEXT.with(|caller_context| {
-                    caller_context.replace(raw_logic)
+                    unsafe {
+                        *caller_context.get() = raw_logic
+                    }
                 });
                 linker.define("env", "memory", memory).
                     expect("cannot define memory");
