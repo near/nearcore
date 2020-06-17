@@ -204,7 +204,9 @@ pub(crate) fn action_stake(
     result: &mut ActionResult,
     account_id: &AccountId,
     stake: &StakeAction,
-) {
+    last_block_hash: &CryptoHash,
+    epoch_info_provider: &dyn EpochInfoProvider,
+) -> Result<(), RuntimeError> {
     let increment = stake.stake.saturating_sub(account.locked);
 
     if account.amount >= increment {
@@ -212,8 +214,22 @@ pub(crate) fn action_stake(
             // if the account hasn't staked, it cannot unstake
             result.result =
                 Err(ActionErrorKind::TriesToUnstake { account_id: account_id.clone() }.into());
-            return;
+            return Ok(());
         }
+
+        if stake.stake > 0 {
+            let minimum_stake = epoch_info_provider.minimum_stake(last_block_hash)?;
+            if stake.stake < minimum_stake {
+                result.result = Err(ActionErrorKind::InsufficientStake {
+                    account_id: account_id.clone(),
+                    stake: stake.stake,
+                    minimum_stake,
+                }
+                .into());
+                return Ok(());
+            }
+        }
+
         result.validator_proposals.push(ValidatorStake {
             account_id: account_id.clone(),
             public_key: stake.public_key.clone(),
@@ -233,6 +249,7 @@ pub(crate) fn action_stake(
         }
         .into());
     }
+    Ok(())
 }
 
 /// Tries to refunds the allowance of the access key for a gas refund action.

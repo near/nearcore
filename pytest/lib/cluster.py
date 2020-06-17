@@ -71,6 +71,9 @@ class Key(object):
         with open(jf) as f:
             return Key.from_json(json.loads(f.read()))
 
+    def to_json(self):
+        return {'account_id': self.account_id, 'public_key': self.pk, 'secret_key': self.sk}
+
 
 class BaseNode(object):
 
@@ -330,6 +333,11 @@ class LocalNode(BaseNode):
     def reset_data(self):
         shutil.rmtree(os.path.join(self.node_dir, "data"))
 
+    def reset_validator_key(self, new_key):
+        self.validator_key = new_key
+        with open(os.path.join(self.node_dir, "validator_key.json"), 'w+') as f:
+            json.dump(new_key.to_json(), f)
+
     def cleanup(self):
         if self.cleaned:
             return
@@ -467,6 +475,13 @@ chmod +x near
         rc.run(f'gcloud compute firewall-rules delete {self.machine.name}-stop',
                input='yes\n')
 
+    def reset_validator_key(self, new_key):
+        self.validator_key = new_key
+        with open(os.path.join(self.node_dir, "validator_key.json"), 'w+') as f:
+            json.dump(new_key.to_json(), f)
+        self.machine.upload(os.path.join(self.node_dir, 'validator_key.json'),
+                            f'/home/{self.machine.username}/.near/')
+
 
 def spin_up_node(config,
                  near_root,
@@ -598,7 +613,7 @@ def apply_config_changes(node_dir, client_config_change):
         assert k in config_json
         if isinstance(v, dict):
             for key, value in v.items():
-                assert key in config_json[k]
+                assert key in config_json[k], key
                 config_json[k][key] = value
         else:
             config_json[k] = v
