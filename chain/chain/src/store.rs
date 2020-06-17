@@ -43,7 +43,9 @@ use near_store::{
 
 use crate::byzantine_assert;
 use crate::error::{Error, ErrorKind};
-use crate::types::{Block, BlockHeader, LatestKnown, ReceiptProofResponse, ReceiptResponse};
+use crate::types::{
+    Block, BlockHeader, LatestKnown, ReceiptProofResponse, ReceiptResponse, StatePartKey,
+};
 
 /// lru cache size
 const CACHE_SIZE: usize = 100;
@@ -1990,7 +1992,6 @@ impl<'a> ChainStoreUpdate<'a> {
             self.gc_col(ColNextBlockWithNewChunk, &height_shard_id);
             let key = StateHeaderKey(shard_id, block_hash).try_to_vec()?;
             self.gc_col(ColStateHeaders, &key);
-            // Already done, check chain.clear_downloaded_parts()
         }
 
         // 3. Delete block_hash-indexed data
@@ -2091,8 +2092,17 @@ impl<'a> ChainStoreUpdate<'a> {
         self.inc_gc(DBCol::ColState);
     }
 
-    pub fn gc_col_state_parts(&mut self, key: &Vec<u8>) {
-        self.gc_col(DBCol::ColStateParts, key)
+    pub fn gc_col_state_parts(
+        &mut self,
+        sync_hash: CryptoHash,
+        shard_id: ShardId,
+        num_parts: u64,
+    ) -> Result<(), Error> {
+        for part_id in 0..num_parts {
+            let key = StatePartKey(sync_hash, shard_id, part_id).try_to_vec()?;
+            self.gc_col(DBCol::ColStateParts, &key);
+        }
+        Ok(())
     }
 
     fn gc_col(&mut self, col: DBCol, key: &Vec<u8>) {

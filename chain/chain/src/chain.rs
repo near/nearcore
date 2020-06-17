@@ -1798,10 +1798,7 @@ impl Chain {
         num_parts: u64,
     ) -> Result<(), Error> {
         let mut chain_store_update = self.mut_store().store_update();
-        for part_id in 0..num_parts {
-            let key = StatePartKey(sync_hash, shard_id, part_id).try_to_vec()?;
-            chain_store_update.gc_col_state_parts(&key.into());
-        }
+        chain_store_update.gc_col_state_parts(sync_hash, shard_id, num_parts)?;
         Ok(chain_store_update.commit()?)
     }
 
