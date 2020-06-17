@@ -26,7 +26,7 @@ use near_runtime_fees::{
     AccessKeyCreationConfig, ActionCreationConfig, DataReceiptCreationConfig, Fee,
     RuntimeFeesConfig,
 };
-use near_vm_logic::{ExtCosts, ExtCostsConfig, VMConfig, VMLimitConfig, VMKind};
+use near_vm_logic::{ExtCosts, ExtCostsConfig, VMConfig, VMLimitConfig};
 use node_runtime::config::RuntimeConfig;
 
 /// How much gas there is in a nanosecond worth of computation.
@@ -616,7 +616,6 @@ fn get_ext_costs_config(measurement: &Measurements) -> ExtCostsConfig {
 
 fn get_vm_config(measurement: &Measurements) -> VMConfig {
     VMConfig {
-        vm_kind: VMKind::default(),
         ext_costs: get_ext_costs_config(measurement),
         // TODO: Figure out whether we need this fee at all. If we do what should be the memory
         // growth cost.

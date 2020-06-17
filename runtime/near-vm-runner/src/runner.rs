@@ -26,7 +26,7 @@ pub fn run<'a>(
 ) -> (Option<VMOutcome>, Option<VMError>) {
     use crate::wasmer_runner::run_wasmer;
     use crate::wasmtime_runner::run_wasmtime;
-    match wasm_config.vm_kind {
+    match VMKind::default() {
         VMKind::Wasmer => run_wasmer(
             code_hash,
             code,

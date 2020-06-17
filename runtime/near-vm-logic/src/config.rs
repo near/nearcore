@@ -27,9 +27,6 @@ impl Default for VMKind {
 
 #[derive(Clone, Debug, Hash, Serialize, Deserialize, PartialEq, Eq)]
 pub struct VMConfig {
-    /// Virtual machine kind.
-    pub vm_kind: VMKind,
-
     /// Costs for runtime externals
     pub ext_costs: ExtCostsConfig,
 
@@ -104,7 +101,6 @@ pub struct VMLimitConfig {
 impl Default for VMConfig {
     fn default() -> VMConfig {
         VMConfig {
-            vm_kind: VMKind::default(),
             ext_costs: ExtCostsConfig::default(),
             grow_mem_cost: 1,
             regular_op_cost: 3856371,
@@ -124,7 +120,6 @@ impl VMConfig {
 
     pub fn free() -> Self {
         Self {
-            vm_kind: VMKind::default(),
             ext_costs: ExtCostsConfig::free(),
             grow_mem_cost: 0,
             regular_op_cost: 0,
