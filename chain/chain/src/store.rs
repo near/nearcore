@@ -2087,7 +2087,15 @@ impl<'a> ChainStoreUpdate<'a> {
         Ok(())
     }
 
-    pub fn gc_col(&mut self, col: DBCol, key: &Vec<u8>) {
+    pub fn gc_col_state(&mut self) {
+        self.inc_gc(DBCol::ColState);
+    }
+
+    pub fn gc_col_state_parts(&mut self, key: &Vec<u8>) {
+        self.gc_col(DBCol::ColStateParts, key)
+    }
+
+    fn gc_col(&mut self, col: DBCol, key: &Vec<u8>) {
         assert!(SHOULD_COL_GC[col as usize]);
         let mut store_update = self.store().store_update();
         match col {
@@ -2167,7 +2175,7 @@ impl<'a> ChainStoreUpdate<'a> {
                 store_update.delete(col, key);
             }
             DBCol::ColState => {
-                // Only call to increase gc count, actual gc happened depends on different GCModes
+                panic!("Actual gc happens elsewhere, call gc_col_state to increase gc count");
             }
             DBCol::ColTrieChanges => {
                 store_update.delete(col, key);

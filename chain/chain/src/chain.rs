@@ -959,7 +959,7 @@ impl Chain {
         let mut store_update = StoreUpdate::new_with_tries(tries);
         for key in keys.iter() {
             store_update.delete(ColState, key.as_ref());
-            chain_store_update.gc_col(ColState, key);
+            chain_store_update.gc_col_state();
         }
         chain_store_update.merge(store_update);
 
@@ -1800,7 +1800,7 @@ impl Chain {
         let mut chain_store_update = self.mut_store().store_update();
         for part_id in 0..num_parts {
             let key = StatePartKey(sync_hash, shard_id, part_id).try_to_vec()?;
-            chain_store_update.gc_col(ColStateParts, &key.into());
+            chain_store_update.gc_col_state_parts(&key.into());
         }
         Ok(chain_store_update.commit()?)
     }
