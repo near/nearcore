@@ -38,7 +38,6 @@ while True:
     hash_ = status['sync_info']['latest_block_hash']
 
     if step == 0:
-        print(f'step {step}')
         if height >= 1:
             tx = sign_payment_tx(nodes[0].signer_key, 'test1', 100, 1,
                                  base58.b58decode(hash_.encode('utf8')))

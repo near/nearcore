@@ -7,7 +7,7 @@ ED_PREFIX = "ed25519:"
 
 def create_handshake(my_key_pair_nacl, their_pk_serialized, listen_port):
     handshake = Handshake()
-    handshake.version = 17
+    handshake.version = 26
     handshake.peer_id = PublicKey()
     handshake.target_peer_id = PublicKey()
     handshake.listen_port = listen_port
