@@ -24,12 +24,15 @@ use near_store::{
 
 use crate::metrics;
 use crate::{
+    cache::RouteBackCache,
     types::{PeerIdOrHash, Ping, Pong},
     utils::cache_to_hashmap,
 };
 
 const ANNOUNCE_ACCOUNT_CACHE_SIZE: usize = 10_000;
-const ROUTE_BACK_CACHE_SIZE: usize = 10_000;
+const ROUTE_BACK_CACHE_SIZE: u64 = 1_000_000;
+const ROUTE_BACK_CACHE_EVICT_TIMEOUT: u64 = 120_000; // 120 seconds
+const ROUTE_BACK_CACHE_REMOVE_BATCH: u64 = 100;
 const PING_PONG_CACHE_SIZE: usize = 1_000;
 const ROUND_ROBIN_MAX_NONCE_DIFFERENCE_ALLOWED: usize = 10;
 const ROUND_ROBIN_NONCE_CACHE_SIZE: usize = 10_000;
@@ -251,7 +254,7 @@ pub struct RoutingTable {
     /// Store last update for known edges.
     pub edges_info: HashMap<(PeerId, PeerId), Edge>,
     /// Hash of messages that requires routing back to respective previous hop.
-    pub route_back: SizedCache<CryptoHash, PeerId>,
+    pub route_back: RouteBackCache,
     /// Last time a peer with reachable through active edges.
     pub peer_last_time_reachable: HashMap<PeerId, chrono::DateTime<chrono::Utc>>,
     /// Access to store on disk
@@ -296,7 +299,11 @@ impl RoutingTable {
             account_peers: SizedCache::with_size(ANNOUNCE_ACCOUNT_CACHE_SIZE),
             peer_forwarding: HashMap::new(),
             edges_info: HashMap::new(),
-            route_back: SizedCache::with_size(ROUTE_BACK_CACHE_SIZE),
+            route_back: RouteBackCache::new(
+                ROUTE_BACK_CACHE_SIZE,
+                ROUTE_BACK_CACHE_EVICT_TIMEOUT,
+                ROUTE_BACK_CACHE_REMOVE_BATCH,
+            ),
             peer_last_time_reachable: HashMap::new(),
             store,
             raw_graph: Graph::new(peer_id),
@@ -538,16 +545,16 @@ impl RoutingTable {
     }
 
     pub fn add_route_back(&mut self, hash: CryptoHash, peer_id: PeerId) {
-        self.route_back.cache_set(hash, peer_id);
+        self.route_back.insert(hash, peer_id);
     }
 
     // Find route back with given hash and removes it from cache.
     fn fetch_route_back(&mut self, hash: CryptoHash) -> Option<PeerId> {
-        self.route_back.cache_remove(&hash)
+        self.route_back.remove(&hash)
     }
 
     pub fn compare_route_back(&mut self, hash: CryptoHash, peer_id: &PeerId) -> bool {
-        self.route_back.cache_get(&hash).map_or(false, |value| value == peer_id)
+        self.route_back.get(&hash).map_or(false, |value| value == peer_id)
     }
 
     pub fn add_ping(&mut self, ping: Ping) {
