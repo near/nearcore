@@ -22,6 +22,7 @@ pub struct Fee {
 }
 
 impl Fee {
+    #[inline]
     pub fn send_fee(&self, sir: bool) -> Gas {
         if sir {
             self.send_sir
@@ -32,6 +33,11 @@ impl Fee {
 
     pub fn exec_fee(&self) -> Gas {
         self.execution
+    }
+
+    /// The minimum fee to send and execute.
+    fn min_send_and_exec_fee(&self) -> Gas {
+        std::cmp::min(self.send_sir, self.send_not_sir) + self.execution
     }
 }
 
@@ -49,6 +55,9 @@ pub struct RuntimeFeesConfig {
 
     /// Fraction of the burnt gas to reward to the contract account for execution.
     pub burnt_gas_reward: Rational,
+
+    /// Pessimistic gas price inflation ratio.
+    pub pessimistic_gas_price_inflation_ratio: Rational,
 }
 
 /// Describes the cost of creating a data receipt, `DataReceipt`.
@@ -204,6 +213,7 @@ impl Default for RuntimeFeesConfig {
                 num_extra_bytes_record: 40,
             },
             burnt_gas_reward: Rational::new(3, 10),
+            pessimistic_gas_price_inflation_ratio: Rational::new(103, 100),
         }
     }
 }
@@ -238,6 +248,38 @@ impl RuntimeFeesConfig {
                 num_extra_bytes_record: 0,
             },
             burnt_gas_reward: Rational::from_integer(0),
+            pessimistic_gas_price_inflation_ratio: Rational::from_integer(0),
         }
+    }
+
+    /// The minimum amount of gas required to create and execute a new receipt with a function call
+    /// action.
+    /// This amount is used to determine how many receipts can be created, send and executed for
+    /// some amount of prepaid gas using function calls.
+    pub fn min_receipt_with_function_call_gas(&self) -> Gas {
+        self.action_receipt_creation_config.min_send_and_exec_fee()
+            + self.action_creation_config.function_call_cost.min_send_and_exec_fee()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_data_roundtrip_is_more_expensive() {
+        // We have an assumption that the deepest receipts we can create is by creating recursive
+        // function call promises (calling function call from a function call).
+        // If the cost of a data receipt is cheaper than the cost of a function call, then it's
+        // possible to create a promise with a dependency which will be executed in two blocks that
+        // is cheaper than just two recursive function calls.
+        // That's why we need to enforce that the cost of the data receipt is not less than a
+        // function call. Otherwise we'd have to modify the way we compute the maximum depth.
+        let transaction_costs = RuntimeFeesConfig::default();
+        assert!(
+            transaction_costs.data_receipt_creation_config.base_cost.min_send_and_exec_fee()
+                >= transaction_costs.min_receipt_with_function_call_gas(),
+            "The data receipt cost can't be larger than the cost of a receipt with a function call"
+        );
     }
 }

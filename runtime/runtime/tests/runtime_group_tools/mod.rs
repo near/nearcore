@@ -42,7 +42,12 @@ impl StandaloneRuntime {
 
     pub fn new(signer: InMemorySigner, state_records: &[StateRecord], tries: ShardTries) -> Self {
         let mut runtime_config = random_config();
-        runtime_config.wasm_config.limit_config.max_total_prepaid_gas = u64::max_value();
+        // Bumping costs to avoid inflation overflows.
+        runtime_config.wasm_config.limit_config.max_total_prepaid_gas = 10u64.pow(15);
+        runtime_config.transaction_costs.action_receipt_creation_config.execution =
+            runtime_config.wasm_config.limit_config.max_total_prepaid_gas / 64;
+        runtime_config.transaction_costs.data_receipt_creation_config.base_cost.execution =
+            runtime_config.wasm_config.limit_config.max_total_prepaid_gas / 64;
 
         let runtime = Runtime::new(runtime_config);
 
