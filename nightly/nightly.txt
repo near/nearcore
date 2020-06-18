@@ -63,21 +63,21 @@ pytest adversarial/start_from_genesis.py doomslug_off
 pytest adversarial/start_from_genesis.py overtake doomslug_off
 
 # catchup tests
-expensive near-client catching_up tests::test_catchup_receipts_sync_third_epoch
-expensive near-client catching_up tests::test_catchup_receipts_sync_last_block
-expensive near-client catching_up tests::test_catchup_receipts_sync_distant_epoch
-expensive near-client catching_up tests::test_catchup_random_single_part_sync
-expensive near-client catching_up tests::test_catchup_random_single_part_sync_skip_15
-expensive near-client catching_up tests::test_catchup_random_single_part_sync_send_15
-expensive near-client catching_up tests::test_catchup_random_single_part_sync_non_zero_amounts
-expensive near-client catching_up tests::test_catchup_random_single_part_sync_height_6
-expensive near-client catching_up tests::test_catchup_sanity_blocks_produced
+expensive --timeout=1800 near-client catching_up tests::test_catchup_receipts_sync_third_epoch
+expensive --timeout=1800 near-client catching_up tests::test_catchup_receipts_sync_last_block
+expensive --timeout=1800 near-client catching_up tests::test_catchup_receipts_sync_distant_epoch
+expensive --timeout=1800 near-client catching_up tests::test_catchup_random_single_part_sync
+expensive --timeout=1800 near-client catching_up tests::test_catchup_random_single_part_sync_skip_15
+expensive --timeout=1800 near-client catching_up tests::test_catchup_random_single_part_sync_send_15
+expensive --timeout=1800 near-client catching_up tests::test_catchup_random_single_part_sync_non_zero_amounts
+expensive --timeout=1800 near-client catching_up tests::test_catchup_random_single_part_sync_height_6
+expensive --timeout=1800 near-client catching_up tests::test_catchup_sanity_blocks_produced
 expensive --timeout=3600 near-client catching_up tests::test_all_chunks_accepted_1000
 # expensive --timeout=7200 near-client catching_up tests::test_all_chunks_accepted_1000_slow
 expensive --timeout=1800 near-client catching_up tests::test_all_chunks_accepted_1000_rare_epoch_changing
-expensive near-client catching_up tests::test_catchup_sanity_blocks_produced_doomslug
-expensive near-client catching_up tests::test_catchup_receipts_sync_hold
-expensive near-client catching_up tests::test_chunk_grieving
+expensive --timeout=1800 near-client catching_up tests::test_catchup_sanity_blocks_produced_doomslug
+expensive --timeout=1800 near-client catching_up tests::test_catchup_receipts_sync_hold
+expensive --timeout=1800 near-client catching_up tests::test_chunk_grieving
 
 expensive nearcore test_catchup test_catchup
 
