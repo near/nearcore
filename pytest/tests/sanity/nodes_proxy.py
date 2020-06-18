@@ -12,6 +12,7 @@ from multiprocessing import Value
 TIMEOUT = 30
 success = Value('i', 0)
 
+
 def handler(msg, fr, to):
     if msg.enum == 'Block':
         if msg.Block.BlockV1.header.BlockHeaderV1.inner_lite.height >= 10:
@@ -19,9 +20,8 @@ def handler(msg, fr, to):
             success.value = 1
     return True
 
-start_cluster(
-    4, 0, 1, None,
-    [], {}, handler)
+
+start_cluster(4, 0, 1, None, [], {}, handler)
 
 started = time.time()
 
@@ -31,5 +31,3 @@ while True:
 
     if success.value == 1:
         break
-
-

@@ -12,7 +12,7 @@
 #    proxify_node will start a process that receives the connections on the port 100
 #    larger than the original node port. It will change the port of the `Node` object
 #    passed to it.
-# 
+#
 # Note that since the handler is called on incoming messages and outgoing responces, if
 # all the nodes in the cluster are proxified, each message exchanged in the cluster will
 # have the handler called exactly once.
@@ -38,6 +38,7 @@ MSG_TIMEOUT = 10
 
 schema = dict(crypto_schema + network_schema + block_schema + tx_schema)
 
+
 def proxy_cleanup(proxy):
     proxy.stopped.value = 1
     for p in proxy.ps:
@@ -47,6 +48,7 @@ def proxy_cleanup(proxy):
 
 
 class NodesProxy:
+
     def __init__(self, handler):
         assert handler is not None
         self.handler = handler
@@ -58,7 +60,7 @@ class NodesProxy:
     def proxify_node(self, node):
         p = proxify_node(node, self.handler, self.stopped, self.error)
         self.ps.append(p)
-        
+
 
 def proxify_node(node, handler, stopped, error):
     old_port = node.port
@@ -88,7 +90,8 @@ def proxify_node(node, handler, stopped, error):
                             continue
 
                         data = conn.recv(struct.unpack('I', data)[0])
-                        decision = call_handler(data, handler, peer_port_holder, [node.port])
+                        decision = call_handler(data, handler, peer_port_holder,
+                                                [node.port])
                         if type(decision) == bytes:
                             data = decision
                             decision = True
@@ -105,7 +108,8 @@ def proxify_node(node, handler, stopped, error):
                             continue
 
                         data = s_node.recv(struct.unpack('I', data)[0])
-                        decision = call_handler(data, handler, [node.port], peer_port_holder)
+                        decision = call_handler(data, handler, [node.port],
+                                                peer_port_holder)
 
                         if type(decision) == bytes:
                             data = decision
@@ -138,9 +142,11 @@ def proxify_node(node, handler, stopped, error):
                     except socket.timeout:
                         continue
                     print('Connected by', addr)
-                    p = multiprocessing.Process(target=handle_connection, args=(conn, addr, stopped, error))
+                    p = multiprocessing.Process(target=handle_connection,
+                                                args=(conn, addr, stopped,
+                                                      error))
                     p.start()
-                    
+
         except:
             error.value = 1
             raise
@@ -166,8 +172,7 @@ def call_handler(raw_msg, handler, sender_port_holder, receiver_port_holder):
             if sender_port_holder[0] is None:
                 sender_port_holder[0] = obj.Handshake.listen_port
 
-        decision = handler(obj,
-                           port_holder_to_node_ord(sender_port_holder), 
+        decision = handler(obj, port_holder_to_node_ord(sender_port_holder),
                            port_holder_to_node_ord(receiver_port_holder))
 
         if decision == True and obj.enum == 'Handshake':
@@ -201,5 +206,3 @@ def call_handler(raw_msg, handler, sender_port_holder, receiver_port_holder):
         raise
 
     return True
-
-
