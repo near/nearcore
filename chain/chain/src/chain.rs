@@ -959,7 +959,7 @@ impl Chain {
         let mut store_update = StoreUpdate::new_with_tries(tries);
         for key in keys.iter() {
             store_update.delete(ColState, key.as_ref());
-            chain_store_update.gc_col_state();
+            chain_store_update.inc_gc_col_state();
         }
         chain_store_update.merge(store_update);
 

@@ -1933,6 +1933,7 @@ impl<'a> ChainStoreUpdate<'a> {
                                         ColTrieChanges,
                                         &get_block_shard_id(&block_hash, shard_id),
                                     );
+                                    self.inc_gc_col_state();
                                 })
                                 .map_err(|err| ErrorKind::Other(err.to_string()))
                         })
@@ -1952,6 +1953,7 @@ impl<'a> ChainStoreUpdate<'a> {
                                         ColTrieChanges,
                                         &get_block_shard_id(&block_hash, shard_id),
                                     );
+                                    self.inc_gc_col_state();
                                 })
                                 .map_err(|err| ErrorKind::Other(err.to_string()))
                         })
@@ -1963,7 +1965,7 @@ impl<'a> ChainStoreUpdate<'a> {
             GCMode::StateSync => {
                 // Not apply the data from ColTrieChanges
                 for shard_id in 0..header.chunk_mask().len() as ShardId {
-                    store_update.delete(ColTrieChanges, &get_block_shard_id(&block_hash, shard_id));
+                    self.gc_col(ColTrieChanges, &get_block_shard_id(&block_hash, shard_id));
                 }
             }
         }
@@ -2088,7 +2090,7 @@ impl<'a> ChainStoreUpdate<'a> {
         Ok(())
     }
 
-    pub fn gc_col_state(&mut self) {
+    pub fn inc_gc_col_state(&mut self) {
         self.inc_gc(DBCol::ColState);
     }
 
@@ -2185,7 +2187,7 @@ impl<'a> ChainStoreUpdate<'a> {
                 store_update.delete(col, key);
             }
             DBCol::ColState => {
-                panic!("Actual gc happens elsewhere, call gc_col_state to increase gc count");
+                panic!("Actual gc happens elsewhere, call inc_gc_col_state to increase gc count");
             }
             DBCol::ColTrieChanges => {
                 store_update.delete(col, key);
