@@ -103,7 +103,7 @@ impl RouteBackCache {
         }
 
         self.size_per_target.remove(&(size, target.clone()));
-        // Since size has negative sign, adding 1, is equivalent to subtracting 1 from the size.
+        // Since self.size is equal to capacity - real_size, adding 1, is equivalent to subtracting 1 from the real size.
         size += removed;
 
         if self.capacity - size != 0 {
@@ -336,7 +336,7 @@ mod test {
         let (peer3, hash3) = create_message(3);
 
         cache.insert(hash0, peer0.clone());
-        thread::sleep(Duration::from_millis(1000));
+        thread::sleep(Duration::from_millis(1100));
         cache.insert(hash1, peer1.clone());
         cache.insert(hash2, peer1.clone());
         cache.insert(hash3, peer3.clone());
