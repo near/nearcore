@@ -33,7 +33,7 @@ impl MemoryLike for WasmtimeMemory {
     fn fits_memory(&self, offset: u64, len: u64) -> bool {
         match offset.checked_add(len) {
             None => false,
-            Some(end) => self.0.size() as u64 >= end,
+            Some(end) => self.0.data_size() as u64 >= end,
         }
     }
 
