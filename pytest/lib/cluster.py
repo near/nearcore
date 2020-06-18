@@ -525,21 +525,6 @@ def spin_up_node(config,
     return node
 
 
-def connect_to_mocknet(config):
-    if not config:
-        config = load_config()
-
-    if 'local' in config:
-        print("Attempt to launch a mocknet test with a regular config",
-              file=sys.stderr)
-        sys.exit(1)
-
-    return [RpcNode(node['ip'], node['port']) for node in config['nodes']], [
-        Key(account['account_id'], account['pk'], account['sk'])
-        for account in config['accounts']
-    ]
-
-
 def init_cluster(num_nodes, num_observers, num_shards, config,
                  genesis_config_changes, client_config_changes):
     """

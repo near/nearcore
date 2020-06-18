@@ -6,11 +6,12 @@ import sys, time, random, base58
 
 sys.path.append('lib')
 
-from cluster import connect_to_mocknet
+import mocknet
 from transaction import sign_payment_tx, sign_function_call_tx, sign_deploy_contract_tx
 from utils import load_binary_file
 
-nodes, accounts = connect_to_mocknet(None)
+nodes = mocknet.get_nodes()
+accounts = mocknet.accounts_from_nodes(nodes)
 
 print()
 
