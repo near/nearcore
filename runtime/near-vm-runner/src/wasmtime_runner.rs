@@ -76,14 +76,12 @@ fn trap_to_error(trap: &wasmtime::Trap) -> VMError {
             None => panic!("Error is not properly set"),
         }
     } else {
-        // VMError::FunctionCallError(LinkError { msg: format!("{:#?}", trap) })
         VMError::FunctionCallError(WasmUnknownError)
     }
 }
 
 impl IntoVMError for anyhow::Error {
     fn into_vm_error(self) -> VMError {
-        // TODO: incorrect
         let cause = self.root_cause();
         match cause.downcast_ref::<wasmtime::Trap>() {
             Some(trap) => trap_to_error(trap),
@@ -97,7 +95,6 @@ impl IntoVMError for wasmtime::Trap {
         if self.i32_exit_status() == Some(239) {
             trap_to_error(&self)
         } else {
-            // VMError::FunctionCallError(LinkError { msg: format!("{:#?}", self) })
             VMError::FunctionCallError(WasmUnknownError)
         }
     }
