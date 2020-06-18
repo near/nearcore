@@ -36,7 +36,7 @@ with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
     send_obj(s, schema, handshake)
     response = recv_obj(s, schema, PeerMessage)
 
-    assert response.enum == 'Handshake'
+    assert response.enum == 'Handshake', response.enum
     assert response.Handshake.chain_info.genesis_id.chain_id == handshake.Handshake.chain_info.genesis_id.chain_id
     assert response.Handshake.chain_info.genesis_id.hash == handshake.Handshake.chain_info.genesis_id.hash
     assert response.Handshake.edge_info.nonce == 1
