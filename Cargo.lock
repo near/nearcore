@@ -3530,6 +3530,7 @@ name = "state-viewer"
 version = "0.1.0"
 dependencies = [
  "ansi_term",
+ "bencher",
  "borsh",
  "clap",
  "log",
@@ -3545,6 +3546,7 @@ dependencies = [
  "neard",
  "node-runtime",
  "serde_json",
+ "tempfile",
 ]
 
 [[package]]

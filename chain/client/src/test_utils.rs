@@ -735,12 +735,13 @@ pub fn setup_client_with_runtime(
     network_adapter: Arc<dyn NetworkAdapter>,
     chain_genesis: ChainGenesis,
     runtime_adapter: Arc<dyn RuntimeAdapter>,
+    archive: bool,
 ) -> Client {
     let validator_signer = account_id.map(|x| {
         Arc::new(InMemoryValidatorSigner::from_seed(x, KeyType::ED25519, x))
             as Arc<dyn ValidatorSigner>
     });
-    let mut config = ClientConfig::test(true, 10, 20, num_validator_seats, false);
+    let mut config = ClientConfig::test(true, 10, 20, num_validator_seats, archive);
     config.epoch_length = chain_genesis.epoch_length;
     let mut client = Client::new(
         config,
@@ -780,6 +781,7 @@ pub fn setup_client(
         network_adapter,
         chain_genesis,
         runtime_adapter,
+        false,
     )
 }
 
@@ -819,6 +821,7 @@ impl TestEnv {
         num_clients: usize,
         num_validator_seats: NumSeats,
         runtime_adapters: Vec<Arc<dyn RuntimeAdapter>>,
+        archive: bool,
     ) -> Self {
         let network_adapters: Vec<Arc<MockNetworkAdapter>> =
             (0..num_clients).map(|_| Arc::new(MockNetworkAdapter::default())).collect();
@@ -828,6 +831,7 @@ impl TestEnv {
             num_validator_seats,
             runtime_adapters,
             network_adapters,
+            archive,
         )
     }
 
@@ -837,6 +841,7 @@ impl TestEnv {
         num_validator_seats: NumSeats,
         runtime_adapters: Vec<Arc<dyn RuntimeAdapter>>,
         network_adapters: Vec<Arc<MockNetworkAdapter>>,
+        archive: bool,
     ) -> Self {
         let validators: Vec<AccountId> =
             (0..num_validator_seats).map(|i| format!("test{}", i)).collect();
@@ -849,6 +854,7 @@ impl TestEnv {
                     network_adapters[i].clone(),
                     chain_genesis.clone(),
                     runtime_adapters[i].clone(),
+                    archive,
                 )
             })
             .collect();

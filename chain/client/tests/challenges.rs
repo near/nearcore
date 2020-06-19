@@ -373,7 +373,7 @@ fn test_verify_chunk_invalid_state_challenge() {
         vec![],
         vec![],
     ))];
-    let mut env = TestEnv::new_with_runtime(ChainGenesis::test(), 1, 1, runtimes);
+    let mut env = TestEnv::new_with_runtime(ChainGenesis::test(), 1, 1, runtimes, false);
     let signer = InMemorySigner::from_seed("test0", KeyType::ED25519, "test0");
     let validator_signer = InMemoryValidatorSigner::from_seed("test0", KeyType::ED25519, "test0");
     let genesis_hash = *env.clients[0].chain.genesis().hash();
@@ -655,8 +655,13 @@ fn test_fishermen_challenge() {
     let runtime1 = create_runtime();
     let runtime2 = create_runtime();
     let runtime3 = create_runtime();
-    let mut env =
-        TestEnv::new_with_runtime(ChainGenesis::test(), 3, 1, vec![runtime1, runtime2, runtime3]);
+    let mut env = TestEnv::new_with_runtime(
+        ChainGenesis::test(),
+        3,
+        1,
+        vec![runtime1, runtime2, runtime3],
+        false,
+    );
     let signer = InMemorySigner::from_seed("test1", KeyType::ED25519, "test1");
     let genesis_hash = *env.clients[0].chain.genesis().hash();
     let stake_transaction = SignedTransaction::stake(

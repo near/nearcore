@@ -13,23 +13,24 @@ use near_primitives::receipt::Receipt;
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{
-    ApprovalStake, BlockHeight, EpochId, NumBlocks, StateRootNode, ValidatorStake,
+    ApprovalStake, Balance, BlockHeight, EpochId, Gas, NumBlocks, ShardId, StateRootNode,
+    ValidatorStake,
 };
 use near_primitives::views::{EpochValidatorInfo, QueryRequest, QueryResponse};
 use near_store::{PartialStorage, ShardTries, Store, StoreUpdate, Trie};
 use neard::{NearConfig, NightshadeRuntime};
 use std::cmp::Ordering;
 use std::path::Path;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 pub struct GCRuntime {
     runtime: NightshadeRuntime,
-    latest_height: BlockHeight,
+    latest_height: Arc<Mutex<BlockHeight>>,
 }
 
 impl GCRuntime {
     pub fn new(runtime: NightshadeRuntime, latest_height: BlockHeight) -> Self {
-        Self { runtime, latest_height }
+        Self { runtime, latest_height: Arc::new(Mutex::new(latest_height)) }
     }
 }
 
@@ -255,7 +256,7 @@ impl RuntimeAdapter for GCRuntime {
     }
 
     fn get_gc_stop_height(&self, _block_hash: &CryptoHash) -> Result<u64, Error> {
-        Ok(self.latest_height)
+        Ok(*self.latest_height.lock().unwrap())
     }
 
     fn epoch_exists(&self, epoch_id: &EpochId) -> bool {
@@ -271,58 +272,95 @@ impl RuntimeAdapter for GCRuntime {
     }
 
     fn add_validator_proposals(&self, block_header_info: BlockHeaderInfo) -> Result<(), Error> {
+        *self.latest_height.lock().unwrap() = block_header_info.height;
         self.runtime.add_validator_proposals(block_header_info)
     }
 
     fn apply_transactions_with_optional_storage_proof(
         &self,
-        _shard_id: u64,
-        _state_root: &CryptoHash,
-        _height: u64,
-        _block_timestamp: u64,
-        _prev_block_hash: &CryptoHash,
-        _block_hash: &CryptoHash,
-        _receipts: &[Receipt],
-        _transactions: &[SignedTransaction],
-        _last_validator_proposals: &[ValidatorStake],
-        _gas_price: u128,
-        _gas_limit: u64,
-        _challenges_result: &Vec<SlashedValidator>,
-        _generate_storage_proof: bool,
+        shard_id: ShardId,
+        state_root: &CryptoHash,
+        height: BlockHeight,
+        block_timestamp: u64,
+        prev_block_hash: &CryptoHash,
+        block_hash: &CryptoHash,
+        receipts: &[Receipt],
+        transactions: &[SignedTransaction],
+        last_validator_proposals: &[ValidatorStake],
+        gas_price: Balance,
+        gas_limit: Gas,
+        challenges_result: &Vec<SlashedValidator>,
+        generate_storage_proof: bool,
     ) -> Result<ApplyTransactionResult, Error> {
-        unimplemented!()
+        self.runtime.apply_transactions_with_optional_storage_proof(
+            shard_id,
+            state_root,
+            height,
+            block_timestamp,
+            prev_block_hash,
+            block_hash,
+            receipts,
+            transactions,
+            last_validator_proposals,
+            gas_price,
+            gas_limit,
+            challenges_result,
+            generate_storage_proof,
+        )
     }
 
     fn check_state_transition(
         &self,
-        _partial_storage: PartialStorage,
-        _shard_id: u64,
-        _state_root: &CryptoHash,
-        _height: u64,
-        _block_timestamp: u64,
-        _prev_block_hash: &CryptoHash,
-        _block_hash: &CryptoHash,
-        _receipts: &[Receipt],
-        _transactions: &[SignedTransaction],
-        _last_validator_proposals: &[ValidatorStake],
-        _gas_price: u128,
-        _gas_limit: u64,
-        _challenges_result: &Vec<SlashedValidator>,
+        partial_storage: PartialStorage,
+        shard_id: ShardId,
+        state_root: &CryptoHash,
+        height: BlockHeight,
+        block_timestamp: u64,
+        prev_block_hash: &CryptoHash,
+        block_hash: &CryptoHash,
+        receipts: &[Receipt],
+        transactions: &[SignedTransaction],
+        last_validator_proposals: &[ValidatorStake],
+        gas_price: Balance,
+        gas_limit: Gas,
+        challenges_result: &Vec<SlashedValidator>,
     ) -> Result<ApplyTransactionResult, Error> {
-        unimplemented!()
+        self.runtime.check_state_transition(
+            partial_storage,
+            shard_id,
+            state_root,
+            height,
+            block_timestamp,
+            prev_block_hash,
+            block_hash,
+            receipts,
+            transactions,
+            last_validator_proposals,
+            gas_price,
+            gas_limit,
+            challenges_result,
+        )
     }
 
     fn query(
         &self,
-        _shard_id: u64,
-        _state_root: &CryptoHash,
-        _block_height: u64,
-        _block_timestamp: u64,
-        _block_hash: &CryptoHash,
-        _epoch_id: &EpochId,
-        _request: &QueryRequest,
+        shard_id: ShardId,
+        state_root: &CryptoHash,
+        block_height: BlockHeight,
+        block_timestamp: u64,
+        block_hash: &CryptoHash,
+        epoch_id: &EpochId,
+        request: &QueryRequest,
     ) -> Result<QueryResponse, Box<dyn std::error::Error>> {
-        unimplemented!()
+        self.runtime.query(
+            shard_id,
+            state_root,
+            block_height,
+            block_timestamp,
+            block_hash,
+            epoch_id,
+            request,
+        )
     }
 
     fn get_validator_info(&self, block_hash: &CryptoHash) -> Result<EpochValidatorInfo, Error> {
@@ -379,7 +417,7 @@ impl RuntimeAdapter for GCRuntime {
     }
 }
 
-pub(crate) fn garbage_collect(
+pub fn garbage_collect(
     store: Arc<Store>,
     home_dir: &Path,
     near_config: &NearConfig,

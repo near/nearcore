@@ -1416,7 +1416,7 @@ mod test {
             vec![],
             vec![],
         ))];
-        let mut env = TestEnv::new_with_runtime(ChainGenesis::test(), 1, 1, runtimes);
+        let mut env = TestEnv::new_with_runtime(ChainGenesis::test(), 1, 1, runtimes, false);
         let signer = InMemoryValidatorSigner::from_seed("test1", KeyType::ED25519, "test1");
         let parent_hash = hash(&[1]);
         let approval = Approval::new(parent_hash, 0, 1, &signer);

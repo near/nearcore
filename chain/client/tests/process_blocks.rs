@@ -754,7 +754,7 @@ fn test_gc_with_epoch_length_common(epoch_length: NumBlocks) {
     ))];
     let mut chain_genesis = ChainGenesis::test();
     chain_genesis.epoch_length = epoch_length;
-    let mut env = TestEnv::new_with_runtime(chain_genesis, 1, 1, runtimes);
+    let mut env = TestEnv::new_with_runtime(chain_genesis, 1, 1, runtimes, false);
     let mut blocks = vec![];
     for i in 1..=epoch_length * (NUM_EPOCHS_TO_KEEP_STORE_DATA + 1) {
         let block = env.clients[0].produce_block(i).unwrap().unwrap();
@@ -822,7 +822,7 @@ fn test_gc_long_epoch() {
     ];
     let mut chain_genesis = ChainGenesis::test();
     chain_genesis.epoch_length = epoch_length;
-    let mut env = TestEnv::new_with_runtime(chain_genesis, 2, 5, runtimes);
+    let mut env = TestEnv::new_with_runtime(chain_genesis, 2, 5, runtimes, false);
     let num_blocks = 100;
     let mut blocks = vec![];
 
@@ -923,7 +923,7 @@ fn test_tx_forward_around_epoch_boundary() {
     let mut chain_genesis = ChainGenesis::test();
     chain_genesis.epoch_length = epoch_length;
     chain_genesis.gas_limit = genesis.config.gas_limit;
-    let mut env = TestEnv::new_with_runtime(chain_genesis, 3, 2, runtimes);
+    let mut env = TestEnv::new_with_runtime(chain_genesis, 3, 2, runtimes, false);
     let genesis_hash = *env.clients[0].chain.genesis().hash();
     let signer = InMemorySigner::from_seed("test1", KeyType::ED25519, "test1");
     let tx = SignedTransaction::stake(
@@ -982,7 +982,7 @@ fn test_not_resync_old_blocks() {
     ))];
     let mut chain_genesis = ChainGenesis::test();
     chain_genesis.epoch_length = epoch_length;
-    let mut env = TestEnv::new_with_runtime(chain_genesis, 1, 1, runtimes);
+    let mut env = TestEnv::new_with_runtime(chain_genesis, 1, 1, runtimes, false);
     let mut blocks = vec![];
     for i in 1..=epoch_length * (NUM_EPOCHS_TO_KEEP_STORE_DATA + 1) {
         let block = env.clients[0].produce_block(i).unwrap().unwrap();
@@ -1021,7 +1021,7 @@ fn test_gc_tail_update() {
     ];
     let mut chain_genesis = ChainGenesis::test();
     chain_genesis.epoch_length = epoch_length;
-    let mut env = TestEnv::new_with_runtime(chain_genesis, 2, 1, runtimes);
+    let mut env = TestEnv::new_with_runtime(chain_genesis, 2, 1, runtimes, false);
     let mut blocks = vec![];
     for i in 1..=epoch_length * (NUM_EPOCHS_TO_KEEP_STORE_DATA + 1) {
         let block = env.clients[0].produce_block(i).unwrap().unwrap();
@@ -1093,7 +1093,7 @@ fn test_gas_price_change() {
         vec![],
         vec![],
     ))];
-    let mut env = TestEnv::new_with_runtime(chain_genesis, 1, 1, runtimes);
+    let mut env = TestEnv::new_with_runtime(chain_genesis, 1, 1, runtimes, false);
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
     let genesis_hash = *genesis_block.hash();
     let signer = InMemorySigner::from_seed("test1", KeyType::ED25519, "test1");
@@ -1145,7 +1145,7 @@ fn test_gas_price_overflow() {
         vec![],
         vec![],
     ))];
-    let mut env = TestEnv::new_with_runtime(chain_genesis, 1, 1, runtimes);
+    let mut env = TestEnv::new_with_runtime(chain_genesis, 1, 1, runtimes, false);
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
     let genesis_hash = *genesis_block.hash();
     let signer = InMemorySigner::from_seed("test1", KeyType::ED25519, "test1");
@@ -1255,7 +1255,7 @@ fn test_data_reset_before_state_sync() {
         vec![],
         vec![],
     ))];
-    let mut env = TestEnv::new_with_runtime(ChainGenesis::test(), 1, 1, runtimes);
+    let mut env = TestEnv::new_with_runtime(ChainGenesis::test(), 1, 1, runtimes, false);
     let signer = InMemorySigner::from_seed("test0", KeyType::ED25519, "test0");
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
     let genesis_hash = *genesis_block.hash();

@@ -25,3 +25,9 @@ neard = { path = "../../neard" }
 [dev-dependencies]
 serde_json = "1"
 near-client = { path = "../../chain/client" }
+bencher = "0.1.5"
+tempfile = "3"
+
+[[bench]]
+name = "bench"
+harness = false
