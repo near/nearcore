@@ -1,6 +1,7 @@
 from serializer import BinarySerializer
 import hashlib
 from ed25519 import SigningKey
+import base58
 
 from messages.tx import *
 from messages.crypto import *
@@ -8,8 +9,7 @@ from messages.crypto import *
 schema = dict(tx_schema + crypto_schema)
 
 
-def sign_and_serialize_transaction(receiverId, nonce, actions, blockHash,
-                                   accountId, pk, sk):
+def compute_tx_hash(receiverId, nonce, actions, blockHash, accountId, pk):
     tx = Transaction()
     tx.signerId = accountId
     tx.publicKey = PublicKey()
@@ -22,6 +22,14 @@ def sign_and_serialize_transaction(receiverId, nonce, actions, blockHash,
 
     msg = BinarySerializer(schema).serialize(tx)
     hash_ = hashlib.sha256(msg).digest()
+
+    return tx, hash_
+
+
+def sign_and_serialize_transaction(receiverId, nonce, actions, blockHash,
+                                   accountId, pk, sk):
+    tx, hash_ = compute_tx_hash(receiverId, nonce, actions, blockHash,
+                                accountId, pk)
 
     signature = Signature()
     signature.keyType = 0
@@ -151,6 +159,14 @@ def sign_payment_tx(key, to, amount, nonce, blockHash):
                                           key.decoded_sk())
 
 
+def sign_payment_tx_and_get_hash(key, to, amount, nonce, block_hash):
+    action = create_payment_action(amount)
+    _, hash_bytes = compute_tx_hash(to, nonce, [action], block_hash,
+                                    key.account_id, key.decoded_pk())
+    signed_tx = sign_payment_tx(key, to, amount, nonce, block_hash)
+    return signed_tx, base58.b58encode(hash_bytes).decode('utf8')
+
+
 def sign_staking_tx(signer_key, validator_key, amount, nonce, blockHash):
     action = create_staking_action(amount, validator_key.decoded_pk())
     return sign_and_serialize_transaction(signer_key.account_id, nonce,
@@ -158,6 +174,17 @@ def sign_staking_tx(signer_key, validator_key, amount, nonce, blockHash):
                                           signer_key.account_id,
                                           signer_key.decoded_pk(),
                                           signer_key.decoded_sk())
+
+
+def sign_staking_tx_and_get_hash(signer_key, validator_key, amount, nonce,
+                                 block_hash):
+    action = create_staking_action(amount, validator_key.decoded_pk())
+    _, hash_bytes = compute_tx_hash(signer_key.account_id, nonce, [action],
+                                    block_hash, signer_key.account_id,
+                                    signer_key.decoded_pk())
+    signed_tx = sign_staking_tx(signer_key, validator_key, amount, nonce,
+                                block_hash)
+    return signed_tx, base58.b58encode(hash_bytes).decode('utf8')
 
 
 def sign_deploy_contract_tx(signer_key, code, nonce, blockHash):
