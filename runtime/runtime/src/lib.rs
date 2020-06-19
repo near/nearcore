@@ -259,6 +259,7 @@ impl Runtime {
                         logs: vec![],
                         receipt_ids: vec![receipt.receipt_id],
                         gas_burnt: verification_result.gas_burnt,
+                        amount_burnt: verification_result.burnt_amount,
                     },
                 };
                 Ok((receipt, outcome))
@@ -655,6 +656,7 @@ impl Runtime {
                 logs: result.logs,
                 receipt_ids,
                 gas_burnt: result.gas_burnt,
+                amount_burnt: tx_burnt_amount + receiver_reward,
             },
         })
     }
