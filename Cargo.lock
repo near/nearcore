@@ -2042,6 +2042,7 @@ dependencies = [
  "rocksdb",
  "serde",
  "strum",
+ "strum_macros",
  "thiserror",
  "tracing",
 ]

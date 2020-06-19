@@ -3,6 +3,8 @@ use std::collections::HashMap;
 use std::io;
 use std::sync::RwLock;
 
+use borsh::{BorshDeserialize, BorshSerialize};
+
 use rocksdb::{
     BlockBasedOptions, ColumnFamily, ColumnFamilyDescriptor, Direction, IteratorMode, Options,
     ReadOptions, WriteBatch, DB,
@@ -34,7 +36,7 @@ impl Into<io::Error> for DBError {
     }
 }
 
-#[derive(PartialEq, Debug, Copy, Clone, EnumIter)]
+#[derive(PartialEq, Debug, Copy, Clone, EnumIter, BorshDeserialize, BorshSerialize)]
 pub enum DBCol {
     /// Column to indicate which version of database this is.
     ColDbVersion = 0,
@@ -91,10 +93,12 @@ pub enum DBCol {
     ColChunkHashesByHeight = 39,
     /// Block ordinals.
     ColBlockOrdinal = 40,
+    /// GC Count for each column
+    ColGCCount = 41,
 }
 
 // Do not move this line from enum DBCol
-const NUM_COLS: usize = 41;
+pub const NUM_COLS: usize = 42;
 
 impl std::fmt::Display for DBCol {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
@@ -140,6 +144,7 @@ impl std::fmt::Display for DBCol {
             Self::ColBlockMerkleTree => "block merkle tree",
             Self::ColChunkHashesByHeight => "chunk hashes indexed by height_created",
             Self::ColBlockOrdinal => "block ordinal",
+            Self::ColGCCount => "gc count",
         };
         write!(formatter, "{}", desc)
     }

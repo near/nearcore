@@ -3,7 +3,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use actix::{Actor, Addr};
-use log::info;
+use log::{error, info};
 use tracing::trace;
 
 use near_chain::ChainGenesis;
@@ -53,8 +53,23 @@ pub fn get_default_home() -> String {
 
 /// Function checks current version of the database and applies migrations to the database.
 pub fn apply_store_migrations(path: &String) {
-    let _db_version = get_store_version(path);
+    let db_version = get_store_version(path);
+    if db_version > near_primitives::version::DB_VERSION {
+        error!(target: "near", "DB version {} is created by a newer version of neard, please update neard or delete data", db_version);
+        std::process::exit(1);
+    }
+    if db_version == near_primitives::version::DB_VERSION {
+        return;
+    }
     // Add migrations here based on `db_version`.
+    if db_version == 1 {
+        // version 1 => 2: add gc column
+        // Does not need to do anything since open db with option `create_missing_column_families`
+        // Nevertheless need to bump db version, because db_version 1 binary can't open db_version 2 db
+        info!(target: "near", "Migrate DB from version 1 to 2");
+        let store = create_store(&path);
+        set_store_version(&store);
+    }
 }
 
 pub fn init_and_migrate_store(home_dir: &Path) -> Arc<Store> {

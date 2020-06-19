@@ -45,6 +45,26 @@ class DeleteAccount:
     pass
 
 
+class Receipt:
+    pass
+
+
+class ReceiptEnum:
+    pass
+
+
+class ActionReceipt:
+    pass
+
+
+class DataReceipt:
+    pass
+
+
+class DataReceiver:
+    pass
+
+
 tx_schema = [
     [
         SignedTransaction, {
@@ -119,6 +139,58 @@ tx_schema = [
         DeleteAccount, {
             'kind': 'struct',
             'fields': [['beneficiaryId', 'string']]
+        }
+    ],
+    [
+        Receipt, {
+            'kind': 'struct',
+            'fields': [
+                ['predecessor_id', 'string'],
+                ['receiver_id', 'string'],
+                ['receipt_id', [32]],
+                ['receipt', ReceiptEnum],
+            ]
+        }
+    ],
+    [
+        ReceiptEnum, {
+            'kind': 'enum',
+            'field': 'enum',
+            'values': [
+                ['Action', ActionReceipt],
+                ['Data', DataReceipt],
+            ]
+        }
+    ],
+    [
+        ActionReceipt, {
+            'kind': 'struct',
+            'fields': [
+                ['signer_id', 'string'],
+                ['signer_public_key', PublicKey],
+                ['gas_price', 'u128'],
+                ['output_data_receivers', [DataReceiver]],
+                ['input_data_ids', [[32]]],
+                ['actions', [Action]],
+            ],
+        }
+    ],
+    [
+        DataReceipt, {
+            'kind': 'struct',
+            'fields': [
+                ['data_id', [32]],
+                ['data', {'kind': 'option', 'type': ['u8']}],
+            ]
+        }
+    ],
+    [
+        DataReceiver, {
+            'kind': 'struct',
+            'fields': [
+                ['data_id', [32]],
+                ['receiver_id', 'string'],
+            ]
         }
     ],
 ]

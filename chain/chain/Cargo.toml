@@ -18,6 +18,7 @@ num-rational = "0.2.4"
 tracing = "0.1.13"
 thiserror = "1.0"
 strum = "0.18"
+strum_macros = "0.18"
 
 borsh = "0.6.2"
 
