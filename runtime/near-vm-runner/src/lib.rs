@@ -9,6 +9,7 @@ mod wasmtime_runner;
 pub use near_vm_errors::VMError;
 pub use runner::run;
 pub use runner::run_vm;
+pub use runner::with_vm_variants;
 
 #[cfg(feature = "costs_counting")]
 pub use near_vm_logic::EXT_COSTS_COUNTER;

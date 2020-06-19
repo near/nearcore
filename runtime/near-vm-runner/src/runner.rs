@@ -72,3 +72,9 @@ pub fn run_vm<'a>(
         ),
     }
 }
+
+pub fn with_vm_variants(runner: fn(VMKind) -> ()) {
+    for vm in vec![VMKind::Wasmer, VMKind::Wasmtime].iter() {
+        runner(vm.clone());
+    }
+}

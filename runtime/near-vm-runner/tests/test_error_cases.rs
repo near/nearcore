@@ -1,16 +1,10 @@
 use near_vm_errors::{CompilationError, FunctionCallError, MethodResolveError, PrepareError};
 use near_vm_logic::{HostError, ReturnData, VMKind, VMOutcome};
-use near_vm_runner::VMError;
+use near_vm_runner::{with_vm_variants, VMError};
 
 pub mod test_utils;
 
 use self::test_utils::{make_simple_contract_call_vm, make_simple_contract_call_with_gas_vm};
-
-fn with_vm_variants(runner: fn(VMKind) -> ()) {
-    for vm in vec![VMKind::Wasmer, VMKind::Wasmtime].iter() {
-        runner(vm.clone());
-    }
-}
 
 fn vm_outcome_with_gas(gas: u64) -> VMOutcome {
     VMOutcome {
