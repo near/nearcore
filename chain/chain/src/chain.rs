@@ -952,13 +952,17 @@ impl Chain {
         chain_store_update.commit()?;
 
         // clear all trie data
-        let mut store_update = StoreUpdate::new_with_tries(self.runtime_adapter.get_tries());
-        let stored_state = self.store().store().iter_prefix(ColState, &[]);
-        for (key, _) in stored_state {
-            store_update.delete(ColState, key.as_ref());
-        }
+        let keys: Vec<Vec<u8>> =
+            self.store().store().iter_prefix(ColState, &[]).map(|kv| kv.0.into()).collect();
+        let tries = self.runtime_adapter.get_tries();
         let mut chain_store_update = self.mut_store().store_update();
+        let mut store_update = StoreUpdate::new_with_tries(tries);
+        for key in keys.iter() {
+            store_update.delete(ColState, key.as_ref());
+            chain_store_update.inc_gc_col_state();
+        }
         chain_store_update.merge(store_update);
+
         // The reason to reset tail here is not to allow Tail be greater than Head
         chain_store_update.reset_tail();
         chain_store_update.commit()?;
@@ -1793,12 +1797,9 @@ impl Chain {
         sync_hash: CryptoHash,
         num_parts: u64,
     ) -> Result<(), Error> {
-        let mut store_update = self.store.owned_store().store_update();
-        for part_id in 0..num_parts {
-            let key = StatePartKey(sync_hash, shard_id, part_id).try_to_vec()?;
-            store_update.delete(ColStateParts, &key);
-        }
-        Ok(store_update.commit()?)
+        let mut chain_store_update = self.mut_store().store_update();
+        chain_store_update.gc_col_state_parts(sync_hash, shard_id, num_parts)?;
+        Ok(chain_store_update.commit()?)
     }
 
     /// Apply transactions in chunks for the next epoch in blocks that were blocked on the state sync
