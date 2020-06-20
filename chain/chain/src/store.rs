@@ -2249,6 +2249,11 @@ impl<'a> ChainStoreUpdate<'a> {
                 .set_ser(ColBlockMisc, LARGEST_TARGET_HEIGHT_KEY, &t)
                 .map_err::<Error, _>(|e| e.into())?;
         }
+        if let Some(chunk_tail) = self.chunk_tail {
+            store_update
+                .set_ser(ColBlockMisc, CHUNK_TAIL_KEY, &chunk_tail)
+                .map_err::<Error, _>(|e| e.into())?;
+        }
         for (hash, block) in self.chain_store_cache_update.blocks.iter() {
             let mut map =
                 match self.chain_store.get_all_block_hashes_by_height(block.header().height()) {
