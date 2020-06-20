@@ -264,7 +264,7 @@ pub(crate) fn chunk_tail_validity(
     check_cached!(sv.inner.is_misc_set, "misc");
     let chunk_tail = sv.inner.chunk_tail;
     let height = shard_chunk.header.inner.height_created;
-    if height < chunk_tail {
+    if height != sv.config.genesis_height && height < chunk_tail {
         err!(
             "Invalid ShardChunk stored, chunk_tail = {:?}, ShardChunk = {:?}",
             chunk_tail,
