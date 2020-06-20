@@ -2244,12 +2244,12 @@ impl<'a> ChainStoreUpdate<'a> {
                 .set_ser(ColBlockMisc, SYNC_HEAD_KEY, &t)
                 .map_err::<Error, _>(|e| e.into())?;
         }
-        if let Some(t) = self.largest_target_height {
+        if let Some(t) = self.largest_target_height.take() {
             store_update
                 .set_ser(ColBlockMisc, LARGEST_TARGET_HEIGHT_KEY, &t)
                 .map_err::<Error, _>(|e| e.into())?;
         }
-        if let Some(chunk_tail) = self.chunk_tail {
+        if let Some(chunk_tail) = self.chunk_tail.take() {
             store_update
                 .set_ser(ColBlockMisc, CHUNK_TAIL_KEY, &chunk_tail)
                 .map_err::<Error, _>(|e| e.into())?;
