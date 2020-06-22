@@ -14,6 +14,7 @@ pub use near_primitives_core::logging;
 pub mod merkle;
 pub mod network;
 pub use near_primitives_core::profile;
+pub mod rand;
 pub mod receipt;
 pub mod runtime;
 pub mod serialize;
