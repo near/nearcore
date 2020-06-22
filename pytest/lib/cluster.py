@@ -473,7 +473,9 @@ chmod +x near
         return super().json_rpc(method, params, timeout=timeout)
 
     def get_status(self):
-        r = requests.get("http://%s:%s/status" % self.rpc_addr(), timeout=10)
+        r = retrying.retry(lambda: requests.get(
+            "http://%s:%s/status" % self.rpc_addr(), timeout=10),
+                           timeout=20)
         r.raise_for_status()
         return json.loads(r.content)
 

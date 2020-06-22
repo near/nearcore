@@ -93,7 +93,7 @@ def send_transaction(node, tx, tx_hash, account_id, timeout=30):
                 f'Transaction {tx_hash} did not complete successfully within the timeout'
             )
 
-    if 'SuccessValue' not in response['result']['status'].keys():
+    if 'SuccessValue' not in response['result']['status']:
         raise RuntimeError(
             f'ERROR: Failed transaction {tx_hash}. Response: {response}')
 
