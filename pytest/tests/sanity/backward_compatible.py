@@ -24,7 +24,7 @@ def main():
 
     # near_root, (stable_branch,
     #             current_branch) = branches.prepare_ab_test("beta")
-    (near_root, (stable_branch, current_branch)) = ('../target/debug', ('beta', 'upgradability'))
+    (near_root, (stable_branch, current_branch)) = ('../target/debug/', ('beta', 'upgradability'))
 
     # Setup local network.
     subprocess.call([
