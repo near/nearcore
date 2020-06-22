@@ -580,6 +580,7 @@ mod tests {
                 logs: vec!["outcome1".to_string()],
                 receipt_ids: vec![hash(&[1])],
                 gas_burnt: 100,
+                tokens_burnt: 10000,
             },
         };
         let outcome2 = ExecutionOutcomeWithId {
@@ -589,6 +590,7 @@ mod tests {
                 logs: vec!["outcome2".to_string()],
                 receipt_ids: vec![],
                 gas_burnt: 0,
+                tokens_burnt: 0,
             },
         };
         let outcomes = vec![outcome1, outcome2];

@@ -430,7 +430,7 @@ def test_key_value_changes():
             json.dumps({
                 "key": "my_key",
                 "value": "my_value_1"
-            }).encode('utf-8'), 10000000000000000, 100000000000, 20,
+            }).encode('utf-8'), 300000000000000, 100000000000, 20,
             base58.b58decode(latest_block_hash.encode('utf8')))
         nodes[1].send_tx_and_wait(function_call_1_tx, 10)
 
@@ -442,7 +442,7 @@ def test_key_value_changes():
         json.dumps({
             "key": "my_key",
             "value": "my_value_2"
-        }).encode('utf-8'), 10000000000000000, 100000000000, 30,
+        }).encode('utf-8'), 300000000000000, 100000000000, 30,
         base58.b58decode(latest_block_hash.encode('utf8')))
     function_call_2_response = nodes[1].send_tx_and_wait(function_call_2_tx, 10)
     assert function_call_2_response['result']['receipts_outcome'][0]['outcome']['status'] == {'SuccessValue': ''}, \
