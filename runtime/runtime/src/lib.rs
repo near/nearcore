@@ -259,7 +259,7 @@ impl Runtime {
                         logs: vec![],
                         receipt_ids: vec![receipt.receipt_id],
                         gas_burnt: verification_result.gas_burnt,
-                        amount_burnt: verification_result.burnt_amount,
+                        tokens_burnt: verification_result.burnt_amount,
                     },
                 };
                 Ok((receipt, outcome))
@@ -552,7 +552,7 @@ impl Runtime {
             safe_gas_to_balance(apply_state.gas_price, result.gas_burnt)? - gas_deficit_amount;
         // The amount of tokens burnt for the execution of this receipt. It's used in the execution
         // outcome.
-        let amount_burnt = tx_burnt_amount;
+        let tokens_burnt = tx_burnt_amount;
 
         // Adding burnt gas reward for function calls if the account exists.
         let receiver_gas_reward = result.gas_burnt_for_function_call
@@ -659,7 +659,7 @@ impl Runtime {
                 logs: result.logs,
                 receipt_ids,
                 gas_burnt: result.gas_burnt,
-                amount_burnt,
+                tokens_burnt,
             },
         })
     }

@@ -234,7 +234,7 @@ struct PartialExecutionOutcome {
     pub receipt_ids: Vec<CryptoHash>,
     pub gas_burnt: Gas,
     #[serde(with = "u128_dec_format")]
-    pub amount_burnt: Balance,
+    pub tokens_burnt: Balance,
     pub status: PartialExecutionStatus,
 }
 
@@ -270,7 +270,7 @@ pub struct ExecutionOutcome {
     /// The amount of tokens burnt corresponding to the burnt gas amount.
     /// This value doesn't always equal to the `gas_burnt` multiplied by the gas price, because
     /// the prepaid gas price might be lower than the actual gas price and it creates a deficit.
-    pub amount_burnt: Balance,
+    pub tokens_burnt: Balance,
     /// Execution status. Contains the result in case of successful execution.
     /// NOTE: Should be the latest field since it contains unparsable by light client
     /// ExecutionStatus::Failure
@@ -283,7 +283,7 @@ impl ExecutionOutcome {
             &PartialExecutionOutcome {
                 receipt_ids: self.receipt_ids.clone(),
                 gas_burnt: self.gas_burnt,
-                amount_burnt: self.amount_burnt,
+                tokens_burnt: self.tokens_burnt,
                 status: self.status.clone().into(),
             }
             .try_to_vec()
@@ -302,7 +302,7 @@ impl fmt::Debug for ExecutionOutcome {
             .field("logs", &format_args!("{}", logging::pretty_vec(&self.logs)))
             .field("receipt_ids", &format_args!("{}", logging::pretty_vec(&self.receipt_ids)))
             .field("burnt_gas", &self.gas_burnt)
-            .field("amount_burnt", &self.amount_burnt)
+            .field("tokens_burnt", &self.tokens_burnt)
             .field("status", &self.status)
             .finish()
     }
@@ -443,7 +443,7 @@ mod tests {
             logs: vec!["123".to_string(), "321".to_string()],
             receipt_ids: vec![],
             gas_burnt: 123,
-            amount_burnt: 1234000,
+            tokens_burnt: 1234000,
         };
         let hashes = outcome.to_hashes();
         assert_eq!(hashes.len(), 3);

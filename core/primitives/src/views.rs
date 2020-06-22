@@ -804,7 +804,7 @@ pub struct ExecutionOutcomeView {
     /// This value doesn't always equal to the `gas_burnt` multiplied by the gas price, because
     /// the prepaid gas price might be lower than the actual gas price and it creates a deficit.
     #[serde(with = "u128_dec_format")]
-    pub amount_burnt: Balance,
+    pub tokens_burnt: Balance,
     /// Execution status. Contains the result in case of successful execution.
     pub status: ExecutionStatusView,
 }
@@ -815,7 +815,7 @@ impl From<ExecutionOutcome> for ExecutionOutcomeView {
             logs: outcome.logs,
             receipt_ids: outcome.receipt_ids,
             gas_burnt: outcome.gas_burnt,
-            amount_burnt: outcome.amount_burnt,
+            tokens_burnt: outcome.tokens_burnt,
             status: outcome.status.into(),
         }
     }
