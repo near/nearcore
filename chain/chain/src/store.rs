@@ -1870,6 +1870,10 @@ impl<'a> ChainStoreUpdate<'a> {
 
     pub fn update_tail(&mut self, height: BlockHeight) {
         self.tail = Some(height);
+        if self.chunk_tail.is_none() {
+            // For consistency, Chunk Tail should be set if Tail is set
+            self.chunk_tail = Some(self.get_genesis_height());
+        }
     }
 
     pub fn update_chunk_tail(&mut self, height: BlockHeight) {
@@ -2226,29 +2230,29 @@ impl<'a> ChainStoreUpdate<'a> {
         self.store_updates.push(store_update);
     }
 
+    fn write_col_misc<T: BorshSerialize>(
+        store_update: &mut StoreUpdate,
+        key: &[u8],
+        value: &mut Option<T>,
+    ) -> Result<(), Error> {
+        if let Some(t) = value.take() {
+            store_update.set_ser(ColBlockMisc, key, &t)?;
+        }
+        Ok(())
+    }
+
     fn finalize(&mut self) -> Result<StoreUpdate, Error> {
         let mut store_update = self.store().store_update();
-        if let Some(t) = self.head.take() {
-            store_update.set_ser(ColBlockMisc, HEAD_KEY, &t).map_err::<Error, _>(|e| e.into())?;
-        }
-        if let Some(t) = self.tail.take() {
-            store_update.set_ser(ColBlockMisc, TAIL_KEY, &t)?
-        }
-        if let Some(t) = self.header_head.take() {
-            store_update
-                .set_ser(ColBlockMisc, HEADER_HEAD_KEY, &t)
-                .map_err::<Error, _>(|e| e.into())?;
-        }
-        if let Some(t) = self.sync_head.take() {
-            store_update
-                .set_ser(ColBlockMisc, SYNC_HEAD_KEY, &t)
-                .map_err::<Error, _>(|e| e.into())?;
-        }
-        if let Some(t) = self.largest_target_height {
-            store_update
-                .set_ser(ColBlockMisc, LARGEST_TARGET_HEIGHT_KEY, &t)
-                .map_err::<Error, _>(|e| e.into())?;
-        }
+        Self::write_col_misc(&mut store_update, HEAD_KEY, &mut self.head)?;
+        Self::write_col_misc(&mut store_update, TAIL_KEY, &mut self.tail)?;
+        Self::write_col_misc(&mut store_update, CHUNK_TAIL_KEY, &mut self.chunk_tail)?;
+        Self::write_col_misc(&mut store_update, SYNC_HEAD_KEY, &mut self.sync_head)?;
+        Self::write_col_misc(&mut store_update, HEADER_HEAD_KEY, &mut self.header_head)?;
+        Self::write_col_misc(
+            &mut store_update,
+            LARGEST_TARGET_HEIGHT_KEY,
+            &mut self.largest_target_height,
+        )?;
         for (hash, block) in self.chain_store_cache_update.blocks.iter() {
             let mut map =
                 match self.chain_store.get_all_block_hashes_by_height(block.header().height()) {
@@ -2627,7 +2631,6 @@ mod tests {
     use cached::Cached;
     use strum::IntoEnumIterator;
 
-    use near_chain_configs::GenesisConfig;
     use near_crypto::KeyType;
     use near_primitives::block::{Block, Tip};
     use near_primitives::errors::InvalidTxError;
@@ -2639,11 +2642,12 @@ mod tests {
 
     use crate::chain::check_refcount_map;
     use crate::store::{ChainStoreAccess, GCMode};
-    use crate::store_validator::StoreValidator;
     use crate::test_utils::KeyValueRuntime;
     use crate::{Chain, ChainGenesis, DoomslugThresholdMode};
 
     use near_store::DBCol;
+    #[cfg(feature = "expensive_tests")]
+    use {crate::store_validator::StoreValidator, near_chain_configs::GenesisConfig};
 
     fn get_chain() -> Chain {
         get_chain_with_epoch_length(10)
@@ -3012,6 +3016,7 @@ mod tests {
         test_clear_old_data_too_many_heights_common(87);
     }
 
+    #[cfg(feature = "expensive_tests")]
     fn test_clear_old_data_too_many_heights_common(gc_blocks_limit: NumBlocks) {
         let mut chain = get_chain_with_epoch_length(1);
         let genesis = chain.get_block_by_height(0).unwrap().clone();

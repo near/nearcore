@@ -111,16 +111,24 @@ macro_rules! unwrap_or_err_db {
 // All validations start here
 
 pub(crate) fn head_tail_validity(sv: &mut StoreValidator) -> Result<(), StoreValidatorError> {
-    let tail = unwrap_or_err!(
+    let mut tail = sv.config.genesis_height;
+    let mut chunk_tail = sv.config.genesis_height;
+    let tail_db = unwrap_or_err!(
         sv.store.get_ser::<BlockHeight>(ColBlockMisc, TAIL_KEY),
         "Can't get Tail from storage"
-    )
-    .unwrap_or(sv.config.genesis_height);
-    let chunk_tail = unwrap_or_err!(
+    );
+    let chunk_tail_db = unwrap_or_err!(
         sv.store.get_ser::<BlockHeight>(ColBlockMisc, CHUNK_TAIL_KEY),
         "Can't get Chunk Tail from storage"
-    )
-    .unwrap_or(sv.config.genesis_height);
+    );
+    if tail_db.is_none() && chunk_tail_db.is_some() || tail_db.is_some() && chunk_tail_db.is_none()
+    {
+        err!("Tail is {:?} and Chunk Tail is {:?}", tail_db, chunk_tail_db);
+    }
+    if tail_db.is_some() && chunk_tail_db.is_some() {
+        tail = tail_db.unwrap();
+        chunk_tail = chunk_tail_db.unwrap();
+    }
     let head = unwrap_or_err_db!(
         sv.store.get_ser::<Tip>(ColBlockMisc, HEAD_KEY),
         "Can't get Head from storage"
@@ -256,7 +264,7 @@ pub(crate) fn chunk_tail_validity(
     check_cached!(sv.inner.is_misc_set, "misc");
     let chunk_tail = sv.inner.chunk_tail;
     let height = shard_chunk.header.inner.height_created;
-    if height < chunk_tail {
+    if height != sv.config.genesis_height && height < chunk_tail {
         err!(
             "Invalid ShardChunk stored, chunk_tail = {:?}, ShardChunk = {:?}",
             chunk_tail,

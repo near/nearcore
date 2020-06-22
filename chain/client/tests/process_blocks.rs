@@ -788,6 +788,7 @@ fn test_gc_with_epoch_length_common(epoch_length: NumBlocks) {
                 .is_ok());
         }
     }
+    assert_eq!(env.clients[0].chain.store().chunk_tail().unwrap(), epoch_length - 1);
     assert!(check_refcount_map(&mut env.clients[0].chain).is_ok());
 }
 
