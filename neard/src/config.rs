@@ -925,6 +925,7 @@ pub fn load_test_config(seed: &str, port: u16, genesis: Arc<Genesis>) -> NearCon
     let mut config = Config::default();
     config.network.addr = format!("0.0.0.0:{}", port);
     config.rpc.addr = format!("0.0.0.0:{}", open_port());
+    config.rpc.metrics_addr = config.rpc.addr.clone();
     config.consensus.min_block_production_delay =
         Duration::from_millis(FAST_MIN_BLOCK_PRODUCTION_DELAY);
     config.consensus.max_block_production_delay =
