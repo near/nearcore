@@ -33,6 +33,6 @@ yarn test
 yarn doc
 
 # Run near-shell tests
-cd ../near-shell
-yarn
-HOME=../testdir yarn test
+# cd ../near-shell
+# yarn
+# HOME=../testdir yarn test
