@@ -465,7 +465,7 @@ fn outcome_view_to_hashes(outcome: &ExecutionOutcomeView) -> Vec<CryptoHash> {
         ExecutionStatusView::SuccessReceiptId(id) => PartialExecutionStatus::SuccessReceiptId(*id),
     };
     let mut result = vec![hash(
-        &(outcome.receipt_ids.clone(), outcome.gas_burnt, status)
+        &(outcome.receipt_ids.clone(), outcome.gas_burnt, outcome.tokens_burnt, status)
             .try_to_vec()
             .expect("Failed to serialize"),
     )];
