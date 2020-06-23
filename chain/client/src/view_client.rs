@@ -276,8 +276,10 @@ impl ViewClientActor {
                             for receipt_id in execution_outcome.outcome.receipt_ids {
                                 self.request_receipt_outcome(receipt_id, &head.last_block_hash)?;
                             }
+                            return Ok(None);
+                        } else {
+                            return Err(TxStatusError::MissingTransaction(tx_hash));
                         }
-                        return Err(TxStatusError::MissingTransaction(tx_hash));
                     }
                     _ => {
                         warn!(target: "client", "Error trying to get transaction result: {}", e.to_string());
