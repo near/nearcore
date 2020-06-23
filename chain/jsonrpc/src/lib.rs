@@ -92,7 +92,7 @@ impl Default for RpcConfig {
 
 impl RpcConfig {
     pub fn new(addr: &str) -> Self {
-        RpcConfig { addr: addr.to_owned(), ..Default::default() }
+        RpcConfig { addr: addr.to_owned(), metrics_addr: addr.to_owned(), ..Default::default() }
     }
 }
 
