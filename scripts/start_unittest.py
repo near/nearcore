@@ -41,5 +41,4 @@ if __name__ == "__main__":
                   ],
                   boot_nodes='',
                   telemetry_url='',
-                  verbose=args.verbose,
-                  no_gas_price=True)
+                  verbose=args.verbose)
