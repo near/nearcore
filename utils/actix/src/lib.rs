@@ -11,6 +11,7 @@ pub fn init_stop_on_panic() {
             if actix::System::is_set() {
                 actix::System::with_current(|sys| sys.stop_with_code(1));
             }
+            debug_assert!(false);
         }));
     })
 }
