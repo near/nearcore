@@ -22,13 +22,13 @@ export HOME=$SRC_DIR/../testdir
 # Run create-near-app tests
 cd create-near-app
 yarn 
+../scripts/waitonserver.sh
 yarn test
 
 # Run near-api-js tests
 cd ../near-api-js
 yarn
 yarn build
-../scripts/waitonserver.sh
 yarn test
 yarn doc
 
