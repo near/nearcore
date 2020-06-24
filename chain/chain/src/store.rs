@@ -2248,6 +2248,9 @@ impl<'a> ChainStoreUpdate<'a> {
             DBCol::ColEpochInfo => {
                 store_update.delete(col, key);
             }
+            DBCol::ColEpochStart => {
+                store_update.delete(col, key);
+            }
             DBCol::ColDbVersion
             | DBCol::ColBlockMisc
             | DBCol::ColBlockHeader
@@ -2255,7 +2258,6 @@ impl<'a> ChainStoreUpdate<'a> {
             | DBCol::ColBlockHeight
             | DBCol::ColPeers
             | DBCol::ColBlockMerkleTree
-            | DBCol::ColEpochStart
             | DBCol::ColAccountAnnouncements
             | DBCol::ColEpochLightClientBlocks
             | DBCol::ColLastBlockWithNewChunk
