@@ -120,7 +120,7 @@ pub mod wasmtime_runner {
             wasm_config.limit_config.initial_memory_pages,
             wasm_config.limit_config.max_memory_pages,
         )
-            .unwrap();
+        .unwrap();
         let prepared_code = match prepare::prepare_contract(code, wasm_config) {
             Ok(code) => code,
             Err(err) => return (None, Some(VMError::from(err))),
@@ -160,9 +160,11 @@ pub mod wasmtime_runner {
                     if !func_type.params().is_empty() || !func_type.results().is_empty() {
                         return (
                             None,
-                            Some(VMError::FunctionCallError(FunctionCallError::MethodResolveError(
-                                MethodResolveError::MethodInvalidSignature,
-                            ))),
+                            Some(VMError::FunctionCallError(
+                                FunctionCallError::MethodResolveError(
+                                    MethodResolveError::MethodInvalidSignature,
+                                ),
+                            )),
                         );
                     }
                 }

@@ -73,7 +73,9 @@ pub fn run_vm<'a>(
             promise_results,
         ),
         #[cfg(not(feature = "wasmtime_vm"))]
-        VMKind::Wasmtime => panic!("Wasmtime is not supported, compile with '--features wasmtime_vm'")
+        VMKind::Wasmtime => {
+            panic!("Wasmtime is not supported, compile with '--features wasmtime_vm'")
+        }
     }
 }
 
