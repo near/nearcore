@@ -473,7 +473,9 @@ chmod +x near
         return super().json_rpc(method, params, timeout=timeout)
 
     def get_status(self):
-        r = requests.get("http://%s:%s/status" % self.rpc_addr(), timeout=10)
+        r = retrying.retry(lambda: requests.get(
+            "http://%s:%s/status" % self.rpc_addr(), timeout=10),
+                           timeout=20)
         r.raise_for_status()
         return json.loads(r.content)
 
@@ -538,21 +540,6 @@ def spin_up_node(config,
     time.sleep(3)
     print(f"node {ordinal} started")
     return node
-
-
-def connect_to_mocknet(config):
-    if not config:
-        config = load_config()
-
-    if 'local' in config:
-        print("Attempt to launch a mocknet test with a regular config",
-              file=sys.stderr)
-        sys.exit(1)
-
-    return [RpcNode(node['ip'], node['port']) for node in config['nodes']], [
-        Key(account['account_id'], account['pk'], account['sk'])
-        for account in config['accounts']
-    ]
 
 
 def init_cluster(num_nodes, num_observers, num_shards, config,

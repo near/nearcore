@@ -2,8 +2,8 @@ use near_runtime_fees::RuntimeFeesConfig;
 use near_vm_errors::FunctionCallError;
 use near_vm_logic::mocks::mock_external::MockedExternal;
 use near_vm_logic::types::{Balance, ReturnData};
-use near_vm_logic::{VMConfig, VMContext, VMOutcome};
-use near_vm_runner::{run, VMError};
+use near_vm_logic::{VMConfig, VMContext, VMKind, VMOutcome};
+use near_vm_runner::{run_vm, with_vm_variants, VMError};
 use std::mem::size_of;
 
 pub mod test_utils;
@@ -47,62 +47,78 @@ fn create_context(input: &[u8]) -> VMContext {
 
 #[test]
 pub fn test_read_write() {
-    let code = &TEST_CONTRACT;
-    let mut fake_external = MockedExternal::new();
+    with_vm_variants(|vm_kind: VMKind| {
+        let code = &TEST_CONTRACT;
+        let mut fake_external = MockedExternal::new();
 
-    let context = create_context(&arr_u64_to_u8(&[10u64, 20u64]));
-    let config = VMConfig::default();
-    let fees = RuntimeFeesConfig::default();
+        let context = create_context(&arr_u64_to_u8(&[10u64, 20u64]));
+        let config = VMConfig::default();
+        let fees = RuntimeFeesConfig::default();
 
-    let promise_results = vec![];
-    let result = run(
-        vec![],
-        &code,
-        b"write_key_value",
-        &mut fake_external,
-        context,
-        &config,
-        &fees,
-        &promise_results,
-    );
-    assert_run_result(result, 0);
+        let promise_results = vec![];
+        let result = run_vm(
+            vec![],
+            &code,
+            b"write_key_value",
+            &mut fake_external,
+            context,
+            &config,
+            &fees,
+            &promise_results,
+            vm_kind.clone(),
+        );
+        assert_run_result(result, 0);
 
-    let context = create_context(&arr_u64_to_u8(&[10u64]));
-    let result = run(
-        vec![],
-        &code,
-        b"read_value",
-        &mut fake_external,
-        context,
-        &config,
-        &fees,
-        &promise_results,
-    );
-    assert_run_result(result, 20);
+        let context = create_context(&arr_u64_to_u8(&[10u64]));
+        let result = run_vm(
+            vec![],
+            &code,
+            b"read_value",
+            &mut fake_external,
+            context,
+            &config,
+            &fees,
+            &promise_results,
+            vm_kind,
+        );
+        assert_run_result(result, 20);
+    });
 }
 
 macro_rules! def_test_ext {
     ($name:ident, $method:expr, $expected:expr, $input:expr, $validator:expr) => {
         #[test]
         pub fn $name() {
-            run_test_ext($method, $expected, $input, $validator)
+            with_vm_variants(|vm_kind: VMKind| {
+                run_test_ext($method, $expected, $input, $validator, vm_kind)
+            });
         }
     };
     ($name:ident, $method:expr, $expected:expr, $input:expr) => {
         #[test]
         pub fn $name() {
-            run_test_ext($method, $expected, $input, vec![])
+            with_vm_variants(|vm_kind: VMKind| {
+                run_test_ext($method, $expected, $input, vec![], vm_kind)
+            });
         }
     };
     ($name:ident, $method:expr, $expected:expr) => {
         #[test]
         pub fn $name() {
-            run_test_ext($method, $expected, &[], vec![])
+            with_vm_variants(|vm_kind: VMKind| {
+                run_test_ext($method, $expected, &[], vec![], vm_kind)
+            })
         }
     };
 }
 
-fn run_test_ext(method: &[u8], expected: &[u8], input: &[u8], validators: Vec<(&str, Balance)>) {
+fn run_test_ext(
+    method: &[u8],
+    expected: &[u8],
+    input: &[u8],
+    validators: Vec<(&str, Balance)>,
+    vm_kind: VMKind,
+) {
     let code = &TEST_CONTRACT;
     let mut fake_external = MockedExternal::new();
     fake_external.validators = validators.into_iter().map(|(s, b)| (s.to_string(), b)).collect();
@@ -110,8 +126,17 @@ fn run_test_ext(method: &[u8], expected: &[u8], input: &[u8], validators: Vec<(&
     let fees = RuntimeFeesConfig::default();
     let context = create_context(&input);
 
-    let (outcome, err) =
-        run(input.to_owned(), &code, &method, &mut fake_external, context, &config, &fees, &[]);
+    let (outcome, err) = run_vm(
+        input.to_owned(),
+        &code,
+        &method,
+        &mut fake_external,
+        context,
+        &config,
+        &fees,
+        &[],
+        vm_kind,
+    );
 
     if let Some(_) = err {
         panic!("Failed execution: {:?}", err);
@@ -191,6 +216,7 @@ def_test_ext!(
 
 #[test]
 pub fn test_out_of_memory() {
+    // TODO: currently we only run this test on Wasmer.
     let code = &TEST_CONTRACT;
     let mut fake_external = MockedExternal::new();
 
@@ -199,7 +225,7 @@ pub fn test_out_of_memory() {
     let fees = RuntimeFeesConfig::free();
 
     let promise_results = vec![];
-    let result = run(
+    let result = run_vm(
         vec![],
         &code,
         b"out_of_memory",
@@ -208,6 +234,7 @@ pub fn test_out_of_memory() {
         &config,
         &fees,
         &promise_results,
+        VMKind::Wasmer,
     );
     assert_eq!(result.1, Some(VMError::FunctionCallError(FunctionCallError::WasmUnknownError)));
 }
