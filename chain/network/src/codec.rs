@@ -6,7 +6,7 @@ use tokio_util::codec::{Decoder, Encoder};
 
 use crate::types::{PeerMessage, ReasonForBan};
 
-const NETWORK_MESSAGE_MAX_SIZE: u32 = 16 << 20; // 16MB
+const NETWORK_MESSAGE_MAX_SIZE: u32 = 512 << 20; // 512MB
 
 pub struct Codec {
     max_length: u32,
