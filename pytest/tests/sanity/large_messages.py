@@ -5,10 +5,10 @@ sys.path.append('lib')
 
 from cluster import start_cluster
 
-BUFFER_LEN = 16 * 1024 * 1024
-N_PROCESSES = 10
+PACKAGE_LEN = 16 * 1024 * 1024
+N_PROCESSES = 16
 
-buf = bytes([0] * BUFFER_LEN)
+buf = bytes([0] * PACKAGE_LEN)
 
 nodes = start_cluster(2, 0, 4, None, [], {})
 
@@ -18,10 +18,10 @@ def one_process(ord_, seconds):
     sent = 0
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.connect(nodes[0].addr())
-        s.send(struct.pack('I', 2**31 - 1))
         while time.time() - started < seconds:
+            s.send(struct.pack('I', PACKAGE_LEN))
             s.send(buf)
-            sent += BUFFER_LEN
+            sent += PACKAGE_LEN
             print("PROCESS %s SENT %s BYTES" % (ord_, sent))
 
 

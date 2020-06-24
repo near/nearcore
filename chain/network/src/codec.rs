@@ -4,7 +4,9 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use bytes::{Buf, BufMut, BytesMut};
 use tokio_util::codec::{Decoder, Encoder};
 
-use crate::types::PeerMessage;
+use crate::types::{PeerMessage, ReasonForBan};
+
+const NETWORK_MESSAGE_MAX_SIZE: u32 = 512 << 20; // 512MB
 
 pub struct Codec {
     max_length: u32,
@@ -13,7 +15,7 @@ pub struct Codec {
 #[allow(clippy::new_without_default)]
 impl Codec {
     pub fn new() -> Self {
-        Codec { max_length: std::u32::MAX }
+        Codec { max_length: NETWORK_MESSAGE_MAX_SIZE }
     }
 }
 
@@ -35,22 +37,29 @@ impl Encoder for Codec {
 }
 
 impl Decoder for Codec {
-    type Item = Vec<u8>;
+    type Item = Result<Vec<u8>, ReasonForBan>;
     type Error = Error;
 
-    fn decode(&mut self, buf: &mut BytesMut) -> Result<Option<Vec<u8>>, Error> {
+    fn decode(&mut self, buf: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
         if buf.len() < 4 {
             // not enough bytes to start decoding
             return Ok(None);
         }
+
         let mut len_bytes: [u8; 4] = [0; 4];
         len_bytes.copy_from_slice(&buf[0..4]);
         let len = u32::from_le_bytes(len_bytes);
+
+        if len > self.max_length {
+            // If this point is reached, abusive peer is banned.
+            return Ok(Some(Err(ReasonForBan::Abusive)));
+        }
+
         if buf.len() < 4 + len as usize {
             // not enough bytes, keep waiting
             Ok(None)
         } else {
-            let res = Some(buf[4..4 + len as usize].to_vec());
+            let res = Some(Ok(buf[4..4 + len as usize].to_vec()));
             buf.advance(4 + len as usize);
             Ok(res)
         }
@@ -85,7 +94,7 @@ mod test {
         let mut codec = Codec::new();
         let mut buffer = BytesMut::new();
         codec.encode(peer_message_to_bytes(msg.clone()).unwrap(), &mut buffer).unwrap();
-        let decoded = codec.decode(&mut buffer).unwrap().unwrap();
+        let decoded = codec.decode(&mut buffer).unwrap().unwrap().unwrap();
         assert_eq!(bytes_to_peer_message(&decoded).unwrap(), msg);
     }
 
@@ -148,7 +157,7 @@ mod test {
                 account_id: "test2".to_string(),
                 inner: ApprovalInner::Endorsement(CryptoHash::default()),
                 target_height: 1,
-                signature: signature,
+                signature,
             }),
         });
         test_codec(msg);
@@ -160,5 +169,23 @@ mod test {
         let enc = account_id.as_bytes();
         let dec_account_id = String::from_utf8_lossy(enc).to_string();
         assert_eq!(account_id, dec_account_id);
+    }
+
+    #[test]
+    fn test_abusive() {
+        let mut codec = Codec::new();
+        let mut buffer = BytesMut::new();
+        buffer.reserve(4);
+        buffer.put_u32_le(NETWORK_MESSAGE_MAX_SIZE + 1);
+        assert_eq!(codec.decode(&mut buffer).unwrap(), Some(Err(ReasonForBan::Abusive)));
+    }
+
+    #[test]
+    fn test_not_abusive() {
+        let mut codec = Codec::new();
+        let mut buffer = BytesMut::new();
+        buffer.reserve(4);
+        buffer.put_u32_le(NETWORK_MESSAGE_MAX_SIZE);
+        assert_ne!(codec.decode(&mut buffer).unwrap(), Some(Err(ReasonForBan::Abusive)));
     }
 }
