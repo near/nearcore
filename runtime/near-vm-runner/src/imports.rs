@@ -1,28 +1,79 @@
+use near_vm_logic::VMLogic;
+
 use std::ffi::c_void;
 
-use near_vm_logic::{VMLogic, VMLogicError};
-use wasmer_runtime::memory::Memory;
-use wasmer_runtime::{func, imports, Ctx, ImportObject};
-
-type Result<T> = ::std::result::Result<T, VMLogicError>;
 struct ImportReference(*mut c_void);
 unsafe impl Send for ImportReference {}
 unsafe impl Sync for ImportReference {}
 
+macro_rules! rust2wasm {
+    (u64) => {
+        i64
+    };
+    (u32) => {
+        i32
+    };
+    ( () ) => {
+        ()
+    };
+}
+
 macro_rules! wrapped_imports {
         ( $( $func:ident < [ $( $arg_name:ident : $arg_type:ident ),* ] -> [ $( $returns:ident ),* ] >, )* ) => {
+            pub mod wasmer_ext {
+            use near_vm_logic::VMLogic;
+            use wasmer_runtime::Ctx;
+            type VMResult<T> = ::std::result::Result<T, near_vm_logic::VMLogicError>;
             $(
                 #[allow(unused_parens)]
-                fn $func( ctx: &mut Ctx, $( $arg_name: $arg_type ),* ) -> Result<($( $returns ),*)> {
+                pub fn $func( ctx: &mut Ctx, $( $arg_name: $arg_type ),* ) -> VMResult<($( $returns ),*)> {
                     let logic: &mut VMLogic<'_> = unsafe { &mut *(ctx.data as *mut VMLogic<'_>) };
                     logic.$func( $( $arg_name, )* )
                 }
             )*
+            }
 
-            pub(crate) fn build(memory: Memory, logic: &mut VMLogic<'_>) -> ImportObject {
+            pub mod wasmtime_ext {
+            use near_vm_logic::{VMLogic, VMLogicError};
+            use std::ffi::c_void;
+            use std::cell::{RefCell, UnsafeCell};
+            use wasmtime::Trap;
+
+            thread_local! {
+                pub static CALLER_CONTEXT: UnsafeCell<*mut c_void> = UnsafeCell::new(0 as *mut c_void);
+                pub static EMBEDDER_ERROR: RefCell<Option<VMLogicError>> = RefCell::new(None);
+            }
+
+            type VMResult<T> = ::std::result::Result<T, Trap>;
+            $(
+                #[allow(unused_parens)]
+                pub fn $func( $( $arg_name: rust2wasm!($arg_type) ),* ) -> VMResult<($( rust2wasm!($returns)),*)> {
+                    let data = CALLER_CONTEXT.with(|caller_context| {
+                        unsafe {
+                            *caller_context.get()
+                        }
+                    });
+                    let logic: &mut VMLogic<'_> = unsafe { &mut *(data as *mut VMLogic<'_>) };
+                    match logic.$func( $( $arg_name as $arg_type, )* ) {
+                        Ok(result) => Ok(result as ($( rust2wasm!($returns) ),* ) ),
+                        Err(err) => {
+                            // Wasmtime doesn't have proper mechanism for wrapping custom errors
+                            // into traps. So, just store error into TLS and use special exit code here.
+                            EMBEDDER_ERROR.with(|embedder_error| {
+                                *embedder_error.borrow_mut() = Some(err)
+                            });
+                            Err(Trap::i32_exit(239))
+                        }
+                    }
+                }
+            )*
+            }
+
+            pub(crate) fn build_wasmer(memory: wasmer_runtime::memory::Memory, logic: &mut VMLogic<'_>) ->
+                wasmer_runtime::ImportObject {
                 let raw_ptr = logic as *mut _ as *mut c_void;
                 let import_reference = ImportReference(raw_ptr);
-                imports! {
+                wasmer_runtime::imports! {
                     move || {
                         let dtor = (|_: *mut c_void| {}) as fn(*mut c_void);
                         (import_reference.0, dtor)
@@ -30,10 +81,34 @@ macro_rules! wrapped_imports {
                     "env" => {
                         "memory" => memory,
                         $(
-                            stringify!($func) => func!($func),
+                            stringify!($func) => wasmer_runtime::func!(wasmer_ext::$func),
                         )*
                     },
                 }
+            }
+
+            pub(crate) fn link_wasmtime(
+                    linker: &mut wasmtime::Linker,
+                    memory: wasmtime::Memory,
+                    raw_logic: *mut c_void,
+             ) {
+                wasmtime_ext::CALLER_CONTEXT.with(|caller_context| {
+                    unsafe {
+                        *caller_context.get() = raw_logic
+                    }
+                });
+                linker.define("env", "memory", memory).
+                    expect("cannot define memory");
+                $(
+                   linker.func("env", stringify!($func), wasmtime_ext::$func).
+                    expect("cannot link external");
+                  )*
+            }
+
+            pub(crate) fn last_wasmtime_error() -> Option<near_vm_logic::VMLogicError> {
+                wasmtime_ext::EMBEDDER_ERROR.with(|embedder_error| {
+                   embedder_error.replace(None)
+                })
             }
         }
     }

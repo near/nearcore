@@ -5,8 +5,8 @@ use wabt::Wat2Wasm;
 
 use near_runtime_fees::RuntimeFeesConfig;
 use near_vm_logic::mocks::mock_external::MockedExternal;
-use near_vm_logic::{VMConfig, VMContext, VMOutcome};
-use near_vm_runner::{run, VMError};
+use near_vm_logic::{VMConfig, VMContext, VMKind, VMOutcome};
+use near_vm_runner::{run_vm, VMError};
 
 pub const CURRENT_ACCOUNT_ID: &str = "alice";
 pub const SIGNER_ACCOUNT_ID: &str = "bob";
@@ -34,10 +34,11 @@ pub fn create_context(input: Vec<u8>) -> VMContext {
     }
 }
 
-pub fn make_simple_contract_call_with_gas(
+pub fn make_simple_contract_call_with_gas_vm(
     code: &[u8],
     method_name: &[u8],
     prepaid_gas: u64,
+    vm_kind: VMKind,
 ) -> (Option<VMOutcome>, Option<VMError>) {
     let mut fake_external = MockedExternal::new();
     let mut context = create_context(vec![]);
@@ -50,7 +51,25 @@ pub fn make_simple_contract_call_with_gas(
     let mut hash = DefaultHasher::new();
     code.hash(&mut hash);
     let code_hash = hash.finish().to_le_bytes().to_vec();
-    run(code_hash, code, method_name, &mut fake_external, context, &config, &fees, &promise_results)
+    run_vm(
+        code_hash,
+        code,
+        method_name,
+        &mut fake_external,
+        context,
+        &config,
+        &fees,
+        &promise_results,
+        vm_kind,
+    )
+}
+
+pub fn make_simple_contract_call_with_gas(
+    code: &[u8],
+    method_name: &[u8],
+    prepaid_gas: u64,
+) -> (Option<VMOutcome>, Option<VMError>) {
+    make_simple_contract_call_with_gas_vm(code, method_name, prepaid_gas, VMKind::default())
 }
 
 pub fn make_simple_contract_call(
@@ -58,6 +77,14 @@ pub fn make_simple_contract_call(
     method_name: &[u8],
 ) -> (Option<VMOutcome>, Option<VMError>) {
     make_simple_contract_call_with_gas(code, method_name, 10u64.pow(14))
+}
+
+pub fn make_simple_contract_call_vm(
+    code: &[u8],
+    method_name: &[u8],
+    vm_kind: VMKind,
+) -> (Option<VMOutcome>, Option<VMError>) {
+    make_simple_contract_call_with_gas_vm(code, method_name, 10u64.pow(14), vm_kind)
 }
 
 pub fn wat2wasm_no_validate(wat: &str) -> Vec<u8> {
