@@ -16,7 +16,7 @@ This crate implements the specification of the interface that Near blockchain ex
 cached = "0.12"
 wasmer-runtime = { version = "=0.17.0", features = ["default-backend-singlepass"], default-features = false }
 wasmer-runtime-core = { version = "=0.17.0" }
-wasmtime = { version = "0.17.0", features = ["lightbeam"], default-features = false }
+wasmtime = { version = "0.17.0", features = ["lightbeam"], default-features = false, optional = true }
 anyhow = "1.0.19"
 pwasm-utils = "0.12"
 parity-wasm = "0.41"
@@ -31,9 +31,10 @@ wabt = "0.9"
 bencher = "^0.1.5"
 
 [features]
-default = ["wasmer_default"]
+default = [ "wasmer_default"]
+wasmtime_vm = []
 wasmer_default = []
-wasmtime_default = []
+wasmtime_default = ["wasmtime_vm"]
 
 # Use this feature to enable counting of fees and costs applied.
 costs_counting = ["near-vm-logic/costs_counting"]
