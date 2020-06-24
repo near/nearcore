@@ -1,3 +1,5 @@
+use std::collections::hash_map::Entry;
+use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::io::{Read, Write};
 use std::path::Path;
@@ -20,6 +22,7 @@ pub use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{Receipt, ReceivedData};
 use near_primitives::serialize::to_base;
+use near_primitives::transaction::ExecutionOutcomeWithIdAndProof;
 use near_primitives::trie_key::{trie_key_parsers, TrieKey};
 use near_primitives::types::AccountId;
 use near_primitives::version::{DbVersion, DB_VERSION};
@@ -268,6 +271,43 @@ pub fn set_store_version(store: &Store) {
 pub fn create_store(path: &str) -> Arc<Store> {
     let db = Arc::new(RocksDB::new(path).expect("Failed to open the database"));
     Arc::new(Store::new(db))
+}
+
+fn get_all_block_hash_to_outcomes(store: &Store, block_hash: &CryptoHash) -> HashSet<CryptoHash> {
+    match store.get_ser(ColOutcomesByBlockHash, block_hash.as_ref()) {
+        Ok(Some(hash_set)) => hash_set,
+        Ok(None) => HashSet::new(),
+        Err(e) => panic!("Can't read DB, {:?}", e),
+    }
+}
+
+pub fn fill_col_outcomes_by_hash(store: &Store) {
+    let mut store_update = store.store_update();
+    let outcomes: Vec<ExecutionOutcomeWithIdAndProof> = store
+        .iter(ColTransactionResult)
+        .map(|key| {
+            ExecutionOutcomeWithIdAndProof::try_from_slice(&key.1)
+                .expect("BorshDeserialize should not fail")
+        })
+        .collect();
+    let mut block_hash_to_outcomes: HashMap<CryptoHash, HashSet<CryptoHash>> = HashMap::new();
+    for outcome in outcomes {
+        match block_hash_to_outcomes.entry(outcome.block_hash) {
+            Entry::Occupied(mut entry) => {
+                entry.get_mut().insert(outcome.id().clone());
+            }
+            Entry::Vacant(entry) => {
+                let mut hash_set = get_all_block_hash_to_outcomes(store, &outcome.block_hash);
+                hash_set.insert(outcome.id().clone());
+                entry.insert(hash_set);
+            }
+        };
+    }
+    for (block_hash, hash_set) in block_hash_to_outcomes {
+        store_update
+            .set_ser(ColOutcomesByBlockHash, block_hash.as_ref(), &hash_set)
+            .expect("BorshSerialize should not fail");
+    }
 }
 
 /// Reads an object from Trie.
