@@ -16,7 +16,7 @@ git clone https://github.com/near/create-near-app.git
 # Make sure to use local nearcore for tests
 export NODE_ENV=local
 
-SRC_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
+SRC_DIR=$(pwd)/$(dirname "${BASH_SOURCE[0]}")
 export HOME=$SRC_DIR/../testdir
 
 # Run near-api-js tests
