@@ -2059,6 +2059,7 @@ impl<'a> ChainStoreUpdate<'a> {
                     }
                 }
                 self.clear_chunk_data(min_chunk_height)?;
+                self.remove_state_dl_info(block_hash);
             }
             GCMode::StateSync => {
                 // 7. State Sync clearing
@@ -2228,6 +2229,9 @@ impl<'a> ChainStoreUpdate<'a> {
             DBCol::ColOutcomesByBlockHash => {
                 store_update.delete(col, key);
             }
+            DBCol::ColStateDlInfos => {
+                panic!("Add a Block Hash to remove_state_dl_infos instead");
+            }
             DBCol::ColDbVersion
             | DBCol::ColBlockMisc
             | DBCol::ColBlockHeader
@@ -2235,7 +2239,6 @@ impl<'a> ChainStoreUpdate<'a> {
             | DBCol::ColBlockHeight
             | DBCol::ColPeers
             | DBCol::ColEpochInfo
-            | DBCol::ColStateDlInfos
             | DBCol::ColBlockInfo
             | DBCol::ColBlockMerkleTree
             | DBCol::ColEpochStart
@@ -2979,8 +2982,10 @@ mod tests {
             DBCol::ColNextBlockWithNewChunk,
             DBCol::ColChunkPerHeightShard,
             DBCol::ColBlockRefCount,
+            DBCol::ColOutcomesByBlockHash,
         ];
         for i in DBCol::iter() {
+            println!("{:?}", i);
             if gced_cols.contains(&i) {
                 assert!(store_update.get_gc_count(i) == 7);
             } else {
