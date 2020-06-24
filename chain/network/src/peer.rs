@@ -480,7 +480,7 @@ impl Peer {
             | PeerMessage::HandshakeFailure(_, _)
             | PeerMessage::PeersRequest
             | PeerMessage::PeersResponse(_)
-            | PeerMessage::Sync(_)
+            | PeerMessage::RoutingTableSync(_)
             | PeerMessage::LastEdge(_)
             | PeerMessage::Disconnect
             | PeerMessage::RequestUpdateNonce(_)
@@ -838,7 +838,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for Peer {
                     actix::fut::ready(())
                 })
                 .spawn(ctx),
-            (_, PeerStatus::Ready, PeerMessage::Sync(sync_data)) => {
+            (_, PeerStatus::Ready, PeerMessage::RoutingTableSync(sync_data)) => {
                 self.peer_manager_addr
                     .do_send(NetworkRequests::Sync { peer_id: self.peer_id().unwrap(), sync_data });
             }
