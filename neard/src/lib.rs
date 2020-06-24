@@ -10,9 +10,8 @@ use near_chain::ChainGenesis;
 use near_client::{ClientActor, ViewClientActor};
 use near_jsonrpc::start_http;
 use near_network::{NetworkRecipient, PeerManagerActor};
-use near_store::{
-    create_store, fill_col_outcomes_by_hash, get_store_version, set_store_version, Store,
-};
+use near_store::migrations::{fill_col_outcomes_by_hash, get_store_version, set_store_version};
+use near_store::{create_store, Store};
 use near_telemetry::TelemetryActor;
 
 pub use crate::config::{init_configs, load_config, load_test_config, NearConfig, NEAR_BASE};

@@ -225,7 +225,7 @@ pub trait ChainStoreAccess {
         hash: &CryptoHash,
     ) -> Result<&ExecutionOutcomeWithIdAndProof, Error>;
     /// Returns a HashSet of Outcome ids for current Block Hash
-    fn get_all_block_hash_to_outcomes(
+    fn get_outcomes_by_block_hash(
         &mut self,
         block_hash: &CryptoHash,
     ) -> Result<HashSet<CryptoHash>, Error>;
@@ -813,7 +813,7 @@ impl ChainStoreAccess for ChainStore {
         )
     }
 
-    fn get_all_block_hash_to_outcomes(
+    fn get_outcomes_by_block_hash(
         &mut self,
         block_hash: &CryptoHash,
     ) -> Result<HashSet<CryptoHash>, Error> {
@@ -1418,11 +1418,11 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
         self.chain_store.get_execution_outcome(hash)
     }
 
-    fn get_all_block_hash_to_outcomes(
+    fn get_outcomes_by_block_hash(
         &mut self,
         block_hash: &CryptoHash,
     ) -> Result<HashSet<CryptoHash>, Error> {
-        self.chain_store.get_all_block_hash_to_outcomes(block_hash)
+        self.chain_store.get_outcomes_by_block_hash(block_hash)
     }
 
     fn get_chunk(&mut self, chunk_hash: &ChunkHash) -> Result<&ShardChunk, Error> {
@@ -2041,7 +2041,7 @@ impl<'a> ChainStoreUpdate<'a> {
             self.gc_col(ColStateChanges, &key);
         }
         self.gc_col(ColBlockRefCount, &block_hash_vec);
-        let outcome_ids = self.get_all_block_hash_to_outcomes(&block_hash)?;
+        let outcome_ids = self.get_outcomes_by_block_hash(&block_hash)?;
         for outcome_id in outcome_ids {
             self.gc_col(ColTransactionResult, &outcome_id.as_ref().into());
         }
@@ -2429,9 +2429,9 @@ impl<'a> ChainStoreUpdate<'a> {
                     entry.get_mut().insert(outcome.id().clone());
                 }
                 Entry::Vacant(entry) => {
-                    let mut hash_set = match self
+                    let mut hash_set = self
                         .chain_store
-                        .get_all_block_hash_to_outcomes(&outcome.block_hash)
+                        .get_outcomes_by_block_hash(&outcome.block_hash)
                         .unwrap_or_else(|_| HashSet::new());
                     hash_set.insert(outcome.id().clone());
                     entry.insert(hash_set);
@@ -2440,9 +2440,7 @@ impl<'a> ChainStoreUpdate<'a> {
             store_update.set_ser(ColTransactionResult, hash.as_ref(), outcome)?;
         }
         for (block_hash, hash_set) in block_hash_to_outcomes {
-            store_update
-                .set_ser(ColOutcomesByBlockHash, block_hash.as_ref(), &hash_set)
-                .map_err::<Error, _>(|e| e.into())?;
+            store_update.set_ser(ColOutcomesByBlockHash, block_hash.as_ref(), &hash_set)?;
         }
         for (receipt_id, shard_id) in self.chain_store_cache_update.receipt_id_to_shard_id.iter() {
             store_update.set_ser(ColReceiptIdToShardId, receipt_id.as_ref(), shard_id)?;
