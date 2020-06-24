@@ -19,18 +19,18 @@ export NODE_ENV=local
 SRC_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 export HOME=$SRC_DIR/../testdir
 
-# Run create-near-app tests
-cd create-near-app
-yarn 
-../scripts/waitonserver.sh
-yarn test
-
 # Run near-api-js tests
-cd ../near-api-js
+cd near-api-js
 yarn
 yarn build
+../scripts/waitonserver.sh
 yarn test
 yarn doc
+
+# Run create-near-app tests
+cd ../create-near-app
+yarn 
+yarn test
 
 # Run near-shell tests
 # cd ../near-shell
