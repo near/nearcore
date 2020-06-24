@@ -6,6 +6,10 @@ struct ImportReference(*mut c_void);
 unsafe impl Send for ImportReference {}
 unsafe impl Sync for ImportReference {}
 
+// Wasm has only i32/i64 types, so Wasmtime 0.17 only accepts
+// external functions taking i32/i64 type.
+// Remove, once using version with https://github.com/bytecodealliance/wasmtime/issues/1829
+// fixed. It doesn't affect correctness, as bit patterns are the same.
 macro_rules! rust2wasm {
     (u64) => {
         i64

@@ -4,7 +4,7 @@ use std::collections::hash_map::DefaultHasher;
 use std::env;
 use std::hash::{Hash, Hasher};
 
-#[derive(Clone, Debug, Hash, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Hash, Serialize, Deserialize)]
 pub enum VMKind {
     /// Wasmer VM.
     Wasmer,
