@@ -33,7 +33,7 @@ use near_store::{
     read_with_cache, ColBlock, ColBlockExtra, ColBlockHeader, ColBlockHeight, ColBlockInfo,
     ColBlockMerkleTree, ColBlockMisc, ColBlockOrdinal, ColBlockPerHeight, ColBlockRefCount,
     ColBlocksToCatchup, ColChallengedBlocks, ColChunkExtra, ColChunkHashesByHeight,
-    ColChunkPerHeightShard, ColChunks, ColEpochInfo, ColEpochLightClientBlocks,
+    ColChunkPerHeightShard, ColChunks, ColEpochInfo, ColEpochLightClientBlocks, ColEpochStart,
     ColIncomingReceipts, ColInvalidChunks, ColLastBlockWithNewChunk, ColNextBlockHashes,
     ColNextBlockWithNewChunk, ColOutcomesByBlockHash, ColOutgoingReceipts, ColPartialChunks,
     ColReceiptIdToShardId, ColStateChanges, ColStateDlInfos, ColStateHeaders, ColTransactionResult,
@@ -2068,6 +2068,7 @@ impl<'a> ChainStoreUpdate<'a> {
                 if cur_epoch_id != next_epoch_id {
                     // Current Block is the last one who needs current Epoch
                     self.gc_col(ColEpochInfo, &cur_epoch_id.as_ref().into());
+                    self.gc_col(ColEpochStart, &cur_epoch_id.as_ref().into());
                 }
             }
             GCMode::StateSync => {
@@ -2986,6 +2987,7 @@ mod tests {
             DBCol::ColBlock,
             DBCol::ColOutgoingReceipts,
             DBCol::ColIncomingReceipts,
+            DBCol::ColBlockInfo,
             DBCol::ColBlocksToCatchup,
             DBCol::ColChallengedBlocks,
             DBCol::ColStateHeaders,
