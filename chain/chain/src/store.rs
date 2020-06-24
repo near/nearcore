@@ -2017,6 +2017,10 @@ impl<'a> ChainStoreUpdate<'a> {
             self.gc_col(ColNextBlockWithNewChunk, &height_shard_id);
             let key = StateHeaderKey(shard_id, block_hash).try_to_vec()?;
             self.gc_col(ColStateHeaders, &key);
+
+            if self.get_last_block_with_new_chunk(shard_id)? == Some(&block_hash) {
+                self.gc_col(ColLastBlockWithNewChunk, &index_to_bytes(shard_id));
+            }
         }
 
         // 3. Delete block_hash-indexed data
@@ -2251,6 +2255,10 @@ impl<'a> ChainStoreUpdate<'a> {
             DBCol::ColEpochStart => {
                 store_update.delete(col, key);
             }
+            DBCol::ColLastBlockWithNewChunk => {
+                store_update.delete(col, key);
+                self.chain_store.last_block_with_new_chunk.cache_remove(key);
+            }
             DBCol::ColDbVersion
             | DBCol::ColBlockMisc
             | DBCol::ColBlockHeader
@@ -2260,7 +2268,6 @@ impl<'a> ChainStoreUpdate<'a> {
             | DBCol::ColBlockMerkleTree
             | DBCol::ColAccountAnnouncements
             | DBCol::ColEpochLightClientBlocks
-            | DBCol::ColLastBlockWithNewChunk
             | DBCol::ColPeerComponent
             | DBCol::ColLastComponentNonce
             | DBCol::ColComponentEdges
