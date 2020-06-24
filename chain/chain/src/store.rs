@@ -2432,10 +2432,7 @@ impl<'a> ChainStoreUpdate<'a> {
                     let mut hash_set = match self
                         .chain_store
                         .get_all_block_hash_to_outcomes(&outcome.block_hash)
-                    {
-                        Ok(hash_set) => hash_set.clone(),
-                        Err(_) => HashSet::new(),
-                    };
+                        .unwrap_or_else(|_| HashSet::new());
                     hash_set.insert(outcome.id().clone());
                     entry.insert(hash_set);
                 }
