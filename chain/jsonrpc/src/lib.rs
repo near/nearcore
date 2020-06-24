@@ -66,15 +66,9 @@ impl Default for RpcPollingConfig {
     }
 }
 
-fn default_metrics_addr() -> String {
-    "0.0.0.0:3030".to_owned()
-}
-
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct RpcConfig {
     pub addr: String,
-    #[serde(default = "default_metrics_addr")]
-    pub metrics_addr: String,
     pub cors_allowed_origins: Vec<String>,
     pub polling_config: RpcPollingConfig,
 }
@@ -83,7 +77,6 @@ impl Default for RpcConfig {
     fn default() -> Self {
         RpcConfig {
             addr: "0.0.0.0:3030".to_owned(),
-            metrics_addr: "0.0.0.0:3030".to_owned(),
             cors_allowed_origins: vec!["*".to_owned()],
             polling_config: Default::default(),
         }
@@ -92,7 +85,7 @@ impl Default for RpcConfig {
 
 impl RpcConfig {
     pub fn new(addr: &str) -> Self {
-        RpcConfig { addr: addr.to_owned(), metrics_addr: addr.to_owned(), ..Default::default() }
+        RpcConfig { addr: addr.to_owned(), ..Default::default() }
     }
 }
 
@@ -849,34 +842,9 @@ pub fn start_http(
     client_addr: Addr<ClientActor>,
     view_client_addr: Addr<ViewClientActor>,
 ) {
-    let RpcConfig { addr, metrics_addr, polling_config, cors_allowed_origins } = config;
-    let same_addr = addr == metrics_addr;
-    if !same_addr {
-        let client_addr = client_addr.clone();
-        let view_client_addr = view_client_addr.clone();
-        let polling_config = polling_config.clone();
-        let genesis = Arc::clone(&genesis);
-
-        HttpServer::new(move || {
-            App::new()
-                .wrap(middleware::Logger::default())
-                .data(JsonRpcHandler {
-                    client_addr: client_addr.clone(),
-                    view_client_addr: view_client_addr.clone(),
-                    polling_config,
-                    genesis: Arc::clone(&genesis),
-                })
-                .app_data(web::JsonConfig::default().limit(JSON_PAYLOAD_MAX_SIZE))
-                .service(web::resource("/metrics").route(web::get().to(prometheus_handler)))
-        })
-        .bind(metrics_addr)
-        .unwrap()
-        .workers(1)
-        .shutdown_timeout(5)
-        .run();
-    }
+    let RpcConfig { addr, polling_config, cors_allowed_origins } = config;
     HttpServer::new(move || {
-        let app = App::new()
+        App::new()
             .wrap(get_cors(&cors_allowed_origins))
             .data(JsonRpcHandler {
                 client_addr: client_addr.clone(),
@@ -897,12 +865,8 @@ pub fn start_http(
                     .route(web::get().to(health_handler))
                     .route(web::head().to(health_handler)),
             )
-            .service(web::resource("/network_info").route(web::get().to(network_info_handler)));
-        if same_addr {
-            app.service(web::resource("/metrics").route(web::get().to(prometheus_handler)))
-        } else {
-            app
-        }
+            .service(web::resource("/network_info").route(web::get().to(network_info_handler)))
+            .service(web::resource("/metrics").route(web::get().to(prometheus_handler)))
     })
     .bind(addr)
     .unwrap()
