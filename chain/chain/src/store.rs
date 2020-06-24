@@ -34,10 +34,10 @@ use near_store::{
     ColBlockMisc, ColBlockOrdinal, ColBlockPerHeight, ColBlockRefCount, ColBlocksToCatchup,
     ColChallengedBlocks, ColChunkExtra, ColChunkHashesByHeight, ColChunkPerHeightShard, ColChunks,
     ColEpochLightClientBlocks, ColIncomingReceipts, ColInvalidChunks, ColLastBlockWithNewChunk,
-    ColNextBlockHashes, ColNextBlockWithNewChunk, ColOutgoingReceipts, ColPartialChunks,
-    ColReceiptIdToShardId, ColStateChanges, ColStateDlInfos, ColStateHeaders, ColTransactionResult,
-    ColTransactions, ColTrieChanges, DBCol, KeyForStateChanges, ShardTries, Store, StoreUpdate,
-    TrieChanges, WrappedTrieChanges, CHUNK_TAIL_KEY, HEADER_HEAD_KEY, HEAD_KEY,
+    ColNextBlockHashes, ColNextBlockWithNewChunk, ColOutcomesByBlockHash, ColOutgoingReceipts,
+    ColPartialChunks, ColReceiptIdToShardId, ColStateChanges, ColStateDlInfos, ColStateHeaders,
+    ColTransactionResult, ColTransactions, ColTrieChanges, DBCol, KeyForStateChanges, ShardTries,
+    Store, StoreUpdate, TrieChanges, WrappedTrieChanges, CHUNK_TAIL_KEY, HEADER_HEAD_KEY, HEAD_KEY,
     LARGEST_TARGET_HEIGHT_KEY, LATEST_KNOWN_KEY, NUM_COLS, SYNC_HEAD_KEY, TAIL_KEY,
 };
 
@@ -59,18 +59,12 @@ lazy_static! {
         col_gc[DBCol::ColBlockHeader as usize] = false; // header sync needs headers
         col_gc[DBCol::ColGCCount as usize] = false; // GC count it self isn't GCed
         col_gc[DBCol::ColBlockHeight as usize] = false; // block sync needs it + genesis should be accessible
-        col_gc[DBCol::ColTransactionResult as usize] = false;
         col_gc[DBCol::ColPeers as usize] = false; // Peers is unrelated to GC
-        col_gc[DBCol::ColEpochInfo as usize] = false;
-        col_gc[DBCol::ColStateDlInfos as usize] = false;
-        col_gc[DBCol::ColBlockInfo as usize] = false;
         col_gc[DBCol::ColBlockMerkleTree as usize] = false;
-        col_gc[DBCol::ColEpochStart as usize] = false;
         col_gc[DBCol::ColAccountAnnouncements as usize] = false;
         col_gc[DBCol::ColEpochLightClientBlocks as usize] = false;
-        col_gc[DBCol::ColLastBlockWithNewChunk as usize] = false;
         col_gc[DBCol::ColPeerComponent as usize] = false; // Peer related info doesn't GC
-        col_gc[DBCol::LastComponentNonce as usize] = false;
+        col_gc[DBCol::ColLastComponentNonce as usize] = false;
         col_gc[DBCol::ColComponentEdges as usize] = false;
         col_gc[DBCol::ColBlockOrdinal as usize] = false;
         col_gc
@@ -229,6 +223,11 @@ pub trait ChainStoreAccess {
         &mut self,
         hash: &CryptoHash,
     ) -> Result<&ExecutionOutcomeWithIdAndProof, Error>;
+    /// Returns a HashSet of Outcome ids for current Block Hash
+    fn get_all_block_hash_to_outcomes(
+        &mut self,
+        block_hash: &CryptoHash,
+    ) -> Result<HashSet<CryptoHash>, Error>;
     /// Returns whether the block with the given hash was challenged
     fn is_block_challenged(&mut self, hash: &CryptoHash) -> Result<bool, Error>;
 
@@ -811,6 +810,17 @@ impl ChainStoreAccess for ChainStore {
             read_with_cache(&*self.store, ColTransactionResult, &mut self.outcomes, hash.as_ref()),
             &format!("TRANSACTION: {}", hash),
         )
+    }
+
+    fn get_all_block_hash_to_outcomes(
+        &mut self,
+        block_hash: &CryptoHash,
+    ) -> Result<HashSet<CryptoHash>, Error> {
+        match self.store.get_ser(ColOutcomesByBlockHash, block_hash.as_ref()) {
+            Ok(Some(hash_set)) => Ok(hash_set),
+            Ok(None) => Ok(HashSet::new()),
+            Err(e) => Err(e.into()),
+        }
     }
 
     fn get_blocks_to_catchup(&self, hash: &CryptoHash) -> Result<Vec<CryptoHash>, Error> {
@@ -1405,6 +1415,13 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
         hash: &CryptoHash,
     ) -> Result<&ExecutionOutcomeWithIdAndProof, Error> {
         self.chain_store.get_execution_outcome(hash)
+    }
+
+    fn get_all_block_hash_to_outcomes(
+        &mut self,
+        block_hash: &CryptoHash,
+    ) -> Result<HashSet<CryptoHash>, Error> {
+        self.chain_store.get_all_block_hash_to_outcomes(block_hash)
     }
 
     fn get_chunk(&mut self, chunk_hash: &ChunkHash) -> Result<&ShardChunk, Error> {
@@ -2018,6 +2035,11 @@ impl<'a> ChainStoreUpdate<'a> {
             self.gc_col(ColStateChanges, &key);
         }
         self.gc_col(ColBlockRefCount, &block_hash_vec);
+        let outcome_ids = self.get_all_block_hash_to_outcomes(&block_hash)?;
+        for outcome_id in outcome_ids {
+            self.gc_col(ColTransactionResult, &outcome_id.as_ref().into());
+        }
+        self.gc_col(ColOutcomesByBlockHash, &block_hash_vec);
 
         // 4. Update or delete block_hash_per_height
         self.gc_col_block_per_height(&block_hash, height, &block.header().epoch_id())?;
@@ -2199,12 +2221,18 @@ impl<'a> ChainStoreUpdate<'a> {
             DBCol::ColBlockPerHeight => {
                 panic!("Must use gc_col_glock_per_height method to gc ColBlockPerHeight");
             }
+            DBCol::ColTransactionResult => {
+                store_update.delete(col, key);
+                self.chain_store.outcomes.cache_remove(key);
+            }
+            DBCol::ColOutcomesByBlockHash => {
+                store_update.delete(col, key);
+            }
             DBCol::ColDbVersion
             | DBCol::ColBlockMisc
             | DBCol::ColBlockHeader
             | DBCol::ColGCCount
             | DBCol::ColBlockHeight
-            | DBCol::ColTransactionResult
             | DBCol::ColPeers
             | DBCol::ColEpochInfo
             | DBCol::ColStateDlInfos
@@ -2215,7 +2243,7 @@ impl<'a> ChainStoreUpdate<'a> {
             | DBCol::ColEpochLightClientBlocks
             | DBCol::ColLastBlockWithNewChunk
             | DBCol::ColPeerComponent
-            | DBCol::LastComponentNonce
+            | DBCol::ColLastComponentNonce
             | DBCol::ColComponentEdges
             | DBCol::ColBlockOrdinal => {
                 unreachable!();
@@ -2368,8 +2396,30 @@ impl<'a> ChainStoreUpdate<'a> {
                 receipt,
             )?;
         }
+        let mut block_hash_to_outcomes: HashMap<CryptoHash, HashSet<CryptoHash>> = HashMap::new();
         for (hash, outcome) in self.chain_store_cache_update.outcomes.iter() {
+            match block_hash_to_outcomes.entry(outcome.block_hash) {
+                Entry::Occupied(mut entry) => {
+                    entry.get_mut().insert(outcome.id().clone());
+                }
+                Entry::Vacant(entry) => {
+                    let mut hash_set = match self
+                        .chain_store
+                        .get_all_block_hash_to_outcomes(&outcome.block_hash)
+                    {
+                        Ok(hash_set) => hash_set.clone(),
+                        Err(_) => HashSet::new(),
+                    };
+                    hash_set.insert(outcome.id().clone());
+                    entry.insert(hash_set);
+                }
+            };
             store_update.set_ser(ColTransactionResult, hash.as_ref(), outcome)?;
+        }
+        for (block_hash, hash_set) in block_hash_to_outcomes {
+            store_update
+                .set_ser(ColOutcomesByBlockHash, block_hash.as_ref(), &hash_set)
+                .map_err::<Error, _>(|e| e.into())?;
         }
         for (receipt_id, shard_id) in self.chain_store_cache_update.receipt_id_to_shard_id.iter() {
             store_update.set_ser(ColReceiptIdToShardId, receipt_id.as_ref(), shard_id)?;

@@ -80,7 +80,7 @@ pub enum DBCol {
     /// Map component id with all edges in this component.
     ColComponentEdges = 31,
     /// Biggest nonce used.
-    LastComponentNonce = 32,
+    ColLastComponentNonce = 32,
     /// Transactions
     ColTransactions = 33,
     ColChunkPerHeightShard = 34,
@@ -95,10 +95,12 @@ pub enum DBCol {
     ColBlockOrdinal = 40,
     /// GC Count for each column
     ColGCCount = 41,
+    /// GC helper column to get all Outcome ids by Block Hash
+    ColOutcomesByBlockHash = 42,
 }
 
 // Do not move this line from enum DBCol
-pub const NUM_COLS: usize = 42;
+pub const NUM_COLS: usize = 43;
 
 impl std::fmt::Display for DBCol {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
@@ -135,7 +137,7 @@ impl std::fmt::Display for DBCol {
             Self::ColLastBlockWithNewChunk => "last block with new chunk",
             Self::ColPeerComponent => "peer components",
             Self::ColComponentEdges => "component edges",
-            Self::LastComponentNonce => "last component nonce",
+            Self::ColLastComponentNonce => "last component nonce",
             Self::ColTransactions => "transactions",
             Self::ColChunkPerHeightShard => "hash of chunk per height and shard_id",
             Self::ColStateChanges => "key value changes",
@@ -145,6 +147,7 @@ impl std::fmt::Display for DBCol {
             Self::ColChunkHashesByHeight => "chunk hashes indexed by height_created",
             Self::ColBlockOrdinal => "block ordinal",
             Self::ColGCCount => "gc count",
+            Self::ColOutcomesByBlockHash => "outcomes by block hash",
         };
         write!(formatter, "{}", desc)
     }
