@@ -1,7 +1,6 @@
 use crate::types::Gas;
 use serde::{Deserialize, Serialize};
 use std::collections::hash_map::DefaultHasher;
-use std::env;
 use std::hash::{Hash, Hasher};
 
 #[derive(Clone, Copy, Debug, Hash, Serialize, Deserialize)]
