@@ -13,15 +13,19 @@ pub enum VMKind {
 }
 
 impl Default for VMKind {
+    #[cfg(feature = "wasmer_default")]
     fn default() -> Self {
-        match env::var("NEAR_VM") {
-            Ok(val) => match val.as_ref() {
-                "wasmtime" => VMKind::Wasmtime,
-                "wasmer" => VMKind::Wasmer,
-                _ => VMKind::Wasmer,
-            },
-            Err(_) => VMKind::Wasmer,
-        }
+        VMKind::Wasmer
+    }
+
+    #[cfg(feature = "wasmtime_default")]
+    fn default() -> Self {
+        VMKind::Wasmtime
+    }
+
+    #[cfg(all(not(feature = "wasmer_default"), not(feature = "wasmtime_default")))]
+    fn default() -> Self {
+        VMKind::Wasmer
     }
 }
 

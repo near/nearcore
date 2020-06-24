@@ -31,7 +31,9 @@ wabt = "0.9"
 bencher = "^0.1.5"
 
 [features]
-default = []
+default = ["wasmer_default"]
+wasmer_default = []
+wasmtime_default = []
 
 # Use this feature to enable counting of fees and costs applied.
 costs_counting = ["near-vm-logic/costs_counting"]
