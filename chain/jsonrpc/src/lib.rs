@@ -265,7 +265,7 @@ impl JsonRpcHandler {
                 match tx_status_result {
                     Ok(Ok(Some(outcome))) => break Ok(outcome),
                     Ok(Ok(None)) => {}
-                    Ok(Err(TxStatusError::MissingTransaction(_))) => {
+                    Ok(Err(err @ TxStatusError::MissingTransaction(_))) => {
                         if let TransactionInfo::Transaction(tx) = &tx_info {
                             if let Ok(NetworkClientResponses::InvalidTx(e)) =
                                 self.send_tx(tx.clone(), true).await
@@ -273,9 +273,7 @@ impl JsonRpcHandler {
                                 break Err(TxStatusError::InvalidTx(e));
                             }
                         }
-                        if let Ok(Err(e)) = tx_status_result {
-                            break Err(e);
-                        }
+                        break Err(err);
                     }
                     Ok(Err(err)) => break Err(err),
                     Err(_) => break Err(TxStatusError::InternalError),
