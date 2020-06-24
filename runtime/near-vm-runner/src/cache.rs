@@ -1,6 +1,5 @@
 #[cfg(not(feature = "no_cache"))]
 use cached::{cached_key, SizedCache};
-use wasmer_runtime;
 
 use crate::errors::IntoVMError;
 use crate::prepare;
