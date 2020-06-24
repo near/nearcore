@@ -30,14 +30,15 @@ use near_primitives::types::{
 use near_primitives::utils::{get_block_shard_id, index_to_bytes, to_timestamp};
 use near_primitives::views::LightClientBlockView;
 use near_store::{
-    read_with_cache, ColBlock, ColBlockExtra, ColBlockHeader, ColBlockHeight, ColBlockMerkleTree,
-    ColBlockMisc, ColBlockOrdinal, ColBlockPerHeight, ColBlockRefCount, ColBlocksToCatchup,
-    ColChallengedBlocks, ColChunkExtra, ColChunkHashesByHeight, ColChunkPerHeightShard, ColChunks,
-    ColEpochLightClientBlocks, ColIncomingReceipts, ColInvalidChunks, ColLastBlockWithNewChunk,
-    ColNextBlockHashes, ColNextBlockWithNewChunk, ColOutcomesByBlockHash, ColOutgoingReceipts,
-    ColPartialChunks, ColReceiptIdToShardId, ColStateChanges, ColStateDlInfos, ColStateHeaders,
-    ColTransactionResult, ColTransactions, ColTrieChanges, DBCol, KeyForStateChanges, ShardTries,
-    Store, StoreUpdate, TrieChanges, WrappedTrieChanges, CHUNK_TAIL_KEY, HEADER_HEAD_KEY, HEAD_KEY,
+    read_with_cache, ColBlock, ColBlockExtra, ColBlockHeader, ColBlockHeight, ColBlockInfo,
+    ColBlockMerkleTree, ColBlockMisc, ColBlockOrdinal, ColBlockPerHeight, ColBlockRefCount,
+    ColBlocksToCatchup, ColChallengedBlocks, ColChunkExtra, ColChunkHashesByHeight,
+    ColChunkPerHeightShard, ColChunks, ColEpochInfo, ColEpochLightClientBlocks,
+    ColIncomingReceipts, ColInvalidChunks, ColLastBlockWithNewChunk, ColNextBlockHashes,
+    ColNextBlockWithNewChunk, ColOutcomesByBlockHash, ColOutgoingReceipts, ColPartialChunks,
+    ColReceiptIdToShardId, ColStateChanges, ColStateDlInfos, ColStateHeaders, ColTransactionResult,
+    ColTransactions, ColTrieChanges, DBCol, KeyForStateChanges, ShardTries, Store, StoreUpdate,
+    TrieChanges, WrappedTrieChanges, CHUNK_TAIL_KEY, HEADER_HEAD_KEY, HEAD_KEY,
     LARGEST_TARGET_HEIGHT_KEY, LATEST_KNOWN_KEY, NUM_COLS, SYNC_HEAD_KEY, TAIL_KEY,
 };
 
@@ -1938,6 +1939,7 @@ impl<'a> ChainStoreUpdate<'a> {
     ) -> Result<(), Error> {
         let mut store_update = self.store().store_update();
         let header = self.get_block_header(&block_hash).expect("block header must exist").clone();
+        let next_epoch_id = header.epoch_id();
 
         // 1. Apply revert insertions or deletions from ColTrieChanges for Trie
         match gc_mode.clone() {
@@ -2040,6 +2042,7 @@ impl<'a> ChainStoreUpdate<'a> {
             self.gc_col(ColTransactionResult, &outcome_id.as_ref().into());
         }
         self.gc_col(ColOutcomesByBlockHash, &block_hash_vec);
+        self.gc_col(ColBlockInfo, &block_hash_vec);
 
         // 4. Update or delete block_hash_per_height
         self.gc_col_block_per_height(&block_hash, height, &block.header().epoch_id())?;
@@ -2060,6 +2063,12 @@ impl<'a> ChainStoreUpdate<'a> {
                 }
                 self.clear_chunk_data(min_chunk_height)?;
                 self.remove_state_dl_info(block_hash);
+                // Check Epoch switch
+                let cur_epoch_id = block.header().epoch_id();
+                if cur_epoch_id != next_epoch_id {
+                    // Current Block is the last one who needs current Epoch
+                    self.gc_col(ColEpochInfo, &cur_epoch_id.as_ref().into());
+                }
             }
             GCMode::StateSync => {
                 // 7. State Sync clearing
@@ -2232,14 +2241,18 @@ impl<'a> ChainStoreUpdate<'a> {
             DBCol::ColStateDlInfos => {
                 panic!("Add a Block Hash to remove_state_dl_infos instead");
             }
+            DBCol::ColBlockInfo => {
+                store_update.delete(col, key);
+            }
+            DBCol::ColEpochInfo => {
+                store_update.delete(col, key);
+            }
             DBCol::ColDbVersion
             | DBCol::ColBlockMisc
             | DBCol::ColBlockHeader
             | DBCol::ColGCCount
             | DBCol::ColBlockHeight
             | DBCol::ColPeers
-            | DBCol::ColEpochInfo
-            | DBCol::ColBlockInfo
             | DBCol::ColBlockMerkleTree
             | DBCol::ColEpochStart
             | DBCol::ColAccountAnnouncements
