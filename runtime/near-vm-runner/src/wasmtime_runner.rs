@@ -1,5 +1,6 @@
+// mod only to apply feature to it. Is it possible to avoid it?
 #[cfg(feature = "wasmtime_vm")]
-mod wasmtime_runner {
+pub mod wasmtime_runner {
     use crate::errors::IntoVMError;
     use crate::{imports, prepare};
     use near_runtime_fees::RuntimeFeesConfig;
