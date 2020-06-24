@@ -582,8 +582,16 @@ impl Actor for Peer {
 
 impl WriteHandler<io::Error> for Peer {}
 
-impl StreamHandler<Vec<u8>> for Peer {
-    fn handle(&mut self, msg: Vec<u8>, ctx: &mut Self::Context) {
+impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for Peer {
+    fn handle(&mut self, msg: Result<Vec<u8>, ReasonForBan>, ctx: &mut Self::Context) {
+        let msg = match msg {
+            Ok(msg) => msg,
+            Err(ban_reason) => {
+                self.ban_peer(ctx, ban_reason);
+                return ();
+            }
+        };
+
         near_metrics::inc_counter_by(&metrics::PEER_DATA_RECEIVED_BYTES, msg.len() as i64);
         near_metrics::inc_counter(&metrics::PEER_MESSAGE_RECEIVED_TOTAL);
 
@@ -594,7 +602,7 @@ impl StreamHandler<Vec<u8>> for Peer {
         let peer_msg = match bytes_to_peer_message(&msg) {
             Ok(peer_msg) => peer_msg,
             Err(err) => {
-                error!(target: "network", "Received invalid data {:?} from {}: {}", msg, self.peer_info, err);
+                info!(target: "network", "Received invalid data {:?} from {}: {}", msg, self.peer_info, err);
                 return;
             }
         };
