@@ -2972,7 +2972,7 @@ mod tests {
             DBCol::ColOutcomesByBlockHash,
         ];
         for i in DBCol::iter() {
-            println!("{:?}", i);
+            println!("current column is {:?}", i);
             if gced_cols.contains(&i) {
                 assert!(store_update.get_gc_count(i) == 7);
             } else {
