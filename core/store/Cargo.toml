@@ -17,7 +17,7 @@ rand = "0.7.2"
 strum = "0.18"
 strum_macros = "0.18"
 
-borsh = "0.6.2"
+borsh = "0.7.0"
 
 near-crypto = { path = "../crypto" }
 near-primitives = { path = "../primitives" }

@@ -8,7 +8,7 @@ edition = "2018"
 clap = "2.33"
 ansi_term = "0.11"
 
-borsh = "0.6"
+borsh = "0.7.0"
 
 near-chain-configs = { path = "../../core/chain-configs" }
 near-crypto = { path = "../../core/crypto" }
