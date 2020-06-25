@@ -9,9 +9,11 @@ use strum::IntoEnumIterator;
 use near_chain_configs::GenesisConfig;
 use near_primitives::block::{Block, BlockHeader};
 use near_primitives::borsh;
+use near_primitives::epoch_manager::{BlockInfo, EpochInfo, AGGREGATOR_KEY};
 use near_primitives::hash::CryptoHash;
-use near_primitives::sharding::{ChunkHash, ShardChunk};
-use near_primitives::types::{AccountId, BlockHeight};
+use near_primitives::sharding::{ChunkHash, ShardChunk, StateSyncInfo};
+use near_primitives::transaction::ExecutionOutcomeWithIdAndProof;
+use near_primitives::types::{AccountId, BlockHeight, EpochId, ShardId};
 use near_primitives::utils::get_block_shard_id_rev;
 use near_store::{DBCol, Store, TrieChanges};
 use validate::StoreValidatorError;
@@ -128,6 +130,8 @@ impl StoreValidator {
                     self.check(&validate::block_chunks_exist, &block_hash, &block, col);
                     // Chunks for current Block have Height Created not higher than Block Height
                     self.check(&validate::block_chunks_height_validity, &block_hash, &block, col);
+                    // BlockInfo for current Block exists
+                    self.check(&validate::block_info_exists, &block_hash, &block, col);
                 }
                 DBCol::ColBlockHeight => {
                     let height = BlockHeight::try_from_slice(key_ref)?;
@@ -169,6 +173,74 @@ impl StoreValidator {
                     let chunk_hashes = HashSet::<ChunkHash>::try_from_slice(value_ref)?;
                     // ShardChunk which can be indexed by Height exists
                     self.check(&validate::chunk_of_height_exists, &height, &chunk_hashes, col);
+                }
+                DBCol::ColOutcomesByBlockHash => {
+                    let block_hash = CryptoHash::try_from(key_ref)?;
+                    let outcome_ids = HashSet::<CryptoHash>::try_from_slice(value_ref)?;
+                    // TransactionResult which can be indexed by Outcome id exists
+                    self.check(
+                        &validate::outcome_by_outcome_id_exists,
+                        &block_hash,
+                        &outcome_ids,
+                        col,
+                    );
+                    // Block which can be indexed by Outcome block_hash exists
+                    self.check(&validate::outcome_id_block_exists, &block_hash, &outcome_ids, col);
+                }
+                DBCol::ColTransactionResult => {
+                    let outcome_id = CryptoHash::try_from_slice(key_ref)?;
+                    let outcome = ExecutionOutcomeWithIdAndProof::try_from_slice(value_ref)?;
+                    // Outcome is reachable in ColOutcomesByBlockHash
+                    self.check(
+                        &validate::outcome_indexed_by_block_hash,
+                        &outcome_id,
+                        &outcome,
+                        col,
+                    );
+                }
+                DBCol::ColStateDlInfos => {
+                    let block_hash = CryptoHash::try_from(key_ref)?;
+                    let state_sync_info = StateSyncInfo::try_from_slice(value_ref)?;
+                    // StateSyncInfo is valid
+                    self.check(
+                        &validate::state_sync_info_valid,
+                        &block_hash,
+                        &state_sync_info,
+                        col,
+                    );
+                    // Block which can be indexed by StateSyncInfo exists
+                    self.check(
+                        &validate::state_sync_info_block_exists,
+                        &block_hash,
+                        &state_sync_info,
+                        col,
+                    );
+                }
+                DBCol::ColBlockInfo => {
+                    let block_hash = CryptoHash::try_from(key_ref)?;
+                    let block_info = BlockInfo::try_from_slice(value_ref)?;
+                    // Block which can be indexed by BlockInfo exists
+                    self.check(&validate::block_info_block_exists, &block_hash, &block_info, col);
+                }
+                DBCol::ColEpochInfo => {
+                    if key_ref != AGGREGATOR_KEY {
+                        let epoch_id = EpochId::try_from_slice(key_ref)?;
+                        let epoch_info = EpochInfo::try_from_slice(value_ref)?;
+                        // Epoch should exist
+                        self.check(&validate::epoch_validity, &epoch_id, &epoch_info, col);
+                        // TODO #2893: Bowen which consistency we expect from ColEpochInfo?
+                    }
+                }
+                DBCol::ColEpochStart => {
+                    let _epoch_id = EpochId::try_from_slice(key_ref)?;
+                    let _epoch_start = BlockHeight::try_from_slice(value_ref)?;
+                    // TODO #2893: Bowen which consistency we expect from ColEpochStart?
+                }
+                DBCol::ColLastBlockWithNewChunk => {
+                    let shard_id = ShardId::try_from_slice(key_ref)?;
+                    let block_hash = CryptoHash::try_from(value_ref)?;
+                    // Block which is stored in ColLastBlockWithNewChunk exists and its ShardChunk is included
+                    self.check(&validate::last_block_chunk_included, &shard_id, &block_hash, col);
                 }
                 _ => {}
             }

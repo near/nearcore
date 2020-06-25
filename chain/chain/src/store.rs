@@ -7,7 +7,6 @@ use std::sync::Arc;
 use borsh::{BorshDeserialize, BorshSerialize};
 use cached::{Cached, SizedCache};
 use chrono::Utc;
-use serde::Serialize;
 use strum::IntoEnumIterator;
 use tracing::debug;
 
@@ -18,6 +17,7 @@ use near_primitives::merkle::{MerklePath, PartialMerkleTree};
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{
     ChunkHash, EncodedShardChunk, PartialEncodedChunk, ReceiptProof, ShardChunk, ShardChunkHeader,
+    StateSyncInfo,
 };
 use near_primitives::transaction::{
     ExecutionOutcomeWithId, ExecutionOutcomeWithIdAndProof, SignedTransaction,
@@ -72,9 +72,6 @@ lazy_static! {
     };
 }
 
-#[derive(Debug, PartialEq, BorshSerialize, BorshDeserialize, Serialize)]
-pub struct ShardInfo(pub ShardId, pub ChunkHash);
-
 #[derive(Clone)]
 pub enum GCMode {
     Fork(ShardTries),
@@ -87,15 +84,6 @@ fn get_height_shard_id(height: BlockHeight, shard_id: ShardId) -> Vec<u8> {
     res.extend_from_slice(&height.to_le_bytes());
     res.extend_from_slice(&shard_id.to_le_bytes());
     res
-}
-
-/// Contains the information that is used to sync state for shards as epochs switch
-#[derive(Debug, PartialEq, BorshSerialize, BorshDeserialize, Serialize)]
-pub struct StateSyncInfo {
-    /// The first block of the epoch for which syncing is happening
-    pub epoch_tail_hash: CryptoHash,
-    /// Shards to fetch state
-    pub shards: Vec<ShardInfo>,
 }
 
 /// Accesses the chain store. Used to create atomic editable views that can be reverted.

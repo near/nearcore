@@ -12,6 +12,7 @@ pub mod block;
 pub mod block_header;
 pub mod challenge;
 pub mod contract;
+pub mod epoch_manager;
 pub mod errors;
 pub mod hash;
 pub mod logging;

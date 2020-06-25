@@ -23,7 +23,8 @@ use near_primitives::merkle::{
 };
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{
-    ChunkHash, ChunkHashHeight, ReceiptProof, ShardChunk, ShardChunkHeader, ShardProof,
+    ChunkHash, ChunkHashHeight, ReceiptProof, ShardChunk, ShardChunkHeader, ShardInfo, ShardProof,
+    StateSyncInfo,
 };
 use near_primitives::transaction::ExecutionOutcomeWithIdAndProof;
 use near_primitives::types::{
@@ -40,9 +41,7 @@ use near_store::{ColState, ColStateHeaders, ColStateParts, ShardTries, StoreUpda
 
 use crate::error::{Error, ErrorKind};
 use crate::lightclient::get_epoch_block_producers_view;
-use crate::store::{
-    ChainStore, ChainStoreAccess, ChainStoreUpdate, GCMode, ShardInfo, StateSyncInfo,
-};
+use crate::store::{ChainStore, ChainStoreAccess, ChainStoreUpdate, GCMode};
 use crate::types::{
     AcceptedBlock, ApplyTransactionResult, Block, BlockHeader, BlockHeaderInfo, BlockStatus,
     BlockSyncResponse, Provenance, ReceiptList, ReceiptProofResponse, ReceiptResponse, RootProof,

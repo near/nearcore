@@ -3,14 +3,16 @@ use std::collections::{HashMap, HashSet};
 use thiserror::Error;
 
 use near_primitives::block::{Block, BlockHeader, Tip};
+use near_primitives::epoch_manager::{BlockInfo, EpochInfo};
 use near_primitives::hash::CryptoHash;
-use near_primitives::sharding::{ChunkHash, ShardChunk};
+use near_primitives::sharding::{ChunkHash, ShardChunk, StateSyncInfo};
+use near_primitives::transaction::ExecutionOutcomeWithIdAndProof;
 use near_primitives::types::{BlockHeight, ChunkExtra, EpochId, ShardId};
 use near_primitives::utils::{get_block_shard_id, index_to_bytes};
 use near_store::{
-    ColBlock, ColBlockHeader, ColBlockHeight, ColBlockMisc, ColBlockPerHeight, ColChunkExtra,
-    ColChunkHashesByHeight, ColChunks, TrieChanges, TrieIterator, CHUNK_TAIL_KEY, HEADER_HEAD_KEY,
-    HEAD_KEY, TAIL_KEY,
+    ColBlock, ColBlockHeader, ColBlockHeight, ColBlockInfo, ColBlockMisc, ColBlockPerHeight,
+    ColChunkExtra, ColChunkHashesByHeight, ColChunks, ColOutcomesByBlockHash, ColTransactionResult,
+    TrieChanges, TrieIterator, CHUNK_TAIL_KEY, HEADER_HEAD_KEY, HEAD_KEY, TAIL_KEY,
 };
 
 use crate::StoreValidator;
@@ -194,7 +196,7 @@ pub(crate) fn block_height_validity(
     check_cached!(sv.inner.is_misc_set, "misc");
     let height = block.header().height();
     let tail = sv.inner.tail;
-    if height < tail && height != sv.config.genesis_height {
+    if height <= tail && height != sv.config.genesis_height {
         sv.inner.block_heights_less_tail.push(*block.hash());
     }
     sv.inner.is_block_height_cmp_tail_prepared = true;
@@ -339,6 +341,18 @@ pub(crate) fn block_chunks_height_validity(
             );
         }
     }
+    Ok(())
+}
+
+pub(crate) fn block_info_exists(
+    sv: &mut StoreValidator,
+    block_hash: &CryptoHash,
+    _block: &Block,
+) -> Result<(), StoreValidatorError> {
+    unwrap_or_err_db!(
+        sv.store.get_ser::<BlockInfo>(ColBlockInfo, block_hash.as_ref()),
+        "Can't get BlockInfo from storage"
+    );
     Ok(())
 }
 
@@ -499,4 +513,124 @@ pub(crate) fn chunk_of_height_exists(
         );
     }
     Ok(())
+}
+
+pub(crate) fn outcome_by_outcome_id_exists(
+    sv: &mut StoreValidator,
+    block_hash: &CryptoHash,
+    outcome_ids: &HashSet<CryptoHash>,
+) -> Result<(), StoreValidatorError> {
+    for outcome_id in outcome_ids {
+        let outcome = unwrap_or_err_db!(
+            sv.store.get_ser::<ExecutionOutcomeWithIdAndProof>(
+                ColTransactionResult,
+                outcome_id.as_ref()
+            ),
+            "Can't get TransactionResult from storage with Outcome id {:?}",
+            outcome_id
+        );
+        check_discrepancy!(
+            outcome.block_hash,
+            *block_hash,
+            "Invalid TransactionResult {:?} stored",
+            outcome
+        );
+    }
+    Ok(())
+}
+
+pub(crate) fn outcome_id_block_exists(
+    sv: &mut StoreValidator,
+    block_hash: &CryptoHash,
+    _outcome_ids: &HashSet<CryptoHash>,
+) -> Result<(), StoreValidatorError> {
+    unwrap_or_err_db!(
+        sv.store.get_ser::<Block>(ColBlock, block_hash.as_ref()),
+        "Can't get Block from DB"
+    );
+    Ok(())
+}
+
+pub(crate) fn outcome_indexed_by_block_hash(
+    sv: &mut StoreValidator,
+    outcome_id: &CryptoHash,
+    outcome: &ExecutionOutcomeWithIdAndProof,
+) -> Result<(), StoreValidatorError> {
+    let outcome_ids = unwrap_or_err_db!(
+        sv.store
+            .get_ser::<HashSet<CryptoHash>>(ColOutcomesByBlockHash, outcome.block_hash.as_ref()),
+        "Can't get Outcome ids by Block Hash"
+    );
+    if !outcome_ids.contains(outcome_id) {
+        err!("Outcome id {:?} is not found in ColOutcomesByBlockHash", outcome_id);
+    }
+    Ok(())
+}
+
+pub(crate) fn state_sync_info_valid(
+    _sv: &mut StoreValidator,
+    block_hash: &CryptoHash,
+    state_sync_info: &StateSyncInfo,
+) -> Result<(), StoreValidatorError> {
+    check_discrepancy!(
+        state_sync_info.epoch_tail_hash,
+        *block_hash,
+        "Invalid StateSyncInfo stored"
+    );
+    Ok(())
+}
+
+pub(crate) fn state_sync_info_block_exists(
+    sv: &mut StoreValidator,
+    block_hash: &CryptoHash,
+    _state_sync_info: &StateSyncInfo,
+) -> Result<(), StoreValidatorError> {
+    unwrap_or_err_db!(
+        sv.store.get_ser::<Block>(ColBlock, block_hash.as_ref()),
+        "Can't get Block from DB"
+    );
+    Ok(())
+}
+
+pub(crate) fn block_info_block_exists(
+    _sv: &mut StoreValidator,
+    block_hash: &CryptoHash,
+    _block_info: &BlockInfo,
+) -> Result<(), StoreValidatorError> {
+    if *block_hash == CryptoHash::default() {
+        // TODO #2893: Bowen why this case have been appeared
+        return Ok(());
+    }
+    // TODO #2893: No bijection after State Sync
+    /*unwrap_or_err_db!(
+        sv.store.get_ser::<Block>(ColBlock, block_hash.as_ref()),
+        "Can't get Block from DB"
+    );*/
+    Ok(())
+}
+
+pub(crate) fn epoch_validity(
+    sv: &mut StoreValidator,
+    epoch_id: &EpochId,
+    _epoch_info: &EpochInfo,
+) -> Result<(), StoreValidatorError> {
+    check_discrepancy!(sv.runtime_adapter.epoch_exists(epoch_id), true, "Invalid EpochInfo stored");
+    Ok(())
+}
+
+pub(crate) fn last_block_chunk_included(
+    sv: &mut StoreValidator,
+    shard_id: &ShardId,
+    block_hash: &CryptoHash,
+) -> Result<(), StoreValidatorError> {
+    let block = unwrap_or_err_db!(
+        sv.store.get_ser::<Block>(ColBlock, block_hash.as_ref()),
+        "Can't get Block from DB"
+    );
+    for chunk_header in block.chunks().iter() {
+        if chunk_header.inner.shard_id == *shard_id {
+            return Ok(());
+        }
+    }
+    err!("ShardChunk is not included into Block {:?}", block)
 }
