@@ -16,6 +16,9 @@ git clone https://github.com/near/create-near-app.git
 # Make sure to use local nearcore for tests
 export NODE_ENV=local
 
+SRC_DIR=$(pwd)/$(dirname "${BASH_SOURCE[0]}")
+export HOME=$SRC_DIR/../testdir
+
 # Run near-api-js tests
 cd near-api-js
 yarn
@@ -24,11 +27,12 @@ yarn build
 yarn test
 yarn doc
 
+# Run create-near-app tests
+cd ../create-near-app
+yarn 
+yarn test
+
 # Run near-shell tests
 # cd ../near-shell
-# yarn && yarn test
-
-# Run create-near-app tests
-# cd ../create-near-app
-# yarn && yarn test
-
+# yarn
+# HOME=../testdir yarn test
