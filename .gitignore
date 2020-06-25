@@ -35,6 +35,8 @@ venv
 # Integration tests
 nearlib/
 near-shell/
+create-near-app/
+near-api-js/
 nearlib_release_test/
 test-keys/
 tmp/
