@@ -805,6 +805,9 @@ pub struct ExecutionOutcomeView {
     /// the prepaid gas price might be lower than the actual gas price and it creates a deficit.
     #[serde(with = "u128_dec_format")]
     pub tokens_burnt: Balance,
+    /// The id of the account on which the execution happens. For transaction this is signer_id,
+    /// for receipt this is receiver_id.
+    pub executor_id: AccountId,
     /// Execution status. Contains the result in case of successful execution.
     pub status: ExecutionStatusView,
 }
@@ -816,6 +819,7 @@ impl From<ExecutionOutcome> for ExecutionOutcomeView {
             receipt_ids: outcome.receipt_ids,
             gas_burnt: outcome.gas_burnt,
             tokens_burnt: outcome.tokens_burnt,
+            executor_id: outcome.executor_id,
             status: outcome.status.into(),
         }
     }
