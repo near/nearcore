@@ -7,7 +7,7 @@ edition = "2018"
 [dependencies]
 arrayref = "0.3"
 blake2 = "0.8"
-borsh = "0.6.2"
+borsh = "0.7.0"
 bs58 = "0.3"
 c2-chacha = "0.2"
 curve25519-dalek = "2"

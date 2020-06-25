@@ -118,7 +118,7 @@ impl InfoHelper {
         set_gauge(&metrics::SENT_BYTES_PER_SECOND, network_info.sent_bytes_per_sec as i64);
         set_gauge(&metrics::BLOCKS_PER_MINUTE, (avg_bls * (60 as f64)) as i64);
         set_gauge(&metrics::CPU_USAGE, cpu_usage as i64);
-        set_gauge(&metrics::MEMORY_USAGE, memory_usage as i64);
+        set_gauge(&metrics::MEMORY_USAGE, (memory_usage * 1024) as i64);
 
         self.started = Instant::now();
         self.num_blocks_processed = 0;
