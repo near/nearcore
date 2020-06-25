@@ -132,6 +132,8 @@ impl StoreValidator {
                     self.check(&validate::block_chunks_height_validity, &block_hash, &block, col);
                     // BlockInfo for current Block exists
                     self.check(&validate::block_info_exists, &block_hash, &block, col);
+                    // EpochInfo for current Epoch id of Block exists
+                    self.check(&validate::block_epoch_exists, &block_hash, &block, col);
                 }
                 DBCol::ColBlockHeight => {
                     let height = BlockHeight::try_from_slice(key_ref)?;

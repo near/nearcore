@@ -11,8 +11,9 @@ use near_primitives::types::{BlockHeight, ChunkExtra, EpochId, ShardId};
 use near_primitives::utils::{get_block_shard_id, index_to_bytes};
 use near_store::{
     ColBlock, ColBlockHeader, ColBlockHeight, ColBlockInfo, ColBlockMisc, ColBlockPerHeight,
-    ColChunkExtra, ColChunkHashesByHeight, ColChunks, ColOutcomesByBlockHash, ColTransactionResult,
-    TrieChanges, TrieIterator, CHUNK_TAIL_KEY, HEADER_HEAD_KEY, HEAD_KEY, TAIL_KEY,
+    ColChunkExtra, ColChunkHashesByHeight, ColChunks, ColEpochInfo, ColOutcomesByBlockHash,
+    ColTransactionResult, TrieChanges, TrieIterator, CHUNK_TAIL_KEY, HEADER_HEAD_KEY, HEAD_KEY,
+    TAIL_KEY,
 };
 
 use crate::StoreValidator;
@@ -356,6 +357,18 @@ pub(crate) fn block_info_exists(
     Ok(())
 }
 
+pub(crate) fn block_epoch_exists(
+    sv: &mut StoreValidator,
+    _block_hash: &CryptoHash,
+    block: &Block,
+) -> Result<(), StoreValidatorError> {
+    unwrap_or_err_db!(
+        sv.store.get_ser::<EpochInfo>(ColEpochInfo, block.header().epoch_id().as_ref()),
+        "Can't get BlockInfo from storage"
+    );
+    Ok(())
+}
+
 pub(crate) fn block_height_cmp_tail(sv: &mut StoreValidator) -> Result<(), StoreValidatorError> {
     check_cached!(sv.inner.is_block_height_cmp_tail_prepared, "is_block_height_cmp_tail_prepared");
     if sv.inner.block_heights_less_tail.len() >= 2 {
@@ -629,6 +642,11 @@ pub(crate) fn last_block_chunk_included(
     );
     for chunk_header in block.chunks().iter() {
         if chunk_header.inner.shard_id == *shard_id {
+            unwrap_or_err_db!(
+                sv.store.get_ser::<ShardChunk>(ColChunks, chunk_header.chunk_hash().as_ref()),
+                "Can't get Chunk {:?} from storage",
+                chunk_header
+            );
             return Ok(());
         }
     }
