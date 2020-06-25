@@ -235,7 +235,20 @@ struct PartialExecutionOutcome {
     pub gas_burnt: Gas,
     #[serde(with = "u128_dec_format")]
     pub tokens_burnt: Balance,
+    pub receiver_id: AccountId,
     pub status: PartialExecutionStatus,
+}
+
+impl From<&ExecutionOutcome> for PartialExecutionOutcome {
+    fn from(outcome: &ExecutionOutcome) -> Self {
+        Self {
+            receipt_ids: outcome.receipt_ids.clone(),
+            gas_burnt: outcome.gas_burnt,
+            tokens_burnt: outcome.tokens_burnt,
+            receiver_id: outcome.receiver_id.clone(),
+            status: outcome.status.clone().into(),
+        }
+    }
 }
 
 /// ExecutionStatus for proof. Excludes failure debug info.
@@ -271,6 +284,8 @@ pub struct ExecutionOutcome {
     /// This value doesn't always equal to the `gas_burnt` multiplied by the gas price, because
     /// the prepaid gas price might be lower than the actual gas price and it creates a deficit.
     pub tokens_burnt: Balance,
+    /// Receiver of the transaction or receipt.
+    pub receiver_id: AccountId,
     /// Execution status. Contains the result in case of successful execution.
     /// NOTE: Should be the latest field since it contains unparsable by light client
     /// ExecutionStatus::Failure
@@ -280,14 +295,7 @@ pub struct ExecutionOutcome {
 impl ExecutionOutcome {
     pub fn to_hashes(&self) -> Vec<CryptoHash> {
         let mut result = vec![hash(
-            &PartialExecutionOutcome {
-                receipt_ids: self.receipt_ids.clone(),
-                gas_burnt: self.gas_burnt,
-                tokens_burnt: self.tokens_burnt,
-                status: self.status.clone().into(),
-            }
-            .try_to_vec()
-            .expect("Failed to serialize"),
+            &PartialExecutionOutcome::from(self).try_to_vec().expect("Failed to serialize"),
         )];
         for log in self.logs.iter() {
             result.push(hash(log.as_bytes()));
@@ -444,6 +452,7 @@ mod tests {
             receipt_ids: vec![],
             gas_burnt: 123,
             tokens_burnt: 1234000,
+            receiver_id: "alice".to_string(),
         };
         let hashes = outcome.to_hashes();
         assert_eq!(hashes.len(), 3);
