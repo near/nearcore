@@ -2,7 +2,6 @@
 Add ColStateNumParts to db.
 
 https://github.com/nearprotocol/nearcore/pull/2515
-
 """
 
 import sys
@@ -16,8 +15,8 @@ output_home = sys.argv[2]
 config = json.load(open(os.path.join(home, 'output.json')),
                    object_pairs_hook=OrderedDict)
 
-assert config['protocol_version'] == 18
+assert config['protocol_version'] == 27
 
-config['protocol_version'] = 19
+config['protocol_version'] = 28
 
 json.dump(config, open(os.path.join(output_home, 'output.json'), 'w'), indent=2)
