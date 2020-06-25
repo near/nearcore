@@ -42,6 +42,7 @@ partial_execution_outcome_schema = dict([
             ['receipt_ids', [[32]]],
             ['gas_burnt', 'u64'],
             ['tokens_burnt', 'u128'],
+            ['executor_id', 'string'],
             ['status', PartialExecutionStatus],
         ]
     },
@@ -78,6 +79,7 @@ def serialize_execution_outcome_with_id(outcome, id):
     partial_outcome.receipt_ids = [base58.b58decode(x) for x in outcome['receipt_ids']]
     partial_outcome.gas_burnt = outcome['gas_burnt']
     partial_outcome.tokens_burnt = int(outcome['tokens_burnt'])
+    partial_outcome.executor_id = outcome['executor_id']
     execution_status = PartialExecutionStatus()
     if 'SuccessValue' in outcome['status']:
         execution_status.enum = 'successValue'
