@@ -43,7 +43,7 @@ const BLOCK_REQUEST_BROADCAST_OFFSET: u64 = 2;
 /// Sync state download timeout in seconds.
 pub const STATE_SYNC_TIMEOUT: i64 = 10;
 /// Maximum number of state parts to request per peer on each round when node is trying to download the state.
-pub const MAX_STATE_PART_REQUEST: u64 = 10;
+pub const MAX_STATE_PART_REQUEST: u64 = 16;
 /// Number of state parts already requested stored as pending.
 /// This number should not exceed MAX_STATE_PART_REQUEST times (number of peers in the network).
 pub const MAX_PENDING_PART: u64 = MAX_STATE_PART_REQUEST * 10000;
@@ -488,7 +488,7 @@ pub struct StateSync {
     state_sync_time: HashMap<ShardId, DateTime<Utc>>,
     last_time_block_requested: Option<DateTime<Utc>>,
 
-    last_part_id_requested: HashMap<AccountOrPeerIdOrHash, PendingRequestStatus>,
+    last_part_id_requested: HashMap<(AccountOrPeerIdOrHash, ShardId), PendingRequestStatus>,
     /// Map from which part we requested to whom.
     requested_target: SizedCache<(u64, CryptoHash), AccountOrPeerIdOrHash>,
 }
@@ -739,26 +739,35 @@ impl StateSync {
         &mut self,
         target: AccountOrPeerIdOrHash,
         part_id: u64,
+        shard_id: ShardId,
         sync_hash: CryptoHash,
     ) {
         self.requested_target.cache_set((part_id, sync_hash), target.clone());
 
         self.last_part_id_requested
-            .entry(target)
+            .entry((target, shard_id))
             .and_modify(|pending_request| {
                 pending_request.missing_parts += 1;
             })
             .or_default();
     }
 
-    pub fn received_requested_part(&mut self, part_id: u64, sync_hash: CryptoHash) {
+    pub fn received_requested_part(
+        &mut self,
+        part_id: u64,
+        shard_id: ShardId,
+        sync_hash: CryptoHash,
+    ) {
         let key = (part_id, sync_hash);
         if let Some(target) = self.requested_target.cache_get(&key) {
-            if self.last_part_id_requested.get_mut(&target).map_or(false, |request| {
-                request.missing_parts = request.missing_parts.saturating_sub(1);
-                request.missing_parts == 0
-            }) {
-                self.last_part_id_requested.remove(target);
+            if self.last_part_id_requested.get_mut(&(target.clone(), shard_id)).map_or(
+                false,
+                |request| {
+                    request.missing_parts = request.missing_parts.saturating_sub(1);
+                    request.missing_parts == 0
+                },
+            ) {
+                self.last_part_id_requested.remove(&(target.clone(), shard_id));
             }
         }
     }
@@ -807,8 +816,9 @@ impl StateSync {
                     None
                 }
             }))
-            // TODO(Marx): fix this
-            //.filter(|candidate| !self.last_part_id_requested.contains_key(&candidate))
+            .filter(|candidate| {
+                !self.last_part_id_requested.contains_key(&(candidate.clone(), shard_id))
+            })
             .collect::<Vec<_>>())
     }
 
@@ -870,7 +880,7 @@ impl StateSync {
                     .filter(|(_, download)| download.run_me.load(Ordering::SeqCst))
                     .zip(possible_targets_sampler)
                 {
-                    self.sent_request_part(target.clone(), part_id as u64, sync_hash);
+                    self.sent_request_part(target.clone(), part_id as u64, shard_id, sync_hash);
                     download.run_me.store(false, Ordering::SeqCst);
                     download.state_requests_count += 1;
                     download.last_target = Some(target.clone());

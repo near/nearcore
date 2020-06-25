@@ -355,7 +355,9 @@ impl Handler<NetworkClientMessages> for ClientActor {
                     {
                         if hash == *sync_hash {
                             if let Some(part_id) = state_response.part_id() {
-                                self.client.state_sync.received_requested_part(part_id, hash);
+                                self.client
+                                    .state_sync
+                                    .received_requested_part(part_id, shard_id, hash);
                             }
 
                             if let Some(shard_download) = shards_to_download.get_mut(&shard_id) {
