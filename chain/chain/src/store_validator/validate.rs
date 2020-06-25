@@ -11,9 +11,9 @@ use near_primitives::types::{BlockHeight, ChunkExtra, EpochId, ShardId};
 use near_primitives::utils::{get_block_shard_id, index_to_bytes};
 use near_store::{
     ColBlock, ColBlockHeader, ColBlockHeight, ColBlockInfo, ColBlockMisc, ColBlockPerHeight,
-    ColChunkExtra, ColChunkHashesByHeight, ColChunks, ColEpochInfo, ColOutcomesByBlockHash,
-    ColTransactionResult, TrieChanges, TrieIterator, CHUNK_TAIL_KEY, HEADER_HEAD_KEY, HEAD_KEY,
-    TAIL_KEY,
+    ColChunkExtra, ColChunkHashesByHeight, ColChunks, ColOutcomesByBlockHash, ColTransactionResult,
+    DBCol, TrieChanges, TrieIterator, CHUNK_TAIL_KEY, HEADER_HEAD_KEY, HEAD_KEY, NUM_COLS,
+    SHOULD_COL_GC, TAIL_KEY,
 };
 
 use crate::StoreValidator;
@@ -358,14 +358,17 @@ pub(crate) fn block_info_exists(
 }
 
 pub(crate) fn block_epoch_exists(
-    sv: &mut StoreValidator,
+    _sv: &mut StoreValidator,
     _block_hash: &CryptoHash,
-    block: &Block,
+    _block: &Block,
 ) -> Result<(), StoreValidatorError> {
+    // TODO #2893: why?
+    /*
     unwrap_or_err_db!(
         sv.store.get_ser::<EpochInfo>(ColEpochInfo, block.header().epoch_id().as_ref()),
         "Can't get BlockInfo from storage"
     );
+    */
     Ok(())
 }
 
@@ -654,4 +657,45 @@ pub(crate) fn last_block_chunk_included(
         }
     }
     err!("ShardChunk is not included into Block {:?}", block)
+}
+
+pub(crate) fn gc_col_count(
+    sv: &mut StoreValidator,
+    col: &DBCol,
+    count: &u64,
+) -> Result<(), StoreValidatorError> {
+    if SHOULD_COL_GC[*col as usize] {
+        sv.inner.gc_col[*col as usize] = *count;
+    } else {
+        if *count > 0 {
+            err!("DBCol is cleared by mistake")
+        }
+    }
+    Ok(())
+}
+
+pub(crate) fn gc_col_count_total(sv: &mut StoreValidator) -> Result<(), StoreValidatorError> {
+    let mut zeroes = 0;
+    for count in sv.inner.gc_col.iter() {
+        if *count == 0 {
+            zeroes += 1;
+        }
+    }
+    // 1. All zeroes case is acceptable
+    if zeroes == NUM_COLS {
+        return Ok(());
+    }
+    let mut gc_col_count = 0;
+    for gc_col in SHOULD_COL_GC.iter() {
+        if *gc_col == true {
+            gc_col_count += 1;
+        }
+    }
+    // 2. All columns are GCed case is acceptable
+    println!("{:?} {:?}", zeroes, gc_col_count);
+    if zeroes == NUM_COLS - gc_col_count {
+        return Ok(());
+    }
+    // TODO #2861 build a graph of dependencies or make it better in another way
+    err!("Suspicious, look into GC values manually")
 }

@@ -15,7 +15,7 @@ use near_primitives::sharding::{ChunkHash, ShardChunk, StateSyncInfo};
 use near_primitives::transaction::ExecutionOutcomeWithIdAndProof;
 use near_primitives::types::{AccountId, BlockHeight, EpochId, ShardId};
 use near_primitives::utils::get_block_shard_id_rev;
-use near_store::{DBCol, Store, TrieChanges};
+use near_store::{DBCol, Store, TrieChanges, NUM_COLS};
 use validate::StoreValidatorError;
 
 use crate::RuntimeAdapter;
@@ -29,6 +29,7 @@ pub struct StoreValidatorCache {
     tail: BlockHeight,
     chunk_tail: BlockHeight,
     block_heights_less_tail: Vec<CryptoHash>,
+    gc_col: Vec<u64>,
 
     is_misc_set: bool,
     is_block_height_cmp_tail_prepared: bool,
@@ -42,6 +43,7 @@ impl StoreValidatorCache {
             tail: 0,
             chunk_tail: 0,
             block_heights_less_tail: vec![],
+            gc_col: vec![0; NUM_COLS],
             is_misc_set: false,
             is_block_height_cmp_tail_prepared: false,
         }
@@ -92,6 +94,13 @@ impl StoreValidator {
     }
     pub fn is_failed(&self) -> bool {
         self.tests == 0 || self.errors.len() > 0
+    }
+    pub fn get_gc_counters(&self) -> Vec<(DBCol, u64)> {
+        let mut res = vec![];
+        for col in DBCol::iter() {
+            res.push((col, self.inner.gc_col[col as usize]))
+        }
+        res
     }
     pub fn num_failed(&self) -> u64 {
         self.errors.len() as u64
@@ -244,6 +253,11 @@ impl StoreValidator {
                     // Block which is stored in ColLastBlockWithNewChunk exists and its ShardChunk is included
                     self.check(&validate::last_block_chunk_included, &shard_id, &block_hash, col);
                 }
+                DBCol::ColGCCount => {
+                    let col = DBCol::try_from_slice(key_ref)?;
+                    let count = u64::try_from_slice(value_ref)?;
+                    self.check(&validate::gc_col_count, &col, &count, col);
+                }
                 _ => {}
             }
             if let Some(timeout) = self.timeout {
@@ -269,6 +283,10 @@ impl StoreValidator {
         // There is no more than one Block which Height is lower than Tail and not equal to Genesis
         if let Err(e) = validate::block_height_cmp_tail(self) {
             self.process_error(e, "TAIL", DBCol::ColBlockMisc)
+        }
+        // There is no more than one Block which Height is lower than Tail and not equal to Genesis
+        if let Err(_) = validate::gc_col_count_total(self) {
+            // TODO #2861
         }
     }
 

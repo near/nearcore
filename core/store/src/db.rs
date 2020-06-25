@@ -153,6 +153,26 @@ impl std::fmt::Display for DBCol {
     }
 }
 
+lazy_static! {
+    pub static ref SHOULD_COL_GC: Vec<bool> = {
+        let mut col_gc = vec![true; NUM_COLS];
+        col_gc[DBCol::ColDbVersion as usize] = false; // DB version is unrelated to GC
+        col_gc[DBCol::ColBlockMisc as usize] = false;
+        col_gc[DBCol::ColBlockHeader as usize] = false; // header sync needs headers
+        col_gc[DBCol::ColGCCount as usize] = false; // GC count it self isn't GCed
+        col_gc[DBCol::ColBlockHeight as usize] = false; // block sync needs it + genesis should be accessible
+        col_gc[DBCol::ColPeers as usize] = false; // Peers is unrelated to GC
+        col_gc[DBCol::ColBlockMerkleTree as usize] = false;
+        col_gc[DBCol::ColAccountAnnouncements as usize] = false;
+        col_gc[DBCol::ColEpochLightClientBlocks as usize] = false;
+        col_gc[DBCol::ColPeerComponent as usize] = false; // Peer related info doesn't GC
+        col_gc[DBCol::ColLastComponentNonce as usize] = false;
+        col_gc[DBCol::ColComponentEdges as usize] = false;
+        col_gc[DBCol::ColBlockOrdinal as usize] = false;
+        col_gc
+    };
+}
+
 pub const HEAD_KEY: &[u8; 4] = b"HEAD";
 pub const TAIL_KEY: &[u8; 4] = b"TAIL";
 pub const CHUNK_TAIL_KEY: &[u8; 10] = b"CHUNK_TAIL";

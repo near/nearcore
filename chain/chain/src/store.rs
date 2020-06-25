@@ -39,7 +39,7 @@ use near_store::{
     ColReceiptIdToShardId, ColStateChanges, ColStateDlInfos, ColStateHeaders, ColTransactionResult,
     ColTransactions, ColTrieChanges, DBCol, KeyForStateChanges, ShardTries, Store, StoreUpdate,
     TrieChanges, WrappedTrieChanges, CHUNK_TAIL_KEY, HEADER_HEAD_KEY, HEAD_KEY,
-    LARGEST_TARGET_HEIGHT_KEY, LATEST_KNOWN_KEY, NUM_COLS, SYNC_HEAD_KEY, TAIL_KEY,
+    LARGEST_TARGET_HEIGHT_KEY, LATEST_KNOWN_KEY, NUM_COLS, SHOULD_COL_GC, SYNC_HEAD_KEY, TAIL_KEY,
 };
 
 use crate::byzantine_assert;
@@ -51,26 +51,6 @@ use crate::types::{
 /// lru cache size
 const CACHE_SIZE: usize = 100;
 const CHUNK_CACHE_SIZE: usize = 1024;
-
-lazy_static! {
-    pub static ref SHOULD_COL_GC: Vec<bool> = {
-        let mut col_gc = vec![true; NUM_COLS];
-        col_gc[DBCol::ColDbVersion as usize] = false; // DB version is unrelated to GC
-        col_gc[DBCol::ColBlockMisc as usize] = false;
-        col_gc[DBCol::ColBlockHeader as usize] = false; // header sync needs headers
-        col_gc[DBCol::ColGCCount as usize] = false; // GC count it self isn't GCed
-        col_gc[DBCol::ColBlockHeight as usize] = false; // block sync needs it + genesis should be accessible
-        col_gc[DBCol::ColPeers as usize] = false; // Peers is unrelated to GC
-        col_gc[DBCol::ColBlockMerkleTree as usize] = false;
-        col_gc[DBCol::ColAccountAnnouncements as usize] = false;
-        col_gc[DBCol::ColEpochLightClientBlocks as usize] = false;
-        col_gc[DBCol::ColPeerComponent as usize] = false; // Peer related info doesn't GC
-        col_gc[DBCol::ColLastComponentNonce as usize] = false;
-        col_gc[DBCol::ColComponentEdges as usize] = false;
-        col_gc[DBCol::ColBlockOrdinal as usize] = false;
-        col_gc
-    };
-}
 
 #[derive(Clone)]
 pub enum GCMode {
