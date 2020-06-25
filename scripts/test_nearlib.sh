@@ -1,7 +1,7 @@
 #!/bin/bash
 set -ex
 
-curl localhost:3030/status
+curl localhost:3030/status || true
 
 export RUST_BACKTRACE=full
 ./scripts/start_unittest.py --local &
