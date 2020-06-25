@@ -1999,14 +1999,12 @@ impl<'a> ChainStoreUpdate<'a> {
             self.gc_col(ColChunkPerHeightShard, &height_shard_id);
             self.gc_col(ColNextBlockWithNewChunk, &height_shard_id);
             let key = StateHeaderKey(shard_id, block_hash).try_to_vec()?;
-            store_update.delete(ColStateHeaders, &key);
-            // 2f. Delete from ColStateParts
             // For incoming State Parts it's done in chain.clear_downloaded_parts()
             // The following code is for outgoing State Parts
             let num_parts = self.store().get_ser(ColStateNumParts, block_hash_ref)?.unwrap_or(0u64);
             for part_id in 0..num_parts {
                 let key = StatePartKey(block_hash, shard_id, part_id).try_to_vec()?;
-                store_update.delete(ColStateParts, &key);
+                self.gc_col(ColStateParts, &key);
             }
             self.gc_col(ColStateHeaders, &key);
         }
@@ -2028,11 +2026,7 @@ impl<'a> ChainStoreUpdate<'a> {
         for key in stored_state_changes {
             self.gc_col(ColStateChanges, &key);
         }
-        // 3h. Delete from ColBlockRefCount
-        store_update.delete(ColBlockRefCount, block_hash_ref);
-        self.chain_store.block_refcounts.cache_remove(&block_hash.into());
-        // 4j. Delete from ColStateNumParts
-        store_update.delete(ColStateNumParts, block_hash_ref);
+        self.gc_col(ColStateNumParts, &block_hash_vec);
         self.gc_col(ColBlockRefCount, &block_hash_vec);
 
         // 4. Update or delete block_hash_per_height
@@ -2215,6 +2209,9 @@ impl<'a> ChainStoreUpdate<'a> {
             DBCol::ColBlockPerHeight => {
                 panic!("Must use gc_col_glock_per_height method to gc ColBlockPerHeight");
             }
+            DBCol::ColStateNumParts => {
+                store_update.delete(col, key);
+            }
             DBCol::ColDbVersion
             | DBCol::ColBlockMisc
             | DBCol::ColBlockHeader
@@ -2233,8 +2230,7 @@ impl<'a> ChainStoreUpdate<'a> {
             | DBCol::ColPeerComponent
             | DBCol::LastComponentNonce
             | DBCol::ColComponentEdges
-            | DBCol::ColBlockOrdinal
-            | DBCol::ColStateNumParts => {
+            | DBCol::ColBlockOrdinal => {
                 unreachable!();
             }
         }
