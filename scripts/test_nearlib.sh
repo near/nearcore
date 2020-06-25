@@ -1,6 +1,8 @@
 #!/bin/bash
 set -ex
 
+curl localhost:3030/status
+
 export RUST_BACKTRACE=full
 ./scripts/start_unittest.py --local &
 export NEAR_PID=$!
