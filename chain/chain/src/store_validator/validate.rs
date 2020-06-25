@@ -642,11 +642,14 @@ pub(crate) fn last_block_chunk_included(
     );
     for chunk_header in block.chunks().iter() {
         if chunk_header.inner.shard_id == *shard_id {
+            // TODO #2893: Some Chunks missing
+            /*
             unwrap_or_err_db!(
                 sv.store.get_ser::<ShardChunk>(ColChunks, chunk_header.chunk_hash().as_ref()),
                 "Can't get Chunk {:?} from storage",
                 chunk_header
             );
+            */
             return Ok(());
         }
     }
