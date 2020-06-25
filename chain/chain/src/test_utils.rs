@@ -630,7 +630,7 @@ impl RuntimeAdapter for KeyValueRuntime {
                         receipt_ids: new_receipt_hashes,
                         gas_burnt: 0,
                         tokens_burnt: 0,
-                        receiver_id: to.clone(),
+                        executor_id: to.clone(),
                     },
                 });
             }

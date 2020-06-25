@@ -235,7 +235,7 @@ struct PartialExecutionOutcome {
     pub gas_burnt: Gas,
     #[serde(with = "u128_dec_format")]
     pub tokens_burnt: Balance,
-    pub receiver_id: AccountId,
+    pub executor_id: AccountId,
     pub status: PartialExecutionStatus,
 }
 
@@ -245,7 +245,7 @@ impl From<&ExecutionOutcome> for PartialExecutionOutcome {
             receipt_ids: outcome.receipt_ids.clone(),
             gas_burnt: outcome.gas_burnt,
             tokens_burnt: outcome.tokens_burnt,
-            receiver_id: outcome.receiver_id.clone(),
+            executor_id: outcome.executor_id.clone(),
             status: outcome.status.clone().into(),
         }
     }
@@ -284,8 +284,9 @@ pub struct ExecutionOutcome {
     /// This value doesn't always equal to the `gas_burnt` multiplied by the gas price, because
     /// the prepaid gas price might be lower than the actual gas price and it creates a deficit.
     pub tokens_burnt: Balance,
-    /// Receiver of the transaction or receipt.
-    pub receiver_id: AccountId,
+    /// The id of the account on which the execution happens. For transaction this is signer_id,
+    /// for receipt this is receiver_id.
+    pub executor_id: AccountId,
     /// Execution status. Contains the result in case of successful execution.
     /// NOTE: Should be the latest field since it contains unparsable by light client
     /// ExecutionStatus::Failure
@@ -452,7 +453,7 @@ mod tests {
             receipt_ids: vec![],
             gas_burnt: 123,
             tokens_burnt: 1234000,
-            receiver_id: "alice".to_string(),
+            executor_id: "alice".to_string(),
         };
         let hashes = outcome.to_hashes();
         assert_eq!(hashes.len(), 3);

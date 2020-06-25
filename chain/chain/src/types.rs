@@ -581,7 +581,7 @@ mod tests {
                 receipt_ids: vec![hash(&[1])],
                 gas_burnt: 100,
                 tokens_burnt: 10000,
-                receiver_id: "alice".to_string(),
+                executor_id: "alice".to_string(),
             },
         };
         let outcome2 = ExecutionOutcomeWithId {
@@ -592,7 +592,7 @@ mod tests {
                 receipt_ids: vec![],
                 gas_burnt: 0,
                 tokens_burnt: 0,
-                receiver_id: "bob".to_string(),
+                executor_id: "bob".to_string(),
             },
         };
         let outcomes = vec![outcome1, outcome2];

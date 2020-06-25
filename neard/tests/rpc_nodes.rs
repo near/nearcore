@@ -469,7 +469,7 @@ fn outcome_view_to_hashes(outcome: &ExecutionOutcomeView) -> Vec<CryptoHash> {
             outcome.receipt_ids.clone(),
             outcome.gas_burnt,
             outcome.tokens_burnt,
-            outcome.receiver_id.clone(),
+            outcome.executor_id.clone(),
             status,
         )
             .try_to_vec()

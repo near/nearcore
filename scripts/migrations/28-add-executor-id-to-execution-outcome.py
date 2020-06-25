@@ -1,5 +1,5 @@
 """
-Adding `receiver_id` to `ExecutionOutcome`, `PartialExecutionOutcome`, `FinalExecutionOutcome` and views.
+Adding `executor_id` to `ExecutionOutcome`, `PartialExecutionOutcome`, `FinalExecutionOutcome` and views.
 """
 
 import sys
