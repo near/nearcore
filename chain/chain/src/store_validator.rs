@@ -13,7 +13,7 @@ use near_primitives::epoch_manager::{BlockInfo, EpochInfo, AGGREGATOR_KEY};
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::{ChunkHash, ShardChunk, StateSyncInfo};
 use near_primitives::transaction::ExecutionOutcomeWithIdAndProof;
-use near_primitives::types::{AccountId, BlockHeight, EpochId, ShardId};
+use near_primitives::types::{AccountId, BlockHeight, EpochId, GCCount, ShardId};
 use near_primitives::utils::get_block_shard_id_rev;
 use near_store::{DBCol, Store, TrieChanges, NUM_COLS};
 use validate::StoreValidatorError;
@@ -255,7 +255,7 @@ impl StoreValidator {
                 }
                 DBCol::ColGCCount => {
                     let col = DBCol::try_from_slice(key_ref)?;
-                    let count = u64::try_from_slice(value_ref)?;
+                    let count = GCCount::try_from_slice(value_ref)?;
                     self.check(&validate::gc_col_count, &col, &count, col);
                 }
                 _ => {}

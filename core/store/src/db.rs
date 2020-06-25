@@ -36,7 +36,7 @@ impl Into<io::Error> for DBError {
     }
 }
 
-#[derive(PartialEq, Debug, Copy, Clone, EnumIter, BorshDeserialize, BorshSerialize)]
+#[derive(PartialEq, Debug, Copy, Clone, EnumIter, BorshDeserialize, BorshSerialize, Hash, Eq)]
 pub enum DBCol {
     /// Column to indicate which version of database this is.
     ColDbVersion = 0,

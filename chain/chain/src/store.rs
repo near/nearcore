@@ -7,7 +7,6 @@ use std::sync::Arc;
 use borsh::{BorshDeserialize, BorshSerialize};
 use cached::{Cached, SizedCache};
 use chrono::Utc;
-use strum::IntoEnumIterator;
 use tracing::debug;
 
 use near_primitives::block::{Approval, Tip};
@@ -24,8 +23,9 @@ use near_primitives::transaction::{
 };
 use near_primitives::trie_key::{trie_key_parsers, TrieKey};
 use near_primitives::types::{
-    AccountId, BlockExtra, BlockHeight, ChunkExtra, EpochId, NumBlocks, ShardId, StateChanges,
-    StateChangesExt, StateChangesKinds, StateChangesKindsExt, StateChangesRequest, StateHeaderKey,
+    AccountId, BlockExtra, BlockHeight, ChunkExtra, EpochId, GCCount, NumBlocks, ShardId,
+    StateChanges, StateChangesExt, StateChangesKinds, StateChangesKindsExt, StateChangesRequest,
+    StateHeaderKey,
 };
 use near_primitives::utils::{get_block_shard_id, index_to_bytes, to_timestamp};
 use near_primitives::views::LightClientBlockView;
@@ -34,12 +34,12 @@ use near_store::{
     ColBlockMerkleTree, ColBlockMisc, ColBlockOrdinal, ColBlockPerHeight, ColBlockRefCount,
     ColBlocksToCatchup, ColChallengedBlocks, ColChunkExtra, ColChunkHashesByHeight,
     ColChunkPerHeightShard, ColChunks, ColEpochInfo, ColEpochLightClientBlocks, ColEpochStart,
-    ColIncomingReceipts, ColInvalidChunks, ColLastBlockWithNewChunk, ColNextBlockHashes,
-    ColNextBlockWithNewChunk, ColOutcomesByBlockHash, ColOutgoingReceipts, ColPartialChunks,
-    ColReceiptIdToShardId, ColStateChanges, ColStateDlInfos, ColStateHeaders, ColTransactionResult,
-    ColTransactions, ColTrieChanges, DBCol, KeyForStateChanges, ShardTries, Store, StoreUpdate,
-    TrieChanges, WrappedTrieChanges, CHUNK_TAIL_KEY, HEADER_HEAD_KEY, HEAD_KEY,
-    LARGEST_TARGET_HEIGHT_KEY, LATEST_KNOWN_KEY, NUM_COLS, SHOULD_COL_GC, SYNC_HEAD_KEY, TAIL_KEY,
+    ColGCCount, ColIncomingReceipts, ColInvalidChunks, ColLastBlockWithNewChunk,
+    ColNextBlockHashes, ColNextBlockWithNewChunk, ColOutcomesByBlockHash, ColOutgoingReceipts,
+    ColPartialChunks, ColReceiptIdToShardId, ColStateChanges, ColStateDlInfos, ColStateHeaders,
+    ColTransactionResult, ColTransactions, ColTrieChanges, DBCol, KeyForStateChanges, ShardTries,
+    Store, StoreUpdate, TrieChanges, WrappedTrieChanges, CHUNK_TAIL_KEY, HEADER_HEAD_KEY, HEAD_KEY,
+    LARGEST_TARGET_HEIGHT_KEY, LATEST_KNOWN_KEY, SHOULD_COL_GC, SYNC_HEAD_KEY, TAIL_KEY,
 };
 
 use crate::byzantine_assert;
@@ -1064,6 +1064,7 @@ struct ChainStoreCacheUpdate {
     block_refcounts: HashMap<CryptoHash, u64>,
     block_merkle_tree: HashMap<CryptoHash, PartialMerkleTree>,
     block_ordinal_to_hash: HashMap<NumBlocks, CryptoHash>,
+    gc_count: HashMap<DBCol, GCCount>,
 }
 
 impl ChainStoreCacheUpdate {
@@ -1071,8 +1072,6 @@ impl ChainStoreCacheUpdate {
         Self::default()
     }
 }
-
-type GCCount = u64;
 
 /// Provides layer to update chain without touching the underlying database.
 /// This serves few purposes, main one is that even if executable exists/fails during update the database is in consistent state.
@@ -1096,7 +1095,6 @@ pub struct ChainStoreUpdate<'a> {
     add_state_dl_infos: Vec<StateSyncInfo>,
     remove_state_dl_infos: Vec<CryptoHash>,
     challenged_blocks: HashSet<CryptoHash>,
-    gc_count: Vec<GCCount>,
 }
 
 impl<'a> ChainStoreUpdate<'a> {
@@ -1118,7 +1116,6 @@ impl<'a> ChainStoreUpdate<'a> {
             add_state_dl_infos: vec![],
             remove_state_dl_infos: vec![],
             challenged_blocks: HashSet::default(),
-            gc_count: vec![0; NUM_COLS],
         }
     }
 
@@ -2052,22 +2049,8 @@ impl<'a> ChainStoreUpdate<'a> {
         Ok(())
     }
 
-    fn get_gc_count(&self, col: DBCol) -> GCCount {
-        if self.gc_count[col as usize] != 0 {
-            self.gc_count[col as usize]
-        } else if let Ok(Some(count)) = self
-            .store()
-            .get(DBCol::ColGCCount, &borsh::ser::BorshSerialize::try_to_vec(&col).unwrap())
-        {
-            borsh::de::BorshDeserialize::try_from_slice(&count).unwrap()
-        } else {
-            0
-        }
-    }
-
     fn inc_gc(&mut self, col: DBCol) {
-        let new_count = self.get_gc_count(col) + 1;
-        self.gc_count[col as usize] = new_count;
+        self.chain_store_cache_update.gc_count.entry(col).and_modify(|x| *x += 1).or_insert(1);
     }
 
     pub fn gc_col_block_per_height(
@@ -2525,11 +2508,17 @@ impl<'a> ChainStoreUpdate<'a> {
         for (chunk_hash, chunk) in self.chain_store_cache_update.invalid_chunks.iter() {
             store_update.set_ser(ColInvalidChunks, chunk_hash.as_ref(), chunk)?;
         }
-        for col in DBCol::iter() {
+        for (col, mut gc_count) in self.chain_store_cache_update.gc_count.clone().drain() {
+            if let Ok(Some(value)) = self.store().get_ser::<GCCount>(
+                ColGCCount,
+                &col.try_to_vec().expect("Failed to serialize DBCol"),
+            ) {
+                gc_count += value;
+            }
             store_update.set_ser(
-                DBCol::ColGCCount,
-                &borsh::ser::BorshSerialize::try_to_vec(&col).expect("Failed to deserialize DBCol"),
-                &self.gc_count[col as usize],
+                ColGCCount,
+                &col.try_to_vec().expect("Failed to serialize DBCol"),
+                &gc_count,
             )?;
         }
         for other in self.store_updates.drain(..) {
@@ -2566,6 +2555,7 @@ impl<'a> ChainStoreUpdate<'a> {
             block_refcounts,
             block_merkle_tree,
             block_ordinal_to_hash,
+            gc_count: _,
         } = self.chain_store_cache_update;
         for (hash, block) in blocks {
             self.chain_store.blocks.cache_set(hash.into(), block);
@@ -2667,6 +2657,7 @@ impl<'a> ChainStoreUpdate<'a> {
 mod tests {
     use std::sync::Arc;
 
+    use borsh::BorshSerialize;
     use cached::Cached;
     use strum::IntoEnumIterator;
 
@@ -2674,7 +2665,7 @@ mod tests {
     use near_primitives::block::{Block, Tip};
     use near_primitives::errors::InvalidTxError;
     use near_primitives::hash::hash;
-    use near_primitives::types::{BlockHeight, EpochId, NumBlocks};
+    use near_primitives::types::{BlockHeight, EpochId, GCCount, NumBlocks};
     use near_primitives::utils::index_to_bytes;
     use near_primitives::validator_signer::InMemoryValidatorSigner;
     use near_store::test_utils::create_test_store;
@@ -2953,8 +2944,6 @@ mod tests {
         }
         assert!(check_refcount_map(&mut chain).is_ok());
 
-        let store_update = chain.mut_store().store_update();
-
         let gced_cols = [
             DBCol::ColBlock,
             DBCol::ColOutgoingReceipts,
@@ -2971,12 +2960,32 @@ mod tests {
             DBCol::ColBlockRefCount,
             DBCol::ColOutcomesByBlockHash,
         ];
-        for i in DBCol::iter() {
-            println!("current column is {:?}", i);
-            if gced_cols.contains(&i) {
-                assert!(store_update.get_gc_count(i) == 7);
+        for col in DBCol::iter() {
+            println!("current column is {:?}", col);
+            if gced_cols.contains(&col) {
+                assert_eq!(
+                    chain
+                        .store()
+                        .store
+                        .get_ser::<GCCount>(
+                            DBCol::ColGCCount,
+                            &col.try_to_vec().expect("Failed to serialize DBCol")
+                        )
+                        .unwrap(),
+                    Some(7)
+                );
             } else {
-                assert!(store_update.get_gc_count(i) == 0);
+                assert_eq!(
+                    chain
+                        .store()
+                        .store
+                        .get_ser::<GCCount>(
+                            DBCol::ColGCCount,
+                            &col.try_to_vec().expect("Failed to serialize DBCol")
+                        )
+                        .unwrap(),
+                    None
+                );
             }
         }
     }
