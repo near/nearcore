@@ -35,6 +35,7 @@ if __name__ == "__main__":
         '--image',
         default='nearprotocol/nearcore',
         help='Image to run in docker (default: nearprotocol/nearcore)')
+    parser.add_argument('--account-id', default='test.near', help='validator account id for localnet')
     args = parser.parse_args()
 
     if args.local:
@@ -44,7 +45,7 @@ if __name__ == "__main__":
                   not args.debug,
                   args.image,
                   args.home,
-                  init_flags=['--chain-id='],
+                  init_flags=['--chain-id=', '--account-id=%s' % args.account_id],
                   boot_nodes='',
                   telemetry_url='',
                   verbose=args.verbose)

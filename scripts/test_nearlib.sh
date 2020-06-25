@@ -32,3 +32,4 @@ yarn doc
 # cd ../create-near-app
 # yarn && yarn test
 
+rm -rf ~/.near
