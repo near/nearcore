@@ -29,8 +29,9 @@ if __name__ == "__main__":
     print(
         "Starting unittest nodes with test.near account and seed key of alice.near"
     )
-    home_dir = os.path.join(os.getcwd(), 'testdir')
+    home_dir = os.path.join(os.getcwd(), 'testdir', '.near')
     subprocess.call(['rm', '-rf', home_dir])
+    subprocess.call(['mkdir', '-p', home_dir])
     setup_and_run(args.local,
                   args.release,
                   args.image,
