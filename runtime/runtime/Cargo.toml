@@ -18,7 +18,7 @@ num-rational = "0.2.4"
 num-bigint = "0.2.6"
 num-traits = "0.2.11"
 
-borsh = "0.6.2"
+borsh = "0.7.0"
 cached = "0.12.0"
 
 near-crypto = { path = "../../core/crypto" }
