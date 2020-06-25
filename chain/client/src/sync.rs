@@ -807,7 +807,8 @@ impl StateSync {
                     None
                 }
             }))
-            .filter(|candidate| !self.last_part_id_requested.contains_key(&candidate))
+            // TODO(Marx): fix this
+            //.filter(|candidate| !self.last_part_id_requested.contains_key(&candidate))
             .collect::<Vec<_>>())
     }
 
