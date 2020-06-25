@@ -19,7 +19,7 @@ sysinfo = { git = "https://github.com/near/sysinfo", rev = "3cb97ee79a02754407d2
 strum = { version = "0.18", features = ["derive"] }
 cached = "0.12"
 lazy_static = "1.4"
-borsh = "0.6.2"
+borsh = "0.7.0"
 reed-solomon-erasure = "4"
 num-rational = "0.2.4"
 

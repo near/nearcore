@@ -42,6 +42,10 @@ pub fn random_config() -> RuntimeConfig {
                 num_extra_bytes_record: rng.next_u64() % 10000,
             },
             burnt_gas_reward: Rational::new((rng.next_u32() % 100).try_into().unwrap(), 100),
+            pessimistic_gas_price_inflation_ratio: Rational::new(
+                (100 + rng.next_u32() % 10).try_into().unwrap(),
+                100,
+            ),
         },
         ..Default::default()
     }

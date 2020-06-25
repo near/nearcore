@@ -437,7 +437,7 @@ mod tests {
                 key_pairs.clone(),
                 validator_groups,
                 true,
-                1800,
+                3500,
                 false,
                 false,
                 5,
@@ -600,7 +600,7 @@ mod tests {
             );
             *connectors.write().unwrap() = conn;
 
-            near_network::test_utils::wait_or_panic(240000);
+            near_network::test_utils::wait_or_panic(480000);
         })
         .unwrap();
     }

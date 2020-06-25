@@ -41,6 +41,7 @@ partial_execution_outcome_schema = dict([
         'fields': [
             ['receipt_ids', [[32]]],
             ['gas_burnt', 'u64'],
+            ['tokens_burnt', 'u128'],
             ['status', PartialExecutionStatus],
         ]
     },
@@ -76,6 +77,7 @@ def serialize_execution_outcome_with_id(outcome, id):
     partial_outcome = PartialExecutionOutcome()
     partial_outcome.receipt_ids = [base58.b58decode(x) for x in outcome['receipt_ids']]
     partial_outcome.gas_burnt = outcome['gas_burnt']
+    partial_outcome.tokens_burnt = int(outcome['tokens_burnt'])
     execution_status = PartialExecutionStatus()
     if 'SuccessValue' in outcome['status']:
         execution_status.enum = 'successValue'
@@ -131,7 +133,7 @@ def check_transaction_outcome_proof(should_succeed, nonce):
     status = nodes[1].get_status()
     latest_block_hash = status['sync_info']['latest_block_hash']
     function_caller_key = nodes[0].signer_key
-    gas = 10000000000000000 if should_succeed else 1000
+    gas = 300000000000000 if should_succeed else 1000
 
     function_call_1_tx = transaction.sign_function_call_tx(
         function_caller_key, contract_key.account_id, 'setKeyValue',
@@ -174,7 +176,7 @@ def check_transaction_outcome_proof(should_succeed, nonce):
                         "light_client_head": light_client_block_hash})
 
     for query, (outcome, id) in zip(queries, outcomes):
-        res = nodes[0].json_rpc('EXPERIMENTAL_light_client_proof', query, timeout=10)
+        res = nodes[0].json_rpc('light_client_proof', query, timeout=10)
         assert 'error' not in res, res
         light_client_proof = res['result']
         # check that execution outcome root proof is valid

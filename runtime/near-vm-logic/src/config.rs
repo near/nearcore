@@ -1,9 +1,31 @@
 use crate::types::Gas;
 use serde::{Deserialize, Serialize};
 use std::collections::hash_map::DefaultHasher;
+use std::env;
 use std::hash::{Hash, Hasher};
 
-#[derive(Clone, Debug, Hash, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Hash, Serialize, Deserialize)]
+pub enum VMKind {
+    /// Wasmer VM.
+    Wasmer,
+    /// Wasmtime VM.
+    Wasmtime,
+}
+
+impl Default for VMKind {
+    fn default() -> Self {
+        match env::var("NEAR_VM") {
+            Ok(val) => match val.as_ref() {
+                "wasmtime" => VMKind::Wasmtime,
+                "wasmer" => VMKind::Wasmer,
+                _ => VMKind::Wasmer,
+            },
+            Err(_) => VMKind::Wasmer,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Hash, Serialize, Deserialize, PartialEq, Eq)]
 pub struct VMConfig {
     /// Costs for runtime externals
     pub ext_costs: ExtCostsConfig,
@@ -134,8 +156,10 @@ impl Default for VMLimitConfig {
             // Total logs size is 16Kib
             max_total_log_length: 16 * 1024,
 
-            // Fills 10 blocks. It defines how long a single receipt might live.
-            max_total_prepaid_gas: 10 * 10u64.pow(15),
+            // Updating the maximum prepaid gas to limit the maximum depth of a transaction to 64
+            // blocks.
+            // This based on `63 * min_receipt_with_function_call_gas()`. Where 63 is max depth - 1.
+            max_total_prepaid_gas: 300 * 10u64.pow(12),
 
             // Safety limit. Unlikely to hit it for most common transactions and receipts.
             max_actions_per_receipt: 100,

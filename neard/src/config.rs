@@ -953,4 +953,11 @@ mod test {
         let genesis_config = GenesisConfig::from_json(&genesis_config_str);
         assert_eq!(genesis_config.protocol_version, PROTOCOL_VERSION);
     }
+
+    #[test]
+    fn test_res_genesis_fees_are_default() {
+        let genesis_config_str = include_str!("../res/genesis_config.json");
+        let genesis_config = GenesisConfig::from_json(&genesis_config_str);
+        assert_eq!(genesis_config.runtime_config, RuntimeConfig::default());
+    }
 }

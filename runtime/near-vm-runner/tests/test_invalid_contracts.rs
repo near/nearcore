@@ -1,9 +1,10 @@
 use near_vm_errors::{CompilationError, FunctionCallError, PrepareError};
-use near_vm_runner::VMError;
+use near_vm_runner::{with_vm_variants, VMError};
 
 pub mod test_utils;
 
-use self::test_utils::{make_simple_contract_call, wat2wasm_no_validate};
+use self::test_utils::{make_simple_contract_call_vm, wat2wasm_no_validate};
+use near_vm_logic::VMKind;
 
 fn initializer_wrong_signature_contract() -> Vec<u8> {
     wat2wasm_no_validate(
@@ -19,15 +20,21 @@ fn initializer_wrong_signature_contract() -> Vec<u8> {
 
 #[test]
 fn test_initializer_wrong_signature_contract() {
-    assert_eq!(
-        make_simple_contract_call(&initializer_wrong_signature_contract(), b"hello"),
-        (
-            None,
-            Some(VMError::FunctionCallError(FunctionCallError::CompilationError(
-                CompilationError::PrepareError(PrepareError::Deserialization)
-            )))
-        )
-    );
+    with_vm_variants(|vm_kind: VMKind| {
+        assert_eq!(
+            make_simple_contract_call_vm(
+                &initializer_wrong_signature_contract(),
+                b"hello",
+                vm_kind
+            ),
+            (
+                None,
+                Some(VMError::FunctionCallError(FunctionCallError::CompilationError(
+                    CompilationError::PrepareError(PrepareError::Deserialization)
+                )))
+            )
+        );
+    });
 }
 
 fn function_not_defined_contract() -> Vec<u8> {
@@ -42,15 +49,17 @@ fn function_not_defined_contract() -> Vec<u8> {
 #[test]
 /// StackHeightInstrumentation is weird but it's what we return for now
 fn test_function_not_defined_contract() {
-    assert_eq!(
-        make_simple_contract_call(&function_not_defined_contract(), b"hello"),
-        (
-            None,
-            Some(VMError::FunctionCallError(FunctionCallError::CompilationError(
-                CompilationError::PrepareError(PrepareError::Deserialization)
-            )))
-        )
-    );
+    with_vm_variants(|vm_kind: VMKind| {
+        assert_eq!(
+            make_simple_contract_call_vm(&function_not_defined_contract(), b"hello", vm_kind),
+            (
+                None,
+                Some(VMError::FunctionCallError(FunctionCallError::CompilationError(
+                    CompilationError::PrepareError(PrepareError::Deserialization)
+                )))
+            )
+        );
+    });
 }
 
 fn function_type_not_defined_contract(bad_type: u64) -> Vec<u8> {
@@ -66,42 +75,48 @@ fn function_type_not_defined_contract(bad_type: u64) -> Vec<u8> {
 
 #[test]
 fn test_function_type_not_defined_contract_1() {
-    assert_eq!(
-        make_simple_contract_call(&function_type_not_defined_contract(1), b"hello"),
-        (
-            None,
-            Some(VMError::FunctionCallError(FunctionCallError::CompilationError(
-                CompilationError::PrepareError(PrepareError::Deserialization)
-            )))
-        )
-    );
+    with_vm_variants(|vm_kind: VMKind| {
+        assert_eq!(
+            make_simple_contract_call_vm(&function_type_not_defined_contract(1), b"hello", vm_kind),
+            (
+                None,
+                Some(VMError::FunctionCallError(FunctionCallError::CompilationError(
+                    CompilationError::PrepareError(PrepareError::Deserialization)
+                )))
+            )
+        );
+    });
 }
 
 #[test]
 // Weird case. It's not valid wasm (wat2wasm validate will fail), but wasmer allows it.
 fn test_function_type_not_defined_contract_2() {
-    assert_eq!(
-        make_simple_contract_call(&function_type_not_defined_contract(0), b"hello"),
-        (
-            None,
-            Some(VMError::FunctionCallError(FunctionCallError::CompilationError(
-                CompilationError::PrepareError(PrepareError::Deserialization)
-            )))
-        )
-    );
+    with_vm_variants(|vm_kind: VMKind| {
+        assert_eq!(
+            make_simple_contract_call_vm(&function_type_not_defined_contract(0), b"hello", vm_kind),
+            (
+                None,
+                Some(VMError::FunctionCallError(FunctionCallError::CompilationError(
+                    CompilationError::PrepareError(PrepareError::Deserialization)
+                )))
+            )
+        );
+    });
 }
 
 #[test]
 fn test_garbage_contract() {
-    assert_eq!(
-        make_simple_contract_call(&[], b"hello"),
-        (
-            None,
-            Some(VMError::FunctionCallError(FunctionCallError::CompilationError(
-                CompilationError::PrepareError(PrepareError::Deserialization)
-            )))
-        )
-    );
+    with_vm_variants(|vm_kind: VMKind| {
+        assert_eq!(
+            make_simple_contract_call_vm(&[], b"hello", vm_kind),
+            (
+                None,
+                Some(VMError::FunctionCallError(FunctionCallError::CompilationError(
+                    CompilationError::PrepareError(PrepareError::Deserialization)
+                )))
+            )
+        );
+    });
 }
 
 fn evil_function_index() -> Vec<u8> {
@@ -118,13 +133,15 @@ fn evil_function_index() -> Vec<u8> {
 
 #[test]
 fn test_evil_function_index() {
-    assert_eq!(
-        make_simple_contract_call(&evil_function_index(), b"abort_with_zero"),
-        (
-            None,
-            Some(VMError::FunctionCallError(FunctionCallError::CompilationError(
-                CompilationError::PrepareError(PrepareError::Deserialization)
-            )))
-        )
-    );
+    with_vm_variants(|vm_kind: VMKind| {
+        assert_eq!(
+            make_simple_contract_call_vm(&evil_function_index(), b"abort_with_zero", vm_kind),
+            (
+                None,
+                Some(VMError::FunctionCallError(FunctionCallError::CompilationError(
+                    CompilationError::PrepareError(PrepareError::Deserialization)
+                )))
+            )
+        );
+    });
 }

@@ -375,6 +375,7 @@ mod tests {
             &[receipt],
             &ApplyStats {
                 tx_burnt_amount: total_validator_reward,
+                gas_deficit_amount: 0,
                 other_burnt_amount: 0,
                 slashed_burnt_amount: 0,
             },
