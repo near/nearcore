@@ -60,6 +60,10 @@ res = nodes[0].json_rpc('tx',
                         [base64.b64encode(tx).decode('utf8')], timeout=10)
 assert 'error' not in res, res
 
+# broadcast_tx_commit should be idempotent
+res = nodes[0].send_tx_and_wait(tx, timeout=15)
+assert 'error' not in res, res
+
 
 tx = sign_payment_tx(nodes[0].signer_key, 'test1', 100, 10,
                      base58.b58decode(hash_.encode('utf8')))

@@ -371,6 +371,13 @@ impl JsonRpcHandler {
 
     async fn send_tx_commit(&self, params: Option<Value>) -> Result<Value, RpcError> {
         let tx = parse_tx(params)?;
+        match self.tx_status_fetch(TransactionInfo::Transaction(tx.clone())).await {
+            Ok(outcome) => return jsonify(Ok(Ok(outcome))),
+            Err(e @ TxStatusError::InvalidTx(_)) => {
+                return jsonify::<FinalExecutionOutcomeView>(Ok(Err(e.into())))
+            }
+            _ => {}
+        }
         match self.send_tx(tx.clone(), false).await? {
             NetworkClientResponses::ValidTx | NetworkClientResponses::RequestRouted => {
                 self.tx_polling(TransactionInfo::Transaction(tx)).await
