@@ -91,6 +91,7 @@ impl User for RpcUser {
         while height == self.get_best_height().unwrap() {
             thread::sleep(Duration::from_millis(50));
         }
+        println!("result: {:?}", result);
         match result {
             Ok(outcome) => Ok(outcome),
             Err(err) => Err(serde_json::from_value::<ServerError>(err.data.unwrap()).unwrap()),

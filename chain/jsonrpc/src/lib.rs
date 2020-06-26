@@ -373,8 +373,8 @@ impl JsonRpcHandler {
         let tx = parse_tx(params)?;
         match self.tx_status_fetch(TransactionInfo::Transaction(tx.clone())).await {
             Ok(outcome) => return jsonify(Ok(Ok(outcome))),
-            Err(e @ TxStatusError::InvalidTx(_)) => {
-                return jsonify::<FinalExecutionOutcomeView>(Ok(Err(e.into())))
+            Err(TxStatusError::InvalidTx(e)) => {
+                return Err(RpcError::server_error(Some(ServerError::TxExecutionError(e.into()))))
             }
             _ => {}
         }
