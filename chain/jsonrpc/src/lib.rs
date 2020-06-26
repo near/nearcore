@@ -293,7 +293,9 @@ impl JsonRpcHandler {
                     // If transaction is missing, keep polling.
                     Err(TxStatusError::MissingTransaction(_)) => {}
                     // If we hit any other error, we return to the user.
-                    Err(err) => break jsonify::<FinalExecutionOutcomeView>(Ok(Err(err.into()))),
+                    Err(err) => {
+                        break jsonify::<FinalExecutionOutcomeView>(Ok(Err(err.into())));
+                    }
                 }
                 let _ = delay_for(self.polling_config.polling_interval).await;
             }
@@ -372,9 +374,11 @@ impl JsonRpcHandler {
     async fn send_tx_commit(&self, params: Option<Value>) -> Result<Value, RpcError> {
         let tx = parse_tx(params)?;
         match self.tx_status_fetch(TransactionInfo::Transaction(tx.clone())).await {
-            Ok(outcome) => return jsonify(Ok(Ok(outcome))),
+            Ok(outcome) => {
+                return jsonify(Ok(Ok(outcome)));
+            }
             Err(TxStatusError::InvalidTx(e)) => {
-                return Err(RpcError::server_error(Some(ServerError::TxExecutionError(e.into()))))
+                return Err(RpcError::server_error(Some(ServerError::TxExecutionError(e.into()))));
             }
             _ => {}
         }

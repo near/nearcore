@@ -250,6 +250,7 @@ pub struct TxStatus {
     pub signer_account_id: AccountId,
 }
 
+#[derive(Debug)]
 pub enum TxStatusError {
     ChainError(near_chain::Error),
     MissingTransaction(CryptoHash),
