@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 
 use near_network::types::{AccountOrPeerIdOrHash, KnownProducer};
 use near_network::PeerInfo;
+use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{MerklePath, PartialMerkleTree};
 use near_primitives::sharding::ChunkHash;
@@ -249,9 +250,11 @@ pub struct TxStatus {
     pub signer_account_id: AccountId,
 }
 
+#[derive(Debug)]
 pub enum TxStatusError {
     ChainError(near_chain::Error),
     MissingTransaction(CryptoHash),
+    InvalidTx(InvalidTxError),
     InternalError,
     TimeoutError,
 }
@@ -265,6 +268,7 @@ impl From<TxStatusError> for String {
             }
             TxStatusError::InternalError => format!("Internal error"),
             TxStatusError::TimeoutError => format!("Timeout error"),
+            TxStatusError::InvalidTx(e) => format!("Invalid transaction: {}", e),
         }
     }
 }
