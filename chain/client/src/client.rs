@@ -739,6 +739,10 @@ impl Client {
         if Some(&next_block_producer) == self.validator_signer.as_ref().map(|x| x.validator_id()) {
             self.collect_block_approval(&approval, true);
         } else {
+            info!(
+                "MOO About to send an approval to {} for height {} and approval {:?}",
+                next_block_producer, approval.target_height, approval.inner
+            );
             let approval_message = ApprovalMessage::new(approval, next_block_producer);
             self.network_adapter.do_send(NetworkRequests::Approval { approval_message });
         }
@@ -970,6 +974,11 @@ impl Client {
     ///                only check whether we are the next block producer and store in Doomslug)
     pub fn collect_block_approval(&mut self, approval: &Approval, is_ours: bool) {
         let Approval { inner, account_id, target_height, signature } = approval;
+
+        info!(
+            "MOO About to collect an approval from {} for height {} and approval {:?}",
+            approval.account_id, approval.target_height, approval.inner
+        );
 
         let process_error = |e: near_chain::Error,
                              approval: &Approval,

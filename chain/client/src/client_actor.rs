@@ -645,6 +645,7 @@ impl ClientActor {
     fn handle_block_production(&mut self) -> Result<(), Error> {
         // If syncing, don't try to produce blocks.
         if self.client.sync_status.is_syncing() {
+            info!("MOO block production: syncing");
             return Ok(());
         }
 
@@ -660,6 +661,11 @@ impl ClientActor {
         let epoch_id =
             self.client.runtime_adapter.get_epoch_id_from_prev_block(&head.last_block_hash)?;
 
+        info!(
+            "MOO block production cycle {}-{}",
+            latest_known.height + 1,
+            self.client.doomslug.get_largest_height_crossing_threshold()
+        );
         for height in
             latest_known.height + 1..=self.client.doomslug.get_largest_height_crossing_threshold()
         {
@@ -669,6 +675,7 @@ impl ClientActor {
             if self.client.validator_signer.as_ref().map(|bp| bp.validator_id())
                 == Some(&next_block_producer_account)
             {
+                info!("MOO block production I'm BP for height {}", height);
                 let num_chunks = self.client.shards_mgr.num_chunks_for_block(&head.last_block_hash);
                 let have_all_chunks =
                     head.height == 0 || num_chunks == self.client.runtime_adapter.num_shards();
@@ -678,10 +685,17 @@ impl ClientActor {
                     height,
                     have_all_chunks,
                 ) {
+                    info!("MOO about to produce block for height {}", height);
+
                     if let Err(err) = self.produce_block(height) {
                         // If there is an error, report it and let it retry on the next loop step.
                         error!(target: "client", "Block production failed: {}", err);
                     }
+                } else {
+                    info!(
+                        "MOO not ready to produce at height {}. Have all chunks: {}",
+                        height, have_all_chunks
+                    );
                 }
             }
         }
@@ -915,6 +929,20 @@ impl ClientActor {
                     full_peer_info.chain_info.height,
                 );
                 is_syncing = true;
+            } else {
+                if let SyncStatus::NoSyncFewBlocksBehind { since_when, our_height } =
+                    self.client.sync_status
+                {
+                    let now = Utc::now();
+                    if now > since_when
+                        && (now - since_when).to_std().unwrap() >= Duration::from_secs(10)
+                        && our_height == head.height
+                    // MOO make 10s a config parameter
+                    {
+                        info!(target: "sync", "Have been at the same height for too long, while peers have newer bocks. Forcing synchronization");
+                        is_syncing = true;
+                    }
+                }
             }
         }
         Ok((is_syncing, full_peer_info.chain_info.height))
@@ -1043,6 +1071,7 @@ impl ClientActor {
         let currently_syncing = self.client.sync_status.is_syncing();
         let (needs_syncing, highest_height) = unwrap_or_run_later!(self.syncing_info());
 
+        info!("MOO highest height {}", highest_height);
         if !self.needs_syncing(needs_syncing) {
             if currently_syncing {
                 debug!(
@@ -1058,6 +1087,27 @@ impl ClientActor {
                 self.check_send_announce_account(head.prev_block_hash);
             }
             wait_period = self.client.config.sync_check_period;
+
+            // Handle the case in which we failed to receive a block, and our inactivity prevents
+            // the network from making progress
+            if let Ok(head) = self.client.chain.head() {
+                match self.client.sync_status {
+                    SyncStatus::NoSync => {
+                        if head.height < highest_height {
+                            self.client.sync_status = SyncStatus::NoSyncFewBlocksBehind {
+                                since_when: Utc::now(),
+                                our_height: head.height,
+                            }
+                        }
+                    }
+                    SyncStatus::NoSyncFewBlocksBehind { our_height, .. } => {
+                        if head.height > our_height {
+                            self.client.sync_status = SyncStatus::NoSync;
+                        }
+                    }
+                    _ => {}
+                }
+            }
         } else {
             // Run each step of syncing separately.
             unwrap_or_run_later!(self.client.header_sync.run(
