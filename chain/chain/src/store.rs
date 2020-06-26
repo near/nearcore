@@ -2988,7 +2988,7 @@ mod tests {
             DBCol::ColBlockInfo,
             DBCol::ColBlocksToCatchup,
             DBCol::ColChallengedBlocks,
-            DBCol::ColStateHeaders,
+            DBCol::ColStateDlInfos,
             DBCol::ColBlockExtra,
             DBCol::ColBlockPerHeight,
             DBCol::ColNextBlockHashes,
