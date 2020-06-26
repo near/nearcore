@@ -23,7 +23,7 @@
 #                `staking2.py` tests some basic stake invariants
 # This test also completely disables rewards, which simplifies ensuring total supply invariance and balance invariances
 
-import sys, time, base58, random, inspect, traceback, requests
+import sys, time, base58, random, inspect, traceback, requests, logging
 from multiprocessing import Process, Value, Lock
 
 sys.path.append('lib')
@@ -34,11 +34,16 @@ from transaction import sign_payment_tx, sign_staking_tx
 from network import init_network_pillager, stop_network, resume_network
 
 sys.stdout = Unbuffered(sys.stdout)
+logging.basicConfig(format='%(asctime)s %(message)s', level=logging.INFO)
 
 TIMEOUT = 1500  # after how much time to shut down the test
-TIMEOUT_SHUTDOWN = 120  # time to wait after the shutdown was initiated before
-MAX_STAKE = int(1e26)
+TIMEOUT_SHUTDOWN = 120  # time to wait after the shutdown was initiated before failing the test due to process stalling
+MAX_STAKE = int(1e32)
 EPOCH_LENGTH = 20
+
+# How many times to try to send transactions to each validator.
+# Is only applicable in the scenarios where we expect failures in tx sends.
+SEND_TX_ATTEMPTS = 5
 
 block_timeout = 20  # if two blocks are not produced within that many seconds, the test will fail. The timeout is increased if nodes are restarted or network is being messed up with
 balances_timeout = 15  # how long to tolerate for balances to update after txs are sent
@@ -104,7 +109,7 @@ def monkey_node_set(stopped, error, nodes, nonces):
             if time.time() < change_status_at[i]:
                 continue
             if nodes_stopped[i]:
-                print("Node set: starting node %s" % i)
+                logging.info("Node set: starting node %s" % i)
                 # figuring out a live node with `node_restart` monkey is not trivial
                 # for simplicity just boot from the observer node
                 # `node_restart` doesn't boot from the observer, increasing coverage
@@ -115,8 +120,8 @@ def monkey_node_set(stopped, error, nodes, nonces):
                 wipe = False
                 if random.choice([True, False]):
                     wipe = True
-                    #node.reset_data()
-                print("Node set: stopping%s node %s" %
+                    #node.reset_data() # MOO
+                logging.info("Node set: stopping%s node %s" %
                       (" and wiping" if wipe else "", i))
             nodes_stopped[i] = not nodes_stopped[i]
             change_status_at[i] = get_future_time()
@@ -142,10 +147,14 @@ def monkey_node_restart(stopped, error, nodes, nonces):
                 break
             time.sleep(1)
 
-        print("NUKING NODE %s" % node_idx)
+        reset_data = random.choice([True, False, False])
+        logging.info("NUKING NODE %s%s" % (node_idx, " AND WIPING ITS STORAGE" if reset_data else ""))
         node.kill()
+        if reset_data:
+            #node.reset_data() # MOO
+            pass
         node.start(boot_node.node_key.pk, boot_node.addr())
-        print("NODE %s IS BACK UP" % node_idx)
+        logging.info("NODE %s IS BACK UP" % node_idx)
 
         _, heights_after_restart[node_idx] = get_recent_hash(node)
 
@@ -184,7 +193,7 @@ def monkey_transactions(stopped, error, nodes, nonces):
     expected_balances = get_balances()
     min_balances = [x - MAX_STAKE for x in expected_balances]
     total_supply = (sum(expected_balances))
-    print("TOTAL SUPPLY: %s" % total_supply)
+    logging.info("TOTAL SUPPLY: %s" % total_supply)
 
     last_iter_switch = time.time()
     mode = 0  # 0 = send more tx, 1 = wait for balances
@@ -198,13 +207,22 @@ def monkey_transactions(stopped, error, nodes, nonces):
         validator_ids = get_validator_ids(nodes)
         if time.time() - last_iter_switch > balances_timeout:
             if mode == 0:
-                print("%s TRANSACTIONS SENT. WAITING FOR BALANCES" % tx_count)
+                logging.info("%s TRANSACTIONS SENT. WAITING FOR BALANCES" % tx_count)
                 mode = 1
             else:
-                print(
+                logging.info(
                     "BALANCES NEVER CAUGHT UP, CHECKING UNFINISHED TRANSACTIONS"
                 )
-                snapshot_expected_balances = [x for x in expected_balances]
+
+                def trace_reverted_txs(last_tx_set, tx_ords):
+                    logging.info("\n\nREVERTING THE FOLLOWING TXS WOULD BE ENOUGH:\n")
+                    for tx_ord in tx_ords:
+                        tx = last_tx_set[tx_ord]
+                        logging.info("\nTRANSACTION %s" % tx_ord)
+                        logging.info("TX tuple: %s" % (tx[1:],))
+                        response = nodes[-1].json_rpc(
+                            'tx', [tx[3], "test%s" % tx[1]], timeout=1)
+                        logging.info("Status: %s", response)
 
                 def revert_txs():
                     nonlocal expected_balances
@@ -212,26 +230,20 @@ def monkey_transactions(stopped, error, nodes, nonces):
                     bad = 0
                     for tx in last_tx_set:
                         tx_happened = True
-                        try:
-                            response = nodes[-1].json_rpc(
-                                'tx', [tx[3], "test%s" % tx[1]], timeout=1)
 
-                            # due to #2195 if the tx was dropped, the query today times out.
-                            if 'error' in response and 'data' in response[
-                                    'error'] and response['error'][
-                                        'data'] == 'Timeout':
-                                tx_happened = False
-                            elif 'result' in response and 'receipts_outcome' in response[
-                                    'result']:
-                                tx_happened = len(
-                                    response['result']['receipts_outcome']) > 0
-                            else:
-                                assert False, response
-                        # This exception handler is also due to #2195
-                        except requests.exceptions.ReadTimeout:
+                        response = nodes[-1].json_rpc(
+                            'tx', [tx[3], "test%s" % tx[1]], timeout=1)
+
+                        if 'error' in response and 'data' in response[
+                                'error'] and "doesn't exist" in response['error'][
+                                    'data']:
                             tx_happened = False
-                        except:
-                            raise
+                        elif 'result' in response and 'receipts_outcome' in response[
+                                'result']:
+                            tx_happened = len(
+                                response['result']['receipts_outcome']) > 0
+                        else:
+                            assert False, response
 
                         if not tx_happened:
                             bad += 1
@@ -244,7 +256,7 @@ def monkey_transactions(stopped, error, nodes, nonces):
                 good, bad = revert_txs()
                 if expected_balances == get_balances():
                     # reverting helped
-                    print("REVERTING HELPED, TX EXECUTED: %s, TX LOST: %s" %
+                    logging.info("REVERTING HELPED, TX EXECUTED: %s, TX LOST: %s" %
                           (good, bad))
                     bad_ratio = bad / (good + bad)
                     if bad_ratio > rolling_tolerance:
@@ -260,17 +272,46 @@ def monkey_transactions(stopped, error, nodes, nonces):
                     last_tx_set = []
                 else:
                     # still no match, fail
-                    print(
+                    logging.info(
                         "REVERTING DIDN'T HELP, TX EXECUTED: %s, TX LOST: %s" %
                         (good, bad))
-                    for step in range(
-                            10
-                    ):  # trace balances for 20 seconds to see if they are catching up
-                        print(get_balances())
-                        time.sleep(2)
-                    expected_balances = snapshot_expected_balances
-                    good, bad = revert_txs()
-                    print(
+
+                    for i in range(0, len(last_tx_set)):
+                        tx = last_tx_set[i]
+                        expected_balances[tx[1]] += tx[4]
+                        expected_balances[tx[2]] -= tx[4]
+
+                        if get_balances() == expected_balances:
+                            trace_reverted_txs(last_tx_set, [i])
+
+                        for j in range(i + 1, len(last_tx_set)):
+                            tx = last_tx_set[j]
+                            expected_balances[tx[1]] += tx[4]
+                            expected_balances[tx[2]] -= tx[4]
+
+                            if get_balances() == expected_balances:
+                                trace_reverted_txs(last_tx_set, [i, j])
+
+                            for k in range(j + 1, len(last_tx_set)):
+                                tx = last_tx_set[k]
+                                expected_balances[tx[1]] += tx[4]
+                                expected_balances[tx[2]] -= tx[4]
+
+                                if get_balances() == expected_balances:
+                                    trace_reverted_txs(last_tx_set, [i, j, k])
+
+                                expected_balances[tx[1]] -= tx[4]
+                                expected_balances[tx[2]] += tx[4]
+
+                            tx = last_tx_set[j]
+                            expected_balances[tx[1]] -= tx[4]
+                            expected_balances[tx[2]] += tx[4]
+
+                        tx = last_tx_set[i]
+                        expected_balances[tx[1]] -= tx[4]
+                        expected_balances[tx[2]] += tx[4]
+
+                    logging.info(
                         "The latest and greatest stats on successful/failed: %s/%s"
                         % (good, bad))
                     assert False, "Balances didn't update in time. Expected: %s, received: %s" % (
@@ -295,14 +336,30 @@ def monkey_transactions(stopped, error, nodes, nonces):
                     tx = sign_payment_tx(nodes[from_].signer_key, 'test%s' % to,
                                          amt, nonce_val.value,
                                          base58.b58decode(hash_.encode('utf8')))
-                    for validator_id in validator_ids:
-                        try:
-                            tx_hash = nodes[validator_id].send_tx(tx)['result']
-                        except (requests.exceptions.ReadTimeout,
-                                requests.exceptions.ConnectionError):
-                            if not network_issues_expected and not nodes[
-                                    validator_id].mess_with:
-                                raise
+
+                    # Loop trying to send the tx to all the validators, until at least one receives it
+                    tx_hash = None
+                    for send_attempt in range(SEND_TX_ATTEMPTS):
+                        shuffled_validator_ids = [x for x in validator_ids]
+                        random.shuffle(shuffled_validator_ids)
+                        for validator_id in shuffled_validator_ids:
+                            try:
+                                tx_hash = nodes[validator_id].send_tx(tx)['result']
+                                break
+
+                            except (requests.exceptions.ReadTimeout,
+                                    requests.exceptions.ConnectionError):
+                                if not network_issues_expected and not nodes[
+                                        validator_id].mess_with:
+                                    raise
+
+                        if tx_hash is not None:
+                            break
+
+                        time.sleep(1)
+
+                    else:
+                        assert False, "Failed to send the transation after %s attempts" % SEND_TX_ATTEMPTS
 
                     last_tx_set.append((tx, from_, to, tx_hash, amt))
                     nonce_val.value = nonce_val.value + 1
@@ -315,7 +372,7 @@ def monkey_transactions(stopped, error, nodes, nonces):
 
         else:
             if get_balances() == expected_balances:
-                print("BALANCES CAUGHT UP, BACK TO SPAMMING TXS")
+                logging.info("BALANCES CAUGHT UP, BACK TO SPAMMING TXS")
                 min_balances = [x - MAX_STAKE for x in expected_balances]
                 tx_count = 0
                 mode = 0
@@ -389,7 +446,7 @@ def blocks_tracker(stopped, error, nodes, nonces):
                 status = nodes[val_id].get_status()
                 if status['validators'] != last_validators and val_id == -1:
                     last_validators = status['validators']
-                    print(
+                    logging.info(
                         "VALIDATORS TRACKER: validators set changed, new set: %s"
                         % [x['account_id'] for x in last_validators])
                 hash_ = status['sync_info']['latest_block_hash']
@@ -399,11 +456,11 @@ def blocks_tracker(stopped, error, nodes, nonces):
                     if stopped.value != 0:
                         done = True
                     if not every_ten or largest_height % 10 == 0:
-                        print("BLOCK TRACKER: new height %s" % largest_height)
+                        logging.info("BLOCK TRACKER: new height %s" % largest_height)
                     if largest_height >= 20:
                         if not every_ten:
                             every_ten = True
-                            print(
+                            logging.info(
                                 "BLOCK TRACKER: switching to tracing every ten blocks to reduce spam"
                             )
                     largest_height = height
@@ -456,10 +513,10 @@ def blocks_tracker(stopped, error, nodes, nonces):
                 if divergence > largest_divergence:
                     largest_divergence = divergence
 
-    print("=== BLOCK TRACKER SUMMARY ===")
-    print("Largest height:     %s" % largest_height)
-    print("Largest divergence: %s" % largest_divergence)
-    print("Per node: %s" % largest_per_node)
+    logging.info("=== BLOCK TRACKER SUMMARY ===")
+    logging.info("Largest height:     %s" % largest_height)
+    logging.info("Largest divergence: %s" % largest_divergence)
+    logging.info("Per node: %s" % largest_per_node)
 
     if not network_issues_expected:
         assert largest_divergence < len(nodes)
@@ -483,7 +540,8 @@ def doit(s, n, N, k, monkeys, timeout):
         N, k + 1, s, config,
         [["min_gas_price", 0], ["max_inflation_rate", [0, 1]],
          ["epoch_length", EPOCH_LENGTH],
-         ["block_producer_kickout_threshold", 70]], local_config_changes)
+         ["block_producer_kickout_threshold", 10],
+         ["chunk_producer_kickout_threshold", 10]], local_config_changes)
 
     started = time.time()
 
@@ -502,9 +560,9 @@ def doit(s, n, N, k, monkeys, timeout):
             node.mess_with = False
 
     monkey_names = [x.__name__ for x in monkeys]
-    print(monkey_names)
+    logging.info(monkey_names)
     if 'monkey_local_network' in monkey_names or 'monkey_global_network' in monkey_names:
-        print(
+        logging.info(
             "There are monkeys messing up with network, initializing the infra")
         if config['local']:
             init_network_pillager()
@@ -547,10 +605,10 @@ def doit(s, n, N, k, monkeys, timeout):
         check_errors()
         time.sleep(1)
 
-    print("")
-    print("==========================================")
-    print("# TIMEOUT IS HIT, SHUTTING DOWN THE TEST #")
-    print("==========================================")
+    logging.info("")
+    logging.info("==========================================")
+    logging.info("# TIMEOUT IS HIT, SHUTTING DOWN THE TEST #")
+    logging.info("==========================================")
     stopped.value = 1
     started_shutdown = time.time()
     while True:

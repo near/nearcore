@@ -112,7 +112,9 @@ impl HeaderSync {
             SyncStatus::HeaderSync { .. }
             | SyncStatus::BodySync { .. }
             | SyncStatus::StateSyncDone => true,
-            SyncStatus::NoSync | SyncStatus::AwaitingPeers => {
+            SyncStatus::NoSync
+            | SyncStatus::NoSyncFewBlocksBehind { .. }
+            | SyncStatus::AwaitingPeers => {
                 let sync_head = chain.sync_head()?;
                 debug!(target: "sync", "Sync: initial transition to Header sync. Sync head: {} at {}, resetting to {} at {}",
                     sync_head.last_block_hash, sync_head.height,
@@ -169,9 +171,11 @@ impl HeaderSync {
         // Did we receive as many headers as we expected from the peer? Request more or ban peer.
         let stalling = header_head.height <= old_expected_height && now > timeout;
 
-        // Always enable header sync on initial state transition from NoSync / AwaitingPeers.
+        // Always enable header sync on initial state transition from NoSync / NoSyncFewBlocksBehind / AwaitingPeers.
         let force_sync = match sync_status {
-            SyncStatus::NoSync | SyncStatus::AwaitingPeers => true,
+            SyncStatus::NoSync
+            | SyncStatus::NoSyncFewBlocksBehind { .. }
+            | SyncStatus::AwaitingPeers => true,
             _ => false,
         };
 
