@@ -26,6 +26,10 @@ use near_primitives::sharding::{
     ChunkHash, ChunkHashHeight, ReceiptProof, ShardChunk, ShardChunkHeader, ShardInfo, ShardProof,
     StateSyncInfo,
 };
+use near_primitives::syncing::{
+    get_num_state_parts, ReceiptProofResponse, ReceiptResponse, RootProof,
+    ShardStateSyncResponseHeader, StatePartKey,
+};
 use near_primitives::transaction::ExecutionOutcomeWithIdAndProof;
 use near_primitives::types::{
     AccountId, Balance, BlockExtra, BlockHeight, BlockHeightDelta, ChunkExtra, EpochId, Gas,
@@ -44,8 +48,7 @@ use crate::lightclient::get_epoch_block_producers_view;
 use crate::store::{ChainStore, ChainStoreAccess, ChainStoreUpdate, GCMode};
 use crate::types::{
     AcceptedBlock, ApplyTransactionResult, Block, BlockHeader, BlockHeaderInfo, BlockStatus,
-    BlockSyncResponse, Provenance, ReceiptList, ReceiptProofResponse, ReceiptResponse, RootProof,
-    RuntimeAdapter, ShardStateSyncResponseHeader, StatePartKey,
+    BlockSyncResponse, Provenance, ReceiptList, RuntimeAdapter,
 };
 use crate::validate::{
     validate_challenge, validate_chunk_proofs, validate_chunk_with_chunk_extra,
@@ -1469,14 +1472,6 @@ impl Chain {
         })
     }
 
-    pub fn get_num_state_parts(memory_usage: u64) -> u64 {
-        // We assume that 1 Mb is a good limit for state part size.
-        // On the other side, it's important to divide any state into
-        // several parts to make sure that partitioning always works.
-        // TODO #1708
-        memory_usage / (1024 * 1024) + 3
-    }
-
     pub fn get_state_response_part(
         &mut self,
         shard_id: ShardId,
@@ -1502,7 +1497,7 @@ impl Chain {
         }
         let state_root = sync_prev_block.chunks()[shard_id as usize].inner.prev_state_root.clone();
         let state_root_node = self.runtime_adapter.get_state_root_node(shard_id, &state_root);
-        let num_parts = Self::get_num_state_parts(state_root_node.memory_usage);
+        let num_parts = get_num_state_parts(state_root_node.memory_usage);
 
         if part_id >= num_parts {
             return Err(ErrorKind::InvalidStateRequest("part_id out of bound".to_string()).into());
@@ -1693,19 +1688,12 @@ impl Chain {
         Ok(())
     }
 
-    pub fn get_received_state_header(
+    pub fn get_state_header(
         &mut self,
         shard_id: ShardId,
         sync_hash: CryptoHash,
     ) -> Result<ShardStateSyncResponseHeader, Error> {
-        let key = StateHeaderKey(shard_id, sync_hash).try_to_vec()?;
-        match self.store.owned_store().get_ser(ColStateHeaders, &key) {
-            Ok(Some(header)) => Ok(header),
-            _ => Err(ErrorKind::Other(
-                "set_state_finalize failed: cannot get shard_state_header".into(),
-            )
-            .into()),
-        }
+        self.store.get_state_header(shard_id, sync_hash)
     }
 
     pub fn set_state_part(
@@ -1716,7 +1704,7 @@ impl Chain {
         num_parts: u64,
         data: &Vec<u8>,
     ) -> Result<(), Error> {
-        let shard_state_header = self.get_received_state_header(shard_id, sync_hash)?;
+        let shard_state_header = self.get_state_header(shard_id, sync_hash)?;
         let ShardStateSyncResponseHeader { chunk, .. } = shard_state_header;
         let state_root = chunk.header.inner.prev_state_root;
         if !self.runtime_adapter.validate_state_part(&state_root, part_id, num_parts, data) {
@@ -1741,7 +1729,7 @@ impl Chain {
         sync_hash: CryptoHash,
         num_parts: u64,
     ) -> Result<(), Error> {
-        let shard_state_header = self.get_received_state_header(shard_id, sync_hash)?;
+        let shard_state_header = self.get_state_header(shard_id, sync_hash)?;
         let mut height = shard_state_header.chunk.header.height_included;
         let state_root = shard_state_header.chunk.header.inner.prev_state_root.clone();
         let mut parts = vec![];

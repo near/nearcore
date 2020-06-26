@@ -15,12 +15,16 @@ use near_primitives::sharding::{ChunkHash, ShardChunk, StateSyncInfo};
 use near_primitives::transaction::ExecutionOutcomeWithIdAndProof;
 use near_primitives::types::{AccountId, BlockHeight, EpochId, GCCount, ShardId};
 use near_primitives::utils::get_block_shard_id_rev;
-use near_store::{DBCol, Store, TrieChanges, NUM_COLS};
+use near_store::{DBCol, Store, TrieChanges, NUM_COLS, SHOULD_COL_GC, SKIP_COL_GC};
 use validate::StoreValidatorError;
 
 use crate::RuntimeAdapter;
 
 mod validate;
+
+fn to_string<T: std::fmt::Debug>(v: &T) -> String {
+    format!("{:?}", v)
+}
 
 #[derive(Debug)]
 pub struct StoreValidatorCache {
@@ -52,7 +56,7 @@ impl StoreValidatorCache {
 
 #[derive(Debug)]
 pub struct ErrorMessage {
-    pub col: DBCol,
+    pub col: String,
     pub key: String,
     pub err: StoreValidatorError,
 }
@@ -95,11 +99,21 @@ impl StoreValidator {
     pub fn is_failed(&self) -> bool {
         self.tests == 0 || self.errors.len() > 0
     }
-    pub fn get_gc_counters(&self) -> Vec<(DBCol, u64)> {
+    pub fn get_gc_counters(&self) -> Vec<(String, u64)> {
         let mut res = vec![];
         for col in DBCol::iter() {
-            res.push((col, self.inner.gc_col[col as usize]))
+            if SHOULD_COL_GC[col as usize] && self.inner.gc_col[col as usize] == 0 {
+                if SKIP_COL_GC[col as usize] {
+                    res.push((
+                        to_string(&col) + " (skipping is acceptable)",
+                        self.inner.gc_col[col as usize],
+                    ))
+                } else {
+                    res.push((to_string(&col), self.inner.gc_col[col as usize]))
+                }
+            }
         }
+        res.sort();
         res
     }
     pub fn num_failed(&self) -> u64 {
@@ -109,7 +123,7 @@ impl StoreValidator {
         self.tests
     }
     fn process_error<K: std::fmt::Debug>(&mut self, err: StoreValidatorError, key: K, col: DBCol) {
-        self.errors.push(ErrorMessage { key: format!("{:?}", key), col, err })
+        self.errors.push(ErrorMessage { key: to_string(&key), col: to_string(&col), err })
     }
     fn validate_col(&mut self, col: DBCol) -> Result<(), StoreValidatorError> {
         for (key, value) in self.store.clone().iter(col) {
@@ -284,7 +298,7 @@ impl StoreValidator {
         if let Err(e) = validate::block_height_cmp_tail(self) {
             self.process_error(e, "TAIL", DBCol::ColBlockMisc)
         }
-        // There is no more than one Block which Height is lower than Tail and not equal to Genesis
+        // Check GC counters
         if let Err(_) = validate::gc_col_count_total(self) {
             // TODO #2861
         }

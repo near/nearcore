@@ -18,6 +18,10 @@ use near_primitives::sharding::{
     ChunkHash, EncodedShardChunk, PartialEncodedChunk, ReceiptProof, ShardChunk, ShardChunkHeader,
     StateSyncInfo,
 };
+use near_primitives::syncing::{
+    get_num_state_parts, ReceiptProofResponse, ReceiptResponse, ShardStateSyncResponseHeader,
+    StatePartKey,
+};
 use near_primitives::transaction::{
     ExecutionOutcomeWithId, ExecutionOutcomeWithIdAndProof, SignedTransaction,
 };
@@ -44,9 +48,7 @@ use near_store::{
 
 use crate::byzantine_assert;
 use crate::error::{Error, ErrorKind};
-use crate::types::{
-    Block, BlockHeader, LatestKnown, ReceiptProofResponse, ReceiptResponse, StatePartKey,
-};
+use crate::types::{Block, BlockHeader, LatestKnown};
 
 /// lru cache size
 const CACHE_SIZE: usize = 100;
@@ -201,6 +203,12 @@ pub trait ChainStoreAccess {
     fn is_block_challenged(&mut self, hash: &CryptoHash) -> Result<bool, Error>;
 
     fn get_blocks_to_catchup(&self, prev_hash: &CryptoHash) -> Result<Vec<CryptoHash>, Error>;
+
+    fn get_state_header(
+        &mut self,
+        shard_id: ShardId,
+        block_hash: CryptoHash,
+    ) -> Result<ShardStateSyncResponseHeader, Error>;
 
     /// Returns latest known height and time it was seen.
     fn get_latest_known(&mut self) -> Result<LatestKnown, Error>;
@@ -794,6 +802,18 @@ impl ChainStoreAccess for ChainStore {
 
     fn get_blocks_to_catchup(&self, hash: &CryptoHash) -> Result<Vec<CryptoHash>, Error> {
         Ok(self.store.get_ser(ColBlocksToCatchup, hash.as_ref())?.unwrap_or_else(|| vec![]))
+    }
+
+    fn get_state_header(
+        &mut self,
+        shard_id: ShardId,
+        block_hash: CryptoHash,
+    ) -> Result<ShardStateSyncResponseHeader, Error> {
+        let key = StateHeaderKey(shard_id, block_hash).try_to_vec()?;
+        match self.store.get_ser(ColStateHeaders, &key) {
+            Ok(Some(header)) => Ok(header),
+            _ => Err(ErrorKind::Other("Cannot get shard_state_header".into()).into()),
+        }
     }
 
     fn get_latest_known(&mut self) -> Result<LatestKnown, Error> {
@@ -1426,6 +1446,14 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
         self.chain_store.get_blocks_to_catchup(prev_hash)
     }
 
+    fn get_state_header(
+        &mut self,
+        shard_id: ShardId,
+        block_hash: CryptoHash,
+    ) -> Result<ShardStateSyncResponseHeader, Error> {
+        self.chain_store.get_state_header(shard_id, block_hash)
+    }
+
     fn get_latest_known(&mut self) -> Result<LatestKnown, Error> {
         self.chain_store.get_latest_known()
     }
@@ -1980,8 +2008,17 @@ impl<'a> ChainStoreUpdate<'a> {
             self.gc_col(ColIncomingReceipts, &height_shard_id);
             self.gc_col(ColChunkPerHeightShard, &height_shard_id);
             self.gc_col(ColNextBlockWithNewChunk, &height_shard_id);
-            let key = StateHeaderKey(shard_id, block_hash).try_to_vec()?;
-            self.gc_col(ColStateHeaders, &key);
+
+            // If node crashes while State Syncing, it may never clear
+            // downloaded State parts in `clear_downloaded_parts`.
+            // We need to make sure all State Parts are removed.
+            if let Ok(shard_state_header) = self.get_state_header(shard_id, block_hash) {
+                let state_num_parts =
+                    get_num_state_parts(shard_state_header.state_root_node.memory_usage);
+                self.gc_col_state_parts(block_hash, shard_id, state_num_parts)?;
+                let key = StateHeaderKey(shard_id, block_hash).try_to_vec()?;
+                self.gc_col(ColStateHeaders, &key);
+            }
 
             if self.get_last_block_with_new_chunk(shard_id)? == Some(&block_hash) {
                 self.gc_col(ColLastBlockWithNewChunk, &index_to_bytes(shard_id));
@@ -2012,6 +2049,7 @@ impl<'a> ChainStoreUpdate<'a> {
         }
         self.gc_col(ColOutcomesByBlockHash, &block_hash_vec);
         self.gc_col(ColBlockInfo, &block_hash_vec);
+        self.gc_col(ColStateDlInfos, &block_hash_vec);
 
         // 4. Update or delete block_hash_per_height
         self.gc_col_block_per_height(&block_hash, height, &block.header().epoch_id())?;
@@ -2031,7 +2069,6 @@ impl<'a> ChainStoreUpdate<'a> {
                     }
                 }
                 self.clear_chunk_data(min_chunk_height)?;
-                self.remove_state_dl_info(block_hash);
                 // Check Epoch switch
                 let cur_epoch_id = block.header().epoch_id();
                 if cur_epoch_id != next_epoch_id {
@@ -2195,7 +2232,7 @@ impl<'a> ChainStoreUpdate<'a> {
                 store_update.delete(col, key);
             }
             DBCol::ColStateDlInfos => {
-                panic!("Add a Block Hash to remove_state_dl_infos instead");
+                store_update.delete(col, key);
             }
             DBCol::ColBlockInfo => {
                 store_update.delete(col, key);

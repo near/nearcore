@@ -692,7 +692,6 @@ pub(crate) fn gc_col_count_total(sv: &mut StoreValidator) -> Result<(), StoreVal
         }
     }
     // 2. All columns are GCed case is acceptable
-    println!("{:?} {:?}", zeroes, gc_col_count);
     if zeroes == NUM_COLS - gc_col_count {
         return Ok(());
     }

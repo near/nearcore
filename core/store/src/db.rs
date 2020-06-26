@@ -153,6 +153,7 @@ impl std::fmt::Display for DBCol {
     }
 }
 
+// List of columns for which GC should be implemented
 lazy_static! {
     pub static ref SHOULD_COL_GC: Vec<bool> = {
         let mut col_gc = vec![true; NUM_COLS];
@@ -169,6 +170,19 @@ lazy_static! {
         col_gc[DBCol::ColLastComponentNonce as usize] = false;
         col_gc[DBCol::ColComponentEdges as usize] = false;
         col_gc[DBCol::ColBlockOrdinal as usize] = false;
+        col_gc
+    };
+}
+
+// List of columns for which GC may not be executed even in fully operational node
+lazy_static! {
+    pub static ref SKIP_COL_GC: Vec<bool> = {
+        let mut col_gc = vec![false; NUM_COLS];
+        // A node may never restarted
+        col_gc[DBCol::ColLastBlockWithNewChunk as usize] = true;
+        col_gc[DBCol::ColStateHeaders as usize] = true;
+        // True until #2515
+        col_gc[DBCol::ColStateParts as usize] = true;
         col_gc
     };
 }
