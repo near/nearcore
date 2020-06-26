@@ -15,6 +15,7 @@ import retry
 import retrying
 import rc
 from rc import gcloud
+import traceback
 import uuid
 import network
 from proxy import NodesProxy
@@ -38,6 +39,7 @@ def atexit_cleanup(node):
         node.cleanup()
     except:
         print("Cleaning failed!")
+        traceback.print_exc()
         pass
 
 
@@ -287,6 +289,7 @@ class LocalNode(BaseNode):
         config_json['network']['addr'] = '0.0.0.0:%s' % port
         config_json['network']['blacklist'] = blacklist
         config_json['rpc']['addr'] = '0.0.0.0:%s' % rpc_port
+        config_json['rpc']['metrics_addr'] = '0.0.0.0:%s' % (rpc_port + 1000)
         config_json['consensus']['min_num_peers'] = 1
         with open(os.path.join(node_dir, "config.json"), 'w') as f:
             f.write(json.dumps(config_json, indent=2))
