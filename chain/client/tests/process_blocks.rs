@@ -878,6 +878,45 @@ fn test_gc_block_skips() {
 }
 
 #[test]
+fn test_gc_execution_outcome() {
+    let epoch_length = 5;
+    let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
+    genesis.config.epoch_length = epoch_length;
+    let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![Arc::new(neard::NightshadeRuntime::new(
+        Path::new("."),
+        create_test_store(),
+        Arc::new(genesis.clone()),
+        vec![],
+        vec![],
+    ))];
+    let mut chain_genesis = ChainGenesis::test();
+    chain_genesis.epoch_length = epoch_length;
+    let mut env = TestEnv::new_with_runtime(chain_genesis, 1, 1, runtimes);
+    let genesis_hash = *env.clients[0].chain.genesis().hash();
+    let signer = InMemorySigner::from_seed("test0", KeyType::ED25519, "test0");
+    let tx = SignedTransaction::send_money(
+        1,
+        "test0".to_string(),
+        "test1".to_string(),
+        &signer,
+        100,
+        genesis_hash,
+    );
+    let tx_hash = tx.get_hash();
+
+    env.clients[0].process_tx(tx, false, false);
+    for i in 1..epoch_length {
+        env.produce_block(0, i);
+    }
+    assert!(env.clients[0].chain.get_final_transaction_result(&tx_hash).is_ok());
+
+    for i in epoch_length..=epoch_length * 6 + 1 {
+        env.produce_block(0, i);
+    }
+    assert!(env.clients[0].chain.get_final_transaction_result(&tx_hash).is_err());
+}
+
+#[test]
 fn test_tx_forwarding() {
     let mut chain_genesis = ChainGenesis::test();
     chain_genesis.epoch_length = 100;
