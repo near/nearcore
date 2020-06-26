@@ -26,13 +26,32 @@ tmux new -s near -d bash
 tmux send-keys -t near 'RUST_BACKTRACE=full /home/ubuntu/near run 2>&1 | tee /home/ubuntu/near.log' C-m
 '''
 
+PYTHON_DIR = '/home/ubuntu/.near/pytest/'
+
+PYTHON_SETUP_SCRIPT = f'''
+rm -rf {PYTHON_DIR}
+mkdir -p {PYTHON_DIR}
+python3 -m pip install pip --upgrade
+python3 -m pip install virtualenv --upgrade
+cd {PYTHON_DIR}
+python3 -m virtualenv venv -p $(which python3)
+'''
+
+INSTALL_PYTHON_REQUIREMENTS = f'''
+cd {PYTHON_DIR}
+./venv/bin/pip install -r requirements.txt
+'''
+
+
+def get_node(i):
+    n = GCloudNode(f'{NODE_BASE_NAME}{i}')
+    n.machine.username = NODE_USERNAME
+    n.machine.ssh_key_path = NODE_SSH_KEY_PATH
+    return n
+
 
 def get_nodes():
-    nodes = [GCloudNode(f'{NODE_BASE_NAME}{i}') for i in range(0, NUM_NODES)]
-    for n in nodes:
-        n.machine.username = NODE_USERNAME
-        n.machine.ssh_key_path = NODE_SSH_KEY_PATH
-    return nodes
+    return [get_node(i) for i in range(0, NUM_NODES)]
 
 
 def create_target_dir(machine):
@@ -47,6 +66,43 @@ def get_validator_account(node):
     target_dir = create_target_dir(m)
     m.download(f'/home/ubuntu/.near/validator_key.json', target_dir)
     return Key.from_json_file(f'{target_dir}/validator_key.json')
+
+
+def setup_python_environment(node):
+    m = node.machine
+    print(f'INFO: Setting up python environment on {m.name}')
+    m.run('bash', input=PYTHON_SETUP_SCRIPT)
+    m.upload('lib', PYTHON_DIR, switch_user='ubuntu')
+    m.upload('requirements.txt', PYTHON_DIR, switch_user='ubuntu')
+    m.upload('tests/mocknet/load_testing_helper.py',
+             PYTHON_DIR,
+             switch_user='ubuntu')
+    m.run('bash', input=INSTALL_PYTHON_REQUIREMENTS)
+    print(f'INFO: {m.name} python setup complete')
+
+
+def setup_python_environments(nodes):
+    pmap(setup_python_environment, nodes)
+
+
+def start_load_test_helper_script(index, pk, sk):
+    return f'''
+        cd {PYTHON_DIR}
+        nohup ./venv/bin/python load_testing_helper.py {index} "{pk}" "{sk}" > load_test.out 2> load_test.err < /dev/null &
+    '''
+
+
+def start_load_test_helper(node, pk, sk):
+    m = node.machine
+    print(f'INFO: Starting load_test_helper on {m.name}')
+    index = int(m.name.split('node')[-1])
+    m.run('bash', input=start_load_test_helper_script(index, pk, sk))
+
+
+def start_load_test_helpers(nodes):
+    account = get_validator_account(get_node(0))
+    pmap(lambda node: start_load_test_helper(node, account.pk, account.sk),
+         nodes)
 
 
 def get_epoch_length_in_blocks(node):
