@@ -41,7 +41,7 @@ from messages.tx import *
 from serializer import BinarySerializer
 
 MSG_TIMEOUT = 10
-__MY_PORT = [None]
+_MY_PORT = [None]
 
 schema = dict(crypto_schema + network_schema + block_schema + tx_schema)
 
@@ -49,9 +49,7 @@ schema = dict(crypto_schema + network_schema + block_schema + tx_schema)
 def proxy_cleanup(proxy):
     proxy.stopped.value = 1
     for p in proxy.ps:
-        # TODO(fix): Event loop per process doesn't stop correctly
-        p.terminate()
-        # p.join()
+        p.join()
     if proxy.error.value != 0:
         assert False, "One of the proxy processes failed, search for the stacktraces above"
 
@@ -133,6 +131,8 @@ class ProxyHandler:
 
     def get_writer(self, to, fr=None):
         if to == self.ordinal:
+            if fr is None and len(self.recv_from_map) > 0:
+                fr = next(iter(self.recv_from_map.keys()))
             return self.recv_from_map.get(fr)
         else:
             return self.send_to_map.get(to)
@@ -147,15 +147,14 @@ class ProxyHandler:
             await writer.drain()
 
     async def send_message(self, message, to, fr=None):
-        if self.get_writer(to) is not None:
-            raw_message = BinarySerializer(schema).serialize(message)
-            await self.send_binary(raw_message, to, fr)
+        raw_message = BinarySerializer(schema).serialize(message)
+        await self.send_binary(raw_message, to, fr)
 
-    def do_send_binary(self, raw_message, to):
-        self.loop.create_task(self.send_binary(raw_message, to))
+    def do_send_binary(self, raw_message, to, fr=None):
+        self.loop.create_task(self.send_binary(raw_message, to, fr))
 
-    def do_send_message(self, msg, to):
-        self.loop.create_task(self.send_binary(msg, to))
+    def do_send_message(self, msg, to, fr=None):
+        self.loop.create_task(self.send_message(msg, to, fr))
 
     async def handle(self, msg, fr, to):
         return True
@@ -178,8 +177,6 @@ class NodesProxy:
 async def stop_server(server):
     server.close()
     await server.wait_closed()
-    loop = asyncio.get_running_loop()
-    loop.stop()
 
 
 def check_finish(server, stopped, error):
@@ -187,11 +184,10 @@ def check_finish(server, stopped, error):
     if 0 == stopped.value and 0 == error.value:
         loop.call_later(1, check_finish, server, stopped, error)
     else:
-        loop.create_task(stop_server(server))
+        server.close()
 
-
-async def bridge(reader, writer, handler_fn):
-    while True:
+async def bridge(reader, writer, handler_fn, stopped, error):
+    while 0 == stopped.value and 0 == error.value:
         header = await reader.read(4)
         if not header:
             continue
@@ -221,12 +217,12 @@ async def handle_connection(outer_reader, outer_writer, inner_port, outer_port, 
         inner_to_outer = bridge(inner_reader, outer_writer, functools.partial(
             handler._handle, writer=inner_writer, sender_port_holder=my_port, receiver_port_holder=peer_port_holder,
             ordinal_to_writer=handler.recv_from_map,
-        ))
+        ), stopped, error)
 
         outer_to_inner = bridge(outer_reader, inner_writer, functools.partial(
             handler._handle, writer=outer_writer, sender_port_holder=peer_port_holder, receiver_port_holder=my_port,
             ordinal_to_writer=handler.send_to_map,
-        ))
+        ), stopped, error)
 
         await asyncio.gather(inner_to_outer, outer_to_inner)
 
@@ -249,13 +245,15 @@ async def listener(inner_port, outer_port, handler_ctr, stopped, error):
 
         async with server:
             await server.serve_forever()
+    except asyncio.CancelledError:
+        stopped.value = 1
     except:
         error.value = 1
         raise
 
 
 def start_server(inner_port, outer_port, handler_ctr, stopped, error):
-    __MY_PORT[0] = outer_port
+    _MY_PORT[0] = outer_port
     asyncio.run(listener(inner_port, outer_port, handler_ctr, stopped, error))
 
 
