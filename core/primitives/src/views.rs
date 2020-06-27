@@ -442,6 +442,7 @@ pub struct BlockHeaderInnerLiteView {
     pub next_epoch_id: CryptoHash,
     pub prev_state_root: CryptoHash,
     pub outcome_root: CryptoHash,
+    #[serde(with = "u64_dec_format")]
     pub timestamp: u64,
     pub next_bp_hash: CryptoHash,
     pub block_merkle_root: CryptoHash,
