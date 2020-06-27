@@ -143,6 +143,7 @@ class ProxyHandler:
             print(
                 f"Writer not known: to={to}, fr={fr}, send={self.send_to_map.keys()}, recv={self.recv_from_map.keys()}")
         else:
+            writer.write(struct.pack('I', len(raw_message)))
             writer.write(raw_message)
             await writer.drain()
 

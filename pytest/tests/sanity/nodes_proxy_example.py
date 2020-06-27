@@ -1,3 +1,9 @@
+# This test is an example about how to use the proxy features.
+#
+# Create two nodes and add a proxy between them.
+# - Capture PeersRequest message from node 1 to node 0.
+# - Let the message pass immediately so node 1 receives a PeersResponse
+# - After 3 seconds send PeersRequest again so node 1 receives again a PeersResponse
 import sys, time, asyncio
 import multiprocessing
 import functools
@@ -26,12 +32,11 @@ class Handler(ProxyHandler):
             self.peers_request = msg
             loop = asyncio.get_running_loop()
             send = functools.partial(self.do_send_message, msg, 0)
-            print("Scheduled")
             loop.call_later(3, send)
 
         if to == 1 and msg.enum == 'PeersResponse':
             self.peers_response += 1
-            print("PeersResponse:", self.peers_response)
+            print("Total PeersResponses =", self.peers_response)
             if self.peers_response == 2:
                 success.value = 1
 
