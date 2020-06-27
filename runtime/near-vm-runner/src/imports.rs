@@ -10,6 +10,7 @@ unsafe impl Sync for ImportReference {}
 // external functions taking i32/i64 type.
 // Remove, once using version with https://github.com/bytecodealliance/wasmtime/issues/1829
 // fixed. It doesn't affect correctness, as bit patterns are the same.
+#[cfg(feature = "wasmtime_vm")]
 macro_rules! rust2wasm {
     (u64) => {
         i64
@@ -37,6 +38,7 @@ macro_rules! wrapped_imports {
             )*
             }
 
+            #[cfg(feature = "wasmtime_vm")]
             pub mod wasmtime_ext {
             use near_vm_logic::{VMLogic, VMLogicError};
             use std::ffi::c_void;
@@ -51,6 +53,7 @@ macro_rules! wrapped_imports {
             type VMResult<T> = ::std::result::Result<T, Trap>;
             $(
                 #[allow(unused_parens)]
+                #[cfg(feature = "wasmtime_vm")]
                 pub fn $func( $( $arg_name: rust2wasm!($arg_type) ),* ) -> VMResult<($( rust2wasm!($returns)),*)> {
                     let data = CALLER_CONTEXT.with(|caller_context| {
                         unsafe {
@@ -91,6 +94,7 @@ macro_rules! wrapped_imports {
                 }
             }
 
+            #[cfg(feature = "wasmtime_vm")]
             pub(crate) fn link_wasmtime(
                     linker: &mut wasmtime::Linker,
                     memory: wasmtime::Memory,
@@ -109,6 +113,7 @@ macro_rules! wrapped_imports {
                   )*
             }
 
+            #[cfg(feature = "wasmtime_vm")]
             pub(crate) fn last_wasmtime_error() -> Option<near_vm_logic::VMLogicError> {
                 wasmtime_ext::EMBEDDER_ERROR.with(|embedder_error| {
                    embedder_error.replace(None)

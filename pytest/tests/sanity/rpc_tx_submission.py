@@ -11,6 +11,7 @@ from transaction import sign_payment_tx
 nodes = start_cluster(
     2, 1, 1, None,
     [["min_gas_price", 0], ['max_inflation_rate', [0, 1]], ["epoch_length", 100],
+     ['transaction_validity_period', 200],
      ["block_producer_kickout_threshold", 70]], {})
 
 time.sleep(3)
@@ -22,11 +23,11 @@ old_balances = [
 print("BALANCES BEFORE", old_balances)
 
 status = nodes[0].get_status()
-hash_ = status['sync_info']['latest_block_hash']
+hash1 = status['sync_info']['latest_block_hash']
 
 for i in range(3):
     tx = sign_payment_tx(nodes[0].signer_key, 'test1', 100 + i, i + 1,
-                         base58.b58decode(hash_.encode('utf8')))
+                         base58.b58decode(hash1.encode('utf8')))
     if i == 0:
         res = nodes[0].send_tx_and_wait(tx, timeout=20)
         if 'error' in res:
@@ -52,14 +53,23 @@ assert new_balances[1] == old_balances[1] + 303
 status = nodes[0].get_status()
 hash_ = status['sync_info']['latest_block_hash']
 tx = sign_payment_tx(nodes[0].signer_key, 'test1', 100, 1,
-                     base58.b58decode(hash_.encode('utf8')))
-res = nodes[0].json_rpc('EXPERIMENTAL_check_tx',
-                        [base64.b64encode(tx).decode('utf8')])
-assert 'TxExecutionError' in res['error']['data'], res
+                     base58.b58decode(hash1.encode('utf8')))
+
+# tx status check should be idempotent
+res = nodes[0].json_rpc('tx',
+                        [base64.b64encode(tx).decode('utf8')], timeout=10)
+assert 'error' not in res, res
+
+# broadcast_tx_commit should be idempotent
+res = nodes[0].send_tx_and_wait(tx, timeout=15)
+assert 'error' not in res, res
+
 
 tx = sign_payment_tx(nodes[0].signer_key, 'test1', 100, 10,
                      base58.b58decode(hash_.encode('utf8')))
-res = nodes[2].json_rpc('EXPERIMENTAL_check_tx',
-                        [base64.b64encode(tx).decode('utf8')])
+# check a transaction that doesn't exist yet
+res = nodes[0].json_rpc('tx',
+                        [base64.b64encode(tx).decode('utf8')], timeout=10)
+assert "doesn't exist" in res['error']['data'], res
 
-assert "Node doesn't track this shard" in res['error']['data'], res
+

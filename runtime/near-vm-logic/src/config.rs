@@ -1,7 +1,6 @@
 use crate::types::Gas;
 use serde::{Deserialize, Serialize};
 use std::collections::hash_map::DefaultHasher;
-use std::env;
 use std::hash::{Hash, Hasher};
 
 #[derive(Clone, Copy, Debug, Hash, Serialize, Deserialize)]
@@ -13,15 +12,19 @@ pub enum VMKind {
 }
 
 impl Default for VMKind {
+    #[cfg(feature = "wasmer_default")]
     fn default() -> Self {
-        match env::var("NEAR_VM") {
-            Ok(val) => match val.as_ref() {
-                "wasmtime" => VMKind::Wasmtime,
-                "wasmer" => VMKind::Wasmer,
-                _ => VMKind::Wasmer,
-            },
-            Err(_) => VMKind::Wasmer,
-        }
+        VMKind::Wasmer
+    }
+
+    #[cfg(feature = "wasmtime_default")]
+    fn default() -> Self {
+        VMKind::Wasmtime
+    }
+
+    #[cfg(all(not(feature = "wasmer_default"), not(feature = "wasmtime_default")))]
+    fn default() -> Self {
+        VMKind::Wasmer
     }
 }
 

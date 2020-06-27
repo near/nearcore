@@ -48,7 +48,8 @@ pub fn run_vm<'a>(
     vm_kind: VMKind,
 ) -> (Option<VMOutcome>, Option<VMError>) {
     use crate::wasmer_runner::run_wasmer;
-    use crate::wasmtime_runner::run_wasmtime;
+    #[cfg(feature = "wasmtime_vm")]
+    use crate::wasmtime_runner::wasmtime_runner::run_wasmtime;
     match vm_kind {
         VMKind::Wasmer => run_wasmer(
             code_hash,
@@ -60,6 +61,7 @@ pub fn run_vm<'a>(
             fees_config,
             promise_results,
         ),
+        #[cfg(feature = "wasmtime_vm")]
         VMKind::Wasmtime => run_wasmtime(
             code_hash,
             code,
@@ -70,11 +72,15 @@ pub fn run_vm<'a>(
             fees_config,
             promise_results,
         ),
+        #[cfg(not(feature = "wasmtime_vm"))]
+        VMKind::Wasmtime => {
+            panic!("Wasmtime is not supported, compile with '--features wasmtime_vm'")
+        }
     }
 }
 
 pub fn with_vm_variants(runner: fn(VMKind) -> ()) {
-    for vm in &[VMKind::Wasmer, VMKind::Wasmtime] {
-        runner(*vm);
-    }
+    runner(VMKind::Wasmer);
+    #[cfg(feature = "wasmtime_vm")]
+    runner(VMKind::Wasmtime);
 }

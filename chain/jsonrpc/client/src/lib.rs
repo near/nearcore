@@ -27,7 +27,7 @@ pub enum ChunkId {
 }
 
 /// Timeout for establishing connection.
-const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
 
 type HttpRequest<T> = LocalBoxFuture<'static, Result<T, String>>;
 type RpcRequest<T> = LocalBoxFuture<'static, Result<T, RpcError>>;
