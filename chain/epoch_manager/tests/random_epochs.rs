@@ -1,15 +1,16 @@
-use near_epoch_manager::test_utils::{
-    hash_range, record_block_with_slashes, setup_default_epoch_manager, stake,
-};
-use near_epoch_manager::{BlockInfo, EpochManager};
-use near_epoch_manager::{EpochInfo, SlashState};
-use near_primitives::challenge::SlashedValidator;
-use near_primitives::hash::CryptoHash;
-use near_primitives::types::{AccountId, Balance, EpochId, ValidatorKickoutReason, ValidatorStake};
 use rand::prelude::StdRng;
 use rand::{Rng, SeedableRng};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::iter::FromIterator;
+
+use near_epoch_manager::test_utils::{
+    hash_range, record_block_with_slashes, setup_default_epoch_manager, stake,
+};
+use near_epoch_manager::EpochManager;
+use near_primitives::challenge::SlashedValidator;
+use near_primitives::epoch_manager::{BlockInfo, EpochInfo, SlashState};
+use near_primitives::hash::CryptoHash;
+use near_primitives::types::{AccountId, Balance, EpochId, ValidatorKickoutReason, ValidatorStake};
 
 const DEBUG_PRINT: bool = false;
 
