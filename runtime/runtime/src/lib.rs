@@ -260,6 +260,7 @@ impl Runtime {
                         receipt_ids: vec![receipt.receipt_id],
                         gas_burnt: verification_result.gas_burnt,
                         tokens_burnt: verification_result.burnt_amount,
+                        executor_id: transaction.signer_id.clone(),
                     },
                 };
                 Ok((receipt, outcome))
@@ -660,6 +661,7 @@ impl Runtime {
                 receipt_ids,
                 gas_burnt: result.gas_burnt,
                 tokens_burnt,
+                executor_id: account_id.clone(),
             },
         })
     }

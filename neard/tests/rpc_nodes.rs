@@ -20,6 +20,9 @@ use near_primitives::views::{
     ExecutionOutcomeView, ExecutionStatusView, FinalExecutionStatus, QueryResponseKind,
 };
 use neard::config::TESTING_INIT_BALANCE;
+use std::sync::atomic::AtomicBool;
+use std::sync::atomic::Ordering::SeqCst;
+use std::sync::Arc;
 use testlib::{genesis_block, start_nodes, test_helpers::heavy_test};
 
 /// Starts 2 validators and 2 light clients (not tracking anything).
@@ -114,7 +117,7 @@ fn test_tx_propagation_through_rpc() {
                 tempfile::Builder::new().prefix(&format!("tx_propagation{}", i)).tempdir().unwrap()
             })
             .collect::<Vec<_>>();
-        let (genesis_config, rpc_addrs, clients) = start_nodes(4, &dirs, 2, 2, 10, 0);
+        let (genesis_config, rpc_addrs, clients) = start_nodes(4, &dirs, 2, 2, 1000, 0);
         let view_client = clients[0].1.clone();
 
         let genesis_hash = *genesis_block(genesis_config).hash();
@@ -127,15 +130,17 @@ fn test_tx_propagation_through_rpc() {
             10000,
             genesis_hash,
         );
+        let has_sent_tx = Arc::new(AtomicBool::new(false));
 
         WaitOrTimeout::new(
             Box::new(move |_ctx| {
                 let rpc_addrs_copy = rpc_addrs.clone();
                 let transaction_copy = transaction.clone();
+                let has_sent_tx1 = has_sent_tx.clone();
                 // We are sending this tx unstop, just to get over the warm up period.
                 // Probably make sense to stop after 1 time though.
                 actix::spawn(view_client.send(GetBlock::latest()).then(move |res| {
-                    if res.unwrap().unwrap().header.height > 1 {
+                    if res.unwrap().unwrap().header.height > 10 && !has_sent_tx1.load(SeqCst) {
                         let client = new_client(&format!("http://{}", rpc_addrs_copy[2]));
                         let bytes = transaction_copy.try_to_vec().unwrap();
                         actix::spawn(
@@ -153,6 +158,7 @@ fn test_tx_propagation_through_rpc() {
                                 })
                                 .map(drop),
                         );
+                        has_sent_tx1.store(true, SeqCst);
                     }
                     future::ready(())
                 }));
@@ -465,7 +471,13 @@ fn outcome_view_to_hashes(outcome: &ExecutionOutcomeView) -> Vec<CryptoHash> {
         ExecutionStatusView::SuccessReceiptId(id) => PartialExecutionStatus::SuccessReceiptId(*id),
     };
     let mut result = vec![hash(
-        &(outcome.receipt_ids.clone(), outcome.gas_burnt, outcome.tokens_burnt, status)
+        &(
+            outcome.receipt_ids.clone(),
+            outcome.gas_burnt,
+            outcome.tokens_burnt,
+            outcome.executor_id.clone(),
+            status,
+        )
             .try_to_vec()
             .expect("Failed to serialize"),
     )];

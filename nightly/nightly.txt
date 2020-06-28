@@ -52,7 +52,7 @@ pytest contracts/gibberish.py
 # pytest stress/network_stress.py
 
 # python spec tests
-pytest tests/spec/network/handshake.py
+pytest spec/network/handshake.py
 
 # python adversarial tests
 pytest --timeout=600 adversarial/fork_sync.py

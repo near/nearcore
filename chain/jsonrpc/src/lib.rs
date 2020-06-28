@@ -38,13 +38,13 @@ use near_primitives::rpc::{
     RpcBroadcastTxSyncResponse, RpcGenesisRecordsRequest, RpcLightClientExecutionProofRequest,
     RpcLightClientExecutionProofResponse, RpcQueryRequest, RpcStateChangesInBlockRequest,
     RpcStateChangesInBlockResponse, RpcStateChangesRequest, RpcStateChangesResponse,
+    TransactionInfo,
 };
 use near_primitives::serialize::{from_base, from_base64, BaseEncode};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockId, BlockIdOrFinality, MaybeBlockId};
 use near_primitives::utils::is_valid_account_id;
 use near_primitives::views::{FinalExecutionOutcomeView, GenesisRecordsView, QueryRequest};
-
 mod metrics;
 
 /// Maximum byte size of the json payload.
@@ -250,9 +250,12 @@ impl JsonRpcHandler {
 
     async fn tx_status_fetch(
         &self,
-        tx_hash: CryptoHash,
-        account_id: AccountId,
+        tx_info: TransactionInfo,
     ) -> Result<FinalExecutionOutcomeView, TxStatusError> {
+        let (tx_hash, account_id) = match &tx_info {
+            TransactionInfo::Transaction(tx) => (tx.get_hash(), tx.transaction.signer_id.clone()),
+            TransactionInfo::TransactionId { hash, account_id } => (*hash, account_id.clone()),
+        };
         timeout(self.polling_config.polling_timeout, async {
             loop {
                 let tx_status_result = self
@@ -262,6 +265,16 @@ impl JsonRpcHandler {
                 match tx_status_result {
                     Ok(Ok(Some(outcome))) => break Ok(outcome),
                     Ok(Ok(None)) => {}
+                    Ok(Err(err @ TxStatusError::MissingTransaction(_))) => {
+                        if let TransactionInfo::Transaction(tx) = &tx_info {
+                            if let Ok(NetworkClientResponses::InvalidTx(e)) =
+                                self.send_tx(tx.clone(), true).await
+                            {
+                                break Err(TxStatusError::InvalidTx(e));
+                            }
+                        }
+                        break Err(err);
+                    }
                     Ok(Err(err)) => break Err(err),
                     Err(_) => break Err(TxStatusError::InternalError),
                 }
@@ -272,19 +285,17 @@ impl JsonRpcHandler {
         .map_err(|_| TxStatusError::TimeoutError)?
     }
 
-    async fn tx_polling(
-        &self,
-        tx_hash: CryptoHash,
-        account_id: AccountId,
-    ) -> Result<Value, RpcError> {
+    async fn tx_polling(&self, tx_info: TransactionInfo) -> Result<Value, RpcError> {
         timeout(self.polling_config.polling_timeout, async {
             loop {
-                match self.tx_status_fetch(tx_hash, account_id.clone()).await {
+                match self.tx_status_fetch(tx_info.clone()).await {
                     Ok(tx_status) => break jsonify(Ok(Ok(tx_status))),
                     // If transaction is missing, keep polling.
                     Err(TxStatusError::MissingTransaction(_)) => {}
                     // If we hit any other error, we return to the user.
-                    Err(err) => break jsonify::<FinalExecutionOutcomeView>(Ok(Err(err.into()))),
+                    Err(err) => {
+                        break jsonify::<FinalExecutionOutcomeView>(Ok(Err(err.into())));
+                    }
                 }
                 let _ = delay_for(self.polling_config.polling_interval).await;
             }
@@ -362,11 +373,18 @@ impl JsonRpcHandler {
 
     async fn send_tx_commit(&self, params: Option<Value>) -> Result<Value, RpcError> {
         let tx = parse_tx(params)?;
-        let tx_hash = tx.get_hash();
-        let signer_account_id = tx.transaction.signer_id.clone();
-        match self.send_tx(tx, false).await? {
+        match self.tx_status_fetch(TransactionInfo::Transaction(tx.clone())).await {
+            Ok(outcome) => {
+                return jsonify(Ok(Ok(outcome)));
+            }
+            Err(TxStatusError::InvalidTx(e)) => {
+                return Err(RpcError::server_error(Some(ServerError::TxExecutionError(e.into()))));
+            }
+            _ => {}
+        }
+        match self.send_tx(tx.clone(), false).await? {
             NetworkClientResponses::ValidTx | NetworkClientResponses::RequestRouted => {
-                self.tx_polling(tx_hash, signer_account_id).await
+                self.tx_polling(TransactionInfo::Transaction(tx)).await
             }
             NetworkClientResponses::InvalidTx(err) => {
                 Err(RpcError::server_error(Some(ServerError::TxExecutionError(err.into()))))
@@ -499,12 +517,21 @@ impl JsonRpcHandler {
     }
 
     async fn tx_status(&self, params: Option<Value>) -> Result<Value, RpcError> {
-        let (tx_hash, account_id) = parse_params::<(CryptoHash, String)>(params)?;
-        if !is_valid_account_id(&account_id) {
-            return Err(RpcError::invalid_params(format!("Invalid account id: {}", account_id)));
-        }
+        let tx_status_request =
+            if let Ok((hash, account_id)) = parse_params::<(CryptoHash, String)>(params.clone()) {
+                if !is_valid_account_id(&account_id) {
+                    return Err(RpcError::invalid_params(format!(
+                        "Invalid account id: {}",
+                        account_id
+                    )));
+                }
+                TransactionInfo::TransactionId { hash, account_id }
+            } else {
+                let tx = parse_tx(params)?;
+                TransactionInfo::Transaction(tx)
+            };
 
-        jsonify(Ok(self.tx_status_fetch(tx_hash, account_id).await.map_err(|err| err.into())))
+        jsonify(Ok(self.tx_status_fetch(tx_status_request).await.map_err(|err| err.into())))
     }
 
     async fn block(&self, params: Option<Value>) -> Result<Value, RpcError> {

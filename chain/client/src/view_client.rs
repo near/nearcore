@@ -10,7 +10,6 @@ use actix::{Actor, Context, Handler};
 use cached::{Cached, SizedCache};
 use log::{debug, error, info, trace, warn};
 
-use near_chain::types::ShardStateSyncResponse;
 use near_chain::{
     Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode, ErrorKind, RuntimeAdapter,
 };
@@ -25,6 +24,7 @@ use near_primitives::block::{BlockHeader, GenesisId, Tip};
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{merklize, verify_path, PartialMerkleTree};
 use near_primitives::network::AnnounceAccount;
+use near_primitives::syncing::ShardStateSyncResponse;
 use near_primitives::types::{
     AccountId, BlockHeight, BlockId, BlockIdOrFinality, Finality, MaybeBlockId,
     TransactionOrReceiptId,
@@ -276,8 +276,10 @@ impl ViewClientActor {
                             for receipt_id in execution_outcome.outcome.receipt_ids {
                                 self.request_receipt_outcome(receipt_id, &head.last_block_hash)?;
                             }
+                            return Ok(None);
+                        } else {
+                            return Err(TxStatusError::MissingTransaction(tx_hash));
                         }
-                        return Err(TxStatusError::MissingTransaction(tx_hash));
                     }
                     _ => {
                         warn!(target: "client", "Error trying to get transaction result: {}", e.to_string());

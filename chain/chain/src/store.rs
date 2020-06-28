@@ -7,8 +7,6 @@ use std::sync::Arc;
 use borsh::{BorshDeserialize, BorshSerialize};
 use cached::{Cached, SizedCache};
 use chrono::Utc;
-use serde::Serialize;
-use strum::IntoEnumIterator;
 use tracing::debug;
 
 use near_primitives::block::{Approval, Tip};
@@ -18,68 +16,43 @@ use near_primitives::merkle::{MerklePath, PartialMerkleTree};
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{
     ChunkHash, EncodedShardChunk, PartialEncodedChunk, ReceiptProof, ShardChunk, ShardChunkHeader,
+    StateSyncInfo,
+};
+use near_primitives::syncing::{
+    get_num_state_parts, ReceiptProofResponse, ReceiptResponse, ShardStateSyncResponseHeader,
+    StatePartKey,
 };
 use near_primitives::transaction::{
     ExecutionOutcomeWithId, ExecutionOutcomeWithIdAndProof, SignedTransaction,
 };
 use near_primitives::trie_key::{trie_key_parsers, TrieKey};
 use near_primitives::types::{
-    AccountId, BlockExtra, BlockHeight, ChunkExtra, EpochId, NumBlocks, ShardId, StateChanges,
-    StateChangesExt, StateChangesKinds, StateChangesKindsExt, StateChangesRequest, StateHeaderKey,
+    AccountId, BlockExtra, BlockHeight, ChunkExtra, EpochId, GCCount, NumBlocks, ShardId,
+    StateChanges, StateChangesExt, StateChangesKinds, StateChangesKindsExt, StateChangesRequest,
+    StateHeaderKey,
 };
 use near_primitives::utils::{get_block_shard_id, index_to_bytes, to_timestamp};
 use near_primitives::views::LightClientBlockView;
 use near_store::{
-    read_with_cache, ColBlock, ColBlockExtra, ColBlockHeader, ColBlockHeight, ColBlockMerkleTree,
-    ColBlockMisc, ColBlockOrdinal, ColBlockPerHeight, ColBlockRefCount, ColBlocksToCatchup,
-    ColChallengedBlocks, ColChunkExtra, ColChunkHashesByHeight, ColChunkPerHeightShard, ColChunks,
-    ColEpochLightClientBlocks, ColIncomingReceipts, ColInvalidChunks, ColLastBlockWithNewChunk,
-    ColNextBlockHashes, ColNextBlockWithNewChunk, ColOutgoingReceipts, ColPartialChunks,
-    ColReceiptIdToShardId, ColStateChanges, ColStateDlInfos, ColStateHeaders, ColStateNumParts,
-    ColStateParts, ColTransactionResult, ColTransactions, ColTrieChanges, DBCol,
-    KeyForStateChanges, ShardTries, Store, StoreUpdate, TrieChanges, WrappedTrieChanges,
-    CHUNK_TAIL_KEY, HEADER_HEAD_KEY, HEAD_KEY, LARGEST_TARGET_HEIGHT_KEY, LATEST_KNOWN_KEY,
-    NUM_COLS, SYNC_HEAD_KEY, TAIL_KEY,
+    read_with_cache, ColBlock, ColBlockExtra, ColBlockHeader, ColBlockHeight, ColBlockInfo,
+    ColBlockMerkleTree, ColBlockMisc, ColBlockOrdinal, ColBlockPerHeight, ColBlockRefCount,
+    ColBlocksToCatchup, ColChallengedBlocks, ColChunkExtra, ColChunkHashesByHeight,
+    ColChunkPerHeightShard, ColChunks, ColEpochInfo, ColEpochLightClientBlocks, ColEpochStart,
+    ColGCCount, ColIncomingReceipts, ColInvalidChunks, ColLastBlockWithNewChunk,
+    ColNextBlockHashes, ColNextBlockWithNewChunk, ColOutcomesByBlockHash, ColOutgoingReceipts,
+    ColPartialChunks, ColReceiptIdToShardId, ColStateChanges, ColStateDlInfos, ColStateHeaders,
+    ColTransactionResult, ColTransactions, ColTrieChanges, DBCol, KeyForStateChanges, ShardTries,
+    Store, StoreUpdate, TrieChanges, WrappedTrieChanges, CHUNK_TAIL_KEY, HEADER_HEAD_KEY, HEAD_KEY,
+    LARGEST_TARGET_HEIGHT_KEY, LATEST_KNOWN_KEY, SHOULD_COL_GC, SYNC_HEAD_KEY, TAIL_KEY,
 };
 
 use crate::byzantine_assert;
 use crate::error::{Error, ErrorKind};
-use crate::types::{
-    Block, BlockHeader, LatestKnown, ReceiptProofResponse, ReceiptResponse, StatePartKey,
-};
+use crate::types::{Block, BlockHeader, LatestKnown};
 
 /// lru cache size
 const CACHE_SIZE: usize = 100;
 const CHUNK_CACHE_SIZE: usize = 1024;
-
-lazy_static! {
-    pub static ref SHOULD_COL_GC: Vec<bool> = {
-        let mut col_gc = vec![true; NUM_COLS];
-        col_gc[DBCol::ColDbVersion as usize] = false; // DB version is unrelated to GC
-        col_gc[DBCol::ColBlockMisc as usize] = false;
-        col_gc[DBCol::ColBlockHeader as usize] = false; // header sync needs headers
-        col_gc[DBCol::ColGCCount as usize] = false; // GC count it self isn't GCed
-        col_gc[DBCol::ColBlockHeight as usize] = false; // block sync needs it + genesis should be accessible
-        col_gc[DBCol::ColTransactionResult as usize] = false;
-        col_gc[DBCol::ColPeers as usize] = false; // Peers is unrelated to GC
-        col_gc[DBCol::ColEpochInfo as usize] = false;
-        col_gc[DBCol::ColStateDlInfos as usize] = false;
-        col_gc[DBCol::ColBlockInfo as usize] = false;
-        col_gc[DBCol::ColBlockMerkleTree as usize] = false;
-        col_gc[DBCol::ColEpochStart as usize] = false;
-        col_gc[DBCol::ColAccountAnnouncements as usize] = false;
-        col_gc[DBCol::ColEpochLightClientBlocks as usize] = false;
-        col_gc[DBCol::ColLastBlockWithNewChunk as usize] = false;
-        col_gc[DBCol::ColPeerComponent as usize] = false; // Peer related info doesn't GC
-        col_gc[DBCol::LastComponentNonce as usize] = false;
-        col_gc[DBCol::ColComponentEdges as usize] = false;
-        col_gc[DBCol::ColBlockOrdinal as usize] = false;
-        col_gc
-    };
-}
-
-#[derive(Debug, PartialEq, BorshSerialize, BorshDeserialize, Serialize)]
-pub struct ShardInfo(pub ShardId, pub ChunkHash);
 
 #[derive(Clone)]
 pub enum GCMode {
@@ -93,15 +66,6 @@ fn get_height_shard_id(height: BlockHeight, shard_id: ShardId) -> Vec<u8> {
     res.extend_from_slice(&height.to_le_bytes());
     res.extend_from_slice(&shard_id.to_le_bytes());
     res
-}
-
-/// Contains the information that is used to sync state for shards as epochs switch
-#[derive(Debug, PartialEq, BorshSerialize, BorshDeserialize, Serialize)]
-pub struct StateSyncInfo {
-    /// The first block of the epoch for which syncing is happening
-    pub epoch_tail_hash: CryptoHash,
-    /// Shards to fetch state
-    pub shards: Vec<ShardInfo>,
 }
 
 /// Accesses the chain store. Used to create atomic editable views that can be reverted.
@@ -230,10 +194,21 @@ pub trait ChainStoreAccess {
         &mut self,
         hash: &CryptoHash,
     ) -> Result<&ExecutionOutcomeWithIdAndProof, Error>;
+    /// Returns a HashSet of Outcome ids for current Block Hash
+    fn get_outcomes_by_block_hash(
+        &mut self,
+        block_hash: &CryptoHash,
+    ) -> Result<HashSet<CryptoHash>, Error>;
     /// Returns whether the block with the given hash was challenged
     fn is_block_challenged(&mut self, hash: &CryptoHash) -> Result<bool, Error>;
 
     fn get_blocks_to_catchup(&self, prev_hash: &CryptoHash) -> Result<Vec<CryptoHash>, Error>;
+
+    fn get_state_header(
+        &mut self,
+        shard_id: ShardId,
+        block_hash: CryptoHash,
+    ) -> Result<ShardStateSyncResponseHeader, Error>;
 
     /// Returns latest known height and time it was seen.
     fn get_latest_known(&mut self) -> Result<LatestKnown, Error>;
@@ -814,8 +789,31 @@ impl ChainStoreAccess for ChainStore {
         )
     }
 
+    fn get_outcomes_by_block_hash(
+        &mut self,
+        block_hash: &CryptoHash,
+    ) -> Result<HashSet<CryptoHash>, Error> {
+        match self.store.get_ser(ColOutcomesByBlockHash, block_hash.as_ref()) {
+            Ok(Some(hash_set)) => Ok(hash_set),
+            Ok(None) => Ok(HashSet::new()),
+            Err(e) => Err(e.into()),
+        }
+    }
+
     fn get_blocks_to_catchup(&self, hash: &CryptoHash) -> Result<Vec<CryptoHash>, Error> {
         Ok(self.store.get_ser(ColBlocksToCatchup, hash.as_ref())?.unwrap_or_else(|| vec![]))
+    }
+
+    fn get_state_header(
+        &mut self,
+        shard_id: ShardId,
+        block_hash: CryptoHash,
+    ) -> Result<ShardStateSyncResponseHeader, Error> {
+        let key = StateHeaderKey(shard_id, block_hash).try_to_vec()?;
+        match self.store.get_ser(ColStateHeaders, &key) {
+            Ok(Some(header)) => Ok(header),
+            _ => Err(ErrorKind::Other("Cannot get shard_state_header".into()).into()),
+        }
     }
 
     fn get_latest_known(&mut self) -> Result<LatestKnown, Error> {
@@ -1086,6 +1084,7 @@ struct ChainStoreCacheUpdate {
     block_refcounts: HashMap<CryptoHash, u64>,
     block_merkle_tree: HashMap<CryptoHash, PartialMerkleTree>,
     block_ordinal_to_hash: HashMap<NumBlocks, CryptoHash>,
+    gc_count: HashMap<DBCol, GCCount>,
 }
 
 impl ChainStoreCacheUpdate {
@@ -1093,8 +1092,6 @@ impl ChainStoreCacheUpdate {
         Self::default()
     }
 }
-
-type GCCount = u64;
 
 /// Provides layer to update chain without touching the underlying database.
 /// This serves few purposes, main one is that even if executable exists/fails during update the database is in consistent state.
@@ -1118,7 +1115,6 @@ pub struct ChainStoreUpdate<'a> {
     add_state_dl_infos: Vec<StateSyncInfo>,
     remove_state_dl_infos: Vec<CryptoHash>,
     challenged_blocks: HashSet<CryptoHash>,
-    gc_count: Vec<GCCount>,
 }
 
 impl<'a> ChainStoreUpdate<'a> {
@@ -1140,7 +1136,6 @@ impl<'a> ChainStoreUpdate<'a> {
             add_state_dl_infos: vec![],
             remove_state_dl_infos: vec![],
             challenged_blocks: HashSet::default(),
-            gc_count: vec![0; NUM_COLS],
         }
     }
 
@@ -1408,6 +1403,13 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
         self.chain_store.get_execution_outcome(hash)
     }
 
+    fn get_outcomes_by_block_hash(
+        &mut self,
+        block_hash: &CryptoHash,
+    ) -> Result<HashSet<CryptoHash>, Error> {
+        self.chain_store.get_outcomes_by_block_hash(block_hash)
+    }
+
     fn get_chunk(&mut self, chunk_hash: &ChunkHash) -> Result<&ShardChunk, Error> {
         if let Some(chunk) = self.chain_store_cache_update.chunks.get(chunk_hash) {
             Ok(chunk)
@@ -1442,6 +1444,14 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
         assert_eq!(self.remove_prev_blocks_to_catchup.len(), 0);
 
         self.chain_store.get_blocks_to_catchup(prev_hash)
+    }
+
+    fn get_state_header(
+        &mut self,
+        shard_id: ShardId,
+        block_hash: CryptoHash,
+    ) -> Result<ShardStateSyncResponseHeader, Error> {
+        self.chain_store.get_state_header(shard_id, block_hash)
     }
 
     fn get_latest_known(&mut self) -> Result<LatestKnown, Error> {
@@ -1922,6 +1932,7 @@ impl<'a> ChainStoreUpdate<'a> {
     ) -> Result<(), Error> {
         let mut store_update = self.store().store_update();
         let header = self.get_block_header(&block_hash).expect("block header must exist").clone();
+        let next_epoch_id = header.epoch_id();
 
         // 1. Apply revert insertions or deletions from ColTrieChanges for Trie
         match gc_mode.clone() {
@@ -1989,7 +2000,6 @@ impl<'a> ChainStoreUpdate<'a> {
             self.merge(store_update);
             return Ok(());
         }
-        let block_hash_ref = block_hash.as_ref();
 
         // 2. Delete shard_id-indexed data (shards, receipts, transactions)
         for shard_id in 0..block.header().chunk_mask().len() as ShardId {
@@ -1998,15 +2008,23 @@ impl<'a> ChainStoreUpdate<'a> {
             self.gc_col(ColIncomingReceipts, &height_shard_id);
             self.gc_col(ColChunkPerHeightShard, &height_shard_id);
             self.gc_col(ColNextBlockWithNewChunk, &height_shard_id);
-            let key = StateHeaderKey(shard_id, block_hash).try_to_vec()?;
+
             // For incoming State Parts it's done in chain.clear_downloaded_parts()
-            // The following code is for outgoing State Parts
-            let num_parts = self.store().get_ser(ColStateNumParts, block_hash_ref)?.unwrap_or(0u64);
-            for part_id in 0..num_parts {
-                let key = StatePartKey(block_hash, shard_id, part_id).try_to_vec()?;
-                self.gc_col(ColStateParts, &key);
+            // The following code is mostly for outgoing State Parts.
+            // However, if node crashes while State Syncing, it may never clear
+            // downloaded State parts in `clear_downloaded_parts`.
+            // We need to make sure all State Parts are removed.
+            if let Ok(shard_state_header) = self.get_state_header(shard_id, block_hash) {
+                let state_num_parts =
+                    get_num_state_parts(shard_state_header.state_root_node.memory_usage);
+                self.gc_col_state_parts(block_hash, shard_id, state_num_parts)?;
+                let key = StateHeaderKey(shard_id, block_hash).try_to_vec()?;
+                self.gc_col(ColStateHeaders, &key);
             }
-            self.gc_col(ColStateHeaders, &key);
+
+            if self.get_last_block_with_new_chunk(shard_id)? == Some(&block_hash) {
+                self.gc_col(ColLastBlockWithNewChunk, &index_to_bytes(shard_id));
+            }
         }
 
         // 3. Delete block_hash-indexed data
@@ -2026,8 +2044,14 @@ impl<'a> ChainStoreUpdate<'a> {
         for key in stored_state_changes {
             self.gc_col(ColStateChanges, &key);
         }
-        self.gc_col(ColStateNumParts, &block_hash_vec);
         self.gc_col(ColBlockRefCount, &block_hash_vec);
+        let outcome_ids = self.get_outcomes_by_block_hash(&block_hash)?;
+        for outcome_id in outcome_ids {
+            self.gc_col(ColTransactionResult, &outcome_id.as_ref().into());
+        }
+        self.gc_col(ColOutcomesByBlockHash, &block_hash_vec);
+        self.gc_col(ColBlockInfo, &block_hash_vec);
+        self.gc_col(ColStateDlInfos, &block_hash_vec);
 
         // 4. Update or delete block_hash_per_height
         self.gc_col_block_per_height(&block_hash, height, &block.header().epoch_id())?;
@@ -2047,6 +2071,13 @@ impl<'a> ChainStoreUpdate<'a> {
                     }
                 }
                 self.clear_chunk_data(min_chunk_height)?;
+                // Check Epoch switch
+                let cur_epoch_id = block.header().epoch_id();
+                if cur_epoch_id != next_epoch_id {
+                    // Current Block is the last one who needs current Epoch
+                    self.gc_col(ColEpochInfo, &cur_epoch_id.as_ref().into());
+                    self.gc_col(ColEpochStart, &cur_epoch_id.as_ref().into());
+                }
             }
             GCMode::StateSync => {
                 // 7. State Sync clearing
@@ -2057,22 +2088,8 @@ impl<'a> ChainStoreUpdate<'a> {
         Ok(())
     }
 
-    fn get_gc_count(&self, col: DBCol) -> GCCount {
-        if self.gc_count[col as usize] != 0 {
-            self.gc_count[col as usize]
-        } else if let Ok(Some(count)) = self
-            .store()
-            .get(DBCol::ColGCCount, &borsh::ser::BorshSerialize::try_to_vec(&col).unwrap())
-        {
-            borsh::de::BorshDeserialize::try_from_slice(&count).unwrap()
-        } else {
-            0
-        }
-    }
-
     fn inc_gc(&mut self, col: DBCol) {
-        let new_count = self.get_gc_count(col) + 1;
-        self.gc_count[col as usize] = new_count;
+        self.chain_store_cache_update.gc_count.entry(col).and_modify(|x| *x += 1).or_insert(1);
     }
 
     pub fn gc_col_block_per_height(
@@ -2209,26 +2226,40 @@ impl<'a> ChainStoreUpdate<'a> {
             DBCol::ColBlockPerHeight => {
                 panic!("Must use gc_col_glock_per_height method to gc ColBlockPerHeight");
             }
-            DBCol::ColStateNumParts => {
+            DBCol::ColTransactionResult => {
                 store_update.delete(col, key);
+                self.chain_store.outcomes.cache_remove(key);
+            }
+            DBCol::ColOutcomesByBlockHash => {
+                store_update.delete(col, key);
+            }
+            DBCol::ColStateDlInfos => {
+                store_update.delete(col, key);
+            }
+            DBCol::ColBlockInfo => {
+                store_update.delete(col, key);
+            }
+            DBCol::ColEpochInfo => {
+                store_update.delete(col, key);
+            }
+            DBCol::ColEpochStart => {
+                store_update.delete(col, key);
+            }
+            DBCol::ColLastBlockWithNewChunk => {
+                store_update.delete(col, key);
+                self.chain_store.last_block_with_new_chunk.cache_remove(key);
             }
             DBCol::ColDbVersion
             | DBCol::ColBlockMisc
             | DBCol::ColBlockHeader
             | DBCol::ColGCCount
             | DBCol::ColBlockHeight
-            | DBCol::ColTransactionResult
             | DBCol::ColPeers
-            | DBCol::ColEpochInfo
-            | DBCol::ColStateDlInfos
-            | DBCol::ColBlockInfo
             | DBCol::ColBlockMerkleTree
-            | DBCol::ColEpochStart
             | DBCol::ColAccountAnnouncements
             | DBCol::ColEpochLightClientBlocks
-            | DBCol::ColLastBlockWithNewChunk
             | DBCol::ColPeerComponent
-            | DBCol::LastComponentNonce
+            | DBCol::ColLastComponentNonce
             | DBCol::ColComponentEdges
             | DBCol::ColBlockOrdinal => {
                 unreachable!();
@@ -2381,8 +2412,25 @@ impl<'a> ChainStoreUpdate<'a> {
                 receipt,
             )?;
         }
+        let mut block_hash_to_outcomes: HashMap<CryptoHash, HashSet<CryptoHash>> = HashMap::new();
         for (hash, outcome) in self.chain_store_cache_update.outcomes.iter() {
+            match block_hash_to_outcomes.entry(outcome.block_hash) {
+                Entry::Occupied(mut entry) => {
+                    entry.get_mut().insert(outcome.id().clone());
+                }
+                Entry::Vacant(entry) => {
+                    let mut hash_set = self
+                        .chain_store
+                        .get_outcomes_by_block_hash(&outcome.block_hash)
+                        .unwrap_or_else(|_| HashSet::new());
+                    hash_set.insert(outcome.id().clone());
+                    entry.insert(hash_set);
+                }
+            };
             store_update.set_ser(ColTransactionResult, hash.as_ref(), outcome)?;
+        }
+        for (block_hash, hash_set) in block_hash_to_outcomes {
+            store_update.set_ser(ColOutcomesByBlockHash, block_hash.as_ref(), &hash_set)?;
         }
         for (receipt_id, shard_id) in self.chain_store_cache_update.receipt_id_to_shard_id.iter() {
             store_update.set_ser(ColReceiptIdToShardId, receipt_id.as_ref(), shard_id)?;
@@ -2499,11 +2547,17 @@ impl<'a> ChainStoreUpdate<'a> {
         for (chunk_hash, chunk) in self.chain_store_cache_update.invalid_chunks.iter() {
             store_update.set_ser(ColInvalidChunks, chunk_hash.as_ref(), chunk)?;
         }
-        for col in DBCol::iter() {
+        for (col, mut gc_count) in self.chain_store_cache_update.gc_count.clone().drain() {
+            if let Ok(Some(value)) = self.store().get_ser::<GCCount>(
+                ColGCCount,
+                &col.try_to_vec().expect("Failed to serialize DBCol"),
+            ) {
+                gc_count += value;
+            }
             store_update.set_ser(
-                DBCol::ColGCCount,
-                &borsh::ser::BorshSerialize::try_to_vec(&col).expect("Failed to deserialize DBCol"),
-                &self.gc_count[col as usize],
+                ColGCCount,
+                &col.try_to_vec().expect("Failed to serialize DBCol"),
+                &gc_count,
             )?;
         }
         for other in self.store_updates.drain(..) {
@@ -2540,6 +2594,7 @@ impl<'a> ChainStoreUpdate<'a> {
             block_refcounts,
             block_merkle_tree,
             block_ordinal_to_hash,
+            ..
         } = self.chain_store_cache_update;
         for (hash, block) in blocks {
             self.chain_store.blocks.cache_set(hash.into(), block);
@@ -2641,6 +2696,7 @@ impl<'a> ChainStoreUpdate<'a> {
 mod tests {
     use std::sync::Arc;
 
+    use borsh::BorshSerialize;
     use cached::Cached;
     use strum::IntoEnumIterator;
 
@@ -2648,7 +2704,7 @@ mod tests {
     use near_primitives::block::{Block, Tip};
     use near_primitives::errors::InvalidTxError;
     use near_primitives::hash::hash;
-    use near_primitives::types::{BlockHeight, EpochId, NumBlocks};
+    use near_primitives::types::{BlockHeight, EpochId, GCCount, NumBlocks};
     use near_primitives::utils::index_to_bytes;
     use near_primitives::validator_signer::InMemoryValidatorSigner;
     use near_store::test_utils::create_test_store;
@@ -2927,27 +2983,48 @@ mod tests {
         }
         assert!(check_refcount_map(&mut chain).is_ok());
 
-        let store_update = chain.mut_store().store_update();
-
         let gced_cols = [
             DBCol::ColBlock,
             DBCol::ColOutgoingReceipts,
             DBCol::ColIncomingReceipts,
+            DBCol::ColBlockInfo,
             DBCol::ColBlocksToCatchup,
             DBCol::ColChallengedBlocks,
-            DBCol::ColStateHeaders,
+            DBCol::ColStateDlInfos,
             DBCol::ColBlockExtra,
             DBCol::ColBlockPerHeight,
             DBCol::ColNextBlockHashes,
             DBCol::ColNextBlockWithNewChunk,
             DBCol::ColChunkPerHeightShard,
             DBCol::ColBlockRefCount,
+            DBCol::ColOutcomesByBlockHash,
         ];
-        for i in DBCol::iter() {
-            if gced_cols.contains(&i) {
-                assert!(store_update.get_gc_count(i) == 7);
+        for col in DBCol::iter() {
+            println!("current column is {:?}", col);
+            if gced_cols.contains(&col) {
+                assert_eq!(
+                    chain
+                        .store()
+                        .store
+                        .get_ser::<GCCount>(
+                            DBCol::ColGCCount,
+                            &col.try_to_vec().expect("Failed to serialize DBCol")
+                        )
+                        .unwrap(),
+                    Some(7)
+                );
             } else {
-                assert!(store_update.get_gc_count(i) == 0);
+                assert_eq!(
+                    chain
+                        .store()
+                        .store
+                        .get_ser::<GCCount>(
+                            DBCol::ColGCCount,
+                            &col.try_to_vec().expect("Failed to serialize DBCol")
+                        )
+                        .unwrap(),
+                    None
+                );
             }
         }
     }
