@@ -160,3 +160,29 @@ async def run_handshake(conn: Connection, target_public_key: PublicKey, key_pair
         response = await conn.recv()
 
     assert response.enum == 'Handshake', response.enum
+
+
+def create_and_sign_routed_peer_message(routed_msg_body, target_node, my_key_pair_nacl, schema):
+    routed_msg = RoutedMessage()
+    routed_msg.target = PeerIdOrHash()
+    routed_msg.target.enum = 'PeerId'
+    routed_msg.target.PeerId = PublicKey()
+    routed_msg.target.PeerId.keyType = 0
+    routed_msg.target.PeerId.data = base58.b58decode(target_node.node_key.pk[len(ED_PREFIX):])
+    routed_msg.author = PublicKey()
+    routed_msg.author.keyType = 0
+    routed_msg.author.data = bytes(my_key_pair_nacl.verify_key)
+    routed_msg.ttl = 100
+    routed_msg.body = routed_msg_body
+    routed_msg.signature = Signature()
+    routed_msg.signature.keyType = 0
+
+    routed_msg_arr = bytes(bytearray([0, 0]) + routed_msg.target.PeerId.data + bytearray([0]) + routed_msg.author.data + BinarySerializer(schema).serialize(routed_msg.body))
+    routed_msg_hash = hashlib.sha256(routed_msg_arr).digest() # MOO extract into a function
+    routed_msg.signature.data = my_key_pair_nacl.sign(routed_msg_hash).signature
+
+    peer_message = PeerMessage()
+    peer_message.enum = 'Routed'
+    peer_message.Routed = routed_msg
+
+    return peer_message
