@@ -1,13 +1,14 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::iter;
 
+use near_primitives::epoch_manager::{EpochConfig, EpochInfo};
 use near_primitives::errors::EpochError;
 use near_primitives::types::{
     AccountId, Balance, NumSeats, ValidatorId, ValidatorKickoutReason, ValidatorStake,
 };
 use near_primitives::version::ProtocolVersion;
 
-use crate::types::{EpochConfig, EpochInfo, RngSeed};
+use crate::types::RngSeed;
 
 /// Find threshold of stake per seat, given provided stakes and required number of seats.
 pub(crate) fn find_threshold(

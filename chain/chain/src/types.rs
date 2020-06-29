@@ -13,7 +13,7 @@ use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::{merklize, MerklePath};
 use near_primitives::receipt::Receipt;
-use near_primitives::sharding::{ReceiptProof, ShardChunk, ShardChunkHeader};
+use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::transaction::{ExecutionOutcomeWithId, SignedTransaction};
 use near_primitives::types::{
     AccountId, ApprovalStake, Balance, BlockHeight, EpochId, Gas, MerkleHash, ShardId, StateRoot,
@@ -24,18 +24,6 @@ use near_primitives::views::{EpochValidatorInfo, QueryRequest, QueryResponse};
 use near_store::{PartialStorage, ShardTries, Store, StoreUpdate, Trie, WrappedTrieChanges};
 
 use crate::error::Error;
-
-#[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize, Serialize)]
-pub struct ReceiptResponse(pub CryptoHash, pub Vec<Receipt>);
-
-#[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize, Serialize)]
-pub struct ReceiptProofResponse(pub CryptoHash, pub Vec<ReceiptProof>);
-
-#[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize, Serialize)]
-pub struct RootProof(pub CryptoHash, pub MerklePath);
-
-#[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize, Serialize)]
-pub struct StatePartKey(pub CryptoHash, pub ShardId, pub u64 /* PartId */);
 
 #[derive(Eq, PartialEq, Debug, Clone)]
 pub enum BlockStatus {
@@ -495,23 +483,6 @@ pub struct ReceiptList(pub ShardId, pub Vec<Receipt>);
 pub struct LatestKnown {
     pub height: BlockHeight,
     pub seen: u64,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, Serialize)]
-pub struct ShardStateSyncResponseHeader {
-    pub chunk: ShardChunk,
-    pub chunk_proof: MerklePath,
-    pub prev_chunk_header: Option<ShardChunkHeader>,
-    pub prev_chunk_proof: Option<MerklePath>,
-    pub incoming_receipts_proofs: Vec<ReceiptProofResponse>,
-    pub root_proofs: Vec<Vec<RootProof>>,
-    pub state_root_node: StateRootNode,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, Serialize)]
-pub struct ShardStateSyncResponse {
-    pub header: Option<ShardStateSyncResponseHeader>,
-    pub part: Option<(u64, Vec<u8>)>,
 }
 
 /// When running block sync response to know if the node needs to sync state,

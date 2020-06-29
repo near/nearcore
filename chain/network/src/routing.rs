@@ -18,7 +18,7 @@ use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::types::AccountId;
 use near_primitives::utils::index_to_bytes;
 use near_store::{
-    ColAccountAnnouncements, ColComponentEdges, ColPeerComponent, LastComponentNonce, Store,
+    ColAccountAnnouncements, ColComponentEdges, ColLastComponentNonce, ColPeerComponent, Store,
     StoreUpdate,
 };
 
@@ -291,7 +291,7 @@ impl RoutingTable {
     pub fn new(peer_id: PeerId, store: Arc<Store>) -> Self {
         // Find greater nonce on disk and set `component_nonce` to this value.
         let component_nonce = store
-            .get_ser::<u64>(LastComponentNonce, &[])
+            .get_ser::<u64>(ColLastComponentNonce, &[])
             .unwrap_or(None)
             .map_or(0, |nonce| nonce + 1);
 
@@ -638,7 +638,7 @@ impl RoutingTable {
         self.component_nonce += 1;
 
         let mut update = self.store.store_update();
-        let _ = update.set_ser(LastComponentNonce, &[], &component_nonce);
+        let _ = update.set_ser(ColLastComponentNonce, &[], &component_nonce);
 
         for peer_id in to_save.iter() {
             let _ = update.set_ser(

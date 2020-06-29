@@ -6,6 +6,9 @@ use cached::{Cached, SizedCache};
 use log::{debug, warn};
 use primitive_types::U256;
 
+use near_primitives::epoch_manager::{
+    BlockInfo, EpochConfig, EpochInfo, EpochSummary, SlashState, AGGREGATOR_KEY,
+};
 use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{
@@ -20,8 +23,8 @@ use near_store::{ColBlockInfo, ColEpochInfo, ColEpochStart, Store, StoreUpdate};
 
 use crate::proposals::proposals_to_epoch_info;
 pub use crate::reward_calculator::RewardCalculator;
-pub use crate::types::{BlockInfo, EpochConfig, EpochInfo, RngSeed, SlashState};
-use crate::types::{EpochInfoAggregator, EpochSummary};
+use crate::types::EpochInfoAggregator;
+pub use crate::types::RngSeed;
 
 mod proposals;
 mod reward_calculator;
@@ -30,7 +33,6 @@ mod types;
 
 const EPOCH_CACHE_SIZE: usize = 10;
 const BLOCK_CACHE_SIZE: usize = 1000;
-const AGGREGATOR_KEY: &[u8] = b"AGGREGATOR";
 const AGGREGATOR_SAVE_PERIOD: u64 = 1000;
 
 /// Tracks epoch information across different forks, such as validators.
