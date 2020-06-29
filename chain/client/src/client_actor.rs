@@ -377,6 +377,12 @@ impl Handler<NetworkClientMessages> for ClientActor {
                     if let Some((_, shards_to_download)) =
                         self.client.catchup_state_syncs.get_mut(&hash)
                     {
+                        if let Some(part_id) = state_response.part_id() {
+                            self.client
+                                .state_sync
+                                .received_requested_part(part_id, shard_id, hash);
+                        }
+
                         if let Some(shard_download) = shards_to_download.get_mut(&shard_id) {
                             assert!(download.is_none(), "Internal downloads set has duplicates");
                             download = Some(shard_download);
@@ -388,6 +394,7 @@ impl Handler<NetworkClientMessages> for ClientActor {
                     // We should not be requesting the same state twice.
                     download
                 };
+
                 if let Some(shard_sync_download) = download {
                     match shard_sync_download.status {
                         ShardSyncStatus::StateDownloadHeader => {

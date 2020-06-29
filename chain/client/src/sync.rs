@@ -870,6 +870,10 @@ impl StateSync {
                 let possible_targets_sampler =
                     SamplerLimited::new(possible_targets, MAX_STATE_PART_REQUEST);
 
+                // Iterate over all parts that needs to be requested (i.e. download.run_me is true).
+                // Parts are ordered such that its index match its part_id.
+                // Finally, for every part that needs to be requested it is selected one peer (target) randomly
+                // to request the part from
                 for ((part_id, download), target) in new_shard_sync_download
                     .downloads
                     .iter_mut()
