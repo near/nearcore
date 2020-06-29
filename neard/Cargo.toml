@@ -1,7 +1,15 @@
+[[bin]]
+path = "src/main.rs"
+name = "neard"
+
+[[bin]]
+path = "src/../src/main.rs"
+name = "near"
+
 [package]
 name = "neard"
-version = "1.2.0-rc.1"
-authors = ["Near Inc <hello@nearprotocol.com>"]
+version = "1.2.0"
+authors = [ "Near Inc <hello@nearprotocol.com>",]
 edition = "2018"
 
 [dependencies]
@@ -10,50 +18,84 @@ byteorder = "1.2"
 easy-ext = "0.2"
 rocksdb = "0.14"
 log = "0.4"
-chrono = { version = "0.4.4", features = ["serde"] }
 git-version = "0.3.1"
 futures = "0.3"
 clap = "2.32"
 rand = "0.7"
-serde = { version = "1", features = [ "derive" ] }
 serde_json = "1"
 lazy_static = "1.4"
 dirs = "2.0.2"
 borsh = "0.6.2"
 tracing = "0.1.13"
 tracing-subscriber = "0.2.4"
-num-rational = { version = "0.2.4", features = ["serde"] }
-
-near-actix-utils = { path = "../utils/actix" }
-near-crypto = { path = "../core/crypto" }
-near-primitives = { path = "../core/primitives" }
-near-chain-configs = { path = "../core/chain-configs" }
-near-runtime-configs = { path = "../core/runtime-configs" }
-near-store = { path = "../core/store" }
-node-runtime = { path = "../runtime/runtime" }
-near-chain = { path = "../chain/chain" }
-near-chunks = { path = "../chain/chunks"}
-near-client = { path = "../chain/client" }
-near-pool = { path = "../chain/pool" }
-near-network = { path = "../chain/network" }
-near-jsonrpc = { path = "../chain/jsonrpc" }
-near-telemetry = { path = "../chain/telemetry" }
-near-epoch-manager = { path = "../chain/epoch_manager" }
 
 [dev-dependencies]
-near-logger-utils = { path = "../test-utils/logger" }
 tempfile = "3"
-testlib = { path = "../test-utils/testlib" }
 
 [features]
-adversarial =  ["near-client/adversarial", "near-network/adversarial", "near-store/adversarial"]
-expensive_tests = ["near-client/expensive_tests", "near-epoch-manager/expensive_tests", "near-chain/expensive_tests"]
-metric_recorder = ["near-network/metric_recorder", "near-client/metric_recorder"]
+adversarial = [ "near-client/adversarial", "near-network/adversarial", "near-store/adversarial",]
+expensive_tests = [ "near-client/expensive_tests", "near-epoch-manager/expensive_tests", "near-chain/expensive_tests",]
+metric_recorder = [ "near-network/metric_recorder", "near-client/metric_recorder",]
 
-[[bin]]
-path = "src/main.rs"
-name = "neard"
+[dependencies.chrono]
+version = "0.4.4"
+features = [ "serde",]
 
-[[bin]]
-path = "src/../src/main.rs"
-name = "near"
+[dependencies.serde]
+version = "1"
+features = [ "derive",]
+
+[dependencies.num-rational]
+version = "0.2.4"
+features = [ "serde",]
+
+[dependencies.near-actix-utils]
+path = "../utils/actix"
+
+[dependencies.near-crypto]
+path = "../core/crypto"
+
+[dependencies.near-primitives]
+path = "../core/primitives"
+
+[dependencies.near-chain-configs]
+path = "../core/chain-configs"
+
+[dependencies.near-runtime-configs]
+path = "../core/runtime-configs"
+
+[dependencies.near-store]
+path = "../core/store"
+
+[dependencies.node-runtime]
+path = "../runtime/runtime"
+
+[dependencies.near-chain]
+path = "../chain/chain"
+
+[dependencies.near-chunks]
+path = "../chain/chunks"
+
+[dependencies.near-client]
+path = "../chain/client"
+
+[dependencies.near-pool]
+path = "../chain/pool"
+
+[dependencies.near-network]
+path = "../chain/network"
+
+[dependencies.near-jsonrpc]
+path = "../chain/jsonrpc"
+
+[dependencies.near-telemetry]
+path = "../chain/telemetry"
+
+[dependencies.near-epoch-manager]
+path = "../chain/epoch_manager"
+
+[dev-dependencies.near-logger-utils]
+path = "../test-utils/logger"
+
+[dev-dependencies.testlib]
+path = "../test-utils/testlib"
