@@ -110,7 +110,7 @@ impl IntoVMError for wasmer_runtime::error::RuntimeError {
                 }
                 // A trap that Wasmer knows about occurred.
                 // As of 0.17.1, can be thrown on C signals caught, for example OOM.
-                InvokeError::TrapCode { code, srcloc } => {
+                InvokeError::TrapCode { code: _, srcloc: _ } => {
                     VMError::FunctionCallError(WasmUnknownError)
                 }
                 // A trap occurred that Wasmer knows about but it had a trap code that
