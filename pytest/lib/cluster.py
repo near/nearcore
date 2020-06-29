@@ -311,6 +311,7 @@ class LocalNode(BaseNode):
     def start(self, boot_key, boot_node_addr):
         env = os.environ.copy()
         env["RUST_BACKTRACE"] = "1"
+        env["RUST_LOG"] = "actix_web=warn,mio=warn,tokio_util=warn,actix_server=warn,actix_http=warn," + env.get("RUST_LOG", "debug")
 
         self.stdout_name = os.path.join(self.node_dir, 'stdout')
         self.stderr_name = os.path.join(self.node_dir, 'stderr')

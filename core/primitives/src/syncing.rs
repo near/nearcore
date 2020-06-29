@@ -36,6 +36,12 @@ pub struct ShardStateSyncResponse {
     pub part: Option<(u64, Vec<u8>)>,
 }
 
+impl ShardStateSyncResponse {
+    pub fn part_id(&self) -> Option<u64> {
+        self.part.as_ref().map(|(part_id, _)| *part_id)
+    }
+}
+
 pub fn get_num_state_parts(memory_usage: u64) -> u64 {
     // We assume that 1 Mb is a good limit for state part size.
     // On the other side, it's important to divide any state into

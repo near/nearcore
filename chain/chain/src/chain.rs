@@ -1332,6 +1332,12 @@ impl Chain {
         shard_id: ShardId,
         sync_hash: CryptoHash,
     ) -> Result<ShardStateSyncResponseHeader, Error> {
+        // Check cache
+        let key = StateHeaderKey(shard_id, sync_hash).try_to_vec()?;
+        if let Ok(Some(header)) = self.store.owned_store().get_ser(ColStateHeaders, &key) {
+            return Ok(header);
+        }
+
         // Consistency rules:
         // 1. Everything prefixed with `sync_` indicates new epoch, for which we are syncing.
         // 1a. `sync_prev` means the last of the prev epoch.
@@ -1461,7 +1467,7 @@ impl Chain {
         let state_root_node =
             self.runtime_adapter.get_state_root_node(shard_id, &chunk_header.inner.prev_state_root);
 
-        Ok(ShardStateSyncResponseHeader {
+        let shard_state_header = ShardStateSyncResponseHeader {
             chunk,
             chunk_proof,
             prev_chunk_header,
@@ -1469,7 +1475,14 @@ impl Chain {
             incoming_receipts_proofs,
             root_proofs,
             state_root_node,
-        })
+        };
+
+        // Saving the header data
+        let mut store_update = self.store.owned_store().store_update();
+        store_update.set_ser(ColStateHeaders, &key, &shard_state_header)?;
+        store_update.commit()?;
+
+        Ok(shard_state_header)
     }
 
     pub fn get_state_response_part(
@@ -1478,6 +1491,12 @@ impl Chain {
         part_id: u64,
         sync_hash: CryptoHash,
     ) -> Result<Vec<u8>, Error> {
+        // Check cache
+        let key = StatePartKey(sync_hash, shard_id, part_id).try_to_vec()?;
+        if let Ok(Some(state_part)) = self.store.owned_store().get_ser(ColStateParts, &key) {
+            return Ok(state_part);
+        }
+
         let sync_block =
             self.get_block(&sync_hash).expect("block has already been checked for existence");
         let sync_block_header = sync_block.header().clone();
@@ -1504,6 +1523,11 @@ impl Chain {
         }
         let state_part =
             self.runtime_adapter.obtain_state_part(shard_id, &state_root, part_id, num_parts);
+
+        // Saving the part data
+        let mut store_update = self.store.owned_store().store_update();
+        store_update.set_ser(ColStateParts, &key, &state_part)?;
+        store_update.commit()?;
 
         Ok(state_part)
     }

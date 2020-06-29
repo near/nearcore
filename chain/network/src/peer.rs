@@ -306,6 +306,8 @@ impl Peer {
             self.receive_view_client_message(ctx, msg);
         } else if msg.is_client_message() {
             self.receive_client_message(ctx, msg);
+        } else {
+            debug_assert!(false);
         }
     }
 
