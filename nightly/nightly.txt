@@ -35,7 +35,6 @@ pytest --timeout=300 sanity/gc_after_sync.py
 pytest --timeout=300 sanity/gc_sync_after_sync.py
 pytest --timeout=300 sanity/gc_sync_after_sync.py swap_nodes
 pytest --timeout=300 sanity/large_messages.py
-pytest --timeout=300 sanity/upgradable.py
 pytest --timeout=240 sanity/validator_switch_key.py
 pytest sanity/nodes_proxy.py
 
@@ -62,6 +61,9 @@ pytest adversarial/start_from_genesis.py
 pytest adversarial/start_from_genesis.py overtake
 pytest adversarial/start_from_genesis.py doomslug_off
 pytest adversarial/start_from_genesis.py overtake doomslug_off
+
+# python upgradable test
+pytest --timeout=300 sanity/upgradable.py
 
 # catchup tests
 expensive --timeout=1800 near-client catching_up tests::test_catchup_receipts_sync_third_epoch
