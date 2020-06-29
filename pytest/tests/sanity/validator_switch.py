@@ -28,7 +28,7 @@ status = nodes[0].get_status()
 hash_ = status['sync_info']['latest_block_hash']
 
 for i in range(4):
-    stake = 100000000000000000000000000 if i == 3 else 0
+    stake = 50000000000000000000000000000000 if i == 3 else 0
     tx = sign_staking_tx(nodes[i].signer_key, nodes[i].validator_key, stake, 1,
                          base58.b58decode(hash_.encode('utf8')))
     nodes[0].send_tx(tx)

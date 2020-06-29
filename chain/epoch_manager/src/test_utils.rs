@@ -4,6 +4,7 @@ use num_rational::Rational;
 
 use near_crypto::{KeyType, SecretKey};
 use near_primitives::challenge::SlashedValidator;
+use near_primitives::epoch_manager::{EpochConfig, EpochInfo, ValidatorWeight};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, BlockHeightDelta, EpochHeight, NumSeats, NumShards,
@@ -14,7 +15,6 @@ use near_primitives::version::PROTOCOL_VERSION;
 use near_store::test_utils::create_test_store;
 
 use crate::proposals::find_threshold;
-use crate::types::{EpochConfig, EpochInfo, ValidatorWeight};
 use crate::RewardCalculator;
 use crate::{BlockInfo, EpochManager};
 
