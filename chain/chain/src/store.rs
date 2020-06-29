@@ -2702,6 +2702,7 @@ mod tests {
 
     use near_crypto::KeyType;
     use near_primitives::block::{Block, Tip};
+    use near_primitives::epoch_manager::BlockInfo;
     use near_primitives::errors::InvalidTxError;
     use near_primitives::hash::hash;
     use near_primitives::types::{BlockHeight, EpochId, GCCount, NumBlocks};
@@ -3114,6 +3115,14 @@ mod tests {
             Arc::new(InMemoryValidatorSigner::from_seed("test1", KeyType::ED25519, "test1"));
         let mut prev_block = genesis.clone();
         let mut blocks = vec![prev_block.clone()];
+        {
+            let mut store_update = chain.mut_store().store_update().store().store_update();
+            let block_info = BlockInfo::default();
+            store_update
+                .set_ser(DBCol::ColBlockInfo, genesis.hash().as_ref(), &block_info)
+                .unwrap();
+            store_update.commit().unwrap();
+        }
         for i in 1..1000 {
             let block = Block::empty_with_height(&prev_block, i, &*signer.clone());
             blocks.push(block.clone());
@@ -3123,6 +3132,14 @@ mod tests {
             store_update.inc_block_refcount(block.header().prev_hash()).unwrap();
             store_update.save_head(&Tip::from_header(&block.header())).unwrap();
             store_update.save_block_header(block.header().clone()).unwrap();
+            {
+                let mut store_update = store_update.store().store_update();
+                let block_info = BlockInfo::default();
+                store_update
+                    .set_ser(DBCol::ColBlockInfo, block.hash().as_ref(), &block_info)
+                    .unwrap();
+                store_update.commit().unwrap();
+            }
             store_update
                 .chain_store_cache_update
                 .height_to_hashes
@@ -3168,6 +3185,7 @@ mod tests {
                 chain.store().owned_store(),
             );
             store_validator.validate();
+            println!("errors = {:?}", store_validator.errors);
             assert!(!store_validator.is_failed());
         }
     }
