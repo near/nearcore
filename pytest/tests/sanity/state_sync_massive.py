@@ -21,7 +21,7 @@
 # 1. Run test for first time:
 #
 # ```
-# python3 python3 tests/sanity/state_sync_massive.py
+# python3 tests/sanity/state_sync_massive.py
 # ```
 #
 # Stop at any point after seeing the message: "Genesis generated"

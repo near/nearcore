@@ -1,5 +1,5 @@
 # A library providing a node wrapper that intercepts all the incoming messages and
-# outgoing responces (but not the initiated outgoing messages and incoming responces)
+# outgoing responses (but not the initiated outgoing messages and incoming responses)
 # from a node, and calls a handler on them. The handler can then decide to drop the
 # message, deliver the message, or change the message.
 #
@@ -13,7 +13,7 @@
 #    larger than the original node port. It will change the port of the `Node` object
 #    passed to it.
 #
-# Note that since the handler is called on incoming messages and outgoing responces, if
+# Note that since the handler is called on incoming messages and outgoing responses, if
 # all the nodes in the cluster are proxified, each message exchanged in the cluster will
 # have the handler called exactly once.
 #
@@ -25,16 +25,23 @@
 #
 # See `tests/sanity/nodes_proxy.py` for an example usage
 
-import multiprocessing, struct, socket, select, atexit
+import asyncio
+import atexit
+import functools
+import multiprocessing
+import select
+import socket
+import struct
+import time
 
-from serializer import BinarySerializer
-
+from messages.block import *
 from messages.crypto import *
 from messages.network import *
-from messages.block import *
 from messages.tx import *
+from serializer import BinarySerializer
 
 MSG_TIMEOUT = 10
+_MY_PORT = [None]
 
 schema = dict(crypto_schema + network_schema + block_schema + tx_schema)
 
@@ -47,8 +54,114 @@ def proxy_cleanup(proxy):
         assert False, "One of the proxy processes failed, search for the stacktraces above"
 
 
-class NodesProxy:
+def port_holder_to_node_ord(holder):
+    return None if holder[0] is None else (holder[0] - 24477) % 100
 
+
+class ProxyHandler:
+    def __init__(self, ordinal):
+        self.ordinal = ordinal
+        self.recv_from_map = {}
+        self.send_to_map = {}
+        self.loop = asyncio.get_event_loop()
+
+    @property
+    def me(self):
+        return self.ordinal
+
+    def other(self, ordinal_a, ordinal_b):
+        assert self.me == ordinal_a or self.me == ordinal_b
+        if ordinal_a == self.me:
+            return ordinal_b
+        else:
+            return ordinal_a
+
+    async def _handle(self, raw_message, *, writer, sender_port_holder, receiver_port_holder, ordinal_to_writer):
+        try:
+            message = BinarySerializer(schema).deserialize(
+                raw_message, PeerMessage)
+            assert BinarySerializer(schema).serialize(message) == raw_message
+
+            if message.enum == 'Handshake':
+                message.Handshake.listen_port += 100
+                if sender_port_holder[0] is None:
+                    sender_port_holder[0] = message.Handshake.listen_port
+
+            sender_ordinal = port_holder_to_node_ord(sender_port_holder)
+            receiver_ordinal = port_holder_to_node_ord(receiver_port_holder)
+            other_ordinal = self.other(sender_ordinal, receiver_ordinal)
+
+            if other_ordinal is not None and not other_ordinal in ordinal_to_writer:
+                ordinal_to_writer[other_ordinal] = writer
+
+            decision = await self.handle(message, sender_ordinal, receiver_ordinal)
+
+            if decision is True and message.enum == 'Handshake':
+                decision = message
+
+            if not isinstance(decision, bool):
+                decision = BinarySerializer(schema).serialize(decision)
+
+            return decision
+        except:
+            # TODO: Remove this
+            if raw_message[0] == 13:
+                # raw_message[0] == 13 is RoutedMessage. Skip leading fields to get to the RoutedMessageBody
+                ser = BinarySerializer(schema)
+                ser.array = bytearray(raw_message)
+                ser.offset = 1
+                ser.deserialize_field(PeerIdOrHash)
+                ser.deserialize_field(PublicKey)
+                ser.deserialize_field(Signature)
+                ser.deserialize_field('u8')
+
+                # The next byte is the variant ordinal of the `RoutedMessageBody`.
+                # Skip if it's the ordinal of a variant for which the schema is not ported yet
+                if raw_message[ser.offset] in [3, 4, 5, 7, 10]:
+                    # Allow the handler determine if the message should be passed even when it couldn't be deserialized
+                    return await self.handle(None, sender_ordinal, receiver_ordinal) is not False
+                print("ERROR 13", int(raw_message[ser.offset]))
+
+            else:
+                print("ERROR", int(raw_message[0]))
+
+            raise
+
+        return True
+
+    def get_writer(self, to, fr=None):
+        if to == self.ordinal:
+            if fr is None and len(self.recv_from_map) > 0:
+                fr = next(iter(self.recv_from_map.keys()))
+            return self.recv_from_map.get(fr)
+        else:
+            return self.send_to_map.get(to)
+
+    async def send_binary(self, raw_message, to, fr=None):
+        writer = self.get_writer(to, fr)
+        if writer is None:
+            print(
+                f"Writer not known: to={to}, fr={fr}, send={self.send_to_map.keys()}, recv={self.recv_from_map.keys()}")
+        else:
+            writer.write(struct.pack('I', len(raw_message)))
+            writer.write(raw_message)
+            await writer.drain()
+
+    async def send_message(self, message, to, fr=None):
+        raw_message = BinarySerializer(schema).serialize(message)
+        await self.send_binary(raw_message, to, fr)
+
+    def do_send_binary(self, raw_message, to, fr=None):
+        self.loop.create_task(self.send_binary(raw_message, to, fr))
+
+    def do_send_message(self, msg, to, fr=None):
+        self.loop.create_task(self.send_message(msg, to, fr))
+
+    async def handle(self, msg, fr, to):
+        return True
+
+
+class NodesProxy:
     def __init__(self, handler):
         assert handler is not None
         self.handler = handler
@@ -62,147 +175,96 @@ class NodesProxy:
         self.ps.append(p)
 
 
-def proxify_node(node, handler, stopped, error):
-    old_port = node.port
-    new_port = old_port + 100
-
-    def handle_connection(conn, addr, stopped, error):
-        try:
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s_node:
-                s_node.connect(("127.0.0.1", old_port))
-
-                conn.setblocking(0)
-                s_node.setblocking(0)
-
-                peer_port_holder = [None]
-
-                while 0 == stopped.value and 0 == error.value:
-                    ready = select.select([conn, s_node], [], [], MSG_TIMEOUT)
-                    if not ready[0]:
-                        print("TIMEOUT")
-                        time.sleep(1)
-                        continue
-
-                    if conn in ready[0]:
-                        data = conn.recv(4)
-
-                        if not data:
-                            continue
-
-                        data = conn.recv(struct.unpack('I', data)[0])
-                        decision = call_handler(data, handler, peer_port_holder,
-                                                [node.port])
-                        if type(decision) == bytes:
-                            data = decision
-                            decision = True
-                        assert type(decision) == bool, type(decision)
-
-                        if decision:
-                            s_node.sendall(struct.pack('I', len(data)))
-                            s_node.sendall(data)
-
-                    elif s_node in ready[0]:
-                        data = s_node.recv(4)
-
-                        if not data:
-                            continue
-
-                        data = s_node.recv(struct.unpack('I', data)[0])
-                        decision = call_handler(data, handler, [node.port],
-                                                peer_port_holder)
-
-                        if type(decision) == bytes:
-                            data = decision
-                            decision = True
-                        assert type(decision) == bool, type(decision)
-
-                        if decision:
-                            conn.sendall(struct.pack('I', len(data)))
-                            conn.sendall(data)
-
-                    else:
-                        assert False, (conn, s_node, ready[0])
-        except ConnectionResetError:
-            print("Connection closed, ignoring the error")
-            pass
-        except:
-            error.value = 1
-            raise
-
-    def listener():
-        try:
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s_inc:
-                s_inc.settimeout(1)
-                s_inc.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-                s_inc.bind(("127.0.0.1", new_port))
-                s_inc.listen()
-                while 0 == stopped.value and 0 == error.value:
-                    try:
-                        conn, addr = s_inc.accept()
-                    except socket.timeout:
-                        continue
-                    print('Connected by', addr)
-                    p = multiprocessing.Process(target=handle_connection,
-                                                args=(conn, addr, stopped,
-                                                      error))
-                    p.start()
-
-        except:
-            error.value = 1
-            raise
-
-    p = multiprocessing.Process(target=listener, args=())
-    p.start()
-
-    node.port = new_port
-    return p
+async def stop_server(server):
+    server.close()
+    await server.wait_closed()
 
 
-def port_holder_to_node_ord(holder):
-    return None if holder[0] is None else (holder[0] - 24477) % 100
+def check_finish(server, stopped, error):
+    loop = asyncio.get_running_loop()
+    if 0 == stopped.value and 0 == error.value:
+        loop.call_later(1, check_finish, server, stopped, error)
+    else:
+        server.close()
+
+async def bridge(reader, writer, handler_fn, stopped, error):
+    while 0 == stopped.value and 0 == error.value:
+        header = await reader.read(4)
+        if not header:
+            continue
+
+        assert len(header) == 4, header
+        raw_message = await reader.read(struct.unpack('I', header)[0])
+        decision = await handler_fn(raw_message)
+
+        if isinstance(decision, bytes):
+            raw_message = decision
+            decision = True
+
+        if decision:
+            writer.write(struct.pack('I', len(raw_message)))
+            writer.write(raw_message)
+            await writer.drain()
 
 
-def call_handler(raw_msg, handler, sender_port_holder, receiver_port_holder):
+async def handle_connection(outer_reader, outer_writer, inner_port, outer_port, handler, stopped, error):
     try:
-        obj = BinarySerializer(schema).deserialize(raw_msg, PeerMessage)
-        assert BinarySerializer(schema).serialize(obj) == raw_msg
+        inner_reader, inner_writer = await asyncio.open_connection(
+            '127.0.0.1', inner_port)
 
-        if obj.enum == 'Handshake':
-            obj.Handshake.listen_port += 100
-            if sender_port_holder[0] is None:
-                sender_port_holder[0] = obj.Handshake.listen_port
+        my_port = [outer_port]
+        peer_port_holder = [None]
 
-        decision = handler(obj, port_holder_to_node_ord(sender_port_holder),
-                           port_holder_to_node_ord(receiver_port_holder))
+        inner_to_outer = bridge(inner_reader, outer_writer, functools.partial(
+            handler._handle, writer=inner_writer, sender_port_holder=my_port, receiver_port_holder=peer_port_holder,
+            ordinal_to_writer=handler.recv_from_map,
+        ), stopped, error)
 
-        if decision == True and obj.enum == 'Handshake':
-            decision = obj
+        outer_to_inner = bridge(outer_reader, inner_writer, functools.partial(
+            handler._handle, writer=outer_writer, sender_port_holder=peer_port_holder, receiver_port_holder=my_port,
+            ordinal_to_writer=handler.send_to_map,
+        ), stopped, error)
 
-        if type(decision) != bool:
-            decision = BinarySerializer(schema).serialize(decision)
-
-        return decision
+        await asyncio.gather(inner_to_outer, outer_to_inner)
 
     except:
-        if raw_msg[0] == 13:
-            # raw_msg[0] == 13 is RoutedMessage. Skip leading fields to get to the RoutedMessageBody
-            ser = BinarySerializer(schema)
-            ser.array = bytearray(raw_msg)
-            ser.offset = 1
-            ser.deserialize_field(PeerIdOrHash)
-            ser.deserialize_field(PublicKey)
-            ser.deserialize_field(Signature)
-            ser.deserialize_field('u8')
-
-            # The next byte is the variant ordinal of the `RoutedMessageBody`.
-            # Skip if it's the ordinal of a variant for which the schema is not ported yet
-            if raw_msg[ser.offset] in [3, 4, 5, 7, 10]:
-                return True
-            print("ERROR 13", int(raw_msg[ser.offset]))
-
-        else:
-            print("ERROR", int(raw_msg[0]))
-
+        error.value = 1
         raise
 
-    return True
+
+async def listener(inner_port, outer_port, handler_ctr, stopped, error):
+    try:
+        handler = handler_ctr(port_holder_to_node_ord([outer_port]))
+
+        async def start_connection(reader, writer):
+            await handle_connection(reader, writer, inner_port, outer_port, handler, stopped, error)
+
+        server = await asyncio.start_server(
+            start_connection, '127.0.0.1', outer_port)
+
+        check_finish(server, stopped, error)
+
+        async with server:
+            await server.serve_forever()
+    except asyncio.CancelledError:
+        stopped.value = 1
+    except:
+        error.value = 1
+        raise
+
+
+def start_server(inner_port, outer_port, handler_ctr, stopped, error):
+    _MY_PORT[0] = outer_port
+    asyncio.run(listener(inner_port, outer_port, handler_ctr, stopped, error))
+
+
+def proxify_node(node, handler, stopped, error):
+    inner_port = node.port
+    outer_port = inner_port + 100
+
+    p = multiprocessing.Process(target=start_server, args=(
+        inner_port, outer_port, handler, stopped, error))
+    p.start()
+
+    node.port = outer_port
+    return p
