@@ -109,13 +109,9 @@ impl IntoVMError for wasmer_runtime::error::RuntimeError {
                     );
                 }
                 // A trap that Wasmer knows about occurred.
-                // As of 0.17.0, thrown only from LLVM and Cranelift BE.
-                InvokeError::TrapCode { code, srcloc } => {
-                    panic!(
-                        "Impossible TrapCode error (Cranelift only): trap {} at {}",
-                        *code as u32, srcloc
-                    );
-                }
+                // As of 0.17.1, can be thrown on C signals caught, for example OOM.
+                InvokeError::TrapCode { code, srcloc } =>
+                    VMError::FunctionCallError(WasmUnknownError),
                 // A trap occurred that Wasmer knows about but it had a trap code that
                 // we weren't expecting or that we do not handle.
                 // As of 0.17.0, thrown only from Cranelift BE.

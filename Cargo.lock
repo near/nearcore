@@ -4642,9 +4642,9 @@ checksum = "c9ba19973a58daf4db6f352eda73dc0e289493cd29fb2632eb172085b6521acd"
 
 [[package]]
 name = "wasmer-runtime"
-version = "0.17.0"
+version = "0.17.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "30259003902716aa4fb86fd66a2de555116adef545cbc5ab70afb74e74b44fc3"
+checksum = "c92a9ae96b193c35c47fc829265198322cf980edc353a9de32bc87a1545d44f3"
 dependencies = [
  "lazy_static",
  "memmap",
@@ -4656,9 +4656,9 @@ dependencies = [
 
 [[package]]
 name = "wasmer-runtime-core"
-version = "0.17.0"
+version = "0.17.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "45d4253f097502423d8b19d54cb18745f61b984b9dbce32424cba7945cfef367"
+checksum = "740161245998752cf1a567e860fd6355df0336fedca6be1940ec7aaa59643220"
 dependencies = [
  "bincode",
  "blake3",
@@ -4685,9 +4685,9 @@ dependencies = [
 
 [[package]]
 name = "wasmer-singlepass-backend"
-version = "0.17.0"
+version = "0.17.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "37cf84179dd5e92b784f7bc190b237f1184916a6d6d3f87d4dd94ca371a2cc25"
+checksum = "41a434ebf512ae1c76de46d41935a9ae10775fd937071334bdf5878cc41d9140"
 dependencies = [
  "bincode",
  "byteorder",
