@@ -119,6 +119,26 @@ pub mod base_bytes_format {
     }
 }
 
+pub mod u64_dec_format {
+    use serde::de;
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    pub fn serialize<S>(num: &u64, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(&format!("{}", num))
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<u64, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        u64::from_str_radix(&s, 10).map_err(de::Error::custom)
+    }
+}
+
 pub mod u128_dec_format {
     use serde::de;
     use serde::{Deserialize, Deserializer, Serializer};
