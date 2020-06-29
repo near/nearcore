@@ -19,19 +19,9 @@ RPC_PORT = '3030'
 NUM_ACCOUNTS = 50
 TIMEOUT = 20 * 60  # put under load for 20 minutes
 
-node_index = int(sys.argv[1])
-pk = sys.argv[2]
-sk = sys.argv[3]
-
 
 def load_testing_account_id(i):
     return f'load_testing_{i}'
-
-
-test_accounts = [
-    (Key(load_testing_account_id(i), pk, sk), i)
-    for i in range(node_index * NUM_ACCOUNTS, (node_index + 1) * NUM_ACCOUNTS)
-]
 
 
 def get_status():
@@ -80,8 +70,19 @@ def send_transfers():
             account_and_index[1] + 1) % NUM_ACCOUNTS), test_accounts)
 
 
-start_time = time.time()
+if __name__ == '__main__':
+    node_index = int(sys.argv[1])
+    pk = sys.argv[2]
+    sk = sys.argv[3]
 
-while time.time() - start_time < TIMEOUT:
-    send_transfers()
-    # TODO: add other transaction types
+    test_accounts = [
+        (Key(load_testing_account_id(i), pk, sk), i)
+        for i in range(node_index * NUM_ACCOUNTS, (node_index + 1) *
+                       NUM_ACCOUNTS)
+    ]
+
+    start_time = time.time()
+
+    while time.time() - start_time < TIMEOUT:
+        send_transfers()
+        # TODO: add other transaction types

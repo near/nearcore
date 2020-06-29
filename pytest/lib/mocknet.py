@@ -3,6 +3,7 @@ from cluster import GCloudNode, Key
 from transaction import sign_payment_tx_and_get_hash, sign_staking_tx_and_get_hash
 import json
 import os
+import statistics
 import time
 from rc import run, pmap
 
@@ -113,6 +114,45 @@ def get_epoch_length_in_blocks(node):
         config = json.load(f)
         epoch_length_in_blocks = config['epoch_length']
         return epoch_length_in_blocks
+
+
+def get_block(node, hash, timeout=180):
+    print(f'INFO: Looking up block {hash} from {node.machine.name}')
+    start_time = time.time()
+    response = node.get_block(hash)
+    while 'result' not in response:
+        if time.time() - start_time > timeout:
+            raise TimeoutError(
+                f'Failed to lookup block {hash} within {timeout} seconds')
+        time.sleep(1)
+        response = node.get_block(hash)
+    return response['result']
+
+
+def measure_average_block_time(node, duration=120):
+    print(
+        f'INFO: Beginning average block time measurement, lasting {duration} seconds'
+    )
+    start_block_hash = node.get_status()['sync_info']['latest_block_hash']
+    time.sleep(duration)
+    end_block_hash = node.get_status()['sync_info']['latest_block_hash']
+    print(
+        f'INFO: Computing average block time between blocks {start_block_hash} and {end_block_hash}'
+    )
+
+    curr_block = get_block(node, end_block_hash)
+    block_times = []
+    while curr_block['header']['hash'] != start_block_hash:
+        prev_block = get_block(node, curr_block['header']['prev_hash'])
+        time_delta_ns = int(curr_block['header']['timestamp']) - int(
+            prev_block['header']['timestamp'])
+        block_times.append(time_delta_ns / 1e9)
+        curr_block = prev_block
+
+    m = statistics.mean(block_times)
+    s = statistics.stdev(block_times)
+    print(f'INFO: Average block time = {m} +/- {s} seconds')
+    return (m, s)
 
 
 # Sends the transaction to the network via `node` and checks for success.
