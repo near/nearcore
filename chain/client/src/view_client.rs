@@ -10,7 +10,6 @@ use actix::{Actor, Context, Handler};
 use cached::{Cached, SizedCache};
 use log::{debug, error, info, warn};
 
-use near_chain::types::ShardStateSyncResponse;
 use near_chain::{
     Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode, ErrorKind, RuntimeAdapter,
 };
@@ -25,6 +24,7 @@ use near_primitives::block::{BlockHeader, GenesisId, Tip};
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{merklize, verify_path, PartialMerkleTree};
 use near_primitives::network::AnnounceAccount;
+use near_primitives::syncing::ShardStateSyncResponse;
 use near_primitives::types::{
     AccountId, BlockHeight, BlockId, BlockIdOrFinality, Finality, MaybeBlockId,
     TransactionOrReceiptId,

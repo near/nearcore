@@ -16,6 +16,7 @@ use near_network::types::{AccountOrPeerIdOrHash, NetworkResponses, ReasonForBan}
 use near_network::{FullPeerInfo, NetworkAdapter, NetworkRequests};
 use near_primitives::block::Tip;
 use near_primitives::hash::CryptoHash;
+use near_primitives::syncing::get_num_state_parts;
 use near_primitives::types::{AccountId, BlockHeight, BlockHeightDelta, NumBlocks, ShardId};
 use near_primitives::unwrap_or_return;
 use near_primitives::utils::to_timestamp;
@@ -543,11 +544,9 @@ impl StateSync {
             match shard_sync_download.status {
                 ShardSyncStatus::StateDownloadHeader => {
                     if shard_sync_download.downloads[0].done {
-                        let shard_state_header =
-                            chain.get_received_state_header(shard_id, sync_hash)?;
-                        let state_num_parts = Chain::get_num_state_parts(
-                            shard_state_header.state_root_node.memory_usage,
-                        );
+                        let shard_state_header = chain.get_state_header(shard_id, sync_hash)?;
+                        let state_num_parts =
+                            get_num_state_parts(shard_state_header.state_root_node.memory_usage);
                         *shard_sync_download = ShardSyncDownload {
                             downloads: vec![
                                 DownloadStatus {
@@ -606,10 +605,9 @@ impl StateSync {
                     }
                 }
                 ShardSyncStatus::StateDownloadFinalize => {
-                    let shard_state_header =
-                        chain.get_received_state_header(shard_id, sync_hash)?;
+                    let shard_state_header = chain.get_state_header(shard_id, sync_hash)?;
                     let state_num_parts =
-                        Chain::get_num_state_parts(shard_state_header.state_root_node.memory_usage);
+                        get_num_state_parts(shard_state_header.state_root_node.memory_usage);
                     match chain.set_state_finalize(shard_id, sync_hash, state_num_parts) {
                         Ok(_) => {
                             update_sync_status = true;
@@ -630,10 +628,9 @@ impl StateSync {
                 }
                 ShardSyncStatus::StateDownloadComplete => {
                     this_done = true;
-                    let shard_state_header =
-                        chain.get_received_state_header(shard_id, sync_hash)?;
+                    let shard_state_header = chain.get_state_header(shard_id, sync_hash)?;
                     let state_num_parts =
-                        Chain::get_num_state_parts(shard_state_header.state_root_node.memory_usage);
+                        get_num_state_parts(shard_state_header.state_root_node.memory_usage);
                     chain.clear_downloaded_parts(shard_id, sync_hash, state_num_parts)?;
                 }
             }
