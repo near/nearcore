@@ -222,7 +222,7 @@ impl PeerManagerActor {
         // sending messages.
         ctx.run_later(Duration::from_secs(wait_for_sync), move |act, ctx| {
             let _ = addr.do_send(SendMessage {
-                message: PeerMessage::Sync(SyncData {
+                message: PeerMessage::RoutingTableSync(SyncData {
                     edges: known_edges,
                     accounts: known_accounts,
                 }),
@@ -239,7 +239,9 @@ impl PeerManagerActor {
                 // Wait a time out before broadcasting this new edge to let the other party finish handshake.
                 act.broadcast_message(
                     ctx,
-                    SendMessage { message: PeerMessage::Sync(SyncData::edge(new_edge)) },
+                    SendMessage {
+                        message: PeerMessage::RoutingTableSync(SyncData::edge(new_edge)),
+                    },
                 );
             }
         });
@@ -273,7 +275,9 @@ impl PeerManagerActor {
                 self.process_edge(ctx, edge_update.clone());
                 self.broadcast_message(
                     ctx,
-                    SendMessage { message: PeerMessage::Sync(SyncData::edge(edge_update)) },
+                    SendMessage {
+                        message: PeerMessage::RoutingTableSync(SyncData::edge(edge_update)),
+                    },
                 );
             }
         }
@@ -503,7 +507,9 @@ impl PeerManagerActor {
                 let new_edge = edge.remove_edge(act.peer_id.clone(), &act.config.secret_key);
                 act.broadcast_message(
                     ctx,
-                    SendMessage { message: PeerMessage::Sync(SyncData::edge(new_edge)) },
+                    SendMessage {
+                        message: PeerMessage::RoutingTableSync(SyncData::edge(new_edge)),
+                    },
                 );
             }
         });
@@ -746,7 +752,9 @@ impl PeerManagerActor {
             self.routing_table.add_account(announce_account.clone());
             self.broadcast_message(
                 ctx,
-                SendMessage { message: PeerMessage::Sync(SyncData::account(announce_account)) },
+                SendMessage {
+                    message: PeerMessage::RoutingTableSync(SyncData::account(announce_account)),
+                },
             );
         }
     }
@@ -1294,7 +1302,7 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                             if !new_data.is_empty() {
                                 act.broadcast_message(
                                     ctx,
-                                    SendMessage { message: PeerMessage::Sync(new_data) },
+                                    SendMessage { message: PeerMessage::RoutingTableSync(new_data) },
                                 )
                             };
                         }

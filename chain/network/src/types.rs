@@ -422,7 +422,7 @@ pub enum PeerMessage {
     /// When a failed nonce is used by some peer, this message is sent back as evidence.
     LastEdge(Edge),
     /// Contains accounts and edge information.
-    Sync(SyncData),
+    RoutingTableSync(SyncData),
     RequestUpdateNonce(EdgeInfo),
     ResponseUpdateNonce(Edge),
 
