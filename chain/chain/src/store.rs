@@ -1891,12 +1891,8 @@ impl<'a> ChainStoreUpdate<'a> {
         self.chunk_tail = Some(height);
     }
 
-    pub fn clear_chunk_data(&mut self, min_chunk_height: BlockHeight) -> Result<(), Error> {
-        let chunk_tail = self.chunk_tail()?;
-        for height in chunk_tail..min_chunk_height {
-            if height == self.get_genesis_height() {
-                continue;
-            }
+    pub fn clear_chunk_data(&mut self, height: BlockHeight) -> Result<(), Error> {
+        if height != self.get_genesis_height() {
             let chunk_hashes = self.get_all_chunk_hashes_by_height(height)?;
             for chunk_hash in chunk_hashes {
                 // 1. Delete chunk-related data
@@ -1919,7 +1915,7 @@ impl<'a> ChainStoreUpdate<'a> {
             // 3. Delete chunks_tail-related data
             self.gc_col(ColChunkHashesByHeight, &index_to_bytes(height));
         }
-        self.update_chunk_tail(min_chunk_height);
+        self.update_chunk_tail(height);
         Ok(())
     }
 
@@ -2001,7 +1997,7 @@ impl<'a> ChainStoreUpdate<'a> {
             return Ok(());
         }
 
-        // 2. Delete shard_id-indexed data (shards, receipts, transactions)
+        // 2. Delete shard_id-indexed data (shards, receipts)
         for shard_id in 0..block.header().chunk_mask().len() as ShardId {
             let height_shard_id = get_block_shard_id(&block_hash, shard_id);
             self.gc_col(ColOutgoingReceipts, &height_shard_id);
@@ -2061,14 +2057,6 @@ impl<'a> ChainStoreUpdate<'a> {
             }
             GCMode::Canonical(_) => {
                 // 6. Canonical Chain only clearing
-                // Delete chunks and chunk-indexed data
-                let mut min_chunk_height = self.tail()?;
-                for chunk_header in block.chunks() {
-                    if min_chunk_height > chunk_header.inner.height_created {
-                        min_chunk_height = chunk_header.inner.height_created;
-                    }
-                }
-                self.clear_chunk_data(min_chunk_height)?;
                 // Check Epoch switch
                 let cur_epoch_id = block.header().epoch_id();
                 if cur_epoch_id != next_epoch_id {

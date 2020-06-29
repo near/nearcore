@@ -573,6 +573,7 @@ impl Chain {
             if gc_blocks_remaining == 0 {
                 return Ok(());
             }
+            let mut gc_block_hash = None;
             let mut chain_store_update = self.store.store_update();
             if let Ok(blocks_current_height) =
                 chain_store_update.get_all_block_hashes_by_height(height)
@@ -580,6 +581,7 @@ impl Chain {
                 let blocks_current_height =
                     blocks_current_height.values().flatten().cloned().collect::<Vec<_>>();
                 if let Some(block_hash) = blocks_current_height.first() {
+                    gc_block_hash = Some(block_hash.clone());
                     let prev_hash = *chain_store_update.get_block_header(block_hash)?.prev_hash();
                     let prev_block_refcount = *chain_store_update.get_block_refcount(&prev_hash)?;
                     if prev_block_refcount > 1 {
@@ -600,6 +602,23 @@ impl Chain {
             }
             chain_store_update.update_tail(height);
             chain_store_update.commit()?;
+            if let Some(block_hash) = gc_block_hash {
+                // We just proved that block exists
+                let block = self.store.get_block(&block_hash)?;
+                // Delete chunks and chunk-indexed data
+                let mut min_chunk_height = height;
+                for chunk_header in block.chunks() {
+                    if min_chunk_height > chunk_header.inner.height_created {
+                        min_chunk_height = chunk_header.inner.height_created;
+                    }
+                }
+                let chunk_tail = self.store.chunk_tail()?;
+                for height in chunk_tail + 1..min_chunk_height {
+                    let mut chain_store_update = self.store.store_update();
+                    chain_store_update.clear_chunk_data(height)?;
+                    chain_store_update.commit()?;
+                }
+            }
         }
         Ok(())
     }
@@ -949,9 +968,12 @@ impl Chain {
         }
 
         // Clear Chunks data
-        let mut chain_store_update = self.mut_store().store_update();
-        chain_store_update.clear_chunk_data(gc_height)?;
-        chain_store_update.commit()?;
+        let chunk_tail = self.store.chunk_tail()?;
+        for height in chunk_tail..gc_height {
+            let mut chain_store_update = self.mut_store().store_update();
+            chain_store_update.clear_chunk_data(height)?;
+            chain_store_update.commit()?;
+        }
 
         // clear all trie data
         let keys: Vec<Vec<u8>> =
