@@ -8,9 +8,8 @@ use std::time::{Duration, Instant};
 
 use actix::{Actor, Context, Handler};
 use cached::{Cached, SizedCache};
-use log::{debug, error, info, warn};
+use log::{debug, error, info, trace, warn};
 
-use near_chain::types::ShardStateSyncResponse;
 use near_chain::{
     Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode, ErrorKind, RuntimeAdapter,
 };
@@ -25,6 +24,7 @@ use near_primitives::block::{BlockHeader, GenesisId, Tip};
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{merklize, verify_path, PartialMerkleTree};
 use near_primitives::network::AnnounceAccount;
+use near_primitives::syncing::ShardStateSyncResponse;
 use near_primitives::types::{
     AccountId, BlockHeight, BlockId, BlockIdOrFinality, Finality, MaybeBlockId,
     TransactionOrReceiptId,
@@ -815,6 +815,7 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
                 }))
             }
             NetworkViewClientMessages::StateRequestPart { shard_id, sync_hash, part_id } => {
+                trace!(target: "sync", "Computing state request part {} {} {}", shard_id, sync_hash, part_id);
                 let state_response = match self.chain.get_block(&sync_hash) {
                     Ok(_) => {
                         let part = match self
@@ -827,6 +828,8 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
                                 None
                             }
                         };
+
+                        trace!(target: "sync", "Finish computation for state request part {} {} {}", shard_id, sync_hash, part_id);
                         ShardStateSyncResponse { header: None, part }
                     }
                     Err(_) => {

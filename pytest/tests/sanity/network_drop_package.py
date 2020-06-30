@@ -4,8 +4,8 @@ import multiprocessing
 sys.path.append('lib')
 
 from cluster import start_cluster
-from proxy import proxify_node
 from peer import *
+from proxy import ProxyHandler
 
 from multiprocessing import Value
 
@@ -16,16 +16,29 @@ success = Value('i', 0)
 DROP_RATIO = 0.05
 
 
-def handler(msg, fr, to):
-    if msg.enum == 'Block':
-        print('Block height:', msg.Block.BlockV1.header.BlockHeaderV1.inner_lite.height)
-        if msg.Block.BlockV1.header.BlockHeaderV1.inner_lite.height >= 10:
-            print('SUCCESS')
-            success.value = 1
-    return random.random() > DROP_RATIO
+class Handler(ProxyHandler):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.dropped = 0
+        self.total = 0
+
+    async def handle(self, msg, fr, to):
+        if msg.enum == 'Block':
+            print('Block height:', msg.Block.BlockV1.header.BlockHeaderV1.inner_lite.height)
+            if msg.Block.BlockV1.header.BlockHeaderV1.inner_lite.height >= 10:
+                print(f'SUCCESS DROP={self.dropped} TOTAL={self.total}')
+                success.value = 1
+
+        drop = random.random() < DROP_RATIO
+
+        if drop:
+            self.dropped += 1
+        self.total += 1
+
+        return not drop
 
 
-start_cluster(4, 0, 1, None, [], {}, handler)
+start_cluster(4, 0, 1, None, [], {}, Handler)
 
 started = time.time()
 
