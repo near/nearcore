@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::convert::TryFrom;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -34,9 +34,11 @@ pub struct StoreValidatorCache {
     chunk_tail: BlockHeight,
     block_heights_less_tail: Vec<CryptoHash>,
     gc_col: Vec<u64>,
+    tx_refcount: HashMap<CryptoHash, u64>,
 
     is_misc_set: bool,
     is_block_height_cmp_tail_prepared: bool,
+    is_tx_refcount_calculated: bool,
 }
 
 impl StoreValidatorCache {
@@ -48,8 +50,10 @@ impl StoreValidatorCache {
             chunk_tail: 0,
             block_heights_less_tail: vec![],
             gc_col: vec![0; NUM_COLS],
+            tx_refcount: HashMap::new(),
             is_misc_set: false,
             is_block_height_cmp_tail_prepared: false,
+            is_tx_refcount_calculated: false,
         }
     }
 }
@@ -181,6 +185,15 @@ impl StoreValidator {
                         &shard_chunk,
                         col,
                     );
+                    // Check that all Txs in Chunk are exist
+                    self.check(&validate::chunk_tx_exists, &chunk_hash, &shard_chunk, col);
+                    // Increase Tx Refcount for checking it later
+                    self.check(
+                        &validate::chunk_increase_tx_refcount,
+                        &chunk_hash,
+                        &shard_chunk,
+                        col,
+                    );
                 }
                 DBCol::ColTrieChanges => {
                     let (block_hash, shard_id) = get_block_shard_id_rev(key_ref)?;
@@ -272,6 +285,11 @@ impl StoreValidator {
                     let count = GCCount::try_from_slice(value_ref)?;
                     self.check(&validate::gc_col_count, &col, &count, col);
                 }
+                DBCol::ColTransactionRefCount => {
+                    let tx_hash = CryptoHash::try_from(key_ref)?;
+                    let refcount = u64::try_from_slice(value_ref)?;
+                    self.check(&validate::tx_refcount, &tx_hash, &refcount, col);
+                }
                 _ => {}
             }
             if let Some(timeout) = self.timeout {
@@ -297,6 +315,10 @@ impl StoreValidator {
         // There is no more than one Block which Height is lower than Tail and not equal to Genesis
         if let Err(e) = validate::block_height_cmp_tail(self) {
             self.process_error(e, "TAIL", DBCol::ColBlockMisc)
+        }
+        // Check that all refs are counted
+        if let Err(e) = validate::tx_refcount_remaining(self) {
+            self.process_error(e, "TX_REFCOUNT", DBCol::ColTransactionRefCount)
         }
         // Check GC counters
         if let Err(_) = validate::gc_col_count_total(self) {

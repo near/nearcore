@@ -6,14 +6,14 @@ use near_primitives::block::{Block, BlockHeader, Tip};
 use near_primitives::epoch_manager::{BlockInfo, EpochInfo};
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::{ChunkHash, ShardChunk, StateSyncInfo};
-use near_primitives::transaction::ExecutionOutcomeWithIdAndProof;
+use near_primitives::transaction::{ExecutionOutcomeWithIdAndProof, SignedTransaction};
 use near_primitives::types::{BlockHeight, ChunkExtra, EpochId, ShardId};
 use near_primitives::utils::{get_block_shard_id, index_to_bytes};
 use near_store::{
     ColBlock, ColBlockHeader, ColBlockHeight, ColBlockInfo, ColBlockMisc, ColBlockPerHeight,
     ColChunkExtra, ColChunkHashesByHeight, ColChunks, ColOutcomesByBlockHash, ColTransactionResult,
-    DBCol, TrieChanges, TrieIterator, CHUNK_TAIL_KEY, HEADER_HEAD_KEY, HEAD_KEY, NUM_COLS,
-    SHOULD_COL_GC, TAIL_KEY,
+    ColTransactions, DBCol, TrieChanges, TrieIterator, CHUNK_TAIL_KEY, HEADER_HEAD_KEY, HEAD_KEY,
+    NUM_COLS, SHOULD_COL_GC, TAIL_KEY,
 };
 
 use crate::StoreValidator;
@@ -292,6 +292,34 @@ pub(crate) fn chunk_indexed_by_height_created(
     if !chunk_hashes.contains(&shard_chunk.chunk_hash) {
         err!("Can't find ShardChunk {:?} on Height {:?}", shard_chunk, height);
     }
+    Ok(())
+}
+
+pub(crate) fn chunk_tx_exists(
+    sv: &mut StoreValidator,
+    _chunk_hash: &ChunkHash,
+    shard_chunk: &ShardChunk,
+) -> Result<(), StoreValidatorError> {
+    for tx in shard_chunk.transactions.iter() {
+        let tx_hash = tx.get_hash();
+        unwrap_or_err_db!(
+            sv.store.get_ser::<SignedTransaction>(ColTransactions, &tx_hash.as_ref()),
+            "Can't get Tx from storage for Tx Hash {:?}",
+            tx_hash
+        );
+    }
+    Ok(())
+}
+
+pub(crate) fn chunk_increase_tx_refcount(
+    sv: &mut StoreValidator,
+    _chunk_hash: &ChunkHash,
+    shard_chunk: &ShardChunk,
+) -> Result<(), StoreValidatorError> {
+    for tx in shard_chunk.transactions.iter() {
+        sv.inner.tx_refcount.entry(tx.get_hash()).and_modify(|x| *x += 1).or_insert(1);
+    }
+    sv.inner.is_tx_refcount_calculated = true;
     Ok(())
 }
 
@@ -697,4 +725,32 @@ pub(crate) fn gc_col_count_total(sv: &mut StoreValidator) -> Result<(), StoreVal
     }
     // TODO #2861 build a graph of dependencies or make it better in another way
     err!("Suspicious, look into GC values manually")
+}
+
+pub(crate) fn tx_refcount(
+    sv: &mut StoreValidator,
+    tx_hash: &CryptoHash,
+    refcount: &u64,
+) -> Result<(), StoreValidatorError> {
+    check_cached!(sv.inner.is_tx_refcount_calculated, "refcount");
+    if let Some(found) = sv.inner.tx_refcount.get(tx_hash) {
+        if refcount != found {
+            err!("Invalid tx refcount, found {:?}", found)
+        } else {
+            sv.inner.tx_refcount.remove(tx_hash);
+            return Ok(());
+        }
+    }
+    err!("Unknown tx")
+}
+
+pub(crate) fn tx_refcount_remaining(sv: &mut StoreValidator) -> Result<(), StoreValidatorError> {
+    check_cached!(sv.inner.is_tx_refcount_calculated, "refcount");
+    let len = sv.inner.tx_refcount.len();
+    if len > 0 {
+        for tx_refcount in sv.inner.tx_refcount.iter() {
+            err!("Found {:?} Txs that are not counted, i.e. {:?}", len, tx_refcount);
+        }
+    }
+    Ok(())
 }
