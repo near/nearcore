@@ -1,6 +1,6 @@
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::convert::TryInto;
+use std::convert::{TryInto, TryFrom};
 
 use rand::seq::SliceRandom;
 use rand::{Rng, SeedableRng};
@@ -30,7 +30,7 @@ use near_vm_logic::{ExtCosts, ExtCostsConfig, VMConfig, VMLimitConfig};
 use node_runtime::config::RuntimeConfig;
 
 /// How much gas there is in a nanosecond worth of computation.
-const GAS_IN_MEASURE_UNIT: u64 = 1_000_000u64;
+const GAS_IN_MEASURE_UNIT: u128 = 1_000_000u128;
 
 fn measure_function(
     metric: Metric,
@@ -483,10 +483,13 @@ fn ratio_to_gas(gas_metric: GasMetric, value: Ratio<u64>) -> u64 {
     let divisor = match gas_metric {
         // We use factor of 8 to approximately match the price of SHA256 operation between
         // time-based and icount-based metric as measured on 3.2Ghz Core i5.
-        GasMetric::ICount => 8u64,
-        GasMetric::Time => 1u64,
+        GasMetric::ICount => 8u128,
+        GasMetric::Time => 1u128,
     };
-    Ratio::<u64>::new(*value.numer() * GAS_IN_MEASURE_UNIT, *value.denom() * divisor).to_integer()
+    u64::try_from(Ratio::<u128>::new(
+        (*value.numer() as u128)* GAS_IN_MEASURE_UNIT,
+        (*value.denom() as u128) * divisor
+        ).to_integer()).unwrap()
 }
 
 /// Converts cost of a certain action to a fee, spliting it evenly between send and execution fee.
