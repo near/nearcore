@@ -1,6 +1,6 @@
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::convert::{TryInto, TryFrom};
+use std::convert::{TryFrom, TryInto};
 
 use rand::seq::SliceRandom;
 use rand::{Rng, SeedableRng};
@@ -486,10 +486,14 @@ fn ratio_to_gas(gas_metric: GasMetric, value: Ratio<u64>) -> u64 {
         GasMetric::ICount => 8u128,
         GasMetric::Time => 1u128,
     };
-    u64::try_from(Ratio::<u128>::new(
-        (*value.numer() as u128)* GAS_IN_MEASURE_UNIT,
-        (*value.denom() as u128) * divisor
-        ).to_integer()).unwrap()
+    u64::try_from(
+        Ratio::<u128>::new(
+            (*value.numer() as u128) * GAS_IN_MEASURE_UNIT,
+            (*value.denom() as u128) * divisor,
+        )
+        .to_integer(),
+    )
+    .unwrap()
 }
 
 /// Converts cost of a certain action to a fee, spliting it evenly between send and execution fee.
