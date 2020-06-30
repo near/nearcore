@@ -222,7 +222,7 @@ impl PeerManagerActor {
         // sending messages.
         ctx.run_later(Duration::from_secs(wait_for_sync), move |act, ctx| {
             let _ = addr.do_send(SendMessage {
-                message: PeerMessage::Sync(SyncData {
+                message: PeerMessage::RoutingTableSync(SyncData {
                     edges: known_edges,
                     accounts: known_accounts,
                 }),
@@ -239,7 +239,9 @@ impl PeerManagerActor {
                 // Wait a time out before broadcasting this new edge to let the other party finish handshake.
                 act.broadcast_message(
                     ctx,
-                    SendMessage { message: PeerMessage::Sync(SyncData::edge(new_edge)) },
+                    SendMessage {
+                        message: PeerMessage::RoutingTableSync(SyncData::edge(new_edge)),
+                    },
                 );
             }
         });
@@ -273,7 +275,9 @@ impl PeerManagerActor {
                 self.process_edge(ctx, edge_update.clone());
                 self.broadcast_message(
                     ctx,
-                    SendMessage { message: PeerMessage::Sync(SyncData::edge(edge_update)) },
+                    SendMessage {
+                        message: PeerMessage::RoutingTableSync(SyncData::edge(edge_update)),
+                    },
                 );
             }
         }
@@ -503,7 +507,9 @@ impl PeerManagerActor {
                 let new_edge = edge.remove_edge(act.peer_id.clone(), &act.config.secret_key);
                 act.broadcast_message(
                     ctx,
-                    SendMessage { message: PeerMessage::Sync(SyncData::edge(new_edge)) },
+                    SendMessage {
+                        message: PeerMessage::RoutingTableSync(SyncData::edge(new_edge)),
+                    },
                 );
             }
         });
@@ -746,7 +752,9 @@ impl PeerManagerActor {
             self.routing_table.add_account(announce_account.clone());
             self.broadcast_message(
                 ctx,
-                SendMessage { message: PeerMessage::Sync(SyncData::account(announce_account)) },
+                SendMessage {
+                    message: PeerMessage::RoutingTableSync(SyncData::account(announce_account)),
+                },
             );
         }
     }
@@ -761,6 +769,7 @@ impl PeerManagerActor {
     ) -> bool {
         if let Some(active_peer) = self.active_peers.get(&peer_id) {
             let msg_kind = format!("{}", message);
+            trace!(target: "network", "Send message: {}", msg_kind);
             active_peer
                 .addr
                 .send(SendMessage { message })
@@ -821,6 +830,7 @@ impl PeerManagerActor {
             Ok(peer_id) => {
                 // Remember if we expect a response for this message.
                 if msg.author == self.peer_id && msg.expect_response() {
+                    trace!(target: "network", "initiate route back {:?}", msg);
                     self.routing_table.add_route_back(msg.hash(), self.peer_id.clone());
                 }
 
@@ -1292,7 +1302,7 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                             if !new_data.is_empty() {
                                 act.broadcast_message(
                                     ctx,
-                                    SendMessage { message: PeerMessage::Sync(new_data) },
+                                    SendMessage { message: PeerMessage::RoutingTableSync(new_data) },
                                 )
                             };
                         }
@@ -1545,6 +1555,7 @@ impl Handler<RoutedMessageFrom> for PeerManagerActor {
         let RoutedMessageFrom { mut msg, from } = msg;
 
         if msg.expect_response() {
+            trace!(target: "network", "Received peer message that requires route back: {}", PeerMessage::Routed(msg.clone()));
             self.routing_table.add_route_back(msg.hash(), from.clone());
         }
 
@@ -1590,6 +1601,7 @@ impl Handler<PeerRequest> for PeerManagerActor {
                 PeerResponse::UpdatedEdge(self.propose_edge(peer, Some(nonce)))
             }
             PeerRequest::RouteBack(body, target) => {
+                trace!(target: "network", "Sending message to route back: {:?}", target);
                 self.send_message_to_peer(
                     ctx,
                     RawRoutedMessage { target: AccountOrPeerIdOrHash::Hash(target), body: *body },

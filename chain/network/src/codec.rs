@@ -130,7 +130,7 @@ mod test {
         let sk = SecretKey::from_random(KeyType::ED25519);
         let network_sk = SecretKey::from_random(KeyType::ED25519);
         let signature = sk.sign(vec![].as_slice());
-        let msg = PeerMessage::Sync(SyncData {
+        let msg = PeerMessage::RoutingTableSync(SyncData {
             edges: Vec::new(),
             accounts: vec![AnnounceAccount {
                 account_id: "test1".to_string(),
