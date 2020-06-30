@@ -42,7 +42,7 @@ for external native functions executed by the blockchain runtime.
 For example, the number of actual machine instructions could be used as gas metrics
 for host functions. Some blockchains however, approximate the gas as the elapsed time.
 
-### What does the gas price reflect? How should I price the gas in my system? Pure price of hardware for validators or some economical meaning?
+### What does the gas price reflect? How should I price the gas in my system? Pure price of hardware for validators or some economic meaning?
 
 Gas price can either represent the cost of hardware maintenance for validators,
 probably with some multiplier to make validation economically attractive,
