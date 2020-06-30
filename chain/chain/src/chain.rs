@@ -23,7 +23,12 @@ use near_primitives::merkle::{
 };
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{
-    ChunkHash, ChunkHashHeight, ReceiptProof, ShardChunk, ShardChunkHeader, ShardProof,
+    ChunkHash, ChunkHashHeight, ReceiptProof, ShardChunk, ShardChunkHeader, ShardInfo, ShardProof,
+    StateSyncInfo,
+};
+use near_primitives::syncing::{
+    get_num_state_parts, ReceiptProofResponse, ReceiptResponse, RootProof,
+    ShardStateSyncResponseHeader, StatePartKey,
 };
 use near_primitives::transaction::ExecutionOutcomeWithIdAndProof;
 use near_primitives::types::{
@@ -40,13 +45,10 @@ use near_store::{ColState, ColStateHeaders, ColStateParts, ShardTries, StoreUpda
 
 use crate::error::{Error, ErrorKind};
 use crate::lightclient::get_epoch_block_producers_view;
-use crate::store::{
-    ChainStore, ChainStoreAccess, ChainStoreUpdate, GCMode, ShardInfo, StateSyncInfo,
-};
+use crate::store::{ChainStore, ChainStoreAccess, ChainStoreUpdate, GCMode};
 use crate::types::{
     AcceptedBlock, ApplyTransactionResult, Block, BlockHeader, BlockHeaderInfo, BlockStatus,
-    BlockSyncResponse, Provenance, ReceiptList, ReceiptProofResponse, ReceiptResponse, RootProof,
-    RuntimeAdapter, ShardStateSyncResponseHeader, StatePartKey,
+    BlockSyncResponse, Provenance, ReceiptList, RuntimeAdapter,
 };
 use crate::validate::{
     validate_challenge, validate_chunk_proofs, validate_chunk_with_chunk_extra,
@@ -1330,6 +1332,12 @@ impl Chain {
         shard_id: ShardId,
         sync_hash: CryptoHash,
     ) -> Result<ShardStateSyncResponseHeader, Error> {
+        // Check cache
+        let key = StateHeaderKey(shard_id, sync_hash).try_to_vec()?;
+        if let Ok(Some(header)) = self.store.owned_store().get_ser(ColStateHeaders, &key) {
+            return Ok(header);
+        }
+
         // Consistency rules:
         // 1. Everything prefixed with `sync_` indicates new epoch, for which we are syncing.
         // 1a. `sync_prev` means the last of the prev epoch.
@@ -1459,7 +1467,7 @@ impl Chain {
         let state_root_node =
             self.runtime_adapter.get_state_root_node(shard_id, &chunk_header.inner.prev_state_root);
 
-        Ok(ShardStateSyncResponseHeader {
+        let shard_state_header = ShardStateSyncResponseHeader {
             chunk,
             chunk_proof,
             prev_chunk_header,
@@ -1467,15 +1475,14 @@ impl Chain {
             incoming_receipts_proofs,
             root_proofs,
             state_root_node,
-        })
-    }
+        };
 
-    pub fn get_num_state_parts(memory_usage: u64) -> u64 {
-        // We assume that 1 Mb is a good limit for state part size.
-        // On the other side, it's important to divide any state into
-        // several parts to make sure that partitioning always works.
-        // TODO #1708
-        memory_usage / (1024 * 1024) + 3
+        // Saving the header data
+        let mut store_update = self.store.owned_store().store_update();
+        store_update.set_ser(ColStateHeaders, &key, &shard_state_header)?;
+        store_update.commit()?;
+
+        Ok(shard_state_header)
     }
 
     pub fn get_state_response_part(
@@ -1484,6 +1491,12 @@ impl Chain {
         part_id: u64,
         sync_hash: CryptoHash,
     ) -> Result<Vec<u8>, Error> {
+        // Check cache
+        let key = StatePartKey(sync_hash, shard_id, part_id).try_to_vec()?;
+        if let Ok(Some(state_part)) = self.store.owned_store().get_ser(ColStateParts, &key) {
+            return Ok(state_part);
+        }
+
         let sync_block =
             self.get_block(&sync_hash).expect("block has already been checked for existence");
         let sync_block_header = sync_block.header().clone();
@@ -1503,13 +1516,18 @@ impl Chain {
         }
         let state_root = sync_prev_block.chunks()[shard_id as usize].inner.prev_state_root.clone();
         let state_root_node = self.runtime_adapter.get_state_root_node(shard_id, &state_root);
-        let num_parts = Self::get_num_state_parts(state_root_node.memory_usage);
+        let num_parts = get_num_state_parts(state_root_node.memory_usage);
 
         if part_id >= num_parts {
             return Err(ErrorKind::InvalidStateRequest("part_id out of bound".to_string()).into());
         }
         let state_part =
             self.runtime_adapter.obtain_state_part(shard_id, &state_root, part_id, num_parts);
+
+        // Saving the part data
+        let mut store_update = self.store.owned_store().store_update();
+        store_update.set_ser(ColStateParts, &key, &state_part)?;
+        store_update.commit()?;
 
         Ok(state_part)
     }
@@ -1694,19 +1712,12 @@ impl Chain {
         Ok(())
     }
 
-    pub fn get_received_state_header(
+    pub fn get_state_header(
         &mut self,
         shard_id: ShardId,
         sync_hash: CryptoHash,
     ) -> Result<ShardStateSyncResponseHeader, Error> {
-        let key = StateHeaderKey(shard_id, sync_hash).try_to_vec()?;
-        match self.store.owned_store().get_ser(ColStateHeaders, &key) {
-            Ok(Some(header)) => Ok(header),
-            _ => Err(ErrorKind::Other(
-                "set_state_finalize failed: cannot get shard_state_header".into(),
-            )
-            .into()),
-        }
+        self.store.get_state_header(shard_id, sync_hash)
     }
 
     pub fn set_state_part(
@@ -1717,7 +1728,7 @@ impl Chain {
         num_parts: u64,
         data: &Vec<u8>,
     ) -> Result<(), Error> {
-        let shard_state_header = self.get_received_state_header(shard_id, sync_hash)?;
+        let shard_state_header = self.get_state_header(shard_id, sync_hash)?;
         let ShardStateSyncResponseHeader { chunk, .. } = shard_state_header;
         let state_root = chunk.header.inner.prev_state_root;
         if !self.runtime_adapter.validate_state_part(&state_root, part_id, num_parts, data) {
@@ -1742,7 +1753,7 @@ impl Chain {
         sync_hash: CryptoHash,
         num_parts: u64,
     ) -> Result<(), Error> {
-        let shard_state_header = self.get_received_state_header(shard_id, sync_hash)?;
+        let shard_state_header = self.get_state_header(shard_id, sync_hash)?;
         let mut height = shard_state_header.chunk.header.height_included;
         let state_root = shard_state_header.chunk.header.inner.prev_state_root.clone();
         let mut parts = vec![];
@@ -2369,6 +2380,24 @@ impl Chain {
     #[inline]
     pub fn is_chunk_orphan(&self, hash: &CryptoHash) -> bool {
         self.blocks_with_missing_chunks.contains(hash)
+    }
+
+    /// Check if can sync with sync_hash
+    pub fn check_sync_hash_validity(&mut self, sync_hash: &CryptoHash) -> Result<bool, Error> {
+        let head = self.head()?;
+        // It's important to check that Block exists because we will sync with it.
+        // Do not replace with `get_block_header`.
+        let sync_block = self.get_block(sync_hash)?;
+        // The Epoch of sync_hash may be either the current one or the previous one
+        if head.epoch_id == *sync_block.header().epoch_id()
+            || head.epoch_id == *sync_block.header().next_epoch_id()
+        {
+            let prev_hash = sync_block.header().prev_hash().clone();
+            // If sync_hash is not on the Epoch boundary, it's malicious behavior
+            self.runtime_adapter.is_next_block_epoch_start(&prev_hash)
+        } else {
+            Ok(false) // invalid Epoch of sync_hash, possible malicious behavior
+        }
     }
 }
 

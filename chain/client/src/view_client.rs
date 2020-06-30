@@ -8,9 +8,8 @@ use std::time::{Duration, Instant};
 
 use actix::{Actor, Context, Handler};
 use cached::{Cached, SizedCache};
-use log::{debug, error, info, warn};
+use log::{debug, error, info, trace, warn};
 
-use near_chain::types::ShardStateSyncResponse;
 use near_chain::{
     Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode, ErrorKind, RuntimeAdapter,
 };
@@ -25,6 +24,7 @@ use near_primitives::block::{BlockHeader, GenesisId, Tip};
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{merklize, verify_path, PartialMerkleTree};
 use near_primitives::network::AnnounceAccount;
+use near_primitives::syncing::ShardStateSyncResponse;
 use near_primitives::types::{
     AccountId, BlockHeight, BlockId, BlockIdOrFinality, Finality, MaybeBlockId,
     TransactionOrReceiptId,
@@ -789,8 +789,8 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
                 }
             },
             NetworkViewClientMessages::StateRequestHeader { shard_id, sync_hash } => {
-                let state_response = match self.chain.get_block(&sync_hash) {
-                    Ok(_) => {
+                let state_response = match self.chain.check_sync_hash_validity(&sync_hash) {
+                    Ok(true) => {
                         let header = match self.chain.get_state_response_header(shard_id, sync_hash)
                         {
                             Ok(header) => Some(header),
@@ -801,12 +801,22 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
                         };
                         ShardStateSyncResponse { header, part: None }
                     }
-                    Err(_) => {
-                        // This case may appear in case of latency in epoch switching.
-                        // Request sender is ready to sync but we still didn't get the block.
-                        info!(target: "sync", "Can't get sync_hash block {:?} for state request header", sync_hash);
-                        ShardStateSyncResponse { header: None, part: None }
+                    Ok(false) => {
+                        warn!(target: "sync", "sync_hash {:?} didn't pass validation, possible malicious behavior", sync_hash);
+                        return NetworkViewClientResponses::NoResponse;
                     }
+                    Err(e) => match e.kind() {
+                        ErrorKind::DBNotFoundErr(_) => {
+                            // This case may appear in case of latency in epoch switching.
+                            // Request sender is ready to sync but we still didn't get the block.
+                            info!(target: "sync", "Can't get sync_hash block {:?} for state request header", sync_hash);
+                            ShardStateSyncResponse { header: None, part: None }
+                        }
+                        _ => {
+                            error!(target: "sync", "Failed to verify sync_hash {:?} validity, {:?}", sync_hash, e);
+                            ShardStateSyncResponse { header: None, part: None }
+                        }
+                    },
                 };
                 NetworkViewClientResponses::StateResponse(Box::new(StateResponseInfo {
                     shard_id,
@@ -815,8 +825,9 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
                 }))
             }
             NetworkViewClientMessages::StateRequestPart { shard_id, sync_hash, part_id } => {
-                let state_response = match self.chain.get_block(&sync_hash) {
-                    Ok(_) => {
+                trace!(target: "sync", "Computing state request part {} {} {}", shard_id, sync_hash, part_id);
+                let state_response = match self.chain.check_sync_hash_validity(&sync_hash) {
+                    Ok(true) => {
                         let part = match self
                             .chain
                             .get_state_response_part(shard_id, part_id, sync_hash)
@@ -827,14 +838,26 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
                                 None
                             }
                         };
+
+                        trace!(target: "sync", "Finish computation for state request part {} {} {}", shard_id, sync_hash, part_id);
                         ShardStateSyncResponse { header: None, part }
                     }
-                    Err(_) => {
-                        // This case may appear in case of latency in epoch switching.
-                        // Request sender is ready to sync but we still didn't get the block.
-                        info!(target: "sync", "Can't get sync_hash block {:?} for state request part", sync_hash);
-                        ShardStateSyncResponse { header: None, part: None }
+                    Ok(false) => {
+                        warn!(target: "sync", "sync_hash {:?} didn't pass validation, possible malicious behavior", sync_hash);
+                        return NetworkViewClientResponses::NoResponse;
                     }
+                    Err(e) => match e.kind() {
+                        ErrorKind::DBNotFoundErr(_) => {
+                            // This case may appear in case of latency in epoch switching.
+                            // Request sender is ready to sync but we still didn't get the block.
+                            info!(target: "sync", "Can't get sync_hash block {:?} for state request part", sync_hash);
+                            ShardStateSyncResponse { header: None, part: None }
+                        }
+                        _ => {
+                            error!(target: "sync", "Failed to verify sync_hash {:?} validity, {:?}", sync_hash, e);
+                            ShardStateSyncResponse { header: None, part: None }
+                        }
+                    },
                 };
                 NetworkViewClientResponses::StateResponse(Box::new(StateResponseInfo {
                     shard_id,

@@ -19,6 +19,7 @@ pytest --timeout=900 sanity/state_sync3.py
 pytest --timeout=240 sanity/state_sync4.py
 pytest --timeout=600 sanity/state_sync_routed.py manytx 100
 pytest --timeout=300 sanity/state_sync_late.py notx
+pytest --timeout=300 sanity/state_sync_massive.py
 pytest sanity/rpc_tx_forwarding.py
 pytest --timeout=240 sanity/skip_epoch.py
 pytest --timeout=240 sanity/one_val.py
@@ -35,9 +36,9 @@ pytest --timeout=300 sanity/gc_after_sync.py
 pytest --timeout=300 sanity/gc_sync_after_sync.py
 pytest --timeout=300 sanity/gc_sync_after_sync.py swap_nodes
 pytest --timeout=300 sanity/large_messages.py
-pytest --timeout=300 sanity/upgradable.py
 pytest --timeout=240 sanity/validator_switch_key.py
 pytest sanity/nodes_proxy.py
+pytest sanity/network_drop_package.py
 
 # python tests for smart contract deployment and invocation
 pytest contracts/deploy_call_smart_contract.py
@@ -62,6 +63,10 @@ pytest adversarial/start_from_genesis.py
 pytest adversarial/start_from_genesis.py overtake
 pytest adversarial/start_from_genesis.py doomslug_off
 pytest adversarial/start_from_genesis.py overtake doomslug_off
+
+# python upgradable test
+# upgradable.py moves `near` binary, and must be the last python test in the set
+pytest --timeout=300 sanity/upgradable.py
 
 # catchup tests
 expensive --timeout=1800 near-client catching_up tests::test_catchup_receipts_sync_third_epoch

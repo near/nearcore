@@ -14,7 +14,7 @@ use crate::version::{ProtocolVersion, PROTOCOL_VERSION};
 
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, Eq, PartialEq)]
 pub struct BlockHeaderInnerLite {
-    /// Height of this block since the genesis block (height 0).
+    /// Height of this block.
     pub height: BlockHeight,
     /// Epoch start hash of this block's epoch.
     /// Used for retrieving validator information
