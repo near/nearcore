@@ -116,43 +116,66 @@ def get_epoch_length_in_blocks(node):
         return epoch_length_in_blocks
 
 
-def get_block(node, hash, timeout=180):
-    print(f'INFO: Looking up block {hash} from {node.machine.name}')
+def node_object_lookup(node_name, object_name, lookup_function, timeout=180):
+    print(f'INFO: Looking up {object_name} from {node_name}')
     start_time = time.time()
-    response = node.get_block(hash)
+    response = lookup_function()
     while 'result' not in response:
         if time.time() - start_time > timeout:
             raise TimeoutError(
-                f'Failed to lookup block {hash} within {timeout} seconds')
+                f'Failed to lookup {object_name} within {timeout} seconds')
         time.sleep(1)
-        response = node.get_block(hash)
+        response = lookup_function()
     return response['result']
 
 
-def measure_average_block_time(node, duration=120):
+def get_block(node, hash, timeout=180):
+    return node_object_lookup(node.machine.name, f'block {hash}',
+                              lambda: node.get_block(hash), timeout)
+
+
+def get_chunk(node, hash, timeout=180):
+    return node_object_lookup(node.machine.name, f'chunk {hash}',
+                              lambda: node.get_chunk(hash), timeout)
+
+
+def measure_chain_stats(node, duration=120):
     print(
-        f'INFO: Beginning average block time measurement, lasting {duration} seconds'
-    )
+        f'INFO: Beginning chain stats measurement, lasting {duration} seconds')
     start_block_hash = node.get_status()['sync_info']['latest_block_hash']
     time.sleep(duration)
     end_block_hash = node.get_status()['sync_info']['latest_block_hash']
     print(
-        f'INFO: Computing average block time between blocks {start_block_hash} and {end_block_hash}'
+        f'INFO: Computing stats between blocks {start_block_hash} and {end_block_hash}'
     )
 
     curr_block = get_block(node, end_block_hash)
     block_times = []
+    tx_per_second = []
     while curr_block['header']['hash'] != start_block_hash:
         prev_block = get_block(node, curr_block['header']['prev_hash'])
         time_delta_ns = int(curr_block['header']['timestamp']) - int(
             prev_block['header']['timestamp'])
+        curr_chunk_hash = curr_block['chunks'][0]['chunk_hash']
+        curr_chunk = get_chunk(node, curr_chunk_hash)
+        num_tx = len(curr_chunk['transactions'])
         block_times.append(time_delta_ns / 1e9)
+        # we define tps as (transactions per block) / (seconds per block)
+        tx_per_second.append(num_tx / block_times[-1])
         curr_block = prev_block
 
-    m = statistics.mean(block_times)
-    s = statistics.stdev(block_times)
-    print(f'INFO: Average block time = {m} +/- {s} seconds')
-    return (m, s)
+    mean_block_time = statistics.mean(block_times)
+    stdev_block_time = statistics.stdev(block_times)
+    print(
+        f'INFO: Average block time = {mean_block_time} +/- {stdev_block_time} seconds'
+    )
+    mean_tps = statistics.mean(tx_per_second)
+    stdev_tps = statistics.stdev(tx_per_second)
+    print(f'INFO: Average TPS = {mean_tps} +/- {stdev_tps} seconds')
+    return {
+        'block_time': (mean_block_time, stdev_block_time),
+        'tps': (mean_tps, stdev_tps)
+    }
 
 
 # Sends the transaction to the network via `node` and checks for success.

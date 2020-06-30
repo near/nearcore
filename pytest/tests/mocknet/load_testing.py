@@ -12,12 +12,23 @@ import mocknet
 
 nodes = mocknet.get_nodes()
 
+
+def check_stats(include_tps=False):
+    stats = mocknet.measure_chain_stats(nodes[-1])
+    (block_time, stdev) = stats['block_time']
+    assert block_time < 1.01
+    assert stdev < 0.1
+    if include_tps:
+        (tps, tps_stdev) = stats['tps']
+        assert tps > 190
+        assert tps_stdev < 60
+
+
 print('INFO: Starting Load test.')
 
 print('INFO: Performing baseline block time measurement')
-(block_time, stdev) = mocknet.measure_average_block_time(nodes[-1])
-assert block_time < 1.01
-assert stdev < 0.1
+# We do not include tps here because there are no transactions on mocknet normally.
+check_stats(include_tps=False)
 print('INFO: Baseline block time measurement complete')
 
 print('INFO: Setting remote python environments.')
@@ -27,9 +38,7 @@ mocknet.start_load_test_helpers(nodes)
 
 start_time = time.time()
 while time.time() - start_time < TIMEOUT:
-    (block_time, stdev) = mocknet.measure_average_block_time(nodes[-1])
-    assert block_time < 1.01
-    assert stdev < 0.1
+    check_stats(include_tps=True)
 
     # TODO: other metrics
 
