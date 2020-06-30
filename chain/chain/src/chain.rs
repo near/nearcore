@@ -2361,24 +2361,18 @@ impl Chain {
     /// Check if can sync with sync_hash
     pub fn check_sync_hash_validity(&mut self, sync_hash: &CryptoHash) -> Result<bool, Error> {
         let head = self.head()?;
-        match self.get_block_header(sync_hash) {
-            Ok(sync_header) => {
-                // The Epoch of sync_hash may be either the current one or the previous one
-                if head.epoch_id == *sync_header.epoch_id()
-                    || head.epoch_id == *sync_header.next_epoch_id()
-                {
-                    let prev_hash = sync_header.prev_hash().clone();
-                    if self.runtime_adapter.is_next_block_epoch_start(&prev_hash)? {
-                        debug_assert!(self.get_block(sync_hash).is_ok());
-                        Ok(true)
-                    } else {
-                        Ok(false) // sync_hash is not on the Epoch boundary
-                    }
-                } else {
-                    Ok(false) // invalid Epoch of sync_hash, possible malicious behavior
-                }
-            }
-            Err(e) => Err(e),
+        // It's important to check that Block exists because we will sync with it.
+        // Do not replace with `get_block_header`.
+        let sync_block = self.get_block(sync_hash)?;
+        // The Epoch of sync_hash may be either the current one or the previous one
+        if head.epoch_id == *sync_block.header().epoch_id()
+            || head.epoch_id == *sync_block.header().next_epoch_id()
+        {
+            let prev_hash = sync_block.header().prev_hash().clone();
+            // If sync_hash is not on the Epoch boundary, it's malicious behavior
+            self.runtime_adapter.is_next_block_epoch_start(&prev_hash)
+        } else {
+            Ok(false) // invalid Epoch of sync_hash, possible malicious behavior
         }
     }
 }
