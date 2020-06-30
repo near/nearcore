@@ -2009,7 +2009,9 @@ impl<'a> ChainStoreUpdate<'a> {
             self.gc_col(ColChunkPerHeightShard, &height_shard_id);
             self.gc_col(ColNextBlockWithNewChunk, &height_shard_id);
 
-            // If node crashes while State Syncing, it may never clear
+            // For incoming State Parts it's done in chain.clear_downloaded_parts()
+            // The following code is mostly for outgoing State Parts.
+            // However, if node crashes while State Syncing, it may never clear
             // downloaded State parts in `clear_downloaded_parts`.
             // We need to make sure all State Parts are removed.
             if let Ok(shard_state_header) = self.get_state_header(shard_id, block_hash) {

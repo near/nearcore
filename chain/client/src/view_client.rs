@@ -8,7 +8,7 @@ use std::time::{Duration, Instant};
 
 use actix::{Actor, Context, Handler};
 use cached::{Cached, SizedCache};
-use log::{debug, error, info, warn};
+use log::{debug, error, info, trace, warn};
 
 use near_chain::{
     Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode, ErrorKind, RuntimeAdapter,
@@ -825,6 +825,7 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
                 }))
             }
             NetworkViewClientMessages::StateRequestPart { shard_id, sync_hash, part_id } => {
+                trace!(target: "sync", "Computing state request part {} {} {}", shard_id, sync_hash, part_id);
                 let state_response = match self.chain.check_sync_hash_validity(&sync_hash) {
                     Ok(true) => {
                         let part = match self
@@ -837,6 +838,8 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
                                 None
                             }
                         };
+
+                        trace!(target: "sync", "Finish computation for state request part {} {} {}", shard_id, sync_hash, part_id);
                         ShardStateSyncResponse { header: None, part }
                     }
                     Ok(false) => {
