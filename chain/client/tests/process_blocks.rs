@@ -1374,5 +1374,11 @@ fn test_sync_hash_validity() {
     let bad_hash = CryptoHash::try_from("7tkzFg8RHBmMw1ncRJZCCZAizgq4rwCftTKYLce8RU8t").unwrap();
     let res = env.clients[0].chain.check_sync_hash_validity(&bad_hash);
     println!("bad hash -> {:?}", res.is_ok());
-    assert!(res.is_err());
+    match res {
+        Ok(_) => assert!(false),
+        Err(e) => match e.kind() {
+            ErrorKind::DBNotFoundErr(_) => { /* the only expected error */ }
+            _ => assert!(false),
+        },
+    }
 }
