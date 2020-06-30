@@ -773,7 +773,7 @@ mod tests {
                 false,
                 false,
                 5,
-                false,
+                true,
                 vec![false; validators.iter().map(|x| x.len()).sum()],
                 Arc::new(RwLock::new(Box::new(
                     move |sender_account_id: String, msg: &NetworkRequests| {
