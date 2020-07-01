@@ -328,8 +328,10 @@ pub struct BlockHeaderView {
     pub outcome_root: CryptoHash,
     pub chunks_included: u64,
     pub challenges_root: CryptoHash,
-    #[serde(with = "u64_dec_format")]
+    /// Legacy json number. Should not be used.
     pub timestamp: u64,
+    #[serde(with = "u64_dec_format")]
+    pub timestamp_nanosec: u64,
     pub random_value: CryptoHash,
     pub validator_proposals: Vec<ValidatorStakeView>,
     pub chunk_mask: Vec<bool>,
@@ -369,6 +371,7 @@ impl From<BlockHeader> for BlockHeaderView {
             challenges_root: header.challenges_root().clone(),
             outcome_root: header.outcome_root().clone(),
             timestamp: header.raw_timestamp(),
+            timestamp_nanosec: header.raw_timestamp(),
             random_value: header.random_value().clone(),
             validator_proposals: header
                 .validator_proposals()
@@ -442,8 +445,10 @@ pub struct BlockHeaderInnerLiteView {
     pub next_epoch_id: CryptoHash,
     pub prev_state_root: CryptoHash,
     pub outcome_root: CryptoHash,
-    #[serde(with = "u64_dec_format")]
+    /// Legacy json number. Should not be used.
     pub timestamp: u64,
+    #[serde(with = "u64_dec_format")]
+    pub timestamp_nanosec: u64,
     pub next_bp_hash: CryptoHash,
     pub block_merkle_root: CryptoHash,
 }
@@ -458,6 +463,7 @@ impl From<BlockHeader> for BlockHeaderInnerLiteView {
                 prev_state_root: header.inner_lite.prev_state_root,
                 outcome_root: header.inner_lite.outcome_root,
                 timestamp: header.inner_lite.timestamp,
+                timestamp_nanosec: header.inner_lite.timestamp,
                 next_bp_hash: header.inner_lite.next_bp_hash,
                 block_merkle_root: header.inner_lite.block_merkle_root,
             },
