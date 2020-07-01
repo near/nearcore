@@ -185,7 +185,7 @@ impl StoreValidator {
                         &shard_chunk,
                         col,
                     );
-                    // Check that all Txs in Chunk are exist
+                    // Check that all Txs in Chunk exist
                     self.check(&validate::chunk_tx_exists, &chunk_hash, &shard_chunk, col);
                     // Increase Tx Refcount for checking it later
                     self.check(
