@@ -300,13 +300,28 @@ pub(crate) fn chunk_tx_exists(
     _chunk_hash: &ChunkHash,
     shard_chunk: &ShardChunk,
 ) -> Result<(), StoreValidatorError> {
-    for tx in shard_chunk.transactions.iter() {
-        let tx_hash = tx.get_hash();
-        unwrap_or_err_db!(
-            sv.store.get_ser::<SignedTransaction>(ColTransactions, &tx_hash.as_ref()),
-            "Can't get Tx from storage for Tx Hash {:?}",
-            tx_hash
-        );
+    if let Some(me) = &sv.me {
+        if sv.runtime_adapter.cares_about_shard(
+            Some(me),
+            &shard_chunk.header.inner.prev_block_hash,
+            shard_chunk.header.inner.shard_id,
+            true,
+        ) || sv.runtime_adapter.will_care_about_shard(
+            Some(me),
+            &shard_chunk.header.inner.prev_block_hash,
+            shard_chunk.header.inner.shard_id,
+            true,
+        ) {
+            for tx in shard_chunk.transactions.iter() {
+                let tx_hash = tx.get_hash();
+                // TODO #2930 Can't get Tx from ColTransactions
+                /* unwrap_or_err_db!(
+                    sv.store.get_ser::<SignedTransaction>(ColTransactions, &tx_hash.as_ref()),
+                    "Can't get Tx from storage for Tx Hash {:?}",
+                    tx_hash
+                ); */
+            }
+        }
     }
     Ok(())
 }
