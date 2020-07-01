@@ -2156,7 +2156,7 @@ impl<'a> ChainStoreUpdate<'a> {
     pub fn gc_col_transaction(&mut self, tx_hash: CryptoHash) -> Result<(), Error> {
         let mut refs = self.get_tx_refcount(&tx_hash)?;
         debug_assert!(refs > 0);
-        refs -= 1;
+        refs = refs.saturating_sub(1);
         if refs == 0 {
             self.gc_col(ColTransactionRefCount, &tx_hash.into());
             self.gc_col(ColTransactions, &tx_hash.into());
