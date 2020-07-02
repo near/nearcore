@@ -20,6 +20,7 @@ with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
     handshake = create_handshake(my_key_pair_nacl, nodes[0].node_key.pk, 12345)
     sign_handshake(my_key_pair_nacl, handshake.Handshake)
 
+    print('Sending first handshake: ' + obj_to_string(handshake))
     send_obj(s, schema, handshake)
 
     response = recv_obj(s, schema, PeerMessage)
@@ -29,10 +30,25 @@ with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
 with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
     s.connect(nodes[0].addr())
     gm = response.HandshakeFailure[1].GenesisMismatch
+    print('Receiving failure: ' + obj_to_string(response))
     handshake.Handshake.chain_info.genesis_id.chain_id = gm.chain_id
     handshake.Handshake.chain_info.genesis_id.hash = gm.hash
     sign_handshake(my_key_pair_nacl, handshake.Handshake)
 
+    print('Sending second handshake: ' + obj_to_string(handshake))
+    send_obj(s, schema, handshake)
+    response = recv_obj(s, schema, PeerMessage)
+    assert response.enum == 'HandshakeFailure'
+    assert response.HandshakeFailure[1].enum == 'ProtocolVersionMismatch'
+
+with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+    s.connect(nodes[0].addr())
+    print('Receiving failure: ' + obj_to_string(response))
+    pvm = response.HandshakeFailure[1].ProtocolVersionMismatch
+    handshake.Handshake.version = pvm
+    sign_handshake(my_key_pair_nacl, handshake.Handshake)
+
+    print('Sending third handshake: ' + obj_to_string(handshake))
     send_obj(s, schema, handshake)
     response = recv_obj(s, schema, PeerMessage)
 
@@ -48,3 +64,5 @@ with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         my_key_pair_nacl.verify_key)
     assert response.Handshake.version == handshake.Handshake.version
     assert response.Handshake.listen_port == nodes[0].addr()[1]
+
+print('EPIC')
