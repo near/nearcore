@@ -40,6 +40,7 @@ near-client = { path = "../chain/client" }
 near-pool = { path = "../chain/pool" }
 near-network = { path = "../chain/network" }
 near-jsonrpc = { path = "../chain/jsonrpc" }
+near-rosettarpc = { path = "../chain/rosettarpc" }
 near-telemetry = { path = "../chain/telemetry" }
 near-epoch-manager = { path = "../chain/epoch_manager" }
 

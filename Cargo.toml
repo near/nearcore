@@ -30,6 +30,7 @@ members = [
     "chain/jsonrpc",
     "chain/jsonrpc/client",
     "chain/jsonrpc/test-utils",
+    "chain/rosettarpc",
     "test-utils/testlib",
     "test-utils/loadtester",
     "test-utils/state-viewer",
