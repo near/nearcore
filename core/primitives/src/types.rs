@@ -497,6 +497,18 @@ impl BlockIdOrFinality {
     }
 }
 
+impl From<BlockId> for BlockIdOrFinality {
+    fn from(block_id: BlockId) -> Self {
+        Self::BlockId(block_id)
+    }
+}
+
+impl From<Finality> for BlockIdOrFinality {
+    fn from(finality: Finality) -> Self {
+        Self::Finality(finality)
+    }
+}
+
 #[derive(Default, BorshSerialize, BorshDeserialize, Serialize, Clone, Debug, PartialEq)]
 pub struct ValidatorStats {
     pub produced: NumBlocks,
