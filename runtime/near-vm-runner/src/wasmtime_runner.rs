@@ -1,3 +1,5 @@
+use wasmtime::{Engine, Module};
+
 // mod only to apply feature to it. Is it possible to avoid it?
 #[cfg(feature = "wasmtime_vm")]
 pub mod wasmtime_runner {
@@ -217,5 +219,5 @@ pub mod wasmtime_runner {
 
 pub fn compile_module(code: &[u8]) {
     let engine = Engine::default();
-    let module = Module::new(&engine, code).unwrap();
+    Module::new(&engine, code).unwrap();
 }
