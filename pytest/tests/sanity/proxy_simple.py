@@ -1,3 +1,5 @@
+# Start two nodes. Proxify both nodes
+# and wait until block at height >= 10 pass through the proxy.
 import sys, time
 import multiprocessing
 
