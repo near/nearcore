@@ -19,6 +19,7 @@ pytest --timeout=900 sanity/state_sync3.py
 pytest --timeout=240 sanity/state_sync4.py
 pytest --timeout=600 sanity/state_sync_routed.py manytx 100
 pytest --timeout=300 sanity/state_sync_late.py notx
+pytest --timeout=300 sanity/state_sync_massive.py
 pytest sanity/rpc_tx_forwarding.py
 pytest --timeout=240 sanity/skip_epoch.py
 pytest --timeout=240 sanity/one_val.py
@@ -35,8 +36,9 @@ pytest --timeout=300 sanity/gc_after_sync.py
 pytest --timeout=300 sanity/gc_sync_after_sync.py
 pytest --timeout=300 sanity/gc_sync_after_sync.py swap_nodes
 pytest --timeout=300 sanity/large_messages.py
-pytest --timeout=300 sanity/upgradable.py
 pytest --timeout=240 sanity/validator_switch_key.py
+pytest sanity/nodes_proxy.py
+pytest sanity/network_drop_package.py
 
 # python tests for smart contract deployment and invocation
 pytest contracts/deploy_call_smart_contract.py
@@ -50,7 +52,7 @@ pytest contracts/gibberish.py
 # pytest stress/network_stress.py
 
 # python spec tests
-pytest tests/spec/network/handshake.py
+pytest spec/network/handshake.py
 
 # python adversarial tests
 pytest --timeout=600 adversarial/fork_sync.py
@@ -62,22 +64,26 @@ pytest adversarial/start_from_genesis.py overtake
 pytest adversarial/start_from_genesis.py doomslug_off
 pytest adversarial/start_from_genesis.py overtake doomslug_off
 
+# python upgradable test
+# upgradable.py moves `near` binary, and must be the last python test in the set
+pytest --timeout=300 sanity/upgradable.py
+
 # catchup tests
-expensive near-client catching_up tests::test_catchup_receipts_sync_third_epoch
-expensive near-client catching_up tests::test_catchup_receipts_sync_last_block
-expensive near-client catching_up tests::test_catchup_receipts_sync_distant_epoch
-expensive near-client catching_up tests::test_catchup_random_single_part_sync
-expensive near-client catching_up tests::test_catchup_random_single_part_sync_skip_15
-expensive near-client catching_up tests::test_catchup_random_single_part_sync_send_15
-expensive near-client catching_up tests::test_catchup_random_single_part_sync_non_zero_amounts
-expensive near-client catching_up tests::test_catchup_random_single_part_sync_height_6
-expensive near-client catching_up tests::test_catchup_sanity_blocks_produced
+expensive --timeout=1800 near-client catching_up tests::test_catchup_receipts_sync_third_epoch
+expensive --timeout=1800 near-client catching_up tests::test_catchup_receipts_sync_last_block
+expensive --timeout=1800 near-client catching_up tests::test_catchup_receipts_sync_distant_epoch
+expensive --timeout=1800 near-client catching_up tests::test_catchup_random_single_part_sync
+expensive --timeout=1800 near-client catching_up tests::test_catchup_random_single_part_sync_skip_15
+expensive --timeout=1800 near-client catching_up tests::test_catchup_random_single_part_sync_send_15
+expensive --timeout=1800 near-client catching_up tests::test_catchup_random_single_part_sync_non_zero_amounts
+expensive --timeout=1800 near-client catching_up tests::test_catchup_random_single_part_sync_height_6
+expensive --timeout=1800 near-client catching_up tests::test_catchup_sanity_blocks_produced
 expensive --timeout=3600 near-client catching_up tests::test_all_chunks_accepted_1000
 # expensive --timeout=7200 near-client catching_up tests::test_all_chunks_accepted_1000_slow
 expensive --timeout=1800 near-client catching_up tests::test_all_chunks_accepted_1000_rare_epoch_changing
-expensive near-client catching_up tests::test_catchup_sanity_blocks_produced_doomslug
-expensive near-client catching_up tests::test_catchup_receipts_sync_hold
-expensive near-client catching_up tests::test_chunk_grieving
+expensive --timeout=1800 near-client catching_up tests::test_catchup_sanity_blocks_produced_doomslug
+expensive --timeout=1800 near-client catching_up tests::test_catchup_receipts_sync_hold
+expensive --timeout=1800 near-client catching_up tests::test_chunk_grieving
 
 expensive nearcore test_catchup test_catchup
 
@@ -149,3 +155,8 @@ expensive nearcore test_simple test::test_7_10_multiple_nodes
 expensive nearcore test_rejoin test::test_4_20_kill1
 expensive nearcore test_rejoin test::test_4_20_kill1_two_shards
 expensive nearcore test_rejoin test::test_4_20_kill2
+
+# mocknet tests
+mocknet --timeout=300 mocknet/sanity.py
+mocknet --timeout=2700 mocknet/outage.py
+mocknet --timeout=300 mocknet/bounce.py

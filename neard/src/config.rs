@@ -119,6 +119,9 @@ pub const NUM_BLOCK_PRODUCER_SEATS: NumSeats = 50;
 /// How much height horizon to give to consider peer up to date.
 pub const HIGHEST_PEER_HORIZON: u64 = 5;
 
+/// The minimum stake required for staking is last seat price divided by this number.
+pub const MINIMUM_STAKE_DIVISOR: u64 = 10;
+
 /// Number of epochs before protocol upgrade.
 pub const PROTOCOL_UPGRADE_NUM_EPOCHS: EpochHeight = 2;
 
@@ -949,5 +952,12 @@ mod test {
         let genesis_config_str = include_str!("../res/genesis_config.json");
         let genesis_config = GenesisConfig::from_json(&genesis_config_str);
         assert_eq!(genesis_config.protocol_version, PROTOCOL_VERSION);
+    }
+
+    #[test]
+    fn test_res_genesis_fees_are_default() {
+        let genesis_config_str = include_str!("../res/genesis_config.json");
+        let genesis_config = GenesisConfig::from_json(&genesis_config_str);
+        assert_eq!(genesis_config.runtime_config, RuntimeConfig::default());
     }
 }

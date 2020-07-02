@@ -9,7 +9,8 @@ use validator_derive::Validate;
 
 use crate::hash::CryptoHash;
 use crate::merkle::MerklePath;
-use crate::types::{BlockIdOrFinality, TransactionOrReceiptId};
+use crate::transaction::SignedTransaction;
+use crate::types::{AccountId, BlockIdOrFinality, TransactionOrReceiptId};
 use crate::views::{
     ExecutionOutcomeWithIdView, LightClientBlockLiteView, QueryRequest, StateChangeWithCauseView,
     StateChangesKindsView, StateChangesRequestView,
@@ -84,4 +85,10 @@ pub struct RpcLightClientExecutionProofResponse {
     pub outcome_root_proof: MerklePath,
     pub block_header_lite: LightClientBlockLiteView,
     pub block_proof: MerklePath,
+}
+
+#[derive(Clone, Debug)]
+pub enum TransactionInfo {
+    Transaction(SignedTransaction),
+    TransactionId { hash: CryptoHash, account_id: AccountId },
 }

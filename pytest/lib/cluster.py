@@ -17,6 +17,7 @@ import rc
 from rc import gcloud
 import uuid
 import network
+from proxy import NodesProxy
 
 os.environ["ADVERSARY_CONSENT"] = "1"
 
@@ -72,7 +73,11 @@ class Key(object):
             return Key.from_json(json.loads(f.read()))
 
     def to_json(self):
-        return {'account_id': self.account_id, 'public_key': self.pk, 'secret_key': self.sk}
+        return {
+            'account_id': self.account_id,
+            'public_key': self.pk,
+            'secret_key': self.sk
+        }
 
 
 class BaseNode(object):
@@ -201,11 +206,14 @@ class BaseNode(object):
                 self.get_status()['validators']))
 
     def stop_checking_refmap(self):
-        print("WARN: Stopping checking Reference Map for inconsistency for %s:%s" % self.addr())
+        print(
+            "WARN: Stopping checking Reference Map for inconsistency for %s:%s"
+            % self.addr())
         self.is_check_refmap = False
 
     def stop_checking_store(self):
-        print("WARN: Stopping checking Storage for inconsistency for %s:%s" % self.addr())
+        print("WARN: Stopping checking Storage for inconsistency for %s:%s" %
+              self.addr())
         self.is_check_store = False
 
     def check_refmap(self):
@@ -230,9 +238,12 @@ class BaseNode(object):
                 pass
             else:
                 if res['result'] == 0:
-                    print("ERROR: Storage for %s:%s in inconsistent state, stopping" % self.addr())
+                    print(
+                        "ERROR: Storage for %s:%s in inconsistent state, stopping"
+                        % self.addr())
                     self.kill()
                 self.store_tests += res['result']
+
 
 class RpcNode(BaseNode):
     """ A running node only interact by rpc queries """
@@ -300,6 +311,7 @@ class LocalNode(BaseNode):
     def start(self, boot_key, boot_node_addr):
         env = os.environ.copy()
         env["RUST_BACKTRACE"] = "1"
+        env["RUST_LOG"] = "actix_web=warn,mio=warn,tokio_util=warn,actix_server=warn,actix_http=warn," + env.get("RUST_LOG", "debug")
 
         self.stdout_name = os.path.join(self.node_dir, 'stdout')
         self.stderr_name = os.path.join(self.node_dir, 'stderr')
@@ -462,7 +474,9 @@ chmod +x near
         return super().json_rpc(method, params, timeout=timeout)
 
     def get_status(self):
-        r = requests.get("http://%s:%s/status" % self.rpc_addr(), timeout=10)
+        r = retrying.retry(lambda: requests.get(
+            "http://%s:%s/status" % self.rpc_addr(), timeout=10),
+                           timeout=20)
         r.raise_for_status()
         return json.loads(r.content)
 
@@ -489,7 +503,8 @@ def spin_up_node(config,
                  ordinal,
                  boot_key,
                  boot_addr,
-                 blacklist=[]):
+                 blacklist=[],
+                 proxy=None):
     is_local = config['local']
 
     print("Starting node %s %s" % (ordinal,
@@ -519,25 +534,13 @@ def spin_up_node(config,
             remote_nodes.append(node)
         print(f"node {ordinal} machine created")
 
+    if proxy is not None:
+        proxy.proxify_node(node)
+
     node.start(boot_key, boot_addr)
     time.sleep(3)
     print(f"node {ordinal} started")
     return node
-
-
-def connect_to_mocknet(config):
-    if not config:
-        config = load_config()
-
-    if 'local' in config:
-        print("Attempt to launch a mocknet test with a regular config",
-              file=sys.stderr)
-        sys.exit(1)
-
-    return [RpcNode(node['ip'], node['port']) for node in config['nodes']], [
-        Key(account['account_id'], account['pk'], account['sk'])
-        for account in config['accounts']
-    ]
 
 
 def init_cluster(num_nodes, num_observers, num_shards, config,
@@ -622,8 +625,13 @@ def apply_config_changes(node_dir, client_config_change):
         f.write(json.dumps(config_json, indent=2))
 
 
-def start_cluster(num_nodes, num_observers, num_shards, config,
-                  genesis_config_changes, client_config_changes):
+def start_cluster(num_nodes,
+                  num_observers,
+                  num_shards,
+                  config,
+                  genesis_config_changes,
+                  client_config_changes,
+                  message_handler=None):
     if not config:
         config = load_config()
 
@@ -641,9 +649,11 @@ def start_cluster(num_nodes, num_observers, num_shards, config,
             filter(lambda n: not n.endswith('_finished'), node_dirs))
     ret = []
 
+    proxy = NodesProxy(message_handler) if message_handler is not None else None
+
     def spin_up_node_and_push(i, boot_key, boot_addr):
         node = spin_up_node(config, near_root, node_dirs[i], i, boot_key,
-                            boot_addr)
+                            boot_addr, [], proxy)
         while len(ret) < i:
             time.sleep(0.01)
         ret.append(node)

@@ -12,7 +12,7 @@ use log::{debug, error, info, warn};
 
 use near_chain::chain::TX_ROUTING_HEIGHT_HORIZON;
 use near_chain::test_utils::format_hash;
-use near_chain::types::{AcceptedBlock, LatestKnown, ReceiptResponse};
+use near_chain::types::{AcceptedBlock, LatestKnown};
 use near_chain::{
     BlockStatus, Chain, ChainGenesis, ChainStoreAccess, Doomslug, DoomslugThresholdMode, ErrorKind,
     Provenance, RuntimeAdapter,
@@ -29,6 +29,7 @@ use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{
     EncodedShardChunk, PartialEncodedChunk, ReedSolomonWrapper, ShardChunkHeader,
 };
+use near_primitives::syncing::ReceiptResponse;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, ApprovalStake, BlockHeight, ChunkExtra, EpochId, ShardId};
 use near_primitives::unwrap_or_return;

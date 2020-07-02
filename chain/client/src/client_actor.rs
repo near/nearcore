@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 
 use actix::{Actor, Addr, AsyncContext, Context, Handler};
 use chrono::{DateTime, Utc};
-use log::{debug, error, info, warn};
+use log::{debug, error, info, trace, warn};
 
 #[cfg(feature = "adversarial")]
 use near_chain::check_refcount_map;
@@ -340,6 +340,11 @@ impl Handler<NetworkClientMessages> for ClientActor {
                 sync_hash: hash,
                 state_response,
             }) => {
+                trace!(target: "sync", "Received state response shard_id: {} sync_hash: {:?} part(id/size): {:?}",
+                    shard_id,
+                    hash,
+                    state_response.part.as_ref().map(|(part_id,data)|(part_id, data.len()))
+                );
                 // Get the download that matches the shard_id and hash
                 let download = {
                     let mut download: Option<&mut ShardSyncDownload> = None;
@@ -349,6 +354,12 @@ impl Handler<NetworkClientMessages> for ClientActor {
                         &mut self.client.sync_status
                     {
                         if hash == *sync_hash {
+                            if let Some(part_id) = state_response.part_id() {
+                                self.client
+                                    .state_sync
+                                    .received_requested_part(part_id, shard_id, hash);
+                            }
+
                             if let Some(shard_download) = shards_to_download.get_mut(&shard_id) {
                                 assert!(
                                     download.is_none(),
@@ -366,6 +377,10 @@ impl Handler<NetworkClientMessages> for ClientActor {
                     if let Some((_, shards_to_download)) =
                         self.client.catchup_state_syncs.get_mut(&hash)
                     {
+                        if let Some(part_id) = state_response.part_id() {
+                            self.client.state_sync.received_requested_part(part_id, shard_id, hash);
+                        }
+
                         if let Some(shard_download) = shards_to_download.get_mut(&shard_id) {
                             assert!(download.is_none(), "Internal downloads set has duplicates");
                             download = Some(shard_download);
@@ -377,6 +392,7 @@ impl Handler<NetworkClientMessages> for ClientActor {
                     // We should not be requesting the same state twice.
                     download
                 };
+
                 if let Some(shard_sync_download) = download {
                     match shard_sync_download.status {
                         ShardSyncStatus::StateDownloadHeader => {

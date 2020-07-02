@@ -6,7 +6,7 @@ edition = "2018"
 
 [dependencies]
 rand = "0.7"
-borsh = "0.6.2"
+borsh = "0.7.0"
 
 near-crypto = { path = "../../core/crypto" }
 near-primitives = { path = "../../core/primitives" }

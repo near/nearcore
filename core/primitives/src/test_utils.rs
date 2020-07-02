@@ -402,4 +402,8 @@ impl EpochInfoProvider for MockEpochInfoProvider {
     ) -> Result<Balance, EpochError> {
         Ok(self.validators.values().sum())
     }
+
+    fn minimum_stake(&self, _prev_block_hash: &CryptoHash) -> Result<Balance, EpochError> {
+        Ok(0)
+    }
 }

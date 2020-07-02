@@ -24,7 +24,7 @@ use near_primitives::transaction::{
 };
 use near_primitives::types::{
     AccountId, ApprovalStake, Balance, BlockHeight, EpochId, Gas, Nonce, NumBlocks, NumShards,
-    ShardId, StateRoot, StateRootNode, ValidatorStake, ValidatorStats,
+    ShardId, StateRoot, StateRootNode, ValidatorStake,
 };
 use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_primitives::version::{ProtocolVersion, PROTOCOL_VERSION};
@@ -383,15 +383,6 @@ impl RuntimeAdapter for KeyValueRuntime {
         Ok(validators[offset + delta].account_id.clone())
     }
 
-    fn get_num_validator_blocks(
-        &self,
-        _epoch_id: &EpochId,
-        _last_known_block_hash: &CryptoHash,
-        _account_id: &AccountId,
-    ) -> Result<ValidatorStats, Error> {
-        Ok(ValidatorStats { produced: 0, expected: 0 })
-    }
-
     fn num_shards(&self) -> ShardId {
         self.num_shards
     }
@@ -638,6 +629,8 @@ impl RuntimeAdapter for KeyValueRuntime {
                         logs: vec![],
                         receipt_ids: new_receipt_hashes,
                         gas_burnt: 0,
+                        tokens_burnt: 0,
+                        executor_id: to.clone(),
                     },
                 });
             }

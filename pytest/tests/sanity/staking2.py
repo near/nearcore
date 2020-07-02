@@ -89,6 +89,10 @@ def doit(seq=[]):
     last_iter = started
 
     status = nodes[2].get_status()
+    for i in range(3):
+        nodes[i].stop_checking_store()
+        nodes[i].stop_checking_refmap()
+
     height = status['sync_info']['latest_block_height']
     hash_ = status['sync_info']['latest_block_hash']
 

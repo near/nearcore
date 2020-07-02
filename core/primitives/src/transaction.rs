@@ -12,7 +12,7 @@ use crate::errors::TxExecutionError;
 use crate::hash::{hash, CryptoHash};
 use crate::logging;
 use crate::merkle::MerklePath;
-use crate::serialize::{base64_format, u128_dec_format_compatible};
+use crate::serialize::{base64_format, u128_dec_format, u128_dec_format_compatible};
 use crate::types::{AccountId, Balance, Gas, Nonce};
 
 pub type LogEntry = String;
@@ -233,7 +233,22 @@ impl Default for ExecutionStatus {
 struct PartialExecutionOutcome {
     pub receipt_ids: Vec<CryptoHash>,
     pub gas_burnt: Gas,
+    #[serde(with = "u128_dec_format")]
+    pub tokens_burnt: Balance,
+    pub executor_id: AccountId,
     pub status: PartialExecutionStatus,
+}
+
+impl From<&ExecutionOutcome> for PartialExecutionOutcome {
+    fn from(outcome: &ExecutionOutcome) -> Self {
+        Self {
+            receipt_ids: outcome.receipt_ids.clone(),
+            gas_burnt: outcome.gas_burnt,
+            tokens_burnt: outcome.tokens_burnt,
+            executor_id: outcome.executor_id.clone(),
+            status: outcome.status.clone().into(),
+        }
+    }
 }
 
 /// ExecutionStatus for proof. Excludes failure debug info.
@@ -265,21 +280,23 @@ pub struct ExecutionOutcome {
     pub receipt_ids: Vec<CryptoHash>,
     /// The amount of the gas burnt by the given transaction or receipt.
     pub gas_burnt: Gas,
+    /// The amount of tokens burnt corresponding to the burnt gas amount.
+    /// This value doesn't always equal to the `gas_burnt` multiplied by the gas price, because
+    /// the prepaid gas price might be lower than the actual gas price and it creates a deficit.
+    pub tokens_burnt: Balance,
+    /// The id of the account on which the execution happens. For transaction this is signer_id,
+    /// for receipt this is receiver_id.
+    pub executor_id: AccountId,
     /// Execution status. Contains the result in case of successful execution.
-    /// Should be the latest field since contains unparsable by light client ExecutionStatus::Failure
+    /// NOTE: Should be the latest field since it contains unparsable by light client
+    /// ExecutionStatus::Failure
     pub status: ExecutionStatus,
 }
 
 impl ExecutionOutcome {
     pub fn to_hashes(&self) -> Vec<CryptoHash> {
         let mut result = vec![hash(
-            &PartialExecutionOutcome {
-                receipt_ids: self.receipt_ids.clone(),
-                gas_burnt: self.gas_burnt,
-                status: self.status.clone().into(),
-            }
-            .try_to_vec()
-            .expect("Failed to serialize"),
+            &PartialExecutionOutcome::from(self).try_to_vec().expect("Failed to serialize"),
         )];
         for log in self.logs.iter() {
             result.push(hash(log.as_bytes()));
@@ -294,6 +311,7 @@ impl fmt::Debug for ExecutionOutcome {
             .field("logs", &format_args!("{}", logging::pretty_vec(&self.logs)))
             .field("receipt_ids", &format_args!("{}", logging::pretty_vec(&self.receipt_ids)))
             .field("burnt_gas", &self.gas_burnt)
+            .field("tokens_burnt", &self.tokens_burnt)
             .field("status", &self.status)
             .finish()
     }
@@ -434,6 +452,8 @@ mod tests {
             logs: vec!["123".to_string(), "321".to_string()],
             receipt_ids: vec![],
             gas_burnt: 123,
+            tokens_burnt: 1234000,
+            executor_id: "alice".to_string(),
         };
         let hashes = outcome.to_hashes();
         assert_eq!(hashes.len(), 3);

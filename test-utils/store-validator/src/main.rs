@@ -2,7 +2,7 @@ use std::path::Path;
 use std::process;
 use std::sync::Arc;
 
-use ansi_term::Color::{Green, Red, Yellow};
+use ansi_term::Color::{Green, Red, White, Yellow};
 use clap::{App, Arg, SubCommand};
 
 use near_chain::store_validator::StoreValidator;
@@ -52,13 +52,14 @@ fn main() {
         process::exit(1);
     }
     println!(
-        "Conditions validated: {}",
+        "{} {}",
+        White.bold().paint("Conditions validated:"),
         Green.bold().paint(store_validator.tests_done().to_string())
     );
     for error in store_validator.errors.iter() {
         println!(
             "{}  {}  {}",
-            Red.bold().paint(&error.col.to_string()),
+            Red.bold().paint(&error.col),
             Yellow.bold().paint(&error.key),
             error.err
         );
@@ -68,5 +69,9 @@ fn main() {
         process::exit(1);
     } else {
         println!("{}", Green.bold().paint("No errors found"));
+    }
+    let gc_counters = store_validator.get_gc_counters();
+    for (col, count) in gc_counters {
+        println!("{} {}", White.bold().paint(col), count);
     }
 }

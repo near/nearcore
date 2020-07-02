@@ -25,7 +25,7 @@ use crate::receipt::{ActionReceipt, DataReceipt, DataReceiver, Receipt, ReceiptE
 use crate::rpc::RpcPagination;
 use crate::serialize::{
     base64_format, from_base64, option_base64_format, option_u128_dec_format, to_base64,
-    u128_dec_format,
+    u128_dec_format, u64_dec_format,
 };
 use crate::sharding::{ChunkHash, ShardChunk, ShardChunkHeader, ShardChunkHeaderInner};
 use crate::state_record::StateRecord;
@@ -328,6 +328,7 @@ pub struct BlockHeaderView {
     pub outcome_root: CryptoHash,
     pub chunks_included: u64,
     pub challenges_root: CryptoHash,
+    #[serde(with = "u64_dec_format")]
     pub timestamp: u64,
     pub random_value: CryptoHash,
     pub validator_proposals: Vec<ValidatorStakeView>,
@@ -441,6 +442,7 @@ pub struct BlockHeaderInnerLiteView {
     pub next_epoch_id: CryptoHash,
     pub prev_state_root: CryptoHash,
     pub outcome_root: CryptoHash,
+    #[serde(with = "u64_dec_format")]
     pub timestamp: u64,
     pub next_bp_hash: CryptoHash,
     pub block_merkle_root: CryptoHash,
@@ -800,6 +802,14 @@ pub struct ExecutionOutcomeView {
     pub receipt_ids: Vec<CryptoHash>,
     /// The amount of the gas burnt by the given transaction or receipt.
     pub gas_burnt: Gas,
+    /// The amount of tokens burnt corresponding to the burnt gas amount.
+    /// This value doesn't always equal to the `gas_burnt` multiplied by the gas price, because
+    /// the prepaid gas price might be lower than the actual gas price and it creates a deficit.
+    #[serde(with = "u128_dec_format")]
+    pub tokens_burnt: Balance,
+    /// The id of the account on which the execution happens. For transaction this is signer_id,
+    /// for receipt this is receiver_id.
+    pub executor_id: AccountId,
     /// Execution status. Contains the result in case of successful execution.
     pub status: ExecutionStatusView,
 }
@@ -810,6 +820,8 @@ impl From<ExecutionOutcome> for ExecutionOutcomeView {
             logs: outcome.logs,
             receipt_ids: outcome.receipt_ids,
             gas_burnt: outcome.gas_burnt,
+            tokens_burnt: outcome.tokens_burnt,
+            executor_id: outcome.executor_id,
             status: outcome.status.into(),
         }
     }

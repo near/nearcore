@@ -13,6 +13,12 @@ impl FeeHelper {
         Self { cfg, gas_price }
     }
 
+    pub fn gas_to_balance_inflated(&self, gas: Gas) -> Balance {
+        gas as Balance
+            * (self.gas_price * (*self.cfg.pessimistic_gas_price_inflation_ratio.numer() as u128)
+                / (*self.cfg.pessimistic_gas_price_inflation_ratio.denom() as u128))
+    }
+
     pub fn gas_to_balance(&self, gas: Gas) -> Balance {
         gas as Balance * self.gas_price
     }
@@ -52,7 +58,7 @@ impl FeeHelper {
             + self.cfg.action_creation_config.create_account_cost.send_fee(false)
             + self.cfg.action_creation_config.transfer_cost.send_fee(false)
             + self.cfg.action_creation_config.add_key_cost.full_access_cost.send_fee(false);
-        self.gas_to_balance(exec_gas + send_gas)
+        self.gas_to_balance(send_gas) + self.gas_to_balance_inflated(exec_gas)
     }
 
     pub fn create_account_transfer_full_key_cost_fail_on_create_account(&self) -> Balance {
