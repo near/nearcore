@@ -80,7 +80,7 @@ impl RuntimeTestbed {
             last_block_hash: Default::default(),
             epoch_id: Default::default(),
             epoch_height: 0,
-            gas_price: 1,
+            gas_price: 0,
             block_timestamp: 0,
             gas_limit: None,
         };
