@@ -131,16 +131,13 @@ pub mod wasmtime_runner {
         let mut linker = Linker::new(&store);
         let mut logic =
             VMLogic::new(ext, context, wasm_config, fees_config, promise_results, &mut memory);
-        match logic.add_contract_compile_fee(code.len() as u64) {
-            Err(err) => {
-                return (
-                    Some(logic.outcome()),
-                    Some(VMError::FunctionCallError(FunctionCallError::HostError(
-                        near_vm_errors::HostError::GasExceeded,
-                    ))),
-                )
-            }
-            Ok(_) => {}
+        if logic.add_contract_compile_fee(code.len() as u64).is_err() {
+            return (
+                Some(logic.outcome()),
+                Some(VMError::FunctionCallError(FunctionCallError::HostError(
+                    near_vm_errors::HostError::GasExceeded,
+                ))),
+            );
         }
         // Unfortunately, due to the Wasmtime implementation we have to do tricks with the
         // lifetimes of the logic instance and pass raw pointers here.

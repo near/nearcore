@@ -78,7 +78,7 @@ fn test_simple_contract() {
     with_vm_variants(|vm_kind: VMKind| {
         assert_eq!(
             make_simple_contract_call_vm(&simple_contract(), b"hello", vm_kind),
-            (Some(vm_outcome_with_gas(0)), None),
+            (Some(vm_outcome_with_gas(43032213)), None),
         );
     });
 }
@@ -472,7 +472,7 @@ fn bad_many_imports() -> Vec<u8> {
 fn test_bad_many_imports() {
     with_vm_variants(|vm_kind: VMKind| {
         let result = make_simple_contract_call_vm(&bad_many_imports(), b"hello", vm_kind);
-        assert_eq!(result.0, Some(vm_outcome_with_gas(0)));
+        assert_eq!(result.0, Some(vm_outcome_with_gas(299664213)));
         if let Some(VMError::FunctionCallError(FunctionCallError::LinkError { msg })) = result.1 {
             eprintln!("{}", msg);
             assert!(msg.len() < 1000, format!("Huge error message: {}", msg.len()));
