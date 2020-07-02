@@ -9,8 +9,6 @@ use actix::{Actor, Addr, AsyncContext, Context, Handler};
 use chrono::{DateTime, Utc};
 use log::{debug, error, info, trace, warn};
 
-#[cfg(feature = "adversarial")]
-use near_chain::check_refcount_map;
 use near_chain::test_utils::format_hash;
 use near_chain::types::AcceptedBlock;
 #[cfg(feature = "adversarial")]
@@ -246,16 +244,6 @@ impl Handler<NetworkClientMessages> for ClientActor {
                             num_blocks += 1;
                         }
                         NetworkClientResponses::AdvResult(num_blocks)
-                    }
-                    NetworkAdversarialMessage::AdvCheckRefMap => {
-                        info!(target: "adversary", "Check Block Reference Map");
-                        match check_refcount_map(&mut self.client.chain) {
-                            Ok(_) => NetworkClientResponses::AdvResult(1 /* true */),
-                            Err(e) => {
-                                error!(target: "client", "Block Reference Map is inconsistent: {:?}", e);
-                                NetworkClientResponses::AdvResult(0 /* false */)
-                            }
-                        }
                     }
                     NetworkAdversarialMessage::AdvCheckStorageConsistency => {
                         // timeout is set to 1.5 seconds to give some room as we wait in Nightly for 2 seconds

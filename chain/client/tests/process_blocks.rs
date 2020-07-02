@@ -9,7 +9,7 @@ use actix::System;
 use futures::{future, FutureExt};
 use num_rational::Rational;
 
-use near_chain::chain::{check_refcount_map, NUM_EPOCHS_TO_KEEP_STORE_DATA};
+use near_chain::chain::NUM_EPOCHS_TO_KEEP_STORE_DATA;
 use near_chain::{Block, ChainGenesis, ChainStoreAccess, ErrorKind, Provenance, RuntimeAdapter};
 use near_chain_configs::{ClientConfig, Genesis};
 use near_chunks::{ChunkStatus, ShardsManager};
@@ -790,7 +790,6 @@ fn test_gc_with_epoch_length_common(epoch_length: NumBlocks) {
         }
     }
     assert_eq!(env.clients[0].chain.store().chunk_tail().unwrap(), epoch_length - 1);
-    assert!(check_refcount_map(&mut env.clients[0].chain).is_ok());
 }
 
 #[test]
@@ -849,7 +848,6 @@ fn test_gc_long_epoch() {
             .get_all_block_hashes_by_height(block.header().height())
             .is_ok());
     }
-    assert!(check_refcount_map(&mut env.clients[0].chain).is_ok());
 }
 
 #[test]
@@ -875,7 +873,6 @@ fn test_gc_block_skips() {
             env.produce_block(0, i);
         }
     }
-    assert!(check_refcount_map(&mut env.clients[0].chain).is_ok());
 }
 
 #[test]
@@ -1086,8 +1083,6 @@ fn test_gc_tail_update() {
         .unwrap();
     env.process_block(1, blocks.pop().unwrap(), Provenance::NONE);
     assert_eq!(env.clients[1].chain.store().tail().unwrap(), prev_sync_block.header().height());
-    assert!(check_refcount_map(&mut env.clients[0].chain).is_ok());
-    assert!(check_refcount_map(&mut env.clients[1].chain).is_ok());
 }
 
 /// Test that transaction does not become invalid when there is some gas price change.

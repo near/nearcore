@@ -200,7 +200,6 @@ impl JsonRpcHandler {
                 "adv_produce_blocks" => Some(self.adv_produce_blocks(params).await),
                 "adv_switch_to_height" => Some(self.adv_switch_to_height(params).await),
                 "adv_get_saved_blocks" => Some(self.adv_get_saved_blocks(params).await),
-                "adv_check_refmap" => Some(self.adv_check_refmap(params).await),
                 "adv_check_store" => Some(self.adv_check_store(params).await),
                 _ => None,
             };
@@ -743,20 +742,6 @@ impl JsonRpcHandler {
         match self
             .client_addr
             .send(NetworkClientMessages::Adversarial(NetworkAdversarialMessage::AdvGetSavedBlocks))
-            .await
-        {
-            Ok(result) => match result {
-                NetworkClientResponses::AdvResult(value) => jsonify(Ok(Ok(value))),
-                _ => Err(RpcError::server_error::<String>(None)),
-            },
-            _ => Err(RpcError::server_error::<String>(None)),
-        }
-    }
-
-    async fn adv_check_refmap(&self, _params: Option<Value>) -> Result<Value, RpcError> {
-        match self
-            .client_addr
-            .send(NetworkClientMessages::Adversarial(NetworkAdversarialMessage::AdvCheckRefMap))
             .await
         {
             Ok(result) => match result {

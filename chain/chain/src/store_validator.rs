@@ -35,10 +35,8 @@ pub struct StoreValidatorCache {
     block_heights_less_tail: Vec<CryptoHash>,
     gc_col: Vec<u64>,
     tx_refcount: HashMap<CryptoHash, u64>,
-
-    is_misc_set: bool,
-    is_block_height_cmp_tail_prepared: bool,
-    is_tx_refcount_calculated: bool,
+    block_refcount: HashMap<CryptoHash, u64>,
+    genesis_blocks: Vec<CryptoHash>,
 }
 
 impl StoreValidatorCache {
@@ -51,9 +49,8 @@ impl StoreValidatorCache {
             block_heights_less_tail: vec![],
             gc_col: vec![0; NUM_COLS],
             tx_refcount: HashMap::new(),
-            is_misc_set: false,
-            is_block_height_cmp_tail_prepared: false,
-            is_tx_refcount_calculated: false,
+            block_refcount: HashMap::new(),
+            genesis_blocks: vec![],
         }
     }
 }
@@ -161,6 +158,8 @@ impl StoreValidator {
                     self.check(&validate::block_info_exists, &block_hash, &block, col);
                     // EpochInfo for current Epoch id of Block exists
                     self.check(&validate::block_epoch_exists, &block_hash, &block, col);
+                    // Increase Block Refcount
+                    self.check(&validate::block_increase_refcount, &block_hash, &block, col);
                 }
                 DBCol::ColBlockHeight => {
                     let height = BlockHeight::try_from_slice(key_ref)?;
@@ -187,13 +186,6 @@ impl StoreValidator {
                     );
                     // Check that all Txs in Chunk exist
                     self.check(&validate::chunk_tx_exists, &chunk_hash, &shard_chunk, col);
-                    // Increase Tx Refcount for checking it later
-                    self.check(
-                        &validate::chunk_increase_tx_refcount,
-                        &chunk_hash,
-                        &shard_chunk,
-                        col,
-                    );
                 }
                 DBCol::ColTrieChanges => {
                     let (block_hash, shard_id) = get_block_shard_id_rev(key_ref)?;
@@ -290,6 +282,11 @@ impl StoreValidator {
                     let refcount = u64::try_from_slice(value_ref)?;
                     self.check(&validate::tx_refcount, &tx_hash, &refcount, col);
                 }
+                DBCol::ColBlockRefCount => {
+                    let block_hash = CryptoHash::try_from(key_ref)?;
+                    let refcount = u64::try_from_slice(value_ref)?;
+                    self.check(&validate::block_refcount, &block_hash, &refcount, col);
+                }
                 _ => {}
             }
             if let Some(timeout) = self.timeout {
@@ -303,26 +300,41 @@ impl StoreValidator {
     pub fn validate(&mut self) {
         self.start_time = Instant::now();
 
+        // Init checks
         // Check Head-Tail validity and fill cache with their values
         if let Err(e) = validate::head_tail_validity(self) {
             self.process_error(e, "HEAD / HEADER_HEAD / TAIL / CHUNK_TAIL", DBCol::ColBlockMisc)
         }
+
+        // Main loop
         for col in DBCol::iter() {
             if let Err(e) = self.validate_col(col) {
                 self.process_error(e, col.to_string(), col)
             }
         }
+        if let Some(timeout) = self.timeout {
+            // We didn't complete all Column checks and cannot do final checks, returning here
+            if self.start_time.elapsed() > Duration::from_millis(timeout) {
+                return;
+            }
+        }
+
+        // Final checks
         // There is no more than one Block which Height is lower than Tail and not equal to Genesis
-        if let Err(e) = validate::block_height_cmp_tail(self) {
+        if let Err(e) = validate::block_height_cmp_tail_final(self) {
             self.process_error(e, "TAIL", DBCol::ColBlockMisc)
         }
+        // Check GC counters
+        if let Err(_) = validate::gc_col_count_final(self) {
+            // TODO #2861
+        }
         // Check that all refs are counted
-        if let Err(e) = validate::tx_refcount_remaining(self) {
+        if let Err(e) = validate::tx_refcount_final(self) {
             self.process_error(e, "TX_REFCOUNT", DBCol::ColTransactionRefCount)
         }
-        // Check GC counters
-        if let Err(_) = validate::gc_col_count_total(self) {
-            // TODO #2861
+        // Check that all Block Refcounts are counted
+        if let Err(e) = validate::block_refcount_final(self) {
+            self.process_error(e, "BLOCK_REFCOUNT", DBCol::ColBlockRefCount)
         }
     }
 
@@ -334,11 +346,8 @@ impl StoreValidator {
         col: DBCol,
     ) {
         self.tests += 1;
-        match f(self, key, value) {
-            Ok(_) => {}
-            Err(e) => {
-                self.process_error(e, key, col);
-            }
+        if let Err(e) = f(self, key, value) {
+            self.process_error(e, key, col);
         }
     }
 }
@@ -419,44 +428,13 @@ mod tests {
     }
 
     #[test]
-    fn test_cache_not_found() {
-        let (mut chain, mut sv) = init();
-        let genesis_hash = chain.genesis().hash().clone();
-        match validate::block_height_validity(
-            &mut sv,
-            &CryptoHash::default(),
-            chain.get_block(&genesis_hash).unwrap(),
-        ) {
-            Err(StoreValidatorError::CacheNotFound { .. }) => {}
-            _ => assert!(false),
-        }
-        match validate::block_height_cmp_tail(&mut sv) {
-            Err(StoreValidatorError::CacheNotFound { .. }) => {}
-            _ => assert!(false),
-        }
-        assert!(validate::head_tail_validity(&mut sv).is_ok());
-        match validate::block_height_cmp_tail(&mut sv) {
-            Err(StoreValidatorError::CacheNotFound { .. }) => {}
-            _ => assert!(false),
-        }
-        assert!(validate::block_height_validity(
-            &mut sv,
-            &CryptoHash::default(),
-            chain.get_block(&genesis_hash).unwrap(),
-        )
-        .is_ok());
-        assert!(validate::block_height_cmp_tail(&mut sv).is_ok());
-    }
-
-    #[test]
     fn test_validation_failed() {
         let (_chain, mut sv) = init();
-        sv.inner.is_block_height_cmp_tail_prepared = true;
-        assert!(validate::block_height_cmp_tail(&mut sv).is_ok());
+        assert!(validate::block_height_cmp_tail_final(&mut sv).is_ok());
         sv.inner.block_heights_less_tail.push(CryptoHash::default());
-        assert!(validate::block_height_cmp_tail(&mut sv).is_ok());
+        assert!(validate::block_height_cmp_tail_final(&mut sv).is_ok());
         sv.inner.block_heights_less_tail.push(CryptoHash::default());
-        match validate::block_height_cmp_tail(&mut sv) {
+        match validate::block_height_cmp_tail_final(&mut sv) {
             Err(StoreValidatorError::ValidationFailed { .. }) => {}
             _ => assert!(false),
         }

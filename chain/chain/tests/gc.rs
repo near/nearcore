@@ -2,7 +2,7 @@
 mod tests {
     use std::sync::Arc;
 
-    use near_chain::chain::{check_refcount_map, Chain, ChainGenesis};
+    use near_chain::chain::{Chain, ChainGenesis};
     use near_chain::test_utils::KeyValueRuntime;
     use near_chain::types::Tip;
     use near_chain::DoomslugThresholdMode;
@@ -145,14 +145,12 @@ mod tests {
             );
         }
 
-        assert!(check_refcount_map(&mut chain1).is_ok());
         // GC execution
         let clear_data = chain1.clear_data(tries1.clone(), 100);
         if clear_data.is_err() {
             println!("clear data failed = {:?}", clear_data);
             assert!(false);
         }
-        assert!(check_refcount_map(&mut chain1).is_ok());
 
         let mut chain2 = get_chain(num_shards);
         let tries2 = chain2.runtime_adapter.get_tries();
