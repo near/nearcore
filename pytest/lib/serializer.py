@@ -11,6 +11,8 @@ class BinarySerializer:
         return ret
 
     def serialize_num(self, value, n_bytes):
+        if type(value) == str:
+            value = int(value)
         assert value >= 0
         for i in range(n_bytes):
             self.array.append(value & 255)
