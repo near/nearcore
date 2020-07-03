@@ -7,8 +7,9 @@ from peer import *
 from proxy import ProxyHandler
 
 from multiprocessing import Value
+from utils import LogTracker
 
-TIMEOUT = 300
+TIMEOUT = 200
 EPOCH_LENGTH = 50
 
 should_sync = Value('i', False)
@@ -29,10 +30,6 @@ class Handler(ProxyHandler):
                     loop.call_later(6, send)
                 return False
             elif msg.enum == 'BlockHeaders':
-                loop = asyncio.get_running_loop()
-                send = functools.partial(self.do_send_message, msg, 1)
-                if should_sync.value:
-                    loop.call_later(2, send)
                 return False
         return True
 
@@ -72,16 +69,12 @@ should_sync.value = True
 print("sync node 1")
 
 start = time.time()
+tracker = LogTracker(nodes[1])
 
 while True:
     assert time.time() - start < TIMEOUT
 
-    status = nodes[0].get_status()
-    cur_height = status['sync_info']['latest_block_height']
-
-    status1 = nodes[1].get_status()
-    node1_height = status1['sync_info']['latest_block_height']
-    if abs(node1_height - cur_height) < 5 and status1['sync_info']['syncing'] is False:
+    if tracker.check('ban a fraudulent peer'):
         break
     time.sleep(2)
 

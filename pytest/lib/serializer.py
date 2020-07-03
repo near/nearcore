@@ -5,7 +5,7 @@ class BinarySerializer:
         self.schema = schema
 
     def read_bytes(self, n):
-        assert n + self.offset <= len(self.array)
+        assert n + self.offset <= len(self.array), f'n: {n} offset: {self.offset}, length: {len(self.array)}'
         ret = self.array[self.offset:self.offset + n]
         self.offset += n
         return ret
