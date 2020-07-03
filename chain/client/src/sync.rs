@@ -137,6 +137,8 @@ impl HeaderSync {
                 }
             }
         }
+
+        self.stalling_ts = None;
         Ok(())
     }
 
