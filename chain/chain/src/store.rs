@@ -40,10 +40,11 @@ use near_store::{
     ColChunkPerHeightShard, ColChunks, ColEpochInfo, ColEpochLightClientBlocks, ColEpochStart,
     ColGCCount, ColIncomingReceipts, ColInvalidChunks, ColLastBlockWithNewChunk,
     ColNextBlockHashes, ColNextBlockWithNewChunk, ColOutcomesByBlockHash, ColOutgoingReceipts,
-    ColPartialChunks, ColReceiptIdToShardId, ColStateChanges, ColStateDlInfos, ColStateHeaders,
-    ColTransactionResult, ColTransactions, ColTrieChanges, DBCol, KeyForStateChanges, ShardTries,
-    Store, StoreUpdate, TrieChanges, WrappedTrieChanges, CHUNK_TAIL_KEY, HEADER_HEAD_KEY, HEAD_KEY,
-    LARGEST_TARGET_HEIGHT_KEY, LATEST_KNOWN_KEY, SHOULD_COL_GC, SYNC_HEAD_KEY, TAIL_KEY,
+    ColPartialChunks, ColReceiptIdToShardId, ColState, ColStateChanges, ColStateDlInfos,
+    ColStateHeaders, ColStateParts, ColTransactionRefCount, ColTransactionResult, ColTransactions,
+    ColTrieChanges, DBCol, KeyForStateChanges, ShardTries, Store, StoreUpdate, TrieChanges,
+    WrappedTrieChanges, CHUNK_TAIL_KEY, HEADER_HEAD_KEY, HEAD_KEY, LARGEST_TARGET_HEIGHT_KEY,
+    LATEST_KNOWN_KEY, SHOULD_COL_GC, SYNC_HEAD_KEY, TAIL_KEY,
 };
 
 use crate::byzantine_assert;
@@ -153,6 +154,8 @@ pub trait ChainStoreAccess {
         &mut self,
         height: BlockHeight,
     ) -> Result<HashSet<ChunkHash>, Error>;
+    /// Returns a number of references for Transaction with `tx_hash`
+    fn get_tx_refcount(&mut self, tx_hash: &CryptoHash) -> Result<u64, Error>;
     /// Returns a number of references for Block with `block_hash`
     fn get_block_refcount(&mut self, block_hash: &CryptoHash) -> Result<&u64, Error>;
     /// Check if we saw chunk hash at given height and shard id.
@@ -715,6 +718,14 @@ impl ChainStoreAccess for ChainStore {
         match self.store.get_ser(ColChunkHashesByHeight, &index_to_bytes(height)) {
             Ok(Some(hash_set)) => Ok(hash_set),
             Ok(None) => Ok(HashSet::new()),
+            Err(e) => Err(e.into()),
+        }
+    }
+
+    fn get_tx_refcount(&mut self, tx_hash: &CryptoHash) -> Result<u64, Error> {
+        match self.store.get_ser(ColTransactionRefCount, tx_hash.as_ref()) {
+            Ok(Some(value)) => Ok(value),
+            Ok(None) => Ok(0),
             Err(e) => Err(e.into()),
         }
     }
@@ -1316,6 +1327,10 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
         self.chain_store.get_all_chunk_hashes_by_height(height)
     }
 
+    fn get_tx_refcount(&mut self, tx_hash: &CryptoHash) -> Result<u64, Error> {
+        self.chain_store.get_tx_refcount(tx_hash)
+    }
+
     fn get_block_refcount(&mut self, block_hash: &CryptoHash) -> Result<&u64, Error> {
         if let Some(refcount) = self.chain_store_cache_update.block_refcounts.get(block_hash) {
             Ok(refcount)
@@ -1906,7 +1921,7 @@ impl<'a> ChainStoreUpdate<'a> {
                     self.gc_col(ColReceiptIdToShardId, &receipt.receipt_id.into());
                 }
                 for transaction in chunk.transactions {
-                    self.gc_col(ColTransactions, &transaction.get_hash().into());
+                    self.gc_col_transaction(transaction.get_hash())?;
                 }
 
                 // 2. Delete chunk_hash-indexed data
@@ -2001,7 +2016,7 @@ impl<'a> ChainStoreUpdate<'a> {
             return Ok(());
         }
 
-        // 2. Delete shard_id-indexed data (shards, receipts, transactions)
+        // 2. Delete shard_id-indexed data (Receipts, State Headers and Parts, etc.)
         for shard_id in 0..block.header().chunk_mask().len() as ShardId {
             let height_shard_id = get_block_shard_id(&block_hash, shard_id);
             self.gc_col(ColOutgoingReceipts, &height_shard_id);
@@ -2088,6 +2103,10 @@ impl<'a> ChainStoreUpdate<'a> {
         Ok(())
     }
 
+    pub fn inc_gc_col_state(&mut self) {
+        self.inc_gc(ColState);
+    }
+
     fn inc_gc(&mut self, col: DBCol) {
         self.chain_store_cache_update.gc_count.entry(col).and_modify(|x| *x += 1).or_insert(1);
     }
@@ -2116,13 +2135,9 @@ impl<'a> ChainStoreUpdate<'a> {
                 .block_hash_per_height
                 .cache_set(index_to_bytes(height), epoch_to_hashes);
         }
-        self.inc_gc(DBCol::ColBlockPerHeight);
+        self.inc_gc(ColBlockPerHeight);
         self.merge(store_update);
         Ok(())
-    }
-
-    pub fn inc_gc_col_state(&mut self) {
-        self.inc_gc(DBCol::ColState);
     }
 
     pub fn gc_col_state_parts(
@@ -2133,7 +2148,23 @@ impl<'a> ChainStoreUpdate<'a> {
     ) -> Result<(), Error> {
         for part_id in 0..num_parts {
             let key = StatePartKey(sync_hash, shard_id, part_id).try_to_vec()?;
-            self.gc_col(DBCol::ColStateParts, &key);
+            self.gc_col(ColStateParts, &key);
+        }
+        Ok(())
+    }
+
+    pub fn gc_col_transaction(&mut self, tx_hash: CryptoHash) -> Result<(), Error> {
+        let mut refs = self.get_tx_refcount(&tx_hash)?;
+        debug_assert!(refs > 0);
+        refs = refs.saturating_sub(1);
+        if refs == 0 {
+            self.gc_col(ColTransactionRefCount, &tx_hash.into());
+            self.gc_col(ColTransactions, &tx_hash.into());
+        } else {
+            let mut store_update = self.store().store_update();
+            store_update.set_ser(ColTransactionRefCount, &tx_hash.as_ref(), &refs)?;
+            self.inc_gc(ColTransactionRefCount);
+            self.merge(store_update);
         }
         Ok(())
     }
@@ -2249,6 +2280,9 @@ impl<'a> ChainStoreUpdate<'a> {
                 store_update.delete(col, key);
                 self.chain_store.last_block_with_new_chunk.cache_remove(key);
             }
+            DBCol::ColTransactionRefCount => {
+                store_update.delete(col, key);
+            }
             DBCol::ColDbVersion
             | DBCol::ColBlockMisc
             | DBCol::ColBlockHeader
@@ -2359,6 +2393,13 @@ impl<'a> ChainStoreUpdate<'a> {
                     entry.insert(hash_set);
                 }
             };
+            // Increase transaction refcounts for all included txs
+            for tx in chunk.transactions.iter() {
+                let mut refs = self.chain_store.get_tx_refcount(&tx.get_hash())?;
+                refs += 1;
+                store_update.set_ser(ColTransactionRefCount, tx.get_hash().as_ref(), &refs)?;
+            }
+
             store_update
                 .set_ser(ColChunks, chunk_hash.as_ref(), chunk)
                 .map_err::<Error, _>(|e| e.into())?;
@@ -2702,7 +2743,6 @@ mod tests {
 
     use near_crypto::KeyType;
     use near_primitives::block::{Block, Tip};
-    use near_primitives::epoch_manager::BlockInfo;
     use near_primitives::errors::InvalidTxError;
     use near_primitives::hash::hash;
     use near_primitives::types::{BlockHeight, EpochId, GCCount, NumBlocks};
@@ -2715,6 +2755,8 @@ mod tests {
     use crate::test_utils::KeyValueRuntime;
     use crate::{Chain, ChainGenesis, DoomslugThresholdMode};
 
+    #[cfg(feature = "expensive_tests")]
+    use near_primitives::epoch_manager::BlockInfo;
     use near_store::DBCol;
     #[cfg(feature = "expensive_tests")]
     use {crate::store_validator::StoreValidator, near_chain_configs::GenesisConfig};

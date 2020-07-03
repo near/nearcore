@@ -6,6 +6,7 @@ use near_vm_logic::{External, VMConfig, VMContext, VMKind, VMOutcome};
 /// `run` does the following:
 /// - deserializes and validate the `code` binary (see `prepare::prepare_contract`)
 /// - injects gas counting into
+/// - adds fee to VMLogic's GasCounter for size of contract
 /// - instantiates (links) `VMLogic` externs with the imports of the binary
 /// - calls the `method_name` with `context.input`
 ///   - updates `ext` with new receipts, created during the execution
@@ -83,4 +84,23 @@ pub fn with_vm_variants(runner: fn(VMKind) -> ()) {
     runner(VMKind::Wasmer);
     #[cfg(feature = "wasmtime_vm")]
     runner(VMKind::Wasmtime);
+}
+
+/// Used for testing cost of compiling a module
+pub fn compile_module(vm_kind: VMKind, code: &Vec<u8>) {
+    match vm_kind {
+        VMKind::Wasmer => {
+            use crate::wasmer_runner::compile_module;
+            compile_module(code);
+        }
+        #[cfg(feature = "wasmtime_vm")]
+        VMKind::Wasmtime => {
+            use crate::wasmtime_runner::compile_module;
+            compile_module(code);
+        }
+        #[cfg(not(feature = "wasmtime_vm"))]
+        VMKind::Wasmtime => {
+            panic!("Wasmtime is not supported, compile with '--features wasmtime_vm'")
+        }
+    }
 }
