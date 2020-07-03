@@ -2743,7 +2743,6 @@ mod tests {
 
     use near_crypto::KeyType;
     use near_primitives::block::{Block, Tip};
-    use near_primitives::epoch_manager::BlockInfo;
     use near_primitives::errors::InvalidTxError;
     use near_primitives::hash::hash;
     use near_primitives::types::{BlockHeight, EpochId, GCCount, NumBlocks};
@@ -2756,6 +2755,8 @@ mod tests {
     use crate::test_utils::KeyValueRuntime;
     use crate::{Chain, ChainGenesis, DoomslugThresholdMode};
 
+    #[cfg(feature = "expensive_tests")]
+    use near_primitives::epoch_manager::BlockInfo;
     use near_store::DBCol;
     #[cfg(feature = "expensive_tests")]
     use {crate::store_validator::StoreValidator, near_chain_configs::GenesisConfig};

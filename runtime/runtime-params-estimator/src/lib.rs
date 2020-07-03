@@ -6,8 +6,8 @@ pub mod cases;
 pub mod runtime_fees_generator;
 // Generates external costs from the measurements.
 pub mod ext_costs_generator;
-// Runs Wasmer on the given contract and measures the time it takes to do a single operation.
-pub mod wasmer_estimator;
+// Runs a VM (Default: Wasmer) on the given contract and measures the time it takes to do a single operation.
+pub mod vm_estimator;
 // Collects and processes stats. Prints them on display, plots them, writes them into a file.
 pub mod stats;
 // Encapsulates the runtime so that it can be run separately from the rest of the node.

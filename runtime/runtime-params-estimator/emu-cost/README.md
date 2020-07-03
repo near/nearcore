@@ -12,7 +12,7 @@ instrumented QEMU running in Docker, and count how many x86 instructions are exe
 the instruction counter on every instruction during translation by QEMU's JIT, TCG. We activate counting when specific Linux syscall
 (currently, 0 aka sys_read) is executed with the certain arguments (file descriptor argument == 0xcafebabe or 0xcafebabf).
 On start event we clear instruction counter, on stop event we stop counting and return counted instructions into the buffer provided
-to read syscall. As result, NEAR benchmark will know the exact instruction counter passeed between two moments and this value
+to read syscall. As result, NEAR benchmark will know the exact instruction counter passed between two moments and this value
 is the pure function of Docker image used, Rust compiler version and the NEAR implementation and is fully reproducible.
 
 ## Usage
