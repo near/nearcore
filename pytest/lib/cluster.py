@@ -328,8 +328,8 @@ class LocalNode(BaseNode):
                                           stderr=self.stderr,
                                           env=env).pid
 
-        if self.start_proxy is not None:
-            self._proxy_local_stopped = self.start_proxy()
+        if self._start_proxy is not None:
+            self._proxy_local_stopped = self._start_proxy()
 
         try:
             self.wait_for_rpc(10)
