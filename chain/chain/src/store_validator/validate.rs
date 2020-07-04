@@ -295,6 +295,49 @@ pub(crate) fn chunk_indexed_by_height_created(
     Ok(())
 }
 
+pub(crate) fn chunk_tx_exists(
+    sv: &mut StoreValidator,
+    _chunk_hash: &ChunkHash,
+    shard_chunk: &ShardChunk,
+) -> Result<(), StoreValidatorError> {
+    if let Some(me) = &sv.me {
+        if sv.runtime_adapter.cares_about_shard(
+            Some(me),
+            &shard_chunk.header.inner.prev_block_hash,
+            shard_chunk.header.inner.shard_id,
+            true,
+        ) || sv.runtime_adapter.will_care_about_shard(
+            Some(me),
+            &shard_chunk.header.inner.prev_block_hash,
+            shard_chunk.header.inner.shard_id,
+            true,
+        ) {
+            for tx in shard_chunk.transactions.iter() {
+                let _tx_hash = tx.get_hash();
+                // TODO #2930 Can't get Tx from ColTransactions
+                /* unwrap_or_err_db!(
+                    sv.store.get_ser::<SignedTransaction>(ColTransactions, &tx_hash.as_ref()),
+                    "Can't get Tx from storage for Tx Hash {:?}",
+                    tx_hash
+                ); */
+            }
+        }
+    }
+    Ok(())
+}
+
+pub(crate) fn chunk_increase_tx_refcount(
+    sv: &mut StoreValidator,
+    _chunk_hash: &ChunkHash,
+    shard_chunk: &ShardChunk,
+) -> Result<(), StoreValidatorError> {
+    for tx in shard_chunk.transactions.iter() {
+        sv.inner.tx_refcount.entry(tx.get_hash()).and_modify(|x| *x += 1).or_insert(1);
+    }
+    sv.inner.is_tx_refcount_calculated = true;
+    Ok(())
+}
+
 pub(crate) fn block_chunks_exist(
     sv: &mut StoreValidator,
     _block_hash: &CryptoHash,
@@ -697,4 +740,32 @@ pub(crate) fn gc_col_count_total(sv: &mut StoreValidator) -> Result<(), StoreVal
     }
     // TODO #2861 build a graph of dependencies or make it better in another way
     err!("Suspicious, look into GC values manually")
+}
+
+pub(crate) fn tx_refcount(
+    sv: &mut StoreValidator,
+    tx_hash: &CryptoHash,
+    refcount: &u64,
+) -> Result<(), StoreValidatorError> {
+    check_cached!(sv.inner.is_tx_refcount_calculated, "refcount");
+    if let Some(found) = sv.inner.tx_refcount.get(tx_hash) {
+        if refcount != found {
+            err!("Invalid tx refcount, found {:?}", found)
+        } else {
+            sv.inner.tx_refcount.remove(tx_hash);
+            return Ok(());
+        }
+    }
+    err!("Unknown tx")
+}
+
+pub(crate) fn tx_refcount_remaining(sv: &mut StoreValidator) -> Result<(), StoreValidatorError> {
+    check_cached!(sv.inner.is_tx_refcount_calculated, "refcount");
+    let len = sv.inner.tx_refcount.len();
+    if len > 0 {
+        for tx_refcount in sv.inner.tx_refcount.iter() {
+            err!("Found {:?} Txs that are not counted, i.e. {:?}", len, tx_refcount);
+        }
+    }
+    Ok(())
 }
