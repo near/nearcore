@@ -734,7 +734,19 @@ pub(crate) fn block_refcount(
     Ok(())
 }
 
-pub(crate) fn state_header_exists(
+pub(crate) fn state_header_block_exists(
+    sv: &mut StoreValidator,
+    key: &StateHeaderKey,
+    _header: &ShardStateSyncResponseHeader,
+) -> Result<(), StoreValidatorError> {
+    unwrap_or_err_db!(
+        sv.store.get_ser::<ShardStateSyncResponseHeader>(ColBlock, key.1.as_ref()),
+        "Can't get Block from DB"
+    );
+    Ok(())
+}
+
+pub(crate) fn state_part_header_exists(
     sv: &mut StoreValidator,
     key: &StatePartKey,
     _part: &Vec<u8>,
