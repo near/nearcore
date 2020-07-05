@@ -2160,6 +2160,12 @@ impl<'a> ChainStoreUpdate<'a> {
 
     pub fn gc_col_transaction(&mut self, tx_hash: CryptoHash) -> Result<(), Error> {
         let mut refcount = self.get_tx_refcount(&tx_hash)?;
+        if refcount == 0 {
+            debug_assert!(false, "ColTransactionRefCount inconsistency");
+            return Err(
+                ErrorKind::GCError("ColTransactionRefCount inconsistency".to_string()).into()
+            );
+        }
         refcount -= 1;
         self.chain_store_cache_update.tx_refcounts.insert(tx_hash, refcount);
         if refcount == 0 {
