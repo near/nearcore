@@ -2798,7 +2798,6 @@ impl<'a> ChainUpdate<'a> {
                         apply_result.outcomes,
                         outcome_paths,
                     );
-                    self.chain_store_update.save_transactions(chunk.transactions);
                 } else {
                     let mut new_extra = self
                         .chain_store_update

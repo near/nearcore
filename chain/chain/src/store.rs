@@ -1717,7 +1717,11 @@ impl<'a> ChainStoreUpdate<'a> {
     }
 
     pub fn save_chunk(&mut self, chunk: ShardChunk) {
-        self.chain_store_cache_update.chunks.insert(chunk.chunk_hash.clone(), chunk);
+        // Do not add same Chunk again
+        if !self.get_chunk(&chunk.chunk_hash).is_ok() {
+            self.save_transactions(chunk.transactions.clone());
+            self.chain_store_cache_update.chunks.insert(chunk.chunk_hash.clone(), chunk);
+        }
     }
 
     pub fn save_partial_chunk(&mut self, partial_chunk: PartialEncodedChunk) {
@@ -2379,10 +2383,7 @@ impl<'a> ChainStoreUpdate<'a> {
         }
         let mut chunk_hashes_by_height: HashMap<BlockHeight, HashSet<ChunkHash>> = HashMap::new();
         for (chunk_hash, chunk) in self.chain_store_cache_update.chunks.iter() {
-            if self.chain_store.get_chunk(chunk_hash).is_ok() {
-                // No need to add same Chunk once again
-                continue;
-            }
+            debug_assert!(!self.chain_store.get_chunk(chunk_hash).is_ok());
 
             match chunk_hashes_by_height.entry(chunk.header.inner.height_created) {
                 Entry::Occupied(mut entry) => {

@@ -6,14 +6,14 @@ use near_primitives::block::{Block, BlockHeader, Tip};
 use near_primitives::epoch_manager::{BlockInfo, EpochInfo};
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::{ChunkHash, ShardChunk, StateSyncInfo};
-use near_primitives::transaction::ExecutionOutcomeWithIdAndProof;
+use near_primitives::transaction::{ExecutionOutcomeWithIdAndProof, SignedTransaction};
 use near_primitives::types::{BlockHeight, ChunkExtra, EpochId, ShardId};
 use near_primitives::utils::{get_block_shard_id, index_to_bytes};
 use near_store::{
     ColBlock, ColBlockHeader, ColBlockHeight, ColBlockInfo, ColBlockMisc, ColBlockPerHeight,
     ColChunkExtra, ColChunkHashesByHeight, ColChunks, ColOutcomesByBlockHash, ColTransactionResult,
-    DBCol, TrieChanges, TrieIterator, CHUNK_TAIL_KEY, HEADER_HEAD_KEY, HEAD_KEY, NUM_COLS,
-    SHOULD_COL_GC, TAIL_KEY,
+    ColTransactions, DBCol, TrieChanges, TrieIterator, CHUNK_TAIL_KEY, HEADER_HEAD_KEY, HEAD_KEY,
+    NUM_COLS, SHOULD_COL_GC, TAIL_KEY,
 };
 
 use crate::StoreValidator;
@@ -298,13 +298,12 @@ pub(crate) fn chunk_tx_exists(
             true,
         ) {
             for tx in shard_chunk.transactions.iter() {
-                let _tx_hash = tx.get_hash();
-                // TODO #2930 Can't get Tx from ColTransactions
-                /* unwrap_or_err_db!(
+                let tx_hash = tx.get_hash();
+                unwrap_or_err_db!(
                     sv.store.get_ser::<SignedTransaction>(ColTransactions, &tx_hash.as_ref()),
                     "Can't get Tx from storage for Tx Hash {:?}",
                     tx_hash
-                ); */
+                );
             }
         }
     }
