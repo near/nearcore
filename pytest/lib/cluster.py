@@ -80,6 +80,10 @@ class Key(object):
 
 
 class BaseNode(object):
+    def __init__(self):
+        self._start_proxy = None
+        self._proxy_local_stopped = None
+
 
     def _get_command_line(self,
                           near_root,
@@ -299,6 +303,10 @@ class LocalNode(BaseNode):
                                           stdout=self.stdout,
                                           stderr=self.stderr,
                                           env=env).pid
+
+        if self._start_proxy is not None:
+            self._proxy_local_stopped = self._start_proxy()
+
         try:
             self.wait_for_rpc(10)
         except:
@@ -317,6 +325,9 @@ class LocalNode(BaseNode):
         if self.pid.value != 0:
             os.kill(self.pid.value, signal.SIGKILL)
             self.pid.value = 0
+
+            if self._proxy_local_stopped is not None:
+                self._proxy_local_stopped.value = 1
 
     def reset_data(self):
         shutil.rmtree(os.path.join(self.node_dir, "data"))
