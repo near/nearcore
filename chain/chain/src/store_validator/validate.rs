@@ -1,19 +1,23 @@
 use std::collections::{HashMap, HashSet};
 
+use borsh::BorshSerialize;
 use thiserror::Error;
 
 use near_primitives::block::{Block, BlockHeader, Tip};
 use near_primitives::epoch_manager::{BlockInfo, EpochInfo};
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::{ChunkHash, ShardChunk, StateSyncInfo};
+use near_primitives::syncing::{
+    get_num_state_parts, ShardStateSyncResponseHeader, StateHeaderKey, StatePartKey,
+};
 use near_primitives::transaction::ExecutionOutcomeWithIdAndProof;
 use near_primitives::types::{BlockHeight, ChunkExtra, EpochId, ShardId};
 use near_primitives::utils::{get_block_shard_id, index_to_bytes};
 use near_store::{
     ColBlock, ColBlockHeader, ColBlockHeight, ColBlockInfo, ColBlockMisc, ColBlockPerHeight,
-    ColChunkExtra, ColChunkHashesByHeight, ColChunks, ColOutcomesByBlockHash, ColTransactionResult,
-    DBCol, TrieChanges, TrieIterator, CHUNK_TAIL_KEY, HEADER_HEAD_KEY, HEAD_KEY, NUM_COLS,
-    SHOULD_COL_GC, TAIL_KEY,
+    ColChunkExtra, ColChunkHashesByHeight, ColChunks, ColOutcomesByBlockHash, ColStateHeaders,
+    ColTransactionResult, DBCol, TrieChanges, TrieIterator, CHUNK_TAIL_KEY, HEADER_HEAD_KEY,
+    HEAD_KEY, NUM_COLS, SHOULD_COL_GC, TAIL_KEY,
 };
 
 use crate::StoreValidator;
@@ -729,6 +733,39 @@ pub(crate) fn block_refcount(
     // This is Genesis Block
     check_discrepancy!(*refcount, 1, "Invalid Genesis Block Refcount {:?}", refcount);
     sv.inner.genesis_blocks.push(*block_hash);
+    Ok(())
+}
+
+pub(crate) fn state_header_block_exists(
+    sv: &mut StoreValidator,
+    key: &StateHeaderKey,
+    _header: &ShardStateSyncResponseHeader,
+) -> Result<(), StoreValidatorError> {
+    unwrap_or_err_db!(
+        sv.store.get_ser::<ShardStateSyncResponseHeader>(ColBlock, key.1.as_ref()),
+        "Can't get Block from DB"
+    );
+    Ok(())
+}
+
+pub(crate) fn state_part_header_exists(
+    sv: &mut StoreValidator,
+    key: &StatePartKey,
+    _part: &Vec<u8>,
+) -> Result<(), StoreValidatorError> {
+    let StatePartKey(block_hash, shard_id, part_id) = *key;
+    let state_header_key = unwrap_or_err!(
+        StateHeaderKey(shard_id, block_hash).try_to_vec(),
+        "Can't serialize StateHeaderKey"
+    );
+    let header = unwrap_or_err_db!(
+        sv.store.get_ser::<ShardStateSyncResponseHeader>(ColStateHeaders, &state_header_key),
+        "Can't get StateHeaderKey from DB"
+    );
+    let num_parts = get_num_state_parts(header.state_root_node.memory_usage);
+    if part_id >= num_parts {
+        err!("Invalid part_id {:?}, num_parts {:?}", part_id, num_parts)
+    }
     Ok(())
 }
 
