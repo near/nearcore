@@ -12,6 +12,7 @@ use near_primitives::borsh;
 use near_primitives::epoch_manager::{BlockInfo, EpochInfo, AGGREGATOR_KEY};
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::{ChunkHash, ShardChunk, StateSyncInfo};
+use near_primitives::syncing::StatePartKey;
 use near_primitives::transaction::ExecutionOutcomeWithIdAndProof;
 use near_primitives::types::{AccountId, BlockHeight, EpochId, GCCount, ShardId};
 use near_primitives::utils::get_block_shard_id_rev;
@@ -286,6 +287,11 @@ impl StoreValidator {
                     let block_hash = CryptoHash::try_from(key_ref)?;
                     let refcount = u64::try_from_slice(value_ref)?;
                     self.check(&validate::block_refcount, &block_hash, &refcount, col);
+                }
+                DBCol::ColStateParts => {
+                    let key = StatePartKey::try_from_slice(key_ref)?;
+                    let part = Vec::<u8>::try_from_slice(value_ref)?;
+                    self.check(&validate::state_header_exists, &key, &part, col);
                 }
                 _ => {}
             }

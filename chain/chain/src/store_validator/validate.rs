@@ -1,19 +1,21 @@
 use std::collections::{HashMap, HashSet};
 
+use borsh::BorshSerialize;
 use thiserror::Error;
 
 use near_primitives::block::{Block, BlockHeader, Tip};
 use near_primitives::epoch_manager::{BlockInfo, EpochInfo};
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::{ChunkHash, ShardChunk, StateSyncInfo};
+use near_primitives::syncing::{ShardStateSyncResponseHeader, StateHeaderKey, StatePartKey};
 use near_primitives::transaction::ExecutionOutcomeWithIdAndProof;
 use near_primitives::types::{BlockHeight, ChunkExtra, EpochId, ShardId};
 use near_primitives::utils::{get_block_shard_id, index_to_bytes};
 use near_store::{
     ColBlock, ColBlockHeader, ColBlockHeight, ColBlockInfo, ColBlockMisc, ColBlockPerHeight,
-    ColChunkExtra, ColChunkHashesByHeight, ColChunks, ColOutcomesByBlockHash, ColTransactionResult,
-    DBCol, TrieChanges, TrieIterator, CHUNK_TAIL_KEY, HEADER_HEAD_KEY, HEAD_KEY, NUM_COLS,
-    SHOULD_COL_GC, TAIL_KEY,
+    ColChunkExtra, ColChunkHashesByHeight, ColChunks, ColOutcomesByBlockHash, ColStateHeaders,
+    ColTransactionResult, DBCol, TrieChanges, TrieIterator, CHUNK_TAIL_KEY, HEADER_HEAD_KEY,
+    HEAD_KEY, NUM_COLS, SHOULD_COL_GC, TAIL_KEY,
 };
 
 use crate::StoreValidator;
@@ -729,6 +731,20 @@ pub(crate) fn block_refcount(
     // This is Genesis Block
     check_discrepancy!(*refcount, 1, "Invalid Genesis Block Refcount {:?}", refcount);
     sv.inner.genesis_blocks.push(*block_hash);
+    Ok(())
+}
+
+pub(crate) fn state_header_exists(
+    sv: &mut StoreValidator,
+    key: &StatePartKey,
+    _part: &Vec<u8>,
+) -> Result<(), StoreValidatorError> {
+    let state_header_key =
+        unwrap_or_err!(StateHeaderKey(key.1, key.0).try_to_vec(), "Can't serialize StateHeaderKey");
+    unwrap_or_err_db!(
+        sv.store.get_ser::<ShardStateSyncResponseHeader>(ColStateHeaders, &state_header_key),
+        "Can't get StateHeaderKey from DB"
+    );
     Ok(())
 }
 
