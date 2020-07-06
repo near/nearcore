@@ -65,7 +65,7 @@ pub fn highest_height_peer(highest_height_peers: &Vec<FullPeerInfo>) -> Option<F
 pub struct HeaderSync {
     network_adapter: Arc<dyn NetworkAdapter>,
     history_locator: Vec<(BlockHeight, CryptoHash)>,
-    prev_header_sync: (DateTime<Utc>, BlockHeight, BlockHeight),
+    prev_header_sync: (DateTime<Utc>, BlockHeight, BlockHeight, BlockHeight),
     syncing_peer: Option<FullPeerInfo>,
     stalling_ts: Option<DateTime<Utc>>,
 
@@ -86,7 +86,7 @@ impl HeaderSync {
         HeaderSync {
             network_adapter,
             history_locator: vec![],
-            prev_header_sync: (Utc::now(), 0, 0),
+            prev_header_sync: (Utc::now(), 0, 0, 0),
             syncing_peer: None,
             stalling_ts: None,
             initial_timeout: Duration::from_std(initial_timeout).unwrap(),
@@ -104,7 +104,7 @@ impl HeaderSync {
         highest_height_peers: &Vec<FullPeerInfo>,
     ) -> Result<(), near_chain::Error> {
         let header_head = chain.header_head()?;
-        if !self.header_sync_due(sync_status, &header_head) {
+        if !self.header_sync_due(sync_status, &header_head, highest_height) {
             return Ok(());
         }
 
@@ -137,6 +137,7 @@ impl HeaderSync {
                 }
             }
         }
+
         Ok(())
     }
 
@@ -151,12 +152,19 @@ impl HeaderSync {
                 / NS_PER_SECOND)) as u64
     }
 
-    fn header_sync_due(&mut self, sync_status: &SyncStatus, header_head: &Tip) -> bool {
+    fn header_sync_due(
+        &mut self,
+        sync_status: &SyncStatus,
+        header_head: &Tip,
+        highest_height: BlockHeight,
+    ) -> bool {
         let now = Utc::now();
-        let (timeout, old_expected_height, prev_height) = self.prev_header_sync;
+        let (timeout, old_expected_height, prev_height, prev_highest_height) =
+            self.prev_header_sync;
 
         // Received all necessary header, can request more.
-        let all_headers_received = header_head.height >= prev_height + MAX_BLOCK_HEADERS - 4;
+        let all_headers_received =
+            header_head.height >= min(prev_height + MAX_BLOCK_HEADERS - 4, prev_highest_height);
 
         // Did we receive as many headers as we expected from the peer? Request more or ban peer.
         let stalling = header_head.height <= old_expected_height && now > timeout;
@@ -172,6 +180,7 @@ impl HeaderSync {
                 now + self.initial_timeout,
                 self.compute_expected_height(header_head.height, self.initial_timeout),
                 header_head.height,
+                highest_height,
             );
 
             if stalling {
@@ -221,8 +230,12 @@ impl HeaderSync {
             if header_head.height >= old_expected_height.saturating_sub(remaining_expected_height) {
                 let new_expected_height =
                     self.compute_expected_height(header_head.height, self.progress_timeout);
-                self.prev_header_sync =
-                    (now + self.progress_timeout, new_expected_height, prev_height);
+                self.prev_header_sync = (
+                    now + self.progress_timeout,
+                    new_expected_height,
+                    prev_height,
+                    prev_highest_height,
+                );
             }
             false
         }
@@ -1235,6 +1248,7 @@ mod test {
             header_sync.header_sync_due(
                 &SyncStatus::HeaderSync { current_height, highest_height },
                 &Tip::from_header(&block.header()),
+                highest_height,
             );
 
             last_added_block_ord += 3;
@@ -1252,6 +1266,7 @@ mod test {
             header_sync.header_sync_due(
                 &SyncStatus::HeaderSync { current_height, highest_height },
                 &Tip::from_header(&block.header()),
+                highest_height,
             );
 
             last_added_block_ord += 2;

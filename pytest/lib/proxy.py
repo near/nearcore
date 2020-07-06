@@ -38,12 +38,13 @@ from messages.block import *
 from messages.crypto import *
 from messages.network import *
 from messages.tx import *
+from messages.shard import *
 from serializer import BinarySerializer
 
 MSG_TIMEOUT = 10
 _MY_PORT = [None]
 
-schema = dict(crypto_schema + network_schema + block_schema + tx_schema)
+schema = dict(crypto_schema + network_schema + block_schema + tx_schema + shard_schema)
 
 
 def proxy_cleanup(proxy):
@@ -77,6 +78,8 @@ class ProxyHandler:
             return ordinal_a
 
     async def _handle(self, raw_message, *, writer, sender_port_holder, receiver_port_holder, ordinal_to_writer):
+        sender_ordinal = port_holder_to_node_ord(sender_port_holder)
+        receiver_ordinal = port_holder_to_node_ord(receiver_port_holder)
         try:
             message = BinarySerializer(schema).deserialize(
                 raw_message, PeerMessage)
@@ -87,8 +90,6 @@ class ProxyHandler:
                 if sender_port_holder[0] is None:
                     sender_port_holder[0] = message.Handshake.listen_port
 
-            sender_ordinal = port_holder_to_node_ord(sender_port_holder)
-            receiver_ordinal = port_holder_to_node_ord(receiver_port_holder)
             other_ordinal = self.other(sender_ordinal, receiver_ordinal)
 
             if other_ordinal is not None and not other_ordinal in ordinal_to_writer:
@@ -117,7 +118,7 @@ class ProxyHandler:
 
                 # The next byte is the variant ordinal of the `RoutedMessageBody`.
                 # Skip if it's the ordinal of a variant for which the schema is not ported yet
-                if raw_message[ser.offset] in [3, 4, 5, 7, 10]:
+                if raw_message[ser.offset] in [3, 4, 5, 7]:
                     # Allow the handler determine if the message should be passed even when it couldn't be deserialized
                     return await self.handle(None, sender_ordinal, receiver_ordinal) is not False
                 print("ERROR 13", int(raw_message[ser.offset]))
