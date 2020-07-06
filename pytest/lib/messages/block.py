@@ -1,5 +1,6 @@
 from messages.crypto import PublicKey, Signature, MerklePath, ShardProof
-from messages.tx import Receipt
+from messages.tx import Receipt, SignedTransaction
+
 
 class Block:
     pass
@@ -22,6 +23,10 @@ class BlockHeaderInnerLite:
 
 
 class BlockHeaderInnerRest:
+    pass
+
+
+class ShardChunk:
     pass
 
 
@@ -172,6 +177,17 @@ block_schema = [
                 ['outgoing_receipt_root', [32]],
                 ['tx_root', [32]],
                 ['validator_proposals', [ValidatorStake]],
+            ]
+        }
+    ],
+    [
+        ShardChunk, {
+            'kind': 'struct',
+            'fields': [
+                ['chunk_hash', [32]],
+                ['header', ShardChunkHeader],
+                ['transactions', [SignedTransaction]],
+                ['receipts', [Receipt]],
             ]
         }
     ],
