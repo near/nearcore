@@ -38,10 +38,9 @@ def main():
 
     with open(
             os.path.join(os.path.dirname(__file__),
-                         '../../../core/primitives/src/version.rs')) as f:
-        for line in f:
-            if line.startswith('pub const PROTOCOL_VERSION'):
-                current_protocol_version = int(line.split('=')[1].split(';')[0])
+                         '../../../neard/res/genesis_config.json')) as f:
+        current_genesis = json.load(f)
+        current_protocol_version = current_genesis['protocol_version']
     if current_protocol_version > stable_protocol_version:
         print('Protcol upgrade, does not need backward compatible')
         exit(0)
