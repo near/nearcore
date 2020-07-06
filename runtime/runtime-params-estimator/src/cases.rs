@@ -1,9 +1,8 @@
+use rand::seq::SliceRandom;
+use rand::{Rng, SeedableRng};
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::convert::{TryFrom, TryInto};
-
-use rand::seq::SliceRandom;
-use rand::{Rng, SeedableRng};
 
 use num_rational::Ratio;
 
@@ -21,12 +20,12 @@ use crate::stats::Measurements;
 use crate::testbed::RuntimeTestbed;
 use crate::testbed_runners::GasMetric;
 use crate::testbed_runners::{get_account_id, measure_actions, measure_transactions, Config};
-use crate::wasmer_estimator::cost_per_op;
+use crate::vm_estimator::{cost_per_op, cost_to_compile};
 use near_runtime_fees::{
     AccessKeyCreationConfig, ActionCreationConfig, DataReceiptCreationConfig, Fee,
     RuntimeFeesConfig,
 };
-use near_vm_logic::{ExtCosts, ExtCostsConfig, VMConfig, VMLimitConfig};
+use near_vm_logic::{ExtCosts, ExtCostsConfig, VMConfig, VMKind, VMLimitConfig};
 use node_runtime::config::RuntimeConfig;
 
 /// How much gas there is in a nanosecond worth of computation.
@@ -561,8 +560,12 @@ fn get_ext_costs_config(measurement: &Measurements) -> ExtCostsConfig {
     let measured = generator.compute();
     let metric = measurement.gas_metric;
     use ExtCosts::*;
+    let (contract_compile_cost, contract_compile_base_cost) =
+        cost_to_compile(metric, VMKind::default());
     ExtCostsConfig {
         base: measured_to_gas(metric, &measured, base),
+        contract_compile_base: contract_compile_base_cost,
+        contract_compile_bytes: ratio_to_gas(metric, contract_compile_cost),
         read_memory_base: measured_to_gas(metric, &measured, read_memory_base),
         read_memory_byte: measured_to_gas(metric, &measured, read_memory_byte),
         write_memory_base: measured_to_gas(metric, &measured, write_memory_base),

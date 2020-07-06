@@ -31,7 +31,7 @@ for i in range(4):
                 base58.b58decode(latest_block_hash.encode('utf8')))
             nonce += 1
             print("sending transaction from test%d to test%d" % (i, j))
-            result = nodes[-1].send_tx_and_wait(tx, timeout=15)
+            result = nodes[-1].send_tx_and_wait(tx, timeout=25)
             if 'error' in result:
                 assert False, result
 

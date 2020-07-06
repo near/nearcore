@@ -83,7 +83,7 @@ fn test_promise_batch_action_create_account() {
     logic
         .promise_batch_action_create_account(index)
         .expect("should add an action to create account");
-    assert_eq!(logic.used_gas().unwrap(), 5077341969440);
+    assert_eq!(logic.used_gas().unwrap(), 5077478438564);
     let expected = serde_json::json!([
         {
             "receipt_indices": [],
@@ -127,7 +127,7 @@ fn test_promise_batch_action_deploy_contract() {
     logic
         .promise_batch_action_deploy_contract(index, code.len() as u64, code.as_ptr() as _)
         .expect("should add an action to deploy contract");
-    assert_eq!(logic.used_gas().unwrap(), 5255561051231);
+    assert_eq!(logic.used_gas().unwrap(), 5255774958146);
     let expected = serde_json::json!(
       [
         {
@@ -183,7 +183,7 @@ fn test_promise_batch_action_transfer() {
     logic
         .promise_batch_action_transfer(index, 1u128.to_le_bytes().as_ptr() as _)
         .expect_err("not enough money");
-    assert_eq!(logic.used_gas().unwrap(), 5349464221442);
+    assert_eq!(logic.used_gas().unwrap(), 5349703444787);
     let expected = serde_json::json!(
     [
         {
@@ -250,7 +250,7 @@ fn test_promise_batch_action_stake() {
             key.as_ptr() as _,
         )
         .expect("should add an action to stake");
-    assert_eq!(logic.used_gas().unwrap(), 5138340318074);
+    assert_eq!(logic.used_gas().unwrap(), 5138631652196);
     let expected = serde_json::json!([
         {
             "receipt_indices": [],
@@ -327,7 +327,7 @@ fn test_promise_batch_action_add_key_with_function_call() {
         method_names,
     )
     .expect("should add allowance");
-    assert_eq!(logic.used_gas().unwrap(), 5126428377160);
+    assert_eq!(logic.used_gas().unwrap(), 5126897175676);
     let expected = serde_json::json!(
     [
         {
@@ -386,7 +386,7 @@ fn test_promise_batch_then() {
     logic
         .promise_batch_then(index, account_id.len() as u64, account_id.as_ptr() as _)
         .expect("promise batch should run ok");
-    assert_eq!(logic.used_gas().unwrap(), 24124722826121);
+    assert_eq!(logic.used_gas().unwrap(), 24124999601771);
     let expected = serde_json::json!([
         {
             "receipt_indices": [],
