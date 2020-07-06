@@ -1005,7 +1005,6 @@ pub enum NetworkAdversarialMessage {
     AdvDisableHeaderSync,
     AdvDisableDoomslug,
     AdvGetSavedBlocks,
-    AdvCheckRefMap,
     AdvCheckStorageConsistency,
     AdvSetSyncInfo(u64),
 }
