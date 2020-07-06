@@ -9,6 +9,7 @@ import os
 import subprocess
 import time
 import shutil
+import json
 
 sys.path.append('lib')
 
@@ -30,6 +31,20 @@ def main():
         "%snear-%s" % (near_root, stable_branch),
         "--home=%s" % node_root, "testnet", "--v", "2", "--prefix", "test"
     ])
+
+    with open('/tmp/near/backward/test0/genesis.json') as f:
+        stable_genesis = json.load(f)
+        stable_protocol_version = stable_genesis['protocol_version']
+
+    with open(
+            os.path.join(os.path.dirname(__file__),
+                         '../../../core/primitives/src/version.rs')) as f:
+        for line in f:
+            if line.startswith('pub const PROTOCOL_VERSION'):
+                current_protocol_version = int(line.split('=')[1].split(';')[0])
+    if current_protocol_version > stable_protocol_version:
+        print('Protcol upgrade, does not need backward compatible')
+        exit(0)
 
     # Run both binaries at the same time.
     config = {
