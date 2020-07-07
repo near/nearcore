@@ -164,4 +164,4 @@ expensive nearcore test_rejoin test::test_4_20_kill2
 mocknet --timeout=300 mocknet/sanity.py
 mocknet --timeout=2700 mocknet/outage.py
 mocknet --timeout=300 mocknet/bounce.py
-mokcnet --timeout=1800 mocknet/load_testing.py
+mokcnet --timeout=2700 mocknet/load_testing.py
