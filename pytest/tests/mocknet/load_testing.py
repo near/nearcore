@@ -64,17 +64,22 @@ def check_stats(initial_metrics=None,
 
     delta = Metrics.diff(final_metrics, initial_metrics)
 
+    mem_usage = final_metrics.memory_usage / 1e6
+    delta_mem_usage = (100.0 * delta.memory_usage) / initial_metrics.memory_usage
     bps = delta.total_blocks / delta.timestamp
     tps = delta.total_transactions / delta.timestamp
     slow_process_blocks = delta.block_processing_time[
         'le +Inf'] - delta.block_processing_time['le 1']
 
+    print(f'INFO: Memory usage (MB) = {mem_usage}')
+    print(f'INFO: Memory usage change (%) = {delta_mem_usage}')
     print(f'INFO: Blocks per second: {bps}')
     print(f'INFO: Transactions per second: {tps}')
     print(
         f'INFO: Number of blocks processing for more than 1s: {slow_process_blocks}'
     )
 
+    assert mem_usage < 4500
     assert slow_process_blocks == 0
     assert bps > 0.5
     if include_tps:
