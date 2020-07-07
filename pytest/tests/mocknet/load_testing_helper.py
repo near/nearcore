@@ -9,11 +9,12 @@ import json
 from rc import pmap
 import sys
 import random
+import string
 import time
 
 sys.path.append('lib')
 from cluster import Key
-from transaction import sign_payment_tx, sign_deploy_contract_tx, sign_function_call_tx
+from transaction import sign_payment_tx, sign_deploy_contract_tx, sign_function_call_tx, sign_create_account_with_full_access_key_and_balance_tx, sign_staking_tx
 import utils
 
 LOCAL_ADDR = '127.0.0.1'
@@ -82,14 +83,31 @@ def call_contract(source_account):
     tx = sign_function_call_tx(source_account, source_account.account_id, 'do_work', [], 300000000000000, 0, nonce + 1, last_block_hash)
     send_tx(tx)
 
+def create_account(source_account):
+    last_block_hash = get_latest_block_hash()
+    nonce = get_nonce_for_pk(source_account.account_id, source_account.pk)
+    new_account_id = ''.join(random.choice(string.ascii_lowercase) for _ in range(0, 10))
+    tx = sign_create_account_with_full_access_key_and_balance_tx(source_account, new_account_id, source_account, 100, nonce + 1, last_block_hash)
+    send_tx(tx)
+
+def stake(source_account):
+    last_block_hash = get_latest_block_hash()
+    nonce = get_nonce_for_pk(source_account.account_id, source_account.pk)
+    tx = sign_staking_tx(source_account, source_account, 1, nonce + 1, last_block_hash)
+    send_tx(tx)
+
 def random_transaction(account_and_index):
-    choice = random.randint(0, 2)
+    choice = random.randint(0, 4)
     if choice == 0:
         send_transfer(account_and_index[0], account_and_index[1] + 1)
     elif choice == 1:
         deploy_contract(account_and_index[0])
     elif choice == 2:
         call_contract(account_and_index[0])
+    elif choice == 3:
+        create_account(account_and_index[0])
+    elif choice == 4:
+        stake(account_and_index[0])
 
 def send_transfers():
     pmap(

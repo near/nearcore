@@ -70,7 +70,7 @@ def check_stats(initial_metrics=None, final_metrics=None, duration=120, include_
     print(f'INFO: Number of blocks processing for more than 1s: {slow_process_blocks}')
 
     assert slow_process_blocks == 0
-    assert bps > 1
+    assert bps > 0.5
     if include_tps:
         assert tps > 100
 
