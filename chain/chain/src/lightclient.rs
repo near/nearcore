@@ -43,6 +43,7 @@ pub fn create_light_client_block_view(
         prev_state_root: *block_header.prev_state_root(),
         outcome_root: *block_header.outcome_root(),
         timestamp: block_header.raw_timestamp(),
+        timestamp_nanosec: block_header.raw_timestamp(),
         next_bp_hash: *block_header.next_bp_hash(),
         block_merkle_root: *block_header.block_merkle_root(),
     };
