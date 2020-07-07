@@ -1524,6 +1524,9 @@ impl Chain {
         let state_part =
             self.runtime_adapter.obtain_state_part(shard_id, &state_root, part_id, num_parts);
 
+        // Before saving State Part data, we need to make sure we can calculate and save State Header
+        self.get_state_response_header(shard_id, sync_hash)?;
+
         // Saving the part data
         let mut store_update = self.store.owned_store().store_update();
         store_update.set_ser(ColStateParts, &key, &state_part)?;

@@ -742,7 +742,7 @@ pub(crate) fn state_header_block_exists(
     _header: &ShardStateSyncResponseHeader,
 ) -> Result<(), StoreValidatorError> {
     unwrap_or_err_db!(
-        sv.store.get_ser::<ShardStateSyncResponseHeader>(ColBlock, key.1.as_ref()),
+        sv.store.get_ser::<Block>(ColBlock, key.1.as_ref()),
         "Can't get Block from DB"
     );
     Ok(())
