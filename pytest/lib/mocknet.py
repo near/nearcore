@@ -1,5 +1,6 @@
 import base58
 from cluster import GCloudNode, Key
+from metrics import Metrics
 from transaction import sign_payment_tx_and_get_hash, sign_staking_tx_and_get_hash
 import json
 import os
@@ -69,12 +70,19 @@ def get_validator_account(node):
     return Key.from_json_file(f'{target_dir}/validator_key.json')
 
 
-def setup_python_environment(node):
+def list_validators(node):
+    validators = node.get_validators()['result']
+    validator_accounts = set(
+        map(lambda v: v['account_id'], validators['current_validators']))
+    return validator_accounts
+
+def setup_python_environment(node, wasm_contract):
     m = node.machine
     print(f'INFO: Setting up python environment on {m.name}')
     m.run('bash', input=PYTHON_SETUP_SCRIPT)
     m.upload('lib', PYTHON_DIR, switch_user='ubuntu')
     m.upload('requirements.txt', PYTHON_DIR, switch_user='ubuntu')
+    m.upload(wasm_contract, PYTHON_DIR, switch_user='ubuntu')
     m.upload('tests/mocknet/load_testing_helper.py',
              PYTHON_DIR,
              switch_user='ubuntu')
@@ -82,8 +90,8 @@ def setup_python_environment(node):
     print(f'INFO: {m.name} python setup complete')
 
 
-def setup_python_environments(nodes):
-    pmap(setup_python_environment, nodes)
+def setup_python_environments(nodes, wasm_contract):
+    pmap(lambda n: setup_python_environment(n, wasm_contract), nodes)
 
 
 def start_load_test_helper_script(index, pk, sk):
@@ -116,66 +124,10 @@ def get_epoch_length_in_blocks(node):
         return epoch_length_in_blocks
 
 
-def node_object_lookup(node_name, object_name, lookup_function, timeout=180):
-    print(f'INFO: Looking up {object_name} from {node_name}')
-    start_time = time.time()
-    response = lookup_function()
-    while 'result' not in response:
-        if time.time() - start_time > timeout:
-            raise TimeoutError(
-                f'Failed to lookup {object_name} within {timeout} seconds')
-        time.sleep(1)
-        response = lookup_function()
-    return response['result']
-
-
-def get_block(node, hash, timeout=180):
-    return node_object_lookup(node.machine.name, f'block {hash}',
-                              lambda: node.get_block(hash), timeout)
-
-
-def get_chunk(node, hash, timeout=180):
-    return node_object_lookup(node.machine.name, f'chunk {hash}',
-                              lambda: node.get_chunk(hash), timeout)
-
-
-def measure_chain_stats(node, duration=120):
-    print(
-        f'INFO: Beginning chain stats measurement, lasting {duration} seconds')
-    start_block_hash = node.get_status()['sync_info']['latest_block_hash']
-    time.sleep(duration)
-    end_block_hash = node.get_status()['sync_info']['latest_block_hash']
-    print(
-        f'INFO: Computing stats between blocks {start_block_hash} and {end_block_hash}'
-    )
-
-    curr_block = get_block(node, end_block_hash)
-    block_times = []
-    tx_per_second = []
-    while curr_block['header']['hash'] != start_block_hash:
-        prev_block = get_block(node, curr_block['header']['prev_hash'])
-        time_delta_ns = int(curr_block['header']['timestamp']) - int(
-            prev_block['header']['timestamp'])
-        curr_chunk_hash = curr_block['chunks'][0]['chunk_hash']
-        curr_chunk = get_chunk(node, curr_chunk_hash)
-        num_tx = len(curr_chunk['transactions'])
-        block_times.append(time_delta_ns / 1e9)
-        # we define tps as (transactions per block) / (seconds per block)
-        tx_per_second.append(num_tx / block_times[-1])
-        curr_block = prev_block
-
-    mean_block_time = statistics.mean(block_times)
-    stdev_block_time = statistics.stdev(block_times)
-    print(
-        f'INFO: Average block time = {mean_block_time} +/- {stdev_block_time} seconds'
-    )
-    mean_tps = statistics.mean(tx_per_second)
-    stdev_tps = statistics.stdev(tx_per_second)
-    print(f'INFO: Average TPS = {mean_tps} +/- {stdev_tps} seconds')
-    return {
-        'block_time': (mean_block_time, stdev_block_time),
-        'tps': (mean_tps, stdev_tps)
-    }
+def get_metrics(node):
+    (addr, port) = node.rpc_addr()
+    metrics_url = f'http://{addr}:{port}/metrics'
+    return Metrics.from_url(metrics_url)
 
 
 # Sends the transaction to the network via `node` and checks for success.

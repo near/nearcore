@@ -11,9 +11,7 @@ import mocknet
 
 nodes = mocknet.get_nodes()
 
-validators = nodes[0].get_validators()['result']
-validator_accounts = set(
-    map(lambda v: v['account_id'], validators['current_validators']))
+validator_accounts = mocknet.list_validators(nodes[0])
 # Nodes 0, 1, 2, 3 are initially validators
 assert validator_accounts == {'node0', 'node1', 'node2', 'node3'}
 
