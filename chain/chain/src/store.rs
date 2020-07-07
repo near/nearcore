@@ -2266,12 +2266,6 @@ impl<'a> ChainStoreUpdate<'a> {
             DBCol::ColBlockInfo => {
                 store_update.delete(col, key);
             }
-            DBCol::ColEpochInfo => {
-                store_update.delete(col, key);
-            }
-            DBCol::ColEpochStart => {
-                store_update.delete(col, key);
-            }
             DBCol::ColLastBlockWithNewChunk => {
                 store_update.delete(col, key);
                 self.chain_store.last_block_with_new_chunk.cache_remove(key);
@@ -2291,6 +2285,8 @@ impl<'a> ChainStoreUpdate<'a> {
             | DBCol::ColPeerComponent
             | DBCol::ColLastComponentNonce
             | DBCol::ColComponentEdges
+            | DBCol::ColEpochInfo
+            | DBCol::ColEpochStart
             | DBCol::ColBlockOrdinal => {
                 unreachable!();
             }
