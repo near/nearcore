@@ -27,7 +27,7 @@ for iter_ in range(10):
         [random.randint(0, 255) for _ in range(random.randint(200, 500))])
     tx = sign_deploy_contract_tx(nodes[0].signer_key, wasm_blob, 10 + iter_,
                                  hash_)
-    nodes[0].send_tx_and_wait(tx, 5)
+    nodes[0].send_tx_and_wait(tx, 20)
 
 for iter_ in range(10):
     print("Deploying perturbed contract #%s" % iter_)
@@ -46,7 +46,7 @@ for iter_ in range(10):
     wasm_blob = wasm_blob[:pos] + bytes([val]) + wasm_blob[pos + 1:]
     tx = sign_deploy_contract_tx(nodes[0].signer_key, wasm_blob, 20 + iter_ * 2,
                                  hash_)
-    res = nodes[0].send_tx_and_wait(tx, 10)
+    res = nodes[0].send_tx_and_wait(tx, 20)
     print(res)
 
     print("Invoking perturbed contract #%s" % iter_)
@@ -56,7 +56,7 @@ for iter_ in range(10):
                                 100000000000, 100000000000, 20 + iter_ * 2 + 1,
                                 hash_)
     # don't have any particular expectation for the call result
-    res = nodes[1].send_tx_and_wait(tx2, 10)
+    res = nodes[1].send_tx_and_wait(tx2, 20)
 
 status = nodes[0].get_status()
 hash_ = status['sync_info']['latest_block_hash']
@@ -74,6 +74,6 @@ hash_2 = base58.b58decode(hash_2.encode('utf8'))
 tx2 = sign_function_call_tx(nodes[0].signer_key, nodes[0].signer_key.account_id,
                             'log_something', [], 100000000000, 100000000000, 62,
                             hash_2)
-res = nodes[1].send_tx_and_wait(tx2, 10)
+res = nodes[1].send_tx_and_wait(tx2, 20)
 print(res)
 assert res['result']['receipts_outcome'][0]['outcome']['logs'][0] == 'hello'

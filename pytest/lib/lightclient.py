@@ -42,7 +42,7 @@ def compute_block_hash(inner_lite_view, inner_rest_hash, prev_hash):
     inner_lite.prev_state_root = base58.b58decode(
         inner_lite_view['prev_state_root'])
     inner_lite.outcome_root = base58.b58decode(inner_lite_view['outcome_root'])
-    inner_lite.timestamp = inner_lite_view['timestamp']
+    inner_lite.timestamp = int(inner_lite_view['timestamp_nanosec'])
     inner_lite.next_bp_hash = base58.b58decode(inner_lite_view['next_bp_hash'])
     inner_lite.block_merkle_root = base58.b58decode(
         inner_lite_view['block_merkle_root'])

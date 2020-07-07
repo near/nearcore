@@ -264,3 +264,67 @@ impl std::fmt::Display for DataStats {
         Ok(())
     }
 }
+
+// Inspired by https://cheesyprogrammer.com/2018/12/13/simple-linear-regression-from-scratch-in-rust/
+
+pub fn mean(values: &Vec<f64>) -> f64 {
+    if values.len() == 0 {
+        return 0f64;
+    }
+
+    return values.iter().sum::<f64>() / (values.len() as f64);
+}
+
+pub fn variance(values: &Vec<f64>) -> f64 {
+    if values.len() == 0 {
+        return 0f64;
+    }
+
+    let mean = mean(values);
+    return values.iter().map(|x| f64::powf(x - mean, 2 as f64)).sum::<f64>() / values.len() as f64;
+}
+
+pub fn covariance(x_values: &Vec<f64>, y_values: &Vec<f64>) -> f64 {
+    if x_values.len() != y_values.len() {
+        panic!("x_values and y_values must be of equal length.");
+    }
+
+    let length: usize = x_values.len();
+
+    if length == 0usize {
+        return 0f64;
+    }
+
+    let mut covariance: f64 = 0f64;
+    let mean_x = mean(x_values);
+    let mean_y = mean(y_values);
+
+    for i in 0..length {
+        covariance += (x_values[i] - mean_x) * (y_values[i] - mean_y)
+    }
+
+    return covariance / length as f64;
+}
+
+pub fn fit(x_values: &Vec<f64>, y_values: &Vec<f64>) -> (f64, f64) {
+    let b1 = covariance(x_values, y_values) / variance(x_values);
+    (b1, mean(y_values) - b1 * mean(x_values))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn test_fit() {
+        let (a, b) = fit(&vec![1.0, 2.0, 3.0], &vec![2.0, 3.0, 4.0]);
+        assert_eq!(a, 1.0);
+        assert_eq!(b, 1.0);
+    }
+
+    #[test]
+    fn test_fit_harder() {
+        let (a, b) = fit(&vec![1.0, 2.0, 3.0], &vec![3.0, 5.0, 7.0]);
+        assert_eq!(a, 2.0);
+        assert_eq!(b, 1.0);
+    }
+}

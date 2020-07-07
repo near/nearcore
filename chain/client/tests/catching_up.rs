@@ -773,7 +773,7 @@ mod tests {
                 false,
                 false,
                 5,
-                false,
+                true,
                 vec![false; validators.iter().map(|x| x.len()).sum()],
                 Arc::new(RwLock::new(Box::new(
                     move |sender_account_id: String, msg: &NetworkRequests| {
@@ -996,9 +996,15 @@ mod tests {
                         if let NetworkRequests::Block { block } = msg {
                             // There is no chunks at height 1
                             if block.header().height() > 1 {
-                                println!("BLOCK {:?}", block,);
                                 if block.header().height() % epoch_length != 1 {
-                                    assert_eq!(4, block.header().chunks_included());
+                                    if block.header().chunks_included() != 4 {
+                                        println!(
+                                            "BLOCK WITH {:?} CHUNKS, {:?}",
+                                            block.header().chunks_included(),
+                                            block
+                                        );
+                                        assert!(false);
+                                    }
                                 }
                                 if block.header().height() == last_height {
                                     System::current().stop();

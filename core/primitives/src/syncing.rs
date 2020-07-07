@@ -17,6 +17,9 @@ pub struct ReceiptProofResponse(pub CryptoHash, pub Vec<ReceiptProof>);
 pub struct RootProof(pub CryptoHash, pub MerklePath);
 
 #[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize, Serialize)]
+pub struct StateHeaderKey(pub ShardId, pub CryptoHash);
+
+#[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize, Serialize)]
 pub struct StatePartKey(pub CryptoHash, pub ShardId, pub u64 /* PartId */);
 
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, Serialize)]
@@ -34,6 +37,12 @@ pub struct ShardStateSyncResponseHeader {
 pub struct ShardStateSyncResponse {
     pub header: Option<ShardStateSyncResponseHeader>,
     pub part: Option<(u64, Vec<u8>)>,
+}
+
+impl ShardStateSyncResponse {
+    pub fn part_id(&self) -> Option<u64> {
+        self.part.as_ref().map(|(part_id, _)| *part_id)
+    }
 }
 
 pub fn get_num_state_parts(memory_usage: u64) -> u64 {

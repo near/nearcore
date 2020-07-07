@@ -109,12 +109,9 @@ impl IntoVMError for wasmer_runtime::error::RuntimeError {
                     );
                 }
                 // A trap that Wasmer knows about occurred.
-                // As of 0.17.0, thrown only from LLVM and Cranelift BE.
-                InvokeError::TrapCode { code, srcloc } => {
-                    panic!(
-                        "Impossible TrapCode error (Cranelift only): trap {} at {}",
-                        *code as u32, srcloc
-                    );
+                // As of 0.17.1, can be thrown on C signals caught, for example OOM.
+                InvokeError::TrapCode { code: _, srcloc: _ } => {
+                    VMError::FunctionCallError(WasmUnknownError)
                 }
                 // A trap occurred that Wasmer knows about but it had a trap code that
                 // we weren't expecting or that we do not handle.
@@ -216,6 +213,15 @@ pub fn run_wasmer<'a>(
     let mut logic =
         VMLogic::new(ext, context, wasm_config, fees_config, promise_results, &mut memory);
 
+    if logic.add_contract_compile_fee(code.len() as u64).is_err() {
+        return (
+            Some(logic.outcome()),
+            Some(VMError::FunctionCallError(FunctionCallError::HostError(
+                near_vm_errors::HostError::GasExceeded,
+            ))),
+        );
+    }
+
     let import_object = imports::build_wasmer(memory_copy, &mut logic);
 
     let method_name = match std::str::from_utf8(method_name) {
@@ -240,4 +246,8 @@ pub fn run_wasmer<'a>(
         },
         Err(err) => (Some(logic.outcome()), Some(err.into_vm_error())),
     }
+}
+
+pub fn compile_module(code: &[u8]) {
+    wasmer_runtime::compile(code).unwrap();
 }

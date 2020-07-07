@@ -1,4 +1,5 @@
 use std::collections::HashSet;
+use std::convert::TryFrom;
 use std::iter::FromIterator;
 use std::path::Path;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -8,7 +9,7 @@ use actix::System;
 use futures::{future, FutureExt};
 use num_rational::Rational;
 
-use near_chain::chain::{check_refcount_map, NUM_EPOCHS_TO_KEEP_STORE_DATA};
+use near_chain::chain::NUM_EPOCHS_TO_KEEP_STORE_DATA;
 use near_chain::{Block, ChainGenesis, ChainStoreAccess, ErrorKind, Provenance, RuntimeAdapter};
 use near_chain_configs::{ClientConfig, Genesis};
 use near_chunks::{ChunkStatus, ShardsManager};
@@ -789,7 +790,6 @@ fn test_gc_with_epoch_length_common(epoch_length: NumBlocks) {
         }
     }
     assert_eq!(env.clients[0].chain.store().chunk_tail().unwrap(), epoch_length - 1);
-    assert!(check_refcount_map(&mut env.clients[0].chain).is_ok());
 }
 
 #[test]
@@ -848,7 +848,6 @@ fn test_gc_long_epoch() {
             .get_all_block_hashes_by_height(block.header().height())
             .is_ok());
     }
-    assert!(check_refcount_map(&mut env.clients[0].chain).is_ok());
 }
 
 #[test]
@@ -874,7 +873,6 @@ fn test_gc_block_skips() {
             env.produce_block(0, i);
         }
     }
-    assert!(check_refcount_map(&mut env.clients[0].chain).is_ok());
 }
 
 #[test]
@@ -1085,8 +1083,6 @@ fn test_gc_tail_update() {
         .unwrap();
     env.process_block(1, blocks.pop().unwrap(), Provenance::NONE);
     assert_eq!(env.clients[1].chain.store().tail().unwrap(), prev_sync_block.header().height());
-    assert!(check_refcount_map(&mut env.clients[0].chain).is_ok());
-    assert!(check_refcount_map(&mut env.clients[1].chain).is_ok());
 }
 
 /// Test that transaction does not become invalid when there is some gas price change.
@@ -1340,4 +1336,44 @@ fn test_data_reset_before_state_sync() {
         &QueryRequest::ViewAccount { account_id: "test_account".to_string() },
     );
     assert!(response.is_err());
+}
+
+#[test]
+fn test_sync_hash_validity() {
+    let epoch_length = 5;
+    let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
+    genesis.config.epoch_length = epoch_length;
+    let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![Arc::new(neard::NightshadeRuntime::new(
+        Path::new("."),
+        create_test_store(),
+        Arc::new(genesis.clone()),
+        vec![],
+        vec![],
+    ))];
+    let mut chain_genesis = ChainGenesis::test();
+    chain_genesis.epoch_length = epoch_length;
+    let mut env = TestEnv::new_with_runtime(chain_genesis, 1, 1, runtimes);
+    for i in 1..19 {
+        env.produce_block(0, i);
+    }
+    for i in 0..19 {
+        let block_hash = env.clients[0].chain.get_header_by_height(i).unwrap().hash().clone();
+        let res = env.clients[0].chain.check_sync_hash_validity(&block_hash);
+        println!("height {:?} -> {:?}", i, res);
+        if i == 11 || i == 16 {
+            assert!(res.unwrap())
+        } else {
+            assert!(!res.unwrap())
+        }
+    }
+    let bad_hash = CryptoHash::try_from("7tkzFg8RHBmMw1ncRJZCCZAizgq4rwCftTKYLce8RU8t").unwrap();
+    let res = env.clients[0].chain.check_sync_hash_validity(&bad_hash);
+    println!("bad hash -> {:?}", res.is_ok());
+    match res {
+        Ok(_) => assert!(false),
+        Err(e) => match e.kind() {
+            ErrorKind::DBNotFoundErr(_) => { /* the only expected error */ }
+            _ => assert!(false),
+        },
+    }
 }

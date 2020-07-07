@@ -28,12 +28,12 @@ use near_primitives::sharding::{
 };
 use near_primitives::syncing::{
     get_num_state_parts, ReceiptProofResponse, ReceiptResponse, RootProof,
-    ShardStateSyncResponseHeader, StatePartKey,
+    ShardStateSyncResponseHeader, StateHeaderKey, StatePartKey,
 };
 use near_primitives::transaction::ExecutionOutcomeWithIdAndProof;
 use near_primitives::types::{
     AccountId, Balance, BlockExtra, BlockHeight, BlockHeightDelta, ChunkExtra, EpochId, Gas,
-    MerkleHash, NumBlocks, ShardId, StateHeaderKey, ValidatorStake,
+    MerkleHash, NumBlocks, ShardId, ValidatorStake,
 };
 use near_primitives::unwrap_or_return;
 use near_primitives::version::ProtocolVersion;
@@ -1332,6 +1332,12 @@ impl Chain {
         shard_id: ShardId,
         sync_hash: CryptoHash,
     ) -> Result<ShardStateSyncResponseHeader, Error> {
+        // Check cache
+        let key = StateHeaderKey(shard_id, sync_hash).try_to_vec()?;
+        if let Ok(Some(header)) = self.store.owned_store().get_ser(ColStateHeaders, &key) {
+            return Ok(header);
+        }
+
         // Consistency rules:
         // 1. Everything prefixed with `sync_` indicates new epoch, for which we are syncing.
         // 1a. `sync_prev` means the last of the prev epoch.
@@ -1461,7 +1467,7 @@ impl Chain {
         let state_root_node =
             self.runtime_adapter.get_state_root_node(shard_id, &chunk_header.inner.prev_state_root);
 
-        Ok(ShardStateSyncResponseHeader {
+        let shard_state_header = ShardStateSyncResponseHeader {
             chunk,
             chunk_proof,
             prev_chunk_header,
@@ -1469,7 +1475,14 @@ impl Chain {
             incoming_receipts_proofs,
             root_proofs,
             state_root_node,
-        })
+        };
+
+        // Saving the header data
+        let mut store_update = self.store.owned_store().store_update();
+        store_update.set_ser(ColStateHeaders, &key, &shard_state_header)?;
+        store_update.commit()?;
+
+        Ok(shard_state_header)
     }
 
     pub fn get_state_response_part(
@@ -1478,6 +1491,12 @@ impl Chain {
         part_id: u64,
         sync_hash: CryptoHash,
     ) -> Result<Vec<u8>, Error> {
+        // Check cache
+        let key = StatePartKey(sync_hash, shard_id, part_id).try_to_vec()?;
+        if let Ok(Some(state_part)) = self.store.owned_store().get_ser(ColStateParts, &key) {
+            return Ok(state_part);
+        }
+
         let sync_block =
             self.get_block(&sync_hash).expect("block has already been checked for existence");
         let sync_block_header = sync_block.header().clone();
@@ -1504,6 +1523,11 @@ impl Chain {
         }
         let state_part =
             self.runtime_adapter.obtain_state_part(shard_id, &state_root, part_id, num_parts);
+
+        // Saving the part data
+        let mut store_update = self.store.owned_store().store_update();
+        store_update.set_ser(ColStateParts, &key, &state_part)?;
+        store_update.commit()?;
 
         Ok(state_part)
     }
@@ -2356,6 +2380,24 @@ impl Chain {
     #[inline]
     pub fn is_chunk_orphan(&self, hash: &CryptoHash) -> bool {
         self.blocks_with_missing_chunks.contains(hash)
+    }
+
+    /// Check if can sync with sync_hash
+    pub fn check_sync_hash_validity(&mut self, sync_hash: &CryptoHash) -> Result<bool, Error> {
+        let head = self.head()?;
+        // It's important to check that Block exists because we will sync with it.
+        // Do not replace with `get_block_header`.
+        let sync_block = self.get_block(sync_hash)?;
+        // The Epoch of sync_hash may be either the current one or the previous one
+        if head.epoch_id == *sync_block.header().epoch_id()
+            || head.epoch_id == *sync_block.header().next_epoch_id()
+        {
+            let prev_hash = sync_block.header().prev_hash().clone();
+            // If sync_hash is not on the Epoch boundary, it's malicious behavior
+            self.runtime_adapter.is_next_block_epoch_start(&prev_hash)
+        } else {
+            Ok(false) // invalid Epoch of sync_hash, possible malicious behavior
+        }
     }
 }
 
@@ -3511,78 +3553,4 @@ pub fn collect_receipts_from_response(
     collect_receipts(
         receipt_proof_response.iter().flat_map(|ReceiptProofResponse(_, proofs)| proofs),
     )
-}
-
-// Used in testing only
-pub fn check_refcount_map(chain: &mut Chain) -> Result<(), Error> {
-    let head = chain.head()?;
-    let mut block_refcounts = HashMap::new();
-    // TODO #2352: make sure there is no block with height > head.height and set highest_height to `head.height`
-    let highest_height = head.height + 100;
-    for height in chain.store().get_genesis_height() + 1..=highest_height {
-        let blocks_current_height = match chain.mut_store().get_all_block_hashes_by_height(height) {
-            Ok(blocks_current_height) => {
-                blocks_current_height.values().flatten().cloned().collect()
-            }
-            _ => vec![],
-        };
-        for block_hash in blocks_current_height.iter() {
-            if let Ok(prev_hash) =
-                chain.get_block(&block_hash).map(|block| *block.header().prev_hash())
-            {
-                *block_refcounts.entry(prev_hash).or_insert(0) += 1;
-            }
-            // This is temporary workaround to ignore all blocks with height >= highest_height
-            // TODO #2352: remove `if` and keep only `block_refcounts.entry(*block_hash).or_insert(0)`
-            if height < highest_height {
-                block_refcounts.entry(*block_hash).or_insert(0);
-            }
-        }
-    }
-    let mut chain_store_update = ChainStoreUpdate::new(chain.mut_store());
-    let mut tail_blocks = 0;
-    for (block_hash, refcount) in block_refcounts {
-        let block_refcount = chain_store_update.get_block_refcount(&block_hash)?.clone();
-        match chain_store_update.get_block(&block_hash) {
-            Ok(_) => {
-                if block_refcount != refcount {
-                    return Err(ErrorKind::GCError(format!(
-                        "invalid number of references in Block {:?}, expected {:?}, found {:?}",
-                        block_hash, refcount, block_refcount
-                    ))
-                    .into());
-                }
-            }
-            Err(e) => {
-                if block_refcount != 0 {
-                    // May be the tail block
-                    if block_refcount != refcount {
-                        return Err(ErrorKind::GCError(format!(
-                            "invalid number of references in deleted Block {:?}, expected {:?}, found {:?}; get_block failed: {:?}",
-                            block_hash, refcount, block_refcount, e
-                        ))
-                            .into());
-                    }
-                }
-                if refcount >= 2 {
-                    return Err(ErrorKind::GCError(format!(
-                            "Block {:?} expected to be deleted, found {:?} references instead; get_block failed: {:?}",
-                            block_hash, refcount, e
-                        ))
-                            .into());
-                } else if refcount == 1 {
-                    // If Block `block_hash` is successfully GCed, the only its descendant is alive.
-                    tail_blocks += 1;
-                }
-            }
-        }
-    }
-    if tail_blocks >= 2 {
-        return Err(ErrorKind::GCError(format!(
-            "There are {:?} tail blocks found, expected no more than 1",
-            tail_blocks,
-        ))
-        .into());
-    }
-    Ok(())
 }

@@ -10,7 +10,9 @@ use near_chain::ChainGenesis;
 use near_client::{ClientActor, ViewClientActor};
 use near_jsonrpc::start_http;
 use near_network::{NetworkRecipient, PeerManagerActor};
-use near_store::migrations::{fill_col_outcomes_by_hash, get_store_version, set_store_version};
+use near_store::migrations::{
+    fill_col_outcomes_by_hash, fill_col_transaction_refcount, get_store_version, set_store_version,
+};
 use near_store::{create_store, Store};
 use near_telemetry::TelemetryActor;
 
@@ -62,23 +64,34 @@ pub fn apply_store_migrations(path: &String) {
     if db_version == near_primitives::version::DB_VERSION {
         return;
     }
+
     // Add migrations here based on `db_version`.
-    if db_version == 1 {
+    if db_version <= 1 {
         // version 1 => 2: add gc column
         // Does not need to do anything since open db with option `create_missing_column_families`
         // Nevertheless need to bump db version, because db_version 1 binary can't open db_version 2 db
         info!(target: "near", "Migrate DB from version 1 to 2");
         let store = create_store(&path);
-        set_store_version(&store);
+        set_store_version(&store, 2);
     }
-    if db_version == 2 {
+    if db_version <= 2 {
         // version 2 => 3: add ColOutcomesByBlockHash + rename LastComponentNonce -> ColLastComponentNonce
         // The column number is the same, so we don't need additional updates
         info!(target: "near", "Migrate DB from version 2 to 3");
         let store = create_store(&path);
         fill_col_outcomes_by_hash(&store);
-        set_store_version(&store);
+        set_store_version(&store, 3);
     }
+    if db_version <= 3 {
+        // version 3 => 4: add ColTransactionRefCount
+        info!(target: "near", "Migrate DB from version 3 to 4");
+        let store = create_store(&path);
+        fill_col_transaction_refcount(&store);
+        set_store_version(&store, 4);
+    }
+
+    let db_version = get_store_version(path);
+    debug_assert_eq!(db_version, near_primitives::version::DB_VERSION);
 }
 
 pub fn init_and_migrate_store(home_dir: &Path) -> Arc<Store> {
@@ -89,7 +102,7 @@ pub fn init_and_migrate_store(home_dir: &Path) -> Arc<Store> {
     }
     let store = create_store(&path);
     if !store_exists {
-        set_store_version(&store);
+        set_store_version(&store, near_primitives::version::DB_VERSION);
     }
     store
 }
