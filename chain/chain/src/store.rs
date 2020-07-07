@@ -37,14 +37,13 @@ use near_store::{
     read_with_cache, ColBlock, ColBlockExtra, ColBlockHeader, ColBlockHeight, ColBlockInfo,
     ColBlockMerkleTree, ColBlockMisc, ColBlockOrdinal, ColBlockPerHeight, ColBlockRefCount,
     ColBlocksToCatchup, ColChallengedBlocks, ColChunkExtra, ColChunkHashesByHeight,
-    ColChunkPerHeightShard, ColChunks, ColEpochInfo, ColEpochLightClientBlocks, ColEpochStart,
-    ColGCCount, ColIncomingReceipts, ColInvalidChunks, ColLastBlockWithNewChunk,
-    ColNextBlockHashes, ColNextBlockWithNewChunk, ColOutcomesByBlockHash, ColOutgoingReceipts,
-    ColPartialChunks, ColReceiptIdToShardId, ColState, ColStateChanges, ColStateDlInfos,
-    ColStateHeaders, ColStateParts, ColTransactionRefCount, ColTransactionResult, ColTransactions,
-    ColTrieChanges, DBCol, KeyForStateChanges, ShardTries, Store, StoreUpdate, TrieChanges,
-    WrappedTrieChanges, CHUNK_TAIL_KEY, HEADER_HEAD_KEY, HEAD_KEY, LARGEST_TARGET_HEIGHT_KEY,
-    LATEST_KNOWN_KEY, SHOULD_COL_GC, SYNC_HEAD_KEY, TAIL_KEY,
+    ColChunkPerHeightShard, ColChunks, ColEpochLightClientBlocks, ColGCCount, ColIncomingReceipts,
+    ColInvalidChunks, ColLastBlockWithNewChunk, ColNextBlockHashes, ColNextBlockWithNewChunk,
+    ColOutcomesByBlockHash, ColOutgoingReceipts, ColPartialChunks, ColReceiptIdToShardId, ColState,
+    ColStateChanges, ColStateDlInfos, ColStateHeaders, ColStateParts, ColTransactionRefCount,
+    ColTransactionResult, ColTransactions, ColTrieChanges, DBCol, KeyForStateChanges, ShardTries,
+    Store, StoreUpdate, TrieChanges, WrappedTrieChanges, CHUNK_TAIL_KEY, HEADER_HEAD_KEY, HEAD_KEY,
+    LARGEST_TARGET_HEIGHT_KEY, LATEST_KNOWN_KEY, SHOULD_COL_GC, SYNC_HEAD_KEY, TAIL_KEY,
 };
 
 use crate::byzantine_assert;
@@ -1947,7 +1946,6 @@ impl<'a> ChainStoreUpdate<'a> {
     ) -> Result<(), Error> {
         let mut store_update = self.store().store_update();
         let header = self.get_block_header(&block_hash).expect("block header must exist").clone();
-        let next_epoch_id = header.epoch_id();
 
         // 1. Apply revert insertions or deletions from ColTrieChanges for Trie
         match gc_mode.clone() {
@@ -2086,13 +2084,6 @@ impl<'a> ChainStoreUpdate<'a> {
                     }
                 }
                 self.clear_chunk_data(min_chunk_height)?;
-                // Check Epoch switch
-                let cur_epoch_id = block.header().epoch_id();
-                if cur_epoch_id != next_epoch_id {
-                    // Current Block is the last one who needs current Epoch
-                    self.gc_col(ColEpochInfo, &cur_epoch_id.as_ref().into());
-                    self.gc_col(ColEpochStart, &cur_epoch_id.as_ref().into());
-                }
             }
             GCMode::StateSync => {
                 // 7. State Sync clearing
@@ -2270,12 +2261,6 @@ impl<'a> ChainStoreUpdate<'a> {
             DBCol::ColBlockInfo => {
                 store_update.delete(col, key);
             }
-            DBCol::ColEpochInfo => {
-                store_update.delete(col, key);
-            }
-            DBCol::ColEpochStart => {
-                store_update.delete(col, key);
-            }
             DBCol::ColLastBlockWithNewChunk => {
                 store_update.delete(col, key);
                 self.chain_store.last_block_with_new_chunk.cache_remove(key);
@@ -2295,6 +2280,8 @@ impl<'a> ChainStoreUpdate<'a> {
             | DBCol::ColPeerComponent
             | DBCol::ColLastComponentNonce
             | DBCol::ColComponentEdges
+            | DBCol::ColEpochInfo
+            | DBCol::ColEpochStart
             | DBCol::ColBlockOrdinal => {
                 unreachable!();
             }

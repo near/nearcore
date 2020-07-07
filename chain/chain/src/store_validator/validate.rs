@@ -409,7 +409,7 @@ pub(crate) fn block_epoch_exists(
     /*
     unwrap_or_err_db!(
         sv.store.get_ser::<EpochInfo>(ColEpochInfo, block.header().epoch_id().as_ref()),
-        "Can't get BlockInfo from storage"
+        "Can't get EpochInfo from storage"
     );
     */
     Ok(())

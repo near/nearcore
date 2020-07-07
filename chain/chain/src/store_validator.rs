@@ -266,13 +266,7 @@ impl StoreValidator {
                         let epoch_info = EpochInfo::try_from_slice(value_ref)?;
                         // Epoch should exist
                         self.check(&validate::epoch_validity, &epoch_id, &epoch_info, col);
-                        // TODO #2893: Bowen which consistency we expect from ColEpochInfo?
                     }
-                }
-                DBCol::ColEpochStart => {
-                    let _epoch_id = EpochId::try_from_slice(key_ref)?;
-                    let _epoch_start = BlockHeight::try_from_slice(value_ref)?;
-                    // TODO #2893: Bowen which consistency we expect from ColEpochStart?
                 }
                 DBCol::ColLastBlockWithNewChunk => {
                     let shard_id = ShardId::try_from_slice(key_ref)?;
