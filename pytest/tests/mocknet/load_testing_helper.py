@@ -98,8 +98,9 @@ def create_account(source_account):
     nonce = get_nonce_for_pk(source_account.account_id, source_account.pk)
     new_account_id = ''.join(
         random.choice(string.ascii_lowercase) for _ in range(0, 10))
+    new_key = Key(new_account_id, source_account.pk, source_account.sk)
     tx = sign_create_account_with_full_access_key_and_balance_tx(
-        source_account, new_account_id, source_account, 100, nonce + 1,
+        source_account, new_account_id, new_key, 100, nonce + 1,
         last_block_hash)
     send_tx(tx)
 
