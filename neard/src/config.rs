@@ -178,6 +178,10 @@ fn default_safe_set_size() -> u32 {
 fn default_ttl_account_id_router() -> Duration {
     Duration::from_secs(TTL_ACCOUNT_ID_ROUTER)
 }
+/// Period to check on peer status
+fn default_peer_stats_period() -> Duration {
+    Duration::from_secs(5)
+}
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Network {
@@ -222,6 +226,9 @@ pub struct Network {
     /// Time to persist Accounts Id in the router without removing them in seconds.
     #[serde(default = "default_ttl_account_id_router")]
     pub ttl_account_id_router: Duration,
+    /// Period to check on peer status
+    #[serde(default = "default_peer_stats_period")]
+    pub peer_stats_period: Duration,
 }
 
 impl Default for Network {
@@ -242,6 +249,7 @@ impl Default for Network {
             ban_window: Duration::from_secs(3 * 60 * 60),
             blacklist: vec![],
             ttl_account_id_router: default_ttl_account_id_router(),
+            peer_stats_period: default_peer_stats_period(),
         }
     }
 }

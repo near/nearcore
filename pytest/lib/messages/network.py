@@ -1,7 +1,7 @@
-from messages.crypto import Signature, PublicKey
-from messages.tx import SignedTransaction
-from messages.block import Block, Approval, PartialEncodedChunk, PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg, BlockHeader
-
+from messages.crypto import Signature, PublicKey, MerklePath, ShardProof
+from messages.tx import SignedTransaction, Receipt
+from messages.block import Block, Approval, PartialEncodedChunk, PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg, BlockHeader, ShardChunk, ShardChunkHeader
+from messages.shard import StateRootNode
 
 class SocketAddr:
     pass
@@ -60,6 +60,18 @@ class RoutedMessageBody:
 
 
 class PingPong:
+    pass
+
+
+class StateResponseInfo:
+    pass
+
+
+class ShardStateSyncResponse:
+    pass
+
+
+class ShardStateSyncResponseHeader:
     pass
 
 
@@ -235,7 +247,7 @@ network_schema = [
                 ['ReceiptOutcomeResponse', None], # TODO
                 ['StateRequestHeader', ('u64', [32])],
                 ['StateRequestPart', ('u64', [32], 'u64')],
-                ['StateResponseInfo', None], # TODO
+                ['StateResponseInfo', StateResponseInfo],
                 ['PartialEncodedChunkRequest', PartialEncodedChunkRequestMsg],
                 ['PartialEncodedChunkResponse', PartialEncodedChunkResponseMsg],
                 ['PartialEncodedChunk', PartialEncodedChunk],
@@ -248,6 +260,32 @@ network_schema = [
         PingPong, {
             'kind': 'struct',
             'fields': [['nonce', 'u64'], ['source', PublicKey]]
+        }
+    ],
+    [
+        StateResponseInfo, {
+            'kind': 'struct',
+            'fields': [['shard_id', 'u64'], ['sync_hash', [32]], ['state_response', ShardStateSyncResponse]]
+        }
+    ],
+    [
+        ShardStateSyncResponse, {
+            'kind': 'struct',
+            'fields': [['header', {'kind': 'option', 'type': ShardStateSyncResponseHeader}], ['part', {'kind': 'option', 'type': ('u64', ['u8'])}]]
+        }
+    ],
+    [
+        ShardStateSyncResponseHeader, {
+            'kind': 'struct',
+            'fields': [
+                ['chunk', ShardChunk],
+                ['chunk_proof', MerklePath],
+                ['prev_chunk_header', {'kind': 'option', 'type': ShardChunkHeader}],
+                ['prev_chunk_proof', {'kind': 'option', 'type': MerklePath}],
+                ['incoming_receipts_proofs', [([32], [([Receipt], ShardProof)])]],
+                ['root_proofs', [[([32], MerklePath)]]],
+                ['state_root_node', StateRootNode]
+            ]
         }
     ],
 ]

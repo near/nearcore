@@ -23,7 +23,7 @@ mod test {
         // 1 token to a random node j. We send transaction to node Then we wait for the balance change to propagate by checking
         // the balance of j on node k.
         let trial_duration = 60_000;
-        let amount_to_send = 100;
+        let amount_to_send = 100 * 10u128.pow(24);
         for trial in 0..num_trials {
             println!("TRIAL #{}", trial);
             let (i, j) = sample_two_nodes(num_nodes);
@@ -48,6 +48,7 @@ mod test {
                 || {
                     account_j.amount
                         < nodes[r].read().unwrap().view_balance(&account_names[j]).unwrap()
+                            - amount_to_send * 9 / 10
                 },
                 100,
                 trial_duration,
