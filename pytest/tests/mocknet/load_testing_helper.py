@@ -14,7 +14,9 @@ import time
 
 sys.path.append('lib')
 from cluster import Key
-from transaction import sign_payment_tx, sign_deploy_contract_tx, sign_function_call_tx, sign_create_account_with_full_access_key_and_balance_tx, sign_staking_tx
+from transaction import (
+    sign_payment_tx, sign_deploy_contract_tx, sign_function_call_tx,
+    sign_create_account_with_full_access_key_and_balance_tx, sign_staking_tx)
 import utils
 
 LOCAL_ADDR = '127.0.0.1'
@@ -56,9 +58,11 @@ def get_nonce_for_pk(account_id, pk, finality='optimistic'):
 def send_tx(signed_tx):
     json_rpc('broadcast_tx_async', [base64.b64encode(signed_tx).decode('utf8')])
 
+
 def get_latest_block_hash():
     last_block_hash = get_status()['sync_info']['latest_block_hash']
     return base58.b58decode(last_block_hash.encode('utf8'))
+
 
 def send_transfer(source_account, dest_index):
     alice = source_account
@@ -66,7 +70,8 @@ def send_transfer(source_account, dest_index):
     alice_nonce = get_nonce_for_pk(alice.account_id, alice.pk)
     last_block_hash = get_latest_block_hash()
     tranfer_amount = 100
-    tx = sign_payment_tx(alice, bob, tranfer_amount, alice_nonce + 1, last_block_hash)
+    tx = sign_payment_tx(alice, bob, tranfer_amount, alice_nonce + 1,
+                         last_block_hash)
     send_tx(tx)
 
 
@@ -74,27 +79,38 @@ def deploy_contract(source_account):
     last_block_hash = get_latest_block_hash()
     nonce = get_nonce_for_pk(source_account.account_id, source_account.pk)
     wasm_binary = utils.load_binary_file(WASM_FILENAME)
-    tx = sign_deploy_contract_tx(source_account, wasm_binary, nonce + 1, last_block_hash)
+    tx = sign_deploy_contract_tx(source_account, wasm_binary, nonce + 1,
+                                 last_block_hash)
     send_tx(tx)
+
 
 def call_contract(source_account):
     last_block_hash = get_latest_block_hash()
     nonce = get_nonce_for_pk(source_account.account_id, source_account.pk)
-    tx = sign_function_call_tx(source_account, source_account.account_id, 'do_work', [], 300000000000000, 0, nonce + 1, last_block_hash)
+    tx = sign_function_call_tx(source_account, source_account.account_id,
+                               'do_work', [], 300000000000000, 0, nonce + 1,
+                               last_block_hash)
     send_tx(tx)
+
 
 def create_account(source_account):
     last_block_hash = get_latest_block_hash()
     nonce = get_nonce_for_pk(source_account.account_id, source_account.pk)
-    new_account_id = ''.join(random.choice(string.ascii_lowercase) for _ in range(0, 10))
-    tx = sign_create_account_with_full_access_key_and_balance_tx(source_account, new_account_id, source_account, 100, nonce + 1, last_block_hash)
+    new_account_id = ''.join(
+        random.choice(string.ascii_lowercase) for _ in range(0, 10))
+    tx = sign_create_account_with_full_access_key_and_balance_tx(
+        source_account, new_account_id, source_account, 100, nonce + 1,
+        last_block_hash)
     send_tx(tx)
+
 
 def stake(source_account):
     last_block_hash = get_latest_block_hash()
     nonce = get_nonce_for_pk(source_account.account_id, source_account.pk)
-    tx = sign_staking_tx(source_account, source_account, 1, nonce + 1, last_block_hash)
+    tx = sign_staking_tx(source_account, source_account, 1, nonce + 1,
+                         last_block_hash)
     send_tx(tx)
+
 
 def random_transaction(account_and_index):
     choice = random.randint(0, 4)
@@ -108,6 +124,7 @@ def random_transaction(account_and_index):
         create_account(account_and_index[0])
     elif choice == 4:
         stake(account_and_index[0])
+
 
 def send_transfers():
     pmap(

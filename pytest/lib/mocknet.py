@@ -76,6 +76,7 @@ def list_validators(node):
         map(lambda v: v['account_id'], validators['current_validators']))
     return validator_accounts
 
+
 def setup_python_environment(node, wasm_contract):
     m = node.machine
     print(f'INFO: Setting up python environment on {m.name}')

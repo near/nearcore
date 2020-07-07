@@ -15,9 +15,9 @@ import utils
 nodes = mocknet.get_nodes()
 initial_validator_accounts = mocknet.list_validators(nodes[0])
 
+
 def wasm_contract():
-    return utils.compile_rust_contract(
-        '''
+    return utils.compile_rust_contract('''
 const N: u32 = 100;
 
 metadata! {
@@ -50,24 +50,30 @@ impl LoadContract {
         }
         xs
     }
-}'''
-    )
+}''')
 
-def check_stats(initial_metrics=None, final_metrics=None, duration=120, include_tps=False):
+
+def check_stats(initial_metrics=None,
+                final_metrics=None,
+                duration=120,
+                include_tps=False):
     if initial_metrics is None:
         initial_metrics = mocknet.get_metrics(nodes[-1])
         time.sleep(duration)
         final_metrics = mocknet.get_metrics(nodes[-1])
-    
+
     delta = Metrics.diff(final_metrics, initial_metrics)
 
     bps = delta.total_blocks / delta.timestamp
     tps = delta.total_transactions / delta.timestamp
-    slow_process_blocks = delta.block_processing_time['le +Inf'] - delta.block_processing_time['le 1']
+    slow_process_blocks = delta.block_processing_time[
+        'le +Inf'] - delta.block_processing_time['le 1']
 
     print(f'INFO: Blocks per second: {bps}')
     print(f'INFO: Transactions per second: {tps}')
-    print(f'INFO: Number of blocks processing for more than 1s: {slow_process_blocks}')
+    print(
+        f'INFO: Number of blocks processing for more than 1s: {slow_process_blocks}'
+    )
 
     assert slow_process_blocks == 0
     assert bps > 0.5
@@ -95,8 +101,12 @@ print('INFO: Waiting for random transactions period to complete.')
 time.sleep(TIMEOUT - TRANSFER_ONLY_TIMEOUT)
 final_metrics = mocknet.get_metrics(nodes[-1])
 
-check_stats(initial_metrics=initial_metrics, final_metrics=transfer_final_metrics, include_tps=True)
-check_stats(initial_metrics=transfer_final_metrics, final_metrics=final_metrics, include_tps=False)
+check_stats(initial_metrics=initial_metrics,
+            final_metrics=transfer_final_metrics,
+            include_tps=True)
+check_stats(initial_metrics=transfer_final_metrics,
+            final_metrics=final_metrics,
+            include_tps=False)
 
 final_validator_accounts = mocknet.list_validators(nodes[0])
 assert initial_validator_accounts == final_validator_accounts
