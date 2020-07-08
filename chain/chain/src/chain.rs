@@ -28,12 +28,12 @@ use near_primitives::sharding::{
 };
 use near_primitives::syncing::{
     get_num_state_parts, ReceiptProofResponse, ReceiptResponse, RootProof,
-    ShardStateSyncResponseHeader, StatePartKey,
+    ShardStateSyncResponseHeader, StateHeaderKey, StatePartKey,
 };
 use near_primitives::transaction::ExecutionOutcomeWithIdAndProof;
 use near_primitives::types::{
     AccountId, Balance, BlockExtra, BlockHeight, BlockHeightDelta, ChunkExtra, EpochId, Gas,
-    MerkleHash, NumBlocks, ShardId, StateHeaderKey, ValidatorStake,
+    MerkleHash, NumBlocks, ShardId, ValidatorStake,
 };
 use near_primitives::unwrap_or_return;
 use near_primitives::version::ProtocolVersion;
@@ -1523,6 +1523,9 @@ impl Chain {
         }
         let state_part =
             self.runtime_adapter.obtain_state_part(shard_id, &state_root, part_id, num_parts);
+
+        // Before saving State Part data, we need to make sure we can calculate and save State Header
+        self.get_state_response_header(shard_id, sync_hash)?;
 
         // Saving the part data
         let mut store_update = self.store.owned_store().store_update();
@@ -3553,78 +3556,4 @@ pub fn collect_receipts_from_response(
     collect_receipts(
         receipt_proof_response.iter().flat_map(|ReceiptProofResponse(_, proofs)| proofs),
     )
-}
-
-// Used in testing only
-pub fn check_refcount_map(chain: &mut Chain) -> Result<(), Error> {
-    let head = chain.head()?;
-    let mut block_refcounts = HashMap::new();
-    // TODO #2352: make sure there is no block with height > head.height and set highest_height to `head.height`
-    let highest_height = head.height + 100;
-    for height in chain.store().get_genesis_height() + 1..=highest_height {
-        let blocks_current_height = match chain.mut_store().get_all_block_hashes_by_height(height) {
-            Ok(blocks_current_height) => {
-                blocks_current_height.values().flatten().cloned().collect()
-            }
-            _ => vec![],
-        };
-        for block_hash in blocks_current_height.iter() {
-            if let Ok(prev_hash) =
-                chain.get_block(&block_hash).map(|block| *block.header().prev_hash())
-            {
-                *block_refcounts.entry(prev_hash).or_insert(0) += 1;
-            }
-            // This is temporary workaround to ignore all blocks with height >= highest_height
-            // TODO #2352: remove `if` and keep only `block_refcounts.entry(*block_hash).or_insert(0)`
-            if height < highest_height {
-                block_refcounts.entry(*block_hash).or_insert(0);
-            }
-        }
-    }
-    let mut chain_store_update = ChainStoreUpdate::new(chain.mut_store());
-    let mut tail_blocks = 0;
-    for (block_hash, refcount) in block_refcounts {
-        let block_refcount = chain_store_update.get_block_refcount(&block_hash)?.clone();
-        match chain_store_update.get_block(&block_hash) {
-            Ok(_) => {
-                if block_refcount != refcount {
-                    return Err(ErrorKind::GCError(format!(
-                        "invalid number of references in Block {:?}, expected {:?}, found {:?}",
-                        block_hash, refcount, block_refcount
-                    ))
-                    .into());
-                }
-            }
-            Err(e) => {
-                if block_refcount != 0 {
-                    // May be the tail block
-                    if block_refcount != refcount {
-                        return Err(ErrorKind::GCError(format!(
-                            "invalid number of references in deleted Block {:?}, expected {:?}, found {:?}; get_block failed: {:?}",
-                            block_hash, refcount, block_refcount, e
-                        ))
-                            .into());
-                    }
-                }
-                if refcount >= 2 {
-                    return Err(ErrorKind::GCError(format!(
-                            "Block {:?} expected to be deleted, found {:?} references instead; get_block failed: {:?}",
-                            block_hash, refcount, e
-                        ))
-                            .into());
-                } else if refcount == 1 {
-                    // If Block `block_hash` is successfully GCed, the only its descendant is alive.
-                    tail_blocks += 1;
-                }
-            }
-        }
-    }
-    if tail_blocks >= 2 {
-        return Err(ErrorKind::GCError(format!(
-            "There are {:?} tail blocks found, expected no more than 1",
-            tail_blocks,
-        ))
-        .into());
-    }
-    Ok(())
 }

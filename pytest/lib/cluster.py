@@ -32,7 +32,6 @@ class DownloadException(Exception):
 
 def atexit_cleanup(node):
     print("Cleaning up node %s:%s on script exit" % node.addr())
-    print("Executed refmap tests: %s" % node.refmap_tests)
     print("Executed store validity tests: %s" % node.store_tests)
     try:
         node.cleanup()
@@ -138,7 +137,6 @@ class BaseNode(object):
         status = json.loads(r.content)
         if status['sync_info']['syncing'] == False:
             # Storage is not guaranteed to be in consistent state while syncing
-            self.check_refmap()
             self.check_store()
         return status
 
@@ -209,30 +207,10 @@ class BaseNode(object):
             map(lambda v: v['account_id'],
                 self.get_status()['validators']))
 
-    def stop_checking_refmap(self):
-        print(
-            "WARN: Stopping checking Reference Map for inconsistency for %s:%s"
-            % self.addr())
-        self.is_check_refmap = False
-
     def stop_checking_store(self):
         print("WARN: Stopping checking Storage for inconsistency for %s:%s" %
               self.addr())
         self.is_check_store = False
-
-    def check_refmap(self):
-        if self.is_check_refmap:
-            res = self.json_rpc('adv_check_refmap', [])
-            if not 'result' in res:
-                # cannot check Block Reference Map for the node, possibly not Adversarial Mode is running
-                pass
-            else:
-                self.refmap_tests += 1
-                if res['result'] != 1:
-                    print(
-                        "ERROR: Block Reference Map for %s:%s in inconsistent state, stopping"
-                        % self.addr())
-                    self.kill()
 
     def check_store(self):
         if self.is_check_store:
@@ -276,9 +254,7 @@ class LocalNode(BaseNode):
         self.near_root = near_root
         self.node_dir = node_dir
         self.binary_name = binary_name
-        self.refmap_tests = 0
         self.store_tests = 0
-        self.is_check_refmap = True
         self.is_check_store = True
         self.cleaned = False
         with open(os.path.join(node_dir, "config.json")) as f:
