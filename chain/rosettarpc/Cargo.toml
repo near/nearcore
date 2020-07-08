@@ -22,3 +22,4 @@ validator = "0.10"
 near-primitives = { path = "../../core/primitives" }
 near-chain-configs = { path = "../../core/chain-configs" }
 near-client = { path = "../client" }
+near-network = { path = "../network" }

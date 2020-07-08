@@ -2595,6 +2595,7 @@ dependencies = [
  "lazy_static",
  "near-chain-configs",
  "near-client",
+ "near-network",
  "near-primitives",
  "paperclip",
  "serde",

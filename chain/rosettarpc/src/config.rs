@@ -1,16 +1,17 @@
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct RpcConfig {
+pub struct RosettaRpcConfig {
     pub addr: String,
+    pub cors_allowed_origins: Vec<String>,
 }
 
-impl Default for RpcConfig {
+impl Default for RosettaRpcConfig {
     fn default() -> Self {
-        RpcConfig { addr: "0.0.0.0:3030".to_owned() }
+        Self { addr: "0.0.0.0:3040".to_owned(), cors_allowed_origins: vec!["*".to_owned()] }
     }
 }
 
-impl RpcConfig {
+impl RosettaRpcConfig {
     pub fn new(addr: &str) -> Self {
-        RpcConfig { addr: addr.to_owned(), ..Default::default() }
+        Self { addr: addr.to_owned(), ..Default::default() }
     }
 }
