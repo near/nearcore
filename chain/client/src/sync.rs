@@ -9,7 +9,7 @@ use ansi_term::Color::{Purple, Yellow};
 use chrono::{DateTime, Duration, Utc};
 use futures::{future, FutureExt};
 use log::{debug, error, info, warn};
-use rand::seq::SliceRandom;
+use rand::seq::{IteratorRandom, SliceRandom};
 use rand::{thread_rng, Rng};
 
 use near_chain::types::BlockSyncResponse;
@@ -52,12 +52,22 @@ pub const MAX_PENDING_PART: u64 = MAX_STATE_PART_REQUEST * 10000;
 pub const NS_PER_SECOND: u128 = 1_000_000_000;
 
 /// Get random peer from the hightest height peers.
-pub fn highest_height_peer(highest_height_peers: &Vec<FullPeerInfo>) -> Option<FullPeerInfo> {
+pub fn highest_height_peer(
+    highest_height_peers: &Vec<FullPeerInfo>,
+    min_height: BlockHeight,
+) -> Option<FullPeerInfo> {
     if highest_height_peers.len() == 0 {
         return None;
     }
-    let index = thread_rng().gen_range(0, highest_height_peers.len());
-    Some(highest_height_peers[index].clone())
+
+    match highest_height_peers
+        .iter()
+        .filter(|peer| peer.chain_info.height > min_height)
+        .choose(&mut thread_rng())
+    {
+        None => highest_height_peers.choose(&mut thread_rng()).cloned(),
+        Some(peer) => Some(peer.clone()),
+    }
 }
 
 /// Helper to keep track of sync headers.
@@ -133,7 +143,7 @@ impl HeaderSync {
                 SyncStatus::HeaderSync { current_height: header_head.height, highest_height };
             let header_head = chain.header_head()?;
             self.syncing_peer = None;
-            if let Some(peer) = highest_height_peer(&highest_height_peers) {
+            if let Some(peer) = highest_height_peer(&highest_height_peers, 0) {
                 if peer.chain_info.height > header_head.height {
                     self.syncing_peer = self.request_headers(chain, peer);
                 }

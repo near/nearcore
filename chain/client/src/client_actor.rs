@@ -899,7 +899,7 @@ impl ClientActor {
         let mut is_syncing = self.client.sync_status.is_syncing();
 
         let full_peer_info = if let Some(full_peer_info) =
-            highest_height_peer(&self.network_info.highest_height_peers)
+            highest_height_peer(&self.network_info.highest_height_peers, head.height)
         {
             full_peer_info
         } else {
@@ -1177,7 +1177,7 @@ impl ClientActor {
                         self.client.sync_status = SyncStatus::StateSync(sync_hash, new_shard_sync);
                         if fetch_block {
                             if let Some(peer_info) =
-                                highest_height_peer(&self.network_info.highest_height_peers)
+                                highest_height_peer(&self.network_info.highest_height_peers, 0)
                             {
                                 if let Ok(header) = self.client.chain.get_block_header(&sync_hash) {
                                     for hash in
