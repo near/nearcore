@@ -9,7 +9,7 @@ import time
 from rc import run, pmap
 
 NUM_SECONDS_PER_YEAR = 3600 * 24 * 365
-NUM_NODES = 8
+NUM_NODES = 50
 NODE_BASE_NAME = 'mocknet-node'
 NODE_USERNAME = 'ubuntu'
 NODE_SSH_KEY_PATH = '~/.ssh/near_ops'
@@ -53,7 +53,7 @@ def get_node(i):
 
 
 def get_nodes():
-    return [get_node(i) for i in range(0, NUM_NODES)]
+    return pmap(get_node, range(NUM_NODES))
 
 
 def create_target_dir(machine):
@@ -133,7 +133,7 @@ def get_metrics(node):
 
 # Sends the transaction to the network via `node` and checks for success.
 # Some retrying is done when the node returns a Timeout error.
-def send_transaction(node, tx, tx_hash, account_id, timeout=30):
+def send_transaction(node, tx, tx_hash, account_id, timeout=60):
     response = node.send_tx_and_wait(tx, timeout)
     loop_start = time.time()
     missing_count = 0
@@ -150,7 +150,7 @@ def send_transaction(node, tx, tx_hash, account_id, timeout=30):
             print(
                 f'WARN: transaction {tx_hash} falied to be recieved by the node, checking again.'
             )
-            if missing_count < 10:
+            if missing_count < 20:
                 time.sleep(2)
                 response = node.get_tx(tx_hash, account_id)
             else:
