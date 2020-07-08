@@ -137,6 +137,12 @@ def send_transfers():
             account_and_index[1] + 1) % NUM_ACCOUNTS), test_accounts)
 
 
+def send_random_transactions():
+    for x in test_accounts:
+        random_transaction(x)
+        time.sleep(0.5)
+
+
 def throttle_txns(send_txns, total_tx_sent, elapsed_time, max_tps):
     start_time = time.time()
     send_txns()
@@ -184,6 +190,5 @@ if __name__ == '__main__':
     # send all sorts of transactions
     while time.time() - start_time < TIMEOUT:
         (total_tx_sent,
-         elapsed_time) = throttle_txns(pmap(random_transaction,
-                                            test_accounts), total_tx_sent,
+         elapsed_time) = throttle_txns(send_random_transactions, total_tx_sent,
                                        elapsed_time, MAX_GENERAL_TPS_PER_NODE)
