@@ -14,6 +14,7 @@ import time
 
 sys.path.append('lib')
 from cluster import Key
+from mocknet import NUM_NODES
 from transaction import (
     sign_payment_tx, sign_deploy_contract_tx, sign_function_call_tx,
     sign_create_account_with_full_access_key_and_balance_tx, sign_staking_tx)
@@ -22,6 +23,8 @@ import utils
 LOCAL_ADDR = '127.0.0.1'
 RPC_PORT = '3030'
 NUM_ACCOUNTS = 100
+MAX_TPS = 500  # maximum transactions per second sent (across the whole network)
+MAX_TPS_PER_NODE = MAX_TPS / NUM_NODES
 WASM_FILENAME = 'empty_contract_rs.wasm'
 TIMEOUT = 20 * 60  # put under load for 20 minutes
 TRANSFER_ONLY_TIMEOUT = TIMEOUT / 2
@@ -133,6 +136,22 @@ def send_transfers():
             account_and_index[1] + 1) % NUM_ACCOUNTS), test_accounts)
 
 
+def throttle_txns(send_txns, total_tx_sent, elapsed_time):
+    start_time = time.time()
+    send_txns()
+    duration = time.time() - start_time
+    total_tx_sent += NUM_ACCOUNTS
+    elapsed_time += duration
+
+    excess_transactions = total_tx_sent - (MAX_TPS_PER_NODE * elapsed_time)
+    if excess_transactions > 0:
+        delay = excess_transactions / MAX_TPS_PER_NODE
+        elapsed_time += delay
+        time.sleep(delay)
+
+    return (total_tx_sent, elapsed_time)
+
+
 if __name__ == '__main__':
     node_index = int(sys.argv[1])
     pk = sys.argv[2]
@@ -147,14 +166,22 @@ if __name__ == '__main__':
     start_time = time.time()
 
     # begin with only transfers for TPS measurement
+    total_tx_sent = 0
+    elapsed_time = 0
     while time.time() - start_time < TRANSFER_ONLY_TIMEOUT:
-        send_transfers()
+        (total_tx_sent, elapsed_time) = throttle_txns(send_transfers,
+                                                      total_tx_sent,
+                                                      elapsed_time)
 
     # Ensure load testing contract is deployed to all accounts before
     # starting to send random transactions (ensures we do not try to
     # call the contract before it is deployed).
-    pmap(lambda x: deploy_contract(x[0]), test_accounts)
+    (total_tx_sent, elapsed_time) = throttle_txns(
+        pmap(lambda x: deploy_contract(x[0]), test_accounts), total_tx_sent,
+        elapsed_time)
 
     # send all sorts of transactions
     while time.time() - start_time < TIMEOUT:
-        pmap(random_transaction, test_accounts)
+        (total_tx_sent,
+         elapsed_time) = throttle_txns(pmap(random_transaction, test_accounts),
+                                       total_tx_sent, elapsed_time)
