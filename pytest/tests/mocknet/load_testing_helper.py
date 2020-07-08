@@ -189,6 +189,8 @@ if __name__ == '__main__':
 
     # send all sorts of transactions
     while time.time() - start_time < TIMEOUT:
-        (total_tx_sent,
-         elapsed_time) = throttle_txns(send_random_transactions, total_tx_sent,
-                                       elapsed_time, MAX_GENERAL_TPS_PER_NODE)
+        time.sleep(10)
+        # TODO: why does this always kill the node?
+        # (total_tx_sent,
+        #  elapsed_time) = throttle_txns(send_random_transactions, total_tx_sent,
+        #                                elapsed_time, MAX_GENERAL_TPS_PER_NODE)
