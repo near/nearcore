@@ -467,6 +467,17 @@ impl From<BlockHeader> for BlockHeaderInnerLiteView {
                 next_bp_hash: header.inner_lite.next_bp_hash,
                 block_merkle_root: header.inner_lite.block_merkle_root,
             },
+            BlockHeader::BlockHeaderV2(header) => BlockHeaderInnerLiteView {
+                height: header.inner_lite.height,
+                epoch_id: header.inner_lite.epoch_id.0,
+                next_epoch_id: header.inner_lite.next_epoch_id.0,
+                prev_state_root: header.inner_lite.prev_state_root,
+                outcome_root: header.inner_lite.outcome_root,
+                timestamp: header.inner_lite.timestamp,
+                timestamp_nanosec: header.inner_lite.timestamp,
+                next_bp_hash: header.inner_lite.next_bp_hash,
+                block_merkle_root: header.inner_lite.block_merkle_root,
+            },
         }
     }
 }

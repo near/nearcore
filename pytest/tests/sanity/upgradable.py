@@ -35,7 +35,7 @@ def main():
         "%snear-%s" % (near_root, stable_branch),
         "--home=%s" % node_root, "testnet", "--v", "4", "--prefix", "test"
     ])
-    genesis_config_changes = [("epoch_length", 10)]
+    genesis_config_changes = [("epoch_length", 20), ("block_producer_kickout_threshold", 80), ("chunk_producer_kickout_threshold", 80)]
     node_dirs = [os.path.join(node_root, 'test%d' % i) for i in range(4)]
     for i, node_dir in enumerate(node_dirs):
         cluster.apply_genesis_changes(node_dir, genesis_config_changes)
@@ -63,10 +63,10 @@ def main():
         nodes[i].binary_name = config['binary_name']
         nodes[i].start(nodes[0].node_key.pk, nodes[0].addr())
 
-    wait_for_blocks_or_timeout(nodes[3], 30, 120)
+    wait_for_blocks_or_timeout(nodes[3], 60, 120)
     status0 = nodes[0].get_status()
     status3 = nodes[3].get_status()
-    protocol_version = status0.get("protocol_version", 14)
+    protocol_version = status0['protocol_version']
     latest_protocol_version = status3["latest_protocol_version"]
     assert protocol_version == latest_protocol_version,\
            "Latest protocol version %d should match active protocol version %d" % (latest_protocol_version, protocol_version)
