@@ -7,6 +7,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use chrono::Utc;
+use curl::easy::Easy;
 use log::info;
 use num_rational::Rational;
 use serde::{Deserialize, Serialize};
@@ -674,6 +675,8 @@ pub fn init_configs(
     num_shards: NumShards,
     fast: bool,
     genesis: Option<&str>,
+    download: bool,
+    download_genesis_url: Option<&str>,
 ) {
     fs::create_dir_all(dir).expect("Failed to create directory");
     // Check if config already exists in home dir.
@@ -694,6 +697,7 @@ pub fn init_configs(
             config.telemetry.endpoints.push(MAINNET_TELEMETRY_URL.to_string());
             config.write_to_file(&dir.join(CONFIG_FILENAME));
 
+            // TODO: add download genesis for mainnet
             let genesis: Genesis = serde_json::from_str(
                 &std::str::from_utf8(include_bytes!("../res/mainnet_genesis.json"))
                     .expect("Failed to convert genesis file into string"),
@@ -726,6 +730,14 @@ pub fn init_configs(
 
             let network_signer = InMemorySigner::from_random("".to_string(), KeyType::ED25519);
             network_signer.write_to_file(&dir.join(config.node_key_file));
+
+            // download genesis from s3
+            if let Some(url) = download_genesis_url {
+                download_genesis(&url.to_string(), &dir.join("genesis.json"));
+            } else if download {
+                let url = get_genesis_url(&chain_id);
+                download_genesis(&url, &dir.join("genesis.json"));
+            }
 
             let mut genesis = Genesis::from_file(
                 genesis.unwrap_or_else(|| panic!("Genesis file is required for {}.", &chain_id)),
@@ -908,6 +920,30 @@ pub fn init_testnet_configs(
         configs[i].write_to_file(&node_dir.join(CONFIG_FILENAME));
         info!(target: "near", "Generated node key, validator key, genesis file in {}", node_dir.display());
     }
+}
+
+pub fn get_genesis_url(chain_id: &String) -> String {
+    format!(
+        "https://s3-us-west-1.amazonaws.com/build.nearprotocol.com/nearcore-deploy/{}/genesis.json",
+        chain_id,
+    )
+}
+
+pub fn download_genesis(url: &String, path: &PathBuf) {
+    info!(target: "near", "Downloading config file from: {} ...", url);
+
+    let mut file = File::create(path).expect("Failed to create / write a config file.");
+    let mut easy = Easy::new();
+
+    easy.url(url.as_str()).unwrap();
+    easy.write_function(move |data| {
+        file.write_all(data).unwrap();
+        Ok(data.len())
+    })
+    .unwrap();
+    easy.perform().unwrap();
+
+    info!(target: "near", "Downloaded config file to: {} ...", path.as_path().display());
 }
 
 pub fn load_config(dir: &Path) -> NearConfig {
