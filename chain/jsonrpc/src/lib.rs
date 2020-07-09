@@ -188,6 +188,9 @@ impl JsonRpcHandler {
     }
 
     async fn process_request(&self, request: Request) -> Result<Value, RpcError> {
+        let _rpc_processing_time =
+            near_metrics::start_timer(&metrics::RPC_PROCESSING_TIME);
+
         #[cfg(feature = "adversarial")]
         {
             let params = request.params.clone();

@@ -1,7 +1,9 @@
 use lazy_static::lazy_static;
-use near_metrics::IntCounter;
+use near_metrics::{IntCounter, Histogram};
 
 lazy_static! {
+    pub static ref RPC_PROCESSING_TIME: near_metrics::Result<Histogram> =
+        near_metrics::try_create_histogram("near_rpc_processing_time", "Time taken to process rpc queries");
     pub static ref PROMETHEUS_REQUEST_COUNT: near_metrics::Result<IntCounter> =
         near_metrics::try_create_int_counter(
             "http_prometheus_requests_total",
