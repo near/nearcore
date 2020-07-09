@@ -5,6 +5,7 @@ requests
 retry
 ed25519
 base58
+prometheus-client
 python-rc==0.1.9
 tqdm
 deepdiff

@@ -457,13 +457,13 @@ chmod +x near
             f'/tmp/pytest_remote_log/{self.machine.name}.log')
         self.destroy_machine()
 
-    def json_rpc(self, method, params, timeout=10):
+    def json_rpc(self, method, params, timeout=15):
         return super().json_rpc(method, params, timeout=timeout)
 
     def get_status(self):
         r = retrying.retry(lambda: requests.get(
-            "http://%s:%s/status" % self.rpc_addr(), timeout=10),
-                           timeout=20)
+            "http://%s:%s/status" % self.rpc_addr(), timeout=15),
+                           timeout=45)
         r.raise_for_status()
         return json.loads(r.content)
 
