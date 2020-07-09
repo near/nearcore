@@ -1,5 +1,12 @@
-//! Indexer creates a queue, starts the near-streamer, passing this queue in there.
-//! Listens to that queue and returns near_streamer::BlockResponse for further handling
+//! NEAR Indexer is a micro-framework, which provides you with a stream of blocks that are recorded on NEAR network.
+//!
+//! NEAR Indexer is useful to handle real-time "events" on the chain.
+//!
+//! NEAR Indexer is going to be used to build NEAR Explorer, augment NEAR Wallet, and provide overview of events in Rainbow Bridge.
+//!
+//! See the [example] for further details.
+//!
+//! [example]: https://github.com/nearprotocol/nearcore/tree/master/tools/indexer/example
 use std::path::PathBuf;
 
 use actix::System;
@@ -11,7 +18,7 @@ mod streamer;
 pub use self::streamer::{BlockResponse, Outcome};
 pub use near_primitives;
 
-/// Creates runtime and runs `neard` and `streamer`.
+/// This is the core component, which handles `nearcore` and internal `streamer`.
 pub struct Indexer {
     near_config: neard::config::NearConfig,
     system_runner: actix::SystemRunner,
@@ -20,7 +27,7 @@ pub struct Indexer {
 }
 
 impl Indexer {
-    /// Build the Indexer struct
+    /// Initialize Indexer by configuring `nearcore`
     pub fn new(custom_home_dir: Option<&str>) -> Self {
         let home_dir = if !custom_home_dir.is_some() {
             PathBuf::from(neard::get_default_home())
@@ -34,14 +41,14 @@ impl Indexer {
         Self { near_config, system_runner: system, view_client, client }
     }
 
-    /// Setups `near_indexer::streamer` and returns Receiver
+    /// Boots up `near_indexer::streamer`, so it monitors the new blocks with chunks, transactions, receipts, and execution outcomes inside. The returned stream handler should be drained and handled on the user side.
     pub fn receiver(&self) -> mpsc::Receiver<streamer::BlockResponse> {
         let (sender, receiver) = mpsc::channel(16);
         actix::spawn(streamer::start(self.view_client.clone(), self.client.clone(), sender));
         receiver
     }
 
-    /// Starts runtime after validating genesis.
+    /// Start Indexer.
     pub fn start(self) {
         neard::genesis_validate::validate_genesis(&self.near_config.genesis);
         self.system_runner.run().unwrap();
