@@ -5,7 +5,7 @@
 import sys, time
 from rc import pmap
 
-from load_testing_helper import TIMEOUT, TRANSFER_ONLY_TIMEOUT
+from load_testing_helper import ALL_TX_TIMEOUT, TRANSFER_ONLY_TIMEOUT, CONTRACT_DEPLOY_TIME
 
 sys.path.append('lib')
 import mocknet
@@ -102,14 +102,17 @@ initial_metrics = mocknet.get_metrics(nodes[-1])
 print('INFO: Waiting for transfer only period to complete.')
 time.sleep(TRANSFER_ONLY_TIMEOUT)
 transfer_final_metrics = mocknet.get_metrics(nodes[-1])
+print('INFO: Waiting for contracts to be deployed.')
+time.sleep(CONTRACT_DEPLOY_TIME)
 print('INFO: Waiting for random transactions period to complete.')
-time.sleep(TIMEOUT - TRANSFER_ONLY_TIMEOUT)
+all_tx_initial_metrics = mocknet.get_metrics(nodes[-1])
+time.sleep(ALL_TX_TIMEOUT)
 final_metrics = mocknet.get_metrics(nodes[-1])
 
 check_stats(initial_metrics=initial_metrics,
             final_metrics=transfer_final_metrics,
             include_tps=True)
-check_stats(initial_metrics=transfer_final_metrics,
+check_stats(initial_metrics=all_tx_initial_metrics,
             final_metrics=final_metrics,
             include_tps=False)
 
