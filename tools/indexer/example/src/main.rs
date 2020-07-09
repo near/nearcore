@@ -52,7 +52,7 @@ async fn listen_blocks(mut stream: mpsc::Receiver<near_indexer::BlockResponse>) 
 fn main() {
     init_logging(true);
     let indexer = near_indexer::Indexer::new(None);
-    let stream = indexer.receiver();
+    let stream = indexer.streamer();
     actix::spawn(listen_blocks(stream));
     indexer.start();
 }
