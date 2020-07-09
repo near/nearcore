@@ -1,9 +1,62 @@
-import struct, hashlib, base58
+import asyncio
+import hashlib
+import struct
 
+import base58
+from messages import schema
+from messages.crypto import PublicKey, Signature
+from messages.network import (EdgeInfo, GenesisId, Handshake, PeerChainInfo,
+                              PeerMessage)
 from serializer import BinarySerializer
-from messages.network import *
 
 ED_PREFIX = "ed25519:"
+
+
+class Connection:
+    def __init__(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
+        self.reader = reader
+        self.writer = writer
+
+    async def send(self, message):
+        raw_message = BinarySerializer(schema).serialize(message)
+        await self.send_raw(raw_message)
+
+    async def send_raw(self, raw_message):
+        length = struct.pack('I', len(raw_message))
+        self.writer.write(length)
+        self.writer.write(raw_message)
+        await self.writer.drain()
+
+    async def recv(self):
+        response_raw = await self.recv_raw()
+        response = BinarySerializer(schema).deserialize(
+            response_raw, PeerMessage)
+        return response
+
+    async def recv_raw(self):
+        length = await self.reader.read(4)
+        length = struct.unpack('I', length)[0]
+        response = await self.reader.read(length)
+        return response
+
+    def do_send(self, message):
+        loop = asyncio.get_event_loop()
+        loop.create_task(self.send(message))
+
+    def do_send_raw(self, raw_message):
+        loop = asyncio.get_event_loop()
+        loop.create_task(self.send_raw(raw_message))
+
+
+async def connect(addr, raw=False) -> Connection:
+    reader, writer = await asyncio.open_connection(*addr)
+    conn = Connection(reader, writer)
+
+    if not raw:
+        # Make handshake
+        pass
+
+    return conn
 
 
 def create_handshake(my_key_pair_nacl, their_pk_serialized, listen_port):
@@ -53,21 +106,3 @@ def sign_handshake(my_key_pair_nacl, handshake):
         struct.pack('Q', handshake.edge_info.nonce))
     handshake.edge_info.signature.data = my_key_pair_nacl.sign(
         hashlib.sha256(arr).digest()).signature
-
-
-def send_msg(sock, msg):
-    sock.sendall(struct.pack('I', len(msg)))
-    sock.sendall(msg)
-
-
-def send_obj(sock, schema, obj):
-    send_msg(sock, BinarySerializer(schema).serialize(obj))
-
-
-def recv_msg(sock):
-    len_ = struct.unpack('I', sock.recv(4))[0]
-    return sock.recv(len_)
-
-
-def recv_obj(sock, schema, type_):
-    return BinarySerializer(schema).deserialize(recv_msg(sock), type_)
