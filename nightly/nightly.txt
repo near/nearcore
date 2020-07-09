@@ -46,7 +46,7 @@ pytest sanity/network_drop_package.py
 
 # python tests for smart contract deployment and invocation
 pytest contracts/deploy_call_smart_contract.py
-pytest contracts/gibberish.py
+pytest --timeout=240 contracts/gibberish.py
 
 # python stress tests
 # pytest --timeout=2000 stress/stress.py 3 3 3 0 staking transactions local_network
