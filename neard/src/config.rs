@@ -6,8 +6,9 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
+use actix;
+use actix_web;
 use chrono::Utc;
-use curl::easy::Easy;
 use log::info;
 use num_rational::Rational;
 use serde::{Deserialize, Serialize};
@@ -732,16 +733,21 @@ pub fn init_configs(
             network_signer.write_to_file(&dir.join(config.node_key_file));
 
             // download genesis from s3
+            let genesis_path = dir.join("genesis.json");
+            let mut genesis_path_str =
+                genesis_path.to_str().expect("Genesis path must be initialized");
+
             if let Some(url) = download_genesis_url {
-                download_genesis(&url.to_string(), &dir.join("genesis.json"));
+                download_genesis(&url.to_string(), &genesis_path);
             } else if download {
                 let url = get_genesis_url(&chain_id);
-                download_genesis(&url, &dir.join("genesis.json"));
+                download_genesis(&url, &genesis_path);
+            } else {
+                genesis_path_str =
+                    genesis.unwrap_or_else(|| panic!("Genesis file is required for {}.", &chain_id))
             }
 
-            let mut genesis = Genesis::from_file(
-                genesis.unwrap_or_else(|| panic!("Genesis file is required for {}.", &chain_id)),
-            );
+            let mut genesis = Genesis::from_file(&genesis_path_str);
             genesis.config.chain_id = chain_id.clone();
 
             genesis.to_file(&dir.join(config.genesis_file));
@@ -932,18 +938,26 @@ pub fn get_genesis_url(chain_id: &String) -> String {
 pub fn download_genesis(url: &String, path: &PathBuf) {
     info!(target: "near", "Downloading config file from: {} ...", url);
 
-    let mut file = File::create(path).expect("Failed to create / write a config file.");
-    let mut easy = Easy::new();
+    let url = url.clone();
+    let path = path.clone();
 
-    easy.url(url.as_str()).unwrap();
-    easy.write_function(move |data| {
-        file.write_all(data).unwrap();
-        Ok(data.len())
-    })
-    .unwrap();
-    easy.perform().unwrap();
+    actix::System::builder().build().block_on(async move {
+        let client = actix_web::client::Client::new();
+        let mut response =
+            client.get(url).send().await.expect("Unable to download the genesis file");
 
-    info!(target: "near", "Downloaded config file to: {} ...", path.as_path().display());
+        // IMPORTANT: limit specifies the maximum size of the genesis
+        // In case where the genesis is bigger than the specified limit Overflow Error is thrown
+        let body = response
+            .body()
+            .limit(250_000_000)
+            .await
+            .expect("Genesis file is bigger than 250MB. Please make the limit higher.");
+
+        std::fs::write(&path, &body).expect("Failed to create / write a config file.");
+
+        info!(target: "near", "Saved the config file to: {} ...", path.as_path().display());
+    });
 }
 
 pub fn load_config(dir: &Path) -> NearConfig {

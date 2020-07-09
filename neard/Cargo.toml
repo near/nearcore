@@ -6,6 +6,7 @@ edition = "2018"
 
 [dependencies]
 actix = "0.9"
+actix-web = { version = "2", features = [ "openssl" ] }
 byteorder = "1.2"
 easy-ext = "0.2"
 rocksdb = "0.14"
@@ -23,7 +24,6 @@ borsh = "0.7.0"
 tracing = "0.1.13"
 tracing-subscriber = "0.2.4"
 num-rational = { version = "0.2.4", features = ["serde"] }
-curl = "0.4.30"
 
 near-actix-utils = { path = "../utils/actix" }
 near-crypto = { path = "../core/crypto" }
