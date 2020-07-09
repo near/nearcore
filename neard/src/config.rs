@@ -6,6 +6,8 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
+use actix;
+use actix_web;
 use chrono::Utc;
 use log::info;
 use num_rational::Rational;
@@ -674,6 +676,8 @@ pub fn init_configs(
     num_shards: NumShards,
     fast: bool,
     genesis: Option<&str>,
+    download: bool,
+    download_genesis_url: Option<&str>,
 ) {
     fs::create_dir_all(dir).expect("Failed to create directory");
     // Check if config already exists in home dir.
@@ -694,6 +698,7 @@ pub fn init_configs(
             config.telemetry.endpoints.push(MAINNET_TELEMETRY_URL.to_string());
             config.write_to_file(&dir.join(CONFIG_FILENAME));
 
+            // TODO: add download genesis for mainnet
             let genesis: Genesis = serde_json::from_str(
                 &std::str::from_utf8(include_bytes!("../res/mainnet_genesis.json"))
                     .expect("Failed to convert genesis file into string"),
@@ -727,9 +732,22 @@ pub fn init_configs(
             let network_signer = InMemorySigner::from_random("".to_string(), KeyType::ED25519);
             network_signer.write_to_file(&dir.join(config.node_key_file));
 
-            let mut genesis = Genesis::from_file(
-                genesis.unwrap_or_else(|| panic!("Genesis file is required for {}.", &chain_id)),
-            );
+            // download genesis from s3
+            let genesis_path = dir.join("genesis.json");
+            let mut genesis_path_str =
+                genesis_path.to_str().expect("Genesis path must be initialized");
+
+            if let Some(url) = download_genesis_url {
+                download_genesis(&url.to_string(), &genesis_path);
+            } else if download {
+                let url = get_genesis_url(&chain_id);
+                download_genesis(&url, &genesis_path);
+            } else {
+                genesis_path_str =
+                    genesis.unwrap_or_else(|| panic!("Genesis file is required for {}.", &chain_id))
+            }
+
+            let mut genesis = Genesis::from_file(&genesis_path_str);
             genesis.config.chain_id = chain_id.clone();
 
             genesis.to_file(&dir.join(config.genesis_file));
@@ -908,6 +926,38 @@ pub fn init_testnet_configs(
         configs[i].write_to_file(&node_dir.join(CONFIG_FILENAME));
         info!(target: "near", "Generated node key, validator key, genesis file in {}", node_dir.display());
     }
+}
+
+pub fn get_genesis_url(chain_id: &String) -> String {
+    format!(
+        "https://s3-us-west-1.amazonaws.com/build.nearprotocol.com/nearcore-deploy/{}/genesis.json",
+        chain_id,
+    )
+}
+
+pub fn download_genesis(url: &String, path: &PathBuf) {
+    info!(target: "near", "Downloading config file from: {} ...", url);
+
+    let url = url.clone();
+    let path = path.clone();
+
+    actix::System::builder().build().block_on(async move {
+        let client = actix_web::client::Client::new();
+        let mut response =
+            client.get(url).send().await.expect("Unable to download the genesis file");
+
+        // IMPORTANT: limit specifies the maximum size of the genesis
+        // In case where the genesis is bigger than the specified limit Overflow Error is thrown
+        let body = response
+            .body()
+            .limit(250_000_000)
+            .await
+            .expect("Genesis file is bigger than 250MB. Please make the limit higher.");
+
+        std::fs::write(&path, &body).expect("Failed to create / write a config file.");
+
+        info!(target: "near", "Saved the config file to: {} ...", path.as_path().display());
+    });
 }
 
 pub fn load_config(dir: &Path) -> NearConfig {

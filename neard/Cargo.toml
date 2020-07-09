@@ -6,6 +6,7 @@ edition = "2018"
 
 [dependencies]
 actix = "0.9"
+actix-web = { version = "2", features = [ "openssl" ] }
 byteorder = "1.2"
 easy-ext = "0.2"
 rocksdb = "0.14"

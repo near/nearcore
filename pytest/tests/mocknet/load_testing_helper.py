@@ -25,10 +25,11 @@ RPC_PORT = '3030'
 NUM_ACCOUNTS = 100
 MAX_TPS = 500  # maximum transactions per second sent (across the whole network)
 MAX_TPS_PER_NODE = MAX_TPS / NUM_NODES
-MAX_GENERAL_TPS_PER_NODE = MAX_TPS_PER_NODE / 10  # maximum tps for general (non-transfer) transactions
 WASM_FILENAME = 'empty_contract_rs.wasm'
-TIMEOUT = 20 * 60  # put under load for 20 minutes
-TRANSFER_ONLY_TIMEOUT = TIMEOUT / 2
+# We need to slowly deploy contracts, otherwise we stall out the nodes
+CONTRACT_DEPLOY_TIME = 10 * NUM_ACCOUNTS
+TRANSFER_ONLY_TIMEOUT = 10 * 60
+ALL_TX_TIMEOUT = 10 * 60
 
 
 def load_testing_account_id(i):
@@ -118,16 +119,14 @@ def stake(source_account):
 
 
 def random_transaction(account_and_index):
-    choice = random.randint(0, 4)
+    choice = random.randint(0, 3)
     if choice == 0:
         send_transfer(account_and_index[0], account_and_index[1] + 1)
     elif choice == 1:
-        deploy_contract(account_and_index[0])
-    elif choice == 2:
         call_contract(account_and_index[0])
-    elif choice == 3:
+    elif choice == 2:
         create_account(account_and_index[0])
-    elif choice == 4:
+    elif choice == 3:
         stake(account_and_index[0])
 
 
@@ -138,9 +137,7 @@ def send_transfers():
 
 
 def send_random_transactions():
-    for x in test_accounts:
-        random_transaction(x)
-        time.sleep(0.5)
+    pmap(random_transaction, test_accounts)
 
 
 def throttle_txns(send_txns, total_tx_sent, elapsed_time, max_tps):
@@ -183,14 +180,14 @@ if __name__ == '__main__':
     # Ensure load testing contract is deployed to all accounts before
     # starting to send random transactions (ensures we do not try to
     # call the contract before it is deployed).
-    (total_tx_sent, elapsed_time) = throttle_txns(
-        pmap(lambda x: deploy_contract(x[0]), test_accounts), total_tx_sent,
-        elapsed_time, MAX_GENERAL_TPS_PER_NODE)
+    delay = CONTRACT_DEPLOY_TIME / NUM_ACCOUNTS
+    for x in test_accounts:
+        deploy_contract(x[0])
+        time.sleep(delay)
 
     # send all sorts of transactions
-    while time.time() - start_time < TIMEOUT:
-        time.sleep(10)
-        # TODO: why does this always kill the node?
-        # (total_tx_sent,
-        #  elapsed_time) = throttle_txns(send_random_transactions, total_tx_sent,
-        #                                elapsed_time, MAX_GENERAL_TPS_PER_NODE)
+    start_time = time.time()
+    while time.time() - start_time < ALL_TX_TIMEOUT:
+        (total_tx_sent,
+         elapsed_time) = throttle_txns(send_random_transactions, total_tx_sent,
+                                       elapsed_time, MAX_TPS_PER_NODE)
