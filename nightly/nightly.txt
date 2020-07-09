@@ -19,7 +19,7 @@ pytest --timeout=900 sanity/state_sync3.py
 pytest --timeout=240 sanity/state_sync4.py
 pytest --timeout=600 sanity/state_sync_routed.py manytx 100
 pytest --timeout=300 sanity/state_sync_late.py notx
-pytest --timeout=300 sanity/state_sync_massive.py
+pytest --timeout=900 sanity/state_sync_massive.py
 pytest sanity/rpc_tx_forwarding.py
 pytest --timeout=240 sanity/skip_epoch.py
 pytest --timeout=240 sanity/one_val.py
@@ -46,7 +46,7 @@ pytest sanity/network_drop_package.py
 
 # python tests for smart contract deployment and invocation
 pytest contracts/deploy_call_smart_contract.py
-pytest contracts/gibberish.py
+pytest --timeout=240 contracts/gibberish.py
 
 # python stress tests
 # pytest --timeout=2000 stress/stress.py 3 3 3 0 staking transactions local_network
@@ -164,4 +164,4 @@ expensive nearcore test_rejoin test::test_4_20_kill2
 mocknet --timeout=300 mocknet/sanity.py
 mocknet --timeout=2700 mocknet/outage.py
 mocknet --timeout=300 mocknet/bounce.py
-mokcnet --timeout=2700 mocknet/load_testing.py
+mokcnet --timeout=3600 mocknet/load_testing.py

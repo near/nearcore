@@ -60,6 +60,6 @@ status4 = nodes[3].get_status()
 hash_4 = status4['sync_info']['latest_block_hash']
 hash_4 = base58.b58decode(hash_4.encode('utf8'))
 tx4 = sign_function_call_tx(nodes[2].signer_key, nodes[2].signer_key.account_id,
-                            'log_world', [], 100000000000, 0, 20, hash_4)
+                            'log_world', [], 3000000000000, 0, 20, hash_4)
 res = nodes[3].send_tx_and_wait(tx4, 20)
-assert res['result']['receipts_outcome'][0]['outcome']['logs'][0] == 'world'
+assert res['result']['receipts_outcome'][0]['outcome']['logs'][0] == 'world', res
