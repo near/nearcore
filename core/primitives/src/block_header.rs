@@ -69,6 +69,42 @@ pub struct BlockHeaderInnerRest {
     pub latest_protocol_version: ProtocolVersion,
 }
 
+/// Remove `chunks_included` from V1
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, Eq, PartialEq)]
+pub struct BlockHeaderInnerRestV2 {
+    /// Root hash of the chunk receipts in the given block.
+    pub chunk_receipts_root: MerkleHash,
+    /// Root hash of the chunk headers in the given block.
+    pub chunk_headers_root: MerkleHash,
+    /// Root hash of the chunk transactions in the given block.
+    pub chunk_tx_root: MerkleHash,
+    /// Root hash of the challenges in the given block.
+    pub challenges_root: MerkleHash,
+    /// The output of the randomness beacon
+    pub random_value: CryptoHash,
+    /// Validator proposals.
+    pub validator_proposals: Vec<ValidatorStake>,
+    /// Mask for new chunks included in the block
+    pub chunk_mask: Vec<bool>,
+    /// Gas price. Same for all chunks
+    pub gas_price: Balance,
+    /// Total supply of tokens in the system
+    pub total_supply: Balance,
+    /// List of challenges result from previous block.
+    pub challenges_result: ChallengesResult,
+
+    /// Last block that has full BFT finality
+    pub last_final_block: CryptoHash,
+    /// Last block that has doomslug finality
+    pub last_ds_final_block: CryptoHash,
+
+    /// All the approvals included in this block
+    pub approvals: Vec<Option<Signature>>,
+
+    /// Latest protocol version that this block producer has.
+    pub latest_protocol_version: ProtocolVersion,
+}
+
 /// The part of the block approval that is different for endorsements and skips
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, PartialEq, Eq, Hash)]
 pub enum ApprovalInner {
@@ -157,11 +193,41 @@ impl BlockHeaderV1 {
     }
 }
 
+/// V1 -> V2: Remove `chunks_included` from `inner_reset`
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, Eq, PartialEq)]
+#[borsh_init(init)]
+pub struct BlockHeaderV2 {
+    pub prev_hash: CryptoHash,
+
+    /// Inner part of the block header that gets hashed, split into two parts, one that is sent
+    ///    to light clients, and the rest
+    pub inner_lite: BlockHeaderInnerLite,
+    pub inner_rest: BlockHeaderInnerRestV2,
+
+    /// Signature of the block producer.
+    pub signature: Signature,
+
+    /// Cached value of hash for this block.
+    #[borsh_skip]
+    pub hash: CryptoHash,
+}
+
+impl BlockHeaderV2 {
+    pub fn init(&mut self) {
+        self.hash = BlockHeader::compute_hash(
+            self.prev_hash,
+            &self.inner_lite.try_to_vec().expect("Failed to serialize"),
+            &self.inner_rest.try_to_vec().expect("Failed to serialize"),
+        );
+    }
+}
+
 /// Versioned BlockHeader data structure.
 /// For each next version, document what are the changes between versions.
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, Eq, PartialEq)]
 pub enum BlockHeader {
     BlockHeaderV1(Box<BlockHeaderV1>),
+    BlockHeaderV2(Box<BlockHeaderV2>),
 }
 
 impl BlockHeader {
@@ -178,7 +244,7 @@ impl BlockHeader {
     }
 
     pub fn new(
-        _protocol_version: ProtocolVersion,
+        protocol_version: ProtocolVersion,
         height: BlockHeight,
         prev_hash: CryptoHash,
         prev_state_root: MerkleHash,
@@ -214,35 +280,66 @@ impl BlockHeader {
             next_bp_hash,
             block_merkle_root,
         };
-        let inner_rest = BlockHeaderInnerRest {
-            chunk_receipts_root,
-            chunk_headers_root,
-            chunk_tx_root,
-            chunks_included,
-            challenges_root,
-            random_value,
-            validator_proposals,
-            chunk_mask,
-            gas_price,
-            total_supply,
-            challenges_result,
-            last_final_block,
-            last_ds_final_block,
-            approvals,
-            latest_protocol_version: PROTOCOL_VERSION,
-        };
-        let (hash, signature) = signer.sign_block_header_parts(
-            prev_hash,
-            &inner_lite.try_to_vec().expect("Failed to serialize"),
-            &inner_rest.try_to_vec().expect("Failed to serialize"),
-        );
-        Self::BlockHeaderV1(Box::new(BlockHeaderV1 {
-            prev_hash,
-            inner_lite,
-            inner_rest,
-            signature,
-            hash,
-        }))
+        if protocol_version <= 29 {
+            let inner_rest = BlockHeaderInnerRest {
+                chunk_receipts_root,
+                chunk_headers_root,
+                chunk_tx_root,
+                chunks_included,
+                challenges_root,
+                random_value,
+                validator_proposals,
+                chunk_mask,
+                gas_price,
+                total_supply,
+                challenges_result,
+                last_final_block,
+                last_ds_final_block,
+                approvals,
+                latest_protocol_version: PROTOCOL_VERSION,
+            };
+            let (hash, signature) = signer.sign_block_header_parts(
+                prev_hash,
+                &inner_lite.try_to_vec().expect("Failed to serialize"),
+                &inner_rest.try_to_vec().expect("Failed to serialize"),
+            );
+            Self::BlockHeaderV1(Box::new(BlockHeaderV1 {
+                prev_hash,
+                inner_lite,
+                inner_rest,
+                signature,
+                hash,
+            }))
+        } else {
+            let inner_rest = BlockHeaderInnerRestV2 {
+                chunk_receipts_root,
+                chunk_headers_root,
+                chunk_tx_root,
+                challenges_root,
+                random_value,
+                validator_proposals,
+                chunk_mask,
+                gas_price,
+                total_supply,
+                challenges_result,
+                last_final_block,
+                last_ds_final_block,
+                approvals,
+                latest_protocol_version: PROTOCOL_VERSION,
+            };
+            let (hash, signature) = signer.sign_block_header_parts(
+                prev_hash,
+                &inner_lite.try_to_vec().expect("Failed to serialize"),
+                &inner_rest.try_to_vec().expect("Failed to serialize"),
+            );
+            Self::BlockHeaderV2(Box::new(BlockHeaderV2 {
+                prev_hash,
+                inner_lite,
+                inner_rest,
+                signature,
+                hash,
+            }))
+        }
     }
 
     pub fn genesis(
@@ -269,185 +366,242 @@ impl BlockHeader {
             next_bp_hash,
             block_merkle_root: CryptoHash::default(),
         };
-        let inner_rest = BlockHeaderInnerRest {
-            chunk_receipts_root,
-            chunk_headers_root,
-            chunk_tx_root,
-            chunks_included,
-            challenges_root,
-            random_value: CryptoHash::default(),
-            validator_proposals: vec![],
-            chunk_mask: vec![],
-            gas_price: initial_gas_price,
-            total_supply: initial_total_supply,
-            challenges_result: vec![],
-            last_final_block: CryptoHash::default(),
-            last_ds_final_block: CryptoHash::default(),
-            approvals: vec![],
-            latest_protocol_version: genesis_protocol_version,
-        };
-        let hash = BlockHeader::compute_hash(
-            CryptoHash::default(),
-            &inner_lite.try_to_vec().expect("Failed to serialize"),
-            &inner_rest.try_to_vec().expect("Failed to serialize"),
-        );
-        // Genesis always has v1 of BlockHeader.
-        Self::BlockHeaderV1(Box::new(BlockHeaderV1 {
-            prev_hash: CryptoHash::default(),
-            inner_lite,
-            inner_rest,
-            signature: Signature::empty(KeyType::ED25519),
-            hash,
-        }))
+        if genesis_protocol_version <= 29 {
+            let inner_rest = BlockHeaderInnerRest {
+                chunk_receipts_root,
+                chunk_headers_root,
+                chunk_tx_root,
+                chunks_included,
+                challenges_root,
+                random_value: CryptoHash::default(),
+                validator_proposals: vec![],
+                chunk_mask: vec![],
+                gas_price: initial_gas_price,
+                total_supply: initial_total_supply,
+                challenges_result: vec![],
+                last_final_block: CryptoHash::default(),
+                last_ds_final_block: CryptoHash::default(),
+                approvals: vec![],
+                latest_protocol_version: genesis_protocol_version,
+            };
+            let hash = BlockHeader::compute_hash(
+                CryptoHash::default(),
+                &inner_lite.try_to_vec().expect("Failed to serialize"),
+                &inner_rest.try_to_vec().expect("Failed to serialize"),
+            );
+            Self::BlockHeaderV1(Box::new(BlockHeaderV1 {
+                prev_hash: CryptoHash::default(),
+                inner_lite,
+                inner_rest,
+                signature: Signature::empty(KeyType::ED25519),
+                hash,
+            }))
+        } else {
+            let inner_rest = BlockHeaderInnerRestV2 {
+                chunk_receipts_root,
+                chunk_headers_root,
+                chunk_tx_root,
+                challenges_root,
+                random_value: CryptoHash::default(),
+                validator_proposals: vec![],
+                chunk_mask: vec![true; chunks_included as usize],
+                gas_price: initial_gas_price,
+                total_supply: initial_total_supply,
+                challenges_result: vec![],
+                last_final_block: CryptoHash::default(),
+                last_ds_final_block: CryptoHash::default(),
+                approvals: vec![],
+                latest_protocol_version: genesis_protocol_version,
+            };
+            let hash = BlockHeader::compute_hash(
+                CryptoHash::default(),
+                &inner_lite.try_to_vec().expect("Failed to serialize"),
+                &inner_rest.try_to_vec().expect("Failed to serialize"),
+            );
+            Self::BlockHeaderV2(Box::new(BlockHeaderV2 {
+                prev_hash: CryptoHash::default(),
+                inner_lite,
+                inner_rest,
+                signature: Signature::empty(KeyType::ED25519),
+                hash,
+            }))
+        }
     }
 
     pub fn hash(&self) -> &CryptoHash {
         match self {
             BlockHeader::BlockHeaderV1(header) => &header.hash,
+            BlockHeader::BlockHeaderV2(header) => &header.hash,
         }
     }
 
     pub fn prev_hash(&self) -> &CryptoHash {
         match self {
             BlockHeader::BlockHeaderV1(header) => &header.prev_hash,
+            BlockHeader::BlockHeaderV2(header) => &header.prev_hash,
         }
     }
 
     pub fn signature(&self) -> &Signature {
         match self {
             BlockHeader::BlockHeaderV1(header) => &header.signature,
+            BlockHeader::BlockHeaderV2(header) => &header.signature,
         }
     }
 
     pub fn height(&self) -> BlockHeight {
         match self {
             BlockHeader::BlockHeaderV1(header) => header.inner_lite.height,
+            BlockHeader::BlockHeaderV2(header) => header.inner_lite.height,
         }
     }
 
     pub fn epoch_id(&self) -> &EpochId {
         match self {
             BlockHeader::BlockHeaderV1(header) => &header.inner_lite.epoch_id,
+            BlockHeader::BlockHeaderV2(header) => &header.inner_lite.epoch_id,
         }
     }
 
     pub fn next_epoch_id(&self) -> &EpochId {
         match self {
             BlockHeader::BlockHeaderV1(header) => &header.inner_lite.next_epoch_id,
+            BlockHeader::BlockHeaderV2(header) => &header.inner_lite.next_epoch_id,
         }
     }
 
     pub fn prev_state_root(&self) -> &MerkleHash {
         match self {
             BlockHeader::BlockHeaderV1(header) => &header.inner_lite.prev_state_root,
+            BlockHeader::BlockHeaderV2(header) => &header.inner_lite.prev_state_root,
         }
     }
 
     pub fn chunk_receipts_root(&self) -> &MerkleHash {
         match self {
             BlockHeader::BlockHeaderV1(header) => &header.inner_rest.chunk_receipts_root,
+            BlockHeader::BlockHeaderV2(header) => &header.inner_rest.chunk_receipts_root,
         }
     }
 
     pub fn chunk_headers_root(&self) -> &MerkleHash {
         match self {
             BlockHeader::BlockHeaderV1(header) => &header.inner_rest.chunk_headers_root,
+            BlockHeader::BlockHeaderV2(header) => &header.inner_rest.chunk_headers_root,
         }
     }
 
     pub fn chunk_tx_root(&self) -> &MerkleHash {
         match self {
             BlockHeader::BlockHeaderV1(header) => &header.inner_rest.chunk_tx_root,
+            BlockHeader::BlockHeaderV2(header) => &header.inner_rest.chunk_tx_root,
         }
     }
 
     pub fn chunks_included(&self) -> u64 {
         match self {
             BlockHeader::BlockHeaderV1(header) => header.inner_rest.chunks_included,
+            BlockHeader::BlockHeaderV2(header) => {
+                header.inner_rest.chunk_mask.iter().map(|&x| u64::from(x)).sum::<u64>()
+            }
         }
     }
 
     pub fn challenges_root(&self) -> &MerkleHash {
         match self {
             BlockHeader::BlockHeaderV1(header) => &header.inner_rest.challenges_root,
+            BlockHeader::BlockHeaderV2(header) => &header.inner_rest.challenges_root,
         }
     }
 
     pub fn outcome_root(&self) -> &MerkleHash {
         match self {
             BlockHeader::BlockHeaderV1(header) => &header.inner_lite.outcome_root,
+            BlockHeader::BlockHeaderV2(header) => &header.inner_lite.outcome_root,
         }
     }
 
     pub fn raw_timestamp(&self) -> u64 {
         match self {
             BlockHeader::BlockHeaderV1(header) => header.inner_lite.timestamp,
+            BlockHeader::BlockHeaderV2(header) => header.inner_lite.timestamp,
         }
     }
 
     pub fn validator_proposals(&self) -> &[ValidatorStake] {
         match self {
             BlockHeader::BlockHeaderV1(header) => &header.inner_rest.validator_proposals,
+            BlockHeader::BlockHeaderV2(header) => &header.inner_rest.validator_proposals,
         }
     }
 
     pub fn chunk_mask(&self) -> &[bool] {
         match self {
             BlockHeader::BlockHeaderV1(header) => &header.inner_rest.chunk_mask,
+            BlockHeader::BlockHeaderV2(header) => &header.inner_rest.chunk_mask,
         }
     }
 
     pub fn gas_price(&self) -> Balance {
         match self {
             BlockHeader::BlockHeaderV1(header) => header.inner_rest.gas_price,
+            BlockHeader::BlockHeaderV2(header) => header.inner_rest.gas_price,
         }
     }
 
     pub fn total_supply(&self) -> Balance {
         match self {
             BlockHeader::BlockHeaderV1(header) => header.inner_rest.total_supply,
+            BlockHeader::BlockHeaderV2(header) => header.inner_rest.total_supply,
         }
     }
 
     pub fn random_value(&self) -> &CryptoHash {
         match self {
             BlockHeader::BlockHeaderV1(header) => &header.inner_rest.random_value,
+            BlockHeader::BlockHeaderV2(header) => &header.inner_rest.random_value,
         }
     }
 
     pub fn last_final_block(&self) -> &CryptoHash {
         match self {
             BlockHeader::BlockHeaderV1(header) => &header.inner_rest.last_final_block,
+            BlockHeader::BlockHeaderV2(header) => &header.inner_rest.last_final_block,
         }
     }
 
     pub fn last_ds_final_block(&self) -> &CryptoHash {
         match self {
             BlockHeader::BlockHeaderV1(header) => &header.inner_rest.last_ds_final_block,
+            BlockHeader::BlockHeaderV2(header) => &header.inner_rest.last_ds_final_block,
         }
     }
 
     pub fn challenges_result(&self) -> &ChallengesResult {
         match self {
             BlockHeader::BlockHeaderV1(header) => &header.inner_rest.challenges_result,
+            BlockHeader::BlockHeaderV2(header) => &header.inner_rest.challenges_result,
         }
     }
 
     pub fn next_bp_hash(&self) -> &CryptoHash {
         match self {
             BlockHeader::BlockHeaderV1(header) => &header.inner_lite.next_bp_hash,
+            BlockHeader::BlockHeaderV2(header) => &header.inner_lite.next_bp_hash,
         }
     }
 
     pub fn block_merkle_root(&self) -> &CryptoHash {
         match self {
             BlockHeader::BlockHeaderV1(header) => &header.inner_lite.block_merkle_root,
+            BlockHeader::BlockHeaderV2(header) => &header.inner_lite.block_merkle_root,
         }
     }
 
     pub fn approvals(&self) -> &[Option<Signature>] {
         match self {
             BlockHeader::BlockHeaderV1(header) => &header.inner_rest.approvals,
+            BlockHeader::BlockHeaderV2(header) => &header.inner_rest.approvals,
         }
     }
 
@@ -467,6 +621,7 @@ impl BlockHeader {
     pub fn latest_protocol_version(&self) -> u32 {
         match self {
             BlockHeader::BlockHeaderV1(header) => header.inner_rest.latest_protocol_version,
+            BlockHeader::BlockHeaderV2(header) => header.inner_rest.latest_protocol_version,
         }
     }
 
@@ -475,12 +630,18 @@ impl BlockHeader {
             BlockHeader::BlockHeaderV1(header) => {
                 header.inner_lite.try_to_vec().expect("Failed to serialize")
             }
+            BlockHeader::BlockHeaderV2(header) => {
+                header.inner_lite.try_to_vec().expect("Failed to serialize")
+            }
         }
     }
 
     pub fn inner_rest_bytes(&self) -> Vec<u8> {
         match self {
             BlockHeader::BlockHeaderV1(header) => {
+                header.inner_rest.try_to_vec().expect("Failed to serialize")
+            }
+            BlockHeader::BlockHeaderV2(header) => {
                 header.inner_rest.try_to_vec().expect("Failed to serialize")
             }
         }

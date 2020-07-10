@@ -19,7 +19,7 @@ master | beta | stable
 ---|---|---|
 [![Build Status][ci-badge-master]][ci-url] | [![Build Status][ci-badge-beta]][ci-url] | [![Build Status][ci-badge-stable]][ci-url] 
 
-[ci-badge-master]: https://badge.buildkite.com/a81147cb62c585cc434459eedd1d25e521453120ead9ee6c64.svg
+[ci-badge-master]: https://badge.buildkite.com/a81147cb62c585cc434459eedd1d25e521453120ead9ee6c64.svg?branch=master
 [ci-badge-beta]: https://badge.buildkite.com/a81147cb62c585cc434459eedd1d25e521453120ead9ee6c64.svg?branch=beta
 [ci-badge-stable]: https://badge.buildkite.com/a81147cb62c585cc434459eedd1d25e521453120ead9ee6c64.svg?branch=stable
 [ci-url]: https://buildkite.com/nearprotocol/nearcore

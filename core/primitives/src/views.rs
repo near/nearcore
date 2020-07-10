@@ -15,7 +15,10 @@ use near_crypto::{PublicKey, Signature};
 
 use crate::account::{AccessKey, AccessKeyPermission, Account, FunctionCallPermission};
 use crate::block::{Block, BlockHeader};
-use crate::block_header::{BlockHeaderInnerLite, BlockHeaderInnerRest, BlockHeaderV1};
+use crate::block_header::{
+    BlockHeaderInnerLite, BlockHeaderInnerRest, BlockHeaderInnerRestV2, BlockHeaderV1,
+    BlockHeaderV2,
+};
 use crate::challenge::{Challenge, ChallengesResult};
 use crate::errors::TxExecutionError;
 use crate::hash::{hash, CryptoHash};
@@ -397,44 +400,76 @@ impl From<BlockHeader> for BlockHeaderView {
 
 impl From<BlockHeaderView> for BlockHeader {
     fn from(view: BlockHeaderView) -> Self {
-        let mut header = BlockHeaderV1 {
-            prev_hash: view.prev_hash,
-            inner_lite: BlockHeaderInnerLite {
-                height: view.height,
-                epoch_id: EpochId(view.epoch_id),
-                next_epoch_id: EpochId(view.next_epoch_id),
-                prev_state_root: view.prev_state_root,
-                outcome_root: view.outcome_root,
-                timestamp: view.timestamp,
-                next_bp_hash: view.next_bp_hash,
-                block_merkle_root: view.block_merkle_root,
-            },
-            inner_rest: BlockHeaderInnerRest {
-                chunk_receipts_root: view.chunk_receipts_root,
-                chunk_headers_root: view.chunk_headers_root,
-                chunk_tx_root: view.chunk_tx_root,
-                chunks_included: view.chunks_included,
-                challenges_root: view.challenges_root,
-                random_value: view.random_value,
-                validator_proposals: view
-                    .validator_proposals
-                    .into_iter()
-                    .map(|v| v.into())
-                    .collect(),
-                chunk_mask: view.chunk_mask,
-                gas_price: view.gas_price,
-                total_supply: view.total_supply,
-                challenges_result: view.challenges_result,
-                last_final_block: view.last_final_block,
-                last_ds_final_block: view.last_ds_final_block,
-                approvals: view.approvals.clone(),
-                latest_protocol_version: view.latest_protocol_version,
-            },
-            signature: view.signature,
-            hash: CryptoHash::default(),
+        let inner_lite = BlockHeaderInnerLite {
+            height: view.height,
+            epoch_id: EpochId(view.epoch_id),
+            next_epoch_id: EpochId(view.next_epoch_id),
+            prev_state_root: view.prev_state_root,
+            outcome_root: view.outcome_root,
+            timestamp: view.timestamp,
+            next_bp_hash: view.next_bp_hash,
+            block_merkle_root: view.block_merkle_root,
         };
-        header.init();
-        BlockHeader::BlockHeaderV1(Box::new(header))
+        if view.latest_protocol_version <= 29 {
+            let mut header = BlockHeaderV1 {
+                prev_hash: view.prev_hash,
+                inner_lite,
+                inner_rest: BlockHeaderInnerRest {
+                    chunk_receipts_root: view.chunk_receipts_root,
+                    chunk_headers_root: view.chunk_headers_root,
+                    chunk_tx_root: view.chunk_tx_root,
+                    chunks_included: view.chunks_included,
+                    challenges_root: view.challenges_root,
+                    random_value: view.random_value,
+                    validator_proposals: view
+                        .validator_proposals
+                        .into_iter()
+                        .map(|v| v.into())
+                        .collect(),
+                    chunk_mask: view.chunk_mask,
+                    gas_price: view.gas_price,
+                    total_supply: view.total_supply,
+                    challenges_result: view.challenges_result,
+                    last_final_block: view.last_final_block,
+                    last_ds_final_block: view.last_ds_final_block,
+                    approvals: view.approvals.clone(),
+                    latest_protocol_version: view.latest_protocol_version,
+                },
+                signature: view.signature,
+                hash: CryptoHash::default(),
+            };
+            header.init();
+            BlockHeader::BlockHeaderV1(Box::new(header))
+        } else {
+            let mut header = BlockHeaderV2 {
+                prev_hash: view.prev_hash,
+                inner_lite,
+                inner_rest: BlockHeaderInnerRestV2 {
+                    chunk_receipts_root: view.chunk_receipts_root,
+                    chunk_headers_root: view.chunk_headers_root,
+                    chunk_tx_root: view.chunk_tx_root,
+                    challenges_root: view.challenges_root,
+                    random_value: view.random_value,
+                    validator_proposals: view
+                        .validator_proposals
+                        .into_iter()
+                        .map(|v| v.into())
+                        .collect(),
+                    chunk_mask: view.chunk_mask,
+                    gas_price: view.gas_price,
+                    total_supply: view.total_supply,
+                    challenges_result: view.challenges_result,
+                    last_final_block: view.last_final_block,
+                    last_ds_final_block: view.last_ds_final_block,
+                    approvals: view.approvals.clone(),
+                    latest_protocol_version: view.latest_protocol_version,
+                },
+                signature: view.signature,
+                hash: CryptoHash::default(),
+            };
+            header.init();
+            BlockHeader::BlockHeaderV2(Box::new(header))
+        }
     }
 }
 
@@ -457,6 +492,17 @@ impl From<BlockHeader> for BlockHeaderInnerLiteView {
     fn from(header: BlockHeader) -> Self {
         match header {
             BlockHeader::BlockHeaderV1(header) => BlockHeaderInnerLiteView {
+                height: header.inner_lite.height,
+                epoch_id: header.inner_lite.epoch_id.0,
+                next_epoch_id: header.inner_lite.next_epoch_id.0,
+                prev_state_root: header.inner_lite.prev_state_root,
+                outcome_root: header.inner_lite.outcome_root,
+                timestamp: header.inner_lite.timestamp,
+                timestamp_nanosec: header.inner_lite.timestamp,
+                next_bp_hash: header.inner_lite.next_bp_hash,
+                block_merkle_root: header.inner_lite.block_merkle_root,
+            },
+            BlockHeader::BlockHeaderV2(header) => BlockHeaderInnerLiteView {
                 height: header.inner_lite.height,
                 epoch_id: header.inner_lite.epoch_id.0,
                 next_epoch_id: header.inner_lite.next_epoch_id.0,
