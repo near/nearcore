@@ -140,14 +140,17 @@ mod test {
                                 .map(|idx| node.read().unwrap().user().get_block(idx).unwrap())
                                 .collect::<Vec<_>>();
                             for b in &blocks {
-                                let _gas_used = b.chunks.iter().fold(0, |acc, chunk| {
+                                let gas_used = b.chunks.iter().fold(0, |acc, chunk| {
                                     if chunk.height_included == b.header.height {
                                         acc + chunk.gas_used
                                     } else {
                                         acc
                                     }
                                 });
-                                observed_transactions.write().unwrap().push((1, Instant::now()));
+                                observed_transactions
+                                    .write()
+                                    .unwrap()
+                                    .push((gas_used, Instant::now()));
                             }
                             prev_ind = new_ind;
                         }
