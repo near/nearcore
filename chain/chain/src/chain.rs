@@ -260,6 +260,45 @@ pub struct Chain {
 }
 
 impl Chain {
+    pub fn new_for_view_client(
+        runtime_adapter: Arc<dyn RuntimeAdapter>,
+        chain_genesis: &ChainGenesis,
+        doomslug_threshold_mode: DoomslugThresholdMode,
+    ) -> Result<Chain, Error> {
+        let (store, _state_store_update, state_roots) = runtime_adapter.genesis_state();
+        let store = ChainStore::new(store, chain_genesis.height);
+        let genesis_chunks = genesis_chunks(
+            state_roots.clone(),
+            runtime_adapter.num_shards(),
+            chain_genesis.gas_limit,
+            chain_genesis.height,
+        );
+        let genesis = Block::genesis(
+            chain_genesis.protocol_version,
+            genesis_chunks.iter().map(|chunk| chunk.header.clone()).collect(),
+            chain_genesis.time,
+            chain_genesis.height,
+            chain_genesis.min_gas_price,
+            chain_genesis.total_supply,
+            Chain::compute_bp_hash(&*runtime_adapter, EpochId::default(), &CryptoHash::default())?,
+        );
+        Ok(Chain {
+            store,
+            runtime_adapter,
+            orphans: OrphanBlockPool::new(),
+            blocks_with_missing_chunks: OrphanBlockPool::new(),
+            genesis: genesis.header().clone(),
+            transaction_validity_period: chain_genesis.transaction_validity_period,
+            epoch_length: chain_genesis.epoch_length,
+            block_economics_config: BlockEconomicsConfig {
+                gas_price_adjustment_rate: chain_genesis.gas_price_adjustment_rate,
+                min_gas_price: chain_genesis.min_gas_price,
+                max_gas_price: chain_genesis.max_gas_price,
+            },
+            doomslug_threshold_mode,
+        })
+    }
+
     pub fn new(
         runtime_adapter: Arc<dyn RuntimeAdapter>,
         chain_genesis: &ChainGenesis,

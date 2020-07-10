@@ -105,8 +105,11 @@ impl ViewClientActor {
         request_manager: Arc<RwLock<ViewClientRequestManager>>,
     ) -> Result<Self, Error> {
         // TODO: should we create shared ChainStore that is passed to both Client and ViewClient?
-        let chain =
-            Chain::new(runtime_adapter.clone(), chain_genesis, DoomslugThresholdMode::TwoThirds)?;
+        let chain = Chain::new_for_view_client(
+            runtime_adapter.clone(),
+            chain_genesis,
+            DoomslugThresholdMode::TwoThirds,
+        )?;
         Ok(ViewClientActor {
             #[cfg(feature = "adversarial")]
             adv_disable_header_sync: false,
