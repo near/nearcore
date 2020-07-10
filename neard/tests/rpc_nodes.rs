@@ -594,7 +594,7 @@ fn test_get_execution_outcome(is_tx_successful: bool) {
         .start();
 
         system.run().unwrap();
-        clients.into_iter().flat_map(|c| c.2.into_iter().map(|mut a| a.join())).for_each(drop);
+        clients.into_iter().for_each(|c| c.2.into_iter().for_each(|mut a| a.join().unwrap()));
     });
 }
 

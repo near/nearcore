@@ -224,7 +224,7 @@ fn main() {
             let system = System::new("NEAR");
             let (_, _, arbiters) = start_with_config(home_dir, near_config);
             system.run().unwrap();
-            arbiters.into_iter().map(|mut a| a.join()).for_each(drop);
+            arbiters.into_iter().for_each(|mut a| a.join().unwrap());
         }
         ("unsafe_reset_data", Some(_args)) => {
             let store_path = get_store_path(home_dir);

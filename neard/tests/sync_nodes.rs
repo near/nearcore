@@ -136,8 +136,8 @@ fn sync_nodes() {
         .start();
 
         system.run().unwrap();
-        arbiters.into_iter().map(|mut a| a.join()).for_each(drop);
-        arbiters2.into_iter().map(|mut a| a.join()).for_each(drop);
+        arbiters.into_iter().for_each(|mut a| a.join().unwrap());
+        arbiters2.into_iter().for_each(|mut a| a.join().unwrap());
     });
 }
 
@@ -206,8 +206,8 @@ fn sync_after_sync_nodes() {
         .start();
 
         system.run().unwrap();
-        arbiters.into_iter().map(|mut a| a.join()).for_each(drop);
-        arbiters2.into_iter().map(|mut a| a.join()).for_each(drop);
+        arbiters.into_iter().for_each(|mut a| a.join().unwrap());
+        arbiters2.into_iter().for_each(|mut a| a.join().unwrap());
     });
 }
 
@@ -305,7 +305,7 @@ fn sync_state_stake_change() {
         .start();
 
         system.run().unwrap();
-        arbiters.into_iter().map(|mut a| a.join()).for_each(drop);
-        arbiters_holder.write().unwrap().iter_mut().map(|a| a.join()).for_each(drop);
+        arbiters.into_iter().for_each(|mut a| a.join().unwrap());
+        arbiters_holder.write().unwrap().iter_mut().for_each(|a| a.join().unwrap());
     });
 }
