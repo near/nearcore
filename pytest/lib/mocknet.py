@@ -133,7 +133,7 @@ def get_metrics(node):
 
 # Sends the transaction to the network via `node` and checks for success.
 # Some retrying is done when the node returns a Timeout error.
-def send_transaction(node, tx, tx_hash, account_id, timeout=60):
+def send_transaction(node, tx, tx_hash, account_id, timeout=120):
     response = node.send_tx_and_wait(tx, timeout)
     loop_start = time.time()
     missing_count = 0
@@ -143,7 +143,7 @@ def send_transaction(node, tx, tx_hash, account_id, timeout=60):
             print(
                 f'WARN: transaction {tx_hash} returned Timout, checking status again.'
             )
-            time.sleep(2)
+            time.sleep(5)
             response = node.get_tx(tx_hash, account_id)
         elif "doesn't exist" in error_data:
             missing_count += 1
@@ -151,7 +151,7 @@ def send_transaction(node, tx, tx_hash, account_id, timeout=60):
                 f'WARN: transaction {tx_hash} falied to be recieved by the node, checking again.'
             )
             if missing_count < 20:
-                time.sleep(2)
+                time.sleep(5)
                 response = node.get_tx(tx_hash, account_id)
             else:
                 print(f'WARN: re-sending transaction {tx_hash}.')
