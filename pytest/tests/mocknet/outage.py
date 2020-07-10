@@ -14,7 +14,8 @@ nodes = mocknet.get_nodes()
 # Get the list of current validators, sorted by node index
 validators = sorted(nodes[0].get_validators()['result']['current_validators'],
                     key=lambda v: int(v['account_id'][4:]))
-assert len(validators) == (mocknet.NUM_NODES // 2)
+num_rpc_nodes = min(mocknet.NUM_NODES // 2, 4)
+assert len(validators) == mocknet.NUM_NODES - num_rpc_nodes
 
 # Take down ~25% of stake.
 total_stake = sum(map(lambda v: int(v['stake']), validators))
