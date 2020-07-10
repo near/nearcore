@@ -9,7 +9,7 @@ import time
 from rc import run, pmap
 
 NUM_SECONDS_PER_YEAR = 3600 * 24 * 365
-NUM_NODES = 50
+NUM_NODES = 54
 NODE_BASE_NAME = 'mocknet-node'
 NODE_USERNAME = 'ubuntu'
 NODE_SSH_KEY_PATH = '~/.ssh/near_ops'
