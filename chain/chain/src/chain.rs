@@ -551,7 +551,13 @@ impl Chain {
     ) -> Result<(), Error> {
         let head = self.store.head()?;
         let tail = self.store.tail()?;
-        let gc_stop_height = self.runtime_adapter.get_gc_stop_height(&head.last_block_hash)?;
+        let gc_stop_height = match self.runtime_adapter.get_gc_stop_height(&head.last_block_hash) {
+            Ok(height) => height,
+            Err(e) => match e.kind() {
+                ErrorKind::DBNotFoundErr(_) => self.genesis.height(),
+                _ => return Err(e),
+            },
+        };
         if gc_stop_height > head.height {
             return Err(ErrorKind::GCError(
                 "gc_stop_height cannot be larger than head.height".into(),
@@ -933,7 +939,6 @@ impl Chain {
         // Get header we were syncing into.
         let header = self.get_block_header(&sync_hash)?;
         let gc_height = header.height();
-        let gc_stop_height = self.runtime_adapter.get_gc_stop_height(&sync_hash)?;
 
         // GC all the data from current tail up to `gc_height`
         let tail = self.store.tail()?;
@@ -943,8 +948,7 @@ impl Chain {
                     blocks_current_height.values().flatten().cloned().collect::<Vec<_>>();
                 for block_hash in blocks_current_height {
                     let mut chain_store_update = self.mut_store().store_update();
-                    chain_store_update
-                        .clear_block_data(block_hash, GCMode::StateSync(gc_stop_height))?;
+                    chain_store_update.clear_block_data(block_hash, GCMode::StateSync)?;
                     chain_store_update.commit()?;
                 }
             }

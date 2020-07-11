@@ -28,7 +28,6 @@ use near_network::{
     PeerInfo,
 };
 use near_primitives::block::{Approval, ApprovalInner};
-use near_primitives::epoch_manager::BlockInfo;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::{merklize, verify_hash};
@@ -915,9 +914,10 @@ fn test_gc_execution_outcome() {
     assert!(env.clients[0].chain.get_final_transaction_result(&tx_hash).is_err());
 }
 
+#[cfg(feature = "expensive_tests")]
 #[test]
 fn test_gc_after_state_sync() {
-    let epoch_length = 5;
+    let epoch_length = 1024;
     let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
     genesis.config.epoch_length = epoch_length;
     let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![
@@ -946,13 +946,18 @@ fn test_gc_after_state_sync() {
     }
     let sync_height = epoch_length * 4 + 1;
     let sync_hash = *env.clients[0].chain.get_block_by_height(sync_height).unwrap().hash();
+    // reset cache
+    for i in epoch_length * 3..sync_height {
+        let block_hash = *env.clients[0].chain.get_block_by_height(i).unwrap().hash();
+        assert!(env.clients[1].chain.runtime_adapter.get_epoch_start_height(&block_hash).is_ok());
+    }
     env.clients[1].chain.reset_data_pre_state_sync(sync_hash).unwrap();
-    let block_hash1 = *env.clients[0].chain.get_block_by_height(epoch_length + 1).unwrap().hash();
-    let store = env.clients[1].chain.store().owned_store();
-    assert!(store
-        .get_ser::<BlockInfo>(near_store::ColBlockInfo, block_hash1.as_ref())
-        .unwrap()
-        .is_some());
+    assert!(matches!(
+        env.clients[1].runtime_adapter.get_gc_stop_height(&sync_hash).unwrap_err().kind(),
+        ErrorKind::DBNotFoundErr(_)
+    ));
+    let tries = env.clients[1].runtime_adapter.get_tries();
+    assert!(env.clients[1].chain.clear_data(tries, 2).is_ok());
 }
 
 #[test]
