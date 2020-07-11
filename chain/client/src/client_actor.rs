@@ -495,6 +495,8 @@ impl Handler<Status> for ClientActor {
     type Result = Result<StatusResponse, String>;
 
     fn handle(&mut self, msg: Status, _: &mut Context<Self>) -> Self::Result {
+        self.try_handle_block_production();
+
         let head = self.client.chain.head().map_err(|err| err.to_string())?;
         let header = self
             .client
@@ -561,6 +563,8 @@ impl Handler<GetNetworkInfo> for ClientActor {
     type Result = Result<NetworkInfoResponse, String>;
 
     fn handle(&mut self, _: GetNetworkInfo, _: &mut Context<Self>) -> Self::Result {
+        self.try_handle_block_production();
+
         Ok(NetworkInfoResponse {
             active_peers: self
                 .network_info
