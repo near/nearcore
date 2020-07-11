@@ -10,7 +10,7 @@ log = "0.4"
 failure = "0.1"
 failure_derive = "0.1"
 lazy_static = "1.4"
-rocksdb = "0.14"
+rocksdb = { git = "https://github.com/rust-rocksdb/rust-rocksdb", rev = "d6c779c179aa3e5f68e4d6a3dfef27a6f776d92c" }
 rand = "0.7"
 serde = { version = "1", features = [ "derive" ] }
 cached = "0.12"

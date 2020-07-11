@@ -347,7 +347,7 @@ fn rocksdb_read_options() -> ReadOptions {
 }
 
 /// DB level options
-fn rocksdb_options(mutlithread: bool) -> Options {
+fn rocksdb_options(multithread: bool) -> Options {
     let mut opts = Options::default();
 
     opts.create_missing_column_families(true);
@@ -358,12 +358,15 @@ fn rocksdb_options(mutlithread: bool) -> Options {
     opts.set_bytes_per_sync(1048576);
     opts.set_write_buffer_size(1024 * 1024 * 512 / 2);
     opts.set_max_bytes_for_level_base(1024 * 1024 * 512 / 2);
-    if mutlithread {
+    if multithread {
+        println!("Use background threads in rocksdb");
         opts.increase_parallelism(cmp::max(1, num_cpus::get() as i32 / 2));
     } else {
+        println!("Disable all background threads in rocksdb");
         opts.set_disable_auto_compactions(true);
-        opts.set_max_background_compactions(0);
+        opts.set_max_background_jobs(0);
         opts.set_max_background_flushes(0);
+        opts.set_max_background_compactions(0);
     }
     opts.set_max_total_wal_size(1 * 1024 * 1024 * 1024);
 
@@ -413,8 +416,8 @@ impl RocksDB {
         Ok(Self { db, cfs })
     }
 
-    pub fn new<P: AsRef<std::path::Path>>(path: P, mutlithread: bool) -> Result<Self, DBError> {
-        let options = rocksdb_options(mutlithread);
+    pub fn new<P: AsRef<std::path::Path>>(path: P, multithread: bool) -> Result<Self, DBError> {
+        let options = rocksdb_options(multithread);
         let cf_names: Vec<_> = (0..NUM_COLS).map(|col| format!("col{}", col)).collect();
         let cf_descriptors = cf_names
             .iter()

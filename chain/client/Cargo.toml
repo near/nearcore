@@ -9,7 +9,7 @@ ansi_term = "0.11"
 actix = "0.9"
 futures = "0.3"
 chrono = { version = "0.4.4", features = ["serde"] }
-rocksdb = "0.14"
+rocksdb = { git = "https://github.com/rust-rocksdb/rust-rocksdb", rev = "d6c779c179aa3e5f68e4d6a3dfef27a6f776d92c" }
 log = "0.4"
 rand = "0.7"
 serde = { version = "1", features = ["derive"] }

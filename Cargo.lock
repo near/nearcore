@@ -477,9 +477,9 @@ dependencies = [
 
 [[package]]
 name = "bindgen"
-version = "0.53.2"
+version = "0.54.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6bb26d6a69a335b8cb0e7c7e9775cd5666611dc50a37177c3f2cedcfc040e8c8"
+checksum = "f4d49b80beb70d76cdac92f5681e666f9a697c737c4f4117a67229a0386dc736"
 dependencies = [
  "bitflags",
  "cexpr",
@@ -2004,9 +2004,8 @@ dependencies = [
 
 [[package]]
 name = "librocksdb-sys"
-version = "6.7.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "883213ae3d09bfc3d104aefe94b25ebb183b6f4d3a515b23b14817e1f4854005"
+version = "6.10.2"
+source = "git+https://github.com/rust-rocksdb/rust-rocksdb?rev=d6c779c179aa3e5f68e4d6a3dfef27a6f776d92c#d6c779c179aa3e5f68e4d6a3dfef27a6f776d92c"
 dependencies = [
  "bindgen",
  "cc",
@@ -3508,8 +3507,7 @@ dependencies = [
 [[package]]
 name = "rocksdb"
 version = "0.14.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "61aa17a99a2413cd71c1106691bf59dad7de0cd5099127f90e9d99c429c40d4a"
+source = "git+https://github.com/rust-rocksdb/rust-rocksdb?rev=d6c779c179aa3e5f68e4d6a3dfef27a6f776d92c#d6c779c179aa3e5f68e4d6a3dfef27a6f776d92c"
 dependencies = [
  "libc",
  "librocksdb-sys",
