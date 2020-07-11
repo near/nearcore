@@ -50,8 +50,15 @@ use crate::error::{Error, ErrorKind};
 use crate::types::{Block, BlockHeader, LatestKnown};
 
 /// lru cache size
+#[cfg(not(feature = "no_cache"))]
 const CACHE_SIZE: usize = 100;
+#[cfg(not(feature = "no_cache"))]
 const CHUNK_CACHE_SIZE: usize = 1024;
+
+#[cfg(feature = "no_cache")]
+const CACHE_SIZE: usize = 1;
+#[cfg(feature = "no_cache")]
+const CHUNK_CACHE_SIZE: usize = 1;
 
 #[derive(Clone)]
 pub enum GCMode {
