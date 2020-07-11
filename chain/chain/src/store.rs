@@ -57,7 +57,7 @@ const CHUNK_CACHE_SIZE: usize = 1024;
 pub enum GCMode {
     Fork(ShardTries),
     Canonical(ShardTries),
-    StateSync,
+    StateSync(BlockHeight),
 }
 
 fn get_height_shard_id(height: BlockHeight, shard_id: ShardId) -> Vec<u8> {
@@ -1995,7 +1995,7 @@ impl<'a> ChainStoreUpdate<'a> {
                 // Set `block_hash` on previous one
                 block_hash = *self.get_block_header(&block_hash)?.prev_hash();
             }
-            GCMode::StateSync => {
+            GCMode::StateSync(_) => {
                 // Not apply the data from ColTrieChanges
                 for shard_id in 0..header.chunk_mask().len() as ShardId {
                     self.gc_col(ColTrieChanges, &get_block_shard_id(&block_hash, shard_id));
@@ -2067,8 +2067,15 @@ impl<'a> ChainStoreUpdate<'a> {
             self.gc_col(ColTransactionResult, &outcome_id.as_ref().into());
         }
         self.gc_col(ColOutcomesByBlockHash, &block_hash_vec);
-        self.gc_col(ColBlockInfo, &block_hash_vec);
         self.gc_col(ColStateDlInfos, &block_hash_vec);
+
+        if let GCMode::StateSync(gc_stop_height) = gc_mode {
+            if header.height() < gc_stop_height {
+                self.gc_col(ColBlockInfo, &block_hash_vec);
+            }
+        } else {
+            self.gc_col(ColBlockInfo, &block_hash_vec);
+        }
 
         // 4. Update or delete block_hash_per_height
         self.gc_col_block_per_height(&block_hash, height, &block.header().epoch_id())?;
@@ -2089,7 +2096,7 @@ impl<'a> ChainStoreUpdate<'a> {
                 }
                 self.clear_chunk_data(min_chunk_height)?;
             }
-            GCMode::StateSync => {
+            GCMode::StateSync(_) => {
                 // 7. State Sync clearing
                 // Chunks deleted separately
             }

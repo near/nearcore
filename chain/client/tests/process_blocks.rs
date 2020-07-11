@@ -28,6 +28,7 @@ use near_network::{
     PeerInfo,
 };
 use near_primitives::block::{Approval, ApprovalInner};
+use near_primitives::epoch_manager::BlockInfo;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::{merklize, verify_hash};
@@ -912,6 +913,46 @@ fn test_gc_execution_outcome() {
         env.produce_block(0, i);
     }
     assert!(env.clients[0].chain.get_final_transaction_result(&tx_hash).is_err());
+}
+
+#[test]
+fn test_gc_after_state_sync() {
+    let epoch_length = 5;
+    let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
+    genesis.config.epoch_length = epoch_length;
+    let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![
+        Arc::new(neard::NightshadeRuntime::new(
+            Path::new("."),
+            create_test_store(),
+            Arc::new(genesis.clone()),
+            vec![],
+            vec![],
+        )),
+        Arc::new(neard::NightshadeRuntime::new(
+            Path::new("."),
+            create_test_store(),
+            Arc::new(genesis.clone()),
+            vec![],
+            vec![],
+        )),
+    ];
+    let mut chain_genesis = ChainGenesis::test();
+    chain_genesis.epoch_length = epoch_length;
+    let mut env = TestEnv::new_with_runtime(chain_genesis, 2, 1, runtimes);
+    for i in 1..epoch_length * 4 + 2 {
+        let block = env.clients[0].produce_block(i).unwrap().unwrap();
+        env.process_block(0, block.clone(), Provenance::PRODUCED);
+        env.process_block(1, block, Provenance::NONE);
+    }
+    let sync_height = epoch_length * 4 + 1;
+    let sync_hash = *env.clients[0].chain.get_block_by_height(sync_height).unwrap().hash();
+    env.clients[1].chain.reset_data_pre_state_sync(sync_hash).unwrap();
+    let block_hash1 = *env.clients[0].chain.get_block_by_height(epoch_length + 1).unwrap().hash();
+    let store = env.clients[1].chain.store().owned_store();
+    assert!(store
+        .get_ser::<BlockInfo>(near_store::ColBlockInfo, block_hash1.as_ref())
+        .unwrap()
+        .is_some());
 }
 
 #[test]
