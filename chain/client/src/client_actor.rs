@@ -74,6 +74,9 @@ pub struct ClientActor {
     last_validator_announce_time: Option<Instant>,
     /// Info helper.
     info_helper: InfoHelper,
+
+    /// Last time handle_block_production method was called
+    last_block_production_attempt: Option<DateTime<Utc>>,
 }
 
 /// Blocks the program until given genesis time arrives.
@@ -144,6 +147,7 @@ impl ClientActor {
             },
             last_validator_announce_time: None,
             info_helper,
+            last_block_production_attempt: None,
         })
     }
 }
@@ -175,6 +179,11 @@ impl Handler<NetworkClientMessages> for ClientActor {
     type Result = NetworkClientResponses;
 
     fn handle(&mut self, msg: NetworkClientMessages, _: &mut Context<Self>) -> Self::Result {
+        // There is a bug in Actix library. While there are messages in mailbox, Actix
+        // will prioritize processing messages until mailbox is empty. Execution of any other task
+        // scheduled with run_later will be delayed.
+        self.try_handle_block_production();
+
         match msg {
             #[cfg(feature = "adversarial")]
             NetworkClientMessages::Adversarial(adversarial_msg) => {
@@ -691,16 +700,28 @@ impl ClientActor {
 
     /// Runs a loop to keep track of the latest known block, produces if it's this validators turn.
     fn block_production_tracking(&mut self, ctx: &mut Context<Self>) {
+        self.try_handle_block_production();
+        let wait = self.client.config.block_production_tracking_delay;
+        ctx.run_later(wait, move |act, ctx| {
+            act.block_production_tracking(ctx);
+        });
+    }
+
+    fn try_handle_block_production(&mut self) {
+        let now = Utc::now();
+        if let Some(prev) = self.last_block_production_attempt {
+            if (now - prev).to_std().unwrap_or_default() < self.client.config.block_production_tracking_delay {
+                return;
+            }
+        }
+        self.last_block_production_attempt = Some(now);
+
         match self.handle_block_production() {
             Ok(()) => {}
             Err(err) => {
                 error!(target: "client", "Handle block production failed: {:?}", err);
             }
         }
-        let wait = self.client.config.block_production_tracking_delay;
-        ctx.run_later(wait, move |act, ctx| {
-            act.block_production_tracking(ctx);
-        });
     }
 
     /// Produce block if we are block producer for given `next_height` height.
