@@ -71,21 +71,21 @@ pub fn apply_store_migrations(path: &String) {
         // Does not need to do anything since open db with option `create_missing_column_families`
         // Nevertheless need to bump db version, because db_version 1 binary can't open db_version 2 db
         info!(target: "near", "Migrate DB from version 1 to 2");
-        let store = create_store(&path);
+        let store = create_store(&path, true);
         set_store_version(&store, 2);
     }
     if db_version <= 2 {
         // version 2 => 3: add ColOutcomesByBlockHash + rename LastComponentNonce -> ColLastComponentNonce
         // The column number is the same, so we don't need additional updates
         info!(target: "near", "Migrate DB from version 2 to 3");
-        let store = create_store(&path);
+        let store = create_store(&path, true);
         fill_col_outcomes_by_hash(&store);
         set_store_version(&store, 3);
     }
     if db_version <= 3 {
         // version 3 => 4: add ColTransactionRefCount
         info!(target: "near", "Migrate DB from version 3 to 4");
-        let store = create_store(&path);
+        let store = create_store(&path, true);
         fill_col_transaction_refcount(&store);
         set_store_version(&store, 4);
     }
@@ -100,7 +100,7 @@ pub fn init_and_migrate_store(home_dir: &Path) -> Arc<Store> {
     if store_exists {
         apply_store_migrations(&path);
     }
-    let store = create_store(&path);
+    let store = create_store(&path, true);
     if !store_exists {
         set_store_version(&store, near_primitives::version::DB_VERSION);
     }

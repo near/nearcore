@@ -28,7 +28,7 @@ fn main() {
         .unwrap();
     let near_config = load_config(home_dir);
 
-    let store = create_store(&get_store_path(home_dir));
+    let store = create_store(&get_store_path(home_dir), true);
     GenesisBuilder::from_config_and_store(home_dir, Arc::clone(&near_config.genesis), store)
         .add_additional_accounts(additional_accounts_num)
         .add_additional_accounts_contract(

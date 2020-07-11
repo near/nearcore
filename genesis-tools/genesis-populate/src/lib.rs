@@ -85,7 +85,7 @@ impl GenesisBuilder {
     }
 
     pub fn from_config(home_dir: &Path, genesis: Arc<Genesis>) -> Self {
-        let store = create_store(&get_store_path(home_dir));
+        let store = create_store(&get_store_path(home_dir), true);
         Self::from_config_and_store(home_dir, genesis, store)
     }
 
