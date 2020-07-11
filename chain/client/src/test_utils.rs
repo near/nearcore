@@ -37,7 +37,7 @@ use near_store::test_utils::create_test_store;
 use near_store::Store;
 use near_telemetry::TelemetryActor;
 
-use crate::{Client, ClientActor, SyncStatus, ViewClientActor};
+use crate::{start_view_client, Client, ClientActor, SyncStatus, ViewClientActor};
 use near_network::test_utils::MockNetworkAdapter;
 use num_rational::Rational;
 
@@ -58,7 +58,7 @@ pub fn setup(
     network_adapter: Arc<dyn NetworkAdapter>,
     transaction_validity_period: NumBlocks,
     genesis_time: DateTime<Utc>,
-) -> (Block, ClientActor, ViewClientActor) {
+) -> (Block, ClientActor, Addr<ViewClientActor>) {
     let store = create_test_store();
     let num_validator_seats = validators.iter().map(|x| x.len()).sum::<usize>() as NumSeats;
     let runtime = Arc::new(KeyValueRuntime::new_with_validators(
@@ -99,14 +99,13 @@ pub fn setup(
         num_validator_seats,
         archive,
     );
-    let view_client = ViewClientActor::new(
+    let view_client_addr = start_view_client(
         Some(signer.validator_id().clone()),
-        &chain_genesis,
+        chain_genesis.clone(),
         runtime.clone(),
         network_adapter.clone(),
         config.clone(),
-    )
-    .unwrap();
+    );
 
     let client = ClientActor::new(
         config,
@@ -119,7 +118,7 @@ pub fn setup(
         enable_doomslug,
     )
     .unwrap();
-    (genesis_block, client, view_client)
+    (genesis_block, client, view_client_addr)
 }
 
 /// Sets up ClientActor and ViewClientActor with mock PeerManager.
@@ -161,7 +160,7 @@ pub fn setup_mock_with_validity_period(
     transaction_validity_period: NumBlocks,
 ) -> (Addr<ClientActor>, Addr<ViewClientActor>) {
     let network_adapter = Arc::new(NetworkRecipient::new());
-    let (_, client, view_client) = setup(
+    let (_, client, view_client_addr) = setup(
         vec![validators],
         1,
         1,
@@ -177,7 +176,6 @@ pub fn setup_mock_with_validity_period(
         Utc::now(),
     );
     let client_addr = client.start();
-    let view_client_addr = view_client.start();
     let client_addr1 = client_addr.clone();
 
     let network_actor = NetworkMock::mock(Box::new(move |msg, ctx| {
@@ -663,7 +661,7 @@ pub fn setup_mock_all_validators(
             .start();
             let network_adapter = NetworkRecipient::new();
             network_adapter.set_recipient(pm.recipient());
-            let (block, client, view_client) = setup(
+            let (block, client, view_client_addr) = setup(
                 validators_clone1.clone(),
                 validator_groups,
                 num_shards,
@@ -678,7 +676,7 @@ pub fn setup_mock_all_validators(
                 10000,
                 genesis_time,
             );
-            *view_client_addr1.write().unwrap() = Some(view_client.start());
+            *view_client_addr1.write().unwrap() = Some(view_client_addr);
             *genesis_block1.write().unwrap() = Some(block);
             client
         });

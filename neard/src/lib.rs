@@ -7,7 +7,7 @@ use log::{error, info};
 use tracing::trace;
 
 use near_chain::ChainGenesis;
-use near_client::{ClientActor, ViewClientActor};
+use near_client::{start_client, start_view_client, ClientActor, ViewClientActor};
 use near_jsonrpc::start_http;
 use near_network::{NetworkRecipient, PeerManagerActor};
 use near_store::migrations::{
@@ -110,9 +110,10 @@ pub fn init_and_migrate_store(home_dir: &Path) -> Arc<Store> {
 pub fn start_with_config(
     home_dir: &Path,
     config: NearConfig,
-) -> (Addr<ClientActor>, Addr<ViewClientActor>) {
+) -> (Addr<ClientActor>, Addr<ViewClientActor>, Vec<Arbiter>) {
     let store = init_and_migrate_store(home_dir);
     near_actix_utils::init_stop_on_panic();
+
     let runtime = Arc::new(NightshadeRuntime::new(
         home_dir,
         Arc::clone(&store),
@@ -126,17 +127,14 @@ pub fn start_with_config(
 
     let node_id = config.network_config.public_key.clone().into();
     let network_adapter = Arc::new(NetworkRecipient::new());
-    let view_client = ViewClientActor::new(
+    let view_client = start_view_client(
         config.validator_signer.as_ref().map(|signer| signer.validator_id().clone()),
-        &chain_genesis,
+        chain_genesis.clone(),
         runtime.clone(),
         network_adapter.clone(),
         config.client_config.clone(),
-    )
-    .unwrap()
-    .start();
-
-    let client_actor = ClientActor::new(
+    );
+    let (client_actor, client_arbiter) = start_client(
         config.client_config,
         chain_genesis,
         runtime,
@@ -144,10 +142,7 @@ pub fn start_with_config(
         network_adapter.clone(),
         config.validator_signer,
         telemetry,
-        true,
-    )
-    .unwrap()
-    .start();
+    );
     start_http(
         config.rpc_config,
         Arc::clone(&config.genesis),
@@ -171,5 +166,5 @@ pub fn start_with_config(
 
     trace!(target: "diagnostic", key="log", "Starting NEAR node with diagnostic activated");
 
-    (client_actor, view_client)
+    (client_actor, view_client, vec![client_arbiter, arbiter])
 }
