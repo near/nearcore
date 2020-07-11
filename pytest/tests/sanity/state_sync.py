@@ -120,3 +120,5 @@ if mode == 'manytx':
             "Waiting for the new node to catch up. Current balances: %s; Expected balances: %s"
             % (ctx.get_balances(), ctx.expected_balances))
         time.sleep(1)
+
+print('EPIC')
