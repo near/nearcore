@@ -714,7 +714,9 @@ impl ClientActor {
     fn try_handle_block_production(&mut self) {
         let now = Utc::now();
         if let Some(prev) = self.last_block_production_attempt {
-            if (now - prev).to_std().unwrap_or_default() < self.client.config.block_production_tracking_delay {
+            if (now - prev).to_std().unwrap_or_default()
+                < self.client.config.block_production_tracking_delay
+            {
                 return;
             }
         }
