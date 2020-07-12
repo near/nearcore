@@ -626,20 +626,19 @@ pub(crate) fn state_sync_info_block_exists(
     Ok(())
 }
 
-pub(crate) fn block_info_block_exists(
-    _sv: &mut StoreValidator,
+pub(crate) fn block_info_block_header_exists(
+    sv: &mut StoreValidator,
     block_hash: &CryptoHash,
     _block_info: &BlockInfo,
 ) -> Result<(), StoreValidatorError> {
+    // fake block info for pre-genesis block
     if *block_hash == CryptoHash::default() {
-        // TODO #2893: Bowen why this case have been appeared
         return Ok(());
     }
-    // TODO #2893: No bijection after State Sync
-    /*unwrap_or_err_db!(
-        sv.store.get_ser::<Block>(ColBlock, block_hash.as_ref()),
-        "Can't get Block from DB"
-    );*/
+    unwrap_or_err_db!(
+        sv.store.get_ser::<BlockHeader>(ColBlockHeader, block_hash.as_ref()),
+        "Can't get Block Header from DB"
+    );
     Ok(())
 }
 
