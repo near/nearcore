@@ -5,7 +5,7 @@ use std::sync::{Arc, RwLock};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use actix::{Actor, Addr, AsyncContext, Context, Handler};
+use actix::{Actor, Addr, Arbiter, AsyncContext, Context, Handler};
 use chrono::{DateTime, Utc};
 use log::{debug, error, info, trace, warn};
 
@@ -1236,4 +1236,31 @@ impl ClientActor {
             act.log_summary(ctx);
         });
     }
+}
+
+/// Starts client in a separate Arbiter (thread).
+pub fn start_client(
+    client_config: ClientConfig,
+    chain_genesis: ChainGenesis,
+    runtime_adapter: Arc<dyn RuntimeAdapter>,
+    node_id: PeerId,
+    network_adapter: Arc<dyn NetworkAdapter>,
+    validator_signer: Option<Arc<dyn ValidatorSigner>>,
+    telemetry_actor: Addr<TelemetryActor>,
+) -> (Addr<ClientActor>, Arbiter) {
+    let client_arbiter = Arbiter::current();
+    let client_addr = ClientActor::start_in_arbiter(&client_arbiter, move |_ctx| {
+        ClientActor::new(
+            client_config,
+            chain_genesis,
+            runtime_adapter,
+            node_id,
+            network_adapter,
+            validator_signer,
+            telemetry_actor,
+            true,
+        )
+        .unwrap()
+    });
+    (client_addr, client_arbiter)
 }

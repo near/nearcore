@@ -3,6 +3,7 @@ use std::io;
 
 use chrono::{DateTime, Utc};
 use failure::{Backtrace, Context, Fail};
+use log::error;
 
 use near_primitives::challenge::{ChunkProofs, ChunkState};
 use near_primitives::errors::{EpochError, StorageError};
@@ -171,6 +172,22 @@ pub enum ErrorKind {
     /// Anything else
     #[fail(display = "Other Error: {}", _0)]
     Other(String),
+}
+
+/// For now StorageError can happen at any time from ViewClient because of
+/// the used isolation level + running ViewClient in a separate thread.
+pub trait LogTransientStorageError {
+    fn log_storage_error(self, message: &str) -> Self;
+}
+
+impl<T> LogTransientStorageError for Result<T, Error> {
+    fn log_storage_error(self, message: &str) -> Self {
+        error!(target: "client",
+               "Transient storage error: {}",
+               message
+        );
+        self
+    }
 }
 
 impl Display for Error {
