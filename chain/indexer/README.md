@@ -34,7 +34,13 @@ $ cd tools/indexer/example
 $ cargo run --release
 ```
 
-After that you should see logs of every block produced by your localnet
+After the node is started, you should see logs of every block produced in your localnet. Get back to the code to implement any custom handling of the data flowing into the indexer.
+
+Use [near-shell](https://github.com/near/near-shell) to submit transactions. For example, to create a new user you run the following command:
+
+```
+$ env NEAR_ENV=local near --keyPath ~/.near/localnet/validator_key.json create_account new-account.test.near --masterAccount test.near
+```
 
 
 ### betanet
