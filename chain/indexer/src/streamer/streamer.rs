@@ -58,7 +58,10 @@ async fn fetch_status(
 async fn fetch_latest_block(
     client: &Addr<near_client::ViewClientActor>,
 ) -> Result<views::BlockView, FailedToFetchData> {
-    client.send(near_client::GetBlock::latest()).await?.map_err(|_| FailedToFetchData)
+    client
+        .send(near_client::GetBlock(types::BlockIdOrFinality::Finality(types::Finality::Final)))
+        .await?
+        .map_err(|_| FailedToFetchData)
 }
 
 /// Fetches specific block by it's height
