@@ -17,7 +17,7 @@ See the [example](https://github.com/nearprotocol/nearcore/tree/master/tools/ind
 Before you proceed, make sure you have the following software installed:
 * [rustup](https://rustup.rs/) or Rust version that is mentioned in `rust-toolchain` file in the root of nearcore project.
 
-### Localnet
+### localnet
 
 Clone [nearcore](https://github.com/nearprotocol/nearcore)
 
@@ -45,7 +45,7 @@ $ env NEAR_ENV=local near --keyPath ~/.near/localnet/validator_key.json create_a
 
 ### betanet
 
-To run the NEAR Indexer connected to Betanet we need to have configs and keys prepopulated, you can get them with the [nearup](https://github.com/near/nearup). Clone it and follow the instruction to run non-validating node (leaving account ID empty).
+To run the NEAR Indexer connected to betanet we need to have configs and keys prepopulated, you can get them with the [nearup](https://github.com/near/nearup). Clone it and follow the instruction to run non-validating node (leaving account ID empty).
 
 Configs for betanet are in the `~/.near/betanet` folder. We need to ensure that NEAR Indexer follows all the necessary shards, so `"tracked_shards"` parameter in `~/.near/betaneta/config.json` needs to be configured properly. For example, with a single shared network, you just add the shard #0 to the list:
 
