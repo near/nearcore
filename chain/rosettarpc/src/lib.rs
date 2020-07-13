@@ -87,14 +87,14 @@ async fn network_status(
         index: genesis.config.genesis_height.try_into().unwrap(),
         hash: genesis_block.header.hash.to_base(),
     };
-    let oldest_block_identifier =
-        if true { genesis_block_identifier.clone() } else { genesis_block_identifier.clone() }; // XXX: query GC for the oldest block
+    // TODO: query GC for the oldest block
+    let oldest_block_identifier = genesis_block_identifier.clone();
     Ok(Json(models::NetworkStatusResponse {
         current_block_identifier: models::BlockIdentifier {
             index: status.sync_info.latest_block_height.try_into().unwrap(),
             hash: status.sync_info.latest_block_hash.to_base(),
         },
-        current_block_timestamp: status.sync_info.latest_block_time.timestamp(),
+        current_block_timestamp: status.sync_info.latest_block_time.timestamp_millis(),
         genesis_block_identifier,
         oldest_block_identifier,
         peers: network_info
@@ -145,6 +145,52 @@ async fn network_options(
     }))
 }
 
+enum TransactionOrReceipt {
+    Transaction(near_primitives::views::SignedTransactionView),
+    Receipt(near_primitives::views::ReceiptView),
+}
+
+async fn collect_rosetta_transaction(
+    view_client_addr: web::Data<Addr<ViewClientActor>>,
+    transaction: TransactionOrReceipt,
+) -> models::Transaction {
+    let (id, mut rosetta_transaction): (_, models::Transaction) = match transaction {
+        TransactionOrReceipt::Transaction(transaction) => (
+            near_primitives::types::TransactionOrReceiptId::Transaction {
+                transaction_hash: transaction.hash,
+                sender_id: transaction.signer_id.clone(),
+            },
+            (&transaction).into(),
+        ),
+        TransactionOrReceipt::Receipt(receipt) => (
+            near_primitives::types::TransactionOrReceiptId::Receipt {
+                receipt_id: receipt.receipt_id,
+                receiver_id: receipt.receiver_id.clone(),
+            },
+            (&receipt).into(),
+        ),
+    };
+
+    if let Ok(Ok(execution_outcome)) =
+        view_client_addr.send(near_client::GetExecutionOutcome { id }).await
+    {
+        rosetta_transaction.metadata.next_transactions = Some(
+            execution_outcome
+                .outcome_proof
+                .outcome
+                .receipt_ids
+                .into_iter()
+                .map(|receipt_id| models::TransactionIdentifier { hash: receipt_id.to_base() })
+                .collect(),
+        );
+        for operation in &mut rosetta_transaction.operations {
+            operation.status = (&execution_outcome.outcome_proof.outcome.status).into();
+        }
+    }
+
+    rosetta_transaction
+}
+
 #[api_v2_operation]
 /// Get a Block
 async fn block_details(
@@ -174,10 +220,12 @@ async fn block_details(
         details: None,
     })?;
 
+    eprintln!("B1: {:?}", block_id);
     let block = view_client_addr
         .send(near_client::GetBlock(block_id))
         .await?
         .map_err(models::ErrorKind::Other)?;
+    eprintln!("B2: {:?}", block);
 
     let block_identifier = models::BlockIdentifier {
         index: block.header.height.try_into().unwrap(),
@@ -207,18 +255,29 @@ async fn block_details(
             view_client_addr.send(near_client::GetChunk::ChunkHash(chunk.chunk_hash.into()))
         })
         .collect();
-    let mut transactions = Vec::<models::Transaction>::new();
+    let mut rosetta_transactions = futures::stream::FuturesOrdered::<_>::new();
     while let Some(chunk) = chunks.next().await {
         let chunk = chunk?.map_err(models::ErrorKind::Other)?;
-        transactions.extend(chunk.transactions.iter().map(Into::into));
-        transactions.extend(chunk.receipts.iter().map(Into::into));
+        rosetta_transactions.extend(chunk.transactions.into_iter().map(|transaction| {
+            collect_rosetta_transaction(
+                view_client_addr.clone(),
+                TransactionOrReceipt::Transaction(transaction),
+            )
+        }));
+        rosetta_transactions.extend(chunk.receipts.into_iter().map(|receipt| {
+            collect_rosetta_transaction(
+                view_client_addr.clone(),
+                TransactionOrReceipt::Receipt(receipt),
+            )
+        }));
     }
+    let transactions: Vec<models::Transaction> = rosetta_transactions.collect().await;
 
     Ok(Json(models::BlockResponse {
         block: models::Block {
             block_identifier,
             parent_block_identifier,
-            timestamp: block.header.timestamp.try_into().unwrap(),
+            timestamp: (block.header.timestamp / 1_000_000).try_into().unwrap(),
             transactions,
             metadata: None,
         },
@@ -283,20 +342,25 @@ async fn block_transaction_details(
 
     while let Some(chunk) = chunks.next().await {
         let chunk = chunk?.map_err(models::ErrorKind::Other)?;
-        let transaction = if let Some(transaction) = chunk
+        let transaction_or_receipt = if let Some(transaction) = chunk
             .transactions
-            .iter()
+            .into_iter()
             .find(|transaction| transaction.hash == transaction_or_receipt_hash)
         {
-            transaction.into()
-        } else if let Some(receipt) =
-            chunk.receipts.iter().find(|receipt| receipt.receipt_id == transaction_or_receipt_hash)
+            TransactionOrReceipt::Transaction(transaction)
+        } else if let Some(receipt) = chunk
+            .receipts
+            .into_iter()
+            .find(|receipt| receipt.receipt_id == transaction_or_receipt_hash)
         {
-            receipt.into()
+            TransactionOrReceipt::Receipt(receipt)
         } else {
             continue;
         };
-        return Ok(Json(models::BlockTransactionResponse { transaction }));
+
+        let rosetta_transaction =
+            collect_rosetta_transaction(view_client_addr.clone(), transaction_or_receipt).await;
+        return Ok(Json(models::BlockTransactionResponse { transaction: rosetta_transaction }));
     }
 
     Err(models::ErrorKind::NotFound(
@@ -367,8 +431,10 @@ async fn account_balance(
     let near_primitives::views::QueryResponse { block_hash, block_height, kind } =
         tokio::time::timeout(std::time::Duration::from_secs(10), async {
             loop {
-                if let Some(query_response) =
-                    view_client_addr.send(query.clone()).await?.map_err(models::ErrorKind::Other)?
+                if let Some(query_response) = view_client_addr
+                    .send(query.clone())
+                    .await?
+                    .map_err(models::ErrorKind::NotFound)?
                 {
                     break Result::<_, models::Error>::Ok(query_response);
                 }
@@ -410,8 +476,8 @@ async fn mempool(
     client_addr: web::Data<Addr<ClientActor>>,
     body: Json<models::NetworkRequest>,
 ) -> Result<Json<models::MempoolResponse>, models::Error> {
-    // TODO
-    Err(models::ErrorKind::Other("Not implemented yet".to_string()).into())
+    // TOOD: The mempool is short-lived, so it is currently not even exposed internally.
+    Ok(Json(models::MempoolResponse { transaction_identifiers: vec![] }))
 }
 
 #[api_v2_operation]
@@ -509,6 +575,17 @@ async fn construction_metadata(
 
 #[api_v2_operation]
 /// Generate an Unsigned Transaction and Signing Payloads
+///
+/// Payloads is called with an array of operations and the response from
+/// `/construction/metadata`. It returns an unsigned transaction blob and a
+/// collection of payloads that must be signed by particular addresses using a
+/// certain SignatureType. The array of operations provided in transaction
+/// construction often times can not specify all "effects" of a transaction
+/// (consider invoked transactions in Ethereum). However, they can
+/// deterministically specify the "intent" of the transaction, which is
+/// sufficient for construction. For this reason, parsing the corresponding
+/// transaction in the Data API (when it lands on chain) will contain a superset
+/// of whatever operations were provided during construction.
 async fn construction_payloads(
     client_addr: web::Data<Addr<ClientActor>>,
     body: Json<models::ConstructionSubmitRequest>,
