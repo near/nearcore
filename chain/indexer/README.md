@@ -14,7 +14,8 @@ See the [example](https://github.com/nearprotocol/nearcore/tree/master/tools/ind
 
 ## How to set up and test NEAR Indexer
 
-Assuming you have all necessary tools installed (Rust, Cargo etc.)
+Before you proceed, make sure you have the following software installed:
+* [rustup](https://rustup.rs/) or Rust version that is mentioned in `rust-toolchain` file in the root of nearcore project.
 
 ### Localnet
 
@@ -30,7 +31,7 @@ The above commands should initialize necessary configs and keys to run localnet
 
 ```bash
 $ cd tools/indexer/example
-$ cargo run
+$ cargo run --release
 ```
 
 After that you should see logs of every block produced by your localnet
@@ -57,4 +58,4 @@ $ cd nearcore/tools/indexer/example
 $ cargo run --release
 ```
 
-After that you should see logs of every block produced by Betanet
+After the network is synced, you should see logs of every block produced in Betanet. Get back to the code to implement any custom handling of the data flowing into the indexer.

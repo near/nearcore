@@ -36,7 +36,7 @@ impl Indexer {
 
         let near_config = neard::load_config(&home_dir);
         let system = System::new("NEAR Indexer");
-        let (client, view_client) = neard::start_with_config(&home_dir, near_config.clone());
+        let (client, view_client, _) = neard::start_with_config(&home_dir, near_config.clone());
         neard::genesis_validate::validate_genesis(&near_config.genesis);
         Self { actix_runtime: system, view_client, client }
     }

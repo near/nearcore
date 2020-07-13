@@ -26,6 +26,7 @@ members = [
     "chain/pool",
     "chain/client",
     "chain/network",
+    "chain/indexer",
     "chain/jsonrpc",
     "chain/jsonrpc/client",
     "chain/jsonrpc/test-utils",

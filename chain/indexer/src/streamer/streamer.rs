@@ -134,7 +134,7 @@ async fn fetch_outcomes(
                 types::TransactionOrReceiptId::Transaction { .. } => {
                     outcomes.push(Outcome::Transaction(outcome.outcome_proof));
                 }
-                _ => {
+                types::TransactionOrReceiptId::Receipt { .. } => {
                     outcomes.push(Outcome::Receipt(outcome.outcome_proof));
                 }
             },
@@ -176,7 +176,7 @@ pub(crate) async fn start(
     mut blocks_sink: mpsc::Sender<BlockResponse>,
 ) {
     info!(target: INDEXER, "Starting Streamer...");
-    let mut outcomes_to_get: Vec<types::TransactionOrReceiptId> = vec![];
+    let mut outcomes_to_get = Vec::<types::TransactionOrReceiptId>::new();
     let mut last_synced_block_height: types::BlockHeight = 0;
     'main: loop {
         time::delay_for(INTERVAL).await;
@@ -197,7 +197,12 @@ pub(crate) async fn start(
         if last_synced_block_height == 0 {
             last_synced_block_height = latest_block_height;
         }
-        debug!(target: INDEXER, "{:?}", latest_block_height);
+        debug!(
+            target: INDEXER,
+            "The last synced block is #{} and the latest block is #{}",
+            last_synced_block_height,
+            latest_block_height
+        );
         for block_height in (last_synced_block_height + 1)..=latest_block_height {
             if let Ok(block) = fetch_block_by_height(&view_client, block_height).await {
                 let response =
