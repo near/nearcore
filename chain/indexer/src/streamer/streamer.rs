@@ -6,7 +6,7 @@ use actix::{Addr, MailboxError};
 use futures::stream::StreamExt;
 use tokio::sync::mpsc;
 use tokio::time;
-use tracing::{debug, error, info};
+use tracing::{debug, info};
 
 use near_client;
 pub use near_primitives::hash::CryptoHash;
@@ -170,10 +170,10 @@ async fn fetch_chunks(
 /// compares to already fetched block height and in case it differs fetches new block of given height.
 ///
 /// We have to pass `client: Addr<near_client::ClientActor>` and `view_client: Addr<near_client::ViewClientActor>`.
-pub async fn start(
+pub(crate) async fn start(
     view_client: Addr<near_client::ViewClientActor>,
     client: Addr<near_client::ClientActor>,
-    mut queue: mpsc::Sender<BlockResponse>,
+    mut blocks_sink: mpsc::Sender<BlockResponse>,
 ) {
     info!(target: INDEXER, "Starting Streamer...");
     let mut outcomes_to_get: Vec<types::TransactionOrReceiptId> = vec![];
@@ -199,30 +199,23 @@ pub async fn start(
         }
         debug!(target: INDEXER, "{:?}", latest_block_height);
         for block_height in (last_synced_block_height + 1)..=latest_block_height {
-            match fetch_block_by_height(&view_client, block_height).await {
-                Ok(block) => {
-                    let response =
-                        fetch_block_with_chunks(&view_client, block, outcomes_to_get.drain(..))
-                            .await;
+            if let Ok(block) = fetch_block_by_height(&view_client, block_height).await {
+                let response =
+                    fetch_block_with_chunks(&view_client, block, outcomes_to_get.drain(..)).await;
 
-                    if let Ok(fetch_block_response) = response {
-                        outcomes_to_get = fetch_block_response.new_outcomes_to_get;
-                        debug!(target: INDEXER, "{:#?}", &fetch_block_response.block_response);
-                        match queue.send(fetch_block_response.block_response).await {
-                            Ok(_) => {}
-                            _ => {
-                                error!(
-                                        target: INDEXER,
-                                        "Unable to send BlockResponse to listener, listener doesn't listen. terminating..."
-                                    );
-                                break 'main;
-                            }
-                        };
-                    } else {
-                        debug!(target: INDEXER, "Missing data, skipping...");
+                if let Ok(fetch_block_response) = response {
+                    outcomes_to_get = fetch_block_response.new_outcomes_to_get;
+                    debug!(target: INDEXER, "{:#?}", &fetch_block_response.block_response);
+                    if let Err(_) = blocks_sink.send(fetch_block_response.block_response).await {
+                        info!(
+                                target: INDEXER,
+                                "Unable to send BlockResponse to listener, listener doesn't listen. terminating..."
+                            );
+                        break 'main;
                     }
+                } else {
+                    debug!(target: INDEXER, "Missing data, skipping block #{}...", block_height);
                 }
-                _ => {}
             }
             last_synced_block_height = block_height;
         }

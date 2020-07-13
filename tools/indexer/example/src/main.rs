@@ -46,8 +46,12 @@ async fn listen_blocks(mut stream: mpsc::Receiver<near_indexer::BlockResponse>) 
     while let Some(block) = stream.recv().await {
         // TODO: handle data as you need
         // Example of `block` with all the data
-        // Note that `outcomes` for specific transaction won't be in the same block
-        // (it should be in the next one)
+        //
+        // Note that `outcomes` for a given transaction won't be included into the same block.
+        // Execution outcomes are included into the blocks after the transaction or receipt
+        // are recorded on a chain; in most cases, it is the next block after the one that has
+        // the transaction or receipt.
+        //
         // BlockResponse {
         //     block: BlockView {
         //         author: "test.near",
