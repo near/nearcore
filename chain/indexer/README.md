@@ -40,9 +40,7 @@ After that you should see logs of every block produced by your localnet
 
 To run the NEAR Indexer connected to Betanet we need to have configs and keys prepopulated, you can get them with the [nearup](https://github.com/near/nearup). Clone it and follow the instruction to run non-validating node (leaving account ID empty).
 
-Configs for beta net are in the `~/.near/betanet` folder. We need to ensure `"tracked_shards"` parameter in `~/.near/betaneta/config.json` set up properly.
-
-It has to be
+Configs for betanet are in the `~/.near/betanet` folder. We need to ensure that NEAR Indexer follows all the necessary shards, so `"tracked_shards"` parameter in `~/.near/betaneta/config.json` needs to be configured properly. For example, with a single shared network, you just add the shard #0 to the list:
 
 ```
 ...
