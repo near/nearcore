@@ -20,7 +20,6 @@ pub use near_primitives;
 
 /// This is the core component, which handles `nearcore` and internal `streamer`.
 pub struct Indexer {
-    near_config: neard::config::NearConfig,
     actix_runtime: actix::SystemRunner,
     view_client: actix::Addr<near_client::ViewClientActor>,
     client: actix::Addr<near_client::ClientActor>,
@@ -38,7 +37,8 @@ impl Indexer {
         let near_config = neard::load_config(&home_dir);
         let system = System::new("NEAR Indexer");
         let (client, view_client) = neard::start_with_config(&home_dir, near_config.clone());
-        Self { near_config, actix_runtime: system, view_client, client }
+        neard::genesis_validate::validate_genesis(&near_config.genesis);
+        Self { actix_runtime: system, view_client, client }
     }
 
     /// Boots up `near_indexer::streamer`, so it monitors the new blocks with chunks, transactions, receipts, and execution outcomes inside. The returned stream handler should be drained and handled on the user side.
@@ -50,7 +50,6 @@ impl Indexer {
 
     /// Start Indexer.
     pub fn start(self) {
-        neard::genesis_validate::validate_genesis(&self.near_config.genesis);
         self.actix_runtime.run().unwrap();
     }
 }
