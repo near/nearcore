@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use actix::Addr;
+use actix::{Addr, Arbiter};
 use tempfile::{tempdir, TempDir};
 
 use near_chain::{Chain, ChainGenesis, DoomslugThresholdMode};
@@ -54,7 +54,7 @@ pub fn start_nodes(
     num_lightclient: usize,
     epoch_length: BlockHeightDelta,
     genesis_height: BlockHeight,
-) -> (Arc<Genesis>, Vec<String>, Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>) {
+) -> (Arc<Genesis>, Vec<String>, Vec<(Addr<ClientActor>, Addr<ViewClientActor>, Vec<Arbiter>)>) {
     init_integration_logger();
 
     let num_nodes = dirs.len();
@@ -100,8 +100,8 @@ pub fn start_nodes(
 
     let mut res = vec![];
     for (i, near_config) in near_configs.into_iter().enumerate() {
-        let (client, view_client) = start_with_config(dirs[i].path(), near_config);
-        res.push((client, view_client))
+        let (client, view_client, arbiters) = start_with_config(dirs[i].path(), near_config);
+        res.push((client, view_client, arbiters))
     }
     (genesis, rpc_addrs, res)
 }

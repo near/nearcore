@@ -1135,27 +1135,30 @@ impl RuntimeAdapter for NightshadeRuntime {
         epoch_manager.get_validator_info(block_hash).map_err(|e| e.into())
     }
 
+    /// Returns StorageError when storage is inconsistent.
+    /// This is possible with the used isolation level + running ViewClient in a separate thread
     fn obtain_state_part(
         &self,
         shard_id: ShardId,
         state_root: &StateRoot,
         part_id: u64,
         num_parts: u64,
-    ) -> Vec<u8> {
+    ) -> Result<Vec<u8>, Error> {
         assert!(part_id < num_parts);
         let trie = self.get_trie_for_shard(shard_id);
-        match trie.get_trie_nodes_for_part(part_id, num_parts, state_root) {
+        let result = match trie.get_trie_nodes_for_part(part_id, num_parts, state_root) {
             Ok(partial_state) => partial_state,
             Err(e) => {
                 error!(target: "runtime",
                     "Can't get_trie_nodes_for_part for {:?}, part_id {:?}, num_parts {:?}, {:?}",
                     state_root, part_id, num_parts, e
                 );
-                panic!("RuntimeError::StorageInconsistentState, {:?}", e)
+                return Err(e.to_string().into());
             }
         }
         .try_to_vec()
-        .expect("serializer should not fail")
+        .expect("serializer should not fail");
+        Ok(result)
     }
 
     fn validate_state_part(
@@ -1203,10 +1206,14 @@ impl RuntimeAdapter for NightshadeRuntime {
         Ok(store_update.commit()?)
     }
 
-    fn get_state_root_node(&self, shard_id: ShardId, state_root: &StateRoot) -> StateRootNode {
+    fn get_state_root_node(
+        &self,
+        shard_id: ShardId,
+        state_root: &StateRoot,
+    ) -> Result<StateRootNode, Error> {
         self.get_trie_for_shard(shard_id)
             .retrieve_root_node(state_root)
-            .expect("Failed to get root node")
+            .map_err(|e| e.to_string().into())
     }
 
     fn validate_state_root_node(
@@ -1934,8 +1941,8 @@ mod test {
         let staking_transaction = stake(1, &signer, &block_producers[0], TESTING_INIT_STAKE + 1);
         env.step_default(vec![staking_transaction]);
         env.step_default(vec![]);
-        let state_part = env.runtime.obtain_state_part(0, &env.state_roots[0], 0, 1);
-        let root_node = env.runtime.get_state_root_node(0, &env.state_roots[0]);
+        let state_part = env.runtime.obtain_state_part(0, &env.state_roots[0], 0, 1).unwrap();
+        let root_node = env.runtime.get_state_root_node(0, &env.state_roots[0]).unwrap();
         let mut new_env =
             TestEnv::new("test_state_sync", vec![validators.clone()], 2, vec![], vec![], true);
         for i in 1..=2 {
