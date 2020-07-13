@@ -4,6 +4,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use std::thread;
 use std::time::{Duration, Instant};
+use chrono::Duration as OldDuration;
 
 use actix::{Actor, Addr, Arbiter, AsyncContext, Context, Handler};
 use chrono::{DateTime, Utc};
@@ -76,7 +77,9 @@ pub struct ClientActor {
     info_helper: InfoHelper,
 
     /// Last time handle_block_production method was called
-    last_block_production_attempt: Option<DateTime<Utc>>,
+    block_production_next_attempt: DateTime<Utc>,
+    doomslug_timer_next_attempt: DateTime<Utc>,
+    chunk_request_retry_next_attempt: DateTime<Utc>,
 }
 
 /// Blocks the program until given genesis time arrives.
@@ -124,6 +127,7 @@ impl ClientActor {
             enable_doomslug,
         )?;
 
+        let now = Utc::now();
         Ok(ClientActor {
             #[cfg(feature = "adversarial")]
             adv_sync_height: None,
@@ -147,7 +151,9 @@ impl ClientActor {
             },
             last_validator_announce_time: None,
             info_helper,
-            last_block_production_attempt: None,
+            block_production_next_attempt: now,
+            doomslug_timer_next_attempt: now,
+            chunk_request_retry_next_attempt: now,
         })
     }
 }
@@ -178,11 +184,8 @@ impl Actor for ClientActor {
 impl Handler<NetworkClientMessages> for ClientActor {
     type Result = NetworkClientResponses;
 
-    fn handle(&mut self, msg: NetworkClientMessages, _: &mut Context<Self>) -> Self::Result {
-        // There is a bug in Actix library. While there are messages in mailbox, Actix
-        // will prioritize processing messages until mailbox is empty. Execution of any other task
-        // scheduled with run_later will be delayed.
-        self.try_handle_block_production();
+    fn handle(&mut self, msg: NetworkClientMessages, ctx: &mut Context<Self>) -> Self::Result {
+        self.check_triggers(ctx);
 
         match msg {
             #[cfg(feature = "adversarial")]
@@ -494,8 +497,8 @@ impl Handler<NetworkClientMessages> for ClientActor {
 impl Handler<Status> for ClientActor {
     type Result = Result<StatusResponse, String>;
 
-    fn handle(&mut self, msg: Status, _: &mut Context<Self>) -> Self::Result {
-        self.try_handle_block_production();
+    fn handle(&mut self, msg: Status, ctx: &mut Context<Self>) -> Self::Result {
+        self.check_triggers(ctx);
 
         let head = self.client.chain.head().map_err(|err| err.to_string())?;
         let header = self
@@ -562,8 +565,8 @@ impl Handler<Status> for ClientActor {
 impl Handler<GetNetworkInfo> for ClientActor {
     type Result = Result<NetworkInfoResponse, String>;
 
-    fn handle(&mut self, _: GetNetworkInfo, _: &mut Context<Self>) -> Self::Result {
-        self.try_handle_block_production();
+    fn handle(&mut self, _: GetNetworkInfo, ctx: &mut Context<Self>) -> Self::Result {
+        self.check_triggers(ctx);
 
         Ok(NetworkInfoResponse {
             active_peers: self
@@ -704,23 +707,29 @@ impl ClientActor {
 
     /// Runs a loop to keep track of the latest known block, produces if it's this validators turn.
     fn block_production_tracking(&mut self, ctx: &mut Context<Self>) {
-        self.try_handle_block_production();
+        self.check_triggers(ctx);
         let wait = self.client.config.block_production_tracking_delay;
         ctx.run_later(wait, move |act, ctx| {
             act.block_production_tracking(ctx);
         });
     }
 
+    fn check_triggers(&mut self, ctx: &mut Context<ClientActor>) {
+        // There is a bug in Actix library. While there are messages in mailbox, Actix
+        // will prioritize processing messages until mailbox is empty. Execution of any other task
+        // scheduled with run_later will be delayed.
+        self.try_handle_block_production();
+        self.try_doomslug_timer(ctx);
+        self.try_chunk_request_retry(ctx);
+    }
+
     fn try_handle_block_production(&mut self) {
         let now = Utc::now();
-        if let Some(prev) = self.last_block_production_attempt {
-            if (now - prev).to_std().unwrap_or_default()
-                < self.client.config.block_production_tracking_delay
-            {
-                return;
-            }
+        if now > self.block_production_next_attempt {
+            return;
         }
-        self.last_block_production_attempt = Some(now);
+        self.block_production_next_attempt = now.checked_sub_signed(
+            OldDuration::from_std(self.client.config.block_production_tracking_delay).unwrap()).unwrap();
 
         match self.handle_block_production() {
             Ok(()) => {}
@@ -728,6 +737,29 @@ impl ClientActor {
                 error!(target: "client", "Handle block production failed: {:?}", err);
             }
         }
+    }
+
+    fn try_doomslug_timer(&mut self, ctx: &mut Context<ClientActor>) {
+        let now = Utc::now();
+        if now > self.doomslug_timer_next_attempt {
+            return;
+        }
+        self.doomslug_timer_next_attempt = now.checked_sub_signed(
+            OldDuration::from_std(Duration::from_millis(50)).unwrap()).unwrap();
+
+        self.doomslug_timer(ctx);
+    }
+
+    fn try_chunk_request_retry(&mut self, ctx: &mut Context<ClientActor>) {
+        let now = Utc::now();
+        if now > self.chunk_request_retry_next_attempt {
+            return;
+        }
+        self.chunk_request_retry_next_attempt = now.checked_sub_signed(
+            OldDuration::from_std(self.client.config.chunk_request_retry_period)
+                .unwrap()).unwrap();
+
+        self.chunk_request_retry(ctx);
     }
 
     /// Produce block if we are block producer for given `next_height` height.
