@@ -36,7 +36,7 @@ $ cargo run
 After that you should see logs of every block produced by your localnet
 
 
-### Betanet
+### betanet
 
 To run the NEAR Indexer connected to Betanet we need to have configs and keys prepopulated, you can get them with the [nearup](https://github.com/near/nearup). Clone it and follow the instruction to run non-validating node (leaving account ID empty).
 
