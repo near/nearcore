@@ -300,12 +300,7 @@ pub(crate) struct Currency {
 
 /// Instead of utilizing HTTP status codes to describe node errors (which often
 /// do not have a good analog), rich errors are returned using this object.
-#[api_v2_errors(
-    code = 400,
-    description = "See the inner `code` value to get more details",
-    code = 500,
-    description = "Unexpected internal server error, please, file an issue"
-)]
+#[api_v2_errors(code = 500, description = "See the inner `code` value to get more details")]
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, Apiv2Schema)]
 pub(crate) struct Error {
     /// Code is a network-specific error code. If desired, this code can be
@@ -348,19 +343,19 @@ impl Error {
             ErrorKind::InvalidInput(message) => Self {
                 code: 400,
                 message: format!("InvalidInput: {}", message),
-                retriable: true,
+                retriable: false,
                 details: None,
             },
             ErrorKind::NotFound(message) => Self {
                 code: 404,
                 message: format!("NotFound: {}", message),
-                retriable: true,
+                retriable: false,
                 details: None,
             },
             ErrorKind::WrongNetwork(message) => Self {
-                code: 404,
+                code: 403,
                 message: format!("WrongNetwork: {}", message),
-                retriable: true,
+                retriable: false,
                 details: None,
             },
             ErrorKind::Timeout(message) => Self {
@@ -547,6 +542,7 @@ pub(crate) struct NetworkStatusResponse {
     Apiv2Schema,
     strum::EnumIter,
 )]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub(crate) enum OperationType {
     CreateAccount,
     DeployContract,
@@ -583,6 +579,7 @@ impl std::convert::From<&near_primitives::views::ActionView> for OperationType {
     Apiv2Schema,
     strum::EnumIter,
 )]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub(crate) enum OperationStatusKind {
     Unknown,
     Failure,
@@ -595,6 +592,17 @@ impl OperationStatusKind {
             Self::Unknown => false,
             Self::Failure => false,
             Self::Success => true,
+        }
+    }
+}
+
+impl From<&near_primitives::views::ExecutionStatusView> for OperationStatusKind {
+    fn from(status: &near_primitives::views::ExecutionStatusView) -> Self {
+        match status {
+            near_primitives::views::ExecutionStatusView::SuccessValue(_)
+            | near_primitives::views::ExecutionStatusView::SuccessReceiptId(_) => Self::Success,
+            near_primitives::views::ExecutionStatusView::Failure(_) => Self::Failure,
+            near_primitives::views::ExecutionStatusView::Unknown => Self::Unknown,
         }
     }
 }
@@ -784,9 +792,11 @@ pub(crate) struct Transaction {
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, Apiv2Schema)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub(crate) enum TransactionType {
     Transaction,
-    Receipt,
+    ActionReceipt,
+    DataReceipt,
 }
 
 /// Extra data for Transaction
@@ -794,6 +804,11 @@ pub(crate) enum TransactionType {
 pub(crate) struct TransactionMetadata {
     #[serde(rename = "type")]
     type_: TransactionType,
+
+    /// Next transactions (to be precise, receipts) are only known after the
+    /// execution, so this field gets populated from Execution Outcome.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) next_transactions: Option<Vec<TransactionIdentifier>>,
 }
 
 impl From<&near_primitives::views::SignedTransactionView> for Transaction {
@@ -817,35 +832,42 @@ impl From<&near_primitives::views::SignedTransactionView> for Transaction {
                     operation
                 })
                 .collect(),
-            metadata: TransactionMetadata { type_: TransactionType::Transaction },
+            metadata: TransactionMetadata {
+                type_: TransactionType::Transaction,
+                next_transactions: None,
+            },
         }
     }
 }
 
 impl From<&near_primitives::views::ReceiptView> for Transaction {
     fn from(receipt: &near_primitives::views::ReceiptView) -> Self {
-        let metadata = TransactionMetadata { type_: TransactionType::Receipt };
-        let operations = match &receipt.receipt {
-            near_primitives::views::ReceiptEnumView::Action { actions, .. } => actions
-                .iter()
-                .enumerate()
-                .map(|(index, action)| {
-                    let mut operation = Operation::from(action);
-                    operation.operation_identifier.index = index.try_into().unwrap();
-                    operation.account = Some(AccountIdentifier {
-                        address: receipt.receiver_id.clone(),
-                        sub_account: None,
-                        metadata: None,
-                    });
-                    operation
-                })
-                .collect(),
-            near_primitives::views::ReceiptEnumView::Data { .. } => vec![],
+        let (type_, operations) = match &receipt.receipt {
+            near_primitives::views::ReceiptEnumView::Action { actions, .. } => (
+                TransactionType::ActionReceipt,
+                actions
+                    .iter()
+                    .enumerate()
+                    .map(|(index, action)| {
+                        let mut operation = Operation::from(action);
+                        operation.operation_identifier.index = index.try_into().unwrap();
+                        operation.account = Some(AccountIdentifier {
+                            address: receipt.receiver_id.clone(),
+                            sub_account: None,
+                            metadata: None,
+                        });
+                        operation
+                    })
+                    .collect(),
+            ),
+            near_primitives::views::ReceiptEnumView::Data { .. } => {
+                (TransactionType::DataReceipt, Vec::new())
+            }
         };
         Self {
             transaction_identifier: TransactionIdentifier { hash: receipt.receipt_id.to_string() },
             operations,
-            metadata,
+            metadata: TransactionMetadata { type_, next_transactions: None },
         }
     }
 }
