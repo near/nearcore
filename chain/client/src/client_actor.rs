@@ -747,7 +747,28 @@ impl ClientActor {
         self.doomslug_timer_next_attempt = now.checked_sub_signed(
             OldDuration::from_std(Duration::from_millis(50)).unwrap()).unwrap();
 
-        self.doomslug_timer(ctx);
+        let _ = self.client.check_and_update_doomslug_tip();
+
+        let approvals = self.client.doomslug.process_timer(Instant::now());
+
+        // Important to save the largest approval target height before sending approvals, so
+        // that if the node crashes in the meantime, we cannot get slashed on recovery
+        let mut chain_store_update = self.client.chain.mut_store().store_update();
+        chain_store_update
+            .save_largest_target_height(self.client.doomslug.get_largest_target_height());
+
+        match chain_store_update.commit() {
+            Ok(_) => {
+                for approval in approvals {
+                    if let Err(e) =
+                    self.client.send_approval(&self.client.doomslug.get_tip().0, approval)
+                    {
+                        error!("Error while sending an approval {:?}", e);
+                    }
+                }
+            }
+            Err(e) => error!("Error while committing largest skipped height {:?}", e),
+        };
     }
 
     fn try_chunk_request_retry(&mut self, ctx: &mut Context<ClientActor>) {
@@ -759,7 +780,7 @@ impl ClientActor {
             OldDuration::from_std(self.client.config.chunk_request_retry_period)
                 .unwrap()).unwrap();
 
-        self.chunk_request_retry(ctx);
+        self.client.shards_mgr.resend_chunk_requests();
     }
 
     /// Produce block if we are block producer for given `next_height` height.
@@ -1047,7 +1068,7 @@ impl ClientActor {
 
     /// Job to retry chunks that were requested but not received within expected time.
     fn chunk_request_retry(&mut self, ctx: &mut Context<ClientActor>) {
-        self.client.shards_mgr.resend_chunk_requests();
+        self.check_triggers(ctx);
         ctx.run_later(self.client.config.chunk_request_retry_period, move |act, ctx| {
             act.chunk_request_retry(ctx);
         });
@@ -1055,28 +1076,7 @@ impl ClientActor {
 
     /// An actix recursive function that processes doomslug timer
     fn doomslug_timer(&mut self, ctx: &mut Context<ClientActor>) {
-        let _ = self.client.check_and_update_doomslug_tip();
-
-        let approvals = self.client.doomslug.process_timer(Instant::now());
-
-        // Important to save the largest approval target height before sending approvals, so
-        // that if the node crashes in the meantime, we cannot get slashed on recovery
-        let mut chain_store_update = self.client.chain.mut_store().store_update();
-        chain_store_update
-            .save_largest_target_height(self.client.doomslug.get_largest_target_height());
-
-        match chain_store_update.commit() {
-            Ok(_) => {
-                for approval in approvals {
-                    if let Err(e) =
-                        self.client.send_approval(&self.client.doomslug.get_tip().0, approval)
-                    {
-                        error!("Error while sending an approval {:?}", e);
-                    }
-                }
-            }
-            Err(e) => error!("Error while committing largest skipped height {:?}", e),
-        };
+        self.check_triggers(ctx);
 
         ctx.run_later(Duration::from_millis(50), move |act, ctx| {
             act.doomslug_timer(ctx);
