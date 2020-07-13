@@ -121,9 +121,8 @@ wait_for_height(SMALL_HEIGHT, boot_node)
 
 observer = spin_up_node(config, near_root, node_dirs[2], 2, boot_node.node_key.pk, boot_node.addr())
 
-
 # Check that bps is not degraded
-wait_for_height(LARGE_HEIGHT, boot_node, bps_threshold=0.2)
+wait_for_height(LARGE_HEIGHT, boot_node)
 
 # Make sure observer2 is able to sync
 wait_for_height(SMALL_HEIGHT, observer)

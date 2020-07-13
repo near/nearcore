@@ -78,7 +78,9 @@ fn main() {
             .arg(Arg::with_name("test-seed").long("test-seed").takes_value(true).help("Specify private key generated from seed (TESTING ONLY)"))
             .arg(Arg::with_name("num-shards").long("num-shards").takes_value(true).help("Number of shards to initialize the chain with"))
             .arg(Arg::with_name("fast").long("fast").takes_value(false).help("Makes block production fast (TESTING ONLY)"))
-            .arg(Arg::with_name("genesis").long("genesis").takes_value(true).help("Genesis file to use when initialize testnet"))
+            .arg(Arg::with_name("genesis").long("genesis").takes_value(true).help("Genesis file to use when initialize testnet (including downloading)"))
+            .arg(Arg::with_name("download-genesis").long("download-genesis").takes_value(false).help("Download the verified NEAR genesis file automatically."))
+            .arg(Arg::with_name("download-genesis-url").long("download-genesis-url").takes_value(true).help("Specify a custom download URL for the genesis-file."))
         )
         .subcommand(SubCommand::with_name("testnet").about("Setups testnet configuration with all necessary files (validator key, node key, genesis and config)")
             .arg(Arg::with_name("v").long("v").takes_value(true).help("Number of validators to initialize the testnet with (default 4)"))
@@ -122,12 +124,33 @@ fn main() {
             let account_id = args.value_of("account-id");
             let test_seed = args.value_of("test-seed");
             let genesis = args.value_of("genesis");
+            let download = args.is_present("download-genesis");
+            let download_url = args.value_of("download-genesis-url");
             let num_shards = args
                 .value_of("num-shards")
                 .map(|s| s.parse().expect("Number of shards must be a number"))
                 .unwrap_or(1);
             let fast = args.is_present("fast");
-            init_configs(home_dir, chain_id, account_id, test_seed, num_shards, fast, genesis);
+
+            if (args.is_present("download-genesis") || args.is_present("download-genesis-url"))
+                && args.is_present("genesis")
+            {
+                panic!(
+                    "Please specify a local genesis file or download the NEAR genesis or specify your own."
+                );
+            }
+
+            init_configs(
+                home_dir,
+                chain_id,
+                account_id,
+                test_seed,
+                num_shards,
+                fast,
+                genesis,
+                download,
+                download_url,
+            );
         }
         ("testnet", Some(args)) => {
             let num_validators = args
@@ -199,8 +222,9 @@ fn main() {
             }
 
             let system = System::new("NEAR");
-            start_with_config(home_dir, near_config);
+            let (_, _, arbiters) = start_with_config(home_dir, near_config);
             system.run().unwrap();
+            arbiters.into_iter().for_each(|mut a| a.join().unwrap());
         }
         ("unsafe_reset_data", Some(_args)) => {
             let store_path = get_store_path(home_dir);
