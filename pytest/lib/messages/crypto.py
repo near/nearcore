@@ -21,11 +21,14 @@ class FunctionCallPermission:
 class FullAccessPermission:
     pass
 
+
 class Direction:
     pass
 
+
 class MerklePath:
     pass
+
 
 class ShardProof:
     pass

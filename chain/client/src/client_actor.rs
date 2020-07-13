@@ -5,12 +5,10 @@ use std::sync::{Arc, RwLock};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use actix::{Actor, Addr, AsyncContext, Context, Handler};
+use actix::{Actor, Addr, Arbiter, AsyncContext, Context, Handler};
 use chrono::{DateTime, Utc};
 use log::{debug, error, info, trace, warn};
 
-#[cfg(feature = "adversarial")]
-use near_chain::check_refcount_map;
 use near_chain::test_utils::format_hash;
 use near_chain::types::AcceptedBlock;
 #[cfg(feature = "adversarial")]
@@ -246,16 +244,6 @@ impl Handler<NetworkClientMessages> for ClientActor {
                             num_blocks += 1;
                         }
                         NetworkClientResponses::AdvResult(num_blocks)
-                    }
-                    NetworkAdversarialMessage::AdvCheckRefMap => {
-                        info!(target: "adversary", "Check Block Reference Map");
-                        match check_refcount_map(&mut self.client.chain) {
-                            Ok(_) => NetworkClientResponses::AdvResult(1 /* true */),
-                            Err(e) => {
-                                error!(target: "client", "Block Reference Map is inconsistent: {:?}", e);
-                                NetworkClientResponses::AdvResult(0 /* false */)
-                            }
-                        }
                     }
                     NetworkAdversarialMessage::AdvCheckStorageConsistency => {
                         // timeout is set to 1.5 seconds to give some room as we wait in Nightly for 2 seconds
@@ -1248,4 +1236,31 @@ impl ClientActor {
             act.log_summary(ctx);
         });
     }
+}
+
+/// Starts client in a separate Arbiter (thread).
+pub fn start_client(
+    client_config: ClientConfig,
+    chain_genesis: ChainGenesis,
+    runtime_adapter: Arc<dyn RuntimeAdapter>,
+    node_id: PeerId,
+    network_adapter: Arc<dyn NetworkAdapter>,
+    validator_signer: Option<Arc<dyn ValidatorSigner>>,
+    telemetry_actor: Addr<TelemetryActor>,
+) -> (Addr<ClientActor>, Arbiter) {
+    let client_arbiter = Arbiter::current();
+    let client_addr = ClientActor::start_in_arbiter(&client_arbiter, move |_ctx| {
+        ClientActor::new(
+            client_config,
+            chain_genesis,
+            runtime_adapter,
+            node_id,
+            network_adapter,
+            validator_signer,
+            telemetry_actor,
+            true,
+        )
+        .unwrap()
+    });
+    (client_addr, client_arbiter)
 }

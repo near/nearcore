@@ -78,7 +78,7 @@ fn test_simple_contract() {
     with_vm_variants(|vm_kind: VMKind| {
         assert_eq!(
             make_simple_contract_call_vm(&simple_contract(), b"hello", vm_kind),
-            (Some(vm_outcome_with_gas(0)), None),
+            (Some(vm_outcome_with_gas(43032213)), None),
         );
     });
 }
@@ -146,7 +146,7 @@ fn test_trap_contract() {
     assert_eq!(
         make_simple_contract_call_vm(&trap_contract(), b"hello", VMKind::Wasmer),
         (
-            Some(vm_outcome_with_gas(3856371)),
+            Some(vm_outcome_with_gas(47105334)),
             Some(VMError::FunctionCallError(FunctionCallError::WasmUnknownError))
         )
     );
@@ -171,7 +171,7 @@ fn test_trap_initializer() {
     assert_eq!(
         make_simple_contract_call_vm(&trap_initializer(), b"hello", VMKind::Wasmer),
         (
-            Some(vm_outcome_with_gas(3856371)),
+            Some(vm_outcome_with_gas(47755584)),
             Some(VMError::FunctionCallError(FunctionCallError::WasmUnknownError))
         )
     );
@@ -249,7 +249,7 @@ fn test_guest_panic() {
         assert_eq!(
             make_simple_contract_call_vm(&guest_panic(), b"hello", vm_kind),
             (
-                Some(vm_outcome_with_gas(269118129)),
+                Some(vm_outcome_with_gas(315341445)),
                 Some(VMError::FunctionCallError(FunctionCallError::HostError(
                     HostError::GuestPanic { panic_msg: "explicit guest panic".to_string() }
                 )))
@@ -277,7 +277,7 @@ fn test_stack_overflow() {
     assert_eq!(
         make_simple_contract_call_vm(&stack_overflow(), b"hello", VMKind::Wasmer),
         (
-            Some(vm_outcome_with_gas(63182782464)),
+            Some(vm_outcome_with_gas(63226248177)),
             Some(VMError::FunctionCallError(FunctionCallError::WasmUnknownError))
         )
     );
@@ -388,7 +388,7 @@ fn test_bad_import_3() {
         assert_eq!(
             make_simple_contract_call_vm(&bad_import_global("env"), b"hello", vm_kind),
             (
-                Some(vm_outcome_with_gas(0)),
+                Some(vm_outcome_with_gas(46500213)),
                 Some(VMError::FunctionCallError(FunctionCallError::LinkError { msg: msg }))
             )
         );
@@ -406,7 +406,7 @@ fn test_bad_import_4() {
         assert_eq!(
             make_simple_contract_call_vm(&bad_import_func("env"), b"hello", vm_kind),
             (
-                Some(vm_outcome_with_gas(0)),
+                Some(vm_outcome_with_gas(45849963)),
                 Some(VMError::FunctionCallError(FunctionCallError::LinkError { msg: msg }))
             )
         );
@@ -472,7 +472,7 @@ fn bad_many_imports() -> Vec<u8> {
 fn test_bad_many_imports() {
     with_vm_variants(|vm_kind: VMKind| {
         let result = make_simple_contract_call_vm(&bad_many_imports(), b"hello", vm_kind);
-        assert_eq!(result.0, Some(vm_outcome_with_gas(0)));
+        assert_eq!(result.0, Some(vm_outcome_with_gas(299664213)));
         if let Some(VMError::FunctionCallError(FunctionCallError::LinkError { msg })) = result.1 {
             eprintln!("{}", msg);
             assert!(msg.len() < 1000, format!("Huge error message: {}", msg.len()));
@@ -501,7 +501,7 @@ fn test_external_call_ok() {
     with_vm_variants(|vm_kind: VMKind| {
         assert_eq!(
             make_simple_contract_call_vm(&external_call_contract(), b"hello", vm_kind),
-            (Some(vm_outcome_with_gas(272974500)), None)
+            (Some(vm_outcome_with_gas(321582066)), None)
         );
     });
 }

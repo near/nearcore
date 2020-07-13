@@ -32,7 +32,6 @@ class DownloadException(Exception):
 
 def atexit_cleanup(node):
     print("Cleaning up node %s:%s on script exit" % node.addr())
-    print("Executed refmap tests: %s" % node.refmap_tests)
     print("Executed store validity tests: %s" % node.store_tests)
     try:
         node.cleanup()
@@ -81,6 +80,10 @@ class Key(object):
 
 
 class BaseNode(object):
+    def __init__(self):
+        self._start_proxy = None
+        self._proxy_local_stopped = None
+
 
     def _get_command_line(self,
                           near_root,
@@ -134,7 +137,6 @@ class BaseNode(object):
         status = json.loads(r.content)
         if status['sync_info']['syncing'] == False:
             # Storage is not guaranteed to be in consistent state while syncing
-            self.check_refmap()
             self.check_store()
         return status
 
@@ -205,30 +207,10 @@ class BaseNode(object):
             map(lambda v: v['account_id'],
                 self.get_status()['validators']))
 
-    def stop_checking_refmap(self):
-        print(
-            "WARN: Stopping checking Reference Map for inconsistency for %s:%s"
-            % self.addr())
-        self.is_check_refmap = False
-
     def stop_checking_store(self):
         print("WARN: Stopping checking Storage for inconsistency for %s:%s" %
               self.addr())
         self.is_check_store = False
-
-    def check_refmap(self):
-        if self.is_check_refmap:
-            res = self.json_rpc('adv_check_refmap', [])
-            if not 'result' in res:
-                # cannot check Block Reference Map for the node, possibly not Adversarial Mode is running
-                pass
-            else:
-                self.refmap_tests += 1
-                if res['result'] != 1:
-                    print(
-                        "ERROR: Block Reference Map for %s:%s in inconsistent state, stopping"
-                        % self.addr())
-                    self.kill()
 
     def check_store(self):
         if self.is_check_store:
@@ -272,9 +254,7 @@ class LocalNode(BaseNode):
         self.near_root = near_root
         self.node_dir = node_dir
         self.binary_name = binary_name
-        self.refmap_tests = 0
         self.store_tests = 0
-        self.is_check_refmap = True
         self.is_check_store = True
         self.cleaned = False
         with open(os.path.join(node_dir, "config.json")) as f:
@@ -323,6 +303,10 @@ class LocalNode(BaseNode):
                                           stdout=self.stdout,
                                           stderr=self.stderr,
                                           env=env).pid
+
+        if self._start_proxy is not None:
+            self._proxy_local_stopped = self._start_proxy()
+
         try:
             self.wait_for_rpc(10)
         except:
@@ -341,6 +325,9 @@ class LocalNode(BaseNode):
         if self.pid.value != 0:
             os.kill(self.pid.value, signal.SIGKILL)
             self.pid.value = 0
+
+            if self._proxy_local_stopped is not None:
+                self._proxy_local_stopped.value = 1
 
     def reset_data(self):
         shutil.rmtree(os.path.join(self.node_dir, "data"))
@@ -470,13 +457,13 @@ chmod +x near
             f'/tmp/pytest_remote_log/{self.machine.name}.log')
         self.destroy_machine()
 
-    def json_rpc(self, method, params, timeout=10):
+    def json_rpc(self, method, params, timeout=15):
         return super().json_rpc(method, params, timeout=timeout)
 
     def get_status(self):
         r = retrying.retry(lambda: requests.get(
-            "http://%s:%s/status" % self.rpc_addr(), timeout=10),
-                           timeout=20)
+            "http://%s:%s/status" % self.rpc_addr(), timeout=15),
+                           timeout=45)
         r.raise_for_status()
         return json.loads(r.content)
 

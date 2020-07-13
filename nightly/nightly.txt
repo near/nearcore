@@ -19,7 +19,7 @@ pytest --timeout=900 sanity/state_sync3.py
 pytest --timeout=240 sanity/state_sync4.py
 pytest --timeout=600 sanity/state_sync_routed.py manytx 100
 pytest --timeout=300 sanity/state_sync_late.py notx
-pytest --timeout=300 sanity/state_sync_massive.py
+pytest --timeout=900 sanity/state_sync_massive.py
 pytest sanity/rpc_tx_forwarding.py
 pytest --timeout=240 sanity/skip_epoch.py
 pytest --timeout=240 sanity/one_val.py
@@ -37,12 +37,16 @@ pytest --timeout=300 sanity/gc_sync_after_sync.py
 pytest --timeout=300 sanity/gc_sync_after_sync.py swap_nodes
 pytest --timeout=300 sanity/large_messages.py
 pytest --timeout=240 sanity/validator_switch_key.py
-pytest sanity/nodes_proxy.py
+pytest sanity/proxy_simple.py
+pytest sanity/proxy_restart.py
 pytest sanity/network_drop_package.py
+# TODO: enable them when we fix the issue with proxy shutdown (#2942)
+# pytest --timeout=900 sanity/sync_ban.py true
+# pytest --timeout=900 sanity/sync_ban.py false
 
 # python tests for smart contract deployment and invocation
 pytest contracts/deploy_call_smart_contract.py
-pytest contracts/gibberish.py
+pytest --timeout=240 contracts/gibberish.py
 
 # python stress tests
 # pytest --timeout=2000 stress/stress.py 3 3 3 0 staking transactions local_network
@@ -66,7 +70,7 @@ pytest adversarial/start_from_genesis.py overtake doomslug_off
 
 # python upgradable test
 # upgradable.py moves `near` binary, and must be the last python test in the set
-pytest --timeout=300 sanity/upgradable.py
+pytest --timeout=600 sanity/upgradable.py
 
 # catchup tests
 expensive --timeout=1800 near-client catching_up tests::test_catchup_receipts_sync_third_epoch
@@ -160,3 +164,4 @@ expensive nearcore test_rejoin test::test_4_20_kill2
 mocknet --timeout=300 mocknet/sanity.py
 mocknet --timeout=2700 mocknet/outage.py
 mocknet --timeout=300 mocknet/bounce.py
+mocknet --timeout=3600 mocknet/load_testing.py

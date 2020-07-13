@@ -17,6 +17,9 @@ pub struct ReceiptProofResponse(pub CryptoHash, pub Vec<ReceiptProof>);
 pub struct RootProof(pub CryptoHash, pub MerklePath);
 
 #[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize, Serialize)]
+pub struct StateHeaderKey(pub ShardId, pub CryptoHash);
+
+#[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize, Serialize)]
 pub struct StatePartKey(pub CryptoHash, pub ShardId, pub u64 /* PartId */);
 
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, Serialize)]

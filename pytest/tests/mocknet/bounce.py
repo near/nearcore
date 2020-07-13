@@ -12,14 +12,14 @@ nodes = mocknet.get_nodes()
 # stop nodes
 pmap(mocknet.stop_node, nodes)
 
-# wait 1s
-time.sleep(1)
+# wait 30s
+time.sleep(30)
 
 # start nodes
 pmap(mocknet.start_node, nodes)
 
 # give some time to come back up
-time.sleep(5)
+time.sleep(60)
 
 # test network still functions
 mocknet.transfer_between_nodes(nodes)

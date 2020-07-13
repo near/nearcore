@@ -419,7 +419,7 @@ pub trait RuntimeAdapter: Send + Sync {
         state_root: &StateRoot,
         part_id: u64,
         num_parts: u64,
-    ) -> Vec<u8>;
+    ) -> Result<Vec<u8>, Error>;
 
     /// Validate state part that expected to be given state root with provided data.
     /// Returns false if the resulting part doesn't match the expected one.
@@ -442,7 +442,11 @@ pub trait RuntimeAdapter: Send + Sync {
     /// Returns StateRootNode of a state.
     /// Panics if requested hash is not in storage.
     /// Never returns Error
-    fn get_state_root_node(&self, shard_id: ShardId, state_root: &StateRoot) -> StateRootNode;
+    fn get_state_root_node(
+        &self,
+        shard_id: ShardId,
+        state_root: &StateRoot,
+    ) -> Result<StateRootNode, Error>;
 
     /// Validate StateRootNode of a state.
     fn validate_state_root_node(

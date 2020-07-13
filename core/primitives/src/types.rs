@@ -543,9 +543,6 @@ pub enum ValidatorKickoutReason {
     DidNotGetASeat,
 }
 
-#[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize, Serialize)]
-pub struct StateHeaderKey(pub ShardId, pub CryptoHash);
-
 #[derive(Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum TransactionOrReceiptId {

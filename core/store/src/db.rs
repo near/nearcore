@@ -97,10 +97,11 @@ pub enum DBCol {
     ColGCCount = 41,
     /// GC helper column to get all Outcome ids by Block Hash
     ColOutcomesByBlockHash = 42,
+    ColTransactionRefCount = 43,
 }
 
 // Do not move this line from enum DBCol
-pub const NUM_COLS: usize = 43;
+pub const NUM_COLS: usize = 44;
 
 impl std::fmt::Display for DBCol {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
@@ -148,6 +149,7 @@ impl std::fmt::Display for DBCol {
             Self::ColBlockOrdinal => "block ordinal",
             Self::ColGCCount => "gc count",
             Self::ColOutcomesByBlockHash => "outcomes by block hash",
+            Self::ColTransactionRefCount => "refcount per transaction",
         };
         write!(formatter, "{}", desc)
     }
@@ -170,6 +172,8 @@ lazy_static! {
         col_gc[DBCol::ColLastComponentNonce as usize] = false;
         col_gc[DBCol::ColComponentEdges as usize] = false;
         col_gc[DBCol::ColBlockOrdinal as usize] = false;
+        col_gc[DBCol::ColEpochInfo as usize] = false; // https://github.com/nearprotocol/nearcore/pull/2952
+        col_gc[DBCol::ColEpochStart as usize] = false; // https://github.com/nearprotocol/nearcore/pull/2952
         col_gc
     };
 }
