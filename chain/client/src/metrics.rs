@@ -1,4 +1,7 @@
-use near_metrics::{try_create_int_counter, try_create_int_gauge, IntCounter, IntGauge};
+use near_metrics::{
+    try_create_histogram, try_create_int_counter, try_create_int_gauge, Histogram, IntCounter,
+    IntGauge,
+};
 
 lazy_static! {
     pub static ref BLOCK_PRODUCED_TOTAL: near_metrics::Result<IntCounter> = try_create_int_counter(
@@ -21,4 +24,6 @@ lazy_static! {
         try_create_int_gauge("near_cpu_usage_ratio", "Percent of CPU usage");
     pub static ref MEMORY_USAGE: near_metrics::Result<IntGauge> =
         try_create_int_gauge("near_memory_usage_bytes", "Amount of RAM memory usage");
+    pub static ref GC_TIME: near_metrics::Result<Histogram> =
+        try_create_histogram("near_gc_time", "Time taken to do garbage collection");
 }
