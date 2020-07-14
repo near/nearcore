@@ -251,7 +251,12 @@ impl StoreValidator {
                     let block_hash = CryptoHash::try_from(key_ref)?;
                     let block_info = BlockInfo::try_from_slice(value_ref)?;
                     // Block which can be indexed by BlockInfo exists
-                    self.check(&validate::block_info_block_exists, &block_hash, &block_info, col);
+                    self.check(
+                        &validate::block_info_block_header_exists,
+                        &block_hash,
+                        &block_info,
+                        col,
+                    );
                 }
                 DBCol::ColEpochInfo => {
                     if key_ref != AGGREGATOR_KEY {
