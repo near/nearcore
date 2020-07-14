@@ -718,22 +718,27 @@ impl ClientActor {
         // There is a bug in Actix library. While there are messages in mailbox, Actix
         // will prioritize processing messages until mailbox is empty. Execution of any other task
         // scheduled with run_later will be delayed.
-        self.try_doomslug_timer(ctx);
-        self.try_handle_block_production();
-        self.try_chunk_request_retry(ctx);
+        self.doomslug_timer_next_attempt = self.run_timer(
+            Duration::from_millis(50),
+            self.doomslug_timer_next_attempt,
+            ctx,
+            |act, ctx| act.try_doomslug_timer(ctx)
+        );
+        self.block_production_next_attempt = self.run_timer(
+            self.client.config.block_production_tracking_delay,
+            self.block_production_next_attempt,
+            ctx,
+            |act, _ctx| act.try_handle_block_production()
+        );
+        self.chunk_request_retry_next_attempt = self.run_timer(
+            self.client.config.chunk_request_retry_period,
+            self.chunk_request_retry_next_attempt,
+            ctx,
+            |act, _ctx| act.client.shards_mgr.resend_chunk_requests()
+        );
     }
 
     fn try_handle_block_production(&mut self) {
-        let now = Utc::now();
-        if now < self.block_production_next_attempt {
-            return;
-        }
-        self.block_production_next_attempt = now
-            .checked_add_signed(
-                OldDuration::from_std(self.client.config.block_production_tracking_delay).unwrap(),
-            )
-            .unwrap();
-
         match self.handle_block_production() {
             Ok(()) => {}
             Err(err) => {
@@ -743,14 +748,6 @@ impl ClientActor {
     }
 
     fn try_doomslug_timer(&mut self, _: &mut Context<ClientActor>) {
-        let now = Utc::now();
-        if now < self.doomslug_timer_next_attempt {
-            return;
-        }
-        self.doomslug_timer_next_attempt = now
-            .checked_add_signed(OldDuration::from_std(Duration::from_millis(50)).unwrap())
-            .unwrap();
-
         let _ = self.client.check_and_update_doomslug_tip();
 
         let approvals = self.client.doomslug.process_timer(Instant::now());
@@ -773,20 +770,6 @@ impl ClientActor {
             }
             Err(e) => error!("Error while committing largest skipped height {:?}", e),
         };
-    }
-
-    fn try_chunk_request_retry(&mut self, _: &mut Context<ClientActor>) {
-        let now = Utc::now();
-        if now < self.chunk_request_retry_next_attempt {
-            return;
-        }
-        self.chunk_request_retry_next_attempt = now
-            .checked_add_signed(
-                OldDuration::from_std(self.client.config.chunk_request_retry_period).unwrap(),
-            )
-            .unwrap();
-
-        self.client.shards_mgr.resend_chunk_requests();
     }
 
     /// Produce block if we are block producer for given `next_height` height.
@@ -1078,6 +1061,22 @@ impl ClientActor {
         ctx.run_later(self.client.config.chunk_request_retry_period, move |act, ctx| {
             act.chunk_request_retry(ctx);
         });
+    }
+
+    fn run_timer<F>(&mut self, duration: Duration, next_attempt: DateTime<Utc>, ctx: &mut Context<ClientActor>, f: F) -> DateTime<Utc>
+    where
+        F: FnOnce(&mut Self, &mut <Self as Actor>::Context) + 'static {
+
+        let now = Utc::now();
+        if now < next_attempt {
+            return next_attempt;
+        }
+
+        f(self, ctx);
+
+        return now
+            .checked_add_signed(OldDuration::from_std(duration).unwrap())
+            .unwrap();
     }
 
     /// An actix recursive function that processes doomslug timer
