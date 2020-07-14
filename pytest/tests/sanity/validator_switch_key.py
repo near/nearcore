@@ -11,8 +11,8 @@ sys.path.append('lib')
 from cluster import start_cluster, Key
 from transaction import sign_staking_tx
 
-EPOCH_LENGTH = 10
-TIMEOUT = 60
+EPOCH_LENGTH = 30
+TIMEOUT = 200
 
 client_config = {"network": {"ttl_account_id_router": {"secs": 0, "nanos": 100000000}}}
 nodes = start_cluster(2, 1, 1, None, [["epoch_length", EPOCH_LENGTH], ["block_producer_kickout_threshold", 10],
