@@ -590,7 +590,14 @@ impl Chain {
     ) -> Result<(), Error> {
         let head = self.store.head()?;
         let tail = self.store.tail()?;
-        let gc_stop_height = self.runtime_adapter.get_gc_stop_height(&head.last_block_hash)?;
+        let gc_stop_height = match self.runtime_adapter.get_gc_stop_height(&head.last_block_hash) {
+            Ok(height) => height,
+            Err(e) => match e.kind() {
+                // We don't have enough data to garbage collect. Do nothing in this case.
+                ErrorKind::DBNotFoundErr(_) => return Ok(()),
+                _ => return Err(e),
+            },
+        };
         if gc_stop_height > head.height {
             return Err(ErrorKind::GCError(
                 "gc_stop_height cannot be larger than head.height".into(),
