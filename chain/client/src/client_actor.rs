@@ -718,8 +718,8 @@ impl ClientActor {
         // There is a bug in Actix library. While there are messages in mailbox, Actix
         // will prioritize processing messages until mailbox is empty. Execution of any other task
         // scheduled with run_later will be delayed.
-        self.try_handle_block_production();
         self.try_doomslug_timer(ctx);
+        self.try_handle_block_production();
         self.try_chunk_request_retry(ctx);
     }
 
