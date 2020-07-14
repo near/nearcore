@@ -78,7 +78,7 @@ async fn fetch_block_by_height(
 }
 
 /// This function supposed to return the entire `BlockResponse`.
-/// It calls fetches the block and fetches all the chunks for the block
+/// It fetches the block and fetches all the chunks for the block
 /// and returns everything together in one struct
 async fn fetch_block_with_chunks(
     client: &Addr<near_client::ViewClientActor>,
@@ -156,10 +156,12 @@ async fn fetch_chunks(
     client: &Addr<near_client::ViewClientActor>,
     chunks: &[views::ChunkHeaderView],
 ) -> Result<Vec<views::ChunkView>, FailedToFetchData> {
-    let chunks_hashes =
-        chunks.iter().map(|chunk| near_client::GetChunk::ChunkHash(chunk.chunk_hash.into()));
-    let mut chunks: futures::stream::FuturesUnordered<_> =
-        chunks_hashes.map(|get_chunk| fetch_single_chunk(&client, get_chunk)).collect();
+    let mut chunks: futures::stream::FuturesUnordered<_> = chunks
+        .iter()
+        .map(|chunk| {
+            fetch_single_chunk(&client, near_client::GetChunk::ChunkHash(chunk.chunk_hash.into()))
+        })
+        .collect();
     let mut response = Vec::<views::ChunkView>::with_capacity(chunks.len());
 
     while let Some(chunk) = chunks.next().await {
