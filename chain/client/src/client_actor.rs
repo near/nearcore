@@ -1,10 +1,10 @@
 //! Client actor orchestrates Client and facilitates network connection.
 
+use chrono::Duration as OldDuration;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use std::thread;
 use std::time::{Duration, Instant};
-use chrono::Duration as OldDuration;
 
 use actix::{Actor, Addr, Arbiter, AsyncContext, Context, Handler};
 use chrono::{DateTime, Utc};
@@ -725,11 +725,14 @@ impl ClientActor {
 
     fn try_handle_block_production(&mut self) {
         let now = Utc::now();
-        if now > self.block_production_next_attempt {
+        if now < self.block_production_next_attempt {
             return;
         }
-        self.block_production_next_attempt = now.checked_sub_signed(
-            OldDuration::from_std(self.client.config.block_production_tracking_delay).unwrap()).unwrap();
+        self.block_production_next_attempt = now
+            .checked_add_signed(
+                OldDuration::from_std(self.client.config.block_production_tracking_delay).unwrap(),
+            )
+            .unwrap();
 
         match self.handle_block_production() {
             Ok(()) => {}
@@ -739,13 +742,14 @@ impl ClientActor {
         }
     }
 
-    fn try_doomslug_timer(&mut self, ctx: &mut Context<ClientActor>) {
+    fn try_doomslug_timer(&mut self, _: &mut Context<ClientActor>) {
         let now = Utc::now();
-        if now > self.doomslug_timer_next_attempt {
+        if now < self.doomslug_timer_next_attempt {
             return;
         }
-        self.doomslug_timer_next_attempt = now.checked_sub_signed(
-            OldDuration::from_std(Duration::from_millis(50)).unwrap()).unwrap();
+        self.doomslug_timer_next_attempt = now
+            .checked_add_signed(OldDuration::from_std(Duration::from_millis(50)).unwrap())
+            .unwrap();
 
         let _ = self.client.check_and_update_doomslug_tip();
 
@@ -761,7 +765,7 @@ impl ClientActor {
             Ok(_) => {
                 for approval in approvals {
                     if let Err(e) =
-                    self.client.send_approval(&self.client.doomslug.get_tip().0, approval)
+                        self.client.send_approval(&self.client.doomslug.get_tip().0, approval)
                     {
                         error!("Error while sending an approval {:?}", e);
                     }
@@ -771,14 +775,16 @@ impl ClientActor {
         };
     }
 
-    fn try_chunk_request_retry(&mut self, ctx: &mut Context<ClientActor>) {
+    fn try_chunk_request_retry(&mut self, _: &mut Context<ClientActor>) {
         let now = Utc::now();
-        if now > self.chunk_request_retry_next_attempt {
+        if now < self.chunk_request_retry_next_attempt {
             return;
         }
-        self.chunk_request_retry_next_attempt = now.checked_sub_signed(
-            OldDuration::from_std(self.client.config.chunk_request_retry_period)
-                .unwrap()).unwrap();
+        self.chunk_request_retry_next_attempt = now
+            .checked_add_signed(
+                OldDuration::from_std(self.client.config.chunk_request_retry_period).unwrap(),
+            )
+            .unwrap();
 
         self.client.shards_mgr.resend_chunk_requests();
     }
