@@ -78,8 +78,10 @@ pub struct ClientActor {
 
     /// Last time handle_block_production method was called
     block_production_next_attempt: DateTime<Utc>,
+    block_production_started: bool,
     doomslug_timer_next_attempt: DateTime<Utc>,
     chunk_request_retry_next_attempt: DateTime<Utc>,
+    sync_started: bool,
 }
 
 /// Blocks the program until given genesis time arrives.
@@ -152,8 +154,10 @@ impl ClientActor {
             last_validator_announce_time: None,
             info_helper,
             block_production_next_attempt: now,
+            block_production_started: false,
             doomslug_timer_next_attempt: now,
             chunk_request_retry_next_attempt: now,
+            sync_started: false,
         })
     }
 }
@@ -167,6 +171,7 @@ impl Actor for ClientActor {
 
         // Start block production tracking if have block producer info.
         if self.client.validator_signer.is_some() {
+            self.block_production_started = true;
             self.block_production_tracking(ctx);
         }
 
@@ -718,23 +723,27 @@ impl ClientActor {
         // There is a bug in Actix library. While there are messages in mailbox, Actix
         // will prioritize processing messages until mailbox is empty. Execution of any other task
         // scheduled with run_later will be delayed.
-        self.doomslug_timer_next_attempt = self.run_timer(
-            Duration::from_millis(50),
-            self.doomslug_timer_next_attempt,
-            ctx,
-            |act, ctx| act.try_doomslug_timer(ctx)
-        );
-        self.block_production_next_attempt = self.run_timer(
-            self.client.config.block_production_tracking_delay,
-            self.block_production_next_attempt,
-            ctx,
-            |act, _ctx| act.try_handle_block_production()
-        );
+        if self.sync_started {
+            self.doomslug_timer_next_attempt = self.run_timer(
+                Duration::from_millis(50),
+                self.doomslug_timer_next_attempt,
+                ctx,
+                |act, ctx| act.try_doomslug_timer(ctx),
+            );
+        }
+        if self.block_production_started {
+            self.block_production_next_attempt = self.run_timer(
+                self.client.config.block_production_tracking_delay,
+                self.block_production_next_attempt,
+                ctx,
+                |act, _ctx| act.try_handle_block_production(),
+            );
+        }
         self.chunk_request_retry_next_attempt = self.run_timer(
             self.client.config.chunk_request_retry_period,
             self.chunk_request_retry_next_attempt,
             ctx,
-            |act, _ctx| act.client.shards_mgr.resend_chunk_requests()
+            |act, _ctx| act.client.shards_mgr.resend_chunk_requests(),
         );
     }
 
@@ -1011,6 +1020,7 @@ impl ClientActor {
             });
             return;
         }
+        self.sync_started = true;
 
         // Start doomslug timer
         self.doomslug_timer(ctx);
@@ -1063,10 +1073,16 @@ impl ClientActor {
         });
     }
 
-    fn run_timer<F>(&mut self, duration: Duration, next_attempt: DateTime<Utc>, ctx: &mut Context<ClientActor>, f: F) -> DateTime<Utc>
+    fn run_timer<F>(
+        &mut self,
+        duration: Duration,
+        next_attempt: DateTime<Utc>,
+        ctx: &mut Context<ClientActor>,
+        f: F,
+    ) -> DateTime<Utc>
     where
-        F: FnOnce(&mut Self, &mut <Self as Actor>::Context) + 'static {
-
+        F: FnOnce(&mut Self, &mut <Self as Actor>::Context) + 'static,
+    {
         let now = Utc::now();
         if now < next_attempt {
             return next_attempt;
@@ -1074,9 +1090,7 @@ impl ClientActor {
 
         f(self, ctx);
 
-        return now
-            .checked_add_signed(OldDuration::from_std(duration).unwrap())
-            .unwrap();
+        return now.checked_add_signed(OldDuration::from_std(duration).unwrap()).unwrap();
     }
 
     /// An actix recursive function that processes doomslug timer
