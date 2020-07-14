@@ -172,11 +172,10 @@ impl Actor for ClientActor {
         // Start block production tracking if have block producer info.
         if self.client.validator_signer.is_some() {
             self.block_production_started = true;
-            self.block_production_tracking(ctx);
         }
 
-        // Start chunk request retry job.
-        self.chunk_request_retry(ctx);
+        // Start triggers
+        self.schedule_triggers(ctx);
 
         // Start catchup job.
         self.catchup(ctx);
@@ -710,19 +709,22 @@ impl ClientActor {
         Ok(())
     }
 
-    /// Runs a loop to keep track of the latest known block, produces if it's this validators turn.
-    fn block_production_tracking(&mut self, ctx: &mut Context<Self>) {
-        self.check_triggers(ctx);
-        let wait = self.client.config.block_production_tracking_delay;
+    fn schedule_triggers(&mut self, ctx: &mut Context<Self>) {
+        let wait = self.check_triggers(ctx);
+
         ctx.run_later(wait, move |act, ctx| {
-            act.block_production_tracking(ctx);
+            act.schedule_triggers(ctx);
         });
     }
 
-    fn check_triggers(&mut self, ctx: &mut Context<ClientActor>) {
+    fn check_triggers(&mut self, ctx: &mut Context<ClientActor>) -> Duration {
         // There is a bug in Actix library. While there are messages in mailbox, Actix
         // will prioritize processing messages until mailbox is empty. Execution of any other task
         // scheduled with run_later will be delayed.
+
+        let mut delay = Duration::from_secs(1);
+        let now = Utc::now();
+
         if self.sync_started {
             self.doomslug_timer_next_attempt = self.run_timer(
                 Duration::from_millis(50),
@@ -730,6 +732,10 @@ impl ClientActor {
                 ctx,
                 |act, ctx| act.try_doomslug_timer(ctx),
             );
+            delay = core::cmp::min(
+                delay,
+                self.doomslug_timer_next_attempt.signed_duration_since(now).to_std().unwrap(),
+            )
         }
         if self.block_production_started {
             self.block_production_next_attempt = self.run_timer(
@@ -738,6 +744,10 @@ impl ClientActor {
                 ctx,
                 |act, _ctx| act.try_handle_block_production(),
             );
+            delay = core::cmp::min(
+                delay,
+                self.block_production_next_attempt.signed_duration_since(now).to_std().unwrap(),
+            )
         }
         self.chunk_request_retry_next_attempt = self.run_timer(
             self.client.config.chunk_request_retry_period,
@@ -745,6 +755,10 @@ impl ClientActor {
             ctx,
             |act, _ctx| act.client.shards_mgr.resend_chunk_requests(),
         );
+        core::cmp::min(
+            delay,
+            self.chunk_request_retry_next_attempt.signed_duration_since(now).to_std().unwrap(),
+        )
     }
 
     fn try_handle_block_production(&mut self) {
@@ -1022,9 +1036,6 @@ impl ClientActor {
         }
         self.sync_started = true;
 
-        // Start doomslug timer
-        self.doomslug_timer(ctx);
-
         // Start main sync loop.
         self.sync(ctx);
     }
@@ -1065,14 +1076,6 @@ impl ClientActor {
         });
     }
 
-    /// Job to retry chunks that were requested but not received within expected time.
-    fn chunk_request_retry(&mut self, ctx: &mut Context<ClientActor>) {
-        self.check_triggers(ctx);
-        ctx.run_later(self.client.config.chunk_request_retry_period, move |act, ctx| {
-            act.chunk_request_retry(ctx);
-        });
-    }
-
     fn run_timer<F>(
         &mut self,
         duration: Duration,
@@ -1091,15 +1094,6 @@ impl ClientActor {
         f(self, ctx);
 
         return now.checked_add_signed(OldDuration::from_std(duration).unwrap()).unwrap();
-    }
-
-    /// An actix recursive function that processes doomslug timer
-    fn doomslug_timer(&mut self, ctx: &mut Context<ClientActor>) {
-        self.check_triggers(ctx);
-
-        ctx.run_later(Duration::from_millis(50), move |act, ctx| {
-            act.doomslug_timer(ctx);
-        });
     }
 
     /// Main syncing job responsible for syncing client with other peers.
