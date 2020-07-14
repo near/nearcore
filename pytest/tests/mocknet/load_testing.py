@@ -66,7 +66,7 @@ def check_stats(initial_metrics=None,
 
     mem_usage = final_metrics.memory_usage / 1e6
     delta_mem_usage = (100.0 * delta.memory_usage) / initial_metrics.memory_usage
-    bps = delta.total_blocks / delta.timestamp
+    bps = final_metrics.blocks_per_second
     tps = delta.total_transactions / delta.timestamp
     slow_process_blocks = delta.block_processing_time[
         'le +Inf'] - delta.block_processing_time['le 1']
