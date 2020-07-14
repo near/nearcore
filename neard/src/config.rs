@@ -289,6 +289,10 @@ fn default_gc_blocks_limit() -> NumBlocks {
     2
 }
 
+fn default_view_client_threads() -> usize {
+    4
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Consensus {
     /// Minimum number of peers to start syncing.
@@ -378,6 +382,8 @@ pub struct Config {
     pub archive: bool,
     #[serde(default = "default_gc_blocks_limit")]
     pub gc_blocks_limit: NumBlocks,
+    #[serde(default = "default_view_client_threads")]
+    pub view_client_threads: usize,
 }
 
 impl Default for Config {
@@ -395,6 +401,7 @@ impl Default for Config {
             tracked_shards: vec![],
             archive: false,
             gc_blocks_limit: default_gc_blocks_limit(),
+            view_client_threads: 4,
         }
     }
 }
@@ -559,6 +566,7 @@ impl NearConfig {
                 tracked_shards: config.tracked_shards,
                 archive: config.archive,
                 gc_blocks_limit: config.gc_blocks_limit,
+                view_client_threads: config.view_client_threads,
             },
             network_config: NetworkConfig {
                 public_key: network_key_pair.public_key,

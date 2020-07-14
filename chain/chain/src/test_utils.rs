@@ -761,7 +761,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         state_root: &StateRoot,
         part_id: u64,
         num_parts: u64,
-    ) -> Vec<u8> {
+    ) -> Result<Vec<u8>, Error> {
         assert!(part_id < num_parts);
         let state = self.state.read().unwrap().get(&state_root).unwrap().clone();
         let data = state.try_to_vec().expect("should never fall");
@@ -771,7 +771,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         if part_id + 1 == num_parts {
             end = state_size;
         }
-        data[begin as usize..end as usize].to_vec()
+        Ok(data[begin as usize..end as usize].to_vec())
     }
 
     fn validate_state_part(
@@ -805,8 +805,12 @@ impl RuntimeAdapter for KeyValueRuntime {
         Ok(())
     }
 
-    fn get_state_root_node(&self, _shard_id: ShardId, state_root: &StateRoot) -> StateRootNode {
-        StateRootNode {
+    fn get_state_root_node(
+        &self,
+        _shard_id: ShardId,
+        state_root: &StateRoot,
+    ) -> Result<StateRootNode, Error> {
+        Ok(StateRootNode {
             data: self
                 .state
                 .read()
@@ -817,7 +821,7 @@ impl RuntimeAdapter for KeyValueRuntime {
                 .try_to_vec()
                 .expect("should never fall"),
             memory_usage: self.state_size.read().unwrap().get(&state_root).unwrap().clone(),
-        }
+        })
     }
 
     fn validate_state_root_node(
