@@ -153,6 +153,9 @@ impl GetBlock {
     pub fn latest() -> Self {
         Self(BlockIdOrFinality::latest())
     }
+    pub fn earliest() -> Self {
+        Self(BlockIdOrFinality::earliest())
+    }
 }
 
 impl Message for GetBlock {

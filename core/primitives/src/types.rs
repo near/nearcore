@@ -62,6 +62,8 @@ pub enum Finality {
     DoomSlug,
     #[serde(rename = "final")]
     Final,
+    #[serde(rename = "tail")]
+    Tail,
 }
 
 impl Default for Finality {
@@ -494,6 +496,9 @@ pub enum BlockIdOrFinality {
 impl BlockIdOrFinality {
     pub fn latest() -> Self {
         Self::Finality(Finality::None)
+    }
+    pub fn earliest() -> Self {
+        Self::Finality(Finality::Tail)
     }
 }
 

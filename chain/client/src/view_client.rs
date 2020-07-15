@@ -155,6 +155,15 @@ impl ViewClientActor {
             Finality::None => Ok(*head_header.hash()),
             Finality::DoomSlug => Ok(*head_header.last_ds_final_block()),
             Finality::Final => Ok(*head_header.last_final_block()),
+            Finality::Tail => {
+                let mut chain_store_update = self.chain.store().store_update();
+                let tail = chain_store_update.tail()?;
+                for height in tail + 1..=head_header.height() {
+                    if Ok(block_hash) = chain_store_update.get_block_hash_by_height(height) {
+                        chain_store_update.get_block_header(block_hash)?.prev_hash();
+                    }
+                }
+            }
         }
     }
 

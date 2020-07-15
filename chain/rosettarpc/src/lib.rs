@@ -74,21 +74,25 @@ async fn network_status(
             details: None,
         });
     }
-    let (network_info, genesis_block) = tokio::try_join!(
+    let (network_info, genesis_block, oldest_block) = tokio::try_join!(
         client_addr.send(near_client::GetNetworkInfo {}),
         view_client_addr.send(near_client::GetBlock(
             near_primitives::types::BlockId::Height(genesis.config.genesis_height).into(),
-        ))
+        )),
+        view_client_addr.send(near_client::GetBlock::earliest().into())
     )?;
     let network_info = network_info.map_err(models::ErrorKind::Other)?;
     let genesis_block = genesis_block.map_err(models::ErrorKind::Other)?;
+    let oldest_block = oldest_block.map_err(models::ErrorKind::Other)?;
 
     let genesis_block_identifier = models::BlockIdentifier {
         index: genesis.config.genesis_height.try_into().unwrap(),
         hash: genesis_block.header.hash.to_base(),
     };
-    // TODO: query GC for the oldest block
-    let oldest_block_identifier = genesis_block_identifier.clone();
+    let oldest_block_identifier = models::BlockIdentifier {
+        index: oldest_block.header.height.try_into().unwrap(),
+        hash: oldest_block.header.hash.to_base(),
+    };
     Ok(Json(models::NetworkStatusResponse {
         current_block_identifier: models::BlockIdentifier {
             index: status.sync_info.latest_block_height.try_into().unwrap(),
