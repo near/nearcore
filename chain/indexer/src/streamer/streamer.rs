@@ -39,6 +39,7 @@ pub struct BlockResponse {
     pub block: views::BlockView,
     pub chunks: Vec<views::ChunkView>,
     pub outcomes: Vec<Outcome>,
+    pub state_changes: views::StateChangesKindsView,
 }
 
 #[derive(Clone, Debug)]
@@ -83,7 +84,7 @@ async fn fetch_block_by_height(
 /// This function supposed to return the entire `BlockResponse`.
 /// It fetches the block and fetches all the chunks for the block
 /// and returns everything together in one struct
-async fn fetch_block_with_chunks(
+async fn fetch_block_response(
     client: &Addr<near_client::ViewClientActor>,
     block: views::BlockView,
     outcomes_to_get: impl Iterator<Item = types::TransactionOrReceiptId>,
@@ -107,10 +108,22 @@ async fn fetch_block_with_chunks(
         }));
     }
 
+    let state_changes = fetch_state_changes(&client, block.header.hash).await?;
+
     Ok(FetchBlockResponse {
-        block_response: BlockResponse { block, chunks, outcomes },
+        block_response: BlockResponse { block, chunks, outcomes, state_changes },
         new_outcomes_to_get: outcomes_to_retry,
     })
+}
+
+async fn fetch_state_changes(
+    client: &Addr<near_client::ViewClientActor>,
+    block_hash: CryptoHash,
+) -> Result<views::StateChangesKindsView, FailedToFetchData> {
+    client
+        .send(near_client::GetStateChangesInBlock { block_hash })
+        .await?
+        .map_err(|err| FailedToFetchData::String(err))
 }
 
 /// Fetches single chunk (as `near_primitives::views::ChunkView`) by provided `near_client::GetChunk` enum
@@ -214,7 +227,7 @@ pub(crate) async fn start(
         for block_height in (last_synced_block_height + 1)..=latest_block_height {
             if let Ok(block) = fetch_block_by_height(&view_client, block_height).await {
                 let response =
-                    fetch_block_with_chunks(&view_client, block, outcomes_to_get.drain(..)).await;
+                    fetch_block_response(&view_client, block, outcomes_to_get.drain(..)).await;
 
                 match response {
                     Ok(fetch_block_response) => {
