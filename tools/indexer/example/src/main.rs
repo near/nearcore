@@ -215,8 +215,10 @@ async fn listen_blocks(mut stream: mpsc::Receiver<near_indexer::BlockResponse>) 
 }
 
 fn main() {
+    let home_dir: Option<String> = env::args().nth(1);
+
     init_logging(true);
-    let indexer = near_indexer::Indexer::new(None);
+    let indexer = near_indexer::Indexer::new(home_dir.as_ref().map(AsRef::as_ref));
     let stream = indexer.streamer();
     actix::spawn(listen_blocks(stream));
     indexer.start();

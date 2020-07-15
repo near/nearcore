@@ -20,6 +20,7 @@ pub use near_primitives;
 
 /// This is the core component, which handles `nearcore` and internal `streamer`.
 pub struct Indexer {
+    near_config: neard::NearConfig,
     actix_runtime: actix::SystemRunner,
     view_client: actix::Addr<near_client::ViewClientActor>,
     client: actix::Addr<near_client::ClientActor>,
@@ -27,7 +28,7 @@ pub struct Indexer {
 
 impl Indexer {
     /// Initialize Indexer by configuring `nearcore`
-    pub fn new(custom_home_dir: Option<&str>) -> Self {
+    pub fn new(custom_home_dir: Option<&std::path::Path>) -> Self {
         let home_dir = if !custom_home_dir.is_some() {
             PathBuf::from(neard::get_default_home())
         } else {
@@ -36,9 +37,16 @@ impl Indexer {
 
         let near_config = neard::load_config(&home_dir);
         let system = System::new("NEAR Indexer");
-        let (client, view_client, _) = neard::start_with_config(&home_dir, near_config.clone());
         neard::genesis_validate::validate_genesis(&near_config.genesis);
-        Self { actix_runtime: system, view_client, client }
+        assert!(
+            !&near_config.client_config.tracked_shards.is_empty(),
+            "Indexer should track at least one shard. \n\
+            Tip: You may want to update {} with `\"tracked_shards\": [0]`
+            ",
+            home_dir.join("config.json").display()
+        );
+        let (client, view_client, _) = neard::start_with_config(&home_dir, near_config.clone());
+        Self { actix_runtime: system, view_client, client, near_config }
     }
 
     /// Boots up `near_indexer::streamer`, so it monitors the new blocks with chunks, transactions, receipts, and execution outcomes inside. The returned stream handler should be drained and handled on the user side.
@@ -46,6 +54,18 @@ impl Indexer {
         let (sender, receiver) = mpsc::channel(16);
         actix::spawn(streamer::start(self.view_client.clone(), self.client.clone(), sender));
         receiver
+    }
+
+    /// Expose neard config
+    pub fn near_config(&self) -> &neard::NearConfig {
+        &self.near_config
+    }
+
+    /// Internal client actors just in case. Use on your own risk, backward compatibility is not guaranteed
+    pub fn client_actors(
+        &self,
+    ) -> (actix::Addr<near_client::ViewClientActor>, actix::Addr<near_client::ClientActor>) {
+        (self.view_client.clone(), self.client.clone())
     }
 
     /// Start Indexer.

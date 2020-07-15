@@ -31,7 +31,7 @@ The above commands should initialize necessary configs and keys to run localnet
 
 ```bash
 $ cd tools/indexer/example
-$ cargo run --release
+$ cargo run --release /path/to/.near/config_dir/
 ```
 
 After the node is started, you should see logs of every block produced in your localnet. Get back to the code to implement any custom handling of the data flowing into the indexer.

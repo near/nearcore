@@ -17,11 +17,14 @@ const INDEXER: &str = "indexer";
 
 /// Error occurs in case of failed data fetch
 #[derive(Debug)]
-pub struct FailedToFetchData;
+pub enum FailedToFetchData {
+    MailboxError(MailboxError),
+    String(String),
+}
 
 impl From<MailboxError> for FailedToFetchData {
-    fn from(_actix_error: MailboxError) -> Self {
-        FailedToFetchData
+    fn from(actix_error: MailboxError) -> Self {
+        FailedToFetchData::MailboxError(actix_error)
     }
 }
 
@@ -50,7 +53,7 @@ async fn fetch_status(
     client
         .send(near_client::Status { is_health_check: false })
         .await?
-        .map_err(|_| FailedToFetchData)
+        .map_err(|err| FailedToFetchData::String(err))
 }
 
 /// Fetches the status to retrieve `latest_block_height` to determine if we need to fetch
@@ -61,7 +64,7 @@ async fn fetch_latest_block(
     client
         .send(near_client::GetBlock(types::BlockIdOrFinality::Finality(types::Finality::Final)))
         .await?
-        .map_err(|_| FailedToFetchData)
+        .map_err(|err| FailedToFetchData::String(err))
 }
 
 /// Fetches specific block by it's height
@@ -74,7 +77,7 @@ async fn fetch_block_by_height(
             near_primitives::types::BlockId::Height(height),
         )))
         .await?
-        .map_err(|_| FailedToFetchData)
+        .map_err(|err| FailedToFetchData::String(err))
 }
 
 /// This function supposed to return the entire `BlockResponse`.
@@ -115,7 +118,7 @@ async fn fetch_single_chunk(
     client: &Addr<near_client::ViewClientActor>,
     get_chunk: near_client::GetChunk,
 ) -> Result<views::ChunkView, FailedToFetchData> {
-    client.send(get_chunk).await?.map_err(|_| FailedToFetchData)
+    client.send(get_chunk).await?.map_err(|err| FailedToFetchData::String(err))
 }
 
 /// Fetch ExecutionOutcomeWithId for receipts and transactions from previous block
@@ -131,7 +134,7 @@ async fn fetch_outcomes(
         match client
             .send(near_client::GetExecutionOutcome { id: transaction_or_receipt_id.clone() })
             .await
-            .map_err(|_| FailedToFetchData)
+            .map_err(|err| FailedToFetchData::MailboxError(err))
         {
             Ok(Ok(outcome)) => match &transaction_or_receipt_id {
                 types::TransactionOrReceiptId::Transaction { .. } => {
@@ -213,18 +216,26 @@ pub(crate) async fn start(
                 let response =
                     fetch_block_with_chunks(&view_client, block, outcomes_to_get.drain(..)).await;
 
-                if let Ok(fetch_block_response) = response {
-                    outcomes_to_get = fetch_block_response.new_outcomes_to_get;
-                    debug!(target: INDEXER, "{:#?}", &fetch_block_response.block_response);
-                    if let Err(_) = blocks_sink.send(fetch_block_response.block_response).await {
-                        info!(
-                                target: INDEXER,
-                                "Unable to send BlockResponse to listener, listener doesn't listen. terminating..."
-                            );
-                        break 'main;
+                match response {
+                    Ok(fetch_block_response) => {
+                        outcomes_to_get = fetch_block_response.new_outcomes_to_get;
+                        debug!(target: INDEXER, "{:#?}", &fetch_block_response.block_response);
+                        if let Err(_) = blocks_sink.send(fetch_block_response.block_response).await
+                        {
+                            info!(
+                                        target: INDEXER,
+                                        "Unable to send BlockResponse to listener, listener doesn't listen. terminating..."
+                                    );
+                            break 'main;
+                        }
                     }
-                } else {
-                    debug!(target: INDEXER, "Missing data, skipping block #{}...", block_height);
+                    Err(err) => {
+                        debug!(
+                            target: INDEXER,
+                            "Missing data, skipping block #{}...", block_height
+                        );
+                        debug!(target: INDEXER, "{:#?}", err);
+                    }
                 }
             }
             last_synced_block_height = block_height;
