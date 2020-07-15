@@ -1,0 +1,16 @@
+[package]
+name = "near-indexer"
+version = "0.1.0"
+authors = ["Near Inc <hello@nearprotocol.com>"]
+edition = "2018"
+
+[dependencies]
+actix = "0.9"
+tracing = "0.1.13"
+futures = "0.3.5"
+tokio = { version = "0.2", features = ["time", "sync"] }
+
+neard = { path = "../../neard" }
+near-client = { path = "../client" }
+near-crypto = { path = "../../core/crypto" }
+near-primitives = { path = "../../core/primitives" }
