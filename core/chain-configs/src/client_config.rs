@@ -65,6 +65,8 @@ pub struct ClientConfig {
     pub catchup_step_period: Duration,
     /// Time between checking to re-request chunks.
     pub chunk_request_retry_period: Duration,
+    /// Time between running doomslug timer.
+    pub doosmslug_step_period: Duration,
     /// Behind this horizon header fetch kicks in.
     pub block_header_fetch_horizon: BlockHeightDelta,
     /// Number of blocks to garbage collect at every gc call.
@@ -122,6 +124,7 @@ impl ClientConfig {
                 Duration::from_millis(100),
                 Duration::from_millis(min_block_prod_time / 5),
             ),
+            doosmslug_step_period: Duration::from_millis(100),
             block_header_fetch_horizon: 50,
             gc_blocks_limit: 100,
             tracked_accounts: vec![],

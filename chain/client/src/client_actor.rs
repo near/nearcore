@@ -727,7 +727,7 @@ impl ClientActor {
 
         if self.sync_started {
             self.doomslug_timer_next_attempt = self.run_timer(
-                Duration::from_millis(50),
+                self.client.config.doosmslug_step_period,
                 self.doomslug_timer_next_attempt,
                 ctx,
                 |act, ctx| act.try_doomslug_timer(ctx),
