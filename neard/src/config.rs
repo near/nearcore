@@ -77,7 +77,7 @@ const BLOCK_HEADER_FETCH_HORIZON: BlockHeightDelta = 50;
 const CATCHUP_STEP_PERIOD: u64 = 100;
 
 /// Time between checking to re-request chunks.
-const CHUNK_REQUEST_RETRY_PERIOD: u64 = 200;
+const CHUNK_REQUEST_RETRY_PERIOD: u64 = 400;
 
 /// Expected epoch length.
 pub const EXPECTED_EPOCH_LENGTH: BlockHeightDelta = (5 * 60 * 1000) / MIN_BLOCK_PRODUCTION_DELAY;
@@ -293,6 +293,10 @@ fn default_view_client_threads() -> usize {
     4
 }
 
+fn default_doomslug_step_period() -> Duration {
+    Duration::from_millis(100)
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Consensus {
     /// Minimum number of peers to start syncing.
@@ -338,6 +342,9 @@ pub struct Consensus {
     /// During sync the time we wait before reentering the sync loop
     #[serde(default = "default_sync_step_period")]
     pub sync_step_period: Duration,
+    /// Time between running doomslug timer.
+    #[serde(default = "default_doomslug_step_period")]
+    pub doomslug_step_period: Duration,
 }
 
 impl Default for Consensus {
@@ -362,6 +369,7 @@ impl Default for Consensus {
             ),
             sync_check_period: default_sync_check_period(),
             sync_step_period: default_sync_step_period(),
+            doomslug_step_period: default_doomslug_step_period(),
         }
     }
 }
@@ -562,6 +570,7 @@ impl NearConfig {
                 block_header_fetch_horizon: config.consensus.block_header_fetch_horizon,
                 catchup_step_period: config.consensus.catchup_step_period,
                 chunk_request_retry_period: config.consensus.chunk_request_retry_period,
+                doosmslug_step_period: config.consensus.doomslug_step_period,
                 tracked_accounts: config.tracked_accounts,
                 tracked_shards: config.tracked_shards,
                 archive: config.archive,
