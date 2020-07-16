@@ -115,6 +115,14 @@ def start_load_test_helpers(nodes):
          nodes)
 
 
+def get_log(node):
+    m = node.machine
+    target_file = f'./logs/{m.name}.log'
+    m.download(f'/home/ubuntu/near.log', target_file)
+
+def get_logs(nodes):
+    pmap(get_log, nodes)
+
 def get_epoch_length_in_blocks(node):
     m = node.machine
     target_dir = create_target_dir(m)
