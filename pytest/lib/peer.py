@@ -8,6 +8,8 @@ from messages.crypto import PublicKey, Signature
 from messages.network import (EdgeInfo, GenesisId, Handshake, PeerChainInfo,
                               PeerMessage)
 from serializer import BinarySerializer
+from nacl.signing import SigningKey
+from typing import Optional
 
 ED_PREFIX = "ed25519:"
 
@@ -27,17 +29,24 @@ class Connection:
         self.writer.write(raw_message)
         await self.writer.drain()
 
-    async def recv(self):
-        response_raw = await self.recv_raw()
-        response = BinarySerializer(schema).deserialize(
-            response_raw, PeerMessage)
-        return response
+    async def recv(self, expected=None):
+        while True:
+            response_raw = await self.recv_raw()
+            response = BinarySerializer(schema).deserialize(
+                response_raw, PeerMessage)
+
+            if expected is None or response.enum == expected:
+                return response
 
     async def recv_raw(self):
         length = await self.reader.read(4)
         length = struct.unpack('I', length)[0]
         response = await self.reader.read(length)
         return response
+
+    async def close(self):
+        self.writer.close()
+        await self.writer.wait_closed()
 
     def do_send(self, message):
         loop = asyncio.get_event_loop()
@@ -48,20 +57,22 @@ class Connection:
         loop.create_task(self.send_raw(raw_message))
 
 
-async def connect(addr, raw=False) -> Connection:
+async def connect(addr) -> Connection:
     reader, writer = await asyncio.open_connection(*addr)
     conn = Connection(reader, writer)
-
-    if not raw:
-        # Make handshake
-        pass
-
     return conn
 
 
-def create_handshake(my_key_pair_nacl, their_pk_serialized, listen_port):
+def create_handshake(my_key_pair_nacl, their_pk_serialized, listen_port, version=0):
+    """
+    Create handshake message but with placeholders in:
+        - version
+        - genesis_id.chain_id
+        - genesis_id.hash
+        - edge_info.signature
+    """
     handshake = Handshake()
-    handshake.version = 29
+    handshake.version = version
     handshake.peer_id = PublicKey()
     handshake.target_peer_id = PublicKey()
     handshake.listen_port = listen_port
@@ -95,6 +106,13 @@ def create_handshake(my_key_pair_nacl, their_pk_serialized, listen_port):
     return peer_message
 
 
+def create_peer_request():
+    peer_message = PeerMessage()
+    peer_message.enum = 'PeersRequest'
+    peer_message.PeersRequest = ()
+    return peer_message
+
+
 def sign_handshake(my_key_pair_nacl, handshake):
     peer0 = handshake.peer_id
     peer1 = handshake.target_peer_id
@@ -106,3 +124,28 @@ def sign_handshake(my_key_pair_nacl, handshake):
         struct.pack('Q', handshake.edge_info.nonce))
     handshake.edge_info.signature.data = my_key_pair_nacl.sign(
         hashlib.sha256(arr).digest()).signature
+
+
+async def run_handshake(conn: Connection, target_public_key: PublicKey, key_pair: SigningKey, listen_port=12345):
+    handshake = create_handshake(key_pair, target_public_key, listen_port)
+    sign_handshake(key_pair, handshake.Handshake)
+
+    await conn.send(handshake)
+    response = await conn.recv()
+
+    if response.enum == 'HandshakeFailure' and response.HandshakeFailure[1].enum == 'GenesisMismatch':
+        gm = response.HandshakeFailure[1].GenesisMismatch
+        handshake.Handshake.chain_info.genesis_id.chain_id = gm.chain_id
+        handshake.Handshake.chain_info.genesis_id.hash = gm.hash
+        sign_handshake(key_pair, handshake.Handshake)
+        await conn.send(handshake)
+        response = await conn.recv()
+
+    if response.enum == 'HandshakeFailure' and response.HandshakeFailure[1].enum == 'ProtocolVersionMismatch':
+        pvm = response.HandshakeFailure[1].ProtocolVersionMismatch
+        handshake.Handshake.version = pvm
+        sign_handshake(key_pair, handshake.Handshake)
+        await conn.send(handshake)
+        response = await conn.recv()
+
+    assert response.enum == 'Handshake', response.enum
