@@ -45,15 +45,16 @@ cd {PYTHON_DIR}
 '''
 
 
-def get_node(i):
-    n = GCloudNode(f'{NODE_BASE_NAME}{i}')
+# set prefix = 'sharded-' to access sharded mocknet nodes
+def get_node(i, prefix=''):
+    n = GCloudNode(f'{prefix}{NODE_BASE_NAME}{i}')
     n.machine.username = NODE_USERNAME
     n.machine.ssh_key_path = NODE_SSH_KEY_PATH
     return n
 
 
-def get_nodes():
-    return pmap(get_node, range(NUM_NODES))
+def get_nodes(prefix=''):
+    return pmap(lambda i: get_node(i, prefix=prefix), range(NUM_NODES))
 
 
 def create_target_dir(machine):
