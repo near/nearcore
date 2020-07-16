@@ -876,6 +876,21 @@ fn test_gc_block_skips() {
 }
 
 #[test]
+fn test_gc_chunk_tail() {
+    let mut chain_genesis = ChainGenesis::test();
+    let epoch_length = 100;
+    chain_genesis.epoch_length = epoch_length;
+    let mut env = TestEnv::new(chain_genesis.clone(), 1, 1);
+    let mut chunk_tail = 0;
+    for i in (1..10).chain(101..epoch_length * 6) {
+        env.produce_block(0, i);
+        let cur_chunk_tail = env.clients[0].chain.store().chunk_tail().unwrap();
+        assert!(cur_chunk_tail >= chunk_tail);
+        chunk_tail = cur_chunk_tail;
+    }
+}
+
+#[test]
 fn test_gc_execution_outcome() {
     let epoch_length = 5;
     let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
