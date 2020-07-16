@@ -41,7 +41,8 @@ members = [
     "genesis-tools/genesis-populate",
     "genesis-tools/keypair-generator",
     "tools/restaked",
-    "tools/indexer/example"
+    "tools/indexer/example",
+    "tools/indexer/wallet",
 ]
 
 [dependencies]

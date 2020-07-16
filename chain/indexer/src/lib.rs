@@ -13,6 +13,7 @@ use actix::System;
 use tokio::sync::mpsc;
 
 use neard;
+pub use neard::NearConfig;
 mod streamer;
 
 pub use self::streamer::{BlockResponse, Outcome};
