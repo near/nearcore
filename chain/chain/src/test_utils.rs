@@ -483,7 +483,6 @@ impl RuntimeAdapter for KeyValueRuntime {
         _gas_limit: Gas,
         _shard_id: ShardId,
         _state_root: StateRoot,
-        _max_number_of_transactions: usize,
         transactions: &mut dyn PoolIterator,
         _chain_validate: &mut dyn FnMut(&SignedTransaction) -> bool,
     ) -> Result<Vec<SignedTransaction>, Error> {

@@ -562,7 +562,6 @@ impl RuntimeAdapter for NightshadeRuntime {
         gas_limit: Gas,
         shard_id: ShardId,
         state_root: StateRoot,
-        max_number_of_transactions: usize,
         pool_iterator: &mut dyn PoolIterator,
         chain_validate: &mut dyn FnMut(&SignedTransaction) -> bool,
     ) -> Result<Vec<SignedTransaction>, Error> {
@@ -575,9 +574,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         let mut transactions = vec![];
         let mut num_checked_transactions = 0;
 
-        while transactions.len() < max_number_of_transactions
-            && total_gas_burnt < transactions_gas_limit
-        {
+        while total_gas_burnt < transactions_gas_limit {
             if let Some(iter) = pool_iterator.next() {
                 while let Some(tx) = iter.next() {
                     num_checked_transactions += 1;
