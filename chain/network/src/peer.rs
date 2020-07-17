@@ -772,7 +772,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for Peer {
                 }
 
                 self.peer_manager_addr
-                    .send(PeerRequest::UpdateEdge((self.peer_id().unwrap(), edge.next_nonce())))
+                    .send(PeerRequest::UpdateEdge((self.peer_id().unwrap(), edge.next())))
                     .into_actor(self)
                     .then(|res, act, ctx| {
                         match res {
