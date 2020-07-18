@@ -11,7 +11,8 @@ use near_client::{start_client, start_view_client, ClientActor, ViewClientActor}
 use near_jsonrpc::start_http;
 use near_network::{NetworkRecipient, PeerManagerActor};
 use near_store::migrations::{
-    fill_col_outcomes_by_hash, fill_col_transaction_refcount, get_store_version, set_store_version,
+    fill_accounts_to_shard, fill_col_outcomes_by_hash, fill_col_transaction_refcount,
+    get_store_version, set_store_version,
 };
 use near_store::{create_store, Store};
 use near_telemetry::TelemetryActor;
@@ -88,6 +89,13 @@ pub fn apply_store_migrations(path: &String) {
         let store = create_store(&path);
         fill_col_transaction_refcount(&store);
         set_store_version(&store, 4);
+    }
+    if db_version <= 4 {
+        // version 4 => 5: add `accounts_to_shard` to EpochInfo
+        info!(target: "near", "Migrate DB from version 4 to 5");
+        let store = create_store(&path);
+        fill_accounts_to_shard(&store);
+        set_store_version(&store, 5);
     }
 
     let db_version = get_store_version(path);

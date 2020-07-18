@@ -554,7 +554,7 @@ impl ShardsManager {
     }
 
     fn get_tracking_shards(&self, parent_hash: &CryptoHash) -> HashSet<ShardId> {
-        (0..self.runtime_adapter.num_shards())
+        (0..self.runtime_adapter.num_shards(parent_hash).unwrap())
             .filter(|chunk_shard_id| {
                 self.cares_about_shard_this_or_next_epoch(
                     self.me.as_ref(),
@@ -732,15 +732,18 @@ impl ShardsManager {
         tracking_shards: &HashSet<ShardId>,
         receipts: &Vec<Receipt>,
         proofs: &Vec<MerklePath>,
+        prev_block_hash: &CryptoHash,
     ) -> Vec<ReceiptProof> {
         let mut part_receipt_proofs = vec![];
-        for to_shard_id in 0..self.runtime_adapter.num_shards() {
+        for to_shard_id in 0..self.runtime_adapter.num_shards(prev_block_hash).unwrap() {
             if tracking_shards.contains(&to_shard_id) {
                 part_receipt_proofs.push(ReceiptProof(
                     receipts
                         .iter()
                         .filter(|&receipt| {
-                            self.runtime_adapter.account_id_to_shard_id(&receipt.receiver_id)
+                            self.runtime_adapter
+                                .account_id_to_shard_id(&receipt.receiver_id, prev_block_hash)
+                                .unwrap()
                                 == to_shard_id
                         })
                         .cloned()
@@ -1027,7 +1030,8 @@ impl ShardsManager {
 
         // 6. Checking receipts validity
         let receipts = collect_receipts(&partial_encoded_chunk.receipts);
-        let receipts_hashes = self.runtime_adapter.build_receipts_hashes(&receipts);
+        let receipts_hashes =
+            self.runtime_adapter.build_receipts_hashes(&receipts, &prev_block_hash);
 
         for proof in partial_encoded_chunk.receipts.iter() {
             let shard_id = proof.1.to_shard_id;
@@ -1156,7 +1160,7 @@ impl ShardsManager {
         prev_block_hash: &CryptoHash,
         chunk_entry: &EncodedChunksCacheEntry,
     ) -> Result<bool, Error> {
-        for shard_id in 0..self.runtime_adapter.num_shards() {
+        for shard_id in 0..self.runtime_adapter.num_shards(prev_block_hash).unwrap() {
             let shard_id = shard_id as ShardId;
             if !chunk_entry.receipts.contains_key(&shard_id) {
                 if self.need_receipt(&prev_block_hash, shard_id) {
@@ -1314,8 +1318,9 @@ impl ShardsManager {
         store_update: &mut ChainStoreUpdate<'_>,
     ) {
         let shard_id = encoded_chunk.header.inner.shard_id;
+        let prev_block_hash = encoded_chunk.header.inner.prev_block_hash;
         let outgoing_receipts_hashes =
-            self.runtime_adapter.build_receipts_hashes(outgoing_receipts);
+            self.runtime_adapter.build_receipts_hashes(outgoing_receipts, &prev_block_hash);
         let (outgoing_receipts_root, outgoing_receipts_proofs) =
             merklize(&outgoing_receipts_hashes);
         assert_eq!(encoded_chunk.header.inner.outgoing_receipts_root, outgoing_receipts_root);
@@ -1339,9 +1344,10 @@ impl ShardsManager {
             receipts: self
                 .receipts_recipient_filter(
                     shard_id,
-                    &(0..self.runtime_adapter.num_shards()).collect(),
+                    &(0..self.runtime_adapter.num_shards(&prev_block_hash).unwrap()).collect(),
                     outgoing_receipts,
                     &outgoing_receipts_proofs,
+                    &prev_block_hash,
                 )
                 .into_iter()
                 .map(|receipt_proof| (receipt_proof.1.to_shard_id, receipt_proof))
@@ -1366,7 +1372,7 @@ impl ShardsManager {
         let prev_block_hash = encoded_chunk.header.inner.prev_block_hash;
         let shard_id = encoded_chunk.header.inner.shard_id;
         let outgoing_receipts_hashes =
-            self.runtime_adapter.build_receipts_hashes(&outgoing_receipts);
+            self.runtime_adapter.build_receipts_hashes(&outgoing_receipts, &prev_block_hash);
         let (outgoing_receipts_root, outgoing_receipts_proofs) =
             merklize(&outgoing_receipts_hashes);
         assert_eq!(encoded_chunk.header.inner.outgoing_receipts_root, outgoing_receipts_root);
@@ -1382,7 +1388,7 @@ impl ShardsManager {
         }
 
         for (to_whom, part_ords) in block_producer_mapping {
-            let tracking_shards = (0..self.runtime_adapter.num_shards())
+            let tracking_shards = (0..self.runtime_adapter.num_shards(&prev_block_hash).unwrap())
                 .filter(|chunk_shard_id| {
                     self.cares_about_shard_this_or_next_epoch(
                         Some(&to_whom),
@@ -1398,6 +1404,7 @@ impl ShardsManager {
                 &tracking_shards,
                 &outgoing_receipts,
                 &outgoing_receipts_proofs,
+                &prev_block_hash,
             );
             let partial_encoded_chunk = encoded_chunk.create_partial_encoded_chunk(
                 part_ords,
@@ -1507,7 +1514,7 @@ mod test {
                 vec![],
                 vec![],
                 &vec![],
-                merklize(&runtime_adapter.build_receipts_hashes(&[])).0,
+                merklize(&runtime_adapter.build_receipts_hashes(&[], &CryptoHash::default())).0,
                 CryptoHash::default(),
                 &signer,
                 &mut rs,

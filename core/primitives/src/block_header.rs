@@ -193,7 +193,7 @@ impl BlockHeaderV1 {
     }
 }
 
-/// V1 -> V2: Remove `chunks_included` from `inner_reset`
+/// V1 -> V2: Remove `chunks_included` from `inner_rest`
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, Eq, PartialEq)]
 #[borsh_init(init)]
 pub struct BlockHeaderV2 {
@@ -239,8 +239,7 @@ impl BlockHeader {
 
     pub fn compute_hash(prev_hash: CryptoHash, inner_lite: &[u8], inner_rest: &[u8]) -> CryptoHash {
         let hash_inner = BlockHeader::compute_inner_hash(inner_lite, inner_rest);
-
-        return combine_hash(hash_inner, prev_hash);
+        combine_hash(hash_inner, prev_hash)
     }
 
     pub fn new(

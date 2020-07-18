@@ -14,10 +14,11 @@ use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::{merklize, MerklePath};
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::ShardChunkHeader;
+use near_primitives::state_record::StateRecord;
 use near_primitives::transaction::{ExecutionOutcomeWithId, SignedTransaction};
 use near_primitives::types::{
     AccountId, ApprovalStake, Balance, BlockHeight, BlockHeightDelta, EpochId, Gas, MerkleHash,
-    NumBlocks, ShardId, StateRoot, StateRootNode, ValidatorStake,
+    NumBlocks, NumShards, ShardId, StateRoot, StateRootNode, ValidatorStake,
 };
 use near_primitives::version::{
     ProtocolVersion, MIN_GAS_PRICE_NEP_92, MIN_PROTOCOL_VERSION_NEP_92,
@@ -344,15 +345,25 @@ pub trait RuntimeAdapter: Send + Sync {
         account_id: &AccountId,
     ) -> Result<(ValidatorStake, bool), Error>;
 
-    /// Get current number of shards.
-    fn num_shards(&self) -> ShardId;
+    /// Get number of shards by prev block.
+    fn num_shards(&self, prev_block_hash: &CryptoHash) -> Result<NumShards, Error>;
 
     fn num_total_parts(&self) -> usize;
 
     fn num_data_parts(&self) -> usize;
 
     /// Account Id to Shard Id mapping, given current number of shards.
-    fn account_id_to_shard_id(&self, account_id: &AccountId) -> ShardId;
+    fn account_id_to_shard_id(
+        &self,
+        account_id: &AccountId,
+        prev_block_hash: &CryptoHash,
+    ) -> Result<ShardId, Error>;
+
+    fn state_record_to_shard_id(
+        &self,
+        state_record: &StateRecord,
+        prev_block_hash: &CryptoHash,
+    ) -> Result<ShardId, Error>;
 
     /// Returns `account_id` that suppose to have the `part_id` of all chunks given previous block hash.
     fn get_part_owner(&self, parent_hash: &CryptoHash, part_id: u64) -> Result<AccountId, Error>;
@@ -545,13 +556,20 @@ pub trait RuntimeAdapter: Send + Sync {
     ) -> Result<Ordering, Error>;
 
     /// Build receipts hashes.
-    fn build_receipts_hashes(&self, receipts: &[Receipt]) -> Vec<CryptoHash> {
+    fn build_receipts_hashes(
+        &self,
+        receipts: &[Receipt],
+        prev_block_hash: &CryptoHash,
+    ) -> Vec<CryptoHash> {
         let mut receipts_hashes = vec![];
-        for shard_id in 0..self.num_shards() {
+        for shard_id in 0..self.num_shards(prev_block_hash).unwrap() {
             // importance to save the same order while filtering
             let shard_receipts: Vec<Receipt> = receipts
                 .iter()
-                .filter(|&receipt| self.account_id_to_shard_id(&receipt.receiver_id) == shard_id)
+                .filter(|&receipt| {
+                    self.account_id_to_shard_id(&receipt.receiver_id, prev_block_hash).unwrap()
+                        == shard_id
+                })
                 .cloned()
                 .collect();
             receipts_hashes

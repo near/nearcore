@@ -48,7 +48,7 @@ use node_runtime::{
     ValidatorAccountsUpdate,
 };
 
-use crate::shard_tracker::{account_id_to_shard_id, ShardTracker};
+use crate::shard_tracker::ShardTracker;
 
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 const STATE_DUMP_FILE: &str = "state_dump";
@@ -76,8 +76,8 @@ impl EpochInfoProvider for SafeEpochManager {
             return Ok(None);
         }
         let epoch_info = epoch_manager.get_epoch_info(&epoch_id)?;
-        if let Some(index) = epoch_info.validator_to_index.get(account_id) {
-            Ok(Some(epoch_info.validators[*index as usize].stake))
+        if let Some(index) = epoch_info.validator_to_index().get(account_id) {
+            Ok(Some(epoch_info.validators()[*index as usize].stake))
         } else {
             Ok(None)
         }
@@ -92,7 +92,7 @@ impl EpochInfoProvider for SafeEpochManager {
         let slashed = epoch_manager.get_slashed_validators(last_block_hash)?.clone();
         let epoch_info = epoch_manager.get_epoch_info(&epoch_id)?;
         Ok(epoch_info
-            .validators
+            .validators()
             .iter()
             .filter_map(|info| {
                 if slashed.contains_key(&info.account_id) {
@@ -192,9 +192,9 @@ impl NightshadeRuntime {
         let shard_tracker = ShardTracker::new(
             initial_tracking_accounts,
             initial_tracking_shards,
+            CryptoHash::default(),
             EpochId::default(),
             epoch_manager.clone(),
-            num_shards,
         );
         NightshadeRuntime {
             genesis,
@@ -214,7 +214,10 @@ impl NightshadeRuntime {
     ) -> Result<EpochHeight, Error> {
         let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
         let epoch_id = epoch_manager.get_epoch_id_from_prev_block(prev_block_hash)?;
-        epoch_manager.get_epoch_info(&epoch_id).map(|info| info.epoch_height).map_err(Error::from)
+        epoch_manager
+            .get_epoch_info(&epoch_id)
+            .map(|info| info.epoch_height().clone())
+            .map_err(Error::from)
     }
 
     fn genesis_state_from_dump(&self) -> (Arc<Store>, StoreUpdate, Vec<StateRoot>) {
@@ -241,7 +244,8 @@ impl NightshadeRuntime {
         let mut shard_records: Vec<Vec<StateRecord>> = (0..num_shards).map(|_| vec![]).collect();
         let mut has_protocol_account = false;
         for record in self.genesis.records.as_ref() {
-            shard_records[state_record_to_shard_id(record, num_shards) as usize]
+            shard_records
+                [self.state_record_to_shard_id(record, &CryptoHash::default()).unwrap() as usize]
                 .push(record.clone());
             if let StateRecord::Account { account_id, .. } = record {
                 if account_id == &self.genesis.config.protocol_treasury_account {
@@ -257,7 +261,11 @@ impl NightshadeRuntime {
                 .validators
                 .iter()
                 .filter_map(|account_info| {
-                    if self.account_id_to_shard_id(&account_info.account_id) == shard_id {
+                    if self
+                        .account_id_to_shard_id(&account_info.account_id, &CryptoHash::default())
+                        .unwrap()
+                        == shard_id
+                    {
                         Some((
                             account_info.account_id.clone(),
                             account_info.public_key.clone(),
@@ -308,7 +316,10 @@ impl NightshadeRuntime {
             let mut slashing_info: HashMap<_, _> = challenges_result
                 .iter()
                 .filter_map(|s| {
-                    if self.account_id_to_shard_id(&s.account_id) == shard_id && !s.is_double_sign {
+                    if epoch_manager.account_id_to_shard_id(&s.account_id, prev_block_hash).unwrap()
+                        == shard_id
+                        && !s.is_double_sign
+                    {
                         Some((s.account_id.clone(), None))
                     } else {
                         None
@@ -321,22 +332,36 @@ impl NightshadeRuntime {
                     epoch_manager.compute_stake_return_info(prev_block_hash)?;
                 let stake_info = stake_info
                     .into_iter()
-                    .filter(|(account_id, _)| self.account_id_to_shard_id(account_id) == shard_id)
+                    .filter(|(account_id, _)| {
+                        epoch_manager.account_id_to_shard_id(account_id, prev_block_hash).unwrap()
+                            == shard_id
+                    })
                     .collect();
                 let validator_rewards = validator_reward
                     .into_iter()
-                    .filter(|(account_id, _)| self.account_id_to_shard_id(account_id) == shard_id)
+                    .filter(|(account_id, _)| {
+                        epoch_manager.account_id_to_shard_id(account_id, prev_block_hash).unwrap()
+                            == shard_id
+                    })
                     .collect();
                 let last_proposals = last_validator_proposals
                     .iter()
-                    .filter(|v| self.account_id_to_shard_id(&v.account_id) == shard_id)
+                    .filter(|v| {
+                        epoch_manager
+                            .account_id_to_shard_id(&v.account_id, prev_block_hash)
+                            .unwrap()
+                            == shard_id
+                    })
                     .fold(HashMap::new(), |mut acc, v| {
                         acc.insert(v.account_id.clone(), v.stake);
                         acc
                     });
                 let double_sign_slashing_info: HashMap<_, _> = double_sign_slashing_info
                     .into_iter()
-                    .filter(|(account_id, _)| self.account_id_to_shard_id(account_id) == shard_id)
+                    .filter(|(account_id, _)| {
+                        epoch_manager.account_id_to_shard_id(account_id, prev_block_hash).unwrap()
+                            == shard_id
+                    })
                     .map(|(account_id, stake)| (account_id, Some(stake)))
                     .collect();
                 slashing_info.extend(double_sign_slashing_info);
@@ -347,7 +372,10 @@ impl NightshadeRuntime {
                     protocol_treasury_account_id: Some(
                         self.genesis.config.protocol_treasury_account.clone(),
                     )
-                    .filter(|account_id| self.account_id_to_shard_id(account_id) == shard_id),
+                    .filter(|account_id| {
+                        epoch_manager.account_id_to_shard_id(account_id, prev_block_hash).unwrap()
+                            == shard_id
+                    }),
                     slashing_info,
                 })
             } else if !challenges_result.is_empty() {
@@ -416,7 +444,7 @@ impl NightshadeRuntime {
         let mut receipt_result = HashMap::default();
         for receipt in apply_result.outgoing_receipts {
             receipt_result
-                .entry(self.account_id_to_shard_id(&receipt.receiver_id))
+                .entry(self.account_id_to_shard_id(&receipt.receiver_id, &prev_block_hash).unwrap())
                 .or_insert_with(|| vec![])
                 .push(receipt);
         }
@@ -439,19 +467,6 @@ impl NightshadeRuntime {
         };
 
         Ok(result)
-    }
-}
-
-pub fn state_record_to_shard_id(state_record: &StateRecord, num_shards: NumShards) -> ShardId {
-    match &state_record {
-        StateRecord::Account { account_id, .. }
-        | StateRecord::AccessKey { account_id, .. }
-        | StateRecord::Contract { account_id, .. }
-        | StateRecord::ReceivedData { account_id, .. }
-        | StateRecord::Data { account_id, .. } => account_id_to_shard_id(account_id, num_shards),
-        StateRecord::PostponedReceipt(receipt) | StateRecord::DelayedReceipt(receipt) => {
-            account_id_to_shard_id(&receipt.receiver_id, num_shards)
-        }
     }
 }
 
@@ -521,7 +536,10 @@ impl RuntimeAdapter for NightshadeRuntime {
         transaction: &SignedTransaction,
     ) -> Result<Option<InvalidTxError>, Error> {
         if let Some(state_root) = state_root {
-            let shard_id = self.account_id_to_shard_id(&transaction.transaction.signer_id);
+            let shard_id = self.account_id_to_shard_id(
+                &transaction.transaction.signer_id,
+                &transaction.transaction.block_hash,
+            )?;
             let mut state_update = self.get_tries().new_trie_update(shard_id, state_root);
 
             match verify_and_charge_transaction(
@@ -791,9 +809,9 @@ impl RuntimeAdapter for NightshadeRuntime {
         }
     }
 
-    fn num_shards(&self) -> NumShards {
-        // TODO: should be dynamic.
-        self.genesis.config.num_block_producer_seats_per_shard.len() as NumShards
+    fn num_shards(&self, prev_block_hash: &CryptoHash) -> Result<NumShards, Error> {
+        let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
+        epoch_manager.num_shards(prev_block_hash).map_err(|e| e.into())
     }
 
     fn num_total_parts(&self) -> usize {
@@ -814,8 +832,32 @@ impl RuntimeAdapter for NightshadeRuntime {
         }
     }
 
-    fn account_id_to_shard_id(&self, account_id: &AccountId) -> ShardId {
-        account_id_to_shard_id(account_id, self.num_shards())
+    fn account_id_to_shard_id(
+        &self,
+        account_id: &AccountId,
+        prev_block_hash: &CryptoHash,
+    ) -> Result<ShardId, Error> {
+        let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
+        epoch_manager.account_id_to_shard_id(account_id, prev_block_hash).map_err(|e| e.into())
+    }
+
+    fn state_record_to_shard_id(
+        &self,
+        state_record: &StateRecord,
+        prev_block_hash: &CryptoHash,
+    ) -> Result<ShardId, Error> {
+        match &state_record {
+            StateRecord::Account { account_id, .. }
+            | StateRecord::AccessKey { account_id, .. }
+            | StateRecord::Contract { account_id, .. }
+            | StateRecord::ReceivedData { account_id, .. }
+            | StateRecord::Data { account_id, .. } => {
+                self.account_id_to_shard_id(account_id, prev_block_hash)
+            }
+            StateRecord::PostponedReceipt(receipt) | StateRecord::DelayedReceipt(receipt) => {
+                self.account_id_to_shard_id(&receipt.receiver_id, prev_block_hash)
+            }
+        }
     }
 
     fn get_part_owner(&self, parent_hash: &CryptoHash, part_id: u64) -> Result<String, Error> {
@@ -894,12 +936,12 @@ impl RuntimeAdapter for NightshadeRuntime {
 
     fn get_epoch_minted_amount(&self, epoch_id: &EpochId) -> Result<Balance, Error> {
         let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
-        Ok(epoch_manager.get_epoch_info(epoch_id)?.minted_amount)
+        Ok(epoch_manager.get_epoch_info(epoch_id)?.minted_amount().clone())
     }
 
     fn get_epoch_protocol_version(&self, epoch_id: &EpochId) -> Result<ProtocolVersion, Error> {
         let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
-        Ok(epoch_manager.get_epoch_info(epoch_id)?.protocol_version)
+        Ok(epoch_manager.get_epoch_info(epoch_id)?.protocol_version().clone())
     }
 
     fn add_validator_proposals(&self, block_header_info: BlockHeaderInfo) -> Result<(), Error> {
@@ -1034,7 +1076,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                 let epoch_height = {
                     let mut epoch_manager =
                         self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
-                    epoch_manager.get_epoch_info(&epoch_id)?.epoch_height
+                    epoch_manager.get_epoch_info(&epoch_id)?.epoch_height().clone()
                 };
                 match self.call_function(
                     shard_id,
@@ -1507,7 +1549,7 @@ mod test {
             challenges_result: ChallengesResult,
         ) {
             let new_hash = hash(&vec![(self.head.height + 1) as u8]);
-            let num_shards = self.runtime.num_shards();
+            let num_shards = self.runtime.num_shards(&self.head.last_block_hash).unwrap();
             assert_eq!(transactions.len() as NumShards, num_shards);
             assert_eq!(chunk_mask.len() as NumShards, num_shards);
             let mut all_proposals = vec![];
@@ -1569,7 +1611,10 @@ mod test {
         }
 
         pub fn view_account(&self, account_id: &str) -> AccountView {
-            let shard_id = self.runtime.account_id_to_shard_id(&account_id.to_string());
+            let shard_id = self
+                .runtime
+                .account_id_to_shard_id(&account_id.to_string(), &self.head.last_block_hash)
+                .unwrap();
             self.runtime
                 .view_account(
                     shard_id,
@@ -2020,7 +2065,10 @@ mod test {
             .collect();
         let signer = InMemorySigner::from_seed(&validators[0], KeyType::ED25519, &validators[0]);
         let staking_transaction = stake(1, &signer, &block_producers[0], TESTING_INIT_STAKE - 1);
-        let first_account_shard_id = env.runtime.account_id_to_shard_id(&"test1".to_string());
+        let first_account_shard_id = env
+            .runtime
+            .account_id_to_shard_id(&"test1".to_string(), &env.head.last_block_hash)
+            .unwrap();
         let transactions = if first_account_shard_id == 0 {
             vec![vec![staking_transaction], vec![]]
         } else {

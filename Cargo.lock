@@ -2418,6 +2418,7 @@ name = "near-epoch-manager"
 version = "0.0.1"
 dependencies = [
  "borsh",
+ "byteorder",
  "cached",
  "log",
  "near-chain",

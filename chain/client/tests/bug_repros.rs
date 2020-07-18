@@ -8,8 +8,7 @@ use std::sync::{Arc, RwLock};
 use actix::{Addr, System};
 use rand::{thread_rng, Rng};
 
-use near_chain::test_utils::account_id_to_shard_id;
-use near_client::test_utils::setup_mock_all_validators;
+use near_client::test_utils::{account_id_to_shard_id_by_hash, setup_mock_all_validators};
 use near_client::{ClientActor, ViewClientActor};
 use near_crypto::{InMemorySigner, KeyType};
 use near_logger_utils::init_test_logger;
@@ -88,7 +87,7 @@ fn repro_1183() {
                     for from in vec!["test1", "test2", "test3", "test4"] {
                         for to in vec!["test1", "test2", "test3", "test4"] {
                             connectors1.write().unwrap()
-                                [account_id_to_shard_id(&from.to_string(), 4) as usize]
+                                [account_id_to_shard_id_by_hash(&from.to_string(), 4) as usize]
                                 .0
                                 .do_send(NetworkClientMessages::Transaction {
                                     transaction: SignedTransaction::send_money(

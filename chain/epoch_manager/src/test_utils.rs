@@ -4,7 +4,7 @@ use num_rational::Rational;
 
 use near_crypto::{KeyType, SecretKey};
 use near_primitives::challenge::SlashedValidator;
-use near_primitives::epoch_manager::{EpochConfig, EpochInfo, ValidatorWeight};
+use near_primitives::epoch_manager::{EpochConfig, EpochInfo, EpochInfoV2, ValidatorWeight};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, BlockHeightDelta, EpochHeight, NumSeats, NumShards,
@@ -74,6 +74,7 @@ pub fn epoch_info_with_num_seats(
     minted_amount: Balance,
     num_seats: NumSeats,
 ) -> EpochInfo {
+    let num_shards = chunk_producers_settlement.len();
     let seat_price =
         find_threshold(&accounts.iter().map(|(_, s)| *s).collect::<Vec<_>>(), num_seats).unwrap();
     accounts.sort();
@@ -98,7 +99,7 @@ pub fn epoch_info_with_num_seats(
     };
     let validator_kickout =
         validator_kickout.into_iter().map(|(s, r)| (s.to_string(), r)).collect();
-    EpochInfo {
+    EpochInfo::EpochInfoV2(Box::new(EpochInfoV2 {
         epoch_height,
         validators: account_to_validators(accounts),
         validator_to_index,
@@ -111,9 +112,10 @@ pub fn epoch_info_with_num_seats(
         validator_reward,
         validator_kickout,
         minted_amount,
-        protocol_version: PROTOCOL_VERSION,
         seat_price,
-    }
+        accounts_to_shard: vec![AccountId::default(); num_shards],
+        protocol_version: PROTOCOL_VERSION,
+    }))
 }
 
 pub fn epoch_config(

@@ -28,7 +28,7 @@ use near_primitives::block::{ApprovalInner, Block, GenesisId};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{
-    AccountId, Balance, BlockHeight, BlockHeightDelta, NumBlocks, NumSeats, NumShards,
+    AccountId, Balance, BlockHeight, BlockHeightDelta, NumBlocks, NumSeats, NumShards, ShardId,
 };
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
 use near_primitives::version::PROTOCOL_VERSION;
@@ -925,4 +925,8 @@ impl TestEnv {
             self.chain_genesis.clone(),
         )
     }
+}
+
+pub fn account_id_to_shard_id_by_hash(account_id: &AccountId, num_shards: NumShards) -> ShardId {
+    u64::from((hash(&account_id.clone().into_bytes()).0).0[0]) % num_shards
 }

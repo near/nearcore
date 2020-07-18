@@ -555,13 +555,16 @@ fn test_receive_invalid_chunk_as_chunk_producer() {
     assert!(result.is_err());
     assert_eq!(client.chain.head().unwrap().height, 1);
     // But everyone who doesn't track this shard have accepted.
-    let receipts_hashes = env.clients[0].runtime_adapter.build_receipts_hashes(&receipts);
+    let prev_block_hash = &client.chain.head().unwrap().prev_block_hash;
+    let receipts_hashes =
+        env.clients[0].runtime_adapter.build_receipts_hashes(&receipts, prev_block_hash);
     let (_receipts_root, receipts_proofs) = merklize(&receipts_hashes);
     let one_part_receipt_proofs = env.clients[0].shards_mgr.receipts_recipient_filter(
         0,
         &HashSet::default(),
         &receipts,
         &receipts_proofs,
+        prev_block_hash,
     );
 
     assert!(env.clients[1]

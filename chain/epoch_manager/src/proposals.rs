@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::iter;
 
-use near_primitives::epoch_manager::{EpochConfig, EpochInfo};
+use near_primitives::epoch_manager::{EpochConfig, EpochInfo, EpochInfoV2};
 use near_primitives::errors::EpochError;
 use near_primitives::types::{
     AccountId, Balance, NumSeats, ValidatorId, ValidatorKickoutReason, ValidatorStake,
@@ -67,7 +67,7 @@ pub fn proposals_to_epoch_info(
             ordered_proposals.insert(p.account_id.clone(), p);
         }
     }
-    for r in epoch_info.validators.iter() {
+    for r in epoch_info.validators().iter() {
         if validator_kickout.contains_key(&r.account_id) {
             stake_change.insert(r.account_id.clone(), 0);
             continue;
@@ -77,7 +77,7 @@ pub fn proposals_to_epoch_info(
         stake_change.insert(p.account_id.clone(), p.stake);
     }
 
-    for r in epoch_info.fishermen.iter() {
+    for r in epoch_info.fishermen().iter() {
         if validator_kickout.contains_key(&r.account_id) {
             stake_change.insert(r.account_id.clone(), 0);
             continue;
@@ -107,8 +107,8 @@ pub fn proposals_to_epoch_info(
             fishermen.push(p);
         } else {
             *stake_change.get_mut(&account_id).unwrap() = 0;
-            if epoch_info.validator_to_index.contains_key(&account_id)
-                || epoch_info.fishermen_to_index.contains_key(&account_id)
+            if epoch_info.validator_to_index().contains_key(&account_id)
+                || epoch_info.fishermen_to_index().contains_key(&account_id)
             {
                 validator_kickout.insert(
                     account_id,
@@ -156,8 +156,8 @@ pub fn proposals_to_epoch_info(
             fishermen.push(p);
         } else {
             stake_change.insert(p.account_id.clone(), 0);
-            if epoch_info.validator_to_index.contains_key(&p.account_id)
-                || epoch_info.fishermen_to_index.contains_key(&p.account_id)
+            if epoch_info.validator_to_index().contains_key(&p.account_id)
+                || epoch_info.fishermen_to_index().contains_key(&p.account_id)
             {
                 validator_kickout.insert(p.account_id, ValidatorKickoutReason::DidNotGetASeat);
             }
@@ -193,9 +193,8 @@ pub fn proposals_to_epoch_info(
         .enumerate()
         .map(|(index, s)| (s.account_id.clone(), index as ValidatorId))
         .collect::<HashMap<_, _>>();
-
-    Ok(EpochInfo {
-        epoch_height: epoch_info.epoch_height + 1,
+    Ok(EpochInfo::EpochInfoV2(Box::new(EpochInfoV2 {
+        epoch_height: epoch_info.epoch_height() + 1,
         validators: final_proposals,
         fishermen,
         validator_to_index,
@@ -208,8 +207,12 @@ pub fn proposals_to_epoch_info(
         fishermen_to_index,
         minted_amount,
         seat_price: threshold,
+        accounts_to_shard: vec![
+            AccountId::default();
+            epoch_config.num_block_producer_seats_per_shard.len()
+        ],
         protocol_version: next_version,
-    })
+    })))
 }
 
 #[cfg(test)]
@@ -239,7 +242,7 @@ mod tests {
             proposals_to_epoch_info(
                 &epoch_config(2, 2, 1, 1, 90, 60, 0),
                 [0; 32],
-                &EpochInfo::default(),
+                &EpochInfo::EpochInfoV2(Box::new(EpochInfoV2::default())),
                 vec![stake("test1", 1_000_000)],
                 HashMap::default(),
                 HashMap::default(),
@@ -279,7 +282,7 @@ mod tests {
                     protocol_upgrade_num_epochs: 2,
                 },
                 [0; 32],
-                &EpochInfo::default(),
+                &EpochInfo::EpochInfoV2(Box::new(EpochInfoV2::default())),
                 vec![
                     stake("test1", 1_000_000),
                     stake("test2", 1_000_000),
@@ -327,7 +330,7 @@ mod tests {
             proposals_to_epoch_info(
                 &epoch_config(2, 2, 1, 0, 90, 60, 10),
                 [0; 32],
-                &EpochInfo::default(),
+                &EpochInfo::EpochInfoV2(Box::new(EpochInfoV2::default())),
                 vec![
                     stake("test1", 10),
                     stake("test2", 10),
@@ -367,12 +370,12 @@ mod tests {
             HashMap::default(),
             0,
         );
-        epoch_info.validator_kickout = HashMap::default();
+        epoch_info.get_mut().validator_kickout = HashMap::default();
         assert_eq!(
             proposals_to_epoch_info(
                 &epoch_config(2, 2, 1, 0, 90, 60, 10),
                 [0; 32],
-                &EpochInfo::default(),
+                &EpochInfo::EpochInfoV2(Box::new(EpochInfoV2::default())),
                 vec![stake("test1", 9), stake("test2", 9), stake("test3", 9), stake("test4", 9)],
                 HashMap::default(),
                 HashMap::default(),

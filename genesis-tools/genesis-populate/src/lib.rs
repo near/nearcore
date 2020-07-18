@@ -120,7 +120,8 @@ impl GenesisBuilder {
         self.unflushed_records =
             self.roots.keys().cloned().map(|shard_idx| (shard_idx, vec![])).collect();
 
-        let total_accounts_num = self.additional_accounts_num * self.runtime.num_shards();
+        let total_accounts_num =
+            self.additional_accounts_num * self.runtime.num_shards(&CryptoHash::default()).unwrap();
         let bar = ProgressBar::new(total_accounts_num as _);
         bar.set_style(ProgressStyle::default_bar().template(
             "[elapsed {elapsed_precise} remaining {eta_precise}] Writing into storage {bar} {pos:>7}/{len:7}",
@@ -132,7 +133,7 @@ impl GenesisBuilder {
             bar.inc(1);
         }
 
-        for shard_id in 0..self.runtime.num_shards() {
+        for shard_id in 0..self.runtime.num_shards(&CryptoHash::default()).unwrap() {
             self.flush_shard_records(shard_id)?;
         }
         bar.finish();
@@ -184,7 +185,7 @@ impl GenesisBuilder {
     fn write_genesis_block(&mut self) -> Result<()> {
         let genesis_chunks = genesis_chunks(
             self.roots.values().cloned().collect(),
-            self.runtime.num_shards(),
+            self.runtime.num_shards(&CryptoHash::default()).unwrap(),
             self.genesis.config.gas_limit,
             self.genesis.config.genesis_height,
         );
@@ -233,7 +234,7 @@ impl GenesisBuilder {
     fn add_additional_account(&mut self, account_id: AccountId) -> Result<()> {
         let testing_init_balance: Balance = 10u128.pow(30);
         let testing_init_stake: Balance = 0;
-        let shard_id = self.runtime.account_id_to_shard_id(&account_id);
+        let shard_id = self.runtime.account_id_to_shard_id(&account_id, &CryptoHash::default())?;
         let mut records = self.unflushed_records.remove(&shard_id).unwrap_or_default();
         let mut state_update =
             self.state_updates.remove(&shard_id).expect("State update should have been added");

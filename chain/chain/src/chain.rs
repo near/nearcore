@@ -192,7 +192,7 @@ impl Chain {
         let store = ChainStore::new(store, chain_genesis.height);
         let genesis_chunks = genesis_chunks(
             state_roots.clone(),
-            runtime_adapter.num_shards(),
+            runtime_adapter.num_shards(&CryptoHash::default())?,
             chain_genesis.gas_limit,
             chain_genesis.height,
         );
@@ -228,7 +228,7 @@ impl Chain {
         let mut store = ChainStore::new(store, chain_genesis.height);
         let genesis_chunks = genesis_chunks(
             state_roots.clone(),
-            runtime_adapter.num_shards(),
+            runtime_adapter.num_shards(&CryptoHash::default())?,
             chain_genesis.gas_limit,
             chain_genesis.height,
         );
@@ -1018,9 +1018,12 @@ impl Chain {
     {
         near_metrics::inc_counter(&metrics::BLOCK_PROCESSED_TOTAL);
 
-        if block.chunks().len() != self.runtime_adapter.num_shards() as usize {
+        // TODO MOO we cannot do it here anymore
+        /*if block.chunks().len()
+            != self.runtime_adapter.num_shards(block.header().prev_hash())? as usize
+        {
             return Err(ErrorKind::IncorrectNumberOfChunkHeaders.into());
-        }
+        }*/
 
         let prev_head = self.store.head()?;
         let mut chain_update = ChainUpdate::new(
@@ -1151,7 +1154,7 @@ impl Chain {
         me: &Option<AccountId>,
         parent_hash: &CryptoHash,
     ) -> Vec<ShardId> {
-        (0..self.runtime_adapter.num_shards())
+        (0..self.runtime_adapter.num_shards(parent_hash).unwrap())
             .filter(|shard_id| {
                 self.runtime_adapter.will_care_about_shard(
                     me.as_ref(),
@@ -2446,7 +2449,7 @@ impl<'a> ChainUpdate<'a> {
         me: &Option<AccountId>,
         parent_hash: CryptoHash,
     ) -> Result<bool, Error> {
-        for shard_id in 0..self.runtime_adapter.num_shards() {
+        for shard_id in 0..self.runtime_adapter.num_shards(&parent_hash).unwrap() {
             if self.runtime_adapter.cares_about_shard(me.as_ref(), &parent_hash, shard_id, true)
                 || self.runtime_adapter.will_care_about_shard(
                     me.as_ref(),
@@ -3112,7 +3115,9 @@ impl<'a> ChainUpdate<'a> {
             }
         }
 
-        if header.chunk_mask().len() as u64 != self.runtime_adapter.num_shards() {
+        if header.chunk_mask().len() as u64
+            != self.runtime_adapter.num_shards(header.prev_hash())?
+        {
             return Err(ErrorKind::InvalidChunkMask.into());
         }
 

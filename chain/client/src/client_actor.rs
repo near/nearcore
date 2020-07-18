@@ -690,8 +690,9 @@ impl ClientActor {
                 == Some(&next_block_producer_account)
             {
                 let num_chunks = self.client.shards_mgr.num_chunks_for_block(&head.last_block_hash);
-                let have_all_chunks =
-                    head.height == 0 || num_chunks == self.client.runtime_adapter.num_shards();
+                let have_all_chunks = head.height == 0
+                    || num_chunks
+                        == self.client.runtime_adapter.num_shards(&head.last_block_hash)?;
 
                 if self.client.doomslug.ready_to_produce_block(
                     Instant::now(),
@@ -1170,16 +1171,17 @@ impl ClientActor {
                     };
 
                 let me = self.client.validator_signer.as_ref().map(|x| x.validator_id().clone());
-                let shards_to_sync = (0..self.client.runtime_adapter.num_shards())
-                    .filter(|x| {
-                        self.client.shards_mgr.cares_about_shard_this_or_next_epoch(
-                            me.as_ref(),
-                            &sync_hash,
-                            *x,
-                            true,
-                        )
-                    })
-                    .collect();
+                let shards_to_sync =
+                    (0..self.client.runtime_adapter.num_shards(&sync_hash).unwrap())
+                        .filter(|x| {
+                            self.client.shards_mgr.cares_about_shard_this_or_next_epoch(
+                                me.as_ref(),
+                                &sync_hash,
+                                *x,
+                                true,
+                            )
+                        })
+                        .collect();
 
                 if !self.client.config.archive && just_enter_state_sync {
                     unwrap_or_run_later!(self.client.chain.reset_data_pre_state_sync(sync_hash));

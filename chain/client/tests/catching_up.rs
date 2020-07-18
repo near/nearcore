@@ -9,9 +9,8 @@ mod tests {
     use borsh::{BorshDeserialize, BorshSerialize};
     use futures::{future, FutureExt};
 
-    use near_chain::test_utils::account_id_to_shard_id;
     use near_client::sync::STATE_SYNC_TIMEOUT;
-    use near_client::test_utils::setup_mock_all_validators;
+    use near_client::test_utils::{account_id_to_shard_id_by_hash, setup_mock_all_validators};
     use near_client::{ClientActor, Query, ViewClientActor};
     use near_crypto::{InMemorySigner, KeyType};
     use near_logger_utils::init_integration_logger;
@@ -150,8 +149,8 @@ mod tests {
                     move |_account_id: String, msg: &NetworkRequests| {
                         let account_from = "test3.3".to_string();
                         let account_to = "test1.1".to_string();
-                        let source_shard_id = account_id_to_shard_id(&account_from, 4);
-                        let destination_shard_id = account_id_to_shard_id(&account_to, 4);
+                        let source_shard_id = account_id_to_shard_id_by_hash(&account_from, 4);
+                        let destination_shard_id = account_id_to_shard_id_by_hash(&account_to, 4);
 
                         let mut phase = phase.write().unwrap();
                         let mut seen_heights_with_receipts =

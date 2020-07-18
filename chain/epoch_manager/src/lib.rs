@@ -1,19 +1,21 @@
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, HashMap, HashSet};
+use std::io::Cursor;
 use std::sync::Arc;
 
+use byteorder::{LittleEndian, ReadBytesExt};
 use cached::{Cached, SizedCache};
 use log::{debug, warn};
 use primitive_types::U256;
 
 use near_primitives::epoch_manager::{
-    BlockInfo, EpochConfig, EpochInfo, EpochSummary, SlashState, AGGREGATOR_KEY,
+    BlockInfo, EpochConfig, EpochInfo, EpochInfoV2, EpochSummary, SlashState, AGGREGATOR_KEY,
 };
 use near_primitives::errors::EpochError;
-use near_primitives::hash::CryptoHash;
+use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::types::{
-    AccountId, ApprovalStake, Balance, BlockChunkValidatorStats, BlockHeight, EpochId, ShardId,
-    ValidatorId, ValidatorKickoutReason, ValidatorStake, ValidatorStats,
+    AccountId, ApprovalStake, Balance, BlockChunkValidatorStats, BlockHeight, EpochId, NumShards,
+    ShardId, ValidatorId, ValidatorKickoutReason, ValidatorStake, ValidatorStats,
 };
 use near_primitives::version::ProtocolVersion;
 use near_primitives::views::{
@@ -80,7 +82,7 @@ impl EpochManager {
             let epoch_info = proposals_to_epoch_info(
                 &epoch_manager.config,
                 [0; 32],
-                &EpochInfo::default(),
+                &EpochInfo::EpochInfoV2(Box::new(EpochInfoV2::default())),
                 validators,
                 HashMap::default(),
                 validator_reward,
@@ -99,6 +101,21 @@ impl EpochManager {
             store_update.commit()?;
         }
         Ok(epoch_manager)
+    }
+
+    pub fn account_id_to_shard_id(
+        &mut self,
+        account_id: &AccountId,
+        prev_block_hash: &CryptoHash,
+    ) -> Result<ShardId, EpochError> {
+        let num_shards = self.num_shards(prev_block_hash)?;
+        let mut cursor = Cursor::new((hash(&account_id.clone().into_bytes()).0).0);
+        Ok(cursor.read_u64::<LittleEndian>().expect("Must not happened") % (num_shards))
+    }
+
+    pub fn num_shards(&mut self, prev_block_hash: &CryptoHash) -> Result<NumShards, EpochError> {
+        let epoch_id = self.get_epoch_id_from_prev_block(prev_block_hash)?;
+        Ok(self.get_epoch_info(&epoch_id)?.num_shards())
     }
 
     /// # Parameters
@@ -133,8 +150,8 @@ impl EpochManager {
         let mut validator_block_chunk_stats = HashMap::new();
         let mut validator_kickout = HashMap::new();
 
-        for (i, _) in epoch_info.validators.iter().enumerate() {
-            let account_id = epoch_info.validators[i].account_id.clone();
+        for (i, _) in epoch_info.validators().iter().enumerate() {
+            let account_id = epoch_info.validators()[i].account_id.clone();
             if slashed.contains_key(&account_id) {
                 continue;
             }
@@ -190,7 +207,7 @@ impl EpochManager {
         }
         if all_kicked_out {
             if let Some(validator_id) = max_validator_id {
-                validator_kickout.remove(&epoch_info.validators[validator_id].account_id);
+                validator_kickout.remove(&epoch_info.validators()[validator_id].account_id);
             }
         }
         (validator_kickout, validator_block_chunk_stats)
@@ -222,15 +239,15 @@ impl EpochManager {
         // Implements https://github.com/nearprotocol/NEPs/pull/64/files#diff-45f773511fe4321b446c3c4226324873R76
         let mut versions = HashMap::new();
         for (validator_id, version) in version_tracker.iter() {
-            let stake = epoch_info.validators[*validator_id as usize].stake;
+            let stake = epoch_info.validators()[*validator_id as usize].stake;
             *versions.entry(version).or_insert(0) += stake;
         }
         let total_block_producer_stake: u128 = epoch_info
-            .block_producers_settlement
+            .block_producers_settlement()
             .iter()
             .collect::<HashSet<_>>()
             .iter()
-            .map(|&id| epoch_info.validators[*id as usize].stake)
+            .map(|&id| epoch_info.validators()[*id as usize].stake)
             .sum();
 
         let next_version = if let Some((&version, stake)) =
@@ -243,10 +260,10 @@ impl EpochManager {
             {
                 version
             } else {
-                epoch_info.protocol_version
+                *epoch_info.protocol_version()
             }
         } else {
-            epoch_info.protocol_version
+            *epoch_info.protocol_version()
         };
 
         // Gather slashed validators and add them to kick out first.
@@ -258,7 +275,7 @@ impl EpochManager {
         for (account_id, proposal) in all_proposals {
             if !slashed_validators.contains_key(&account_id) {
                 if proposal.stake == 0
-                    && *next_epoch_info.stake_change.get(&account_id).unwrap_or(&0) != 0
+                    && *next_epoch_info.stake_change().get(&account_id).unwrap_or(&0) != 0
                 {
                     validator_kickout.insert(account_id.clone(), ValidatorKickoutReason::Unstaked);
                 }
@@ -268,7 +285,7 @@ impl EpochManager {
 
         let prev_epoch_last_block_hash =
             self.get_block_info(&last_block_info.epoch_first_block)?.prev_hash;
-        let prev_validator_kickout = next_epoch_info.validator_kickout;
+        let prev_validator_kickout = next_epoch_info.validator_kickout();
 
         // Compute kick outs for validators who are offline.
         let (kickout, validator_block_chunk_stats) = self.compute_kickout_info(
@@ -312,7 +329,7 @@ impl EpochManager {
         let epoch_id = self.get_epoch_id(last_block_hash)?;
         let epoch_info = self.get_epoch_info(&epoch_id)?;
         let validator_stake = epoch_info
-            .validators
+            .validators()
             .clone()
             .into_iter()
             .map(|r| (r.account_id, r.stake))
@@ -338,7 +355,7 @@ impl EpochManager {
             Err(EpochError::ThresholdError { stake_sum, num_seats }) => {
                 warn!(target: "epoch_manager", "Not enough stake for required number of seats (all validators tried to unstake?): amount = {} for {}", stake_sum, num_seats);
                 let mut epoch_info = next_epoch_info.clone();
-                epoch_info.epoch_height += 1;
+                epoch_info.get_mut().epoch_height += 1;
                 epoch_info
             }
             Err(err) => return Err(err),
@@ -403,7 +420,7 @@ impl EpochManager {
                                 .slashed
                                 .entry(account_id.clone())
                                 .or_insert(SlashState::AlreadySlashed);
-                        } else if epoch_info.stake_change.contains_key(account_id) {
+                        } else if epoch_info.stake_change().contains_key(account_id) {
                             block_info
                                 .slashed
                                 .entry(account_id.clone())
@@ -487,7 +504,7 @@ impl EpochManager {
     ) -> Result<ValidatorStake, EpochError> {
         let epoch_info = self.get_epoch_info(epoch_id)?.clone();
         let validator_id = Self::block_producer_from_info(&epoch_info, height);
-        Ok(epoch_info.validators[validator_id as usize].clone())
+        Ok(epoch_info.validators()[validator_id as usize].clone())
     }
 
     /// Returns settlement of all block producers in current epoch, with indicator on whether they are slashed or not.
@@ -499,8 +516,8 @@ impl EpochManager {
         let slashed = self.get_slashed_validators(last_known_block_hash)?.clone();
         let epoch_info = self.get_epoch_info(epoch_id)?;
         let mut settlement = vec![];
-        for validator_id in epoch_info.block_producers_settlement.iter() {
-            let validator_stake = epoch_info.validators[*validator_id as usize].clone();
+        for validator_id in epoch_info.block_producers_settlement().iter() {
+            let validator_stake = epoch_info.validators()[*validator_id as usize].clone();
             let is_slashed = slashed.contains_key(&validator_stake.account_id);
             settlement.push((validator_stake, is_slashed));
         }
@@ -578,7 +595,7 @@ impl EpochManager {
     ) -> Result<ValidatorStake, EpochError> {
         let epoch_info = self.get_epoch_info(epoch_id)?.clone();
         let validator_id = Self::chunk_producer_from_info(&epoch_info, height, shard_id);
-        Ok(epoch_info.validators[validator_id as usize].clone())
+        Ok(epoch_info.validators()[validator_id as usize].clone())
     }
 
     /// Returns validator for given account id for given epoch.
@@ -590,9 +607,9 @@ impl EpochManager {
     ) -> Result<Option<ValidatorStake>, EpochError> {
         let epoch_info = self.get_epoch_info(epoch_id)?;
         Ok(epoch_info
-            .validator_to_index
+            .validator_to_index()
             .get(account_id)
-            .map(|idx| epoch_info.validators[*idx as usize].clone()))
+            .map(|idx| epoch_info.validators()[*idx as usize].clone()))
     }
 
     /// Returns fisherman for given account id for given epoch.
@@ -603,9 +620,9 @@ impl EpochManager {
     ) -> Result<Option<ValidatorStake>, EpochError> {
         let epoch_info = self.get_epoch_info(epoch_id)?;
         Ok(epoch_info
-            .fishermen_to_index
+            .fishermen_to_index()
             .get(account_id)
-            .map(|idx| epoch_info.fishermen[*idx as usize].clone()))
+            .map(|idx| epoch_info.fishermen()[*idx as usize].clone()))
     }
 
     pub fn get_slashed_validators(
@@ -714,7 +731,7 @@ impl EpochManager {
         EpochError,
     > {
         let next_next_epoch_id = EpochId(*last_block_hash);
-        let validator_reward = self.get_epoch_info(&next_next_epoch_id)?.validator_reward.clone();
+        let validator_reward = self.get_epoch_info(&next_next_epoch_id)?.validator_reward().clone();
 
         let next_epoch_id = self.get_next_epoch_id(last_block_hash)?;
         let epoch_id = self.get_epoch_id(last_block_hash)?;
@@ -726,9 +743,9 @@ impl EpochManager {
         let last_block_info = self.get_block_info(last_block_hash)?.clone();
         // Since stake changes for epoch T are stored in epoch info for T+2, the one stored by epoch_id
         // is the prev_prev_stake_change.
-        let prev_prev_stake_change = self.get_epoch_info(&epoch_id)?.stake_change.clone();
-        let prev_stake_change = self.get_epoch_info(&next_epoch_id)?.stake_change.clone();
-        let stake_change = &self.get_epoch_info(&next_next_epoch_id)?.stake_change;
+        let prev_prev_stake_change = self.get_epoch_info(&epoch_id)?.stake_change().clone();
+        let prev_stake_change = self.get_epoch_info(&next_epoch_id)?.stake_change().clone();
+        let stake_change = &self.get_epoch_info(&next_next_epoch_id)?.stake_change();
         debug!(target: "epoch_manager",
             "prev_prev_stake_change: {:?}, prev_stake_change: {:?}, stake_change: {:?}, slashed: {:?}",
             prev_prev_stake_change, prev_stake_change, stake_change, last_block_info.slashed
@@ -773,14 +790,14 @@ impl EpochManager {
         let slashed = self.get_slashed_validators(last_block_hash)?.clone();
         let epoch_id = self.get_epoch_id(last_block_hash)?;
         let epoch_info = self.get_epoch_info(&epoch_id)?;
-        let total_stake: Balance = epoch_info.validators.iter().map(|v| v.stake).sum();
+        let total_stake: Balance = epoch_info.validators().iter().map(|v| v.stake).sum();
         let total_slashed_stake: Balance = slashed
             .iter()
             .filter_map(|(account_id, slashed)| match slashed {
                 SlashState::DoubleSign => {
-                    let idx = epoch_info.validator_to_index.get(account_id);
+                    let idx = epoch_info.validator_to_index().get(account_id);
                     Some(if let Some(&idx) = idx {
-                        epoch_info.validators[idx as usize].stake
+                        epoch_info.validators()[idx as usize].stake
                     } else {
                         0
                     })
@@ -792,8 +809,8 @@ impl EpochManager {
         let mut res = HashMap::default();
         for (account_id, slash_state) in slashed {
             if let SlashState::DoubleSign = slash_state {
-                if let Some(&idx) = epoch_info.validator_to_index.get(&account_id) {
-                    let stake = epoch_info.validators[idx as usize].stake;
+                if let Some(&idx) = epoch_info.validator_to_index().get(&account_id) {
+                    let stake = epoch_info.validators()[idx as usize].stake;
                     let slashed_stake = if is_totally_slashed {
                         stake
                     } else {
@@ -819,10 +836,11 @@ impl EpochManager {
         let slashed = self.get_slashed_validators(block_hash)?.clone();
         let cur_epoch_info = self.get_epoch_info(&epoch_id)?.clone();
         let epoch_start_height = self.get_epoch_start_height(block_hash)?;
-        let mut validator_to_shard = (0..cur_epoch_info.validators.len())
+        let mut validator_to_shard = (0..cur_epoch_info.validators().len())
             .map(|_| HashSet::default())
             .collect::<Vec<HashSet<ShardId>>>();
-        for (shard_id, validators) in cur_epoch_info.chunk_producers_settlement.iter().enumerate() {
+        for (shard_id, validators) in cur_epoch_info.chunk_producers_settlement().iter().enumerate()
+        {
             for validator_id in validators {
                 validator_to_shard[*validator_id as usize].insert(shard_id as ShardId);
             }
@@ -830,7 +848,8 @@ impl EpochManager {
         let epoch_info_aggregator =
             self.get_and_update_epoch_info_aggregator(&epoch_id, block_hash, true)?;
         let current_validators = cur_epoch_info
-            .validators
+            .validators()
+            .clone()
             .into_iter()
             .enumerate()
             .map(|(validator_id, info)| {
@@ -853,20 +872,21 @@ impl EpochManager {
                 })
             })
             .collect::<Result<Vec<CurrentEpochValidatorInfo>, EpochError>>()?;
-        let current_fishermen = cur_epoch_info.fishermen;
+        let current_fishermen = cur_epoch_info.fishermen().clone();
         let next_epoch_id = self.get_next_epoch_id(block_hash)?;
         let next_epoch_info = self.get_epoch_info(&next_epoch_id)?;
-        let mut next_validator_to_shard = (0..next_epoch_info.validators.len())
+        let mut next_validator_to_shard = (0..next_epoch_info.validators().len())
             .map(|_| HashSet::default())
             .collect::<Vec<HashSet<ShardId>>>();
-        for (shard_id, validators) in next_epoch_info.chunk_producers_settlement.iter().enumerate()
+        for (shard_id, validators) in
+            next_epoch_info.chunk_producers_settlement().iter().enumerate()
         {
             for validator_id in validators {
                 next_validator_to_shard[*validator_id as usize].insert(shard_id as u64);
             }
         }
         let next_validators = next_epoch_info
-            .validators
+            .validators()
             .iter()
             .enumerate()
             .map(|(validator_id, info)| {
@@ -883,9 +903,9 @@ impl EpochManager {
                 }
             })
             .collect();
-        let next_fishermen = next_epoch_info.fishermen.clone();
+        let next_fishermen = next_epoch_info.fishermen().clone();
         let prev_epoch_kickout = next_epoch_info
-            .validator_kickout
+            .validator_kickout()
             .clone()
             .into_iter()
             .collect::<BTreeMap<_, _>>()
@@ -934,7 +954,7 @@ impl EpochManager {
     pub fn minimum_stake(&mut self, prev_block_hash: &CryptoHash) -> Result<Balance, EpochError> {
         let next_epoch_id = self.get_next_epoch_id_from_prev_block(prev_block_hash)?;
         let stake_divisor = self.config.minimum_stake_divisor as Balance;
-        Ok(self.get_epoch_info(&next_epoch_id)?.seat_price / stake_divisor)
+        Ok(self.get_epoch_info(&next_epoch_id)?.seat_price() / stake_divisor)
     }
 }
 
@@ -947,8 +967,8 @@ impl EpochManager {
         shard_id: ShardId,
     ) -> Result<bool, EpochError> {
         let epoch_info = self.get_epoch_info(&epoch_id)?;
-        for validator_id in epoch_info.chunk_producers_settlement[shard_id as usize].iter() {
-            if &epoch_info.validators[*validator_id as usize].account_id == account_id {
+        for validator_id in epoch_info.chunk_producers_settlement()[shard_id as usize].iter() {
+            if &epoch_info.validators()[*validator_id as usize].account_id == account_id {
                 return Ok(true);
             }
         }
@@ -959,8 +979,8 @@ impl EpochManager {
         epoch_info: &EpochInfo,
         height: BlockHeight,
     ) -> ValidatorId {
-        epoch_info.block_producers_settlement
-            [(height as u64 % (epoch_info.block_producers_settlement.len() as u64)) as usize]
+        epoch_info.block_producers_settlement()
+            [(height as u64 % (epoch_info.block_producers_settlement().len() as u64)) as usize]
     }
 
     pub(crate) fn chunk_producer_from_info(
@@ -968,8 +988,8 @@ impl EpochManager {
         height: BlockHeight,
         shard_id: ShardId,
     ) -> ValidatorId {
-        epoch_info.chunk_producers_settlement[shard_id as usize][(height as u64
-            % (epoch_info.chunk_producers_settlement[shard_id as usize].len() as u64))
+        epoch_info.chunk_producers_settlement()[shard_id as usize][(height as u64
+            % (epoch_info.chunk_producers_settlement()[shard_id as usize].len() as u64))
             as usize]
     }
 
@@ -1209,7 +1229,7 @@ mod tests {
         ) -> Result<ValidatorStats, EpochError> {
             let epoch_info = self.get_epoch_info(&epoch_id)?;
             let validator_id = *epoch_info
-                .validator_to_index
+                .validator_to_index()
                 .get(account_id)
                 .ok_or_else(|| EpochError::NotAValidator(account_id.clone(), epoch_id.clone()))?;
             let aggregator =
@@ -1465,7 +1485,7 @@ mod tests {
         record_block(&mut epoch_manager, h[9], h[10], 10, vec![]);
         let epoch_id = epoch_manager.get_next_epoch_id(&h[6]).unwrap();
         assert_eq!(
-            epoch_manager.get_epoch_info(&epoch_id).unwrap().validator_kickout,
+            epoch_manager.get_epoch_info(&epoch_id).unwrap().validator_kickout().clone(),
             vec![(
                 "test2".to_string(),
                 ValidatorKickoutReason::NotEnoughBlocks { produced: 1, expected: 2 }
@@ -1830,7 +1850,7 @@ mod tests {
         record_block(&mut epoch_manager, h[1], h[2], 2, vec![]);
         let next_epoch = epoch_manager.get_next_epoch_id(&h[2]).unwrap();
         assert_eq!(
-            epoch_manager.get_epoch_info(&next_epoch).unwrap().validators,
+            epoch_manager.get_epoch_info(&next_epoch).unwrap().validators().clone(),
             vec![
                 stake("test1", stake_amount),
                 stake("test2", stake_amount),
@@ -2643,7 +2663,7 @@ mod tests {
             reward(vec![("near", 0)]),
             0,
         );
-        epoch_info.validator_kickout = HashMap::default();
+        epoch_info.get_mut().validator_kickout = HashMap::default();
         assert_eq!(em.get_epoch_info(&EpochId::default()).unwrap(), &epoch_info)
     }
 
@@ -2702,16 +2722,16 @@ mod tests {
         let epoch_id = epoch_manager.get_epoch_id(&h[0]).unwrap();
         let epoch_info = epoch_manager.get_epoch_info(&epoch_id).unwrap();
         let mut actual_block_producers = HashSet::new();
-        for index in epoch_info.block_producers_settlement.iter() {
-            let bp = epoch_info.validators[*index as usize].account_id.clone();
+        for index in epoch_info.block_producers_settlement().iter() {
+            let bp = epoch_info.validators()[*index as usize].account_id.clone();
             actual_block_producers.insert(bp);
         }
-        for index in epoch_info.chunk_producers_settlement.iter().flatten() {
-            let bp = epoch_info.validators[*index as usize].account_id.clone();
+        for index in epoch_info.chunk_producers_settlement().iter().flatten() {
+            let bp = epoch_info.validators()[*index as usize].account_id.clone();
             actual_block_producers.insert(bp);
         }
         assert_eq!(
-            epoch_info.validator_to_index.keys().cloned().into_iter().collect::<HashSet<_>>(),
+            epoch_info.validator_to_index().keys().cloned().into_iter().collect::<HashSet<_>>(),
             actual_block_producers
         );
     }
@@ -2791,14 +2811,14 @@ mod tests {
         record_block(&mut epoch_manager, h[1], h[2], 2, vec![stake("test2", 0)]);
         let epoch_info1 = epoch_manager.get_epoch_info(&EpochId(h[2])).unwrap();
         assert_eq!(
-            epoch_info1.validators.clone().into_iter().map(|r| r.account_id).collect::<Vec<_>>(),
+            epoch_info1.validators().clone().into_iter().map(|r| r.account_id).collect::<Vec<_>>(),
             vec!["test1".to_string()]
         );
         assert_eq!(
-            epoch_info1.stake_change.clone(),
+            epoch_info1.stake_change().clone(),
             change_stake(vec![("test1", stake_amount), ("test2", 0), ("test3", 10)])
         );
-        assert!(epoch_info1.validator_kickout.is_empty());
+        assert!(epoch_info1.validator_kickout().is_empty());
         record_block(&mut epoch_manager, h[2], h[3], 3, vec![stake("test2", stake_amount)]);
         record_block(&mut epoch_manager, h[3], h[4], 4, vec![]);
         assert_eq!(
@@ -2831,7 +2851,7 @@ mod tests {
 
         let epoch_info2 = epoch_manager.get_epoch_info(&EpochId(h[2])).unwrap().clone();
         let epoch_info3 = epoch_manager.get_epoch_info(&EpochId(h[4])).unwrap().clone();
-        assert_ne!(epoch_info2.epoch_height, epoch_info3.epoch_height);
+        assert_ne!(epoch_info2.epoch_height(), epoch_info3.epoch_height());
     }
 
     #[test]
@@ -2850,7 +2870,7 @@ mod tests {
         record_block(&mut epoch_manager, h[6], h[8], 8, vec![]);
 
         assert_eq!(
-            epoch_manager.get_epoch_info(&EpochId(h[8])).unwrap().validator_kickout,
+            *epoch_manager.get_epoch_info(&EpochId(h[8])).unwrap().validator_kickout(),
             HashMap::default()
         );
     }
@@ -2930,9 +2950,9 @@ mod tests {
         for i in 2..6 {
             record_block(&mut epoch_manager, h[i - 1], h[i], i as u64, vec![]);
         }
-        assert_eq!(epoch_manager.get_epoch_info(&EpochId(h[2])).unwrap().protocol_version, 0);
+        assert_eq!(*epoch_manager.get_epoch_info(&EpochId(h[2])).unwrap().protocol_version(), 0);
         assert_eq!(
-            epoch_manager.get_epoch_info(&EpochId(h[4])).unwrap().protocol_version,
+            *epoch_manager.get_epoch_info(&EpochId(h[4])).unwrap().protocol_version(),
             PROTOCOL_VERSION
         );
     }
@@ -2961,11 +2981,11 @@ mod tests {
             record_block(&mut epoch_manager, h[i - 1], h[i], i as u64, vec![]);
         }
         assert_eq!(
-            epoch_manager.get_epoch_info(&EpochId(h[10])).unwrap().protocol_version,
+            *epoch_manager.get_epoch_info(&EpochId(h[10])).unwrap().protocol_version(),
             PROTOCOL_VERSION
         );
         assert_eq!(
-            epoch_manager.get_epoch_info(&EpochId(h[20])).unwrap().protocol_version,
+            *epoch_manager.get_epoch_info(&EpochId(h[20])).unwrap().protocol_version(),
             PROTOCOL_VERSION
         );
     }

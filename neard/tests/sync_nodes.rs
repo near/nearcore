@@ -10,7 +10,7 @@ use near_chain::{Block, Chain};
 use near_chain_configs::Genesis;
 use near_client::{ClientActor, GetBlock};
 use near_crypto::{InMemorySigner, KeyType};
-use near_logger_utils::init_integration_logger;
+use near_logger_utils::init_test_logger;
 use near_network::test_utils::{convert_boot_nodes, open_port, WaitOrTimeout};
 use near_network::{NetworkClientMessages, PeerInfo};
 use near_primitives::block::Approval;
@@ -93,7 +93,7 @@ fn add_blocks(
 #[test]
 fn sync_nodes() {
     heavy_test(|| {
-        init_integration_logger();
+        init_test_logger();
 
         let mut genesis = Genesis::test(vec!["other"], 1);
         genesis.config.epoch_length = 5;
@@ -145,7 +145,7 @@ fn sync_nodes() {
 #[test]
 fn sync_after_sync_nodes() {
     heavy_test(|| {
-        init_integration_logger();
+        init_test_logger();
 
         let mut genesis = Genesis::test(vec!["other"], 1);
         genesis.config.epoch_length = 5;
@@ -216,7 +216,7 @@ fn sync_after_sync_nodes() {
 #[test]
 fn sync_state_stake_change() {
     heavy_test(|| {
-        init_integration_logger();
+        init_test_logger();
 
         let mut genesis = Genesis::test(vec!["test1"], 1);
         genesis.config.epoch_length = 5;

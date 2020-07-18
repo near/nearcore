@@ -18,6 +18,7 @@ use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum};
 use near_primitives::serialize::to_base;
 use near_primitives::sharding::ShardChunkHeader;
+use near_primitives::state_record::StateRecord;
 use near_primitives::transaction::{
     Action, ExecutionOutcome, ExecutionOutcomeWithId, ExecutionStatus, SignedTransaction,
     TransferAction,
@@ -75,10 +76,6 @@ pub struct KeyValueRuntime {
     hash_to_next_epoch: RwLock<HashMap<CryptoHash, EpochId>>,
     hash_to_valset: RwLock<HashMap<EpochId, u64>>,
     epoch_start: RwLock<HashMap<CryptoHash, u64>>,
-}
-
-pub fn account_id_to_shard_id(account_id: &AccountId, num_shards: NumShards) -> ShardId {
-    u64::from((hash(&account_id.clone().into_bytes()).0).0[0]) % num_shards
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Serialize)]
@@ -263,7 +260,9 @@ impl RuntimeAdapter for KeyValueRuntime {
         (
             self.store.clone(),
             self.store.store_update(),
-            ((0..self.num_shards()).map(|_| StateRoot::default()).collect()),
+            ((0..self.num_shards(&CryptoHash::default()).unwrap())
+                .map(|_| StateRoot::default())
+                .collect()),
         )
     }
 
@@ -374,17 +373,17 @@ impl RuntimeAdapter for KeyValueRuntime {
         shard_id: ShardId,
     ) -> Result<AccountId, Error> {
         let validators = &self.validators[self.get_valset_for_epoch(epoch_id)?];
-        assert_eq!((validators.len() as u64) % self.num_shards(), 0);
+        assert_eq!((validators.len() as u64) % self.num_shards(&CryptoHash::default())?, 0);
         assert_eq!(0, validators.len() as u64 % self.validator_groups);
         let validators_per_shard = validators.len() as ShardId / self.validator_groups;
-        let coef = validators.len() as ShardId / self.num_shards();
+        let coef = validators.len() as ShardId / self.num_shards(&CryptoHash::default())?;
         let offset = (shard_id * coef / validators_per_shard * validators_per_shard) as usize;
         let delta = ((shard_id + height + 1) % validators_per_shard) as usize;
         Ok(validators[offset + delta].account_id.clone())
     }
 
-    fn num_shards(&self) -> ShardId {
-        self.num_shards
+    fn num_shards(&self, _prev_block_hash: &CryptoHash) -> Result<NumShards, Error> {
+        Ok(self.num_shards)
     }
 
     fn num_total_parts(&self) -> usize {
@@ -401,8 +400,21 @@ impl RuntimeAdapter for KeyValueRuntime {
         }
     }
 
-    fn account_id_to_shard_id(&self, account_id: &AccountId) -> ShardId {
-        account_id_to_shard_id(account_id, self.num_shards())
+    fn account_id_to_shard_id(
+        &self,
+        account_id: &AccountId,
+        prev_block_hash: &CryptoHash,
+    ) -> Result<ShardId, Error> {
+        Ok(u64::from((hash(&account_id.clone().into_bytes()).0).0[0])
+            % self.num_shards(prev_block_hash).unwrap())
+    }
+
+    fn state_record_to_shard_id(
+        &self,
+        _state_record: &StateRecord,
+        _prev_block_hash: &CryptoHash,
+    ) -> Result<ShardId, Error> {
+        unimplemented!()
     }
 
     fn get_part_owner(&self, parent_hash: &CryptoHash, part_id: u64) -> Result<String, Error> {
@@ -425,10 +437,10 @@ impl RuntimeAdapter for KeyValueRuntime {
         //    the calling function.
         let epoch_valset = self.get_epoch_and_valset(*parent_hash).unwrap();
         let validators = &self.validators[epoch_valset.1];
-        assert_eq!((validators.len() as u64) % self.num_shards(), 0);
+        assert_eq!((validators.len() as u64) % self.num_shards(parent_hash).unwrap(), 0);
         assert_eq!(0, validators.len() as u64 % self.validator_groups);
         let validators_per_shard = validators.len() as ShardId / self.validator_groups;
-        let coef = validators.len() as ShardId / self.num_shards();
+        let coef = validators.len() as ShardId / self.num_shards(parent_hash).unwrap();
         let offset = (shard_id * coef / validators_per_shard * validators_per_shard) as usize;
         assert!(offset + validators_per_shard as usize <= validators.len());
         if let Some(account_id) = account_id {
@@ -453,10 +465,10 @@ impl RuntimeAdapter for KeyValueRuntime {
         //    the calling function.
         let epoch_valset = self.get_epoch_and_valset(*parent_hash).unwrap();
         let validators = &self.validators[(epoch_valset.1 + 1) % self.validators.len()];
-        assert_eq!((validators.len() as u64) % self.num_shards(), 0);
+        assert_eq!((validators.len() as u64) % self.num_shards(parent_hash).unwrap(), 0);
         assert_eq!(0, validators.len() as u64 % self.validator_groups);
         let validators_per_shard = validators.len() as ShardId / self.validator_groups;
-        let coef = validators.len() as ShardId / self.num_shards();
+        let coef = validators.len() as ShardId / self.num_shards(parent_hash).unwrap();
         let offset = (shard_id * coef / validators_per_shard * validators_per_shard) as usize;
         if let Some(account_id) = account_id {
             for validator in validators[offset..offset + (validators_per_shard as usize)].iter() {
@@ -503,7 +515,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         state_root: &StateRoot,
         _height: BlockHeight,
         _block_timestamp: u64,
-        _prev_block_hash: &CryptoHash,
+        prev_block_hash: &CryptoHash,
         block_hash: &CryptoHash,
         receipts: &[Receipt],
         transactions: &[SignedTransaction],
@@ -522,7 +534,10 @@ impl RuntimeAdapter for KeyValueRuntime {
 
         for receipt in receipts.iter() {
             if let ReceiptEnum::Action(action) = &receipt.receipt {
-                assert_eq!(self.account_id_to_shard_id(&receipt.receiver_id), shard_id);
+                assert_eq!(
+                    self.account_id_to_shard_id(&receipt.receiver_id, prev_block_hash)?,
+                    shard_id
+                );
                 if !state.receipt_nonces.contains(&receipt.receipt_id) {
                     state.receipt_nonces.insert(receipt.receipt_id);
                     if let Action::Transfer(TransferAction { deposit }) = action.actions[0] {
@@ -543,7 +558,10 @@ impl RuntimeAdapter for KeyValueRuntime {
         }
 
         for transaction in transactions {
-            assert_eq!(self.account_id_to_shard_id(&transaction.transaction.signer_id), shard_id);
+            assert_eq!(
+                self.account_id_to_shard_id(&transaction.transaction.signer_id, prev_block_hash)?,
+                shard_id
+            );
             if transaction.transaction.actions.is_empty() {
                 continue;
             }
@@ -583,7 +601,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         for (hash, from, to, amount, nonce) in balance_transfers {
             let mut good_to_go = false;
 
-            if self.account_id_to_shard_id(&from) != shard_id {
+            if self.account_id_to_shard_id(&from, prev_block_hash)? != shard_id {
                 // This is a receipt, was already debited
                 good_to_go = true;
             } else if let Some(balance) = state.amounts.get(&from) {
@@ -595,7 +613,9 @@ impl RuntimeAdapter for KeyValueRuntime {
             }
 
             if good_to_go {
-                let new_receipt_hashes = if self.account_id_to_shard_id(&to) == shard_id {
+                let new_receipt_hashes = if self.account_id_to_shard_id(&to, prev_block_hash)?
+                    == shard_id
+                {
                     state.amounts.insert(to.clone(), state.amounts.get(&to).unwrap_or(&0) + amount);
                     vec![]
                 } else {
@@ -615,7 +635,7 @@ impl RuntimeAdapter for KeyValueRuntime {
                     };
                     let receipt_hash = receipt.get_hash();
                     new_receipts
-                        .entry(self.account_id_to_shard_id(&receipt.receiver_id))
+                        .entry(self.account_id_to_shard_id(&receipt.receiver_id, prev_block_hash)?)
                         .or_insert_with(|| vec![])
                         .push(receipt);
                     vec![receipt_hash]

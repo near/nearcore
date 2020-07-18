@@ -108,7 +108,7 @@ pub struct ValidatorWeight(ValidatorId, u64);
 
 /// Information per epoch.
 #[derive(SmartDefault, BorshSerialize, BorshDeserialize, Serialize, Clone, Debug, PartialEq, Eq)]
-pub struct EpochInfo {
+pub struct EpochInfoV1 {
     /// Ordinal of given epoch from genesis.
     /// There can be multiple epochs with the same ordinal in case of long forks.
     pub epoch_height: EpochHeight,
@@ -139,6 +139,159 @@ pub struct EpochInfo {
     /// Current protocol version during this epoch.
     #[default(PROTOCOL_VERSION)]
     pub protocol_version: ProtocolVersion,
+}
+
+#[derive(SmartDefault, BorshSerialize, BorshDeserialize, Serialize, Clone, Debug, PartialEq, Eq)]
+pub struct EpochInfoV2 {
+    /// Ordinal of given epoch from genesis.
+    /// There can be multiple epochs with the same ordinal in case of long forks.
+    pub epoch_height: EpochHeight,
+    /// List of current validators.
+    pub validators: Vec<ValidatorStake>,
+    /// Validator account id to index in proposals.
+    pub validator_to_index: HashMap<AccountId, ValidatorId>,
+    /// Settlement of validators responsible for block production.
+    pub block_producers_settlement: Vec<ValidatorId>,
+    /// Per each shard, settlement validators that are responsible.
+    pub chunk_producers_settlement: Vec<Vec<ValidatorId>>,
+    /// Settlement of hidden validators with weights used to determine how many shards they will validate.
+    pub hidden_validators_settlement: Vec<ValidatorWeight>,
+    /// List of current fishermen.
+    pub fishermen: Vec<ValidatorStake>,
+    /// Fisherman account id to index of proposal.
+    pub fishermen_to_index: HashMap<AccountId, ValidatorId>,
+    /// New stake for validators.
+    pub stake_change: BTreeMap<AccountId, Balance>,
+    /// Validator reward for the epoch.
+    pub validator_reward: HashMap<AccountId, Balance>,
+    /// Validators who are kicked out in this epoch.
+    pub validator_kickout: HashMap<AccountId, ValidatorKickoutReason>,
+    /// Total minted tokens in the epoch.
+    pub minted_amount: Balance,
+    /// Seat price of this epoch.
+    pub seat_price: Balance,
+    /// Distribution of accounts between shards in this epoch.
+    /// Each account is the first one in the shard.
+    /// Size of `accounts_to_shard` is guaranteed to be equal to number of shards in this epoch.
+    pub accounts_to_shard: Vec<AccountId>,
+    /// Current protocol version during this epoch.
+    #[default(PROTOCOL_VERSION)]
+    pub protocol_version: ProtocolVersion,
+}
+
+/// Versioned EpochInfo data structure.
+/// For each next version, document what are the changes between versions.
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Clone, Debug, PartialEq, Eq)]
+pub enum EpochInfo {
+    EpochInfoV1(Box<EpochInfoV1>),
+    /// V1 -> V2: Add `accounts_to_shard` + `num_shards`
+    EpochInfoV2(Box<EpochInfoV2>),
+}
+
+impl EpochInfo {
+    pub fn get_mut(&mut self) -> &mut EpochInfoV2 {
+        match self {
+            EpochInfo::EpochInfoV1(_) => panic!("old epoch info should not appear in tests"),
+            EpochInfo::EpochInfoV2(epoch_info) => epoch_info,
+        }
+    }
+    pub fn num_shards(&self) -> NumShards {
+        match self {
+            EpochInfo::EpochInfoV1(_) => panic!("old epoch info should not appear in tests"),
+            EpochInfo::EpochInfoV2(epoch_info) => epoch_info.accounts_to_shard.len() as NumShards,
+        }
+    }
+
+    pub fn epoch_height(&self) -> &EpochHeight {
+        match self {
+            EpochInfo::EpochInfoV1(epoch_info) => &epoch_info.epoch_height,
+            EpochInfo::EpochInfoV2(epoch_info) => &epoch_info.epoch_height,
+        }
+    }
+    pub fn validators(&self) -> &Vec<ValidatorStake> {
+        match self {
+            EpochInfo::EpochInfoV1(epoch_info) => &epoch_info.validators,
+            EpochInfo::EpochInfoV2(epoch_info) => &epoch_info.validators,
+        }
+    }
+    pub fn validator_to_index(&self) -> &HashMap<AccountId, ValidatorId> {
+        match self {
+            EpochInfo::EpochInfoV1(epoch_info) => &epoch_info.validator_to_index,
+            EpochInfo::EpochInfoV2(epoch_info) => &epoch_info.validator_to_index,
+        }
+    }
+    pub fn block_producers_settlement(&self) -> &Vec<ValidatorId> {
+        match self {
+            EpochInfo::EpochInfoV1(epoch_info) => &epoch_info.block_producers_settlement,
+            EpochInfo::EpochInfoV2(epoch_info) => &epoch_info.block_producers_settlement,
+        }
+    }
+    pub fn chunk_producers_settlement(&self) -> &Vec<Vec<ValidatorId>> {
+        match self {
+            EpochInfo::EpochInfoV1(epoch_info) => &epoch_info.chunk_producers_settlement,
+            EpochInfo::EpochInfoV2(epoch_info) => &epoch_info.chunk_producers_settlement,
+        }
+    }
+    pub fn hidden_validators_settlement(&self) -> &Vec<ValidatorWeight> {
+        match self {
+            EpochInfo::EpochInfoV1(epoch_info) => &epoch_info.hidden_validators_settlement,
+            EpochInfo::EpochInfoV2(epoch_info) => &epoch_info.hidden_validators_settlement,
+        }
+    }
+    pub fn fishermen(&self) -> &Vec<ValidatorStake> {
+        match self {
+            EpochInfo::EpochInfoV1(epoch_info) => &epoch_info.fishermen,
+            EpochInfo::EpochInfoV2(epoch_info) => &epoch_info.fishermen,
+        }
+    }
+    pub fn fishermen_to_index(&self) -> &HashMap<AccountId, ValidatorId> {
+        match self {
+            EpochInfo::EpochInfoV1(epoch_info) => &epoch_info.fishermen_to_index,
+            EpochInfo::EpochInfoV2(epoch_info) => &epoch_info.fishermen_to_index,
+        }
+    }
+    pub fn stake_change(&self) -> &BTreeMap<AccountId, Balance> {
+        match self {
+            EpochInfo::EpochInfoV1(epoch_info) => &epoch_info.stake_change,
+            EpochInfo::EpochInfoV2(epoch_info) => &epoch_info.stake_change,
+        }
+    }
+    pub fn validator_reward(&self) -> &HashMap<AccountId, Balance> {
+        match self {
+            EpochInfo::EpochInfoV1(epoch_info) => &epoch_info.validator_reward,
+            EpochInfo::EpochInfoV2(epoch_info) => &epoch_info.validator_reward,
+        }
+    }
+    pub fn validator_kickout(&self) -> &HashMap<AccountId, ValidatorKickoutReason> {
+        match self {
+            EpochInfo::EpochInfoV1(epoch_info) => &epoch_info.validator_kickout,
+            EpochInfo::EpochInfoV2(epoch_info) => &epoch_info.validator_kickout,
+        }
+    }
+    pub fn minted_amount(&self) -> &Balance {
+        match self {
+            EpochInfo::EpochInfoV1(epoch_info) => &epoch_info.minted_amount,
+            EpochInfo::EpochInfoV2(epoch_info) => &epoch_info.minted_amount,
+        }
+    }
+    pub fn seat_price(&self) -> &Balance {
+        match self {
+            EpochInfo::EpochInfoV1(epoch_info) => &epoch_info.seat_price,
+            EpochInfo::EpochInfoV2(epoch_info) => &epoch_info.seat_price,
+        }
+    }
+    pub fn accounts_to_shard(&self) -> &Vec<AccountId> {
+        match self {
+            EpochInfo::EpochInfoV1(_) => panic!("old epoch info should not appear in tests"),
+            EpochInfo::EpochInfoV2(epoch_info) => &epoch_info.accounts_to_shard,
+        }
+    }
+    pub fn protocol_version(&self) -> &ProtocolVersion {
+        match self {
+            EpochInfo::EpochInfoV1(epoch_info) => &epoch_info.protocol_version,
+            EpochInfo::EpochInfoV2(epoch_info) => &epoch_info.protocol_version,
+        }
+    }
 }
 
 pub struct EpochSummary {
