@@ -50,28 +50,16 @@ async def main():
     assert response.enum == 'HandshakeFailure', response.enum
     assert response.HandshakeFailure[1].enum == 'ProtocolVersionMismatch', response.HandshakeFailure[1].enum
 
-    # Third handshake attempt. Should succeed
+    # Third handshake attempt.
     pvm = response.HandshakeFailure[1].ProtocolVersionMismatch
     handshake.Handshake.version = pvm
     sign_handshake(my_key_pair_nacl, handshake.Handshake)
 
-    print(obj_to_string(handshake))
     await conn.send(handshake)
     response = await conn.recv()
-    print(obj_to_string(response))
 
-    # assert response.enum == 'Handshake', response.enum
-    # assert response.Handshake.chain_info.genesis_id.chain_id == handshake.Handshake.chain_info.genesis_id.chain_id
-    # assert response.Handshake.chain_info.genesis_id.hash == handshake.Handshake.chain_info.genesis_id.hash
-    # assert response.Handshake.edge_info.nonce == 5, obj_to_string(response)
-    # assert response.Handshake.peer_id.keyType == 0
-    # assert response.Handshake.peer_id.data == base58.b58decode(
-    #     nodes[0].node_key.pk[len(ED_PREFIX):])
-    # assert response.Handshake.target_peer_id.keyType == 0
-    # assert response.Handshake.target_peer_id.data == bytes(
-    #     my_key_pair_nacl.verify_key)
-    # assert response.Handshake.version == handshake.Handshake.version
-    # assert response.Handshake.listen_port == nodes[0].addr()[1]
+    # Connection should be closed by other peer because too large nonce on handshake.
+    assert response is None
 
 
 asyncio.run(main())
