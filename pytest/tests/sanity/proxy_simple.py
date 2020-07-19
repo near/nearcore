@@ -10,6 +10,7 @@ from peer import *
 from proxy import ProxyHandler
 
 from multiprocessing import Value
+from utils import obj_to_string
 
 TIMEOUT = 30
 success = Value('i', 0)
@@ -17,7 +18,7 @@ success = Value('i', 0)
 class Handler(ProxyHandler):
     async def handle(self, msg, fr, to):
         if msg.enum == 'Block':
-            h = msg.Block.BlockV1.header.BlockHeaderV1.inner_lite.height
+            h = msg.Block.BlockV1.header.BlockHeaderV2.inner_lite.height
             print("Height:", h)
             if h >= 10:
                 print('SUCCESS')
