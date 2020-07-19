@@ -182,10 +182,12 @@ pub trait LogTransientStorageError {
 
 impl<T> LogTransientStorageError for Result<T, Error> {
     fn log_storage_error(self, message: &str) -> Self {
-        error!(target: "client",
-               "Transient storage error: {}",
-               message
-        );
+        if let Err(ref e) = self {
+            error!(target: "client",
+                   "Transient storage error: {}, {}",
+                   message, e
+            );
+        }
         self
     }
 }

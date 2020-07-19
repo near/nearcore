@@ -292,27 +292,6 @@ impl EpochManager {
         })
     }
 
-    /// Returns number of produced and expected blocks by given validator.
-    fn get_num_validator_blocks(
-        &mut self,
-        epoch_id: &EpochId,
-        last_known_block_hash: &CryptoHash,
-        account_id: &AccountId,
-    ) -> Result<ValidatorStats, EpochError> {
-        let epoch_info = self.get_epoch_info(&epoch_id)?;
-        let validator_id = *epoch_info
-            .validator_to_index
-            .get(account_id)
-            .ok_or_else(|| EpochError::NotAValidator(account_id.clone(), epoch_id.clone()))?;
-        let aggregator =
-            self.get_and_update_epoch_info_aggregator(epoch_id, last_known_block_hash, true)?;
-        Ok(aggregator
-            .block_tracker
-            .get(&validator_id)
-            .unwrap_or_else(|| &ValidatorStats { produced: 0, expected: 0 })
-            .clone())
-    }
-
     /// Finalizes epoch (T), where given last block hash is given, and returns next next epoch id (T + 2).
     fn finalize_epoch(
         &mut self,
@@ -846,13 +825,18 @@ impl EpochManager {
                 validator_to_shard[*validator_id as usize].insert(shard_id as ShardId);
             }
         }
+        let epoch_info_aggregator =
+            self.get_and_update_epoch_info_aggregator(&epoch_id, block_hash, true)?;
         let current_validators = cur_epoch_info
             .validators
             .into_iter()
             .enumerate()
             .map(|(validator_id, info)| {
-                let validator_stats =
-                    self.get_num_validator_blocks(&epoch_id, &block_hash, &info.account_id)?;
+                let validator_stats = epoch_info_aggregator
+                    .block_tracker
+                    .get(&(validator_id as u64))
+                    .unwrap_or_else(|| &ValidatorStats { produced: 0, expected: 0 })
+                    .clone();
                 let mut shards =
                     validator_to_shard[validator_id].clone().into_iter().collect::<Vec<ShardId>>();
                 shards.sort();
@@ -906,15 +890,17 @@ impl EpochManager {
             .into_iter()
             .map(|(account_id, reason)| ValidatorKickoutView { account_id, reason })
             .collect();
-        let current_proposals =
-            self.get_and_update_epoch_info_aggregator(&epoch_id, block_hash, true)?.all_proposals;
 
         Ok(EpochValidatorInfo {
             current_validators,
             next_validators,
             current_fishermen: current_fishermen.into_iter().map(Into::into).collect(),
             next_fishermen: next_fishermen.into_iter().map(Into::into).collect(),
-            current_proposals: current_proposals.into_iter().map(|(_, p)| p.into()).collect(),
+            current_proposals: epoch_info_aggregator
+                .all_proposals
+                .into_iter()
+                .map(|(_, p)| p.into())
+                .collect(),
             prev_epoch_kickout,
             epoch_start_height,
         })
@@ -1210,6 +1196,29 @@ mod tests {
     };
 
     use super::*;
+
+    impl EpochManager {
+        /// Returns number of produced and expected blocks by given validator.
+        fn get_num_validator_blocks(
+            &mut self,
+            epoch_id: &EpochId,
+            last_known_block_hash: &CryptoHash,
+            account_id: &AccountId,
+        ) -> Result<ValidatorStats, EpochError> {
+            let epoch_info = self.get_epoch_info(&epoch_id)?;
+            let validator_id = *epoch_info
+                .validator_to_index
+                .get(account_id)
+                .ok_or_else(|| EpochError::NotAValidator(account_id.clone(), epoch_id.clone()))?;
+            let aggregator =
+                self.get_and_update_epoch_info_aggregator(epoch_id, last_known_block_hash, true)?;
+            Ok(aggregator
+                .block_tracker
+                .get(&validator_id)
+                .unwrap_or_else(|| &ValidatorStats { produced: 0, expected: 0 })
+                .clone())
+        }
+    }
 
     #[test]
     fn test_stake_validator() {
