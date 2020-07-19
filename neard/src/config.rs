@@ -546,7 +546,6 @@ impl NearConfig {
                 max_block_production_delay: config.consensus.max_block_production_delay,
                 max_block_wait_delay: config.consensus.max_block_wait_delay,
                 reduce_wait_for_missing_block: config.consensus.reduce_wait_for_missing_block,
-                block_expected_weight: 1000,
                 skip_sync_wait: config.network.skip_sync_wait,
                 sync_check_period: config.consensus.sync_check_period,
                 sync_step_period: config.consensus.sync_step_period,

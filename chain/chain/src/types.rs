@@ -178,7 +178,6 @@ pub trait RuntimeAdapter: Send + Sync {
         gas_limit: Gas,
         shard_id: ShardId,
         state_root: StateRoot,
-        max_number_of_transactions: usize,
         pool_iterator: &mut dyn PoolIterator,
         chain_validate: &mut dyn FnMut(&SignedTransaction) -> bool,
     ) -> Result<Vec<SignedTransaction>, Error>;

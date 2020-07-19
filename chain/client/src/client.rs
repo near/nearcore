@@ -538,7 +538,7 @@ impl Client {
         chunk_extra: &ChunkExtra,
         prev_block_header: &BlockHeader,
     ) -> Vec<SignedTransaction> {
-        let Self { chain, shards_mgr, config, runtime_adapter, .. } = self;
+        let Self { chain, shards_mgr, runtime_adapter, .. } = self;
         let transactions = if let Some(mut iter) = shards_mgr.get_pool_iterator(shard_id) {
             let transaction_validity_period = chain.transaction_validity_period;
             runtime_adapter
@@ -547,7 +547,6 @@ impl Client {
                     chunk_extra.gas_limit,
                     shard_id,
                     chunk_extra.state_root.clone(),
-                    config.block_expected_weight as usize,
                     &mut iter,
                     &mut |tx: &SignedTransaction| -> bool {
                         chain
