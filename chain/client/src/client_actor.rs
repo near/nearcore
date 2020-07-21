@@ -189,9 +189,11 @@ impl Handler<NetworkClientMessages> for ClientActor {
     type Result = NetworkClientResponses;
 
     fn handle(&mut self, msg: NetworkClientMessages, ctx: &mut Context<Self>) -> Self::Result {
+        info!(target: "client", "MOAR start handler");
         self.check_triggers(ctx);
+        info!(target: "client", "MOAR pmnox system");
 
-        match msg {
+        let ret = match msg {
             #[cfg(feature = "adversarial")]
             NetworkClientMessages::Adversarial(adversarial_msg) => {
                 return match adversarial_msg {
@@ -470,6 +472,7 @@ impl Handler<NetworkClientMessages> for ClientActor {
                     self.client.process_partial_encoded_chunk_response(response)
                 {
                     self.process_accepted_blocks(accepted_blocks);
+                    info!(target: "chain", "MOAR alex2");
                 }
                 NetworkClientResponses::NoResponse
             }
@@ -478,6 +481,7 @@ impl Handler<NetworkClientMessages> for ClientActor {
                     self.client.process_partial_encoded_chunk(partial_encoded_chunk)
                 {
                     self.process_accepted_blocks(accepted_blocks);
+                    info!(target: "chain", "MOAR alex3");
                 }
                 NetworkClientResponses::NoResponse
             }
@@ -494,7 +498,9 @@ impl Handler<NetworkClientMessages> for ClientActor {
                 self.network_info = network_info;
                 NetworkClientResponses::NoResponse
             }
-        }
+        };
+        info!(target: "client", "MOAR end handler");
+        ret
     }
 }
 
@@ -802,7 +808,8 @@ impl ClientActor {
             Ok(Some(block)) => {
                 let block_hash = *block.hash();
                 let res = self.process_block(block, Provenance::PRODUCED);
-                match &res {
+                info!(target: "chain", "MOAR alex7");
+                let ret = match &res {
                     Ok(_) => Ok(()),
                     Err(e) => match e.kind() {
                         near_chain::ErrorKind::ChunksMissing(missing_chunks) => {
@@ -822,7 +829,9 @@ impl ClientActor {
                             res.map_err(|err| err.into())
                         }
                     },
-                }
+                };
+                info!(target: "chain", "MOAR alex8");
+                ret
             }
             Ok(None) => Ok(()),
             Err(err) => Err(err),
@@ -837,6 +846,7 @@ impl ClientActor {
                 accepted_block.status,
                 accepted_block.provenance,
             );
+            info!(target: "chain", "MOAR alex1");
             let block = self.client.chain.get_block(&accepted_block.hash).unwrap();
             let gas_used = Block::compute_gas_used(&block.chunks(), block.header().height());
             let gas_limit = Block::compute_gas_limit(&block.chunks(), block.header().height());
@@ -874,6 +884,7 @@ impl ClientActor {
         }
         let (accepted_blocks, result) = self.client.process_block(block, provenance);
         self.process_accepted_blocks(accepted_blocks);
+        info!(target: "chain", "MOAR alex4");
         result.map(|_| ())
     }
 
@@ -895,12 +906,13 @@ impl ClientActor {
         let prev_hash = *block.header().prev_hash();
         let provenance =
             if was_requested { near_chain::Provenance::SYNC } else { near_chain::Provenance::NONE };
-        match self.process_block(block, provenance) {
+        let ret = match self.process_block(block, provenance) {
             Ok(_) => NetworkClientResponses::NoResponse,
             Err(ref err) if err.is_bad_data() => {
                 NetworkClientResponses::Ban { ban_reason: ReasonForBan::BadBlock }
             }
             Err(ref err) if err.is_error() => {
+                info!(target: "chain", "MOAR alex10");
                 if self.client.sync_status.is_syncing() {
                     // While syncing, we may receive blocks that are older or from next epochs.
                     // This leads to Old Block or EpochOutOfBounds errors.
@@ -908,13 +920,16 @@ impl ClientActor {
                 } else {
                     error!(target: "client", "Error on receival of block: {}", err);
                 }
+                info!(target: "chain", "MOAR alex11");
                 NetworkClientResponses::NoResponse
             }
             Err(e) => match e.kind() {
                 near_chain::ErrorKind::Orphan => {
+                    info!(target: "chain", "MOAR alex12");
                     if !self.client.chain.is_orphan(&prev_hash) {
                         self.request_block_by_hash(prev_hash, peer_id)
                     }
+                    info!(target: "chain", "MOAR alex13");
                     NetworkClientResponses::NoResponse
                 }
                 near_chain::ErrorKind::ChunksMissing(missing_chunks) => {
@@ -934,7 +949,9 @@ impl ClientActor {
                     NetworkClientResponses::NoResponse
                 }
             },
-        }
+        };
+        info!(target: "chain", "MOAR alex9");
+        ret
     }
 
     fn receive_headers(&mut self, headers: Vec<BlockHeader>, peer_id: PeerId) -> bool {
@@ -1065,6 +1082,7 @@ impl ClientActor {
         match self.client.run_catchup(&self.network_info.highest_height_peers) {
             Ok(accepted_blocks) => {
                 self.process_accepted_blocks(accepted_blocks);
+                info!(target: "chain", "MOAR alex4");
             }
             Err(err) => {
                 error!(target: "client", "{:?} Error occurred during catchup for the next epoch: {:?}", self.client.validator_signer.as_ref().map(|vs| vs.validator_id()), err)
@@ -1238,6 +1256,7 @@ impl ClientActor {
                         self.process_accepted_blocks(
                             accepted_blocks.write().unwrap().drain(..).collect(),
                         );
+                        info!(target: "chain", "MOAR alex5");
 
                         self.client.shards_mgr.request_chunks(
                             blocks_missing_chunks
@@ -1249,6 +1268,7 @@ impl ClientActor {
 
                         self.client.sync_status =
                             SyncStatus::BodySync { current_height: 0, highest_height: 0 };
+                        info!(target: "chain", "MOAR alex6");
                     }
                 }
             }
