@@ -54,6 +54,8 @@ const WAIT_ON_TRY_UPDATE_NONCE: u64 = 6_000;
 /// If we see an edge between us and other peer, but this peer is not a current connection, wait this
 /// timeout and in case it didn't become an active peer, broadcast edge removal update.
 const WAIT_PEER_BEFORE_REMOVE: u64 = 6_000;
+/// Maximum number an edge can increase between oldest known edge and new proposed edge.
+const EDGE_NONCE_BUMP_ALLOWED: u64 = 1_000;
 /// Time to wait before sending ping to all reachable peers.
 #[cfg(feature = "metric_recorder")]
 const WAIT_BEFORE_PING: u64 = 20_000;
@@ -1482,8 +1484,8 @@ impl Handler<Consolidate> for PeerManagerActor {
             return ConsolidateResponse::InvalidNonce(last_edge.map(Box::new).unwrap());
         }
 
-        if msg.other_edge_info.nonce > Edge::next_nonce(last_nonce) {
-            debug!(target: "network", "Too large nonce. ({} <= {}) {:?} {:?}", msg.other_edge_info.nonce, last_nonce, self.peer_id, msg.peer_info.id);
+        if msg.other_edge_info.nonce >= Edge::next_nonce(last_nonce) + EDGE_NONCE_BUMP_ALLOWED {
+            debug!(target: "network", "Too large nonce. ({} >= {} + {}) {:?} {:?}", msg.other_edge_info.nonce, last_nonce, EDGE_NONCE_BUMP_ALLOWED, self.peer_id, msg.peer_info.id);
             return ConsolidateResponse::Reject;
         }
 
