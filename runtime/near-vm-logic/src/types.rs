@@ -29,7 +29,7 @@ pub enum ReturnData {
 /// calls are available to the contract invoked through the callback.
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub enum PromiseResult {
-    /// [deprecated] NotReady is not used any more, it comes from the early versions of the protocol.
+    /// Current version of the protocol never returns `PromiseResult::NotReady`.
     NotReady,
     #[serde(with = "crate::serde_with::bytes_as_str")]
     Successful(Vec<u8>),
