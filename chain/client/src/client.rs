@@ -538,7 +538,7 @@ impl Client {
         chunk_extra: &ChunkExtra,
         prev_block_header: &BlockHeader,
     ) -> Vec<SignedTransaction> {
-        let Self { chain, shards_mgr, config, runtime_adapter, .. } = self;
+        let Self { chain, shards_mgr, runtime_adapter, .. } = self;
         let transactions = if let Some(mut iter) = shards_mgr.get_pool_iterator(shard_id) {
             let transaction_validity_period = chain.transaction_validity_period;
             runtime_adapter
@@ -547,7 +547,6 @@ impl Client {
                     chunk_extra.gas_limit,
                     shard_id,
                     chunk_extra.state_root.clone(),
-                    config.block_expected_weight as usize,
                     &mut iter,
                     &mut |tx: &SignedTransaction| -> bool {
                         chain
@@ -787,6 +786,7 @@ impl Client {
         if status.is_new_head() {
             self.shards_mgr.update_largest_seen_height(block.header().height());
             if !self.config.archive {
+                let timer = near_metrics::start_timer(&metrics::GC_TIME);
                 if let Err(err) = self
                     .chain
                     .clear_data(self.runtime_adapter.get_tries(), self.config.gc_blocks_limit)
@@ -794,6 +794,7 @@ impl Client {
                     error!(target: "client", "Can't clear old data, {:?}", err);
                     debug_assert!(false);
                 };
+                near_metrics::stop_timer(timer);
             }
         }
 

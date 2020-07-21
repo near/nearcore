@@ -562,7 +562,6 @@ impl RuntimeAdapter for NightshadeRuntime {
         gas_limit: Gas,
         shard_id: ShardId,
         state_root: StateRoot,
-        max_number_of_transactions: usize,
         pool_iterator: &mut dyn PoolIterator,
         chain_validate: &mut dyn FnMut(&SignedTransaction) -> bool,
     ) -> Result<Vec<SignedTransaction>, Error> {
@@ -575,9 +574,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         let mut transactions = vec![];
         let mut num_checked_transactions = 0;
 
-        while transactions.len() < max_number_of_transactions
-            && total_gas_burnt < transactions_gas_limit
-        {
+        while total_gas_burnt < transactions_gas_limit {
             if let Some(iter) = pool_iterator.next() {
                 while let Some(tx) = iter.next() {
                     num_checked_transactions += 1;
@@ -881,11 +878,8 @@ impl RuntimeAdapter for NightshadeRuntime {
         let mut last_block_in_prev_epoch = epoch_first_block_info.prev_hash;
         let mut epoch_start_height = epoch_first_block_info.height;
         for _ in 0..NUM_EPOCHS_TO_KEEP_STORE_DATA - 1 {
-            let epoch_first_block = match epoch_manager.get_block_info(&last_block_in_prev_epoch) {
-                Ok(block_info) => block_info.epoch_first_block,
-                Err(EpochError::MissingBlock(_)) => return Ok(epoch_start_height),
-                Err(e) => return Err(e.into()),
-            };
+            let epoch_first_block =
+                epoch_manager.get_block_info(&last_block_in_prev_epoch)?.epoch_first_block;
             let epoch_first_block_info = epoch_manager.get_block_info(&epoch_first_block)?;
             epoch_start_height = epoch_first_block_info.height;
             last_block_in_prev_epoch = epoch_first_block_info.prev_hash;

@@ -51,6 +51,25 @@ mod metrics;
 const JSON_PAYLOAD_MAX_SIZE: usize = 2 * 1024 * 1024;
 const QUERY_DATA_MAX_SIZE: usize = 10 * 1024;
 
+/// RPCs that should only be called when the node is synced
+const RPC_REQUIRES_SYNC: [&'static str; 15] = [
+    "broadcast_tx_async",
+    "EXPERIMENTAL_broadcast_tx_sync",
+    "broadcast_tx_commit",
+    "validators",
+    "query",
+    "health",
+    "tx",
+    "block",
+    "chunk",
+    "EXPERIMENTAL_changes",
+    "EXPERIMENTAL_changes_in_block",
+    "next_light_client_block",
+    "EXPERIMENTAL_light_client_proof",
+    "light_client_proof",
+    "gas_price",
+];
+
 #[derive(Serialize, Deserialize, Clone, Copy, Debug)]
 pub struct RpcPollingConfig {
     pub polling_interval: Duration,
@@ -131,6 +150,7 @@ pub enum ServerError {
     Timeout,
     Closed,
     InternalError,
+    IsSyncing,
 }
 
 impl Display for ServerError {
@@ -140,6 +160,7 @@ impl Display for ServerError {
             ServerError::Timeout => write!(f, "ServerError: Timeout"),
             ServerError::Closed => write!(f, "ServerError: Closed"),
             ServerError::InternalError => write!(f, "ServerError: Internal Error"),
+            ServerError::IsSyncing => write!(f, "ServerError: Node is syncing"),
         }
     }
 }
@@ -188,6 +209,8 @@ impl JsonRpcHandler {
     }
 
     async fn process_request(&self, request: Request) -> Result<Value, RpcError> {
+        let _rpc_processing_time = near_metrics::start_timer(&metrics::RPC_PROCESSING_TIME);
+
         #[cfg(feature = "adversarial")]
         {
             let params = request.params.clone();
@@ -209,11 +232,22 @@ impl JsonRpcHandler {
             }
         }
 
+        if RPC_REQUIRES_SYNC.iter().find(|&&s| s == &request.method).is_some() {
+            match self.client_addr.send(Status { is_health_check: false }).await {
+                Ok(Ok(result)) => {
+                    if result.sync_info.syncing {
+                        return Err(ServerError::IsSyncing.into());
+                    }
+                }
+                Ok(Err(err)) => return Err(RpcError::new(-32_001, err, None)),
+                Err(_) => return Err(RpcError::server_error::<()>(None)),
+            }
+        }
+
         match request.method.as_ref() {
             "broadcast_tx_async" => self.send_tx_async(request.params).await,
             "EXPERIMENTAL_broadcast_tx_sync" => self.send_tx_sync(request.params).await,
             "broadcast_tx_commit" => self.send_tx_commit(request.params).await,
-            "EXPERIMENTAL_check_tx" => self.check_tx(request.params).await,
             "validators" => self.validators(request.params).await,
             "query" => self.query(request.params).await,
             "health" => self.health().await,
@@ -281,7 +315,10 @@ impl JsonRpcHandler {
             }
         })
         .await
-        .map_err(|_| TxStatusError::TimeoutError)?
+        .map_err(|_| {
+            near_metrics::inc_counter(&metrics::RPC_TIMEOUT_TOTAL);
+            TxStatusError::TimeoutError
+        })?
     }
 
     async fn tx_polling(&self, tx_info: TransactionInfo) -> Result<Value, RpcError> {
@@ -300,7 +337,10 @@ impl JsonRpcHandler {
             }
         })
         .await
-        .map_err(|_| timeout_err())?
+        .map_err(|_| {
+            near_metrics::inc_counter(&metrics::RPC_TIMEOUT_TOTAL);
+            timeout_err()
+        })?
     }
 
     async fn send_tx(
@@ -321,10 +361,6 @@ impl JsonRpcHandler {
 
     async fn send_tx_sync(&self, params: Option<Value>) -> Result<Value, RpcError> {
         self.send_or_check_tx(params, false).await
-    }
-
-    async fn check_tx(&self, params: Option<Value>) -> Result<Value, RpcError> {
-        self.send_or_check_tx(params, true).await
     }
 
     async fn send_or_check_tx(
@@ -512,7 +548,10 @@ impl JsonRpcHandler {
             }
         })
         .await
-        .map_err(|_| RpcError::server_error(Some("query has timed out".to_string())))?
+        .map_err(|_| {
+            near_metrics::inc_counter(&metrics::RPC_TIMEOUT_TOTAL);
+            RpcError::server_error(Some("query has timed out".to_string()))
+        })?
     }
 
     async fn tx_status(&self, params: Option<Value>) -> Result<Value, RpcError> {

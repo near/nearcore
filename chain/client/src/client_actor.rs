@@ -1,5 +1,6 @@
 //! Client actor orchestrates Client and facilitates network connection.
 
+use chrono::Duration as OldDuration;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use std::thread;
@@ -74,6 +75,13 @@ pub struct ClientActor {
     last_validator_announce_time: Option<Instant>,
     /// Info helper.
     info_helper: InfoHelper,
+
+    /// Last time handle_block_production method was called
+    block_production_next_attempt: DateTime<Utc>,
+    block_production_started: bool,
+    doomslug_timer_next_attempt: DateTime<Utc>,
+    chunk_request_retry_next_attempt: DateTime<Utc>,
+    sync_started: bool,
 }
 
 /// Blocks the program until given genesis time arrives.
@@ -121,6 +129,7 @@ impl ClientActor {
             enable_doomslug,
         )?;
 
+        let now = Utc::now();
         Ok(ClientActor {
             #[cfg(feature = "adversarial")]
             adv_sync_height: None,
@@ -144,6 +153,11 @@ impl ClientActor {
             },
             last_validator_announce_time: None,
             info_helper,
+            block_production_next_attempt: now,
+            block_production_started: false,
+            doomslug_timer_next_attempt: now,
+            chunk_request_retry_next_attempt: now,
+            sync_started: false,
         })
     }
 }
@@ -157,11 +171,11 @@ impl Actor for ClientActor {
 
         // Start block production tracking if have block producer info.
         if self.client.validator_signer.is_some() {
-            self.block_production_tracking(ctx);
+            self.block_production_started = true;
         }
 
-        // Start chunk request retry job.
-        self.chunk_request_retry(ctx);
+        // Start triggers
+        self.schedule_triggers(ctx);
 
         // Start catchup job.
         self.catchup(ctx);
@@ -174,7 +188,9 @@ impl Actor for ClientActor {
 impl Handler<NetworkClientMessages> for ClientActor {
     type Result = NetworkClientResponses;
 
-    fn handle(&mut self, msg: NetworkClientMessages, _: &mut Context<Self>) -> Self::Result {
+    fn handle(&mut self, msg: NetworkClientMessages, ctx: &mut Context<Self>) -> Self::Result {
+        self.check_triggers(ctx);
+
         match msg {
             #[cfg(feature = "adversarial")]
             NetworkClientMessages::Adversarial(adversarial_msg) => {
@@ -485,7 +501,9 @@ impl Handler<NetworkClientMessages> for ClientActor {
 impl Handler<Status> for ClientActor {
     type Result = Result<StatusResponse, String>;
 
-    fn handle(&mut self, msg: Status, _: &mut Context<Self>) -> Self::Result {
+    fn handle(&mut self, msg: Status, ctx: &mut Context<Self>) -> Self::Result {
+        self.check_triggers(ctx);
+
         let head = self.client.chain.head().map_err(|err| err.to_string())?;
         let header = self
             .client
@@ -551,7 +569,9 @@ impl Handler<Status> for ClientActor {
 impl Handler<GetNetworkInfo> for ClientActor {
     type Result = Result<NetworkInfoResponse, String>;
 
-    fn handle(&mut self, _: GetNetworkInfo, _: &mut Context<Self>) -> Self::Result {
+    fn handle(&mut self, _: GetNetworkInfo, ctx: &mut Context<Self>) -> Self::Result {
+        self.check_triggers(ctx);
+
         Ok(NetworkInfoResponse {
             active_peers: self
                 .network_info
@@ -689,18 +709,90 @@ impl ClientActor {
         Ok(())
     }
 
-    /// Runs a loop to keep track of the latest known block, produces if it's this validators turn.
-    fn block_production_tracking(&mut self, ctx: &mut Context<Self>) {
+    fn schedule_triggers(&mut self, ctx: &mut Context<Self>) {
+        let wait = self.check_triggers(ctx);
+
+        ctx.run_later(wait, move |act, ctx| {
+            act.schedule_triggers(ctx);
+        });
+    }
+
+    fn check_triggers(&mut self, ctx: &mut Context<ClientActor>) -> Duration {
+        // There is a bug in Actix library. While there are messages in mailbox, Actix
+        // will prioritize processing messages until mailbox is empty. Execution of any other task
+        // scheduled with run_later will be delayed.
+
+        let mut delay = Duration::from_secs(1);
+        let now = Utc::now();
+
+        if self.sync_started {
+            self.doomslug_timer_next_attempt = self.run_timer(
+                self.client.config.doosmslug_step_period,
+                self.doomslug_timer_next_attempt,
+                ctx,
+                |act, ctx| act.try_doomslug_timer(ctx),
+            );
+            delay = core::cmp::min(
+                delay,
+                self.doomslug_timer_next_attempt.signed_duration_since(now).to_std().unwrap(),
+            )
+        }
+        if self.block_production_started {
+            self.block_production_next_attempt = self.run_timer(
+                self.client.config.block_production_tracking_delay,
+                self.block_production_next_attempt,
+                ctx,
+                |act, _ctx| act.try_handle_block_production(),
+            );
+            delay = core::cmp::min(
+                delay,
+                self.block_production_next_attempt.signed_duration_since(now).to_std().unwrap(),
+            )
+        }
+        self.chunk_request_retry_next_attempt = self.run_timer(
+            self.client.config.chunk_request_retry_period,
+            self.chunk_request_retry_next_attempt,
+            ctx,
+            |act, _ctx| act.client.shards_mgr.resend_chunk_requests(),
+        );
+        core::cmp::min(
+            delay,
+            self.chunk_request_retry_next_attempt.signed_duration_since(now).to_std().unwrap(),
+        )
+    }
+
+    fn try_handle_block_production(&mut self) {
         match self.handle_block_production() {
             Ok(()) => {}
             Err(err) => {
                 error!(target: "client", "Handle block production failed: {:?}", err);
             }
         }
-        let wait = self.client.config.block_production_tracking_delay;
-        ctx.run_later(wait, move |act, ctx| {
-            act.block_production_tracking(ctx);
-        });
+    }
+
+    fn try_doomslug_timer(&mut self, _: &mut Context<ClientActor>) {
+        let _ = self.client.check_and_update_doomslug_tip();
+
+        let approvals = self.client.doomslug.process_timer(Instant::now());
+
+        // Important to save the largest approval target height before sending approvals, so
+        // that if the node crashes in the meantime, we cannot get slashed on recovery
+        let mut chain_store_update = self.client.chain.mut_store().store_update();
+        chain_store_update
+            .save_largest_target_height(self.client.doomslug.get_largest_target_height());
+
+        match chain_store_update.commit() {
+            Ok(_) => {
+                for approval in approvals {
+                    if let Err(e) =
+                        self.client.send_approval(&self.client.doomslug.get_tip().0, approval)
+                    {
+                        error!("Error while sending an approval {:?}", e);
+                    }
+                }
+            }
+            Err(e) => error!("Error while committing largest skipped height {:?}", e),
+        };
     }
 
     /// Produce block if we are block producer for given `next_height` height.
@@ -942,9 +1034,7 @@ impl ClientActor {
             });
             return;
         }
-
-        // Start doomslug timer
-        self.doomslug_timer(ctx);
+        self.sync_started = true;
 
         // Start main sync loop.
         self.sync(ctx);
@@ -986,42 +1076,24 @@ impl ClientActor {
         });
     }
 
-    /// Job to retry chunks that were requested but not received within expected time.
-    fn chunk_request_retry(&mut self, ctx: &mut Context<ClientActor>) {
-        self.client.shards_mgr.resend_chunk_requests();
-        ctx.run_later(self.client.config.chunk_request_retry_period, move |act, ctx| {
-            act.chunk_request_retry(ctx);
-        });
-    }
+    fn run_timer<F>(
+        &mut self,
+        duration: Duration,
+        next_attempt: DateTime<Utc>,
+        ctx: &mut Context<ClientActor>,
+        f: F,
+    ) -> DateTime<Utc>
+    where
+        F: FnOnce(&mut Self, &mut <Self as Actor>::Context) + 'static,
+    {
+        let now = Utc::now();
+        if now < next_attempt {
+            return next_attempt;
+        }
 
-    /// An actix recursive function that processes doomslug timer
-    fn doomslug_timer(&mut self, ctx: &mut Context<ClientActor>) {
-        let _ = self.client.check_and_update_doomslug_tip();
+        f(self, ctx);
 
-        let approvals = self.client.doomslug.process_timer(Instant::now());
-
-        // Important to save the largest approval target height before sending approvals, so
-        // that if the node crashes in the meantime, we cannot get slashed on recovery
-        let mut chain_store_update = self.client.chain.mut_store().store_update();
-        chain_store_update
-            .save_largest_target_height(self.client.doomslug.get_largest_target_height());
-
-        match chain_store_update.commit() {
-            Ok(_) => {
-                for approval in approvals {
-                    if let Err(e) =
-                        self.client.send_approval(&self.client.doomslug.get_tip().0, approval)
-                    {
-                        error!("Error while sending an approval {:?}", e);
-                    }
-                }
-            }
-            Err(e) => error!("Error while committing largest skipped height {:?}", e),
-        };
-
-        ctx.run_later(Duration::from_millis(50), move |act, ctx| {
-            act.doomslug_timer(ctx);
-        });
+        return now.checked_add_signed(OldDuration::from_std(duration).unwrap()).unwrap();
     }
 
     /// Main syncing job responsible for syncing client with other peers.

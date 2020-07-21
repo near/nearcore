@@ -473,11 +473,9 @@ impl Handler<GetChunk> for ViewClientActor {
             }
         }
         .and_then(|chunk| {
-            self.chain
-                .get_block_by_height(chunk.header.height_included)
-                .map(|block| (block.header().epoch_id().clone(), chunk))
-        })
-        .and_then(|(epoch_id, chunk)| {
+            let epoch_id = self
+                .runtime_adapter
+                .get_epoch_id_from_prev_block(&chunk.header.inner.prev_block_hash)?;
             self.runtime_adapter
                 .get_chunk_producer(
                     &epoch_id,

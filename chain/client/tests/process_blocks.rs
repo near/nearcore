@@ -876,6 +876,21 @@ fn test_gc_block_skips() {
 }
 
 #[test]
+fn test_gc_chunk_tail() {
+    let mut chain_genesis = ChainGenesis::test();
+    let epoch_length = 100;
+    chain_genesis.epoch_length = epoch_length;
+    let mut env = TestEnv::new(chain_genesis.clone(), 1, 1);
+    let mut chunk_tail = 0;
+    for i in (1..10).chain(101..epoch_length * 6) {
+        env.produce_block(0, i);
+        let cur_chunk_tail = env.clients[0].chain.store().chunk_tail().unwrap();
+        assert!(cur_chunk_tail >= chunk_tail);
+        chunk_tail = cur_chunk_tail;
+    }
+}
+
+#[test]
 fn test_gc_execution_outcome() {
     let epoch_length = 5;
     let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
@@ -912,6 +927,52 @@ fn test_gc_execution_outcome() {
         env.produce_block(0, i);
     }
     assert!(env.clients[0].chain.get_final_transaction_result(&tx_hash).is_err());
+}
+
+#[cfg(feature = "expensive_tests")]
+#[test]
+fn test_gc_after_state_sync() {
+    let epoch_length = 1024;
+    let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
+    genesis.config.epoch_length = epoch_length;
+    let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![
+        Arc::new(neard::NightshadeRuntime::new(
+            Path::new("."),
+            create_test_store(),
+            Arc::new(genesis.clone()),
+            vec![],
+            vec![],
+        )),
+        Arc::new(neard::NightshadeRuntime::new(
+            Path::new("."),
+            create_test_store(),
+            Arc::new(genesis.clone()),
+            vec![],
+            vec![],
+        )),
+    ];
+    let mut chain_genesis = ChainGenesis::test();
+    chain_genesis.epoch_length = epoch_length;
+    let mut env = TestEnv::new_with_runtime(chain_genesis, 2, 1, runtimes);
+    for i in 1..epoch_length * 4 + 2 {
+        let block = env.clients[0].produce_block(i).unwrap().unwrap();
+        env.process_block(0, block.clone(), Provenance::PRODUCED);
+        env.process_block(1, block, Provenance::NONE);
+    }
+    let sync_height = epoch_length * 4 + 1;
+    let sync_hash = *env.clients[0].chain.get_block_by_height(sync_height).unwrap().hash();
+    // reset cache
+    for i in epoch_length * 3..sync_height {
+        let block_hash = *env.clients[0].chain.get_block_by_height(i).unwrap().hash();
+        assert!(env.clients[1].chain.runtime_adapter.get_epoch_start_height(&block_hash).is_ok());
+    }
+    env.clients[1].chain.reset_data_pre_state_sync(sync_hash).unwrap();
+    assert!(matches!(
+        env.clients[1].runtime_adapter.get_gc_stop_height(&sync_hash).unwrap_err().kind(),
+        ErrorKind::DBNotFoundErr(_)
+    ));
+    let tries = env.clients[1].runtime_adapter.get_tries();
+    assert!(env.clients[1].chain.clear_data(tries, 2).is_ok());
 }
 
 #[test]
