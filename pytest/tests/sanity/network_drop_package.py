@@ -11,6 +11,7 @@ from multiprocessing import Value
 
 TIMEOUT = 90
 success = Value('i', 0)
+height = Value('i', 0)
 
 # Ratio of message that are dropped to simulate bad network performance
 DROP_RATIO = 0.05
@@ -24,8 +25,13 @@ class Handler(ProxyHandler):
 
     async def handle(self, msg, fr, to):
         if msg.enum == 'Block':
-            print('Block height:', msg.Block.BlockV1.header.BlockHeaderV1.inner_lite.height)
-            if msg.Block.BlockV1.header.BlockHeaderV1.inner_lite.height >= 10:
+            h = msg.Block.BlockV1.header.BlockHeaderV2.inner_lite.height
+
+            if h > height.value:
+                height.value = h
+                print("Height:", h)
+
+            if h >= 10:
                 print(f'SUCCESS DROP={self.dropped} TOTAL={self.total}')
                 success.value = 1
 
@@ -48,3 +54,5 @@ while True:
 
     if success.value == 1:
         break
+
+print("Success")
