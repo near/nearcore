@@ -605,10 +605,12 @@ impl Chain {
             .into());
         }
         let mut gc_blocks_remaining = gc_blocks_limit;
+        info!(target: "chain", "GC START, head: {:?} tail {} gc block limit {}", head, tail, gc_blocks_limit);
 
         // Forks Cleaning
         for height in tail..gc_stop_height {
             if gc_blocks_remaining == 0 {
+                info!(target: "chain", "GC END 1");
                 return Ok(());
             }
             self.clear_forks_data(tries.clone(), height, &mut gc_blocks_remaining)?;
@@ -617,6 +619,7 @@ impl Chain {
         // Canonical Chain Clearing
         for height in tail + 1..gc_stop_height {
             if gc_blocks_remaining == 0 {
+                info!(target: "chain", "GC END 2");
                 return Ok(());
             }
             let mut chain_store_update = self.store.store_update();
@@ -647,6 +650,7 @@ impl Chain {
             chain_store_update.update_tail(height);
             chain_store_update.commit()?;
         }
+        info!(target: "chain", "GC END 3");
         Ok(())
     }
 

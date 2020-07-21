@@ -755,6 +755,7 @@ impl Client {
         status: BlockStatus,
         provenance: Provenance,
     ) {
+        info!(target: "chain", "MOAR ON_BLOCK_ACCEPTED");
         let block = match self.chain.get_block(&block_hash) {
             Ok(block) => block.clone(),
             Err(err) => {
@@ -798,6 +799,7 @@ impl Client {
                 near_metrics::stop_timer(timer);
             }
         }
+        info!(target: "chain", "MOAR 1");
 
         if let Some(validator_signer) = self.validator_signer.clone() {
             // Reconcile the txpool against the new block *after* we have broadcast it too our peers.
@@ -908,6 +910,7 @@ impl Client {
                 }
             }
         }
+        info!(target: "chain", "MOAR 2");
 
         // Process stored partial encoded chunks
         let next_height = block.header().height() + 1;
@@ -927,6 +930,7 @@ impl Client {
                 }
             }
         }
+        info!(target: "chain", "MOAR END OF ON_BLOCK_ACCEPTED");
     }
 
     /// Check if any block with missing chunks is ready to be processed
