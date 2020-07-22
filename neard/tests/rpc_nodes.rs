@@ -25,6 +25,17 @@ use std::sync::atomic::Ordering::SeqCst;
 use std::sync::Arc;
 use testlib::{genesis_block, start_nodes, test_helpers::heavy_test};
 
+macro_rules! panic_on_rpc_error {
+    ($e:expr) => {
+        if !serde_json::to_string(&$e.data.clone().unwrap_or_default())
+            .unwrap()
+            .contains("IsSyncing")
+        {
+            panic!("{:?}", $e)
+        }
+    };
+}
+
 /// Starts 2 validators and 2 light clients (not tracking anything).
 /// Sends tx to first light client and checks that a node can return tx status.
 #[test]
@@ -68,7 +79,7 @@ fn test_tx_propagation() {
                         actix::spawn(
                             client
                                 .broadcast_tx_async(to_base64(&bytes))
-                                .map_err(|err| panic!(err.to_string()))
+                                .map_err(|err| panic_on_rpc_error!(err))
                                 .map_ok(move |result| {
                                     assert_eq!(String::from(&tx_hash_clone), result)
                                 })
@@ -146,7 +157,7 @@ fn test_tx_propagation_through_rpc() {
                         actix::spawn(
                             client
                                 .broadcast_tx_commit(to_base64(&bytes))
-                                .map_err(|err| panic!(err.to_string()))
+                                .map_err(|err| panic_on_rpc_error!(err))
                                 .map_ok(move |result| {
                                     if result.status
                                         == FinalExecutionStatus::SuccessValue("".to_string())
@@ -214,14 +225,7 @@ fn test_tx_status_with_light_client() {
                         actix::spawn(
                             client
                                 .broadcast_tx_async(to_base64(&bytes))
-                                .map_err(|err| {
-                                    if !serde_json::to_string(&err.data.clone().unwrap_or_default())
-                                        .unwrap()
-                                        .contains("IsSyncing")
-                                    {
-                                        panic!("{:?}", err)
-                                    }
-                                })
+                                .map_err(|err| panic_on_rpc_error!(err))
                                 .map_ok(move |result| {
                                     assert_eq!(String::from(&tx_hash_clone), result)
                                 })
@@ -294,14 +298,7 @@ fn test_tx_status_with_light_client1() {
                         actix::spawn(
                             client
                                 .broadcast_tx_async(to_base64(&bytes))
-                                .map_err(|err| {
-                                    if !serde_json::to_string(&err.data.clone().unwrap_or_default())
-                                        .unwrap()
-                                        .contains("IsSyncing")
-                                    {
-                                        panic!("{:?}", err)
-                                    }
-                                })
+                                .map_err(|err| panic_on_rpc_error!(err))
                                 .map_ok(move |result| {
                                     assert_eq!(String::from(&tx_hash_clone), result)
                                 })
@@ -355,9 +352,7 @@ fn test_rpc_routing() {
                         actix::spawn(
                             client
                                 .query_by_path("account/near.2".to_string(), "".to_string())
-                                .map_err(|err| {
-                                    println!("Error retrieving account: {:?}", err);
-                                })
+                                .map_err(|err| panic_on_rpc_error!(err))
                                 .map_ok(move |result| match result.kind {
                                     QueryResponseKind::ViewAccount(account_view) => {
                                         assert_eq!(account_view.amount, TESTING_INIT_BALANCE);
@@ -449,9 +444,7 @@ fn test_get_validator_info_rpc() {
                         actix::spawn(
                             client
                                 .validators(Some(BlockId::Hash(block_hash)))
-                                .map_err(|err| {
-                                    panic!(format!("error: {:?}", err));
-                                })
+                                .map_err(|err| panic_on_rpc_error!(err))
                                 .map_ok(move |result| {
                                     assert_eq!(result.current_validators.len(), 1);
                                     assert!(result
