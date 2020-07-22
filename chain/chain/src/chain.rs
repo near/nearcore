@@ -1001,7 +1001,7 @@ impl Chain {
 
         // clear all trie data
         let keys: Vec<Vec<u8>> =
-            self.store().store().iter_prefix_unsafe(ColState, &[]).map(|kv| kv.0.into()).collect();
+            self.store().store().iter_prefix(ColState, &[]).map(|kv| kv.0.into()).collect();
         let tries = self.runtime_adapter.get_tries();
         let mut chain_store_update = self.mut_store().store_update();
         let mut store_update = StoreUpdate::new_with_tries(tries);

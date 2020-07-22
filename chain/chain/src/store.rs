@@ -391,7 +391,7 @@ impl ChainStore {
 
     pub fn iterate_state_sync_infos(&self) -> Vec<(CryptoHash, StateSyncInfo)> {
         self.store
-            .iter_unsafe(ColStateDlInfos)
+            .iter(ColStateDlInfos)
             .map(|(k, v)| {
                 (
                     CryptoHash::try_from(k.as_ref()).unwrap(),
@@ -2064,7 +2064,7 @@ impl<'a> ChainStoreUpdate<'a> {
         let stored_state_changes: Vec<Vec<u8>> = self
             .chain_store
             .store()
-            .iter_prefix_unsafe(ColStateChanges, storage_key.as_ref())
+            .iter_prefix(ColStateChanges, storage_key.as_ref())
             .map(|key| key.0.into())
             .collect();
         for key in stored_state_changes {

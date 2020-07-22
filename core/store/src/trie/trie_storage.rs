@@ -152,7 +152,7 @@ impl TrieCachingStorage {
         let key = Self::get_key_from_shard_id_and_hash(self.shard_id, hash);
         let val = self
             .store
-            .get_unsafe(ColState, key.as_ref())
+            .get(ColState, key.as_ref())
             .map_err(|_| StorageError::StorageInternalError)?;
         if let Some(val) = val {
             let rc = Self::vec_to_rc(&val);
@@ -176,7 +176,7 @@ impl TrieStorage for TrieCachingStorage {
             let key = Self::get_key_from_shard_id_and_hash(self.shard_id, hash);
             let val = self
                 .store
-                .get_unsafe(ColState, key.as_ref())
+                .get(ColState, key.as_ref())
                 .map_err(|_| StorageError::StorageInternalError)?;
             if let Some(val) = val {
                 let raw_node = Self::vec_to_bytes(&val);

@@ -49,8 +49,8 @@ impl Store {
         Store { storage }
     }
 
-    pub fn get_unsafe(&self, column: DBCol, key: &[u8]) -> Result<Option<Vec<u8>>, io::Error> {
-        self.storage.get_unsafe(column, key).map_err(|e| e.into())
+    pub fn get(&self, column: DBCol, key: &[u8]) -> Result<Option<Vec<u8>>, io::Error> {
+        self.storage.get(column, key).map_err(|e| e.into())
     }
 
     pub fn get_ser<T: BorshDeserialize>(
@@ -58,7 +58,7 @@ impl Store {
         column: DBCol,
         key: &[u8],
     ) -> Result<Option<T>, io::Error> {
-        match self.storage.get_unsafe(column, key) {
+        match self.storage.get(column, key) {
             Ok(Some(bytes)) => match T::try_from_slice(bytes.as_ref()) {
                 Ok(result) => Ok(Some(result)),
                 Err(e) => Err(e),
@@ -69,26 +69,26 @@ impl Store {
     }
 
     pub fn exists(&self, column: DBCol, key: &[u8]) -> Result<bool, io::Error> {
-        self.storage.get_unsafe(column, key).map(|value| value.is_some()).map_err(|e| e.into())
+        self.storage.get(column, key).map(|value| value.is_some()).map_err(|e| e.into())
     }
 
     pub fn store_update(&self) -> StoreUpdate {
         StoreUpdate::new(self.storage.clone())
     }
 
-    pub fn iter_unsafe<'a>(
+    pub fn iter<'a>(
         &'a self,
         column: DBCol,
     ) -> Box<dyn Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a> {
-        self.storage.iter_unsafe(column)
+        self.storage.iter(column)
     }
 
-    pub fn iter_prefix_unsafe<'a>(
+    pub fn iter_prefix<'a>(
         &'a self,
         column: DBCol,
         key_prefix: &'a [u8],
     ) -> Box<dyn Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a> {
-        self.storage.iter_prefix_unsafe(column, key_prefix)
+        self.storage.iter_prefix(column, key_prefix)
     }
 
     pub fn iter_prefix_ser<'a, T: BorshDeserialize>(
@@ -98,14 +98,14 @@ impl Store {
     ) -> Box<dyn Iterator<Item = Result<(Vec<u8>, T), io::Error>> + 'a> {
         Box::new(
             self.storage
-                .iter_prefix_unsafe(column, key_prefix)
+                .iter_prefix(column, key_prefix)
                 .map(|(key, value)| Ok((key.to_vec(), T::try_from_slice(value.as_ref())?))),
         )
     }
 
     pub fn save_to_file(&self, column: DBCol, filename: &Path) -> Result<(), std::io::Error> {
         let mut file = File::create(filename)?;
-        for (key, value) in self.storage.iter_unsafe(column) {
+        for (key, value) in self.storage.iter(column) {
             file.write_u32::<LittleEndian>(key.len() as u32)?;
             file.write_all(&key)?;
             file.write_u32::<LittleEndian>(value.len() as u32)?;
