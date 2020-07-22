@@ -80,7 +80,12 @@ As already has been mentioned in this README, the most common tweak you need to 
 ...
 ```
 
-Another tweak changes the default "fast" sync process to a "full" sync process. When the node gets online and observes that its state is missing or outdated, it will do state sync, and that can be done in two strategies: (1) ("fast" / default) sync all the block headers to ensure that the chain is valid, that means that the node won't have any data, only the proofs, so Indexer will skip these blocks, (2) (very slow / full sync) sync all the blocks from the genesis. To force full sync, make the following change to your `config.json`:
+Another tweak changes the default "fast" sync process to a "full" sync process. When the node gets online and observes that its state is missing or outdated, it will do state sync, and that can be done in two strategies:
+
+1. ("fast" / default) sync enough information (only block headers) to ensure that the chain is valid; that means that the node won't have transactions, receipts, and execution outcomes, only the proofs, so Indexer will skip these blocks
+2. (very slow / full sync) sync all the blocks, chunks, transactions, receipts, and execution outcomes starting from the genesis.
+
+To force full sync (don't forget to track shards [see the previous tweak]), make the following change to your `config.json`:
 
 ```
 ...
