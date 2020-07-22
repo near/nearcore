@@ -271,8 +271,8 @@ def collect_gcloud_config(num_nodes):
     os.environ[CONFIG_ENV_VAR] = outfile
 
 
-def obj_to_string(obj, extra='    '):
-    if type(obj) == tuple:
+def obj_to_string(obj, extra='    ', full=False):
+    if type(obj) in [tuple, list]:
         return "tuple" + '\n' + '\n'.join(
             (extra + obj_to_string(x, extra + '    '))
             for x in obj
@@ -282,7 +282,10 @@ def obj_to_string(obj, extra='    '):
             extra + (str(item) + ' = ' +
                      obj_to_string(obj.__dict__[item], extra + '    '))
         for item in sorted(obj.__dict__))
-
+    elif isinstance(obj, bytes):
+        if not full:
+            obj = obj[:7] + b"..."
+        return str(obj)
     else:
         return str(obj)
 
