@@ -23,7 +23,7 @@ mod test {
         // waiting for nodes to be synced
         let started = Instant::now();
         loop {
-            if Instant::now() - started > Duration::from_secs(10) {
+            if started.elapsed() > Duration::from_secs(10) {
                 panic!("nodes are not synced in 10s");
             }
             let all_synced = nodes
