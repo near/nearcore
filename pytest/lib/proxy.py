@@ -329,4 +329,4 @@ def proxify_node(node, ps, handler, global_stopped, error):
         return local_stopped
 
     node.port = outer_port
-    node.start_proxy = start_proxy
+    node._start_proxy = start_proxy
