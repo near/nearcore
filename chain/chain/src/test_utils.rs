@@ -38,10 +38,10 @@ use near_store::{
     WrappedTrieChanges,
 };
 
-use crate::chain::{Chain, ChainGenesis, NUM_EPOCHS_TO_KEEP_STORE_DATA};
+use crate::chain::{Chain, NUM_EPOCHS_TO_KEEP_STORE_DATA};
 use crate::error::{Error, ErrorKind};
 use crate::store::ChainStoreAccess;
-use crate::types::{ApplyTransactionResult, BlockHeaderInfo};
+use crate::types::{ApplyTransactionResult, BlockHeaderInfo, ChainGenesis};
 use crate::{BlockHeader, DoomslugThresholdMode, RuntimeAdapter};
 
 #[derive(
@@ -969,6 +969,7 @@ pub fn setup_with_tx_validity_period(
             tx_validity_period,
             10,
             PROTOCOL_VERSION,
+            "test".to_string(),
         ),
         DoomslugThresholdMode::NoApprovals,
     )
@@ -1010,6 +1011,7 @@ pub fn setup_with_validators(
             tx_validity_period,
             epoch_length,
             PROTOCOL_VERSION,
+            "test".to_string(),
         ),
         DoomslugThresholdMode::NoApprovals,
     )
@@ -1130,6 +1132,7 @@ impl ChainGenesis {
             transaction_validity_period: 100,
             epoch_length: 5,
             protocol_version: PROTOCOL_VERSION,
+            chain_id: "test".to_string(),
         }
     }
 }

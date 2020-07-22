@@ -71,6 +71,7 @@ pub fn setup_network_node(
         1000,
         5,
         PROTOCOL_VERSION,
+        "test".to_string(),
     );
 
     let peer_manager = PeerManagerActor::create(move |ctx| {

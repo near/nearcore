@@ -1,3 +1,4 @@
+use crate::types::Balance;
 use serde::{Deserialize, Serialize};
 
 /// Data structure for semver version and github tag or commit.
@@ -17,6 +18,9 @@ pub const DB_VERSION: DbVersion = 4;
 pub type ProtocolVersion = u32;
 
 /// Current latest version of the protocol.
-pub const PROTOCOL_VERSION: ProtocolVersion = 30;
+pub const PROTOCOL_VERSION: ProtocolVersion = 31;
 
 pub const FIRST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION: ProtocolVersion = 29;
+
+/// Minimum gas price since version 31.
+pub const MIN_GAS_PRICE_V31: Balance = 1_000_000_000;

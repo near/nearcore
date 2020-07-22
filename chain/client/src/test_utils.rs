@@ -80,6 +80,7 @@ pub fn setup(
         transaction_validity_period,
         epoch_length,
         PROTOCOL_VERSION,
+        "test".to_string(),
     );
     let doomslug_threshold_mode = if enable_doomslug {
         DoomslugThresholdMode::TwoThirds
