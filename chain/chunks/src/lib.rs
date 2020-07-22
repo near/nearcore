@@ -921,6 +921,12 @@ impl ShardsManager {
             return Err(Error::InvalidPartMessage);
         }
 
+        // check part merkle proofs
+        let num_total_parts = self.runtime_adapter.num_total_parts();
+        for part_info in forward.parts.iter() {
+            self.validate_part(forward.merkle_root, part_info, num_total_parts)?;
+        }
+
         // check signature
         let valid_signature = self.runtime_adapter.verify_chunk_signature_with_header_parts(
             &forward.chunk_hash,
@@ -932,12 +938,6 @@ impl ShardsManager {
 
         if !valid_signature {
             return Err(Error::InvalidChunkSignature);
-        }
-
-        // check part merkle proofs
-        let num_total_parts = self.runtime_adapter.num_total_parts();
-        for part_info in forward.parts.iter() {
-            self.validate_part(forward.merkle_root, part_info, num_total_parts)?;
         }
 
         Ok(())

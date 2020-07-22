@@ -669,15 +669,33 @@ impl Client {
         &mut self,
         forward: PartialEncodedChunkForwardMsg,
     ) -> Result<Vec<AcceptedBlock>, Error> {
-        self.shards_mgr.validate_partial_encoded_chunk_forward(&forward)?;
+        let maybe_header = self
+            .shards_mgr
+            .validate_partial_encoded_chunk_forward(&forward)
+            .and_then(|_| self.shards_mgr.get_partial_encoded_chunk_header(&forward.chunk_hash));
 
-        let header = match self.shards_mgr.get_partial_encoded_chunk_header(&forward.chunk_hash) {
+        let header = match maybe_header {
             Ok(header) => Ok(header),
             Err(near_chunks::Error::UnknownChunk) => {
                 // We don't know this chunk yet; cache the forwarded part
                 // to be used after we get the header.
                 self.shards_mgr.insert_forwarded_chunk(forward);
                 return Err(Error::Chunk(near_chunks::Error::UnknownChunk));
+            }
+            Err(near_chunks::Error::ChainError(chain_error)) => {
+                match chain_error.kind() {
+                    near_chain::ErrorKind::BlockMissing(_)
+                    | near_chain::ErrorKind::DBNotFoundErr(_) => {
+                        // We can't check if this chunk came from a valid chunk producer because
+                        // we don't know `prev_block`, however the signature is checked when
+                        // forwarded parts are later processed as partial encoded chunks, so we
+                        // can mark it as unknown for now.
+                        self.shards_mgr.insert_forwarded_chunk(forward);
+                        return Err(Error::Chunk(near_chunks::Error::UnknownChunk));
+                    }
+                    // Some other error occurred, we don't know how to handle it
+                    _ => Err(near_chunks::Error::ChainError(chain_error)),
+                }
             }
             Err(err) => Err(err),
         }?;
