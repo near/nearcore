@@ -21,9 +21,9 @@ mod test {
         }
 
         // waiting for nodes to be synced
-        let now = Instant::now();
+        let started = Instant::now();
         loop {
-            if Instant::now() - now > Duration::from_secs(10) {
+            if Instant::now() - started > Duration::from_secs(10) {
                 panic!("nodes are not synced in 10s");
             }
             let all_synced = nodes
@@ -32,7 +32,7 @@ mod test {
             if all_synced {
                 break;
             }
-            std::thread::sleep(Duration::from_secs(1));
+            std::thread::sleep(Duration::from_millis(100));
         }
 
         // Execute N trials. In each trial we submit a transaction to a random node i, that sends
