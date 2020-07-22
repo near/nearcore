@@ -1119,7 +1119,7 @@ mod tests {
             (b"doge".to_vec(), Some(b"coin".to_vec())),
             (b"docu".to_vec(), Some(b"value".to_vec())),
         ];
-        let root = test_populate_trie(&tries, &empty_root, 9, changes.clone());
+        let root = test_populate_trie(&tries, &empty_root, 0, changes.clone());
         let dir = tempfile::Builder::new().prefix("test_dump_load_trie").tempdir().unwrap();
         store.save_to_file(ColState, &dir.path().join("test.bin")).unwrap();
         let store2 = create_test_store();
