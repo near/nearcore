@@ -209,6 +209,8 @@ impl JsonRpcHandler {
     }
 
     async fn process_request(&self, request: Request) -> Result<Value, RpcError> {
+        let _rpc_processing_time = near_metrics::start_timer(&metrics::RPC_PROCESSING_TIME);
+
         #[cfg(feature = "adversarial")]
         {
             let params = request.params.clone();
@@ -313,7 +315,10 @@ impl JsonRpcHandler {
             }
         })
         .await
-        .map_err(|_| TxStatusError::TimeoutError)?
+        .map_err(|_| {
+            near_metrics::inc_counter(&metrics::RPC_TIMEOUT_TOTAL);
+            TxStatusError::TimeoutError
+        })?
     }
 
     async fn tx_polling(&self, tx_info: TransactionInfo) -> Result<Value, RpcError> {
@@ -332,7 +337,10 @@ impl JsonRpcHandler {
             }
         })
         .await
-        .map_err(|_| timeout_err())?
+        .map_err(|_| {
+            near_metrics::inc_counter(&metrics::RPC_TIMEOUT_TOTAL);
+            timeout_err()
+        })?
     }
 
     async fn send_tx(
@@ -540,7 +548,10 @@ impl JsonRpcHandler {
             }
         })
         .await
-        .map_err(|_| RpcError::server_error(Some("query has timed out".to_string())))?
+        .map_err(|_| {
+            near_metrics::inc_counter(&metrics::RPC_TIMEOUT_TOTAL);
+            RpcError::server_error(Some("query has timed out".to_string()))
+        })?
     }
 
     async fn tx_status(&self, params: Option<Value>) -> Result<Value, RpcError> {

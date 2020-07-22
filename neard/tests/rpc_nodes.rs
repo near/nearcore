@@ -214,7 +214,14 @@ fn test_tx_status_with_light_client() {
                         actix::spawn(
                             client
                                 .broadcast_tx_async(to_base64(&bytes))
-                                .map_err(|err| panic!("{:?}", err))
+                                .map_err(|err| {
+                                    if !serde_json::to_string(&err.data.clone().unwrap_or_default())
+                                        .unwrap()
+                                        .contains("IsSyncing")
+                                    {
+                                        panic!("{:?}", err)
+                                    }
+                                })
                                 .map_ok(move |result| {
                                     assert_eq!(String::from(&tx_hash_clone), result)
                                 })
@@ -287,7 +294,14 @@ fn test_tx_status_with_light_client1() {
                         actix::spawn(
                             client
                                 .broadcast_tx_async(to_base64(&bytes))
-                                .map_err(|err| panic!("{}", err.to_string()))
+                                .map_err(|err| {
+                                    if !serde_json::to_string(&err.data.clone().unwrap_or_default())
+                                        .unwrap()
+                                        .contains("IsSyncing")
+                                    {
+                                        panic!("{:?}", err)
+                                    }
+                                })
                                 .map_ok(move |result| {
                                     assert_eq!(String::from(&tx_hash_clone), result)
                                 })

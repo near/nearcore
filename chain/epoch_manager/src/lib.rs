@@ -228,7 +228,9 @@ impl EpochManager {
         let total_block_producer_stake: u128 = epoch_info
             .block_producers_settlement
             .iter()
-            .map(|id| epoch_info.validators[*id as usize].stake)
+            .collect::<HashSet<_>>()
+            .iter()
+            .map(|&id| epoch_info.validators[*id as usize].stake)
             .sum();
 
         let next_version = if let Some((&version, stake)) =
@@ -290,27 +292,6 @@ impl EpochManager {
             validator_block_chunk_stats,
             next_version,
         })
-    }
-
-    /// Returns number of produced and expected blocks by given validator.
-    fn get_num_validator_blocks(
-        &mut self,
-        epoch_id: &EpochId,
-        last_known_block_hash: &CryptoHash,
-        account_id: &AccountId,
-    ) -> Result<ValidatorStats, EpochError> {
-        let epoch_info = self.get_epoch_info(&epoch_id)?;
-        let validator_id = *epoch_info
-            .validator_to_index
-            .get(account_id)
-            .ok_or_else(|| EpochError::NotAValidator(account_id.clone(), epoch_id.clone()))?;
-        let aggregator =
-            self.get_and_update_epoch_info_aggregator(epoch_id, last_known_block_hash, true)?;
-        Ok(aggregator
-            .block_tracker
-            .get(&validator_id)
-            .unwrap_or_else(|| &ValidatorStats { produced: 0, expected: 0 })
-            .clone())
     }
 
     /// Finalizes epoch (T), where given last block hash is given, and returns next next epoch id (T + 2).
@@ -846,13 +827,18 @@ impl EpochManager {
                 validator_to_shard[*validator_id as usize].insert(shard_id as ShardId);
             }
         }
+        let epoch_info_aggregator =
+            self.get_and_update_epoch_info_aggregator(&epoch_id, block_hash, true)?;
         let current_validators = cur_epoch_info
             .validators
             .into_iter()
             .enumerate()
             .map(|(validator_id, info)| {
-                let validator_stats =
-                    self.get_num_validator_blocks(&epoch_id, &block_hash, &info.account_id)?;
+                let validator_stats = epoch_info_aggregator
+                    .block_tracker
+                    .get(&(validator_id as u64))
+                    .unwrap_or_else(|| &ValidatorStats { produced: 0, expected: 0 })
+                    .clone();
                 let mut shards =
                     validator_to_shard[validator_id].clone().into_iter().collect::<Vec<ShardId>>();
                 shards.sort();
@@ -906,15 +892,17 @@ impl EpochManager {
             .into_iter()
             .map(|(account_id, reason)| ValidatorKickoutView { account_id, reason })
             .collect();
-        let current_proposals =
-            self.get_and_update_epoch_info_aggregator(&epoch_id, block_hash, true)?.all_proposals;
 
         Ok(EpochValidatorInfo {
             current_validators,
             next_validators,
             current_fishermen: current_fishermen.into_iter().map(Into::into).collect(),
             next_fishermen: next_fishermen.into_iter().map(Into::into).collect(),
-            current_proposals: current_proposals.into_iter().map(|(_, p)| p.into()).collect(),
+            current_proposals: epoch_info_aggregator
+                .all_proposals
+                .into_iter()
+                .map(|(_, p)| p.into())
+                .collect(),
             prev_epoch_kickout,
             epoch_start_height,
         })
@@ -1210,6 +1198,29 @@ mod tests {
     };
 
     use super::*;
+
+    impl EpochManager {
+        /// Returns number of produced and expected blocks by given validator.
+        fn get_num_validator_blocks(
+            &mut self,
+            epoch_id: &EpochId,
+            last_known_block_hash: &CryptoHash,
+            account_id: &AccountId,
+        ) -> Result<ValidatorStats, EpochError> {
+            let epoch_info = self.get_epoch_info(&epoch_id)?;
+            let validator_id = *epoch_info
+                .validator_to_index
+                .get(account_id)
+                .ok_or_else(|| EpochError::NotAValidator(account_id.clone(), epoch_id.clone()))?;
+            let aggregator =
+                self.get_and_update_epoch_info_aggregator(epoch_id, last_known_block_hash, true)?;
+            Ok(aggregator
+                .block_tracker
+                .get(&validator_id)
+                .unwrap_or_else(|| &ValidatorStats { produced: 0, expected: 0 })
+                .clone())
+        }
+    }
 
     #[test]
     fn test_stake_validator() {
@@ -2922,6 +2933,39 @@ mod tests {
         assert_eq!(epoch_manager.get_epoch_info(&EpochId(h[2])).unwrap().protocol_version, 0);
         assert_eq!(
             epoch_manager.get_epoch_info(&EpochId(h[4])).unwrap().protocol_version,
+            PROTOCOL_VERSION
+        );
+    }
+
+    #[test]
+    fn test_protocol_version_switch_with_many_seats() {
+        let store = create_test_store();
+        let mut config = epoch_config(10, 1, 4, 0, 90, 60, 0);
+        config.num_block_producer_seats_per_shard = vec![10];
+        let amount_staked = 1_000_000;
+        let validators = vec![stake("test1", amount_staked), stake("test2", amount_staked / 5)];
+        let mut epoch_manager = EpochManager::new(
+            store.clone(),
+            config.clone(),
+            0,
+            default_reward_calculator(),
+            validators.clone(),
+        )
+        .unwrap();
+        let h = hash_range(50);
+        record_block(&mut epoch_manager, CryptoHash::default(), h[0], 0, vec![]);
+        let mut block_info1 = block_info(1, 1, h[0], h[0], h[0], vec![], DEFAULT_TOTAL_SUPPLY);
+        block_info1.latest_protocol_version = 0;
+        epoch_manager.record_block_info(&h[1], block_info1, [0; 32]).unwrap();
+        for i in 2..32 {
+            record_block(&mut epoch_manager, h[i - 1], h[i], i as u64, vec![]);
+        }
+        assert_eq!(
+            epoch_manager.get_epoch_info(&EpochId(h[10])).unwrap().protocol_version,
+            PROTOCOL_VERSION
+        );
+        assert_eq!(
+            epoch_manager.get_epoch_info(&EpochId(h[20])).unwrap().protocol_version,
             PROTOCOL_VERSION
         );
     }
