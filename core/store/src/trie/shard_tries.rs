@@ -35,7 +35,7 @@ impl ShardTries {
             self.caches[shard_id as usize].clone(),
             shard_id,
         ));
-        return Trie::new(store, shard_id);
+        Trie::new(store, shard_id)
     }
 
     pub fn get_store(&self) -> Arc<Store> {
