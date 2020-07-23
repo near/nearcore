@@ -171,6 +171,15 @@ class BaseNode(object):
             "finality": finality
         })
 
+    def call_function(self, acc, method, args, finality='optimistic'):
+        return self.json_rpc('query', {
+            "request_type": "call_function",
+            "account_id": acc,
+            "method_name": method,
+            "args_base64": args,
+            "finality": finality
+        })
+
     def get_access_key_list(self, acc, finality='optimistic'):
         return self.json_rpc(
             'query', {

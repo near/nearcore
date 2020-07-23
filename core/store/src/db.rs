@@ -12,6 +12,7 @@ use rocksdb::{
 use strum_macros::EnumIter;
 
 use near_primitives::version::DbVersion;
+use std::marker::PhantomPinned;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct DBError(rocksdb::Error);
@@ -226,6 +227,7 @@ impl DBTransaction {
 pub struct RocksDB {
     db: DB,
     cfs: Vec<*const ColumnFamily>,
+    _pin: PhantomPinned,
 }
 
 // DB was already Send+Sync. cf and read_options are const pointers using only functions in
@@ -404,7 +406,7 @@ impl RocksDB {
         let db = DB::open_cf_for_read_only(&options, path, cf_names.iter(), false)?;
         let cfs =
             cf_names.iter().map(|n| db.cf_handle(n).unwrap() as *const ColumnFamily).collect();
-        Ok(Self { db, cfs })
+        Ok(Self { db, cfs, _pin: PhantomPinned })
     }
 
     pub fn new<P: AsRef<std::path::Path>>(path: P) -> Result<Self, DBError> {
@@ -416,7 +418,7 @@ impl RocksDB {
         let db = DB::open_cf_descriptors(&options, path, cf_descriptors)?;
         let cfs =
             cf_names.iter().map(|n| db.cf_handle(n).unwrap() as *const ColumnFamily).collect();
-        Ok(Self { db, cfs })
+        Ok(Self { db, cfs, _pin: PhantomPinned })
     }
 }
 

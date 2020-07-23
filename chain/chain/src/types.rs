@@ -137,7 +137,7 @@ pub trait RuntimeAdapter: Send + Sync {
     fn get_tries(&self) -> ShardTries;
 
     /// Returns trie.
-    fn get_trie_for_shard(&self, shard_id: ShardId) -> Arc<Trie>;
+    fn get_trie_for_shard(&self, shard_id: ShardId) -> Trie;
 
     /// Verify block producer validity
     fn verify_block_signature(&self, header: &BlockHeader) -> Result<(), Error>;
