@@ -148,21 +148,6 @@ pub enum Metric {
 pub fn run(mut config: Config) -> RuntimeConfig {
     let mut m = Measurements::new(config.metric);
     config.block_sizes = vec![100];
-    // Measure the speed of processing empty receipts.
-    measure_actions(Metric::Receipt, &mut m, &config, None, vec![], false, false);
-
-    // Measure the speed of processing simple transfers.
-    measure_actions(
-        Metric::ActionTransfer,
-        &mut m,
-        &config,
-        None,
-        vec![Action::Transfer(TransferAction { deposit: 1 })],
-        false,
-        false,
-    );
-
-    // Measure the speed of creating account.
     let mut nonces: HashMap<usize, u64> = HashMap::new();
     let mut f = || {
         let account_idx = rand::thread_rng().gen::<usize>() % config.active_accounts;
@@ -182,8 +167,6 @@ pub fn run(mut config: Config) -> RuntimeConfig {
             CryptoHash::default(),
         )
     };
-    measure_transactions(Metric::ActionCreateAccount, &mut m, &config, None, &mut f, false);
-
     // Measure the speed of deleting an account.
     let mut nonces: HashMap<usize, u64> = HashMap::new();
     let mut deleted_accounts = HashSet::new();
@@ -216,74 +199,6 @@ pub fn run(mut config: Config) -> RuntimeConfig {
             CryptoHash::default(),
         )
     };
-    measure_transactions(Metric::ActionDeleteAccount, &mut m, &config, None, &mut f, false);
-
-    // Measure the speed of adding a full access key.
-    measure_actions(
-        Metric::ActionAddFullAccessKey,
-        &mut m,
-        &config,
-        None,
-        vec![Action::AddKey(AddKeyAction {
-            public_key: serde_json::from_str(
-                "\"ed25519:DcA2MzgpJbrUATQLLceocVckhhAqrkingax4oJ9kZ847\"",
-            )
-            .unwrap(),
-            access_key: AccessKey { nonce: 0, permission: AccessKeyPermission::FullAccess },
-        })],
-        true,
-        true,
-    );
-
-    // Measure the speed of adding a function call access key.
-    measure_actions(
-        Metric::ActionAddFunctionAccessKey1Method,
-        &mut m,
-        &config,
-        None,
-        vec![Action::AddKey(AddKeyAction {
-            public_key: serde_json::from_str(
-                "\"ed25519:DcA2MzgpJbrUATQLLceocVckhhAqrkingax4oJ9kZ847\"",
-            )
-            .unwrap(),
-            access_key: AccessKey {
-                nonce: 0,
-                permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
-                    allowance: Some(100),
-                    receiver_id: get_account_id(0),
-                    method_names: vec!["method1".to_string()],
-                }),
-            },
-        })],
-        true,
-        true,
-    );
-
-    // Measure the speed of adding an access key with 1k methods each 10bytes long.
-    let many_methods: Vec<_> = (0..1000).map(|i| format!("a123456{:03}", i)).collect();
-    measure_actions(
-        Metric::ActionAddFunctionAccessKey1000Methods,
-        &mut m,
-        &config,
-        None,
-        vec![Action::AddKey(AddKeyAction {
-            public_key: serde_json::from_str(
-                "\"ed25519:DcA2MzgpJbrUATQLLceocVckhhAqrkingax4oJ9kZ847\"",
-            )
-            .unwrap(),
-            access_key: AccessKey {
-                nonce: 0,
-                permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
-                    allowance: Some(100),
-                    receiver_id: get_account_id(0),
-                    method_names: many_methods,
-                }),
-            },
-        })],
-        true,
-        true,
-    );
-
     // Measure the speed of deleting an access key.
     let mut nonces: HashMap<usize, u64> = HashMap::new();
     // Accounts with deleted access keys.
@@ -308,20 +223,10 @@ pub fn run(mut config: Config) -> RuntimeConfig {
             CryptoHash::default(),
         )
     };
-    measure_transactions(Metric::ActionDeleteAccessKey, &mut m, &config, None, &mut f, false);
 
     // Measure the speed of staking.
     let public_key: PublicKey =
         "22skMptHjFWNyuEWY22ftn2AbLPSYpmYwGJRGwpNHbTV".to_string().try_into().unwrap();
-    measure_actions(
-        Metric::ActionStake,
-        &mut m,
-        &config,
-        None,
-        vec![Action::Stake(StakeAction { stake: 1, public_key: public_key })],
-        true,
-        true,
-    );
 
     // Measure the speed of deploying some code.
     let code_10k = include_bytes!("../test-contract/res/small_contract.wasm");
@@ -353,18 +258,6 @@ pub fn run(mut config: Config) -> RuntimeConfig {
     };
     let mut testbed =
         measure_transactions(Metric::ActionDeploy10K, &mut m, &config, None, &mut f, false);
-    *curr_code.borrow_mut() = code_100k.to_vec();
-    testbed = measure_transactions(
-        Metric::ActionDeploy100K,
-        &mut m,
-        &config,
-        Some(testbed),
-        &mut f,
-        false,
-    );
-    *curr_code.borrow_mut() = code_1m.to_vec();
-    testbed =
-        measure_transactions(Metric::ActionDeploy1M, &mut m, &config, Some(testbed), &mut f, false);
 
     let ad: Vec<_> = accounts_deployed.into_iter().collect();
 
@@ -391,83 +284,6 @@ pub fn run(mut config: Config) -> RuntimeConfig {
         false,
         (&[0u8; 1024 * 1024]).to_vec(),
     );
-
-    testbed = measure_function(
-        Metric::noop,
-        "noop",
-        &mut m,
-        testbed,
-        &ad,
-        &mut nonces,
-        &config,
-        false,
-        vec![],
-    );
-
-    config.block_sizes = vec![2];
-
-    // When adding new functions do not forget to rebuild the test contract by running `test-contract/build.sh`.
-    let v = calls_helper! {
-    cpu_ram_soak_test => cpu_ram_soak_test,
-    base_1M => base_1M,
-    read_memory_10b_10k => read_memory_10b_10k,
-    read_memory_1Mib_10k => read_memory_1Mib_10k,
-    write_memory_10b_10k => write_memory_10b_10k,
-    write_memory_1Mib_10k => write_memory_1Mib_10k,
-    read_register_10b_10k => read_register_10b_10k,
-    read_register_1Mib_10k => read_register_1Mib_10k,
-    write_register_10b_10k => write_register_10b_10k,
-    write_register_1Mib_10k => write_register_1Mib_10k,
-    utf8_log_10b_10k => utf8_log_10b_10k,
-    utf8_log_10kib_10k => utf8_log_10kib_10k,
-    nul_utf8_log_10b_10k => nul_utf8_log_10b_10k,
-    nul_utf8_log_10kib_10k => nul_utf8_log_10kib_10k,
-    utf16_log_10b_10k => utf16_log_10b_10k,
-    utf16_log_10kib_10k => utf16_log_10kib_10k,
-    nul_utf16_log_10b_10k => nul_utf16_log_10b_10k,
-    nul_utf16_log_10kib_10k => nul_utf16_log_10kib_10k,
-    sha256_10b_10k => sha256_10b_10k,
-    sha256_10kib_10k => sha256_10kib_10k,
-    keccak256_10b_10k => keccak256_10b_10k,
-    keccak256_10kib_10k => keccak256_10kib_10k,
-    keccak512_10b_10k => keccak512_10b_10k,
-    keccak512_10kib_10k => keccak512_10kib_10k,
-    storage_write_10b_key_10b_value_1k => storage_write_10b_key_10b_value_1k,
-    storage_read_10b_key_10b_value_1k => storage_read_10b_key_10b_value_1k,
-    storage_has_key_10b_key_10b_value_1k => storage_has_key_10b_key_10b_value_1k,
-    storage_remove_10b_key_10b_value_1k => storage_remove_10b_key_10b_value_1k,
-    storage_write_10kib_key_10b_value_1k => storage_write_10kib_key_10b_value_1k,
-    storage_read_10kib_key_10b_value_1k => storage_read_10kib_key_10b_value_1k,
-    storage_has_key_10kib_key_10b_value_1k => storage_has_key_10kib_key_10b_value_1k,
-    storage_remove_10kib_key_10b_value_1k => storage_remove_10kib_key_10b_value_1k,
-    storage_write_10b_key_10kib_value_1k => storage_write_10b_key_10kib_value_1k,
-    storage_write_10b_key_10kib_value_1k_evict => storage_write_10b_key_10kib_value_1k,
-    storage_read_10b_key_10kib_value_1k => storage_read_10b_key_10kib_value_1k,
-    storage_has_key_10b_key_10kib_value_1k => storage_has_key_10b_key_10kib_value_1k,
-    storage_remove_10b_key_10kib_value_1k =>   storage_remove_10b_key_10kib_value_1k ,
-    promise_and_100k => promise_and_100k,
-    promise_and_100k_on_1k_and => promise_and_100k_on_1k_and,
-    promise_return_100k => promise_return_100k,
-    data_producer_10b => data_producer_10b,
-    data_producer_100kib => data_producer_100kib,
-    data_receipt_10b_1000 => data_receipt_10b_1000,
-    data_receipt_100kib_1000 => data_receipt_100kib_1000
-        };
-
-    // Measure the speed of all extern function calls.
-    for (metric, method_name) in v {
-        testbed = measure_function(
-            metric,
-            method_name,
-            &mut m,
-            testbed,
-            &ad,
-            &mut nonces,
-            &config,
-            false,
-            vec![],
-        );
-    }
 
     get_runtime_config(&m)
 
@@ -517,42 +333,10 @@ fn get_runtime_fees_config(measurement: &Measurements) -> RuntimeFeesConfig {
     let generator = RuntimeFeesGenerator::new(measurement);
     let measured = generator.compute();
     let metric = measurement.gas_metric;
-    RuntimeFeesConfig {
-        action_receipt_creation_config: measured_to_fee(metric, measured[&ActionReceiptCreation]),
-        data_receipt_creation_config: DataReceiptCreationConfig {
-            base_cost: measured_to_fee(metric, measured[&DataReceiptCreationBase]),
-            cost_per_byte: measured_to_fee(metric, measured[&DataReceiptCreationPerByte]),
-        },
-        action_creation_config: ActionCreationConfig {
-            create_account_cost: measured_to_fee(metric, measured[&ActionCreateAccount]),
-            deploy_contract_cost: measured_to_fee(metric, measured[&ActionDeployContractBase]),
-            deploy_contract_cost_per_byte: measured_to_fee(
-                metric,
-                measured[&ActionDeployContractPerByte],
-            ),
-            function_call_cost: measured_to_fee(metric, measured[&ActionFunctionCallBase]),
-            function_call_cost_per_byte: measured_to_fee(
-                metric,
-                measured[&ActionFunctionCallPerByte],
-            ),
-            transfer_cost: measured_to_fee(metric, measured[&ActionTransfer]),
-            stake_cost: measured_to_fee(metric, measured[&ActionStake]),
-            add_key_cost: AccessKeyCreationConfig {
-                full_access_cost: measured_to_fee(metric, measured[&ActionAddFullAccessKey]),
-                function_call_cost: measured_to_fee(
-                    metric,
-                    measured[&ActionAddFunctionAccessKeyBase],
-                ),
-                function_call_cost_per_byte: measured_to_fee(
-                    metric,
-                    measured[&ActionAddFunctionAccessKeyPerByte],
-                ),
-            },
-            delete_key_cost: measured_to_fee(metric, measured[&ActionDeleteKey]),
-            delete_account_cost: measured_to_fee(metric, measured[&ActionDeleteAccount]),
-        },
-        ..Default::default()
-    }
+    let mut rfc = RuntimeFeesConfig { ..Default::default() };
+    rfc.action_creation_config.function_call_cost_per_byte =
+        measured_to_fee(metric, measured[&ActionFunctionCallPerByte]);
+    rfc
 }
 
 fn get_ext_costs_config(measurement: &Measurements) -> ExtCostsConfig {
@@ -639,6 +423,6 @@ fn get_vm_config(measurement: &Measurements) -> VMConfig {
 fn get_runtime_config(measurement: &Measurements) -> RuntimeConfig {
     let mut runtime_config = RuntimeConfig::default();
     runtime_config.transaction_costs = get_runtime_fees_config(measurement);
-    runtime_config.wasm_config = get_vm_config(measurement);
+    // runtime_config.wasm_config = get_vm_config(measurement);
     runtime_config
 }
