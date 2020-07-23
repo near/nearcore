@@ -137,22 +137,19 @@ pub struct BlockEconomicsConfig {
     gas_price_adjustment_rate: Rational,
     min_gas_price: Balance,
     max_gas_price: Balance,
-    chain_id: String,
+    genesis_protocol_version: ProtocolVersion,
 }
 
 impl BlockEconomicsConfig {
     /// Compute min gas price according to protocol version and chain id. We only upgrade gas price
     /// for betanet, testnet and mainnet.
     pub fn min_gas_price(&self, protocol_version: ProtocolVersion) -> Balance {
-        match self.chain_id.as_str() {
-            "betanet" | "testnet" | "mainnet" => {
-                if protocol_version < MIN_PROTOCOL_VERSION_NEP_92 {
-                    self.min_gas_price
-                } else {
-                    MIN_GAS_PRICE_NEP_92
-                }
-            }
-            _ => self.min_gas_price,
+        if self.genesis_protocol_version < protocol_version
+            && protocol_version >= MIN_PROTOCOL_VERSION_NEP_92
+        {
+            MIN_GAS_PRICE_NEP_92
+        } else {
+            self.min_gas_price
         }
     }
 
@@ -171,7 +168,7 @@ impl From<&ChainGenesis> for BlockEconomicsConfig {
             gas_price_adjustment_rate: chain_genesis.gas_price_adjustment_rate,
             min_gas_price: chain_genesis.min_gas_price,
             max_gas_price: chain_genesis.max_gas_price,
-            chain_id: chain_genesis.chain_id.clone(),
+            genesis_protocol_version: chain_genesis.protocol_version,
         }
     }
 }
