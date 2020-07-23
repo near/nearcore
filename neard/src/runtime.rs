@@ -283,7 +283,7 @@ impl NightshadeRuntime {
     /// Processes state update.
     fn process_state_update(
         &self,
-        trie: Arc<Trie>,
+        trie: Trie,
         state_root: CryptoHash,
         shard_id: ShardId,
         block_height: BlockHeight,
@@ -379,7 +379,7 @@ impl NightshadeRuntime {
         let apply_result = self
             .runtime
             .apply(
-                trie.clone(),
+                trie,
                 state_root,
                 &validator_accounts_update,
                 &apply_state,
@@ -435,7 +435,7 @@ impl NightshadeRuntime {
             validator_proposals: apply_result.validator_proposals,
             total_gas_burnt,
             total_balance_burnt,
-            proof: trie.recorded_storage(),
+            proof: apply_result.proof,
         };
 
         Ok(result)
@@ -479,7 +479,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         self.tries.clone()
     }
 
-    fn get_trie_for_shard(&self, shard_id: ShardId) -> Arc<Trie> {
+    fn get_trie_for_shard(&self, shard_id: ShardId) -> Trie {
         self.tries.get_trie_for_shard(shard_id)
     }
 
@@ -948,7 +948,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         generate_storage_proof: bool,
     ) -> Result<ApplyTransactionResult, Error> {
         let trie = self.get_trie_for_shard(shard_id);
-        let trie = if generate_storage_proof { Arc::new(trie.recording_reads()) } else { trie };
+        let trie = if generate_storage_proof { trie.recording_reads() } else { trie };
         match self.process_state_update(
             trie,
             *state_root,
@@ -990,7 +990,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         gas_limit: Gas,
         challenges: &ChallengesResult,
     ) -> Result<ApplyTransactionResult, Error> {
-        let trie = Arc::new(Trie::from_recorded_storage(partial_storage));
+        let trie = Trie::from_recorded_storage(partial_storage);
         self.process_state_update(
             trie,
             *state_root,

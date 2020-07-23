@@ -1,6 +1,5 @@
 use std::collections::BTreeMap;
 use std::iter::Peekable;
-use std::sync::Arc;
 
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{
@@ -12,6 +11,7 @@ use crate::StorageError;
 
 use super::{Trie, TrieIterator};
 use near_primitives::trie_key::TrieKey;
+use std::rc::Rc;
 
 /// Key-value update. Contains a TrieKey and a value.
 pub struct TrieKeyValueUpdate {
@@ -24,7 +24,7 @@ pub type TrieUpdates = BTreeMap<Vec<u8>, TrieKeyValueUpdate>;
 
 /// Provides a way to access Storage and record changes with future commit.
 pub struct TrieUpdate {
-    pub trie: Arc<Trie>,
+    pub trie: Rc<Trie>,
     root: CryptoHash,
     committed: RawStateChanges,
     prospective: TrieUpdates,
@@ -52,8 +52,12 @@ impl<'a> TrieUpdateValuePtr<'a> {
 }
 
 impl TrieUpdate {
-    pub fn new(trie: Arc<Trie>, root: CryptoHash) -> Self {
+    pub fn new(trie: Rc<Trie>, root: CryptoHash) -> Self {
         TrieUpdate { trie, root, committed: Default::default(), prospective: Default::default() }
+    }
+
+    pub fn trie(&self) -> &Trie {
+        self.trie.as_ref()
     }
 
     pub fn get(&self, key: &TrieKey) -> Result<Option<Vec<u8>>, StorageError> {
