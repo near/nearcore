@@ -1441,6 +1441,7 @@ mod test {
     use near_chunks::test_utils::ChunkForwardingTestFixture;
     use near_chunks::ProcessPartialEncodedChunkResult;
     use near_crypto::KeyType;
+    use near_network::types::PartialEncodedChunkForwardMsg;
     use near_primitives::block::{Approval, ApprovalInner};
     use near_primitives::hash::hash;
     use near_primitives::validator_signer::InMemoryValidatorSigner;
@@ -1485,6 +1486,10 @@ mod test {
         // change the prev_block to some unknown block
         mock_chunk.header.inner.prev_block_hash = hash(b"some_prev_block");
         mock_chunk.header.init();
+        let mock_forward = PartialEncodedChunkForwardMsg::from_header_and_parts(
+            &mock_chunk.header,
+            mock_chunk.parts.clone(),
+        );
 
         // process_partial_encoded_chunk should return Ok(NeedBlock) if the chunk is
         // based on a missing block.
@@ -1494,5 +1499,13 @@ mod test {
             &mut client.rs,
         );
         assert!(matches!(result, Ok(ProcessPartialEncodedChunkResult::NeedBlock)));
+
+        // process_partial_encoded_chunk_forward should return UnknownChunk if it is based on a
+        // a missing block.
+        let result = client.process_partial_encoded_chunk_forward(mock_forward);
+        assert!(matches!(
+            result,
+            Err(crate::types::Error::Chunk(near_chunks::Error::UnknownChunk))
+        ));
     }
 }
