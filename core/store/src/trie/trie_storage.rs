@@ -6,6 +6,7 @@ use cached::{Cached, SizedCache};
 
 use near_primitives::hash::CryptoHash;
 
+use crate::db::ReadSnapshot;
 use crate::trie::{decode_trie_node_with_rc, POISONED_LOCK_ERR};
 use crate::{ColState, StorageError, Store};
 use near_primitives::types::ShardId;
@@ -108,13 +109,17 @@ const TRIE_MAX_CACHE_SIZE: usize = 1;
 const TRIE_LIMIT_CACHED_VALUE_SIZE: usize = 4000;
 
 pub struct TrieCachingStorage {
-    pub(crate) store: Arc<Store>,
+    pub(crate) store: Arc<dyn ReadSnapshot>,
     pub(crate) cache: TrieCache,
     pub(crate) shard_id: ShardId,
 }
 
 impl TrieCachingStorage {
-    pub fn new(store: Arc<Store>, cache: TrieCache, shard_id: ShardId) -> TrieCachingStorage {
+    pub fn new(
+        store: Arc<dyn ReadSnapshot>,
+        cache: TrieCache,
+        shard_id: ShardId,
+    ) -> TrieCachingStorage {
         TrieCachingStorage { store, cache, shard_id }
     }
 
@@ -147,12 +152,16 @@ impl TrieCachingStorage {
     /// Get storage refcount, or 0 if hash is not present
     /// # Errors
     /// StorageError::StorageInternalError if the storage fails internally.
-    pub fn retrieve_rc(&self, hash: &CryptoHash) -> Result<u32, StorageError> {
+    pub fn retrieve_rc(
+        store: &Store,
+        shard_id: ShardId,
+        hash: &CryptoHash,
+    ) -> Result<u32, StorageError> {
         // Ignore cache to be safe. retrieve_rc is used only when writing storage and cache is shared with readers.
-        let key = Self::get_key_from_shard_id_and_hash(self.shard_id, hash);
-        let val = self
-            .store
-            .get(ColState, key.as_ref())
+        let key = Self::get_key_from_shard_id_and_hash(shard_id, hash);
+        let val = store
+            .storage
+            .get_unsafe(ColState, key.as_ref())
             .map_err(|_| StorageError::StorageInternalError)?;
         if let Some(val) = val {
             let rc = Self::vec_to_rc(&val);

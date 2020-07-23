@@ -1,4 +1,4 @@
-use crate::db::{DBCol, DBOp, DBTransaction};
+use crate::db::{DBCol, DBOp, DBTransaction, ReadSnapshot};
 use crate::trie::encode_trie_node_with_rc;
 use crate::trie::trie_storage::{TrieCache, TrieCachingStorage};
 use crate::{StorageError, Store, StoreUpdate, Trie, TrieChanges, TrieUpdate};
@@ -13,67 +13,93 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 #[derive(Clone)]
+pub struct TrieCaches(pub(crate) Arc<Vec<TrieCache>>);
+
+#[derive(Clone)]
+/// Supports applying TrieChanges
 pub struct ShardTries {
-    pub(crate) store: Arc<Store>,
-    pub(crate) caches: Arc<Vec<TrieCache>>,
+    pub store: Store,
+    pub caches: TrieCaches,
 }
 
 impl ShardTries {
-    pub fn new(store: Arc<Store>, num_shards: NumShards) -> Self {
-        assert_ne!(num_shards, 0);
-        let caches = Arc::new((0..num_shards).map(|_| TrieCache::new()).collect::<Vec<_>>());
-        ShardTries { store, caches }
+    pub fn new(store: Store, caches: TrieCaches) -> Self {
+        Self { store, caches }
     }
 
-    pub fn new_trie_update(&self, shard_id: ShardId, state_root: CryptoHash) -> TrieUpdate {
-        TrieUpdate::new(Rc::new(self.get_trie_for_shard(shard_id)), state_root)
-    }
-
-    pub fn get_trie_for_shard(&self, shard_id: ShardId) -> Trie {
-        let store = Box::new(TrieCachingStorage::new(
-            self.store.clone(),
-            self.caches[shard_id as usize].clone(),
+    pub fn apply_insertions(
+        &self,
+        trie_changes: &TrieChanges,
+        shard_id: ShardId,
+        store_update: &mut StoreUpdate,
+    ) -> Result<(), StorageError> {
+        ShardTries::apply_insertions_inner(
+            &trie_changes.insertions,
+            self.caches.clone(),
             shard_id,
-        ));
-        Trie::new(store, shard_id)
+            store_update,
+        )
     }
 
-    pub fn get_store(&self) -> Arc<Store> {
-        self.store.clone()
+    pub fn apply_deletions(
+        &self,
+        trie_changes: &TrieChanges,
+        shard_id: ShardId,
+        store_update: &mut StoreUpdate,
+    ) -> Result<(), StorageError> {
+        ShardTries::apply_deletions_inner(
+            &trie_changes.deletions,
+            self.caches.clone(),
+            shard_id,
+            store_update,
+        )
     }
 
-    pub fn update_cache(&self, transaction: &DBTransaction) -> std::io::Result<()> {
-        let mut shards = vec![Vec::new(); self.caches.len()];
-        for op in &transaction.ops {
-            match op {
-                DBOp::Insert { col, ref key, ref value } if *col == DBCol::ColState => {
-                    let (shard_id, hash) = TrieCachingStorage::get_shard_id_and_hash_from_key(key)?;
-                    shards[shard_id as usize].push((hash, Some(value.clone())));
-                }
-                DBOp::Delete { col, ref key } if *col == DBCol::ColState => {
-                    let (shard_id, hash) = TrieCachingStorage::get_shard_id_and_hash_from_key(key)?;
-                    shards[shard_id as usize].push((hash, None));
-                }
-                _ => {}
-            }
-        }
-        for (shard_id, ops) in shards.into_iter().enumerate() {
-            self.caches[shard_id].update_cache(ops);
-        }
-        Ok(())
+    pub fn revert_insertions(
+        &self,
+        trie_changes: &TrieChanges,
+        shard_id: ShardId,
+        store_update: &mut StoreUpdate,
+    ) -> Result<(), StorageError> {
+        ShardTries::apply_deletions_inner(
+            &trie_changes.insertions,
+            self.caches.clone(),
+            shard_id,
+            store_update,
+        )
+    }
+
+    pub fn apply_all(
+        &self,
+        trie_changes: &TrieChanges,
+        shard_id: ShardId,
+    ) -> Result<(StoreUpdate, StateRoot), StorageError> {
+        let mut store_update = StoreUpdate::new_with_tries(&self);
+        ShardTries::apply_insertions_inner(
+            &trie_changes.insertions,
+            self.caches.clone(),
+            shard_id,
+            &mut store_update,
+        )?;
+        ShardTries::apply_deletions_inner(
+            &trie_changes.deletions,
+            self.caches.clone(),
+            shard_id,
+            &mut store_update,
+        )?;
+        Ok((store_update, trie_changes.new_root))
     }
 
     fn apply_deletions_inner(
         deletions: &Vec<(CryptoHash, Vec<u8>, u32)>,
-        tries: ShardTries,
+        tries: TrieCaches,
         shard_id: ShardId,
         store_update: &mut StoreUpdate,
     ) -> Result<(), StorageError> {
+        let store = Store::new(store_update.storage.clone());
         store_update.tries = Some(tries.clone());
-        let trie = tries.get_trie_for_shard(shard_id);
-        let storage = trie.storage.as_caching_storage().expect("Must be caching storage");
         for (hash, value, rc) in deletions.iter() {
-            let storage_rc = storage.retrieve_rc(&hash)?;
+            let storage_rc = TrieCachingStorage::retrieve_rc(&store, shard_id, &hash)?;
             assert!(*rc <= storage_rc);
             let key = TrieCachingStorage::get_key_from_shard_id_and_hash(shard_id, hash);
             if *rc < storage_rc {
@@ -88,94 +114,86 @@ impl ShardTries {
 
     fn apply_insertions_inner(
         insertions: &Vec<(CryptoHash, Vec<u8>, u32)>,
-        tries: ShardTries,
+        tries: TrieCaches,
         shard_id: ShardId,
         store_update: &mut StoreUpdate,
     ) -> Result<(), StorageError> {
-        let trie = tries.get_trie_for_shard(shard_id);
+        let store = Store::new(store_update.storage.clone());
         store_update.tries = Some(tries);
-        let storage = trie.storage.as_caching_storage().expect("Must be caching storage");
         for (hash, value, rc) in insertions.iter() {
-            let storage_rc = storage.retrieve_rc(&hash)?;
+            let storage_rc = TrieCachingStorage::retrieve_rc(&store, shard_id, &hash)?;
             let key = TrieCachingStorage::get_key_from_shard_id_and_hash(shard_id, hash);
             let bytes = encode_trie_node_with_rc(&value, storage_rc + rc);
             store_update.set(DBCol::ColState, key.as_ref(), &bytes);
         }
         Ok(())
     }
+}
 
-    fn apply_all_inner(
-        trie_changes: &TrieChanges,
-        tries: ShardTries,
-        shard_id: ShardId,
-        apply_deletions: bool,
-    ) -> Result<(StoreUpdate, StateRoot), StorageError> {
-        let mut store_update = StoreUpdate::new_with_tries(tries.clone());
-        ShardTries::apply_insertions_inner(
-            &trie_changes.insertions,
-            tries.clone(),
-            shard_id,
-            &mut store_update,
-        )?;
-        if apply_deletions {
-            ShardTries::apply_deletions_inner(
-                &trie_changes.deletions,
-                tries,
-                shard_id,
-                &mut store_update,
-            )?;
+impl TrieCaches {
+    pub fn new(num_shards: NumShards) -> Self {
+        assert_ne!(num_shards, 0);
+        Self(Arc::new((0..num_shards).map(|_| TrieCache::new()).collect::<Vec<_>>()))
+    }
+
+    pub fn update_cache(&self, transaction: &DBTransaction) -> std::io::Result<()> {
+        let mut shards = vec![Vec::new(); self.0.len()];
+        for op in &transaction.ops {
+            match op {
+                DBOp::Insert { col, ref key, ref value } if *col == DBCol::ColState => {
+                    let (shard_id, hash) = TrieCachingStorage::get_shard_id_and_hash_from_key(key)?;
+                    shards[shard_id as usize].push((hash, Some(value.clone())));
+                }
+                DBOp::Delete { col, ref key } if *col == DBCol::ColState => {
+                    let (shard_id, hash) = TrieCachingStorage::get_shard_id_and_hash_from_key(key)?;
+                    shards[shard_id as usize].push((hash, None));
+                }
+                _ => {}
+            }
         }
-        Ok((store_update, trie_changes.new_root))
+        for (shard_id, ops) in shards.into_iter().enumerate() {
+            self.0[shard_id].update_cache(ops);
+        }
+        Ok(())
+    }
+}
+
+#[derive(Clone)]
+// Supports reading only.
+pub struct ShardTriesSnapshot {
+    pub(crate) store: Arc<dyn ReadSnapshot>,
+    pub(crate) caches: TrieCaches,
+}
+
+impl ShardTriesSnapshot {
+    pub fn new(store: Store, caches: TrieCaches) -> Self {
+        let store = store.storage.clone().get_snapshot();
+        ShardTriesSnapshot { store, caches }
     }
 
-    pub fn apply_insertions(
-        &self,
-        trie_changes: &TrieChanges,
-        shard_id: ShardId,
-        store_update: &mut StoreUpdate,
-    ) -> Result<(), StorageError> {
-        ShardTries::apply_insertions_inner(
-            &trie_changes.insertions,
-            self.clone(),
+    pub fn new_trie_update(&self, shard_id: ShardId, state_root: CryptoHash) -> TrieUpdate {
+        TrieUpdate::new(Rc::new(self.get_trie_for_shard(shard_id)), state_root)
+    }
+
+    pub fn get_caches(&self) -> TrieCaches {
+        self.caches.clone()
+    }
+
+    pub fn get_trie_for_shard(&self, shard_id: ShardId) -> Trie {
+        let store = Box::new(TrieCachingStorage::new(
+            self.store.clone(),
+            self.caches.0[shard_id as usize].clone(),
             shard_id,
-            store_update,
-        )
+        ));
+        Trie::new(store, shard_id)
     }
 
-    pub fn apply_deletions(
-        &self,
-        trie_changes: &TrieChanges,
-        shard_id: ShardId,
-        store_update: &mut StoreUpdate,
-    ) -> Result<(), StorageError> {
-        ShardTries::apply_deletions_inner(
-            &trie_changes.deletions,
-            self.clone(),
-            shard_id,
-            store_update,
-        )
+    pub fn writer(self) -> ShardTries {
+        ShardTries::new(self.get_store(), self.caches)
     }
 
-    pub fn revert_insertions(
-        &self,
-        trie_changes: &TrieChanges,
-        shard_id: ShardId,
-        store_update: &mut StoreUpdate,
-    ) -> Result<(), StorageError> {
-        ShardTries::apply_deletions_inner(
-            &trie_changes.insertions,
-            self.clone(),
-            shard_id,
-            store_update,
-        )
-    }
-
-    pub fn apply_all(
-        &self,
-        trie_changes: &TrieChanges,
-        shard_id: ShardId,
-    ) -> Result<(StoreUpdate, StateRoot), StorageError> {
-        ShardTries::apply_all_inner(trie_changes, self.clone(), shard_id, true)
+    pub(crate) fn get_store(&self) -> Store {
+        Store::new(self.store.get_store().clone())
     }
 }
 

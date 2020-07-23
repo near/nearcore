@@ -1234,7 +1234,7 @@ fn test_gc_after_state_sync() {
     ));
     // mimic what we do in possible_targets
     assert!(env.clients[1].runtime_adapter.get_epoch_id_from_prev_block(&prev_block_hash).is_ok());
-    let tries = env.clients[1].runtime_adapter.get_tries();
+    let tries = env.clients[1].runtime_adapter.get_tries_writer();
     assert!(env.clients[1].chain.clear_data(tries, 2).is_ok());
 }
 
@@ -1637,6 +1637,7 @@ fn test_data_reset_before_state_sync() {
     let head_block = env.clients[0].chain.get_block(&head.last_block_hash).unwrap().clone();
     let response = env.clients[0]
         .runtime_adapter
+        .get_state_adapter()
         .query(
             0,
             &head_block.chunks()[0].inner.prev_state_root,
@@ -1650,7 +1651,7 @@ fn test_data_reset_before_state_sync() {
     assert!(matches!(response.kind, QueryResponseKind::ViewAccount(_)));
     env.clients[0].chain.reset_data_pre_state_sync(*head_block.hash()).unwrap();
     // account should not exist after clearing state
-    let response = env.clients[0].runtime_adapter.query(
+    let response = env.clients[0].runtime_adapter.get_state_adapter().query(
         0,
         &head_block.chunks()[0].inner.prev_state_root,
         head.height,

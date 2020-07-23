@@ -101,7 +101,7 @@ pub fn apply_store_migrations(path: &String) {
     debug_assert_eq!(db_version, near_primitives::version::DB_VERSION);
 }
 
-pub fn init_and_migrate_store(home_dir: &Path) -> Arc<Store> {
+pub fn init_and_migrate_store(home_dir: &Path) -> Store {
     let path = get_store_path(home_dir);
     let store_exists = store_path_exists(&path);
     if store_exists {
@@ -123,7 +123,7 @@ pub fn start_with_config(
 
     let runtime = Arc::new(NightshadeRuntime::new(
         home_dir,
-        Arc::clone(&store),
+        store.clone(),
         Arc::clone(&config.genesis),
         config.client_config.tracked_accounts.clone(),
         config.client_config.tracked_shards.clone(),

@@ -67,7 +67,7 @@ pub struct StoreValidator {
     me: Option<AccountId>,
     config: GenesisConfig,
     runtime_adapter: Arc<dyn RuntimeAdapter>,
-    store: Arc<Store>,
+    store: Store,
     inner: StoreValidatorCache,
     timeout: Option<u64>,
     start_time: Instant,
@@ -81,7 +81,7 @@ impl StoreValidator {
         me: Option<AccountId>,
         config: GenesisConfig,
         runtime_adapter: Arc<dyn RuntimeAdapter>,
-        store: Arc<Store>,
+        store: Store,
     ) -> Self {
         StoreValidator {
             me,
@@ -128,7 +128,7 @@ impl StoreValidator {
         self.errors.push(ErrorMessage { key: to_string(&key), col: to_string(&col), err })
     }
     fn validate_col(&mut self, col: DBCol) -> Result<(), StoreValidatorError> {
-        for (key, value) in self.store.clone().iter(col) {
+        for (key, value) in self.store.clone().iter_unsafe(col) {
             let key_ref = key.as_ref();
             let value_ref = value.as_ref();
             match col {

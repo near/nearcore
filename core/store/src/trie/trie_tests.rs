@@ -1,4 +1,6 @@
-use crate::test_utils::{create_tries, gen_changes, simplify_changes, test_populate_trie};
+use crate::test_utils::{
+    create_tries, gen_changes, simplify_changes, test_populate_trie, ShardTriesTestUtils,
+};
 use crate::trie::trie_storage::{TrieMemoryPartialStorage, TrieStorage};
 use crate::trie::POISONED_LOCK_ERR;
 use crate::{PartialStorage, Trie, TrieUpdate};
@@ -88,7 +90,7 @@ fn test_reads_with_incomplete_storage() {
     let mut rng = rand::thread_rng();
     for _ in 0..50 {
         let tries = create_tries();
-        let trie = tries.get_trie_for_shard(0);
+        let trie = tries.snapshot().get_trie_for_shard(0);
         let trie = Rc::new(trie);
         let mut state_root = Trie::empty_root();
         let trie_changes = gen_changes(&mut rng, 20);

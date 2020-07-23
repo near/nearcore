@@ -492,7 +492,7 @@ pub(crate) fn trie_changes_chunk_extra_exists(
                 block_hash,
                 shard_id
             );
-            let trie = sv.runtime_adapter.get_trie_for_shard(*shard_id);
+            let trie = sv.runtime_adapter.get_state_adapter().get_trie_for_shard(*shard_id);
             let trie_iterator = unwrap_or_err!(
                 TrieIterator::new(&trie, &new_root),
                 "Trie Node Missing for ShardChunk {:?}",

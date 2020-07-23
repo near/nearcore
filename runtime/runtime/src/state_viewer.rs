@@ -190,6 +190,7 @@ mod tests {
 
     use super::*;
     use near_primitives::test_utils::MockEpochInfoProvider;
+    use near_store::test_utils::ShardTriesTestUtils;
 
     #[test]
     fn test_view_call() {
@@ -288,7 +289,7 @@ mod tests {
     #[test]
     fn test_view_state() {
         let (_, tries, root) = get_runtime_and_trie();
-        let mut state_update = tries.new_trie_update(0, root);
+        let mut state_update = tries.snapshot().new_trie_update(0, root);
         state_update.set(
             TrieKey::ContractData { account_id: alice_account(), key: b"test123".to_vec() },
             b"123".to_vec(),
@@ -310,7 +311,7 @@ mod tests {
         let (db_changes, new_root) = tries.apply_all(&trie_changes, 0).unwrap();
         db_changes.commit().unwrap();
 
-        let state_update = tries.new_trie_update(0, new_root);
+        let state_update = tries.snapshot().new_trie_update(0, new_root);
         let trie_viewer = TrieViewer::new();
         let result = trie_viewer.view_state(&state_update, &alice_account(), b"").unwrap();
         assert_eq!(result.proof, Vec::<String>::new());

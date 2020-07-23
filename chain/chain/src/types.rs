@@ -1,6 +1,5 @@
 use std::cmp::Ordering;
 use std::collections::HashMap;
-use std::sync::Arc;
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use serde::Serialize;
@@ -24,7 +23,7 @@ use near_primitives::version::{
     MIN_PROTOCOL_VERSION_NEP_92_FIX,
 };
 use near_primitives::views::{EpochValidatorInfo, QueryRequest, QueryResponse};
-use near_store::{PartialStorage, ShardTries, Store, Trie, WrappedTrieChanges};
+use near_store::{PartialStorage, ShardTries, ShardTriesSnapshot, Store, Trie, WrappedTrieChanges};
 
 use crate::error::Error;
 use chrono::{DateTime, Utc};
@@ -221,26 +220,12 @@ where
     }
 }
 
-/// Bridge between the chain and the runtime.
-/// Main function is to update state given transactions.
-/// Additionally handles validators.
-pub trait RuntimeAdapter: Send + Sync {
-    /// Get store and genesis state roots
-    fn genesis_state(&self) -> (Arc<Store>, Vec<StateRoot>);
-
-    fn get_tries(&self) -> ShardTries;
+/// Everything that deals with state.
+pub trait RuntimeStateAdapter: Send + Sync {
+    fn get_tries(&self) -> ShardTriesSnapshot;
 
     /// Returns trie.
     fn get_trie_for_shard(&self, shard_id: ShardId) -> Trie;
-
-    fn verify_block_vrf(
-        &self,
-        epoch_id: &EpochId,
-        block_height: BlockHeight,
-        prev_random_value: &CryptoHash,
-        vrf_value: &near_crypto::vrf::Value,
-        vrf_proof: &near_crypto::vrf::Proof,
-    ) -> Result<(), Error>;
 
     /// Validates a given signed transaction.
     /// If the state root is given, then the verification will use the account. Otherwise it will
@@ -252,7 +237,7 @@ pub trait RuntimeAdapter: Send + Sync {
     fn validate_tx(
         &self,
         gas_price: Balance,
-        state_root: Option<StateRoot>,
+        state_root: StateRoot,
         transaction: &SignedTransaction,
     ) -> Result<Option<InvalidTxError>, Error>;
 
@@ -272,6 +257,124 @@ pub trait RuntimeAdapter: Send + Sync {
         pool_iterator: &mut dyn PoolIterator,
         chain_validate: &mut dyn FnMut(&SignedTransaction) -> bool,
     ) -> Result<Vec<SignedTransaction>, Error>;
+
+    /// Apply transactions to given state root and return store update and new state root.
+    /// Also returns transaction result for each transaction and new receipts.
+    fn apply_transactions(
+        &self,
+        shard_id: ShardId,
+        state_root: &StateRoot,
+        height: BlockHeight,
+        block_timestamp: u64,
+        prev_block_hash: &CryptoHash,
+        block_hash: &CryptoHash,
+        receipts: &[Receipt],
+        transactions: &[SignedTransaction],
+        last_validator_proposals: &[ValidatorStake],
+        gas_price: Balance,
+        gas_limit: Gas,
+        challenges_result: &ChallengesResult,
+    ) -> Result<ApplyTransactionResult, Error> {
+        self.apply_transactions_with_optional_storage_proof(
+            shard_id,
+            state_root,
+            height,
+            block_timestamp,
+            prev_block_hash,
+            block_hash,
+            receipts,
+            transactions,
+            last_validator_proposals,
+            gas_price,
+            gas_limit,
+            challenges_result,
+            false,
+        )
+    }
+
+    fn apply_transactions_with_optional_storage_proof(
+        &self,
+        shard_id: ShardId,
+        state_root: &StateRoot,
+        height: BlockHeight,
+        block_timestamp: u64,
+        prev_block_hash: &CryptoHash,
+        block_hash: &CryptoHash,
+        receipts: &[Receipt],
+        transactions: &[SignedTransaction],
+        last_validator_proposals: &[ValidatorStake],
+        gas_price: Balance,
+        gas_limit: Gas,
+        challenges_result: &ChallengesResult,
+        generate_storage_proof: bool,
+    ) -> Result<ApplyTransactionResult, Error>;
+
+    /// Query runtime with given `path` and `data`.
+    fn query(
+        &self,
+        shard_id: ShardId,
+        state_root: &StateRoot,
+        block_height: BlockHeight,
+        block_timestamp: u64,
+        block_hash: &CryptoHash,
+        epoch_id: &EpochId,
+        request: &QueryRequest,
+    ) -> Result<QueryResponse, Box<dyn std::error::Error>>;
+
+    /// Get the part of the state from given state root.
+    fn obtain_state_part(
+        &self,
+        shard_id: ShardId,
+        state_root: &StateRoot,
+        part_id: u64,
+        num_parts: u64,
+    ) -> Result<Vec<u8>, Error>;
+
+    /// Returns StateRootNode of a state.
+    /// Panics if requested hash is not in storage.
+    /// Never returns Error
+    fn get_state_root_node(
+        &self,
+        shard_id: ShardId,
+        state_root: &StateRoot,
+    ) -> Result<StateRootNode, Error>;
+}
+
+/// Bridge between the chain and the runtime.
+/// Main function is to update state given transactions.
+/// Additionally handles validators.
+pub trait RuntimeAdapter: Send + Sync {
+    fn get_tries_writer(&self) -> ShardTries;
+
+    /// RuntimeStateAdapter should be created for the lifetime of a block/query processing
+    fn get_state_adapter<'a>(&'a self) -> Box<dyn RuntimeStateAdapter + 'a>;
+
+    /// Get store and genesis state roots
+    fn genesis_state(&self) -> (Store, Vec<StateRoot>);
+
+    /// Verify block producer validity
+    fn verify_block_signature(&self, header: &BlockHeader) -> Result<(), Error>;
+    fn verify_block_vrf(
+        &self,
+        epoch_id: &EpochId,
+        block_height: BlockHeight,
+        prev_random_value: &CryptoHash,
+        vrf_value: &near_crypto::vrf::Value,
+        vrf_proof: &near_crypto::vrf::Proof,
+    ) -> Result<(), Error>;
+
+    /// Validates a given signed transaction.
+    /// If the state root is given, then the verification will use the account. Otherwise it will
+    /// only validate the transaction math, limits and signatures.
+    /// Returns an option of `InvalidTxError`, it contains `Some(InvalidTxError)` if there is
+    /// a validation error, or `None` in case the transaction succeeded.
+    /// Throws an `Error` with `ErrorKind::StorageError` in case the runtime throws
+    /// `RuntimeError::StorageError`.
+    fn validate_tx_stateless(
+        &self,
+        gas_price: Balance,
+        transaction: &SignedTransaction,
+    ) -> Result<Option<InvalidTxError>, Error>;
 
     /// Verify validator signature for the given epoch.
     /// Note: doesnt't account for slashed accounts within given epoch. USE WITH CAUTION.
@@ -420,56 +523,17 @@ pub trait RuntimeAdapter: Send + Sync {
     /// Add proposals for validators.
     fn add_validator_proposals(&self, block_header_info: BlockHeaderInfo) -> Result<(), Error>;
 
-    /// Apply transactions to given state root and return store update and new state root.
-    /// Also returns transaction result for each transaction and new receipts.
-    fn apply_transactions(
-        &self,
-        shard_id: ShardId,
-        state_root: &StateRoot,
-        height: BlockHeight,
-        block_timestamp: u64,
-        prev_block_hash: &CryptoHash,
-        block_hash: &CryptoHash,
-        receipts: &[Receipt],
-        transactions: &[SignedTransaction],
-        last_validator_proposals: &[ValidatorStake],
-        gas_price: Balance,
-        gas_limit: Gas,
-        challenges_result: &ChallengesResult,
-    ) -> Result<ApplyTransactionResult, Error> {
-        self.apply_transactions_with_optional_storage_proof(
-            shard_id,
-            state_root,
-            height,
-            block_timestamp,
-            prev_block_hash,
-            block_hash,
-            receipts,
-            transactions,
-            last_validator_proposals,
-            gas_price,
-            gas_limit,
-            challenges_result,
-            false,
-        )
-    }
+    fn get_validator_info(&self, block_hash: &CryptoHash) -> Result<EpochValidatorInfo, Error>;
 
-    fn apply_transactions_with_optional_storage_proof(
+    /// Validate state part that expected to be given state root with provided data.
+    /// Returns false if the resulting part doesn't match the expected one.
+    fn validate_state_part(
         &self,
-        shard_id: ShardId,
         state_root: &StateRoot,
-        height: BlockHeight,
-        block_timestamp: u64,
-        prev_block_hash: &CryptoHash,
-        block_hash: &CryptoHash,
-        receipts: &[Receipt],
-        transactions: &[SignedTransaction],
-        last_validator_proposals: &[ValidatorStake],
-        gas_price: Balance,
-        gas_limit: Gas,
-        challenges_result: &ChallengesResult,
-        generate_storage_proof: bool,
-    ) -> Result<ApplyTransactionResult, Error>;
+        part_id: u64,
+        num_parts: u64,
+        data: &Vec<u8>,
+    ) -> bool;
 
     fn check_state_transition(
         &self,
@@ -488,39 +552,6 @@ pub trait RuntimeAdapter: Send + Sync {
         challenges_result: &ChallengesResult,
     ) -> Result<ApplyTransactionResult, Error>;
 
-    /// Query runtime with given `path` and `data`.
-    fn query(
-        &self,
-        shard_id: ShardId,
-        state_root: &StateRoot,
-        block_height: BlockHeight,
-        block_timestamp: u64,
-        block_hash: &CryptoHash,
-        epoch_id: &EpochId,
-        request: &QueryRequest,
-    ) -> Result<QueryResponse, Box<dyn std::error::Error>>;
-
-    fn get_validator_info(&self, block_hash: &CryptoHash) -> Result<EpochValidatorInfo, Error>;
-
-    /// Get the part of the state from given state root.
-    fn obtain_state_part(
-        &self,
-        shard_id: ShardId,
-        state_root: &StateRoot,
-        part_id: u64,
-        num_parts: u64,
-    ) -> Result<Vec<u8>, Error>;
-
-    /// Validate state part that expected to be given state root with provided data.
-    /// Returns false if the resulting part doesn't match the expected one.
-    fn validate_state_part(
-        &self,
-        state_root: &StateRoot,
-        part_id: u64,
-        num_parts: u64,
-        data: &Vec<u8>,
-    ) -> bool;
-
     /// Should be executed after accepting all the parts to set up a new state.
     fn confirm_state(
         &self,
@@ -528,15 +559,6 @@ pub trait RuntimeAdapter: Send + Sync {
         state_root: &StateRoot,
         parts: &Vec<Vec<u8>>,
     ) -> Result<(), Error>;
-
-    /// Returns StateRootNode of a state.
-    /// Panics if requested hash is not in storage.
-    /// Never returns Error
-    fn get_state_root_node(
-        &self,
-        shard_id: ShardId,
-        state_root: &StateRoot,
-    ) -> Result<StateRootNode, Error>;
 
     /// Validate StateRootNode of a state.
     fn validate_state_root_node(

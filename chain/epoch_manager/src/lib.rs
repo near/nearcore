@@ -1,6 +1,5 @@
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::sync::Arc;
 
 use cached::{Cached, SizedCache};
 use log::{debug, warn};
@@ -38,7 +37,11 @@ const AGGREGATOR_SAVE_PERIOD: u64 = 1000;
 /// Tracks epoch information across different forks, such as validators.
 /// Note: that even after garbage collection, the data about genesis epoch should be in the store.
 pub struct EpochManager {
-    store: Arc<Store>,
+    /// Notes:
+    /// 1. Store records are immutable with the exception of EpochInfoAggregator
+    /// 2. Cache can have entries that were GC-ed from store.
+    /// 3. Store does not use snapshots, so data can disappear between reads.
+    store: Store,
     /// Current epoch config.
     /// TODO: must be dynamically changing over time, so there should be a way to change it.
     config: EpochConfig,
@@ -56,7 +59,7 @@ pub struct EpochManager {
 
 impl EpochManager {
     pub fn new(
-        store: Arc<Store>,
+        store: Store,
         config: EpochConfig,
         genesis_protocol_version: ProtocolVersion,
         reward_calculator: RewardCalculator,

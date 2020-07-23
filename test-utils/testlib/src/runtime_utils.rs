@@ -8,7 +8,7 @@ use near_primitives::account::Account;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::state_record::StateRecord;
 use near_primitives::types::{AccountId, StateRoot};
-use near_store::test_utils::create_tries;
+use near_store::test_utils::{create_tries, ShardTriesTestUtils};
 use near_store::{ShardTries, TrieUpdate};
 use neard::config::GenesisExt;
 use node_runtime::{state_viewer::TrieViewer, Runtime};
@@ -68,7 +68,7 @@ pub fn get_runtime_and_trie_from_genesis(genesis: &Genesis) -> (Runtime, ShardTr
     let tries = create_tries();
     let runtime = Runtime::new(genesis.config.runtime_config.clone());
     let (store_update, genesis_root) = runtime.apply_genesis_state(
-        tries.clone(),
+        &tries,
         0,
         &genesis
             .config
@@ -97,7 +97,7 @@ pub fn get_runtime_and_trie() -> (Runtime, ShardTries, StateRoot) {
 pub fn get_test_trie_viewer() -> (TrieViewer, TrieUpdate) {
     let (_, tries, root) = get_runtime_and_trie();
     let trie_viewer = TrieViewer::new();
-    let state_update = tries.new_trie_update(0, root);
+    let state_update = tries.snapshot().new_trie_update(0, root);
     (trie_viewer, state_update)
 }
 

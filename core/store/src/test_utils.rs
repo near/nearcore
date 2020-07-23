@@ -5,20 +5,31 @@ use rand::seq::SliceRandom;
 use rand::Rng;
 
 use crate::db::TestDB;
-use crate::{ShardTries, Store};
+use crate::trie::ShardTries;
+use crate::{ShardTriesSnapshot, Store, TrieCaches};
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::ShardId;
 
+pub trait ShardTriesTestUtils {
+    fn snapshot(&self) -> ShardTriesSnapshot;
+}
+
+impl ShardTriesTestUtils for ShardTries {
+    fn snapshot(&self) -> ShardTriesSnapshot {
+        ShardTriesSnapshot::new(self.store.clone(), self.caches.clone())
+    }
+}
+
 /// Creates an in-memory database.
-pub fn create_test_store() -> Arc<Store> {
+pub fn create_test_store() -> Store {
     let db = Arc::pin(TestDB::new());
-    Arc::new(Store::new(db))
+    Store::new(db)
 }
 
 /// Creates a Trie using an in-memory database.
 pub fn create_tries() -> ShardTries {
     let store = create_test_store();
-    ShardTries::new(store, 1)
+    ShardTries::new(store.clone(), TrieCaches::new(1))
 }
 
 pub fn test_populate_trie(
@@ -27,7 +38,7 @@ pub fn test_populate_trie(
     shard_id: ShardId,
     changes: Vec<(Vec<u8>, Option<Vec<u8>>)>,
 ) -> CryptoHash {
-    let trie = tries.get_trie_for_shard(shard_id);
+    let trie = tries.snapshot().get_trie_for_shard(shard_id);
     assert_eq!(trie.storage.as_caching_storage().unwrap().shard_id, 0);
     let trie_changes = trie.update(root, changes.iter().cloned()).unwrap();
     let (store_update, root) = tries.apply_all(&trie_changes, 0).unwrap();
@@ -83,4 +94,40 @@ pub(crate) fn simplify_changes(
     let mut result: Vec<_> = state.into_iter().map(|(k, v)| (k, Some(v))).collect();
     result.sort();
     result
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::create_store;
+    use crate::db::DBCol::ColState;
+
+    #[test]
+    fn snapshot_sanity() {
+        let tmp_dir = tempfile::Builder::new().prefix("_test_snapshot_sanity").tempdir().unwrap();
+        let store = create_store(tmp_dir.path().to_str().unwrap());
+        let snapshot1 = store.storage.clone().get_snapshot();
+        let snapshot2 = {
+            let mut store_update = store.store_update();
+            store_update.set(ColState, &[1], &[1]);
+            store_update.commit().unwrap();
+            store.storage.clone().get_snapshot()
+        };
+        let snapshot3 = {
+            let mut store_update = store.store_update();
+            store_update.set(ColState, &[1], &[2]);
+            store_update.commit().unwrap();
+            store.storage.clone().get_snapshot()
+        };
+        let snapshot4 = {
+            let mut store_update = store.store_update();
+            store_update.delete(ColState, &[1]);
+            store_update.commit().unwrap();
+            store.storage.clone().get_snapshot()
+        };
+
+        assert_eq!(snapshot1.get(ColState, &[1]).unwrap(), None);
+        assert_eq!(snapshot2.get(ColState, &[1]).unwrap(), Some(vec![1]));
+        assert_eq!(snapshot3.get(ColState, &[1]).unwrap(), Some(vec![2]));
+        assert_eq!(snapshot4.get(ColState, &[1]).unwrap(), None);
+    }
 }

@@ -3,7 +3,6 @@ use std::cmp;
 use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
 use std::pin::Pin;
-use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use actix::actors::resolver::{ConnectAddr, Resolver};
@@ -117,7 +116,7 @@ pub struct PeerManagerActor {
 
 impl PeerManagerActor {
     pub fn new(
-        store: Arc<Store>,
+        store: Store,
         config: NetworkConfig,
         client_addr: Recipient<NetworkClientMessages>,
         view_client_addr: Recipient<NetworkViewClientMessages>,

@@ -33,7 +33,7 @@ enum LoadTrieMode {
 }
 
 fn load_trie(
-    store: Arc<Store>,
+    store: Store,
     home_dir: &Path,
     near_config: &NearConfig,
 ) -> (NightshadeRuntime, Vec<StateRoot>, BlockHeader) {
@@ -41,7 +41,7 @@ fn load_trie(
 }
 
 fn load_trie_stop_at_height(
-    store: Arc<Store>,
+    store: Store,
     home_dir: &Path,
     near_config: &NearConfig,
     mode: LoadTrieMode,
@@ -97,7 +97,7 @@ pub fn format_hash(h: CryptoHash) -> String {
 }
 
 fn print_chain(
-    store: Arc<Store>,
+    store: Store,
     home_dir: &Path,
     near_config: &NearConfig,
     start_height: BlockHeight,
@@ -165,7 +165,7 @@ fn print_chain(
 }
 
 fn replay_chain(
-    store: Arc<Store>,
+    store: Store,
     home_dir: &Path,
     near_config: &NearConfig,
     start_height: BlockHeight,
@@ -194,7 +194,7 @@ fn replay_chain(
 }
 
 fn apply_block_at_height(
-    store: Arc<Store>,
+    store: Store,
     home_dir: &Path,
     near_config: &NearConfig,
     height: BlockHeight,
@@ -225,6 +225,7 @@ fn apply_block_at_height(
     let receipts = collect_receipts_from_response(&receipt_proof_response);
 
     let apply_result = runtime
+        .get_state_adapter()
         .apply_transactions(
             shard_id,
             &chunk.header.inner.prev_state_root,
@@ -262,7 +263,7 @@ fn apply_block_at_height(
 }
 
 fn view_chain(
-    store: Arc<Store>,
+    store: Store,
     near_config: &NearConfig,
     height: Option<BlockHeight>,
     view_block: bool,
@@ -442,7 +443,7 @@ fn main() {
             let (runtime, state_roots, header) = load_trie(store, &home_dir, &near_config);
             println!("Storage roots are {:?}, block height is {}", state_roots, header.height());
             for (shard_id, state_root) in state_roots.iter().enumerate() {
-                let trie = runtime.get_trie_for_shard(shard_id as u64);
+                let trie = runtime.get_state_adapter().get_trie_for_shard(shard_id as u64);
                 let trie = TrieIterator::new(&trie, &state_root).unwrap();
                 for item in trie {
                     let (key, value) = item.unwrap();

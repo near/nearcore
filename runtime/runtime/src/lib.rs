@@ -38,6 +38,7 @@ use crate::config::{
 };
 use crate::verifier::validate_receipt;
 pub use crate::verifier::{validate_transaction, verify_and_charge_transaction};
+use near_store::test_utils::ShardTriesTestUtils;
 use std::rc::Rc;
 
 mod actions;
@@ -1246,12 +1247,12 @@ impl Runtime {
     /// Balances are account, publickey, initial_balance, initial_tx_stake
     pub fn apply_genesis_state(
         &self,
-        tries: ShardTries,
+        tries: &ShardTries,
         shard_id: ShardId,
         validators: &[(AccountId, PublicKey, Balance)],
         records: &[StateRecord],
     ) -> (StoreUpdate, StateRoot) {
-        let mut state_update = tries.new_trie_update(shard_id, MerkleHash::default());
+        let mut state_update = tries.snapshot().new_trie_update(shard_id, MerkleHash::default());
         let mut postponed_receipts: Vec<Receipt> = vec![];
         let mut delayed_receipts_indices = DelayedReceiptIndices::default();
         for record in records {
@@ -1382,7 +1383,7 @@ mod tests {
     #[test]
     fn test_get_and_set_accounts() {
         let tries = create_tries();
-        let mut state_update = tries.new_trie_update(0, MerkleHash::default());
+        let mut state_update = tries.snapshot().new_trie_update(0, MerkleHash::default());
         let test_account = account_new(to_yocto(10), hash(&[]));
         let account_id = bob_account();
         set_account(&mut state_update, account_id.clone(), &test_account);
@@ -1394,7 +1395,7 @@ mod tests {
     fn test_get_account_from_trie() {
         let tries = create_tries();
         let root = MerkleHash::default();
-        let mut state_update = tries.new_trie_update(0, root);
+        let mut state_update = tries.snapshot().new_trie_update(0, root);
         let test_account = account_new(to_yocto(10), hash(&[]));
         let account_id = bob_account();
         set_account(&mut state_update, account_id.clone(), &test_account);
@@ -1402,7 +1403,7 @@ mod tests {
         let trie_changes = state_update.finalize().unwrap().0;
         let (store_update, new_root) = tries.apply_all(&trie_changes, 0).unwrap();
         store_update.commit().unwrap();
-        let new_state_update = tries.new_trie_update(0, new_root);
+        let new_state_update = tries.snapshot().new_trie_update(0, new_root);
         let get_res = get_account(&new_state_update, &account_id).unwrap().unwrap();
         assert_eq!(test_account, get_res);
     }
@@ -1425,7 +1426,7 @@ mod tests {
         let signer =
             Arc::new(InMemorySigner::from_seed(&account_id, KeyType::ED25519, &account_id));
 
-        let mut initial_state = tries.new_trie_update(0, root);
+        let mut initial_state = tries.snapshot().new_trie_update(0, root);
         let mut initial_account = account_new(initial_balance, hash(&[]));
         initial_account.locked = initial_locked;
         set_account(&mut initial_state, account_id.clone(), &initial_account);
@@ -1459,7 +1460,7 @@ mod tests {
             setup_runtime(to_yocto(1_000_000), 0, 10u64.pow(15));
         runtime
             .apply(
-                tries.get_trie_for_shard(0),
+                tries.snapshot().get_trie_for_shard(0),
                 root,
                 &None,
                 &apply_state,
@@ -1488,7 +1489,7 @@ mod tests {
 
         runtime
             .apply(
-                tries.get_trie_for_shard(0),
+                tries.snapshot().get_trie_for_shard(0),
                 root,
                 &Some(validator_accounts_update),
                 &apply_state,
@@ -1516,7 +1517,7 @@ mod tests {
             let prev_receipts: &[Receipt] = if i == 1 { &receipts } else { &[] };
             let apply_result = runtime
                 .apply(
-                    tries.get_trie_for_shard(0),
+                    tries.snapshot().get_trie_for_shard(0),
                     root,
                     &None,
                     &apply_state,
@@ -1528,7 +1529,7 @@ mod tests {
             let (store_update, new_root) = tries.apply_all(&apply_result.trie_changes, 0).unwrap();
             root = new_root;
             store_update.commit().unwrap();
-            let state = tries.new_trie_update(0, root);
+            let state = tries.snapshot().new_trie_update(0, root);
             let account = get_account(&state, &alice_account()).unwrap().unwrap();
             let capped_i = std::cmp::min(i, n);
             assert_eq!(
@@ -1562,7 +1563,7 @@ mod tests {
             let prev_receipts: &[Receipt] = receipt_chunks.next().unwrap_or_default();
             let apply_result = runtime
                 .apply(
-                    tries.get_trie_for_shard(0),
+                    tries.snapshot().get_trie_for_shard(0),
                     root,
                     &None,
                     &apply_state,
@@ -1574,7 +1575,7 @@ mod tests {
             let (store_update, new_root) = tries.apply_all(&apply_result.trie_changes, 0).unwrap();
             root = new_root;
             store_update.commit().unwrap();
-            let state = tries.new_trie_update(0, root);
+            let state = tries.snapshot().new_trie_update(0, root);
             let account = get_account(&state, &alice_account()).unwrap().unwrap();
             let capped_i = std::cmp::min(i * 3, n);
             assert_eq!(
@@ -1617,7 +1618,7 @@ mod tests {
             num_receipts_given += prev_receipts.len() as u64;
             let apply_result = runtime
                 .apply(
-                    tries.get_trie_for_shard(0),
+                    tries.snapshot().get_trie_for_shard(0),
                     root,
                     &None,
                     &apply_state,
@@ -1629,7 +1630,7 @@ mod tests {
             let (store_update, new_root) = tries.apply_all(&apply_result.trie_changes, 0).unwrap();
             root = new_root;
             store_update.commit().unwrap();
-            let state = tries.new_trie_update(0, root);
+            let state = tries.snapshot().new_trie_update(0, root);
             num_receipts_processed += apply_result.outcomes.len() as u64;
             let account = get_account(&state, &alice_account()).unwrap().unwrap();
             assert_eq!(
@@ -1703,7 +1704,7 @@ mod tests {
         // The new delayed queue is TX#3, R#0, R#1.
         let apply_result = runtime
             .apply(
-                tries.get_trie_for_shard(0),
+                tries.snapshot().get_trie_for_shard(0),
                 root,
                 &None,
                 &apply_state,
@@ -1735,7 +1736,7 @@ mod tests {
         // The new delayed queue is R#1, R#2
         let apply_result = runtime
             .apply(
-                tries.get_trie_for_shard(0),
+                tries.snapshot().get_trie_for_shard(0),
                 root,
                 &None,
                 &apply_state,
@@ -1764,7 +1765,7 @@ mod tests {
         // The new delayed queue is R#1, R#2, TX#8, R#3
         let apply_result = runtime
             .apply(
-                tries.get_trie_for_shard(0),
+                tries.snapshot().get_trie_for_shard(0),
                 root,
                 &None,
                 &apply_state,
@@ -1796,7 +1797,7 @@ mod tests {
         // The new delayed queue is R#3, R#4
         let apply_result = runtime
             .apply(
-                tries.get_trie_for_shard(0),
+                tries.snapshot().get_trie_for_shard(0),
                 root,
                 &None,
                 &apply_state,
@@ -1823,7 +1824,7 @@ mod tests {
         // The new delayed queue is empty.
         let apply_result = runtime
             .apply(
-                tries.get_trie_for_shard(0),
+                tries.snapshot().get_trie_for_shard(0),
                 root,
                 &None,
                 &apply_state,
@@ -1860,7 +1861,7 @@ mod tests {
 
         let err = runtime
             .apply(
-                tries.get_trie_for_shard(0),
+                tries.snapshot().get_trie_for_shard(0),
                 root,
                 &None,
                 &apply_state,
@@ -1893,7 +1894,7 @@ mod tests {
         invalid_receipt.predecessor_id = invalid_account_id.clone();
 
         // Saving invalid receipt to the delayed receipts.
-        let mut state_update = tries.new_trie_update(0, root);
+        let mut state_update = tries.snapshot().new_trie_update(0, root);
         let mut delayed_receipts_indices = DelayedReceiptIndices::default();
         Runtime::delay_receipt(&mut state_update, &mut delayed_receipts_indices, &invalid_receipt)
             .unwrap();
@@ -1905,7 +1906,7 @@ mod tests {
 
         let err = runtime
             .apply(
-                tries.get_trie_for_shard(0),
+                tries.snapshot().get_trie_for_shard(0),
                 root,
                 &None,
                 &apply_state,
@@ -1941,7 +1942,7 @@ mod tests {
 
         let result = runtime
             .apply(
-                tries.get_trie_for_shard(0),
+                tries.snapshot().get_trie_for_shard(0),
                 root,
                 &None,
                 &apply_state,
@@ -1994,7 +1995,7 @@ mod tests {
 
         let result = runtime
             .apply(
-                tries.get_trie_for_shard(0),
+                tries.snapshot().get_trie_for_shard(0),
                 root,
                 &None,
                 &apply_state,
@@ -2057,7 +2058,7 @@ mod tests {
 
         let result = runtime
             .apply(
-                tries.get_trie_for_shard(0),
+                tries.snapshot().get_trie_for_shard(0),
                 root,
                 &None,
                 &apply_state,

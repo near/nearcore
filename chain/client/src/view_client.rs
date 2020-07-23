@@ -197,6 +197,7 @@ impl ViewClientActor {
             Ok(chunk_extra) => {
                 let state_root = chunk_extra.state_root;
                 self.runtime_adapter
+                    .get_state_adapter()
                     .query(
                         shard_id,
                         &state_root,

@@ -414,7 +414,7 @@ mod tests {
         CreateAccountAction, DeleteKeyAction, StakeAction, TransferAction,
     };
     use near_primitives::types::{AccountId, Balance, MerkleHash, StateChangeCause};
-    use near_store::test_utils::create_tries;
+    use near_store::test_utils::{create_tries, ShardTriesTestUtils};
     use std::convert::TryInto;
     use std::sync::Arc;
     use testlib::runtime_utils::{alice_account, bob_account, eve_dot_alice_account};
@@ -443,7 +443,7 @@ mod tests {
         let signer =
             Arc::new(InMemorySigner::from_seed(&account_id, KeyType::ED25519, &account_id));
 
-        let mut initial_state = tries.new_trie_update(0, root);
+        let mut initial_state = tries.snapshot().new_trie_update(0, root);
         for (account_id, initial_balance, initial_locked, access_key) in accounts {
             let mut initial_account = account_new(initial_balance, hash(&[]));
             initial_account.locked = initial_locked;
@@ -462,7 +462,7 @@ mod tests {
         let (store_update, root) = tries.apply_all(&trie_changes, 0).unwrap();
         store_update.commit().unwrap();
 
-        (signer, tries.new_trie_update(0, root), 100)
+        (signer, tries.snapshot().new_trie_update(0, root), 100)
     }
 
     fn assert_err_both_validations(

@@ -4,7 +4,6 @@ use std::collections::{
 };
 use std::convert::TryInto;
 use std::net::SocketAddr;
-use std::sync::Arc;
 
 use borsh::BorshSerialize;
 use chrono::Utc;
@@ -46,7 +45,7 @@ impl VerifiedPeer {
 
 /// Known peers store, maintaining cache of known peers and connection to storage to save/load them.
 pub struct PeerStore {
-    store: Arc<Store>,
+    store: Store,
     peer_states: HashMap<PeerId, KnownPeerState>,
     // This is a reverse index, from physical address to peer_id
     // It can happens that some peers don't have known address, so
@@ -55,10 +54,7 @@ pub struct PeerStore {
 }
 
 impl PeerStore {
-    pub fn new(
-        store: Arc<Store>,
-        boot_nodes: &[PeerInfo],
-    ) -> Result<Self, Box<dyn std::error::Error>> {
+    pub fn new(store: Store, boot_nodes: &[PeerInfo]) -> Result<Self, Box<dyn std::error::Error>> {
         let mut peer_states = HashMap::default();
         let mut addr_peers = HashMap::default();
 
@@ -82,7 +78,7 @@ impl PeerStore {
             }
         }
 
-        for (key, value) in store.iter(ColPeers) {
+        for (key, value) in store.iter_unsafe(ColPeers) {
             let key: Vec<u8> = key.into();
             let value: Vec<u8> = value.into();
             let peer_id: PeerId = key.try_into()?;

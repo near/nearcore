@@ -18,8 +18,10 @@ use near_primitives::transaction::{
     Action, ExecutionStatus, FunctionCallAction, SignedTransaction, TransferAction,
 };
 use near_primitives::types::StateChangeCause;
-use near_store::test_utils::create_tries;
-use near_store::{create_store, get_account, set_access_key, set_account, set_code, ShardTries};
+use near_store::test_utils::{create_tries, ShardTriesTestUtils};
+use near_store::{
+    create_store, get_account, set_access_key, set_account, set_code, ShardTries, TrieCaches,
+};
 use near_vm_logic::types::Balance;
 
 pub mod runtime_group_tools;
@@ -64,7 +66,7 @@ fn template_test(transaction_type: TransactionType, db_type: DataBaseType, expec
     let tries = match db_type {
         DataBaseType::Disk => {
             let store = create_store(tmpdir.path().to_str().unwrap());
-            ShardTries::new(store, 1)
+            ShardTries::new(store.clone(), TrieCaches::new(1))
         }
         DataBaseType::InMemory => create_tries(),
     };
@@ -90,7 +92,7 @@ fn template_test(transaction_type: TransactionType, db_type: DataBaseType, expec
     let wasm_binary: &[u8] = include_bytes!("./tiny-contract-rs/res/tiny_contract_rs.wasm");
     let code_hash = hash(wasm_binary);
     for chunk in chunked_accounts {
-        let mut state_update = runtime.tries.new_trie_update(0, runtime.root);
+        let mut state_update = runtime.tries.snapshot().new_trie_update(0, runtime.root);
         // Put state records directly into trie and save them separately to compute storage usage.
         let mut records = Vec::with_capacity(CHUNK_SIZE * 3);
         for account_index in chunk {

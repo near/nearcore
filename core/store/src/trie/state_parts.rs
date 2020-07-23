@@ -317,7 +317,7 @@ mod tests {
 
     use near_primitives::hash::{hash, CryptoHash};
 
-    use crate::test_utils::{create_tries, gen_changes, test_populate_trie};
+    use crate::test_utils::{create_tries, gen_changes, test_populate_trie, ShardTriesTestUtils};
 
     use super::*;
     use rand::prelude::ThreadRng;
@@ -404,7 +404,7 @@ mod tests {
         let trie_changes = gen_trie_changes(&mut rng, max_key_length, big_value_length);
         println!("Number of nodes: {}", trie_changes.len());
         let tries = create_tries();
-        let trie = tries.get_trie_for_shard(0);
+        let trie = tries.snapshot().get_trie_for_shard(0);
         let state_root = test_populate_trie(&tries, &Trie::empty_root(), 0, trie_changes);
         let memory_size = trie.retrieve_root_node(&state_root).unwrap().memory_usage;
         println!("Total memory size: {}", memory_size);
@@ -445,11 +445,11 @@ mod tests {
         let mut rng = rand::thread_rng();
         for _ in 0..20 {
             let tries = create_tries();
-            let trie = tries.get_trie_for_shard(0);
             let trie_changes = gen_changes(&mut rng, 500);
 
             let state_root =
                 test_populate_trie(&tries, &Trie::empty_root(), 0, trie_changes.clone());
+            let trie = tries.snapshot().get_trie_for_shard(0);
             let root_memory_usage = trie.retrieve_root_node(&state_root).unwrap().memory_usage;
             for _ in 0..100 {
                 // Test that creating and validating are consistent

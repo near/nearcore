@@ -11,7 +11,7 @@ mod tests {
     use near_primitives::merkle::PartialMerkleTree;
     use near_primitives::types::{NumBlocks, NumShards, StateRoot};
     use near_primitives::validator_signer::InMemoryValidatorSigner;
-    use near_store::test_utils::{create_test_store, gen_changes};
+    use near_store::test_utils::{create_test_store, gen_changes, ShardTriesTestUtils};
     use near_store::{ShardTries, StoreUpdate, Trie, WrappedTrieChanges};
     use rand::Rng;
 
@@ -75,7 +75,7 @@ mod tests {
             for shard_id in 0..num_shards {
                 let trie_changes_data = gen_changes(&mut rng, max_changes);
                 let state_root = prev_state_roots[shard_id as usize];
-                let trie = tries.get_trie_for_shard(shard_id);
+                let trie = tries.snapshot().get_trie_for_shard(shard_id);
                 let trie_changes =
                     trie.update(&state_root, trie_changes_data.iter().cloned()).unwrap();
                 if verbose {
@@ -119,10 +119,9 @@ mod tests {
 
         // Init Chain 1
         let mut chain1 = get_chain(num_shards);
-        let tries1 = chain1.runtime_adapter.get_tries();
+        let tries1 = chain1.runtime_adapter.get_tries_writer();
         let mut rng = rand::thread_rng();
         let shard_to_check_trie = rng.gen_range(0, num_shards);
-        let trie1 = tries1.get_trie_for_shard(shard_to_check_trie);
         let genesis1 = chain1.get_block_by_height(0).unwrap().clone();
         let mut states1 = vec![];
         states1.push((
@@ -153,8 +152,7 @@ mod tests {
         }
 
         let mut chain2 = get_chain(num_shards);
-        let tries2 = chain2.runtime_adapter.get_tries();
-        let trie2 = tries2.get_trie_for_shard(shard_to_check_trie);
+        let tries2 = chain2.runtime_adapter.get_tries_writer();
 
         // Find gc_height
         let mut gc_height = simple_chains[0].length - 51;
@@ -183,6 +181,7 @@ mod tests {
 
             let mut state_root2 = state_roots2[simple_chain.from as usize];
             let state_root1 = states1[simple_chain.from as usize].1[shard_to_check_trie as usize];
+            let trie1 = tries1.snapshot().get_trie_for_shard(shard_to_check_trie);
             assert!(trie1.iter(&state_root1).is_ok());
             assert_eq!(state_root1, state_root2);
 
@@ -190,12 +189,13 @@ mod tests {
                 let mut store_update2 = chain2.mut_store().store_update();
                 let (block1, state_root1, changes1) = states1[i as usize].clone();
                 // Apply to Trie 2 the same changes (changes1) as applied to Trie 1
+                let trie2 = tries2.snapshot().get_trie_for_shard(shard_to_check_trie);
                 let trie_changes2 = trie2
                     .update(&state_root2, changes1[shard_to_check_trie as usize].iter().cloned())
                     .unwrap();
                 // i == gc_height is the only height should be processed here
                 if block1.header().height() > gc_height || i == gc_height {
-                    let mut trie_store_update2 = StoreUpdate::new_with_tries(tries2.clone());
+                    let mut trie_store_update2 = StoreUpdate::new_with_tries(&tries2);
                     tries2
                         .apply_insertions(
                             &trie_changes2,
@@ -219,6 +219,8 @@ mod tests {
         }
 
         let mut start_index = 1; // zero is for genesis
+        let trie1 = tries1.snapshot().get_trie_for_shard(shard_to_check_trie);
+        let trie2 = tries2.snapshot().get_trie_for_shard(shard_to_check_trie);
         for simple_chain in simple_chains.iter() {
             if simple_chain.is_removed {
                 start_index += simple_chain.length;

@@ -21,6 +21,7 @@ use near_primitives::state_record::StateRecord;
 use near_primitives::types::{
     AccountId, Balance, ChunkExtra, EpochId, ShardId, StateChangeCause, StateRoot,
 };
+use near_store::test_utils::ShardTriesTestUtils;
 use near_store::{
     create_store, get_account, set_access_key, set_account, set_code, ColState, Store, TrieUpdate,
 };
@@ -38,7 +39,7 @@ pub struct GenesisBuilder {
     #[allow(dead_code)]
     tmpdir: tempfile::TempDir,
     genesis: Arc<Genesis>,
-    store: Arc<Store>,
+    store: Store,
     runtime: NightshadeRuntime,
     unflushed_records: BTreeMap<ShardId, Vec<StateRecord>>,
     roots: BTreeMap<ShardId, StateRoot>,
@@ -53,11 +54,7 @@ pub struct GenesisBuilder {
 }
 
 impl GenesisBuilder {
-    pub fn from_config_and_store(
-        home_dir: &Path,
-        genesis: Arc<Genesis>,
-        store: Arc<Store>,
-    ) -> Self {
+    pub fn from_config_and_store(home_dir: &Path, genesis: Arc<Genesis>, store: Store) -> Self {
         let tmpdir = tempfile::Builder::new().prefix("storage").tempdir().unwrap();
         let runtime = NightshadeRuntime::new(
             tmpdir.path(),
@@ -113,7 +110,10 @@ impl GenesisBuilder {
             .roots
             .iter()
             .map(|(shard_idx, root)| {
-                (*shard_idx, self.runtime.get_tries().new_trie_update(*shard_idx, *root))
+                (
+                    *shard_idx,
+                    self.runtime.get_state_adapter().get_tries().new_trie_update(*shard_idx, *root),
+                )
             })
             .collect();
         self.unflushed_records =
@@ -169,14 +169,14 @@ impl GenesisBuilder {
             account.storage_usage = storage_usage;
             set_account(&mut state_update, account_id, &account);
         }
-        let tries = self.runtime.get_tries();
+        let tries = self.runtime.get_tries_writer();
         state_update.commit(StateChangeCause::InitialState);
         let trie_changes = state_update.finalize()?.0;
         let (store_update, root) = tries.apply_all(&trie_changes, shard_idx)?;
         store_update.commit()?;
 
         self.roots.insert(shard_idx, root.clone());
-        self.state_updates.insert(shard_idx, tries.new_trie_update(shard_idx, root));
+        self.state_updates.insert(shard_idx, tries.snapshot().new_trie_update(shard_idx, root));
         Ok(())
     }
 

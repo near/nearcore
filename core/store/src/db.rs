@@ -1,18 +1,19 @@
 use std::cmp;
 use std::collections::HashMap;
 use std::io;
-use std::sync::RwLock;
+use std::sync::{Arc, RwLock};
 
 use borsh::{BorshDeserialize, BorshSerialize};
 
 use rocksdb::{
     BlockBasedOptions, ColumnFamily, ColumnFamilyDescriptor, Direction, IteratorMode, Options,
-    ReadOptions, WriteBatch, DB,
+    ReadOptions, Snapshot, WriteBatch, DB,
 };
 use strum_macros::EnumIter;
 
 use near_primitives::version::DbVersion;
 use std::marker::PhantomPinned;
+use std::pin::Pin;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct DBError(rocksdb::Error);
@@ -242,27 +243,91 @@ pub struct TestDB {
     db: RwLock<Vec<HashMap<Vec<u8>, Vec<u8>>>>,
 }
 
-pub trait Database: Sync + Send {
-    fn transaction(&self) -> DBTransaction {
-        DBTransaction { ops: Vec::new() }
-    }
+pub trait ReadSnapshot: Sync + Send {
     fn get(&self, col: DBCol, key: &[u8]) -> Result<Option<Vec<u8>>, DBError>;
+
     fn iter<'a>(&'a self, column: DBCol) -> Box<dyn Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a>;
+
     fn iter_prefix<'a>(
         &'a self,
         col: DBCol,
         key_prefix: &'a [u8],
     ) -> Box<dyn Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a>;
+
+    fn get_store(&self) -> Pin<Arc<dyn Database>>;
+}
+
+pub struct RocksDBOwningSnapshot {
+    db: Pin<Arc<RocksDB>>,
+    snapshot: Snapshot<'static>,
+}
+
+impl ReadSnapshot for RocksDBOwningSnapshot {
+    fn get(&self, col: DBCol, key: &[u8]) -> Result<Option<Vec<u8>>, DBError> {
+        let cf_handle = unsafe { &*self.db.cfs[col as usize] };
+        let read_options = rocksdb_read_options();
+        self.snapshot.get_cf_opt(cf_handle, key, read_options).map_err(|e| e.into())
+    }
+
+    fn iter<'b>(&'b self, col: DBCol) -> Box<dyn Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'b> {
+        let read_options = rocksdb_read_options();
+        let cf_handle = unsafe { &*self.db.cfs[col as usize] };
+        let iterator = self.snapshot.iterator_cf_opt(cf_handle, read_options, IteratorMode::Start);
+        Box::new(iterator)
+    }
+
+    fn iter_prefix<'b>(
+        &'b self,
+        col: DBCol,
+        key_prefix: &'b [u8],
+    ) -> Box<dyn Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'b> {
+        let cf_handle = unsafe { &*self.db.cfs[col as usize] };
+        let mut read_options = rocksdb_read_options();
+        read_options.set_prefix_same_as_start(true);
+        let iterator = self
+            .snapshot
+            .iterator_cf_opt(
+                cf_handle,
+                read_options,
+                IteratorMode::From(key_prefix, Direction::Forward),
+            )
+            .take_while(move |(key, _value)| key.starts_with(key_prefix));
+        Box::new(iterator)
+    }
+
+    fn get_store(&self) -> Pin<Arc<dyn Database>> {
+        self.db.clone()
+    }
+}
+
+pub trait Database: Sync + Send {
+    fn transaction(&self) -> DBTransaction {
+        DBTransaction { ops: Vec::new() }
+    }
+    fn get_unsafe(&self, col: DBCol, key: &[u8]) -> Result<Option<Vec<u8>>, DBError>;
+    fn iter_unsafe<'a>(
+        &'a self,
+        column: DBCol,
+    ) -> Box<dyn Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a>;
+    fn iter_prefix_unsafe<'a>(
+        &'a self,
+        col: DBCol,
+        key_prefix: &'a [u8],
+    ) -> Box<dyn Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a>;
     fn write(&self, batch: DBTransaction) -> Result<(), DBError>;
+    fn get_snapshot(self: Pin<Arc<Self>>) -> Arc<dyn ReadSnapshot>;
 }
 
 impl Database for RocksDB {
-    fn get(&self, col: DBCol, key: &[u8]) -> Result<Option<Vec<u8>>, DBError> {
+    fn get_unsafe(&self, col: DBCol, key: &[u8]) -> Result<Option<Vec<u8>>, DBError> {
         let read_options = rocksdb_read_options();
         unsafe { Ok(self.db.get_cf_opt(&*self.cfs[col as usize], key, &read_options)?) }
     }
 
-    fn iter<'a>(&'a self, col: DBCol) -> Box<dyn Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a> {
+    fn iter_unsafe<'a>(
+        &'a self,
+        col: DBCol,
+    ) -> Box<dyn Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a> {
         let read_options = rocksdb_read_options();
         unsafe {
             let cf_handle = &*self.cfs[col as usize];
@@ -271,7 +336,7 @@ impl Database for RocksDB {
         }
     }
 
-    fn iter_prefix<'a>(
+    fn iter_prefix_unsafe<'a>(
         &'a self,
         col: DBCol,
         key_prefix: &'a [u8],
@@ -310,14 +375,44 @@ impl Database for RocksDB {
         }
         Ok(self.db.write(batch)?)
     }
+
+    fn get_snapshot(self: Pin<Arc<Self>>) -> Arc<dyn ReadSnapshot> {
+        let snapshot = unsafe { std::mem::transmute(self.db.snapshot()) };
+        Arc::new(RocksDBOwningSnapshot { db: self, snapshot })
+    }
+}
+
+impl ReadSnapshot for Pin<Arc<TestDB>> {
+    fn get(&self, col: DBCol, key: &[u8]) -> Result<Option<Vec<u8>>, DBError> {
+        (*self).get_unsafe(col, key)
+    }
+
+    fn iter<'b>(&'b self, column: DBCol) -> Box<dyn Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'b> {
+        (*self).iter_unsafe(column)
+    }
+
+    fn iter_prefix<'b>(
+        &'b self,
+        col: DBCol,
+        key_prefix: &'b [u8],
+    ) -> Box<dyn Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'b> {
+        (*self).iter_prefix_unsafe(col, key_prefix)
+    }
+
+    fn get_store(&self) -> Pin<Arc<dyn Database>> {
+        self.clone()
+    }
 }
 
 impl Database for TestDB {
-    fn get(&self, col: DBCol, key: &[u8]) -> Result<Option<Vec<u8>>, DBError> {
+    fn get_unsafe(&self, col: DBCol, key: &[u8]) -> Result<Option<Vec<u8>>, DBError> {
         Ok(self.db.read().unwrap()[col as usize].get(key).cloned())
     }
 
-    fn iter<'a>(&'a self, col: DBCol) -> Box<dyn Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a> {
+    fn iter_unsafe<'a>(
+        &'a self,
+        col: DBCol,
+    ) -> Box<dyn Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a> {
         let iterator = self.db.read().unwrap()[col as usize]
             .clone()
             .into_iter()
@@ -325,12 +420,12 @@ impl Database for TestDB {
         Box::new(iterator)
     }
 
-    fn iter_prefix<'a>(
+    fn iter_prefix_unsafe<'a>(
         &'a self,
         col: DBCol,
         key_prefix: &'a [u8],
     ) -> Box<dyn Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a> {
-        Box::new(self.iter(col).filter(move |(key, _value)| key.starts_with(key_prefix)))
+        Box::new(self.iter_unsafe(col).filter(move |(key, _value)| key.starts_with(key_prefix)))
     }
 
     fn write(&self, transaction: DBTransaction) -> Result<(), DBError> {
@@ -342,6 +437,10 @@ impl Database for TestDB {
             };
         }
         Ok(())
+    }
+
+    fn get_snapshot(self: Pin<Arc<Self>>) -> Arc<dyn ReadSnapshot> {
+        Arc::new(self)
     }
 }
 
@@ -394,7 +493,7 @@ impl RocksDB {
     /// Returns version of the database state on disk.
     pub fn get_version<P: AsRef<std::path::Path>>(path: P) -> Result<DbVersion, DBError> {
         let db = RocksDB::new_read_only(path)?;
-        db.get(DBCol::ColDbVersion, VERSION_KEY).map(|result| {
+        db.get_unsafe(DBCol::ColDbVersion, VERSION_KEY).map(|result| {
             serde_json::from_slice(
                 &result
                     .expect("Failed to find version in first column. Database must be corrupted."),

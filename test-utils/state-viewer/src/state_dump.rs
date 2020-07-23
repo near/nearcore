@@ -36,7 +36,7 @@ pub fn state_dump(
 
     let mut records = vec![];
     for (shard_id, state_root) in state_roots.iter().enumerate() {
-        let trie = runtime.get_trie_for_shard(shard_id as u64);
+        let trie = runtime.get_state_adapter().get_trie_for_shard(shard_id as u64);
         let trie = TrieIterator::new(&trie, &state_root).unwrap();
         for item in trie {
             let (key, value) = item.unwrap();
@@ -84,7 +84,7 @@ mod test {
 
     use crate::state_dump::state_dump;
 
-    fn setup(epoch_length: NumBlocks) -> (Arc<Store>, Genesis, TestEnv) {
+    fn setup(epoch_length: NumBlocks) -> (Store, Genesis, TestEnv) {
         let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
         genesis.config.num_block_producer_seats = 2;
         genesis.config.num_block_producer_seats_per_shard = vec![2];

@@ -29,8 +29,8 @@ use near_primitives::types::AccountId;
 use crate::db::{DBOp, DBTransaction, Database, RocksDB};
 pub use crate::trie::{
     iterator::TrieIterator, update::TrieUpdate, update::TrieUpdateIterator,
-    update::TrieUpdateValuePtr, KeyForStateChanges, PartialStorage, ShardTries, Trie, TrieChanges,
-    WrappedTrieChanges,
+    update::TrieUpdateValuePtr, KeyForStateChanges, PartialStorage, ShardTries, ShardTriesSnapshot,
+    Trie, TrieCaches, TrieChanges, WrappedTrieChanges,
 };
 use std::ops::Deref;
 use std::pin::Pin;
@@ -40,6 +40,7 @@ pub mod migrations;
 pub mod test_utils;
 mod trie;
 
+#[derive(Clone)]
 pub struct Store {
     storage: Pin<Arc<dyn Database>>,
 }
@@ -49,8 +50,8 @@ impl Store {
         Store { storage }
     }
 
-    pub fn get(&self, column: DBCol, key: &[u8]) -> Result<Option<Vec<u8>>, io::Error> {
-        self.storage.get(column, key).map_err(|e| e.into())
+    pub fn get_unsafe(&self, column: DBCol, key: &[u8]) -> Result<Option<Vec<u8>>, io::Error> {
+        self.storage.get_unsafe(column, key).map_err(|e| e.into())
     }
 
     pub fn get_ser<T: BorshDeserialize>(
@@ -58,7 +59,7 @@ impl Store {
         column: DBCol,
         key: &[u8],
     ) -> Result<Option<T>, io::Error> {
-        match self.storage.get(column, key) {
+        match self.storage.get_unsafe(column, key) {
             Ok(Some(bytes)) => match T::try_from_slice(bytes.as_ref()) {
                 Ok(result) => Ok(Some(result)),
                 Err(e) => Err(e),
@@ -69,26 +70,26 @@ impl Store {
     }
 
     pub fn exists(&self, column: DBCol, key: &[u8]) -> Result<bool, io::Error> {
-        self.storage.get(column, key).map(|value| value.is_some()).map_err(|e| e.into())
+        self.storage.get_unsafe(column, key).map(|value| value.is_some()).map_err(|e| e.into())
     }
 
     pub fn store_update(&self) -> StoreUpdate {
         StoreUpdate::new(self.storage.clone())
     }
 
-    pub fn iter<'a>(
+    pub fn iter_unsafe<'a>(
         &'a self,
         column: DBCol,
     ) -> Box<dyn Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a> {
-        self.storage.iter(column)
+        self.storage.iter_unsafe(column)
     }
 
-    pub fn iter_prefix<'a>(
+    pub fn iter_prefix_unsafe<'a>(
         &'a self,
         column: DBCol,
         key_prefix: &'a [u8],
     ) -> Box<dyn Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a> {
-        self.storage.iter_prefix(column, key_prefix)
+        self.storage.iter_prefix_unsafe(column, key_prefix)
     }
 
     pub fn iter_prefix_ser<'a, T: BorshDeserialize>(
@@ -98,14 +99,14 @@ impl Store {
     ) -> Box<dyn Iterator<Item = Result<(Vec<u8>, T), io::Error>> + 'a> {
         Box::new(
             self.storage
-                .iter_prefix(column, key_prefix)
+                .iter_prefix_unsafe(column, key_prefix)
                 .map(|(key, value)| Ok((key.to_vec(), T::try_from_slice(value.as_ref())?))),
         )
     }
 
     pub fn save_to_file(&self, column: DBCol, filename: &Path) -> Result<(), std::io::Error> {
         let mut file = File::create(filename)?;
-        for (key, value) in self.storage.iter(column) {
+        for (key, value) in self.storage.iter_unsafe(column) {
             file.write_u32::<LittleEndian>(key.len() as u32)?;
             file.write_all(&key)?;
             file.write_u32::<LittleEndian>(value.len() as u32)?;
@@ -139,7 +140,7 @@ pub struct StoreUpdate {
     storage: Pin<Arc<dyn Database>>,
     transaction: DBTransaction,
     /// Optionally has reference to the trie to clear cache on the commit.
-    tries: Option<ShardTries>,
+    tries: Option<TrieCaches>,
 }
 
 impl StoreUpdate {
@@ -148,8 +149,9 @@ impl StoreUpdate {
         StoreUpdate { storage, transaction, tries: None }
     }
 
-    pub fn new_with_tries(tries: ShardTries) -> Self {
-        let storage = tries.get_store().storage.clone();
+    pub fn new_with_tries(trie_writer: &ShardTries) -> Self {
+        let storage = trie_writer.store.storage.clone();
+        let tries = trie_writer.caches.clone();
         let transaction = storage.transaction();
         StoreUpdate { storage, transaction, tries: Some(tries) }
     }
@@ -180,8 +182,8 @@ impl StoreUpdate {
                 self.tries = Some(tries);
             } else {
                 debug_assert_eq!(
-                    self.tries.as_ref().unwrap().caches.as_ref() as *const _,
-                    tries.caches.as_ref() as *const _
+                    self.tries.as_ref().unwrap().0.deref() as *const _,
+                    tries.0.deref() as *const _
                 );
             }
         }
@@ -216,10 +218,6 @@ impl StoreUpdate {
             self
         );
         if let Some(tries) = self.tries {
-            assert_eq!(
-                tries.get_store().storage.deref() as *const _,
-                self.storage.deref() as *const _
-            );
             tries.update_cache(&self.transaction)?;
         }
         self.storage.write(self.transaction).map_err(|e| e.into())
@@ -256,9 +254,9 @@ pub fn read_with_cache<'a, T: BorshDeserialize + 'a>(
     Ok(None)
 }
 
-pub fn create_store(path: &str) -> Arc<Store> {
+pub fn create_store(path: &str) -> Store {
     let db = Arc::pin(RocksDB::new(path).expect("Failed to open the database"));
-    Arc::new(Store::new(db))
+    Store::new(db)
 }
 
 /// Reads an object from Trie.

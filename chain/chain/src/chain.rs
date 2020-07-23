@@ -933,10 +933,10 @@ impl Chain {
 
         // clear all trie data
         let keys: Vec<Vec<u8>> =
-            self.store().store().iter_prefix(ColState, &[]).map(|kv| kv.0.into()).collect();
-        let tries = self.runtime_adapter.get_tries();
+            self.store().store().iter_prefix_unsafe(ColState, &[]).map(|kv| kv.0.into()).collect();
+        let tries = self.runtime_adapter.get_tries_writer();
         let mut chain_store_update = self.mut_store().store_update();
-        let mut store_update = StoreUpdate::new_with_tries(tries);
+        let mut store_update = StoreUpdate::new_with_tries(&tries);
         for key in keys.iter() {
             store_update.delete(ColState, key.as_ref());
             chain_store_update.inc_gc_col_state();
@@ -1445,6 +1445,7 @@ impl Chain {
 
         let state_root_node = self
             .runtime_adapter
+            .get_state_adapter()
             .get_state_root_node(shard_id, &chunk_header.inner.prev_state_root)?;
 
         let shard_state_header = ShardStateSyncResponseHeader {
@@ -1498,6 +1499,7 @@ impl Chain {
         let state_root = sync_prev_block.chunks()[shard_id as usize].inner.prev_state_root.clone();
         let state_root_node = self
             .runtime_adapter
+            .get_state_adapter()
             .get_state_root_node(shard_id, &state_root)
             .log_storage_error("get_state_root_node fail")?;
         let num_parts = get_num_state_parts(state_root_node.memory_usage);
@@ -1507,6 +1509,7 @@ impl Chain {
         }
         let state_part = self
             .runtime_adapter
+            .get_state_adapter()
             .obtain_state_part(shard_id, &state_root, part_id, num_parts)
             .log_storage_error("obtain_state_part fail")?;
 
@@ -2599,6 +2602,7 @@ impl<'a> ChainUpdate<'a> {
         )?;
         let apply_result = self
             .runtime_adapter
+            .get_state_adapter()
             .apply_transactions_with_optional_storage_proof(
                 chunk_header.inner.shard_id,
                 &prev_chunk.header.inner.prev_state_root,
@@ -2725,6 +2729,7 @@ impl<'a> ChainUpdate<'a> {
                     // Apply transactions and receipts.
                     let mut apply_result = self
                         .runtime_adapter
+                        .get_state_adapter()
                         .apply_transactions(
                             shard_id,
                             &chunk.header.inner.prev_state_root,
@@ -2790,6 +2795,7 @@ impl<'a> ChainUpdate<'a> {
 
                     let apply_result = self
                         .runtime_adapter
+                        .get_state_adapter()
                         .apply_transactions(
                             shard_id,
                             &new_extra.state_root,
@@ -3386,7 +3392,7 @@ impl<'a> ChainUpdate<'a> {
         let receipts = collect_receipts_from_response(&receipt_proof_response);
 
         let gas_limit = chunk.header.inner.gas_limit;
-        let mut apply_result = self.runtime_adapter.apply_transactions(
+        let mut apply_result = self.runtime_adapter.get_state_adapter().apply_transactions(
             shard_id,
             &chunk.header.inner.prev_state_root,
             chunk.header.height_included,
@@ -3467,7 +3473,7 @@ impl<'a> ChainUpdate<'a> {
         let mut chunk_extra =
             self.chain_store_update.get_chunk_extra(&prev_block_header.hash(), shard_id)?.clone();
 
-        let apply_result = self.runtime_adapter.apply_transactions(
+        let apply_result = self.runtime_adapter.get_state_adapter().apply_transactions(
             shard_id,
             &chunk_extra.state_root,
             block_header.height(),

@@ -543,6 +543,7 @@ impl Client {
         let transactions = if let Some(mut iter) = shards_mgr.get_pool_iterator(shard_id) {
             let transaction_validity_period = chain.transaction_validity_period;
             runtime_adapter
+                .get_state_adapter()
                 .prepare_transactions(
                     prev_block_header.gas_price(),
                     chunk_extra.gas_limit,
@@ -800,10 +801,10 @@ impl Client {
             self.shards_mgr.update_largest_seen_height(block.header().height());
             if !self.config.archive {
                 let timer = near_metrics::start_timer(&metrics::GC_TIME);
-                if let Err(err) = self
-                    .chain
-                    .clear_data(self.runtime_adapter.get_tries(), self.config.gc_blocks_limit)
-                {
+                if let Err(err) = self.chain.clear_data(
+                    self.runtime_adapter.get_tries_writer(),
+                    self.config.gc_blocks_limit,
+                ) {
                     error!(target: "client", "Can't clear old data, {:?}", err);
                     debug_assert!(false);
                 };
@@ -1204,7 +1205,7 @@ impl Client {
 
         // Fast transaction validation without a state root.
         if let Some(err) =
-            self.runtime_adapter.validate_tx(gas_price, None, &tx).expect("no storage errors")
+            self.runtime_adapter.validate_tx_stateless(gas_price, &tx).expect("no storage errors")
         {
             debug!(target: "client", "Invalid tx during basic validation: {:?}", err);
             return Ok(NetworkClientResponses::InvalidTx(err));
@@ -1228,11 +1229,15 @@ impl Client {
                     }
                 }
             };
-            if let Some(err) = self
-                .runtime_adapter
-                .validate_tx(gas_price, Some(state_root), &tx)
-                .expect("no storage errors")
-            {
+            let outcome =
+                self.runtime_adapter.get_state_adapter().validate_tx(gas_price, state_root, &tx);
+
+            let outcome = unwrap_or_return!(outcome, {
+                error!(target: "client",
+                           "We don't have our own state_root during validate_tx?");
+                Err(ErrorKind::Other("Node has not caught up yet".to_string()).into())
+            });
+            if let Some(err) = outcome {
                 debug!(target: "client", "Invalid tx: {:?}", err);
                 Ok(NetworkClientResponses::InvalidTx(err))
             } else if check_only {

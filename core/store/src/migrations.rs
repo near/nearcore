@@ -36,7 +36,7 @@ fn get_outcomes_by_block_hash(store: &Store, block_hash: &CryptoHash) -> HashSet
 pub fn fill_col_outcomes_by_hash(store: &Store) {
     let mut store_update = store.store_update();
     let outcomes: Vec<ExecutionOutcomeWithIdAndProof> = store
-        .iter(DBCol::ColTransactionResult)
+        .iter_unsafe(DBCol::ColTransactionResult)
         .map(|key| {
             ExecutionOutcomeWithIdAndProof::try_from_slice(&key.1)
                 .expect("BorshDeserialize should not fail")
@@ -65,7 +65,7 @@ pub fn fill_col_outcomes_by_hash(store: &Store) {
 pub fn fill_col_transaction_refcount(store: &Store) {
     let mut store_update = store.store_update();
     let chunks: Vec<ShardChunk> = store
-        .iter(DBCol::ColChunks)
+        .iter_unsafe(DBCol::ColChunks)
         .map(|key| ShardChunk::try_from_slice(&key.1).expect("BorshDeserialize should not fail"))
         .collect();
 

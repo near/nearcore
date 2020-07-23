@@ -1,6 +1,5 @@
 use std::collections::{hash_map::Entry, HashMap, HashSet};
 use std::ops::Sub;
-use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use serde::Serialize;
@@ -263,7 +262,7 @@ pub struct RoutingTable {
     /// Last time a peer with reachable through active edges.
     pub peer_last_time_reachable: HashMap<PeerId, chrono::DateTime<chrono::Utc>>,
     /// Access to store on disk
-    store: Arc<Store>,
+    store: Store,
     /// Current view of the network. Nodes are Peers and edges are active connections.
     raw_graph: Graph,
     /// Number of times each active connection was used to route a message.
@@ -293,7 +292,7 @@ pub enum FindRouteError {
 }
 
 impl RoutingTable {
-    pub fn new(peer_id: PeerId, store: Arc<Store>) -> Self {
+    pub fn new(peer_id: PeerId, store: Store) -> Self {
         // Find greater nonce on disk and set `component_nonce` to this value.
         let component_nonce = store
             .get_ser::<u64>(ColLastComponentNonce, &[])

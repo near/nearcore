@@ -14,12 +14,13 @@ use near_primitives::{
     types::{Balance, BlockHeight, EpochHeight, Gas, StateChangeCause},
 };
 use near_runtime_configs::RuntimeConfig;
+use near_store::test_utils::ShardTriesTestUtils;
 use near_store::{
     get_access_key, get_account, set_account, test_utils::create_test_store, ShardTries, Store,
+    TrieCaches,
 };
 use node_runtime::{state_viewer::TrieViewer, ApplyState, Runtime};
 use std::collections::HashMap;
-use std::sync::Arc;
 
 const DEFAULT_EPOCH_LENGTH: u64 = 3;
 
@@ -125,13 +126,13 @@ pub struct RuntimeStandalone {
 }
 
 impl RuntimeStandalone {
-    pub fn new(genesis: GenesisConfig, store: Arc<Store>) -> Self {
+    pub fn new(genesis: GenesisConfig, store: Store) -> Self {
         let mut genesis_block = Block::genesis(&genesis);
         let mut store_update = store.store_update();
         let runtime = Runtime::new(genesis.runtime_config.clone());
-        let tries = ShardTries::new(store, 1);
+        let tries = ShardTries::new(store.clone(), TrieCaches::new(1));
         let (s_update, state_root) =
-            runtime.apply_genesis_state(tries.clone(), 0, &[], &genesis.state_records);
+            runtime.apply_genesis_state(&tries, 0, &[], &genesis.state_records);
         store_update.merge(s_update);
         store_update.commit().unwrap();
         genesis_block.state_root = state_root;
@@ -216,7 +217,7 @@ impl RuntimeStandalone {
         };
 
         let apply_result = self.runtime.apply(
-            self.tries.get_trie_for_shard(0),
+            self.tries.snapshot().get_trie_for_shard(0),
             self.cur_block.state_root,
             &None,
             &apply_state,
@@ -256,7 +257,7 @@ impl RuntimeStandalone {
 
     /// Force alter account and change state_root.
     pub fn force_account_update(&mut self, account_id: AccountId, account: &Account) {
-        let mut trie_update = self.tries.new_trie_update(0, self.cur_block.state_root);
+        let mut trie_update = self.tries.snapshot().new_trie_update(0, self.cur_block.state_root);
         set_account(&mut trie_update, account_id, account);
         trie_update.commit(StateChangeCause::ValidatorAccountsUpdate);
         let (trie_changes, _) = trie_update.finalize().expect("Unexpected Storage error");
@@ -266,7 +267,7 @@ impl RuntimeStandalone {
     }
 
     pub fn view_account(&self, account_id: &AccountId) -> Option<Account> {
-        let trie_update = self.tries.new_trie_update(0, self.cur_block.state_root);
+        let trie_update = self.tries.snapshot().new_trie_update(0, self.cur_block.state_root);
         get_account(&trie_update, account_id).expect("Unexpected Storage error")
     }
 
@@ -275,7 +276,7 @@ impl RuntimeStandalone {
         account_id: &AccountId,
         public_key: &PublicKey,
     ) -> Option<AccessKey> {
-        let trie_update = self.tries.new_trie_update(0, self.cur_block.state_root);
+        let trie_update = self.tries.snapshot().new_trie_update(0, self.cur_block.state_root);
         get_access_key(&trie_update, account_id, public_key).expect("Unexpected Storage error")
     }
 
@@ -286,7 +287,7 @@ impl RuntimeStandalone {
         method_name: &str,
         args: &[u8],
     ) -> Result<(Vec<u8>, Vec<String>), Box<dyn std::error::Error>> {
-        let trie_update = self.tries.new_trie_update(0, self.cur_block.state_root);
+        let trie_update = self.tries.snapshot().new_trie_update(0, self.cur_block.state_root);
         let viewer = TrieViewer {};
         let mut logs = vec![];
         let result = viewer.call_function(

@@ -8,7 +8,8 @@ use near_primitives::receipt::Receipt;
 use near_primitives::test_utils::MockEpochInfoProvider;
 use near_primitives::transaction::{ExecutionStatus, SignedTransaction};
 use near_primitives::types::{Gas, MerkleHash, StateRoot};
-use near_store::{create_store, ColState, ShardTries};
+use near_store::test_utils::ShardTriesTestUtils;
+use near_store::{create_store, ColState, ShardTries, TrieCaches};
 use near_vm_logic::VMLimitConfig;
 use neard::get_store_path;
 use node_runtime::config::RuntimeConfig;
@@ -35,7 +36,7 @@ impl RuntimeTestbed {
         let workdir = tempfile::Builder::new().prefix("runtime_testbed").tempdir().unwrap();
         println!("workdir {}", workdir.path().to_str().unwrap());
         let store = create_store(&get_store_path(workdir.path()));
-        let tries = ShardTries::new(store.clone(), 1);
+        let tries = ShardTries::new(store.clone(), TrieCaches::new(1));
 
         let mut state_file = dump_dir.to_path_buf();
         state_file.push(STATE_DUMP_FILE);
@@ -103,7 +104,7 @@ impl RuntimeTestbed {
         let apply_result = self
             .runtime
             .apply(
-                self.tries.get_trie_for_shard(0),
+                self.tries.snapshot().get_trie_for_shard(0),
                 self.root,
                 &None,
                 &self.apply_state,

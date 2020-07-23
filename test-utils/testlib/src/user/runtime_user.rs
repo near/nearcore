@@ -20,6 +20,7 @@ use node_runtime::{ApplyState, Runtime};
 
 use crate::user::{User, POISONED_LOCK_ERR};
 use near_primitives::test_utils::MockEpochInfoProvider;
+use near_store::test_utils::ShardTriesTestUtils;
 use neard::config::MIN_GAS_PRICE;
 
 /// Mock client without chain, used in RuntimeUser and RuntimeNode
@@ -32,7 +33,7 @@ pub struct MockClient {
 
 impl MockClient {
     pub fn get_state_update(&self) -> TrieUpdate {
-        self.tries.new_trie_update(0, self.state_root)
+        self.tries.snapshot().new_trie_update(0, self.state_root)
     }
 }
 
@@ -79,7 +80,7 @@ impl RuntimeUser {
             let apply_result = client
                 .runtime
                 .apply(
-                    client.tries.get_trie_for_shard(0),
+                    client.tries.snapshot().get_trie_for_shard(0),
                     client.state_root,
                     &None,
                     &apply_state,

@@ -259,7 +259,7 @@ impl Handler<NetworkClientMessages> for ClientActor {
                         info!(target: "adversary", "Requested number of saved blocks");
                         let store = self.client.chain.store().store();
                         let mut num_blocks = 0;
-                        for _ in store.iter(ColBlock) {
+                        for _ in store.iter_unsafe(ColBlock) {
                             num_blocks += 1;
                         }
                         NetworkClientResponses::AdvResult(num_blocks)

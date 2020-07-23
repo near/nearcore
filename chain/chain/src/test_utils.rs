@@ -34,13 +34,14 @@ use near_primitives::views::{
 };
 use near_store::test_utils::create_test_store;
 use near_store::{
-    ColBlockHeader, PartialStorage, ShardTries, Store, Trie, TrieChanges, WrappedTrieChanges,
+    ColBlockHeader, PartialStorage, ShardTries, ShardTriesSnapshot, Store, Trie, TrieCaches,
+    TrieChanges, WrappedTrieChanges,
 };
 
 use crate::chain::{Chain, NUM_EPOCHS_TO_KEEP_STORE_DATA};
 use crate::error::{Error, ErrorKind};
 use crate::store::ChainStoreAccess;
-use crate::types::{ApplyTransactionResult, BlockHeaderInfo, ChainGenesis};
+use crate::types::{ApplyTransactionResult, BlockHeaderInfo, ChainGenesis, RuntimeStateAdapter};
 use crate::{BlockHeader, DoomslugThresholdMode, RuntimeAdapter};
 
 #[derive(
@@ -57,8 +58,8 @@ struct KVState {
 
 /// Simple key value runtime for tests.
 pub struct KeyValueRuntime {
-    store: Arc<Store>,
-    tries: ShardTries,
+    store: Store,
+    trie_caches: TrieCaches,
     validators: Vec<Vec<ValidatorStake>>,
     validator_groups: u64,
     num_shards: NumShards,
@@ -93,18 +94,18 @@ fn create_receipt_nonce(from: String, to: String, amount: Balance, nonce: Nonce)
 }
 
 impl KeyValueRuntime {
-    pub fn new(store: Arc<Store>) -> Self {
+    pub fn new(store: Store) -> Self {
         Self::new_with_validators(store, vec![vec!["test".to_string()]], 1, 1, 5)
     }
 
     pub fn new_with_validators(
-        store: Arc<Store>,
+        store: Store,
         validators: Vec<Vec<AccountId>>,
         validator_groups: u64,
         num_shards: NumShards,
         epoch_length: u64,
     ) -> Self {
-        let tries = ShardTries::new(store.clone(), num_shards);
+        let trie_caches = TrieCaches::new(num_shards);
         let mut initial_amounts = HashMap::new();
         for (i, validator) in validators.iter().flatten().enumerate() {
             initial_amounts.insert(validator.clone(), (1000 + 100 * i) as u128);
@@ -132,7 +133,7 @@ impl KeyValueRuntime {
         state_size.insert(StateRoot::default(), data_len);
         KeyValueRuntime {
             store,
-            tries,
+            trie_caches,
             validators: validators
                 .iter()
                 .map(|account_ids| {
@@ -257,17 +258,337 @@ impl KeyValueRuntime {
     }
 }
 
-impl RuntimeAdapter for KeyValueRuntime {
-    fn genesis_state(&self) -> (Arc<Store>, Vec<StateRoot>) {
-        (self.store.clone(), ((0..self.num_shards()).map(|_| StateRoot::default()).collect()))
-    }
-
-    fn get_tries(&self) -> ShardTries {
-        self.tries.clone()
+impl RuntimeStateAdapter for &KeyValueRuntime {
+    fn get_tries(&self) -> ShardTriesSnapshot {
+        ShardTriesSnapshot::new(self.store.clone(), self.trie_caches.clone())
     }
 
     fn get_trie_for_shard(&self, shard_id: ShardId) -> Trie {
-        self.tries.get_trie_for_shard(shard_id)
+        self.get_tries().get_trie_for_shard(shard_id)
+    }
+
+    fn validate_tx(
+        &self,
+        _gas_price: Balance,
+        _state_update: StateRoot,
+        _transaction: &SignedTransaction,
+    ) -> Result<Option<InvalidTxError>, Error> {
+        Ok(None)
+    }
+
+    fn prepare_transactions(
+        &self,
+        _gas_price: Balance,
+        _gas_limit: Gas,
+        _shard_id: ShardId,
+        _state_root: StateRoot,
+        transactions: &mut dyn PoolIterator,
+        _chain_validate: &mut dyn FnMut(&SignedTransaction) -> bool,
+    ) -> Result<Vec<SignedTransaction>, Error> {
+        let mut res = vec![];
+        while let Some(iter) = transactions.next() {
+            res.push(iter.next().unwrap());
+        }
+        Ok(res)
+    }
+    fn apply_transactions_with_optional_storage_proof(
+        &self,
+        shard_id: ShardId,
+        state_root: &StateRoot,
+        _height: BlockHeight,
+        _block_timestamp: u64,
+        _prev_block_hash: &CryptoHash,
+        block_hash: &CryptoHash,
+        receipts: &[Receipt],
+        transactions: &[SignedTransaction],
+        _last_validator_proposals: &[ValidatorStake],
+        gas_price: Balance,
+        _gas_limit: Gas,
+        _challenges: &ChallengesResult,
+        generate_storage_proof: bool,
+    ) -> Result<ApplyTransactionResult, Error> {
+        assert!(!generate_storage_proof);
+        let mut tx_results = vec![];
+
+        let mut state = self.state.read().unwrap().get(&state_root).cloned().unwrap();
+
+        let mut balance_transfers = vec![];
+
+        for receipt in receipts.iter() {
+            if let ReceiptEnum::Action(action) = &receipt.receipt {
+                assert_eq!(self.account_id_to_shard_id(&receipt.receiver_id), shard_id);
+                if !state.receipt_nonces.contains(&receipt.receipt_id) {
+                    state.receipt_nonces.insert(receipt.receipt_id);
+                    if let Action::Transfer(TransferAction { deposit }) = action.actions[0] {
+                        balance_transfers.push((
+                            receipt.get_hash(),
+                            receipt.predecessor_id.clone(),
+                            receipt.receiver_id.clone(),
+                            deposit,
+                            0,
+                        ));
+                    }
+                } else {
+                    panic!("receipts should never be applied twice");
+                }
+            } else {
+                unreachable!();
+            }
+        }
+
+        for transaction in transactions {
+            assert_eq!(self.account_id_to_shard_id(&transaction.transaction.signer_id), shard_id);
+            if transaction.transaction.actions.is_empty() {
+                continue;
+            }
+            if let Action::Transfer(TransferAction { deposit }) = transaction.transaction.actions[0]
+            {
+                if !state.tx_nonces.contains(&AccountNonce(
+                    transaction.transaction.receiver_id.clone(),
+                    transaction.transaction.nonce,
+                )) {
+                    state.tx_nonces.insert(AccountNonce(
+                        transaction.transaction.receiver_id.clone(),
+                        transaction.transaction.nonce,
+                    ));
+                    balance_transfers.push((
+                        transaction.get_hash(),
+                        transaction.transaction.signer_id.clone(),
+                        transaction.transaction.receiver_id.clone(),
+                        deposit,
+                        transaction.transaction.nonce,
+                    ));
+                } else {
+                    balance_transfers.push((
+                        transaction.get_hash(),
+                        transaction.transaction.signer_id.clone(),
+                        transaction.transaction.receiver_id.clone(),
+                        0,
+                        transaction.transaction.nonce,
+                    ));
+                }
+            } else {
+                unreachable!();
+            }
+        }
+
+        let mut new_receipts = HashMap::new();
+
+        for (hash, from, to, amount, nonce) in balance_transfers {
+            let mut good_to_go = false;
+
+            if self.account_id_to_shard_id(&from) != shard_id {
+                // This is a receipt, was already debited
+                good_to_go = true;
+            } else if let Some(balance) = state.amounts.get(&from) {
+                if *balance >= amount {
+                    let new_balance = balance - amount;
+                    state.amounts.insert(from.clone(), new_balance);
+                    good_to_go = true;
+                }
+            }
+
+            if good_to_go {
+                let new_receipt_hashes = if self.account_id_to_shard_id(&to) == shard_id {
+                    state.amounts.insert(to.clone(), state.amounts.get(&to).unwrap_or(&0) + amount);
+                    vec![]
+                } else {
+                    assert_ne!(nonce, 0);
+                    let receipt = Receipt {
+                        predecessor_id: from.clone(),
+                        receiver_id: to.clone(),
+                        receipt_id: create_receipt_nonce(from.clone(), to.clone(), amount, nonce),
+                        receipt: ReceiptEnum::Action(ActionReceipt {
+                            signer_id: from.clone(),
+                            signer_public_key: PublicKey::empty(KeyType::ED25519),
+                            gas_price,
+                            output_data_receivers: vec![],
+                            input_data_ids: vec![],
+                            actions: vec![Action::Transfer(TransferAction { deposit: amount })],
+                        }),
+                    };
+                    let receipt_hash = receipt.get_hash();
+                    new_receipts
+                        .entry(self.account_id_to_shard_id(&receipt.receiver_id))
+                        .or_insert_with(|| vec![])
+                        .push(receipt);
+                    vec![receipt_hash]
+                };
+
+                tx_results.push(ExecutionOutcomeWithId {
+                    id: hash,
+                    outcome: ExecutionOutcome {
+                        status: ExecutionStatus::SuccessValue(vec![]),
+                        logs: vec![],
+                        receipt_ids: new_receipt_hashes,
+                        gas_burnt: 0,
+                        tokens_burnt: 0,
+                        executor_id: to.clone(),
+                    },
+                });
+            }
+        }
+
+        let mut new_balances = vec![];
+        for validator in self.validators.iter().flatten() {
+            let mut seen = false;
+            for (key, value) in state.amounts.iter() {
+                if key == &validator.account_id {
+                    assert!(!seen);
+                    seen = true;
+                    new_balances.push(*value);
+                }
+            }
+            if !seen {
+                new_balances.push(0);
+            }
+        }
+
+        let data = state.try_to_vec()?;
+        let state_size = data.len() as u64;
+        let state_root = hash(&data);
+        self.state.write().unwrap().insert(state_root.clone(), state);
+        self.state_size.write().unwrap().insert(state_root.clone(), state_size);
+
+        Ok(ApplyTransactionResult {
+            trie_changes: WrappedTrieChanges::new(
+                self.get_tries_writer(),
+                shard_id,
+                TrieChanges::empty(state_root),
+                Default::default(),
+                block_hash.clone(),
+            ),
+            new_root: state_root,
+            outcomes: tx_results,
+            receipt_result: new_receipts,
+            validator_proposals: vec![],
+            total_gas_burnt: 0,
+            total_balance_burnt: 0,
+            proof: None,
+        })
+    }
+
+    fn query(
+        &self,
+        _shard_id: ShardId,
+        state_root: &StateRoot,
+        block_height: BlockHeight,
+        _block_timestamp: u64,
+        block_hash: &CryptoHash,
+        _epoch_id: &EpochId,
+        request: &QueryRequest,
+    ) -> Result<QueryResponse, Box<dyn std::error::Error>> {
+        match request {
+            QueryRequest::ViewAccount { account_id, .. } => Ok(QueryResponse {
+                kind: QueryResponseKind::ViewAccount(
+                    Account {
+                        amount: self.state.read().unwrap().get(&state_root).map_or_else(
+                            || 0,
+                            |state| *state.amounts.get(account_id).unwrap_or(&0),
+                        ),
+                        locked: 0,
+                        code_hash: CryptoHash::default(),
+                        storage_usage: 0,
+                    }
+                    .into(),
+                ),
+                block_height,
+                block_hash: *block_hash,
+            }),
+            QueryRequest::ViewAccessKeyList { .. } => Ok(QueryResponse {
+                kind: QueryResponseKind::AccessKeyList(AccessKeyList {
+                    keys: vec![AccessKeyInfoView {
+                        public_key: PublicKey::empty(KeyType::ED25519),
+                        access_key: AccessKey::full_access().into(),
+                    }],
+                }),
+                block_height,
+                block_hash: *block_hash,
+            }),
+            QueryRequest::ViewAccessKey { .. } => Ok(QueryResponse {
+                kind: QueryResponseKind::AccessKey(AccessKey::full_access().into()),
+                block_height,
+                block_hash: *block_hash,
+            }),
+            QueryRequest::ViewState { .. } => Ok(QueryResponse {
+                kind: QueryResponseKind::ViewState(ViewStateResult {
+                    values: Default::default(),
+                    proof: vec![],
+                }),
+                block_height,
+                block_hash: *block_hash,
+            }),
+            QueryRequest::CallFunction { .. } => Ok(QueryResponse {
+                kind: QueryResponseKind::CallResult(CallResult {
+                    result: Default::default(),
+                    logs: Default::default(),
+                }),
+                block_height,
+                block_hash: *block_hash,
+            }),
+        }
+    }
+
+    fn obtain_state_part(
+        &self,
+        _shard_id: ShardId,
+        state_root: &StateRoot,
+        part_id: u64,
+        num_parts: u64,
+    ) -> Result<Vec<u8>, Error> {
+        assert!(part_id < num_parts);
+        let state = self.state.read().unwrap().get(&state_root).unwrap().clone();
+        let data = state.try_to_vec().expect("should never fall");
+        let state_size = data.len() as u64;
+        let begin = state_size / num_parts * part_id;
+        let mut end = state_size / num_parts * (part_id + 1);
+        if part_id + 1 == num_parts {
+            end = state_size;
+        }
+        Ok(data[begin as usize..end as usize].to_vec())
+    }
+
+    fn get_state_root_node(
+        &self,
+        _shard_id: ShardId,
+        state_root: &StateRoot,
+    ) -> Result<StateRootNode, Error> {
+        Ok(StateRootNode {
+            data: self
+                .state
+                .read()
+                .unwrap()
+                .get(&state_root)
+                .unwrap()
+                .clone()
+                .try_to_vec()
+                .expect("should never fall"),
+            memory_usage: self.state_size.read().unwrap().get(&state_root).unwrap().clone(),
+        })
+    }
+}
+
+impl RuntimeAdapter for KeyValueRuntime {
+    fn get_tries_writer(&self) -> ShardTries {
+        ShardTries::new(self.store.clone(), self.trie_caches.clone())
+    }
+
+    fn get_state_adapter<'a>(&'a self) -> Box<dyn RuntimeStateAdapter + 'a> {
+        Box::new(self)
+    }
+
+    fn genesis_state(&self) -> (Store, Vec<StateRoot>) {
+        (self.store.clone(), ((0..self.num_shards()).map(|_| StateRoot::default()).collect()))
+    }
+
+    fn verify_block_signature(&self, header: &BlockHeader) -> Result<(), Error> {
+        let validators = &self.validators
+            [self.get_epoch_and_valset(*header.prev_hash()).map_err(|err| err.to_string())?.1];
+        let validator = &validators[(header.height() as usize) % validators.len()];
+        if !header.verify_block_producer(&validator.public_key) {
+            return Err(ErrorKind::InvalidBlockProposer.into());
+        }
+        Ok(())
     }
 
     fn verify_block_vrf(
@@ -456,210 +777,28 @@ impl RuntimeAdapter for KeyValueRuntime {
         false
     }
 
-    fn validate_tx(
+    fn validate_tx_stateless(
         &self,
         _gas_price: Balance,
-        _state_update: Option<StateRoot>,
         _transaction: &SignedTransaction,
     ) -> Result<Option<InvalidTxError>, Error> {
         Ok(None)
-    }
-
-    fn prepare_transactions(
-        &self,
-        _gas_price: Balance,
-        _gas_limit: Gas,
-        _shard_id: ShardId,
-        _state_root: StateRoot,
-        transactions: &mut dyn PoolIterator,
-        _chain_validate: &mut dyn FnMut(&SignedTransaction) -> bool,
-    ) -> Result<Vec<SignedTransaction>, Error> {
-        let mut res = vec![];
-        while let Some(iter) = transactions.next() {
-            res.push(iter.next().unwrap());
-        }
-        Ok(res)
     }
 
     fn add_validator_proposals(&self, _block_header_info: BlockHeaderInfo) -> Result<(), Error> {
         Ok(())
     }
 
-    fn apply_transactions_with_optional_storage_proof(
+    fn validate_state_part(
         &self,
-        shard_id: ShardId,
-        state_root: &StateRoot,
-        _height: BlockHeight,
-        _block_timestamp: u64,
-        _prev_block_hash: &CryptoHash,
-        block_hash: &CryptoHash,
-        receipts: &[Receipt],
-        transactions: &[SignedTransaction],
-        _last_validator_proposals: &[ValidatorStake],
-        gas_price: Balance,
-        _gas_limit: Gas,
-        _challenges: &ChallengesResult,
-        generate_storage_proof: bool,
-    ) -> Result<ApplyTransactionResult, Error> {
-        assert!(!generate_storage_proof);
-        let mut tx_results = vec![];
-
-        let mut state = self.state.read().unwrap().get(&state_root).cloned().unwrap();
-
-        let mut balance_transfers = vec![];
-
-        for receipt in receipts.iter() {
-            if let ReceiptEnum::Action(action) = &receipt.receipt {
-                assert_eq!(self.account_id_to_shard_id(&receipt.receiver_id), shard_id);
-                if !state.receipt_nonces.contains(&receipt.receipt_id) {
-                    state.receipt_nonces.insert(receipt.receipt_id);
-                    if let Action::Transfer(TransferAction { deposit }) = action.actions[0] {
-                        balance_transfers.push((
-                            receipt.get_hash(),
-                            receipt.predecessor_id.clone(),
-                            receipt.receiver_id.clone(),
-                            deposit,
-                            0,
-                        ));
-                    }
-                } else {
-                    panic!("receipts should never be applied twice");
-                }
-            } else {
-                unreachable!();
-            }
-        }
-
-        for transaction in transactions {
-            assert_eq!(self.account_id_to_shard_id(&transaction.transaction.signer_id), shard_id);
-            if transaction.transaction.actions.is_empty() {
-                continue;
-            }
-            if let Action::Transfer(TransferAction { deposit }) = transaction.transaction.actions[0]
-            {
-                if !state.tx_nonces.contains(&AccountNonce(
-                    transaction.transaction.receiver_id.clone(),
-                    transaction.transaction.nonce,
-                )) {
-                    state.tx_nonces.insert(AccountNonce(
-                        transaction.transaction.receiver_id.clone(),
-                        transaction.transaction.nonce,
-                    ));
-                    balance_transfers.push((
-                        transaction.get_hash(),
-                        transaction.transaction.signer_id.clone(),
-                        transaction.transaction.receiver_id.clone(),
-                        deposit,
-                        transaction.transaction.nonce,
-                    ));
-                } else {
-                    balance_transfers.push((
-                        transaction.get_hash(),
-                        transaction.transaction.signer_id.clone(),
-                        transaction.transaction.receiver_id.clone(),
-                        0,
-                        transaction.transaction.nonce,
-                    ));
-                }
-            } else {
-                unreachable!();
-            }
-        }
-
-        let mut new_receipts = HashMap::new();
-
-        for (hash, from, to, amount, nonce) in balance_transfers {
-            let mut good_to_go = false;
-
-            if self.account_id_to_shard_id(&from) != shard_id {
-                // This is a receipt, was already debited
-                good_to_go = true;
-            } else if let Some(balance) = state.amounts.get(&from) {
-                if *balance >= amount {
-                    let new_balance = balance - amount;
-                    state.amounts.insert(from.clone(), new_balance);
-                    good_to_go = true;
-                }
-            }
-
-            if good_to_go {
-                let new_receipt_hashes = if self.account_id_to_shard_id(&to) == shard_id {
-                    state.amounts.insert(to.clone(), state.amounts.get(&to).unwrap_or(&0) + amount);
-                    vec![]
-                } else {
-                    assert_ne!(nonce, 0);
-                    let receipt = Receipt {
-                        predecessor_id: from.clone(),
-                        receiver_id: to.clone(),
-                        receipt_id: create_receipt_nonce(from.clone(), to.clone(), amount, nonce),
-                        receipt: ReceiptEnum::Action(ActionReceipt {
-                            signer_id: from.clone(),
-                            signer_public_key: PublicKey::empty(KeyType::ED25519),
-                            gas_price,
-                            output_data_receivers: vec![],
-                            input_data_ids: vec![],
-                            actions: vec![Action::Transfer(TransferAction { deposit: amount })],
-                        }),
-                    };
-                    let receipt_hash = receipt.get_hash();
-                    new_receipts
-                        .entry(self.account_id_to_shard_id(&receipt.receiver_id))
-                        .or_insert_with(|| vec![])
-                        .push(receipt);
-                    vec![receipt_hash]
-                };
-
-                tx_results.push(ExecutionOutcomeWithId {
-                    id: hash,
-                    outcome: ExecutionOutcome {
-                        status: ExecutionStatus::SuccessValue(vec![]),
-                        logs: vec![],
-                        receipt_ids: new_receipt_hashes,
-                        gas_burnt: 0,
-                        tokens_burnt: 0,
-                        executor_id: to.clone(),
-                    },
-                });
-            }
-        }
-
-        let mut new_balances = vec![];
-        for validator in self.validators.iter().flatten() {
-            let mut seen = false;
-            for (key, value) in state.amounts.iter() {
-                if key == &validator.account_id {
-                    assert!(!seen);
-                    seen = true;
-                    new_balances.push(*value);
-                }
-            }
-            if !seen {
-                new_balances.push(0);
-            }
-        }
-
-        let data = state.try_to_vec()?;
-        let state_size = data.len() as u64;
-        let state_root = hash(&data);
-        self.state.write().unwrap().insert(state_root.clone(), state);
-        self.state_size.write().unwrap().insert(state_root.clone(), state_size);
-
-        Ok(ApplyTransactionResult {
-            trie_changes: WrappedTrieChanges::new(
-                self.get_tries(),
-                shard_id,
-                TrieChanges::empty(state_root),
-                Default::default(),
-                block_hash.clone(),
-            ),
-            new_root: state_root,
-            outcomes: tx_results,
-            receipt_result: new_receipts,
-            validator_proposals: vec![],
-            total_gas_burnt: 0,
-            total_balance_burnt: 0,
-            proof: None,
-        })
+        _state_root: &StateRoot,
+        part_id: u64,
+        num_parts: u64,
+        _data: &Vec<u8>,
+    ) -> bool {
+        assert!(part_id < num_parts);
+        // We do not care about deeper validation in test_utils
+        true
     }
 
     fn check_state_transition(
@@ -681,98 +820,6 @@ impl RuntimeAdapter for KeyValueRuntime {
         unimplemented!();
     }
 
-    fn query(
-        &self,
-        _shard_id: ShardId,
-        state_root: &StateRoot,
-        block_height: BlockHeight,
-        _block_timestamp: u64,
-        block_hash: &CryptoHash,
-        _epoch_id: &EpochId,
-        request: &QueryRequest,
-    ) -> Result<QueryResponse, Box<dyn std::error::Error>> {
-        match request {
-            QueryRequest::ViewAccount { account_id, .. } => Ok(QueryResponse {
-                kind: QueryResponseKind::ViewAccount(
-                    Account {
-                        amount: self.state.read().unwrap().get(&state_root).map_or_else(
-                            || 0,
-                            |state| *state.amounts.get(account_id).unwrap_or(&0),
-                        ),
-                        locked: 0,
-                        code_hash: CryptoHash::default(),
-                        storage_usage: 0,
-                    }
-                    .into(),
-                ),
-                block_height,
-                block_hash: *block_hash,
-            }),
-            QueryRequest::ViewAccessKeyList { .. } => Ok(QueryResponse {
-                kind: QueryResponseKind::AccessKeyList(AccessKeyList {
-                    keys: vec![AccessKeyInfoView {
-                        public_key: PublicKey::empty(KeyType::ED25519),
-                        access_key: AccessKey::full_access().into(),
-                    }],
-                }),
-                block_height,
-                block_hash: *block_hash,
-            }),
-            QueryRequest::ViewAccessKey { .. } => Ok(QueryResponse {
-                kind: QueryResponseKind::AccessKey(AccessKey::full_access().into()),
-                block_height,
-                block_hash: *block_hash,
-            }),
-            QueryRequest::ViewState { .. } => Ok(QueryResponse {
-                kind: QueryResponseKind::ViewState(ViewStateResult {
-                    values: Default::default(),
-                    proof: vec![],
-                }),
-                block_height,
-                block_hash: *block_hash,
-            }),
-            QueryRequest::CallFunction { .. } => Ok(QueryResponse {
-                kind: QueryResponseKind::CallResult(CallResult {
-                    result: Default::default(),
-                    logs: Default::default(),
-                }),
-                block_height,
-                block_hash: *block_hash,
-            }),
-        }
-    }
-
-    fn obtain_state_part(
-        &self,
-        _shard_id: ShardId,
-        state_root: &StateRoot,
-        part_id: u64,
-        num_parts: u64,
-    ) -> Result<Vec<u8>, Error> {
-        assert!(part_id < num_parts);
-        let state = self.state.read().unwrap().get(&state_root).unwrap().clone();
-        let data = state.try_to_vec().expect("should never fall");
-        let state_size = data.len() as u64;
-        let begin = state_size / num_parts * part_id;
-        let mut end = state_size / num_parts * (part_id + 1);
-        if part_id + 1 == num_parts {
-            end = state_size;
-        }
-        Ok(data[begin as usize..end as usize].to_vec())
-    }
-
-    fn validate_state_part(
-        &self,
-        _state_root: &StateRoot,
-        part_id: u64,
-        num_parts: u64,
-        _data: &Vec<u8>,
-    ) -> bool {
-        assert!(part_id < num_parts);
-        // We do not care about deeper validation in test_utils
-        true
-    }
-
     fn confirm_state(
         &self,
         _shard_id: ShardId,
@@ -790,25 +837,6 @@ impl RuntimeAdapter for KeyValueRuntime {
         let state_size = data.len() as u64;
         self.state_size.write().unwrap().insert(state_root.clone(), state_size);
         Ok(())
-    }
-
-    fn get_state_root_node(
-        &self,
-        _shard_id: ShardId,
-        state_root: &StateRoot,
-    ) -> Result<StateRootNode, Error> {
-        Ok(StateRootNode {
-            data: self
-                .state
-                .read()
-                .unwrap()
-                .get(&state_root)
-                .unwrap()
-                .clone()
-                .try_to_vec()
-                .expect("should never fall"),
-            memory_usage: self.state_size.read().unwrap().get(&state_root).unwrap().clone(),
-        })
     }
 
     fn validate_state_root_node(
@@ -1022,7 +1050,7 @@ pub fn display_chain(me: &Option<AccountId>, chain: &mut Chain, tail: bool) {
         head.last_block_hash
     );
     let mut headers = vec![];
-    for (key, _) in chain_store.owned_store().iter(ColBlockHeader) {
+    for (key, _) in chain_store.owned_store().iter_unsafe(ColBlockHeader) {
         let header = chain_store
             .get_block_header(&CryptoHash::try_from(key.as_ref()).unwrap())
             .unwrap()

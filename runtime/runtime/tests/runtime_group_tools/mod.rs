@@ -6,7 +6,7 @@ use near_primitives::state_record::StateRecord;
 use near_primitives::test_utils::MockEpochInfoProvider;
 use near_primitives::transaction::{ExecutionOutcomeWithId, SignedTransaction};
 use near_primitives::types::Balance;
-use near_store::test_utils::create_tries;
+use near_store::test_utils::{create_tries, ShardTriesTestUtils};
 use near_store::ShardTries;
 use node_runtime::{ApplyState, Runtime};
 use random_config::random_config;
@@ -51,8 +51,7 @@ impl StandaloneRuntime {
 
         let runtime = Runtime::new(runtime_config);
 
-        let (store_update, root) =
-            runtime.apply_genesis_state(tries.clone(), 0, &[], state_records);
+        let (store_update, root) = runtime.apply_genesis_state(&tries, 0, &[], state_records);
         store_update.commit().unwrap();
 
         let apply_state = ApplyState {
@@ -83,7 +82,7 @@ impl StandaloneRuntime {
         let apply_result = self
             .runtime
             .apply(
-                self.tries.get_trie_for_shard(0),
+                self.tries.snapshot().get_trie_for_shard(0),
                 self.root,
                 &None,
                 &self.apply_state,

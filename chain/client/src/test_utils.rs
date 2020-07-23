@@ -760,7 +760,7 @@ pub fn setup_client_with_runtime(
 }
 
 pub fn setup_client(
-    store: Arc<Store>,
+    store: Store,
     validators: Vec<Vec<&str>>,
     validator_groups: u64,
     num_shards: NumShards,
@@ -898,6 +898,7 @@ impl TestEnv {
         let last_block = self.clients[0].chain.get_block(&head.last_block_hash).unwrap().clone();
         let response = self.clients[0]
             .runtime_adapter
+            .get_state_adapter()
             .query(
                 0,
                 &last_block.chunks()[0].inner.prev_state_root,

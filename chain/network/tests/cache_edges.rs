@@ -1,6 +1,5 @@
 use chrono::{DateTime, Duration, Utc};
 use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
 
 use borsh::de::BorshDeserialize;
 
@@ -25,7 +24,7 @@ impl EdgeDescription {
 
 struct RoutingTableTest {
     routing_table: RoutingTable,
-    store: Arc<Store>,
+    store: Store,
     peers: Vec<PeerId>,
     rev_peers: HashMap<PeerId, usize>,
     times: Vec<DateTime<Utc>>,
@@ -122,7 +121,7 @@ impl RoutingTableTest {
 
         // Check for peers on disk
         let mut total_peers = 0;
-        for (peer, nonce) in self.store.iter(ColPeerComponent) {
+        for (peer, nonce) in self.store.iter_unsafe(ColPeerComponent) {
             total_peers += 1;
 
             let peer = PeerId::try_from_slice(peer.as_ref()).unwrap();
@@ -135,7 +134,7 @@ impl RoutingTableTest {
 
         // Check for edges on disk
         let mut total_nonces = 0;
-        for (nonce, edges) in self.store.iter(ColComponentEdges) {
+        for (nonce, edges) in self.store.iter_unsafe(ColComponentEdges) {
             total_nonces += 1;
 
             let nonce = u64::try_from_slice(nonce.as_ref()).unwrap();
