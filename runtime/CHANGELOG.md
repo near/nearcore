@@ -1,8 +1,8 @@
 # Changelog
 
-## Pending release
+## 1.1.0
 
-- ...
+- Move `sha256`, `keccak256` and `keccak512` form External trait to logic, since they are pure functions. [#3019](https://github.com/nearprotocol/nearcore/issues/3019)
 
 ## 1.0.0
 
