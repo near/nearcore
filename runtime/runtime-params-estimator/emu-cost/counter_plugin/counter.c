@@ -24,7 +24,7 @@ static void vcpu_insn_exec_before(unsigned int cpu_index, void *udata)
 {
     if (!counting) return;
     if (!count_per_thread || pthread_self() == counting_for)
-        insn_count++;
+        __atomic_fetch_add(&insn_count, 1, __ATOMIC_SEQ_CST);
 }
 
 static void vcpu_tb_trans(qemu_plugin_id_t id, struct qemu_plugin_tb *tb)

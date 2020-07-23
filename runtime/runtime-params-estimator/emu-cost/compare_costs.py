@@ -8,7 +8,7 @@ def read_costs(path):
     result = {}
     with open(path) as f:
         pattern1 = re.compile("\\s*\"*([\\w]+)\"*: ([\\d]+).*")
-        pattern2 = re.compile("\\s*\"*([\\w]+)\"*: ([\\w]+).*")
+        pattern2 = re.compile("\\s*\"*([\\w]+)\"*:.*")
         prefix = ""
         for line in f:
             m = pattern1.search(line)
@@ -25,13 +25,13 @@ def rate(c2, c1):
         return "n/a"
     return '{:.2f}'.format(float(c2) / float(c1))
 
-def process_props(file1, file2):
+def process_props(file1, file2, safety1, safety2):
     costs1 = read_costs(file1)
     costs2 = read_costs(file2)
 
     for key in costs1:
-        c1 = int(costs1[key])
-        c2 = int(costs2[key])
+        c1 = int(costs1[key]) * safety1
+        c2 = int(costs2.get(key, "0")) * safety2
         print("{}: first={} second={} second/first={}".format(key, c1, c2, rate(c2, c1)))
 
 
@@ -47,6 +47,12 @@ def process_json(file1, file2):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Compare two cost sets')
     parser.add_argument('files', nargs=2, help='Input files')
+    parser.add_argument('--safety_first',
+                        default=1,
+                        help='Safety multiplier applied to first')
+    parser.add_argument('--safety_second',
+                        default=1,
+                        help='Safety multiplier applied to second')
     args = parser.parse_args()
 
-    process_props(args.files[0], args.files[1])
+    process_props(args.files[0], args.files[1], int(args.safety_first), int(args.safety_second))
