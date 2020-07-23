@@ -10,7 +10,7 @@
 # fails to respond to the request it was previously responding to due to
 # incorrect reconstruction of the receipts.
 
-import sys, time
+import asyncio, sys, time
 import socket, base58
 import nacl.signing, hashlib
 
@@ -25,38 +25,38 @@ from messages.block import *
 from messages.crypto import *
 from messages.network import *
 
-schema = dict(crypto_schema + network_schema + block_schema + tx_schema)
+async def main():
+    # start a cluster with two shards
+    nodes = start_cluster(2, 0, 2, None, [], {})
 
-# start a cluster with two shards
-nodes = start_cluster(2, 0, 2, None, [], {})
+    started = time.time()
 
-started = time.time()
+    while True:
+        if time.time() - started > 10:
+            assert False, "Giving up waiting for two blocks"
 
-while True:
-    if time.time() - started > 10:
-        assert False, "Giving up waiting for two blocks"
+        status = nodes[0].get_status()
+        hash_ = status['sync_info']['latest_block_hash']
+        height = status['sync_info']['latest_block_height']
 
-    status = nodes[0].get_status()
-    hash_ = status['sync_info']['latest_block_hash']
-    height = status['sync_info']['latest_block_height']
+        if height > 2:
+            block = nodes[0].get_block(hash_)
+            chunk_hashes = [base58.b58decode(x['chunk_hash']) for x in block['result']['chunks']]
 
-    if height > 2:
-        block = nodes[0].get_block(hash_)
-        chunk_hashes = [base58.b58decode(x['chunk_hash']) for x in block['result']['chunks']]
+            assert len(chunk_hashes) == 2
+            assert all([len(x) == 32 for x in chunk_hashes])
 
-        assert len(chunk_hashes) == 2
-        assert all([len(x) == 32 for x in chunk_hashes])
+            break
 
-        break
-
-my_key_pair_nacl = nacl.signing.SigningKey.generate()
-received_responses = [None, None]
+    my_key_pair_nacl = nacl.signing.SigningKey.generate()
+    received_responses = [None, None]
 
 # step = 0: before the node is killed
 # step = 1: after the node is killed
-for step in range(2):
+    for step in range(2):
 
-    with perform_handshake(nodes[0], my_key_pair_nacl, schema) as s:
+        conn0 = await connect(nodes[0].addr())
+        await run_handshake(conn0, nodes[0].node_key.pk, my_key_pair_nacl)
         for shard_ord, chunk_hash in enumerate(chunk_hashes):
 
             request = PartialEncodedChunkRequestMsg()
@@ -68,14 +68,14 @@ for step in range(2):
             routed_msg_body.enum = 'PartialEncodedChunkRequest'
             routed_msg_body.PartialEncodedChunkRequest = request
 
-            peer_message = create_and_sign_routed_peer_message(routed_msg_body, nodes[0], my_key_pair_nacl, schema)
+            peer_message = create_and_sign_routed_peer_message(routed_msg_body, nodes[0], my_key_pair_nacl)
 
-            send_obj(s, schema, peer_message)
+            await conn0.send(peer_message)
 
             received_response = False
             # make several attempts, in case the node sends us a block or some other message before sending the response
             for i in range(5):
-                response = recv_obj(s, schema, PeerMessage, 1)
+                response = await conn0.recv()
                 if response is None: # None means timeout
                     break
                 elif response.enum == 'Routed' and response.Routed.body.enum == 'PartialEncodedChunkResponse':
@@ -93,13 +93,16 @@ for step in range(2):
             else:
                 assert received_responses[shard_ord] == received_response, "The response doesn't match for the chunk in shard %s. Received response before node killed: %s, after: %s" % (shard_ord, received_responses[shard_ord], received_response)
 
-    # we expect first node to only respond to one of the chunk requests, for the shard assigned to it
-    assert received_responses[0] != received_responses[1]
+        # we expect first node to only respond to one of the chunk requests, for the shard assigned to it
+        assert received_responses[0] != received_responses[1], received_responses
 
-    if step == 0:
-        print("Killing and restarting nodes")
-        nodes[1].kill()
-        nodes[0].kill()
-        nodes[0].start(None, None)
-        time.sleep(1)
+        if step == 0:
+            print("Killing and restarting nodes")
+            nodes[1].kill()
+            nodes[0].kill()
+            nodes[0].start(None, None)
+            time.sleep(1)
+
+
+asyncio.run(main())
 
