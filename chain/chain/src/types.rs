@@ -19,7 +19,9 @@ use near_primitives::types::{
     AccountId, ApprovalStake, Balance, BlockHeight, BlockHeightDelta, EpochId, Gas, MerkleHash,
     NumBlocks, ShardId, StateRoot, StateRootNode, ValidatorStake,
 };
-use near_primitives::version::{ProtocolVersion, MIN_GAS_PRICE_V31};
+use near_primitives::version::{
+    ProtocolVersion, MIN_GAS_PRICE_NEP_92, MIN_PROTOCOL_VERSION_NEP_92,
+};
 use near_primitives::views::{EpochValidatorInfo, QueryRequest, QueryResponse};
 use near_store::{PartialStorage, ShardTries, Store, StoreUpdate, Trie, WrappedTrieChanges};
 
@@ -144,10 +146,10 @@ impl BlockEconomicsConfig {
     pub fn min_gas_price(&self, protocol_version: ProtocolVersion) -> Balance {
         match self.chain_id.as_str() {
             "betanet" | "testnet" | "mainnet" => {
-                if protocol_version < 31 {
+                if protocol_version < MIN_PROTOCOL_VERSION_NEP_92 {
                     self.min_gas_price
                 } else {
-                    MIN_GAS_PRICE_V31
+                    MIN_GAS_PRICE_NEP_92
                 }
             }
             _ => self.min_gas_price,
