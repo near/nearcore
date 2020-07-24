@@ -43,7 +43,7 @@ pub fn random_config() -> RuntimeConfig {
             },
             burnt_gas_reward: Rational::new((rng.next_u32() % 100).try_into().unwrap(), 100),
             pessimistic_gas_price_inflation_ratio: Rational::new(
-                (100 + rng.next_u32() % 10).try_into().unwrap(),
+                (101 + rng.next_u32() % 10).try_into().unwrap(),
                 100,
             ),
         },
