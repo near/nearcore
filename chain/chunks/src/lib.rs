@@ -38,8 +38,7 @@ use crate::chunk_cache::{EncodedChunksCache, EncodedChunksCacheEntry};
 pub use crate::types::Error;
 
 mod chunk_cache;
-#[cfg(test)]
-mod test_utils;
+pub mod test_utils;
 mod types;
 
 const CHUNK_PRODUCER_BLACKLIST_SIZE: usize = 100;
