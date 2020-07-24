@@ -275,7 +275,7 @@ fn make_validators(n: usize) -> Vec<Vec<AccountId>> {
         panic!("I can't make that many validators!");
     }
 
-    let letters = (b'A'..=b'Z')
+    let letters = (b'a'..=b'z')
         .take(n)
         .map(|c| {
             let mut s = String::with_capacity(1);
