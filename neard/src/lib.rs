@@ -93,6 +93,7 @@ pub fn apply_store_migrations(path: &String) {
         // version 4 => 5: add ColProcessedBlockHeights
         // we don't need to backfill the old heights since at worst we will just process some heights
         // again.
+        let store = create_store(&path);
         set_store_version(&store, 5);
     }
 

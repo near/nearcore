@@ -47,9 +47,6 @@ pub enum ErrorKind {
     /// Invalid block proposed signature.
     #[fail(display = "Invalid Block Proposer Signature")]
     InvalidBlockProposer,
-    /// Invalid block confirmation signature.
-    #[fail(display = "Invalid Block Confirmation Signature")]
-    InvalidBlockConfirmation,
     /// Invalid state root hash.
     #[fail(display = "Invalid State Root Hash")]
     InvalidStateRoot,
@@ -245,7 +242,6 @@ impl Error {
             | ErrorKind::InvalidBlockFutureTime(_)
             | ErrorKind::InvalidBlockHeight
             | ErrorKind::InvalidBlockProposer
-            | ErrorKind::InvalidBlockConfirmation
             | ErrorKind::InvalidChunk
             | ErrorKind::InvalidChunkProofs(_)
             | ErrorKind::InvalidChunkState(_)

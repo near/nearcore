@@ -863,17 +863,8 @@ impl ClientActor {
         if provenance == Provenance::PRODUCED {
             self.network_adapter.do_send(NetworkRequests::Block { block: block.clone() });
         } else if provenance == Provenance::NONE {
-            // Don't care about challenge here since it will be handled when we actually process
-            // the block.
-            match self.client.chain.process_block_header(&block.header(), |_| {}) {
+            match self.client.chain.validate_block(&block) {
                 Ok(_) => {
-                    if let Err(e) = block.check_validity() {
-                        self.network_adapter.do_send(NetworkRequests::BanPeer {
-                            peer_id: peer_id.clone(),
-                            ban_reason: ReasonForBan::BadBlock,
-                        });
-                        return Err(e.into());
-                    }
                     let head = self.client.chain.head()?;
                     // do not broadcast blocks that are too far back.
                     if head.height < block.header().height()

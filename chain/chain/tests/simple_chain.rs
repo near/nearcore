@@ -1,7 +1,9 @@
 use near_chain::test_utils::setup;
 use near_chain::{Block, ChainStoreAccess, ErrorKind, Provenance};
+use near_crypto::KeyType;
 use near_logger_utils::init_test_logger;
 use near_primitives::hash::CryptoHash;
+use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
 use num_rational::Rational;
 
@@ -236,4 +238,28 @@ fn next_blocks() {
     assert!(chain.process_block(&None, b4, Provenance::PRODUCED, |_| {}, |_| {}, |_| {}).is_ok());
     assert_eq!(chain.mut_store().get_next_block_hash(&b1_hash).unwrap(), &b3_hash);
     assert_eq!(chain.mut_store().get_next_block_hash(&b3_hash).unwrap(), &b4_hash);
+}
+
+#[test]
+fn test_height_processed() {
+    init_test_logger();
+    let (mut chain, _, signer) = setup();
+    let genesis = chain.get_block(&chain.genesis().hash().clone()).unwrap().clone();
+    let mut b1 = Block::empty_with_height(&genesis, 1, &*signer);
+    let incorrect_signer = InMemoryValidatorSigner::from_seed("random", KeyType::ED25519, "random");
+    b1.mut_header().resign(&incorrect_signer);
+    // Process a block with invalid signature. Do not record its height as processed
+    assert!(matches!(
+        chain
+            .process_block(&None, b1, Provenance::NONE, |_| {}, |_| {}, |_| {})
+            .unwrap_err()
+            .kind(),
+        ErrorKind::InvalidSignature
+    ));
+    assert!(matches!(chain.mut_store().is_height_processed(1), Ok(false)));
+
+    // Process a valid block. Make sure its height is recorded.
+    let b1 = Block::empty_with_height(&genesis, 1, &*signer);
+    assert!(chain.process_block(&None, b1, Provenance::NONE, |_| {}, |_| {}, |_| {}).is_ok());
+    assert!(matches!(chain.mut_store().is_height_processed(1), Ok(true)));
 }
