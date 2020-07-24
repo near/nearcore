@@ -271,7 +271,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         self.tries.clone()
     }
 
-    fn get_trie_for_shard(&self, shard_id: ShardId) -> Arc<Trie> {
+    fn get_trie_for_shard(&self, shard_id: ShardId) -> Trie {
         self.tries.get_trie_for_shard(shard_id)
     }
 
