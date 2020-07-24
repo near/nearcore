@@ -1,6 +1,5 @@
 use std::cmp::max;
 use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use log::debug;
@@ -23,8 +22,8 @@ use near_primitives::types::{
 use near_primitives::utils::{create_nonce_with_nonce, system_account};
 use near_store::{
     get, get_account, get_postponed_receipt, get_received_data, remove_postponed_receipt, set,
-    set_access_key, set_account, set_code, set_postponed_receipt, set_received_data, ShardTries,
-    StorageError, StoreUpdate, Trie, TrieChanges, TrieUpdate,
+    set_access_key, set_account, set_code, set_postponed_receipt, set_received_data,
+    PartialStorage, ShardTries, StorageError, StoreUpdate, Trie, TrieChanges, TrieUpdate,
 };
 use near_vm_logic::types::PromiseResult;
 use near_vm_logic::ReturnData;
@@ -39,6 +38,7 @@ use crate::config::{
 };
 use crate::verifier::validate_receipt;
 pub use crate::verifier::{validate_transaction, verify_and_charge_transaction};
+use std::rc::Rc;
 
 mod actions;
 pub mod adapter;
@@ -117,6 +117,7 @@ pub struct ApplyResult {
     pub outcomes: Vec<ExecutionOutcomeWithId>,
     pub state_changes: Vec<RawStateChangesWithTrieKey>,
     pub stats: ApplyStats,
+    pub proof: Option<PartialStorage>,
 }
 
 /// Stores indices for a persistent queue for delayed receipts that didn't fit into a block.
@@ -1012,7 +1013,7 @@ impl Runtime {
     /// receivers) and incoming action receipts.
     pub fn apply(
         &self,
-        trie: Arc<Trie>,
+        trie: Trie,
         root: CryptoHash,
         validator_accounts_update: &Option<ValidatorAccountsUpdate>,
         apply_state: &ApplyState,
@@ -1020,8 +1021,9 @@ impl Runtime {
         transactions: &[SignedTransaction],
         epoch_info_provider: &dyn EpochInfoProvider,
     ) -> Result<ApplyResult, RuntimeError> {
+        let trie = Rc::new(trie);
         let initial_state = TrieUpdate::new(trie.clone(), root);
-        let mut state_update = TrieUpdate::new(trie, root);
+        let mut state_update = TrieUpdate::new(trie.clone(), root);
 
         let mut stats = ApplyStats::default();
 
@@ -1170,6 +1172,7 @@ impl Runtime {
         }
 
         let state_root = trie_changes.new_root;
+        let proof = trie.recorded_storage();
         Ok(ApplyResult {
             state_root,
             trie_changes,
@@ -1178,6 +1181,7 @@ impl Runtime {
             outcomes,
             state_changes,
             stats,
+            proof,
         })
     }
 
@@ -1366,6 +1370,7 @@ mod tests {
     use near_primitives::transaction::{FunctionCallAction, TransferAction};
     use near_primitives::types::MerkleHash;
     use near_store::test_utils::create_tries;
+    use std::sync::Arc;
     use testlib::runtime_utils::{alice_account, bob_account};
 
     const GAS_PRICE: Balance = 5000;

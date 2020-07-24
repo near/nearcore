@@ -2,6 +2,11 @@ from prometheus_client import parser
 import requests
 import time
 
+BLOCK_TIME_BINS = [
+    '0.005', '0.01', '0.025', '0.05', '0.1', '0.25', '0.5', '1', '2.5', '5',
+    '10', '+Inf'
+]
+
 
 def fold(collection, key, f, default):
     if key in collection:
@@ -39,14 +44,19 @@ class Metrics:
         total_transactions = fold_sample('near_transaction_processed')
         blocks_per_second = fold_sample('near_blocks_per_minute') / 60.0
 
-        block_processing_time_samples = prometheus_metrics[
-            'near_block_processing_time'].samples
+        def extract_block_processing_time(m):
+            block_processing_time_samples = m.samples
+            block_processing_time = {}
+            for sample in block_processing_time_samples:
+                if 'le' in sample.labels:
+                    bound = sample.labels['le']
+                    block_processing_time[f'le {bound}'] = int(sample.value)
+            return block_processing_time
 
-        block_processing_time = {}
-        for sample in block_processing_time_samples:
-            if 'le' in sample.labels:
-                bound = sample.labels['le']
-                block_processing_time[f'le {bound}'] = int(sample.value)
+        block_processing_time = fold(
+            prometheus_metrics, 'near_block_processing_time',
+            extract_block_processing_time,
+            dict(map(lambda bin: ('le ' + bin, 0), BLOCK_TIME_BINS)))
 
         return cls(total_blocks, memory_usage, total_transactions,
                    block_processing_time, timestamp, blocks_per_second)
