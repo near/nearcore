@@ -1436,7 +1436,6 @@ mod test {
     }
 
     #[test]
-    #[should_panic]
     fn test_process_partial_encoded_chunk_with_missing_block() {
         let runtimes = create_runtimes();
         let mut env = TestEnv::new_with_runtime(ChainGenesis::test(), 1, 1, runtimes);
