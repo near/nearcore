@@ -68,20 +68,19 @@ pub fn setup(
         num_shards,
         epoch_length,
     ));
-    let chain_genesis = ChainGenesis::new(
-        genesis_time,
-        0,
-        1_000_000,
-        100,
-        1_000_000_000,
-        3_000_000_000_000_000_000_000_000_000_000_000,
-        Rational::from_integer(0),
-        Rational::from_integer(0),
+    let chain_genesis = ChainGenesis {
+        time: genesis_time,
+        height: 0,
+        gas_limit: 1_000_000,
+        min_gas_price: 100,
+        max_gas_price: 1_000_000_000,
+        total_supply: 3_000_000_000_000_000_000_000_000_000_000_000,
+        max_inflation_rate: Rational::from_integer(0),
+        gas_price_adjustment_rate: Rational::from_integer(0),
         transaction_validity_period,
         epoch_length,
-        PROTOCOL_VERSION,
-        "test".to_string(),
-    );
+        protocol_version: PROTOCOL_VERSION,
+    };
     let doomslug_threshold_mode = if enable_doomslug {
         DoomslugThresholdMode::TwoThirds
     } else {

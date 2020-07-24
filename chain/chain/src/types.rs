@@ -187,39 +187,6 @@ pub struct ChainGenesis {
     pub transaction_validity_period: NumBlocks,
     pub epoch_length: BlockHeightDelta,
     pub protocol_version: ProtocolVersion,
-    pub chain_id: String,
-}
-
-impl ChainGenesis {
-    pub fn new(
-        time: DateTime<Utc>,
-        height: BlockHeight,
-        gas_limit: Gas,
-        min_gas_price: Balance,
-        max_gas_price: Balance,
-        total_supply: Balance,
-        max_inflation_rate: Rational,
-        gas_price_adjustment_rate: Rational,
-        transaction_validity_period: NumBlocks,
-        epoch_length: BlockHeightDelta,
-        protocol_version: ProtocolVersion,
-        chain_id: String,
-    ) -> Self {
-        Self {
-            time,
-            height,
-            gas_limit,
-            min_gas_price,
-            max_gas_price,
-            total_supply,
-            max_inflation_rate,
-            gas_price_adjustment_rate,
-            transaction_validity_period,
-            epoch_length,
-            protocol_version,
-            chain_id,
-        }
-    }
 }
 
 impl<T> From<T> for ChainGenesis
@@ -228,20 +195,19 @@ where
 {
     fn from(genesis_config: T) -> Self {
         let genesis_config = genesis_config.as_ref();
-        ChainGenesis::new(
-            genesis_config.genesis_time,
-            genesis_config.genesis_height,
-            genesis_config.gas_limit,
-            genesis_config.min_gas_price,
-            genesis_config.max_gas_price,
-            genesis_config.total_supply,
-            genesis_config.max_inflation_rate,
-            genesis_config.gas_price_adjustment_rate,
-            genesis_config.transaction_validity_period,
-            genesis_config.epoch_length,
-            genesis_config.protocol_version,
-            genesis_config.chain_id.clone(),
-        )
+        Self {
+            time: genesis_config.genesis_time,
+            height: genesis_config.genesis_height,
+            gas_limit: genesis_config.gas_limit,
+            min_gas_price: genesis_config.min_gas_price,
+            max_gas_price: genesis_config.max_gas_price,
+            total_supply: genesis_config.total_supply,
+            max_inflation_rate: genesis_config.max_inflation_rate,
+            gas_price_adjustment_rate: genesis_config.gas_price_adjustment_rate,
+            transaction_validity_period: genesis_config.transaction_validity_period,
+            epoch_length: genesis_config.epoch_length,
+            protocol_version: genesis_config.protocol_version,
+        }
     }
 }
 

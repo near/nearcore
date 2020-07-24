@@ -369,7 +369,7 @@ fn test_verify_chunk_invalid_state_challenge() {
     let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![Arc::new(neard::NightshadeRuntime::new(
         Path::new("."),
         store1,
-        genesis.clone(),
+        Arc::clone(&genesis),
         vec![],
         vec![],
     ))];
