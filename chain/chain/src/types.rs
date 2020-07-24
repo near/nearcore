@@ -21,7 +21,7 @@ use near_primitives::types::{
 };
 use near_primitives::version::ProtocolVersion;
 use near_primitives::views::{EpochValidatorInfo, QueryRequest, QueryResponse};
-use near_store::{PartialStorage, ShardTries, Store, StoreUpdate, Trie, WrappedTrieChanges};
+use near_store::{PartialStorage, ShardTries, Store, Trie, WrappedTrieChanges};
 
 use crate::error::Error;
 
@@ -131,9 +131,8 @@ impl BlockHeaderInfo {
 /// Main function is to update state given transactions.
 /// Additionally handles validators.
 pub trait RuntimeAdapter: Send + Sync {
-    /// Initialize state to genesis state and returns StoreUpdate, state root and initial validators.
-    /// StoreUpdate can be discarded if the chain past the genesis.
-    fn genesis_state(&self) -> (Arc<Store>, StoreUpdate, Vec<StateRoot>);
+    /// Get store and genesis state roots
+    fn genesis_state(&self) -> (Arc<Store>, Vec<StateRoot>);
 
     fn get_tries(&self) -> ShardTries;
 

@@ -34,8 +34,7 @@ use near_primitives::views::{
 };
 use near_store::test_utils::create_test_store;
 use near_store::{
-    ColBlockHeader, PartialStorage, ShardTries, Store, StoreUpdate, Trie, TrieChanges,
-    WrappedTrieChanges,
+    ColBlockHeader, PartialStorage, ShardTries, Store, Trie, TrieChanges, WrappedTrieChanges,
 };
 
 use crate::chain::{Chain, ChainGenesis, NUM_EPOCHS_TO_KEEP_STORE_DATA};
@@ -259,12 +258,8 @@ impl KeyValueRuntime {
 }
 
 impl RuntimeAdapter for KeyValueRuntime {
-    fn genesis_state(&self) -> (Arc<Store>, StoreUpdate, Vec<StateRoot>) {
-        (
-            self.store.clone(),
-            self.store.store_update(),
-            ((0..self.num_shards()).map(|_| StateRoot::default()).collect()),
-        )
+    fn genesis_state(&self) -> (Arc<Store>, Vec<StateRoot>) {
+        (self.store.clone(), ((0..self.num_shards()).map(|_| StateRoot::default()).collect()))
     }
 
     fn get_tries(&self) -> ShardTries {

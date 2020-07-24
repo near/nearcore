@@ -265,7 +265,7 @@ impl Chain {
         chain_genesis: &ChainGenesis,
         doomslug_threshold_mode: DoomslugThresholdMode,
     ) -> Result<Chain, Error> {
-        let (store, _state_store_update, state_roots) = runtime_adapter.genesis_state();
+        let (store, state_roots) = runtime_adapter.genesis_state();
         let store = ChainStore::new(store, chain_genesis.height);
         let genesis_chunks = genesis_chunks(
             state_roots.clone(),
@@ -305,7 +305,7 @@ impl Chain {
         doomslug_threshold_mode: DoomslugThresholdMode,
     ) -> Result<Chain, Error> {
         // Get runtime initial state and create genesis block out of it.
-        let (store, state_store_update, state_roots) = runtime_adapter.genesis_state();
+        let (store, state_roots) = runtime_adapter.genesis_state();
         let mut store = ChainStore::new(store, chain_genesis.height);
         let genesis_chunks = genesis_chunks(
             state_roots.clone(),
@@ -391,8 +391,6 @@ impl Chain {
                     head = Tip::from_header(genesis.header());
                     store_update.save_head(&head)?;
                     store_update.save_sync_head(&head);
-
-                    store_update.merge(state_store_update);
 
                     info!(target: "chain", "Init: saved genesis: {:?} / {:?}", genesis.hash(), state_roots);
                 }
