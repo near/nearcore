@@ -55,6 +55,9 @@ use crate::StatusResponse;
 const STATUS_WAIT_TIME_MULTIPLIER: u64 = 10;
 /// Drop blocks whose height are beyond head + horizon.
 const BLOCK_HORIZON: u64 = 500;
+/// How many intervals of max_block_production_delay to wait being several blocks behind before
+/// kicking off syncing
+const FEW_BLOCKS_BEHIND_WAIT_MULTIPLIER: u32 = 5;
 
 pub struct ClientActor {
     /// Adversarial controls
@@ -665,7 +668,6 @@ impl ClientActor {
     fn handle_block_production(&mut self) -> Result<(), Error> {
         // If syncing, don't try to produce blocks.
         if self.client.sync_status.is_syncing() {
-            info!("MOO block production: syncing");
             return Ok(());
         }
 
@@ -681,11 +683,6 @@ impl ClientActor {
         let epoch_id =
             self.client.runtime_adapter.get_epoch_id_from_prev_block(&head.last_block_hash)?;
 
-        info!(
-            "MOO block production cycle {}-{}",
-            latest_known.height + 1,
-            self.client.doomslug.get_largest_height_crossing_threshold()
-        );
         for height in
             latest_known.height + 1..=self.client.doomslug.get_largest_height_crossing_threshold()
         {
@@ -695,7 +692,6 @@ impl ClientActor {
             if self.client.validator_signer.as_ref().map(|bp| bp.validator_id())
                 == Some(&next_block_producer_account)
             {
-                info!("MOO block production I'm BP for height {}", height);
                 let num_chunks = self.client.shards_mgr.num_chunks_for_block(&head.last_block_hash);
                 let have_all_chunks =
                     head.height == 0 || num_chunks == self.client.runtime_adapter.num_shards();
@@ -705,17 +701,10 @@ impl ClientActor {
                     height,
                     have_all_chunks,
                 ) {
-                    info!("MOO about to produce block for height {}", height);
-
                     if let Err(err) = self.produce_block(height) {
                         // If there is an error, report it and let it retry on the next loop step.
                         error!(target: "client", "Block production failed: {}", err);
                     }
-                } else {
-                    info!(
-                        "MOO not ready to produce at height {}. Have all chunks: {}",
-                        height, have_all_chunks
-                    );
                 }
             }
         }
@@ -1027,9 +1016,10 @@ impl ClientActor {
                 {
                     let now = Utc::now();
                     if now > since_when
-                        && (now - since_when).to_std().unwrap() >= Duration::from_secs(10)
+                        && (now - since_when).to_std().unwrap()
+                            >= self.client.config.max_block_production_delay
+                                * FEW_BLOCKS_BEHIND_WAIT_MULTIPLIER
                         && our_height == head.height
-                    // MOO make 10s a config parameter
                     {
                         info!(target: "sync", "Have been at the same height for too long, while peers have newer bocks. Forcing synchronization");
                         is_syncing = true;
@@ -1143,7 +1133,6 @@ impl ClientActor {
         let currently_syncing = self.client.sync_status.is_syncing();
         let (needs_syncing, highest_height) = unwrap_or_run_later!(self.syncing_info());
 
-        info!("MOO highest height {}", highest_height);
         if !self.needs_syncing(needs_syncing) {
             if currently_syncing {
                 debug!(

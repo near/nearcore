@@ -73,13 +73,20 @@ def stress_process(func):
     return wrapper
 
 
-def get_recent_hash(node):
+def get_recent_hash(node, sync_timeout):
     # return the parent of the last block known to the observer
     # don't return the last block itself, since some validators might have not seen it yet
     # also returns the height of the actual last block (so the height doesn't match the hash!)
     status = node.get_status()
     hash_ = status['sync_info']['latest_block_hash']
     info = node.json_rpc('block', [hash_])
+
+    for attempt in range(sync_timeout):
+        if 'error' in info and info['error']['data'] == 'IsSyncing':
+            time.sleep(1)
+            info = node.json_rpc('block', [hash_])
+
+    assert 'result' in info, info
     hash_ = info['result']['header']['hash']
     return hash_, status['sync_info']['latest_block_height']
 
@@ -120,7 +127,7 @@ def monkey_node_set(stopped, error, nodes, nonces):
                 wipe = False
                 if random.choice([True, False]):
                     wipe = True
-                    #node.reset_data() # MOO
+                    #node.reset_data() # TODO
                 logging.info("Node set: stopping%s node %s" %
                       (" and wiping" if wipe else "", i))
             nodes_stopped[i] = not nodes_stopped[i]
@@ -140,7 +147,7 @@ def monkey_node_restart(stopped, error, nodes, nonces):
         node = nodes[node_idx]
         # don't kill the same node too frequently, give it time to reboot and produce something
         while True:
-            _, h = get_recent_hash(node)
+            _, h = get_recent_hash(node, 30)
             assert h >= heights_after_restart[node_idx], "%s > %s" % (
                 h, heights_after_restart[node_idx])
             if h > heights_after_restart[node_idx]:
@@ -151,12 +158,12 @@ def monkey_node_restart(stopped, error, nodes, nonces):
         logging.info("NUKING NODE %s%s" % (node_idx, " AND WIPING ITS STORAGE" if reset_data else ""))
         node.kill()
         if reset_data:
-            #node.reset_data() # MOO
+            #node.reset_data() # TODO
             pass
         node.start(boot_node.node_key.pk, boot_node.addr())
         logging.info("NODE %s IS BACK UP" % node_idx)
 
-        _, heights_after_restart[node_idx] = get_recent_hash(node)
+        _, heights_after_restart[node_idx] = get_recent_hash(node, 30)
 
         time.sleep(5)
 
@@ -330,7 +337,7 @@ def monkey_transactions(stopped, error, nodes, nonces):
                 amt = random.randint(0, min_balances[from_])
                 nonce_val, nonce_lock = nonces[from_]
 
-                hash_, _ = get_recent_hash(nodes[-1])
+                hash_, _ = get_recent_hash(nodes[-1], 5)
 
                 with nonce_lock:
                     tx = sign_payment_tx(nodes[from_].signer_key, 'test%s' % to,
@@ -344,8 +351,16 @@ def monkey_transactions(stopped, error, nodes, nonces):
                         random.shuffle(shuffled_validator_ids)
                         for validator_id in shuffled_validator_ids:
                             try:
-                                tx_hash = nodes[validator_id].send_tx(tx)['result']
-                                break
+                                info = nodes[validator_id].send_tx(tx)
+                                if 'error' in info and info['error']['data'] == 'IsSyncing':
+                                    pass
+
+                                elif 'result' in info:
+                                    tx_hash = info['result']
+                                    break
+
+                                else:
+                                    assert False, info
 
                             except (requests.exceptions.ReadTimeout,
                                     requests.exceptions.ConnectionError):
@@ -386,7 +401,7 @@ def monkey_transactions(stopped, error, nodes, nonces):
 
 
 def get_the_guy_to_mess_up_with(nodes):
-    _, height = get_recent_hash(nodes[-1])
+    _, height = get_recent_hash(nodes[-1], 5)
     return (height // EPOCH_LENGTH) % (len(nodes) - 1)
 
 
@@ -397,7 +412,7 @@ def monkey_staking(stopped, error, nodes, nonces):
         whom = random.randint(0, len(nonces) - 2)
 
         status = nodes[-1].get_status()
-        hash_, _ = get_recent_hash(nodes[-1])
+        hash_, _ = get_recent_hash(nodes[-1], 5)
 
         who_can_unstake = get_the_guy_to_mess_up_with(nodes)
 

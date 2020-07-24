@@ -200,7 +200,7 @@ impl StoreUpdate {
     }
 
     pub fn commit(self) -> Result<(), io::Error> {
-        /*debug_assert!(
+        debug_assert!(
             self.transaction.ops.len()
                 == self
                     .transaction
@@ -214,8 +214,7 @@ impl StoreUpdate {
                     .len(),
             "Transaction overwrites itself: {:?}",
             self
-        );*/
- // MOO
+        );
         if let Some(tries) = self.tries {
             assert_eq!(
                 tries.get_store().storage.deref() as *const _,

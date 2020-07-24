@@ -1226,6 +1226,12 @@ impl ShardsManager {
         chunk_entry: &EncodedChunksCacheEntry,
         store_update: &mut ChainStoreUpdate<'_>,
     ) {
+        let cares_about_shard = self.cares_about_shard_this_or_next_epoch(
+            self.me.as_ref(),
+            &chunk_entry.header.inner.prev_block_hash,
+            chunk_entry.header.inner.shard_id,
+            true,
+        );
         let prev_block_hash = chunk_entry.header.inner.prev_block_hash;
         let partial_chunk = PartialEncodedChunk {
             header: chunk_entry.header.clone(),
@@ -1233,9 +1239,10 @@ impl ShardsManager {
                 .parts
                 .iter()
                 .filter_map(|(part_ord, part_entry)| {
-                    if let Ok(need_part) = self.need_part(&prev_block_hash, *part_ord) {
-                        if need_part || true {
-                            // MOO
+                    if cares_about_shard {
+                        Some(part_entry.clone())
+                    } else if let Ok(need_part) = self.need_part(&prev_block_hash, *part_ord) {
+                        if need_part {
                             Some(part_entry.clone())
                         } else {
                             None
@@ -1249,8 +1256,9 @@ impl ShardsManager {
                 .receipts
                 .iter()
                 .filter_map(|(shard_id, receipt)| {
-                    if self.need_receipt(&prev_block_hash, *shard_id) || true {
-                        // MOO
+                    if cares_about_shard {
+                        Some(receipt.clone())
+                    } else if self.need_receipt(&prev_block_hash, *shard_id) {
                         Some(receipt.clone())
                     } else {
                         None

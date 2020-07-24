@@ -181,7 +181,7 @@ def create_and_sign_routed_peer_message(routed_msg_body, target_node, my_key_pai
     routed_msg.signature.keyType = 0
 
     routed_msg_arr = bytes(bytearray([0, 0]) + routed_msg.target.PeerId.data + bytearray([0]) + routed_msg.author.data + BinarySerializer(schema).serialize(routed_msg.body))
-    routed_msg_hash = hashlib.sha256(routed_msg_arr).digest() # MOO extract into a function
+    routed_msg_hash = hashlib.sha256(routed_msg_arr).digest()
     routed_msg.signature.data = my_key_pair_nacl.sign(routed_msg_hash).signature
 
     peer_message = PeerMessage()

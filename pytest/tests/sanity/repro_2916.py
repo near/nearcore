@@ -79,7 +79,6 @@ async def main():
                 if response is None: # None means timeout
                     break
                 elif response.enum == 'Routed' and response.Routed.body.enum == 'PartialEncodedChunkResponse':
-                    # MOO: add some asserts here re: content
                     print("Received response for shard %s" % shard_ord)
                     received_response = True
                     break
