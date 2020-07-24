@@ -54,7 +54,6 @@ use crate::validate::{
 };
 use crate::{byzantine_assert, create_light_client_block_view, Doomslug};
 use crate::{metrics, DoomslugThresholdMode};
-use near_primitives::version::{MIN_GAS_PRICE_NEP_92, MIN_PROTOCOL_VERSION_NEP_92};
 
 /// Maximum number of orphans chain can store.
 pub const MAX_ORPHAN_SIZE: usize = 1024;
@@ -2900,19 +2899,8 @@ impl<'a> ChainUpdate<'a> {
             self.block_economics_config.max_gas_price(protocol_version),
             self.block_economics_config.gas_price_adjustment_rate(protocol_version),
         ) {
-            let prev_protocol_version =
-                self.runtime_adapter.get_epoch_protocol_version(&prev_epoch_id)?;
-            let is_gas_price_valid = if prev_protocol_version != protocol_version
-                && protocol_version == MIN_PROTOCOL_VERSION_NEP_92
-            {
-                block.header().gas_price() == MIN_GAS_PRICE_NEP_92
-            } else {
-                false
-            };
-            if !is_gas_price_valid {
-                byzantine_assert!(false);
-                return Err(ErrorKind::InvalidGasPrice.into());
-            }
+            byzantine_assert!(false);
+            return Err(ErrorKind::InvalidGasPrice.into());
         }
 
         let prev_block = self.chain_store_update.get_block(&prev_hash)?.clone();

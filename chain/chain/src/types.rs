@@ -144,7 +144,7 @@ impl BlockEconomicsConfig {
     /// Compute min gas price according to protocol version and chain id. We only upgrade gas price
     /// for betanet, testnet and mainnet.
     pub fn min_gas_price(&self, protocol_version: ProtocolVersion) -> Balance {
-        if self.genesis_protocol_version < protocol_version
+        if self.genesis_protocol_version < MIN_PROTOCOL_VERSION_NEP_92
             && protocol_version >= MIN_PROTOCOL_VERSION_NEP_92
         {
             MIN_GAS_PRICE_NEP_92
