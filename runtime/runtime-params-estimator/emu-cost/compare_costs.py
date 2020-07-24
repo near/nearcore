@@ -20,7 +20,7 @@ def flatten_dict(d, result, prefix=''):
         full_key = prefix + '.' + k if prefix else k
         if is_json_int(v):
             result[full_key] = v
-        elif type(v) is OrderedDict or type(v) is dict:
+        elif isinstance(v, dict):
             flatten_dict(v, result, full_key)
 
     return result
