@@ -354,9 +354,11 @@ impl Client {
             .get_next_epoch_id_from_prev_block(&head.last_block_hash)
             .expect("Epoch hash should exist at this point");
 
-        let gas_price_adjustment_rate = self.chain.block_economics_config.gas_price_adjustment_rate;
-        let min_gas_price = self.chain.block_economics_config.min_gas_price;
-        let max_gas_price = self.chain.block_economics_config.max_gas_price;
+        let protocol_version = self.runtime_adapter.get_epoch_protocol_version(&epoch_id)?;
+        let gas_price_adjustment_rate =
+            self.chain.block_economics_config.gas_price_adjustment_rate(protocol_version);
+        let min_gas_price = self.chain.block_economics_config.min_gas_price(protocol_version);
+        let max_gas_price = self.chain.block_economics_config.max_gas_price(protocol_version);
 
         let next_bp_hash = if prev_epoch_id != epoch_id {
             Chain::compute_bp_hash(&*self.runtime_adapter, next_epoch_id.clone(), &prev_hash)?
@@ -394,7 +396,6 @@ impl Client {
         // Get all the current challenges.
         // TODO(2445): Enable challenges when they are working correctly.
         // let challenges = self.challenges.drain().map(|(_, challenge)| challenge).collect();
-
         let protocol_version = self.runtime_adapter.get_epoch_protocol_version(&next_epoch_id)?;
 
         let block = Block::produce(
@@ -1410,6 +1411,8 @@ mod test {
 
     use near_chain::{ChainGenesis, RuntimeAdapter};
     use near_chain_configs::Genesis;
+    use near_chunks::test_utils::ChunkForwardingTestFixture;
+    use near_chunks::ProcessPartialEncodedChunkResult;
     use near_crypto::KeyType;
     use near_primitives::block::{Approval, ApprovalInner};
     use near_primitives::hash::hash;
@@ -1419,17 +1422,21 @@ mod test {
 
     use crate::test_utils::TestEnv;
 
-    #[test]
-    fn test_pending_approvals() {
+    fn create_runtimes() -> Vec<Arc<dyn RuntimeAdapter>> {
         let store = create_test_store();
         let genesis = Genesis::test(vec!["test0", "test1"], 1);
-        let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![Arc::new(neard::NightshadeRuntime::new(
+        vec![Arc::new(neard::NightshadeRuntime::new(
             Path::new("."),
             store,
             Arc::new(genesis),
             vec![],
             vec![],
-        ))];
+        ))]
+    }
+
+    #[test]
+    fn test_pending_approvals() {
+        let runtimes = create_runtimes();
         let mut env = TestEnv::new_with_runtime(ChainGenesis::test(), 1, 1, runtimes);
         let signer = InMemoryValidatorSigner::from_seed("test1", KeyType::ED25519, "test1");
         let parent_hash = hash(&[1]);
@@ -1439,5 +1446,26 @@ mod test {
             env.clients[0].pending_approvals.cache_remove(&ApprovalInner::Endorsement(parent_hash));
         let expected = vec![("test1".to_string(), approval)].into_iter().collect::<HashMap<_, _>>();
         assert_eq!(approvals, Some(expected));
+    }
+
+    #[test]
+    fn test_process_partial_encoded_chunk_with_missing_block() {
+        let runtimes = create_runtimes();
+        let mut env = TestEnv::new_with_runtime(ChainGenesis::test(), 1, 1, runtimes);
+        let client = &mut env.clients[0];
+        let chunk_producer = ChunkForwardingTestFixture::default();
+        let mut mock_chunk = chunk_producer.make_partial_encoded_chunk(&[0]);
+        // change the prev_block to some unknown block
+        mock_chunk.header.inner.prev_block_hash = hash(b"some_prev_block");
+        mock_chunk.header.init();
+
+        // process_partial_encoded_chunk should return Ok(NeedBlock) if the chunk is
+        // based on a missing block.
+        let result = client.shards_mgr.process_partial_encoded_chunk(
+            mock_chunk,
+            client.chain.mut_store(),
+            &mut client.rs,
+        );
+        assert!(matches!(result, Ok(ProcessPartialEncodedChunkResult::NeedBlock)));
     }
 }

@@ -304,8 +304,8 @@ macro_rules! tuplet {
         assert!($v.is_empty(), "{}", $message);
     };
     {($y:ident) = $v:expr, $message:expr } => {
-        let $y = &$v[0];
         assert_eq!($v.len(), 1, "{}", $message);
+        let $y = &$v[0];
     };
     { ($y:ident $(, $x:ident)*) = $v:expr, $message:expr } => {
         let ($y, $($x),*) = tuplet!($v ; 1 ; ($($x),*) ; (&$v[0]), $message );
@@ -350,22 +350,6 @@ macro_rules! assert_receipts {
             _ => panic!("Receipt {:#?} does not satisfy the pattern {}", r, stringify!($receipt_pat)),
         }
        let receipt_log = $group.get_transaction_log(&r.get_hash());
-       tuplet!(( $($produced_receipt),* ) = receipt_log.outcome.receipt_ids, "Incorrect number of produced receipts for a receipt");
-    };
-    ($group:ident, $from:expr => $receipt:ident @ $to:expr,
-    $receipt_pat:pat,
-    $receipt_assert:block
-     => [ $($produced_receipt:ident),*] ) => {
-        let r = $group.get_receipt($to, $receipt);
-        assert_eq!(r.predecessor_id, $from.to_string());
-        assert_eq!(r.receiver_id, $to.to_string());
-        match &r.receipt {
-            $receipt_pat => {
-                $receipt_assert
-            }
-            _ => panic!("Receipt {:#?} does not satisfy the pattern {}", r, stringify!($receipt_pat)),
-        }
-       let receipt_log = $group.get_produced_receipt_hashes(&r.get_hash());
        tuplet!(( $($produced_receipt),* ) = receipt_log.outcome.receipt_ids, "Incorrect number of produced receipts for a receipt");
     };
 }
