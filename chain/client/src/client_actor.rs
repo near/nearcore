@@ -879,8 +879,8 @@ impl ClientActor {
                             peer_id: peer_id.clone(),
                             ban_reason: ReasonForBan::BadBlockHeader,
                         });
+                        return Err(e);
                     }
-                    return Err(e);
                 }
             }
         }
