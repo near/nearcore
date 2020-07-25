@@ -11,6 +11,7 @@ pub use near_vm_errors::VMError;
 pub use runner::compile_module;
 pub use runner::run;
 pub use runner::run_vm;
+pub use runner::run_vm_profiled;
 pub use runner::with_vm_variants;
 
 #[cfg(feature = "costs_counting")]

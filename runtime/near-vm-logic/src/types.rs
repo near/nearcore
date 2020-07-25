@@ -1,4 +1,6 @@
 use serde::{Deserialize, Serialize};
+use std::cell::RefCell;
+use std::rc::Rc;
 
 pub type AccountId = String;
 pub type PublicKey = Vec<u8>;
@@ -35,3 +37,5 @@ pub enum PromiseResult {
     Successful(Vec<u8>),
     Failed,
 }
+
+pub type ProfileData = Rc<RefCell<Vec<u64>>>;

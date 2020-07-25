@@ -35,6 +35,7 @@ impl VMLogicBuilder {
             &self.fees_config,
             &self.promise_results,
             &mut self.memory,
+            None,
         )
     }
     #[allow(dead_code)]

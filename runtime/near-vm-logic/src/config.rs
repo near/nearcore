@@ -486,6 +486,42 @@ pub enum ExtCosts {
     validator_total_stake_base,
 }
 
+#[derive(Copy, Clone, Hash, PartialEq, Eq, Debug, PartialOrd, Ord)]
+#[allow(non_camel_case_types)]
+pub enum Actions {
+    create_account,
+    delete_account,
+    deploy_contract,
+    function_call,
+    transfer,
+    stake,
+    add_key,
+    delete_key,
+    value_return,
+    new_receipt,
+}
+
+impl Actions {
+    pub fn count() -> usize {
+        Actions::new_receipt as usize + 1
+    }
+
+    pub fn name_of(index: usize) -> &'static str {
+        vec![
+            "create_account",
+            "delete_account",
+            "deploy_contract",
+            "function_call",
+            "transfer",
+            "stake",
+            "add_key",
+            "delete_key",
+            "value_return",
+            "new_receipt",
+        ][index]
+    }
+}
+
 impl ExtCosts {
     pub fn value(self, config: &ExtCostsConfig) -> Gas {
         use ExtCosts::*;
@@ -540,5 +576,63 @@ impl ExtCosts {
             validator_stake_base => config.validator_stake_base,
             validator_total_stake_base => config.validator_total_stake_base,
         }
+    }
+
+    pub fn count() -> usize {
+        ExtCosts::validator_total_stake_base as usize + 1
+    }
+
+    pub fn name_of(index: usize) -> &'static str {
+        vec![
+            "base",
+            "contract_compile_base",
+            "contract_compile_bytes",
+            "read_memory_base",
+            "read_memory_byte",
+            "write_memory_base",
+            "write_memory_byte",
+            "read_register_base",
+            "read_register_byte",
+            "write_register_base",
+            "write_register_byte",
+            "utf8_decoding_base",
+            "utf8_decoding_byte",
+            "utf16_decoding_base",
+            "utf16_decoding_byte",
+            "sha256_base",
+            "sha256_byte",
+            "keccak256_base",
+            "keccak256_byte",
+            "keccak512_base",
+            "keccak512_byte",
+            "log_base",
+            "log_byte",
+            "storage_write_base",
+            "storage_write_key_byte",
+            "storage_write_value_byte",
+            "storage_write_evicted_byte",
+            "storage_read_base",
+            "storage_read_key_byte",
+            "storage_read_value_byte",
+            "storage_remove_base",
+            "storage_remove_key_byte",
+            "storage_remove_ret_value_byte",
+            "storage_has_key_base",
+            "storage_has_key_byte",
+            "storage_iter_create_prefix_base",
+            "storage_iter_create_prefix_byte",
+            "storage_iter_create_range_base",
+            "storage_iter_create_from_byte",
+            "storage_iter_create_to_byte",
+            "storage_iter_next_base",
+            "storage_iter_next_key_byte",
+            "storage_iter_next_value_byte",
+            "touching_trie_node",
+            "promise_and_base",
+            "promise_and_per_promise",
+            "promise_return",
+            "validator_stake_base",
+            "validator_total_stake_base",
+        ][index]
     }
 }
