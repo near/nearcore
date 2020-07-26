@@ -893,9 +893,8 @@ impl Chain {
     pub fn reset_data_pre_state_sync(&mut self, sync_hash: CryptoHash) -> Result<(), Error> {
         // Get header we were syncing into.
         let header = self.get_block_header(&sync_hash)?;
-        // Do not garbage collect anything related to the prev block hash of the sync block
         let prev_hash = *header.prev_hash();
-        let gc_height = self.get_block_header(&prev_hash)?.height();
+        let gc_height = header.height();
 
         // GC all the data from current tail up to `gc_height`
         let tail = self.store.tail()?;
@@ -905,7 +904,10 @@ impl Chain {
                     blocks_current_height.values().flatten().cloned().collect::<Vec<_>>();
                 for block_hash in blocks_current_height {
                     let mut chain_store_update = self.mut_store().store_update();
-                    chain_store_update.clear_block_data(block_hash, GCMode::StateSync)?;
+                    chain_store_update.clear_block_data(
+                        block_hash,
+                        GCMode::StateSync { clear_block_info: block_hash != prev_hash },
+                    )?;
                     chain_store_update.commit()?;
                 }
             }
