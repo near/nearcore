@@ -727,7 +727,7 @@ pub fn init_configs(
             genesis.to_file(&dir.join(config.genesis_file));
             info!(target: "near", "Generated MainNet genesis file in {}", dir.to_str().unwrap());
         }
-        "testnet" | "betanet" | "devnet" => {
+        "testnet" | "betanet" => {
             if test_seed.is_some() {
                 panic!("Test seed is not supported for official TestNet");
             }
