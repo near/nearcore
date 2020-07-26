@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use borsh::BorshSerialize;
 
-use near_chain::chain::BlockEconomicsConfig;
+use near_chain::types::BlockEconomicsConfig;
 use near_chain::validate::validate_challenge;
 use near_chain::{
     Block, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode, Error, ErrorKind, Provenance,
@@ -365,11 +365,11 @@ fn challenge(
 #[test]
 fn test_verify_chunk_invalid_state_challenge() {
     let store1 = create_test_store();
-    let genesis = Genesis::test(vec!["test0", "test1"], 1);
+    let genesis = Arc::new(Genesis::test(vec!["test0", "test1"], 1));
     let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![Arc::new(neard::NightshadeRuntime::new(
         Path::new("."),
         store1,
-        Arc::new(genesis),
+        Arc::clone(&genesis),
         vec![],
         vec![],
     ))];
@@ -462,11 +462,8 @@ fn test_verify_chunk_invalid_state_challenge() {
         let adapter = chain.runtime_adapter.clone();
         let epoch_length = chain.epoch_length;
         let empty_block_pool = OrphanBlockPool::new();
-        let economics_config = BlockEconomicsConfig {
-            gas_price_adjustment_rate: Rational::from_integer(0),
-            min_gas_price: 0,
-            max_gas_price: 100,
-        };
+        let chain_genesis = ChainGenesis::from(&genesis);
+        let economics_config = BlockEconomicsConfig::from(&chain_genesis);
 
         let mut chain_update = ChainUpdate::new(
             chain.mut_store(),
