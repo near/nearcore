@@ -3,15 +3,13 @@ use std::sync::Arc;
 use std::time::{Duration as TimeDuration, Instant};
 
 use borsh::BorshSerialize;
-use chrono::prelude::{DateTime, Utc};
 use chrono::Duration;
+use chrono::Utc;
 use log::{debug, error, info};
-use num_rational::Rational;
 use rand::rngs::StdRng;
 use rand::seq::SliceRandom;
 use rand::SeedableRng;
 
-use near_chain_configs::GenesisConfig;
 use near_primitives::block::{genesis_chunks, Tip};
 use near_primitives::challenge::{
     BlockDoubleSign, Challenge, ChallengeBody, ChallengesResult, ChunkProofs, ChunkState,
@@ -32,11 +30,10 @@ use near_primitives::syncing::{
 };
 use near_primitives::transaction::ExecutionOutcomeWithIdAndProof;
 use near_primitives::types::{
-    AccountId, Balance, BlockExtra, BlockHeight, BlockHeightDelta, ChunkExtra, EpochId, Gas,
-    MerkleHash, NumBlocks, ShardId, ValidatorStake,
+    AccountId, Balance, BlockExtra, BlockHeight, BlockHeightDelta, ChunkExtra, EpochId, MerkleHash,
+    NumBlocks, ShardId, ValidatorStake,
 };
 use near_primitives::unwrap_or_return;
-use near_primitives::version::ProtocolVersion;
 use near_primitives::views::{
     ExecutionOutcomeWithIdView, ExecutionStatusView, FinalExecutionOutcomeView,
     FinalExecutionStatus, LightClientBlockView,
@@ -47,8 +44,9 @@ use crate::error::{Error, ErrorKind, LogTransientStorageError};
 use crate::lightclient::get_epoch_block_producers_view;
 use crate::store::{ChainStore, ChainStoreAccess, ChainStoreUpdate, GCMode};
 use crate::types::{
-    AcceptedBlock, ApplyTransactionResult, Block, BlockHeader, BlockHeaderInfo, BlockStatus,
-    BlockSyncResponse, Provenance, ReceiptList, RuntimeAdapter,
+    AcceptedBlock, ApplyTransactionResult, Block, BlockEconomicsConfig, BlockHeader,
+    BlockHeaderInfo, BlockStatus, BlockSyncResponse, ChainGenesis, Provenance, ReceiptList,
+    RuntimeAdapter,
 };
 use crate::validate::{
     validate_challenge, validate_chunk_proofs, validate_chunk_with_chunk_extra,
@@ -74,13 +72,6 @@ const NEAR_BASE: Balance = 1_000_000_000_000_000_000_000_000;
 
 /// Number of epochs for which we keep store data
 pub const NUM_EPOCHS_TO_KEEP_STORE_DATA: u64 = 5;
-
-/// Block economics config taken from genesis config
-pub struct BlockEconomicsConfig {
-    pub gas_price_adjustment_rate: Rational,
-    pub min_gas_price: Balance,
-    pub max_gas_price: Balance,
-}
 
 enum ApplyChunksMode {
     ThisEpoch,
@@ -176,74 +167,6 @@ impl OrphanBlockPool {
     }
 }
 
-/// Chain genesis configuration.
-#[derive(Clone)]
-pub struct ChainGenesis {
-    pub time: DateTime<Utc>,
-    pub height: BlockHeight,
-    pub gas_limit: Gas,
-    pub min_gas_price: Balance,
-    pub max_gas_price: Balance,
-    pub total_supply: Balance,
-    pub max_inflation_rate: Rational,
-    pub gas_price_adjustment_rate: Rational,
-    pub transaction_validity_period: NumBlocks,
-    pub epoch_length: BlockHeightDelta,
-    pub protocol_version: ProtocolVersion,
-}
-
-impl ChainGenesis {
-    pub fn new(
-        time: DateTime<Utc>,
-        height: BlockHeight,
-        gas_limit: Gas,
-        min_gas_price: Balance,
-        max_gas_price: Balance,
-        total_supply: Balance,
-        max_inflation_rate: Rational,
-        gas_price_adjustment_rate: Rational,
-        transaction_validity_period: NumBlocks,
-        epoch_length: BlockHeightDelta,
-        protocol_version: ProtocolVersion,
-    ) -> Self {
-        Self {
-            time,
-            height,
-            gas_limit,
-            min_gas_price,
-            max_gas_price,
-            total_supply,
-            max_inflation_rate,
-            gas_price_adjustment_rate,
-            transaction_validity_period,
-            epoch_length,
-            protocol_version,
-        }
-    }
-}
-
-impl<T> From<T> for ChainGenesis
-where
-    T: AsRef<GenesisConfig>,
-{
-    fn from(genesis_config: T) -> Self {
-        let genesis_config = genesis_config.as_ref();
-        ChainGenesis::new(
-            genesis_config.genesis_time,
-            genesis_config.genesis_height,
-            genesis_config.gas_limit,
-            genesis_config.min_gas_price,
-            genesis_config.max_gas_price,
-            genesis_config.total_supply,
-            genesis_config.max_inflation_rate,
-            genesis_config.gas_price_adjustment_rate,
-            genesis_config.transaction_validity_period,
-            genesis_config.epoch_length,
-            genesis_config.protocol_version,
-        )
-    }
-}
-
 /// Facade to the blockchain block processing and storage.
 /// Provides current view on the state according to the chain state.
 pub struct Chain {
@@ -290,11 +213,7 @@ impl Chain {
             genesis: genesis.header().clone(),
             transaction_validity_period: chain_genesis.transaction_validity_period,
             epoch_length: chain_genesis.epoch_length,
-            block_economics_config: BlockEconomicsConfig {
-                gas_price_adjustment_rate: chain_genesis.gas_price_adjustment_rate,
-                min_gas_price: chain_genesis.min_gas_price,
-                max_gas_price: chain_genesis.max_gas_price,
-            },
+            block_economics_config: BlockEconomicsConfig::from(chain_genesis),
             doomslug_threshold_mode,
         })
     }
@@ -411,11 +330,7 @@ impl Chain {
             genesis: genesis.header().clone(),
             transaction_validity_period: chain_genesis.transaction_validity_period,
             epoch_length: chain_genesis.epoch_length,
-            block_economics_config: BlockEconomicsConfig {
-                gas_price_adjustment_rate: chain_genesis.gas_price_adjustment_rate,
-                min_gas_price: chain_genesis.min_gas_price,
-                max_gas_price: chain_genesis.max_gas_price,
-            },
+            block_economics_config: BlockEconomicsConfig::from(chain_genesis),
             doomslug_threshold_mode,
         })
     }
@@ -2976,11 +2891,13 @@ impl<'a> ChainUpdate<'a> {
             return Err(ErrorKind::Other("Invalid block".into()).into());
         }
 
+        let protocol_version =
+            self.runtime_adapter.get_epoch_protocol_version(&block.header().epoch_id())?;
         if !block.verify_gas_price(
             prev_gas_price,
-            self.block_economics_config.min_gas_price,
-            self.block_economics_config.max_gas_price,
-            self.block_economics_config.gas_price_adjustment_rate,
+            self.block_economics_config.min_gas_price(protocol_version),
+            self.block_economics_config.max_gas_price(protocol_version),
+            self.block_economics_config.gas_price_adjustment_rate(protocol_version),
         ) {
             byzantine_assert!(false);
             return Err(ErrorKind::InvalidGasPrice.into());

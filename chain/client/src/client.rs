@@ -354,9 +354,11 @@ impl Client {
             .get_next_epoch_id_from_prev_block(&head.last_block_hash)
             .expect("Epoch hash should exist at this point");
 
-        let gas_price_adjustment_rate = self.chain.block_economics_config.gas_price_adjustment_rate;
-        let min_gas_price = self.chain.block_economics_config.min_gas_price;
-        let max_gas_price = self.chain.block_economics_config.max_gas_price;
+        let protocol_version = self.runtime_adapter.get_epoch_protocol_version(&epoch_id)?;
+        let gas_price_adjustment_rate =
+            self.chain.block_economics_config.gas_price_adjustment_rate(protocol_version);
+        let min_gas_price = self.chain.block_economics_config.min_gas_price(protocol_version);
+        let max_gas_price = self.chain.block_economics_config.max_gas_price(protocol_version);
 
         let next_bp_hash = if prev_epoch_id != epoch_id {
             Chain::compute_bp_hash(&*self.runtime_adapter, next_epoch_id.clone(), &prev_hash)?
@@ -394,7 +396,6 @@ impl Client {
         // Get all the current challenges.
         // TODO(2445): Enable challenges when they are working correctly.
         // let challenges = self.challenges.drain().map(|(_, challenge)| challenge).collect();
-
         let protocol_version = self.runtime_adapter.get_epoch_protocol_version(&next_epoch_id)?;
 
         let block = Block::produce(
