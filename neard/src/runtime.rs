@@ -249,7 +249,6 @@ impl NightshadeRuntime {
             }
         }
         assert!(has_protocol_account, "Genesis spec doesn't have protocol treasury account");
-        let num_shards = genesis.config.num_block_producer_seats_per_shard.len() as NumShards;
         let tries = ShardTries::new(store.clone(), num_shards);
         let runtime = Runtime::new(genesis.config.runtime_config.clone());
         for shard_id in 0..num_shards {
