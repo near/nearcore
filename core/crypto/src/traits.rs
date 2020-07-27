@@ -27,13 +27,13 @@ macro_rules! common_conversions {
         }
 
         impl ::std::fmt::Debug for $ty {
-            fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+            fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
                 f.write_str(to_str!(self))
             }
         }
 
         impl ::std::fmt::Display for $ty {
-            fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+            fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
                 f.write_str(to_str!(self))
             }
         }
@@ -159,9 +159,17 @@ macro_rules! value_type {
 
         impl borsh::BorshDeserialize for $ty {
             #[inline]
-            fn deserialize<R: std::io::Read>(reader: &mut R) -> Result<Self, std::io::Error> {
+            fn deserialize(buf: &mut &[u8]) -> Result<Self, std::io::Error> {
+                if buf.len() < $l {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::InvalidInput,
+                        "Unexpected length of input",
+                    ));
+                }
+
                 let mut data = [0u8; $l];
-                reader.read_exact(&mut data)?;
+                data.copy_from_slice(&buf[..$l]);
+                *buf = &buf[$l..];
                 Ok($ty(data))
             }
         }

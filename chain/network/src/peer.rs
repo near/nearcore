@@ -1,25 +1,27 @@
 use std::cmp::max;
 use std::io;
 use std::net::SocketAddr;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use actix::io::{FramedWrite, WriteHandler};
 use actix::{
-    Actor, ActorContext, ActorFuture, Addr, AsyncContext, Context, ContextFutureSpawner, Handler,
-    Recipient, Running, StreamHandler, WrapFuture,
+    Actor, ActorContext, ActorFuture, Addr, Arbiter, AsyncContext, Context, ContextFutureSpawner,
+    Handler, Recipient, Running, StreamHandler, WrapFuture,
 };
 use tracing::{debug, error, info, trace, warn};
 
-use near_chain_configs::PROTOCOL_VERSION;
 use near_metrics;
 use near_primitives::block::GenesisId;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
 use near_primitives::unwrap_option_or_return;
-use near_primitives::utils::{ser, DisplayOption};
+use near_primitives::utils::DisplayOption;
+use near_primitives::version::{FIRST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION, PROTOCOL_VERSION};
 
 use crate::codec::{bytes_to_peer_message, peer_message_to_bytes, Codec};
 use crate::rate_counter::RateCounter;
+#[cfg(feature = "metric_recorder")]
+use crate::recorder::{PeerMessageMetadata, Status};
 use crate::routing::{Edge, EdgeInfo};
 use crate::types::{
     Ban, Consolidate, ConsolidateResponse, Handshake, HandshakeFailureReason,
@@ -27,15 +29,16 @@ use crate::types::{
     NetworkViewClientResponses, PeerChainInfo, PeerInfo, PeerManagerRequest, PeerMessage,
     PeerRequest, PeerResponse, PeerStatsResult, PeerStatus, PeerType, PeersRequest, PeersResponse,
     QueryPeerStats, ReasonForBan, RoutedMessageBody, RoutedMessageFrom, SendMessage, Unregister,
+    UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE,
 };
 use crate::PeerManagerActor;
 use crate::{metrics, NetworkResponses};
+use metrics::NetworkMetrics;
 
 type WriteHalf = tokio::io::WriteHalf<tokio::net::TcpStream>;
 
 /// Maximum number of requests and responses to track.
 const MAX_TRACK_SIZE: usize = 30;
-
 /// Maximum number of messages per minute from single peer.
 // TODO: current limit is way to high due to us sending lots of messages during sync.
 const MAX_PEER_MSG_PER_MIN: u64 = std::u64::MAX;
@@ -106,16 +109,16 @@ impl Tracker {
         self.sent_bytes.increment(size);
     }
 
-    fn has_received(&self, hash: CryptoHash) -> bool {
-        self.received.contains(&hash)
+    fn has_received(&self, hash: &CryptoHash) -> bool {
+        self.received.contains(hash)
     }
 
     fn push_received(&mut self, hash: CryptoHash) {
         self.received.push(hash);
     }
 
-    fn has_request(&self, hash: CryptoHash) -> bool {
-        self.requested.contains(&hash)
+    fn has_request(&self, hash: &CryptoHash) -> bool {
+        self.requested.contains(hash)
     }
 
     fn push_request(&mut self, hash: CryptoHash) {
@@ -152,6 +155,10 @@ pub struct Peer {
     chain_info: PeerChainInfo,
     /// Edge information needed to build the real edge. This is relevant for handshake.
     edge_info: Option<EdgeInfo>,
+    /// Last time an update of received message was sent to PeerManager
+    last_time_received_message_update: Instant,
+    /// Dynamic Prometheus metrics
+    network_metrics: NetworkMetrics,
 }
 
 impl Peer {
@@ -166,6 +173,7 @@ impl Peer {
         client_addr: Recipient<NetworkClientMessages>,
         view_client_addr: Recipient<NetworkViewClientMessages>,
         edge_info: Option<EdgeInfo>,
+        network_metrics: NetworkMetrics,
     ) -> Self {
         Peer {
             node_info,
@@ -182,10 +190,15 @@ impl Peer {
             genesis_id: Default::default(),
             chain_info: Default::default(),
             edge_info,
+            last_time_received_message_update: Instant::now(),
+            network_metrics,
         }
     }
 
     /// Whether the peer is considered abusive due to sending too many messages.
+    // I am allowing this for now because I assume `MAX_PEER_MSG_PER_MIN` will
+    // some day be less than `u64::MAX`.
+    #[allow(clippy::absurd_extreme_comparisons)]
     fn is_abusive(&self) -> bool {
         self.tracker.received_bytes.count_per_min() > MAX_PEER_MSG_PER_MIN
             || self.tracker.sent_bytes.count_per_min() > MAX_PEER_MSG_PER_MIN
@@ -199,11 +212,20 @@ impl Peer {
             PeerMessage::BlockRequest(h) => self.tracker.push_request(*h),
             _ => (),
         };
-
-        trace!(target: "diagnostic", key="tx", msg=%ser(&msg));
+        #[cfg(feature = "metric_recorder")]
+        let metadata = {
+            let mut metadata: PeerMessageMetadata = (&msg).into();
+            metadata = metadata.set_source(self.node_id()).set_status(Status::Sent);
+            if let Some(target) = self.peer_id() {
+                metadata = metadata.set_target(target);
+            }
+            metadata
+        };
 
         match peer_message_to_bytes(msg) {
             Ok(bytes) => {
+                #[cfg(feature = "metric_recorder")]
+                self.peer_manager_addr.do_send(metadata.set_size(bytes.len()));
                 self.tracker.increment_sent(bytes.len() as u64);
                 self.framed.write(bytes);
             }
@@ -231,6 +253,11 @@ impl Peer {
     }
 
     fn send_handshake(&mut self, ctx: &mut Context<Peer>) {
+        if self.peer_id().is_none() {
+            error!(target: "network", "Sending handshake to an unknown peer");
+            return;
+        }
+
         self.view_client_addr
             .send(NetworkViewClientMessages::GetChainInfo)
             .into_actor(self)
@@ -238,13 +265,13 @@ impl Peer {
                 Ok(NetworkViewClientResponses::ChainInfo {
                     genesis_id,
                     height,
-                    score,
                     tracked_shards,
                 }) => {
                     let handshake = Handshake::new(
-                        act.node_info.id.clone(),
+                        act.node_id(),
+                        act.peer_id().unwrap(),
                         act.node_info.addr_port(),
-                        PeerChainInfo { genesis_id, height, score, tracked_shards },
+                        PeerChainInfo { genesis_id, height, tracked_shards },
                         act.edge_info.as_ref().unwrap().clone(),
                     );
                     act.send_message(PeerMessage::Handshake(handshake));
@@ -260,9 +287,14 @@ impl Peer {
     }
 
     fn ban_peer(&mut self, ctx: &mut Context<Peer>, ban_reason: ReasonForBan) {
-        info!(target: "network", "Banning peer {} for {:?}", self.peer_info, ban_reason);
+        warn!(target: "network", "Banning peer {} for {:?}", self.peer_info, ban_reason);
         self.peer_status = PeerStatus::Banned(ban_reason);
+        // On stopping Banned signal will be sent to PeerManager
         ctx.stop();
+    }
+
+    fn node_id(&self) -> PeerId {
+        self.node_info.id.clone()
     }
 
     fn peer_id(&self) -> Option<PeerId> {
@@ -274,6 +306,8 @@ impl Peer {
             self.receive_view_client_message(ctx, msg);
         } else if msg.is_client_message() {
             self.receive_client_message(ctx, msg);
+        } else {
+            debug_assert!(false);
         }
     }
 
@@ -283,8 +317,8 @@ impl Peer {
             PeerMessage::Routed(message) => {
                 msg_hash = Some(message.hash());
                 match message.body {
-                    RoutedMessageBody::QueryRequest { query_id, block_id, request, finality } => {
-                        NetworkViewClientMessages::Query { query_id, block_id, request, finality }
+                    RoutedMessageBody::QueryRequest { query_id, block_id_or_finality, request } => {
+                        NetworkViewClientMessages::Query { query_id, block_id_or_finality, request }
                     }
                     RoutedMessageBody::QueryResponse { query_id, response } => {
                         NetworkViewClientMessages::QueryResponse { query_id, response }
@@ -296,13 +330,13 @@ impl Peer {
                         }
                     }
                     RoutedMessageBody::TxStatusResponse(tx_result) => {
-                        NetworkViewClientMessages::TxStatusResponse(tx_result)
+                        NetworkViewClientMessages::TxStatusResponse(Box::new(tx_result))
                     }
                     RoutedMessageBody::ReceiptOutcomeRequest(receipt_id) => {
                         NetworkViewClientMessages::ReceiptOutcomeRequest(receipt_id)
                     }
                     RoutedMessageBody::ReceiptOutComeResponse(response) => {
-                        NetworkViewClientMessages::ReceiptOutcomeResponse(response)
+                        NetworkViewClientMessages::ReceiptOutcomeResponse(Box::new(response))
                     }
                     RoutedMessageBody::StateRequestHeader(shard_id, sync_hash) => {
                         NetworkViewClientMessages::StateRequestHeader { shard_id, sync_hash }
@@ -333,27 +367,29 @@ impl Peer {
                 // Ban peer if client thinks received data is bad.
                 match res {
                     Ok(NetworkViewClientResponses::TxStatus(tx_result)) => {
-                        let body = RoutedMessageBody::TxStatusResponse(tx_result);
+                        let body = Box::new(RoutedMessageBody::TxStatusResponse(*tx_result));
                         act.peer_manager_addr
                             .do_send(PeerRequest::RouteBack(body, msg_hash.unwrap()));
                     }
                     Ok(NetworkViewClientResponses::QueryResponse { query_id, response }) => {
-                        let body = RoutedMessageBody::QueryResponse { query_id, response };
+                        let body =
+                            Box::new(RoutedMessageBody::QueryResponse { query_id, response });
                         act.peer_manager_addr
                             .do_send(PeerRequest::RouteBack(body, msg_hash.unwrap()));
                     }
                     Ok(NetworkViewClientResponses::ReceiptOutcomeResponse(response)) => {
-                        let body = RoutedMessageBody::ReceiptOutComeResponse(response);
+                        let body = Box::new(RoutedMessageBody::ReceiptOutComeResponse(*response));
                         act.peer_manager_addr
                             .do_send(PeerRequest::RouteBack(body, msg_hash.unwrap()));
                     }
                     Ok(NetworkViewClientResponses::StateResponse(state_response)) => {
-                        let body = RoutedMessageBody::StateResponse(state_response);
+                        let body = Box::new(RoutedMessageBody::StateResponse(*state_response));
                         act.peer_manager_addr
                             .do_send(PeerRequest::RouteBack(body, msg_hash.unwrap()));
                     }
                     Ok(NetworkViewClientResponses::Block(block)) => {
-                        act.send_message(PeerMessage::Block(block))
+                        // MOO need protocol version
+                        act.send_message(PeerMessage::Block(*block))
                     }
                     Ok(NetworkViewClientResponses::BlockHeaders(headers)) => {
                         act.send_message(PeerMessage::BlockHeaders(headers))
@@ -382,16 +418,18 @@ impl Peer {
         let network_client_msg = match msg {
             PeerMessage::Block(block) => {
                 near_metrics::inc_counter(&metrics::PEER_BLOCK_RECEIVED_TOTAL);
-                let block_hash = block.hash();
+                let block_hash = *block.hash();
                 self.tracker.push_received(block_hash);
-                self.chain_info.height =
-                    max(self.chain_info.height, block.header.inner_lite.height);
-                self.chain_info.score = max(self.chain_info.score, block.header.inner_rest.score);
-                NetworkClientMessages::Block(block, peer_id, self.tracker.has_request(block_hash))
+                self.chain_info.height = max(self.chain_info.height, block.header().height());
+                NetworkClientMessages::Block(block, peer_id, self.tracker.has_request(&block_hash))
             }
             PeerMessage::Transaction(transaction) => {
                 near_metrics::inc_counter(&metrics::PEER_TRANSACTION_RECEIVED_TOTAL);
-                NetworkClientMessages::Transaction(transaction)
+                NetworkClientMessages::Transaction {
+                    transaction,
+                    is_forwarded: false,
+                    check_only: false,
+                }
             }
             PeerMessage::BlockHeaders(headers) => {
                 NetworkClientMessages::BlockHeaders(headers, peer_id)
@@ -405,7 +443,11 @@ impl Peer {
                         NetworkClientMessages::BlockApproval(approval, peer_id)
                     }
                     RoutedMessageBody::ForwardTx(transaction) => {
-                        NetworkClientMessages::Transaction(transaction)
+                        NetworkClientMessages::Transaction {
+                            transaction,
+                            is_forwarded: true,
+                            check_only: false,
+                        }
                     }
 
                     RoutedMessageBody::StateResponse(info) => {
@@ -413,6 +455,9 @@ impl Peer {
                     }
                     RoutedMessageBody::PartialEncodedChunkRequest(request) => {
                         NetworkClientMessages::PartialEncodedChunkRequest(request, msg_hash)
+                    }
+                    RoutedMessageBody::PartialEncodedChunkResponse(response) => {
+                        NetworkClientMessages::PartialEncodedChunkResponse(response)
                     }
                     RoutedMessageBody::PartialEncodedChunk(partial_encoded_chunk) => {
                         NetworkClientMessages::PartialEncodedChunk(partial_encoded_chunk)
@@ -437,7 +482,7 @@ impl Peer {
             | PeerMessage::HandshakeFailure(_, _)
             | PeerMessage::PeersRequest
             | PeerMessage::PeersResponse(_)
-            | PeerMessage::Sync(_)
+            | PeerMessage::RoutingTableSync(_)
             | PeerMessage::LastEdge(_)
             | PeerMessage::Disconnect
             | PeerMessage::RequestUpdateNonce(_)
@@ -476,6 +521,21 @@ impl Peer {
             })
             .spawn(ctx);
     }
+
+    /// Hook called on every valid message received from this peer from the network.
+    fn on_receive_message(&mut self) {
+        if let Some(peer_id) = self.peer_id() {
+            if self.last_time_received_message_update.elapsed()
+                > UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE
+            {
+                self.last_time_received_message_update = Instant::now();
+                self.peer_manager_addr.do_send(PeerRequest::ReceivedMessage(
+                    peer_id,
+                    self.last_time_received_message_update,
+                ));
+            }
+        }
+    }
 }
 
 impl Actor for Peer {
@@ -505,44 +565,85 @@ impl Actor for Peer {
         near_metrics::dec_gauge(&metrics::PEER_CONNECTIONS_TOTAL);
         debug!(target: "network", "{:?}: Peer {} disconnected.", self.node_info.id, self.peer_info);
         if let Some(peer_info) = self.peer_info.as_ref() {
-            if self.peer_status == PeerStatus::Ready {
-                self.peer_manager_addr.do_send(Unregister { peer_id: peer_info.id.clone() })
-            } else if let PeerStatus::Banned(ban_reason) = self.peer_status {
+            if let PeerStatus::Banned(ban_reason) = self.peer_status {
                 self.peer_manager_addr.do_send(Ban { peer_id: peer_info.id.clone(), ban_reason });
+            } else {
+                self.peer_manager_addr.do_send(Unregister {
+                    peer_id: peer_info.id.clone(),
+                    peer_type: self.peer_type,
+                })
             }
         }
         Running::Stop
+    }
+
+    fn stopped(&mut self, _ctx: &mut Self::Context) {
+        Arbiter::current().stop();
     }
 }
 
 impl WriteHandler<io::Error> for Peer {}
 
-impl StreamHandler<Vec<u8>> for Peer {
-    fn handle(&mut self, msg: Vec<u8>, ctx: &mut Self::Context) {
+impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for Peer {
+    fn handle(&mut self, msg: Result<Vec<u8>, ReasonForBan>, ctx: &mut Self::Context) {
+        let msg = match msg {
+            Ok(msg) => msg,
+            Err(ban_reason) => {
+                self.ban_peer(ctx, ban_reason);
+                return ();
+            }
+        };
+
         near_metrics::inc_counter_by(&metrics::PEER_DATA_RECEIVED_BYTES, msg.len() as i64);
         near_metrics::inc_counter(&metrics::PEER_MESSAGE_RECEIVED_TOTAL);
+
+        #[cfg(feature = "metric_recorder")]
+        let msg_size = msg.len();
 
         self.tracker.increment_received(msg.len() as u64);
         let peer_msg = match bytes_to_peer_message(&msg) {
             Ok(peer_msg) => peer_msg,
             Err(err) => {
-                error!(target: "network", "Received invalid data {:?} from {}: {}", msg, self.peer_info, err);
+                info!(target: "network", "Received invalid data {:?} from {}: {}", msg, self.peer_info, err);
                 return;
             }
         };
 
-        trace!(target: "diagnostic", key="rx", length=msg.len(), msg=%ser(&peer_msg));
+        self.on_receive_message();
 
-        peer_msg.record(msg.len());
+        #[cfg(feature = "metric_recorder")]
+        {
+            let mut metadata: PeerMessageMetadata = (&peer_msg).into();
+            metadata =
+                metadata.set_size(msg_size).set_target(self.node_id()).set_status(Status::Received);
+
+            if let Some(peer_id) = self.peer_id() {
+                metadata = metadata.set_source(peer_id);
+            }
+
+            self.peer_manager_addr.do_send(metadata);
+        }
+
+        self.network_metrics
+            .inc(NetworkMetrics::peer_message_total_rx(&peer_msg.msg_variant()).as_ref());
+
+        self.network_metrics.inc_by(
+            NetworkMetrics::peer_message_bytes_rx(&peer_msg.msg_variant()).as_ref(),
+            msg.len() as i64,
+        );
 
         match (self.peer_type, self.peer_status, peer_msg) {
             (_, PeerStatus::Connecting, PeerMessage::HandshakeFailure(peer_info, reason)) => {
                 match reason {
                     HandshakeFailureReason::GenesisMismatch(genesis) => {
-                        error!(target: "network", "Attempting to connect to a node ({}) with a different genesis block. Our genesis: {:?}, their genesis: {:?}", peer_info, self.genesis_id, genesis);
+                        warn!(target: "network", "Attempting to connect to a node ({}) with a different genesis block. Our genesis: {:?}, their genesis: {:?}", peer_info, self.genesis_id, genesis);
                     }
                     HandshakeFailureReason::ProtocolVersionMismatch(version) => {
-                        error!(target: "network", "Unable to connect to a node ({}) due to a network protocol version mismatch. Our version: {}, their: {}", peer_info, PROTOCOL_VERSION, version);
+                        warn!(target: "network", "Unable to connect to a node ({}) due to a network protocol version mismatch. Our version: {}, their: {}", peer_info, PROTOCOL_VERSION, version);
+                    }
+                    HandshakeFailureReason::InvalidTarget => {
+                        debug!(target: "network", "Peer found was not what expected. Updating peer info with {:?}", peer_info);
+                        self.peer_manager_addr.do_send(PeerRequest::UpdatePeerInfo(peer_info));
                     }
                 }
                 ctx.stop();
@@ -551,7 +652,7 @@ impl StreamHandler<Vec<u8>> for Peer {
                 debug!(target: "network", "{:?}: Received handshake {:?}", self.node_info.id, handshake);
 
                 if handshake.chain_info.genesis_id != self.genesis_id {
-                    info!(target: "network", "Received connection from node with different genesis.");
+                    debug!(target: "network", "Received connection from node with different genesis.");
                     ctx.address().do_send(SendMessage {
                         message: PeerMessage::HandshakeFailure(
                             self.node_info.clone(),
@@ -562,31 +663,40 @@ impl StreamHandler<Vec<u8>> for Peer {
                     // Connection will be closed by a handshake timeout
                 }
 
-                if handshake.version != PROTOCOL_VERSION {
-                    info!(target: "network", "Received connection from node with different network protocol version.");
-                    ctx.address().do_send(SendMessage {
-                        message: PeerMessage::HandshakeFailure(
-                            self.node_info.clone(),
-                            HandshakeFailureReason::ProtocolVersionMismatch(PROTOCOL_VERSION),
-                        ),
-                    });
+                if handshake.version < FIRST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION {
+                    debug!(target: "network", "Received connection from node with different network protocol version.");
+                    self.send_message(PeerMessage::HandshakeFailure(
+                        self.node_info.clone(),
+                        HandshakeFailureReason::ProtocolVersionMismatch(handshake.version),
+                    ));
                     return;
                     // Connection will be closed by a handshake timeout
                 }
 
                 if handshake.peer_id == self.node_info.id {
-                    warn!(target: "network", "Received info about itself. Disconnecting this peer.");
+                    near_metrics::inc_counter(&metrics::RECEIVED_INFO_ABOUT_ITSELF);
+                    debug!(target: "network", "Received info about itself. Disconnecting this peer.");
                     ctx.stop();
                     return;
                 }
 
+                if handshake.target_peer_id != self.node_info.id {
+                    debug!(target: "network", "Received handshake from {:?} to {:?} but I am {:?}", handshake.peer_id, handshake.target_peer_id, self.node_info.id);
+                    self.send_message(PeerMessage::HandshakeFailure(
+                        self.node_info.clone(),
+                        HandshakeFailureReason::InvalidTarget,
+                    ));
+                    return;
+                    // Connection will be closed by a handshake timeout
+                }
+
                 // Verify signature of the new edge in handshake.
                 if !Edge::partial_verify(
-                    self.node_info.id.clone(),
+                    self.node_id(),
                     handshake.peer_id.clone(),
                     &handshake.edge_info,
                 ) {
-                    info!(target: "network", "Received invalid signature on handshake. Disconnecting this peer.");
+                    warn!(target: "network", "Received invalid signature on handshake. Disconnecting peer {}", handshake.peer_id);
                     self.ban_peer(ctx, ReasonForBan::InvalidSignature);
                     return;
                 }
@@ -596,7 +706,7 @@ impl StreamHandler<Vec<u8>> for Peer {
                     if handshake.edge_info.nonce
                         != self.edge_info.as_ref().map(|edge_info| edge_info.nonce).unwrap()
                     {
-                        info!(target: "network", "Received invalid nonce on handshake. Disconnecting this peer.");
+                        warn!(target: "network", "Received invalid nonce on handshake. Disconnecting peer {}", handshake.peer_id);
                         ctx.stop();
                         return;
                     }
@@ -633,12 +743,12 @@ impl StreamHandler<Vec<u8>> for Peer {
                                 actix::fut::ready(())
                             },
                             Ok(ConsolidateResponse::InvalidNonce(edge)) => {
-                                debug!(target: "network", "{:?}: Received invalid nonce from peer {:?} sending evidence.", act.node_info.id.clone(), act.peer_addr);
-                                act.send_message(PeerMessage::LastEdge(edge));
+                                debug!(target: "network", "{:?}: Received invalid nonce from peer {:?} sending evidence.", act.node_id(), act.peer_addr);
+                                act.send_message(PeerMessage::LastEdge(*edge));
                                 actix::fut::ready(())
                             }
                             _ => {
-                                info!(target: "network", "{:?}: Peer with handshake {:?} wasn't consolidated, disconnecting.", act.node_info.id.clone(), handshake);
+                                info!(target: "network", "{:?}: Peer with handshake {:?} wasn't consolidated, disconnecting.", act.node_id(), handshake);
                                 ctx.stop();
                                 actix::fut::ready(())
                             }
@@ -649,14 +759,14 @@ impl StreamHandler<Vec<u8>> for Peer {
             (_, PeerStatus::Connecting, PeerMessage::LastEdge(edge)) => {
                 // This message will be received only if we started the connection.
                 if self.peer_type == PeerType::Inbound {
-                    info!(target: "network", "{:?}: Inbound peer {:?} sent invalid message. Disconnect.", self.node_info.id.clone(), self.peer_addr);
+                    info!(target: "network", "{:?}: Inbound peer {:?} sent invalid message. Disconnect.", self.node_id(), self.peer_addr);
                     ctx.stop();
                     return ();
                 }
 
                 // Disconnect if neighbor propose invalid edge.
                 if !edge.verify() {
-                    info!(target: "network", "{:?}: Peer {:?} sent invalid edge. Disconnect.", self.node_info.id.clone(), self.peer_addr);
+                    info!(target: "network", "{:?}: Peer {:?} sent invalid edge. Disconnect.", self.node_id(), self.peer_addr);
                     ctx.stop();
                     return ();
                 }
@@ -687,8 +797,10 @@ impl StreamHandler<Vec<u8>> for Peer {
             (_, PeerStatus::Ready, PeerMessage::PeersRequest) => {
                 self.peer_manager_addr.send(PeersRequest {}).into_actor(self).then(|res, act, _ctx| {
                     if let Ok(peers) = res {
-                        debug!(target: "network", "Peers request from {}: sending {} peers.", act.peer_info, peers.peers.len());
-                        act.send_message(PeerMessage::PeersResponse(peers.peers));
+                        if !peers.peers.is_empty() {
+                            debug!(target: "network", "Peers request from {}: sending {} peers.", act.peer_info, peers.peers.len());
+                            act.send_message(PeerMessage::PeersResponse(peers.peers));
+                        }
                     }
                     actix::fut::ready(())
                 }).spawn(ctx);
@@ -704,7 +816,7 @@ impl StreamHandler<Vec<u8>> for Peer {
                 .then(|res, act, ctx| {
                     match res {
                         Ok(NetworkResponses::EdgeUpdate(edge)) => {
-                            act.send_message(PeerMessage::ResponseUpdateNonce(edge));
+                            act.send_message(PeerMessage::ResponseUpdateNonce(*edge));
                         }
                         Ok(NetworkResponses::BanPeer(reason_for_ban)) => {
                             act.ban_peer(ctx, reason_for_ban);
@@ -728,12 +840,12 @@ impl StreamHandler<Vec<u8>> for Peer {
                     actix::fut::ready(())
                 })
                 .spawn(ctx),
-            (_, PeerStatus::Ready, PeerMessage::Sync(sync_data)) => {
+            (_, PeerStatus::Ready, PeerMessage::RoutingTableSync(sync_data)) => {
                 self.peer_manager_addr
                     .do_send(NetworkRequests::Sync { peer_id: self.peer_id().unwrap(), sync_data });
             }
             (_, PeerStatus::Ready, PeerMessage::Routed(routed_message)) => {
-                debug!(target: "network", "Received routed message from {} to {:?}.", self.peer_info, routed_message.target);
+                trace!(target: "network", "Received routed message from {} to {:?}.", self.peer_info, routed_message.target);
 
                 // Receive invalid routed message from peer.
                 if !routed_message.verify() {

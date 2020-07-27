@@ -1,6 +1,5 @@
 #[cfg(not(feature = "no_cache"))]
 use cached::{cached_key, SizedCache};
-use wasmer_runtime;
 
 use crate::errors::IntoVMError;
 use crate::prepare;
@@ -9,7 +8,7 @@ use near_vm_logic::VMConfig;
 
 /// Cache size in number of cached modules to hold.
 #[cfg(not(feature = "no_cache"))]
-const CACHE_SIZE: usize = 1024;
+const CACHE_SIZE: usize = 128;
 // TODO: store a larger on-disk cache
 
 #[cfg(not(feature = "no_cache"))]

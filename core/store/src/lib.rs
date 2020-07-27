@@ -1,3 +1,6 @@
+#[macro_use]
+extern crate lazy_static;
+
 use std::fs::File;
 use std::io::{Read, Write};
 use std::path::Path;
@@ -9,6 +12,10 @@ use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use cached::{Cached, SizedCache};
 
 pub use db::DBCol::{self, *};
+pub use db::{
+    CHUNK_TAIL_KEY, HEADER_HEAD_KEY, HEAD_KEY, LARGEST_TARGET_HEIGHT_KEY, LATEST_KNOWN_KEY,
+    NUM_COLS, SHOULD_COL_GC, SKIP_COL_GC, SYNC_HEAD_KEY, TAIL_KEY,
+};
 use near_crypto::PublicKey;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::contract::ContractCode;
@@ -16,29 +23,29 @@ pub use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{Receipt, ReceivedData};
 use near_primitives::serialize::to_base;
-use near_primitives::types::{AccountId, StorageUsage};
-use near_primitives::utils::{
-    key_for_access_key, key_for_account, key_for_code, key_for_postponed_receipt,
-    key_for_received_data, prefix_for_access_key, prefix_for_data,
-};
+use near_primitives::trie_key::{trie_key_parsers, TrieKey};
+use near_primitives::types::AccountId;
 
 use crate::db::{DBOp, DBTransaction, Database, RocksDB};
 pub use crate::trie::{
-    iterator::TrieIterator, update::PrefixKeyValueChanges, update::TrieUpdate,
-    update::TrieUpdateIterator, update::TrieUpdateValuePtr, PartialStorage, Trie, TrieChanges,
+    iterator::TrieIterator, update::TrieUpdate, update::TrieUpdateIterator,
+    update::TrieUpdateValuePtr, KeyForStateChanges, PartialStorage, ShardTries, Trie, TrieChanges,
     WrappedTrieChanges,
 };
+use std::ops::Deref;
+use std::pin::Pin;
 
 mod db;
+pub mod migrations;
 pub mod test_utils;
 mod trie;
 
 pub struct Store {
-    storage: Arc<dyn Database>,
+    storage: Pin<Arc<dyn Database>>,
 }
 
 impl Store {
-    pub fn new(storage: Arc<dyn Database>) -> Store {
+    pub fn new(storage: Pin<Arc<dyn Database>>) -> Store {
         Store { storage }
     }
 
@@ -74,6 +81,14 @@ impl Store {
         column: DBCol,
     ) -> Box<dyn Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a> {
         self.storage.iter(column)
+    }
+
+    pub fn iter_prefix<'a>(
+        &'a self,
+        column: DBCol,
+        key_prefix: &'a [u8],
+    ) -> Box<dyn Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a> {
+        self.storage.iter_prefix(column, key_prefix)
     }
 
     pub fn iter_prefix_ser<'a, T: BorshDeserialize>(
@@ -121,21 +136,22 @@ impl Store {
 
 /// Keeps track of current changes to the database and can commit all of them to the database.
 pub struct StoreUpdate {
-    storage: Arc<dyn Database>,
+    storage: Pin<Arc<dyn Database>>,
     transaction: DBTransaction,
     /// Optionally has reference to the trie to clear cache on the commit.
-    trie: Option<Arc<Trie>>,
+    tries: Option<ShardTries>,
 }
 
 impl StoreUpdate {
-    pub fn new(storage: Arc<dyn Database>) -> Self {
+    pub fn new(storage: Pin<Arc<dyn Database>>) -> Self {
         let transaction = storage.transaction();
-        StoreUpdate { storage, transaction, trie: None }
+        StoreUpdate { storage, transaction, tries: None }
     }
 
-    pub fn new_with_trie(storage: Arc<dyn Database>, trie: Arc<Trie>) -> Self {
+    pub fn new_with_tries(tries: ShardTries) -> Self {
+        let storage = tries.get_store().storage.clone();
         let transaction = storage.transaction();
-        StoreUpdate { storage, transaction, trie: Some(trie) }
+        StoreUpdate { storage, transaction, tries: Some(tries) }
     }
 
     pub fn set(&mut self, column: DBCol, key: &[u8], value: &[u8]) {
@@ -159,11 +175,17 @@ impl StoreUpdate {
 
     /// Merge another store update into this one.
     pub fn merge(&mut self, other: StoreUpdate) {
-        if self.trie.is_none() {
-            if let Some(trie) = other.trie {
-                self.trie = Some(trie);
+        if let Some(tries) = other.tries {
+            if self.tries.is_none() {
+                self.tries = Some(tries);
+            } else {
+                debug_assert_eq!(
+                    self.tries.as_ref().unwrap().caches.as_ref() as *const _,
+                    tries.caches.as_ref() as *const _
+                );
             }
         }
+
         self.merge_transaction(other.transaction);
     }
 
@@ -178,15 +200,34 @@ impl StoreUpdate {
     }
 
     pub fn commit(self) -> Result<(), io::Error> {
-        if let Some(trie) = self.trie {
-            trie.update_cache(&self.transaction)?;
+        debug_assert!(
+            self.transaction.ops.len()
+                == self
+                    .transaction
+                    .ops
+                    .iter()
+                    .map(|op| match op {
+                        DBOp::Insert { col, key, .. } => (*col as u8, key),
+                        DBOp::Delete { col, key } => (*col as u8, key),
+                    })
+                    .collect::<std::collections::HashSet<_>>()
+                    .len(),
+            "Transaction overwrites itself: {:?}",
+            self
+        );
+        if let Some(tries) = self.tries {
+            assert_eq!(
+                tries.get_store().storage.deref() as *const _,
+                self.storage.deref() as *const _
+            );
+            tries.update_cache(&self.transaction)?;
         }
         self.storage.write(self.transaction).map_err(|e| e.into())
     }
 }
 
 impl fmt::Debug for StoreUpdate {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         writeln!(f, "Store Update {{")?;
         for op in self.transaction.ops.iter() {
             match op {
@@ -216,7 +257,7 @@ pub fn read_with_cache<'a, T: BorshDeserialize + 'a>(
 }
 
 pub fn create_store(path: &str) -> Arc<Store> {
-    let db = Arc::new(RocksDB::new(path).expect("Failed to open the database"));
+    let db = Arc::pin(RocksDB::new(path).expect("Failed to open the database"));
     Arc::new(Store::new(db))
 }
 
@@ -225,7 +266,7 @@ pub fn create_store(path: &str) -> Arc<Store> {
 /// see StorageError
 pub fn get<T: BorshDeserialize>(
     state_update: &TrieUpdate,
-    key: &[u8],
+    key: &TrieKey,
 ) -> Result<Option<T>, StorageError> {
     state_update.get(key).and_then(|opt| {
         opt.map_or_else(
@@ -242,63 +283,78 @@ pub fn get<T: BorshDeserialize>(
 }
 
 /// Writes an object into Trie.
-pub fn set<T: BorshSerialize>(state_update: &mut TrieUpdate, key: Vec<u8>, value: &T) {
-    value.try_to_vec().ok().map(|data| state_update.set(key, data)).or_else(|| None);
+pub fn set<T: BorshSerialize>(state_update: &mut TrieUpdate, key: TrieKey, value: &T) {
+    let data = value.try_to_vec().expect("Borsh serializer is not expected to ever fail");
+    state_update.set(key, data);
 }
 
-/// Number of bytes account and all of it's other data occupies in the storage.
-pub fn total_account_storage(_account_id: &AccountId, account: &Account) -> StorageUsage {
-    account.storage_usage
-}
-
-pub fn set_account(state_update: &mut TrieUpdate, key: &AccountId, account: &Account) {
-    set(state_update, key_for_account(key), account)
+pub fn set_account(state_update: &mut TrieUpdate, account_id: AccountId, account: &Account) {
+    set(state_update, TrieKey::Account { account_id }, account)
 }
 
 pub fn get_account(
     state_update: &TrieUpdate,
-    key: &AccountId,
+    account_id: &AccountId,
 ) -> Result<Option<Account>, StorageError> {
-    get(state_update, &key_for_account(key))
+    get(state_update, &TrieKey::Account { account_id: account_id.clone() })
 }
 
 pub fn set_received_data(
     state_update: &mut TrieUpdate,
-    account_id: &AccountId,
-    data_id: &CryptoHash,
+    receiver_id: AccountId,
+    data_id: CryptoHash,
     data: &ReceivedData,
 ) {
-    set(state_update, key_for_received_data(account_id, data_id), data);
+    set(state_update, TrieKey::ReceivedData { receiver_id, data_id }, data);
 }
 
 pub fn get_received_data(
     state_update: &TrieUpdate,
-    account_id: &AccountId,
-    data_id: &CryptoHash,
+    receiver_id: &AccountId,
+    data_id: CryptoHash,
 ) -> Result<Option<ReceivedData>, StorageError> {
-    get(state_update, &key_for_received_data(account_id, data_id))
+    get(state_update, &TrieKey::ReceivedData { receiver_id: receiver_id.clone(), data_id })
 }
 
-pub fn set_receipt(state_update: &mut TrieUpdate, receipt: &Receipt) {
-    let key = key_for_postponed_receipt(&receipt.receiver_id, &receipt.receipt_id);
+pub fn set_postponed_receipt(state_update: &mut TrieUpdate, receipt: &Receipt) {
+    let key = TrieKey::PostponedReceipt {
+        receiver_id: receipt.receiver_id.clone(),
+        receipt_id: receipt.receipt_id,
+    };
     set(state_update, key, receipt);
 }
 
-pub fn get_receipt(
+pub fn remove_postponed_receipt(
+    state_update: &mut TrieUpdate,
+    receiver_id: &AccountId,
+    receipt_id: CryptoHash,
+) {
+    state_update.remove(TrieKey::PostponedReceipt { receiver_id: receiver_id.clone(), receipt_id });
+}
+
+pub fn get_postponed_receipt(
     state_update: &TrieUpdate,
-    account_id: &AccountId,
-    receipt_id: &CryptoHash,
+    receiver_id: &AccountId,
+    receipt_id: CryptoHash,
 ) -> Result<Option<Receipt>, StorageError> {
-    get(state_update, &key_for_postponed_receipt(account_id, receipt_id))
+    get(state_update, &TrieKey::PostponedReceipt { receiver_id: receiver_id.clone(), receipt_id })
 }
 
 pub fn set_access_key(
     state_update: &mut TrieUpdate,
-    account_id: &AccountId,
-    public_key: &PublicKey,
+    account_id: AccountId,
+    public_key: PublicKey,
     access_key: &AccessKey,
 ) {
-    set(state_update, key_for_access_key(account_id, public_key), access_key);
+    set(state_update, TrieKey::AccessKey { account_id, public_key }, access_key);
+}
+
+pub fn remove_access_key(
+    state_update: &mut TrieUpdate,
+    account_id: AccountId,
+    public_key: PublicKey,
+) {
+    state_update.remove(TrieKey::AccessKey { account_id, public_key });
 }
 
 pub fn get_access_key(
@@ -306,18 +362,25 @@ pub fn get_access_key(
     account_id: &AccountId,
     public_key: &PublicKey,
 ) -> Result<Option<AccessKey>, StorageError> {
-    get(state_update, &key_for_access_key(account_id, public_key))
+    get(
+        state_update,
+        &TrieKey::AccessKey { account_id: account_id.clone(), public_key: public_key.clone() },
+    )
 }
 
 pub fn get_access_key_raw(
     state_update: &TrieUpdate,
-    key: &[u8],
+    raw_key: &[u8],
 ) -> Result<Option<AccessKey>, StorageError> {
-    get(state_update, key)
+    get(
+        state_update,
+        &trie_key_parsers::parse_trie_key_access_key_from_raw_key(raw_key)
+            .expect("access key in the state should be correct"),
+    )
 }
 
-pub fn set_code(state_update: &mut TrieUpdate, account_id: &AccountId, code: &ContractCode) {
-    state_update.set(key_for_code(account_id), code.code.clone());
+pub fn set_code(state_update: &mut TrieUpdate, account_id: AccountId, code: &ContractCode) {
+    state_update.set(TrieKey::ContractCode { account_id }, code.code.clone());
 }
 
 pub fn get_code(
@@ -325,7 +388,7 @@ pub fn get_code(
     account_id: &AccountId,
 ) -> Result<Option<ContractCode>, StorageError> {
     state_update
-        .get(&key_for_code(account_id))
+        .get(&TrieKey::ContractCode { account_id: account_id.clone() })
         .map(|opt| opt.map(|code| ContractCode::new(code.to_vec())))
 }
 
@@ -334,9 +397,41 @@ pub fn remove_account(
     state_update: &mut TrieUpdate,
     account_id: &AccountId,
 ) -> Result<(), StorageError> {
-    state_update.remove(&key_for_account(account_id));
-    state_update.remove(&key_for_code(account_id));
-    state_update.remove_starts_with(&prefix_for_access_key(account_id))?;
-    state_update.remove_starts_with(&prefix_for_data(account_id))?;
+    state_update.remove(TrieKey::Account { account_id: account_id.clone() });
+    state_update.remove(TrieKey::ContractCode { account_id: account_id.clone() });
+
+    // Removing access keys
+    let public_keys = state_update
+        .iter(&trie_key_parsers::get_raw_prefix_for_access_keys(&account_id))?
+        .map(|raw_key| {
+            trie_key_parsers::parse_public_key_from_access_key_key(&raw_key?, account_id).map_err(
+                |_e| {
+                    StorageError::StorageInconsistentState(
+                        "Can't parse public key from raw key for AccessKey".to_string(),
+                    )
+                },
+            )
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    for public_key in public_keys {
+        state_update.remove(TrieKey::AccessKey { account_id: account_id.clone(), public_key });
+    }
+
+    // Removing contract data
+    let data_keys = state_update
+        .iter(&trie_key_parsers::get_raw_prefix_for_contract_data(&account_id, &[]))?
+        .map(|raw_key| {
+            trie_key_parsers::parse_data_key_from_contract_data_key(&raw_key?, account_id)
+                .map_err(|_e| {
+                    StorageError::StorageInconsistentState(
+                        "Can't parse data key from raw key for ContractData".to_string(),
+                    )
+                })
+                .map(Vec::from)
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    for key in data_keys {
+        state_update.remove(TrieKey::ContractData { account_id: account_id.clone(), key });
+    }
     Ok(())
 }

@@ -1,0 +1,15 @@
+[package]
+name = "near-jsonrpc-test-utils"
+version = "0.1.0"
+authors = ["Near Inc <hello@nearprotocol.com>"]
+edition = "2018"
+
+[dependencies]
+actix = "0.9"
+lazy_static = "1.4"
+
+near-chain-configs = { path = "../../../core/chain-configs" }
+near-primitives = { path = "../../../core/primitives" }
+near-client = { path = "../../client" }
+near-network = { path = "../../network" }
+near-jsonrpc = { path = "../" }

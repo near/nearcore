@@ -1,23 +1,32 @@
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::BTreeMap;
 use std::iter::Peekable;
-use std::sync::Arc;
 
 use near_primitives::hash::CryptoHash;
-use near_primitives::types::{StateChangeCause, StateChanges};
+use near_primitives::types::{
+    RawStateChange, RawStateChanges, RawStateChangesWithTrieKey, StateChangeCause,
+};
 
 use crate::trie::TrieChanges;
 use crate::StorageError;
 
 use super::{Trie, TrieIterator};
+use near_primitives::trie_key::TrieKey;
+use std::rc::Rc;
+
+/// Key-value update. Contains a TrieKey and a value.
+pub struct TrieKeyValueUpdate {
+    pub trie_key: TrieKey,
+    pub value: Option<Vec<u8>>,
+}
 
 /// key that was updated -> the update.
-pub type TrieUpdates = BTreeMap<Vec<u8>, Option<Vec<u8>>>;
+pub type TrieUpdates = BTreeMap<Vec<u8>, TrieKeyValueUpdate>;
 
 /// Provides a way to access Storage and record changes with future commit.
 pub struct TrieUpdate {
-    pub trie: Arc<Trie>,
+    pub trie: Rc<Trie>,
     root: CryptoHash,
-    committed: StateChanges,
+    committed: RawStateChanges,
     prospective: TrieUpdates,
 }
 
@@ -42,104 +51,62 @@ impl<'a> TrieUpdateValuePtr<'a> {
     }
 }
 
-/// For each prefix, the value is a <key, value> map that records the changes in the
-/// trie update.
-pub type PrefixKeyValueChanges = HashMap<Vec<u8>, HashMap<Vec<u8>, Option<Vec<u8>>>>;
-
 impl TrieUpdate {
-    pub fn new(trie: Arc<Trie>, root: CryptoHash) -> Self {
+    pub fn new(trie: Rc<Trie>, root: CryptoHash) -> Self {
         TrieUpdate { trie, root, committed: Default::default(), prospective: Default::default() }
     }
-    pub fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>, StorageError> {
-        if let Some(value) = self.prospective.get(key) {
-            return Ok(value.as_ref().map(<Vec<u8>>::clone));
-        } else if let Some(changes) = self.committed.get(key) {
-            if let Some((_, last_change)) = changes.last() {
-                return Ok(last_change.as_ref().map(<Vec<u8>>::clone));
-            }
-        }
 
-        self.trie.get(&self.root, key)
+    pub fn trie(&self) -> &Trie {
+        self.trie.as_ref()
     }
 
-    pub fn get_ref(&self, key: &[u8]) -> Result<Option<TrieUpdateValuePtr>, StorageError> {
-        if let Some(value) = self.prospective.get(key) {
-            return Ok(value.as_ref().map(TrieUpdateValuePtr::MemoryRef));
-        } else if let Some(changes) = self.committed.get(key) {
-            if let Some((_, last_change)) = changes.last() {
-                return Ok(last_change.as_ref().map(TrieUpdateValuePtr::MemoryRef));
+    pub fn get(&self, key: &TrieKey) -> Result<Option<Vec<u8>>, StorageError> {
+        let key = key.to_vec();
+        if let Some(key_value) = self.prospective.get(&key) {
+            return Ok(key_value.value.as_ref().map(<Vec<u8>>::clone));
+        } else if let Some(changes_with_trie_key) = self.committed.get(&key) {
+            if let Some(RawStateChange { data, .. }) = changes_with_trie_key.changes.last() {
+                return Ok(data.as_ref().map(<Vec<u8>>::clone));
             }
         }
-        self.trie.get_ref(&self.root, key).map(|option| {
+
+        self.trie.get(&self.root, &key)
+    }
+
+    pub fn get_ref(&self, key: &TrieKey) -> Result<Option<TrieUpdateValuePtr<'_>>, StorageError> {
+        let key = key.to_vec();
+        if let Some(key_value) = self.prospective.get(&key) {
+            return Ok(key_value.value.as_ref().map(TrieUpdateValuePtr::MemoryRef));
+        } else if let Some(changes_with_trie_key) = self.committed.get(&key) {
+            if let Some(RawStateChange { data, .. }) = changes_with_trie_key.changes.last() {
+                return Ok(data.as_ref().map(TrieUpdateValuePtr::MemoryRef));
+            }
+        }
+        self.trie.get_ref(&self.root, &key).map(|option| {
             option.map(|(length, hash)| TrieUpdateValuePtr::HashAndSize(&self.trie, length, hash))
         })
     }
 
-    /// Get values in trie update for a set of keys.
-    /// Returns: a hash map of prefix -> <key, value> changes in the trie update.
-    /// This function will commit changes. Need to be used with caution
-    pub fn get_prefix_changes(
-        &mut self,
-        prefixes: &HashSet<Vec<u8>>,
-    ) -> Result<PrefixKeyValueChanges, StorageError> {
-        assert!(self.prospective.is_empty(), "Uncommitted changes exist");
-        let mut res = HashMap::new();
-        for prefix in prefixes {
-            let mut prefix_key_value_change = HashMap::new();
-            for (key, changes) in self.committed.range(prefix.to_vec()..) {
-                if !key.starts_with(prefix) {
-                    break;
-                }
-                if let Some((_, last_change)) = changes.last() {
-                    prefix_key_value_change.insert(key.to_vec(), last_change.clone());
-                }
-            }
-            if !prefix_key_value_change.is_empty() {
-                res.insert(prefix.to_vec(), prefix_key_value_change);
-            }
-        }
-        Ok(res)
+    pub fn set(&mut self, trie_key: TrieKey, value: Vec<u8>) {
+        // NOTE: Converting `TrieKey` to a `Vec<u8>` is useful here for 2 reasons:
+        // - Using `Vec<u8>` for sorting `BTreeMap` in the same order as a `Trie` and
+        //   avoid recomputing `Vec<u8>` every time. It helps for merging iterators.
+        // - Using `TrieKey` later for `RawStateChangesWithTrieKey` for State changes RPCs.
+        self.prospective
+            .insert(trie_key.to_vec(), TrieKeyValueUpdate { trie_key, value: Some(value) });
     }
-
-    pub fn committed_updates_per_cause(&self) -> &StateChanges {
-        &self.committed
-    }
-
-    pub fn set(&mut self, key: Vec<u8>, value: Vec<u8>) {
-        self.prospective.insert(key, Some(value));
-    }
-    pub fn remove(&mut self, key: &[u8]) {
-        self.prospective.insert(key.to_vec(), None);
-    }
-
-    pub fn remove_starts_with(&mut self, prefix: &[u8]) -> Result<(), StorageError> {
-        let mut keys = vec![];
-        for key in self.iter(prefix)? {
-            keys.push(key);
-        }
-        for key in keys {
-            let key = key?;
-            self.remove(&key);
-        }
-        Ok(())
-    }
-
-    pub fn for_keys_with_prefix<F: FnMut(&[u8])>(
-        &self,
-        prefix: &[u8],
-        mut f: F,
-    ) -> Result<(), StorageError> {
-        let iter = self.iter(prefix)?;
-        for key in iter {
-            let key = key?;
-            f(&key);
-        }
-        Ok(())
+    pub fn remove(&mut self, trie_key: TrieKey) {
+        self.prospective.insert(trie_key.to_vec(), TrieKeyValueUpdate { trie_key, value: None });
     }
 
     pub fn commit(&mut self, event: StateChangeCause) {
-        for (key, val) in std::mem::replace(&mut self.prospective, BTreeMap::new()).into_iter() {
-            self.committed.entry(key).or_default().push((event.clone(), val));
+        let prospective = std::mem::take(&mut self.prospective);
+        for (raw_key, TrieKeyValueUpdate { trie_key, value }) in prospective.into_iter() {
+            self.committed
+                .entry(raw_key)
+                .or_insert_with(|| RawStateChangesWithTrieKey { trie_key, changes: Vec::new() })
+                .changes
+                .push(RawStateChange { cause: event.clone(), data: value });
         }
     }
 
@@ -147,24 +114,29 @@ impl TrieUpdate {
         self.prospective.clear();
     }
 
-    pub fn finalize(self) -> Result<TrieChanges, StorageError> {
+    pub fn finalize(self) -> Result<(TrieChanges, Vec<RawStateChangesWithTrieKey>), StorageError> {
         assert!(self.prospective.is_empty(), "Finalize cannot be called with uncommitted changes.");
         let TrieUpdate { trie, root, committed, .. } = self;
-        trie.update(
+        let mut state_changes = Vec::with_capacity(committed.len());
+        let trie_changes = trie.update(
             &root,
-            committed.iter().map(|(k, changes)| {
-                let (_, last_change) = &changes
+            committed.into_iter().map(|(k, changes_with_trie_key)| {
+                let data = changes_with_trie_key
+                    .changes
                     .last()
-                    .as_ref()
-                    .expect("Committed entry should have at least one change");
-                (k.clone(), last_change.clone())
+                    .expect("Committed entry should have at least one change")
+                    .data
+                    .clone();
+                state_changes.push(changes_with_trie_key);
+                (k, data)
             }),
-        )
+        )?;
+        Ok((trie_changes, state_changes))
     }
 
     /// Returns Error if the underlying storage fails
-    pub fn iter(&self, prefix: &[u8]) -> Result<TrieUpdateIterator, StorageError> {
-        TrieUpdateIterator::new(self, prefix, b"", None)
+    pub fn iter(&self, key_prefix: &[u8]) -> Result<TrieUpdateIterator<'_>, StorageError> {
+        TrieUpdateIterator::new(self, key_prefix, b"", None)
     }
 
     pub fn range(
@@ -172,7 +144,7 @@ impl TrieUpdate {
         prefix: &[u8],
         start: &[u8],
         end: &[u8],
-    ) -> Result<TrieUpdateIterator, StorageError> {
+    ) -> Result<TrieUpdateIterator<'_>, StorageError> {
         TrieUpdateIterator::new(self, prefix, start, Some(end))
     }
 
@@ -237,18 +209,23 @@ impl<'a> TrieUpdateIterator<'a> {
             None => None,
         };
         trie_iter.seek(&start_offset)?;
-        let committed_iter =
-            state_update.committed.range(start_offset.clone()..).map(|(k, changes)| {
+        let committed_iter = state_update.committed.range(start_offset.clone()..).map(
+            |(raw_key, changes_with_trie_key)| {
                 (
-                    k,
-                    &changes
+                    raw_key,
+                    &changes_with_trie_key
+                        .changes
                         .last()
                         .as_ref()
                         .expect("Committed entry should have at least one change.")
-                        .1,
+                        .data,
                 )
-            });
-        let prospective_iter = state_update.prospective.range(start_offset..);
+            },
+        );
+        let prospective_iter = state_update
+            .prospective
+            .range(start_offset..)
+            .map(|(raw_key, key_value)| (raw_key, &key_value.value));
         let overlay_iter = MergeIter {
             left: (Box::new(committed_iter) as Box<dyn Iterator<Item = _>>).peekable(),
             right: (Box::new(prospective_iter) as Box<dyn Iterator<Item = _>>).peekable(),
@@ -348,122 +325,164 @@ impl<'a> Iterator for TrieUpdateIterator<'a> {
 
 #[cfg(test)]
 mod tests {
-    use crate::test_utils::create_trie;
+    use crate::test_utils::create_tries;
 
     use super::*;
 
+    fn test_key(key: Vec<u8>) -> TrieKey {
+        TrieKey::ContractData { account_id: "alice".to_string(), key }
+    }
+
     #[test]
     fn trie() {
-        let trie = create_trie();
+        let tries = create_tries();
         let root = CryptoHash::default();
-        let mut trie_update = TrieUpdate::new(trie.clone(), root);
-        trie_update.set(b"dog".to_vec(), b"puppy".to_vec());
-        trie_update.set(b"dog2".to_vec(), b"puppy".to_vec());
-        trie_update.set(b"xxx".to_vec(), b"puppy".to_vec());
+        let mut trie_update = tries.new_trie_update(0, root);
+        trie_update.set(test_key(b"dog".to_vec()), b"puppy".to_vec());
+        trie_update.set(test_key(b"dog2".to_vec()), b"puppy".to_vec());
+        trie_update.set(test_key(b"xxx".to_vec()), b"puppy".to_vec());
         trie_update
             .commit(StateChangeCause::TransactionProcessing { tx_hash: CryptoHash::default() });
-        let (store_update, new_root) = trie_update.finalize().unwrap().into(trie.clone()).unwrap();
-        store_update.commit().ok();
-        let trie_update2 = TrieUpdate::new(trie.clone(), new_root);
-        assert_eq!(trie_update2.get(b"dog"), Ok(Some(b"puppy".to_vec())));
-        let mut values = vec![];
-        trie_update2.for_keys_with_prefix(b"dog", |key| values.push(key.to_vec())).unwrap();
-        assert_eq!(values, vec![b"dog".to_vec(), b"dog2".to_vec()]);
+        let trie_changes = trie_update.finalize().unwrap().0;
+        let (store_update, new_root) = tries.apply_all(&trie_changes, 0).unwrap();
+        store_update.commit().unwrap();
+        let trie_update2 = tries.new_trie_update(0, new_root);
+        assert_eq!(trie_update2.get(&test_key(b"dog".to_vec())), Ok(Some(b"puppy".to_vec())));
+        let values = trie_update2
+            .iter(&test_key(b"dog".to_vec()).to_vec())
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        assert_eq!(
+            values,
+            vec![test_key(b"dog".to_vec()).to_vec(), test_key(b"dog2".to_vec()).to_vec()]
+        );
     }
 
     #[test]
     fn trie_remove() {
-        let trie = create_trie();
+        let tries = create_tries();
 
         // Delete non-existing element.
-        let mut trie_update = TrieUpdate::new(trie.clone(), CryptoHash::default());
-        trie_update.remove(b"dog");
+        let mut trie_update = tries.new_trie_update(0, CryptoHash::default());
+        trie_update.remove(test_key(b"dog".to_vec()));
         trie_update
             .commit(StateChangeCause::TransactionProcessing { tx_hash: CryptoHash::default() });
-        let (store_update, new_root) = trie_update.finalize().unwrap().into(trie.clone()).unwrap();
-        store_update.commit().ok();
+        let trie_changes = trie_update.finalize().unwrap().0;
+        let (store_update, new_root) = tries.apply_all(&trie_changes, 0).unwrap();
+        store_update.commit().unwrap();
         assert_eq!(new_root, CryptoHash::default());
 
         // Add and right away delete element.
-        let mut trie_update = TrieUpdate::new(trie.clone(), CryptoHash::default());
-        trie_update.set(b"dog".to_vec(), b"puppy".to_vec());
-        trie_update.remove(b"dog");
+        let mut trie_update = tries.new_trie_update(0, CryptoHash::default());
+        trie_update.set(test_key(b"dog".to_vec()), b"puppy".to_vec());
+        trie_update.remove(test_key(b"dog".to_vec()));
         trie_update
             .commit(StateChangeCause::TransactionProcessing { tx_hash: CryptoHash::default() });
-        let (store_update, new_root) = trie_update.finalize().unwrap().into(trie.clone()).unwrap();
-        store_update.commit().ok();
+        let trie_changes = trie_update.finalize().unwrap().0;
+        let (store_update, new_root) = tries.apply_all(&trie_changes, 0).unwrap();
+        store_update.commit().unwrap();
         assert_eq!(new_root, CryptoHash::default());
 
         // Add, apply changes and then delete element.
-        let mut trie_update = TrieUpdate::new(trie.clone(), CryptoHash::default());
-        trie_update.set(b"dog".to_vec(), b"puppy".to_vec());
+        let mut trie_update = tries.new_trie_update(0, CryptoHash::default());
+        trie_update.set(test_key(b"dog".to_vec()), b"puppy".to_vec());
         trie_update
             .commit(StateChangeCause::TransactionProcessing { tx_hash: CryptoHash::default() });
-        let (store_update, new_root) = trie_update.finalize().unwrap().into(trie.clone()).unwrap();
-        store_update.commit().ok();
+        let trie_changes = trie_update.finalize().unwrap().0;
+        let (store_update, new_root) = tries.apply_all(&trie_changes, 0).unwrap();
+        store_update.commit().unwrap();
         assert_ne!(new_root, CryptoHash::default());
-        let mut trie_update = TrieUpdate::new(trie.clone(), new_root);
-        trie_update.remove(b"dog");
+        let mut trie_update = tries.new_trie_update(0, new_root);
+        trie_update.remove(test_key(b"dog".to_vec()));
         trie_update
             .commit(StateChangeCause::TransactionProcessing { tx_hash: CryptoHash::default() });
-        let (store_update, new_root) = trie_update.finalize().unwrap().into(trie.clone()).unwrap();
-        store_update.commit().ok();
+        let trie_changes = trie_update.finalize().unwrap().0;
+        let (store_update, new_root) = tries.apply_all(&trie_changes, 0).unwrap();
+        store_update.commit().unwrap();
         assert_eq!(new_root, CryptoHash::default());
     }
 
     #[test]
     fn trie_iter() {
-        let trie = create_trie();
-        let mut trie_update = TrieUpdate::new(trie.clone(), CryptoHash::default());
-        trie_update.set(b"dog".to_vec(), b"puppy".to_vec());
-        trie_update.set(b"aaa".to_vec(), b"puppy".to_vec());
+        let tries = create_tries();
+        let mut trie_update = tries.new_trie_update(0, CryptoHash::default());
+        trie_update.set(test_key(b"dog".to_vec()), b"puppy".to_vec());
+        trie_update.set(test_key(b"aaa".to_vec()), b"puppy".to_vec());
         trie_update
             .commit(StateChangeCause::TransactionProcessing { tx_hash: CryptoHash::default() });
-        let (store_update, new_root) = trie_update.finalize().unwrap().into(trie.clone()).unwrap();
-        store_update.commit().ok();
+        let trie_changes = trie_update.finalize().unwrap().0;
+        let (store_update, new_root) = tries.apply_all(&trie_changes, 0).unwrap();
+        store_update.commit().unwrap();
 
-        let mut trie_update = TrieUpdate::new(trie.clone(), new_root);
-        trie_update.set(b"dog2".to_vec(), b"puppy".to_vec());
-        trie_update.set(b"xxx".to_vec(), b"puppy".to_vec());
+        let mut trie_update = tries.new_trie_update(0, new_root);
+        trie_update.set(test_key(b"dog2".to_vec()), b"puppy".to_vec());
+        trie_update.set(test_key(b"xxx".to_vec()), b"puppy".to_vec());
 
-        let values: Result<Vec<Vec<u8>>, _> = trie_update.iter(b"dog").unwrap().collect();
-        assert_eq!(values.unwrap(), vec![b"dog".to_vec(), b"dog2".to_vec()]);
+        let values: Result<Vec<Vec<u8>>, _> =
+            trie_update.iter(&test_key(b"dog".to_vec()).to_vec()).unwrap().collect();
+        assert_eq!(
+            values.unwrap(),
+            vec![test_key(b"dog".to_vec()).to_vec(), test_key(b"dog2".to_vec()).to_vec()]
+        );
 
         trie_update.rollback();
 
-        let values: Result<Vec<Vec<u8>>, _> = trie_update.iter(b"dog").unwrap().collect();
-        assert_eq!(values.unwrap(), vec![b"dog".to_vec()]);
+        let values: Result<Vec<Vec<u8>>, _> =
+            trie_update.iter(&test_key(b"dog".to_vec()).to_vec()).unwrap().collect();
+        assert_eq!(values.unwrap(), vec![test_key(b"dog".to_vec()).to_vec()]);
 
-        let mut trie_update = TrieUpdate::new(trie.clone(), new_root);
-        trie_update.remove(b"dog");
+        let mut trie_update = tries.new_trie_update(0, new_root);
+        trie_update.remove(test_key(b"dog".to_vec()));
 
-        let values: Result<Vec<Vec<u8>>, _> = trie_update.iter(b"dog").unwrap().collect();
+        let values: Result<Vec<Vec<u8>>, _> =
+            trie_update.iter(&test_key(b"dog".to_vec()).to_vec()).unwrap().collect();
         assert_eq!(values.unwrap().len(), 0);
 
-        let mut trie_update = TrieUpdate::new(trie.clone(), new_root);
-        trie_update.set(b"dog2".to_vec(), b"puppy".to_vec());
+        let mut trie_update = tries.new_trie_update(0, new_root);
+        trie_update.set(test_key(b"dog2".to_vec()), b"puppy".to_vec());
         trie_update
             .commit(StateChangeCause::TransactionProcessing { tx_hash: CryptoHash::default() });
-        trie_update.remove(b"dog2");
+        trie_update.remove(test_key(b"dog2".to_vec()));
 
-        let values: Result<Vec<Vec<u8>>, _> = trie_update.iter(b"dog").unwrap().collect();
-        assert_eq!(values.unwrap(), vec![b"dog".to_vec()]);
+        let values: Result<Vec<Vec<u8>>, _> =
+            trie_update.iter(&test_key(b"dog".to_vec()).to_vec()).unwrap().collect();
+        assert_eq!(values.unwrap(), vec![test_key(b"dog".to_vec()).to_vec()]);
 
-        let mut trie_update = TrieUpdate::new(trie.clone(), new_root);
-        trie_update.set(b"dog2".to_vec(), b"puppy".to_vec());
+        let mut trie_update = tries.new_trie_update(0, new_root);
+        trie_update.set(test_key(b"dog2".to_vec()), b"puppy".to_vec());
         trie_update
             .commit(StateChangeCause::TransactionProcessing { tx_hash: CryptoHash::default() });
-        trie_update.set(b"dog3".to_vec(), b"puppy".to_vec());
-
-        let values: Result<Vec<Vec<u8>>, _> = trie_update.iter(b"dog").unwrap().collect();
-        assert_eq!(values.unwrap(), vec![b"dog".to_vec(), b"dog2".to_vec(), b"dog3".to_vec()]);
+        trie_update.set(test_key(b"dog3".to_vec()), b"puppy".to_vec());
 
         let values: Result<Vec<Vec<u8>>, _> =
-            trie_update.range(b"do", b"g", b"g21").unwrap().collect();
-        assert_eq!(values.unwrap(), vec![b"dog".to_vec(), b"dog2".to_vec()]);
+            trie_update.iter(&test_key(b"dog".to_vec()).to_vec()).unwrap().collect();
+        assert_eq!(
+            values.unwrap(),
+            vec![
+                test_key(b"dog".to_vec()).to_vec(),
+                test_key(b"dog2".to_vec()).to_vec(),
+                test_key(b"dog3".to_vec()).to_vec()
+            ]
+        );
 
         let values: Result<Vec<Vec<u8>>, _> =
-            trie_update.range(b"do", b"", b"xyz").unwrap().collect();
-        assert_eq!(values.unwrap(), vec![b"dog".to_vec(), b"dog2".to_vec(), b"dog3".to_vec()]);
+            trie_update.range(&test_key(b"do".to_vec()).to_vec(), b"g", b"g21").unwrap().collect();
+        assert_eq!(
+            values.unwrap(),
+            vec![test_key(b"dog".to_vec()).to_vec(), test_key(b"dog2".to_vec()).to_vec(),]
+        );
+
+        let values: Result<Vec<Vec<u8>>, _> =
+            trie_update.range(&test_key(b"do".to_vec()).to_vec(), b"", b"xyz").unwrap().collect();
+
+        assert_eq!(
+            values.unwrap(),
+            vec![
+                test_key(b"dog".to_vec()).to_vec(),
+                test_key(b"dog2".to_vec()).to_vec(),
+                test_key(b"dog3".to_vec()).to_vec()
+            ]
+        );
     }
 }

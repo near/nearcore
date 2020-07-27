@@ -1,8 +1,7 @@
 use std::cmp::max;
-use std::convert::AsRef;
+use std::convert::{AsRef, TryFrom};
 use std::fmt;
 
-use borsh::BorshSerialize;
 use byteorder::{LittleEndian, WriteBytesExt};
 use chrono::{DateTime, NaiveDateTime, Utc};
 use rand::distributions::Alphanumeric;
@@ -11,113 +10,37 @@ use regex::Regex;
 use serde;
 
 use lazy_static::lazy_static;
-use near_crypto::PublicKey;
 
 use crate::hash::{hash, CryptoHash};
-use crate::types::{AccountId, NumSeats, NumShards};
+use crate::types::{AccountId, NumSeats, NumShards, ShardId};
 
-pub const ACCOUNT_DATA_SEPARATOR: &[u8; 1] = b",";
 pub const MIN_ACCOUNT_ID_LEN: usize = 2;
 pub const MAX_ACCOUNT_ID_LEN: usize = 64;
 
 /// Number of nano seconds in a second.
 const NS_IN_SECOND: u64 = 1_000_000_000;
 
-pub mod col {
-    pub const ACCOUNT: &[u8] = &[0];
-    pub const CODE: &[u8] = &[1];
-    pub const ACCESS_KEY: &[u8] = &[2];
-    pub const RECEIVED_DATA: &[u8] = &[3];
-    pub const POSTPONED_RECEIPT_ID: &[u8] = &[4];
-    pub const PENDING_DATA_COUNT: &[u8] = &[5];
-    pub const POSTPONED_RECEIPT: &[u8] = &[6];
-    pub const DELAYED_RECEIPT_INDICES: &[u8] = &[7];
-    pub const DELAYED_RECEIPT: &[u8] = &[8];
+pub fn get_block_shard_id(block_hash: &CryptoHash, shard_id: ShardId) -> Vec<u8> {
+    let mut res = Vec::with_capacity(40);
+    res.extend_from_slice(block_hash.as_ref());
+    res.extend_from_slice(&shard_id.to_le_bytes());
+    res
 }
 
-fn key_for_column_account_id(column: &[u8], account_key: &AccountId) -> Vec<u8> {
-    let mut key = Vec::with_capacity(column.len() + account_key.len());
-    key.extend(column);
-    key.extend(account_key.as_bytes());
-    key
-}
-
-pub fn key_for_account(account_key: &AccountId) -> Vec<u8> {
-    key_for_column_account_id(col::ACCOUNT, account_key)
-}
-
-pub fn key_for_data(account_id: &AccountId, data: &[u8]) -> Vec<u8> {
-    let mut bytes = key_for_account(account_id);
-    bytes.extend(ACCOUNT_DATA_SEPARATOR);
-    bytes.extend(data);
-    bytes
-}
-
-pub fn prefix_for_access_key(account_id: &AccountId) -> Vec<u8> {
-    let mut key = key_for_column_account_id(col::ACCESS_KEY, account_id);
-    key.extend(col::ACCESS_KEY);
-    key
-}
-
-pub fn prefix_for_data(account_id: &AccountId) -> Vec<u8> {
-    let mut prefix = key_for_account(account_id);
-    prefix.extend(ACCOUNT_DATA_SEPARATOR);
-    prefix
-}
-
-pub fn key_for_access_key(account_id: &AccountId, public_key: &PublicKey) -> Vec<u8> {
-    let mut key = key_for_column_account_id(col::ACCESS_KEY, account_id);
-    key.extend(col::ACCESS_KEY);
-    key.extend(&public_key.try_to_vec().expect("Failed to serialize public key"));
-    key
-}
-
-pub fn key_for_all_access_keys(account_id: &AccountId) -> Vec<u8> {
-    key_for_column_account_id(col::ACCESS_KEY, account_id)
-}
-
-pub fn key_for_code(account_key: &AccountId) -> Vec<u8> {
-    key_for_column_account_id(col::CODE, account_key)
-}
-
-pub fn key_for_received_data(account_id: &AccountId, data_id: &CryptoHash) -> Vec<u8> {
-    let mut key = key_for_column_account_id(col::RECEIVED_DATA, account_id);
-    key.extend(ACCOUNT_DATA_SEPARATOR);
-    key.extend(data_id.as_ref());
-    key
-}
-
-pub fn key_for_postponed_receipt_id(account_id: &AccountId, data_id: &CryptoHash) -> Vec<u8> {
-    let mut key = key_for_column_account_id(col::POSTPONED_RECEIPT_ID, account_id);
-    key.extend(ACCOUNT_DATA_SEPARATOR);
-    key.extend(data_id.as_ref());
-    key
-}
-
-pub fn key_for_pending_data_count(account_id: &AccountId, receipt_id: &CryptoHash) -> Vec<u8> {
-    let mut key = key_for_column_account_id(col::PENDING_DATA_COUNT, account_id);
-    key.extend(ACCOUNT_DATA_SEPARATOR);
-    key.extend(receipt_id.as_ref());
-    key
-}
-
-pub fn key_for_postponed_receipt(account_id: &AccountId, receipt_id: &CryptoHash) -> Vec<u8> {
-    let mut key = key_for_column_account_id(col::POSTPONED_RECEIPT, account_id);
-    key.extend(ACCOUNT_DATA_SEPARATOR);
-    key.extend(receipt_id.as_ref());
-    key
-}
-
-pub fn key_for_all_postponed_receipts(account_id: &AccountId) -> Vec<u8> {
-    let mut key = key_for_column_account_id(col::POSTPONED_RECEIPT, account_id);
-    key.extend(ACCOUNT_DATA_SEPARATOR);
-    key
-}
-
-pub fn key_for_delayed_receipt(index: u64) -> Vec<u8> {
-    let mut key = col::DELAYED_RECEIPT.to_vec();
-    key.extend(&index.to_le_bytes());
-    key
+pub fn get_block_shard_id_rev(
+    key: &[u8],
+) -> Result<(CryptoHash, ShardId), Box<dyn std::error::Error>> {
+    if key.len() != 40 {
+        return Err(
+            std::io::Error::new(std::io::ErrorKind::InvalidInput, "Invalid key length").into()
+        );
+    }
+    let block_hash_vec: Vec<u8> = key[0..32].iter().cloned().collect();
+    let block_hash = CryptoHash::try_from(block_hash_vec)?;
+    let mut shard_id_arr: [u8; 8] = Default::default();
+    shard_id_arr.copy_from_slice(&key[key.len() - 8..]);
+    let shard_id = ShardId::from_le_bytes(shard_id_arr);
+    Ok((block_hash, shard_id))
 }
 
 pub fn create_nonce_with_nonce(base: &CryptoHash, salt: u64) -> CryptoHash {
@@ -185,7 +108,7 @@ pub fn is_valid_sub_account_id(signer_id: &AccountId, sub_account_id: &AccountId
 pub struct DisplayOption<T>(pub Option<T>);
 
 impl<T: fmt::Display> fmt::Display for DisplayOption<T> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self.0 {
             Some(ref v) => write!(f, "Some({})", v),
             None => write!(f, "None"),
@@ -307,9 +230,7 @@ where
 /// it shows its json representation. It is used to display complex
 /// objects using tracing.
 ///
-/// ```
 /// tracing::debug!(target: "diagnostic", value=%ser(&object));
-/// ```
 pub fn ser<'a, T>(object: &'a T) -> Serializable<'a, T>
 where
     T: serde::Serialize,
@@ -321,36 +242,37 @@ where
 mod tests {
     use super::*;
 
+    const OK_ACCOUNT_IDS: &[&str] = &[
+        "aa",
+        "a-a",
+        "a-aa",
+        "100",
+        "0o",
+        "com",
+        "near",
+        "bowen",
+        "b-o_w_e-n",
+        "b.owen",
+        "bro.wen",
+        "a.ha",
+        "a.b-a.ra",
+        "system",
+        "over.9000",
+        "google.com",
+        "illia.cheapaccounts.near",
+        "0o0ooo00oo00o",
+        "alex-skidanov",
+        "10-4.8-2",
+        "b-o_w_e-n",
+        "no_lols",
+        "0123456789012345678901234567890123456789012345678901234567890123",
+        // Valid, but can't be created
+        "near.a",
+    ];
+
     #[test]
     fn test_is_valid_account_id() {
-        let ok_account_ids = vec![
-            "aa",
-            "a-a",
-            "a-aa",
-            "100",
-            "0o",
-            "com",
-            "near",
-            "bowen",
-            "b-o_w_e-n",
-            "b.owen",
-            "bro.wen",
-            "a.ha",
-            "a.b-a.ra",
-            "system",
-            "over.9000",
-            "google.com",
-            "illia.cheapaccounts.near",
-            "0o0ooo00oo00o",
-            "alex-skidanov",
-            "10-4.8-2",
-            "b-o_w_e-n",
-            "no_lols",
-            "0123456789012345678901234567890123456789012345678901234567890123",
-            // Valid, but can't be created
-            "near.a",
-        ];
-        for account_id in ok_account_ids {
+        for account_id in OK_ACCOUNT_IDS {
             assert!(
                 is_valid_account_id(&account_id.to_string()),
                 "Valid account id {:?} marked invalid",

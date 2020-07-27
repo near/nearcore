@@ -2,32 +2,28 @@
 //! * Creates 1_000_000 random transactions between these accounts;
 //! * Processes 10_000 transactions per block.
 
-pub mod runtime_group_tools;
-use runtime_group_tools::StandaloneRuntime;
+use std::collections::HashSet;
+use std::time::Instant;
 
 use indicatif::{ProgressBar, ProgressStyle};
+use rand::seq::SliceRandom;
+use rand::Rng;
+
 use near_crypto::{InMemorySigner, KeyType};
-use near_primitives::account::AccessKey;
+use near_primitives::account::{AccessKey, Account};
 use near_primitives::contract::ContractCode;
 use near_primitives::hash::{hash, CryptoHash};
-use near_primitives::serialize::to_base64;
 use near_primitives::state_record::StateRecord;
 use near_primitives::transaction::{
     Action, ExecutionStatus, FunctionCallAction, SignedTransaction, TransferAction,
 };
 use near_primitives::types::StateChangeCause;
-use near_primitives::views::AccountView;
-use near_store::test_utils::create_trie;
-use near_store::{
-    create_store, get_account, set_access_key, set_account, set_code, Trie, TrieUpdate,
-};
+use near_store::test_utils::create_tries;
+use near_store::{create_store, get_account, set_access_key, set_account, set_code, ShardTries};
 use near_vm_logic::types::Balance;
-use rand::seq::SliceRandom;
-use rand::Rng;
-use std::collections::HashSet;
-use std::sync::Arc;
-use std::time::Instant;
-use tempdir::TempDir;
+
+pub mod runtime_group_tools;
+use runtime_group_tools::StandaloneRuntime;
 
 const DISPLAY_PROGRESS_BAR: bool = false;
 
@@ -64,17 +60,17 @@ fn get_account_id(account_index: usize) -> String {
 
 fn template_test(transaction_type: TransactionType, db_type: DataBaseType, expected_avg_tps: u64) {
     // Create runtime with no records in the trie.
-    let tmpdir = TempDir::new("storage").unwrap();
-    let trie = match db_type {
+    let tmpdir = tempfile::Builder::new().prefix("storage").tempdir().unwrap();
+    let tries = match db_type {
         DataBaseType::Disk => {
             let store = create_store(tmpdir.path().to_str().unwrap());
-            Arc::new(Trie::new(store))
+            ShardTries::new(store, 1)
         }
-        DataBaseType::InMemory => create_trie(),
+        DataBaseType::InMemory => create_tries(),
     };
     let runtime_signer =
         InMemorySigner::from_seed(&get_account_id(0), KeyType::ED25519, &get_account_id(0));
-    let mut runtime = StandaloneRuntime::new(runtime_signer.clone(), &[], trie);
+    let mut runtime = StandaloneRuntime::new(runtime_signer.clone(), &[], tries);
 
     let mut rng = rand::thread_rng();
     let account_indices: Vec<_> = (0..NUM_ACCOUNTS).collect();
@@ -92,23 +88,21 @@ fn template_test(transaction_type: TransactionType, db_type: DataBaseType, expec
         "[elapsed {elapsed_precise} remaining {eta_precise}] Preparing {bar} {pos:>7}/{len:7}",
     ));
     let wasm_binary: &[u8] = include_bytes!("./tiny-contract-rs/res/tiny_contract_rs.wasm");
-    let wasm_binary_base64 = to_base64(wasm_binary);
     let code_hash = hash(wasm_binary);
     for chunk in chunked_accounts {
-        let mut state_update = TrieUpdate::new(runtime.trie.clone(), runtime.root);
+        let mut state_update = runtime.tries.new_trie_update(0, runtime.root);
         // Put state records directly into trie and save them separately to compute storage usage.
         let mut records = Vec::with_capacity(CHUNK_SIZE * 3);
         for account_index in chunk {
             let account_id = get_account_id(*account_index);
             let signer = InMemorySigner::from_seed(&account_id, KeyType::ED25519, &account_id);
-            let account = AccountView {
+            let account = Account {
                 amount: TESTING_INIT_BALANCE,
                 locked: TESTING_INIT_STAKE,
-                code_hash: code_hash.clone().into(),
+                code_hash,
                 storage_usage: 0,
-                storage_paid_at: 0,
             };
-            set_account(&mut state_update, &account_id, &account.clone().into());
+            set_account(&mut state_update, account_id.clone(), &account);
             let account_record = StateRecord::Account { account_id: account_id.clone(), account };
             records.push(account_record);
             let access_key_record = StateRecord::AccessKey {
@@ -118,16 +112,16 @@ fn template_test(transaction_type: TransactionType, db_type: DataBaseType, expec
             };
             set_access_key(
                 &mut state_update,
-                &account_id,
-                &signer.public_key,
+                account_id.clone(),
+                signer.public_key.clone(),
                 &AccessKey::full_access(),
             );
             records.push(access_key_record);
             let code = ContractCode::new(wasm_binary.to_vec());
-            set_code(&mut state_update, &account_id, &code);
+            set_code(&mut state_update, account_id.clone(), &code);
             let contract_record = StateRecord::Contract {
                 account_id: account_id.clone(),
-                code: wasm_binary_base64.clone(),
+                code: wasm_binary.to_vec(),
             };
             records.push(contract_record);
 
@@ -173,15 +167,12 @@ fn template_test(transaction_type: TransactionType, db_type: DataBaseType, expec
                 .expect("Genesis storage error")
                 .expect("Account must exist");
             account.storage_usage = storage_usage;
-            set_account(&mut state_update, &account_id, &account);
+            set_account(&mut state_update, account_id.clone(), &account);
         }
         state_update.commit(StateChangeCause::InitialState);
-        let trie = state_update.trie.clone();
-        let (store_update, root) = state_update
-            .finalize()
-            .expect("Genesis state update failed")
-            .into(trie)
-            .expect("Genesis state update failed");
+        let trie_changes = state_update.finalize().expect("Genesis state update failed").0;
+        let (store_update, root) =
+            runtime.tries.apply_all(&trie_changes, 0).expect("Genesis state update failed");
         store_update.commit().unwrap();
         runtime.root = root;
         if DISPLAY_PROGRESS_BAR {

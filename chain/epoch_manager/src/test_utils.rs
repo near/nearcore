@@ -1,15 +1,20 @@
 use std::collections::{BTreeMap, HashMap};
 
+use num_rational::Rational;
+
 use near_crypto::{KeyType, SecretKey};
+use near_primitives::challenge::SlashedValidator;
+use near_primitives::epoch_manager::{EpochConfig, EpochInfo, ValidatorWeight};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::types::{
-    AccountId, Balance, BlockHeight, BlockHeightDelta, NumSeats, NumShards, ValidatorId,
-    ValidatorStake,
+    AccountId, Balance, BlockHeight, BlockHeightDelta, EpochHeight, NumSeats, NumShards,
+    ValidatorId, ValidatorKickoutReason, ValidatorStake,
 };
 use near_primitives::utils::get_num_seats_per_shard;
+use near_primitives::version::PROTOCOL_VERSION;
 use near_store::test_utils::create_test_store;
 
-use crate::types::{EpochConfig, EpochInfo, ValidatorWeight};
+use crate::proposals::find_threshold;
 use crate::RewardCalculator;
 use crate::{BlockInfo, EpochManager};
 
@@ -29,22 +34,58 @@ pub fn change_stake(stake_changes: Vec<(&str, Balance)>) -> BTreeMap<AccountId, 
 }
 
 pub fn epoch_info(
+    epoch_height: EpochHeight,
+    accounts: Vec<(&str, Balance)>,
+    block_producers_settlement: Vec<ValidatorId>,
+    chunk_producers_settlement: Vec<Vec<ValidatorId>>,
+    hidden_validators_settlement: Vec<ValidatorWeight>,
+    fishermen: Vec<(&str, Balance)>,
+    stake_change: BTreeMap<AccountId, Balance>,
+    validator_kickout: Vec<(&str, ValidatorKickoutReason)>,
+    validator_reward: HashMap<AccountId, Balance>,
+    minted_amount: Balance,
+) -> EpochInfo {
+    let num_seats = block_producers_settlement.len() as u64;
+    epoch_info_with_num_seats(
+        epoch_height,
+        accounts,
+        block_producers_settlement,
+        chunk_producers_settlement,
+        hidden_validators_settlement,
+        fishermen,
+        stake_change,
+        validator_kickout,
+        validator_reward,
+        minted_amount,
+        num_seats,
+    )
+}
+
+pub fn epoch_info_with_num_seats(
+    epoch_height: EpochHeight,
     mut accounts: Vec<(&str, Balance)>,
     block_producers_settlement: Vec<ValidatorId>,
     chunk_producers_settlement: Vec<Vec<ValidatorId>>,
     hidden_validators_settlement: Vec<ValidatorWeight>,
     fishermen: Vec<(&str, Balance)>,
     stake_change: BTreeMap<AccountId, Balance>,
+    validator_kickout: Vec<(&str, ValidatorKickoutReason)>,
     validator_reward: HashMap<AccountId, Balance>,
-    inflation: u128,
+    minted_amount: Balance,
+    num_seats: NumSeats,
 ) -> EpochInfo {
+    let seat_price =
+        find_threshold(&accounts.iter().map(|(_, s)| *s).collect::<Vec<_>>(), num_seats).unwrap();
     accounts.sort();
     let validator_to_index = accounts.iter().enumerate().fold(HashMap::new(), |mut acc, (i, x)| {
         acc.insert(x.0.to_string(), i as u64);
         acc
     });
-    let fishermen_to_index =
-        fishermen.iter().enumerate().map(|(i, (s, _))| (s.to_string(), i as ValidatorId)).collect();
+    let fishermen_to_index = fishermen
+        .iter()
+        .enumerate()
+        .map(|(i, (s, _))| ((*s).to_string(), i as ValidatorId))
+        .collect();
     let account_to_validators = |accounts: Vec<(&str, Balance)>| -> Vec<ValidatorStake> {
         accounts
             .into_iter()
@@ -55,11 +96,10 @@ pub fn epoch_info(
             })
             .collect()
     };
-    let validator_kickout = stake_change
-        .iter()
-        .filter_map(|(account, balance)| if *balance == 0 { Some(account.clone()) } else { None })
-        .collect();
+    let validator_kickout =
+        validator_kickout.into_iter().map(|(s, r)| (s.to_string(), r)).collect();
     EpochInfo {
+        epoch_height,
         validators: account_to_validators(accounts),
         validator_to_index,
         block_producers_settlement,
@@ -69,8 +109,10 @@ pub fn epoch_info(
         fishermen_to_index,
         stake_change,
         validator_reward,
-        inflation,
         validator_kickout,
+        minted_amount,
+        protocol_version: PROTOCOL_VERSION,
+        seat_price,
     }
 }
 
@@ -97,6 +139,11 @@ pub fn epoch_config(
         block_producer_kickout_threshold,
         chunk_producer_kickout_threshold,
         fishermen_threshold,
+        online_min_threshold: Rational::new(90, 100),
+        online_max_threshold: Rational::new(99, 100),
+        protocol_upgrade_stake_threshold: Rational::new(80, 100),
+        protocol_upgrade_num_epochs: 2,
+        minimum_stake_divisor: 1,
     }
 }
 
@@ -105,33 +152,16 @@ pub fn stake(account_id: &str, amount: Balance) -> ValidatorStake {
     ValidatorStake::new(account_id.to_string(), public_key, amount)
 }
 
-pub fn reward_calculator(
-    max_inflation_rate: u8,
-    num_blocks_per_year: u64,
-    epoch_length: BlockHeightDelta,
-    validator_reward_percentage: u8,
-    protocol_reward_percentage: u8,
-    protocol_treasury_account: AccountId,
-) -> RewardCalculator {
-    RewardCalculator {
-        max_inflation_rate,
-        num_blocks_per_year,
-        epoch_length,
-        validator_reward_percentage,
-        protocol_reward_percentage,
-        protocol_treasury_account,
-    }
-}
-
 /// No-op reward calculator. Will produce no reward
 pub fn default_reward_calculator() -> RewardCalculator {
     RewardCalculator {
-        max_inflation_rate: 0,
+        max_inflation_rate: Rational::from_integer(0),
         num_blocks_per_year: 1,
         epoch_length: 1,
-        validator_reward_percentage: 0,
-        protocol_reward_percentage: 0,
+        protocol_reward_percentage: Rational::from_integer(0),
         protocol_treasury_account: "near".to_string(),
+        online_min_threshold: Rational::new(90, 100),
+        online_max_threshold: Rational::new(99, 100),
     }
 }
 
@@ -163,6 +193,7 @@ pub fn setup_epoch_manager(
     EpochManager::new(
         store,
         config,
+        PROTOCOL_VERSION,
         reward_calculator,
         validators.iter().map(|(account_id, balance)| stake(*account_id, *balance)).collect(),
     )
@@ -191,10 +222,11 @@ pub fn setup_default_epoch_manager(
     )
 }
 
-pub fn record_block(
+pub fn record_block_with_final_block_hash(
     epoch_manager: &mut EpochManager,
     prev_h: CryptoHash,
     cur_h: CryptoHash,
+    last_final_block_hash: CryptoHash,
     height: BlockHeight,
     proposals: Vec<ValidatorStake>,
 ) {
@@ -203,18 +235,81 @@ pub fn record_block(
             &cur_h,
             BlockInfo::new(
                 height,
-                0,
+                height.saturating_sub(2),
+                last_final_block_hash,
                 prev_h,
                 proposals,
                 vec![],
                 vec![],
-                0,
-                0,
                 DEFAULT_TOTAL_SUPPLY,
+                PROTOCOL_VERSION,
             ),
             [0; 32],
         )
         .unwrap()
         .commit()
         .unwrap();
+}
+
+pub fn record_block_with_slashes(
+    epoch_manager: &mut EpochManager,
+    prev_h: CryptoHash,
+    cur_h: CryptoHash,
+    height: BlockHeight,
+    proposals: Vec<ValidatorStake>,
+    slashed: Vec<SlashedValidator>,
+) {
+    epoch_manager
+        .record_block_info(
+            &cur_h,
+            BlockInfo::new(
+                height,
+                height.saturating_sub(2),
+                prev_h,
+                prev_h,
+                proposals,
+                vec![],
+                slashed,
+                DEFAULT_TOTAL_SUPPLY,
+                PROTOCOL_VERSION,
+            ),
+            [0; 32],
+        )
+        .unwrap()
+        .commit()
+        .unwrap();
+}
+
+pub fn record_block(
+    epoch_manager: &mut EpochManager,
+    prev_h: CryptoHash,
+    cur_h: CryptoHash,
+    height: BlockHeight,
+    proposals: Vec<ValidatorStake>,
+) {
+    record_block_with_slashes(epoch_manager, prev_h, cur_h, height, proposals, vec![]);
+}
+
+pub fn block_info(
+    height: BlockHeight,
+    last_finalized_height: BlockHeight,
+    last_final_block_hash: CryptoHash,
+    prev_hash: CryptoHash,
+    epoch_first_block: CryptoHash,
+    chunk_mask: Vec<bool>,
+    total_supply: Balance,
+) -> BlockInfo {
+    BlockInfo {
+        height,
+        last_finalized_height,
+        last_final_block_hash,
+        prev_hash,
+        epoch_first_block,
+        epoch_id: Default::default(),
+        proposals: vec![],
+        chunk_mask,
+        latest_protocol_version: PROTOCOL_VERSION,
+        slashed: Default::default(),
+        total_supply,
+    }
 }

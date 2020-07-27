@@ -43,23 +43,23 @@ impl TransactionPool {
     }
 
     /// Insert a signed transaction into the pool that passed validation.
-    pub fn insert_transaction(&mut self, signed_transaction: SignedTransaction) {
-        if self.unique_transactions.contains(&signed_transaction.get_hash()) {
-            return;
+    pub fn insert_transaction(&mut self, signed_transaction: SignedTransaction) -> bool {
+        if !self.unique_transactions.insert(signed_transaction.get_hash()) {
+            return false;
         }
-        self.unique_transactions.insert(signed_transaction.get_hash());
         let signer_id = &signed_transaction.transaction.signer_id;
         let signer_public_key = &signed_transaction.transaction.public_key;
         self.transactions
             .entry(self.key(signer_id, signer_public_key))
             .or_insert_with(Vec::new)
             .push(signed_transaction);
+        true
     }
 
     /// Returns a pool iterator wrapper that implements an iterator like trait to iterate over
     /// transaction groups in the proper order defined by the protocol.
     /// When the iterator is dropped, all remaining groups are inserted back into the pool.
-    pub fn pool_iterator(&mut self) -> PoolIteratorWrapper {
+    pub fn pool_iterator(&mut self) -> PoolIteratorWrapper<'_> {
         PoolIteratorWrapper::new(self)
     }
 

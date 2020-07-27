@@ -1,17 +1,19 @@
+use std::borrow::Borrow;
 use std::fmt;
 use std::hash::{Hash, Hasher};
 
 use borsh::{BorshDeserialize, BorshSerialize};
+use serde::{Deserialize, Serialize};
 
-use near_crypto::{PublicKey, Signature, Signer};
+use near_crypto::{PublicKey, Signature};
 
 use crate::account::AccessKey;
 use crate::errors::TxExecutionError;
 use crate::hash::{hash, CryptoHash};
 use crate::logging;
 use crate::merkle::MerklePath;
+use crate::serialize::{base64_format, u128_dec_format, u128_dec_format_compatible};
 use crate::types::{AccountId, Balance, Gas, Nonce};
-use std::borrow::Borrow;
 
 pub type LogEntry = String;
 
@@ -41,7 +43,7 @@ impl Transaction {
     }
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Serialize, PartialEq, Eq, Debug, Clone)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
 pub enum Action {
     /// Create an (sub)account using a transaction `receiver_id` as an ID for a new account
     /// ID must pass validation rules described here http://nomicon.io/Primitives/Account.html
@@ -73,34 +75,37 @@ impl Action {
 }
 
 /// Create account action
-#[derive(BorshSerialize, BorshDeserialize, Serialize, PartialEq, Eq, Clone, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Clone, Debug)]
 pub struct CreateAccountAction {}
 
 /// Deploy contract action
-#[derive(BorshSerialize, BorshDeserialize, Serialize, PartialEq, Eq, Clone)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Clone)]
 pub struct DeployContractAction {
     /// WebAssembly binary
+    #[serde(with = "base64_format")]
     pub code: Vec<u8>,
 }
 
 impl fmt::Debug for DeployContractAction {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("DeployContractAction")
             .field("code", &format_args!("{}", logging::pretty_utf8(&self.code)))
             .finish()
     }
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Serialize, PartialEq, Eq, Clone)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Clone)]
 pub struct FunctionCallAction {
     pub method_name: String,
+    #[serde(with = "base64_format")]
     pub args: Vec<u8>,
     pub gas: Gas,
+    #[serde(with = "u128_dec_format_compatible")]
     pub deposit: Balance,
 }
 
 impl fmt::Debug for FunctionCallAction {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("FunctionCallAction")
             .field("method_name", &format_args!("{}", &self.method_name))
             .field("args", &format_args!("{}", logging::pretty_utf8(&self.args)))
@@ -110,21 +115,23 @@ impl fmt::Debug for FunctionCallAction {
     }
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Serialize, PartialEq, Eq, Clone, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Clone, Debug)]
 pub struct TransferAction {
+    #[serde(with = "u128_dec_format_compatible")]
     pub deposit: Balance,
 }
 
 /// An action which stakes singer_id tokens and setup's validator public key
-#[derive(BorshSerialize, BorshDeserialize, Serialize, PartialEq, Eq, Clone, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Clone, Debug)]
 pub struct StakeAction {
     /// Amount of tokens to stake.
+    #[serde(with = "u128_dec_format_compatible")]
     pub stake: Balance,
     /// Validator key which will be used to sign transactions on behalf of singer_id
     pub public_key: PublicKey,
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Serialize, PartialEq, Eq, Clone, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Clone, Debug)]
 pub struct AddKeyAction {
     /// A public key which will be associated with an access_key
     pub public_key: PublicKey,
@@ -132,13 +139,13 @@ pub struct AddKeyAction {
     pub access_key: AccessKey,
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Serialize, PartialEq, Eq, Clone, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Clone, Debug)]
 pub struct DeleteKeyAction {
-    ///
+    /// A public key associated with the access_key to be deleted.
     pub public_key: PublicKey,
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Serialize, PartialEq, Eq, Clone, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Clone, Debug)]
 pub struct DeleteAccountAction {
     pub beneficiary_id: AccountId,
 }
@@ -165,25 +172,6 @@ impl SignedTransaction {
 
     pub fn get_hash(&self) -> CryptoHash {
         self.hash
-    }
-
-    pub fn from_actions(
-        nonce: Nonce,
-        signer_id: AccountId,
-        receiver_id: AccountId,
-        signer: &dyn Signer,
-        actions: Vec<Action>,
-        block_hash: CryptoHash,
-    ) -> Self {
-        Transaction {
-            nonce,
-            signer_id,
-            public_key: signer.public_key(),
-            receiver_id,
-            block_hash,
-            actions,
-        }
-        .sign(signer)
     }
 }
 
@@ -220,7 +208,7 @@ pub enum ExecutionStatus {
 }
 
 impl fmt::Debug for ExecutionStatus {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             ExecutionStatus::Unknown => f.write_str("Unknown"),
             ExecutionStatus::Failure(e) => f.write_fmt(format_args!("Failure({})", e)),
@@ -240,36 +228,75 @@ impl Default for ExecutionStatus {
     }
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Serialize, PartialEq, Clone, Default)]
+/// ExecutionOutcome for proof. Excludes logs.
+#[derive(BorshSerialize, BorshDeserialize, Serialize, PartialEq, Clone)]
 struct PartialExecutionOutcome {
-    pub status: ExecutionStatus,
     pub receipt_ids: Vec<CryptoHash>,
     pub gas_burnt: Gas,
+    #[serde(with = "u128_dec_format")]
+    pub tokens_burnt: Balance,
+    pub executor_id: AccountId,
+    pub status: PartialExecutionStatus,
+}
+
+impl From<&ExecutionOutcome> for PartialExecutionOutcome {
+    fn from(outcome: &ExecutionOutcome) -> Self {
+        Self {
+            receipt_ids: outcome.receipt_ids.clone(),
+            gas_burnt: outcome.gas_burnt,
+            tokens_burnt: outcome.tokens_burnt,
+            executor_id: outcome.executor_id.clone(),
+            status: outcome.status.clone().into(),
+        }
+    }
+}
+
+/// ExecutionStatus for proof. Excludes failure debug info.
+#[derive(BorshSerialize, BorshDeserialize, Serialize, PartialEq, Clone)]
+pub enum PartialExecutionStatus {
+    Unknown,
+    Failure,
+    SuccessValue(Vec<u8>),
+    SuccessReceiptId(CryptoHash),
+}
+
+impl From<ExecutionStatus> for PartialExecutionStatus {
+    fn from(status: ExecutionStatus) -> PartialExecutionStatus {
+        match status {
+            ExecutionStatus::Unknown => PartialExecutionStatus::Unknown,
+            ExecutionStatus::Failure(_) => PartialExecutionStatus::Failure,
+            ExecutionStatus::SuccessValue(value) => PartialExecutionStatus::SuccessValue(value),
+            ExecutionStatus::SuccessReceiptId(id) => PartialExecutionStatus::SuccessReceiptId(id),
+        }
+    }
 }
 
 /// Execution outcome for one signed transaction or one receipt.
 #[derive(BorshSerialize, BorshDeserialize, Serialize, PartialEq, Clone, Default, Eq)]
 pub struct ExecutionOutcome {
-    /// Execution status. Contains the result in case of successful execution.
-    pub status: ExecutionStatus,
     /// Logs from this transaction or receipt.
     pub logs: Vec<LogEntry>,
     /// Receipt IDs generated by this transaction or receipt.
     pub receipt_ids: Vec<CryptoHash>,
     /// The amount of the gas burnt by the given transaction or receipt.
     pub gas_burnt: Gas,
+    /// The amount of tokens burnt corresponding to the burnt gas amount.
+    /// This value doesn't always equal to the `gas_burnt` multiplied by the gas price, because
+    /// the prepaid gas price might be lower than the actual gas price and it creates a deficit.
+    pub tokens_burnt: Balance,
+    /// The id of the account on which the execution happens. For transaction this is signer_id,
+    /// for receipt this is receiver_id.
+    pub executor_id: AccountId,
+    /// Execution status. Contains the result in case of successful execution.
+    /// NOTE: Should be the latest field since it contains unparsable by light client
+    /// ExecutionStatus::Failure
+    pub status: ExecutionStatus,
 }
 
 impl ExecutionOutcome {
     pub fn to_hashes(&self) -> Vec<CryptoHash> {
         let mut result = vec![hash(
-            &PartialExecutionOutcome {
-                status: self.status.clone(),
-                receipt_ids: self.receipt_ids.clone(),
-                gas_burnt: self.gas_burnt,
-            }
-            .try_to_vec()
-            .expect("Failed to serialize"),
+            &PartialExecutionOutcome::from(self).try_to_vec().expect("Failed to serialize"),
         )];
         for log in self.logs.iter() {
             result.push(hash(log.as_bytes()));
@@ -279,12 +306,13 @@ impl ExecutionOutcome {
 }
 
 impl fmt::Debug for ExecutionOutcome {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("ExecutionOutcome")
-            .field("status", &self.status)
             .field("logs", &format_args!("{}", logging::pretty_vec(&self.logs)))
             .field("receipt_ids", &format_args!("{}", logging::pretty_vec(&self.receipt_ids)))
             .field("burnt_gas", &self.gas_burnt)
+            .field("tokens_burnt", &self.tokens_burnt)
+            .field("status", &self.status)
             .finish()
     }
 }
@@ -296,6 +324,7 @@ impl fmt::Debug for ExecutionOutcome {
 pub struct ExecutionOutcomeWithId {
     /// The transaction hash or the receipt ID.
     pub id: CryptoHash,
+    /// Should be the latest field since contains unparsable by light client ExecutionStatus::Failure
     pub outcome: ExecutionOutcome,
 }
 
@@ -310,9 +339,10 @@ impl ExecutionOutcomeWithId {
 /// Execution outcome with path from it to the outcome root and ID.
 #[derive(PartialEq, Clone, Default, Debug, BorshSerialize, BorshDeserialize, Serialize, Eq)]
 pub struct ExecutionOutcomeWithIdAndProof {
-    pub outcome_with_id: ExecutionOutcomeWithId,
     pub proof: MerklePath,
     pub block_hash: CryptoHash,
+    /// Should be the latest field since contains unparsable by light client ExecutionStatus::Failure
+    pub outcome_with_id: ExecutionOutcomeWithId,
 }
 
 impl ExecutionOutcomeWithIdAndProof {
@@ -336,7 +366,7 @@ mod tests {
 
     use borsh::BorshDeserialize;
 
-    use near_crypto::{InMemorySigner, KeyType, Signature};
+    use near_crypto::{InMemorySigner, KeyType, Signature, Signer};
 
     use crate::account::{AccessKeyPermission, FunctionCallPermission};
     use crate::serialize::to_base;
@@ -422,6 +452,8 @@ mod tests {
             logs: vec!["123".to_string(), "321".to_string()],
             receipt_ids: vec![],
             gas_burnt: 123,
+            tokens_burnt: 1234000,
+            executor_id: "alice".to_string(),
         };
         let hashes = outcome.to_hashes();
         assert_eq!(hashes.len(), 3);

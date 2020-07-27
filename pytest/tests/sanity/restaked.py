@@ -11,12 +11,12 @@ import atexit
 
 sys.path.append('lib')
 
-
 from cluster import start_cluster, load_config
 
 TIMEOUT = 150
 BLOCKS = 50
 EPOCH_LENGTH = 10
+
 
 def atexit_stop_restaked(pid):
     print("Cleaning up restaked on script exit")
@@ -28,15 +28,20 @@ def start_restaked(node_dir, rpc_port, config):
         config = load_config()
     near_root = config['near_root']
     command = [
-        near_root + 'restaked', '--home=%s' % node_dir,
-        '--rpc-url=127.0.0.1:%d' % rpc_port, '--wait-period=1']
+        near_root + 'restaked',
+        '--home=%s' % node_dir,
+        '--rpc-url=127.0.0.1:%d' % rpc_port, '--wait-period=1'
+    ]
     pid = subprocess.Popen(command).pid
     print("Starting restaked for %s, rpc = 0.0.0.0:%d" % (node_dir, rpc_port))
     atexit.register(atexit_stop_restaked, pid)
 
 
 # Local:
-nodes = start_cluster(4, 0, 1, None, [["epoch_length", EPOCH_LENGTH], ["block_producer_kickout_threshold", 80]], {})
+nodes = start_cluster(
+    4, 0, 1, None,
+    [["epoch_length", EPOCH_LENGTH], ["block_producer_kickout_threshold", 80]],
+    {})
 
 # Remote:
 # NEAR_PYTEST_CONFIG=remote.json python tests/sanity/block_production.py
@@ -49,7 +54,8 @@ nodes[0].kill()
 while time.time() - started < TIMEOUT:
     status = nodes[1].get_status()
     height = status['sync_info']['latest_block_height']
-    if height > EPOCH_LENGTH * 5:
+    # epoch boundary may have shifted due to validator being offline
+    if height > EPOCH_LENGTH * 5 + 5:
         # 5 epochs later.
         validators = nodes[1].get_validators()['result']
         present = False

@@ -9,9 +9,12 @@ use near_crypto::{KeyType, PublicKey, Signature};
 use near_primitives::account::Account;
 use near_primitives::block::{genesis_chunks, Block};
 use near_primitives::hash::CryptoHash;
+use near_primitives::test_utils::account_new;
 use near_primitives::transaction::{Action, SignedTransaction, Transaction, TransferAction};
 use near_primitives::types::{EpochId, StateRoot};
 use near_primitives::validator_signer::InMemoryValidatorSigner;
+use near_primitives::version::PROTOCOL_VERSION;
+use num_rational::Rational;
 
 fn create_transaction() -> SignedTransaction {
     let mut actions = vec![];
@@ -32,38 +35,39 @@ fn create_transaction() -> SignedTransaction {
 }
 
 fn create_block() -> Block {
-    let genesis_chunks = genesis_chunks(vec![StateRoot::default()], 1, 1_000);
+    let genesis_chunks = genesis_chunks(vec![StateRoot::default()], 1, 1_000, 0);
     let genesis = Block::genesis(
+        PROTOCOL_VERSION,
         genesis_chunks.into_iter().map(|chunk| chunk.header).collect(),
         Utc::now(),
+        0,
         1_000,
         1_000,
         CryptoHash::default(),
     );
     let signer = InMemoryValidatorSigner::from_random("".to_string(), KeyType::ED25519);
     Block::produce(
-        &genesis.header,
+        PROTOCOL_VERSION,
+        genesis.header(),
         10,
-        vec![genesis.chunks[0].clone()],
+        vec![genesis.chunks()[0].clone()],
         EpochId::default(),
         EpochId::default(),
         vec![],
+        Rational::from_integer(0),
         0,
         0,
         Some(0),
         vec![],
         vec![],
         &signer,
-        0.into(),
-        CryptoHash::default(),
-        CryptoHash::default(),
         CryptoHash::default(),
         CryptoHash::default(),
     )
 }
 
 fn create_account() -> Account {
-    Account::new(0, CryptoHash::default(), 1_000)
+    account_new(0, CryptoHash::default())
 }
 
 fn serialize_tx(bench: &mut Bencher) {

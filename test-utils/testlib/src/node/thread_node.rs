@@ -1,10 +1,10 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use near::{start_with_config, NearConfig};
-use near_chain_configs::GenesisConfig;
+use near_chain_configs::Genesis;
 use near_crypto::{InMemorySigner, KeyType, Signer};
 use near_primitives::types::AccountId;
+use neard::{start_with_config, NearConfig};
 
 use crate::actix_utils::ShutdownableThread;
 use crate::node::Node;
@@ -20,7 +20,7 @@ pub struct ThreadNode {
     pub config: NearConfig,
     pub state: ThreadNodeState,
     pub signer: Arc<InMemorySigner>,
-    pub dir: tempdir::TempDir,
+    pub dir: tempfile::TempDir,
 }
 
 fn start_thread(config: NearConfig, path: PathBuf) -> ShutdownableThread {
@@ -30,8 +30,8 @@ fn start_thread(config: NearConfig, path: PathBuf) -> ShutdownableThread {
 }
 
 impl Node for ThreadNode {
-    fn genesis_config(&self) -> &GenesisConfig {
-        &self.config.genesis_config
+    fn genesis(&self) -> &Genesis {
+        &self.config.genesis
     }
 
     fn account_id(&self) -> Option<AccountId> {
@@ -52,6 +52,7 @@ impl Node for ThreadNode {
             ThreadNodeState::Stopped => panic!("Node is not running"),
             ThreadNodeState::Running(handle) => {
                 handle.shutdown();
+                self.state = ThreadNodeState::Stopped;
             }
         }
     }
@@ -93,7 +94,7 @@ impl ThreadNode {
             config,
             state: ThreadNodeState::Stopped,
             signer,
-            dir: tempdir::TempDir::new("thread_node").unwrap(),
+            dir: tempfile::Builder::new().prefix("thread_node").tempdir().unwrap(),
         }
     }
 }

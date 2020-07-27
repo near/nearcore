@@ -5,10 +5,10 @@ use std::time::Duration;
 use clap::{App, Arg};
 use log::{error, info, LevelFilter};
 
-use near::config::{Config, BLOCK_PRODUCER_KICKOUT_THRESHOLD, CONFIG_FILENAME};
-use near::get_default_home;
 use near_crypto::{InMemorySigner, KeyFile};
 use near_primitives::views::CurrentEpochValidatorInfo;
+use neard::config::{Config, BLOCK_PRODUCER_KICKOUT_THRESHOLD, CONFIG_FILENAME};
+use neard::get_default_home;
 // TODO(1905): Move out RPC interface for transacting into separate production crate.
 use testlib::user::{rpc_user::RpcUser, User};
 
@@ -70,9 +70,9 @@ fn main() {
         .unwrap();
 
     let config = Config::from_file(&home_dir.join(CONFIG_FILENAME));
-    let key_file = KeyFile::from_file(&home_dir.join(config.validator_key_file.clone()));
+    let key_file = KeyFile::from_file(&home_dir.join(&config.validator_key_file));
     // Support configuring if there is another key.
-    let signer = InMemorySigner::from_file(&home_dir.join(config.validator_key_file.clone()));
+    let signer = InMemorySigner::from_file(&home_dir.join(&config.validator_key_file));
     let account_id = signer.account_id.clone();
     let mut last_stake_amount = stake_amount;
 

@@ -3,7 +3,32 @@ use serde::{Deserialize, Serialize};
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
-#[derive(Clone, Debug, Hash, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Hash, Serialize, Deserialize)]
+pub enum VMKind {
+    /// Wasmer VM.
+    Wasmer,
+    /// Wasmtime VM.
+    Wasmtime,
+}
+
+impl Default for VMKind {
+    #[cfg(feature = "wasmer_default")]
+    fn default() -> Self {
+        VMKind::Wasmer
+    }
+
+    #[cfg(feature = "wasmtime_default")]
+    fn default() -> Self {
+        VMKind::Wasmtime
+    }
+
+    #[cfg(all(not(feature = "wasmer_default"), not(feature = "wasmtime_default")))]
+    fn default() -> Self {
+        VMKind::Wasmer
+    }
+}
+
+#[derive(Clone, Debug, Hash, Serialize, Deserialize, PartialEq, Eq)]
 pub struct VMConfig {
     /// Costs for runtime externals
     pub ext_costs: ExtCostsConfig,
@@ -134,8 +159,10 @@ impl Default for VMLimitConfig {
             // Total logs size is 16Kib
             max_total_log_length: 16 * 1024,
 
-            // Fills 10 blocks. It defines how long a single receipt might live.
-            max_total_prepaid_gas: 10 * 10u64.pow(15),
+            // Updating the maximum prepaid gas to limit the maximum depth of a transaction to 64
+            // blocks.
+            // This based on `63 * min_receipt_with_function_call_gas()`. Where 63 is max depth - 1.
+            max_total_prepaid_gas: 300 * 10u64.pow(12),
 
             // Safety limit. Unlikely to hit it for most common transactions and receipts.
             max_actions_per_receipt: 100,
@@ -160,6 +187,11 @@ impl Default for VMLimitConfig {
 pub struct ExtCostsConfig {
     /// Base cost for calling a host function.
     pub base: Gas,
+
+    /// Base cost of loading and compiling contract
+    pub contract_compile_base: Gas,
+    /// Cost of the execution to load and compile contract
+    pub contract_compile_bytes: Gas,
 
     /// Base cost for guest memory read
     pub read_memory_base: Gas,
@@ -273,56 +305,72 @@ pub struct ExtCostsConfig {
     pub promise_and_per_promise: Gas,
     /// Cost for calling promise_return
     pub promise_return: Gas,
+
+    // ###############
+    // # Validator API #
+    // ###############
+    /// Cost of calling `validator_stake`.
+    pub validator_stake_base: Gas,
+    /// Cost of calling `validator_total_stake`.
+    pub validator_total_stake_base: Gas,
 }
+
+// We multiply the actual computed costs by the fixed factor to ensure we
+// have certain reserve for further gas price variation.
+const SAFETY_MULTIPLIER: u64 = 3;
 
 impl Default for ExtCostsConfig {
     fn default() -> ExtCostsConfig {
         ExtCostsConfig {
-            base: 126224222,
-            read_memory_base: 1629369577,
-            read_memory_byte: 123816,
-            write_memory_base: 76445225,
-            write_memory_byte: 809907,
-            read_register_base: 639340699,
-            read_register_byte: 63637,
-            write_register_base: 0,
-            write_register_byte: 0,
-            utf8_decoding_base: 0,
-            utf8_decoding_byte: 591904,
-            utf16_decoding_base: 0,
-            utf16_decoding_byte: 9095538,
-            sha256_base: 710092630,
-            sha256_byte: 5536829,
-            keccak256_base: 710092630,
-            keccak256_byte: 5536829,
-            keccak512_base: 710092630 * 2,
-            keccak512_byte: 5536829 * 2,
-            log_base: 0,
-            log_byte: 0,
-            storage_write_base: 21058769282,
-            storage_write_key_byte: 23447086,
-            storage_write_value_byte: 9437547,
-            storage_write_evicted_byte: 0,
-            storage_read_base: 19352220621,
-            storage_read_key_byte: 4792496,
-            storage_read_value_byte: 139743,
-            storage_remove_base: 109578968621,
-            storage_remove_key_byte: 9512022,
-            storage_remove_ret_value_byte: 0,
-            storage_has_key_base: 20019912030,
-            storage_has_key_byte: 4647597,
-            storage_iter_create_prefix_base: 28443562030,
-            storage_iter_create_prefix_byte: 442354,
-            storage_iter_create_range_base: 25804628282,
-            storage_iter_create_from_byte: 429608,
-            storage_iter_create_to_byte: 1302886,
-            storage_iter_next_base: 24213271567,
-            storage_iter_next_key_byte: 0,
-            storage_iter_next_value_byte: 1343211668,
-            touching_trie_node: 1,
-            promise_and_base: 0,
-            promise_and_per_promise: 672136,
-            promise_return: 34854215,
+            base: SAFETY_MULTIPLIER * 88256037,
+            contract_compile_base: SAFETY_MULTIPLIER * 11815321,
+            contract_compile_bytes: SAFETY_MULTIPLIER * 72250,
+            read_memory_base: SAFETY_MULTIPLIER * 869954400,
+            read_memory_byte: SAFETY_MULTIPLIER * 1267111,
+            write_memory_base: SAFETY_MULTIPLIER * 934598287,
+            write_memory_byte: SAFETY_MULTIPLIER * 907924,
+            read_register_base: SAFETY_MULTIPLIER * 839055062,
+            read_register_byte: SAFETY_MULTIPLIER * 32854,
+            write_register_base: SAFETY_MULTIPLIER * 955174162,
+            write_register_byte: SAFETY_MULTIPLIER * 1267188,
+            utf8_decoding_base: SAFETY_MULTIPLIER * 1037259687,
+            utf8_decoding_byte: SAFETY_MULTIPLIER * 97193493,
+            utf16_decoding_base: SAFETY_MULTIPLIER * 1181104350,
+            utf16_decoding_byte: SAFETY_MULTIPLIER * 54525831,
+            sha256_base: SAFETY_MULTIPLIER * 1513656750,
+            sha256_byte: SAFETY_MULTIPLIER * 8039117,
+            keccak256_base: SAFETY_MULTIPLIER * 1959830425,
+            keccak256_byte: SAFETY_MULTIPLIER * 7157035,
+            keccak512_base: SAFETY_MULTIPLIER * 1937129412,
+            keccak512_byte: SAFETY_MULTIPLIER * 12216567,
+            log_base: SAFETY_MULTIPLIER * 1181104350,
+            log_byte: SAFETY_MULTIPLIER * 4399597,
+            storage_write_base: SAFETY_MULTIPLIER * 21398912000,
+            storage_write_key_byte: SAFETY_MULTIPLIER * 23494289,
+            storage_write_value_byte: SAFETY_MULTIPLIER * 10339513,
+            storage_write_evicted_byte: SAFETY_MULTIPLIER * 10705769,
+            storage_read_base: SAFETY_MULTIPLIER * 18785615250,
+            storage_read_key_byte: SAFETY_MULTIPLIER * 10317511,
+            storage_read_value_byte: SAFETY_MULTIPLIER * 1870335,
+            storage_remove_base: SAFETY_MULTIPLIER * 17824343500,
+            storage_remove_key_byte: SAFETY_MULTIPLIER * 12740128,
+            storage_remove_ret_value_byte: SAFETY_MULTIPLIER * 3843852,
+            storage_has_key_base: SAFETY_MULTIPLIER * 18013298875,
+            storage_has_key_byte: SAFETY_MULTIPLIER * 10263615,
+            storage_iter_create_prefix_base: SAFETY_MULTIPLIER * 0,
+            storage_iter_create_prefix_byte: SAFETY_MULTIPLIER * 0,
+            storage_iter_create_range_base: SAFETY_MULTIPLIER * 0,
+            storage_iter_create_from_byte: SAFETY_MULTIPLIER * 0,
+            storage_iter_create_to_byte: SAFETY_MULTIPLIER * 0,
+            storage_iter_next_base: SAFETY_MULTIPLIER * 0,
+            storage_iter_next_key_byte: SAFETY_MULTIPLIER * 0,
+            storage_iter_next_value_byte: SAFETY_MULTIPLIER * 0,
+            touching_trie_node: SAFETY_MULTIPLIER * 5367318642,
+            promise_and_base: SAFETY_MULTIPLIER * 488337800,
+            promise_and_per_promise: SAFETY_MULTIPLIER * 1817392,
+            promise_return: SAFETY_MULTIPLIER * 186717462,
+            validator_stake_base: SAFETY_MULTIPLIER * 303944908800,
+            validator_total_stake_base: SAFETY_MULTIPLIER * 303944908800,
         }
     }
 }
@@ -331,6 +379,8 @@ impl ExtCostsConfig {
     fn free() -> ExtCostsConfig {
         ExtCostsConfig {
             base: 0,
+            contract_compile_base: 0,
+            contract_compile_bytes: 0,
             read_memory_base: 0,
             read_memory_byte: 0,
             write_memory_base: 0,
@@ -375,6 +425,8 @@ impl ExtCostsConfig {
             promise_and_base: 0,
             promise_and_per_promise: 0,
             promise_return: 0,
+            validator_stake_base: 0,
+            validator_total_stake_base: 0,
         }
     }
 }
@@ -384,6 +436,8 @@ impl ExtCostsConfig {
 #[allow(non_camel_case_types)]
 pub enum ExtCosts {
     base,
+    contract_compile_base,
+    contract_compile_bytes,
     read_memory_base,
     read_memory_byte,
     write_memory_base,
@@ -428,13 +482,17 @@ pub enum ExtCosts {
     promise_and_base,
     promise_and_per_promise,
     promise_return,
+    validator_stake_base,
+    validator_total_stake_base,
 }
 
 impl ExtCosts {
-    pub fn value(&self, config: &ExtCostsConfig) -> Gas {
+    pub fn value(self, config: &ExtCostsConfig) -> Gas {
         use ExtCosts::*;
         match self {
             base => config.base,
+            contract_compile_base => config.contract_compile_base,
+            contract_compile_bytes => config.contract_compile_bytes,
             read_memory_base => config.read_memory_base,
             read_memory_byte => config.read_memory_byte,
             write_memory_base => config.write_memory_base,
@@ -479,6 +537,8 @@ impl ExtCosts {
             promise_and_base => config.promise_and_base,
             promise_and_per_promise => config.promise_and_per_promise,
             promise_return => config.promise_return,
+            validator_stake_base => config.validator_stake_base,
+            validator_total_stake_base => config.validator_total_stake_base,
         }
     }
 }

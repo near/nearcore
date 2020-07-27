@@ -7,19 +7,21 @@ use ansi_term::Color::{Blue, Cyan, Green, White, Yellow};
 use log::info;
 use sysinfo::{get_current_pid, set_open_files_limit, Pid, ProcessExt, System, SystemExt};
 
-use near_chain::Tip;
 use near_chain_configs::ClientConfig;
+use near_metrics::set_gauge;
 use near_network::types::NetworkInfo;
+use near_primitives::block::Tip;
 use near_primitives::network::PeerId;
 use near_primitives::serialize::to_base;
 use near_primitives::telemetry::{
     TelemetryAgentInfo, TelemetryChainInfo, TelemetryInfo, TelemetrySystemInfo,
 };
-use near_primitives::types::Gas;
-use near_primitives::types::Version;
+use near_primitives::types::{BlockHeight, Gas};
 use near_primitives::validator_signer::ValidatorSigner;
+use near_primitives::version::Version;
 use near_telemetry::{telemetry, TelemetryActor};
 
+use crate::metrics;
 use crate::types::ShardSyncStatus;
 use crate::SyncStatus;
 
@@ -73,6 +75,7 @@ impl InfoHelper {
 
     pub fn info(
         &mut self,
+        genesis_height: BlockHeight,
         head: &Tip,
         sync_status: &SyncStatus,
         node_id: &PeerId,
@@ -102,13 +105,20 @@ impl InfoHelper {
         let avg_gas_used =
             ((self.gas_used as f64) / (self.started.elapsed().as_millis() as f64) * 1000.0) as u64;
         info!(target: "stats", "{} {} {} {} {} {}",
-              Yellow.bold().paint(display_sync_status(&sync_status, &head)),
+              Yellow.bold().paint(display_sync_status(&sync_status, &head, genesis_height)),
               White.bold().paint(format!("{}/{}", if is_validator { "V" } else if is_fisherman { "F" } else { "-" }, num_validators)),
               Cyan.bold().paint(format!("{:2}/{:?}/{:2} peers", network_info.num_active_peers, network_info.highest_height_peers.len(), network_info.peer_max_count)),
               Cyan.bold().paint(format!("⬇ {} ⬆ {}", pretty_bytes_per_sec(network_info.received_bytes_per_sec), pretty_bytes_per_sec(network_info.sent_bytes_per_sec))),
               Green.bold().paint(format!("{:.2} bps {}", avg_bls, gas_used_per_sec(avg_gas_used))),
               Blue.bold().paint(format!("CPU: {:.0}%, Mem: {}", cpu_usage, pretty_bytes(memory_usage * 1024)))
         );
+
+        set_gauge(&metrics::IS_VALIDATOR, is_validator as i64);
+        set_gauge(&metrics::RECEIVED_BYTES_PER_SECOND, network_info.received_bytes_per_sec as i64);
+        set_gauge(&metrics::SENT_BYTES_PER_SECOND, network_info.sent_bytes_per_sec as i64);
+        set_gauge(&metrics::BLOCKS_PER_MINUTE, (avg_bls * (60 as f64)) as i64);
+        set_gauge(&metrics::CPU_USAGE, cpu_usage as i64);
+        set_gauge(&metrics::MEMORY_USAGE, (memory_usage * 1024) as i64);
 
         self.started = Instant::now();
         self.num_blocks_processed = 0;
@@ -133,7 +143,7 @@ impl InfoHelper {
                     .validator_signer
                     .clone()
                     .map(|bp| bp.validator_id().clone())
-                    .unwrap_or("".to_string()),
+                    .unwrap_or_else(String::new),
                 is_validator,
                 status: sync_status.as_variant_name().to_string(),
                 latest_block_hash: to_base(&head.last_block_hash),
@@ -151,22 +161,30 @@ impl InfoHelper {
     }
 }
 
-fn display_sync_status(sync_status: &SyncStatus, head: &Tip) -> String {
+fn display_sync_status(
+    sync_status: &SyncStatus,
+    head: &Tip,
+    genesis_height: BlockHeight,
+) -> String {
     match sync_status {
         SyncStatus::AwaitingPeers => format!("#{:>8} Waiting for peers", head.height),
         SyncStatus::NoSync => format!("#{:>8} {:>44}", head.height, head.last_block_hash),
         SyncStatus::HeaderSync { current_height, highest_height } => {
-            let percent = if *highest_height == 0 {
+            let percent = if *highest_height <= genesis_height {
                 0
             } else {
-                min(current_height, highest_height) * 100 / highest_height
+                (min(current_height, highest_height) - genesis_height) * 100
+                    / (highest_height - genesis_height)
             };
             format!("#{:>8} Downloading headers {}%", head.height, percent)
         }
         SyncStatus::BodySync { current_height, highest_height } => {
-            let percent =
-                if *highest_height == 0 { 0 } else { current_height * 100 / highest_height };
-            format!("#{:>8} Downloading blocks {}%", current_height, percent)
+            let percent = if *highest_height <= genesis_height {
+                0
+            } else {
+                (current_height - genesis_height) * 100 / (highest_height - genesis_height)
+            };
+            format!("#{:>8} Downloading blocks {}%", head.height, percent)
         }
         SyncStatus::StateSync(_sync_hash, shard_statuses) => {
             let mut res = String::from("State ");
@@ -225,8 +243,12 @@ fn gas_used_per_sec(num: u64) -> String {
     if num < 1000 {
         format!("{} gas/s", num)
     } else if num < 1_000_000 {
-        format!("{:.1} Kgas/s", num as f64 / 1_000.0)
+        format!("{:.2} Kgas/s", num as f64 / 1_000.0)
+    } else if num < 1_000_000_000 {
+        format!("{:.2} Mgas/s", num as f64 / 1_000_000.0)
+    } else if num < 1_000_000_000_000 {
+        format!("{:.2} Ggas/s", num as f64 / 1_000_000_000.0)
     } else {
-        format!("{:.1} Mgas/s", num as f64 / 1_000_000.0)
+        format!("{:.2} Tgas/s", num as f64 / 1_000_000_000_000.0)
     }
 }

@@ -2,10 +2,16 @@
 
 /chain/ @SkidanovAlex @bowenwang1996
 /chain/jsonrpc/ @frol @evgenykuzyakov
+/chain/indexer/ @khorolets @frol
+/chain/rosettarpc/ @frol
 
-/runtime/ @nearmax @evgenykuzyakov
+/runtime/ @evgenykuzyakov @chain-police
+/runtime/runtime-params-estimator/ @olonho @willemneal
+/runtime/near-vm-runner/ @olonho @ailisp
 
 /genesis-tools/ @nearmax
+/tools/rpctypegen/ @chain-police
+/tools/indexer/ @khorolets @frol
 
-/core/ @nearmax @evgenykuzyakov @SkidanovAlex @bowenwang1996
-/near/ @nearmax @evgenykuzyakov @SkidanovAlex @bowenwang1996
+/core/  @bowenwang1996 @frol @evgenykuzyakov @nearmax @SkidanovAlex
+/neard/ @bowenwang1996 @frol @evgenykuzyakov @nearmax @SkidanovAlex

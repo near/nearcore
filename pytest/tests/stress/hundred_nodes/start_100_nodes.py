@@ -41,9 +41,12 @@ client_config_changes = {
             "nanos": 0,
         },
         "max_block_wait_delay": {
-            "secs": 6 * block_production_time,            
+            "secs": 6 * block_production_time,
             "nanos": 0,
         },
+    },
+    "telemetry": {
+        "endpoints": [],
     }
 }
 
@@ -63,6 +66,12 @@ genesis_config_changes = [
 ]
 
 num_machines = 100
+
+# machine 0-(k-1) run docker, machine k-100 run binary
+num_docker_machines = 50
+
+# docker image to use
+docker_image = 'nearprotocol/nearcore:master'
 
 # 25 zones, each zone 4 instances
 # 5 asia, 1 australia, 5 europe, 1 canada, 13 us
@@ -128,6 +137,8 @@ zones = [
     'us-west2-b',
     'us-west2-c',
 ]
+# Unless you want to shutdown gcloud instance and restart, keep this `False'
+reserve_ip=False
 
 pbar = tqdm(total=num_machines, desc=' create machines')
 def create_machine(i):
@@ -137,8 +148,8 @@ def create_machine(i):
                       image_project='near-core',
                       image=image_name,
                       zone=zones[i % len(zones)],
-                      firewall_allows=['tcp:3030', 'tcp:24567'],
-                      min_cpu_platform='Intel Skylake')
+                      min_cpu_platform='Intel Skylake',
+                      reserve_ip=reserve_ip)
     pbar.update(1)
     return m
 
@@ -152,7 +163,7 @@ for i in range(num_machines):
 mkdir -p /tmp/near/node{i}
 # deactivate virtualenv doesn't work in non interactive shell, explicitly run with python2
 cd ..
-/usr/bin/python2 scripts/start_stakewars.py --local --home /tmp/near/node{i} --init --signer-keys --account-id=node{i}
+python2 scripts/start_stakewars.py --local --home /tmp/near/node{i} --init --signer-keys --account-id=node{i}
 ''')
     assert p.returncode == 0
 
@@ -184,15 +195,17 @@ with open('/tmp/near/accounts.csv', 'w', newline='') as f:
 
     writer = csv.DictWriter(f, fieldnames=fieldnames)
     writer.writeheader()
+    amount = 1000 * 10 ** 24
+    staked_amount = 10 * 10 ** 24
 
     for i in range(num_machines):
         writer.writerow({
             'genesis_time': genesis_time,
             'account_id': f'node{i}',
             'full_pks': get_full_pks(i),
-            'amount': 10000000000000000000,
+            'amount': amount,
             'is_treasury': 'true' if i == 0 else 'false',
-            'validator_stake': 10000000000000000000,
+            'validator_stake': staked_amount,
             'validator_key': get_validator_key(i),
             'peer_info': f'{get_pubkey(i)}@{machines[i].ip}:24567'
         })
@@ -223,10 +236,17 @@ pmap(upload_genesis_files, range(num_machines))
 pbar.close()
 
 pbar = tqdm(total=num_machines, desc=' start near')
-def start_nearcore(m):
-    m.run_detach_tmux(
-        'cd nearcore && export RUST_LOG=diagnostic=trace && target/release/near run --archive')
+def start_nearcore(i):
+    m = machines[i]
+    if i < num_docker_machines:
+        m.run('bash', input=f'''
+docker run -d -u $UID:$UID -v /home/{m.username}/.near:/srv/near \
+    -p 3030:3030 -p 24567:24567 --name nearcore {docker_image} near --home=/srv/near run
+''')
+    else:
+        m.run_detach_tmux(
+            'cd nearcore && export RUST_LOG=diagnostic=trace && target/release/near run --archive')
     pbar.update(1)
 
-pmap(start_nearcore, machines)
+pmap(start_nearcore, range(len(machines)))
 pbar.close()

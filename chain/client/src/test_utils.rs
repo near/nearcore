@@ -1,19 +1,20 @@
 use std::cmp::max;
-use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
-use std::ops::Bound::{Excluded, Included, Unbounded};
+use std::collections::{HashMap, HashSet};
 use std::ops::DerefMut;
 use std::sync::{Arc, RwLock};
 
 use actix::actors::mocker::Mocker;
-use actix::{Actor, Addr, AsyncContext, Context, MailboxError};
+use actix::{Actor, Addr, AsyncContext, Context};
 use chrono::{DateTime, Utc};
-use futures::{future, future::BoxFuture, FutureExt};
+use futures::{future, FutureExt};
 use rand::{thread_rng, Rng};
 
 use near_chain::test_utils::KeyValueRuntime;
 use near_chain::{Chain, ChainGenesis, DoomslugThresholdMode, Provenance, RuntimeAdapter};
 use near_chain_configs::ClientConfig;
 use near_crypto::{InMemorySigner, KeyType, PublicKey};
+#[cfg(feature = "metric_recorder")]
+use near_network::recorder::MetricRecorder;
 use near_network::routing::EdgeInfo;
 use near_network::types::{
     AccountOrPeerIdOrHash, NetworkInfo, NetworkViewClientMessages, NetworkViewClientResponses,
@@ -23,45 +24,24 @@ use near_network::{
     FullPeerInfo, NetworkAdapter, NetworkClientMessages, NetworkClientResponses, NetworkRecipient,
     NetworkRequests, NetworkResponses, PeerInfo, PeerManagerActor,
 };
-use near_primitives::block::{Block, GenesisId, ScoreAndHeight};
+use near_primitives::block::{ApprovalInner, Block, GenesisId};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{
-    AccountId, BlockHeight, BlockHeightDelta, NumBlocks, NumSeats, NumShards,
+    AccountId, Balance, BlockHeight, BlockHeightDelta, NumBlocks, NumSeats, NumShards,
 };
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
+use near_primitives::version::PROTOCOL_VERSION;
+use near_primitives::views::{AccountView, QueryRequest, QueryResponseKind};
 use near_store::test_utils::create_test_store;
 use near_store::Store;
 use near_telemetry::TelemetryActor;
 
-use crate::{Client, ClientActor, SyncStatus, ViewClientActor};
+use crate::{start_view_client, Client, ClientActor, SyncStatus, ViewClientActor};
+use near_network::test_utils::MockNetworkAdapter;
+use num_rational::Rational;
 
 pub type NetworkMock = Mocker<PeerManagerActor>;
-
-#[derive(Default)]
-pub struct MockNetworkAdapter {
-    pub requests: Arc<RwLock<VecDeque<NetworkRequests>>>,
-}
-
-impl NetworkAdapter for MockNetworkAdapter {
-    fn send(
-        &self,
-        msg: NetworkRequests,
-    ) -> BoxFuture<'static, Result<NetworkResponses, MailboxError>> {
-        self.do_send(msg);
-        future::ok(NetworkResponses::NoResponse).boxed()
-    }
-
-    fn do_send(&self, msg: NetworkRequests) {
-        self.requests.write().unwrap().push_back(msg);
-    }
-}
-
-impl MockNetworkAdapter {
-    pub fn pop(&self) -> Option<NetworkRequests> {
-        self.requests.write().unwrap().pop_front()
-    }
-}
 
 /// Sets up ClientActor and ViewClientActor viewing the same store/runtime.
 pub fn setup(
@@ -78,35 +58,36 @@ pub fn setup(
     network_adapter: Arc<dyn NetworkAdapter>,
     transaction_validity_period: NumBlocks,
     genesis_time: DateTime<Utc>,
-) -> (Block, ClientActor, ViewClientActor) {
+) -> (Block, ClientActor, Addr<ViewClientActor>) {
     let store = create_test_store();
     let num_validator_seats = validators.iter().map(|x| x.len()).sum::<usize>() as NumSeats;
     let runtime = Arc::new(KeyValueRuntime::new_with_validators(
-        store.clone(),
+        store,
         validators.into_iter().map(|inner| inner.into_iter().map(Into::into).collect()).collect(),
         validator_groups,
         num_shards,
         epoch_length,
     ));
-    let chain_genesis = ChainGenesis::new(
-        genesis_time,
-        1_000_000,
-        100,
-        1_000_000_000,
-        0,
-        0,
+    let chain_genesis = ChainGenesis {
+        time: genesis_time,
+        height: 0,
+        gas_limit: 1_000_000,
+        min_gas_price: 100,
+        max_gas_price: 1_000_000_000,
+        total_supply: 3_000_000_000_000_000_000_000_000_000_000_000,
+        max_inflation_rate: Rational::from_integer(0),
+        gas_price_adjustment_rate: Rational::from_integer(0),
         transaction_validity_period,
         epoch_length,
-    );
+        protocol_version: PROTOCOL_VERSION,
+    };
     let doomslug_threshold_mode = if enable_doomslug {
-        DoomslugThresholdMode::HalfStake
+        DoomslugThresholdMode::TwoThirds
     } else {
         DoomslugThresholdMode::NoApprovals
     };
-    let mut chain =
-        Chain::new(store.clone(), runtime.clone(), &chain_genesis, doomslug_threshold_mode)
-            .unwrap();
-    let genesis_block = chain.get_block(&chain.genesis().hash()).unwrap().clone();
+    let mut chain = Chain::new(runtime.clone(), &chain_genesis, doomslug_threshold_mode).unwrap();
+    let genesis_block = chain.get_block(&chain.genesis().hash().clone()).unwrap().clone();
 
     let signer =
         Arc::new(InMemoryValidatorSigner::from_seed(account_id, KeyType::ED25519, account_id));
@@ -118,18 +99,16 @@ pub fn setup(
         num_validator_seats,
         archive,
     );
-    let view_client = ViewClientActor::new(
-        store.clone(),
-        &chain_genesis,
+    let view_client_addr = start_view_client(
+        Some(signer.validator_id().clone()),
+        chain_genesis.clone(),
         runtime.clone(),
         network_adapter.clone(),
         config.clone(),
-    )
-    .unwrap();
+    );
 
     let client = ClientActor::new(
         config,
-        store,
         chain_genesis,
         runtime,
         PublicKey::empty(KeyType::ED25519).into(),
@@ -139,7 +118,7 @@ pub fn setup(
         enable_doomslug,
     )
     .unwrap();
-    (genesis_block, client, view_client)
+    (genesis_block, client, view_client_addr)
 }
 
 /// Sets up ClientActor and ViewClientActor with mock PeerManager.
@@ -181,7 +160,7 @@ pub fn setup_mock_with_validity_period(
     transaction_validity_period: NumBlocks,
 ) -> (Addr<ClientActor>, Addr<ViewClientActor>) {
     let network_adapter = Arc::new(NetworkRecipient::new());
-    let (_, client, view_client) = setup(
+    let (_, client, view_client_addr) = setup(
         vec![validators],
         1,
         1,
@@ -197,7 +176,6 @@ pub fn setup_mock_with_validity_period(
         Utc::now(),
     );
     let client_addr = client.start();
-    let view_client_addr = view_client.start();
     let client_addr1 = client_addr.clone();
 
     let network_actor = NetworkMock::mock(Box::new(move |msg, ctx| {
@@ -258,11 +236,11 @@ pub fn setup_mock_all_validators(
     tamper_with_fg: bool,
     epoch_length: BlockHeightDelta,
     enable_doomslug: bool,
-    archive: bool,
-    network_mock: Arc<RwLock<dyn FnMut(String, &NetworkRequests) -> (NetworkResponses, bool)>>,
+    archive: Vec<bool>,
+    network_mock: Arc<RwLock<Box<dyn FnMut(String, &NetworkRequests) -> (NetworkResponses, bool)>>>,
 ) -> (Block, Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>) {
     let validators_clone = validators.clone();
-    let key_pairs = key_pairs.clone();
+    let key_pairs = key_pairs;
 
     let addresses: Vec<_> = (0..key_pairs.len()).map(|i| hash(vec![i as u8].as_ref())).collect();
     let genesis_time = Utc::now();
@@ -279,15 +257,12 @@ pub fn setup_mock_all_validators(
     let genesis_block = Arc::new(RwLock::new(None));
     let num_shards = validators.iter().map(|x| x.len()).min().unwrap() as NumShards;
 
-    let last_height_score =
-        Arc::new(RwLock::new(vec![(0, ScoreAndHeight::from_ints(0, 0)); key_pairs.len()]));
+    let last_height = Arc::new(RwLock::new(vec![0; key_pairs.len()]));
     let largest_endorsed_height = Arc::new(RwLock::new(vec![0u64; key_pairs.len()]));
     let largest_skipped_height = Arc::new(RwLock::new(vec![0u64; key_pairs.len()]));
-    let hash_to_score = Arc::new(RwLock::new(HashMap::new()));
-    let approval_intervals: Arc<RwLock<Vec<BTreeSet<(ScoreAndHeight, ScoreAndHeight)>>>> =
-        Arc::new(RwLock::new(key_pairs.iter().map(|_| BTreeSet::new()).collect()));
+    let hash_to_height = Arc::new(RwLock::new(HashMap::new()));
 
-    for account_id in validators.iter().flatten().cloned() {
+    for (index, account_id) in validators.into_iter().flatten().enumerate() {
         let view_client_addr = Arc::new(RwLock::new(None));
         let view_client_addr1 = view_client_addr.clone();
         let validators_clone1 = validators_clone.clone();
@@ -300,12 +275,12 @@ pub fn setup_mock_all_validators(
         let connectors2 = connectors.clone();
         let network_mock1 = network_mock.clone();
         let announced_accounts1 = announced_accounts.clone();
-        let last_height_score1 = last_height_score.clone();
-        let last_height_score2 = last_height_score.clone();
+        let last_height1 = last_height.clone();
+        let last_height2 = last_height.clone();
         let largest_endorsed_height1 = largest_endorsed_height.clone();
         let largest_skipped_height1 = largest_skipped_height.clone();
-        let hash_to_score1 = hash_to_score.clone();
-        let approval_intervals1 = approval_intervals.clone();
+        let hash_to_height1 = hash_to_height.clone();
+        let archive1 = archive.clone();
         let client_addr = ClientActor::create(move |ctx| {
             let client_addr = ctx.address();
             let pm = NetworkMock::mock(Box::new(move |msg, _ctx| {
@@ -331,7 +306,7 @@ pub fn setup_mock_all_validators(
                     let my_ord = my_ord.unwrap();
 
                     {
-                        let last_height_score2 = last_height_score2.read().unwrap();
+                        let last_height2 = last_height2.read().unwrap();
                         let peers: Vec<_> = key_pairs1
                             .iter()
                             .take(connectors2.read().unwrap().len())
@@ -343,8 +318,7 @@ pub fn setup_mock_all_validators(
                                         chain_id: "unittest".to_string(),
                                         hash: Default::default(),
                                     },
-                                    height: last_height_score2[i].0,
-                                    score: last_height_score2[i].1.score,
+                                    height: last_height2[i],
                                     tracked_shards: vec![],
                                 },
                                 edge_info: EdgeInfo::default(),
@@ -359,6 +333,8 @@ pub fn setup_mock_all_validators(
                             sent_bytes_per_sec: 0,
                             received_bytes_per_sec: 0,
                             known_producers: vec![],
+                            #[cfg(feature = "metric_recorder")]
+                            metric_recorder: MetricRecorder::default(),
                         };
                         client_addr.do_send(NetworkClientMessages::NetworkInfo(info));
                     }
@@ -373,19 +349,16 @@ pub fn setup_mock_all_validators(
                                 ))
                             }
 
-                            let mut last_height_score1 = last_height_score1.write().unwrap();
+                            let mut last_height1 = last_height1.write().unwrap();
 
-                            let my_height_score = &mut last_height_score1[my_ord];
+                            let my_height = &mut last_height1[my_ord];
 
-                            my_height_score.0 =
-                                max(my_height_score.0, block.header.inner_lite.height);
-                            my_height_score.1 =
-                                max(my_height_score.1, block.header.score_and_height());
+                            *my_height = max(*my_height, block.header().height());
 
-                            hash_to_score1
+                            hash_to_height1
                                 .write()
                                 .unwrap()
-                                .insert(block.header.hash(), block.header.score_and_height());
+                                .insert(*block.header().hash(), block.header().height());
                         }
                         NetworkRequests::PartialEncodedChunkRequest {
                             account_id: their_account_id,
@@ -404,16 +377,13 @@ pub fn setup_mock_all_validators(
                                 }
                             }
                         }
-                        NetworkRequests::PartialEncodedChunkResponse {
-                            route_back,
-                            partial_encoded_chunk,
-                        } => {
+                        NetworkRequests::PartialEncodedChunkResponse { route_back, response } => {
                             for (i, address) in addresses.iter().enumerate() {
                                 if route_back == address {
                                     if !drop_chunks || !sample_binary(1, 10) {
                                         connectors1.read().unwrap()[i].0.do_send(
-                                            NetworkClientMessages::PartialEncodedChunk(
-                                                partial_encoded_chunk.clone(),
+                                            NetworkClientMessages::PartialEncodedChunkResponse(
+                                                response.clone(),
                                             ),
                                         );
                                     }
@@ -452,7 +422,7 @@ pub fn setup_mock_all_validators(
                                                         connectors2.read().unwrap()[my_ord]
                                                             .0
                                                             .do_send(NetworkClientMessages::Block(
-                                                                block, peer_id, true,
+                                                                *block, peer_id, true,
                                                             ));
                                                     }
                                                     NetworkViewClientResponses::NoResponse => {}
@@ -527,7 +497,7 @@ pub fn setup_mock_all_validators(
                                                             .0
                                                             .do_send(
                                                             NetworkClientMessages::StateResponse(
-                                                                response,
+                                                                *response,
                                                             ),
                                                         );
                                                     }
@@ -571,7 +541,7 @@ pub fn setup_mock_all_validators(
                                                             .0
                                                             .do_send(
                                                             NetworkClientMessages::StateResponse(
-                                                                response,
+                                                                *response,
                                                             ),
                                                         );
                                                     }
@@ -639,66 +609,38 @@ pub fn setup_mock_all_validators(
                                 }
                             }
 
-                            // Ensure the finality gadget invariant that no two approvals intersect
-                            //     is maintained
-                            if approval.is_endorsement {
-                                assert!(
-                                    approval.target_height
-                                        > largest_skipped_height1.read().unwrap()[my_ord]
-                                );
-                                largest_endorsed_height1.write().unwrap()[my_ord] =
-                                    approval.target_height;
-                            } else if let Some(prev_height) =
-                                hash_to_score1.read().unwrap().get(&approval.parent_hash).clone()
-                            {
-                                if approval.target_height - prev_height.height >= 2 {
-                                    // it's a skip message
-                                    largest_skipped_height1.write().unwrap()[my_ord] =
-                                        approval.target_height;
+                            // Verify doomslug invariant
+                            match approval.inner {
+                                ApprovalInner::Endorsement(parent_hash) => {
                                     assert!(
                                         approval.target_height
-                                            > largest_endorsed_height1.read().unwrap()[my_ord]
+                                            > largest_skipped_height1.read().unwrap()[my_ord]
+                                    );
+                                    largest_endorsed_height1.write().unwrap()[my_ord] =
+                                        approval.target_height;
+
+                                    if let Some(prev_height) =
+                                        hash_to_height1.read().unwrap().get(&parent_hash).clone()
+                                    {
+                                        assert_eq!(prev_height + 1, approval.target_height);
+                                    }
+                                }
+                                ApprovalInner::Skip(prev_height) => {
+                                    largest_skipped_height1.write().unwrap()[my_ord] =
+                                        approval.target_height;
+                                    let e = largest_endorsed_height1.read().unwrap()[my_ord];
+                                    // `e` is the *target* height of the last endorsement. `prev_height`
+                                    // is allowed to be anything >= to the source height, which is e-1.
+                                    assert!(
+                                        prev_height + 1 >= e,
+                                        "New: {}->{}, Old: {}->{}",
+                                        prev_height,
+                                        approval.target_height,
+                                        e - 1,
+                                        e
                                     );
                                 }
-                            }
-
-                            if approval.reference_hash.is_some() {
-                                let hh = hash_to_score1.read().unwrap();
-                                let arange = (
-                                    hh.get(&approval.reference_hash.unwrap()),
-                                    hh.get(&approval.parent_hash),
-                                );
-                                if let (Some(left), Some(right)) = arange {
-                                    let arange = (*left, *right);
-                                    assert!(arange.0 <= arange.1);
-
-                                    let approval_intervals =
-                                        &mut approval_intervals1.write().unwrap()[my_ord];
-                                    let prev = approval_intervals
-                                        .range((Unbounded, Excluded((arange.0, arange.0))))
-                                        .next_back();
-                                    let mut next_score_and_height = arange.0;
-                                    next_score_and_height.height += 1;
-                                    let next = approval_intervals
-                                        .range((
-                                            Included((
-                                                next_score_and_height,
-                                                next_score_and_height,
-                                            )),
-                                            Unbounded,
-                                        ))
-                                        .next();
-
-                                    if let Some(prev) = prev {
-                                        assert!(prev.1 < arange.0);
-                                    }
-                                    if let Some(next) = next {
-                                        assert!(next.0 > arange.1);
-                                    }
-
-                                    approval_intervals.insert(arange);
-                                }
-                            }
+                            };
                         }
                         NetworkRequests::ForwardTx(_, _)
                         | NetworkRequests::Sync { .. }
@@ -719,7 +661,7 @@ pub fn setup_mock_all_validators(
             .start();
             let network_adapter = NetworkRecipient::new();
             network_adapter.set_recipient(pm.recipient());
-            let (block, client, view_client) = setup(
+            let (block, client, view_client_addr) = setup(
                 validators_clone1.clone(),
                 validator_groups,
                 num_shards,
@@ -729,23 +671,23 @@ pub fn setup_mock_all_validators(
                 block_prod_time,
                 block_prod_time * 3,
                 enable_doomslug,
-                archive,
+                archive1[index],
                 Arc::new(network_adapter),
                 10000,
                 genesis_time,
             );
-            *view_client_addr1.write().unwrap() = Some(view_client.start());
+            *view_client_addr1.write().unwrap() = Some(view_client_addr);
             *genesis_block1.write().unwrap() = Some(block);
             client
         });
 
         ret.push((client_addr, view_client_addr.clone().read().unwrap().clone().unwrap()));
     }
-    hash_to_score.write().unwrap().insert(CryptoHash::default(), ScoreAndHeight::from_ints(0, 0));
-    hash_to_score.write().unwrap().insert(
-        genesis_block.read().unwrap().as_ref().unwrap().header.clone().hash(),
-        ScoreAndHeight::from_ints(0, 0),
-    );
+    hash_to_height.write().unwrap().insert(CryptoHash::default(), 0);
+    hash_to_height
+        .write()
+        .unwrap()
+        .insert(*genesis_block.read().unwrap().as_ref().unwrap().header().clone().hash(), 0);
     *locked_connectors = ret.clone();
     let value = genesis_block.read().unwrap();
     (value.clone().unwrap(), ret)
@@ -785,7 +727,6 @@ pub fn setup_no_network_with_validity_period(
 }
 
 pub fn setup_client_with_runtime(
-    store: Arc<Store>,
     num_validator_seats: NumSeats,
     account_id: Option<&str>,
     enable_doomslug: bool,
@@ -801,7 +742,6 @@ pub fn setup_client_with_runtime(
     config.epoch_length = chain_genesis.epoch_length;
     let mut client = Client::new(
         config,
-        store,
         chain_genesis,
         runtime_adapter,
         network_adapter,
@@ -825,14 +765,13 @@ pub fn setup_client(
 ) -> Client {
     let num_validator_seats = validators.iter().map(|x| x.len()).sum::<usize>() as NumSeats;
     let runtime_adapter = Arc::new(KeyValueRuntime::new_with_validators(
-        store.clone(),
+        store,
         validators.into_iter().map(|inner| inner.into_iter().map(Into::into).collect()).collect(),
         validator_groups,
         num_shards,
         chain_genesis.epoch_length,
     ));
     setup_client_with_runtime(
-        store,
         num_validator_seats,
         account_id,
         enable_doomslug,
@@ -843,7 +782,7 @@ pub fn setup_client(
 }
 
 pub struct TestEnv {
-    chain_genesis: ChainGenesis,
+    pub chain_genesis: ChainGenesis,
     validators: Vec<AccountId>,
     pub network_adapters: Vec<Arc<MockNetworkAdapter>>,
     pub clients: Vec<Client>,
@@ -859,7 +798,7 @@ impl TestEnv {
             .map(|i| {
                 let store = create_test_store();
                 setup_client(
-                    store.clone(),
+                    store,
                     vec![validators.iter().map(|x| x.as_str()).collect::<Vec<&str>>()],
                     1,
                     1,
@@ -901,9 +840,7 @@ impl TestEnv {
             (0..num_validator_seats).map(|i| format!("test{}", i)).collect();
         let clients = (0..num_clients)
             .map(|i| {
-                let store = create_test_store();
                 setup_client_with_runtime(
-                    store.clone(),
                     num_validator_seats,
                     Some(&format!("test{}", i)),
                     false,
@@ -930,6 +867,8 @@ impl TestEnv {
         }
     }
 
+    /// Produces block by given client, which kicks of creation of chunk.
+    /// Which means that transactions added before this call, will be included in the next block of this validator.
     pub fn produce_block(&mut self, id: usize, height: BlockHeight) {
         let block = self.clients[id].produce_block(height).unwrap();
         self.process_block(id, block.unwrap(), Provenance::PRODUCED);
@@ -945,11 +884,36 @@ impl TestEnv {
             100,
             self.clients[id].chain.head().unwrap().last_block_hash,
         );
-        self.clients[id].process_tx(tx)
+        self.clients[id].process_tx(tx, false, false)
+    }
+
+    pub fn query_account(&mut self, account_id: AccountId) -> AccountView {
+        let head = self.clients[0].chain.head().unwrap();
+        let last_block = self.clients[0].chain.get_block(&head.last_block_hash).unwrap().clone();
+        let response = self.clients[0]
+            .runtime_adapter
+            .query(
+                0,
+                &last_block.chunks()[0].inner.prev_state_root,
+                last_block.header().height(),
+                last_block.header().raw_timestamp(),
+                last_block.header().hash(),
+                last_block.header().epoch_id(),
+                &QueryRequest::ViewAccount { account_id },
+            )
+            .unwrap();
+        match response.kind {
+            QueryResponseKind::ViewAccount(account_view) => account_view,
+            _ => panic!("Wrong return value"),
+        }
+    }
+
+    pub fn query_balance(&mut self, account_id: AccountId) -> Balance {
+        self.query_account(account_id).amount
     }
 
     pub fn restart(&mut self, id: usize) {
-        let store = self.clients[id].chain.store().owned_store().clone();
+        let store = self.clients[id].chain.store().owned_store();
         self.clients[id] = setup_client(
             store,
             vec![self.validators.iter().map(|x| x.as_str()).collect::<Vec<&str>>()],

@@ -1,4 +1,5 @@
 use borsh::{BorshDeserialize, BorshSerialize};
+use serde::{Deserialize, Serialize};
 
 use near_crypto::Signature;
 
@@ -68,6 +69,8 @@ pub struct ChunkState {
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Serialize, PartialEq, Eq, Clone, Debug)]
+// TODO(#1313): Use Box
+#[allow(clippy::large_enum_variant)]
 pub enum ChallengeBody {
     BlockDoubleSign(BlockDoubleSign),
     ChunkProofs(ChunkProofs),

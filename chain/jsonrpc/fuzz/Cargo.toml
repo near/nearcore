@@ -1,0 +1,39 @@
+
+[package]
+name = "near-jsonrpc-fuzz"
+version = "0.0.0"
+authors = ["Automatically generated"]
+publish = false
+edition = "2018"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+actix = "0.9"
+arbitrary = { version = "0.3.0", features = ["derive"] }
+base64 = "0.12.1"
+lazy_static = "1.4"
+libfuzzer-sys = { version = "0.3", features = ["arbitrary-derive"] }
+reqwest = { version = "0.10.4", features = ["json"] }
+rust-base58 = "0.0.4"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "0.2", features = ["full"] }
+
+[dependencies.near-jsonrpc]
+path = ".."
+
+[dependencies.near-jsonrpc-test-utils]
+path = "../test-utils"
+
+[dependencies.near-logger-utils]
+path = "../../../test-utils/logger"
+
+# Prevent this from interfering with workspaces
+[workspace]
+members = ["."]
+
+[[bin]]
+name = "fuzz_target_1"
+path = "fuzz_targets/fuzz_target_1.rs"

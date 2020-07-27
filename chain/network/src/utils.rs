@@ -1,12 +1,16 @@
+use cached::SizedCache;
 use std::collections::{HashMap, HashSet};
 use std::iter::FromIterator;
-use std::net::IpAddr;
+use std::{hash::Hash, net::IpAddr};
 
 use crate::types::{BlockedPorts, PatternAddr};
 
-pub fn blacklist_from_vec(blacklist: &Vec<String>) -> HashMap<IpAddr, BlockedPorts> {
+pub fn blacklist_from_iter<T>(blacklist: T) -> HashMap<IpAddr, BlockedPorts>
+where
+    T: IntoIterator<Item = String>,
+{
     let mut blacklist_map = HashMap::new();
-    for addr in blacklist.iter() {
+    for addr in blacklist {
         if let Ok(res) = addr.parse::<PatternAddr>() {
             match res {
                 PatternAddr::Ip(addr) => {
@@ -32,4 +36,9 @@ pub fn blacklist_from_vec(blacklist: &Vec<String>) -> HashMap<IpAddr, BlockedPor
     }
 
     blacklist_map
+}
+
+pub fn cache_to_hashmap<K: Hash + Eq + Clone, V: Clone>(cache: &SizedCache<K, V>) -> HashMap<K, V> {
+    let keys: Vec<_> = cache.key_order().cloned().collect();
+    keys.into_iter().zip(cache.value_order().cloned()).collect()
 }

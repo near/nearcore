@@ -7,10 +7,10 @@ use std::{env, thread};
 use log::error;
 use rand::Rng;
 
-use near::config::NearConfig;
-use near_chain_configs::GenesisConfig;
+use near_chain_configs::Genesis;
 use near_crypto::{InMemorySigner, KeyType, Signer};
 use near_primitives::types::AccountId;
+use neard::config::NearConfig;
 
 use crate::node::Node;
 use crate::user::rpc_user::RpcUser;
@@ -29,8 +29,8 @@ pub struct ProcessNode {
 }
 
 impl Node for ProcessNode {
-    fn genesis_config(&self) -> &GenesisConfig {
-        &self.config.genesis_config
+    fn genesis(&self) -> &Genesis {
+        &self.config.genesis
     }
 
     fn account_id(&self) -> Option<AccountId> {
@@ -93,7 +93,7 @@ impl ProcessNode {
     pub fn new(config: NearConfig) -> ProcessNode {
         let mut rng = rand::thread_rng();
         let work_dir = format!(
-            "{}process_node_{}",
+            "{}/process_node_{}",
             env::temp_dir().as_path().to_str().unwrap(),
             rng.gen::<u64>()
         );
@@ -115,9 +115,25 @@ impl ProcessNode {
 
     /// Side effect: writes chain spec file
     pub fn get_start_node_command(&self) -> Command {
-        let mut command = Command::new("cargo");
-        command.args(&["run", "-p", "near", "--", "--home", &self.work_dir, "run"]);
-        command
+        if let Err(_) = std::env::var("NIGHTLY_RUNNER") {
+            let mut command = Command::new("cargo");
+            command.args(&[
+                "run",
+                "-p",
+                "neard",
+                "--bin",
+                "neard",
+                "--",
+                "--home",
+                &self.work_dir,
+                "run",
+            ]);
+            command
+        } else {
+            let mut command = Command::new("normal_target/debug/neard");
+            command.args(&["--home", &self.work_dir, "run"]);
+            command
+        }
     }
 }
 

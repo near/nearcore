@@ -3,8 +3,8 @@ use std::path::{Path, PathBuf};
 
 use clap::{App, AppSettings, Arg, SubCommand};
 
-use near::get_default_home;
 use near_crypto::{InMemorySigner, KeyType, SecretKey, Signer};
+use neard::get_default_home;
 
 fn generate_key_to_file(account_id: &str, key: SecretKey, path: PathBuf) {
     let signer = InMemorySigner::from_secret_key(account_id.to_string(), key);
@@ -64,7 +64,6 @@ fn main() {
             let mut pks = vec![];
             for (i, key) in keys.into_iter().enumerate() {
                 println!("Key#{}", i);
-                println!("SK: {}", key);
                 println!("PK: {}", key.public_key());
                 println!();
                 if generate_config {
@@ -84,23 +83,21 @@ fn main() {
         }
         ("validator-key", Some(_)) => {
             let key = SecretKey::from_random(KeyType::ED25519);
-            println!("SK: {}", key);
             println!("PK: {}", key.public_key());
             if generate_config {
                 let account_id =
                     account_id.expect("Account id must be specified if --generate-config is used");
                 let mut path = home_dir.to_path_buf();
-                path.push(near::config::VALIDATOR_KEY_FILE);
+                path.push(neard::config::VALIDATOR_KEY_FILE);
                 generate_key_to_file(account_id, key, path);
             }
         }
         ("node-key", Some(_args)) => {
             let key = SecretKey::from_random(KeyType::ED25519);
-            println!("SK: {}", key);
             println!("PK: {}", key.public_key());
             if generate_config {
                 let mut path = home_dir.to_path_buf();
-                path.push(near::config::NODE_KEY_FILE);
+                path.push(neard::config::NODE_KEY_FILE);
                 generate_key_to_file("", key, path);
             }
         }

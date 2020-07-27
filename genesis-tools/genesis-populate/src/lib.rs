@@ -8,23 +8,23 @@ use std::sync::Arc;
 
 use borsh::BorshSerialize;
 use indicatif::{ProgressBar, ProgressStyle};
-use tempdir::TempDir;
 
-use near::{get_store_path, NightshadeRuntime};
-use near_chain::{Block, Chain, ChainStore, RuntimeAdapter, Tip};
-use near_chain_configs::GenesisConfig;
+use near_chain::types::BlockHeaderInfo;
+use near_chain::{Block, Chain, ChainStore, RuntimeAdapter};
+use near_chain_configs::Genesis;
 use near_crypto::{InMemorySigner, KeyType};
-use near_primitives::account::AccessKey;
-use near_primitives::block::genesis_chunks;
+use near_primitives::account::{AccessKey, Account};
+use near_primitives::block::{genesis_chunks, Tip};
 use near_primitives::contract::ContractCode;
 use near_primitives::hash::{hash, CryptoHash};
-use near_primitives::serialize::to_base64;
 use near_primitives::state_record::StateRecord;
-use near_primitives::types::{AccountId, Balance, ChunkExtra, EpochId, ShardId, StateRoot};
-use near_primitives::views::AccountView;
+use near_primitives::types::{
+    AccountId, Balance, ChunkExtra, EpochId, ShardId, StateChangeCause, StateRoot,
+};
 use near_store::{
     create_store, get_account, set_access_key, set_account, set_code, ColState, Store, TrieUpdate,
 };
+use neard::{get_store_path, NightshadeRuntime};
 
 fn get_account_id(account_index: u64) -> String {
     format!("near_{}_{}", account_index, account_index)
@@ -36,8 +36,8 @@ pub struct GenesisBuilder {
     home_dir: PathBuf,
     // We hold this temporary directory to avoid deletion through deallocation.
     #[allow(dead_code)]
-    tmpdir: TempDir,
-    config: GenesisConfig,
+    tmpdir: tempfile::TempDir,
+    genesis: Arc<Genesis>,
     store: Arc<Store>,
     runtime: NightshadeRuntime,
     unflushed_records: BTreeMap<ShardId, Vec<StateRecord>>,
@@ -47,7 +47,6 @@ pub struct GenesisBuilder {
     // Things that can be set.
     additional_accounts_num: u64,
     additional_accounts_code: Option<Vec<u8>>,
-    additional_accounts_code_base64: Option<String>,
     additional_accounts_code_hash: CryptoHash,
 
     print_progress: bool,
@@ -56,14 +55,14 @@ pub struct GenesisBuilder {
 impl GenesisBuilder {
     pub fn from_config_and_store(
         home_dir: &Path,
-        config: GenesisConfig,
+        genesis: Arc<Genesis>,
         store: Arc<Store>,
     ) -> Self {
-        let tmpdir = TempDir::new("storage").unwrap();
+        let tmpdir = tempfile::Builder::new().prefix("storage").tempdir().unwrap();
         let runtime = NightshadeRuntime::new(
             tmpdir.path(),
             store.clone(),
-            config.clone(),
+            Arc::clone(&genesis),
             // Since we are not using runtime as an actor
             // there is no reason to track accounts or shards.
             vec![],
@@ -72,7 +71,7 @@ impl GenesisBuilder {
         Self {
             home_dir: home_dir.to_path_buf(),
             tmpdir,
-            config,
+            genesis,
             store,
             runtime,
             unflushed_records: Default::default(),
@@ -80,20 +79,19 @@ impl GenesisBuilder {
             state_updates: Default::default(),
             additional_accounts_num: 0,
             additional_accounts_code: None,
-            additional_accounts_code_base64: None,
             additional_accounts_code_hash: CryptoHash::default(),
             print_progress: false,
         }
     }
 
+    pub fn from_config(home_dir: &Path, genesis: Arc<Genesis>) -> Self {
+        let store = create_store(&get_store_path(home_dir));
+        Self::from_config_and_store(home_dir, genesis, store)
+    }
+
     pub fn print_progress(mut self) -> Self {
         self.print_progress = true;
         self
-    }
-
-    pub fn from_config(home_dir: &Path, config: GenesisConfig) -> Self {
-        let store = create_store(&get_store_path(home_dir));
-        Self::from_config_and_store(home_dir, config, store)
     }
 
     pub fn add_additional_accounts(mut self, num: u64) -> Self {
@@ -102,7 +100,6 @@ impl GenesisBuilder {
     }
 
     pub fn add_additional_accounts_contract(mut self, contract_code: Vec<u8>) -> Self {
-        self.additional_accounts_code_base64 = Some(to_base64(&contract_code));
         self.additional_accounts_code_hash = hash(&contract_code);
         self.additional_accounts_code = Some(contract_code);
         self
@@ -110,14 +107,14 @@ impl GenesisBuilder {
 
     pub fn build(mut self) -> Result<Self> {
         // First, apply whatever is defined by the genesis config.
-        let (store_update, roots) = self.runtime.genesis_state();
+        let (_store, store_update, roots) = self.runtime.genesis_state();
         store_update.commit()?;
         self.roots = roots.into_iter().enumerate().map(|(k, v)| (k as u64, v)).collect();
         self.state_updates = self
             .roots
             .iter()
             .map(|(shard_idx, root)| {
-                (*shard_idx, TrieUpdate::new(self.runtime.trie.clone(), *root))
+                (*shard_idx, self.runtime.get_tries().new_trie_update(*shard_idx, *root))
             })
             .collect();
         self.unflushed_records =
@@ -171,14 +168,16 @@ impl GenesisBuilder {
             let mut account =
                 get_account(&state_update, &account_id)?.expect("We should've created account");
             account.storage_usage = storage_usage;
-            set_account(&mut state_update, &account_id, &account);
+            set_account(&mut state_update, account_id, &account);
         }
-        let trie = state_update.trie.clone();
-        let (store_update, root) = state_update.finalize()?.into(trie)?;
+        let tries = self.runtime.get_tries();
+        state_update.commit(StateChangeCause::InitialState);
+        let trie_changes = state_update.finalize()?.0;
+        let (store_update, root) = tries.apply_all(&trie_changes, shard_idx)?;
         store_update.commit()?;
 
         self.roots.insert(shard_idx, root.clone());
-        self.state_updates.insert(shard_idx, TrieUpdate::new(self.runtime.trie.clone(), root));
+        self.state_updates.insert(shard_idx, tries.new_trie_update(shard_idx, root));
         Ok(())
     }
 
@@ -186,38 +185,29 @@ impl GenesisBuilder {
         let genesis_chunks = genesis_chunks(
             self.roots.values().cloned().collect(),
             self.runtime.num_shards(),
-            self.config.gas_limit,
+            self.genesis.config.gas_limit,
+            self.genesis.config.genesis_height,
         );
         let genesis = Block::genesis(
+            self.genesis.config.protocol_version,
             genesis_chunks.into_iter().map(|chunk| chunk.header).collect(),
-            self.config.genesis_time,
-            self.config.min_gas_price,
-            self.config.total_supply,
+            self.genesis.config.genesis_time,
+            self.genesis.config.genesis_height,
+            self.genesis.config.min_gas_price,
+            self.genesis.config.total_supply,
             Chain::compute_bp_hash(&self.runtime, EpochId::default(), &CryptoHash::default())?,
         );
 
-        let mut store = ChainStore::new(self.store.clone());
+        let mut store = ChainStore::new(self.store.clone(), self.genesis.config.genesis_height);
         let mut store_update = store.store_update();
 
-        self.runtime
-            .add_validator_proposals(
-                CryptoHash::default(),
-                genesis.hash(),
-                genesis.header.inner_rest.random_value,
-                genesis.header.inner_lite.height,
-                0,
-                vec![],
-                vec![],
-                vec![],
-                0,
-                0,
-                self.config.total_supply.clone(),
-            )
-            .unwrap();
-        store_update.save_block_header(genesis.header.clone());
+        self.runtime.add_validator_proposals(BlockHeaderInfo::new(&genesis.header(), 0)).unwrap();
+        store_update
+            .save_block_header(genesis.header().clone())
+            .expect("save genesis block header shouldn't fail");
         store_update.save_block(genesis.clone());
 
-        for (chunk_header, state_root) in genesis.chunks.iter().zip(self.roots.values()) {
+        for (chunk_header, state_root) in genesis.chunks().iter().zip(self.roots.values()) {
             store_update.save_chunk_extra(
                 &genesis.hash(),
                 chunk_header.inner.shard_id,
@@ -226,15 +216,13 @@ impl GenesisBuilder {
                     CryptoHash::default(),
                     vec![],
                     0,
-                    self.config.gas_limit.clone(),
-                    0,
-                    0,
+                    self.genesis.config.gas_limit.clone(),
                     0,
                 ),
             );
         }
 
-        let head = Tip::from_header(&genesis.header);
+        let head = Tip::from_header(&genesis.header());
         store_update.save_head(&head).unwrap();
         store_update.save_sync_head(&head);
         store_update.commit().unwrap();
@@ -251,35 +239,31 @@ impl GenesisBuilder {
             self.state_updates.remove(&shard_id).expect("State update should have been added");
 
         let signer = InMemorySigner::from_seed(&account_id, KeyType::ED25519, &account_id);
-        let account = AccountView {
+        let account = Account {
             amount: testing_init_balance,
             locked: testing_init_stake,
-            code_hash: self.additional_accounts_code_hash.clone(),
+            code_hash: self.additional_accounts_code_hash,
             storage_usage: 0,
-            storage_paid_at: 0,
         };
-        set_account(&mut state_update, &account_id, &account.clone().into());
+        set_account(&mut state_update, account_id.clone(), &account);
         let account_record = StateRecord::Account { account_id: account_id.clone(), account };
         records.push(account_record);
         let access_key_record = StateRecord::AccessKey {
             account_id: account_id.clone(),
             public_key: signer.public_key.clone(),
-            access_key: AccessKey::full_access().into(),
+            access_key: AccessKey::full_access(),
         };
         set_access_key(
             &mut state_update,
-            &account_id,
-            &signer.public_key,
+            account_id.clone(),
+            signer.public_key,
             &AccessKey::full_access(),
         );
         records.push(access_key_record);
-        if let (Some(wasm_binary), Some(wasm_binary_base64)) =
-            (self.additional_accounts_code.as_ref(), self.additional_accounts_code_base64.as_ref())
-        {
-            let code = ContractCode::new(wasm_binary.to_vec());
-            set_code(&mut state_update, &account_id, &code);
-            let contract_record =
-                StateRecord::Contract { account_id, code: wasm_binary_base64.clone() };
+        if let Some(wasm_binary) = self.additional_accounts_code.as_ref() {
+            let code = ContractCode::new(wasm_binary.clone());
+            set_code(&mut state_update, account_id.clone(), &code);
+            let contract_record = StateRecord::Contract { account_id, code: wasm_binary.clone() };
             records.push(contract_record);
         }
 

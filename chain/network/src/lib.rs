@@ -7,12 +7,15 @@ pub use types::{
     NetworkRecipient, NetworkRequests, NetworkResponses, PeerInfo,
 };
 
+mod cache;
 mod codec;
-mod metrics;
+pub mod metrics;
 mod peer;
 mod peer_manager;
 pub mod peer_store;
 mod rate_counter;
+#[cfg(feature = "metric_recorder")]
+pub mod recorder;
 pub mod routing;
 pub mod types;
 pub mod utils;

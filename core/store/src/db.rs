@@ -1,26 +1,29 @@
-use rocksdb::{
-    BlockBasedOptions, ColumnFamily, ColumnFamilyDescriptor, Direction, IteratorMode, Options,
-    ReadOptions, WriteBatch, DB,
-};
 use std::cmp;
 use std::collections::HashMap;
 use std::io;
 use std::sync::RwLock;
 
+use borsh::{BorshDeserialize, BorshSerialize};
+
+use rocksdb::{
+    BlockBasedOptions, ColumnFamily, ColumnFamilyDescriptor, Direction, IteratorMode, Options,
+    ReadOptions, WriteBatch, DB,
+};
+use strum_macros::EnumIter;
+
+use near_primitives::version::DbVersion;
+use std::marker::PhantomPinned;
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct DBError(rocksdb::Error);
 
-impl std::error::Error for DBError {
-    fn description(&self) -> &str {
-        &self.0.description()
-    }
-}
-
 impl std::fmt::Display for DBError {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
         self.0.fmt(formatter)
     }
 }
+
+impl std::error::Error for DBError {}
 
 impl From<rocksdb::Error> for DBError {
     fn from(err: rocksdb::Error) -> Self {
@@ -34,61 +37,77 @@ impl Into<io::Error> for DBError {
     }
 }
 
-#[derive(PartialEq, Debug, Copy, Clone)]
+#[derive(PartialEq, Debug, Copy, Clone, EnumIter, BorshDeserialize, BorshSerialize, Hash, Eq)]
 pub enum DBCol {
-    ColBlockMisc = 0,
-    ColBlock = 1,
-    ColBlockHeader = 2,
-    ColBlockHeight = 3,
-    ColState = 4,
-    ColChunkExtra = 5,
-    ColTransactionResult = 6,
-    ColOutgoingReceipts = 7,
-    ColIncomingReceipts = 8,
-    ColPeers = 9,
-    ColEpochInfo = 10,
-    ColBlockInfo = 11,
-    ColChunks = 12,
-    ColPartialChunks = 13,
+    /// Column to indicate which version of database this is.
+    ColDbVersion = 0,
+    ColBlockMisc = 1,
+    ColBlock = 2,
+    ColBlockHeader = 3,
+    ColBlockHeight = 4,
+    ColState = 5,
+    ColChunkExtra = 6,
+    ColTransactionResult = 7,
+    ColOutgoingReceipts = 8,
+    ColIncomingReceipts = 9,
+    ColPeers = 10,
+    ColEpochInfo = 11,
+    ColBlockInfo = 12,
+    ColChunks = 13,
+    ColPartialChunks = 14,
     /// Blocks for which chunks need to be applied after the state is downloaded for a particular epoch
-    ColBlocksToCatchup = 14,
+    ColBlocksToCatchup = 15,
     /// Blocks for which the state is being downloaded
-    ColStateDlInfos = 15,
-    ColChallengedBlocks = 16,
-    ColStateHeaders = 17,
-    ColInvalidChunks = 18,
-    ColBlockExtra = 19,
+    ColStateDlInfos = 16,
+    ColChallengedBlocks = 17,
+    ColStateHeaders = 18,
+    ColInvalidChunks = 19,
+    ColBlockExtra = 20,
     /// Store hash of a block per each height, to detect double signs.
-    ColBlockPerHeight = 20,
-    ColLastApprovalPerAccount = 21,
-    ColMyLastApprovalsPerChain = 22,
-    ColStateParts = 23,
-    ColEpochStart = 24,
+    ColBlockPerHeight = 21,
+    ColStateParts = 22,
+    ColEpochStart = 23,
     /// Map account_id to announce_account
-    ColAccountAnnouncements = 25,
+    ColAccountAnnouncements = 24,
     /// Next block hashes in the sequence of the canonical chain blocks
-    ColNextBlockHashes = 26,
+    ColNextBlockHashes = 25,
     /// `LightClientBlock`s corresponding to the last final block of each completed epoch
-    ColEpochLightClientBlocks = 27,
-    ColReceiptIdToShardId = 28,
-    ColNextBlockWithNewChunk = 29,
-    ColLastBlockWithNewChunk = 30,
+    ColEpochLightClientBlocks = 26,
+    ColReceiptIdToShardId = 27,
+    ColNextBlockWithNewChunk = 28,
+    ColLastBlockWithNewChunk = 29,
     /// Map each saved peer on disk with its component id.
-    ColPeerComponent = 31,
+    ColPeerComponent = 30,
     /// Map component id with all edges in this component.
-    ColComponentEdges = 32,
+    ColComponentEdges = 31,
     /// Biggest nonce used.
-    LastComponentNonce = 33,
+    ColLastComponentNonce = 32,
     /// Transactions
-    ColTransactions = 34,
-    ColChunkPerHeightShard = 35,
+    ColTransactions = 33,
+    ColChunkPerHeightShard = 34,
     /// Changes to key-values that we have recorded.
-    ColKeyValueChanges = 36,
+    ColStateChanges = 35,
+    ColBlockRefCount = 36,
+    ColTrieChanges = 37,
+    /// Merkle tree of block hashes
+    ColBlockMerkleTree = 38,
+    ColChunkHashesByHeight = 39,
+    /// Block ordinals.
+    ColBlockOrdinal = 40,
+    /// GC Count for each column
+    ColGCCount = 41,
+    /// GC helper column to get all Outcome ids by Block Hash
+    ColOutcomesByBlockHash = 42,
+    ColTransactionRefCount = 43,
 }
 
+// Do not move this line from enum DBCol
+pub const NUM_COLS: usize = 44;
+
 impl std::fmt::Display for DBCol {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
         let desc = match self {
+            Self::ColDbVersion => "db version",
             Self::ColBlockMisc => "miscellaneous block data",
             Self::ColBlock => "block data",
             Self::ColBlockHeader => "block header data",
@@ -110,8 +129,6 @@ impl std::fmt::Display for DBCol {
             Self::ColInvalidChunks => "invalid chunks",
             Self::ColBlockExtra => "extra block information",
             Self::ColBlockPerHeight => "hash of block per height",
-            Self::ColLastApprovalPerAccount => "last approval per account",
-            Self::ColMyLastApprovalsPerChain => "my last approval per chain",
             Self::ColStateParts => "state parts",
             Self::ColEpochStart => "epoch start",
             Self::ColAccountAnnouncements => "account announcements",
@@ -122,16 +139,67 @@ impl std::fmt::Display for DBCol {
             Self::ColLastBlockWithNewChunk => "last block with new chunk",
             Self::ColPeerComponent => "peer components",
             Self::ColComponentEdges => "component edges",
-            Self::LastComponentNonce => "last component nonce",
+            Self::ColLastComponentNonce => "last component nonce",
             Self::ColTransactions => "transactions",
             Self::ColChunkPerHeightShard => "hash of chunk per height and shard_id",
-            Self::ColKeyValueChanges => "key value changes",
+            Self::ColStateChanges => "key value changes",
+            Self::ColBlockRefCount => "refcount per block",
+            Self::ColTrieChanges => "trie changes",
+            Self::ColBlockMerkleTree => "block merkle tree",
+            Self::ColChunkHashesByHeight => "chunk hashes indexed by height_created",
+            Self::ColBlockOrdinal => "block ordinal",
+            Self::ColGCCount => "gc count",
+            Self::ColOutcomesByBlockHash => "outcomes by block hash",
+            Self::ColTransactionRefCount => "refcount per transaction",
         };
         write!(formatter, "{}", desc)
     }
 }
 
-const NUM_COLS: usize = 37;
+// List of columns for which GC should be implemented
+lazy_static! {
+    pub static ref SHOULD_COL_GC: Vec<bool> = {
+        let mut col_gc = vec![true; NUM_COLS];
+        col_gc[DBCol::ColDbVersion as usize] = false; // DB version is unrelated to GC
+        col_gc[DBCol::ColBlockMisc as usize] = false;
+        col_gc[DBCol::ColBlockHeader as usize] = false; // header sync needs headers
+        col_gc[DBCol::ColGCCount as usize] = false; // GC count it self isn't GCed
+        col_gc[DBCol::ColBlockHeight as usize] = false; // block sync needs it + genesis should be accessible
+        col_gc[DBCol::ColPeers as usize] = false; // Peers is unrelated to GC
+        col_gc[DBCol::ColBlockMerkleTree as usize] = false;
+        col_gc[DBCol::ColAccountAnnouncements as usize] = false;
+        col_gc[DBCol::ColEpochLightClientBlocks as usize] = false;
+        col_gc[DBCol::ColPeerComponent as usize] = false; // Peer related info doesn't GC
+        col_gc[DBCol::ColLastComponentNonce as usize] = false;
+        col_gc[DBCol::ColComponentEdges as usize] = false;
+        col_gc[DBCol::ColBlockOrdinal as usize] = false;
+        col_gc[DBCol::ColEpochInfo as usize] = false; // https://github.com/nearprotocol/nearcore/pull/2952
+        col_gc[DBCol::ColEpochStart as usize] = false; // https://github.com/nearprotocol/nearcore/pull/2952
+        col_gc
+    };
+}
+
+// List of columns for which GC may not be executed even in fully operational node
+lazy_static! {
+    pub static ref SKIP_COL_GC: Vec<bool> = {
+        let mut col_gc = vec![false; NUM_COLS];
+        // A node may never restarted
+        col_gc[DBCol::ColLastBlockWithNewChunk as usize] = true;
+        col_gc[DBCol::ColStateHeaders as usize] = true;
+        // True until #2515
+        col_gc[DBCol::ColStateParts as usize] = true;
+        col_gc
+    };
+}
+
+pub const HEAD_KEY: &[u8; 4] = b"HEAD";
+pub const TAIL_KEY: &[u8; 4] = b"TAIL";
+pub const CHUNK_TAIL_KEY: &[u8; 10] = b"CHUNK_TAIL";
+pub const SYNC_HEAD_KEY: &[u8; 9] = b"SYNC_HEAD";
+pub const HEADER_HEAD_KEY: &[u8; 11] = b"HEADER_HEAD";
+pub const LATEST_KNOWN_KEY: &[u8; 12] = b"LATEST_KNOWN";
+pub const LARGEST_TARGET_HEIGHT_KEY: &[u8; 21] = b"LARGEST_TARGET_HEIGHT";
+pub const VERSION_KEY: &[u8; 7] = b"VERSION";
 
 pub struct DBTransaction {
     pub ops: Vec<DBOp>,
@@ -159,7 +227,7 @@ impl DBTransaction {
 pub struct RocksDB {
     db: DB,
     cfs: Vec<*const ColumnFamily>,
-    read_options: ReadOptions,
+    _pin: PhantomPinned,
 }
 
 // DB was already Send+Sync. cf and read_options are const pointers using only functions in
@@ -187,16 +255,15 @@ pub trait Database: Sync + Send {
 
 impl Database for RocksDB {
     fn get(&self, col: DBCol, key: &[u8]) -> Result<Option<Vec<u8>>, DBError> {
-        unsafe { Ok(self.db.get_cf_opt(&*self.cfs[col as usize], key, &self.read_options)?) }
+        let read_options = rocksdb_read_options();
+        unsafe { Ok(self.db.get_cf_opt(&*self.cfs[col as usize], key, &read_options)?) }
     }
 
     fn iter<'a>(&'a self, col: DBCol) -> Box<dyn Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a> {
+        let read_options = rocksdb_read_options();
         unsafe {
             let cf_handle = &*self.cfs[col as usize];
-            let iterator = self
-                .db
-                .iterator_cf_opt(cf_handle, &self.read_options, IteratorMode::Start)
-                .unwrap();
+            let iterator = self.db.iterator_cf_opt(cf_handle, read_options, IteratorMode::Start);
             Box::new(iterator)
         }
     }
@@ -218,10 +285,9 @@ impl Database for RocksDB {
                 .db
                 .iterator_cf_opt(
                     cf_handle,
-                    &read_options,
+                    read_options,
                     IteratorMode::From(key_prefix, Direction::Forward),
                 )
-                .unwrap()
                 .take_while(move |(key, _value)| key.starts_with(key_prefix));
             Box::new(iterator)
         }
@@ -232,10 +298,10 @@ impl Database for RocksDB {
         for op in transaction.ops {
             match op {
                 DBOp::Insert { col, key, value } => unsafe {
-                    batch.put_cf(&*self.cfs[col as usize], key, value)?;
+                    batch.put_cf(&*self.cfs[col as usize], key, value);
                 },
                 DBOp::Delete { col, key } => unsafe {
-                    batch.delete_cf(&*self.cfs[col as usize], key)?;
+                    batch.delete_cf(&*self.cfs[col as usize], key);
                 },
             }
         }
@@ -295,6 +361,7 @@ fn rocksdb_options() -> Options {
     opts.set_write_buffer_size(1024 * 1024 * 512 / 2);
     opts.set_max_bytes_for_level_base(1024 * 1024 * 512 / 2);
     opts.increase_parallelism(cmp::max(1, num_cpus::get() as i32 / 2));
+    opts.set_max_total_wal_size(1 * 1024 * 1024 * 1024);
 
     return opts;
 }
@@ -321,6 +388,27 @@ fn rocksdb_column_options() -> Options {
 }
 
 impl RocksDB {
+    /// Returns version of the database state on disk.
+    pub fn get_version<P: AsRef<std::path::Path>>(path: P) -> Result<DbVersion, DBError> {
+        let db = RocksDB::new_read_only(path)?;
+        db.get(DBCol::ColDbVersion, VERSION_KEY).map(|result| {
+            serde_json::from_slice(
+                &result
+                    .expect("Failed to find version in first column. Database must be corrupted."),
+            )
+            .expect("Failed to parse version. Database must be corrupted.")
+        })
+    }
+
+    fn new_read_only<P: AsRef<std::path::Path>>(path: P) -> Result<Self, DBError> {
+        let options = Options::default();
+        let cf_names: Vec<_> = vec!["col0".to_string()];
+        let db = DB::open_cf_for_read_only(&options, path, cf_names.iter(), false)?;
+        let cfs =
+            cf_names.iter().map(|n| db.cf_handle(n).unwrap() as *const ColumnFamily).collect();
+        Ok(Self { db, cfs, _pin: PhantomPinned })
+    }
+
     pub fn new<P: AsRef<std::path::Path>>(path: P) -> Result<Self, DBError> {
         let options = rocksdb_options();
         let cf_names: Vec<_> = (0..NUM_COLS).map(|col| format!("col{}", col)).collect();
@@ -328,14 +416,9 @@ impl RocksDB {
             .iter()
             .map(|cf_name| ColumnFamilyDescriptor::new(cf_name, rocksdb_column_options()));
         let db = DB::open_cf_descriptors(&options, path, cf_descriptors)?;
-        let cfs = cf_names
-            .iter()
-            .map(|n| {
-                let ptr: *const ColumnFamily = db.cf_handle(n).unwrap();
-                ptr
-            })
-            .collect();
-        Ok(Self { db, cfs, read_options: rocksdb_read_options() })
+        let cfs =
+            cf_names.iter().map(|n| db.cf_handle(n).unwrap() as *const ColumnFamily).collect();
+        Ok(Self { db, cfs, _pin: PhantomPinned })
     }
 }
 

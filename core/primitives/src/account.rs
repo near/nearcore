@@ -1,27 +1,23 @@
 use borsh::{BorshDeserialize, BorshSerialize};
+use serde::{Deserialize, Serialize};
 
 use crate::hash::CryptoHash;
-use crate::types::{AccountId, Balance, BlockHeight, Nonce, StorageUsage};
+use crate::serialize::{option_u128_dec_format, u128_dec_format_compatible};
+use crate::types::{AccountId, Balance, Nonce, StorageUsage};
 
 /// Per account information stored in the state.
-#[derive(BorshSerialize, BorshDeserialize, Serialize, PartialEq, Eq, Debug, Clone)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
 pub struct Account {
     /// The total not locked tokens.
+    #[serde(with = "u128_dec_format_compatible")]
     pub amount: Balance,
-    /// The amount locked due to staking
+    /// The amount locked due to staking.
+    #[serde(with = "u128_dec_format_compatible")]
     pub locked: Balance,
     /// Hash of the code stored in the storage for this account.
     pub code_hash: CryptoHash,
-    /// Storage used by the given account.
+    /// Storage used by the given account, includes account id, this struct, access keys and other data.
     pub storage_usage: StorageUsage,
-    /// Last height at which the storage was paid for.
-    pub storage_paid_at: BlockHeight,
-}
-
-impl Account {
-    pub fn new(amount: Balance, code_hash: CryptoHash, storage_paid_at: BlockHeight) -> Self {
-        Account { amount, locked: 0, code_hash, storage_usage: 0, storage_paid_at }
-    }
 }
 
 /// Access key provides limited access to an account. Each access key belongs to some account and
@@ -29,7 +25,9 @@ impl Account {
 /// access keys. Access keys allow to act on behalf of the account by restricting transactions
 /// that can be issued.
 /// `account_id,public_key` is a key in the state
-#[derive(BorshSerialize, BorshDeserialize, Serialize, PartialEq, Eq, Hash, Clone, Debug)]
+#[derive(
+    BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Hash, Clone, Debug,
+)]
 pub struct AccessKey {
     /// The nonce for this access key.
     /// NOTE: In some cases the access key needs to be recreated. If the new access key reuses the
@@ -48,7 +46,9 @@ impl AccessKey {
 }
 
 /// Defines permissions for AccessKey
-#[derive(BorshSerialize, BorshDeserialize, Serialize, PartialEq, Eq, Hash, Clone, Debug)]
+#[derive(
+    BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Hash, Clone, Debug,
+)]
 pub enum AccessKeyPermission {
     FunctionCall(FunctionCallPermission),
 
@@ -61,7 +61,9 @@ pub enum AccessKeyPermission {
 /// The permission can limit the allowed balance to be spent on the prepaid gas.
 /// It also restrict the account ID of the receiver for this function call.
 /// It also can restrict the method name for the allowed function calls.
-#[derive(BorshSerialize, BorshDeserialize, Serialize, PartialEq, Eq, Hash, Clone, Debug)]
+#[derive(
+    BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Hash, Clone, Debug,
+)]
 pub struct FunctionCallPermission {
     /// Allowance is a balance limit to use by this access key to pay for function call gas and
     /// transaction fees. When this access key is used, both account balance and the allowance is
@@ -69,6 +71,7 @@ pub struct FunctionCallPermission {
     /// `None` means unlimited allowance.
     /// NOTE: To change or increase the allowance, the old access key needs to be deleted and a new
     /// access key should be created.
+    #[serde(with = "option_u128_dec_format")]
     pub allowance: Option<Balance>,
 
     /// The access key only allows transactions with the given receiver's account id.
@@ -96,9 +99,8 @@ mod tests {
             locked: 1_000_000,
             code_hash: CryptoHash::default(),
             storage_usage: 100,
-            storage_paid_at: 1_123_321,
         };
         let bytes = acc.try_to_vec().unwrap();
-        assert_eq!(to_base(&hash(&bytes)), "DzpbYEwBoiKa3DRTgK2L8fBq3QRfGSoUkTXrTYxwBt17");
+        assert_eq!(to_base(&hash(&bytes)), "EVk5UaxBe8LQ8r8iD5EAxVBs6TJcMDKqyH7PBuho6bBJ");
     }
 }

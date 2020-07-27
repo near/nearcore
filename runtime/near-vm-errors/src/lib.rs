@@ -17,11 +17,42 @@ pub enum VMError {
     Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, Deserialize, Serialize, RpcError,
 )]
 pub enum FunctionCallError {
+    /// Wasm compilation error
     CompilationError(CompilationError),
-    LinkError { msg: String },
+    /// Wasm binary env link error
+    LinkError {
+        msg: String,
+    },
+    /// Import/export resolve error
     MethodResolveError(MethodResolveError),
-    WasmTrap { msg: String },
+    /// A trap happened during execution of a binary
+    WasmTrap(WasmTrap),
+    WasmUnknownError,
     HostError(HostError),
+}
+/// A kind of a trap happened during execution of a binary
+#[derive(
+    Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, Deserialize, Serialize, RpcError,
+)]
+pub enum WasmTrap {
+    /// An `unreachable` opcode was executed.
+    Unreachable,
+    /// Call indirect incorrect signature trap.
+    IncorrectCallIndirectSignature,
+    /// Memory out of bounds trap.
+    MemoryOutOfBounds,
+    /// Call indirect out of bounds trap.
+    CallIndirectOOB,
+    /// An arithmetic exception, e.g. divided by zero.
+    IllegalArithmetic,
+    /// Misaligned atomic access trap.
+    MisalignedAtomicAccess,
+    /// Breakpoint trap.
+    BreakpointTrap,
+    /// Stack overflow.
+    StackOverflow,
+    /// Generic trap.
+    GenericTrap,
 }
 
 #[derive(
@@ -133,6 +164,8 @@ pub enum HostError {
     ReturnedValueLengthExceeded { length: u64, limit: u64 },
     /// The contract size for DeployContract action exceeded the limit.
     ContractSizeExceeded { size: u64, limit: u64 },
+    /// The host function was deprecated.
+    Deprecated { method_name: String },
 }
 
 #[derive(Debug, Clone, PartialEq, BorshDeserialize, BorshSerialize, Deserialize, Serialize)]
@@ -173,7 +206,7 @@ impl From<PrepareError> for VMError {
 }
 
 impl fmt::Display for PrepareError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         use PrepareError::*;
         match self {
             Serialization => write!(f, "Error happened while serializing the module."),
@@ -190,19 +223,42 @@ impl fmt::Display for PrepareError {
 }
 
 impl fmt::Display for FunctionCallError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         match self {
             FunctionCallError::CompilationError(e) => e.fmt(f),
             FunctionCallError::MethodResolveError(e) => e.fmt(f),
             FunctionCallError::HostError(e) => e.fmt(f),
             FunctionCallError::LinkError { msg } => write!(f, "{}", msg),
-            FunctionCallError::WasmTrap { msg } => write!(f, "WebAssembly trap: {}", msg),
+            FunctionCallError::WasmTrap(trap) => write!(f, "WebAssembly trap: {}", trap),
+            FunctionCallError::WasmUnknownError => {
+                write!(f, "Unknown error during Wasm contract execution")
+            }
+        }
+    }
+}
+
+impl fmt::Display for WasmTrap {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        match self {
+            WasmTrap::Unreachable => write!(f, "An `unreachable` opcode was executed."),
+            WasmTrap::IncorrectCallIndirectSignature => {
+                write!(f, "Call indirect incorrect signature trap.")
+            }
+            WasmTrap::MemoryOutOfBounds => write!(f, "Memory out of bounds trap."),
+            WasmTrap::CallIndirectOOB => write!(f, "Call indirect out of bounds trap."),
+            WasmTrap::IllegalArithmetic => {
+                write!(f, "An arithmetic exception, e.g. divided by zero.")
+            }
+            WasmTrap::MisalignedAtomicAccess => write!(f, "Misaligned atomic access trap."),
+            WasmTrap::GenericTrap => write!(f, "Generic trap."),
+            WasmTrap::BreakpointTrap => write!(f, "Breakpoint trap."),
+            WasmTrap::StackOverflow => write!(f, "Stack overflow."),
         }
     }
 }
 
 impl fmt::Display for CompilationError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         match self {
             CompilationError::CodeDoesNotExist { account_id } => {
                 write!(f, "cannot find contract code for account {}", account_id)
@@ -216,13 +272,13 @@ impl fmt::Display for CompilationError {
 }
 
 impl fmt::Display for MethodResolveError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         fmt::Debug::fmt(self, f)
     }
 }
 
 impl fmt::Display for VMError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         match self {
             VMError::FunctionCallError(err) => fmt::Display::fmt(err, f),
             VMError::ExternalError(_err) => write!(f, "Serialized ExternalError"),
@@ -232,7 +288,7 @@ impl fmt::Display for VMError {
 }
 
 impl std::fmt::Display for InconsistentStateError {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
         match self {
             InconsistentStateError::IntegerOverflow => write!(
                 f,
@@ -243,7 +299,7 @@ impl std::fmt::Display for InconsistentStateError {
 }
 
 impl std::fmt::Display for HostError {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
         use HostError::*;
         match self {
             BadUTF8 => write!(f, "String encoding is bad UTF-8 sequence."),
@@ -275,6 +331,7 @@ impl std::fmt::Display for HostError {
             NumberInputDataDependenciesExceeded { number_of_input_data_dependencies, limit } => write!(f, "The number of input data dependencies {} exceeds the limit {}", number_of_input_data_dependencies, limit),
             ReturnedValueLengthExceeded { length, limit } => write!(f, "The length of a returned value {} exceeds the limit {}", length, limit),
             ContractSizeExceeded { size, limit } => write!(f, "The size of a contract code in DeployContract action {} exceeds the limit {}", size, limit),
+            Deprecated {method_name}=> write!(f, "Attempted to call deprecated host function {}", method_name),
         }
     }
 }

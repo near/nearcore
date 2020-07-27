@@ -3,14 +3,10 @@
 //! * sir -- sender is receiver. Receipts that are directed by an account to itself are guaranteed
 //!   to not be cross-shard which is cheaper than cross-shard. Conversely, when sender is not a
 //!   receiver it might or might not be a cross-shard communication.
+use num_rational::Rational;
 use serde::{Deserialize, Serialize};
-pub type Gas = u64;
 
-#[derive(Debug, Serialize, Deserialize, Clone, Hash, PartialEq, Eq)]
-pub struct Fraction {
-    pub numerator: u64,
-    pub denominator: u64,
-}
+pub type Gas = u64;
 
 /// Costs associated with an object that can only be sent over the network (and executed
 /// by the receiver).
@@ -26,6 +22,7 @@ pub struct Fee {
 }
 
 impl Fee {
+    #[inline]
     pub fn send_fee(&self, sir: bool) -> Gas {
         if sir {
             self.send_sir
@@ -36,6 +33,11 @@ impl Fee {
 
     pub fn exec_fee(&self) -> Gas {
         self.execution
+    }
+
+    /// The minimum fee to send and execute.
+    fn min_send_and_exec_fee(&self) -> Gas {
+        std::cmp::min(self.send_sir, self.send_not_sir) + self.execution
     }
 }
 
@@ -48,11 +50,14 @@ pub struct RuntimeFeesConfig {
     pub data_receipt_creation_config: DataReceiptCreationConfig,
     /// Describes the cost of creating a certain action, `Action`. Includes all variants.
     pub action_creation_config: ActionCreationConfig,
-    /// Describes fees for storage rent
+    /// Describes fees for storage.
     pub storage_usage_config: StorageUsageConfig,
 
     /// Fraction of the burnt gas to reward to the contract account for execution.
-    pub burnt_gas_reward: Fraction,
+    pub burnt_gas_reward: Rational,
+
+    /// Pessimistic gas price inflation ratio.
+    pub pessimistic_gas_price_inflation_ratio: Rational,
 }
 
 /// Describes the cost of creating a data receipt, `DataReceipt`.
@@ -110,7 +115,7 @@ pub struct AccessKeyCreationConfig {
 /// Describes cost of storage per block
 #[derive(Debug, Serialize, Deserialize, Clone, Hash, PartialEq, Eq)]
 pub struct StorageUsageConfig {
-    /// Number of bytes for an account record.
+    /// Number of bytes for an account record, including rounding up for account id.
     pub num_bytes_account: u64,
     /// Additional number of bytes for a k/v record
     pub num_extra_bytes_record: u64,
@@ -118,73 +123,97 @@ pub struct StorageUsageConfig {
 
 impl Default for RuntimeFeesConfig {
     fn default() -> Self {
+        #[allow(clippy::unreadable_literal)]
         Self {
             action_receipt_creation_config: Fee {
-                send_sir: 924119500000,
-                send_not_sir: 924119500000,
-                execution: 924119500000,
+                send_sir: 108059500000,
+                send_not_sir: 108059500000,
+                execution: 108059500000,
             },
             data_receipt_creation_config: DataReceiptCreationConfig {
                 base_cost: Fee {
-                    send_sir: 539890689500,
-                    send_not_sir: 539890689500,
-                    execution: 539890689500,
+                    send_sir: 4697339419375,
+                    send_not_sir: 4697339419375,
+                    execution: 4697339419375,
                 },
                 cost_per_byte: Fee {
-                    send_sir: 14234654,
-                    send_not_sir: 14234654,
-                    execution: 14234654,
+                    send_sir: 59357464,
+                    send_not_sir: 59357464,
+                    execution: 59357464,
                 },
             },
             action_creation_config: ActionCreationConfig {
-                create_account_cost: Fee { send_sir: 0, send_not_sir: 0, execution: 0 },
+                create_account_cost: Fee {
+                    send_sir: 99607375000,
+                    send_not_sir: 99607375000,
+                    execution: 99607375000,
+                },
                 deploy_contract_cost: Fee {
-                    send_sir: 513359000000,
-                    send_not_sir: 513359000000,
-                    execution: 513359000000,
+                    send_sir: 184765750000,
+                    send_not_sir: 184765750000,
+                    execution: 184765750000,
                 },
                 deploy_contract_cost_per_byte: Fee {
-                    send_sir: 27106233,
-                    send_not_sir: 27106233,
-                    execution: 27106233,
+                    send_sir: 6812999,
+                    send_not_sir: 6812999,
+                    execution: 6812999,
                 },
                 function_call_cost: Fee {
-                    send_sir: 1367372500000,
-                    send_not_sir: 1367372500000,
-                    execution: 1367372500000,
+                    send_sir: 2319861500000,
+                    send_not_sir: 2319861500000,
+                    execution: 2319861500000,
                 },
                 function_call_cost_per_byte: Fee {
-                    send_sir: 2354953,
-                    send_not_sir: 2354953,
-                    execution: 2354953,
+                    send_sir: 2235934,
+                    send_not_sir: 2235934,
+                    execution: 2235934,
                 },
                 transfer_cost: Fee {
-                    send_sir: 13025000000,
-                    send_not_sir: 13025000000,
-                    execution: 13025000000,
+                    send_sir: 115123062500,
+                    send_not_sir: 115123062500,
+                    execution: 115123062500,
                 },
-                stake_cost: Fee { send_sir: 0, send_not_sir: 0, execution: 0 },
+                stake_cost: Fee {
+                    send_sir: 141715687500,
+                    send_not_sir: 141715687500,
+                    execution: 102217625000,
+                },
                 add_key_cost: AccessKeyCreationConfig {
-                    full_access_cost: Fee { send_sir: 0, send_not_sir: 0, execution: 0 },
-                    function_call_cost: Fee { send_sir: 0, send_not_sir: 0, execution: 0 },
+                    full_access_cost: Fee {
+                        send_sir: 101765125000,
+                        send_not_sir: 101765125000,
+                        execution: 101765125000,
+                    },
+                    function_call_cost: Fee {
+                        send_sir: 102217625000,
+                        send_not_sir: 102217625000,
+                        execution: 102217625000,
+                    },
                     function_call_cost_per_byte: Fee {
-                        send_sir: 37538150,
-                        send_not_sir: 37538150,
-                        execution: 37538150,
+                        send_sir: 1925331,
+                        send_not_sir: 1925331,
+                        execution: 1925331,
                     },
                 },
-                delete_key_cost: Fee { send_sir: 0, send_not_sir: 0, execution: 0 },
+                delete_key_cost: Fee {
+                    send_sir: 94946625000,
+                    send_not_sir: 94946625000,
+                    execution: 94946625000,
+                },
                 delete_account_cost: Fee {
-                    send_sir: 454830000000,
-                    send_not_sir: 454830000000,
-                    execution: 454830000000,
+                    send_sir: 147489000000,
+                    send_not_sir: 147489000000,
+                    execution: 147489000000,
                 },
             },
             storage_usage_config: StorageUsageConfig {
+                // See Account in core/primitives/src/account.rs for the data structure.
+                // TODO(2291): figure out value for the MainNet.
                 num_bytes_account: 100,
                 num_extra_bytes_record: 40,
             },
-            burnt_gas_reward: Fraction { numerator: 3, denominator: 10 },
+            burnt_gas_reward: Rational::new(3, 10),
+            pessimistic_gas_price_inflation_ratio: Rational::new(103, 100),
         }
     }
 }
@@ -212,13 +241,45 @@ impl RuntimeFeesConfig {
                     function_call_cost_per_byte: free.clone(),
                 },
                 delete_key_cost: free.clone(),
-                delete_account_cost: free.clone(),
+                delete_account_cost: free,
             },
             storage_usage_config: StorageUsageConfig {
                 num_bytes_account: 0,
                 num_extra_bytes_record: 0,
             },
-            burnt_gas_reward: Fraction { numerator: 0, denominator: 1 },
+            burnt_gas_reward: Rational::from_integer(0),
+            pessimistic_gas_price_inflation_ratio: Rational::from_integer(0),
         }
+    }
+
+    /// The minimum amount of gas required to create and execute a new receipt with a function call
+    /// action.
+    /// This amount is used to determine how many receipts can be created, send and executed for
+    /// some amount of prepaid gas using function calls.
+    pub fn min_receipt_with_function_call_gas(&self) -> Gas {
+        self.action_receipt_creation_config.min_send_and_exec_fee()
+            + self.action_creation_config.function_call_cost.min_send_and_exec_fee()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_data_roundtrip_is_more_expensive() {
+        // We have an assumption that the deepest receipts we can create is by creating recursive
+        // function call promises (calling function call from a function call).
+        // If the cost of a data receipt is cheaper than the cost of a function call, then it's
+        // possible to create a promise with a dependency which will be executed in two blocks that
+        // is cheaper than just two recursive function calls.
+        // That's why we need to enforce that the cost of the data receipt is not less than a
+        // function call. Otherwise we'd have to modify the way we compute the maximum depth.
+        let transaction_costs = RuntimeFeesConfig::default();
+        assert!(
+            transaction_costs.data_receipt_creation_config.base_cost.min_send_and_exec_fee()
+                >= transaction_costs.min_receipt_with_function_call_gas(),
+            "The data receipt cost can't be larger than the cost of a receipt with a function call"
+        );
     }
 }

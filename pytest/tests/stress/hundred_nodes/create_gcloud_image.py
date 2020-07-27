@@ -1,3 +1,4 @@
+from utils import user_name
 import sys
 import os
 import datetime
@@ -5,9 +6,10 @@ from rc import gcloud, run
 
 import sys
 sys.path.append('lib')
-from utils import user_name
 
 additional_flags = ''
+
+toolchain = open(os.path.join(os.path.dirname(__file__), '../../../../rust-toolchain')).read().strip()
 
 try:
     image_name = sys.argv[1]
@@ -40,14 +42,16 @@ for i in `seq 1 3`; do
     sudo apt update
 done
 
-sudo apt install -y python pkg-config libssl-dev build-essential cmake clang llvm
+sudo apt install -y python pkg-config libssl-dev build-essential cmake clang llvm docker.io
+sudo groupadd docker
+sudo usermod -aG docker $USER
 
-curl -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain nightly-2019-10-04
+curl -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain {toolchain}
 source ~/.cargo/env
 
 git clone --single-branch --branch {branch} https://github.com/nearprotocol/nearcore.git nearcore
 cd nearcore
-cargo build -p near --release {additional_flags}
+cargo build -p neard --release {additional_flags}
 ''')
 
 assert p.returncode == 0

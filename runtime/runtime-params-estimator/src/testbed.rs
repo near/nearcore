@@ -1,17 +1,18 @@
-use borsh::BorshDeserialize;
-use near::get_store_path;
-use near_primitives::receipt::Receipt;
-use near_primitives::transaction::{ExecutionStatus, SignedTransaction};
-use near_primitives::types::{Gas, MerkleHash, StateRoot};
-use near_store::{create_store, ColState, Trie};
-use near_vm_logic::VMLimitConfig;
-use node_runtime::config::RuntimeConfig;
-use node_runtime::{ApplyState, Runtime};
 use std::fs::File;
 use std::io::Read;
 use std::path::Path;
-use std::sync::Arc;
-use tempdir::TempDir;
+
+use borsh::BorshDeserialize;
+
+use near_primitives::receipt::Receipt;
+use near_primitives::test_utils::MockEpochInfoProvider;
+use near_primitives::transaction::{ExecutionStatus, SignedTransaction};
+use near_primitives::types::{Gas, MerkleHash, StateRoot};
+use near_store::{create_store, ColState, ShardTries};
+use near_vm_logic::VMLimitConfig;
+use neard::get_store_path;
+use node_runtime::config::RuntimeConfig;
+use node_runtime::{ApplyState, Runtime};
 
 const STATE_DUMP_FILE: &str = "state_dump";
 const GENESIS_ROOTS_FILE: &str = "genesis_roots";
@@ -19,21 +20,22 @@ const GENESIS_ROOTS_FILE: &str = "genesis_roots";
 pub struct RuntimeTestbed {
     /// Directory where we temporarily keep the storage.
     #[allow(dead_code)]
-    workdir: TempDir,
-    trie: Arc<Trie>,
+    workdir: tempfile::TempDir,
+    tries: ShardTries,
     root: MerkleHash,
     runtime: Runtime,
     prev_receipts: Vec<Receipt>,
     apply_state: ApplyState,
+    epoch_info_provider: MockEpochInfoProvider,
 }
 
 impl RuntimeTestbed {
     /// Copies dump from another directory and loads the state from it.
     pub fn from_state_dump(dump_dir: &Path) -> Self {
-        let workdir = TempDir::new("runtime_testbed").unwrap();
+        let workdir = tempfile::Builder::new().prefix("runtime_testbed").tempdir().unwrap();
         println!("workdir {}", workdir.path().to_str().unwrap());
         let store = create_store(&get_store_path(workdir.path()));
-        let trie = Arc::new(Trie::new(store.clone()));
+        let tries = ShardTries::new(store.clone(), 1);
 
         let mut state_file = dump_dir.to_path_buf();
         state_file.push(STATE_DUMP_FILE);
@@ -75,12 +77,22 @@ impl RuntimeTestbed {
             // Put each runtime into a separate shard.
             block_index: 0,
             // Epoch length is long enough to avoid corner cases.
-            epoch_length: 4,
-            gas_price: 1,
+            last_block_hash: Default::default(),
+            epoch_id: Default::default(),
+            epoch_height: 0,
+            gas_price: 0,
             block_timestamp: 0,
             gas_limit: None,
         };
-        Self { workdir, trie, root, runtime, prev_receipts, apply_state }
+        Self {
+            workdir,
+            tries,
+            root,
+            runtime,
+            prev_receipts,
+            apply_state,
+            epoch_info_provider: MockEpochInfoProvider::default(),
+        }
     }
 
     pub fn process_block(
@@ -91,16 +103,17 @@ impl RuntimeTestbed {
         let apply_result = self
             .runtime
             .apply(
-                self.trie.clone(),
+                self.tries.get_trie_for_shard(0),
                 self.root,
                 &None,
                 &self.apply_state,
                 &self.prev_receipts,
                 transactions,
+                &self.epoch_info_provider,
             )
             .unwrap();
 
-        let (store_update, root) = apply_result.trie_changes.into(self.trie.clone()).unwrap();
+        let (store_update, root) = self.tries.apply_all(&apply_result.trie_changes, 0).unwrap();
         self.root = root;
         store_update.commit().unwrap();
         self.apply_state.block_index += 1;

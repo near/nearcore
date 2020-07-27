@@ -1,3 +1,5 @@
+#[cfg(feature = "metric_recorder")]
+use near_network::recorder::MetricRecorder;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -8,15 +10,18 @@ use serde::{Deserialize, Serialize};
 
 use near_network::types::{AccountOrPeerIdOrHash, KnownProducer};
 use near_network::PeerInfo;
+use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
+use near_primitives::merkle::{MerklePath, PartialMerkleTree};
 use near_primitives::sharding::ChunkHash;
 use near_primitives::types::{
-    AccountId, BlockHeight, BlockId, MaybeBlockId, ShardId, StateChanges, StateChangesRequest,
+    AccountId, BlockHeight, BlockIdOrFinality, MaybeBlockId, ShardId, TransactionOrReceiptId,
 };
 use near_primitives::utils::generate_random_string;
 use near_primitives::views::{
-    BlockView, ChunkView, EpochValidatorInfo, FinalExecutionOutcomeView, Finality, GasPriceView,
-    LightClientBlockView, QueryRequest, QueryResponse,
+    BlockView, ChunkView, EpochValidatorInfo, ExecutionOutcomeWithIdView,
+    FinalExecutionOutcomeView, GasPriceView, LightClientBlockLiteView, LightClientBlockView,
+    QueryRequest, QueryResponse, StateChangesKindsView, StateChangesRequestView, StateChangesView,
 };
 pub use near_primitives::views::{StatusResponse, StatusSyncInfo};
 
@@ -31,7 +36,7 @@ pub enum Error {
 }
 
 impl std::fmt::Display for Error {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Error::Chain(err) => write!(f, "Chain: {}", err),
             Error::Chunk(err) => write!(f, "Chunk: {}", err),
@@ -112,7 +117,7 @@ pub struct ShardSyncDownload {
 /// Various status sync can be in, whether it's fast sync or archival.
 #[derive(Clone, Debug, strum::AsStaticStr)]
 pub enum SyncStatus {
-    /// Initial state. Not enough peers to do anything yet. If boolean is false, skip this step.
+    /// Initial state. Not enough peers to do anything yet.
     AwaitingPeers,
     /// Not syncing / Done syncing.
     NoSync,
@@ -142,13 +147,29 @@ impl SyncStatus {
 }
 
 /// Actor message requesting block by id or hash.
-pub enum GetBlock {
-    BlockId(BlockId),
-    Finality(Finality),
+pub struct GetBlock(pub BlockIdOrFinality);
+
+impl GetBlock {
+    pub fn latest() -> Self {
+        Self(BlockIdOrFinality::latest())
+    }
 }
 
 impl Message for GetBlock {
     type Result = Result<BlockView, String>;
+}
+
+/// Get block with the block merkle tree. Used for testing
+pub struct GetBlockWithMerkleTree(pub BlockIdOrFinality);
+
+impl GetBlockWithMerkleTree {
+    pub fn latest() -> Self {
+        Self(BlockIdOrFinality::latest())
+    }
+}
+
+impl Message for GetBlockWithMerkleTree {
+    type Result = Result<(BlockView, PartialMerkleTree), String>;
 }
 
 /// Actor message requesting a chunk by chunk hash and block hash + shard id.
@@ -166,14 +187,13 @@ impl Message for GetChunk {
 #[derive(Deserialize, Clone)]
 pub struct Query {
     pub query_id: String,
-    pub block_id: MaybeBlockId,
+    pub block_id_or_finality: BlockIdOrFinality,
     pub request: QueryRequest,
-    pub finality: Finality,
 }
 
 impl Query {
-    pub fn new(block_id: MaybeBlockId, request: QueryRequest, finality: Finality) -> Self {
-        Query { query_id: generate_random_string(10), block_id, request, finality }
+    pub fn new(block_id_or_finality: BlockIdOrFinality, request: QueryRequest) -> Self {
+        Query { query_id: generate_random_string(10), block_id_or_finality, request }
     }
 }
 
@@ -220,6 +240,8 @@ pub struct NetworkInfoResponse {
     pub received_bytes_per_sec: u64,
     /// Accounts of known block and chunk producers from routing table.
     pub known_producers: Vec<KnownProducer>,
+    #[cfg(feature = "metric_recorder")]
+    pub metric_recorder: MetricRecorder,
 }
 
 /// Status of given transaction including all the subsequent receipts.
@@ -228,8 +250,31 @@ pub struct TxStatus {
     pub signer_account_id: AccountId,
 }
 
+#[derive(Debug)]
+pub enum TxStatusError {
+    ChainError(near_chain::Error),
+    MissingTransaction(CryptoHash),
+    InvalidTx(InvalidTxError),
+    InternalError,
+    TimeoutError,
+}
+
+impl From<TxStatusError> for String {
+    fn from(error: TxStatusError) -> Self {
+        match error {
+            TxStatusError::ChainError(err) => format!("Chain error: {}", err),
+            TxStatusError::MissingTransaction(tx_hash) => {
+                format!("Transaction {} doesn't exist", tx_hash)
+            }
+            TxStatusError::InternalError => format!("Internal error"),
+            TxStatusError::TimeoutError => format!("Timeout error"),
+            TxStatusError::InvalidTx(e) => format!("Invalid transaction: {}", e),
+        }
+    }
+}
+
 impl Message for TxStatus {
-    type Result = Result<Option<FinalExecutionOutcomeView>, String>;
+    type Result = Result<Option<FinalExecutionOutcomeView>, TxStatusError>;
 }
 
 pub struct GetValidatorInfo {
@@ -240,11 +285,46 @@ impl Message for GetValidatorInfo {
     type Result = Result<EpochValidatorInfo, String>;
 }
 
-pub struct GetKeyValueChanges {
+pub struct GetStateChanges {
     pub block_hash: CryptoHash,
-    pub state_changes_request: StateChangesRequest,
+    pub state_changes_request: StateChangesRequestView,
 }
 
-impl Message for GetKeyValueChanges {
-    type Result = Result<StateChanges, String>;
+impl Message for GetStateChanges {
+    type Result = Result<StateChangesView, String>;
+}
+
+pub struct GetStateChangesInBlock {
+    pub block_hash: CryptoHash,
+}
+
+impl Message for GetStateChangesInBlock {
+    type Result = Result<StateChangesKindsView, String>;
+}
+
+pub struct GetExecutionOutcome {
+    pub id: TransactionOrReceiptId,
+}
+
+pub struct GetExecutionOutcomeResponse {
+    pub outcome_proof: ExecutionOutcomeWithIdView,
+    pub outcome_root_proof: MerklePath,
+}
+
+impl Message for GetExecutionOutcome {
+    type Result = Result<GetExecutionOutcomeResponse, String>;
+}
+
+pub struct GetBlockProof {
+    pub block_hash: CryptoHash,
+    pub head_block_hash: CryptoHash,
+}
+
+pub struct GetBlockProofResponse {
+    pub block_header_lite: LightClientBlockLiteView,
+    pub proof: MerklePath,
+}
+
+impl Message for GetBlockProof {
+    type Result = Result<GetBlockProofResponse, String>;
 }

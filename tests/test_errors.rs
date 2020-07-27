@@ -1,22 +1,22 @@
 use std::sync::Arc;
 
-use near::config::{GenesisConfigExt, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
-use near::load_test_config;
-use near_chain_configs::GenesisConfig;
+use near_chain_configs::Genesis;
 use near_crypto::{InMemorySigner, KeyType};
+use near_logger_utils::init_integration_logger;
 use near_network::test_utils::open_port;
 use near_primitives::account::AccessKey;
 use near_primitives::errors::{InvalidAccessKeyError, InvalidTxError};
-use near_primitives::test_utils::init_integration_logger;
 use near_primitives::transaction::{
     Action, AddKeyAction, CreateAccountAction, SignedTransaction, TransferAction,
 };
+use neard::config::{GenesisExt, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
+use neard::load_test_config;
 use testlib::node::{Node, ThreadNode};
 
 fn start_node() -> ThreadNode {
     init_integration_logger();
-    let genesis_config = GenesisConfig::test(vec!["alice.near", "bob.near"], 1);
-    let mut near_config = load_test_config("alice.near", open_port(), &genesis_config);
+    let genesis = Genesis::test(vec!["alice.near", "bob.near"], 1);
+    let mut near_config = load_test_config("alice.near", open_port(), Arc::new(genesis));
     near_config.client_config.skip_sync_wait = true;
 
     let mut node = ThreadNode::new(near_config);
@@ -60,8 +60,8 @@ fn test_check_tx_error_log() {
 fn test_deliver_tx_error_log() {
     let node = start_node();
     let fee_helper = testlib::fees_utils::FeeHelper::new(
-        node.genesis_config().runtime_config.transaction_costs.clone(),
-        node.genesis_config().min_gas_price,
+        node.genesis().config.runtime_config.transaction_costs.clone(),
+        node.genesis().config.min_gas_price,
     );
     let signer = Arc::new(InMemorySigner::from_seed("alice.near", KeyType::ED25519, "alice.near"));
     let block_hash = node.user().get_best_block_hash().unwrap();
