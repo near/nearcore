@@ -16,14 +16,19 @@ use near_primitives::receipt::Receipt;
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::transaction::{ExecutionOutcomeWithId, SignedTransaction};
 use near_primitives::types::{
-    AccountId, ApprovalStake, Balance, BlockHeight, EpochId, Gas, MerkleHash, ShardId, StateRoot,
-    StateRootNode, ValidatorStake,
+    AccountId, ApprovalStake, Balance, BlockHeight, BlockHeightDelta, EpochId, Gas, MerkleHash,
+    NumBlocks, ShardId, StateRoot, StateRootNode, ValidatorStake,
 };
-use near_primitives::version::ProtocolVersion;
+use near_primitives::version::{
+    ProtocolVersion, MIN_GAS_PRICE_NEP_92, MIN_PROTOCOL_VERSION_NEP_92,
+};
 use near_primitives::views::{EpochValidatorInfo, QueryRequest, QueryResponse};
 use near_store::{PartialStorage, ShardTries, Store, StoreUpdate, Trie, WrappedTrieChanges};
 
 use crate::error::Error;
+use chrono::{DateTime, Utc};
+use near_chain_configs::GenesisConfig;
+use num_rational::Rational;
 
 #[derive(Eq, PartialEq, Debug, Clone)]
 pub enum BlockStatus {
@@ -123,6 +128,85 @@ impl BlockHeaderInfo {
             chunk_mask: header.chunk_mask().to_vec(),
             total_supply: header.total_supply(),
             latest_protocol_version: header.latest_protocol_version(),
+        }
+    }
+}
+
+/// Block economics config taken from genesis config
+pub struct BlockEconomicsConfig {
+    gas_price_adjustment_rate: Rational,
+    min_gas_price: Balance,
+    max_gas_price: Balance,
+    genesis_protocol_version: ProtocolVersion,
+}
+
+impl BlockEconomicsConfig {
+    /// Compute min gas price according to protocol version and chain id. We only upgrade gas price
+    /// for betanet, testnet and mainnet.
+    pub fn min_gas_price(&self, protocol_version: ProtocolVersion) -> Balance {
+        if self.genesis_protocol_version < MIN_PROTOCOL_VERSION_NEP_92
+            && protocol_version >= MIN_PROTOCOL_VERSION_NEP_92
+        {
+            MIN_GAS_PRICE_NEP_92
+        } else {
+            self.min_gas_price
+        }
+    }
+
+    pub fn max_gas_price(&self, _protocol_version: ProtocolVersion) -> Balance {
+        self.max_gas_price
+    }
+
+    pub fn gas_price_adjustment_rate(&self, _protocol_version: ProtocolVersion) -> Rational {
+        self.gas_price_adjustment_rate
+    }
+}
+
+impl From<&ChainGenesis> for BlockEconomicsConfig {
+    fn from(chain_genesis: &ChainGenesis) -> Self {
+        BlockEconomicsConfig {
+            gas_price_adjustment_rate: chain_genesis.gas_price_adjustment_rate,
+            min_gas_price: chain_genesis.min_gas_price,
+            max_gas_price: chain_genesis.max_gas_price,
+            genesis_protocol_version: chain_genesis.protocol_version,
+        }
+    }
+}
+
+/// Chain genesis configuration.
+#[derive(Clone)]
+pub struct ChainGenesis {
+    pub time: DateTime<Utc>,
+    pub height: BlockHeight,
+    pub gas_limit: Gas,
+    pub min_gas_price: Balance,
+    pub max_gas_price: Balance,
+    pub total_supply: Balance,
+    pub max_inflation_rate: Rational,
+    pub gas_price_adjustment_rate: Rational,
+    pub transaction_validity_period: NumBlocks,
+    pub epoch_length: BlockHeightDelta,
+    pub protocol_version: ProtocolVersion,
+}
+
+impl<T> From<T> for ChainGenesis
+where
+    T: AsRef<GenesisConfig>,
+{
+    fn from(genesis_config: T) -> Self {
+        let genesis_config = genesis_config.as_ref();
+        Self {
+            time: genesis_config.genesis_time,
+            height: genesis_config.genesis_height,
+            gas_limit: genesis_config.gas_limit,
+            min_gas_price: genesis_config.min_gas_price,
+            max_gas_price: genesis_config.max_gas_price,
+            total_supply: genesis_config.total_supply,
+            max_inflation_rate: genesis_config.max_inflation_rate,
+            gas_price_adjustment_rate: genesis_config.gas_price_adjustment_rate,
+            transaction_validity_period: genesis_config.transaction_validity_period,
+            epoch_length: genesis_config.epoch_length,
+            protocol_version: genesis_config.protocol_version,
         }
     }
 }

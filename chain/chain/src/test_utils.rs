@@ -38,10 +38,10 @@ use near_store::{
     WrappedTrieChanges,
 };
 
-use crate::chain::{Chain, ChainGenesis, NUM_EPOCHS_TO_KEEP_STORE_DATA};
+use crate::chain::{Chain, NUM_EPOCHS_TO_KEEP_STORE_DATA};
 use crate::error::{Error, ErrorKind};
 use crate::store::ChainStoreAccess;
-use crate::types::{ApplyTransactionResult, BlockHeaderInfo};
+use crate::types::{ApplyTransactionResult, BlockHeaderInfo, ChainGenesis};
 use crate::{BlockHeader, DoomslugThresholdMode, RuntimeAdapter};
 
 #[derive(
@@ -957,19 +957,19 @@ pub fn setup_with_tx_validity_period(
     let runtime = Arc::new(KeyValueRuntime::new(store));
     let chain = Chain::new(
         runtime.clone(),
-        &ChainGenesis::new(
-            Utc::now(),
-            0,
-            1_000_000,
-            100,
-            1_000_000_000,
-            1_000_000_000,
-            Rational::from_integer(0),
-            Rational::from_integer(0),
-            tx_validity_period,
-            10,
-            PROTOCOL_VERSION,
-        ),
+        &ChainGenesis {
+            time: Utc::now(),
+            height: 0,
+            gas_limit: 1_000_000,
+            min_gas_price: 100,
+            max_gas_price: 1_000_000_000,
+            total_supply: 1_000_000_000,
+            max_inflation_rate: Rational::from_integer(0),
+            gas_price_adjustment_rate: Rational::from_integer(0),
+            transaction_validity_period: tx_validity_period,
+            epoch_length: 10,
+            protocol_version: PROTOCOL_VERSION,
+        },
         DoomslugThresholdMode::NoApprovals,
     )
     .unwrap();
@@ -998,19 +998,19 @@ pub fn setup_with_validators(
     ));
     let chain = Chain::new(
         runtime.clone(),
-        &ChainGenesis::new(
-            Utc::now(),
-            0,
-            1_000_000,
-            100,
-            1_000_000_000,
-            1_000_000_000,
-            Rational::from_integer(0),
-            Rational::from_integer(0),
-            tx_validity_period,
+        &ChainGenesis {
+            time: Utc::now(),
+            height: 0,
+            gas_limit: 1_000_000,
+            min_gas_price: 100,
+            max_gas_price: 1_000_000_000,
+            total_supply: 1_000_000_000,
+            max_inflation_rate: Rational::from_integer(0),
+            gas_price_adjustment_rate: Rational::from_integer(0),
+            transaction_validity_period: tx_validity_period,
             epoch_length,
-            PROTOCOL_VERSION,
-        ),
+            protocol_version: PROTOCOL_VERSION,
+        },
         DoomslugThresholdMode::NoApprovals,
     )
     .unwrap();
