@@ -1092,7 +1092,6 @@ impl Chain {
             }
             Err(e) => {
                 match e.kind() {
-                    ErrorKind::InvalidSignature => return Err(e),
                     ErrorKind::Orphan => {
                         let tail_height = self.store.tail()?;
                         // we only add blocks that couldn't have been gc'ed to the orphan pool.

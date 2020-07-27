@@ -862,7 +862,7 @@ impl ClientActor {
         // before sending it out.
         if provenance == Provenance::PRODUCED {
             self.network_adapter.do_send(NetworkRequests::Block { block: block.clone() });
-        } else if provenance == Provenance::NONE {
+        } else {
             match self.client.chain.validate_block(&block) {
                 Ok(_) => {
                     let head = self.client.chain.head()?;
@@ -889,7 +889,7 @@ impl ClientActor {
         result.map(|_| ())
     }
 
-    /// Processes received block, returns boolean if block was reasonable or malicious.
+    /// Processes received block. Ban peer if the block header is invalid or the block is ill-formed.
     fn receive_block(&mut self, block: Block, peer_id: PeerId, was_requested: bool) {
         let hash = *block.hash();
         debug!(target: "client", "{:?} Received block {} <- {} at {} from {}, requested: {}", self.client.validator_signer.as_ref().map(|vs| vs.validator_id()), hash, block.header().prev_hash(), block.header().height(), peer_id, was_requested);
