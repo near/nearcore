@@ -31,7 +31,7 @@ fn announcement_same_epoch() {
 
     routing_table.add_account(announce0.clone());
     assert!(routing_table.contains_account(&announce0));
-    assert!(routing_table.contains_account(&announce1));
+    assert!(!routing_table.contains_account(&announce1));
     assert_eq!(routing_table.get_announce_accounts().len(), 1);
     assert_eq!(routing_table.account_owner(&announce0.account_id).unwrap(), peer_id0);
     routing_table.add_account(announce1.clone());

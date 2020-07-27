@@ -905,11 +905,13 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
 
                 for (announce_account, last_epoch) in announce_accounts.into_iter() {
                     if let Some(last_epoch) = last_epoch {
+                        // the new announcement should not be in an epoch that is older than the last
+                        // announcement
                         match self
                             .runtime_adapter
                             .compare_epoch_id(&announce_account.epoch_id, &last_epoch)
                         {
-                            Ok(Ordering::Less) => {}
+                            Ok(Ordering::Equal) | Ok(Ordering::Greater) => {}
                             _ => continue,
                         }
                     }

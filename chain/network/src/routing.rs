@@ -397,7 +397,7 @@ impl RoutingTable {
     // TODO(MarX, #1694): Allow one account id to be routed to several peer id.
     pub fn contains_account(&mut self, announce_account: &AnnounceAccount) -> bool {
         self.get_announce(&announce_account.account_id).map_or(false, |current_announce_account| {
-            current_announce_account.epoch_id == announce_account.epoch_id
+            current_announce_account.peer_id == announce_account.peer_id
         })
     }
 
@@ -702,7 +702,7 @@ impl RoutingTable {
         self.account_peers.value_order().cloned().collect()
     }
 
-    /// Get account announce from
+    /// Get account announcement from account id
     pub fn get_announce(&mut self, account_id: &AccountId) -> Option<AnnounceAccount> {
         if let Some(announce_account) = self.account_peers.cache_get(&account_id) {
             Some(announce_account.clone())
@@ -711,7 +711,7 @@ impl RoutingTable {
                 .get_ser(ColAccountAnnouncements, account_id.as_bytes())
                 .and_then(|res: Option<AnnounceAccount>| {
                     if let Some(announce_account) = res {
-                        self.add_account(announce_account.clone());
+                        self.account_peers.cache_set(account_id.clone(), announce_account.clone());
                         Ok(Some(announce_account))
                     } else {
                         Ok(None)

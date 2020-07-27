@@ -750,13 +750,13 @@ impl PeerManagerActor {
         debug!(target: "network", "{:?} Account announce: {:?}", self.config.account_id, announce_account);
         if !self.routing_table.contains_account(&announce_account) {
             self.routing_table.add_account(announce_account.clone());
-            self.broadcast_message(
-                ctx,
-                SendMessage {
-                    message: PeerMessage::RoutingTableSync(SyncData::account(announce_account)),
-                },
-            );
         }
+        self.broadcast_message(
+            ctx,
+            SendMessage {
+                message: PeerMessage::RoutingTableSync(SyncData::account(announce_account)),
+            },
+        );
     }
 
     /// Send message to peer that belong to our active set
@@ -1211,6 +1211,7 @@ impl Handler<NetworkRequests> for PeerManagerActor {
             NetworkRequests::Sync { peer_id, sync_data } => {
                 // Process edges and add new edges to the routing table. Also broadcast new edges.
                 let SyncData { edges, accounts } = sync_data;
+                debug!(target: "network", "SYNC ACCOUNTS: {:?}", accounts);
 
                 if !edges.iter().all(|edge| edge.verify()) {
                     return NetworkResponses::BanPeer(ReasonForBan::InvalidEdge);
@@ -1223,7 +1224,7 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                         if let Some(current_announce_account) =
                             self.routing_table.get_announce(&announce_account.account_id)
                         {
-                            if announce_account.epoch_id == current_announce_account.epoch_id {
+                            if announce_account.peer_id == current_announce_account.peer_id {
                                 None
                             } else {
                                 Some((announce_account, Some(current_announce_account.epoch_id)))
@@ -1233,6 +1234,7 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                         }
                     })
                     .collect();
+                debug!(target: "network", "SYNC NEW ACCOUNTS: {:?}", new_accounts);
 
                 // Ask client to validate accounts before accepting them.
                 self.view_client_addr
