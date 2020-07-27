@@ -432,7 +432,7 @@ fn test_valid_log_utf16_null_terminated_fail() {
 }
 
 #[test]
-fn test_hash256() {
+fn test_sha256() {
     let mut logic_builder = VMLogicBuilder::default();
     let mut logic = logic_builder.build(get_context(vec![], false));
     let data = b"tesdsst";
@@ -460,6 +460,73 @@ fn test_hash256() {
         ExtCosts::write_register_byte: 32,
         ExtCosts::sha256_base: 1,
         ExtCosts::sha256_byte: len,
+    });
+}
+
+#[test]
+fn test_keccak256() {
+    let mut logic_builder = VMLogicBuilder::default();
+    let mut logic = logic_builder.build(get_context(vec![], false));
+    let data = b"tesdsst";
+
+    logic.keccak256(data.len() as _, data.as_ptr() as _, 0).unwrap();
+    let res = &vec![0u8; 32];
+    logic.read_register(0, res.as_ptr() as _).expect("OK");
+    assert_eq!(
+        res.as_slice(),
+        &[
+            104, 110, 58, 122, 230, 181, 215, 145, 231, 229, 49, 162, 123, 167, 177, 58, 26, 142,
+            129, 173, 7, 37, 9, 26, 233, 115, 64, 102, 61, 85, 10, 159
+        ]
+    );
+    let len = data.len() as u64;
+    assert_costs(map! {
+        ExtCosts::base: 1,
+        ExtCosts::read_memory_base: 1,
+        ExtCosts::read_memory_byte: len,
+        ExtCosts::write_memory_base: 1,
+        ExtCosts::write_memory_byte: 32,
+        ExtCosts::read_register_base: 1,
+        ExtCosts::read_register_byte: 32,
+        ExtCosts::write_register_base: 1,
+        ExtCosts::write_register_byte: 32,
+        ExtCosts::keccak256_base: 1,
+        ExtCosts::keccak256_byte: len,
+    });
+}
+
+#[test]
+fn test_keccak512() {
+    let mut logic_builder = VMLogicBuilder::default();
+    let mut logic = logic_builder.build(get_context(vec![], false));
+    let data = b"tesdsst";
+
+    logic.keccak512(data.len() as _, data.as_ptr() as _, 0).unwrap();
+    let res = &vec![0u8; 64];
+    logic.read_register(0, res.as_ptr() as _).expect("OK");
+    assert_eq!(
+        res,
+        &[
+            55, 134, 96, 137, 168, 122, 187, 95, 67, 76, 18, 122, 146, 11, 225, 106, 117, 194, 154,
+            157, 48, 160, 90, 146, 104, 209, 118, 126, 222, 230, 200, 125, 48, 73, 197, 236, 123,
+            173, 192, 197, 90, 153, 167, 121, 100, 88, 209, 240, 137, 86, 239, 41, 87, 128, 219,
+            249, 136, 203, 220, 109, 46, 168, 234, 190
+        ]
+        .to_vec()
+    );
+    let len = data.len() as u64;
+    assert_costs(map! {
+        ExtCosts::base: 1,
+        ExtCosts::read_memory_base: 1,
+        ExtCosts::read_memory_byte: len,
+        ExtCosts::write_memory_base: 1,
+        ExtCosts::write_memory_byte: 64,
+        ExtCosts::read_register_base: 1,
+        ExtCosts::read_register_byte: 64,
+        ExtCosts::write_register_base: 1,
+        ExtCosts::write_register_byte: 64,
+        ExtCosts::keccak512_base: 1,
+        ExtCosts::keccak512_byte: len,
     });
 }
 
