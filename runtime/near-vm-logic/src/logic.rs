@@ -776,7 +776,6 @@ impl<'a> VMLogic<'a> {
         use sha2::Digest;
 
         let value_hash = sha2::Sha256::digest(&value);
-
         self.internal_write_register(register_id, value_hash.as_ref().to_vec())
     }
 
@@ -798,7 +797,6 @@ impl<'a> VMLogic<'a> {
         use sha3::Digest;
 
         let value_hash = sha3::Keccak256::digest(&value);
-
         self.internal_write_register(register_id, value_hash.as_ref().to_vec())
     }
 
@@ -820,7 +818,6 @@ impl<'a> VMLogic<'a> {
         use sha3::Digest;
 
         let value_hash = sha3::Keccak512::digest(&value);
-
         self.internal_write_register(register_id, value_hash.as_ref().to_vec())
     }
 
