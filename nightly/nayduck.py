@@ -14,7 +14,7 @@ parser.add_argument('--branch', '-b', dest='branch',
                     help='Branch to test. By default gets current one.' )
 parser.add_argument('--sha', '-s', dest='sha',
                     help='Sha to test. By default gets current one.')
-parser.add_argument('--test_file', '-t', dest='test_file', default='nayduck.txt',
+parser.add_argument('--test_file', '-t', dest='test_file', default='tests_for_nayduck.txt',
                     help='Test file with list of tests. By default nayduck.txt')
 
 args = parser.parse_args()
