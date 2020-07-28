@@ -3,6 +3,7 @@ use std::convert::{TryFrom, TryInto};
 use paperclip::actix::{api_v2_errors, Apiv2Schema};
 
 use near_primitives::borsh::{BorshDeserialize, BorshSerialize};
+use near_primitives::serialize::BaseEncode;
 
 use crate::consts;
 
@@ -100,7 +101,7 @@ pub(crate) struct Amount {
 }
 
 /// Blocks contain an array of Transactions that occurred at a particular
-/// BlockIdentifier.
+/// BlockIdentifier. A hard requirement for blocks returned by Rosetta implementations is that they MUST be _inalterable_: once a client has requested and received a block identified by a specific BlockIndentifier, all future calls for that same BlockIdentifier must return the same block contents.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, Apiv2Schema)]
 pub(crate) struct Block {
     pub block_identifier: BlockIdentifier,
@@ -127,6 +128,18 @@ pub(crate) struct BlockIdentifier {
     pub hash: String,
 }
 
+impl From<&near_primitives::views::BlockHeaderView> for BlockIdentifier {
+    fn from(header: &near_primitives::views::BlockHeaderView) -> Self {
+        Self {
+            index: header
+                .height
+                .try_into()
+                .expect("Rosetta only supports block indecies up to i64::MAX"),
+            hash: header.hash.to_base(),
+        }
+    }
+}
+
 /// A BlockRequest is utilized to make a block request on the /block endpoint.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, Apiv2Schema)]
 pub(crate) struct BlockRequest {
@@ -139,7 +152,7 @@ pub(crate) struct BlockRequest {
 /// block with a list of other transactions to fetch (other_transactions).
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, Apiv2Schema)]
 pub(crate) struct BlockResponse {
-    pub block: Block,
+    pub block: Option<Block>,
 
     /// Some blockchains may require additional transactions to be fetched that
     /// weren't returned in the block response (ex: block only returns
@@ -253,10 +266,11 @@ pub(crate) struct ConstructionSubmitRequest {
     pub signed_transaction: JsonSignedTransaction,
 }
 
-/// A TransactionSubmitResponse contains the transaction_identifier of a
-/// submitted transaction that was accepted into the mempool.
+/// TransactionIdentifierResponse contains the transaction_identifier of a
+/// transaction that was submitted to either `/construction/hash` or
+/// `/construction/submit`.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, Apiv2Schema)]
-pub(crate) struct ConstructionSubmitResponse {
+pub(crate) struct TransactionIdentifierResponse {
     pub transaction_identifier: TransactionIdentifier,
 
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -269,12 +283,6 @@ pub(crate) struct ConstructionHashRequest {
     pub network_identifier: NetworkIdentifier,
 
     pub signed_transaction: JsonSignedTransaction,
-}
-
-/// ConstructionHashResponse is the output of the /construction/hash endpoint.
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, Apiv2Schema)]
-pub(crate) struct ConstructionHashResponse {
-    pub transaction_hash: String,
 }
 
 /// Currency is composed of a canonical Symbol and Decimals. This Decimals value
@@ -485,6 +493,29 @@ pub(crate) struct NetworkIdentifier {
     pub sub_network_identifier: Option<SubNetworkIdentifier>,
 }
 
+#[derive(Debug, Copy, Clone, PartialEq, serde::Serialize, serde::Deserialize, Apiv2Schema)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub(crate) enum SyncStage {
+    AwaitingPeers,
+    NoSync,
+    NoSyncSeveralBlocksBehind,
+    HeaderSync,
+    StateSync,
+    StateSyncDone,
+    BodySync,
+}
+
+/// SyncStatus is used to provide additional context about an implementation's
+/// sync status. It is often used to indicate that an implementation is healthy
+/// when it cannot be queried  until some sync phase occurs. If an
+/// implementation is immediately queryable, this model is often not populated.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, Apiv2Schema)]
+pub(crate) struct SyncStatus {
+    pub current_index: i64,
+    pub target_index: Option<i64>,
+    pub stage: Option<SyncStage>,
+}
+
 /// A NetworkListResponse contains all NetworkIdentifiers that the node can
 /// serve information for.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, Apiv2Schema)]
@@ -528,6 +559,8 @@ pub(crate) struct NetworkStatusResponse {
     pub genesis_block_identifier: BlockIdentifier,
 
     pub oldest_block_identifier: BlockIdentifier,
+
+    pub sync_status: Option<SyncStatus>,
 
     pub peers: Vec<Peer>,
 }
@@ -704,6 +737,41 @@ pub(crate) struct OperationStatus {
     pub successful: bool,
 }
 
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename = "SCREAMING_SNAKE_CASE", tag = "kind")]
+pub enum Action {
+    CreateAccount,
+    DeployContract {
+        code: String,
+    },
+    FunctionCall {
+        method_name: String,
+        args: String,
+        gas: near_primitives::types::Gas,
+        #[serde(with = "near_primitives::serialize::u128_dec_format")]
+        deposit: near_primitives::types::Balance,
+    },
+    Transfer {
+        #[serde(with = "near_primitives::serialize::u128_dec_format")]
+        deposit: near_primitives::types::Balance,
+    },
+    Stake {
+        #[serde(with = "near_primitives::serialize::u128_dec_format")]
+        stake: near_primitives::types::Balance,
+        public_key: near_crypto::PublicKey,
+    },
+    AddKey {
+        public_key: near_crypto::PublicKey,
+        access_key: near_primitives::views::AccessKeyView,
+    },
+    DeleteKey {
+        public_key: near_crypto::PublicKey,
+    },
+    DeleteAccount {
+        beneficiary_id: near_primitives::types::AccountId,
+    },
+}
+
 /// When fetching data by BlockIdentifier, it may be possible to only specify
 /// the index or hash. If neither property is specified, it is assumed that the
 /// client is making a request at the current block.
@@ -716,7 +784,7 @@ pub(crate) struct PartialBlockIdentifier {
     hash: Option<String>,
 }
 
-impl TryFrom<PartialBlockIdentifier> for near_primitives::types::BlockIdOrFinality {
+impl TryFrom<PartialBlockIdentifier> for near_primitives::types::BlockReference {
     type Error = ();
 
     fn try_from(block_identifier: PartialBlockIdentifier) -> Result<Self, Self::Error> {
@@ -727,7 +795,7 @@ impl TryFrom<PartialBlockIdentifier> for near_primitives::types::BlockIdOrFinali
             (_, Some(hash)) => {
                 near_primitives::types::BlockId::Hash(hash.try_into().map_err(|_| ())?).into()
             }
-            (None, None) => near_primitives::types::BlockIdOrFinality::Finality(
+            (None, None) => near_primitives::types::BlockReference::Finality(
                 near_primitives::types::Finality::Final,
             ),
         })
@@ -794,6 +862,7 @@ pub(crate) struct Transaction {
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, Apiv2Schema)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub(crate) enum TransactionType {
+    Block,
     Transaction,
     ActionReceipt,
     DataReceipt,
@@ -803,12 +872,7 @@ pub(crate) enum TransactionType {
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, Apiv2Schema)]
 pub(crate) struct TransactionMetadata {
     #[serde(rename = "type")]
-    type_: TransactionType,
-
-    /// Next transactions (to be precise, receipts) are only known after the
-    /// execution, so this field gets populated from Execution Outcome.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) next_transactions: Option<Vec<TransactionIdentifier>>,
+    pub(crate) type_: TransactionType,
 }
 
 impl From<&near_primitives::views::SignedTransactionView> for Transaction {
@@ -825,17 +889,14 @@ impl From<&near_primitives::views::SignedTransactionView> for Transaction {
                     let mut operation = Operation::from(action);
                     operation.operation_identifier.index = index.try_into().unwrap();
                     operation.account = Some(AccountIdentifier {
-                        address: signed_transaction.receiver_id.clone(),
+                        address: signed_transaction.signer_id.clone(),
                         sub_account: None,
                         metadata: None,
                     });
                     operation
                 })
                 .collect(),
-            metadata: TransactionMetadata {
-                type_: TransactionType::Transaction,
-                next_transactions: None,
-            },
+            metadata: TransactionMetadata { type_: TransactionType::Transaction },
         }
     }
 }
@@ -852,7 +913,7 @@ impl From<&near_primitives::views::ReceiptView> for Transaction {
                         let mut operation = Operation::from(action);
                         operation.operation_identifier.index = index.try_into().unwrap();
                         operation.account = Some(AccountIdentifier {
-                            address: receipt.receiver_id.clone(),
+                            address: receipt.predecessor_id.clone(),
                             sub_account: None,
                             metadata: None,
                         });
@@ -867,7 +928,7 @@ impl From<&near_primitives::views::ReceiptView> for Transaction {
         Self {
             transaction_identifier: TransactionIdentifier { hash: receipt.receipt_id.to_string() },
             operations,
-            metadata: TransactionMetadata { type_, next_transactions: None },
+            metadata: TransactionMetadata { type_ },
         }
     }
 }

@@ -505,13 +505,13 @@ impl BlockReference {
     }
 }
 
-impl From<BlockId> for BlockIdOrFinality {
+impl From<BlockId> for BlockReference {
     fn from(block_id: BlockId) -> Self {
         Self::BlockId(block_id)
     }
 }
 
-impl From<Finality> for BlockIdOrFinality {
+impl From<Finality> for BlockReference {
     fn from(finality: Finality) -> Self {
         Self::Finality(finality)
     }

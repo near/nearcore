@@ -21,12 +21,14 @@ use near_client::{ClientActor, ViewClientActor};
 use near_primitives::serialize::BaseEncode;
 
 pub const BASE_PATH: &str = "";
-pub const API_VERSION: &str = "1.4.0";
+pub const API_VERSION: &str = "1.4.2";
 
 pub mod config;
 pub use config::RosettaRpcConfig;
 mod consts;
+mod data_fetchers;
 pub mod models;
+mod utils;
 
 // Mark containers (body, query, parameter, etc.) like so...
 #[derive(Serialize, Deserialize, Apiv2Schema)]
@@ -36,6 +38,9 @@ struct Pet {
 }
 
 /// Get List of Available Networks
+///
+/// This endpoint returns a list of NetworkIdentifiers that the Rosetta server
+/// supports.
 #[api_v2_operation]
 async fn network_list(
     client_addr: web::Data<Addr<ClientActor>>,
@@ -56,12 +61,16 @@ async fn network_list(
 
 #[api_v2_operation]
 /// Get Network Status
+///
+/// This endpoint returns the current status of the network requested. Any
+/// NetworkIdentifier returned by /network/list should be accessible here.
 async fn network_status(
     genesis: web::Data<Arc<Genesis>>,
     client_addr: web::Data<Addr<ClientActor>>,
     view_client_addr: web::Data<Addr<ViewClientActor>>,
     body: Json<models::NetworkRequest>,
 ) -> Result<Json<models::NetworkStatusResponse>, models::Error> {
+    // TODO: reduce copy-paste
     let status = client_addr
         .send(near_client::Status { is_health_check: false })
         .await?
@@ -74,21 +83,60 @@ async fn network_status(
             details: None,
         });
     }
-    let (network_info, genesis_block) = tokio::try_join!(
+
+    let genesis_height = genesis.config.genesis_height;
+    let (network_info, genesis_block, earliest_block) = tokio::try_join!(
         client_addr.send(near_client::GetNetworkInfo {}),
         view_client_addr.send(near_client::GetBlock(
-            near_primitives::types::BlockId::Height(genesis.config.genesis_height).into(),
-        ))
+            near_primitives::types::BlockId::Height(genesis_height).into(),
+        )),
+        // TODO: Use this implementation once a proper /block implementation for genesis block is
+        // landed: view_client_addr.send(near_client::GetBlock(
+        //    near_primitives::types::BlockReference::SyncCheckpoint(near_primitives::types::
+        // SyncCheckpoint::EarliestAvailable),
+        //));
+        // This is a hack to avoid Rosetta peeking up the genesis block.
+        async {
+            let mut earliest_block = match view_client_addr
+                .send(near_client::GetBlock(
+                    near_primitives::types::BlockReference::SyncCheckpoint(
+                        near_primitives::types::SyncCheckpoint::EarliestAvailable,
+                    ),
+                ))
+                .await?
+            {
+                Ok(block) => block,
+                Err(message) => return Ok(Err(message)),
+            };
+            if earliest_block.header.height == genesis_height {
+                for earliest_block_index in genesis_height + 1.. {
+                    match view_client_addr
+                        .send(near_client::GetBlock(
+                            near_primitives::types::BlockId::Height(earliest_block_index).into(),
+                        ))
+                        .await?
+                    {
+                        Ok(block) => {
+                            earliest_block = block;
+                            break;
+                        }
+                        Err(message) if message.contains("Block missing") => {}
+                        Err(message) => return Ok(Err(message)),
+                    }
+                }
+            }
+            Ok(Ok(earliest_block))
+        }
     )?;
     let network_info = network_info.map_err(models::ErrorKind::Other)?;
     let genesis_block = genesis_block.map_err(models::ErrorKind::Other)?;
+    let earliest_block = earliest_block;
 
-    let genesis_block_identifier = models::BlockIdentifier {
-        index: genesis.config.genesis_height.try_into().unwrap(),
-        hash: genesis_block.header.hash.to_base(),
-    };
-    // TODO: query GC for the oldest block
-    let oldest_block_identifier = genesis_block_identifier.clone();
+    let genesis_block_identifier: models::BlockIdentifier = (&genesis_block.header).into();
+    let oldest_block_identifier: models::BlockIdentifier = earliest_block
+        .ok()
+        .map(|block| (&block.header).into())
+        .unwrap_or_else(|| genesis_block_identifier.clone());
     Ok(Json(models::NetworkStatusResponse {
         current_block_identifier: models::BlockIdentifier {
             index: status.sync_info.latest_block_height.try_into().unwrap(),
@@ -97,6 +145,15 @@ async fn network_status(
         current_block_timestamp: status.sync_info.latest_block_time.timestamp_millis(),
         genesis_block_identifier,
         oldest_block_identifier,
+        sync_status: if status.sync_info.syncing {
+            Some(models::SyncStatus {
+                current_index: status.sync_info.latest_block_height.try_into().unwrap(),
+                target_index: None,
+                stage: None,
+            })
+        } else {
+            None
+        },
         peers: network_info
             .active_peers
             .into_iter()
@@ -107,10 +164,17 @@ async fn network_status(
 
 #[api_v2_operation]
 /// Get Network Options
+///
+/// This endpoint returns the version information and allowed network-specific
+/// types for a NetworkIdentifier. Any NetworkIdentifier returned by
+/// /network/list should be accessible here. Because options are retrievable in
+/// the context of a NetworkIdentifier, it is possible to define unique options
+/// for each network.
 async fn network_options(
     client_addr: web::Data<Addr<ClientActor>>,
     body: Json<models::NetworkRequest>,
 ) -> Result<Json<models::NetworkOptionsResponse>, models::Error> {
+    // TODO: reduce copy-paste
     let status = client_addr
         .send(near_client::Status { is_health_check: false })
         .await?
@@ -150,56 +214,31 @@ enum TransactionOrReceipt {
     Receipt(near_primitives::views::ReceiptView),
 }
 
-async fn collect_rosetta_transaction(
-    view_client_addr: web::Data<Addr<ViewClientActor>>,
-    transaction: TransactionOrReceipt,
-) -> models::Transaction {
-    let (id, mut rosetta_transaction): (_, models::Transaction) = match transaction {
-        TransactionOrReceipt::Transaction(transaction) => (
-            near_primitives::types::TransactionOrReceiptId::Transaction {
-                transaction_hash: transaction.hash,
-                sender_id: transaction.signer_id.clone(),
-            },
-            (&transaction).into(),
-        ),
-        TransactionOrReceipt::Receipt(receipt) => (
-            near_primitives::types::TransactionOrReceiptId::Receipt {
-                receipt_id: receipt.receipt_id,
-                receiver_id: receipt.receiver_id.clone(),
-            },
-            (&receipt).into(),
-        ),
-    };
-
-    if let Ok(Ok(execution_outcome)) =
-        view_client_addr.send(near_client::GetExecutionOutcome { id }).await
-    {
-        rosetta_transaction.metadata.next_transactions = Some(
-            execution_outcome
-                .outcome_proof
-                .outcome
-                .receipt_ids
-                .into_iter()
-                .map(|receipt_id| models::TransactionIdentifier { hash: receipt_id.to_base() })
-                .collect(),
-        );
-        for operation in &mut rosetta_transaction.operations {
-            operation.status = (&execution_outcome.outcome_proof.outcome.status).into();
-        }
-    }
-
-    rosetta_transaction
-}
-
 #[api_v2_operation]
 /// Get a Block
+///
+/// Get a block by its Block Identifier. If transactions are returned in the
+/// same call to the node as fetching the block, the response should include
+/// these transactions in the Block object. If not, an array of Transaction
+/// Identifiers should be returned so /block/transaction fetches can be done to
+/// get all transaction information.
+///
+/// When requesting a block by the hash component of the BlockIdentifier,
+/// this request MUST be idempotent: repeated invocations for the same
+/// hash-identified block must return the exact same block contents.
+///
+/// No such restriction is imposed when requesting a block by height,
+/// given that a chain reorg event might cause the specific block at
+/// height `n` to be set to a different one.
 async fn block_details(
+    genesis: web::Data<Arc<Genesis>>,
     client_addr: web::Data<Addr<ClientActor>>,
     view_client_addr: web::Data<Addr<ViewClientActor>>,
     body: Json<models::BlockRequest>,
 ) -> Result<Json<models::BlockResponse>, models::Error> {
     let Json(models::BlockRequest { network_identifier, block_identifier }) = body;
 
+    // TODO: reduce copy-paste
     let status = client_addr
         .send(near_client::Status { is_health_check: false })
         .await?
@@ -213,26 +252,25 @@ async fn block_details(
         });
     }
 
-    let block_id = block_identifier.try_into().map_err(|_| models::Error {
-        code: 4,
-        message: "Invalid input".to_string(),
-        retriable: true,
-        details: None,
-    })?;
+    // TODO: avoid ad-hoc error handling of common use-cases
+    let block_id: near_primitives::types::BlockReference =
+        block_identifier.try_into().map_err(|_| models::Error {
+            code: 4,
+            message: "Invalid input".to_string(),
+            retriable: true,
+            details: None,
+        })?;
 
-    eprintln!("B1: {:?}", block_id);
-    let block = view_client_addr
-        .send(near_client::GetBlock(block_id))
-        .await?
-        .map_err(models::ErrorKind::Other)?;
-    eprintln!("B2: {:?}", block);
-
-    let block_identifier = models::BlockIdentifier {
-        index: block.header.height.try_into().unwrap(),
-        hash: block.header.hash.to_base(),
+    let block = match view_client_addr.send(near_client::GetBlock(block_id.clone())).await? {
+        Ok(block) => block,
+        Err(_) => return Ok(Json(models::BlockResponse { block: None, other_transactions: None })),
     };
 
+    let block_identifier: models::BlockIdentifier = (&block.header).into();
+
     let parent_block_identifier = if block.header.prev_hash == Default::default() {
+        // According to Rosetta API genesis block should have the parent block
+        // identifier referencing itself:
         block_identifier.clone()
     } else {
         let parent_block = view_client_addr
@@ -248,125 +286,211 @@ async fn block_details(
         }
     };
 
-    let mut chunks: futures::stream::FuturesUnordered<_> = block
-        .chunks
-        .iter()
-        .map(|chunk| {
-            view_client_addr.send(near_client::GetChunk::ChunkHash(chunk.chunk_hash.into()))
-        })
-        .collect();
-    let mut rosetta_transactions = futures::stream::FuturesOrdered::<_>::new();
-    while let Some(chunk) = chunks.next().await {
-        let chunk = chunk?.map_err(models::ErrorKind::Other)?;
-        rosetta_transactions.extend(chunk.transactions.into_iter().map(|transaction| {
-            collect_rosetta_transaction(
-                view_client_addr.clone(),
-                TransactionOrReceipt::Transaction(transaction),
-            )
-        }));
-        rosetta_transactions.extend(chunk.receipts.into_iter().map(|receipt| {
-            collect_rosetta_transaction(
-                view_client_addr.clone(),
-                TransactionOrReceipt::Receipt(receipt),
-            )
-        }));
-    }
-    let transactions: Vec<models::Transaction> = rosetta_transactions.collect().await;
+    let transactions = if block.header.prev_hash == Default::default() {
+        // NEAR Protocol defines initial state in genesis records and treats the first
+        // block differently (e.g. it cannot contain any transactions: https://stackoverflow.com/a/63347167/1178806).
+        //
+        // Genesis records can be huge (order of gigabytes of JSON data), and Rosetta
+        // API does not define any pagination, and suggests to use
+        // `other_transactions` to deal with this: https://community.rosetta-api.org/t/how-to-return-data-without-being-able-to-paginate/98
+        // We choose to do a proper implementation for the genesis block later.
+        let genesis_accounts = genesis
+            .records
+            .as_ref()
+            .iter()
+            .filter_map(|record| {
+                if let near_primitives::state_record::StateRecord::Account { account_id, .. } =
+                    record
+                {
+                    Some(account_id)
+                } else {
+                    None
+                }
+            })
+            .map(|account_id| {
+                let genesis_block_id = near_primitives::types::BlockId::Hash(block.header.hash).into();
+                let view_client_addr = &view_client_addr;
+                async move {
+                    match view_client_addr
+                        .send(near_client::Query::new(
+                            genesis_block_id,
+                            near_primitives::views::QueryRequest::ViewAccount { account_id: account_id.clone() },
+                        ))
+                        .await?
+                        .map_err(crate::models::ErrorKind::Other)?
+                        .map(|response| response.kind) {
+                        Some(near_primitives::views::QueryResponseKind::ViewAccount(account_info)) => Ok((account_id.clone(), account_info)),
+                        _ => {
+                            Err(crate::models::ErrorKind::Other(
+                                "Internal invariant is not held; we queried ViewAccount, but received something else."
+                                    .to_string(),
+                            )
+                            .into())
+                        }
+                    }
+                }
+            })
+            .collect::<futures::stream::FuturesUnordered<_>>()
+         .collect::<Vec<
+            Result<
+                (near_primitives::types::AccountId, near_primitives::views::AccountView),
+                crate::models::Error,
+            >,
+        >>()
+        .await
+        .into_iter()
+        .collect::<Result<Vec<_>, crate::models::Error>>()?;
+
+        let mut operations = Vec::new();
+        for (account_id, account) in genesis_accounts {
+            let liquid_balance_for_storage = {
+                let mut account = near_primitives::account::Account::from(&account);
+                account.amount = 0;
+                near_runtime_configs::get_insufficient_storage_stake(
+                    &account,
+                    &genesis.config.runtime_config,
+                )
+                .expect("get_insufficient_storage_stake never fails when state is consistent")
+                .unwrap_or(0)
+            };
+
+            let liquid_balance = account.amount.checked_sub(liquid_balance_for_storage).ok_or_else(|| crate::models::ErrorKind::Other("Internal invariant is not held; liquid balance for storage cannot be bigger than the total balance".into()))?;
+
+            let locked_balance = account.locked;
+
+            if liquid_balance != 0 {
+                operations.push(crate::models::Operation {
+                    operation_identifier: crate::models::OperationIdentifier {
+                        index: operations.len().try_into().expect(
+                            "there cannot be more than i64::MAX operations in a single transaction",
+                        ),
+                        network_index: None,
+                    },
+                    related_operations: None,
+                    account: Some(crate::models::AccountIdentifier {
+                        address: account_id.clone(),
+                        sub_account: None,
+                        metadata: None,
+                    }),
+                    amount: Some(crate::models::Amount {
+                        value: liquid_balance.to_string(),
+                        currency: crate::consts::YOCTO_NEAR_CURRENCY.clone(),
+                        metadata: None,
+                    }),
+                    type_: crate::models::OperationType::Transfer,
+                    status: crate::models::OperationStatusKind::Success,
+                    metadata: None,
+                });
+            }
+
+            if liquid_balance_for_storage != 0 {
+                operations.push(crate::models::Operation {
+                    operation_identifier: crate::models::OperationIdentifier {
+                        index: operations.len().try_into().expect(
+                            "there cannot be more than i64::MAX operations in a single transaction",
+                        ),
+                        network_index: None,
+                    },
+                    related_operations: None,
+                    account: Some(crate::models::AccountIdentifier {
+                        address: account_id.clone(),
+                        sub_account: Some(crate::models::SubAccountIdentifier {
+                            address: "liquid_for_storage".into(),
+                            metadata: None,
+                        }),
+                        metadata: None,
+                    }),
+                    amount: Some(crate::models::Amount {
+                        value: liquid_balance_for_storage.to_string(),
+                        currency: crate::consts::YOCTO_NEAR_CURRENCY.clone(),
+                        metadata: None,
+                    }),
+                    type_: crate::models::OperationType::Transfer,
+                    status: crate::models::OperationStatusKind::Success,
+                    metadata: None,
+                });
+            }
+
+            if locked_balance != 0 {
+                operations.push(crate::models::Operation {
+                    operation_identifier: crate::models::OperationIdentifier {
+                        index: operations.len().try_into().expect(
+                            "there cannot be more than i64::MAX operations in a single transaction",
+                        ),
+                        network_index: None,
+                    },
+                    related_operations: None,
+                    account: Some(crate::models::AccountIdentifier {
+                        address: account_id.clone(),
+                        sub_account: Some(crate::models::SubAccountIdentifier {
+                            address: "locked".into(),
+                            metadata: None,
+                        }),
+                        metadata: None,
+                    }),
+                    amount: Some(crate::models::Amount {
+                        value: locked_balance.to_string(),
+                        currency: crate::consts::YOCTO_NEAR_CURRENCY.clone(),
+                        metadata: None,
+                    }),
+                    type_: crate::models::OperationType::Transfer,
+                    status: crate::models::OperationStatusKind::Success,
+                    metadata: None,
+                });
+            }
+        }
+        vec![models::Transaction {
+            transaction_identifier: models::TransactionIdentifier {
+                hash: format!("block:{}", block.header.hash),
+            },
+            operations,
+            metadata: models::TransactionMetadata { type_: models::TransactionType::Block },
+        }]
+    } else {
+        data_fetchers::fetch_transactions(
+            Arc::clone(&genesis),
+            Addr::clone(&view_client_addr),
+            &block,
+        )
+        .await?
+    };
 
     Ok(Json(models::BlockResponse {
-        block: models::Block {
+        block: Some(models::Block {
             block_identifier,
             parent_block_identifier,
             timestamp: (block.header.timestamp / 1_000_000).try_into().unwrap(),
             transactions,
             metadata: None,
-        },
+        }),
         other_transactions: None,
     }))
 }
 
 #[api_v2_operation]
 /// Get a Block Transaction
+///
+/// Get a transaction in a block by its Transaction Identifier. This endpoint
+/// should only be used when querying a node for a block does not return all
+/// transactions contained within it. All transactions returned by this endpoint
+/// must be appended to any transactions returned by the /block method by
+/// consumers of this data. Fetching a transaction by hash is considered an
+/// Explorer Method (which is classified under the Future Work section). Calling
+/// this endpoint requires reference to a BlockIdentifier because transaction
+/// parsing can change depending on which block contains the transaction. For
+/// example, in Bitcoin it is necessary to know which block contains a
+/// transaction to determine the destination of fee payments. Without specifying
+/// a block identifier, the node would have to infer which block to use (which
+/// could change during a re-org). Implementations that require fetching
+/// previous transactions to populate the response (ex: Previous UTXOs in
+/// Bitcoin) may find it useful to run a cache within the Rosetta server in the
+/// /data directory (on a path that does not conflict with the node).
 async fn block_transaction_details(
     client_addr: web::Data<Addr<ClientActor>>,
     view_client_addr: web::Data<Addr<ViewClientActor>>,
     body: Json<models::BlockTransactionRequest>,
 ) -> Result<Json<models::BlockTransactionResponse>, models::Error> {
-    let Json(models::BlockTransactionRequest {
-        network_identifier,
-        block_identifier,
-        transaction_identifier,
-    }) = body;
-
-    let status = client_addr
-        .send(near_client::Status { is_health_check: false })
-        .await?
-        .map_err(models::ErrorKind::Other)?;
-    if status.chain_id != network_identifier.network {
-        return Err(models::Error {
-            code: 2,
-            message: "Wrong network (chain id)".to_string(),
-            retriable: true,
-            details: None,
-        });
-    }
-
-    let block_id: near_primitives::types::BlockIdOrFinality =
-        block_identifier.try_into().map_err(|_| models::Error {
-            code: 4,
-            message: "Invalid input".to_string(),
-            retriable: true,
-            details: None,
-        })?;
-
-    let transaction_or_receipt_hash =
-        (transaction_identifier.hash.as_ref() as &str).try_into().map_err(|_| models::Error {
-            code: 4,
-            message: "Invalid input".to_string(),
-            retriable: true,
-            details: None,
-        })?;
-
-    let block = view_client_addr
-        .send(near_client::GetBlock(block_id))
-        .await?
-        .map_err(models::ErrorKind::Other)?;
-
-    let mut chunks: futures::stream::FuturesUnordered<_> = block
-        .chunks
-        .iter()
-        .map(|chunk| {
-            view_client_addr.send(near_client::GetChunk::ChunkHash(chunk.chunk_hash.into()))
-        })
-        .collect();
-
-    while let Some(chunk) = chunks.next().await {
-        let chunk = chunk?.map_err(models::ErrorKind::Other)?;
-        let transaction_or_receipt = if let Some(transaction) = chunk
-            .transactions
-            .into_iter()
-            .find(|transaction| transaction.hash == transaction_or_receipt_hash)
-        {
-            TransactionOrReceipt::Transaction(transaction)
-        } else if let Some(receipt) = chunk
-            .receipts
-            .into_iter()
-            .find(|receipt| receipt.receipt_id == transaction_or_receipt_hash)
-        {
-            TransactionOrReceipt::Receipt(receipt)
-        } else {
-            continue;
-        };
-
-        let rosetta_transaction =
-            collect_rosetta_transaction(view_client_addr.clone(), transaction_or_receipt).await;
-        return Ok(Json(models::BlockTransactionResponse { transaction: rosetta_transaction }));
-    }
-
-    Err(models::ErrorKind::NotFound(
-        "Neither transaction nor receipt was found for the given hash".to_string(),
-    )
-    .into())
+    unimplemented!("the implementation is going to share the code from /block handler");
 }
 
 #[api_v2_operation]
@@ -387,6 +511,7 @@ async fn block_transaction_details(
 /// historical balance lookup (if the server supports it) by passing in an
 /// optional BlockIdentifier.
 async fn account_balance(
+    genesis: web::Data<Arc<Genesis>>,
     client_addr: web::Data<Addr<ClientActor>>,
     view_client_addr: web::Data<Addr<ViewClientActor>>,
     body: Json<models::AccountBalanceRequest>,
@@ -397,6 +522,7 @@ async fn account_balance(
         account_identifier,
     }) = body;
 
+    // TODO: reduce copy-paste
     let status = client_addr
         .send(near_client::Status { is_health_check: false })
         .await?
@@ -410,9 +536,10 @@ async fn account_balance(
         });
     }
 
-    let block_id: near_primitives::types::BlockIdOrFinality = block_identifier
+    // TODO: avoid ad-hoc error handling of common use-cases
+    let block_id: near_primitives::types::BlockReference = block_identifier
         .map(TryInto::try_into)
-        .unwrap_or(Ok(near_primitives::types::BlockIdOrFinality::Finality(
+        .unwrap_or(Ok(near_primitives::types::BlockReference::Finality(
             near_primitives::types::Finality::Final,
         )))
         .map_err(|_| models::Error {
@@ -422,37 +549,91 @@ async fn account_balance(
             details: None,
         })?;
 
+    let block = view_client_addr
+        .send(near_client::GetBlock(block_id.clone()))
+        .await?
+        .map_err(models::ErrorKind::Other)?;
+
     let query = near_client::Query::new(
         block_id,
         near_primitives::views::QueryRequest::ViewAccount {
             account_id: account_identifier.address,
         },
     );
-    let near_primitives::views::QueryResponse { block_hash, block_height, kind } =
-        tokio::time::timeout(std::time::Duration::from_secs(10), async {
-            loop {
-                if let Some(query_response) = view_client_addr
-                    .send(query.clone())
-                    .await?
-                    .map_err(models::ErrorKind::NotFound)?
-                {
-                    break Result::<_, models::Error>::Ok(query_response);
+    let account_info_response = tokio::time::timeout(std::time::Duration::from_secs(10), async {
+        loop {
+            match view_client_addr.send(query.clone()).await? {
+                Ok(Some(query_response)) => return Ok(Some(query_response)),
+                Ok(None) => {}
+                // TODO: update this once we return structured errors in the view_client handlers
+                Err(err) => {
+                    if err.contains("does not exist") {
+                        return Ok(None);
+                    }
+                    return Err(models::Error::from(models::ErrorKind::Other(err)));
                 }
-                tokio::time::delay_for(std::time::Duration::from_millis(100)).await;
             }
-        })
-        .await??;
+            tokio::time::delay_for(std::time::Duration::from_millis(100)).await;
+        }
+    })
+    .await??;
 
-    let account_info =
-        if let near_primitives::views::QueryResponseKind::ViewAccount(account_info) = kind {
-            account_info
-        } else {
-            return Err(models::ErrorKind::Other(
-            "Internal invariant is not held; we queried ViewAccount, but received something else."
-                .to_string(),
-        )
-        .into());
+    let (block_hash, block_height, account_info) = if let Some(account_info_response) =
+        account_info_response
+    {
+        let account_info = match account_info_response.kind {
+            near_primitives::views::QueryResponseKind::ViewAccount(account_info) => account_info,
+            _ => {
+                return Err(models::ErrorKind::Other(
+                    "Internal invariant is not held; we queried ViewAccount, but received something else."
+                        .to_string(),
+                )
+                .into());
+            }
         };
+        (account_info_response.block_hash, account_info_response.block_height, account_info)
+    } else {
+        (
+            block.header.hash,
+            block.header.height,
+            near_primitives::account::Account {
+                amount: 0,
+                locked: 0,
+                storage_usage: 0,
+                code_hash: Default::default(),
+            }
+            .into(),
+        )
+    };
+
+    let liquid_balance_for_storage = {
+        let mut account: near_primitives::account::Account = (&account_info).into();
+        account.amount = 0;
+        near_runtime_configs::get_insufficient_storage_stake(
+            &account,
+            &genesis.config.runtime_config,
+        )
+        .expect("get_insufficient_storage_stake never fails when state is consistent")
+        .unwrap_or(0)
+    };
+
+    let balance = if let Some(sub_account) = account_identifier.sub_account {
+        match sub_account.address.as_ref() {
+            "locked" => account_info.locked,
+            "liquid_for_storage" => liquid_balance_for_storage,
+            unknown_address => {
+                return Err(models::ErrorKind::NotFound(format!(
+                    "Unknown sub-account address '{}'",
+                    unknown_address
+                ))
+                .into());
+            }
+        }
+    } else {
+        account_info.amount.checked_sub(liquid_balance_for_storage).expect(
+            "liquid balance for storage is always smaller or equal than the account balance",
+        )
+    };
 
     Ok(Json(models::AccountBalanceResponse {
         block_identifier: models::BlockIdentifier {
@@ -460,7 +641,7 @@ async fn account_balance(
             index: block_height.try_into().unwrap(),
         },
         balances: vec![models::Amount {
-            value: account_info.amount.to_string(),
+            value: balance.to_string(),
             currency: consts::YOCTO_NEAR_CURRENCY.clone(),
             metadata: None,
         }],
@@ -476,7 +657,8 @@ async fn mempool(
     client_addr: web::Data<Addr<ClientActor>>,
     body: Json<models::NetworkRequest>,
 ) -> Result<Json<models::MempoolResponse>, models::Error> {
-    // TOOD: The mempool is short-lived, so it is currently not even exposed internally.
+    // TOOD: The mempool is short-lived, so it is currently not even exposed
+    // internally.
     Ok(Json(models::MempoolResponse { transaction_identifiers: vec![] }))
 }
 
@@ -511,8 +693,10 @@ async fn mempool_transaction(
 async fn construction_submit(
     client_addr: web::Data<Addr<ClientActor>>,
     body: Json<models::ConstructionSubmitRequest>,
-) -> Result<Json<models::ConstructionSubmitResponse>, models::Error> {
+) -> Result<Json<models::TransactionIdentifierResponse>, models::Error> {
     let Json(models::ConstructionSubmitRequest { network_identifier, signed_transaction }) = body;
+
+    // TODO: reduce copy-paste
     let status = client_addr
         .send(near_client::Status { is_health_check: false })
         .await?
@@ -532,7 +716,7 @@ async fn construction_submit(
         is_forwarded: false,
         check_only: false,
     });
-    Ok(Json(models::ConstructionSubmitResponse {
+    Ok(Json(models::TransactionIdentifierResponse {
         transaction_identifier: models::TransactionIdentifier { hash: transaction_hash },
         metadata: None,
     }))
@@ -549,7 +733,7 @@ async fn construction_submit(
 async fn construction_preprocess(
     client_addr: web::Data<Addr<ClientActor>>,
     body: Json<models::ConstructionSubmitRequest>,
-) -> Result<Json<models::ConstructionSubmitResponse>, models::Error> {
+) -> Result<Json<models::TransactionIdentifierResponse>, models::Error> {
     // TODO
     Err(models::ErrorKind::Other("Not implemented yet".to_string()).into())
 }
@@ -568,7 +752,7 @@ async fn construction_preprocess(
 async fn construction_metadata(
     client_addr: web::Data<Addr<ClientActor>>,
     body: Json<models::ConstructionSubmitRequest>,
-) -> Result<Json<models::ConstructionSubmitResponse>, models::Error> {
+) -> Result<Json<models::TransactionIdentifierResponse>, models::Error> {
     // TODO
     Err(models::ErrorKind::Other("Not implemented yet".to_string()).into())
 }
@@ -589,7 +773,7 @@ async fn construction_metadata(
 async fn construction_payloads(
     client_addr: web::Data<Addr<ClientActor>>,
     body: Json<models::ConstructionSubmitRequest>,
-) -> Result<Json<models::ConstructionSubmitResponse>, models::Error> {
+) -> Result<Json<models::TransactionIdentifierResponse>, models::Error> {
     // TODO
     Err(models::ErrorKind::Other("Not implemented yet".to_string()).into())
 }
@@ -603,7 +787,7 @@ async fn construction_payloads(
 async fn construction_combine(
     client_addr: web::Data<Addr<ClientActor>>,
     body: Json<models::ConstructionSubmitRequest>,
-) -> Result<Json<models::ConstructionSubmitResponse>, models::Error> {
+) -> Result<Json<models::TransactionIdentifierResponse>, models::Error> {
     // TODO
     Err(models::ErrorKind::Other("Not implemented yet".to_string()).into())
 }
@@ -618,7 +802,7 @@ async fn construction_combine(
 async fn construction_parse(
     client_addr: web::Data<Addr<ClientActor>>,
     body: Json<models::ConstructionSubmitRequest>,
-) -> Result<Json<models::ConstructionSubmitResponse>, models::Error> {
+) -> Result<Json<models::TransactionIdentifierResponse>, models::Error> {
     // TODO
     Err(models::ErrorKind::Other("Not implemented yet".to_string()).into())
 }
@@ -629,13 +813,15 @@ async fn construction_parse(
 /// TransactionHash returns the network-specific transaction hash for a signed
 /// transaction.
 async fn construction_hash(
-    client_addr: web::Data<Addr<ClientActor>>,
     body: Json<models::ConstructionHashRequest>,
-) -> Result<Json<models::ConstructionHashResponse>, models::Error> {
-    let Json(models::ConstructionHashRequest { network_identifier, signed_transaction }) = body;
+) -> Result<Json<models::TransactionIdentifierResponse>, models::Error> {
+    let Json(models::ConstructionHashRequest { network_identifier: _, signed_transaction }) = body;
 
-    Ok(Json(models::ConstructionHashResponse {
-        transaction_hash: signed_transaction.0.get_hash().to_base(),
+    Ok(Json(models::TransactionIdentifierResponse {
+        transaction_identifier: models::TransactionIdentifier {
+            hash: signed_transaction.0.get_hash().to_base(),
+        },
+        metadata: None,
     }))
 }
 
