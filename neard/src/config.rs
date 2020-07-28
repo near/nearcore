@@ -104,7 +104,7 @@ pub const NUM_BLOCKS_PER_YEAR: u64 = 365 * 24 * 60 * 60;
 pub const INITIAL_GAS_LIMIT: Gas = 1_000_000_000_000_000;
 
 /// Initial gas price.
-pub const MIN_GAS_PRICE: Balance = 5000;
+pub const MIN_GAS_PRICE: Balance = 1_000_000_000;
 
 /// Protocol treasury account
 pub const PROTOCOL_TREASURY_ACCOUNT: &str = "near";
@@ -727,7 +727,7 @@ pub fn init_configs(
             genesis.to_file(&dir.join(config.genesis_file));
             info!(target: "near", "Generated MainNet genesis file in {}", dir.to_str().unwrap());
         }
-        "testnet" | "betanet" | "devnet" => {
+        "testnet" | "betanet" => {
             if test_seed.is_some() {
                 panic!("Test seed is not supported for official TestNet");
             }
