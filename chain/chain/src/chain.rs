@@ -40,6 +40,7 @@ use near_primitives::views::{
 };
 use near_store::{ColState, ColStateHeaders, ColStateParts, ShardTries, StoreUpdate};
 
+use crate::delay_detector::DelayDetector;
 use crate::error::{Error, ErrorKind, LogTransientStorageError};
 use crate::lightclient::get_epoch_block_producers_view;
 use crate::store::{ChainStore, ChainStoreAccess, ChainStoreUpdate, GCMode};
@@ -501,6 +502,8 @@ impl Chain {
         tries: ShardTries,
         gc_blocks_limit: NumBlocks,
     ) -> Result<(), Error> {
+        let _d = DelayDetector::new("GC");
+
         let head = self.store.head()?;
         let tail = self.store.tail()?;
         let gc_stop_height = match self.runtime_adapter.get_gc_stop_height(&head.last_block_hash) {

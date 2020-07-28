@@ -34,6 +34,7 @@ use crate::types::{
 use crate::PeerManagerActor;
 use crate::{metrics, NetworkResponses};
 use metrics::NetworkMetrics;
+use near_chain::delay_detector::DelayDetector;
 
 type WriteHalf = tokio::io::WriteHalf<tokio::net::TcpStream>;
 
@@ -880,6 +881,7 @@ impl Handler<SendMessage> for Peer {
     type Result = ();
 
     fn handle(&mut self, msg: SendMessage, _: &mut Self::Context) {
+        let _d = DelayDetector::new("send message");
         self.send_message(msg.message);
     }
 }
@@ -888,6 +890,7 @@ impl Handler<QueryPeerStats> for Peer {
     type Result = PeerStatsResult;
 
     fn handle(&mut self, _: QueryPeerStats, _: &mut Self::Context) -> Self::Result {
+        let _d = DelayDetector::new("query peer stats");
         PeerStatsResult {
             chain_info: self.chain_info.clone(),
             received_bytes_per_sec: self.tracker.received_bytes.bytes_per_min() / 60,
@@ -905,6 +908,7 @@ impl Handler<PeerManagerRequest> for Peer {
     type Result = ();
 
     fn handle(&mut self, pm_request: PeerManagerRequest, ctx: &mut Self::Context) -> Self::Result {
+        let _d = DelayDetector::new("peer manager request");
         match pm_request {
             PeerManagerRequest::BanPeer(ban_reason) => {
                 self.ban_peer(ctx, ban_reason);

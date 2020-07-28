@@ -50,6 +50,7 @@ use crate::types::{
     StatusSyncInfo, SyncStatus,
 };
 use crate::StatusResponse;
+use near_chain::delay_detector::DelayDetector;
 
 /// Multiplier on `max_block_time` to wait until deciding that chain stalled.
 const STATUS_WAIT_TIME_MULTIPLIER: u64 = 10;
@@ -189,6 +190,7 @@ impl Handler<NetworkClientMessages> for ClientActor {
     type Result = NetworkClientResponses;
 
     fn handle(&mut self, msg: NetworkClientMessages, ctx: &mut Context<Self>) -> Self::Result {
+        let _d = DelayDetector::new("client network client message");
         self.check_triggers(ctx);
 
         match msg {
@@ -502,6 +504,7 @@ impl Handler<Status> for ClientActor {
     type Result = Result<StatusResponse, String>;
 
     fn handle(&mut self, msg: Status, ctx: &mut Context<Self>) -> Self::Result {
+        let _d = DelayDetector::new("client status");
         self.check_triggers(ctx);
 
         let head = self.client.chain.head().map_err(|err| err.to_string())?;
@@ -570,6 +573,7 @@ impl Handler<GetNetworkInfo> for ClientActor {
     type Result = Result<NetworkInfoResponse, String>;
 
     fn handle(&mut self, _: GetNetworkInfo, ctx: &mut Context<Self>) -> Self::Result {
+        let _d = DelayDetector::new("client get network info");
         self.check_triggers(ctx);
 
         Ok(NetworkInfoResponse {
@@ -721,6 +725,8 @@ impl ClientActor {
         // There is a bug in Actix library. While there are messages in mailbox, Actix
         // will prioritize processing messages until mailbox is empty. Execution of any other task
         // scheduled with run_later will be delayed.
+
+        let _d = DelayDetector::new("client triggers");
 
         let mut delay = Duration::from_secs(1);
         let now = Utc::now();
@@ -1062,6 +1068,7 @@ impl ClientActor {
 
     /// Runs catchup on repeat, if this client is a validator.
     fn catchup(&mut self, ctx: &mut Context<ClientActor>) {
+        let _d = DelayDetector::new("client catchup");
         match self.client.run_catchup(&self.network_info.highest_height_peers) {
             Ok(accepted_blocks) => {
                 self.process_accepted_blocks(accepted_blocks);
@@ -1098,6 +1105,7 @@ impl ClientActor {
 
     /// Main syncing job responsible for syncing client with other peers.
     fn sync(&mut self, ctx: &mut Context<ClientActor>) {
+        let _d = DelayDetector::new("client sync");
         // Macro to schedule to call this function later if error occurred.
         macro_rules! unwrap_or_run_later(($obj: expr) => (match $obj {
             Ok(v) => v,
@@ -1261,6 +1269,7 @@ impl ClientActor {
 
     /// Periodically log summary.
     fn log_summary(&self, ctx: &mut Context<Self>) {
+        let _d = DelayDetector::new("client log summary");
         ctx.run_later(self.client.config.log_summary_period, move |act, ctx| {
             let head = unwrap_or_return!(act.client.chain.head());
             let validators = unwrap_or_return!(act
