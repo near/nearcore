@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
-branch=${BUILDKITE_BRANCH}
+branch=${BUILDKITE_BRANCH/:/_}
 commit=${BUILDKITE_COMMIT}
 if [[ ${commit} == "HEAD" ]]; then
     commit=$(git rev-parse HEAD)
