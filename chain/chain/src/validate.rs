@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use borsh::{BorshDeserialize, BorshSerialize};
+use log::info;
 
 use near_crypto::PublicKey;
 use near_primitives::block::{Block, BlockHeader};
@@ -100,26 +101,34 @@ pub fn validate_chunk_with_chunk_extra(
     chunk_header: &ShardChunkHeader,
 ) -> Result<(), Error> {
     if prev_chunk_extra.state_root != chunk_header.inner.prev_state_root {
+        info!("ERROR STATE ROOT, prev block hash {} prev chunk extra {:?} prev chunk header: {:?} chunk header: {:?}", prev_block_hash, prev_chunk_extra, prev_chunk_header, chunk_header);
         return Err(ErrorKind::InvalidStateRoot.into());
     }
 
     if prev_chunk_extra.outcome_root != chunk_header.inner.outcome_root {
+        info!("ERROR OUTCOME ROOT, prev block hash {} prev chunk extra {:?} prev chunk header: {:?} chunk header: {:?}", prev_block_hash, prev_chunk_extra, prev_chunk_header, chunk_header);
         return Err(ErrorKind::InvalidOutcomesProof.into());
     }
 
     if prev_chunk_extra.validator_proposals != chunk_header.inner.validator_proposals {
+        info!("ERROR PROPOSALS, prev block hash {} prev chunk extra {:?} prev chunk header: {:?} chunk header: {:?}", prev_block_hash, prev_chunk_extra, prev_chunk_header, chunk_header);
         return Err(ErrorKind::InvalidValidatorProposals.into());
     }
 
     if prev_chunk_extra.gas_limit != chunk_header.inner.gas_limit {
+        info!("ERROR GAS LIMIT, prev block hash {} prev chunk extra {:?} prev chunk header: {:?} chunk header: {:?}", prev_block_hash, prev_chunk_extra, prev_chunk_header, chunk_header);
+
         return Err(ErrorKind::InvalidGasLimit.into());
     }
 
     if prev_chunk_extra.gas_used != chunk_header.inner.gas_used {
+        info!("ERROR GAS USED, prev block hash {} prev chunk extra {:?} prev chunk header: {:?} chunk header: {:?}", prev_block_hash, prev_chunk_extra, prev_chunk_header, chunk_header);
+
         return Err(ErrorKind::InvalidGasUsed.into());
     }
 
     if prev_chunk_extra.balance_burnt != chunk_header.inner.balance_burnt {
+        println!("ERROR BALANCE BURNT, prev block hash {} prev chunk extra {:?} prev chunk header: {:?} chunk header: {:?}", prev_block_hash, prev_chunk_extra, prev_chunk_header, chunk_header);
         return Err(ErrorKind::InvalidBalanceBurnt.into());
     }
 
