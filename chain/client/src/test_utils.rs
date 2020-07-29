@@ -250,8 +250,9 @@ impl BlockStats {
     }
 
     fn add_block(&mut self, block: &Block) {
-        let prev_height = self.hash2height.get(block.header().prev_hash()).map(|v| *v).unwrap_or(0);
         if !self.hash2height.contains_key(block.hash()) {
+            let prev_height =
+                self.hash2height.get(block.header().prev_hash()).map(|v| *v).unwrap_or(0);
             self.hash2height.insert(*block.hash(), prev_height + 1);
             self.num_blocks += 1;
             self.max_chain_length = max(self.max_chain_length, prev_height + 1);
