@@ -1,7 +1,9 @@
+use log::info;
 use std::cmp::max;
 use std::collections::{HashMap, HashSet};
 use std::ops::DerefMut;
 use std::sync::{Arc, RwLock};
+use std::time::Duration;
 
 use actix::actors::mocker::Mocker;
 use actix::{Actor, Addr, AsyncContext, Context};
@@ -46,6 +48,7 @@ use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{EncodedShardChunk, ReedSolomonWrapper};
 use num_rational::Rational;
 use std::mem::swap;
+use std::time::Instant;
 
 pub type NetworkMock = Mocker<PeerManagerActor>;
 
@@ -200,6 +203,106 @@ fn sample_binary(n: u64, k: u64) -> bool {
     thread_rng().gen_range(0, k) <= n
 }
 
+pub struct BlockStats {
+    hash2height: HashMap<CryptoHash, u64>,
+    num_blocks: u64,
+    max_chain_length: u64,
+    last_check: Instant,
+    max_divergence: u64,
+    last_hash: Option<CryptoHash>,
+    parent: HashMap<CryptoHash, CryptoHash>,
+}
+
+impl BlockStats {
+    fn new() -> BlockStats {
+        BlockStats {
+            hash2height: HashMap::new(),
+            num_blocks: 0,
+            max_chain_length: 0,
+            last_check: Instant::now(),
+            max_divergence: 0,
+            last_hash: None,
+            parent: HashMap::new(),
+        }
+    }
+
+    fn calculate_distance(&mut self, mut lhs: CryptoHash, mut rhs: CryptoHash) -> u64 {
+        let mut dlhs = *self.hash2height.get(&lhs).unwrap();
+        let mut drhs = *self.hash2height.get(&rhs).unwrap();
+
+        let mut result: u64 = 0;
+        while dlhs > drhs {
+            lhs = *self.parent.get(&lhs).unwrap();
+            dlhs -= 1;
+            result += 1;
+        }
+        while dlhs < drhs {
+            rhs = *self.parent.get(&rhs).unwrap();
+            drhs -= 1;
+            result += 1;
+        }
+        while lhs != rhs {
+            lhs = *self.parent.get(&lhs).unwrap();
+            rhs = *self.parent.get(&rhs).unwrap();
+            result += 2;
+        }
+        result
+    }
+
+    fn add_block(&mut self, block: &Block) {
+        let prev_height = self.hash2height.get(block.header().prev_hash()).map(|v| *v).unwrap_or(0);
+        if !self.hash2height.contains_key(block.hash()) {
+            self.hash2height.insert(*block.hash(), prev_height + 1);
+            self.num_blocks += 1;
+            self.max_chain_length = max(self.max_chain_length, prev_height + 1);
+            self.parent.insert(*block.hash(), *block.header().prev_hash());
+
+            if let Some(last_hash2) = self.last_hash {
+                self.max_divergence = max(
+                    self.max_divergence,
+                    self.calculate_distance(last_hash2, block.hash().clone()),
+                );
+            }
+
+            self.last_hash = Some(block.hash().clone());
+        }
+    }
+
+    pub fn check_stats(&mut self, force: bool) {
+        let now = Instant::now();
+        let diff = now.duration_since(self.last_check);
+        if !force && diff.lt(&Duration::from_secs(60)) {
+            return;
+        }
+        self.last_check = now;
+        let cur_ratio = (self.num_blocks as f64) / (max(1, self.max_chain_length) as f64);
+        info!(
+            "Block stats: ratio: {:.2}, num_blocks: {} max_chain_length: {} max_divergence: {}",
+            cur_ratio, self.num_blocks, self.max_chain_length, self.max_divergence
+        );
+    }
+
+    pub fn check_block_ratio(&mut self, min_ratio: Option<f64>, max_ratio: Option<f64>) {
+        let cur_ratio = (self.num_blocks as f64) / (max(1, self.max_chain_length) as f64);
+        if let Some(min_ratio2) = min_ratio {
+            if cur_ratio < min_ratio2 {
+                panic!(
+                    "ratio of blocks to longest chain is too low got: {:.2} expected: {:.2}",
+                    cur_ratio, min_ratio2
+                );
+            }
+        }
+        if let Some(max_ratio2) = max_ratio {
+            if cur_ratio > max_ratio2 {
+                panic!(
+                    "ratio of blocks to longest chain is too high got: {:.2} expected: {:.2}",
+                    cur_ratio, max_ratio2
+                );
+            }
+        }
+    }
+}
+
 /// Sets up ClientActor and ViewClientActor with mock PeerManager.
 ///
 /// # Arguments
@@ -243,8 +346,9 @@ pub fn setup_mock_all_validators(
     epoch_length: BlockHeightDelta,
     enable_doomslug: bool,
     archive: Vec<bool>,
+    check_block_stats: bool,
     network_mock: Arc<RwLock<Box<dyn FnMut(String, &NetworkRequests) -> (NetworkResponses, bool)>>>,
-) -> (Block, Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>) {
+) -> (Block, Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>, Arc<RwLock<BlockStats>>) {
     let validators_clone = validators.clone();
     let key_pairs = key_pairs;
 
@@ -267,8 +371,10 @@ pub fn setup_mock_all_validators(
     let largest_endorsed_height = Arc::new(RwLock::new(vec![0u64; key_pairs.len()]));
     let largest_skipped_height = Arc::new(RwLock::new(vec![0u64; key_pairs.len()]));
     let hash_to_height = Arc::new(RwLock::new(HashMap::new()));
+    let block_stats = Arc::new(RwLock::new(BlockStats::new()));
 
     for (index, account_id) in validators.into_iter().flatten().enumerate() {
+        let block_stats1 = block_stats.clone();
         let view_client_addr = Arc::new(RwLock::new(None));
         let view_client_addr1 = view_client_addr.clone();
         let validators_clone1 = validators_clone.clone();
@@ -347,6 +453,12 @@ pub fn setup_mock_all_validators(
 
                     match msg {
                         NetworkRequests::Block { block } => {
+                            if check_block_stats {
+                                let block_stats2 = &mut *block_stats1.write().unwrap();
+                                block_stats2.add_block(block);
+                                block_stats2.check_stats(false);
+                            }
+
                             for (client, _) in connectors1.read().unwrap().iter() {
                                 client.do_send(NetworkClientMessages::Block(
                                     block.clone(),
@@ -696,7 +808,7 @@ pub fn setup_mock_all_validators(
         .insert(*genesis_block.read().unwrap().as_ref().unwrap().header().clone().hash(), 0);
     *locked_connectors = ret.clone();
     let value = genesis_block.read().unwrap();
-    (value.clone().unwrap(), ret)
+    (value.clone().unwrap(), ret, block_stats)
 }
 
 /// Sets up ClientActor and ViewClientActor without network.

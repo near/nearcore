@@ -301,7 +301,7 @@ fn produce_block_with_approvals_arrived_early() {
         > = Arc::new(RwLock::new(Box::new(|_: String, _: &NetworkRequests| {
             (NetworkResponses::NoResponse, true)
         })));
-        let (_, conns) = setup_mock_all_validators(
+        let (_, conns, _) = setup_mock_all_validators(
             validators.clone(),
             key_pairs,
             1,
@@ -312,6 +312,7 @@ fn produce_block_with_approvals_arrived_early() {
             100,
             true,
             vec![false; validators.iter().map(|x| x.len()).sum()],
+            false,
             network_mock.clone(),
         );
         *network_mock.write().unwrap() =

@@ -25,7 +25,7 @@ fn test_keyvalue_runtime_balances() {
         let key_pairs =
             vec![PeerInfo::random(), PeerInfo::random(), PeerInfo::random(), PeerInfo::random()];
 
-        let (_, conn) = setup_mock_all_validators(
+        let (_, conn, _) = setup_mock_all_validators(
             validators.clone(),
             key_pairs.clone(),
             validator_groups,
@@ -36,6 +36,7 @@ fn test_keyvalue_runtime_balances() {
             5,
             false,
             vec![false; validators.iter().map(|x| x.len()).sum()],
+            false,
             Arc::new(RwLock::new(Box::new(move |_account_id: String, _msg: &NetworkRequests| {
                 (NetworkResponses::NoResponse, true)
             }))),
@@ -85,7 +86,7 @@ mod tests {
     use futures::{future, FutureExt};
 
     use near_chain::test_utils::account_id_to_shard_id;
-    use near_client::test_utils::setup_mock_all_validators;
+    use near_client::test_utils::{setup_mock_all_validators, BlockStats};
     use near_client::{ClientActor, Query, ViewClientActor};
     use near_crypto::{InMemorySigner, KeyType};
     use near_logger_utils::init_test_logger;
@@ -173,6 +174,9 @@ mod tests {
         presumable_epoch: Arc<RwLock<usize>>,
         num_iters: usize,
         block_hash: CryptoHash,
+        block_stats: Arc<RwLock<BlockStats>>,
+        min_ratio: Option<f64>,
+        max_ratio: Option<f64>,
     ) {
         let res = res.unwrap().and_then(|r| r.ok_or_else(|| "Request routed".to_string()));
 
@@ -214,6 +218,9 @@ mod tests {
                                 presumable_epoch1,
                                 num_iters,
                                 block_hash,
+                                block_stats,
+                                min_ratio,
+                                max_ratio,
                             );
                             future::ready(())
                         }),
@@ -241,6 +248,9 @@ mod tests {
                     iteration.fetch_add(1, Ordering::Relaxed);
                     let iteration_local = iteration.load(Ordering::Relaxed);
                     if iteration_local > num_iters {
+                        (&mut *block_stats.write().unwrap()).check_stats(true);
+                        (&mut *block_stats.write().unwrap())
+                            .check_block_ratio(min_ratio, max_ratio);
                         System::current().stop();
                     }
 
@@ -281,6 +291,7 @@ mod tests {
                         let observed_balances1 = observed_balances.clone();
                         let presumable_epoch1 = presumable_epoch.clone();
                         let account_id1 = validators[i].to_string();
+                        let block_stats1 = block_stats.clone();
                         actix::spawn(
                             connectors_[account_id_to_shard_id(&validators[i].to_string(), 8)
                                 as usize
@@ -307,6 +318,9 @@ mod tests {
                                         presumable_epoch1,
                                         num_iters,
                                         block_hash,
+                                        block_stats1,
+                                        min_ratio,
+                                        max_ratio,
                                     );
                                     future::ready(())
                                 }),
@@ -356,6 +370,9 @@ mod tests {
                                 presumable_epoch1,
                                 num_iters,
                                 block_hash,
+                                block_stats,
+                                min_ratio,
+                                max_ratio,
                             );
                             future::ready(())
                         }),
@@ -370,6 +387,8 @@ mod tests {
         drop_chunks: bool,
         test_doomslug: bool,
         block_production_time: u64,
+        min_ratio: Option<f64>,
+        max_ratio: Option<f64>,
     ) {
         let validator_groups = 4;
         init_test_logger();
@@ -410,7 +429,7 @@ mod tests {
                 observed_balances_local.push(0);
             }
 
-            let (genesis_block, conn) = setup_mock_all_validators(
+            let (genesis_block, conn, block_stats) = setup_mock_all_validators(
                 validators.clone(),
                 key_pairs.clone(),
                 validator_groups,
@@ -421,6 +440,7 @@ mod tests {
                 20,
                 test_doomslug,
                 vec![true; validators.iter().map(|x| x.len()).sum()],
+                true,
                 Arc::new(RwLock::new(Box::new(
                     move |_account_id: String, _msg: &NetworkRequests| {
                         (NetworkResponses::NoResponse, true)
@@ -448,6 +468,7 @@ mod tests {
                 let observed_balances1 = observed_balances.clone();
                 let presumable_epoch1 = presumable_epoch.clone();
                 let account_id1 = flat_validators[i].clone();
+                let block_stats1 = block_stats.clone();
                 actix::spawn(
                     connectors_[i + *presumable_epoch.read().unwrap() * 8]
                         .1
@@ -472,6 +493,9 @@ mod tests {
                                 presumable_epoch1,
                                 num_iters,
                                 block_hash,
+                                block_stats1,
+                                min_ratio,
+                                max_ratio,
                             );
                             future::ready(())
                         }),
@@ -488,37 +512,37 @@ mod tests {
     }
 
     #[test]
-    fn test_cross_shard_tx() {
-        test_cross_shard_tx_common(64, false, false, false, 100);
+    fn test_cross_shard_tx_base() {
+        test_cross_shard_tx_common(64, false, false, false, 100, Some(3.0), None);
     }
 
     #[test]
     fn test_cross_shard_tx_doomslug() {
-        test_cross_shard_tx_common(64, false, false, true, 100);
+        test_cross_shard_tx_common(64, false, false, true, 100, None, Some(1.5));
     }
 
     #[test]
     fn test_cross_shard_tx_drop_chunks() {
-        test_cross_shard_tx_common(64, false, true, false, 150);
+        test_cross_shard_tx_common(64, false, true, false, 150, Some(3.0), None);
     }
 
     #[test]
     fn test_cross_shard_tx_8_iterations() {
-        test_cross_shard_tx_common(8, false, false, false, 100);
+        test_cross_shard_tx_common(8, false, false, false, 100, Some(3.0), None);
     }
 
     #[test]
     fn test_cross_shard_tx_8_iterations_drop_chunks() {
-        test_cross_shard_tx_common(8, false, true, false, 150);
+        test_cross_shard_tx_common(8, false, true, false, 150, Some(3.0), None);
     }
 
     #[test]
     fn test_cross_shard_tx_with_validator_rotation_1() {
-        test_cross_shard_tx_common(8, true, false, false, 200);
+        test_cross_shard_tx_common(8, true, false, false, 200, Some(3.0), None);
     }
 
     #[test]
     fn test_cross_shard_tx_with_validator_rotation_2() {
-        test_cross_shard_tx_common(24, true, false, false, 400);
+        test_cross_shard_tx_common(24, true, false, false, 400, Some(3.0), None);
     }
 }

@@ -108,7 +108,7 @@ fn chunks_produced_and_distributed_common(
         let mut partial_chunk_msgs = 0;
         let mut partial_chunk_request_msgs = 0;
 
-        let (_, conn) = setup_mock_all_validators(
+        let (_, conn, _) = setup_mock_all_validators(
             validators.clone(),
             key_pairs.clone(),
             validator_groups,
@@ -119,6 +119,7 @@ fn chunks_produced_and_distributed_common(
             5,
             true,
             vec![false; validators.iter().map(|x| x.len()).sum()],
+            false,
             Arc::new(RwLock::new(Box::new(move |from_whom: String, msg: &NetworkRequests| {
                 match msg {
                     NetworkRequests::Block { block } => {

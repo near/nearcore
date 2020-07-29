@@ -135,7 +135,7 @@ mod tests {
             if sync_hold {
                 block_prod_time *= STATE_SYNC_TIMEOUT as u64;
             }
-            let (_, conn) = setup_mock_all_validators(
+            let (_, conn, _) = setup_mock_all_validators(
                 validators.clone(),
                 key_pairs.clone(),
                 validator_groups,
@@ -146,6 +146,7 @@ mod tests {
                 5,
                 false,
                 vec![true; validators.iter().map(|x| x.len()).sum()],
+                false,
                 Arc::new(RwLock::new(Box::new(
                     move |_account_id: String, msg: &NetworkRequests| {
                         let account_from = "test3.3".to_string();
@@ -432,7 +433,7 @@ mod tests {
                 };
 
             let connectors1 = connectors.clone();
-            let (_, conn) = setup_mock_all_validators(
+            let (_, conn, _) = setup_mock_all_validators(
                 validators.clone(),
                 key_pairs.clone(),
                 validator_groups,
@@ -443,6 +444,7 @@ mod tests {
                 5,
                 false,
                 vec![false; validators.iter().map(|x| x.len()).sum()],
+                false,
                 Arc::new(RwLock::new(Box::new(
                     move |_account_id: String, msg: &NetworkRequests| {
                         let mut seen_heights_same_block = seen_heights_same_block.write().unwrap();
@@ -631,7 +633,7 @@ mod tests {
 
             let (validators, key_pairs) = get_validators_and_key_pairs();
 
-            let (_, conn) = setup_mock_all_validators(
+            let (_, conn, _) = setup_mock_all_validators(
                 validators.clone(),
                 key_pairs.clone(),
                 validator_groups,
@@ -642,6 +644,7 @@ mod tests {
                 5,
                 false,
                 vec![false; validators.iter().map(|x| x.len()).sum()],
+                false,
                 Arc::new(RwLock::new(Box::new(
                     move |_account_id: String, msg: &NetworkRequests| {
                         if let NetworkRequests::Block { block } = msg {
@@ -691,7 +694,7 @@ mod tests {
 
             let (validators, key_pairs) = get_validators_and_key_pairs();
 
-            let (_, conn) = setup_mock_all_validators(
+            let (_, conn, _) = setup_mock_all_validators(
                 validators.clone(),
                 key_pairs.clone(),
                 validator_groups,
@@ -702,6 +705,7 @@ mod tests {
                 5,
                 true,
                 vec![false; validators.iter().map(|x| x.len()).sum()],
+                false,
                 Arc::new(RwLock::new(Box::new(
                     move |_account_id: String, msg: &NetworkRequests| {
                         let propagate = if let NetworkRequests::Block { block } = msg {
@@ -764,7 +768,7 @@ mod tests {
             let _connectors1 = connectors.clone();
 
             let block_prod_time: u64 = 1200;
-            let (_, conn) = setup_mock_all_validators(
+            let (_, conn, _) = setup_mock_all_validators(
                 validators.clone(),
                 key_pairs.clone(),
                 validator_groups,
@@ -775,6 +779,7 @@ mod tests {
                 5,
                 true,
                 vec![false; validators.iter().map(|x| x.len()).sum()],
+                false,
                 Arc::new(RwLock::new(Box::new(
                     move |sender_account_id: String, msg: &NetworkRequests| {
                         let mut grieving_chunk_hash = grieving_chunk_hash.write().unwrap();
@@ -917,7 +922,7 @@ mod tests {
             let responded =
                 Arc::new(RwLock::new(HashSet::<(CryptoHash, Vec<u64>, ChunkHash)>::new()));
 
-            let (_, conn) = setup_mock_all_validators(
+            let (_, conn, _) = setup_mock_all_validators(
                 validators.clone(),
                 key_pairs.clone(),
                 validator_groups,
@@ -928,6 +933,7 @@ mod tests {
                 epoch_length,
                 false,
                 vec![false; validators.iter().map(|x| x.len()).sum()],
+                false,
                 Arc::new(RwLock::new(Box::new(
                     move |sender_account_id: String, msg: &NetworkRequests| {
                         let mut seen_chunk_same_sender = seen_chunk_same_sender.write().unwrap();
