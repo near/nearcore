@@ -1,9 +1,7 @@
 use near_chain::test_utils::setup;
 use near_chain::{Block, ChainStoreAccess, ErrorKind, Provenance};
-use near_crypto::KeyType;
 use near_logger_utils::init_test_logger;
 use near_primitives::hash::CryptoHash;
-use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
 use num_rational::Rational;
 

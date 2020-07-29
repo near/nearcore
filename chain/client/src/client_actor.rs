@@ -905,7 +905,7 @@ impl ClientActor {
         match self.process_block(block, provenance, &peer_id) {
             Ok(_) => {}
             Err(ref err) if err.is_bad_data() => {
-                debug!(target: "client", "receive bad block: {}", err);
+                warn!(target: "client", "receive bad block: {}", err);
             }
             Err(ref err) if err.is_error() => {
                 if self.client.sync_status.is_syncing() {
