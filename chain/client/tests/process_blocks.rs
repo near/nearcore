@@ -1193,9 +1193,11 @@ fn test_gc_after_state_sync() {
         env.process_block(1, block, Provenance::NONE);
     }
     let sync_height = epoch_length * 4 + 1;
-    let sync_hash = *env.clients[0].chain.get_block_by_height(sync_height).unwrap().hash();
+    let sync_block = env.clients[0].chain.get_block_by_height(sync_height).unwrap().clone();
+    let sync_hash = *sync_block.hash();
+    let prev_block_hash = *sync_block.header().prev_hash();
     // reset cache
-    for i in epoch_length * 3..sync_height {
+    for i in epoch_length * 3 - 1..sync_height - 1 {
         let block_hash = *env.clients[0].chain.get_block_by_height(i).unwrap().hash();
         assert!(env.clients[1].chain.runtime_adapter.get_epoch_start_height(&block_hash).is_ok());
     }
@@ -1204,6 +1206,8 @@ fn test_gc_after_state_sync() {
         env.clients[1].runtime_adapter.get_gc_stop_height(&sync_hash).unwrap_err().kind(),
         ErrorKind::DBNotFoundErr(_)
     ));
+    // mimic what we do in possible_targets
+    assert!(env.clients[1].runtime_adapter.get_epoch_id_from_prev_block(&prev_block_hash).is_ok());
     let tries = env.clients[1].runtime_adapter.get_tries();
     assert!(env.clients[1].chain.clear_data(tries, 2).is_ok());
 }

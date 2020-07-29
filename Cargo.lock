@@ -2625,7 +2625,7 @@ dependencies = [
 
 [[package]]
 name = "near-runtime-fees"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "num-rational",
  "serde",
@@ -2633,7 +2633,7 @@ dependencies = [
 
 [[package]]
 name = "near-runtime-standalone"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "near-crypto",
  "near-pool",
@@ -2682,7 +2682,7 @@ dependencies = [
 
 [[package]]
 name = "near-vm-errors"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "borsh",
  "near-rpc-error-macro",
@@ -2691,7 +2691,7 @@ dependencies = [
 
 [[package]]
 name = "near-vm-logic"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "base64 0.11.0",
  "bs58",
@@ -2706,7 +2706,7 @@ dependencies = [
 
 [[package]]
 name = "near-vm-runner"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "anyhow",
  "assert_matches",
@@ -2725,7 +2725,7 @@ dependencies = [
 
 [[package]]
 name = "near-vm-runner-standalone"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "base64 0.11.0",
  "clap",
@@ -2828,7 +2828,7 @@ dependencies = [
 
 [[package]]
 name = "node-runtime"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "assert_matches",
  "base64 0.11.0",
@@ -2855,8 +2855,6 @@ dependencies = [
  "rocksdb",
  "serde",
  "serde_json",
- "sha2",
- "sha3",
  "tempfile",
  "testlib",
 ]
@@ -3546,7 +3544,7 @@ dependencies = [
 
 [[package]]
 name = "runtime-params-estimator"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "borsh",
  "clap",

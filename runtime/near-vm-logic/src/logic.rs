@@ -758,7 +758,7 @@ impl<'a> VMLogic<'a> {
         self.internal_write_register(register_id, self.context.random_seed.clone())
     }
 
-    /// Hashes the random sequence of bytes using sha256 and returns it into `register_id`.
+    /// Hashes the given value using sha256 and returns it into `register_id`.
     ///
     /// # Errors
     ///
@@ -772,11 +772,14 @@ impl<'a> VMLogic<'a> {
         self.gas_counter.pay_base(sha256_base)?;
         let value = self.get_vec_from_memory_or_register(value_ptr, value_len)?;
         self.gas_counter.pay_per_byte(sha256_byte, value.len() as u64)?;
-        let value_hash = self.ext.sha256(&value)?;
-        self.internal_write_register(register_id, value_hash)
+
+        use sha2::Digest;
+
+        let value_hash = sha2::Sha256::digest(&value);
+        self.internal_write_register(register_id, value_hash.as_ref().to_vec())
     }
 
-    /// Hashes the random sequence of bytes using keccak256 and returns it into `register_id`.
+    /// Hashes the given value using keccak256 and returns it into `register_id`.
     ///
     /// # Errors
     ///
@@ -790,11 +793,14 @@ impl<'a> VMLogic<'a> {
         self.gas_counter.pay_base(keccak256_base)?;
         let value = self.get_vec_from_memory_or_register(value_ptr, value_len)?;
         self.gas_counter.pay_per_byte(keccak256_byte, value.len() as u64)?;
-        let value_hash = self.ext.keccak256(&value)?;
-        self.internal_write_register(register_id, value_hash)
+
+        use sha3::Digest;
+
+        let value_hash = sha3::Keccak256::digest(&value);
+        self.internal_write_register(register_id, value_hash.as_ref().to_vec())
     }
 
-    /// Hashes the random sequence of bytes using keccak512 and returns it into `register_id`.
+    /// Hashes the given value using keccak512 and returns it into `register_id`.
     ///
     /// # Errors
     ///
@@ -808,8 +814,11 @@ impl<'a> VMLogic<'a> {
         self.gas_counter.pay_base(keccak512_base)?;
         let value = self.get_vec_from_memory_or_register(value_ptr, value_len)?;
         self.gas_counter.pay_per_byte(keccak512_byte, value.len() as u64)?;
-        let value_hash = self.ext.keccak512(&value)?;
-        self.internal_write_register(register_id, value_hash)
+
+        use sha3::Digest;
+
+        let value_hash = sha3::Keccak512::digest(&value);
+        self.internal_write_register(register_id, value_hash.as_ref().to_vec())
     }
 
     /// Called by gas metering injected into Wasm. Counts both towards `burnt_gas` and `used_gas`.
