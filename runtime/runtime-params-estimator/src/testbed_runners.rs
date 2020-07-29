@@ -10,6 +10,7 @@ use std::collections::{HashMap, HashSet};
 use std::convert::TryInto;
 use std::path::PathBuf;
 use std::time::Instant;
+use near_vm_logic::VMKind;
 
 /// Get account id from its index.
 pub fn get_account_id(account_index: usize) -> String {
@@ -48,6 +49,8 @@ pub struct Config {
     pub state_dump_path: String,
     /// Metric used for counting.
     pub metric: GasMetric,
+    /// VMKind used
+    pub vm_kind: VMKind
 }
 
 /// Measure the speed of transactions containing certain simple actions.

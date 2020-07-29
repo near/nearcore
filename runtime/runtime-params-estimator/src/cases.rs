@@ -469,7 +469,7 @@ pub fn run(mut config: Config) -> RuntimeConfig {
         );
     }
 
-    get_runtime_config(&m)
+    get_runtime_config(&m, &config);
 
     //    let mut csv_path = PathBuf::from(&config.state_dump_path);
     //    csv_path.push("./metrics.csv");
@@ -555,13 +555,13 @@ fn get_runtime_fees_config(measurement: &Measurements) -> RuntimeFeesConfig {
     }
 }
 
-fn get_ext_costs_config(measurement: &Measurements) -> ExtCostsConfig {
+fn get_ext_costs_config(measurement: &Measurements, config: &Config) -> ExtCostsConfig {
     let mut generator = ExtCostsGenerator::new(measurement);
     let measured = generator.compute();
     let metric = measurement.gas_metric;
     use ExtCosts::*;
     let (contract_compile_cost, contract_compile_base_cost) =
-        cost_to_compile(metric, VMKind::default());
+        cost_to_compile(metric, config.vm_kind);
     ExtCostsConfig {
         base: measured_to_gas(metric, &measured, base),
         contract_compile_base: contract_compile_base_cost,
@@ -624,9 +624,9 @@ fn get_ext_costs_config(measurement: &Measurements) -> ExtCostsConfig {
     }
 }
 
-fn get_vm_config(measurement: &Measurements) -> VMConfig {
+fn get_vm_config(measurement: &Measurements, config: &Config) -> VMConfig {
     VMConfig {
-        ext_costs: get_ext_costs_config(measurement),
+        ext_costs: get_ext_costs_config(measurement, config),
         // TODO: Figure out whether we need this fee at all. If we do what should be the memory
         // growth cost.
         grow_mem_cost: 1,
@@ -636,9 +636,9 @@ fn get_vm_config(measurement: &Measurements) -> VMConfig {
     }
 }
 
-fn get_runtime_config(measurement: &Measurements) -> RuntimeConfig {
+fn get_runtime_config(measurement: &Measurements, config: &Config) -> RuntimeConfig {
     let mut runtime_config = RuntimeConfig::default();
     runtime_config.transaction_costs = get_runtime_fees_config(measurement);
-    runtime_config.wasm_config = get_vm_config(measurement);
+    runtime_config.wasm_config = get_vm_config(measurement, config);
     runtime_config
 }

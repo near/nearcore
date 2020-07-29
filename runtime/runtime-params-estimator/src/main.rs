@@ -3,6 +3,7 @@ use neard::get_default_home;
 use runtime_params_estimator::cases::run;
 use runtime_params_estimator::testbed_runners::Config;
 use runtime_params_estimator::testbed_runners::GasMetric;
+use near_vm_logic::VMKind;
 use std::fs::File;
 use std::io::Write;
 use std::path::Path;
@@ -49,6 +50,11 @@ fn main() {
                 .takes_value(true)
                 .help("What metric to use, possible values are icount or time."),
         )
+        .arg(
+          Arg::with_name("vm")
+          .default_value("wasmer")
+          .help("How many accounts were generated with `genesis-populate`."),
+        )
         .get_matches();
 
     let state_dump_path = matches.value_of("home").unwrap().to_string();
@@ -56,6 +62,10 @@ fn main() {
     let iter_per_block = matches.value_of("iters").unwrap().parse().unwrap();
     let active_accounts = matches.value_of("accounts-num").unwrap().parse().unwrap();
     let metric = matches.value_of("metric").unwrap().to_string();
+    let vm_kind = match matches.value_of("vm").unwrap() {
+      "wasmer" => VMKind::Wasmer,
+      "wasmtime" => VMKind::Wasmtime
+    };
     let known_metrics = vec!["icount".to_string(), "time".to_string()];
     if !known_metrics.contains(&metric) {
         panic!("Unknown metric {}", metric);
@@ -67,6 +77,7 @@ fn main() {
         block_sizes: vec![],
         state_dump_path: state_dump_path.clone(),
         metric: if metric == "icount" { GasMetric::ICount } else { GasMetric::Time },
+        vm_kind
     });
 
     println!("Generated RuntimeConfig:");
