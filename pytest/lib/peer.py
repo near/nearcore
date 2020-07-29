@@ -18,6 +18,7 @@ class Connection:
     def __init__(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
         self.reader = reader
         self.writer = writer
+        self.is_closed = False
 
     async def send(self, message):
         raw_message = BinarySerializer(schema).serialize(message)
@@ -32,6 +33,11 @@ class Connection:
     async def recv(self, expected=None):
         while True:
             response_raw = await self.recv_raw()
+
+            # Connection was closed on the other side
+            if response_raw is None:
+                return None
+
             response = BinarySerializer(schema).deserialize(
                 response_raw, PeerMessage)
 
@@ -40,9 +46,14 @@ class Connection:
 
     async def recv_raw(self):
         length = await self.reader.read(4)
-        length = struct.unpack('I', length)[0]
-        response = await self.reader.read(length)
-        return response
+
+        if len(length) == 0:
+            self.is_closed = True
+            return None
+        else:
+            length = struct.unpack('I', length)[0]
+            response = await self.reader.read(length)
+            return response
 
     async def close(self):
         self.writer.close()
