@@ -250,23 +250,21 @@ impl BlockStats {
     }
 
     fn add_block(&mut self, block: &Block) {
-        if !self.hash2height.contains_key(block.hash()) {
-            let prev_height =
-                self.hash2height.get(block.header().prev_hash()).map(|v| *v).unwrap_or(0);
-            self.hash2height.insert(*block.hash(), prev_height + 1);
-            self.num_blocks += 1;
-            self.max_chain_length = max(self.max_chain_length, prev_height + 1);
-            self.parent.insert(*block.hash(), *block.header().prev_hash());
-
-            if let Some(last_hash2) = self.last_hash {
-                self.max_divergence = max(
-                    self.max_divergence,
-                    self.calculate_distance(last_hash2, block.hash().clone()),
-                );
-            }
-
-            self.last_hash = Some(block.hash().clone());
+        if self.hash2height.contains_key(block.hash()) {
+            return;
         }
+        let prev_height = self.hash2height.get(block.header().prev_hash()).map(|v| *v).unwrap_or(0);
+        self.hash2height.insert(*block.hash(), prev_height + 1);
+        self.num_blocks += 1;
+        self.max_chain_length = max(self.max_chain_length, prev_height + 1);
+        self.parent.insert(*block.hash(), *block.header().prev_hash());
+
+        if let Some(last_hash2) = self.last_hash {
+            self.max_divergence =
+                max(self.max_divergence, self.calculate_distance(last_hash2, block.hash().clone()));
+        }
+
+        self.last_hash = Some(block.hash().clone());
     }
 
     pub fn check_stats(&mut self, force: bool) {
