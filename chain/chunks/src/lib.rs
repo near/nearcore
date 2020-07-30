@@ -1239,7 +1239,9 @@ impl ShardsManager {
                 .parts
                 .iter()
                 .filter_map(|(part_ord, part_entry)| {
-                    if cares_about_shard || self.need_part(&prev_block_hash, *part_ord).unwrap_or(false) {
+                    if cares_about_shard
+                        || self.need_part(&prev_block_hash, *part_ord).unwrap_or(false)
+                    {
                         Some(part_entry.clone())
                     } else if let Ok(need_part) = self.need_part(&prev_block_hash, *part_ord) {
                         if need_part {
