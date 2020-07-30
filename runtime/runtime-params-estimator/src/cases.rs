@@ -25,7 +25,7 @@ use near_runtime_fees::{
     AccessKeyCreationConfig, ActionCreationConfig, DataReceiptCreationConfig, Fee,
     RuntimeFeesConfig,
 };
-use near_vm_logic::{ExtCosts, ExtCostsConfig, VMConfig, VMKind, VMLimitConfig};
+use near_vm_logic::{ExtCosts, ExtCostsConfig, VMConfig, VMLimitConfig};
 use node_runtime::config::RuntimeConfig;
 
 /// How much gas there is in a nanosecond worth of computation.
@@ -469,7 +469,7 @@ pub fn run(mut config: Config) -> RuntimeConfig {
         );
     }
 
-    get_runtime_config(&m, &config);
+    get_runtime_config(&m, &config)
 
     //    let mut csv_path = PathBuf::from(&config.state_dump_path);
     //    csv_path.push("./metrics.csv");

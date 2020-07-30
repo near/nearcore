@@ -52,6 +52,7 @@ fn main() {
         )
         .arg(
           Arg::with_name("vm")
+          .long("vm")
           .default_value("wasmer")
           .help("How many accounts were generated with `genesis-populate`."),
         )
@@ -64,7 +65,8 @@ fn main() {
     let metric = matches.value_of("metric").unwrap().to_string();
     let vm_kind = match matches.value_of("vm").unwrap() {
       "wasmer" => VMKind::Wasmer,
-      "wasmtime" => VMKind::Wasmtime
+      "wasmtime" => VMKind::Wasmtime,
+      _ => VMKind::Wasmer
     };
     let known_metrics = vec!["icount".to_string(), "time".to_string()];
     if !known_metrics.contains(&metric) {
