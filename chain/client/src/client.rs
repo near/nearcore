@@ -469,7 +469,7 @@ impl Client {
 
         let chunk_extra = self
             .chain
-            .get_latest_chunk_extra(shard_id)
+            .get_chunk_extra(&prev_block_hash, shard_id)
             .map_err(|err| Error::ChunkProducer(format!("No chunk extra available: {}", err)))?
             .clone();
 
