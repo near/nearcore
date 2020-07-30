@@ -2268,12 +2268,6 @@ impl Chain {
         self.store.get_chunk_extra(block_hash, shard_id)
     }
 
-    /// Helper to return latest chunk extra for given shard.
-    #[inline]
-    pub fn get_latest_chunk_extra(&mut self, shard_id: ShardId) -> Result<&ChunkExtra, Error> {
-        self.store.get_chunk_extra(&self.head()?.last_block_hash, shard_id)
-    }
-
     /// Get transaction result for given hash of transaction or receipt id.
     #[inline]
     pub fn get_execution_outcome(
