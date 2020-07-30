@@ -369,14 +369,21 @@ fn invalid_blocks_common(is_requested: bool) {
             Box::new(move |msg, _ctx, _client_actor| {
                 match msg {
                     NetworkRequests::Block { block } => {
-                        assert_eq!(block.header().height(), 1);
-                        assert_eq!(block.header().chunk_mask().len(), 1);
-                        assert_eq!(ban_counter, 1);
-                        System::current().stop();
+                        if is_requested {
+                            panic!("rebroadcasting requested block");
+                        } else {
+                            assert_eq!(block.header().height(), 1);
+                            assert_eq!(block.header().chunk_mask().len(), 1);
+                            assert_eq!(ban_counter, 1);
+                            System::current().stop();
+                        }
                     }
                     NetworkRequests::BanPeer { ban_reason, .. } => {
                         assert_eq!(ban_reason, &ReasonForBan::BadBlockHeader);
                         ban_counter += 1;
+                        if ban_counter == 2 && is_requested {
+                            System::current().stop();
+                        }
                     }
                     _ => {}
                 };
@@ -440,7 +447,21 @@ fn invalid_blocks_common(is_requested: bool) {
                 last_block.header.next_bp_hash,
                 block_merkle_tree.root(),
             );
-            client.do_send(NetworkClientMessages::Block(block2, PeerInfo::random().id, false));
+            client.do_send(NetworkClientMessages::Block(
+                block2.clone(),
+                PeerInfo::random().id,
+                is_requested,
+            ));
+            if is_requested {
+                let mut block3 = block2.clone();
+                block3.mut_header().get_mut().inner_rest.chunk_headers_root = hash(&[1]);
+                block3.mut_header().get_mut().init();
+                client.do_send(NetworkClientMessages::Block(
+                    block3.clone(),
+                    PeerInfo::random().id,
+                    is_requested,
+                ));
+            }
             future::ready(())
         }));
         near_network::test_utils::wait_or_panic(5000);

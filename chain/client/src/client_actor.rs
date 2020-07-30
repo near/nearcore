@@ -867,8 +867,9 @@ impl ClientActor {
                 Ok(_) => {
                     let head = self.client.chain.head()?;
                     // do not broadcast blocks that are too far back.
-                    if head.height < block.header().height()
-                        || &head.epoch_id == block.header().epoch_id()
+                    if (head.height < block.header().height()
+                        || &head.epoch_id == block.header().epoch_id())
+                        && provenance == Provenance::NONE
                     {
                         self.client.rebroadcast_block(block.clone());
                     }
