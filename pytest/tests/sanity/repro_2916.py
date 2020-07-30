@@ -73,17 +73,18 @@ async def main():
             await conn0.send(peer_message)
 
             received_response = False
-            # make several attempts, in case the node sends us a block or some other message before sending the response
-            for i in range(5):
-                response = await conn0.recv()
-                if response is None: # None means timeout
-                    break
-                elif response.enum == 'Routed' and response.Routed.body.enum == 'PartialEncodedChunkResponse':
-                    print("Received response for shard %s" % shard_ord)
-                    received_response = True
-                    break
-                else:
-                    print(response.enum)
+
+            def predicate(response):
+                return response.enum == 'Routed' and response.Routed.body.enum == 'PartialEncodedChunkResponse'
+
+            try:
+                response = await asyncio.wait_for(conn0.recv(predicate), 5)
+            except concurrent.futures._base.TimeoutError:
+                response = None
+
+            if response is not None:
+                print("Received response for shard %s" % shard_ord)
+                received_response = True
             else:
                 print("Didn't receive response for shard %s" % shard_ord)
 

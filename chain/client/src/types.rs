@@ -122,7 +122,7 @@ pub enum SyncStatus {
     /// Not syncing / Done syncing.
     NoSync,
     /// Not syncing, but have a peer that is one block ahead.
-    NoSyncFewBlocksBehind { since_when: DateTime<Utc>, our_height: BlockHeight },
+    NoSyncSeveralBlocksBehind { since_when: DateTime<Utc>, our_height: BlockHeight },
     /// Downloading block headers for fast sync.
     HeaderSync { current_height: BlockHeight, highest_height: BlockHeight },
     /// State sync, with different states of state sync for different shards.
@@ -142,7 +142,7 @@ impl SyncStatus {
     /// True if currently engaged in syncing the chain.
     pub fn is_syncing(&self) -> bool {
         match self {
-            SyncStatus::NoSync | SyncStatus::NoSyncFewBlocksBehind { .. } => false,
+            SyncStatus::NoSync | SyncStatus::NoSyncSeveralBlocksBehind { .. } => false,
             _ => true,
         }
     }

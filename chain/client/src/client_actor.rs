@@ -57,7 +57,7 @@ const STATUS_WAIT_TIME_MULTIPLIER: u64 = 10;
 const BLOCK_HORIZON: u64 = 500;
 /// How many intervals of max_block_production_delay to wait being several blocks behind before
 /// kicking off syncing
-const FEW_BLOCKS_BEHIND_WAIT_MULTIPLIER: u32 = 5;
+const SEVERAL_BLOCKS_BEHIND_WAIT_MULTIPLIER: u32 = 5;
 
 pub struct ClientActor {
     /// Adversarial controls
@@ -1011,14 +1011,14 @@ impl ClientActor {
                 );
                 is_syncing = true;
             } else {
-                if let SyncStatus::NoSyncFewBlocksBehind { since_when, our_height } =
+                if let SyncStatus::NoSyncSeveralBlocksBehind { since_when, our_height } =
                     self.client.sync_status
                 {
                     let now = Utc::now();
                     if now > since_when
                         && (now - since_when).to_std().unwrap()
                             >= self.client.config.max_block_production_delay
-                                * FEW_BLOCKS_BEHIND_WAIT_MULTIPLIER
+                                * SEVERAL_BLOCKS_BEHIND_WAIT_MULTIPLIER
                         && our_height == head.height
                     {
                         info!(target: "sync", "Have been at the same height for too long, while peers have newer bocks. Forcing synchronization");
@@ -1155,13 +1155,13 @@ impl ClientActor {
                 match self.client.sync_status {
                     SyncStatus::NoSync => {
                         if head.height < highest_height {
-                            self.client.sync_status = SyncStatus::NoSyncFewBlocksBehind {
+                            self.client.sync_status = SyncStatus::NoSyncSeveralBlocksBehind {
                                 since_when: Utc::now(),
                                 our_height: head.height,
                             }
                         }
                     }
-                    SyncStatus::NoSyncFewBlocksBehind { our_height, .. } => {
+                    SyncStatus::NoSyncSeveralBlocksBehind { our_height, .. } => {
                         if head.height > our_height {
                             self.client.sync_status = SyncStatus::NoSync;
                         }

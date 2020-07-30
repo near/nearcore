@@ -123,7 +123,7 @@ impl HeaderSync {
             | SyncStatus::BodySync { .. }
             | SyncStatus::StateSyncDone => true,
             SyncStatus::NoSync
-            | SyncStatus::NoSyncFewBlocksBehind { .. }
+            | SyncStatus::NoSyncSeveralBlocksBehind { .. }
             | SyncStatus::AwaitingPeers => {
                 let sync_head = chain.sync_head()?;
                 debug!(target: "sync", "Sync: initial transition to Header sync. Sync head: {} at {}, resetting to {} at {}",
@@ -184,7 +184,7 @@ impl HeaderSync {
         // Always enable header sync on initial state transition from NoSync / NoSyncFewBlocksBehind / AwaitingPeers.
         let force_sync = match sync_status {
             SyncStatus::NoSync
-            | SyncStatus::NoSyncFewBlocksBehind { .. }
+            | SyncStatus::NoSyncSeveralBlocksBehind { .. }
             | SyncStatus::AwaitingPeers => true,
             _ => false,
         };
