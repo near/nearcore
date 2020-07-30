@@ -54,6 +54,8 @@ const WAIT_ON_TRY_UPDATE_NONCE: u64 = 6_000;
 /// If we see an edge between us and other peer, but this peer is not a current connection, wait this
 /// timeout and in case it didn't become an active peer, broadcast edge removal update.
 const WAIT_PEER_BEFORE_REMOVE: u64 = 6_000;
+/// Maximum number an edge can increase between oldest known edge and new proposed edge.
+const EDGE_NONCE_BUMP_ALLOWED: u64 = 1_000;
 /// Time to wait before sending ping to all reachable peers.
 #[cfg(feature = "metric_recorder")]
 const WAIT_BEFORE_PING: u64 = 20_000;
@@ -516,7 +518,7 @@ impl PeerManagerActor {
     }
 
     fn try_update_nonce(&mut self, ctx: &mut Context<Self>, edge: Edge, other: PeerId) {
-        let nonce = edge.next_nonce();
+        let nonce = edge.next();
 
         if let Some(last_nonce) = self.pending_update_nonce_request.get(&other) {
             if *last_nonce >= nonce {
@@ -910,9 +912,7 @@ impl PeerManagerActor {
         // When we create a new edge we increase the latest nonce by 2 in case we miss a removal
         // proposal from our partner.
         let nonce = with_nonce.unwrap_or_else(|| {
-            self.routing_table
-                .get_edge(self.peer_id.clone(), peer1)
-                .map_or(1, |edge| edge.next_nonce())
+            self.routing_table.get_edge(self.peer_id.clone(), peer1).map_or(1, |edge| edge.next())
         });
 
         EdgeInfo::new(key.0, key.1, nonce, &self.config.secret_key)
@@ -1482,6 +1482,11 @@ impl Handler<Consolidate> for PeerManagerActor {
             debug!(target: "network", "Too low nonce. ({} <= {}) {:?} {:?}", msg.other_edge_info.nonce, last_nonce, self.peer_id, msg.peer_info.id);
             // If the check fails don't allow this connection.
             return ConsolidateResponse::InvalidNonce(last_edge.map(Box::new).unwrap());
+        }
+
+        if msg.other_edge_info.nonce >= Edge::next_nonce(last_nonce) + EDGE_NONCE_BUMP_ALLOWED {
+            debug!(target: "network", "Too large nonce. ({} >= {} + {}) {:?} {:?}", msg.other_edge_info.nonce, last_nonce, EDGE_NONCE_BUMP_ALLOWED, self.peer_id, msg.peer_info.id);
+            return ConsolidateResponse::Reject;
         }
 
         let require_response = msg.this_edge_info.is_none();

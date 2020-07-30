@@ -667,7 +667,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for Peer {
                     debug!(target: "network", "Received connection from node with different network protocol version.");
                     self.send_message(PeerMessage::HandshakeFailure(
                         self.node_info.clone(),
-                        HandshakeFailureReason::ProtocolVersionMismatch(handshake.version),
+                        HandshakeFailureReason::ProtocolVersionMismatch(PROTOCOL_VERSION),
                     ));
                     return;
                     // Connection will be closed by a handshake timeout
@@ -772,7 +772,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for Peer {
                 }
 
                 self.peer_manager_addr
-                    .send(PeerRequest::UpdateEdge((self.peer_id().unwrap(), edge.next_nonce())))
+                    .send(PeerRequest::UpdateEdge((self.peer_id().unwrap(), edge.next())))
                     .into_actor(self)
                     .then(|res, act, ctx| {
                         match res {
