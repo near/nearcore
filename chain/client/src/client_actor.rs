@@ -308,7 +308,8 @@ impl Handler<NetworkClientMessages> for ClientActor {
                             }
                         }
                     }
-                    self.receive_block(block, peer_id, was_requested)
+                    self.receive_block(block, peer_id, was_requested);
+                    NetworkClientResponses::NoResponse
                 } else {
                     match self
                         .client
@@ -324,7 +325,7 @@ impl Handler<NetworkClientMessages> for ClientActor {
                         }
                         _ => {}
                     }
-                    return NetworkClientResponses::NoResponse;
+                    NetworkClientResponses::NoResponse
                 }
             }
             NetworkClientMessages::BlockHeaders(headers, peer_id) => {
@@ -801,7 +802,8 @@ impl ClientActor {
         match self.client.produce_block(next_height) {
             Ok(Some(block)) => {
                 let block_hash = *block.hash();
-                let res = self.process_block(block, Provenance::PRODUCED);
+                let peer_id = self.node_id.clone();
+                let res = self.process_block(block, Provenance::PRODUCED, &peer_id);
                 match &res {
                     Ok(_) => Ok(()),
                     Err(e) => match e.kind() {
@@ -853,22 +855,33 @@ impl ClientActor {
         &mut self,
         block: Block,
         provenance: Provenance,
+        peer_id: &PeerId,
     ) -> Result<(), near_chain::Error> {
         // If we produced the block, send it out before we apply the block.
         // If we didn't produce the block and didn't request it, do basic validation
         // before sending it out.
         if provenance == Provenance::PRODUCED {
             self.network_adapter.do_send(NetworkRequests::Block { block: block.clone() });
-        } else if provenance == Provenance::NONE {
-            // Don't care about challenge here since it will be handled when we actually process
-            // the block.
-            if self.client.chain.process_block_header(&block.header(), |_| {}).is_ok() {
-                let head = self.client.chain.head()?;
-                // do not broadcast blocks that are too far back.
-                if head.height < block.header().height()
-                    || &head.epoch_id == block.header().epoch_id()
-                {
-                    self.client.rebroadcast_block(block.clone());
+        } else {
+            match self.client.chain.validate_block(&block) {
+                Ok(_) => {
+                    let head = self.client.chain.head()?;
+                    // do not broadcast blocks that are too far back.
+                    if (head.height < block.header().height()
+                        || &head.epoch_id == block.header().epoch_id())
+                        && provenance == Provenance::NONE
+                    {
+                        self.client.rebroadcast_block(block.clone());
+                    }
+                }
+                Err(e) => {
+                    if e.is_bad_data() {
+                        self.network_adapter.do_send(NetworkRequests::BanPeer {
+                            peer_id: peer_id.clone(),
+                            ban_reason: ReasonForBan::BadBlockHeader,
+                        });
+                        return Err(e);
+                    }
                 }
             }
         }
@@ -877,28 +890,23 @@ impl ClientActor {
         result.map(|_| ())
     }
 
-    /// Processes received block, returns boolean if block was reasonable or malicious.
-    fn receive_block(
-        &mut self,
-        block: Block,
-        peer_id: PeerId,
-        was_requested: bool,
-    ) -> NetworkClientResponses {
+    /// Processes received block. Ban peer if the block header is invalid or the block is ill-formed.
+    fn receive_block(&mut self, block: Block, peer_id: PeerId, was_requested: bool) {
         let hash = *block.hash();
         debug!(target: "client", "{:?} Received block {} <- {} at {} from {}, requested: {}", self.client.validator_signer.as_ref().map(|vs| vs.validator_id()), hash, block.header().prev_hash(), block.header().height(), peer_id, was_requested);
         // drop the block if it is too far ahead
-        let head = unwrap_or_return!(self.client.chain.head(), NetworkClientResponses::NoResponse);
+        let head = unwrap_or_return!(self.client.chain.head());
         if block.header().height() >= head.height + BLOCK_HORIZON {
             debug!(target: "client", "dropping block {} that is too far ahead. Block height {} current head height {}", block.hash(), block.header().height(), head.height);
-            return NetworkClientResponses::NoResponse;
+            return;
         }
         let prev_hash = *block.header().prev_hash();
         let provenance =
             if was_requested { near_chain::Provenance::SYNC } else { near_chain::Provenance::NONE };
-        match self.process_block(block, provenance) {
-            Ok(_) => NetworkClientResponses::NoResponse,
+        match self.process_block(block, provenance, &peer_id) {
+            Ok(_) => {}
             Err(ref err) if err.is_bad_data() => {
-                NetworkClientResponses::Ban { ban_reason: ReasonForBan::BadBlock }
+                warn!(target: "client", "receive bad block: {}", err);
             }
             Err(ref err) if err.is_error() => {
                 if self.client.sync_status.is_syncing() {
@@ -908,14 +916,12 @@ impl ClientActor {
                 } else {
                     error!(target: "client", "Error on receival of block: {}", err);
                 }
-                NetworkClientResponses::NoResponse
             }
             Err(e) => match e.kind() {
                 near_chain::ErrorKind::Orphan => {
                     if !self.client.chain.is_orphan(&prev_hash) {
                         self.request_block_by_hash(prev_hash, peer_id)
                     }
-                    NetworkClientResponses::NoResponse
                 }
                 near_chain::ErrorKind::ChunksMissing(missing_chunks) => {
                     debug!(
@@ -927,11 +933,9 @@ impl ClientActor {
                         missing_chunks.iter().map(|header| header.chunk_hash()).collect::<Vec<_>>()
                     );
                     self.client.shards_mgr.request_chunks(missing_chunks);
-                    NetworkClientResponses::NoResponse
                 }
                 _ => {
                     debug!(target: "client", "Process block: block {} refused by chain: {}", hash, e.kind());
-                    NetworkClientResponses::NoResponse
                 }
             },
         }
