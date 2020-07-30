@@ -89,6 +89,13 @@ pub fn apply_store_migrations(path: &String) {
         fill_col_transaction_refcount(&store);
         set_store_version(&store, 4);
     }
+    if db_version <= 4 {
+        // version 4 => 5: add ColProcessedBlockHeights
+        // we don't need to backfill the old heights since at worst we will just process some heights
+        // again.
+        let store = create_store(&path);
+        set_store_version(&store, 5);
+    }
 
     let db_version = get_store_version(path);
     debug_assert_eq!(db_version, near_primitives::version::DB_VERSION);
