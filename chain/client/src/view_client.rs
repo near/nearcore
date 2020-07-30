@@ -903,13 +903,15 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
             NetworkViewClientMessages::AnnounceAccount(announce_accounts) => {
                 let mut filtered_announce_accounts = Vec::new();
 
-                for (announce_account, last_epoch) in announce_accounts.into_iter() {
+                for (announce_account, last_epoch) in announce_accounts {
+                    // Keep the announcement if it is newer than the last announcement from
+                    // the same account.
                     if let Some(last_epoch) = last_epoch {
                         match self
                             .runtime_adapter
                             .compare_epoch_id(&announce_account.epoch_id, &last_epoch)
                         {
-                            Ok(Ordering::Less) => {}
+                            Ok(Ordering::Greater) => {}
                             _ => continue,
                         }
                     }
