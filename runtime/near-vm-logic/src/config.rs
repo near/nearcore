@@ -1,8 +1,8 @@
 use crate::types::Gas;
+use core::fmt;
 use serde::{Deserialize, Serialize};
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
-use core::fmt;
 
 #[derive(Clone, Copy, Debug, Hash, Serialize, Deserialize)]
 pub enum VMKind {
@@ -505,18 +505,22 @@ pub enum Actions {
 
 impl fmt::Display for Actions {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", vec![
-            "create_account",
-            "delete_account",
-            "deploy_contract",
-            "function_call",
-            "transfer",
-            "stake",
-            "add_key",
-            "delete_key",
-            "value_return",
-            "new_receipt",
-        ][*self as usize])
+        write!(
+            f,
+            "{}",
+            vec![
+                "create_account",
+                "delete_account",
+                "deploy_contract",
+                "function_call",
+                "transfer",
+                "stake",
+                "add_key",
+                "delete_key",
+                "value_return",
+                "new_receipt",
+            ][*self as usize]
+        )
     }
 }
 
@@ -543,57 +547,61 @@ impl Actions {
 
 impl fmt::Display for ExtCosts {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", vec![
-            "base",
-            "contract_compile_base",
-            "contract_compile_bytes",
-            "read_memory_base",
-            "read_memory_byte",
-            "write_memory_base",
-            "write_memory_byte",
-            "read_register_base",
-            "read_register_byte",
-            "write_register_base",
-            "write_register_byte",
-            "utf8_decoding_base",
-            "utf8_decoding_byte",
-            "utf16_decoding_base",
-            "utf16_decoding_byte",
-            "sha256_base",
-            "sha256_byte",
-            "keccak256_base",
-            "keccak256_byte",
-            "keccak512_base",
-            "keccak512_byte",
-            "log_base",
-            "log_byte",
-            "storage_write_base",
-            "storage_write_key_byte",
-            "storage_write_value_byte",
-            "storage_write_evicted_byte",
-            "storage_read_base",
-            "storage_read_key_byte",
-            "storage_read_value_byte",
-            "storage_remove_base",
-            "storage_remove_key_byte",
-            "storage_remove_ret_value_byte",
-            "storage_has_key_base",
-            "storage_has_key_byte",
-            "storage_iter_create_prefix_base",
-            "storage_iter_create_prefix_byte",
-            "storage_iter_create_range_base",
-            "storage_iter_create_from_byte",
-            "storage_iter_create_to_byte",
-            "storage_iter_next_base",
-            "storage_iter_next_key_byte",
-            "storage_iter_next_value_byte",
-            "touching_trie_node",
-            "promise_and_base",
-            "promise_and_per_promise",
-            "promise_return",
-            "validator_stake_base",
-            "validator_total_stake_base",
-        ][*self as usize])
+        write!(
+            f,
+            "{}",
+            vec![
+                "base",
+                "contract_compile_base",
+                "contract_compile_bytes",
+                "read_memory_base",
+                "read_memory_byte",
+                "write_memory_base",
+                "write_memory_byte",
+                "read_register_base",
+                "read_register_byte",
+                "write_register_base",
+                "write_register_byte",
+                "utf8_decoding_base",
+                "utf8_decoding_byte",
+                "utf16_decoding_base",
+                "utf16_decoding_byte",
+                "sha256_base",
+                "sha256_byte",
+                "keccak256_base",
+                "keccak256_byte",
+                "keccak512_base",
+                "keccak512_byte",
+                "log_base",
+                "log_byte",
+                "storage_write_base",
+                "storage_write_key_byte",
+                "storage_write_value_byte",
+                "storage_write_evicted_byte",
+                "storage_read_base",
+                "storage_read_key_byte",
+                "storage_read_value_byte",
+                "storage_remove_base",
+                "storage_remove_key_byte",
+                "storage_remove_ret_value_byte",
+                "storage_has_key_base",
+                "storage_has_key_byte",
+                "storage_iter_create_prefix_base",
+                "storage_iter_create_prefix_byte",
+                "storage_iter_create_range_base",
+                "storage_iter_create_from_byte",
+                "storage_iter_create_to_byte",
+                "storage_iter_next_base",
+                "storage_iter_next_key_byte",
+                "storage_iter_next_value_byte",
+                "touching_trie_node",
+                "promise_and_base",
+                "promise_and_per_promise",
+                "promise_return",
+                "validator_stake_base",
+                "validator_total_stake_base",
+            ][*self as usize]
+        )
     }
 }
 
