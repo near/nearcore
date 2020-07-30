@@ -63,9 +63,9 @@ fn main() {
     let iter_per_block = matches.value_of("iters").unwrap().parse().unwrap();
     let active_accounts = matches.value_of("accounts-num").unwrap().parse().unwrap();
     let metric = matches.value_of("metric").unwrap().to_string();
-    let vm_kind = match matches.value_of("vm").unwrap() {
-      "wasmer" => VMKind::Wasmer,
-      "wasmtime" => VMKind::Wasmtime,
+    let vm_kind = match matches.value_of("vm") {
+      Some("wasmer") => VMKind::Wasmer,
+      Some("wasmtime") => VMKind::Wasmtime,
       _ => VMKind::Wasmer
     };
     let known_metrics = vec!["icount".to_string(), "time".to_string()];
