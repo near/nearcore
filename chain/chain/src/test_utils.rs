@@ -270,16 +270,6 @@ impl RuntimeAdapter for KeyValueRuntime {
         self.tries.get_trie_for_shard(shard_id)
     }
 
-    fn verify_block_signature(&self, header: &BlockHeader) -> Result<(), Error> {
-        let validators = &self.validators
-            [self.get_epoch_and_valset(*header.prev_hash()).map_err(|err| err.to_string())?.1];
-        let validator = &validators[(header.height() as usize) % validators.len()];
-        if !header.verify_block_producer(&validator.public_key) {
-            return Err(ErrorKind::InvalidBlockProposer.into());
-        }
-        Ok(())
-    }
-
     fn verify_block_vrf(
         &self,
         _epoch_id: &EpochId,
@@ -302,8 +292,11 @@ impl RuntimeAdapter for KeyValueRuntime {
         Ok(true)
     }
 
-    fn verify_header_signature(&self, _header: &BlockHeader) -> Result<bool, Error> {
-        Ok(true)
+    fn verify_header_signature(&self, header: &BlockHeader) -> Result<bool, Error> {
+        let validators = &self.validators
+            [self.get_epoch_and_valset(*header.prev_hash()).map_err(|err| err.to_string())?.1];
+        let validator = &validators[(header.height() as usize) % validators.len()];
+        Ok(header.verify_block_producer(&validator.public_key))
     }
 
     fn verify_chunk_header_signature(&self, _header: &ShardChunkHeader) -> Result<bool, Error> {

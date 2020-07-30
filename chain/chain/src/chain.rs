@@ -5,7 +5,7 @@ use std::time::{Duration as TimeDuration, Instant};
 use borsh::BorshSerialize;
 use chrono::Duration;
 use chrono::Utc;
-use log::{debug, error, info};
+use log::{debug, error, info, warn};
 use rand::rngs::StdRng;
 use rand::seq::SliceRandom;
 use rand::SeedableRng;
@@ -400,9 +400,9 @@ impl Chain {
     pub fn save_block(&mut self, block: &Block) -> Result<(), Error> {
         let mut chain_store_update = ChainStoreUpdate::new(&mut self.store);
 
-        if !block.check_validity() {
+        if let Err(e) = block.check_validity() {
             byzantine_assert!(false);
-            return Err(ErrorKind::Other("Invalid block".into()).into());
+            return Err(e.into());
         }
 
         chain_store_update.save_block(block.clone());
@@ -419,6 +419,14 @@ impl Chain {
             provenance: Provenance::NONE,
             added: Instant::now(),
         });
+    }
+
+    fn save_block_height_processed(&mut self, block_height: BlockHeight) -> Result<(), Error> {
+        let mut chain_store_update = ChainStoreUpdate::new(&mut self.store);
+        if !chain_store_update.is_height_processed(block_height)? {
+            chain_store_update.save_block_height_processed(block_height);
+        }
+        Ok(())
     }
 
     // GC CONTRACT
@@ -603,6 +611,13 @@ impl Chain {
         }
 
         Ok(())
+    }
+
+    /// Do Basic validation of a block upon receiving it. Check that header is valid
+    /// and block is well-formed (various roots match).
+    pub fn validate_block(&mut self, block: &Block) -> Result<(), Error> {
+        self.process_block_header(&block.header(), |_| {})?;
+        block.check_validity().map_err(|e| e.into())
     }
 
     /// Process a block header received during "header first" propagation.
@@ -1020,10 +1035,6 @@ impl Chain {
     {
         near_metrics::inc_counter(&metrics::BLOCK_PROCESSED_TOTAL);
 
-        if block.chunks().len() != self.runtime_adapter.num_shards() as usize {
-            return Err(ErrorKind::IncorrectNumberOfChunkHeaders.into());
-        }
-
         let prev_head = self.store.head()?;
         let mut chain_update = ChainUpdate::new(
             &mut self.store,
@@ -1035,9 +1046,11 @@ impl Chain {
             self.doomslug_threshold_mode,
         );
         let maybe_new_head = chain_update.process_block(me, &block, &provenance, on_challenge);
+        let block_height = block.header().height();
 
         match maybe_new_head {
             Ok((head, needs_to_start_fetching_state)) => {
+                chain_update.chain_store_update.save_block_height_processed(block_height);
                 chain_update.commit()?;
 
                 if needs_to_start_fetching_state {
@@ -1079,62 +1092,64 @@ impl Chain {
 
                 Ok(head)
             }
-            Err(e) => match e.kind() {
-                ErrorKind::Orphan => {
-                    let tail_height = self.store.tail()?;
-                    // we only add blocks that couldn't have been gc'ed to the orphan pool.
-                    if block.header().height() >= tail_height {
+            Err(e) => {
+                match e.kind() {
+                    ErrorKind::Orphan => {
+                        let tail_height = self.store.tail()?;
+                        // we only add blocks that couldn't have been gc'ed to the orphan pool.
+                        if block_height >= tail_height {
+                            let block_hash = *block.hash();
+                            let orphan = Orphan { block, provenance, added: Instant::now() };
+
+                            self.orphans.add(orphan);
+
+                            debug!(
+                                target: "chain",
+                                "Process block: orphan: {:?}, # orphans {}{}",
+                                block_hash,
+                                self.orphans.len(),
+                                if self.orphans.len_evicted() > 0 {
+                                    format!(", # evicted {}", self.orphans.len_evicted())
+                                } else {
+                                    String::new()
+                                },
+                            );
+                        }
+                    }
+                    ErrorKind::ChunksMissing(missing_chunks) => {
                         let block_hash = *block.hash();
+                        block_misses_chunks(missing_chunks.clone());
                         let orphan = Orphan { block, provenance, added: Instant::now() };
 
-                        self.orphans.add(orphan);
+                        self.blocks_with_missing_chunks.add(orphan);
 
                         debug!(
                             target: "chain",
-                            "Process block: orphan: {:?}, # orphans {}{}",
-                            block_hash,
-                            self.orphans.len(),
-                            if self.orphans.len_evicted() > 0 {
-                                format!(", # evicted {}", self.orphans.len_evicted())
-                            } else {
-                                String::new()
-                            },
+                            "Process block: missing chunks. Block hash: {:?}. Missing chunks: {:?}",
+                            block_hash, missing_chunks,
                         );
                     }
-                    Err(e)
+                    ErrorKind::EpochOutOfBounds => {
+                        // Possibly block arrived before we finished processing all of the blocks for epoch before last.
+                        // Or someone is attacking with invalid chain.
+                        debug!(target: "chain", "Received block {}/{} ignored, as epoch is unknown", block_height, block.hash());
+                    }
+                    ErrorKind::Unfit(ref msg) => {
+                        debug!(
+                            target: "chain",
+                            "Block {} at {} is unfit at this time: {}",
+                            block.hash(),
+                            block_height,
+                            msg
+                        );
+                    }
+                    _ => {}
                 }
-                ErrorKind::ChunksMissing(missing_chunks) => {
-                    let block_hash = *block.hash();
-                    block_misses_chunks(missing_chunks.clone());
-                    let orphan = Orphan { block, provenance, added: Instant::now() };
-
-                    self.blocks_with_missing_chunks.add(orphan);
-
-                    debug!(
-                        target: "chain",
-                        "Process block: missing chunks. Block hash: {:?}. Missing chunks: {:?}",
-                        block_hash, missing_chunks,
-                    );
-                    Err(e)
+                if let Err(e) = self.save_block_height_processed(block_height) {
+                    warn!(target: "chain", "Failed to save processed height {}: {}", block_height, e);
                 }
-                ErrorKind::EpochOutOfBounds => {
-                    // Possibly block arrived before we finished processing all of the blocks for epoch before last.
-                    // Or someone is attacking with invalid chain.
-                    debug!(target: "chain", "Received block {}/{} ignored, as epoch is unknown", block.header().height(), block.hash());
-                    Err(e)
-                }
-                ErrorKind::Unfit(ref msg) => {
-                    debug!(
-                        target: "chain",
-                        "Block {} at {} is unfit at this time: {}",
-                        block.hash(),
-                        block.header().height(),
-                        msg
-                    );
-                    Err(ErrorKind::Unfit(msg.clone()).into())
-                }
-                _ => Err(e),
-            },
+                Err(e)
+            }
         }
     }
 
@@ -2817,6 +2832,10 @@ impl<'a> ChainUpdate<'a> {
     {
         debug!(target: "chain", "Process block {} at {}, approvals: {}, me: {:?}", block.hash(), block.header().height(), block.header().num_approvals(), me);
 
+        if block.chunks().len() != self.runtime_adapter.num_shards() as usize {
+            return Err(ErrorKind::IncorrectNumberOfChunkHeaders.into());
+        }
+
         // Check if we have already processed this block previously.
         self.check_known(block.header().hash())?;
 
@@ -2882,9 +2901,9 @@ impl<'a> ChainUpdate<'a> {
             return Err(ErrorKind::InvalidRandomnessBeaconOutput.into());
         }
 
-        if !block.check_validity() {
+        if let Err(e) = block.check_validity() {
             byzantine_assert!(false);
-            return Err(ErrorKind::Other("Invalid block".into()).into());
+            return Err(e.into());
         }
 
         let protocol_version =
@@ -3133,8 +3152,6 @@ impl<'a> ChainUpdate<'a> {
             )? {
                 return Err(ErrorKind::InvalidApprovals.into());
             };
-
-            self.runtime_adapter.verify_block_signature(header)?;
 
             let stakes = self
                 .runtime_adapter

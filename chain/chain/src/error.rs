@@ -5,6 +5,7 @@ use chrono::{DateTime, Utc};
 use failure::{Backtrace, Context, Fail};
 use log::error;
 
+use near_primitives::block::BlockValidityError;
 use near_primitives::challenge::{ChunkProofs, ChunkState};
 use near_primitives::errors::{EpochError, StorageError};
 use near_primitives::hash::CryptoHash;
@@ -46,9 +47,6 @@ pub enum ErrorKind {
     /// Invalid block proposed signature.
     #[fail(display = "Invalid Block Proposer Signature")]
     InvalidBlockProposer,
-    /// Invalid block confirmation signature.
-    #[fail(display = "Invalid Block Confirmation Signature")]
-    InvalidBlockConfirmation,
     /// Invalid state root hash.
     #[fail(display = "Invalid State Root Hash")]
     InvalidStateRoot,
@@ -76,6 +74,9 @@ pub enum ErrorKind {
     /// Invalid transactions in the block.
     #[fail(display = "Invalid Transactions")]
     InvalidTransactions,
+    /// Invalid Challenge Root (doesn't match actual challenge)
+    #[fail(display = "Invalid Challenge Root")]
+    InvalidChallengeRoot,
     /// Invalid challenge (wrong signature or format).
     #[fail(display = "Invalid Challenge")]
     InvalidChallenge,
@@ -241,7 +242,6 @@ impl Error {
             | ErrorKind::InvalidBlockFutureTime(_)
             | ErrorKind::InvalidBlockHeight
             | ErrorKind::InvalidBlockProposer
-            | ErrorKind::InvalidBlockConfirmation
             | ErrorKind::InvalidChunk
             | ErrorKind::InvalidChunkProofs(_)
             | ErrorKind::InvalidChunkState(_)
@@ -273,7 +273,8 @@ impl Error {
             | ErrorKind::InvalidStateRequest(_)
             | ErrorKind::InvalidRandomnessBeaconOutput
             | ErrorKind::InvalidBlockMerkleRoot
-            | ErrorKind::NotAValidator => true,
+            | ErrorKind::NotAValidator
+            | ErrorKind::InvalidChallengeRoot => true,
         }
     }
 
@@ -311,6 +312,20 @@ impl From<EpochError> for Error {
             EpochError::EpochOutOfBounds => ErrorKind::EpochOutOfBounds,
             EpochError::MissingBlock(h) => ErrorKind::DBNotFoundErr(to_base(&h)),
             err => ErrorKind::ValidatorError(err.to_string()),
+        }
+        .into()
+    }
+}
+
+impl From<BlockValidityError> for Error {
+    fn from(error: BlockValidityError) -> Self {
+        match error {
+            BlockValidityError::InvalidStateRoot => ErrorKind::InvalidStateRoot,
+            BlockValidityError::InvalidReceiptRoot => ErrorKind::InvalidChunkReceiptsRoot,
+            BlockValidityError::InvalidTransactionRoot => ErrorKind::InvalidTxRoot,
+            BlockValidityError::InvalidChunkHeaderRoot => ErrorKind::InvalidChunkHeadersRoot,
+            BlockValidityError::InvalidNumChunksIncluded => ErrorKind::InvalidChunkMask,
+            BlockValidityError::InvalidChallengeRoot => ErrorKind::InvalidChallengeRoot,
         }
         .into()
     }
