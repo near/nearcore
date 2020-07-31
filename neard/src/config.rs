@@ -966,7 +966,7 @@ pub fn download_genesis(url: &String, path: &PathBuf) {
         // In case where the genesis is bigger than the specified limit Overflow Error is thrown
         let body = response
             .body()
-            .limit(250_000_000)
+            .limit(2_500_000_000)
             .await
             .expect("Genesis file is bigger than 250MB. Please make the limit higher.");
 
