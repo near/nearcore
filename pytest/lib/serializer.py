@@ -113,6 +113,8 @@ class BinarySerializer:
                     self.serialize_num(idx, 1)
                     self.serialize_field(getattr(obj, fieldName), fieldType)
                     break
+            else:
+                assert False, name
         else:
             assert False, structSchema
 
