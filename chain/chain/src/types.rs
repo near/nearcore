@@ -20,7 +20,8 @@ use near_primitives::types::{
     NumBlocks, ShardId, StateRoot, StateRootNode, ValidatorStake,
 };
 use near_primitives::version::{
-    ProtocolVersion, MIN_GAS_PRICE_NEP_92, MIN_PROTOCOL_VERSION_NEP_92,
+    ProtocolVersion, MIN_GAS_PRICE_NEP_92, MIN_GAS_PRICE_NEP_92_FIX, MIN_PROTOCOL_VERSION_NEP_92,
+    MIN_PROTOCOL_VERSION_NEP_92_FIX,
 };
 use near_primitives::views::{EpochValidatorInfo, QueryRequest, QueryResponse};
 use near_store::{PartialStorage, ShardTries, Store, Trie, WrappedTrieChanges};
@@ -141,13 +142,24 @@ pub struct BlockEconomicsConfig {
 }
 
 impl BlockEconomicsConfig {
-    /// Compute min gas price according to protocol version and chain id. We only upgrade gas price
-    /// for betanet, testnet and mainnet.
+    /// Compute min gas price according to protocol version and genesis protocol version.
     pub fn min_gas_price(&self, protocol_version: ProtocolVersion) -> Balance {
-        if self.genesis_protocol_version < MIN_PROTOCOL_VERSION_NEP_92
-            && protocol_version >= MIN_PROTOCOL_VERSION_NEP_92
+        if self.genesis_protocol_version < MIN_PROTOCOL_VERSION_NEP_92 {
+            if protocol_version >= MIN_PROTOCOL_VERSION_NEP_92_FIX {
+                MIN_GAS_PRICE_NEP_92_FIX
+            } else if protocol_version >= MIN_PROTOCOL_VERSION_NEP_92 {
+                MIN_GAS_PRICE_NEP_92
+            } else {
+                self.min_gas_price
+            }
+        } else if self.genesis_protocol_version >= MIN_PROTOCOL_VERSION_NEP_92
+            && self.genesis_protocol_version < MIN_PROTOCOL_VERSION_NEP_92_FIX
         {
-            MIN_GAS_PRICE_NEP_92
+            if protocol_version >= MIN_PROTOCOL_VERSION_NEP_92_FIX {
+                MIN_GAS_PRICE_NEP_92_FIX
+            } else {
+                MIN_GAS_PRICE_NEP_92
+            }
         } else {
             self.min_gas_price
         }
