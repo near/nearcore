@@ -18,8 +18,8 @@
 [![Discord chat][discord-badge]][discord-url]
 [![Telegram Group][telegram-badge]][telegram-url]
 
-[stable-release]: https://badgen.net/github/release/nearprotocol/nearcore/stable
-[prerelease]:https://badgen.net/github/release/nearprotocol/nearcore
+[stable-release]: https://img.shields.io/github/v/release/nearprotocol/nearcore?label=stable
+[prerelease]: https://img.shields.io/github/v/release/nearprotocol/nearcore?include_prereleases&label=prerelease
 [ci-badge-master]: https://badge.buildkite.com/a81147cb62c585cc434459eedd1d25e521453120ead9ee6c64.svg?branch=master
 [ci-url]: https://buildkite.com/nearprotocol/nearcore
 [codecov-badge]: https://codecov.io/gh/nearprotocol/nearcore/branch/master/graph/badge.svg
