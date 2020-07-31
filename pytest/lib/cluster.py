@@ -349,6 +349,11 @@ class LocalNode(BaseNode):
         with open(os.path.join(self.node_dir, "validator_key.json"), 'w+') as f:
             json.dump(new_key.to_json(), f)
 
+    def reset_node_key(self, new_key):
+        self.node_key = new_key
+        with open(os.path.join(self.node_dir, "node_key.json"), 'w+') as f:
+            json.dump(new_key.to_json(), f)
+
     def cleanup(self):
         if self.cleaned:
             return

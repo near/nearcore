@@ -101,7 +101,7 @@ fn test_verify_block_double_sign_challenge() {
     assert!(validate_challenge(&*runtime_adapter, &epoch_id, &genesis.hash(), &invalid_challenge,)
         .is_err());
 
-    let (_, result) = env.clients[0].process_block(b2, Provenance::NONE);
+    let (_, result) = env.clients[0].process_block(b2, Provenance::SYNC);
     assert!(result.is_ok());
     let mut last_message = env.network_adapters[0].pop().unwrap();
     if let NetworkRequests::Block { .. } = last_message {
