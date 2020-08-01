@@ -261,6 +261,72 @@ fn apply_block_at_height(
     }
 }
 
+fn view_chain(
+    store: Arc<Store>,
+    near_config: &NearConfig,
+    height: Option<BlockHeight>,
+    view_block: bool,
+    view_chunks: bool,
+) {
+    let mut chain_store = ChainStore::new(store.clone(), near_config.genesis.config.genesis_height);
+    let block = {
+        match height {
+            Some(h) => {
+                let block_hash =
+                    chain_store.get_block_hash_by_height(h).expect("Block does not exist");
+                chain_store.get_block(&block_hash).unwrap().clone()
+            }
+            None => {
+                let head = chain_store.head().unwrap();
+                chain_store.get_block(&head.last_block_hash).unwrap().clone()
+            }
+        }
+    };
+
+    let mut chunk_extras = vec![];
+    let mut chunks = vec![];
+    for (i, chunk_header) in block.chunks().iter().enumerate() {
+        if chunk_header.height_included == block.header().height() {
+            chunk_extras.push((
+                i,
+                chain_store.get_chunk_extra(&block.hash(), i as ShardId).unwrap().clone(),
+            ));
+            chunks.push((i, chain_store.get_chunk(&chunk_header.hash).unwrap().clone()));
+        }
+    }
+    let chunk_extras = block
+        .chunks()
+        .iter()
+        .enumerate()
+        .filter_map(|(i, chunk_header)| {
+            if chunk_header.height_included == block.header().height() {
+                Some((i, chain_store.get_chunk_extra(&block.hash(), i as ShardId).unwrap().clone()))
+            } else {
+                None
+            }
+        })
+        .collect::<Vec<_>>();
+
+    if height.is_none() {
+        let head = chain_store.head().unwrap();
+        println!("head: {:?}", head);
+    } else {
+        println!("block height {}, hash {}", block.header().height(), block.hash());
+    }
+
+    for (shard_id, chunk_extra) in chunk_extras {
+        println!("shard {}, chunk extra: {:?}", shard_id, chunk_extra);
+    }
+    if view_block {
+        println!("last block: {:?}", block);
+    }
+    if view_chunks {
+        for (shard_id, chunk) in chunks {
+            println!("shard {}, chunk: {:?}", shard_id, chunk);
+        }
+    }
+}
+
 fn main() {
     init_integration_logger();
 
@@ -336,6 +402,28 @@ fn main() {
                 )
                 .help("apply block at some height for shard"),
         )
+        .subcommand(
+            SubCommand::with_name("view_chain")
+                .arg(
+                    Arg::with_name("height")
+                        .long("height")
+                        .help("height of the block")
+                        .takes_value(true),
+                )
+                .arg(
+                    Arg::with_name("block")
+                        .long("block")
+                        .help("Whether to print the last block")
+                        .takes_value(false),
+                )
+                .arg(
+                    Arg::with_name("chunk")
+                        .long("chunk")
+                        .help("Whether to print the last chunks")
+                        .takes_value(false),
+                )
+                .help("View head of the storage"),
+        )
         .get_matches();
 
     let home_dir = matches.value_of("home").map(|dir| Path::new(dir)).unwrap();
@@ -404,6 +492,12 @@ fn main() {
             let shard_id =
                 args.value_of("shard_id").map(|s| s.parse::<u64>().unwrap()).unwrap_or_default();
             apply_block_at_height(store, home_dir, &near_config, height, shard_id);
+        }
+        ("view_chain", Some(args)) => {
+            let height = args.value_of("height").map(|s| s.parse::<u64>().unwrap());
+            let view_block = args.is_present("block");
+            let view_chunks = args.is_present("chunk");
+            view_chain(store, &near_config, height, view_block, view_chunks);
         }
         (_, _) => unreachable!(),
     }
