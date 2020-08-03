@@ -51,25 +51,6 @@ mod metrics;
 const JSON_PAYLOAD_MAX_SIZE: usize = 2 * 1024 * 1024;
 const QUERY_DATA_MAX_SIZE: usize = 10 * 1024;
 
-/// RPCs that should only be called when the node is synced
-const RPC_REQUIRES_SYNC: [&'static str; 15] = [
-    "broadcast_tx_async",
-    "EXPERIMENTAL_broadcast_tx_sync",
-    "broadcast_tx_commit",
-    "validators",
-    "query",
-    "health",
-    "tx",
-    "block",
-    "chunk",
-    "EXPERIMENTAL_changes",
-    "EXPERIMENTAL_changes_in_block",
-    "next_light_client_block",
-    "EXPERIMENTAL_light_client_proof",
-    "light_client_proof",
-    "gas_price",
-];
-
 #[derive(Serialize, Deserialize, Clone, Copy, Debug)]
 pub struct RpcPollingConfig {
     pub polling_interval: Duration,
@@ -150,7 +131,6 @@ pub enum ServerError {
     Timeout,
     Closed,
     InternalError,
-    IsSyncing,
 }
 
 impl Display for ServerError {
@@ -160,7 +140,6 @@ impl Display for ServerError {
             ServerError::Timeout => write!(f, "ServerError: Timeout"),
             ServerError::Closed => write!(f, "ServerError: Closed"),
             ServerError::InternalError => write!(f, "ServerError: Internal Error"),
-            ServerError::IsSyncing => write!(f, "ServerError: Node is syncing"),
         }
     }
 }
@@ -232,22 +211,11 @@ impl JsonRpcHandler {
             }
         }
 
-        if RPC_REQUIRES_SYNC.iter().find(|&&s| s == &request.method).is_some() {
-            match self.client_addr.send(Status { is_health_check: false }).await {
-                Ok(Ok(result)) => {
-                    if result.sync_info.syncing {
-                        return Err(ServerError::IsSyncing.into());
-                    }
-                }
-                Ok(Err(err)) => return Err(RpcError::new(-32_001, err, None)),
-                Err(_) => return Err(RpcError::server_error::<()>(None)),
-            }
-        }
-
         match request.method.as_ref() {
             "broadcast_tx_async" => self.send_tx_async(request.params).await,
             "EXPERIMENTAL_broadcast_tx_sync" => self.send_tx_sync(request.params).await,
             "broadcast_tx_commit" => self.send_tx_commit(request.params).await,
+            "EXPERIMENTAL_check_tx" => self.check_tx(request.params).await,
             "validators" => self.validators(request.params).await,
             "query" => self.query(request.params).await,
             "health" => self.health().await,
@@ -279,6 +247,39 @@ impl JsonRpcHandler {
             check_only: false,
         });
         Ok(Value::String(hash))
+    }
+
+    async fn tx_exists(
+        &self,
+        tx_hash: CryptoHash,
+        signer_account_id: &AccountId,
+    ) -> Result<bool, ServerError> {
+        timeout(self.polling_config.polling_timeout, async {
+            loop {
+                // TODO(optimization): Introduce a view_client method to only get transaction
+                // status without the information about execution outcomes.
+                match self
+                    .view_client_addr
+                    .send(TxStatus { tx_hash, signer_account_id: signer_account_id.clone() })
+                    .await
+                {
+                    Ok(Ok(Some(_))) => {
+                        return Ok(true);
+                    }
+                    Ok(Err(TxStatusError::MissingTransaction(_))) => {
+                        return Ok(false);
+                    }
+                    Err(_) => return Err(ServerError::InternalError),
+                    _ => {}
+                }
+                delay_for(self.polling_config.polling_interval).await;
+            }
+        })
+        .await
+        .map_err(|_| {
+            near_metrics::inc_counter(&metrics::RPC_TIMEOUT_TOTAL);
+            ServerError::Timeout
+        })?
     }
 
     async fn tx_status_fetch(
@@ -343,12 +344,17 @@ impl JsonRpcHandler {
         })?
     }
 
+    /// Send a transaction idempotently (subsequent send of the same transaction will not cause
+    /// any new side-effects and the result will be the same unless we garbage collected it
+    /// already).
     async fn send_tx(
         &self,
         tx: SignedTransaction,
         check_only: bool,
     ) -> Result<NetworkClientResponses, RpcError> {
-        Ok(self
+        let tx_hash = tx.get_hash();
+        let signer_account_id = tx.transaction.signer_id.clone();
+        let response = self
             .client_addr
             .send(NetworkClientMessages::Transaction {
                 transaction: tx,
@@ -356,11 +362,29 @@ impl JsonRpcHandler {
                 check_only,
             })
             .map_err(|err| RpcError::server_error(Some(ServerError::from(err))))
-            .await?)
+            .await?;
+
+        // If we receive InvalidNonce error, it might be the case that the transaction was
+        // resubmitted, and we should check if that is the case and return ValidTx response to
+        // maintain idempotence of the send_tx method.
+        if let NetworkClientResponses::InvalidTx(
+            near_primitives::errors::InvalidTxError::InvalidNonce { .. },
+        ) = response
+        {
+            if self.tx_exists(tx_hash, &signer_account_id).await? {
+                return Ok(NetworkClientResponses::ValidTx);
+            }
+        }
+
+        Ok(response)
     }
 
     async fn send_tx_sync(&self, params: Option<Value>) -> Result<Value, RpcError> {
         self.send_or_check_tx(params, false).await
+    }
+
+    async fn check_tx(&self, params: Option<Value>) -> Result<Value, RpcError> {
+        self.send_or_check_tx(params, true).await
     }
 
     async fn send_or_check_tx(
