@@ -190,9 +190,7 @@ pub fn run_wasmer<'a>(
         );
     }
     if !is_x86_feature_detected!("avx") {
-        panic!(
-            "AVX support is required in order to run Wasmer VM Singlepass backend."
-        );
+        panic!("AVX support is required in order to run Wasmer VM Singlepass backend.");
     }
     if method_name.is_empty() {
         return (
