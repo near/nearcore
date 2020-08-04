@@ -10,6 +10,8 @@ pub type Gas = u64;
 
 /// Costs associated with an object that can only be sent over the network (and executed
 /// by the receiver).
+/// NOTE: `send_sir` or `send_not_sir` fees are usually burned when the item is being created.
+/// And `execution` fee is burned when the item is being executed.
 #[derive(Debug, Serialize, Deserialize, Clone, Hash, PartialEq, Eq)]
 pub struct Fee {
     /// Fee for sending an object from the sender to itself, guaranteeing that it does not leave
@@ -45,6 +47,9 @@ impl Fee {
 pub struct RuntimeFeesConfig {
     /// Describes the cost of creating an action receipt, `ActionReceipt`, excluding the actual cost
     /// of actions.
+    /// - `send` cost is burned when a receipt is created using `promise_create` or
+    ///     `promise_batch_create`
+    /// - `exec` cost is burned when the receipt is being executed.
     pub action_receipt_creation_config: Fee,
     /// Describes the cost of creating a data receipt, `DataReceipt`.
     pub data_receipt_creation_config: DataReceiptCreationConfig,
@@ -64,8 +69,17 @@ pub struct RuntimeFeesConfig {
 #[derive(Debug, Serialize, Deserialize, Clone, Hash, PartialEq, Eq)]
 pub struct DataReceiptCreationConfig {
     /// Base cost of creating a data receipt.
+    /// Both `send` and `exec` costs are burned when a new receipt has input dependencies. The gas
+    /// is charged for each input dependency. The dependencies are specified when a receipt is
+    /// created using `promise_then` and `promise_batch_then`.
+    /// NOTE: Any receipt with output dependencies will produce data receipts. Even if it fails.
+    /// Even if the last action is not a function call (in case of success it will return empty
+    /// value).
     pub base_cost: Fee,
     /// Additional cost per byte sent.
+    /// Both `send` and `exec` costs are burned when a function call finishes execution and returns
+    /// `N` bytes of data to every output dependency. For each output dependency the cost is
+    /// `(send(sir) + exec()) * N`.
     pub cost_per_byte: Fee,
 }
 

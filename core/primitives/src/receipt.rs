@@ -114,7 +114,7 @@ pub struct ActionReceipt {
     /// depending on `ReceivedData` is `Some(_)` or `None`
     pub input_data_ids: Vec<CryptoHash>,
     /// A list of actions to process when all input_data_ids are filled
-    pub actions: Vec<Action>,
+    pub actions: Vec<Act`ion>,
 }
 
 /// An incoming (ingress) `DataReceipt` which is going to a Receipt's `receiver` input_data_ids
