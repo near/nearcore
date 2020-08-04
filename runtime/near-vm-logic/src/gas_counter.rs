@@ -22,9 +22,18 @@ pub struct GasCounter {
     prepaid_gas: Gas,
     is_view: bool,
     ext_costs_config: ExtCostsConfig,
+
+    /// The cost of one regular operation in Gas.
     regular_op_cost: Gas,
+    /// The amount regular operations a VM can do before it run out of gas (either max limit or
+    /// remaining prepaid gas).
     remaining_regular_ops: u64,
-    last_remaining_regular_ops: u64,
+    /// The previous remaining amount of regular operations before `deduct_gas` was called.
+    /// By knowing the previous remaining amount and the current remaining amount, it's possible
+    /// to compute the number of operations used.
+    /// The gas counter is implemented this way to minimize the amount of logic needed for regular
+    /// gas counting.
+    prev_remaining_regular_ops: u64,
 }
 
 impl GasCounter {
@@ -44,12 +53,15 @@ impl GasCounter {
             is_view,
             regular_op_cost,
             remaining_regular_ops: 0,
-            last_remaining_regular_ops: 0,
+            prev_remaining_regular_ops: 0,
         };
         counter.update_remaining_regular_ops();
         counter
     }
 
+    /// Recomputes `remaining_regular_ops` and `prev_remaining_regular_ops` based on the current
+    /// gas usage. It assumes the difference between `remaining_regular_ops` and
+    /// `prev_remaining_regular_ops` was already accounted in `burnt_gas` and `used_gas`.
     fn update_remaining_regular_ops(&mut self) {
         let remaining_burn_gas = if self.is_view {
             self.max_gas_burnt - self.burnt_gas
@@ -57,31 +69,33 @@ impl GasCounter {
             std::cmp::min(self.max_gas_burnt - self.burnt_gas, self.prepaid_gas - self.used_gas)
         };
         // In case `regular_op_cost` is 0 when the fees are free, we don't want to divide by zero.
-        self.last_remaining_regular_ops =
+        self.prev_remaining_regular_ops =
             remaining_burn_gas.checked_div(self.regular_op_cost).unwrap_or(u64::MAX);
-        self.remaining_regular_ops = self.last_remaining_regular_ops;
+        self.remaining_regular_ops = self.prev_remaining_regular_ops;
     }
 
+    /// Optimized method to burn gas for the given number of regular operations.
     pub fn burn_regular_ops(&mut self, num_regular_ops: u32) -> Result<()> {
         self.remaining_regular_ops = self
             .remaining_regular_ops
             .checked_sub(u64::from(num_regular_ops))
-            .ok_or_else(|| self.handle_regular_ops_exceeded(num_regular_ops))?;
+            .ok_or_else(|| {
+                let gas_amount = self.regular_op_cost * Gas::from(num_regular_ops);
+                self.deduct_gas(gas_amount, gas_amount).expect_err("Gas amount should overflow")
+            })?;
         Ok(())
     }
 
-    fn handle_regular_ops_exceeded(&mut self, num_regular_ops: u32) -> VMLogicError {
-        let gas_amount = self.regular_op_cost * Gas::from(num_regular_ops);
-        self.deduct_gas(gas_amount, gas_amount).expect_err("Gas amount should overflow")
-    }
-
+    /// Converts used regular ops to gas amount. It's based on the difference between
+    /// `prev_remaining_regular_ops` and `remaining_regular_ops`.
     fn regular_ops_to_gas(&self) -> Gas {
-        let regular_ops_used = self.last_remaining_regular_ops - self.remaining_regular_ops;
+        let regular_ops_used = self.prev_remaining_regular_ops - self.remaining_regular_ops;
         self.regular_op_cost * Gas::from(regular_ops_used)
     }
 
     pub fn deduct_gas(&mut self, burn_gas: Gas, use_gas: Gas) -> Result<()> {
         assert!(burn_gas <= use_gas);
+        // Compute gas used for regular operations from the previous call of `deduct_gas`.
         let regular_ops_gas = self.regular_ops_to_gas();
         let new_burnt_gas = self
             .burnt_gas
@@ -112,6 +126,8 @@ impl GasCounter {
             };
 
             let max_burnt_gas = min(self.max_gas_burnt, self.prepaid_gas);
+            self.remaining_regular_ops = 0;
+            self.prev_remaining_regular_ops = 0;
             self.burnt_gas = min(new_burnt_gas, max_burnt_gas);
             self.used_gas = min(new_used_gas, self.prepaid_gas);
 
