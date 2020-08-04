@@ -22,27 +22,84 @@ pub struct GasCounter {
     prepaid_gas: Gas,
     is_view: bool,
     ext_costs_config: ExtCostsConfig,
+    regular_op_cost: Gas,
+    remaining_regular_ops: u64,
+    last_remaining_regular_ops: u64,
 }
 
 impl GasCounter {
     pub fn new(
+        regular_op_cost: Gas,
         ext_costs_config: ExtCostsConfig,
         max_gas_burnt: Gas,
         prepaid_gas: Gas,
         is_view: bool,
     ) -> Self {
-        Self { ext_costs_config, burnt_gas: 0, used_gas: 0, max_gas_burnt, prepaid_gas, is_view }
+        let mut counter = Self {
+            ext_costs_config,
+            burnt_gas: 0,
+            used_gas: 0,
+            max_gas_burnt,
+            prepaid_gas,
+            is_view,
+            regular_op_cost,
+            remaining_regular_ops: 0,
+            last_remaining_regular_ops: 0,
+        };
+        counter.update_remaining_regular_ops();
+        counter
+    }
+
+    fn update_remaining_regular_ops(&mut self) {
+        let remaining_burn_gas = if self.is_view {
+            self.max_gas_burnt - self.burnt_gas
+        } else {
+            std::cmp::min(self.max_gas_burnt - self.burnt_gas, self.prepaid_gas - self.used_gas)
+        };
+        // In case `regular_op_cost` is 0 when the fees are free, we don't want to divide by zero.
+        self.last_remaining_regular_ops =
+            remaining_burn_gas.checked_div(self.regular_op_cost).unwrap_or(u64::MAX);
+        self.remaining_regular_ops = self.last_remaining_regular_ops;
+    }
+
+    pub fn burn_regular_ops(&mut self, num_regular_ops: u32) -> Result<()> {
+        self.remaining_regular_ops = self
+            .remaining_regular_ops
+            .checked_sub(u64::from(num_regular_ops))
+            .ok_or_else(|| self.handle_regular_ops_exceeded(num_regular_ops))?;
+        Ok(())
+    }
+
+    fn handle_regular_ops_exceeded(&mut self, num_regular_ops: u32) -> VMLogicError {
+        let gas_amount = self.regular_op_cost * Gas::from(num_regular_ops);
+        self.deduct_gas(gas_amount, gas_amount).expect_err("Gas amount should overflow")
+    }
+
+    fn regular_ops_to_gas(&self) -> Gas {
+        let regular_ops_used = self.last_remaining_regular_ops - self.remaining_regular_ops;
+        self.regular_op_cost * Gas::from(regular_ops_used)
     }
 
     pub fn deduct_gas(&mut self, burn_gas: Gas, use_gas: Gas) -> Result<()> {
         assert!(burn_gas <= use_gas);
-        let new_burnt_gas =
-            self.burnt_gas.checked_add(burn_gas).ok_or(HostError::IntegerOverflow)?;
-        let new_used_gas = self.used_gas.checked_add(use_gas).ok_or(HostError::IntegerOverflow)?;
+        let regular_ops_gas = self.regular_ops_to_gas();
+        let new_burnt_gas = self
+            .burnt_gas
+            .checked_add(burn_gas)
+            .ok_or(HostError::IntegerOverflow)?
+            .checked_add(regular_ops_gas)
+            .ok_or(HostError::IntegerOverflow)?;
+        let new_used_gas = self
+            .used_gas
+            .checked_add(use_gas)
+            .ok_or(HostError::IntegerOverflow)?
+            .checked_add(regular_ops_gas)
+            .ok_or(HostError::IntegerOverflow)?;
         if new_burnt_gas <= self.max_gas_burnt && (self.is_view || new_used_gas <= self.prepaid_gas)
         {
             self.burnt_gas = new_burnt_gas;
             self.used_gas = new_used_gas;
+            self.update_remaining_regular_ops();
             Ok(())
         } else {
             use std::cmp::min;
@@ -124,10 +181,10 @@ impl GasCounter {
     }
 
     pub fn burnt_gas(&self) -> Gas {
-        self.burnt_gas
+        self.burnt_gas + self.regular_ops_to_gas()
     }
     pub fn used_gas(&self) -> Gas {
-        self.used_gas
+        self.used_gas + self.regular_ops_to_gas()
     }
 }
 
@@ -136,7 +193,7 @@ mod tests {
     use super::*;
     #[test]
     fn test_deduct_gas() {
-        let mut counter = GasCounter::new(ExtCostsConfig::default(), 10, 10, false);
+        let mut counter = GasCounter::new(1, ExtCostsConfig::default(), 10, 10, false);
         counter.deduct_gas(5, 10).expect("deduct_gas should work");
         assert_eq!(counter.burnt_gas(), 5);
         assert_eq!(counter.used_gas(), 10);
@@ -145,7 +202,7 @@ mod tests {
     #[test]
     #[should_panic]
     fn test_prepaid_gas_min() {
-        let mut counter = GasCounter::new(ExtCostsConfig::default(), 100, 10, false);
+        let mut counter = GasCounter::new(1, ExtCostsConfig::default(), 100, 10, false);
         counter.deduct_gas(10, 5).unwrap();
     }
 }

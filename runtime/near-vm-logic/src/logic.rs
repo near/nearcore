@@ -110,6 +110,7 @@ impl<'a> VMLogic<'a> {
         };
         let current_account_locked_balance = context.account_locked_balance;
         let gas_counter = GasCounter::new(
+            Gas::from(config.regular_op_cost),
             config.ext_costs.clone(),
             max_gas_burnt,
             context.prepaid_gas,
@@ -828,9 +829,8 @@ impl<'a> VMLogic<'a> {
     /// * If passed gas amount somehow overflows internal gas counters returns `IntegerOverflow`;
     /// * If we exceed usage limit imposed on burnt gas returns `GasLimitExceeded`;
     /// * If we exceed the `prepaid_gas` then returns `GasExceeded`.
-    pub fn gas(&mut self, gas_amount: u32) -> Result<()> {
-        let value = Gas::from(gas_amount) * Gas::from(self.config.regular_op_cost);
-        self.gas_counter.deduct_gas(value, value)
+    pub fn gas(&mut self, num_regular_ops: u32) -> Result<()> {
+        self.gas_counter.burn_regular_ops(num_regular_ops)
     }
 
     // ################
