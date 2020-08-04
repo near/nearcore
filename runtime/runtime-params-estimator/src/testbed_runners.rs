@@ -5,12 +5,12 @@ use indicatif::{ProgressBar, ProgressStyle};
 use near_crypto::{InMemorySigner, KeyType};
 use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::{Action, SignedTransaction};
+use near_vm_logic::VMKind;
 use rand::Rng;
 use std::collections::{HashMap, HashSet};
 use std::convert::TryInto;
 use std::path::PathBuf;
 use std::time::Instant;
-use near_vm_logic::VMKind;
 
 /// Get account id from its index.
 pub fn get_account_id(account_index: usize) -> String {
@@ -50,7 +50,7 @@ pub struct Config {
     /// Metric used for counting.
     pub metric: GasMetric,
     /// VMKind used
-    pub vm_kind: VMKind
+    pub vm_kind: VMKind,
 }
 
 /// Measure the speed of transactions containing certain simple actions.
