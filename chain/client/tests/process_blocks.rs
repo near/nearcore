@@ -19,13 +19,13 @@ use near_chunks::{ChunkStatus, ShardsManager};
 use near_client::test_utils::{create_chunk_on_height, setup_mock_all_validators};
 use near_client::test_utils::{setup_client, setup_mock, TestEnv};
 use near_client::{Client, GetBlock, GetBlockWithMerkleTree};
-use near_crypto::{InMemorySigner, KeyType, Signature, Signer};
+use near_crypto::{InMemorySigner, KeyType, PublicKey, Signature, Signer};
 use near_logger_utils::init_test_logger;
 #[cfg(feature = "metric_recorder")]
 use near_network::recorder::MetricRecorder;
 use near_network::routing::EdgeInfo;
 use near_network::test_utils::{wait_or_panic, MockNetworkAdapter};
-use near_network::types::{NetworkInfo, PeerChainInfo};
+use near_network::types::{NetworkInfo, PeerChainInfo, ReasonForBan};
 use near_network::{
     FullPeerInfo, NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkResponses,
     PeerInfo,
@@ -33,12 +33,12 @@ use near_network::{
 use near_primitives::block::{Approval, ApprovalInner};
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::{hash, CryptoHash};
-use near_primitives::merkle::{merklize, verify_hash};
+use near_primitives::merkle::verify_hash;
 use near_primitives::sharding::{EncodedShardChunk, ReedSolomonWrapper};
 use near_primitives::transaction::{
     Action, DeployContractAction, FunctionCallAction, SignedTransaction, Transaction,
 };
-use near_primitives::types::{BlockHeight, EpochId, MerkleHash, NumBlocks};
+use near_primitives::types::{BlockHeight, EpochId, NumBlocks, ValidatorStake};
 use near_primitives::utils::to_timestamp;
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
 use near_primitives::version::PROTOCOL_VERSION;
@@ -361,6 +361,129 @@ fn produce_block_with_approvals_arrived_early() {
 }
 
 /// Sends one invalid block followed by one valid block, and checks that client announces only valid block.
+/// and that the node bans the peer for invalid block header.
+fn invalid_blocks_common(is_requested: bool) {
+    init_test_logger();
+    System::run(move || {
+        let mut ban_counter = 0;
+        let (client, view_client) = setup_mock(
+            vec!["test"],
+            "other",
+            false,
+            false,
+            Box::new(move |msg, _ctx, _client_actor| {
+                match msg {
+                    NetworkRequests::Block { block } => {
+                        if is_requested {
+                            panic!("rebroadcasting requested block");
+                        } else {
+                            assert_eq!(block.header().height(), 1);
+                            assert_eq!(block.header().chunk_mask().len(), 1);
+                            assert_eq!(ban_counter, 1);
+                            System::current().stop();
+                        }
+                    }
+                    NetworkRequests::BanPeer { ban_reason, .. } => {
+                        assert_eq!(ban_reason, &ReasonForBan::BadBlockHeader);
+                        ban_counter += 1;
+                        if ban_counter == 2 && is_requested {
+                            System::current().stop();
+                        }
+                    }
+                    _ => {}
+                };
+                NetworkResponses::NoResponse
+            }),
+        );
+        actix::spawn(view_client.send(GetBlockWithMerkleTree::latest()).then(move |res| {
+            let (last_block, mut block_merkle_tree) = res.unwrap().unwrap();
+            let signer = InMemoryValidatorSigner::from_seed("test", KeyType::ED25519, "test");
+            // Send block with invalid chunk mask
+            let mut block = Block::produce(
+                PROTOCOL_VERSION,
+                &last_block.header.clone().into(),
+                last_block.header.height + 1,
+                last_block.chunks.iter().cloned().map(Into::into).collect(),
+                EpochId::default(),
+                if last_block.header.prev_hash == CryptoHash::default() {
+                    EpochId(last_block.header.hash)
+                } else {
+                    EpochId(last_block.header.next_epoch_id.clone())
+                },
+                vec![],
+                Rational::from_integer(0),
+                0,
+                100,
+                Some(0),
+                vec![],
+                vec![],
+                &signer,
+                last_block.header.next_bp_hash,
+                CryptoHash::default(),
+            );
+            block.mut_header().get_mut().inner_rest.chunk_mask = vec![];
+            client.do_send(NetworkClientMessages::Block(
+                block.clone(),
+                PeerInfo::random().id,
+                is_requested,
+            ));
+
+            // Send proper block.
+            block_merkle_tree.insert(last_block.header.hash);
+            let block2 = Block::produce(
+                PROTOCOL_VERSION,
+                &last_block.header.clone().into(),
+                last_block.header.height + 1,
+                last_block.chunks.into_iter().map(Into::into).collect(),
+                EpochId::default(),
+                if last_block.header.prev_hash == CryptoHash::default() {
+                    EpochId(last_block.header.hash)
+                } else {
+                    EpochId(last_block.header.next_epoch_id.clone())
+                },
+                vec![],
+                Rational::from_integer(0),
+                0,
+                100,
+                Some(0),
+                vec![],
+                vec![],
+                &signer,
+                last_block.header.next_bp_hash,
+                block_merkle_tree.root(),
+            );
+            client.do_send(NetworkClientMessages::Block(
+                block2.clone(),
+                PeerInfo::random().id,
+                is_requested,
+            ));
+            if is_requested {
+                let mut block3 = block2.clone();
+                block3.mut_header().get_mut().inner_rest.chunk_headers_root = hash(&[1]);
+                block3.mut_header().get_mut().init();
+                client.do_send(NetworkClientMessages::Block(
+                    block3.clone(),
+                    PeerInfo::random().id,
+                    is_requested,
+                ));
+            }
+            future::ready(())
+        }));
+        near_network::test_utils::wait_or_panic(5000);
+    })
+    .unwrap();
+}
+
+#[test]
+fn test_invalid_blocks_not_requested() {
+    invalid_blocks_common(false);
+}
+
+#[test]
+fn test_invalid_blocks_requested() {
+    invalid_blocks_common(true);
+}
+
 #[test]
 fn invalid_blocks() {
     init_test_logger();
@@ -374,10 +497,7 @@ fn invalid_blocks() {
                 match msg {
                     NetworkRequests::Block { block } => {
                         assert_eq!(block.header().height(), 1);
-                        assert_eq!(
-                            block.header().prev_state_root(),
-                            &merklize(&vec![MerkleHash::default()]).0
-                        );
+                        assert_eq!(block.header().chunk_mask().len(), 1);
                         System::current().stop();
                     }
                     _ => {}
@@ -448,6 +568,140 @@ fn invalid_blocks() {
         near_network::test_utils::wait_or_panic(5000);
     })
     .unwrap();
+}
+
+enum InvalidBlockMode {
+    /// Header is invalid
+    InvalidHeader,
+    /// Block is ill-formed (roots check fail)
+    IllFormed,
+    /// Block is invalid for other reasons
+    InvalidBlock,
+}
+fn ban_peer_for_invalid_block_common(mode: InvalidBlockMode) {
+    init_test_logger();
+    let validators = vec![vec!["test1", "test2", "test3", "test4"]];
+    let key_pairs =
+        vec![PeerInfo::random(), PeerInfo::random(), PeerInfo::random(), PeerInfo::random()];
+    let validator_signer1 = InMemoryValidatorSigner::from_seed("test1", KeyType::ED25519, "test1");
+    System::run(move || {
+        let mut ban_counter = 0;
+        let network_mock: Arc<
+            RwLock<Box<dyn FnMut(String, &NetworkRequests) -> (NetworkResponses, bool)>>,
+        > = Arc::new(RwLock::new(Box::new(|_: String, _: &NetworkRequests| {
+            (NetworkResponses::NoResponse, true)
+        })));
+        let (_, conns) = setup_mock_all_validators(
+            validators.clone(),
+            key_pairs,
+            1,
+            true,
+            100,
+            false,
+            false,
+            100,
+            true,
+            vec![false; validators.iter().map(|x| x.len()).sum()],
+            network_mock.clone(),
+        );
+        *network_mock.write().unwrap() =
+            Box::new(move |_: String, msg: &NetworkRequests| -> (NetworkResponses, bool) {
+                match msg {
+                    NetworkRequests::Block { block } => {
+                        if block.header().height() == 4 {
+                            let mut block_mut = block.clone();
+                            match mode {
+                                InvalidBlockMode::InvalidHeader => {
+                                    // produce an invalid block with invalid header.
+                                    block_mut.mut_header().get_mut().inner_rest.chunk_mask = vec![];
+                                    block_mut.mut_header().resign(&validator_signer1);
+                                }
+                                InvalidBlockMode::IllFormed => {
+                                    // produce an ill-formed block
+                                    block_mut
+                                        .mut_header()
+                                        .get_mut()
+                                        .inner_rest
+                                        .chunk_headers_root = hash(&[1]);
+                                    block_mut.mut_header().resign(&validator_signer1);
+                                }
+                                InvalidBlockMode::InvalidBlock => {
+                                    // produce an invalid block whose invalidity cannot be verified by just
+                                    // having its header.
+                                    block_mut
+                                        .mut_header()
+                                        .get_mut()
+                                        .inner_rest
+                                        .validator_proposals = vec![ValidatorStake {
+                                        account_id: "test1".to_string(),
+                                        public_key: PublicKey::empty(KeyType::ED25519),
+                                        stake: 0,
+                                    }];
+                                    block_mut.mut_header().resign(&validator_signer1);
+                                }
+                            }
+
+                            for (i, (client, _)) in conns.clone().into_iter().enumerate() {
+                                if i > 0 {
+                                    client.do_send(NetworkClientMessages::Block(
+                                        block_mut.clone(),
+                                        PeerInfo::random().id,
+                                        false,
+                                    ))
+                                }
+                            }
+
+                            return (NetworkResponses::NoResponse, false);
+                        }
+                        if block.header().height() > 20 {
+                            match mode {
+                                InvalidBlockMode::InvalidHeader | InvalidBlockMode::IllFormed => {
+                                    assert_eq!(ban_counter, 3);
+                                }
+                                _ => {}
+                            }
+                            System::current().stop();
+                        }
+                        (NetworkResponses::NoResponse, true)
+                    }
+                    NetworkRequests::BanPeer { peer_id, ban_reason } => match mode {
+                        InvalidBlockMode::InvalidHeader | InvalidBlockMode::IllFormed => {
+                            assert_eq!(ban_reason, &ReasonForBan::BadBlockHeader);
+                            ban_counter += 1;
+                            if ban_counter > 3 {
+                                panic!("more bans than expected");
+                            }
+                            (NetworkResponses::NoResponse, true)
+                        }
+                        InvalidBlockMode::InvalidBlock => {
+                            panic!("banning peer {:?} unexpectedly for {:?}", peer_id, ban_reason);
+                        }
+                    },
+                    _ => (NetworkResponses::NoResponse, true),
+                }
+            });
+
+        near_network::test_utils::wait_or_panic(10000);
+    })
+    .unwrap();
+}
+
+/// If a peer sends a block whose header is valid and passes basic validation, the peer is not banned.
+#[test]
+fn test_not_ban_peer_for_invalid_block() {
+    ban_peer_for_invalid_block_common(InvalidBlockMode::InvalidBlock);
+}
+
+/// If a peer sends a block whose header is invalid, we should ban them and do not forward the block
+#[test]
+fn test_ban_peer_for_invalid_block_header() {
+    ban_peer_for_invalid_block_common(InvalidBlockMode::InvalidHeader);
+}
+
+/// If a peer sends a block that is ill-formed, we should ban them and do not forward the block
+#[test]
+fn test_ban_peer_for_ill_formed_block() {
+    ban_peer_for_invalid_block_common(InvalidBlockMode::IllFormed);
 }
 
 /// Runs two validators runtime with only one validator online.
@@ -1446,6 +1700,25 @@ fn test_sync_hash_validity() {
             _ => assert!(false),
         },
     }
+}
+
+/// Only process one block per height
+#[test]
+fn test_not_process_height_twice() {
+    let mut env = TestEnv::new(ChainGenesis::test(), 1, 1);
+    let block = env.clients[0].produce_block(1).unwrap().unwrap();
+    let mut invalid_block = block.clone();
+    env.process_block(0, block, Provenance::PRODUCED);
+    let validator_signer = InMemoryValidatorSigner::from_seed("test0", KeyType::ED25519, "test0");
+    invalid_block.mut_header().get_mut().inner_rest.validator_proposals = vec![ValidatorStake {
+        account_id: "test1".to_string(),
+        public_key: PublicKey::empty(KeyType::ED25519),
+        stake: 0,
+    }];
+    invalid_block.mut_header().resign(&validator_signer);
+    let (accepted_blocks, res) = env.clients[0].process_block(invalid_block, Provenance::NONE);
+    assert!(accepted_blocks.is_empty());
+    assert!(matches!(res, Ok(None)));
 }
 
 #[test]

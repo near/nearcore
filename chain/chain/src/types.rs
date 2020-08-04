@@ -223,8 +223,6 @@ pub trait RuntimeAdapter: Send + Sync {
     /// Returns trie.
     fn get_trie_for_shard(&self, shard_id: ShardId) -> Trie;
 
-    /// Verify block producer validity
-    fn verify_block_signature(&self, header: &BlockHeader) -> Result<(), Error>;
     fn verify_block_vrf(
         &self,
         epoch_id: &EpochId,

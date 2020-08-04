@@ -497,16 +497,6 @@ impl RuntimeAdapter for NightshadeRuntime {
         self.tries.get_trie_for_shard(shard_id)
     }
 
-    fn verify_block_signature(&self, header: &BlockHeader) -> Result<(), Error> {
-        let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
-        let validator =
-            epoch_manager.get_block_producer_info(header.epoch_id(), header.height())?;
-        if !header.verify_block_producer(&validator.public_key) {
-            return Err(ErrorKind::InvalidBlockProposer.into());
-        }
-        Ok(())
-    }
-
     fn verify_block_vrf(
         &self,
         epoch_id: &EpochId,
