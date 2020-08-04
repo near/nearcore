@@ -246,6 +246,15 @@ pub unsafe fn write_key_value() {
 }
 
 #[no_mangle]
+pub unsafe fn write_block_height() {
+    let block_height = block_index();
+    let mut key = [0u8; size_of::<u64>()];
+    key.copy_from_slice(&block_height.to_le_bytes());
+    let value = b"hello";
+    storage_write(key.len() as _, key.as_ptr() as _, value.len() as _, value.as_ptr() as _, 0);
+}
+
+#[no_mangle]
 pub unsafe fn read_value() {
     input(0);
     if register_len(0) != size_of::<u64>() as u64 {

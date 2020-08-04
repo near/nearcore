@@ -469,7 +469,7 @@ impl Client {
 
         let chunk_extra = self
             .chain
-            .get_latest_chunk_extra(shard_id)
+            .get_chunk_extra(&prev_block_hash, shard_id)
             .map_err(|err| Error::ChunkProducer(format!("No chunk extra available: {}", err)))?
             .clone();
 
@@ -585,6 +585,18 @@ impl Client {
         block: Block,
         provenance: Provenance,
     ) -> (Vec<AcceptedBlock>, Result<Option<Tip>, near_chain::Error>) {
+        let is_requested = match provenance {
+            Provenance::PRODUCED | Provenance::SYNC => true,
+            Provenance::NONE => false,
+        };
+        // drop the block if a) it is not requested and b) we already processed this height.
+        if !is_requested {
+            match self.chain.mut_store().is_height_processed(block.header().height()) {
+                Ok(true) => return (vec![], Ok(None)),
+                Ok(false) => {}
+                Err(e) => return (vec![], Err(e)),
+            }
+        }
         // TODO: replace to channels or cross beams here? we don't have multi-threading here so it's mostly to get around borrow checker.
         let accepted_blocks = Arc::new(RwLock::new(vec![]));
         let blocks_missing_chunks = Arc::new(RwLock::new(vec![]));
