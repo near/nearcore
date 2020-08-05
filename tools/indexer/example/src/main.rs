@@ -13,7 +13,7 @@ use near_indexer;
 /// NEAR Indexer Example
 /// Watches for stream of blocks from the chain
 #[derive(Clap, Debug)]
-#[clap(version = "0.1", author = " Near Inc. <hello@nearprotocol.com>")]
+#[clap(version = "0.1", author = "Near Inc. <hello@nearprotocol.com>")]
 struct Opts {
     /// Sets a custom config dir. Defaults to ~/.near/
     #[clap(short, long, default_value = "~/.near/")]
@@ -264,6 +264,8 @@ async fn listen_blocks(mut stream: mpsc::Receiver<near_indexer::BlockResponse>) 
 }
 
 fn main() {
+    // We use it to automatically search the for root certificates to perform HTTPS calls
+    // (sending telemetry and downloading genesis)
     openssl_probe::init_ssl_cert_env_vars();
     init_logging(true);
 
@@ -278,7 +280,7 @@ fn main() {
             actix::spawn(listen_blocks(stream));
             indexer.start();
         }
-        SubCommand::Init(config) => near_indexer::Indexer::init_configs(
+        SubCommand::Init(config) => near_indexer::init_configs(
             home_dir,
             config.chain_id.as_ref().map(AsRef::as_ref),
             config.account_id.as_ref().map(AsRef::as_ref),
