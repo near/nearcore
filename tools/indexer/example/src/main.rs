@@ -188,19 +188,18 @@ fn main() {
 
     let opts: Opts = Opts::parse();
 
-    let home_dir = opts.home_dir
-        .as_ref()
-        .unwrap_or(&std::path::PathBuf::from(near_indexer::get_default_home());
+    let home_dir =
+        opts.home_dir.unwrap_or(std::path::PathBuf::from(near_indexer::get_default_home()));
 
     match opts.subcmd {
         SubCommand::Run => {
-            let indexer = near_indexer::Indexer::new(Some(home_dir));
+            let indexer = near_indexer::Indexer::new(Some(&home_dir));
             let stream = indexer.streamer();
             actix::spawn(listen_blocks(stream));
             indexer.start();
         }
         SubCommand::Init(config) => near_indexer::init_configs(
-            home_dir,
+            &home_dir,
             config.chain_id.as_ref().map(AsRef::as_ref),
             config.account_id.as_ref().map(AsRef::as_ref),
             config.test_seed.as_ref().map(AsRef::as_ref),
