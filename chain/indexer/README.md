@@ -44,15 +44,15 @@ $ env NEAR_ENV=local near --keyPath ~/.near/localnet/validator_key.json create_a
 ```
 
 
-### testnet / betanet / devnet
+### testnet / betanet
 
-To run the NEAR Indexer connected to testnet, betanet or devnet we need to have configs and keys prepopulated, you can get them with the NEAR Indexer Example like above with a little change. Follow the instructions below to run non-validating node (leaving account ID empty).
+To run the NEAR Indexer connected to testnet or betanet we need to have configs and keys prepopulated, you can get them with the NEAR Indexer Example like above with a little change. Follow the instructions below to run non-validating node (leaving account ID empty).
 
 ```bash
 $ cargo run --release --home-dir ~/.near/testnet init --chain-id testnet --download
 ```
 
-The above code will download the official genesis config and generate necessary configs. You can replace `testnet` in the command above to different network ID: `betanet`, `devnet`.
+The above code will download the official genesis config and generate necessary configs. You can replace `testnet` in the command above to different network ID `betanet`.
 
 Configs for the specified network are in the `--home-dir` provided folder. We need to ensure that NEAR Indexer follows all the necessary shards, so `"tracked_shards"` parameters in `~/.near/testnet/config.json` needs to be configured properly. For example, with a single shared network, you just add the shard #0 to the list:
 
