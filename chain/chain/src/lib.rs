@@ -12,6 +12,7 @@ pub use types::{
 };
 
 pub mod chain;
+pub mod delay_detector;
 mod doomslug;
 mod error;
 mod lightclient;
