@@ -959,7 +959,6 @@ pub fn start_view_client(
 ) -> Addr<ViewClientActor> {
     let request_manager = Arc::new(RwLock::new(ViewClientRequestManager::new()));
     SyncArbiter::start(config.view_client_threads, move || {
-        // ViewClientActor::start_in_arbiter(&Arbiter::current(), move |_ctx| {
         let validator_account_id1 = validator_account_id.clone();
         let runtime_adapter1 = runtime_adapter.clone();
         let network_adapter1 = network_adapter.clone();

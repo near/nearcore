@@ -7,7 +7,7 @@ use log::{error, info};
 use tracing::trace;
 
 use near_chain::ChainGenesis;
-use near_client::{start_client, start_view_client, ClientActor, ViewClientActor};
+use near_client::{start_client, start_gc_actor, start_view_client, ClientActor, ViewClientActor};
 use near_jsonrpc::start_http;
 use near_network::{NetworkRecipient, PeerManagerActor};
 use near_store::migrations::{
@@ -142,14 +142,28 @@ pub fn start_with_config(
         config.client_config.clone(),
     );
     let (client_actor, client_arbiter) = start_client(
-        config.client_config,
+        config.client_config.clone(),
         chain_genesis,
-        runtime,
+        runtime.clone(),
         node_id,
         network_adapter.clone(),
         config.validator_signer,
         telemetry,
     );
+    let maybe_gc_arbiter = {
+        if !config.client_config.archive {
+            let (_, gc_arbiter) = start_gc_actor(
+                store.clone(),
+                config.genesis.config.genesis_height,
+                config.client_config,
+                runtime,
+            );
+            Some(gc_arbiter)
+        } else {
+            None
+        }
+    };
+
     start_http(
         config.rpc_config,
         Arc::clone(&config.genesis),
@@ -173,5 +187,9 @@ pub fn start_with_config(
 
     trace!(target: "diagnostic", key="log", "Starting NEAR node with diagnostic activated");
 
-    (client_actor, view_client, vec![client_arbiter, arbiter])
+    if let Some(gc_arbiter) = maybe_gc_arbiter {
+        (client_actor, view_client, vec![client_arbiter, arbiter, gc_arbiter])
+    } else {
+        (client_actor, view_client, vec![client_arbiter, arbiter])
+    }
 }

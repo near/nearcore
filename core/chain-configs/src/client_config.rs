@@ -69,6 +69,8 @@ pub struct ClientConfig {
     pub block_header_fetch_horizon: BlockHeightDelta,
     /// Number of blocks to garbage collect at every gc call.
     pub gc_blocks_limit: NumBlocks,
+    /// How often gc runs.
+    pub gc_step_period: Duration,
     /// Accounts that this client tracks
     pub tracked_accounts: Vec<AccountId>,
     /// Shards that this client tracks
@@ -124,6 +126,7 @@ impl ClientConfig {
             doosmslug_step_period: Duration::from_millis(100),
             block_header_fetch_horizon: 50,
             gc_blocks_limit: 100,
+            gc_step_period: Duration::from_millis(100),
             tracked_accounts: vec![],
             tracked_shards: vec![],
             archive,

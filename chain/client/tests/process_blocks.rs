@@ -1019,6 +1019,8 @@ fn test_gc_with_epoch_length_common(epoch_length: NumBlocks) {
     for i in 1..=epoch_length * (NUM_EPOCHS_TO_KEEP_STORE_DATA + 1) {
         let block = env.clients[0].produce_block(i).unwrap().unwrap();
         env.process_block(0, block.clone(), Provenance::PRODUCED);
+        let runtime_adapter = env.clients[0].chain.runtime_adapter.clone();
+        env.clients[0].chain.mut_store().clear_data(runtime_adapter.as_ref(), 2).unwrap();
         blocks.push(block);
     }
     for i in 1..=epoch_length * (NUM_EPOCHS_TO_KEEP_STORE_DATA + 1) {
@@ -1039,8 +1041,12 @@ fn test_gc_with_epoch_length_common(epoch_length: NumBlocks) {
                 .get_all_block_hashes_by_height(i as BlockHeight)
                 .is_err());
         } else {
-            assert!(env.clients[0].chain.get_block(&blocks[i as usize - 1].hash()).is_ok());
-            assert!(env.clients[0].chain.get_block_by_height(i).is_ok());
+            assert!(env.clients[0]
+                .chain
+                .mut_store()
+                .get_block(&blocks[i as usize - 1].hash())
+                .is_ok());
+            assert!(env.clients[0].chain.mut_store().get_block_hash_by_height(i).is_ok());
             assert!(env.clients[0]
                 .chain
                 .mut_store()
@@ -1180,12 +1186,14 @@ fn test_gc_execution_outcome() {
     for i in 1..epoch_length {
         env.produce_block(0, i);
     }
-    assert!(env.clients[0].chain.get_final_transaction_result(&tx_hash).is_ok());
+    assert!(env.clients[0].chain.mut_store().get_execution_outcome(&tx_hash).is_ok());
 
     for i in epoch_length..=epoch_length * 6 + 1 {
         env.produce_block(0, i);
+        let runtime_adapter = env.clients[0].runtime_adapter.clone();
+        env.clients[0].chain.mut_store().clear_data(runtime_adapter.as_ref(), 2).unwrap();
     }
-    assert!(env.clients[0].chain.get_final_transaction_result(&tx_hash).is_err());
+    assert!(env.clients[0].chain.mut_store().get_execution_outcome(&tx_hash).is_err());
 }
 
 #[cfg(feature = "expensive_tests")]
@@ -1234,8 +1242,8 @@ fn test_gc_after_state_sync() {
     ));
     // mimic what we do in possible_targets
     assert!(env.clients[1].runtime_adapter.get_epoch_id_from_prev_block(&prev_block_hash).is_ok());
-    let tries = env.clients[1].runtime_adapter.get_tries();
-    assert!(env.clients[1].chain.clear_data(tries, 2).is_ok());
+    let runtime_adapter = env.clients[1].runtime_adapter.clone();
+    assert!(env.clients[1].chain.mut_store().clear_data(runtime_adapter.as_ref(), 2).is_ok());
 }
 
 #[test]
@@ -1349,11 +1357,13 @@ fn test_not_resync_old_blocks() {
     for i in 1..=epoch_length * (NUM_EPOCHS_TO_KEEP_STORE_DATA + 1) {
         let block = env.clients[0].produce_block(i).unwrap().unwrap();
         env.process_block(0, block.clone(), Provenance::PRODUCED);
+        let runtime_adapter = env.clients[0].runtime_adapter.clone();
+        env.clients[0].chain.mut_store().clear_data(runtime_adapter.as_ref(), 2).unwrap();
         blocks.push(block);
     }
     for i in 2..epoch_length {
         let block = blocks[i as usize - 1].clone();
-        assert!(env.clients[0].chain.get_block(&block.hash()).is_err());
+        assert!(env.clients[0].chain.mut_store().get_block(&block.hash()).is_err());
         let (_, res) = env.clients[0].process_block(block, Provenance::NONE);
         assert!(matches!(res, Err(x) if matches!(x.kind(), ErrorKind::Orphan)));
         assert_eq!(env.clients[0].chain.orphans_len(), 0);

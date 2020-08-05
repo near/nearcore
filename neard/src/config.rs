@@ -297,6 +297,10 @@ fn default_doomslug_step_period() -> Duration {
     Duration::from_millis(100)
 }
 
+fn default_gc_step_period() -> Duration {
+    Duration::from_millis(500)
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Consensus {
     /// Minimum number of peers to start syncing.
@@ -390,6 +394,8 @@ pub struct Config {
     pub archive: bool,
     #[serde(default = "default_gc_blocks_limit")]
     pub gc_blocks_limit: NumBlocks,
+    #[serde(default = "default_gc_step_period")]
+    pub gc_step_period: Duration,
     #[serde(default = "default_view_client_threads")]
     pub view_client_threads: usize,
 }
@@ -409,6 +415,7 @@ impl Default for Config {
             tracked_shards: vec![],
             archive: false,
             gc_blocks_limit: default_gc_blocks_limit(),
+            gc_step_period: default_gc_step_period(),
             view_client_threads: 4,
         }
     }
@@ -574,6 +581,7 @@ impl NearConfig {
                 tracked_shards: config.tracked_shards,
                 archive: config.archive,
                 gc_blocks_limit: config.gc_blocks_limit,
+                gc_step_period: config.gc_step_period,
                 view_client_threads: config.view_client_threads,
             },
             network_config: NetworkConfig {

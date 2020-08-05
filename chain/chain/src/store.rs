@@ -46,9 +46,9 @@ use near_store::{
     SHOULD_COL_GC, SYNC_HEAD_KEY, TAIL_KEY,
 };
 
-use crate::byzantine_assert;
 use crate::error::{Error, ErrorKind};
 use crate::types::{Block, BlockHeader, LatestKnown};
+use crate::{byzantine_assert, RuntimeAdapter};
 
 /// lru cache size
 #[cfg(not(feature = "no_cache"))]
@@ -499,6 +499,191 @@ impl ChainStore {
         } else {
             Ok(self.get_block_header(hash)?.height())
         }
+    }
+
+    // GC CONTRACT
+    // ===
+    //
+    // Prerequisites, guaranteed by the System:
+    // 1. Genesis block is available and should not be removed by GC.
+    // 2. No block in storage except Genesis has height lower or equal to `genesis_height`.
+    // 3. There is known lowest block height (Tail) came from Genesis or State Sync.
+    //    a. Tail is always on the Canonical Chain.
+    //    b. Only one Tail exists.
+    //    c. Tail's height is higher than or equal to `genesis_height`,
+    // 4. There is a known highest block height (Head).
+    //    a. Head is always on the Canonical Chain.
+    // 5. All blocks in the storage have heights in range [Tail; Head].
+    //    a. All forks end up on height of Head or lower.
+    // 6. If block A is ancestor of block B, height of A is strictly less then height of B.
+    // 7. (Property 1). A block with the lowest height among all the blocks at which the fork has started,
+    //    i.e. all the blocks with the outgoing degree 2 or more,
+    //    has the least height among all blocks on the fork.
+    // 8. (Property 2). The oldest block where the fork happened is never affected
+    //    by Canonical Chain Switching and always stays on Canonical Chain.
+    //
+    // Overall:
+    // 1. GC procedure is handled by `clear_data()` function.
+    // 2. `clear_data()` runs GC process for all blocks from the Tail to GC Stop Height provided by Epoch Manager.
+    // 3. `clear_data()` executes separately:
+    //    a. Forks Clearing runs for each height from Tail up to GC Stop Height.
+    //    b. Canonical Chain Clearing from (Tail + 1) up to GC Stop Height.
+    // 4. Before actual clearing is started, Block Reference Map should be built.
+    // 5. `clear_data()` executes every time when block at new height is added.
+    // 6. In case of State Sync, State Sync Clearing happens.
+    //
+    // Forks Clearing:
+    // 1. Any fork which ends up on height `height` INCLUSIVELY and earlier will be completely deleted
+    //    from the Store with all its ancestors up to the ancestor block where fork is happened
+    //    EXCLUDING the ancestor block where fork is happened.
+    // 2. The oldest ancestor block always remains on the Canonical Chain by property 2.
+    // 3. All forks which end up on height `height + 1` and further are protected from deletion and
+    //    no their ancestor will be deleted (even with lowest heights).
+    // 4. `clear_forks_data()` handles forks clearing for fixed height `height`.
+    //
+    // Canonical Chain Clearing:
+    // 1. Blocks on the Canonical Chain with the only descendant (if no forks started from them)
+    //    are unlocked for Canonical Chain Clearing.
+    // 2. If Forks Clearing ended up on the Canonical Chain, the block may be unlocked
+    //    for the Canonical Chain Clearing. There is no other reason to unlock the block exists.
+    // 3. All the unlocked blocks will be completely deleted
+    //    from the Tail up to GC Stop Height EXCLUSIVELY.
+    // 4. (Property 3, GC invariant). Tail can be shifted safely to the height of the
+    //    earliest existing block. There is always only one Tail (based on property 1)
+    //    and it's always on the Canonical Chain (based on property 2).
+    //
+    // Example:
+    //
+    // height: 101   102   103   104
+    // --------[A]---[B]---[C]---[D]
+    //          \     \
+    //           \     \---[E]
+    //            \
+    //             \-[F]---[G]
+    //
+    // 1. Let's define clearing height = 102. It this case fork A-F-G is protected from deletion
+    //    because of G which is on height 103. Nothing will be deleted.
+    // 2. Let's define clearing height = 103. It this case Fork Clearing will be executed for A
+    //    to delete blocks G and F, then Fork Clearing will be executed for B to delete block E.
+    //    Then Canonical Chain Clearing will delete blocks A and B as unlocked.
+    //    Block C is the only block of height 103 remains on the Canonical Chain (invariant).
+    //
+    // State Sync Clearing:
+    // 1. Executing State Sync means that no data in the storage is useful for block processing
+    //    and should be removed completely.
+    // 2. The Tail should be set to the block preceding Sync Block.
+    // 3. All the data preceding new Tail is deleted in State Sync Clearing
+    //    and the Trie is updated with having only Genesis data.
+    // 4. State Sync Clearing happens in `reset_data_pre_state_sync()`.
+    //
+    pub fn clear_data(
+        &mut self,
+        runtime_adapter: &dyn RuntimeAdapter,
+        gc_blocks_limit: NumBlocks,
+    ) -> Result<(), Error> {
+        let head = self.head()?;
+        let tail = self.tail()?;
+        let gc_stop_height = match runtime_adapter.get_gc_stop_height(&head.last_block_hash) {
+            Ok(height) => height,
+            Err(e) => match e.kind() {
+                // We don't have enough data to garbage collect. Do nothing in this case.
+                ErrorKind::DBNotFoundErr(_) => return Ok(()),
+                _ => return Err(e),
+            },
+        };
+        if gc_stop_height > head.height {
+            return Err(ErrorKind::GCError(
+                "gc_stop_height cannot be larger than head.height".into(),
+            )
+            .into());
+        }
+        let tries = runtime_adapter.get_tries();
+        let mut gc_blocks_remaining = gc_blocks_limit;
+
+        // Forks Cleaning
+        for height in tail..gc_stop_height {
+            if gc_blocks_remaining == 0 {
+                return Ok(());
+            }
+            self.clear_forks_data(tries.clone(), height, &mut gc_blocks_remaining)?;
+        }
+
+        // Canonical Chain Clearing
+        for height in tail + 1..gc_stop_height {
+            if gc_blocks_remaining == 0 {
+                return Ok(());
+            }
+            let mut chain_store_update = self.store_update();
+            if let Ok(blocks_current_height) =
+                chain_store_update.get_all_block_hashes_by_height(height)
+            {
+                let blocks_current_height =
+                    blocks_current_height.values().flatten().cloned().collect::<Vec<_>>();
+                if let Some(block_hash) = blocks_current_height.first() {
+                    let prev_hash = *chain_store_update.get_block_header(block_hash)?.prev_hash();
+                    let prev_block_refcount = *chain_store_update.get_block_refcount(&prev_hash)?;
+                    if prev_block_refcount > 1 {
+                        // Block of `prev_hash` starts a Fork, stopping
+                        break;
+                    } else if prev_block_refcount == 1 {
+                        debug_assert_eq!(blocks_current_height.len(), 1);
+                        chain_store_update
+                            .clear_block_data(*block_hash, GCMode::Canonical(tries.clone()))?;
+                        gc_blocks_remaining -= 1;
+                    } else {
+                        return Err(ErrorKind::GCError(
+                            "block on canonical chain shouldn't have refcount 0".into(),
+                        )
+                        .into());
+                    }
+                }
+            }
+            chain_store_update.update_tail(height);
+            chain_store_update.commit()?;
+        }
+        Ok(())
+    }
+
+    pub fn clear_forks_data(
+        &mut self,
+        tries: ShardTries,
+        height: BlockHeight,
+        gc_blocks_remaining: &mut NumBlocks,
+    ) -> Result<(), Error> {
+        if let Ok(blocks_current_height) = self.get_all_block_hashes_by_height(height) {
+            let blocks_current_height =
+                blocks_current_height.values().flatten().cloned().collect::<Vec<_>>();
+            for block_hash in blocks_current_height.iter() {
+                let mut current_hash = *block_hash;
+                loop {
+                    if *gc_blocks_remaining == 0 {
+                        return Ok(());
+                    }
+                    // Block `block_hash` is not on the Canonical Chain
+                    // because shorter chain cannot be Canonical one
+                    // and it may be safely deleted
+                    // and all its ancestors while there are no other sibling blocks rely on it.
+                    let mut chain_store_update = self.store_update();
+                    if *chain_store_update.get_block_refcount(&current_hash)? == 0 {
+                        let prev_hash =
+                            *chain_store_update.get_block_header(&current_hash)?.prev_hash();
+
+                        // It's safe to call `clear_block_data` for prev data because it clears fork only here
+                        chain_store_update
+                            .clear_block_data(current_hash, GCMode::Fork(tries.clone()))?;
+                        chain_store_update.commit()?;
+                        *gc_blocks_remaining -= 1;
+
+                        current_hash = prev_hash;
+                    } else {
+                        // Block of `current_hash` is an ancestor for some other blocks, stopping
+                        break;
+                    }
+                }
+            }
+        }
+
+        Ok(())
     }
 }
 
@@ -3053,8 +3238,8 @@ mod tests {
         }
 
         chain.epoch_length = 1;
-        let trie = chain.runtime_adapter.get_tries();
-        assert!(chain.clear_data(trie, 100).is_ok());
+        let runtime_adapter = chain.runtime_adapter.clone();
+        assert!(chain.mut_store().clear_data(runtime_adapter.as_ref(), 100).is_ok());
 
         assert!(chain.get_block(&blocks[0].hash()).is_ok());
 
@@ -3238,11 +3423,14 @@ mod tests {
             prev_block = block.clone();
         }
 
-        let trie = chain.runtime_adapter.get_tries();
+        let runtime_adapter = chain.runtime_adapter.clone();
 
         for iter in 0..10 {
             println!("ITERATION #{:?}", iter);
-            assert!(chain.clear_data(trie.clone(), gc_blocks_limit).is_ok());
+            assert!(chain
+                .mut_store()
+                .clear_data(runtime_adapter.as_ref(), gc_blocks_limit)
+                .is_ok());
 
             assert!(chain.get_block(&blocks[0].hash()).is_ok());
 

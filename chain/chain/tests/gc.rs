@@ -146,7 +146,8 @@ mod tests {
         }
 
         // GC execution
-        let clear_data = chain1.clear_data(tries1.clone(), 100);
+        let runtime_adapter = chain1.runtime_adapter.clone();
+        let clear_data = chain1.mut_store().clear_data(runtime_adapter.as_ref(), 100);
         if clear_data.is_err() {
             println!("clear data failed = {:?}", clear_data);
             assert!(false);

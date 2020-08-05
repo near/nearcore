@@ -798,17 +798,6 @@ impl Client {
 
         if status.is_new_head() {
             self.shards_mgr.update_largest_seen_height(block.header().height());
-            if !self.config.archive {
-                let timer = near_metrics::start_timer(&metrics::GC_TIME);
-                if let Err(err) = self
-                    .chain
-                    .clear_data(self.runtime_adapter.get_tries(), self.config.gc_blocks_limit)
-                {
-                    error!(target: "client", "Can't clear old data, {:?}", err);
-                    debug_assert!(false);
-                };
-                near_metrics::stop_timer(timer);
-            }
         }
 
         if let Some(validator_signer) = self.validator_signer.clone() {
