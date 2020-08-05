@@ -2826,6 +2826,7 @@ dependencies = [
  "near-telemetry",
  "node-runtime",
  "num-rational",
+ "openssl-probe",
  "rand 0.7.3",
  "rocksdb",
  "serde",

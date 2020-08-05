@@ -9,7 +9,6 @@ use clap::{crate_version, App, AppSettings, Arg, SubCommand};
 #[cfg(feature = "adversarial")]
 use log::error;
 use log::info;
-use openssl_probe;
 use tracing_subscriber::filter::LevelFilter;
 use tracing_subscriber::EnvFilter;
 
