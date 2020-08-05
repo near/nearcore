@@ -49,11 +49,6 @@ members = [
 actix-rt = "=1.1.1"
 openssl-probe = { version = "0.1.2"}
 
-# Patched version needed unless 0.1.3 or 0.2.0 is published
-# See conversation https://github.com/alexcrichton/openssl-probe/pull/15
-[patch.crates-io]
-openssl-probe = { git = "https://github.com/khorolets/openssl-probe.git", branch="feature/support-macports" }
-
 [dev-dependencies]
 actix = "0.9"
 lazy_static = "1.4"
