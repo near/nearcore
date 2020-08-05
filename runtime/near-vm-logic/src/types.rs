@@ -1,4 +1,4 @@
-use crate::{Actions, ExtCosts};
+use crate::{ActionCosts, ExtCosts};
 use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -40,4 +40,4 @@ pub enum PromiseResult {
 }
 
 /// Profile of gas consumption, +1 for Wasm bytecode execution cost.
-pub type ProfileData = Rc<RefCell<[u64; Actions::count() + ExtCosts::count() + 1]>>;
+pub type ProfileData = Rc<RefCell<[u64; ActionCosts::count() + ExtCosts::count() + 1]>>;

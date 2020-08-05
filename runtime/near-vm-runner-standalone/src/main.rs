@@ -10,7 +10,7 @@ use clap::{App, Arg};
 use near_runtime_fees::RuntimeFeesConfig;
 use near_vm_logic::mocks::mock_external::{MockedExternal, Receipt};
 use near_vm_logic::types::PromiseResult;
-use near_vm_logic::{Actions, ExtCosts, VMConfig, VMContext, VMKind, VMOutcome};
+use near_vm_logic::{ActionCosts, ExtCosts, VMConfig, VMContext, VMKind, VMOutcome};
 use near_vm_runner::{run_vm, run_vm_profiled, VMError};
 use num_rational::Ratio;
 use serde::de::{MapAccess, Visitor};
@@ -235,7 +235,7 @@ fn main() {
         fs::read(matches.value_of("wasm-file").expect("Wasm file needs to be specified")).unwrap();
 
     let fees = RuntimeFeesConfig::default();
-    let profile_data = Rc::new(RefCell::new([0u64; ExtCosts::count() + Actions::count() + 1]));
+    let profile_data = Rc::new(RefCell::new([0u64; ExtCosts::count() + ActionCosts::count() + 1]));
     let do_profile = matches.is_present("profile-gas");
     let (outcome, err) = if do_profile {
         run_vm_profiled(
@@ -287,11 +287,11 @@ fn main() {
         }
 
         let mut action_gas = 0u64;
-        for e in 0..Actions::count() {
+        for e in 0..ActionCosts::count() {
             action_gas += profile_data[e as usize + ExtCosts::count()];
         }
 
-        let wasm_gas = profile_data[Actions::count() + ExtCosts::count()];
+        let wasm_gas = profile_data[ActionCosts::count() + ExtCosts::count()];
         println!("------------------------------");
         println!("Total gas: {}", all_gas);
         println!(
@@ -331,12 +331,12 @@ fn main() {
             }
         }
         println!("------ Actions --------");
-        for e in 0..Actions::count() {
+        for e in 0..ActionCosts::count() {
             let d = profile_data[e + ExtCosts::count()];
             if d != 0 {
                 println!(
                     "{} -> {} [{}% total]",
-                    Actions::name_of(e),
+                    ActionCosts::name_of(e),
                     d,
                     Ratio::new(d * 100, all_gas).to_integer()
                 );

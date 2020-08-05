@@ -1,4 +1,4 @@
-use crate::config::Actions;
+use crate::config::ActionCosts;
 use crate::config::ExtCosts::*;
 use crate::config::VMConfig;
 use crate::context::VMContext;
@@ -867,7 +867,7 @@ impl<'a> VMLogic<'a> {
                 .ok_or(HostError::IntegerOverflow)?;
         }
         use_gas = use_gas.checked_add(burn_gas).ok_or(HostError::IntegerOverflow)?;
-        self.gas_counter.pay_action_accumulated(burn_gas, use_gas, Actions::new_receipt)
+        self.gas_counter.pay_action_accumulated(burn_gas, use_gas, ActionCosts::new_receipt)
     }
 
     /// A helper function to subtract balance on transfer or attached deposit for promises.
@@ -1195,7 +1195,7 @@ impl<'a> VMLogic<'a> {
         self.gas_counter.pay_action_base(
             &self.fees_config.action_creation_config.create_account_cost,
             sir,
-            Actions::create_account,
+            ActionCosts::create_account,
         )?;
 
         self.ext.append_action_create_account(receipt_idx)?;
@@ -1247,13 +1247,13 @@ impl<'a> VMLogic<'a> {
         self.gas_counter.pay_action_base(
             &self.fees_config.action_creation_config.deploy_contract_cost,
             sir,
-            Actions::deploy_contract,
+            ActionCosts::deploy_contract,
         )?;
         self.gas_counter.pay_action_per_byte(
             &self.fees_config.action_creation_config.deploy_contract_cost_per_byte,
             num_bytes,
             sir,
-            Actions::deploy_contract,
+            ActionCosts::deploy_contract,
         )?;
 
         self.ext.append_action_deploy_contract(receipt_idx, code)?;
@@ -1309,13 +1309,13 @@ impl<'a> VMLogic<'a> {
         self.gas_counter.pay_action_base(
             &self.fees_config.action_creation_config.function_call_cost,
             sir,
-            Actions::function_call,
+            ActionCosts::function_call,
         )?;
         self.gas_counter.pay_action_per_byte(
             &self.fees_config.action_creation_config.function_call_cost_per_byte,
             num_bytes,
             sir,
-            Actions::function_call,
+            ActionCosts::function_call,
         )?;
         // Prepaid gas
         self.gas_counter.prepay_gas(gas)?;
@@ -1361,7 +1361,7 @@ impl<'a> VMLogic<'a> {
         self.gas_counter.pay_action_base(
             &self.fees_config.action_creation_config.transfer_cost,
             sir,
-            Actions::transfer,
+            ActionCosts::transfer,
         )?;
 
         self.deduct_balance(amount)?;
@@ -1409,7 +1409,7 @@ impl<'a> VMLogic<'a> {
         self.gas_counter.pay_action_base(
             &self.fees_config.action_creation_config.stake_cost,
             sir,
-            Actions::stake,
+            ActionCosts::stake,
         )?;
 
         self.ext.append_action_stake(receipt_idx, amount, public_key)?;
@@ -1454,7 +1454,7 @@ impl<'a> VMLogic<'a> {
         self.gas_counter.pay_action_base(
             &self.fees_config.action_creation_config.add_key_cost.full_access_cost,
             sir,
-            Actions::add_key,
+            ActionCosts::add_key,
         )?;
 
         self.ext.append_action_add_key_with_full_access(receipt_idx, public_key, nonce)?;
@@ -1514,13 +1514,13 @@ impl<'a> VMLogic<'a> {
         self.gas_counter.pay_action_base(
             &self.fees_config.action_creation_config.add_key_cost.function_call_cost,
             sir,
-            Actions::function_call,
+            ActionCosts::function_call,
         )?;
         self.gas_counter.pay_action_per_byte(
             &self.fees_config.action_creation_config.add_key_cost.function_call_cost_per_byte,
             num_bytes,
             sir,
-            Actions::function_call,
+            ActionCosts::function_call,
         )?;
 
         self.ext.append_action_add_key_with_function_call(
@@ -1571,7 +1571,7 @@ impl<'a> VMLogic<'a> {
         self.gas_counter.pay_action_base(
             &self.fees_config.action_creation_config.delete_key_cost,
             sir,
-            Actions::delete_key,
+            ActionCosts::delete_key,
         )?;
 
         self.ext.append_action_delete_key(receipt_idx, public_key)?;
@@ -1615,7 +1615,7 @@ impl<'a> VMLogic<'a> {
         self.gas_counter.pay_action_base(
             &self.fees_config.action_creation_config.delete_account_cost,
             sir,
-            Actions::delete_account,
+            ActionCosts::delete_account,
         )?;
 
         self.ext.append_action_delete_account(receipt_idx, beneficiary_id)?;
@@ -1771,7 +1771,7 @@ impl<'a> VMLogic<'a> {
                 )
                 .ok_or(HostError::IntegerOverflow)?;
         }
-        self.gas_counter.pay_action_accumulated(burn_gas, burn_gas, Actions::value_return)?;
+        self.gas_counter.pay_action_accumulated(burn_gas, burn_gas, ActionCosts::value_return)?;
         self.return_data = ReturnData::Value(return_val);
         Ok(())
     }

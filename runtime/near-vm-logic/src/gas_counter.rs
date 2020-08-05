@@ -1,4 +1,4 @@
-use crate::config::{Actions, ExtCosts, ExtCostsConfig};
+use crate::config::{ActionCosts, ExtCosts, ExtCostsConfig};
 use crate::types::{Gas, ProfileData};
 use crate::{HostError, VMLogicError};
 use near_runtime_fees::Fee;
@@ -100,7 +100,7 @@ impl GasCounter {
 
     #[cfg(feature = "costs_counting")]
     #[inline]
-    fn update_profile_action(&mut self, action: Actions, value: u64) {
+    fn update_profile_action(&mut self, action: ActionCosts, value: u64) {
         match &self.profile {
             Some(profile) => {
                 *profile.borrow_mut().get_mut(action as usize + ExtCosts::count()).unwrap() += value
@@ -111,14 +111,14 @@ impl GasCounter {
 
     #[cfg(not(feature = "costs_counting"))]
     #[inline]
-    fn update_profile_action(&mut self, action: Actions, _value: u64) {}
+    fn update_profile_action(&mut self, action: ActionCosts, _value: u64) {}
 
     #[cfg(feature = "costs_counting")]
     #[inline]
     fn update_profile_wasm(&mut self, value: u64) {
         match &self.profile {
             Some(profile) => {
-                *profile.borrow_mut().get_mut(Actions::count() + ExtCosts::count()).unwrap() +=
+                *profile.borrow_mut().get_mut(ActionCosts::count() + ExtCosts::count()).unwrap() +=
                     value
             }
             None => {}
@@ -163,7 +163,7 @@ impl GasCounter {
         per_byte_fee: &Fee,
         num_bytes: u64,
         sir: bool,
-        action: Actions,
+        action: ActionCosts,
     ) -> Result<()> {
         let burn_gas =
             num_bytes.checked_mul(per_byte_fee.send_fee(sir)).ok_or(HostError::IntegerOverflow)?;
@@ -180,7 +180,12 @@ impl GasCounter {
     /// # Args:
     /// * `base_fee`: base fee for the action;
     /// * `sir`: whether the receiver_id is same as the current account ID;
-    pub fn pay_action_base(&mut self, base_fee: &Fee, sir: bool, action: Actions) -> Result<()> {
+    pub fn pay_action_base(
+        &mut self,
+        base_fee: &Fee,
+        sir: bool,
+        action: ActionCosts,
+    ) -> Result<()> {
         let burn_gas = base_fee.send_fee(sir);
         let use_gas =
             burn_gas.checked_add(base_fee.exec_fee()).ok_or(HostError::IntegerOverflow)?;
@@ -192,7 +197,7 @@ impl GasCounter {
         &mut self,
         burn_gas: Gas,
         use_gas: Gas,
-        action: Actions,
+        action: ActionCosts,
     ) -> Result<()> {
         self.update_profile_action(action, burn_gas);
         self.deduct_gas(burn_gas, use_gas)
