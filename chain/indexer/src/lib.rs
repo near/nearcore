@@ -62,9 +62,6 @@ impl Indexer {
         download: bool,
         download_genesis_url: Option<&str>,
     ) {
-        if download {
-            openssl_probe::init_ssl_cert_env_vars();
-        }
         neard::init_configs(
             dir,
             chain_id,

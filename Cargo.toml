@@ -47,6 +47,10 @@ members = [
 [dependencies]
 # pins this version to fix https://github.com/actix/actix-net/issues/129
 actix-rt = "=1.1.1"
+openssl-probe = { version = "0.1.2"}
+
+[patch.crates-io]
+openssl-probe = { git = "https://github.com/khorolets/openssl-probe.git", branch="feature/support-macports" }
 
 [dev-dependencies]
 actix = "0.9"

@@ -17,7 +17,7 @@ use near_indexer;
 struct Opts {
     /// Sets a custom config dir. Defaults to ~/.near/
     #[clap(short, long, default_value = "~/.near/")]
-    home_dir: String,
+    home_dir: std::path::PathBuf,
     #[clap(subcommand)]
     subcmd: SubCommand,
 }
@@ -27,11 +27,11 @@ enum SubCommand {
     /// Run NEAR Indexer Example. Start observe the network
     Run,
     /// Initialize necessary configs
-    Init(ConfigArgs),
+    Init(InitConfigArgs),
 }
 
 #[derive(Clap, Debug)]
-struct ConfigArgs {
+struct InitConfigArgs {
     /// chain/network id (localnet, testnet, devnet, betanet)
     #[clap(short, long)]
     chain_id: Option<String>,
@@ -264,11 +264,12 @@ async fn listen_blocks(mut stream: mpsc::Receiver<near_indexer::BlockResponse>) 
 }
 
 fn main() {
+    openssl_probe::init_ssl_cert_env_vars();
     init_logging(true);
 
     let opts: Opts = Opts::parse();
 
-    let home_dir: &std::path::Path = opts.home_dir.as_ref();
+    let home_dir = opts.home_dir.as_ref();
 
     match opts.subcmd {
         SubCommand::Run => {
