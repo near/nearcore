@@ -25,7 +25,7 @@ use near_store::{
 use crate::metrics;
 use crate::{
     cache::RouteBackCache,
-    types::{PeerIdOrHash, Ping, Pong},
+    types::{Ping, Pong, RoutedTarget},
     utils::cache_to_hashmap,
 };
 #[cfg(feature = "delay_detector")]
@@ -262,7 +262,7 @@ pub struct RoutingTable {
     pub edges_info: HashMap<(PeerId, PeerId), Edge>,
     /// Hash of messages that requires routing back to respective previous hop.
     pub route_back: RouteBackCache,
-    /// Last time a peer with reachable through active edges.
+    /// Last time a peer was reachable through active edges.
     pub peer_last_time_reachable: HashMap<PeerId, chrono::DateTime<chrono::Utc>>,
     /// Access to store on disk
     store: Arc<Store>,
@@ -369,13 +369,12 @@ impl RoutingTable {
         }
     }
 
-    pub fn find_route(&mut self, target: &PeerIdOrHash) -> Result<PeerId, FindRouteError> {
-        match target {
-            PeerIdOrHash::PeerId(peer_id) => self.find_route_from_peer_id(&peer_id),
-            PeerIdOrHash::Hash(hash) => {
+    pub fn find_route(&mut self, target: &RoutedTarget) -> Result<PeerId, FindRouteError> {
+        self.find_route_from_peer_id(&target.peer_id).or_else(move |err| {
+            target.hash.map_or(Err(err), |hash| {
                 self.fetch_route_back(hash.clone()).ok_or(FindRouteError::RouteBackNotFound)
-            }
-        }
+            })
+        })
     }
 
     /// Find peer that owns this AccountId.

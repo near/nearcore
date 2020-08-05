@@ -21,15 +21,15 @@ use near_crypto::{InMemorySigner, KeyType, PublicKey};
 use near_network::recorder::MetricRecorder;
 use near_network::routing::EdgeInfo;
 use near_network::types::{
-    AccountOrPeerIdOrHash, NetworkInfo, NetworkViewClientMessages, NetworkViewClientResponses,
-    PeerChainInfo,
+    AccountOrPeerId, NetworkInfo, NetworkViewClientMessages, NetworkViewClientResponses,
+    PeerChainInfo, RoutedTarget,
 };
 use near_network::{
     FullPeerInfo, NetworkAdapter, NetworkClientMessages, NetworkClientResponses, NetworkRecipient,
     NetworkRequests, NetworkResponses, PeerInfo, PeerManagerActor,
 };
 use near_primitives::block::{ApprovalInner, Block, GenesisId};
-use near_primitives::hash::{hash, CryptoHash};
+use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, BlockHeightDelta, NumBlocks, NumSeats, NumShards,
@@ -351,7 +351,8 @@ pub fn setup_mock_all_validators(
     let validators_clone = validators.clone();
     let key_pairs = key_pairs;
 
-    let addresses: Vec<_> = (0..key_pairs.len()).map(|i| hash(vec![i as u8].as_ref())).collect();
+    let addresses: Vec<_> =
+        (0..key_pairs.len()).map(|i| RoutedTarget::from_peer_id(key_pairs[i].id.clone())).collect();
     let genesis_time = Utc::now();
     let mut ret = vec![];
 
@@ -487,7 +488,7 @@ pub fn setup_mock_all_validators(
                                         connectors1.read().unwrap()[i].0.do_send(
                                             NetworkClientMessages::PartialEncodedChunkRequest(
                                                 request.clone(),
-                                                my_address,
+                                                my_address.clone(),
                                             ),
                                         );
                                     }
@@ -591,7 +592,7 @@ pub fn setup_mock_all_validators(
                             target: target_account_id,
                         } => {
                             let target_account_id = match target_account_id {
-                                AccountOrPeerIdOrHash::AccountId(x) => x,
+                                AccountOrPeerId::AccountId(x) => x,
                                 _ => panic!(),
                             };
                             for (i, name) in validators_clone2.iter().flatten().enumerate() {
@@ -634,7 +635,7 @@ pub fn setup_mock_all_validators(
                             target: target_account_id,
                         } => {
                             let target_account_id = match target_account_id {
-                                AccountOrPeerIdOrHash::AccountId(x) => x,
+                                AccountOrPeerId::AccountId(x) => x,
                                 _ => panic!(),
                             };
                             for (i, name) in validators_clone2.iter().flatten().enumerate() {

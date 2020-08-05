@@ -15,10 +15,11 @@ mod tests {
     use near_client::{ClientActor, Query, ViewClientActor};
     use near_crypto::{InMemorySigner, KeyType};
     use near_logger_utils::init_integration_logger;
-    use near_network::types::AccountOrPeerIdOrHash;
+    use near_network::types::AccountOrPeerId;
     use near_network::{NetworkClientMessages, NetworkRequests, NetworkResponses, PeerInfo};
     use near_primitives::hash::hash as hash_func;
     use near_primitives::hash::CryptoHash;
+    use near_primitives::network::PeerId;
     use near_primitives::receipt::Receipt;
     use near_primitives::sharding::ChunkHash;
     use near_primitives::transaction::SignedTransaction;
@@ -86,7 +87,7 @@ mod tests {
         pub shard_id: u64,
         pub sync_hash: CryptoHash,
         pub part_id: Option<u64>,
-        pub target: AccountOrPeerIdOrHash,
+        pub target: AccountOrPeerId,
     }
 
     /// Sanity checks that the incoming and outgoing receipts are properly sent and received
@@ -919,8 +920,7 @@ mod tests {
             let seen_chunk_same_sender =
                 Arc::new(RwLock::new(HashSet::<(String, u64, u64)>::new()));
             let requested = Arc::new(RwLock::new(HashSet::<(String, Vec<u64>, ChunkHash)>::new()));
-            let responded =
-                Arc::new(RwLock::new(HashSet::<(CryptoHash, Vec<u64>, ChunkHash)>::new()));
+            let responded = Arc::new(RwLock::new(HashSet::<(PeerId, Vec<u64>, ChunkHash)>::new()));
 
             let (_, conn, _) = setup_mock_all_validators(
                 validators.clone(),
@@ -986,14 +986,14 @@ mod tests {
                         {
                             if verbose {
                                 if responded.contains(&(
-                                    route_back.clone(),
+                                    route_back.peer_id.clone(),
                                     response.parts.iter().map(|x| x.part_ord).collect(),
                                     response.chunk_hash.clone(),
                                 )) {
                                     println!("=== SAME RESPONSE AGAIN!");
                                 }
                                 responded.insert((
-                                    route_back.clone(),
+                                    route_back.peer_id.clone(),
                                     response.parts.iter().map(|x| x.part_ord).collect(),
                                     response.chunk_hash.clone(),
                                 ));

@@ -16,7 +16,7 @@ use tokio::net::TcpStream;
 use tracing::{error, warn};
 
 use near_chain::{Block, BlockHeader};
-use near_crypto::{PublicKey, SecretKey, Signature};
+use near_crypto::{KeyType, PublicKey, SecretKey, Signature};
 use near_primitives::block::{Approval, ApprovalMessage, GenesisId};
 use near_primitives::challenge::Challenge;
 use near_primitives::errors::InvalidTxError;
@@ -304,25 +304,36 @@ impl Debug for RoutedMessageBody {
     }
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Serialize, PartialEq, Eq, Clone, Debug)]
-pub enum PeerIdOrHash {
-    PeerId(PeerId),
-    Hash(CryptoHash),
+#[derive(BorshSerialize, BorshDeserialize, Serialize, PartialEq, Eq, Clone, Debug, Hash)]
+pub struct RoutedTarget {
+    pub peer_id: PeerId,
+    pub hash: Option<CryptoHash>,
+}
+
+impl RoutedTarget {
+    pub fn from_peer_id(peer_id: PeerId) -> RoutedTarget {
+        RoutedTarget { peer_id, hash: None }
+    }
+}
+
+impl Default for RoutedTarget {
+    fn default() -> Self {
+        let sk = SecretKey::from_seed(KeyType::ED25519, "test");
+        RoutedTarget { peer_id: sk.public_key().into(), hash: None }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, Serialize, Hash)]
-pub enum AccountOrPeerIdOrHash {
+pub enum AccountOrPeerId {
     AccountId(AccountId),
-    PeerId(PeerId),
-    Hash(CryptoHash),
+    PeerId(RoutedTarget),
 }
 
-impl AccountOrPeerIdOrHash {
-    fn peer_id_or_hash(&self) -> Option<PeerIdOrHash> {
+impl AccountOrPeerId {
+    fn peer_id(&self) -> Option<RoutedTarget> {
         match self {
-            AccountOrPeerIdOrHash::AccountId(_) => None,
-            AccountOrPeerIdOrHash::PeerId(peer_id) => Some(PeerIdOrHash::PeerId(peer_id.clone())),
-            AccountOrPeerIdOrHash::Hash(hash) => Some(PeerIdOrHash::Hash(hash.clone())),
+            AccountOrPeerId::AccountId(_) => None,
+            AccountOrPeerId::PeerId(target) => Some(target.clone()),
         }
     }
 }
@@ -330,7 +341,7 @@ impl AccountOrPeerIdOrHash {
 #[derive(Message)]
 #[rtype(result = "()")]
 pub struct RawRoutedMessage {
-    pub target: AccountOrPeerIdOrHash,
+    pub target: AccountOrPeerId,
     pub body: RoutedMessageBody,
 }
 
@@ -343,7 +354,7 @@ impl RawRoutedMessage {
         secret_key: &SecretKey,
         routed_message_ttl: u8,
     ) -> RoutedMessage {
-        let target = self.target.peer_id_or_hash().unwrap();
+        let target = self.target.peer_id().unwrap();
         let hash = RoutedMessage::build_hash(target.clone(), author.clone(), self.body.clone());
         let signature = secret_key.sign(hash.as_ref());
         RoutedMessage { target, author, signature, ttl: routed_message_ttl, body: self.body }
@@ -352,7 +363,7 @@ impl RawRoutedMessage {
 
 #[derive(BorshSerialize, BorshDeserialize, Serialize, PartialEq, Eq, Clone, Debug)]
 pub struct RoutedMessageNoSignature {
-    target: PeerIdOrHash,
+    target: RoutedTarget,
     author: PeerId,
     body: RoutedMessageBody,
 }
@@ -368,11 +379,11 @@ pub struct RoutedMessageNoSignature {
 pub struct RoutedMessage {
     /// Peer id which is directed this message.
     /// If `target` is hash, this a message should be routed back.
-    pub target: PeerIdOrHash,
+    pub target: RoutedTarget,
     /// Original sender of this message
     pub author: PeerId,
     /// Signature from the author of the message. If this signature is invalid we should ban
-    /// last sender of this message. If the message is invalid we should ben author of the message.
+    /// last sender of this message. If the message is invalid we should ban author of the message.
     pub signature: Signature,
     /// Time to live for this message. After passing through some hop this number should be
     /// decreased by 1. If this number is 0, drop this message.
@@ -382,7 +393,7 @@ pub struct RoutedMessage {
 }
 
 impl RoutedMessage {
-    pub fn build_hash(target: PeerIdOrHash, source: PeerId, body: RoutedMessageBody) -> CryptoHash {
+    pub fn build_hash(target: RoutedTarget, source: PeerId, body: RoutedMessageBody) -> CryptoHash {
         hash(
             &RoutedMessageNoSignature { target, author: source, body }
                 .try_to_vec()
@@ -419,15 +430,13 @@ impl RoutedMessage {
 }
 
 /// Routed Message wrapped with previous sender of the message.
+#[derive(Message)]
+#[rtype(result = "()")]
 pub struct RoutedMessageFrom {
     /// Routed messages.
     pub msg: RoutedMessage,
     /// Previous hop in the route. Used for messages that needs routing back.
     pub from: PeerId,
-}
-
-impl Message for RoutedMessageFrom {
-    type Result = bool;
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Serialize, PartialEq, Eq, Clone, Debug)]
@@ -801,7 +810,7 @@ pub struct PeerList {
 #[derive(strum::AsRefStr)]
 pub enum PeerRequest {
     UpdateEdge((PeerId, u64)),
-    RouteBack(Box<RoutedMessageBody>, CryptoHash),
+    RouteBack(Box<RoutedMessageBody>, RoutedTarget),
     UpdatePeerInfo(PeerInfo),
     ReceivedMessage(PeerId, Instant),
 }
@@ -893,18 +902,18 @@ pub enum NetworkRequests {
     StateRequestHeader {
         shard_id: ShardId,
         sync_hash: CryptoHash,
-        target: AccountOrPeerIdOrHash,
+        target: AccountOrPeerId,
     },
     /// Request state part for given shard at given state root.
     StateRequestPart {
         shard_id: ShardId,
         sync_hash: CryptoHash,
         part_id: u64,
-        target: AccountOrPeerIdOrHash,
+        target: AccountOrPeerId,
     },
     /// Response to state request.
     StateResponse {
-        route_back: CryptoHash,
+        route_back: RoutedTarget,
         response: StateResponseInfo,
     },
     /// Ban given peer.
@@ -922,7 +931,7 @@ pub enum NetworkRequests {
     },
     /// Information about chunk such as its header, some subset of parts and/or incoming receipts
     PartialEncodedChunkResponse {
-        route_back: CryptoHash,
+        route_back: RoutedTarget,
         response: PartialEncodedChunkResponseMsg,
     },
     /// Information about chunk such as its header, some subset of parts and/or incoming receipts
@@ -1091,7 +1100,7 @@ pub enum NetworkClientMessages {
     StateResponse(StateResponseInfo),
 
     /// Request chunk parts and/or receipts.
-    PartialEncodedChunkRequest(PartialEncodedChunkRequestMsg, CryptoHash),
+    PartialEncodedChunkRequest(PartialEncodedChunkRequestMsg, RoutedTarget),
     /// Response to a request for  chunk parts and/or receipts.
     PartialEncodedChunkResponse(PartialEncodedChunkResponseMsg),
     /// Information about chunk such as its header, some subset of parts and/or incoming receipts
@@ -1338,7 +1347,7 @@ mod tests {
         assert_size!(PeerStatus);
         assert_size!(HandshakeFailureReason);
         assert_size!(RoutedMessageBody);
-        assert_size!(PeerIdOrHash);
+        assert_size!(RoutedTarget);
         assert_size!(KnownPeerStatus);
         assert_size!(ConsolidateResponse);
         assert_size!(PeerRequest);

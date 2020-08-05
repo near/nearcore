@@ -84,7 +84,7 @@ mod test {
 
     use crate::routing::EdgeInfo;
     use crate::types::{
-        Handshake, PeerChainInfo, PeerIdOrHash, PeerInfo, RoutedMessage, RoutedMessageBody,
+        Handshake, PeerChainInfo, PeerInfo, RoutedMessage, RoutedMessageBody, RoutedTarget,
         SyncData,
     };
 
@@ -149,7 +149,7 @@ mod test {
         let signature = sk.sign(hash.as_ref());
 
         let msg = PeerMessage::Routed(RoutedMessage {
-            target: PeerIdOrHash::PeerId(sk.public_key().into()),
+            target: RoutedTarget::from_peer_id(sk.public_key().into()),
             author: sk.public_key().into(),
             signature: signature.clone(),
             ttl: 100,

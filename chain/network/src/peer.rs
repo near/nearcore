@@ -19,6 +19,7 @@ use near_primitives::utils::DisplayOption;
 use near_primitives::version::{FIRST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION, PROTOCOL_VERSION};
 
 use crate::codec::{bytes_to_peer_message, peer_message_to_bytes, Codec};
+use crate::peer_manager::message_for_client;
 use crate::rate_counter::RateCounter;
 #[cfg(feature = "metric_recorder")]
 use crate::recorder::{PeerMessageMetadata, Status};
@@ -28,8 +29,8 @@ use crate::types::{
     NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkViewClientMessages,
     NetworkViewClientResponses, PeerChainInfo, PeerInfo, PeerManagerRequest, PeerMessage,
     PeerRequest, PeerResponse, PeerStatsResult, PeerStatus, PeerType, PeersRequest, PeersResponse,
-    QueryPeerStats, ReasonForBan, RoutedMessageBody, RoutedMessageFrom, SendMessage, Unregister,
-    UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE,
+    QueryPeerStats, ReasonForBan, RoutedMessageBody, RoutedMessageFrom, RoutedTarget, SendMessage,
+    Unregister, UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE,
 };
 use crate::PeerManagerActor;
 use crate::{metrics, NetworkResponses};
@@ -314,10 +315,14 @@ impl Peer {
     }
 
     fn receive_view_client_message(&mut self, ctx: &mut Context<Peer>, msg: PeerMessage) {
-        let mut msg_hash = None;
+        let mut route_back = None;
         let view_client_message = match msg {
             PeerMessage::Routed(message) => {
-                msg_hash = Some(message.hash());
+                route_back = Some(RoutedTarget {
+                    peer_id: message.author.clone(),
+                    hash: Some(message.hash()),
+                });
+
                 match message.body {
                     RoutedMessageBody::QueryRequest { query_id, block_id_or_finality, request } => {
                         NetworkViewClientMessages::Query { query_id, block_id_or_finality, request }
@@ -371,23 +376,23 @@ impl Peer {
                     Ok(NetworkViewClientResponses::TxStatus(tx_result)) => {
                         let body = Box::new(RoutedMessageBody::TxStatusResponse(*tx_result));
                         act.peer_manager_addr
-                            .do_send(PeerRequest::RouteBack(body, msg_hash.unwrap()));
+                            .do_send(PeerRequest::RouteBack(body, route_back.unwrap()));
                     }
                     Ok(NetworkViewClientResponses::QueryResponse { query_id, response }) => {
                         let body =
                             Box::new(RoutedMessageBody::QueryResponse { query_id, response });
                         act.peer_manager_addr
-                            .do_send(PeerRequest::RouteBack(body, msg_hash.unwrap()));
+                            .do_send(PeerRequest::RouteBack(body, route_back.unwrap()));
                     }
                     Ok(NetworkViewClientResponses::ReceiptOutcomeResponse(response)) => {
                         let body = Box::new(RoutedMessageBody::ReceiptOutComeResponse(*response));
                         act.peer_manager_addr
-                            .do_send(PeerRequest::RouteBack(body, msg_hash.unwrap()));
+                            .do_send(PeerRequest::RouteBack(body, route_back.unwrap()));
                     }
                     Ok(NetworkViewClientResponses::StateResponse(state_response)) => {
                         let body = Box::new(RoutedMessageBody::StateResponse(*state_response));
                         act.peer_manager_addr
-                            .do_send(PeerRequest::RouteBack(body, msg_hash.unwrap()));
+                            .do_send(PeerRequest::RouteBack(body, route_back.unwrap()));
                     }
                     Ok(NetworkViewClientResponses::Block(block)) => {
                         // MOO need protocol version
@@ -438,7 +443,10 @@ impl Peer {
             }
             // All Routed messages received at this point are for us.
             PeerMessage::Routed(routed_message) => {
-                let msg_hash = routed_message.hash();
+                let msg_hash = RoutedTarget {
+                    peer_id: routed_message.author.clone(),
+                    hash: Some(routed_message.hash()),
+                };
 
                 match routed_message.body {
                     RoutedMessageBody::BlockApproval(approval) => {
@@ -855,19 +863,14 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for Peer {
                 if !routed_message.verify() {
                     self.ban_peer(ctx, ReasonForBan::InvalidSignature);
                 } else {
-                    self.peer_manager_addr
-                        .send(RoutedMessageFrom {
+                    if message_for_client(&routed_message, &self.node_id()) {
+                        self.receive_message(ctx, PeerMessage::Routed(routed_message));
+                    } else {
+                        self.peer_manager_addr.do_send(RoutedMessageFrom {
                             msg: routed_message.clone(),
                             from: self.peer_id().unwrap(),
-                        })
-                        .into_actor(self)
-                        .then(move |res, act, ctx| {
-                            if res.unwrap_or(false) {
-                                act.receive_message(ctx, PeerMessage::Routed(routed_message));
-                            }
-                            actix::fut::ready(())
-                        })
-                        .spawn(ctx);
+                        });
+                    }
                 }
             }
             (_, PeerStatus::Ready, msg) => {

@@ -14,7 +14,7 @@ use near_chain::{
     RuntimeAdapter,
 };
 use near_network::types::{
-    NetworkAdapter, PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg,
+    NetworkAdapter, PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg, RoutedTarget,
 };
 use near_network::NetworkRequests;
 use near_pool::{PoolIteratorWrapper, TransactionPool};
@@ -759,7 +759,7 @@ impl ShardsManager {
     pub fn process_partial_encoded_chunk_request(
         &mut self,
         request: PartialEncodedChunkRequestMsg,
-        route_back: CryptoHash,
+        route_back: RoutedTarget,
         chain_store: &mut ChainStore,
     ) {
         debug!(target: "chunks", "Received partial encoded chunk request for {:?}, part_ordinals: {:?}, receipts: {:?}, I'm {:?}", request.chunk_hash.0, request.part_ords, request.tracking_shards, self.me);
@@ -824,7 +824,7 @@ impl ShardsManager {
     fn maybe_send_partial_encoded_chunk_response<A, B>(
         &self,
         chunk_hash: ChunkHash,
-        route_back: CryptoHash,
+        route_back: RoutedTarget,
         parts_iter: A,
         receipts_iter: B,
     ) where

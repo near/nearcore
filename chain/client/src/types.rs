@@ -8,7 +8,7 @@ use actix::Message;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-use near_network::types::{AccountOrPeerIdOrHash, KnownProducer};
+use near_network::types::{AccountOrPeerId, KnownProducer};
 use near_network::PeerInfo;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
@@ -82,7 +82,7 @@ pub struct DownloadStatus {
     pub error: bool,
     pub done: bool,
     pub state_requests_count: u64,
-    pub last_target: Option<AccountOrPeerIdOrHash>,
+    pub last_target: Option<AccountOrPeerId>,
 }
 
 impl Clone for DownloadStatus {

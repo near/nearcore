@@ -260,7 +260,7 @@ fn test_request_chunk_restart() {
     let client = &mut env.clients[0];
     client.shards_mgr.process_partial_encoded_chunk_request(
         request.clone(),
-        CryptoHash::default(),
+        Default::default(),
         client.chain.mut_store(),
     );
     assert!(env.network_adapters[0].pop().is_some());
@@ -269,7 +269,7 @@ fn test_request_chunk_restart() {
     let client = &mut env.clients[0];
     client.shards_mgr.process_partial_encoded_chunk_request(
         request,
-        CryptoHash::default(),
+        Default::default(),
         client.chain.mut_store(),
     );
     let response = env.network_adapters[0].pop().unwrap();

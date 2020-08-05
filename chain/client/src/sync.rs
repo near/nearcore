@@ -14,7 +14,7 @@ use rand::{thread_rng, Rng};
 
 use near_chain::types::BlockSyncResponse;
 use near_chain::{Chain, RuntimeAdapter};
-use near_network::types::{AccountOrPeerIdOrHash, NetworkResponses, ReasonForBan};
+use near_network::types::{AccountOrPeerId, NetworkResponses, ReasonForBan, RoutedTarget};
 use near_network::{FullPeerInfo, NetworkAdapter, NetworkRequests};
 use near_primitives::block::Tip;
 use near_primitives::hash::CryptoHash;
@@ -516,9 +516,9 @@ pub struct StateSync {
     state_sync_time: HashMap<ShardId, DateTime<Utc>>,
     last_time_block_requested: Option<DateTime<Utc>>,
 
-    last_part_id_requested: HashMap<(AccountOrPeerIdOrHash, ShardId), PendingRequestStatus>,
+    last_part_id_requested: HashMap<(AccountOrPeerId, ShardId), PendingRequestStatus>,
     /// Map from which part we requested to whom.
-    requested_target: SizedCache<(u64, CryptoHash), AccountOrPeerIdOrHash>,
+    requested_target: SizedCache<(u64, CryptoHash), AccountOrPeerId>,
 }
 
 impl StateSync {
@@ -761,7 +761,7 @@ impl StateSync {
 
     fn sent_request_part(
         &mut self,
-        target: AccountOrPeerIdOrHash,
+        target: AccountOrPeerId,
         part_id: u64,
         shard_id: ShardId,
         sync_hash: CryptoHash,
@@ -807,7 +807,7 @@ impl StateSync {
         runtime_adapter: &Arc<dyn RuntimeAdapter>,
         sync_hash: CryptoHash,
         highest_height_peers: &Vec<FullPeerInfo>,
-    ) -> Result<Vec<AccountOrPeerIdOrHash>, Error> {
+    ) -> Result<Vec<AccountOrPeerId>, Error> {
         // Remove candidates from pending list if request expired due to timeout
         self.last_part_id_requested.retain(|_, request| !request.expired());
 
@@ -825,7 +825,7 @@ impl StateSync {
                     false,
                 ) {
                     if me.as_ref().map(|me| me != &validator_stake.account_id).unwrap_or(true) {
-                        Some(AccountOrPeerIdOrHash::AccountId(validator_stake.account_id.clone()))
+                        Some(AccountOrPeerId::AccountId(validator_stake.account_id.clone()))
                     } else {
                         None
                     }
@@ -835,7 +835,9 @@ impl StateSync {
             })
             .chain(highest_height_peers.iter().filter_map(|peer| {
                 if peer.chain_info.tracked_shards.contains(&shard_id) {
-                    Some(AccountOrPeerIdOrHash::PeerId(peer.peer_info.id.clone()))
+                    Some(AccountOrPeerId::PeerId(RoutedTarget::from_peer_id(
+                        peer.peer_info.id.clone(),
+                    )))
                 } else {
                     None
                 }
