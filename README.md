@@ -11,17 +11,16 @@
 
 ## Reference implementation of NEAR Protocol
 
+[![Build Status][ci-badge-master]][ci-url] 
+![Stable Status][stable-release]
+![Prerelease Status][prerelease]
 [![codecov][codecov-badge]][codecov-url]
 [![Discord chat][discord-badge]][discord-url]
 [![Telegram Group][telegram-badge]][telegram-url]
 
-master | beta | stable
----|---|---|
-[![Build Status][ci-badge-master]][ci-url] | [![Build Status][ci-badge-beta]][ci-url] | [![Build Status][ci-badge-stable]][ci-url] 
-
+[stable-release]: https://img.shields.io/github/v/release/nearprotocol/nearcore?label=stable
+[prerelease]: https://img.shields.io/github/v/release/nearprotocol/nearcore?include_prereleases&label=prerelease
 [ci-badge-master]: https://badge.buildkite.com/a81147cb62c585cc434459eedd1d25e521453120ead9ee6c64.svg?branch=master
-[ci-badge-beta]: https://badge.buildkite.com/a81147cb62c585cc434459eedd1d25e521453120ead9ee6c64.svg?branch=beta
-[ci-badge-stable]: https://badge.buildkite.com/a81147cb62c585cc434459eedd1d25e521453120ead9ee6c64.svg?branch=stable
 [ci-url]: https://buildkite.com/nearprotocol/nearcore
 [codecov-badge]: https://codecov.io/gh/nearprotocol/nearcore/branch/master/graph/badge.svg
 [codecov-url]: https://codecov.io/gh/nearprotocol/nearcore
