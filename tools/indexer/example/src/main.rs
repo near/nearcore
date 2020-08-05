@@ -3,11 +3,60 @@ use std::io;
 
 use actix;
 
+use clap::Clap;
 use tokio::sync::mpsc;
 use tracing_subscriber::filter::LevelFilter;
 use tracing_subscriber::EnvFilter;
 
 use near_indexer;
+
+/// NEAR Indexer Example
+/// Watches for stream of blocks from the chain
+#[derive(Clap, Debug)]
+#[clap(version = "0.1", author = " Near Inc. <hello@nearprotocol.com>")]
+struct Opts {
+    /// Sets a custom config dir. Defaults to ~/.near/
+    #[clap(short, long, default_value = "~/.near/")]
+    home_dir: String,
+    #[clap(subcommand)]
+    subcmd: SubCommand,
+}
+
+#[derive(Clap, Debug)]
+enum SubCommand {
+    /// Run NEAR Indexer Example. Start observe the network
+    Run,
+    /// Initialize necessary configs
+    Init(ConfigArgs),
+}
+
+#[derive(Clap, Debug)]
+struct ConfigArgs {
+    /// chain/network id (localnet, testnet, devnet, betanet)
+    #[clap(short, long)]
+    chain_id: Option<String>,
+    /// Account ID for the validator key
+    #[clap(long)]
+    account_id: Option<String>,
+    /// Specify private key generated from seed (TESTING ONLY)
+    #[clap(long)]
+    test_seed: Option<String>,
+    /// Number of shards to initialize the chain with
+    #[clap(short, long, default_value = "1")]
+    num_shards: u64,
+    /// Makes block production fast (TESTING ONLY)
+    #[clap(short, long)]
+    fast: bool,
+    /// Genesis file to use when initialize testnet (including downloading)
+    #[clap(short, long)]
+    genesis: Option<String>,
+    #[clap(short, long)]
+    /// Download the verified NEAR genesis file automatically.
+    download: bool,
+    /// Specify a custom download URL for the genesis-file.
+    #[clap(long)]
+    download_genesis_url: Option<String>,
+}
 
 fn init_logging(verbose: bool) {
     let mut env_filter = EnvFilter::new("tokio_reactor=info,near=info,stats=info,telemetry=info");
@@ -215,11 +264,29 @@ async fn listen_blocks(mut stream: mpsc::Receiver<near_indexer::BlockResponse>) 
 }
 
 fn main() {
-    let home_dir: Option<String> = env::args().nth(1);
-
     init_logging(true);
-    let indexer = near_indexer::Indexer::new(home_dir.as_ref().map(AsRef::as_ref));
-    let stream = indexer.streamer();
-    actix::spawn(listen_blocks(stream));
-    indexer.start();
+
+    let opts: Opts = Opts::parse();
+
+    let home_dir: &std::path::Path = opts.home_dir.as_ref();
+
+    match opts.subcmd {
+        SubCommand::Run => {
+            let indexer = near_indexer::Indexer::new(Some(home_dir));
+            let stream = indexer.streamer();
+            actix::spawn(listen_blocks(stream));
+            indexer.start();
+        }
+        SubCommand::Init(config) => near_indexer::Indexer::init_configs(
+            home_dir,
+            config.chain_id.as_ref().map(AsRef::as_ref),
+            config.account_id.as_ref().map(AsRef::as_ref),
+            config.test_seed.as_ref().map(AsRef::as_ref),
+            config.num_shards,
+            config.fast,
+            config.genesis.as_ref().map(AsRef::as_ref),
+            config.download,
+            config.download_genesis_url.as_ref().map(AsRef::as_ref),
+        ),
+    }
 }

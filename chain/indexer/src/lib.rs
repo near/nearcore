@@ -12,7 +12,6 @@ use std::path::PathBuf;
 use actix::System;
 use tokio::sync::mpsc;
 
-use neard;
 pub use neard::NearConfig;
 mod streamer;
 
@@ -48,6 +47,35 @@ impl Indexer {
         );
         let (client, view_client, _) = neard::start_with_config(&home_dir, near_config.clone());
         Self { actix_runtime: system, view_client, client, near_config }
+    }
+
+    /// Initializes genesis and client configs and stores in the given folder
+    /// Exposes `neard::init_configs()`
+    pub fn init_configs(
+        dir: &std::path::Path,
+        chain_id: Option<&str>,
+        account_id: Option<&str>,
+        test_seed: Option<&str>,
+        num_shards: near_primitives::types::NumShards,
+        fast: bool,
+        genesis: Option<&str>,
+        download: bool,
+        download_genesis_url: Option<&str>,
+    ) {
+        if download {
+            openssl_probe::init_ssl_cert_env_vars();
+        }
+        neard::init_configs(
+            dir,
+            chain_id,
+            account_id,
+            test_seed,
+            num_shards,
+            fast,
+            genesis,
+            download,
+            download_genesis_url,
+        );
     }
 
     /// Boots up `near_indexer::streamer`, so it monitors the new blocks with chunks, transactions, receipts, and execution outcomes inside. The returned stream handler should be drained and handled on the user side.

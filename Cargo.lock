@@ -485,7 +485,7 @@ dependencies = [
  "cexpr",
  "cfg-if",
  "clang-sys",
- "clap",
+ "clap 2.33.0",
  "env_logger",
  "lazy_static",
  "lazycell",
@@ -771,10 +771,42 @@ dependencies = [
  "ansi_term",
  "atty",
  "bitflags",
- "strsim",
+ "strsim 0.8.0",
  "textwrap",
  "unicode-width",
  "vec_map",
+]
+
+[[package]]
+name = "clap"
+version = "3.0.0-beta.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "860643c53f980f0d38a5e25dfab6c3c93b2cb3aa1fe192643d17a293c6c41936"
+dependencies = [
+ "atty",
+ "bitflags",
+ "clap_derive",
+ "indexmap",
+ "lazy_static",
+ "os_str_bytes",
+ "strsim 0.10.0",
+ "termcolor",
+ "textwrap",
+ "unicode-width",
+ "vec_map",
+]
+
+[[package]]
+name = "clap_derive"
+version = "3.0.0-beta.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fb51c9e75b94452505acd21d929323f5a5c6c4735a852adbd39ef5fb1b014f30"
+dependencies = [
+ "heck",
+ "proc-macro-error",
+ "proc-macro2",
+ "quote",
+ "syn",
 ]
 
 [[package]]
@@ -1514,7 +1546,7 @@ name = "genesis-csv-to-json"
 version = "0.1.0"
 dependencies = [
  "chrono",
- "clap",
+ "clap 2.33.0",
  "csv",
  "near-chain-configs",
  "near-crypto",
@@ -1533,7 +1565,7 @@ version = "0.1.0"
 dependencies = [
  "borsh",
  "byteorder",
- "clap",
+ "clap 2.33.0",
  "indicatif 0.13.0",
  "near-chain",
  "near-chain-configs",
@@ -1822,6 +1854,7 @@ name = "indexer-example"
 version = "0.1.0"
 dependencies = [
  "actix",
+ "clap 3.0.0-beta.1",
  "near-indexer",
  "serde_json",
  "tokio",
@@ -1978,7 +2011,7 @@ dependencies = [
 name = "keypair-generator"
 version = "0.1.0"
 dependencies = [
- "clap",
+ "clap 2.33.0",
  "near-crypto",
  "neard",
 ]
@@ -2063,7 +2096,7 @@ version = "0.1.0"
 dependencies = [
  "borsh",
  "byteorder",
- "clap",
+ "clap 2.33.0",
  "env_logger",
  "futures",
  "git-version",
@@ -2274,7 +2307,7 @@ dependencies = [
  "libc",
  "log",
  "openssl",
- "openssl-probe",
+ "openssl-probe 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "openssl-sys",
  "schannel",
  "security-framework",
@@ -2443,6 +2476,7 @@ dependencies = [
  "near-crypto",
  "near-primitives",
  "neard",
+ "openssl-probe 0.1.2 (git+https://github.com/khorolets/openssl-probe.git?branch=feature/support-macports)",
  "tokio",
  "tracing",
 ]
@@ -2674,7 +2708,7 @@ dependencies = [
  "actix-web",
  "futures",
  "openssl",
- "openssl-probe",
+ "openssl-probe 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde",
  "serde_json",
  "tracing",
@@ -2728,7 +2762,7 @@ name = "near-vm-runner-standalone"
 version = "1.1.0"
 dependencies = [
  "base64 0.11.0",
- "clap",
+ "clap 2.33.0",
  "near-runtime-fees",
  "near-vm-logic",
  "near-vm-runner",
@@ -2768,7 +2802,7 @@ dependencies = [
  "borsh",
  "byteorder",
  "chrono",
- "clap",
+ "clap 2.33.0",
  "dirs",
  "easy-ext",
  "futures",
@@ -2966,6 +3000,11 @@ dependencies = [
 [[package]]
 name = "openssl-probe"
 version = "0.1.2"
+source = "git+https://github.com/khorolets/openssl-probe.git?branch=feature/support-macports#a3bd6d0e4c0ab85c7e5ab27d8e9ba93551ee6bdf"
+
+[[package]]
+name = "openssl-probe"
+version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "77af24da69f9d9341038eba93a073b1fdaaa1b788221b00a69bce9e762cb32de"
 
@@ -2991,6 +3030,12 @@ dependencies = [
  "pkg-config",
  "vcpkg",
 ]
+
+[[package]]
+name = "os_str_bytes"
+version = "2.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2ac6fe3538f701e339953a3ebbe4f39941aababa8a3f6964635b24ab526daeac"
 
 [[package]]
 name = "owning_ref"
@@ -3123,6 +3168,32 @@ checksum = "e5e4b9943a2da369aec5e96f7c10ebc74fcf434d39590d974b0a3460e6f67fbb"
 dependencies = [
  "fixed-hash",
  "uint",
+]
+
+[[package]]
+name = "proc-macro-error"
+version = "0.4.12"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "18f33027081eba0a6d8aba6d1b1c3a3be58cbb12106341c2d5759fcd9b5277e7"
+dependencies = [
+ "proc-macro-error-attr",
+ "proc-macro2",
+ "quote",
+ "syn",
+ "version_check",
+]
+
+[[package]]
+name = "proc-macro-error-attr"
+version = "0.4.12"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8a5b4b77fdb63c1eca72173d68d24501c54ab1269409f6b672c85deb18af69de"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+ "syn-mid",
+ "version_check",
 ]
 
 [[package]]
@@ -3507,7 +3578,7 @@ dependencies = [
 name = "restaked"
 version = "0.1.0"
 dependencies = [
- "clap",
+ "clap 2.33.0",
  "env_logger",
  "log",
  "near-crypto",
@@ -3547,7 +3618,7 @@ name = "runtime-params-estimator"
 version = "1.1.0"
 dependencies = [
  "borsh",
- "clap",
+ "clap 2.33.0",
  "csv",
  "gnuplot",
  "indicatif 0.14.0",
@@ -3880,7 +3951,7 @@ version = "0.1.0"
 dependencies = [
  "ansi_term",
  "borsh",
- "clap",
+ "clap 2.33.0",
  "near-chain",
  "near-chain-configs",
  "near-client",
@@ -3911,7 +3982,7 @@ name = "store-validator"
 version = "0.1.0"
 dependencies = [
  "ansi_term",
- "clap",
+ "clap 2.33.0",
  "near-chain",
  "near-chain-configs",
  "near-client",
@@ -3946,6 +4017,12 @@ name = "strsim"
 version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8ea5119cdb4c55b55d432abb513a0429384878c15dde60cc77b1c99de1a95a6a"
+
+[[package]]
+name = "strsim"
+version = "0.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "73473c0e59e6d5812c5dfe2a064a6444949f089e20eec9a2e5506596494e4623"
 
 [[package]]
 name = "strum"
@@ -3989,6 +4066,17 @@ dependencies = [
  "proc-macro2",
  "quote",
  "unicode-xid",
+]
+
+[[package]]
+name = "syn-mid"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7be3539f6c128a931cf19dcee741c1af532c7fd387baa739c03dd2e96479338a"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
 ]
 
 [[package]]
@@ -4063,7 +4151,7 @@ dependencies = [
  "assert_matches",
  "borsh",
  "byteorder",
- "clap",
+ "clap 2.33.0",
  "futures",
  "lazy_static",
  "log",
