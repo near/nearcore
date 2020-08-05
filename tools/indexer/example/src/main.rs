@@ -1,95 +1,12 @@
-use std::env;
-use std::io;
-
 use actix;
 
-use clap::Clap;
+use clap::derive::Clap;
 use tokio::sync::mpsc;
-use tracing_subscriber::filter::LevelFilter;
-use tracing_subscriber::EnvFilter;
 
+use configs::{init_logging, Opts, SubCommand};
 use near_indexer;
 
-/// NEAR Indexer Example
-/// Watches for stream of blocks from the chain
-#[derive(Clap, Debug)]
-#[clap(version = "0.1", author = "Near Inc. <hello@nearprotocol.com>")]
-struct Opts {
-    /// Sets a custom config dir. Defaults to ~/.near/
-    #[clap(short, long, default_value = "~/.near/")]
-    home_dir: std::path::PathBuf,
-    #[clap(subcommand)]
-    subcmd: SubCommand,
-}
-
-#[derive(Clap, Debug)]
-enum SubCommand {
-    /// Run NEAR Indexer Example. Start observe the network
-    Run,
-    /// Initialize necessary configs
-    Init(InitConfigArgs),
-}
-
-#[derive(Clap, Debug)]
-struct InitConfigArgs {
-    /// chain/network id (localnet, testnet, devnet, betanet)
-    #[clap(short, long)]
-    chain_id: Option<String>,
-    /// Account ID for the validator key
-    #[clap(long)]
-    account_id: Option<String>,
-    /// Specify private key generated from seed (TESTING ONLY)
-    #[clap(long)]
-    test_seed: Option<String>,
-    /// Number of shards to initialize the chain with
-    #[clap(short, long, default_value = "1")]
-    num_shards: u64,
-    /// Makes block production fast (TESTING ONLY)
-    #[clap(short, long)]
-    fast: bool,
-    /// Genesis file to use when initialize testnet (including downloading)
-    #[clap(short, long)]
-    genesis: Option<String>,
-    #[clap(short, long)]
-    /// Download the verified NEAR genesis file automatically.
-    download: bool,
-    /// Specify a custom download URL for the genesis-file.
-    #[clap(long)]
-    download_genesis_url: Option<String>,
-}
-
-fn init_logging(verbose: bool) {
-    let mut env_filter = EnvFilter::new("tokio_reactor=info,near=info,stats=info,telemetry=info");
-
-    if verbose {
-        env_filter = env_filter
-            .add_directive("cranelift_codegen=warn".parse().unwrap())
-            .add_directive("cranelift_codegen=warn".parse().unwrap())
-            .add_directive("h2=warn".parse().unwrap())
-            .add_directive("trust_dns_resolver=warn".parse().unwrap())
-            .add_directive("trust_dns_proto=warn".parse().unwrap());
-
-        env_filter = env_filter.add_directive(LevelFilter::DEBUG.into());
-    } else {
-        env_filter = env_filter.add_directive(LevelFilter::WARN.into());
-    }
-
-    if let Ok(rust_log) = env::var("RUST_LOG") {
-        for directive in rust_log.split(',').filter_map(|s| match s.parse() {
-            Ok(directive) => Some(directive),
-            Err(err) => {
-                eprintln!("Ignoring directive `{}`: {}", s, err);
-                None
-            }
-        }) {
-            env_filter = env_filter.add_directive(directive);
-        }
-    }
-    tracing_subscriber::fmt::Subscriber::builder()
-        .with_env_filter(env_filter)
-        .with_writer(io::stderr)
-        .init();
-}
+mod configs;
 
 async fn listen_blocks(mut stream: mpsc::Receiver<near_indexer::BlockResponse>) {
     while let Some(block) = stream.recv().await {
@@ -275,13 +192,13 @@ fn main() {
 
     match opts.subcmd {
         SubCommand::Run => {
-            let indexer = near_indexer::Indexer::new(Some(home_dir));
+            let indexer = near_indexer::Indexer::new(home_dir.map(AsRef::as_ref));
             let stream = indexer.streamer();
             actix::spawn(listen_blocks(stream));
             indexer.start();
         }
         SubCommand::Init(config) => near_indexer::init_configs(
-            home_dir,
+            home_dir.unwrap_or(&std::path::PathBuf::from(near_indexer::get_default_home())),
             config.chain_id.as_ref().map(AsRef::as_ref),
             config.account_id.as_ref().map(AsRef::as_ref),
             config.test_seed.as_ref().map(AsRef::as_ref),

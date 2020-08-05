@@ -12,7 +12,7 @@ use std::path::PathBuf;
 use actix::System;
 use tokio::sync::mpsc;
 
-pub use neard::{init_configs, NearConfig};
+pub use neard::{get_default_home, init_configs, NearConfig};
 mod streamer;
 
 pub use self::streamer::{BlockResponse, Outcome};
@@ -30,7 +30,7 @@ impl Indexer {
     /// Initialize Indexer by configuring `nearcore`
     pub fn new(custom_home_dir: Option<&std::path::Path>) -> Self {
         let home_dir = if !custom_home_dir.is_some() {
-            PathBuf::from(neard::get_default_home())
+            PathBuf::from(get_default_home())
         } else {
             PathBuf::from(custom_home_dir.unwrap())
         };
