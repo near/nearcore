@@ -45,7 +45,7 @@ We ship prebuilt QEMU and TCG instruction counter plugin, so in many cases one d
 However, in case you still want to build it - use the following steps.
 
 Important: we build QEMU and the TCG plugin inside the container, so execute following commands inside Docker.
-Set environment variable HOST_DIR (on the host) to location where both QEMU and nearcore sourcecode is checked
+Set environment variable HOST_DIR (on the host) to location where both QEMU and nearcore source code is checked
 out, it will be mounted as `/host` inside the Docker container.
 Start container with:
 
