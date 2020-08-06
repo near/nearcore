@@ -4,7 +4,6 @@ use std::sync::{Arc, RwLock};
 use actix::{Addr, System};
 use futures::{future, FutureExt};
 
-
 use near_client::test_utils::setup_mock_all_validators;
 use near_client::{ClientActor, Query, ViewClientActor};
 use near_logger_utils::init_test_logger;
