@@ -175,10 +175,6 @@ impl ShardTriesSnapshot {
         TrieUpdate::new(Rc::new(self.get_trie_for_shard(shard_id)), state_root)
     }
 
-    pub fn get_caches(&self) -> TrieCaches {
-        self.caches.clone()
-    }
-
     pub fn get_trie_for_shard(&self, shard_id: ShardId) -> Trie {
         let store = Box::new(TrieCachingStorage::new(
             self.store.clone(),
@@ -186,14 +182,6 @@ impl ShardTriesSnapshot {
             shard_id,
         ));
         Trie::new(store, shard_id)
-    }
-
-    pub fn writer(self) -> ShardTries {
-        ShardTries::new(self.get_store(), self.caches)
-    }
-
-    pub(crate) fn get_store(&self) -> Store {
-        Store::new(self.store.get_store().clone())
     }
 }
 
