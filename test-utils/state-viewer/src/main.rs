@@ -238,6 +238,7 @@ fn apply_block_at_height(
             prev_block.header().gas_price(),
             chunk.header.inner.gas_limit,
             &block.header().challenges_result(),
+            *block.header().random_value(),
         )
         .unwrap();
     let (outcome_root, _) = ApplyTransactionResult::compute_outcomes_proof(&apply_result.outcomes);

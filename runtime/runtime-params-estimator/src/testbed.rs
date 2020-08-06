@@ -83,6 +83,8 @@ impl RuntimeTestbed {
             gas_price: 0,
             block_timestamp: 0,
             gas_limit: None,
+            random_seed: Default::default(),
+            current_protocol_version: 0,
         };
         Self {
             workdir,

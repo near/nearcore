@@ -211,8 +211,10 @@ impl RuntimeStandalone {
             block_timestamp: self.cur_block.block_timestamp,
             gas_limit: None,
             // not used
+            random_seed: Default::default(),
             last_block_hash: CryptoHash::default(),
             epoch_id: EpochId::default(),
+            current_protocol_version: 0,
         };
 
         let apply_result = self.runtime.apply(

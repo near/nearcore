@@ -28,6 +28,7 @@ use crate::ext::RuntimeExt;
 use crate::{ActionResult, ApplyState};
 use near_crypto::PublicKey;
 use near_primitives::errors::{ActionError, ActionErrorKind, ExternalError, RuntimeError};
+use near_primitives::version::CORRECT_RANDOM_VALUE_PROTOCOL_VERSION;
 use near_runtime_configs::AccountCreationConfig;
 use near_vm_errors::{CompilationError, FunctionCallError};
 use near_vm_runner::VMError;
@@ -144,7 +145,12 @@ pub(crate) fn action_function_call(
         storage_usage: account.storage_usage,
         attached_deposit: function_call.deposit,
         prepaid_gas: function_call.gas,
-        random_seed: action_hash.as_ref().to_vec(),
+        random_seed: if apply_state.current_protocol_version < CORRECT_RANDOM_VALUE_PROTOCOL_VERSION
+        {
+            action_hash.as_ref().to_vec()
+        } else {
+            apply_state.random_seed.as_ref().to_vec()
+        },
         is_view: false,
         output_data_receivers,
     };
