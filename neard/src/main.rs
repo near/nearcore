@@ -8,7 +8,8 @@ use actix::System;
 use clap::{crate_version, App, AppSettings, Arg, SubCommand};
 #[cfg(feature = "adversarial")]
 use log::error;
-use log::info;
+use log::{info, warn};
+use sysinfo::{DiskExt, SystemExt};
 use tracing_subscriber::filter::LevelFilter;
 use tracing_subscriber::EnvFilter;
 
@@ -180,6 +181,13 @@ fn main() {
             );
         }
         ("run", Some(args)) => {
+            // check disk
+            let system = sysinfo::System::new_all();
+            for disk in system.get_disks() {
+                if !matches!(disk.get_type(), sysinfo::DiskType::SSD) {
+                    warn!("!!! DETECTED NON-SSD DISK. PLEASE MAKE SURE THAT YOU USE SSD FOR NEAR NODE !!!");
+                }
+            }
             // Load configs from home.
             let mut near_config = load_config(home_dir);
             validate_genesis(&near_config.genesis);
