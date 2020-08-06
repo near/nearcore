@@ -38,8 +38,7 @@ use crate::chunk_cache::{EncodedChunksCache, EncodedChunksCacheEntry};
 pub use crate::types::Error;
 
 mod chunk_cache;
-#[cfg(test)]
-mod test_utils;
+pub mod test_utils;
 mod types;
 
 const CHUNK_PRODUCER_BLACKLIST_SIZE: usize = 100;
@@ -949,10 +948,26 @@ impl ShardsManager {
         let chunk_hash = header.chunk_hash();
 
         // 1. Checking signature validity
-        if !self.runtime_adapter.verify_chunk_header_signature(&header)? {
-            byzantine_assert!(false);
-            return Err(Error::InvalidChunkSignature);
-        }
+        match self.runtime_adapter.verify_chunk_header_signature(&header) {
+            Ok(false) => {
+                byzantine_assert!(false);
+                return Err(Error::InvalidChunkSignature);
+            }
+            Ok(true) => (),
+            Err(chain_error) => {
+                return match chain_error.kind() {
+                    near_chain::ErrorKind::BlockMissing(_)
+                    | near_chain::ErrorKind::DBNotFoundErr(_) => {
+                        // We can't check if this chunk came from a valid chunk producer because
+                        // we don't know `prev_block`, so return that we need a block.
+                        Ok(ProcessPartialEncodedChunkResult::NeedBlock)
+                    }
+                    // Some other error kind happened during the signature check, we don't
+                    // know how to handle it.
+                    _ => Err(Error::ChainError(chain_error)),
+                };
+            }
+        };
 
         // 2. Leave if we received known chunk
         if let Some(entry) = self.encoded_chunks.get(&chunk_hash) {
@@ -1211,6 +1226,12 @@ impl ShardsManager {
         chunk_entry: &EncodedChunksCacheEntry,
         store_update: &mut ChainStoreUpdate<'_>,
     ) {
+        let cares_about_shard = self.cares_about_shard_this_or_next_epoch(
+            self.me.as_ref(),
+            &chunk_entry.header.inner.prev_block_hash,
+            chunk_entry.header.inner.shard_id,
+            true,
+        );
         let prev_block_hash = chunk_entry.header.inner.prev_block_hash;
         let partial_chunk = PartialEncodedChunk {
             header: chunk_entry.header.clone(),
@@ -1218,7 +1239,11 @@ impl ShardsManager {
                 .parts
                 .iter()
                 .filter_map(|(part_ord, part_entry)| {
-                    if let Ok(need_part) = self.need_part(&prev_block_hash, *part_ord) {
+                    if cares_about_shard
+                        || self.need_part(&prev_block_hash, *part_ord).unwrap_or(false)
+                    {
+                        Some(part_entry.clone())
+                    } else if let Ok(need_part) = self.need_part(&prev_block_hash, *part_ord) {
                         if need_part {
                             Some(part_entry.clone())
                         } else {
@@ -1233,7 +1258,9 @@ impl ShardsManager {
                 .receipts
                 .iter()
                 .filter_map(|(shard_id, receipt)| {
-                    if self.need_receipt(&prev_block_hash, *shard_id) {
+                    if cares_about_shard || self.need_receipt(&prev_block_hash, *shard_id) {
+                        Some(receipt.clone())
+                    } else if self.need_receipt(&prev_block_hash, *shard_id) {
                         Some(receipt.clone())
                     } else {
                         None

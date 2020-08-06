@@ -25,8 +25,6 @@ pub struct ClientConfig {
     pub max_block_wait_delay: Duration,
     /// Duration to reduce the wait for each missed block by validator.
     pub reduce_wait_for_missing_block: Duration,
-    /// Expected block weight (num of tx, gas, etc).
-    pub block_expected_weight: u32,
     /// Skip waiting for sync (for testing or single node testnet).
     pub skip_sync_wait: bool,
     /// How often to check that we are not out of sync.
@@ -65,6 +63,8 @@ pub struct ClientConfig {
     pub catchup_step_period: Duration,
     /// Time between checking to re-request chunks.
     pub chunk_request_retry_period: Duration,
+    /// Time between running doomslug timer.
+    pub doosmslug_step_period: Duration,
     /// Behind this horizon header fetch kicks in.
     pub block_header_fetch_horizon: BlockHeightDelta,
     /// Number of blocks to garbage collect at every gc call.
@@ -75,6 +75,8 @@ pub struct ClientConfig {
     pub tracked_shards: Vec<ShardId>,
     /// Not clear old data, set `true` for archive nodes.
     pub archive: bool,
+    /// Number of threads for ViewClientActor pool.
+    pub view_client_threads: usize,
 }
 
 impl ClientConfig {
@@ -97,7 +99,6 @@ impl ClientConfig {
             max_block_production_delay: Duration::from_millis(max_block_prod_time),
             max_block_wait_delay: Duration::from_millis(3 * min_block_prod_time),
             reduce_wait_for_missing_block: Duration::from_millis(0),
-            block_expected_weight: 1000,
             skip_sync_wait,
             sync_check_period: Duration::from_millis(100),
             sync_step_period: Duration::from_millis(10),
@@ -120,11 +121,13 @@ impl ClientConfig {
                 Duration::from_millis(100),
                 Duration::from_millis(min_block_prod_time / 5),
             ),
+            doosmslug_step_period: Duration::from_millis(100),
             block_header_fetch_horizon: 50,
             gc_blocks_limit: 100,
             tracked_accounts: vec![],
             tracked_shards: vec![],
             archive,
+            view_client_threads: 1,
         }
     }
 }

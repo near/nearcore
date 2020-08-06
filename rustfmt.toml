@@ -1,4 +1,5 @@
 use_small_heuristics = "Max"
 reorder_imports = true
+edition = "2018"
 # fn_args_density = "Compressed"
 # overflow_delimited_expr = "true"

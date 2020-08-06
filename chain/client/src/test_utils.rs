@@ -10,7 +10,9 @@ use futures::{future, FutureExt};
 use rand::{thread_rng, Rng};
 
 use near_chain::test_utils::KeyValueRuntime;
-use near_chain::{Chain, ChainGenesis, DoomslugThresholdMode, Provenance, RuntimeAdapter};
+use near_chain::{
+    Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode, Provenance, RuntimeAdapter,
+};
 use near_chain_configs::ClientConfig;
 use near_crypto::{InMemorySigner, KeyType, PublicKey};
 #[cfg(feature = "metric_recorder")]
@@ -37,9 +39,13 @@ use near_store::test_utils::create_test_store;
 use near_store::Store;
 use near_telemetry::TelemetryActor;
 
-use crate::{Client, ClientActor, SyncStatus, ViewClientActor};
+use crate::{start_view_client, Client, ClientActor, SyncStatus, ViewClientActor};
 use near_network::test_utils::MockNetworkAdapter;
+use near_primitives::merkle::{merklize, MerklePath};
+use near_primitives::receipt::Receipt;
+use near_primitives::sharding::{EncodedShardChunk, ReedSolomonWrapper};
 use num_rational::Rational;
+use std::mem::swap;
 
 pub type NetworkMock = Mocker<PeerManagerActor>;
 
@@ -58,7 +64,7 @@ pub fn setup(
     network_adapter: Arc<dyn NetworkAdapter>,
     transaction_validity_period: NumBlocks,
     genesis_time: DateTime<Utc>,
-) -> (Block, ClientActor, ViewClientActor) {
+) -> (Block, ClientActor, Addr<ViewClientActor>) {
     let store = create_test_store();
     let num_validator_seats = validators.iter().map(|x| x.len()).sum::<usize>() as NumSeats;
     let runtime = Arc::new(KeyValueRuntime::new_with_validators(
@@ -68,19 +74,19 @@ pub fn setup(
         num_shards,
         epoch_length,
     ));
-    let chain_genesis = ChainGenesis::new(
-        genesis_time,
-        0,
-        1_000_000,
-        100,
-        1_000_000_000,
-        3_000_000_000_000_000_000_000_000_000_000_000,
-        Rational::from_integer(0),
-        Rational::from_integer(0),
+    let chain_genesis = ChainGenesis {
+        time: genesis_time,
+        height: 0,
+        gas_limit: 1_000_000,
+        min_gas_price: 100,
+        max_gas_price: 1_000_000_000,
+        total_supply: 3_000_000_000_000_000_000_000_000_000_000_000,
+        max_inflation_rate: Rational::from_integer(0),
+        gas_price_adjustment_rate: Rational::from_integer(0),
         transaction_validity_period,
         epoch_length,
-        PROTOCOL_VERSION,
-    );
+        protocol_version: PROTOCOL_VERSION,
+    };
     let doomslug_threshold_mode = if enable_doomslug {
         DoomslugThresholdMode::TwoThirds
     } else {
@@ -99,14 +105,13 @@ pub fn setup(
         num_validator_seats,
         archive,
     );
-    let view_client = ViewClientActor::new(
+    let view_client_addr = start_view_client(
         Some(signer.validator_id().clone()),
-        &chain_genesis,
+        chain_genesis.clone(),
         runtime.clone(),
         network_adapter.clone(),
         config.clone(),
-    )
-    .unwrap();
+    );
 
     let client = ClientActor::new(
         config,
@@ -119,7 +124,7 @@ pub fn setup(
         enable_doomslug,
     )
     .unwrap();
-    (genesis_block, client, view_client)
+    (genesis_block, client, view_client_addr)
 }
 
 /// Sets up ClientActor and ViewClientActor with mock PeerManager.
@@ -161,7 +166,7 @@ pub fn setup_mock_with_validity_period(
     transaction_validity_period: NumBlocks,
 ) -> (Addr<ClientActor>, Addr<ViewClientActor>) {
     let network_adapter = Arc::new(NetworkRecipient::new());
-    let (_, client, view_client) = setup(
+    let (_, client, view_client_addr) = setup(
         vec![validators],
         1,
         1,
@@ -177,7 +182,6 @@ pub fn setup_mock_with_validity_period(
         Utc::now(),
     );
     let client_addr = client.start();
-    let view_client_addr = view_client.start();
     let client_addr1 = client_addr.clone();
 
     let network_actor = NetworkMock::mock(Box::new(move |msg, ctx| {
@@ -663,7 +667,7 @@ pub fn setup_mock_all_validators(
             .start();
             let network_adapter = NetworkRecipient::new();
             network_adapter.set_recipient(pm.recipient());
-            let (block, client, view_client) = setup(
+            let (block, client, view_client_addr) = setup(
                 validators_clone1.clone(),
                 validator_groups,
                 num_shards,
@@ -678,7 +682,7 @@ pub fn setup_mock_all_validators(
                 10000,
                 genesis_time,
             );
-            *view_client_addr1.write().unwrap() = Some(view_client.start());
+            *view_client_addr1.write().unwrap() = Some(view_client_addr);
             *genesis_block1.write().unwrap() = Some(block);
             client
         });
@@ -927,4 +931,109 @@ impl TestEnv {
             self.chain_genesis.clone(),
         )
     }
+}
+
+pub fn create_chunk_on_height(
+    client: &mut Client,
+    next_height: BlockHeight,
+) -> (EncodedShardChunk, Vec<MerklePath>, Vec<Receipt>) {
+    let last_block_hash = client.chain.head().unwrap().last_block_hash;
+    let last_block = client.chain.get_block(&last_block_hash).unwrap().clone();
+    client
+        .produce_chunk(
+            last_block_hash,
+            last_block.header().epoch_id(),
+            last_block.chunks()[0].clone(),
+            next_height,
+            0,
+        )
+        .unwrap()
+        .unwrap()
+}
+
+pub fn create_chunk_with_transactions(
+    client: &mut Client,
+    transactions: Vec<SignedTransaction>,
+) -> (EncodedShardChunk, Vec<MerklePath>, Vec<Receipt>, Block) {
+    create_chunk(client, Some(transactions), None)
+}
+
+pub fn create_chunk(
+    client: &mut Client,
+    replace_transactions: Option<Vec<SignedTransaction>>,
+    replace_tx_root: Option<CryptoHash>,
+) -> (EncodedShardChunk, Vec<MerklePath>, Vec<Receipt>, Block) {
+    let last_block =
+        client.chain.get_block_by_height(client.chain.head().unwrap().height).unwrap().clone();
+    let (mut chunk, mut merkle_paths, receipts) = client
+        .produce_chunk(
+            *last_block.hash(),
+            last_block.header().epoch_id(),
+            last_block.chunks()[0].clone(),
+            2,
+            0,
+        )
+        .unwrap()
+        .unwrap();
+    if let Some(transactions) = replace_transactions {
+        // The best way it to decode chunk, replace transactions and then recreate encoded chunk.
+        let total_parts = client.chain.runtime_adapter.num_total_parts();
+        let data_parts = client.chain.runtime_adapter.num_data_parts();
+        let decoded_chunk = chunk.decode_chunk(data_parts).unwrap();
+        let parity_parts = total_parts - data_parts;
+        let mut rs = ReedSolomonWrapper::new(data_parts, parity_parts);
+
+        let (tx_root, _) = merklize(&transactions);
+        let signer = client.validator_signer.as_ref().unwrap().clone();
+        let (mut encoded_chunk, mut new_merkle_paths) = EncodedShardChunk::new(
+            chunk.header.inner.prev_block_hash,
+            chunk.header.inner.prev_state_root,
+            chunk.header.inner.outcome_root,
+            chunk.header.inner.height_created,
+            chunk.header.inner.shard_id,
+            &mut rs,
+            chunk.header.inner.gas_used,
+            chunk.header.inner.gas_limit,
+            chunk.header.inner.balance_burnt,
+            tx_root,
+            chunk.header.inner.validator_proposals.clone(),
+            transactions,
+            &decoded_chunk.receipts,
+            chunk.header.inner.outgoing_receipts_root,
+            &*signer,
+        )
+        .unwrap();
+        swap(&mut chunk, &mut encoded_chunk);
+        swap(&mut merkle_paths, &mut new_merkle_paths);
+    }
+    if let Some(tx_root) = replace_tx_root {
+        chunk.header.inner.tx_root = tx_root;
+        chunk.header.height_included = 2;
+        let (hash, signature) =
+            client.validator_signer.as_ref().unwrap().sign_chunk_header_inner(&chunk.header.inner);
+        chunk.header.hash = hash;
+        chunk.header.signature = signature;
+    }
+    let mut block_merkle_tree =
+        client.chain.mut_store().get_block_merkle_tree(&last_block.hash()).unwrap().clone();
+    block_merkle_tree.insert(*last_block.hash());
+    let block = Block::produce(
+        PROTOCOL_VERSION,
+        &last_block.header(),
+        2,
+        vec![chunk.header.clone()],
+        last_block.header().epoch_id().clone(),
+        last_block.header().next_epoch_id().clone(),
+        vec![],
+        Rational::from_integer(0),
+        0,
+        100,
+        None,
+        vec![],
+        vec![],
+        &*client.validator_signer.as_ref().unwrap().clone(),
+        *last_block.header().next_bp_hash(),
+        block_merkle_tree.root(),
+    );
+    (chunk, merkle_paths, receipts, block)
 }

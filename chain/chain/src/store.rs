@@ -38,11 +38,12 @@ use near_store::{
     ColBlocksToCatchup, ColChallengedBlocks, ColChunkExtra, ColChunkHashesByHeight,
     ColChunkPerHeightShard, ColChunks, ColEpochLightClientBlocks, ColGCCount, ColIncomingReceipts,
     ColInvalidChunks, ColLastBlockWithNewChunk, ColNextBlockHashes, ColNextBlockWithNewChunk,
-    ColOutcomesByBlockHash, ColOutgoingReceipts, ColPartialChunks, ColReceiptIdToShardId, ColState,
-    ColStateChanges, ColStateDlInfos, ColStateHeaders, ColStateParts, ColTransactionRefCount,
-    ColTransactionResult, ColTransactions, ColTrieChanges, DBCol, KeyForStateChanges, ShardTries,
-    Store, StoreUpdate, TrieChanges, WrappedTrieChanges, CHUNK_TAIL_KEY, HEADER_HEAD_KEY, HEAD_KEY,
-    LARGEST_TARGET_HEIGHT_KEY, LATEST_KNOWN_KEY, SHOULD_COL_GC, SYNC_HEAD_KEY, TAIL_KEY,
+    ColOutcomesByBlockHash, ColOutgoingReceipts, ColPartialChunks, ColProcessedBlockHeights,
+    ColReceiptIdToShardId, ColState, ColStateChanges, ColStateDlInfos, ColStateHeaders,
+    ColStateParts, ColTransactionRefCount, ColTransactionResult, ColTransactions, ColTrieChanges,
+    DBCol, KeyForStateChanges, ShardTries, Store, StoreUpdate, TrieChanges, WrappedTrieChanges,
+    CHUNK_TAIL_KEY, HEADER_HEAD_KEY, HEAD_KEY, LARGEST_TARGET_HEIGHT_KEY, LATEST_KNOWN_KEY,
+    SHOULD_COL_GC, SYNC_HEAD_KEY, TAIL_KEY,
 };
 
 use crate::byzantine_assert;
@@ -50,14 +51,21 @@ use crate::error::{Error, ErrorKind};
 use crate::types::{Block, BlockHeader, LatestKnown};
 
 /// lru cache size
+#[cfg(not(feature = "no_cache"))]
 const CACHE_SIZE: usize = 100;
+#[cfg(not(feature = "no_cache"))]
 const CHUNK_CACHE_SIZE: usize = 1024;
+
+#[cfg(feature = "no_cache")]
+const CACHE_SIZE: usize = 1;
+#[cfg(feature = "no_cache")]
+const CHUNK_CACHE_SIZE: usize = 1;
 
 #[derive(Clone)]
 pub enum GCMode {
     Fork(ShardTries),
     Canonical(ShardTries),
-    StateSync,
+    StateSync { clear_block_info: bool },
 }
 
 fn get_height_shard_id(height: BlockHeight, shard_id: ShardId) -> Vec<u8> {
@@ -273,6 +281,8 @@ pub trait ChainStoreAccess {
         let block_hash = *self.get_block_hash_from_ordinal(block_ordinal)?;
         self.get_block_merkle_tree(&block_hash)
     }
+
+    fn is_height_processed(&mut self, height: BlockHeight) -> Result<bool, Error>;
 }
 
 /// All chain-related database operations.
@@ -331,6 +341,8 @@ pub struct ChainStore {
     block_merkle_tree: SizedCache<Vec<u8>, PartialMerkleTree>,
     /// Cache of block ordinal to block hash.
     block_ordinal_to_hash: SizedCache<Vec<u8>, CryptoHash>,
+    /// Processed block heights.
+    processed_block_heights: SizedCache<Vec<u8>, ()>,
 }
 
 pub fn option_to_not_found<T>(res: io::Result<Option<T>>, field_name: &str) -> Result<T, Error> {
@@ -371,6 +383,7 @@ impl ChainStore {
             transactions: SizedCache::with_size(CHUNK_CACHE_SIZE),
             block_merkle_tree: SizedCache::with_size(CACHE_SIZE),
             block_ordinal_to_hash: SizedCache::with_size(CACHE_SIZE),
+            processed_block_heights: SizedCache::with_size(CACHE_SIZE),
         }
     }
 
@@ -1064,6 +1077,17 @@ impl ChainStoreAccess for ChainStore {
             &format!("BLOCK ORDINAL: {}", block_ordinal),
         )
     }
+
+    fn is_height_processed(&mut self, height: BlockHeight) -> Result<bool, Error> {
+        read_with_cache(
+            &*self.store,
+            ColProcessedBlockHeights,
+            &mut self.processed_block_heights,
+            &index_to_bytes(height),
+        )
+        .map(|r| r.is_some())
+        .map_err(|e| e.into())
+    }
 }
 
 /// Cache update for ChainStore
@@ -1095,6 +1119,7 @@ struct ChainStoreCacheUpdate {
     block_merkle_tree: HashMap<CryptoHash, PartialMerkleTree>,
     block_ordinal_to_hash: HashMap<NumBlocks, CryptoHash>,
     gc_count: HashMap<DBCol, GCCount>,
+    processed_block_heights: HashSet<BlockHeight>,
 }
 
 impl ChainStoreCacheUpdate {
@@ -1585,6 +1610,14 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
             self.chain_store.get_block_hash_from_ordinal(block_ordinal)
         }
     }
+
+    fn is_height_processed(&mut self, height: BlockHeight) -> Result<bool, Error> {
+        if self.chain_store_cache_update.processed_block_heights.contains(&height) {
+            Ok(true)
+        } else {
+            self.chain_store.is_height_processed(height)
+        }
+    }
 }
 
 impl<'a> ChainStoreUpdate<'a> {
@@ -1869,6 +1902,10 @@ impl<'a> ChainStoreUpdate<'a> {
             .insert((height, shard_id), chunk_hash);
     }
 
+    pub fn save_block_height_processed(&mut self, height: BlockHeight) {
+        self.chain_store_cache_update.processed_block_heights.insert(height);
+    }
+
     pub fn inc_block_refcount(&mut self, block_hash: &CryptoHash) -> Result<(), Error> {
         let refcount = match self.get_block_refcount(block_hash) {
             Ok(refcount) => refcount.clone(),
@@ -1899,7 +1936,9 @@ impl<'a> ChainStoreUpdate<'a> {
 
     pub fn update_tail(&mut self, height: BlockHeight) {
         self.tail = Some(height);
-        if self.chunk_tail.is_none() {
+        let genesis_height = self.get_genesis_height();
+        let chunk_tail = self.chunk_tail().unwrap_or_else(|_| genesis_height);
+        if chunk_tail == genesis_height {
             // For consistency, Chunk Tail should be set if Tail is set
             self.chunk_tail = Some(self.get_genesis_height());
         }
@@ -1995,7 +2034,7 @@ impl<'a> ChainStoreUpdate<'a> {
                 // Set `block_hash` on previous one
                 block_hash = *self.get_block_header(&block_hash)?.prev_hash();
             }
-            GCMode::StateSync => {
+            GCMode::StateSync { .. } => {
                 // Not apply the data from ColTrieChanges
                 for shard_id in 0..header.chunk_mask().len() as ShardId {
                     self.gc_col(ColTrieChanges, &get_block_shard_id(&block_hash, shard_id));
@@ -2067,7 +2106,10 @@ impl<'a> ChainStoreUpdate<'a> {
             self.gc_col(ColTransactionResult, &outcome_id.as_ref().into());
         }
         self.gc_col(ColOutcomesByBlockHash, &block_hash_vec);
-        self.gc_col(ColBlockInfo, &block_hash_vec);
+        match gc_mode {
+            GCMode::StateSync { clear_block_info: false } => {}
+            _ => self.gc_col(ColBlockInfo, &block_hash_vec),
+        }
         self.gc_col(ColStateDlInfos, &block_hash_vec);
 
         // 4. Update or delete block_hash_per_height
@@ -2089,7 +2131,7 @@ impl<'a> ChainStoreUpdate<'a> {
                 }
                 self.clear_chunk_data(min_chunk_height)?;
             }
-            GCMode::StateSync => {
+            GCMode::StateSync { .. } => {
                 // 7. State Sync clearing
                 // Chunks deleted separately
             }
@@ -2121,16 +2163,20 @@ impl<'a> ChainStoreUpdate<'a> {
         if hashes.is_empty() {
             epoch_to_hashes.remove(epoch_id);
         }
+        let key = index_to_bytes(height);
         if epoch_to_hashes.is_empty() {
-            store_update.delete(ColBlockPerHeight, &index_to_bytes(height));
-            self.chain_store.block_hash_per_height.cache_remove(&index_to_bytes(height));
+            store_update.delete(ColBlockPerHeight, &key);
+            self.chain_store.block_hash_per_height.cache_remove(&key);
         } else {
-            store_update.set_ser(ColBlockPerHeight, &index_to_bytes(height), &epoch_to_hashes)?;
+            store_update.set_ser(ColBlockPerHeight, &key, &epoch_to_hashes)?;
             self.chain_store
                 .block_hash_per_height
                 .cache_set(index_to_bytes(height), epoch_to_hashes);
         }
         self.inc_gc(ColBlockPerHeight);
+        if self.is_height_processed(height)? {
+            self.gc_col(ColProcessedBlockHeights, &key);
+        }
         self.merge(store_update);
         Ok(())
     }
@@ -2272,6 +2318,10 @@ impl<'a> ChainStoreUpdate<'a> {
             }
             DBCol::ColTransactionRefCount => {
                 store_update.delete(col, key);
+            }
+            DBCol::ColProcessedBlockHeights => {
+                store_update.delete(col, key);
+                self.chain_store.processed_block_heights.cache_remove(key);
             }
             DBCol::ColDbVersion
             | DBCol::ColBlockMisc
@@ -2581,6 +2631,9 @@ impl<'a> ChainStoreUpdate<'a> {
         for (chunk_hash, chunk) in self.chain_store_cache_update.invalid_chunks.iter() {
             store_update.set_ser(ColInvalidChunks, chunk_hash.as_ref(), chunk)?;
         }
+        for block_height in self.chain_store_cache_update.processed_block_heights.iter() {
+            store_update.set_ser(ColProcessedBlockHeights, &index_to_bytes(*block_height), &())?;
+        }
         for (col, mut gc_count) in self.chain_store_cache_update.gc_count.clone().drain() {
             if let Ok(Some(value)) = self.store().get_ser::<GCCount>(
                 ColGCCount,
@@ -2628,6 +2681,7 @@ impl<'a> ChainStoreUpdate<'a> {
             block_refcounts,
             block_merkle_tree,
             block_ordinal_to_hash,
+            processed_block_heights,
             ..
         } = self.chain_store_cache_update;
         for (hash, block) in blocks {
@@ -2720,6 +2774,9 @@ impl<'a> ChainStoreUpdate<'a> {
             self.chain_store
                 .block_ordinal_to_hash
                 .cache_set(index_to_bytes(block_ordinal), block_hash);
+        }
+        for block_height in processed_block_heights {
+            self.chain_store.processed_block_heights.cache_set(index_to_bytes(block_height), ());
         }
 
         Ok(())

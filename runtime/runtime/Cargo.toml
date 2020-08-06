@@ -1,6 +1,6 @@
 [package]
 name = "node-runtime"
-version = "0.9.0"
+version = "1.1.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2018"
 
@@ -11,8 +11,6 @@ serde_json = "1.0"
 log = "0.4"
 rocksdb = { git = "https://github.com/rust-rocksdb/rust-rocksdb", rev = "d6c779c179aa3e5f68e4d6a3dfef27a6f776d92c" }
 rand = "0.7"
-sha2 = "0.8"
-sha3 = "0.8"
 lazy_static = "1.4"
 num-rational = "0.2.4"
 num-bigint = "0.2.6"

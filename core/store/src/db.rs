@@ -12,6 +12,7 @@ use rocksdb::{
 use strum_macros::EnumIter;
 
 use near_primitives::version::DbVersion;
+use std::marker::PhantomPinned;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct DBError(rocksdb::Error);
@@ -98,10 +99,12 @@ pub enum DBCol {
     /// GC helper column to get all Outcome ids by Block Hash
     ColOutcomesByBlockHash = 42,
     ColTransactionRefCount = 43,
+    /// Heights of blocks that have been processed
+    ColProcessedBlockHeights = 44,
 }
 
 // Do not move this line from enum DBCol
-pub const NUM_COLS: usize = 44;
+pub const NUM_COLS: usize = 45;
 
 impl std::fmt::Display for DBCol {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
@@ -150,6 +153,7 @@ impl std::fmt::Display for DBCol {
             Self::ColGCCount => "gc count",
             Self::ColOutcomesByBlockHash => "outcomes by block hash",
             Self::ColTransactionRefCount => "refcount per transaction",
+            Self::ColProcessedBlockHeights => "processed block heights",
         };
         write!(formatter, "{}", desc)
     }
@@ -226,6 +230,7 @@ impl DBTransaction {
 pub struct RocksDB {
     db: DB,
     cfs: Vec<*const ColumnFamily>,
+    _pin: PhantomPinned,
 }
 
 // DB was already Send+Sync. cf and read_options are const pointers using only functions in
@@ -413,7 +418,7 @@ impl RocksDB {
         let db = DB::open_cf_for_read_only(&options, path, cf_names.iter(), false)?;
         let cfs =
             cf_names.iter().map(|n| db.cf_handle(n).unwrap() as *const ColumnFamily).collect();
-        Ok(Self { db, cfs })
+        Ok(Self { db, cfs, _pin: PhantomPinned })
     }
 
     pub fn new<P: AsRef<std::path::Path>>(path: P, multithread: bool) -> Result<Self, DBError> {
@@ -425,7 +430,7 @@ impl RocksDB {
         let db = DB::open_cf_descriptors(&options, path, cf_descriptors)?;
         let cfs =
             cf_names.iter().map(|n| db.cf_handle(n).unwrap() as *const ColumnFamily).collect();
-        Ok(Self { db, cfs })
+        Ok(Self { db, cfs, _pin: PhantomPinned })
     }
 }
 

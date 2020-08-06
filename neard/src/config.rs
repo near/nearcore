@@ -77,7 +77,7 @@ const BLOCK_HEADER_FETCH_HORIZON: BlockHeightDelta = 50;
 const CATCHUP_STEP_PERIOD: u64 = 100;
 
 /// Time between checking to re-request chunks.
-const CHUNK_REQUEST_RETRY_PERIOD: u64 = 200;
+const CHUNK_REQUEST_RETRY_PERIOD: u64 = 400;
 
 /// Expected epoch length.
 pub const EXPECTED_EPOCH_LENGTH: BlockHeightDelta = (5 * 60 * 1000) / MIN_BLOCK_PRODUCTION_DELAY;
@@ -104,7 +104,7 @@ pub const NUM_BLOCKS_PER_YEAR: u64 = 365 * 24 * 60 * 60;
 pub const INITIAL_GAS_LIMIT: Gas = 1_000_000_000_000_000;
 
 /// Initial gas price.
-pub const MIN_GAS_PRICE: Balance = 5000;
+pub const MIN_GAS_PRICE: Balance = 1_000_000_000;
 
 /// Protocol treasury account
 pub const PROTOCOL_TREASURY_ACCOUNT: &str = "near";
@@ -289,6 +289,14 @@ fn default_gc_blocks_limit() -> NumBlocks {
     2
 }
 
+fn default_view_client_threads() -> usize {
+    4
+}
+
+fn default_doomslug_step_period() -> Duration {
+    Duration::from_millis(100)
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Consensus {
     /// Minimum number of peers to start syncing.
@@ -334,6 +342,9 @@ pub struct Consensus {
     /// During sync the time we wait before reentering the sync loop
     #[serde(default = "default_sync_step_period")]
     pub sync_step_period: Duration,
+    /// Time between running doomslug timer.
+    #[serde(default = "default_doomslug_step_period")]
+    pub doomslug_step_period: Duration,
 }
 
 impl Default for Consensus {
@@ -358,6 +369,7 @@ impl Default for Consensus {
             ),
             sync_check_period: default_sync_check_period(),
             sync_step_period: default_sync_step_period(),
+            doomslug_step_period: default_doomslug_step_period(),
         }
     }
 }
@@ -378,6 +390,8 @@ pub struct Config {
     pub archive: bool,
     #[serde(default = "default_gc_blocks_limit")]
     pub gc_blocks_limit: NumBlocks,
+    #[serde(default = "default_view_client_threads")]
+    pub view_client_threads: usize,
 }
 
 impl Default for Config {
@@ -395,6 +409,7 @@ impl Default for Config {
             tracked_shards: vec![],
             archive: false,
             gc_blocks_limit: default_gc_blocks_limit(),
+            view_client_threads: 4,
         }
     }
 }
@@ -531,7 +546,6 @@ impl NearConfig {
                 max_block_production_delay: config.consensus.max_block_production_delay,
                 max_block_wait_delay: config.consensus.max_block_wait_delay,
                 reduce_wait_for_missing_block: config.consensus.reduce_wait_for_missing_block,
-                block_expected_weight: 1000,
                 skip_sync_wait: config.network.skip_sync_wait,
                 sync_check_period: config.consensus.sync_check_period,
                 sync_step_period: config.consensus.sync_step_period,
@@ -555,10 +569,12 @@ impl NearConfig {
                 block_header_fetch_horizon: config.consensus.block_header_fetch_horizon,
                 catchup_step_period: config.consensus.catchup_step_period,
                 chunk_request_retry_period: config.consensus.chunk_request_retry_period,
+                doosmslug_step_period: config.consensus.doomslug_step_period,
                 tracked_accounts: config.tracked_accounts,
                 tracked_shards: config.tracked_shards,
                 archive: config.archive,
                 gc_blocks_limit: config.gc_blocks_limit,
+                view_client_threads: config.view_client_threads,
             },
             network_config: NetworkConfig {
                 public_key: network_key_pair.public_key,
@@ -711,7 +727,7 @@ pub fn init_configs(
             genesis.to_file(&dir.join(config.genesis_file));
             info!(target: "near", "Generated MainNet genesis file in {}", dir.to_str().unwrap());
         }
-        "testnet" | "betanet" | "devnet" => {
+        "testnet" | "betanet" => {
             if test_seed.is_some() {
                 panic!("Test seed is not supported for official TestNet");
             }
@@ -950,9 +966,9 @@ pub fn download_genesis(url: &String, path: &PathBuf) {
         // In case where the genesis is bigger than the specified limit Overflow Error is thrown
         let body = response
             .body()
-            .limit(250_000_000)
+            .limit(2_500_000_000)
             .await
-            .expect("Genesis file is bigger than 250MB. Please make the limit higher.");
+            .expect("Genesis file is bigger than 2.5GB. Please make the limit higher.");
 
         std::fs::write(&path, &body).expect("Failed to create / write a config file.");
 

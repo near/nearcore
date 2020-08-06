@@ -3,6 +3,7 @@ name = "neard"
 version = "1.2.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2018"
+default-run = "neard"
 
 [dependencies]
 actix = "0.9"
@@ -24,6 +25,7 @@ borsh = "0.7.0"
 tracing = "0.1.13"
 tracing-subscriber = "0.2.4"
 num-rational = { version = "0.2.4", features = ["serde"] }
+openssl-probe = { version = "0.1.2" }
 
 near-actix-utils = { path = "../utils/actix" }
 near-crypto = { path = "../core/crypto" }
@@ -50,6 +52,7 @@ testlib = { path = "../test-utils/testlib" }
 adversarial =  ["near-client/adversarial", "near-network/adversarial", "near-store/adversarial"]
 expensive_tests = ["near-client/expensive_tests", "near-epoch-manager/expensive_tests", "near-chain/expensive_tests"]
 metric_recorder = ["near-network/metric_recorder", "near-client/metric_recorder"]
+no_cache = ["node-runtime/no_cache", "near-store/no_cache", "near-chain/no_cache"]
 
 [[bin]]
 path = "src/main.rs"

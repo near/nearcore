@@ -9,12 +9,15 @@ import os
 import subprocess
 import shutil
 import sys
+import time
+import base58
 
 sys.path.append('lib')
 
 import branches
 import cluster
 from utils import wait_for_blocks_or_timeout
+from transaction import sign_payment_tx
 
 
 def main():
@@ -35,7 +38,11 @@ def main():
         "%snear-%s" % (near_root, stable_branch),
         "--home=%s" % node_root, "testnet", "--v", "4", "--prefix", "test"
     ])
-    genesis_config_changes = [("epoch_length", 20), ("block_producer_kickout_threshold", 80), ("chunk_producer_kickout_threshold", 80)]
+    genesis_config_changes = [
+        ("epoch_length", 20), ("num_block_producer_seats", 10),
+        ("num_block_producer_seats_per_shard", [10]), ("block_producer_kickout_threshold", 80),
+        ("chunk_producer_kickout_threshold", 80), ("chain_id", "testnet")
+    ]
     node_dirs = [os.path.join(node_root, 'test%d' % i) for i in range(4)]
     for i, node_dir in enumerate(node_dirs):
         cluster.apply_genesis_changes(node_dir, genesis_config_changes)
@@ -55,6 +62,15 @@ def main():
     nodes.append(cluster.spin_up_node(
         config, near_root, node_dirs[3], 3, nodes[0].node_key.pk, nodes[0].addr()))
 
+    time.sleep(2)
+
+    # send a transaction to make sure that the execution result is consistent across nodes.
+    status = nodes[0].get_status()
+    tx = sign_payment_tx(nodes[0].signer_key, 'test1', 100, 1,
+                         base58.b58decode(status['sync_info']['latest_block_hash'].encode('utf8')))
+    res = nodes[0].send_tx_and_wait(tx, timeout=20)
+    assert 'error' not in res, res
+
     wait_for_blocks_or_timeout(nodes[0], 20, 120)
 
     # Restart stable nodes into new version.
@@ -70,6 +86,11 @@ def main():
     latest_protocol_version = status3["latest_protocol_version"]
     assert protocol_version == latest_protocol_version,\
            "Latest protocol version %d should match active protocol version %d" % (latest_protocol_version, protocol_version)
+
+    gas_price = nodes[0].json_rpc('gas_price', [None])
+    gas_price = int(gas_price['result']['gas_price'])
+    assert gas_price < 1000000000, gas_price
+    assert gas_price > 100000000, gas_price
 
 
 if __name__ == "__main__":

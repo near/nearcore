@@ -1,0 +1,111 @@
+# NEAR Indexer
+
+NEAR Indexer is a micro-framework, which provides you with a stream of blocks that are recorded on NEAR network. It is useful to handle real-time "events" on the chain.
+
+## Rationale
+
+As scaling dApps enter NEAR’s mainnet, an issue may arise: how do they quickly and efficiently access state from our deployed smart contracts, and cut out the cruft? Contracts may grow to have complex data structures and querying the network RPC may not be the optimal way to access state data. The NEAR Indexer Framework allows for streams to be captured and indexed in a customized manner. The typical use-case is for this data to make its way to a relational database. Seeing as this is custom per project, there is engineering work involved in using this framework.
+
+NEAR Indexer is already in use for several new projects, namely, we index all the events for NEAR Blockchain Explorer, and we also dig into Access Keys and index all of them for NEAR Wallet passphrase recovery and multi-factor authentication. With NEAR Indexer you can do high-level aggregation as well as low-level introspection of all the events inside the blockchain.
+
+We are going to build more Indexers in the future, and will also consider building Indexer integrations with streaming solutions like Kafka, RabbitMQ, ZeroMQ, and NoSQL databases. Feel free to [join our discussions](https://github.com/nearprotocol/nearcore/issues/2996).
+
+See the [example](https://github.com/nearprotocol/nearcore/tree/master/tools/indexer/example) for further technical details.
+
+## How to set up and test NEAR Indexer
+
+Before you proceed, make sure you have the following software installed:
+* [rustup](https://rustup.rs/) or Rust version that is mentioned in `rust-toolchain` file in the root of nearcore project.
+
+### localnet
+
+Clone [nearcore](https://github.com/nearprotocol/nearcore)
+
+To run the NEAR Indexer connected to a network we need to have configs and keys prepopulated. To generate configs for localnet do the following
+
+```bash
+$ git clone git@github.com:nearprotocol/nearcore.git
+$ cd nearcore/tools/indexer/example
+$ cargo run --release -- --home-dir ~/.near/localnet init
+```
+
+The above commands should initialize necessary configs and keys to run localnet in `~/.near/localnet`.
+
+```bash
+$ cargo run --release -- --home-dir ~/.near/localnet/ run
+```
+
+After the node is started, you should see logs of every block produced in your localnet. Get back to the code to implement any custom handling of the data flowing into the indexer.
+
+Use [near-shell](https://github.com/near/near-shell) to submit transactions. For example, to create a new user you run the following command:
+
+```
+$ env NEAR_ENV=local near --keyPath ~/.near/localnet/validator_key.json create_account new-account.test.near --masterAccount test.near
+```
+
+
+### testnet / betanet
+
+To run the NEAR Indexer connected to testnet or betanet we need to have configs and keys prepopulated, you can get them with the NEAR Indexer Example like above with a little change. Follow the instructions below to run non-validating node (leaving account ID empty).
+
+```bash
+$ cargo run --release --home-dir ~/.near/testnet init --chain-id testnet --download
+```
+
+The above code will download the official genesis config and generate necessary configs. You can replace `testnet` in the command above to different network ID `betanet`.
+
+Configs for the specified network are in the `--home-dir` provided folder. We need to ensure that NEAR Indexer follows all the necessary shards, so `"tracked_shards"` parameters in `~/.near/testnet/config.json` needs to be configured properly. For example, with a single shared network, you just add the shard #0 to the list:
+
+```
+...
+"tracked_shards": [0],
+...
+```
+
+Hint: See the Tweaks section below to learn more about further configuration options.
+
+After that we can run NEAR Indexer.
+
+
+```bash
+$ cargo run --release -- --home-dir ~/.near/testnet run
+```
+
+After the network is synced, you should see logs of every block produced in Testnet. Get back to the code to implement any custom handling of the data flowing into the indexer.
+
+## Tweaks
+
+By default, nearcore is configured to do as little work as possible while still operating on an up-to-date state. Indexers may have different requirements, so there is no solution that would work for everyone, and thus we are going to provide you with the set of knobs you can tune for your requirements.
+
+As already has been mentioned in this README, the most common tweak you need to apply is listing all the shards you want to index data from; to do that, you should ensure that `"tracked_shards"` in the `config.json` lists all the shard IDs, e.g. for the current betanet and testnet, which have a single shard:
+
+```
+...
+"tracked_shards": [0],
+...
+```
+
+Another tweak changes the default "fast" sync process to a "full" sync process. When the node gets online and observes that its state is missing or outdated, it will do state sync, and that can be done in two strategies:
+
+1. ("fast" / default) sync enough information (only block headers) to ensure that the chain is valid; that means that the node won't have transactions, receipts, and execution outcomes, only the proofs, so Indexer will skip these blocks
+2. (very slow / full sync) sync all the blocks, chunks, transactions, receipts, and execution outcomes starting from the genesis.
+
+To force full sync (don't forget to track shards [see the previous tweak]), make the following change to your `config.json`:
+
+```
+...
+"consensus": {
+  ...
+  "block_fetch_horizon": 18446744073709551615,
+  ...
+},
+...
+```
+
+Indexer Framework also exposes access to the internal APIs (see `Indexer::client_actors` method), so you can fetch data about any block, transaction, etc, yet by default, nearcore is configured to remove old data (garbage collection [GC]), so querying the data that was observed a few epochs before may return an error saying that the data is not found. If you only need blocks streaming, you don't need this tweak, but if you need access to the historical data right from your Indexer, consider updating `"archive"` setting in `config.json` to `true`:
+
+```
+...
+"archive": true,
+...
+```

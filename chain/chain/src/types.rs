@@ -16,14 +16,20 @@ use near_primitives::receipt::Receipt;
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::transaction::{ExecutionOutcomeWithId, SignedTransaction};
 use near_primitives::types::{
-    AccountId, ApprovalStake, Balance, BlockHeight, EpochId, Gas, MerkleHash, ShardId, StateRoot,
-    StateRootNode, ValidatorStake,
+    AccountId, ApprovalStake, Balance, BlockHeight, BlockHeightDelta, EpochId, Gas, MerkleHash,
+    NumBlocks, ShardId, StateRoot, StateRootNode, ValidatorStake,
 };
-use near_primitives::version::ProtocolVersion;
+use near_primitives::version::{
+    ProtocolVersion, MIN_GAS_PRICE_NEP_92, MIN_GAS_PRICE_NEP_92_FIX, MIN_PROTOCOL_VERSION_NEP_92,
+    MIN_PROTOCOL_VERSION_NEP_92_FIX,
+};
 use near_primitives::views::{EpochValidatorInfo, QueryRequest, QueryResponse};
-use near_store::{PartialStorage, ShardTries, Store, StoreUpdate, Trie, WrappedTrieChanges};
+use near_store::{PartialStorage, ShardTries, Store, Trie, WrappedTrieChanges};
 
 use crate::error::Error;
+use chrono::{DateTime, Utc};
+use near_chain_configs::GenesisConfig;
+use num_rational::Rational;
 
 #[derive(Eq, PartialEq, Debug, Clone)]
 pub enum BlockStatus {
@@ -127,21 +133,106 @@ impl BlockHeaderInfo {
     }
 }
 
+/// Block economics config taken from genesis config
+pub struct BlockEconomicsConfig {
+    gas_price_adjustment_rate: Rational,
+    min_gas_price: Balance,
+    max_gas_price: Balance,
+    genesis_protocol_version: ProtocolVersion,
+}
+
+impl BlockEconomicsConfig {
+    /// Compute min gas price according to protocol version and genesis protocol version.
+    pub fn min_gas_price(&self, protocol_version: ProtocolVersion) -> Balance {
+        if self.genesis_protocol_version < MIN_PROTOCOL_VERSION_NEP_92 {
+            if protocol_version >= MIN_PROTOCOL_VERSION_NEP_92_FIX {
+                MIN_GAS_PRICE_NEP_92_FIX
+            } else if protocol_version >= MIN_PROTOCOL_VERSION_NEP_92 {
+                MIN_GAS_PRICE_NEP_92
+            } else {
+                self.min_gas_price
+            }
+        } else if self.genesis_protocol_version < MIN_PROTOCOL_VERSION_NEP_92_FIX {
+            if protocol_version >= MIN_PROTOCOL_VERSION_NEP_92_FIX {
+                MIN_GAS_PRICE_NEP_92_FIX
+            } else {
+                MIN_GAS_PRICE_NEP_92
+            }
+        } else {
+            self.min_gas_price
+        }
+    }
+
+    pub fn max_gas_price(&self, _protocol_version: ProtocolVersion) -> Balance {
+        self.max_gas_price
+    }
+
+    pub fn gas_price_adjustment_rate(&self, _protocol_version: ProtocolVersion) -> Rational {
+        self.gas_price_adjustment_rate
+    }
+}
+
+impl From<&ChainGenesis> for BlockEconomicsConfig {
+    fn from(chain_genesis: &ChainGenesis) -> Self {
+        BlockEconomicsConfig {
+            gas_price_adjustment_rate: chain_genesis.gas_price_adjustment_rate,
+            min_gas_price: chain_genesis.min_gas_price,
+            max_gas_price: chain_genesis.max_gas_price,
+            genesis_protocol_version: chain_genesis.protocol_version,
+        }
+    }
+}
+
+/// Chain genesis configuration.
+#[derive(Clone)]
+pub struct ChainGenesis {
+    pub time: DateTime<Utc>,
+    pub height: BlockHeight,
+    pub gas_limit: Gas,
+    pub min_gas_price: Balance,
+    pub max_gas_price: Balance,
+    pub total_supply: Balance,
+    pub max_inflation_rate: Rational,
+    pub gas_price_adjustment_rate: Rational,
+    pub transaction_validity_period: NumBlocks,
+    pub epoch_length: BlockHeightDelta,
+    pub protocol_version: ProtocolVersion,
+}
+
+impl<T> From<T> for ChainGenesis
+where
+    T: AsRef<GenesisConfig>,
+{
+    fn from(genesis_config: T) -> Self {
+        let genesis_config = genesis_config.as_ref();
+        Self {
+            time: genesis_config.genesis_time,
+            height: genesis_config.genesis_height,
+            gas_limit: genesis_config.gas_limit,
+            min_gas_price: genesis_config.min_gas_price,
+            max_gas_price: genesis_config.max_gas_price,
+            total_supply: genesis_config.total_supply,
+            max_inflation_rate: genesis_config.max_inflation_rate,
+            gas_price_adjustment_rate: genesis_config.gas_price_adjustment_rate,
+            transaction_validity_period: genesis_config.transaction_validity_period,
+            epoch_length: genesis_config.epoch_length,
+            protocol_version: genesis_config.protocol_version,
+        }
+    }
+}
+
 /// Bridge between the chain and the runtime.
 /// Main function is to update state given transactions.
 /// Additionally handles validators.
 pub trait RuntimeAdapter: Send + Sync {
-    /// Initialize state to genesis state and returns StoreUpdate, state root and initial validators.
-    /// StoreUpdate can be discarded if the chain past the genesis.
-    fn genesis_state(&self) -> (Arc<Store>, StoreUpdate, Vec<StateRoot>);
+    /// Get store and genesis state roots
+    fn genesis_state(&self) -> (Arc<Store>, Vec<StateRoot>);
 
     fn get_tries(&self) -> ShardTries;
 
     /// Returns trie.
-    fn get_trie_for_shard(&self, shard_id: ShardId) -> Arc<Trie>;
+    fn get_trie_for_shard(&self, shard_id: ShardId) -> Trie;
 
-    /// Verify block producer validity
-    fn verify_block_signature(&self, header: &BlockHeader) -> Result<(), Error>;
     fn verify_block_vrf(
         &self,
         epoch_id: &EpochId,
@@ -178,7 +269,6 @@ pub trait RuntimeAdapter: Send + Sync {
         gas_limit: Gas,
         shard_id: ShardId,
         state_root: StateRoot,
-        max_number_of_transactions: usize,
         pool_iterator: &mut dyn PoolIterator,
         chain_validate: &mut dyn FnMut(&SignedTransaction) -> bool,
     ) -> Result<Vec<SignedTransaction>, Error>;
@@ -419,7 +509,7 @@ pub trait RuntimeAdapter: Send + Sync {
         state_root: &StateRoot,
         part_id: u64,
         num_parts: u64,
-    ) -> Vec<u8>;
+    ) -> Result<Vec<u8>, Error>;
 
     /// Validate state part that expected to be given state root with provided data.
     /// Returns false if the resulting part doesn't match the expected one.
@@ -442,7 +532,11 @@ pub trait RuntimeAdapter: Send + Sync {
     /// Returns StateRootNode of a state.
     /// Panics if requested hash is not in storage.
     /// Never returns Error
-    fn get_state_root_node(&self, shard_id: ShardId, state_root: &StateRoot) -> StateRootNode;
+    fn get_state_root_node(
+        &self,
+        shard_id: ShardId,
+        state_root: &StateRoot,
+    ) -> Result<StateRootNode, Error>;
 
     /// Validate StateRootNode of a state.
     fn validate_state_root_node(

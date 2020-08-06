@@ -11,7 +11,7 @@ use futures::{future, FutureExt, TryFutureExt};
 use near_chain::test_utils::KeyValueRuntime;
 use near_chain::ChainGenesis;
 use near_chain_configs::ClientConfig;
-use near_client::{ClientActor, ViewClientActor};
+use near_client::{start_view_client, ClientActor};
 use near_crypto::KeyType;
 use near_logger_utils::init_test_logger;
 use near_network::test_utils::{
@@ -59,19 +59,19 @@ pub fn setup_network_node(
         account_id.as_str(),
     ));
     let telemetry_actor = TelemetryActor::new(TelemetryConfig::default()).start();
-    let chain_genesis = ChainGenesis::new(
-        genesis_time,
-        0,
-        1_000_000,
-        100,
-        1_000_000_000,
-        1_000_000_000,
-        Rational::from_integer(0),
-        Rational::from_integer(0),
-        1000,
-        5,
-        PROTOCOL_VERSION,
-    );
+    let chain_genesis = ChainGenesis {
+        time: genesis_time,
+        height: 0,
+        gas_limit: 1_000_000,
+        min_gas_price: 100,
+        max_gas_price: 1_000_000_000,
+        total_supply: 1_000_000_000,
+        max_inflation_rate: Rational::from_integer(0),
+        gas_price_adjustment_rate: Rational::from_integer(0),
+        transaction_validity_period: 1000,
+        epoch_length: 5,
+        protocol_version: PROTOCOL_VERSION,
+    };
 
     let peer_manager = PeerManagerActor::create(move |ctx| {
         let mut client_config = ClientConfig::test(false, 100, 200, num_validators, false);
@@ -91,15 +91,13 @@ pub fn setup_network_node(
         )
         .unwrap()
         .start();
-        let view_client_actor = ViewClientActor::new(
+        let view_client_actor = start_view_client(
             config.account_id.clone(),
-            &chain_genesis,
+            chain_genesis.clone(),
             runtime.clone(),
             network_adapter.clone(),
             client_config,
-        )
-        .unwrap()
-        .start();
+        );
 
         PeerManagerActor::new(
             store.clone(),

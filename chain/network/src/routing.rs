@@ -222,12 +222,17 @@ impl Edge {
     }
 
     /// Next nonce of valid addition edge.
-    pub fn next_nonce(&self) -> u64 {
-        if self.nonce % 2 == 1 {
-            self.nonce + 2
+    pub fn next_nonce(nonce: u64) -> u64 {
+        if nonce % 2 == 1 {
+            nonce + 2
         } else {
-            self.nonce + 1
+            nonce + 1
         }
+    }
+
+    /// Next nonce of valid addition edge.
+    pub fn next(&self) -> u64 {
+        Edge::next_nonce(self.nonce)
     }
 
     pub fn contains_peer(&self, peer_id: &PeerId) -> bool {
