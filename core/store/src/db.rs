@@ -6,8 +6,8 @@ use std::sync::RwLock;
 use borsh::{BorshDeserialize, BorshSerialize};
 
 use rocksdb::{
-    BlockBasedOptions, ColumnFamily, ColumnFamilyDescriptor, Direction, Env, IteratorMode, Options,
-    ReadOptions, WriteBatch, DB,
+    BlockBasedOptions, Cache, ColumnFamily, ColumnFamilyDescriptor, Direction, Env, IteratorMode,
+    Options, ReadOptions, WriteBatch, DB,
 };
 use strum_macros::EnumIter;
 
@@ -367,11 +367,8 @@ fn rocksdb_options(multithread: bool) -> Options {
         println!("Use background threads in rocksdb");
         opts.increase_parallelism(cmp::max(1, num_cpus::get() as i32 / 2));
     } else {
-        println!("Disable all background threads in rocksdb");
         opts.set_disable_auto_compactions(true);
         opts.set_max_background_jobs(0);
-        opts.set_max_background_flushes(0);
-        opts.set_max_background_compactions(0);
         opts.set_stats_dump_period_sec(0);
         opts.set_stats_persist_period_sec(0);
     }
@@ -384,7 +381,7 @@ fn rocksdb_block_based_options() -> BlockBasedOptions {
     let mut block_opts = BlockBasedOptions::default();
     block_opts.set_block_size(1024 * 16);
     let cache_size = 1024 * 1024 * 512 / 3;
-    block_opts.set_lru_cache(cache_size);
+    block_opts.set_block_cache(&Cache::new_lru_cache(cache_size).unwrap());
     block_opts.set_pin_l0_filter_and_index_blocks_in_cache(true);
     block_opts.set_cache_index_and_filter_blocks(true);
     block_opts.set_bloom_filter(10, true);
@@ -437,6 +434,7 @@ impl RocksDB {
             env.set_high_priority_background_threads(0);
             env.set_low_priority_background_threads(0);
             env.set_background_threads(0);
+            println!("Disabled all background threads in rocksdb");
         }
         let cfs =
             cf_names.iter().map(|n| db.cf_handle(n).unwrap() as *const ColumnFamily).collect();
