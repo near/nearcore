@@ -257,7 +257,7 @@ pub fn read_with_cache<'a, T: BorshDeserialize + 'a>(
 }
 
 pub fn create_store(path: &str, multithread: bool) -> Arc<Store> {
-    let db = Arc::pin(RocksDB::new(path, mutlithread).expect("Failed to open the database"));
+    let db = Arc::pin(RocksDB::new(path, multithread).expect("Failed to open the database"));
     Arc::new(Store::new(db))
 }
 

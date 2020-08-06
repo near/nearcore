@@ -6,7 +6,7 @@ use std::sync::RwLock;
 use borsh::{BorshDeserialize, BorshSerialize};
 
 use rocksdb::{
-    BlockBasedOptions, ColumnFamily, ColumnFamilyDescriptor, Direction, IteratorMode, Options,
+    BlockBasedOptions, ColumnFamily, ColumnFamilyDescriptor, Direction, Env, IteratorMode, Options,
     ReadOptions, WriteBatch, DB,
 };
 use strum_macros::EnumIter;
@@ -372,6 +372,8 @@ fn rocksdb_options(multithread: bool) -> Options {
         opts.set_max_background_jobs(0);
         opts.set_max_background_flushes(0);
         opts.set_max_background_compactions(0);
+        opts.set_stats_dump_period_sec(0);
+        opts.set_stats_persist_period_sec(0);
     }
     opts.set_max_total_wal_size(1 * 1024 * 1024 * 1024);
 
@@ -428,6 +430,14 @@ impl RocksDB {
             .iter()
             .map(|cf_name| ColumnFamilyDescriptor::new(cf_name, rocksdb_column_options()));
         let db = DB::open_cf_descriptors(&options, path, cf_descriptors)?;
+        if !multithread {
+            // These have to be set after open db
+            let mut env = Env::default().unwrap();
+            env.set_bottom_priority_background_threads(0);
+            env.set_high_priority_background_threads(0);
+            env.set_low_priority_background_threads(0);
+            env.set_background_threads(0);
+        }
         let cfs =
             cf_names.iter().map(|n| db.cf_handle(n).unwrap() as *const ColumnFamily).collect();
         Ok(Self { db, cfs, _pin: PhantomPinned })
