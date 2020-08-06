@@ -152,9 +152,7 @@ impl BlockEconomicsConfig {
             } else {
                 self.min_gas_price
             }
-        } else if self.genesis_protocol_version >= MIN_PROTOCOL_VERSION_NEP_92
-            && self.genesis_protocol_version < MIN_PROTOCOL_VERSION_NEP_92_FIX
-        {
+        } else if self.genesis_protocol_version < MIN_PROTOCOL_VERSION_NEP_92_FIX {
             if protocol_version >= MIN_PROTOCOL_VERSION_NEP_92_FIX {
                 MIN_GAS_PRICE_NEP_92_FIX
             } else {
