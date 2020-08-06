@@ -371,6 +371,9 @@ fn rocksdb_options(multithread: bool) -> Options {
         opts.set_max_background_jobs(0);
         opts.set_stats_dump_period_sec(0);
         opts.set_stats_persist_period_sec(0);
+        opts.set_level_zero_slowdown_writes_trigger(-1);
+        opts.set_level_zero_file_num_compaction_trigger(-1);
+        opts.set_level_zero_stop_writes_trigger(100000000);
     }
     opts.set_max_total_wal_size(1 * 1024 * 1024 * 1024);
 

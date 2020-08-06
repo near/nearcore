@@ -97,7 +97,10 @@ pub fn measure_actions(
             CryptoHash::default(),
         )
     };
-    measure_transactions(metric, measurements, config, testbed, &mut f, false)
+    println!("before measure_txn");
+    let t = measure_transactions(metric, measurements, config, testbed, &mut f, false);
+    println!("after measure txn");
+    t
 }
 
 // TODO: super-ugly, can achieve the same via higher-level wrappers over POSIX read().
@@ -229,6 +232,8 @@ where
     }
     testbed.process_blocks_until_no_receipts(allow_failures);
     bar.finish();
+    println!("here");
     measurements.print();
+    println!("there");
     testbed
 }
