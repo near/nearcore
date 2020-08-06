@@ -10,7 +10,7 @@ actix = "0.9"
 actix-web = { version = "2", features = [ "openssl" ] }
 byteorder = "1.2"
 easy-ext = "0.2"
-rocksdb = { git = "https://github.com/rust-rocksdb/rust-rocksdb", rev = "d6c779c179aa3e5f68e4d6a3dfef27a6f776d92c" }
+rocksdb = { git = "https://github.com/nearprotocol/rust-rocksdb", branch="disable-thread" }
 log = "0.4"
 chrono = { version = "0.4.4", features = ["serde"] }
 git-version = "0.3.1"
