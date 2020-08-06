@@ -42,7 +42,7 @@ impl TelemetryActor {
                 );
             }
         }
-        openssl_probe::init_ssl_cert_env_vars();
+
         let client = Client::build()
             .timeout(CONNECT_TIMEOUT)
             .connector(
