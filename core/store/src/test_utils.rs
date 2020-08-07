@@ -38,14 +38,15 @@ pub fn test_populate_trie(
     shard_id: ShardId,
     changes: Vec<(Vec<u8>, Option<Vec<u8>>)>,
 ) -> CryptoHash {
-    let trie = tries.snapshot().get_trie_for_shard(shard_id);
+    let trie = tries.snapshot().get_trie_for_shard(shard_id, *root);
     assert_eq!(trie.storage.as_caching_storage().unwrap().shard_id, 0);
-    let trie_changes = trie.update(root, changes.iter().cloned()).unwrap();
+    let trie_changes = trie.update(changes.iter().cloned()).unwrap();
     let (store_update, root) = tries.apply_all(&trie_changes, 0).unwrap();
     store_update.commit().unwrap();
     let deduped = simplify_changes(&changes);
+    let trie = tries.snapshot().get_trie_for_shard(shard_id, root);
     for (key, value) in deduped {
-        assert_eq!(trie.get(&root, &key), Ok(value));
+        assert_eq!(trie.get(&key), Ok(value));
     }
     root
 }

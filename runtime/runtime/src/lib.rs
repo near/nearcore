@@ -1015,7 +1015,6 @@ impl Runtime {
     pub fn apply(
         &self,
         trie: Trie,
-        root: CryptoHash,
         validator_accounts_update: &Option<ValidatorAccountsUpdate>,
         apply_state: &ApplyState,
         incoming_receipts: &[Receipt],
@@ -1023,8 +1022,8 @@ impl Runtime {
         epoch_info_provider: &dyn EpochInfoProvider,
     ) -> Result<ApplyResult, RuntimeError> {
         let trie = Rc::new(trie);
-        let initial_state = TrieUpdate::new(trie.clone(), root);
-        let mut state_update = TrieUpdate::new(trie.clone(), root);
+        let initial_state = TrieUpdate::new(trie.clone());
+        let mut state_update = TrieUpdate::new(trie.clone());
 
         let mut stats = ApplyStats::default();
 
@@ -1460,8 +1459,7 @@ mod tests {
             setup_runtime(to_yocto(1_000_000), 0, 10u64.pow(15));
         runtime
             .apply(
-                tries.snapshot().get_trie_for_shard(0),
-                root,
+                tries.snapshot().get_trie_for_shard(0, root),
                 &None,
                 &apply_state,
                 &[],
@@ -1489,8 +1487,7 @@ mod tests {
 
         runtime
             .apply(
-                tries.snapshot().get_trie_for_shard(0),
-                root,
+                tries.snapshot().get_trie_for_shard(0, root),
                 &Some(validator_accounts_update),
                 &apply_state,
                 &[Receipt::new_balance_refund(&alice_account(), small_refund)],
@@ -1517,8 +1514,7 @@ mod tests {
             let prev_receipts: &[Receipt] = if i == 1 { &receipts } else { &[] };
             let apply_result = runtime
                 .apply(
-                    tries.snapshot().get_trie_for_shard(0),
-                    root,
+                    tries.snapshot().get_trie_for_shard(0, root),
                     &None,
                     &apply_state,
                     prev_receipts,
@@ -1563,8 +1559,7 @@ mod tests {
             let prev_receipts: &[Receipt] = receipt_chunks.next().unwrap_or_default();
             let apply_result = runtime
                 .apply(
-                    tries.snapshot().get_trie_for_shard(0),
-                    root,
+                    tries.snapshot().get_trie_for_shard(0, root),
                     &None,
                     &apply_state,
                     prev_receipts,
@@ -1618,8 +1613,7 @@ mod tests {
             num_receipts_given += prev_receipts.len() as u64;
             let apply_result = runtime
                 .apply(
-                    tries.snapshot().get_trie_for_shard(0),
-                    root,
+                    tries.snapshot().get_trie_for_shard(0, root),
                     &None,
                     &apply_state,
                     prev_receipts,
@@ -1704,8 +1698,7 @@ mod tests {
         // The new delayed queue is TX#3, R#0, R#1.
         let apply_result = runtime
             .apply(
-                tries.snapshot().get_trie_for_shard(0),
-                root,
+                tries.snapshot().get_trie_for_shard(0, root),
                 &None,
                 &apply_state,
                 &receipts[0..2],
@@ -1736,8 +1729,7 @@ mod tests {
         // The new delayed queue is R#1, R#2
         let apply_result = runtime
             .apply(
-                tries.snapshot().get_trie_for_shard(0),
-                root,
+                tries.snapshot().get_trie_for_shard(0, root),
                 &None,
                 &apply_state,
                 &receipts[2..3],
@@ -1765,8 +1757,7 @@ mod tests {
         // The new delayed queue is R#1, R#2, TX#8, R#3
         let apply_result = runtime
             .apply(
-                tries.snapshot().get_trie_for_shard(0),
-                root,
+                tries.snapshot().get_trie_for_shard(0, root),
                 &None,
                 &apply_state,
                 &receipts[3..4],
@@ -1797,8 +1788,7 @@ mod tests {
         // The new delayed queue is R#3, R#4
         let apply_result = runtime
             .apply(
-                tries.snapshot().get_trie_for_shard(0),
-                root,
+                tries.snapshot().get_trie_for_shard(0, root),
                 &None,
                 &apply_state,
                 &receipts[4..5],
@@ -1824,8 +1814,7 @@ mod tests {
         // The new delayed queue is empty.
         let apply_result = runtime
             .apply(
-                tries.snapshot().get_trie_for_shard(0),
-                root,
+                tries.snapshot().get_trie_for_shard(0, root),
                 &None,
                 &apply_state,
                 &receipts[5..6],
@@ -1861,8 +1850,7 @@ mod tests {
 
         let err = runtime
             .apply(
-                tries.snapshot().get_trie_for_shard(0),
-                root,
+                tries.snapshot().get_trie_for_shard(0, root),
                 &None,
                 &apply_state,
                 &receipts,
@@ -1906,8 +1894,7 @@ mod tests {
 
         let err = runtime
             .apply(
-                tries.snapshot().get_trie_for_shard(0),
-                root,
+                tries.snapshot().get_trie_for_shard(0, root),
                 &None,
                 &apply_state,
                 &[],
@@ -1942,8 +1929,7 @@ mod tests {
 
         let result = runtime
             .apply(
-                tries.snapshot().get_trie_for_shard(0),
-                root,
+                tries.snapshot().get_trie_for_shard(0, root),
                 &None,
                 &apply_state,
                 &receipts,
@@ -1995,8 +1981,7 @@ mod tests {
 
         let result = runtime
             .apply(
-                tries.snapshot().get_trie_for_shard(0),
-                root,
+                tries.snapshot().get_trie_for_shard(0, root),
                 &None,
                 &apply_state,
                 &receipts,
@@ -2058,8 +2043,7 @@ mod tests {
 
         let result = runtime
             .apply(
-                tries.snapshot().get_trie_for_shard(0),
-                root,
+                tries.snapshot().get_trie_for_shard(0, root),
                 &None,
                 &apply_state,
                 &receipts,

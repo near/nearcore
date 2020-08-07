@@ -60,7 +60,7 @@ impl Trie {
         let path_begin = self.find_path(&root_node, size_start)?;
         let path_end = self.find_path(&root_node, size_end)?;
 
-        let mut iterator = TrieIterator::new(&self, root_hash)?;
+        let mut iterator = TrieIterator::new(&self)?;
         let path_begin_encoded = NibbleSlice::encode_nibbles(&path_begin, false);
         iterator.seek_nibble_slice(NibbleSlice::from_encoded(&path_begin_encoded[..]).0)?;
         loop {
@@ -159,7 +159,8 @@ impl Trie {
         trie_nodes: &PartialState,
     ) -> Result<(), StorageError> {
         assert!(part_id < num_parts);
-        let trie = Trie::from_recorded_storage(PartialStorage { nodes: trie_nodes.clone() });
+        let trie =
+            Trie::from_recorded_storage(PartialStorage { nodes: trie_nodes.clone() }, *state_root);
 
         let root_node = trie.retrieve_node(&state_root)?;
         let total_size = root_node.memory_usage;
@@ -180,9 +181,9 @@ impl Trie {
     /// on_enter is applied for nodes as well as values
     fn traverse_all_nodes<F: FnMut(&CryptoHash) -> Result<(), StorageError>>(
         &self,
-        root: &CryptoHash,
         mut on_enter: F,
     ) -> Result<(), StorageError> {
+        let root = &self.root;
         if root == &CryptoHash::default() {
             return Ok(());
         }
@@ -277,9 +278,10 @@ impl Trie {
             .flatten()
             .map(|data| data.to_vec())
             .collect::<Vec<_>>();
-        let trie = Trie::from_recorded_storage(PartialStorage { nodes: PartialState(nodes) });
+        let trie =
+            Trie::from_recorded_storage(PartialStorage { nodes: PartialState(nodes) }, *state_root);
         let mut insertions = <HashMap<CryptoHash, (Vec<u8>, u32)>>::new();
-        trie.traverse_all_nodes(&state_root, |hash| {
+        trie.traverse_all_nodes(|hash| {
             if let Some((_bytes, rc)) = insertions.get_mut(hash) {
                 *rc += 1;
             } else {
@@ -404,9 +406,9 @@ mod tests {
         let trie_changes = gen_trie_changes(&mut rng, max_key_length, big_value_length);
         println!("Number of nodes: {}", trie_changes.len());
         let tries = create_tries();
-        let trie = tries.snapshot().get_trie_for_shard(0);
         let state_root = test_populate_trie(&tries, &Trie::empty_root(), 0, trie_changes);
-        let memory_size = trie.retrieve_root_node(&state_root).unwrap().memory_usage;
+        let trie = tries.snapshot().get_trie_for_shard(0, state_root);
+        let memory_size = trie.retrieve_root_node().unwrap().memory_usage;
         println!("Total memory size: {}", memory_size);
         for num_parts in [2, 3, 5, 10, 50].iter().cloned() {
             let approximate_size_per_part = memory_size / num_parts;
@@ -449,8 +451,8 @@ mod tests {
 
             let state_root =
                 test_populate_trie(&tries, &Trie::empty_root(), 0, trie_changes.clone());
-            let trie = tries.snapshot().get_trie_for_shard(0);
-            let root_memory_usage = trie.retrieve_root_node(&state_root).unwrap().memory_usage;
+            let trie = tries.snapshot().get_trie_for_shard(0, state_root);
+            let root_memory_usage = trie.retrieve_root_node().unwrap().memory_usage;
             for _ in 0..100 {
                 // Test that creating and validating are consistent
                 let num_parts = rng.gen_range(1, 10);

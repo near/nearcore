@@ -172,16 +172,16 @@ impl ShardTriesSnapshot {
     }
 
     pub fn new_trie_update(&self, shard_id: ShardId, state_root: CryptoHash) -> TrieUpdate {
-        TrieUpdate::new(Rc::new(self.get_trie_for_shard(shard_id)), state_root)
+        TrieUpdate::new(Rc::new(self.get_trie_for_shard(shard_id, state_root)))
     }
 
-    pub fn get_trie_for_shard(&self, shard_id: ShardId) -> Trie {
+    pub fn get_trie_for_shard(&self, shard_id: ShardId, root: CryptoHash) -> Trie {
         let store = Box::new(TrieCachingStorage::new(
             self.store.clone(),
             self.caches.0[shard_id as usize].clone(),
             shard_id,
         ));
-        Trie::new(store, shard_id)
+        Trie::new(store, root)
     }
 }
 

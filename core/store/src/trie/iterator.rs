@@ -1,5 +1,3 @@
-use near_primitives::hash::CryptoHash;
-
 use crate::trie::nibble_slice::NibbleSlice;
 use crate::trie::{NodeHandle, TrieNode, TrieNodeWithSize, ValueHandle};
 use crate::{StorageError, Trie};
@@ -36,7 +34,6 @@ pub struct TrieIterator<'a> {
     trie: &'a Trie,
     trail: Vec<Crumb>,
     pub(crate) key_nibbles: Vec<u8>,
-    root: CryptoHash,
 }
 
 pub type TrieItem<'a> = Result<(Vec<u8>, Vec<u8>), StorageError>;
@@ -44,14 +41,13 @@ pub type TrieItem<'a> = Result<(Vec<u8>, Vec<u8>), StorageError>;
 impl<'a> TrieIterator<'a> {
     #![allow(clippy::new_ret_no_self)]
     /// Create a new iterator.
-    pub fn new(trie: &'a Trie, root: &CryptoHash) -> Result<Self, StorageError> {
+    pub fn new(trie: &'a Trie) -> Result<Self, StorageError> {
         let mut r = TrieIterator {
             trie,
             trail: Vec::with_capacity(8),
             key_nibbles: Vec::with_capacity(64),
-            root: *root,
         };
-        let node = trie.retrieve_node(root)?;
+        let node = trie.retrieve_node(&trie.root)?;
         r.descend_into_node(&node);
         Ok(r)
     }
@@ -67,7 +63,7 @@ impl<'a> TrieIterator<'a> {
     ) -> Result<(), StorageError> {
         self.trail.clear();
         self.key_nibbles.clear();
-        let mut hash = NodeHandle::Hash(self.root);
+        let mut hash = NodeHandle::Hash(self.trie.root);
         loop {
             let node = match hash {
                 NodeHandle::Hash(hash) => self.trie.retrieve_node(&hash)?,

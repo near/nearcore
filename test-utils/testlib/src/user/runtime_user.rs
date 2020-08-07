@@ -80,8 +80,7 @@ impl RuntimeUser {
             let apply_result = client
                 .runtime
                 .apply(
-                    client.tries.snapshot().get_trie_for_shard(0),
-                    client.state_root,
+                    client.tries.snapshot().get_trie_for_shard(0, client.state_root),
                     &None,
                     &apply_state,
                     &receipts,

@@ -217,8 +217,7 @@ impl RuntimeStandalone {
         };
 
         let apply_result = self.runtime.apply(
-            self.tries.snapshot().get_trie_for_shard(0),
-            self.cur_block.state_root,
+            self.tries.snapshot().get_trie_for_shard(0, self.cur_block.state_root),
             &None,
             &apply_state,
             &self.pending_receipts,

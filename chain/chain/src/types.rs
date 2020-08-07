@@ -225,7 +225,7 @@ pub trait RuntimeStateAdapter: Send + Sync {
     fn get_tries(&self) -> ShardTriesSnapshot;
 
     /// Returns trie.
-    fn get_trie_for_shard(&self, shard_id: ShardId) -> Trie;
+    fn get_trie_for_shard(&self, shard_id: ShardId, state_root: StateRoot) -> Trie;
 
     /// Validates a given signed transaction.
     /// If the state root is given, then the verification will use the account. Otherwise it will

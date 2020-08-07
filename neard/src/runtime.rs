@@ -318,7 +318,6 @@ impl NightshadeRuntime {
     fn process_state_update(
         &self,
         trie: Trie,
-        state_root: CryptoHash,
         shard_id: ShardId,
         block_height: BlockHeight,
         block_hash: &CryptoHash,
@@ -414,7 +413,6 @@ impl NightshadeRuntime {
             .runtime
             .apply(
                 trie,
-                state_root,
                 &validator_accounts_update,
                 &apply_state,
                 &receipts,
@@ -494,8 +492,8 @@ impl<'a> RuntimeStateAdapter for NightshadeRuntimeState<'a> {
         self.tries.clone()
     }
 
-    fn get_trie_for_shard(&self, shard_id: ShardId) -> Trie {
-        self.tries.get_trie_for_shard(shard_id)
+    fn get_trie_for_shard(&self, shard_id: ShardId, state_root: StateRoot) -> Trie {
+        self.tries.get_trie_for_shard(shard_id, state_root)
     }
 
     fn validate_tx(
@@ -593,11 +591,10 @@ impl<'a> RuntimeStateAdapter for NightshadeRuntimeState<'a> {
         challenges: &ChallengesResult,
         generate_storage_proof: bool,
     ) -> Result<ApplyTransactionResult, Error> {
-        let trie = self.get_trie_for_shard(shard_id);
+        let trie = self.get_trie_for_shard(shard_id, *state_root);
         let trie = if generate_storage_proof { trie.recording_reads() } else { trie };
         match self.runtime.process_state_update(
             trie,
-            *state_root,
             shard_id,
             height,
             block_hash,
@@ -746,7 +743,7 @@ impl<'a> RuntimeStateAdapter for NightshadeRuntimeState<'a> {
         num_parts: u64,
     ) -> Result<Vec<u8>, Error> {
         assert!(part_id < num_parts);
-        let trie = self.get_trie_for_shard(shard_id);
+        let trie = self.get_trie_for_shard(shard_id, *state_root);
         let result = match trie.get_trie_nodes_for_part(part_id, num_parts, state_root) {
             Ok(partial_state) => partial_state,
             Err(e) => {
@@ -767,8 +764,8 @@ impl<'a> RuntimeStateAdapter for NightshadeRuntimeState<'a> {
         shard_id: ShardId,
         state_root: &StateRoot,
     ) -> Result<StateRootNode, Error> {
-        self.get_trie_for_shard(shard_id)
-            .retrieve_root_node(state_root)
+        self.get_trie_for_shard(shard_id, *state_root)
+            .retrieve_root_node()
             .map_err(|e| e.to_string().into())
     }
 }
@@ -1203,10 +1200,9 @@ impl RuntimeAdapter for NightshadeRuntime {
         gas_limit: Gas,
         challenges: &ChallengesResult,
     ) -> Result<ApplyTransactionResult, Error> {
-        let trie = Trie::from_recorded_storage(partial_storage);
+        let trie = Trie::from_recorded_storage(partial_storage, *state_root);
         self.process_state_update(
             trie,
-            *state_root,
             shard_id,
             height,
             block_hash,

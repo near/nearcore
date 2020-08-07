@@ -263,8 +263,8 @@ impl RuntimeStateAdapter for &KeyValueRuntime {
         ShardTriesSnapshot::new(self.store.clone(), self.trie_caches.clone())
     }
 
-    fn get_trie_for_shard(&self, shard_id: ShardId) -> Trie {
-        self.get_tries().get_trie_for_shard(shard_id)
+    fn get_trie_for_shard(&self, shard_id: ShardId, state_root: StateRoot) -> Trie {
+        self.get_tries().get_trie_for_shard(shard_id, state_root)
     }
 
     fn validate_tx(

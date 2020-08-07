@@ -82,8 +82,7 @@ impl StandaloneRuntime {
         let apply_result = self
             .runtime
             .apply(
-                self.tries.snapshot().get_trie_for_shard(0),
-                self.root,
+                self.tries.snapshot().get_trie_for_shard(0, self.root),
                 &None,
                 &self.apply_state,
                 receipts,

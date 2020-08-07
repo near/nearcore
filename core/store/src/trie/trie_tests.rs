@@ -77,7 +77,8 @@ where
     print!("Test touches {} nodes, expected result {:?}...", size, expected);
     for i in 0..(size + 1) {
         let storage = IncompletePartialStorage::new(storage.clone(), i);
-        let trie = Trie { storage: Box::new(storage), counter: Default::default() };
+        let trie =
+            Trie { storage: Box::new(storage), counter: Default::default(), root: trie.root };
         let expected_result =
             if i < size { Err(&StorageError::TrieNodeMissing) } else { Ok(&expected) };
         assert_eq!(test(Rc::new(trie)).as_ref(), expected_result);
@@ -90,27 +91,25 @@ fn test_reads_with_incomplete_storage() {
     let mut rng = rand::thread_rng();
     for _ in 0..50 {
         let tries = create_tries();
-        let trie = tries.snapshot().get_trie_for_shard(0);
-        let trie = Rc::new(trie);
-        let mut state_root = Trie::empty_root();
         let trie_changes = gen_changes(&mut rng, 20);
         let trie_changes = simplify_changes(&trie_changes);
         if trie_changes.is_empty() {
             continue;
         }
-        state_root = test_populate_trie(&tries, &state_root, 0, trie_changes.clone());
+        let state_root = test_populate_trie(&tries, &Trie::empty_root(), 0, trie_changes.clone());
 
+        let trie = tries.snapshot().get_trie_for_shard(0, state_root);
+        let trie = Rc::new(trie);
         {
             let (key, _) = trie_changes.choose(&mut rng).unwrap();
             println!("Testing lookup {:?}", key);
-            let lookup_test =
-                |trie: Rc<Trie>| -> Result<_, StorageError> { trie.get(&state_root, key) };
+            let lookup_test = |trie: Rc<Trie>| -> Result<_, StorageError> { trie.get(key) };
             test_incomplete_storage(Rc::clone(&trie), lookup_test);
         }
         {
             println!("Testing TrieIterator over whole trie");
             let trie_records = |trie: Rc<Trie>| -> Result<_, StorageError> {
-                let iterator = trie.iter(&state_root)?;
+                let iterator = trie.iter()?;
                 iterator.collect::<Result<Vec<_>, _>>()
             };
             test_incomplete_storage(Rc::clone(&trie), trie_records);
@@ -120,7 +119,7 @@ fn test_reads_with_incomplete_storage() {
             let key_prefix = &key[0..rng.gen_range(0, key.len() + 1)];
             println!("Testing TrieUpdateIterator over prefix {:?}", key_prefix);
             let trie_update_keys = |trie: Rc<Trie>| -> Result<_, StorageError> {
-                let trie_update = TrieUpdate::new(trie, state_root);
+                let trie_update = TrieUpdate::new(trie);
                 let keys = trie_update.iter(key_prefix)?.collect::<Result<Vec<_>, _>>()?;
                 Ok(keys)
             };

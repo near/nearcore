@@ -11,7 +11,7 @@ use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 
 use near_primitives::challenge::PartialState;
 use near_primitives::hash::{hash, CryptoHash};
-use near_primitives::types::{ShardId, StateRoot, StateRootNode};
+use near_primitives::types::{StateRoot, StateRootNode};
 
 use crate::trie::insert_delete::NodesStorage;
 use crate::trie::iterator::TrieIterator;
@@ -418,6 +418,7 @@ fn decode_trie_node_with_rc(bytes: &[u8]) -> Result<(&[u8], u32), StorageError> 
 pub struct Trie {
     pub(crate) storage: Box<dyn TrieStorage>,
     pub counter: TouchedNodesCounter,
+    pub root: CryptoHash,
 }
 
 ///
@@ -464,8 +465,8 @@ impl TrieChanges {
 }
 
 impl Trie {
-    pub fn new(store: Box<dyn TrieStorage>, _shard_id: ShardId) -> Self {
-        Trie { storage: store, counter: TouchedNodesCounter::default() }
+    pub fn new(store: Box<dyn TrieStorage>, root: CryptoHash) -> Self {
+        Trie { storage: store, counter: TouchedNodesCounter::default(), root }
     }
 
     pub fn recording_reads(&self) -> Self {
@@ -479,7 +480,11 @@ impl Trie {
             },
             recorded: Arc::new(Mutex::new(Default::default())),
         };
-        Trie { storage: Box::new(storage), counter: TouchedNodesCounter::default() }
+        Trie {
+            storage: Box::new(storage),
+            counter: TouchedNodesCounter::default(),
+            root: self.root,
+        }
     }
 
     pub fn empty_root() -> StateRoot {
@@ -494,7 +499,7 @@ impl Trie {
         Some(PartialStorage { nodes: PartialState(nodes) })
     }
 
-    pub fn from_recorded_storage(partial_storage: PartialStorage) -> Self {
+    pub fn from_recorded_storage(partial_storage: PartialStorage, root: CryptoHash) -> Self {
         let recorded_storage =
             partial_storage.nodes.0.into_iter().map(|value| (hash(&value), value)).collect();
         Trie {
@@ -503,6 +508,7 @@ impl Trie {
                 visited_nodes: Default::default(),
             }),
             counter: TouchedNodesCounter::default(),
+            root,
         }
     }
 
@@ -613,11 +619,11 @@ impl Trie {
         self.storage.retrieve_raw_bytes(hash)
     }
 
-    pub fn retrieve_root_node(&self, root: &StateRoot) -> Result<StateRootNode, StorageError> {
-        if *root == Trie::empty_root() {
+    pub fn retrieve_root_node(&self) -> Result<StateRootNode, StorageError> {
+        if self.root == Trie::empty_root() {
             return Ok(StateRootNode::empty());
         }
-        let data = self.retrieve_raw_bytes(root)?;
+        let data = self.retrieve_raw_bytes(&self.root)?;
         match RawTrieNodeWithSize::decode(&data) {
             Ok(value) => {
                 let memory_usage = TrieNodeWithSize::from_raw(value).memory_usage;
@@ -625,17 +631,13 @@ impl Trie {
             }
             Err(_) => Err(StorageError::StorageInconsistentState(format!(
                 "Failed to decode node {}",
-                root
+                self.root
             ))),
         }
     }
 
-    fn lookup(
-        &self,
-        root: &CryptoHash,
-        mut key: NibbleSlice<'_>,
-    ) -> Result<Option<(u32, CryptoHash)>, StorageError> {
-        let mut hash = *root;
+    fn lookup(&self, mut key: NibbleSlice<'_>) -> Result<Option<(u32, CryptoHash)>, StorageError> {
+        let mut hash = self.root;
 
         loop {
             if hash == Trie::empty_root() {
@@ -685,17 +687,13 @@ impl Trie {
         }
     }
 
-    pub fn get_ref(
-        &self,
-        root: &CryptoHash,
-        key: &[u8],
-    ) -> Result<Option<(u32, CryptoHash)>, StorageError> {
+    pub fn get_ref(&self, key: &[u8]) -> Result<Option<(u32, CryptoHash)>, StorageError> {
         let key = NibbleSlice::new(key);
-        self.lookup(root, key)
+        self.lookup(key)
     }
 
-    pub fn get(&self, root: &CryptoHash, key: &[u8]) -> Result<Option<Vec<u8>>, StorageError> {
-        match self.get_ref(root, key)? {
+    pub fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>, StorageError> {
+        match self.get_ref(key)? {
             Some((_length, hash)) => self.retrieve_raw_bytes(&hash).map(Some),
             None => Ok(None),
         }
@@ -719,12 +717,12 @@ impl Trie {
         (insertions, deletions)
     }
 
-    pub fn update<I>(&self, root: &CryptoHash, changes: I) -> Result<TrieChanges, StorageError>
+    pub fn update<I>(&self, changes: I) -> Result<TrieChanges, StorageError>
     where
         I: Iterator<Item = (Vec<u8>, Option<Vec<u8>>)>,
     {
         let mut memory = NodesStorage::new();
-        let mut root_node = self.move_node_to_mutable(&mut memory, root)?;
+        let mut root_node = self.move_node_to_mutable(&mut memory, &self.root)?;
         for (key, value) in changes {
             let key = NibbleSlice::new(&key);
             match value {
@@ -741,11 +739,11 @@ impl Trie {
         {
             self.memory_usage_verify(&memory, NodeHandle::InMemory(root_node));
         }
-        Trie::flatten_nodes(root, memory, root_node)
+        Trie::flatten_nodes(&self.root, memory, root_node)
     }
 
-    pub fn iter<'a>(&'a self, root: &CryptoHash) -> Result<TrieIterator<'a>, StorageError> {
-        TrieIterator::new(self, root)
+    pub fn iter<'a>(&'a self) -> Result<TrieIterator<'a>, StorageError> {
+        TrieIterator::new(self)
     }
 
     pub fn update_cache(&self, ops: Vec<(CryptoHash, Option<Vec<u8>>)>) {
@@ -766,6 +764,7 @@ mod tests {
 
     use super::*;
     use crate::db::DBCol::ColState;
+    use near_primitives::types::ShardId;
 
     type TrieChanges = Vec<(Vec<u8>, Option<Vec<u8>>)>;
 
@@ -775,15 +774,16 @@ mod tests {
         shard_id: ShardId,
         changes: TrieChanges,
     ) -> CryptoHash {
-        let trie = tries.snapshot().get_trie_for_shard(shard_id);
+        let trie = tries.snapshot().get_trie_for_shard(shard_id, *root);
         let delete_changes: TrieChanges =
             changes.iter().map(|(key, _)| (key.clone(), None)).collect();
         let mut other_delete_changes = delete_changes.clone();
-        let trie_changes = trie.update(root, other_delete_changes.drain(..)).unwrap();
+        let trie_changes = trie.update(other_delete_changes.drain(..)).unwrap();
         let (store_update, root) = tries.apply_all(&trie_changes, 0).unwrap();
         store_update.commit().unwrap();
+        let trie = tries.snapshot().get_trie_for_shard(shard_id, root);
         for (key, _) in delete_changes {
-            assert_eq!(trie.get(&root, &key), Ok(None));
+            assert_eq!(trie.get(&key), Ok(None));
         }
         root
     }
@@ -814,9 +814,9 @@ mod tests {
     #[test]
     fn test_basic_trie() {
         let tries = create_tries();
-        let trie = tries.snapshot().get_trie_for_shard(0);
         let empty_root = Trie::empty_root();
-        assert_eq!(trie.get(&empty_root, &[122]), Ok(None));
+        let trie = tries.snapshot().get_trie_for_shard(0, empty_root);
+        assert_eq!(trie.get(&[122]), Ok(None));
         let changes = vec![
             (b"doge".to_vec(), Some(b"coin".to_vec())),
             (b"docu".to_vec(), Some(b"value".to_vec())),
@@ -827,9 +827,9 @@ mod tests {
         ];
         let root = test_populate_trie(&tries, &empty_root, 0, changes.clone());
         let new_root = test_clear_trie(&tries, &root, 0, changes);
-        let trie = tries.snapshot().get_trie_for_shard(0);
+        let trie = tries.snapshot().get_trie_for_shard(0, new_root);
         assert_eq!(new_root, empty_root);
-        assert_eq!(trie.iter(&new_root).unwrap().fold(0, |acc, _| acc + 1), 0);
+        assert_eq!(trie.iter().unwrap().fold(0, |acc, _| acc + 1), 0);
     }
 
     #[test]
@@ -842,15 +842,15 @@ mod tests {
             (b"y".to_vec(), Some(b"444".to_vec())),
         ];
         let root = test_populate_trie(&tries, &Trie::empty_root(), 0, pairs.clone());
-        let trie = tries.snapshot().get_trie_for_shard(0);
+        let trie = tries.snapshot().get_trie_for_shard(0, root);
         let mut iter_pairs = vec![];
-        for pair in trie.iter(&root).unwrap() {
+        for pair in trie.iter().unwrap() {
             let (key, value) = pair.unwrap();
             iter_pairs.push((key, Some(value.to_vec())));
         }
         assert_eq!(pairs, iter_pairs);
 
-        let mut other_iter = trie.iter(&root).unwrap();
+        let mut other_iter = trie.iter().unwrap();
         other_iter.seek(b"r").unwrap();
         assert_eq!(other_iter.next().unwrap().unwrap().0, b"x".to_vec());
     }
@@ -901,8 +901,8 @@ mod tests {
             ),
         ];
         let root = test_populate_trie(&tries, &Trie::empty_root(), 0, changes);
-        let trie = tries.snapshot().get_trie_for_shard(0);
-        let mut iter = trie.iter(&root).unwrap();
+        let trie = tries.snapshot().get_trie_for_shard(0, root);
+        let mut iter = trie.iter().unwrap();
         iter.seek(&vec![0, 116, 101, 115, 116, 44]).unwrap();
         let mut pairs = vec![];
         for pair in iter {
@@ -938,8 +938,8 @@ mod tests {
             (vec![99, 44, 100, 58, 58, 50, 52], None),
         ];
         let root = test_populate_trie(&tries, &root, 0, changes);
-        let trie = tries.snapshot().get_trie_for_shard(0);
-        for r in trie.iter(&root).unwrap() {
+        let trie = tries.snapshot().get_trie_for_shard(0, root);
+        for r in trie.iter().unwrap() {
             r.unwrap();
         }
     }
@@ -953,15 +953,15 @@ mod tests {
             (vec![3, 2, 3], Some(vec![1])),
         ];
         let root = test_populate_trie(&tries, &Trie::empty_root(), 0, initial);
-        let trie = tries.snapshot().get_trie_for_shard(0);
-        for r in trie.iter(&root).unwrap() {
+        let trie = tries.snapshot().get_trie_for_shard(0, root);
+        for r in trie.iter().unwrap() {
             r.unwrap();
         }
 
         let changes = vec![(vec![1, 2, 3], None)];
         let root = test_populate_trie(&tries, &root, 0, changes);
-        let trie = tries.snapshot().get_trie_for_shard(0);
-        for r in trie.iter(&root).unwrap() {
+        let trie = tries.snapshot().get_trie_for_shard(0, root);
+        for r in trie.iter().unwrap() {
             r.unwrap();
         }
     }
@@ -971,14 +971,12 @@ mod tests {
         let mut rng = rand::thread_rng();
         for _ in 0..100 {
             let tries = create_tries();
-            let trie = tries.snapshot().get_trie_for_shard(0);
+            let trie = tries.snapshot().get_trie_for_shard(0, Trie::empty_root());
             let trie_changes = gen_changes(&mut rng, 20);
             let simplified_changes = simplify_changes(&trie_changes);
 
-            let trie_changes1 =
-                trie.update(&Trie::empty_root(), trie_changes.iter().cloned()).unwrap();
-            let trie_changes2 =
-                trie.update(&Trie::empty_root(), simplified_changes.iter().cloned()).unwrap();
+            let trie_changes1 = trie.update(trie_changes.iter().cloned()).unwrap();
+            let trie_changes2 = trie.update(simplified_changes.iter().cloned()).unwrap();
             if trie_changes1.new_root != trie_changes2.new_root {
                 eprintln!("{:?}", trie_changes);
                 eprintln!("{:?}", simplified_changes);
@@ -1000,16 +998,13 @@ mod tests {
             for _ in 0..num_iterations {
                 let trie_changes = gen_changes(&mut rng, 20);
                 state_root = test_populate_trie(&tries, &state_root, 0, trie_changes);
-                let trie = tries.snapshot().get_trie_for_shard(0);
-                println!(
-                    "New memory_usage: {}",
-                    trie.retrieve_root_node(&state_root).unwrap().memory_usage
-                );
+                let trie = tries.snapshot().get_trie_for_shard(0, state_root);
+                println!("New memory_usage: {}", trie.retrieve_root_node().unwrap().memory_usage);
             }
             {
-                let trie = tries.snapshot().get_trie_for_shard(0);
+                let trie = tries.snapshot().get_trie_for_shard(0, state_root);
                 let trie_changes = trie
-                    .iter(&state_root)
+                    .iter()
                     .unwrap()
                     .map(|item| {
                         let (key, _) = item.unwrap();
@@ -1049,8 +1044,8 @@ mod tests {
         let root = test_populate_trie(&tries, &empty_root, 0, changes.clone());
 
         let tries2 = ShardTriesSnapshot::new(store, TrieCaches::new(1));
-        let trie2 = tries2.get_trie_for_shard(0);
-        assert_eq!(trie2.get(&root, b"doge"), Ok(Some(b"coin".to_vec())));
+        let trie2 = tries2.get_trie_for_shard(0, root);
+        assert_eq!(trie2.get(b"doge"), Ok(Some(b"coin".to_vec())));
     }
 
     // TODO: somehow also test that we don't record unnecessary nodes
@@ -1068,16 +1063,16 @@ mod tests {
         ];
         let root = test_populate_trie(&tries, &empty_root, 0, changes.clone());
 
-        let trie2 = tries.snapshot().get_trie_for_shard(0).recording_reads();
-        trie2.get(&root, b"dog").unwrap();
-        trie2.get(&root, b"horse").unwrap();
+        let trie2 = tries.snapshot().get_trie_for_shard(0, root).recording_reads();
+        trie2.get(b"dog").unwrap();
+        trie2.get(b"horse").unwrap();
         let partial_storage = trie2.recorded_storage();
 
-        let trie3 = Trie::from_recorded_storage(partial_storage.unwrap());
+        let trie3 = Trie::from_recorded_storage(partial_storage.unwrap(), root);
 
-        assert_eq!(trie3.get(&root, b"dog"), Ok(Some(b"puppy".to_vec())));
-        assert_eq!(trie3.get(&root, b"horse"), Ok(Some(b"stallion".to_vec())));
-        assert_eq!(trie3.get(&root, b"doge"), Err(StorageError::TrieNodeMissing));
+        assert_eq!(trie3.get(b"dog"), Ok(Some(b"puppy".to_vec())));
+        assert_eq!(trie3.get(b"horse"), Ok(Some(b"stallion".to_vec())));
+        assert_eq!(trie3.get(b"doge"), Err(StorageError::TrieNodeMissing));
     }
 
     #[test]
@@ -1091,24 +1086,24 @@ mod tests {
         let root = test_populate_trie(&tries, &empty_root, 0, changes.clone());
         // Trie: extension -> branch -> 2 leaves
         {
-            let trie2 = tries.snapshot().get_trie_for_shard(0).recording_reads();
-            trie2.get(&root, b"doge").unwrap();
+            let trie2 = tries.snapshot().get_trie_for_shard(0, root).recording_reads();
+            trie2.get(b"doge").unwrap();
             // record extension, branch and one leaf with value, but not the other
             assert_eq!(trie2.recorded_storage().unwrap().nodes.0.len(), 4);
         }
 
         {
-            let trie2 = tries.snapshot().get_trie_for_shard(0).recording_reads();
+            let trie2 = tries.snapshot().get_trie_for_shard(0, root).recording_reads();
             let updates = vec![(b"doge".to_vec(), None)];
-            trie2.update(&root, updates.into_iter()).unwrap();
+            trie2.update(updates.into_iter()).unwrap();
             // record extension, branch and both leaves (one with value)
             assert_eq!(trie2.recorded_storage().unwrap().nodes.0.len(), 5);
         }
 
         {
-            let trie2 = tries.snapshot().get_trie_for_shard(0).recording_reads();
+            let trie2 = tries.snapshot().get_trie_for_shard(0, root).recording_reads();
             let updates = vec![(b"dodo".to_vec(), Some(b"asdf".to_vec()))];
-            trie2.update(&root, updates.into_iter()).unwrap();
+            trie2.update(updates.into_iter()).unwrap();
             // record extension and branch, but not leaves
             assert_eq!(trie2.recorded_storage().unwrap().nodes.0.len(), 2);
         }
@@ -1129,7 +1124,7 @@ mod tests {
         let store2 = create_test_store();
         store2.load_from_file(ColState, &dir.path().join("test.bin")).unwrap();
         let tries2 = ShardTriesSnapshot::new(store2.clone(), TrieCaches::new(1));
-        let trie2 = tries2.get_trie_for_shard(0);
-        assert_eq!(trie2.get(&root, b"doge").unwrap().unwrap(), b"coin");
+        let trie2 = tries2.get_trie_for_shard(0, root);
+        assert_eq!(trie2.get(b"doge").unwrap().unwrap(), b"coin");
     }
 }
