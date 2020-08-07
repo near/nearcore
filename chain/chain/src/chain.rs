@@ -904,10 +904,11 @@ impl Chain {
     }
 
     pub fn reset_data_pre_state_sync(&mut self, sync_hash: CryptoHash) -> Result<(), Error> {
+        let head = self.head()?;
         // Get header we were syncing into.
         let header = self.get_block_header(&sync_hash)?;
         let prev_hash = *header.prev_hash();
-        let gc_height = header.height();
+        let gc_height = std::cmp::min(head.height + 1, header.height());
 
         // GC all the data from current tail up to `gc_height`
         let tail = self.store.tail()?;
