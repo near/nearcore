@@ -197,7 +197,7 @@ fn load_state_dump(matches: &clap::ArgMatches<'_>) {
     let state_dump_path = value_t_or_exit!(matches, "state_dump", PathBuf);
     let dir = dir_buf.as_path();
     let state_dump = state_dump_path.as_path();
-    let store = create_store(&get_store_path(dir), true);
+    let store = create_store(&get_store_path(dir));
     store.load_from_file(ColState, state_dump).expect("Failed to read state dump");
 }
 

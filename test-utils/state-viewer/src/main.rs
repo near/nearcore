@@ -429,7 +429,7 @@ fn main() {
     let home_dir = matches.value_of("home").map(|dir| Path::new(dir)).unwrap();
     let near_config = load_config(home_dir);
 
-    let store = create_store(&get_store_path(&home_dir), true);
+    let store = create_store(&get_store_path(&home_dir));
 
     match matches.subcommand() {
         ("peers", Some(_args)) => {

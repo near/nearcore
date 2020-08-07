@@ -1443,7 +1443,7 @@ mod test {
             has_reward: bool,
         ) -> Self {
             let dir = tempfile::Builder::new().prefix(prefix).tempdir().unwrap();
-            let store = create_store(&get_store_path(dir.path()), true);
+            let store = create_store(&get_store_path(dir.path()));
             let all_validators = validators.iter().fold(BTreeSet::new(), |acc, x| {
                 acc.union(&x.iter().map(|x| x.as_str()).collect()).cloned().collect()
             });

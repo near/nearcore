@@ -150,6 +150,7 @@ pub fn run(mut config: Config) -> RuntimeConfig {
     config.block_sizes = vec![100];
     // Measure the speed of processing empty receipts.
     measure_actions(Metric::Receipt, &mut m, &config, None, vec![], false, false);
+
     // Measure the speed of processing simple transfers.
     measure_actions(
         Metric::ActionTransfer,

@@ -36,3 +36,4 @@ harness = false
 default = []
 no_cache = []
 adversarial = []
+single_thread_rocksdb = []

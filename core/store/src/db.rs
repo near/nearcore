@@ -231,7 +231,6 @@ pub struct RocksDB {
     db: DB,
     cfs: Vec<*const ColumnFamily>,
     _pin: PhantomPinned,
-    multithread: bool,
 }
 
 // DB was already Send+Sync. cf and read_options are const pointers using only functions in
@@ -353,7 +352,7 @@ fn rocksdb_read_options() -> ReadOptions {
 }
 
 /// DB level options
-fn rocksdb_options(multithread: bool) -> Options {
+fn rocksdb_options() -> Options {
     let mut opts = Options::default();
 
     opts.create_missing_column_families(true);
@@ -364,11 +363,14 @@ fn rocksdb_options(multithread: bool) -> Options {
     opts.set_bytes_per_sync(1048576);
     opts.set_write_buffer_size(1024 * 1024 * 512 / 2);
     opts.set_max_bytes_for_level_base(1024 * 1024 * 512 / 2);
-    if multithread {
+    #[cfg(not(feature = "single_thread_rocksdb"))]
+    {
         println!("Use background threads in rocksdb");
         opts.increase_parallelism(cmp::max(1, num_cpus::get() as i32 / 2));
         opts.set_max_total_wal_size(1 * 1024 * 1024 * 1024);
-    } else {
+    }
+    #[cfg(feature = "single_thread_rocksdb")]
+    {
         opts.set_disable_auto_compactions(true);
         opts.set_max_background_jobs(0);
         opts.set_stats_dump_period_sec(0);
@@ -421,17 +423,18 @@ impl RocksDB {
         let db = DB::open_cf_for_read_only(&options, path, cf_names.iter(), false)?;
         let cfs =
             cf_names.iter().map(|n| db.cf_handle(n).unwrap() as *const ColumnFamily).collect();
-        Ok(Self { db, cfs, _pin: PhantomPinned, multithread: true })
+        Ok(Self { db, cfs, _pin: PhantomPinned })
     }
 
-    pub fn new<P: AsRef<std::path::Path>>(path: P, multithread: bool) -> Result<Self, DBError> {
-        let options = rocksdb_options(multithread);
+    pub fn new<P: AsRef<std::path::Path>>(path: P) -> Result<Self, DBError> {
+        let options = rocksdb_options();
         let cf_names: Vec<_> = (0..NUM_COLS).map(|col| format!("col{}", col)).collect();
         let cf_descriptors = cf_names
             .iter()
             .map(|cf_name| ColumnFamilyDescriptor::new(cf_name, rocksdb_column_options()));
         let db = DB::open_cf_descriptors(&options, path, cf_descriptors)?;
-        if !multithread {
+        #[cfg(feature = "single_thread_rocksdb")]
+        {
             // These have to be set after open db
             let mut env = Env::default().unwrap();
             env.set_bottom_priority_background_threads(0);
@@ -442,18 +445,17 @@ impl RocksDB {
         }
         let cfs =
             cf_names.iter().map(|n| db.cf_handle(n).unwrap() as *const ColumnFamily).collect();
-        Ok(Self { db, cfs, _pin: PhantomPinned, multithread })
+        Ok(Self { db, cfs, _pin: PhantomPinned })
     }
 }
 
+#[cfg(feature = "single_thread_rocksdb")]
 impl Drop for RocksDB {
     fn drop(&mut self) {
         // RocksDB with only one thread stuck on wait some condition var
         // Turn on additional threads to proceed
-        if !self.multithread {
-            let mut env = Env::default().unwrap();
-            env.set_background_threads(4);
-        }
+        let mut env = Env::default().unwrap();
+        env.set_background_threads(4);
     }
 }
 

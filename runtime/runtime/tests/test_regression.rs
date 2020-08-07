@@ -63,7 +63,7 @@ fn template_test(transaction_type: TransactionType, db_type: DataBaseType, expec
     let tmpdir = tempfile::Builder::new().prefix("storage").tempdir().unwrap();
     let tries = match db_type {
         DataBaseType::Disk => {
-            let store = create_store(tmpdir.path().to_str().unwrap(), true);
+            let store = create_store(tmpdir.path().to_str().unwrap());
             ShardTries::new(store, 1)
         }
         DataBaseType::InMemory => create_tries(),

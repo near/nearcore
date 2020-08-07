@@ -34,7 +34,7 @@ impl RuntimeTestbed {
     pub fn from_state_dump(dump_dir: &Path) -> Self {
         let workdir = tempfile::Builder::new().prefix("runtime_testbed").tempdir().unwrap();
         println!("workdir {}", workdir.path().to_str().unwrap());
-        let store = create_store(&get_store_path(workdir.path()), false);
+        let store = create_store(&get_store_path(workdir.path()));
         let tries = ShardTries::new(store.clone(), 1);
 
         let mut state_file = dump_dir.to_path_buf();
