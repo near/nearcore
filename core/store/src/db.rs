@@ -366,6 +366,7 @@ fn rocksdb_options(multithread: bool) -> Options {
     if multithread {
         println!("Use background threads in rocksdb");
         opts.increase_parallelism(cmp::max(1, num_cpus::get() as i32 / 2));
+        opts.set_max_total_wal_size(1 * 1024 * 1024 * 1024);
     } else {
         opts.set_disable_auto_compactions(true);
         opts.set_max_background_jobs(0);
@@ -375,7 +376,6 @@ fn rocksdb_options(multithread: bool) -> Options {
         opts.set_level_zero_file_num_compaction_trigger(-1);
         opts.set_level_zero_stop_writes_trigger(100000000);
     }
-    opts.set_max_total_wal_size(1 * 1024 * 1024 * 1024);
 
     return opts;
 }

@@ -6,6 +6,7 @@ use near_crypto::{InMemorySigner, KeyType};
 use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::{Action, SignedTransaction};
 use rand::Rng;
+use rocksdb::Env;
 use std::collections::{HashMap, HashSet};
 use std::convert::TryInto;
 use std::path::PathBuf;
@@ -97,10 +98,11 @@ pub fn measure_actions(
             CryptoHash::default(),
         )
     };
-    println!("before measure_txn");
-    let t = measure_transactions(metric, measurements, config, testbed, &mut f, false);
-    println!("after measure txn");
-    t
+    let mut env = Env::default().unwrap();
+    env.set_background_threads(0);
+    let testbed = measure_transactions(metric, measurements, config, testbed, &mut f, false);
+    env.set_background_threads(4);
+    testbed
 }
 
 // TODO: super-ugly, can achieve the same via higher-level wrappers over POSIX read().
@@ -232,8 +234,6 @@ where
     }
     testbed.process_blocks_until_no_receipts(allow_failures);
     bar.finish();
-    println!("here");
     measurements.print();
-    println!("there");
     testbed
 }

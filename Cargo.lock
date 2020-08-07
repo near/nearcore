@@ -3627,6 +3627,7 @@ dependencies = [
  "num-rational",
  "rand 0.7.3",
  "rand_xorshift 0.2.0",
+ "rocksdb",
  "serde_json",
  "tempfile",
 ]
