@@ -825,8 +825,18 @@ impl Chain {
             return Ok(BlockSyncResponse::None);
         }
 
-        // Find common block between header chain and block chain.
-        let mut oldest_height = header_head.height;
+        let next_epoch_id =
+            self.get_block_header(&block_head.last_block_hash)?.next_epoch_id().clone();
+
+        // Don't run State Sync if header head is not more than one epoch ahead.
+        if block_head.epoch_id != header_head.epoch_id && next_epoch_id != header_head.epoch_id {
+            if block_head.height < header_head.height.saturating_sub(block_fetch_horizon) {
+                // Epochs are different and we are too far from horizon, State Sync is needed
+                return Ok(BlockSyncResponse::StateNeeded);
+            }
+        }
+
+        // Find hashes of blocks to sync
         let mut current = self.get_block_header(&header_head.last_block_hash).map(|h| h.clone());
         while let Ok(header) = current {
             if header.height() <= block_head.height {
@@ -835,20 +845,8 @@ impl Chain {
                 }
             }
 
-            oldest_height = header.height();
             hashes.push(*header.hash());
             current = self.get_previous_header(&header).map(|h| h.clone());
-        }
-        let next_epoch_id =
-            self.get_block_header(&block_head.last_block_hash)?.next_epoch_id().clone();
-
-        // Don't run State Sync if header head is not more than one epoch ahead.
-        if block_head.epoch_id != header_head.epoch_id && next_epoch_id != header_head.epoch_id {
-            let sync_head = self.sync_head()?;
-            if oldest_height < sync_head.height.saturating_sub(block_fetch_horizon) {
-                // Epochs are different and we are too far from horizon, State Sync is needed
-                return Ok(BlockSyncResponse::StateNeeded);
-            }
         }
 
         // Sort hashes by height
