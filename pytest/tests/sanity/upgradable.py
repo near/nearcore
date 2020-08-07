@@ -88,7 +88,9 @@ def main():
            "Latest protocol version %d should match active protocol version %d" % (latest_protocol_version, protocol_version)
 
     gas_price = nodes[0].json_rpc('gas_price', [None])
-    assert gas_price['result']['gas_price'] == '1000000000', gas_price
+    gas_price = int(gas_price['result']['gas_price'])
+    assert gas_price < 1000000000, gas_price
+    assert gas_price > 100000000, gas_price
 
 
 if __name__ == "__main__":
