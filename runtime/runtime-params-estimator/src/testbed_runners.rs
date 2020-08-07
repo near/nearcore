@@ -98,7 +98,7 @@ pub fn measure_actions(
             CryptoHash::default(),
         )
     };
-    measure_transactions(metric, measurements, config, testbed, &mut f, false);
+    measure_transactions(metric, measurements, config, testbed, &mut f, false)
 }
 
 // TODO: super-ugly, can achieve the same via higher-level wrappers over POSIX read().
