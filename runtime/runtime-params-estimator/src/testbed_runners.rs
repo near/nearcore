@@ -51,6 +51,10 @@ pub struct Config {
     pub metric: GasMetric,
     /// VMKind used
     pub vm_kind: VMKind,
+    /// Whether to measure ActionCreationConfig
+    pub disable_measure_action_creation: bool,
+    /// Whether to measure Transaction
+    pub disable_measure_transaction: bool,
 }
 
 /// Measure the speed of transactions containing certain simple actions.

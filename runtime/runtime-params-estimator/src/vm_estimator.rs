@@ -114,16 +114,14 @@ fn compile(code: &[u8], gas_metric: GasMetric, vm_kind: VMKind) -> (f64, f64) {
 
 /// Cost of the compile contract with vm_kind
 pub fn cost_to_compile(gas_metric: GasMetric, vm_kind: VMKind) -> (Ratio<u64>, u64) {
+    println!("About to compile contracts.....");
     let (sx, sy) =
         compile(include_bytes!("../test-contract/res/small_contract.wasm"), gas_metric, vm_kind);
     let (mx, my) =
         compile(include_bytes!("../test-contract/res/medium_contract.wasm"), gas_metric, vm_kind);
     let (lx, ly) =
-        compile(include_bytes!("../test-contract/res/large_contract.wasm"), gas_metric, vm_kind);
+        compile(include_bytes!("../test-contract/res/near_evm.wasm"), gas_metric, vm_kind);
     let (m, b) = fit(&vec![sx, mx, lx], &vec![sy, my, ly]);
-    println!("({},{})", sx, sy);
-    println!("({},{})", mx, my);
-    println!("({},{})", lx, ly);
     println!("({}/1000,{})", m * (RATIO_PRECISION as f64), b);
     (Ratio::new((m * (RATIO_PRECISION as f64)) as u64, RATIO_PRECISION), b as u64)
 }

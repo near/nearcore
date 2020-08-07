@@ -51,11 +51,22 @@ fn main() {
                 .help("What metric to use, possible values are icount or time."),
         )
         .arg(
-            Arg::with_name("vm")
-                .long("vm")
+            Arg::with_name("vm-kind")
+                .long("vm-kind")
                 .default_value("wasmer")
-                .help("How many accounts were generated with `genesis-populate`."),
+                .help("Which VM to test: wasmer or wasmtime"),
         )
+        .arg(
+            Arg::with_name("action-creation")
+                .long("action-creation")
+                .help("Disables action creation measurements"),
+        )
+        .arg(
+            Arg::with_name("transaction")
+                .long("transaction")
+                .help("Disables transaction measurements"),
+        )
+        .arg(Arg::with_name("external").long("compile").help("Disables transaction measurements"))
         .get_matches();
 
     let state_dump_path = matches.value_of("home").unwrap().to_string();
@@ -63,15 +74,22 @@ fn main() {
     let iter_per_block = matches.value_of("iters").unwrap().parse().unwrap();
     let active_accounts = matches.value_of("accounts-num").unwrap().parse().unwrap();
     let metric = match matches.value_of("metric").unwrap() {
-      "icount" => GasMetric::ICount,
-      "time" => GasMetric::Time,
-      other => panic!("Unknown metric {}", other)
+        "icount" => GasMetric::ICount,
+        "time" => GasMetric::Time,
+        other => panic!("Unknown metric {}", other),
     };
     let vm_kind = match matches.value_of("vm") {
         Some("wasmer") => VMKind::Wasmer,
         Some("wasmtime") => VMKind::Wasmtime,
         _ => VMKind::Wasmer,
     };
+    let disable_measure_action_creation = matches.is_present("action-creation");
+    let disable_measure_transaction = matches.is_present("transaction");
+    println!(
+        "action Creation {} and  transaction {}",
+        disable_measure_action_creation, disable_measure_transaction
+    );
+    // let measure_compile = matches.is_present("compile");
 
     let runtime_config = run(Config {
         warmup_iters_per_block,
@@ -81,6 +99,8 @@ fn main() {
         state_dump_path: state_dump_path.clone(),
         metric,
         vm_kind,
+        disable_measure_action_creation,
+        disable_measure_transaction,
     });
 
     println!("Generated RuntimeConfig:");
