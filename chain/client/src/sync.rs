@@ -37,8 +37,8 @@ const MAX_BLOCK_REQUEST: usize = 100;
 /// Maximum number of blocks to ask from single peer.
 const MAX_PEER_BLOCK_REQUEST: usize = 10;
 
-const BLOCK_REQUEST_TIMEOUT: i64 = 6;
-const BLOCK_SOME_RECEIVED_TIMEOUT: i64 = 1;
+const BLOCK_REQUEST_TIMEOUT: i64 = 10;
+const BLOCK_SOME_RECEIVED_TIMEOUT: i64 = 5;
 const BLOCK_REQUEST_BROADCAST_OFFSET: u64 = 2;
 
 /// Sync state download timeout in seconds.
@@ -444,8 +444,8 @@ impl BlockSync {
     }
 
     /// Check if we should run block body sync and ask for more full blocks.
-    fn block_sync_due(&mut self, chain: &Chain) -> Result<bool, near_chain::Error> {
-        let blocks_received = self.blocks_received(chain)?;
+    fn block_sync_due(&mut self, chain: &mut Chain) -> Result<bool, near_chain::Error> {
+        let blocks_received = chain.blocks_received()?;
 
         // Some blocks have been requested.
         if self.blocks_requested > 0 {
@@ -471,14 +471,6 @@ impl BlockSync {
         }
 
         Ok(false)
-    }
-
-    /// Total number of received blocks by the chain.
-    fn blocks_received(&self, chain: &Chain) -> Result<u64, near_chain::Error> {
-        Ok((chain.head()?).height
-            + chain.orphans_len() as u64
-            + chain.blocks_with_missing_chunks_len() as u64
-            + chain.orphans_evicted_len() as u64)
     }
 }
 

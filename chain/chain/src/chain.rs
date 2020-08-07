@@ -855,6 +855,21 @@ impl Chain {
         Ok(BlockSyncResponse::BlocksNeeded(hashes))
     }
 
+    fn get_block_ordinal(&mut self, block_hash: &CryptoHash) -> Result<NumBlocks, Error> {
+        let block_merkle_tree = self.mut_store().get_block_merkle_tree(block_hash)?;
+        Ok(block_merkle_tree.size())
+    }
+
+    /// Total number of received blocks by the chain. Used during block sync to determine whether
+    /// we have made progress.
+    pub fn blocks_received(&mut self) -> Result<u64, Error> {
+        let head = self.head()?;
+        Ok(self.get_block_ordinal(&head.last_block_hash)?
+            + self.orphans_len() as u64
+            + self.blocks_with_missing_chunks_len() as u64
+            + self.orphans_evicted_len() as u64)
+    }
+
     /// Returns if given block header is on the current chain.
     fn is_on_current_chain(&mut self, header: &BlockHeader) -> Result<(), Error> {
         let chain_header = self.get_header_by_height(header.height())?;
