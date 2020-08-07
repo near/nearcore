@@ -98,11 +98,7 @@ pub fn measure_actions(
             CryptoHash::default(),
         )
     };
-    let mut env = Env::default().unwrap();
-    env.set_background_threads(0);
-    let testbed = measure_transactions(metric, measurements, config, testbed, &mut f, false);
-    env.set_background_threads(4);
-    testbed
+    measure_transactions(metric, measurements, config, testbed, &mut f, false);
 }
 
 // TODO: super-ugly, can achieve the same via higher-level wrappers over POSIX read().

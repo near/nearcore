@@ -231,6 +231,7 @@ pub struct RocksDB {
     db: DB,
     cfs: Vec<*const ColumnFamily>,
     _pin: PhantomPinned,
+    multithread: bool,
 }
 
 // DB was already Send+Sync. cf and read_options are const pointers using only functions in
@@ -420,7 +421,7 @@ impl RocksDB {
         let db = DB::open_cf_for_read_only(&options, path, cf_names.iter(), false)?;
         let cfs =
             cf_names.iter().map(|n| db.cf_handle(n).unwrap() as *const ColumnFamily).collect();
-        Ok(Self { db, cfs, _pin: PhantomPinned })
+        Ok(Self { db, cfs, _pin: PhantomPinned, multithread: true })
     }
 
     pub fn new<P: AsRef<std::path::Path>>(path: P, multithread: bool) -> Result<Self, DBError> {
@@ -441,7 +442,18 @@ impl RocksDB {
         }
         let cfs =
             cf_names.iter().map(|n| db.cf_handle(n).unwrap() as *const ColumnFamily).collect();
-        Ok(Self { db, cfs, _pin: PhantomPinned })
+        Ok(Self { db, cfs, _pin: PhantomPinned, multithread })
+    }
+}
+
+impl Drop for RocksDB {
+    fn drop(&mut self) {
+        // RocksDB with only one thread stuck on wait some condition var
+        // Turn on additional threads to proceed
+        if !self.multithread {
+            let mut env = Env::default().unwrap();
+            env.set_background_threads(4);
+        }
     }
 }
 
