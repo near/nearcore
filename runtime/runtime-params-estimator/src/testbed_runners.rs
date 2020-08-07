@@ -6,7 +6,6 @@ use near_crypto::{InMemorySigner, KeyType};
 use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::{Action, SignedTransaction};
 use rand::Rng;
-use rocksdb::Env;
 use std::collections::{HashMap, HashSet};
 use std::convert::TryInto;
 use std::path::PathBuf;
