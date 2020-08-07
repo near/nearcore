@@ -260,7 +260,7 @@ impl GenesisBuilder {
         );
         records.push(access_key_record);
         if let Some(wasm_binary) = self.additional_accounts_code.as_ref() {
-            let code = ContractCode::new(wasm_binary.clone());
+            let code = ContractCode::new(wasm_binary.clone(), None);
             set_code(&mut state_update, account_id.clone(), &code);
             let contract_record = StateRecord::Contract { account_id, code: wasm_binary.clone() };
             records.push(contract_record);
