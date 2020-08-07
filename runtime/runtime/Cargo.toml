@@ -26,7 +26,7 @@ near-metrics = { path = "../../core/metrics" }
 near-runtime-configs = { path = "../../core/runtime-configs" }
 near-runtime-fees = { path = "../../runtime/near-runtime-fees" }
 near-vm-logic = { path = "../../runtime/near-vm-logic" }
-near-vm-runner = { path = "../../runtime/near-vm-runner" }
+near-vm-runner = { path = "../../runtime/near-vm-runner", fearures = "cpu_compatibility_checks" }
 near-vm-errors = { path = "../../runtime/near-vm-errors" }
 
 [features]

@@ -189,6 +189,7 @@ pub fn run_wasmer<'a>(
             "Execution of smart contracts is only supported for x86 and x86_64 CPU architectures."
         );
     }
+    #[cfg(feature = "compatibility_checks")]
     if !is_x86_feature_detected!("avx") {
         panic!("AVX support is required in order to run Wasmer VM Singlepass backend.");
     }
