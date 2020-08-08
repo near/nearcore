@@ -3,9 +3,8 @@ DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 cd ${DIR}
 ./build.sh
 export HOST_DIR=${DIR}/../../../..
-if [[ -z "${BUILDKITE}" ]]; then
-    srcdir=nearcore
-else
+srcdir=nearcore
+if [[ -n "${BUILDKITE}" ]]; then
     srcdir=runtime-params-estimator-qemu
 fi
 docker run \
