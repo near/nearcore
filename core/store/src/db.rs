@@ -1,4 +1,3 @@
-use std::cmp;
 use std::collections::HashMap;
 use std::io;
 use std::sync::RwLock;
