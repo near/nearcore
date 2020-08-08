@@ -3,14 +3,17 @@ DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 cd ${DIR}
 ./build.sh
 export HOST_DIR=${DIR}/../../../..
-ls $HOST_DIR
+if [[ -z "${BUILDKITE}" ]]; then
+    srcdir=nearcore
+else
+    srcdir=runtime-params-estimator-qemu
+fi
 docker run \
      --rm --mount type=bind,source=$HOST_DIR,target=/host \
      --cap-add=SYS_PTRACE --security-opt seccomp=unconfined \
      -i -t rust-emu \
      /bin/bash -c '
-pwd
-cd /host/nearcore/runtime/runtime-params-estimator
+cd /host/${srcdir}/runtime/runtime-params-estimator
 cargo run --release --package neard --bin neard -- --home /tmp/data init --chain-id= --test-seed=alice.near --account-id=test.near --fast
 cargo run --release --package genesis-populate --bin genesis-populate -- --additional-accounts-num=200000 --home /tmp/data
 cargo build --release --package runtime-params-estimator
