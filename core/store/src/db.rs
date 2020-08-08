@@ -4,8 +4,10 @@ use std::sync::RwLock;
 
 use borsh::{BorshDeserialize, BorshSerialize};
 
+#[cfg(feature = "single_thread_rocksdb")]
+use rocksdb::Env;
 use rocksdb::{
-    BlockBasedOptions, Cache, ColumnFamily, ColumnFamilyDescriptor, Direction, Env, IteratorMode,
+    BlockBasedOptions, Cache, ColumnFamily, ColumnFamilyDescriptor, Direction, IteratorMode,
     Options, ReadOptions, WriteBatch, DB,
 };
 use strum_macros::EnumIter;
