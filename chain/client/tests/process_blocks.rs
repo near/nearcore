@@ -971,20 +971,25 @@ fn test_invalid_gas_price() {
 }
 
 #[test]
-fn test_invalid_height() {
+fn test_invalid_height_too_large() {
     let mut env = TestEnv::new(ChainGenesis::test(), 1, 1);
     let b1 = env.clients[0].produce_block(1).unwrap().unwrap();
     let _ = env.clients[0].process_block(b1.clone(), Provenance::PRODUCED);
     let signer = InMemoryValidatorSigner::from_seed("test0", KeyType::ED25519, "test0");
     let b2 = Block::empty_with_height(&b1, std::u64::MAX, &signer);
-    let (_, tip) = env.clients[0].process_block(b2, Provenance::NONE);
-    match tip {
-        Err(e) => match e.kind() {
-            ErrorKind::InvalidBlockHeight => {}
-            _ => assert!(false, "wrong error: {}", e),
-        },
-        _ => assert!(false, "succeeded, tip: {:?}", tip),
+    let (_, res) = env.clients[0].process_block(b2, Provenance::NONE);
+    assert!(matches!(res.unwrap_err().kind(), ErrorKind::InvalidBlockHeight(_)));
+}
+
+#[test]
+fn test_invalid_height_too_old() {
+    let mut env = TestEnv::new(ChainGenesis::test(), 1, 1);
+    let b1 = env.clients[0].produce_block(1).unwrap().unwrap();
+    for i in 2..100 {
+        env.produce_block(0, i);
     }
+    let (_, res) = env.clients[0].process_block(b1, Provenance::NONE);
+    assert!(matches!(res.unwrap_err().kind(), ErrorKind::InvalidBlockHeight(_)));
 }
 
 #[test]
@@ -1019,6 +1024,11 @@ fn test_gc_with_epoch_length_common(epoch_length: NumBlocks) {
     for i in 1..=epoch_length * (NUM_EPOCHS_TO_KEEP_STORE_DATA + 1) {
         let block = env.clients[0].produce_block(i).unwrap().unwrap();
         env.process_block(0, block.clone(), Provenance::PRODUCED);
+        assert!(
+            env.clients[0].chain.store().fork_tail().unwrap()
+                <= env.clients[0].chain.store().tail().unwrap()
+        );
+
         blocks.push(block);
     }
     for i in 1..=epoch_length * (NUM_EPOCHS_TO_KEEP_STORE_DATA + 1) {

@@ -73,6 +73,9 @@ const NEAR_BASE: Balance = 1_000_000_000_000_000_000_000_000;
 /// Number of epochs for which we keep store data
 pub const NUM_EPOCHS_TO_KEEP_STORE_DATA: u64 = 5;
 
+/// Maximum number of height to go through at each step when cleaning forks during garbage collection.
+const GC_FORK_CLEAN_STEP: u64 = 1000;
+
 enum ApplyChunksMode {
     ThisEpoch,
     NextEpoch,
@@ -525,14 +528,22 @@ impl Chain {
             )
             .into());
         }
+        let prev_epoch_id = self.get_block_header(&head.prev_block_hash)?.epoch_id();
+        let epoch_change = prev_epoch_id != &head.epoch_id;
+        let fork_tail = if epoch_change { gc_stop_height } else { self.store.fork_tail()? };
         let mut gc_blocks_remaining = gc_blocks_limit;
 
         // Forks Cleaning
-        for height in tail..gc_stop_height {
+        let start_height = if epoch_change { gc_stop_height + 1 } else { fork_tail };
+        let stop_height = std::cmp::max(tail, fork_tail.saturating_sub(GC_FORK_CLEAN_STEP));
+        for height in (stop_height..start_height).rev() {
+            self.clear_forks_data(tries.clone(), height, &mut gc_blocks_remaining)?;
             if gc_blocks_remaining == 0 {
                 return Ok(());
             }
-            self.clear_forks_data(tries.clone(), height, &mut gc_blocks_remaining)?;
+            let mut chain_store_update = self.store.store_update();
+            chain_store_update.update_fork_tail(height);
+            chain_store_update.commit()?;
         }
 
         // Canonical Chain Clearing
@@ -2861,10 +2872,16 @@ impl<'a> ChainUpdate<'a> {
             return Err(ErrorKind::Orphan.into());
         }
 
+        let block_height = block.header().height();
         // A heuristic to prevent block height to jump too fast towards BlockHeight::max and cause
         // overflow-related problems
-        if block.header().height() > head.height + self.epoch_length * 20 {
-            return Err(ErrorKind::InvalidBlockHeight.into());
+        if block_height > head.height + self.epoch_length * 20 {
+            return Err(ErrorKind::InvalidBlockHeight(block_height).into());
+        }
+
+        // Do not accept blocks that are too old.
+        if block_height < self.runtime_adapter.get_gc_stop_height(&head.last_block_hash)? {
+            return Err(ErrorKind::InvalidBlockHeight(block_height).into());
         }
 
         let (is_caught_up, needs_to_start_fetching_state) =
