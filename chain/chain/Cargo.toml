@@ -29,6 +29,8 @@ near-store = { path = "../../core/store" }
 near-metrics = { path = "../../core/metrics" }
 near-pool = { path = "../pool" }
 
+delay-detector = { path = "../../tools/delay_detector", optional = true}
+
 [dev-dependencies]
 near-logger-utils = {path = "../../test-utils/logger"}
 
@@ -37,4 +39,6 @@ near-logger-utils = {path = "../../test-utils/logger"}
 byzantine_asserts = []
 expensive_tests = []
 adversarial = []
+delay_detector = ["delay-detector"]
 no_cache = ["near-store/no_cache"]
+

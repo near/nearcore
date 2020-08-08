@@ -44,8 +44,9 @@ use crate::types::{
     KnownPeerState, NetworkClientMessages, NetworkConfig, NetworkRequests, NetworkResponses,
     PeerInfo,
 };
+#[cfg(feature = "delay_detector")]
+use delay_detector::DelayDetector;
 use metrics::NetworkMetrics;
-use near_chain::delay_detector::DelayDetector;
 
 /// How often to request peers from active peers.
 const REQUEST_PEERS_SECS: u64 = 60;
@@ -1060,7 +1061,8 @@ impl Handler<NetworkRequests> for PeerManagerActor {
     type Result = NetworkResponses;
 
     fn handle(&mut self, msg: NetworkRequests, ctx: &mut Context<Self>) -> Self::Result {
-        let _d = DelayDetector::new("network request");
+        #[cfg(feature = "delay_detector")]
+        let _d = DelayDetector::new(format!("network request {}", msg.as_ref()).into());
         match msg {
             NetworkRequests::Block { block } => {
                 self.broadcast_message(ctx, SendMessage { message: PeerMessage::Block(block) });
@@ -1383,7 +1385,8 @@ impl Handler<InboundTcpConnect> for PeerManagerActor {
     type Result = ();
 
     fn handle(&mut self, msg: InboundTcpConnect, ctx: &mut Self::Context) {
-        let _d = DelayDetector::new("inbound tcp connect");
+        #[cfg(feature = "delay_detector")]
+        let _d = DelayDetector::new("inbound tcp connect".into());
         if self.is_inbound_allowed() {
             self.try_connect_peer(ctx.address(), msg.stream, PeerType::Inbound, None, None);
         } else {
@@ -1397,7 +1400,8 @@ impl Handler<OutboundTcpConnect> for PeerManagerActor {
     type Result = ();
 
     fn handle(&mut self, msg: OutboundTcpConnect, ctx: &mut Self::Context) {
-        let _d = DelayDetector::new("outbound tcp connect");
+        #[cfg(feature = "delay_detector")]
+        let _d = DelayDetector::new("outbound tcp connect".into());
         if let Some(addr) = msg.peer_info.addr {
             Resolver::from_registry()
                 .send(ConnectAddr(addr))
@@ -1440,7 +1444,8 @@ impl Handler<Consolidate> for PeerManagerActor {
     type Result = ConsolidateResponse;
 
     fn handle(&mut self, msg: Consolidate, ctx: &mut Self::Context) -> Self::Result {
-        let _d = DelayDetector::new("consolidate");
+        #[cfg(feature = "delay_detector")]
+        let _d = DelayDetector::new("consolidate".into());
         // Check if this is a blacklisted peer.
         if msg.peer_info.addr.as_ref().map_or(true, |addr| self.is_blacklisted(addr)) {
             debug!(target: "network", "Dropping connection from blacklisted peer or unknown address: {:?}", msg.peer_info);
@@ -1523,7 +1528,8 @@ impl Handler<Unregister> for PeerManagerActor {
     type Result = ();
 
     fn handle(&mut self, msg: Unregister, ctx: &mut Self::Context) {
-        let _d = DelayDetector::new("unregister");
+        #[cfg(feature = "delay_detector")]
+        let _d = DelayDetector::new("unregister".into());
         self.unregister_peer(ctx, msg.peer_id, msg.peer_type);
     }
 }
@@ -1532,7 +1538,8 @@ impl Handler<Ban> for PeerManagerActor {
     type Result = ();
 
     fn handle(&mut self, msg: Ban, ctx: &mut Self::Context) {
-        let _d = DelayDetector::new("ban");
+        #[cfg(feature = "delay_detector")]
+        let _d = DelayDetector::new("ban".into());
         self.ban_peer(ctx, &msg.peer_id, msg.ban_reason);
     }
 }
@@ -1541,7 +1548,8 @@ impl Handler<PeersRequest> for PeerManagerActor {
     type Result = PeerList;
 
     fn handle(&mut self, _msg: PeersRequest, _ctx: &mut Self::Context) -> Self::Result {
-        let _d = DelayDetector::new("peers request");
+        #[cfg(feature = "delay_detector")]
+        let _d = DelayDetector::new("peers request".into());
         PeerList { peers: self.peer_store.healthy_peers(self.config.max_send_peers) }
     }
 }
@@ -1550,7 +1558,8 @@ impl Handler<PeersResponse> for PeerManagerActor {
     type Result = ();
 
     fn handle(&mut self, msg: PeersResponse, _ctx: &mut Self::Context) {
-        let _d = DelayDetector::new("peers response");
+        #[cfg(feature = "delay_detector")]
+        let _d = DelayDetector::new("peers response".into());
         unwrap_or_error!(
             self.peer_store.add_indirect_peers(
                 msg.peers.into_iter().filter(|peer_info| peer_info.id != self.peer_id).collect()
@@ -1566,7 +1575,10 @@ impl Handler<RoutedMessageFrom> for PeerManagerActor {
     type Result = bool;
 
     fn handle(&mut self, msg: RoutedMessageFrom, ctx: &mut Self::Context) -> Self::Result {
-        let _d = DelayDetector::new("routed message from");
+        #[cfg(feature = "delay_detector")]
+        let _d = DelayDetector::new(
+            format!("routed message from {}", strum::AsStaticRef::as_static(&msg.msg.body)).into(),
+        );
         let RoutedMessageFrom { mut msg, from } = msg;
 
         if msg.expect_response() {
@@ -1599,7 +1611,10 @@ impl Handler<RawRoutedMessage> for PeerManagerActor {
     type Result = ();
 
     fn handle(&mut self, msg: RawRoutedMessage, ctx: &mut Self::Context) {
-        let _d = DelayDetector::new("raw routed message");
+        #[cfg(feature = "delay_detector")]
+        let _d = DelayDetector::new(
+            format!("raw routed message {}", strum::AsStaticRef::as_static(&msg.body)).into(),
+        );
         if let AccountOrPeerIdOrHash::AccountId(target) = msg.target {
             self.send_message_to_account(ctx, &target, msg.body);
         } else {
@@ -1612,7 +1627,8 @@ impl Handler<PeerRequest> for PeerManagerActor {
     type Result = PeerResponse;
 
     fn handle(&mut self, msg: PeerRequest, ctx: &mut Self::Context) -> Self::Result {
-        let _d = DelayDetector::new("peer request");
+        #[cfg(feature = "delay_detector")]
+        let _d = DelayDetector::new(format!("peer request {}", msg.as_ref()).into());
         match msg {
             PeerRequest::UpdateEdge((peer, nonce)) => {
                 PeerResponse::UpdatedEdge(self.propose_edge(peer, Some(nonce)))
@@ -1645,7 +1661,6 @@ impl Handler<PeerRequest> for PeerManagerActor {
 impl Handler<PeerMessageMetadata> for PeerManagerActor {
     type Result = ();
     fn handle(&mut self, msg: PeerMessageMetadata, _ctx: &mut Self::Context) -> Self::Result {
-        let _d = DelayDetector::new("peer message metadata");
         self.metric_recorder.handle_peer_message(msg);
     }
 }
