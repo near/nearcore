@@ -386,10 +386,11 @@ pub fn set_code(state_update: &mut TrieUpdate, account_id: AccountId, code: &Con
 pub fn get_code(
     state_update: &TrieUpdate,
     account_id: &AccountId,
+    code_hash: Option<CryptoHash>,
 ) -> Result<Option<ContractCode>, StorageError> {
     state_update
         .get(&TrieKey::ContractCode { account_id: account_id.clone() })
-        .map(|opt| opt.map(|code| ContractCode::new(code.to_vec())))
+        .map(|opt| opt.map(|code| ContractCode::new(code, code_hash)))
 }
 
 /// Removes account, code and all access keys associated to it.
