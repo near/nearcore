@@ -534,9 +534,8 @@ impl Chain {
         let mut gc_blocks_remaining = gc_blocks_limit;
 
         // Forks Cleaning
-        let start_height = if epoch_change { gc_stop_height + 1 } else { fork_tail };
         let stop_height = std::cmp::max(tail, fork_tail.saturating_sub(GC_FORK_CLEAN_STEP));
-        for height in (stop_height..start_height).rev() {
+        for height in (stop_height..fork_tail).rev() {
             self.clear_forks_data(tries.clone(), height, &mut gc_blocks_remaining)?;
             if gc_blocks_remaining == 0 {
                 return Ok(());
@@ -2866,22 +2865,23 @@ impl<'a> ChainUpdate<'a> {
         let prev_gas_price = prev.gas_price();
         let prev_epoch_id = prev.epoch_id().clone();
         let prev_random_value = *prev.random_value();
+        let prev_height = prev.height();
 
         // Block is an orphan if we do not know about the previous full block.
         if !is_next && !self.chain_store_update.block_exists(&prev_hash)? {
             return Err(ErrorKind::Orphan.into());
         }
 
-        let block_height = block.header().height();
         // A heuristic to prevent block height to jump too fast towards BlockHeight::max and cause
         // overflow-related problems
+        let block_height = block.header().height();
         if block_height > head.height + self.epoch_length * 20 {
             return Err(ErrorKind::InvalidBlockHeight(block_height).into());
         }
 
-        // Do not accept blocks that are too old.
-        if block_height < self.runtime_adapter.get_gc_stop_height(&head.last_block_hash)? {
-            return Err(ErrorKind::InvalidBlockHeight(block_height).into());
+        // Do not accept old forks
+        if prev_height < self.runtime_adapter.get_gc_stop_height(&head.last_block_hash)? {
+            return Err(ErrorKind::InvalidBlockHeight(prev_height).into());
         }
 
         let (is_caught_up, needs_to_start_fetching_state) =
