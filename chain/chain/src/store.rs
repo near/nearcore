@@ -2391,7 +2391,7 @@ impl<'a> ChainStoreUpdate<'a> {
         Self::write_col_misc(&mut store_update, HEAD_KEY, &mut self.head)?;
         Self::write_col_misc(&mut store_update, TAIL_KEY, &mut self.tail)?;
         Self::write_col_misc(&mut store_update, CHUNK_TAIL_KEY, &mut self.chunk_tail)?;
-        Self::write_col_misc(&mut store_update, FORK_TAIL_KEY, &mut self.chunk_tail)?;
+        Self::write_col_misc(&mut store_update, FORK_TAIL_KEY, &mut self.fork_tail)?;
         Self::write_col_misc(&mut store_update, SYNC_HEAD_KEY, &mut self.sync_head)?;
         Self::write_col_misc(&mut store_update, HEADER_HEAD_KEY, &mut self.header_head)?;
         Self::write_col_misc(

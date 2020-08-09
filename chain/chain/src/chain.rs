@@ -522,6 +522,7 @@ impl Chain {
                 _ => return Err(e),
             },
         };
+
         if gc_stop_height > head.height {
             return Err(ErrorKind::GCError(
                 "gc_stop_height cannot be larger than head.height".into(),
@@ -530,7 +531,14 @@ impl Chain {
         }
         let prev_epoch_id = self.get_block_header(&head.prev_block_hash)?.epoch_id();
         let epoch_change = prev_epoch_id != &head.epoch_id;
-        let fork_tail = if epoch_change { gc_stop_height } else { self.store.fork_tail()? };
+        let fork_tail = if epoch_change {
+            let mut chain_store_update = self.store.store_update();
+            chain_store_update.update_fork_tail(gc_stop_height);
+            chain_store_update.commit()?;
+            gc_stop_height
+        } else {
+            self.store.fork_tail()?
+        };
         let mut gc_blocks_remaining = gc_blocks_limit;
 
         // Forks Cleaning

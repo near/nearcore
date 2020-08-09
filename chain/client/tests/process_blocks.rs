@@ -1249,6 +1249,53 @@ fn test_gc_after_state_sync() {
 }
 
 #[test]
+fn test_gc_fork_tail() {
+    let epoch_length = 101;
+    let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
+    genesis.config.epoch_length = epoch_length;
+    let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![
+        Arc::new(neard::NightshadeRuntime::new(
+            Path::new("."),
+            create_test_store(),
+            Arc::new(genesis.clone()),
+            vec![],
+            vec![],
+        )),
+        Arc::new(neard::NightshadeRuntime::new(
+            Path::new("."),
+            create_test_store(),
+            Arc::new(genesis.clone()),
+            vec![],
+            vec![],
+        )),
+    ];
+    let mut chain_genesis = ChainGenesis::test();
+    chain_genesis.epoch_length = epoch_length;
+    let mut env = TestEnv::new_with_runtime(chain_genesis.clone(), 2, 1, runtimes);
+    let b1 = env.clients[0].produce_block(1).unwrap().unwrap();
+    for i in 0..2 {
+        env.process_block(i, b1.clone(), Provenance::NONE);
+    }
+    // create 100 forks
+    for i in 2..102 {
+        let block = env.clients[0].produce_block(i).unwrap().unwrap();
+        env.process_block(1, block, Provenance::NONE);
+    }
+    for i in 102..epoch_length * NUM_EPOCHS_TO_KEEP_STORE_DATA + 5 {
+        let block = env.clients[0].produce_block(i).unwrap().unwrap();
+        for j in 0..2 {
+            env.process_block(j, block.clone(), Provenance::NONE);
+        }
+    }
+    let head = env.clients[1].chain.head().unwrap();
+    assert!(
+        env.clients[1].runtime_adapter.get_gc_stop_height(&head.last_block_hash).unwrap()
+            > epoch_length
+    );
+    assert_eq!(env.clients[1].chain.store().fork_tail().unwrap(), 3);
+}
+
+#[test]
 fn test_tx_forwarding() {
     let mut chain_genesis = ChainGenesis::test();
     chain_genesis.epoch_length = 100;
