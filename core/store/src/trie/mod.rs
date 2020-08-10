@@ -746,12 +746,6 @@ impl Trie {
     pub fn iter<'a>(&'a self, root: &CryptoHash) -> Result<TrieIterator<'a>, StorageError> {
         TrieIterator::new(self, root)
     }
-
-    pub fn update_cache(&self, ops: Vec<(CryptoHash, Option<Vec<u8>>)>) {
-        let storage =
-            self.storage.as_caching_storage().expect("Storage should be TrieCachingStorage");
-        storage.update_cache(ops)
-    }
 }
 
 #[cfg(test)]

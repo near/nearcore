@@ -20,12 +20,13 @@ impl TrieCache {
         Self(Arc::new(Mutex::new(SizedCache::with_size(TRIE_MAX_CACHE_SIZE))))
     }
 
-    pub fn update_cache(&self, ops: Vec<(CryptoHash, Option<Vec<u8>>)>) {
+    pub fn update_cache(&self, ops: Vec<(CryptoHash, Vec<u8>)>) {
         let mut guard = self.0.lock().expect(POISONED_LOCK_ERR);
         for (hash, value) in ops {
-            if let Some(value) = value {
-                if value.len() < TRIE_LIMIT_CACHED_VALUE_SIZE && guard.cache_get(&hash).is_some() {
-                    guard.cache_set(hash, value);
+            let (value, rc) = decode_trie_node_with_rc(&value).expect("Don't write invalid values");
+            if rc > 0 {
+                if value.len() < TRIE_LIMIT_CACHED_VALUE_SIZE {
+                    guard.cache_set(hash, value.to_vec());
                 }
             } else {
                 guard.cache_remove(&hash);
@@ -163,35 +164,13 @@ impl TrieCachingStorage {
         key[8..].copy_from_slice(hash.as_ref());
         key
     }
-
-    /// Get storage refcount, or 0 if hash is not present
-    /// # Errors
-    /// StorageError::StorageInternalError if the storage fails internally.
-    pub fn retrieve_rc(&self, hash: &CryptoHash) -> Result<i32, StorageError> {
-        // Ignore cache to be safe. retrieve_rc is used only when writing storage and cache is shared with readers.
-        let key = Self::get_key_from_shard_id_and_hash(self.shard_id, hash);
-        let val = self
-            .store
-            .get(ColState, key.as_ref())
-            .map_err(|_| StorageError::StorageInternalError)?;
-        if let Some(val) = val {
-            let rc = Self::vec_to_rc(&val);
-            rc
-        } else {
-            Ok(0)
-        }
-    }
-
-    pub fn update_cache(&self, ops: Vec<(CryptoHash, Option<Vec<u8>>)>) {
-        self.cache.update_cache(ops)
-    }
 }
 
 impl TrieStorage for TrieCachingStorage {
     fn retrieve_raw_bytes(&self, hash: &CryptoHash) -> Result<Vec<u8>, StorageError> {
         let mut guard = self.cache.0.lock().expect(POISONED_LOCK_ERR);
         if let Some(val) = guard.cache_get(hash) {
-            Self::vec_to_bytes(val)
+            Ok(val.clone())
         } else {
             let key = Self::get_key_from_shard_id_and_hash(self.shard_id, hash);
             let val = self
@@ -200,8 +179,10 @@ impl TrieStorage for TrieCachingStorage {
                 .map_err(|_| StorageError::StorageInternalError)?;
             if let Some(val) = val {
                 let raw_node = Self::vec_to_bytes(&val);
-                if val.len() < TRIE_LIMIT_CACHED_VALUE_SIZE {
-                    guard.cache_set(*hash, val);
+                if val.len() < TRIE_LIMIT_CACHED_VALUE_SIZE && raw_node.is_ok() {
+                    if let Ok(ref bytes) = raw_node {
+                        guard.cache_set(*hash, bytes.clone());
+                    }
                 }
                 raw_node
             } else {

@@ -46,14 +46,12 @@ impl ShardTries {
         let mut shards = vec![Vec::new(); self.caches.len()];
         for op in &transaction.ops {
             match op {
-                DBOp::Insert { col, ref key, ref value } if *col == DBCol::ColState => {
+                DBOp::UpdateRefcount { col, ref key, ref value } if *col == DBCol::ColState => {
                     let (shard_id, hash) = TrieCachingStorage::get_shard_id_and_hash_from_key(key)?;
-                    shards[shard_id as usize].push((hash, Some(value.clone())));
+                    shards[shard_id as usize].push((hash, value.clone()));
                 }
-                DBOp::Delete { col, ref key } if *col == DBCol::ColState => {
-                    let (shard_id, hash) = TrieCachingStorage::get_shard_id_and_hash_from_key(key)?;
-                    shards[shard_id as usize].push((hash, None));
-                }
+                DBOp::Insert { col, .. } if *col == DBCol::ColState => unreachable!(),
+                DBOp::Delete { col, .. } if *col == DBCol::ColState => unreachable!(),
                 _ => {}
             }
         }
