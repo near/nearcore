@@ -48,10 +48,14 @@ impl ShardTries {
             match op {
                 DBOp::UpdateRefcount { col, ref key, ref value } if *col == DBCol::ColState => {
                     let (shard_id, hash) = TrieCachingStorage::get_shard_id_and_hash_from_key(key)?;
-                    shards[shard_id as usize].push((hash, value.clone()));
+                    shards[shard_id as usize].push((hash, Some(value.clone())));
                 }
                 DBOp::Insert { col, .. } if *col == DBCol::ColState => unreachable!(),
-                DBOp::Delete { col, .. } if *col == DBCol::ColState => unreachable!(),
+                DBOp::Delete { col, key } if *col == DBCol::ColState => {
+                    // Delete is possible in reset_data_pre_state_sync
+                    let (shard_id, hash) = TrieCachingStorage::get_shard_id_and_hash_from_key(key)?;
+                    shards[shard_id as usize].push((hash, None));
+                }
                 _ => {}
             }
         }

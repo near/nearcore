@@ -20,13 +20,18 @@ impl TrieCache {
         Self(Arc::new(Mutex::new(SizedCache::with_size(TRIE_MAX_CACHE_SIZE))))
     }
 
-    pub fn update_cache(&self, ops: Vec<(CryptoHash, Vec<u8>)>) {
+    pub fn update_cache(&self, ops: Vec<(CryptoHash, Option<Vec<u8>>)>) {
         let mut guard = self.0.lock().expect(POISONED_LOCK_ERR);
-        for (hash, value) in ops {
-            let (value, rc) = decode_trie_node_with_rc(&value).expect("Don't write invalid values");
-            if rc > 0 {
-                if value.len() < TRIE_LIMIT_CACHED_VALUE_SIZE {
-                    guard.cache_set(hash, value.to_vec());
+        for (hash, opt_value_rc) in ops {
+            if let Some(value_rc) = opt_value_rc {
+                let (value, rc) =
+                    decode_trie_node_with_rc(&value_rc).expect("Don't write invalid values");
+                if rc > 0 {
+                    if value.len() < TRIE_LIMIT_CACHED_VALUE_SIZE {
+                        guard.cache_set(hash, value.to_vec());
+                    }
+                } else {
+                    guard.cache_remove(&hash);
                 }
             } else {
                 guard.cache_remove(&hash);
@@ -179,6 +184,7 @@ impl TrieStorage for TrieCachingStorage {
                 .map_err(|_| StorageError::StorageInternalError)?;
             if let Some(val) = val {
                 let raw_node = Self::vec_to_bytes(&val);
+                debug_assert!(Self::vec_to_rc(&val).unwrap() > 0);
                 if val.len() < TRIE_LIMIT_CACHED_VALUE_SIZE && raw_node.is_ok() {
                     if let Ok(ref bytes) = raw_node {
                         guard.cache_set(*hash, bytes.clone());
