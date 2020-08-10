@@ -70,18 +70,10 @@ impl ShardTries {
         store_update: &mut StoreUpdate,
     ) -> Result<(), StorageError> {
         store_update.tries = Some(tries.clone());
-        let trie = tries.get_trie_for_shard(shard_id);
-        let storage = trie.storage.as_caching_storage().expect("Must be caching storage");
         for (hash, value, rc) in deletions.iter() {
-            let storage_rc = storage.retrieve_rc(&hash)?;
-            assert!(*rc <= storage_rc);
             let key = TrieCachingStorage::get_key_from_shard_id_and_hash(shard_id, hash);
-            if *rc < storage_rc {
-                let bytes = encode_trie_node_with_rc(&value, storage_rc - rc);
-                store_update.set(DBCol::ColState, key.as_ref(), &bytes);
-            } else {
-                store_update.delete(DBCol::ColState, key.as_ref());
-            }
+            let bytes = encode_trie_node_with_rc(&value, -(*rc as i32));
+            store_update.update_refcount(DBCol::ColState, key.as_ref(), &bytes);
         }
         Ok(())
     }
@@ -92,14 +84,11 @@ impl ShardTries {
         shard_id: ShardId,
         store_update: &mut StoreUpdate,
     ) -> Result<(), StorageError> {
-        let trie = tries.get_trie_for_shard(shard_id);
         store_update.tries = Some(tries);
-        let storage = trie.storage.as_caching_storage().expect("Must be caching storage");
         for (hash, value, rc) in insertions.iter() {
-            let storage_rc = storage.retrieve_rc(&hash)?;
             let key = TrieCachingStorage::get_key_from_shard_id_and_hash(shard_id, hash);
-            let bytes = encode_trie_node_with_rc(&value, storage_rc + rc);
-            store_update.set(DBCol::ColState, key.as_ref(), &bytes);
+            let bytes = encode_trie_node_with_rc(&value, *rc as i32);
+            store_update.update_refcount(DBCol::ColState, key.as_ref(), &bytes);
         }
         Ok(())
     }

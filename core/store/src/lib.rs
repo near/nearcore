@@ -154,6 +154,10 @@ impl StoreUpdate {
         StoreUpdate { storage, transaction, tries: Some(tries) }
     }
 
+    pub fn update_refcount(&mut self, column: DBCol, key: &[u8], value: &[u8]) {
+        self.transaction.update_refcount(column, key, value)
+    }
+
     pub fn set(&mut self, column: DBCol, key: &[u8], value: &[u8]) {
         self.transaction.put(column, key, value)
     }
@@ -195,6 +199,9 @@ impl StoreUpdate {
             match op {
                 DBOp::Insert { col, key, value } => self.transaction.put(col, &key, &value),
                 DBOp::Delete { col, key } => self.transaction.delete(col, &key),
+                DBOp::UpdateRefcount { col, key, value } => {
+                    self.transaction.update_refcount(col, &key, &value)
+                }
             }
         }
     }
@@ -209,6 +216,7 @@ impl StoreUpdate {
                     .map(|op| match op {
                         DBOp::Insert { col, key, .. } => (*col as u8, key),
                         DBOp::Delete { col, key } => (*col as u8, key),
+                        DBOp::UpdateRefcount { col, key, .. } => (*col as u8, key),
                     })
                     .collect::<std::collections::HashSet<_>>()
                     .len(),
@@ -232,6 +240,9 @@ impl fmt::Debug for StoreUpdate {
         for op in self.transaction.ops.iter() {
             match op {
                 DBOp::Insert { col, key, .. } => writeln!(f, "  + {:?} {}", col, to_base(key))?,
+                DBOp::UpdateRefcount { col, key, .. } => {
+                    writeln!(f, "  +- {:?} {}", col, to_base(key))?
+                }
                 DBOp::Delete { col, key } => writeln!(f, "  - {:?} {}", col, to_base(key))?,
             }
         }

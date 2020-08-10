@@ -113,16 +113,36 @@ pub struct TrieCachingStorage {
     pub(crate) shard_id: ShardId,
 }
 
+pub fn merge_refcounted_records(result: &mut Vec<u8>, val: &[u8]) -> Result<(), StorageError> {
+    if val.len() == 0 {
+        return Ok(());
+    }
+    let add_rc = TrieCachingStorage::vec_to_rc(val)?;
+    if result.len() != 0 {
+        let result_rc = TrieCachingStorage::vec_to_rc(result)? + add_rc;
+
+        debug_assert_eq!(result[0..(result.len() - 4)], val[0..(val.len() - 4)]);
+        let len = result.len();
+        result[(len - 4)..].copy_from_slice(&result_rc.to_le_bytes());
+        if result_rc == 0 {
+            *result = vec![];
+        }
+    } else {
+        *result = val.to_vec();
+    }
+    Ok(())
+}
+
 impl TrieCachingStorage {
     pub fn new(store: Arc<Store>, cache: TrieCache, shard_id: ShardId) -> TrieCachingStorage {
         TrieCachingStorage { store, cache, shard_id }
     }
 
-    fn vec_to_rc(val: &Vec<u8>) -> Result<u32, StorageError> {
+    fn vec_to_rc(val: &[u8]) -> Result<i32, StorageError> {
         decode_trie_node_with_rc(&val).map(|(_bytes, rc)| rc)
     }
 
-    fn vec_to_bytes(val: &Vec<u8>) -> Result<Vec<u8>, StorageError> {
+    fn vec_to_bytes(val: &[u8]) -> Result<Vec<u8>, StorageError> {
         decode_trie_node_with_rc(&val).map(|(bytes, _rc)| bytes.to_vec())
     }
 
@@ -147,7 +167,7 @@ impl TrieCachingStorage {
     /// Get storage refcount, or 0 if hash is not present
     /// # Errors
     /// StorageError::StorageInternalError if the storage fails internally.
-    pub fn retrieve_rc(&self, hash: &CryptoHash) -> Result<u32, StorageError> {
+    pub fn retrieve_rc(&self, hash: &CryptoHash) -> Result<i32, StorageError> {
         // Ignore cache to be safe. retrieve_rc is used only when writing storage and cache is shared with readers.
         let key = Self::get_key_from_shard_id_and_hash(self.shard_id, hash);
         let val = self
