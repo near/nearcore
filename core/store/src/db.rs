@@ -510,7 +510,7 @@ impl RocksDB {
         I: Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a,
     {
         if column == DBCol::ColState {
-            Box::new(iterator.filter(|(_k, v)| v.len() != 0))
+            Box::new(iterator.filter(|(_k, v)| !v.is_empty()))
         } else {
             Box::new(iterator)
         }
