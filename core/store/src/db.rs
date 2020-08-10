@@ -487,7 +487,7 @@ impl RocksDB {
     }
 
     fn empty_value_filter(_level: u32, _key: &[u8], value: &[u8]) -> Decision {
-        if value.len() == 0 {
+        if value.is_empty() {
             Decision::Remove
         } else {
             Decision::Keep
