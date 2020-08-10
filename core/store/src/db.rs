@@ -2,6 +2,9 @@ use std::collections::HashMap;
 use std::io;
 use std::sync::RwLock;
 
+#[cfg(not(feature = "single_thread_rocksdb"))]
+use std::cmp;
+
 use borsh::{BorshDeserialize, BorshSerialize};
 
 #[cfg(feature = "single_thread_rocksdb")]
