@@ -127,7 +127,7 @@ pub(crate) fn head_tail_validity(sv: &mut StoreValidator) -> Result<(), StoreVal
     if tail_db.is_some() && fork_tail_db.is_none() {
         err!("Tail is {:?} but fork tail is None", tail_db);
     }
-    if tail_db.is_some() && chunk_tail_db.is_some() {
+    if tail_db.is_some() {
         tail = tail_db.unwrap();
         chunk_tail = chunk_tail_db.unwrap();
         fork_tail = fork_tail_db.unwrap();
@@ -149,6 +149,9 @@ pub(crate) fn head_tail_validity(sv: &mut StoreValidator) -> Result<(), StoreVal
     }
     if tail > head.height {
         err!("tail > head.height, {:?} > {:?}", tail, head);
+    }
+    if tail > fork_tail {
+        err!("tail > fork_tail, {} > {}", tail, fork_tail);
     }
     if fork_tail > head.height {
         err!("fork tail > head.height, {} > {:?}", fork_tail, head);
