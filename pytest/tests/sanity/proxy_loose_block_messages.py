@@ -11,7 +11,7 @@ from proxy import ProxyHandler
 from multiprocessing import Value
 
 
-TIMEOUT = 60
+TIMEOUT = 120
 NODES = 9
 ignored_messages = set()
 max_height = Value('i', 0)
