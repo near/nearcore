@@ -1,5 +1,5 @@
 [package]
-name = "test-contract"
+name = "smallest-contract"
 version = "0.1.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2018"
@@ -17,8 +17,3 @@ panic = "abort"
 
 [workspace]
 members = []
-
-[features]
-small_payload = []
-medium_payload = []
-large_payload = []
