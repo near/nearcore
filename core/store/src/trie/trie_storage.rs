@@ -120,7 +120,7 @@ pub struct TrieCachingStorage {
 }
 
 pub fn merge_refcounted_records(result: &mut Vec<u8>, val: &[u8]) -> Result<(), StorageError> {
-    if val.len() == 0 {
+    if val.is_empty() {
         return Ok(());
     }
     let add_rc = TrieCachingStorage::vec_to_rc(val)?;
