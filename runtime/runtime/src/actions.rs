@@ -28,6 +28,7 @@ use crate::ext::RuntimeExt;
 use crate::{ActionResult, ApplyState};
 use near_crypto::PublicKey;
 use near_primitives::errors::{ActionError, ActionErrorKind, ExternalError, RuntimeError};
+use near_primitives::version::CORRECT_RANDOM_VALUE_PROTOCOL_VERSION;
 use near_runtime_configs::AccountCreationConfig;
 use near_vm_errors::{CompilationError, FunctionCallError};
 use near_vm_runner::VMError;
@@ -70,7 +71,7 @@ pub(crate) fn get_code_with_cache(
 ) -> Result<Option<Arc<ContractCode>>, StorageError> {
     debug!(target:"runtime", "Calling the contract at account {}", account_id);
     let code_hash = account.code_hash;
-    let code = || get_code(state_update, account_id);
+    let code = || get_code(state_update, account_id, Some(code_hash));
     crate::cache::get_code(code_hash, code)
 }
 
@@ -144,7 +145,12 @@ pub(crate) fn action_function_call(
         storage_usage: account.storage_usage,
         attached_deposit: function_call.deposit,
         prepaid_gas: function_call.gas,
-        random_seed: action_hash.as_ref().to_vec(),
+        random_seed: if apply_state.current_protocol_version < CORRECT_RANDOM_VALUE_PROTOCOL_VERSION
+        {
+            action_hash.as_ref().to_vec()
+        } else {
+            apply_state.random_seed.as_ref().to_vec()
+        },
         is_view: false,
         output_data_receivers,
     };
@@ -343,8 +349,8 @@ pub(crate) fn action_deploy_contract(
     account_id: &AccountId,
     deploy_contract: &DeployContractAction,
 ) -> Result<(), StorageError> {
-    let code = ContractCode::new(deploy_contract.code.clone());
-    let prev_code = get_code(state_update, account_id)?;
+    let code = ContractCode::new(deploy_contract.code.clone(), None);
+    let prev_code = get_code(state_update, account_id, Some(account.code_hash))?;
     let prev_code_length = prev_code.map(|code| code.code.len() as u64).unwrap_or_default();
     account.storage_usage =
         account.storage_usage.checked_sub(prev_code_length).ok_or_else(|| {
