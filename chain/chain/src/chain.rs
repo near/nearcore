@@ -2611,6 +2611,7 @@ impl<'a> ChainUpdate<'a> {
                 prev_block.header().gas_price(),
                 prev_chunk.header.inner.gas_limit,
                 &challenges_result,
+                *block.header().random_value(),
                 true,
             )
             .unwrap();
@@ -2737,6 +2738,7 @@ impl<'a> ChainUpdate<'a> {
                             prev_block.header().gas_price(),
                             chunk.header.inner.gas_limit,
                             &block.header().challenges_result(),
+                            *block.header().random_value(),
                         )
                         .map_err(|e| ErrorKind::Other(e.to_string()))?;
 
@@ -2802,6 +2804,7 @@ impl<'a> ChainUpdate<'a> {
                             block.header().gas_price(),
                             new_extra.gas_limit,
                             &block.header().challenges_result(),
+                            *block.header().random_value(),
                         )
                         .map_err(|e| ErrorKind::Other(e.to_string()))?;
 
@@ -3398,6 +3401,7 @@ impl<'a> ChainUpdate<'a> {
             block_header.gas_price(),
             chunk.header.inner.gas_limit,
             &block_header.challenges_result(),
+            *block_header.random_value(),
         )?;
 
         let (outcome_root, outcome_proofs) =
@@ -3479,6 +3483,7 @@ impl<'a> ChainUpdate<'a> {
             block_header.gas_price(),
             chunk_extra.gas_limit,
             &block_header.challenges_result(),
+            *block_header.random_value(),
         )?;
 
         self.chain_store_update.save_trie_changes(apply_result.trie_changes);
