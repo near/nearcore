@@ -8,6 +8,7 @@ use near_primitives::receipt::Receipt;
 use near_primitives::test_utils::MockEpochInfoProvider;
 use near_primitives::transaction::{ExecutionStatus, SignedTransaction};
 use near_primitives::types::{Gas, MerkleHash, StateRoot};
+use near_primitives::version::PROTOCOL_VERSION;
 use near_store::{create_store, ColState, ShardTries};
 use near_vm_logic::VMLimitConfig;
 use neard::get_store_path;
@@ -83,6 +84,8 @@ impl RuntimeTestbed {
             gas_price: 0,
             block_timestamp: 0,
             gas_limit: None,
+            random_seed: Default::default(),
+            current_protocol_version: PROTOCOL_VERSION,
         };
         Self {
             workdir,

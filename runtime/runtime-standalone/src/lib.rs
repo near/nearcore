@@ -1,25 +1,26 @@
+use std::collections::HashMap;
+use std::sync::Arc;
+
 use near_crypto::{InMemorySigner, KeyType, PublicKey, Signer};
 use near_pool::{types::PoolIterator, TransactionPool};
+use near_primitives::account::{AccessKey, Account};
+use near_primitives::errors::RuntimeError;
+use near_primitives::hash::CryptoHash;
+use near_primitives::receipt::Receipt;
+use near_primitives::state_record::StateRecord;
+use near_primitives::test_utils::account_new;
 use near_primitives::test_utils::MockEpochInfoProvider;
-use near_primitives::types::{AccountInfo, EpochId, EpochInfoProvider};
-use near_primitives::{account::AccessKey, test_utils::account_new};
-use near_primitives::{
-    account::Account,
-    errors::RuntimeError,
-    hash::CryptoHash,
-    receipt::Receipt,
-    state_record::StateRecord,
-    transaction::{ExecutionOutcome, ExecutionStatus, SignedTransaction},
-    types::AccountId,
-    types::{Balance, BlockHeight, EpochHeight, Gas, StateChangeCause},
+use near_primitives::transaction::{ExecutionOutcome, ExecutionStatus, SignedTransaction};
+use near_primitives::types::{
+    AccountId, AccountInfo, Balance, BlockHeight, EpochHeight, EpochId, EpochInfoProvider, Gas,
+    StateChangeCause,
 };
+use near_primitives::version::PROTOCOL_VERSION;
 use near_runtime_configs::RuntimeConfig;
 use near_store::{
     get_access_key, get_account, set_account, test_utils::create_test_store, ShardTries, Store,
 };
 use node_runtime::{state_viewer::TrieViewer, ApplyState, Runtime};
-use std::collections::HashMap;
-use std::sync::Arc;
 
 const DEFAULT_EPOCH_LENGTH: u64 = 3;
 
@@ -211,8 +212,10 @@ impl RuntimeStandalone {
             block_timestamp: self.cur_block.block_timestamp,
             gas_limit: None,
             // not used
+            random_seed: Default::default(),
             last_block_hash: CryptoHash::default(),
             epoch_id: EpochId::default(),
+            current_protocol_version: PROTOCOL_VERSION,
         };
 
         let apply_result = self.runtime.apply(
