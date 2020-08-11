@@ -1,4 +1,6 @@
 # python sanity tests
+pytest sanity/proxy_loose_block_messages.py
+pytest sanity/proxy_loose_block_messages.py --features nightly_protocol,nightly_protocol_features
 pytest sanity/block_production.py
 pytest sanity/block_production.py --features nightly_protocol,nightly_protocol_features
 pytest sanity/transactions.py
