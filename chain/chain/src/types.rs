@@ -406,7 +406,7 @@ pub trait RuntimeAdapter: Send + Sync {
     fn get_epoch_start_height(&self, block_hash: &CryptoHash) -> Result<BlockHeight, Error>;
 
     /// Get the block height for which garbage collection should not go over
-    fn get_gc_stop_height(&self, block_hash: &CryptoHash) -> Result<BlockHeight, Error>;
+    fn get_gc_stop_height(&self, block_hash: &CryptoHash) -> BlockHeight;
 
     /// Check if epoch exists.
     fn epoch_exists(&self, epoch_id: &EpochId) -> bool;
