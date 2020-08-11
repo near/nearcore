@@ -410,14 +410,14 @@ fn rocksdb_block_based_options() -> BlockBasedOptions {
     block_opts
 }
 
-fn rocksdb_column_options(col_index: usize) -> Options {
+fn rocksdb_column_options(col: DBCol) -> Options {
     let mut opts = Options::default();
     opts.set_level_compaction_dynamic_level_bytes(true);
     opts.set_block_based_table_factory(&rocksdb_block_based_options());
     opts.optimize_level_style_compaction(1024 * 1024 * 128);
     opts.set_target_file_size_base(1024 * 1024 * 64);
     opts.set_compression_per_level(&[]);
-    if col_index == DBCol::ColState as usize {
+    if col == DBCol::ColState {
         opts.set_merge_operator("refcount merge", RocksDB::refcount_merge, None);
         opts.set_compaction_filter("empty value filter", RocksDB::empty_value_compaction_filter);
     }
@@ -447,10 +447,11 @@ impl RocksDB {
     }
 
     pub fn new<P: AsRef<std::path::Path>>(path: P) -> Result<Self, DBError> {
+        use strum::IntoEnumIterator;
         let options = rocksdb_options();
-        let cf_names: Vec<_> = (0..NUM_COLS).map(|col| format!("col{}", col)).collect();
-        let cf_descriptors = cf_names.iter().enumerate().map(|(col_index, cf_name)| {
-            ColumnFamilyDescriptor::new(cf_name, rocksdb_column_options(col_index))
+        let cf_names: Vec<_> = DBCol::iter().map(|col| format!("col{}", col as usize)).collect();
+        let cf_descriptors = DBCol::iter().map(|col| {
+            ColumnFamilyDescriptor::new(format!("col{}", col as usize), rocksdb_column_options(col))
         });
         let db = DB::open_cf_descriptors(&options, path, cf_descriptors)?;
         let cfs =
