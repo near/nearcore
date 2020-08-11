@@ -40,6 +40,8 @@ use crate::metrics;
 use crate::sync::{BlockSync, HeaderSync, StateSync, StateSyncResult};
 use crate::types::{Error, ShardSyncDownload};
 use crate::SyncStatus;
+use actix::dev::{MessageResponse, ResponseChannel};
+use actix::{Actor, Message};
 
 const NUM_REBROADCAST_BLOCKS: usize = 30;
 
@@ -80,6 +82,32 @@ pub struct Client {
     /// Last time the head was updated, or our head was rebroadcasted. Used to re-broadcast the head
     /// again to prevent network from stalling if a large percentage of the network missed a block
     last_time_head_progress_made: Instant,
+}
+
+pub struct CatchupMessage {
+    pub(crate) challenges: Vec<ChallengeBody>,
+    pub(crate) blocks_missing_chunks: Vec<Vec<ShardChunkHeader>>,
+    pub(crate) unwrapped_accepted_blocks: Vec<AcceptedBlock>,
+}
+
+impl<A, M> MessageResponse<A, M> for CatchupResponse
+where
+    A: Actor,
+    M: Message<Result = CatchupResponse>,
+{
+    fn handle<R: ResponseChannel<M>>(self, _: &mut A::Context, tx: Option<R>) {
+        if let Some(tx) = tx {
+            tx.send(self)
+        }
+    }
+}
+
+impl Message for CatchupMessage {
+    type Result = Result<CatchupResponse, String>;
+}
+
+pub enum CatchupResponse {
+    Ok(),
 }
 
 impl Client {
@@ -1325,11 +1353,32 @@ impl Client {
         Ok(false)
     }
 
-    /// Walks through all the ongoing state syncs for future epochs and processes them
     pub fn run_catchup(
         &mut self,
         highest_height_peers: &Vec<FullPeerInfo>,
     ) -> Result<Vec<AcceptedBlock>, Error> {
+        let result = self.run_catchup2(highest_height_peers);
+
+        match result {
+            Ok(mut r) => {
+                self.send_challenges(Arc::new(RwLock::new(r.challenges)));
+
+                self.shards_mgr.request_chunks(
+                    r.blocks_missing_chunks
+                        .drain(..)
+                        .flat_map(|missing_chunks| missing_chunks.into_iter()),
+                );
+                Ok(r.unwrapped_accepted_blocks)
+            }
+            Err(err) => Err(err),
+        }
+    }
+
+    /// Walks through all the ongoing state syncs for future epochs and processes them
+    pub fn run_catchup2(
+        &mut self,
+        highest_height_peers: &Vec<FullPeerInfo>,
+    ) -> Result<CatchupMessage, Error> {
         let me = &self.validator_signer.as_ref().map(|x| x.validator_id().clone());
         for (sync_hash, state_sync_info) in self.chain.store().iterate_state_sync_infos() {
             assert_eq!(sync_hash, state_sync_info.epoch_tail_hash);
@@ -1375,24 +1424,26 @@ impl Client {
                         |challenge| challenges.write().unwrap().push(challenge),
                     )?;
 
-                    self.send_challenges(challenges);
-
-                    self.shards_mgr.request_chunks(
-                        blocks_missing_chunks
+                    let unwrapped_accepted_blocks =
+                        accepted_blocks.write().unwrap().drain(..).collect();
+                    return Ok(CatchupMessage {
+                        challenges: challenges.write().unwrap().drain(..).collect(),
+                        blocks_missing_chunks: blocks_missing_chunks
                             .write()
                             .unwrap()
                             .drain(..)
-                            .flat_map(|missing_chunks| missing_chunks.into_iter()),
-                    );
-
-                    let unwrapped_accepted_blocks =
-                        accepted_blocks.write().unwrap().drain(..).collect();
-                    return Ok(unwrapped_accepted_blocks);
+                            .collect(),
+                        unwrapped_accepted_blocks,
+                    });
                 }
             }
         }
 
-        Ok(vec![])
+        Ok(CatchupMessage {
+            challenges: vec![],
+            blocks_missing_chunks: vec![],
+            unwrapped_accepted_blocks: vec![],
+        })
     }
 
     /// When accepting challenge, we verify that it's valid given signature with current validators.

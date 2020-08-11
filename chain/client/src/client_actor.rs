@@ -44,7 +44,7 @@ use near_primitives::views::ValidatorInfo;
 use near_store::ColBlock;
 use near_telemetry::TelemetryActor;
 
-use crate::client::Client;
+use crate::client::{CatchupMessage, CatchupResponse, Client};
 use crate::info::{InfoHelper, ValidatorInfoHelper};
 use crate::sync::{highest_height_peer, StateSync, StateSyncResult};
 use crate::types::{
@@ -182,6 +182,22 @@ impl Actor for ClientActor {
 
         // Start periodic logging of current state of the client.
         self.log_summary(ctx);
+    }
+}
+
+impl Handler<CatchupMessage> for ClientActor {
+    type Result = Result<CatchupResponse, String>;
+
+    fn handle(&mut self, mut msg: CatchupMessage, _ctx: &mut Context<Self>) -> Self::Result {
+        self.client.send_challenges(Arc::new(RwLock::new(msg.challenges)));
+
+        self.client.shards_mgr.request_chunks(
+            msg.blocks_missing_chunks
+                .drain(..)
+                .flat_map(|missing_chunks| missing_chunks.into_iter()),
+        );
+        self.process_accepted_blocks(msg.unwrapped_accepted_blocks);
+        Ok(CatchupResponse::Ok())
     }
 }
 
@@ -348,9 +364,9 @@ impl Handler<NetworkClientMessages> for ClientActor {
                 state_response,
             }) => {
                 trace!(target: "sync", "Received state response shard_id: {} sync_hash: {:?} part(id/size): {:?}",
-                    shard_id,
-                    hash,
-                    state_response.part.as_ref().map(|(part_id,data)|(part_id, data.len()))
+                       shard_id,
+                       hash,
+                       state_response.part.as_ref().map(|(part_id, data)| (part_id, data.len()))
                 );
                 // Get the download that matches the shard_id and hash
                 let download = {
@@ -1078,7 +1094,7 @@ impl ClientActor {
     }
 
     /// Runs catchup on repeat, if this client is a validator.
-    fn catchup(&mut self, ctx: &mut Context<ClientActor>) {
+    fn catchup(&mut self, _ctx: &mut Context<ClientActor>) {
         #[cfg(feature = "delay_detector")]
         let _d = DelayDetector::new("client catchup".into());
         match self.client.run_catchup(&self.network_info.highest_height_peers) {
@@ -1089,10 +1105,6 @@ impl ClientActor {
                 error!(target: "client", "{:?} Error occurred during catchup for the next epoch: {:?}", self.client.validator_signer.as_ref().map(|vs| vs.validator_id()), err)
             }
         }
-
-        ctx.run_later(self.client.config.catchup_step_period, move |act, ctx| {
-            act.catchup(ctx);
-        });
     }
 
     fn run_timer<F>(
@@ -1120,7 +1132,7 @@ impl ClientActor {
         #[cfg(feature = "delay_detector")]
         let _d = DelayDetector::new("client sync".into());
         // Macro to schedule to call this function later if error occurred.
-        macro_rules! unwrap_or_run_later(($obj: expr) => (match $obj {
+        macro_rules! unwrap_or_run_later (($obj: expr) => (match $obj {
             Ok(v) => v,
             Err(err) => {
                 error!(target: "sync", "Sync: Unexpected error: {}", err);

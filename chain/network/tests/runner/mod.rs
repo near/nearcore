@@ -11,7 +11,7 @@ use futures::{future, FutureExt, TryFutureExt};
 use near_chain::test_utils::KeyValueRuntime;
 use near_chain::ChainGenesis;
 use near_chain_configs::ClientConfig;
-use near_client::{start_view_client, ClientActor};
+use near_client::{start_view_client, ClientActor, ClientActorHelper};
 use near_crypto::KeyType;
 use near_logger_utils::init_test_logger;
 use near_network::test_utils::{
@@ -88,14 +88,27 @@ pub fn setup_network_node(
             runtime.clone(),
             config.public_key.clone().into(),
             network_adapter.clone(),
-            Some(signer),
-            telemetry_actor,
+            Some(signer.clone()),
+            telemetry_actor.clone(),
             false,
             #[cfg(feature = "adversarial")]
             adv.clone(),
         )
         .unwrap()
         .start();
+
+        ClientActorHelper::new(
+            client_config.clone(),
+            chain_genesis.clone(),
+            runtime.clone(),
+            network_adapter.clone(),
+            Some(signer),
+            false,
+            client_actor.clone(),
+        )
+        .unwrap()
+        .start();
+
         let view_client_actor = start_view_client(
             config.account_id.clone(),
             chain_genesis.clone(),

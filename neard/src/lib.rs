@@ -9,7 +9,9 @@ use tracing::trace;
 use near_chain::ChainGenesis;
 #[cfg(feature = "adversarial")]
 use near_client::AdversarialControls;
-use near_client::{start_client, start_view_client, ClientActor, ViewClientActor};
+use near_client::{
+    start_client, start_client_helper, start_view_client, ClientActor, ViewClientActor,
+};
 use near_jsonrpc::start_http;
 use near_network::{NetworkRecipient, PeerManagerActor};
 #[cfg(feature = "rosetta_rpc")]
@@ -174,15 +176,23 @@ pub fn start_with_config(
         adv.clone(),
     );
     let (client_actor, client_arbiter) = start_client(
-        config.client_config,
-        chain_genesis,
-        runtime,
+        config.client_config.clone(),
+        chain_genesis.clone(),
+        runtime.clone(),
         node_id,
         network_adapter.clone(),
-        config.validator_signer,
+        config.validator_signer.clone(),
         telemetry,
         #[cfg(feature = "adversarial")]
         adv.clone(),
+    );
+    let client_arbiter_helper = start_client_helper(
+        config.client_config,
+        chain_genesis,
+        runtime,
+        network_adapter.clone(),
+        config.validator_signer,
+        client_actor.clone(),
     );
     start_http(
         config.rpc_config,
@@ -214,5 +224,5 @@ pub fn start_with_config(
 
     trace!(target: "diagnostic", key="log", "Starting NEAR node with diagnostic activated");
 
-    (client_actor, view_client, vec![client_arbiter, arbiter])
+    (client_actor, view_client, vec![client_arbiter, arbiter, client_arbiter_helper])
 }
