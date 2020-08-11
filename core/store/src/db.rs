@@ -1,13 +1,17 @@
-use std::cmp;
 use std::collections::HashMap;
 use std::io;
 use std::sync::RwLock;
 
+#[cfg(not(feature = "single_thread_rocksdb"))]
+use std::cmp;
+
 use borsh::{BorshDeserialize, BorshSerialize};
 
+#[cfg(feature = "single_thread_rocksdb")]
+use rocksdb::Env;
 use rocksdb::{
-    BlockBasedOptions, ColumnFamily, ColumnFamilyDescriptor, Direction, IteratorMode, Options,
-    ReadOptions, WriteBatch, DB,
+    BlockBasedOptions, Cache, ColumnFamily, ColumnFamilyDescriptor, Direction, IteratorMode,
+    Options, ReadOptions, WriteBatch, DB,
 };
 use strum_macros::EnumIter;
 
@@ -364,8 +368,21 @@ fn rocksdb_options() -> Options {
     opts.set_bytes_per_sync(1048576);
     opts.set_write_buffer_size(1024 * 1024 * 512 / 2);
     opts.set_max_bytes_for_level_base(1024 * 1024 * 512 / 2);
-    opts.increase_parallelism(cmp::max(1, num_cpus::get() as i32 / 2));
-    opts.set_max_total_wal_size(1 * 1024 * 1024 * 1024);
+    #[cfg(not(feature = "single_thread_rocksdb"))]
+    {
+        opts.increase_parallelism(cmp::max(1, num_cpus::get() as i32 / 2));
+        opts.set_max_total_wal_size(1 * 1024 * 1024 * 1024);
+    }
+    #[cfg(feature = "single_thread_rocksdb")]
+    {
+        opts.set_disable_auto_compactions(true);
+        opts.set_max_background_jobs(0);
+        opts.set_stats_dump_period_sec(0);
+        opts.set_stats_persist_period_sec(0);
+        opts.set_level_zero_slowdown_writes_trigger(-1);
+        opts.set_level_zero_file_num_compaction_trigger(-1);
+        opts.set_level_zero_stop_writes_trigger(100000000);
+    }
 
     return opts;
 }
@@ -374,7 +391,7 @@ fn rocksdb_block_based_options() -> BlockBasedOptions {
     let mut block_opts = BlockBasedOptions::default();
     block_opts.set_block_size(1024 * 16);
     let cache_size = 1024 * 1024 * 512 / 3;
-    block_opts.set_lru_cache(cache_size);
+    block_opts.set_block_cache(&Cache::new_lru_cache(cache_size).unwrap());
     block_opts.set_pin_l0_filter_and_index_blocks_in_cache(true);
     block_opts.set_cache_index_and_filter_blocks(true);
     block_opts.set_bloom_filter(10, true);
@@ -420,9 +437,29 @@ impl RocksDB {
             .iter()
             .map(|cf_name| ColumnFamilyDescriptor::new(cf_name, rocksdb_column_options()));
         let db = DB::open_cf_descriptors(&options, path, cf_descriptors)?;
+        #[cfg(feature = "single_thread_rocksdb")]
+        {
+            // These have to be set after open db
+            let mut env = Env::default().unwrap();
+            env.set_bottom_priority_background_threads(0);
+            env.set_high_priority_background_threads(0);
+            env.set_low_priority_background_threads(0);
+            env.set_background_threads(0);
+            println!("Disabled all background threads in rocksdb");
+        }
         let cfs =
             cf_names.iter().map(|n| db.cf_handle(n).unwrap() as *const ColumnFamily).collect();
         Ok(Self { db, cfs, _pin: PhantomPinned })
+    }
+}
+
+#[cfg(feature = "single_thread_rocksdb")]
+impl Drop for RocksDB {
+    fn drop(&mut self) {
+        // RocksDB with only one thread stuck on wait some condition var
+        // Turn on additional threads to proceed
+        let mut env = Env::default().unwrap();
+        env.set_background_threads(4);
     }
 }
 
