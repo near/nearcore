@@ -10,7 +10,7 @@ log = "0.4"
 failure = "0.1"
 failure_derive = "0.1"
 lazy_static = "1.4"
-rocksdb = "0.14"
+rocksdb = { git = "https://github.com/nearprotocol/rust-rocksdb", branch="disable-thread" }
 rand = "0.7"
 serde = { version = "1", features = [ "derive" ] }
 cached = "0.12"
@@ -29,6 +29,8 @@ near-store = { path = "../../core/store" }
 near-metrics = { path = "../../core/metrics" }
 near-pool = { path = "../pool" }
 
+delay-detector = { path = "../../tools/delay_detector", optional = true}
+
 [dev-dependencies]
 near-logger-utils = {path = "../../test-utils/logger"}
 
@@ -37,4 +39,6 @@ near-logger-utils = {path = "../../test-utils/logger"}
 byzantine_asserts = []
 expensive_tests = []
 adversarial = []
+delay_detector = ["delay-detector"]
 no_cache = ["near-store/no_cache"]
+

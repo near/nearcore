@@ -1,4 +1,4 @@
-use crate::hash::{hash, CryptoHash};
+use crate::hash::{hash as sha256, CryptoHash};
 
 pub struct ContractCode {
     pub code: Vec<u8>,
@@ -6,8 +6,8 @@ pub struct ContractCode {
 }
 
 impl ContractCode {
-    pub fn new(code: Vec<u8>) -> ContractCode {
-        let hash = hash(&code);
+    pub fn new(code: Vec<u8>, hash: Option<CryptoHash>) -> ContractCode {
+        let hash = hash.unwrap_or_else(|| sha256(&code));
         ContractCode { code, hash }
     }
 
