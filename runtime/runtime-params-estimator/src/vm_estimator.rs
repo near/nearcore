@@ -10,8 +10,6 @@ use num_rational::Ratio;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::fs;
-use prepare::prepare_contract;
-
 
 const CURRENT_ACCOUNT_ID: &str = "alice";
 const SIGNER_ACCOUNT_ID: &str = "bob";
@@ -106,9 +104,9 @@ pub fn cost_per_op(gas_metric: GasMetric) -> Ratio<u64> {
 const RATIO_PRECISION: u64 = 1_000;
 
 fn compile(code: &[u8], gas_metric: GasMetric, vm_kind: VMKind) -> (f64, f64) {
-    let prepared_code = prepare::prepare_contract(code, &VMConfig::default()).unwrap();
-    let start = start_count(gas_metric);
-    for _ in 0..NUM_ITERATIONS {
+  let start = start_count(gas_metric);
+  for _ in 0..NUM_ITERATIONS {
+        let prepared_code = prepare::prepare_contract(code, &VMConfig::default()).unwrap();
         compile_module(vm_kind, &prepared_code);
     }
     let end = end_count(gas_metric, &start) as f64;
@@ -117,7 +115,6 @@ fn compile(code: &[u8], gas_metric: GasMetric, vm_kind: VMKind) -> (f64, f64) {
 
 fn load_and_compile(path: &str, gas_metric: GasMetric, vm_kind: VMKind) -> (f64, f64) {
   let code = fs::read(path).unwrap();
-  let code = prepare_contract(&code, &VMConfig::default()).unwrap();
   compile(&code, gas_metric, vm_kind)
 }
 
