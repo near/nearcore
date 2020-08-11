@@ -60,6 +60,10 @@ fn init_logging(verbose: Option<&str>) {
 }
 
 fn main() {
+    // We use it to automatically search the for root certificates to perform HTTPS calls
+    // (sending telemetry and downloading genesis)
+    openssl_probe::init_ssl_cert_env_vars();
+
     let default_home = get_default_home();
     let version =
         Version { version: crate_version!().to_string(), build: git_version!().to_string() };

@@ -499,6 +499,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         gas_price: Balance,
         _gas_limit: Gas,
         _challenges: &ChallengesResult,
+        _random_seed: CryptoHash,
         generate_storage_proof: bool,
     ) -> Result<ApplyTransactionResult, Error> {
         assert!(!generate_storage_proof);
@@ -677,6 +678,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         _gas_price: Balance,
         _gas_limit: Gas,
         _challenges: &ChallengesResult,
+        _random_value: CryptoHash,
     ) -> Result<ApplyTransactionResult, Error> {
         unimplemented!();
     }

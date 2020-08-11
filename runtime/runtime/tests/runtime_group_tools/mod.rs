@@ -6,6 +6,7 @@ use near_primitives::state_record::StateRecord;
 use near_primitives::test_utils::MockEpochInfoProvider;
 use near_primitives::transaction::{ExecutionOutcomeWithId, SignedTransaction};
 use near_primitives::types::Balance;
+use near_primitives::version::PROTOCOL_VERSION;
 use near_store::test_utils::create_tries;
 use near_store::ShardTries;
 use node_runtime::{ApplyState, Runtime};
@@ -63,6 +64,8 @@ impl StandaloneRuntime {
             gas_price: 100,
             block_timestamp: 0,
             gas_limit: None,
+            random_seed: Default::default(),
+            current_protocol_version: PROTOCOL_VERSION,
         };
 
         Self {

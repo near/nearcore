@@ -75,6 +75,9 @@ const NEAR_BASE: Balance = 1_000_000_000_000_000_000_000_000;
 /// Number of epochs for which we keep store data
 pub const NUM_EPOCHS_TO_KEEP_STORE_DATA: u64 = 5;
 
+/// Maximum number of height to go through at each step when cleaning forks during garbage collection.
+const GC_FORK_CLEAN_STEP: u64 = 1000;
+
 enum ApplyChunksMode {
     ThisEpoch,
     NextEpoch,
@@ -524,20 +527,38 @@ impl Chain {
                 _ => return Err(e),
             },
         };
+
         if gc_stop_height > head.height {
             return Err(ErrorKind::GCError(
                 "gc_stop_height cannot be larger than head.height".into(),
             )
             .into());
         }
+        let prev_epoch_id = self.get_block_header(&head.prev_block_hash)?.epoch_id();
+        let epoch_change = prev_epoch_id != &head.epoch_id;
+        let fork_tail = if epoch_change {
+            // if head doesn't change on the epoch boundary, we may update fork tail several times
+            // but that is fine since it doesn't affect correctness and also we limit the number of
+            // heights that fork cleaning goes through so it doesn't slow down client either.
+            let mut chain_store_update = self.store.store_update();
+            chain_store_update.update_fork_tail(gc_stop_height);
+            chain_store_update.commit()?;
+            gc_stop_height
+        } else {
+            self.store.fork_tail()?
+        };
         let mut gc_blocks_remaining = gc_blocks_limit;
 
         // Forks Cleaning
-        for height in tail..gc_stop_height {
+        let stop_height = std::cmp::max(tail, fork_tail.saturating_sub(GC_FORK_CLEAN_STEP));
+        for height in (stop_height..fork_tail).rev() {
+            self.clear_forks_data(tries.clone(), height, &mut gc_blocks_remaining)?;
             if gc_blocks_remaining == 0 {
                 return Ok(());
             }
-            self.clear_forks_data(tries.clone(), height, &mut gc_blocks_remaining)?;
+            let mut chain_store_update = self.store.store_update();
+            chain_store_update.update_fork_tail(height);
+            chain_store_update.commit()?;
         }
 
         // Canonical Chain Clearing
@@ -830,8 +851,18 @@ impl Chain {
             return Ok(BlockSyncResponse::None);
         }
 
-        // Find common block between header chain and block chain.
-        let mut oldest_height = header_head.height;
+        let next_epoch_id =
+            self.get_block_header(&block_head.last_block_hash)?.next_epoch_id().clone();
+
+        // Don't run State Sync if header head is not more than one epoch ahead.
+        if block_head.epoch_id != header_head.epoch_id && next_epoch_id != header_head.epoch_id {
+            if block_head.height < header_head.height.saturating_sub(block_fetch_horizon) {
+                // Epochs are different and we are too far from horizon, State Sync is needed
+                return Ok(BlockSyncResponse::StateNeeded);
+            }
+        }
+
+        // Find hashes of blocks to sync
         let mut current = self.get_block_header(&header_head.last_block_hash).map(|h| h.clone());
         while let Ok(header) = current {
             if header.height() <= block_head.height {
@@ -840,20 +871,8 @@ impl Chain {
                 }
             }
 
-            oldest_height = header.height();
             hashes.push(*header.hash());
             current = self.get_previous_header(&header).map(|h| h.clone());
-        }
-        let next_epoch_id =
-            self.get_block_header(&block_head.last_block_hash)?.next_epoch_id().clone();
-
-        // Don't run State Sync if header head is not more than one epoch ahead.
-        if block_head.epoch_id != header_head.epoch_id && next_epoch_id != header_head.epoch_id {
-            let sync_head = self.sync_head()?;
-            if oldest_height < sync_head.height.saturating_sub(block_fetch_horizon) {
-                // Epochs are different and we are too far from horizon, State Sync is needed
-                return Ok(BlockSyncResponse::StateNeeded);
-            }
         }
 
         // Sort hashes by height
@@ -909,10 +928,11 @@ impl Chain {
     }
 
     pub fn reset_data_pre_state_sync(&mut self, sync_hash: CryptoHash) -> Result<(), Error> {
+        let head = self.head()?;
         // Get header we were syncing into.
         let header = self.get_block_header(&sync_hash)?;
         let prev_hash = *header.prev_hash();
-        let gc_height = header.height();
+        let gc_height = std::cmp::min(head.height + 1, header.height());
 
         // GC all the data from current tail up to `gc_height`
         let tail = self.store.tail()?;
@@ -2617,6 +2637,7 @@ impl<'a> ChainUpdate<'a> {
                 prev_block.header().gas_price(),
                 prev_chunk.header.inner.gas_limit,
                 &challenges_result,
+                *block.header().random_value(),
                 true,
             )
             .unwrap();
@@ -2743,6 +2764,7 @@ impl<'a> ChainUpdate<'a> {
                             prev_block.header().gas_price(),
                             chunk.header.inner.gas_limit,
                             &block.header().challenges_result(),
+                            *block.header().random_value(),
                         )
                         .map_err(|e| ErrorKind::Other(e.to_string()))?;
 
@@ -2808,6 +2830,7 @@ impl<'a> ChainUpdate<'a> {
                             block.header().gas_price(),
                             new_extra.gas_limit,
                             &block.header().challenges_result(),
+                            *block.header().random_value(),
                         )
                         .map_err(|e| ErrorKind::Other(e.to_string()))?;
 
@@ -2861,6 +2884,7 @@ impl<'a> ChainUpdate<'a> {
         let prev_gas_price = prev.gas_price();
         let prev_epoch_id = prev.epoch_id().clone();
         let prev_random_value = *prev.random_value();
+        let prev_height = prev.height();
 
         // Block is an orphan if we do not know about the previous full block.
         if !is_next && !self.chain_store_update.block_exists(&prev_hash)? {
@@ -2869,8 +2893,14 @@ impl<'a> ChainUpdate<'a> {
 
         // A heuristic to prevent block height to jump too fast towards BlockHeight::max and cause
         // overflow-related problems
-        if block.header().height() > head.height + self.epoch_length * 20 {
-            return Err(ErrorKind::InvalidBlockHeight.into());
+        let block_height = block.header().height();
+        if block_height > head.height + self.epoch_length * 20 {
+            return Err(ErrorKind::InvalidBlockHeight(block_height).into());
+        }
+
+        // Do not accept old forks
+        if prev_height < self.runtime_adapter.get_gc_stop_height(&head.last_block_hash)? {
+            return Err(ErrorKind::InvalidBlockHeight(prev_height).into());
         }
 
         let (is_caught_up, needs_to_start_fetching_state) =
@@ -3103,14 +3133,14 @@ impl<'a> ChainUpdate<'a> {
         let prev_header = self.get_previous_header(header)?.clone();
 
         // Check that epoch_id in the header does match epoch given previous header (only if previous header is present).
-        if &self.runtime_adapter.get_epoch_id_from_prev_block(header.prev_hash()).unwrap()
+        if &self.runtime_adapter.get_epoch_id_from_prev_block(header.prev_hash())?
             != header.epoch_id()
         {
             return Err(ErrorKind::InvalidEpochHash.into());
         }
 
         // Check that epoch_id in the header does match epoch given previous header (only if previous header is present).
-        if &self.runtime_adapter.get_next_epoch_id_from_prev_block(header.prev_hash()).unwrap()
+        if &self.runtime_adapter.get_next_epoch_id_from_prev_block(header.prev_hash())?
             != header.next_epoch_id()
         {
             return Err(ErrorKind::InvalidEpochHash.into());
@@ -3404,6 +3434,7 @@ impl<'a> ChainUpdate<'a> {
             block_header.gas_price(),
             chunk.header.inner.gas_limit,
             &block_header.challenges_result(),
+            *block_header.random_value(),
         )?;
 
         let (outcome_root, outcome_proofs) =
@@ -3485,6 +3516,7 @@ impl<'a> ChainUpdate<'a> {
             block_header.gas_price(),
             chunk_extra.gas_limit,
             &block_header.challenges_result(),
+            *block_header.random_value(),
         )?;
 
         self.chain_store_update.save_trie_changes(apply_result.trie_changes);

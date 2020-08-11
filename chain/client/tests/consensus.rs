@@ -57,7 +57,7 @@ mod tests {
             let largest_block_height = Arc::new(RwLock::new(0u64));
             let delayed_blocks = Arc::new(RwLock::new(vec![]));
 
-            let (_, conn) = setup_mock_all_validators(
+            let (_, conn, _) = setup_mock_all_validators(
                 validators.clone(),
                 key_pairs.clone(),
                 1,
@@ -68,6 +68,7 @@ mod tests {
                 4,
                 true,
                 vec![true; validators.iter().map(|x| x.len()).sum()],
+                false,
                 Arc::new(RwLock::new(Box::new(move |from_whom: String, msg: &NetworkRequests| {
                     let mut all_blocks: RwLockWriteGuard<BTreeMap<BlockHeight, Block>> =
                         all_blocks.write().unwrap();

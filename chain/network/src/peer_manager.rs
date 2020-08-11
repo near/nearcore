@@ -478,7 +478,7 @@ impl PeerManagerActor {
         ctx.spawn(async move {
             while let Some(response) = requests.next().await {
                 if let Err(e) = response {
-                    error!(target: "network", "Failed sending broadcast message(query_active_peers): {}", e);
+                    debug!(target: "network", "Failed sending broadcast message(query_active_peers): {}", e);
                 }
             }
         }.into_actor(self));
@@ -744,7 +744,7 @@ impl PeerManagerActor {
         ctx.spawn(async move {
             while let Some(response) = requests.next().await {
                 if let Err(e) = response {
-                    error!(target: "network", "Failed sending broadcast message(query_active_peers): {}", e);
+                    debug!(target: "network", "Failed sending broadcast message(broadcast_message): {}", e);
                 }
             }
         }.into_actor(self));
@@ -772,7 +772,7 @@ impl PeerManagerActor {
         message: PeerMessage,
     ) -> bool {
         if let Some(active_peer) = self.active_peers.get(&peer_id) {
-            let msg_kind = format!("{}", message);
+            let msg_kind = message.msg_variant().to_string();
             trace!(target: "network", "Send message: {}", msg_kind);
             active_peer
                 .addr
@@ -791,9 +791,9 @@ impl PeerManagerActor {
             true
         } else {
             debug!(target: "network",
-                   "Sending message to: {} (which is not an active peer) Active Peers: {:?}\n{:?}",
+                   "Sending message to: {} (which is not an active peer) Num active Peers: {}\n{}",
                    peer_id,
-                   self.active_peers.keys(),
+                   self.active_peers.len(),
                    message
             );
             false
@@ -847,12 +847,12 @@ impl PeerManagerActor {
                         .as_str(),
                 );
 
-                debug!(target: "network", "{:?} Drop signed message to {:?} Reason {:?}. Known peers: {:?} Message {:?}",
+                debug!(target: "network", "{:?} Drop signed message to {:?} Reason {:?}. Num known peers: {} Message {:?}",
                       self.config.account_id,
                       msg.target,
                       find_route_error,
-                      self.routing_table.peer_forwarding.keys(),
-                      msg,
+                      self.routing_table.peer_forwarding.len(),
+                      msg.body,
                 );
                 false
             }
