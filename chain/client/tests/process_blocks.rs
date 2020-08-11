@@ -966,20 +966,25 @@ fn test_invalid_gas_price() {
 }
 
 #[test]
-fn test_invalid_height() {
+fn test_invalid_height_too_large() {
     let mut env = TestEnv::new(ChainGenesis::test(), 1, 1);
     let b1 = env.clients[0].produce_block(1).unwrap().unwrap();
     let _ = env.clients[0].process_block(b1.clone(), Provenance::PRODUCED);
     let signer = InMemoryValidatorSigner::from_seed("test0", KeyType::ED25519, "test0");
     let b2 = Block::empty_with_height(&b1, std::u64::MAX, &signer);
-    let (_, tip) = env.clients[0].process_block(b2, Provenance::NONE);
-    match tip {
-        Err(e) => match e.kind() {
-            ErrorKind::InvalidBlockHeight => {}
-            _ => assert!(false, "wrong error: {}", e),
-        },
-        _ => assert!(false, "succeeded, tip: {:?}", tip),
+    let (_, res) = env.clients[0].process_block(b2, Provenance::NONE);
+    assert!(matches!(res.unwrap_err().kind(), ErrorKind::InvalidBlockHeight(_)));
+}
+
+#[test]
+fn test_invalid_height_too_old() {
+    let mut env = TestEnv::new(ChainGenesis::test(), 1, 1);
+    let b1 = env.clients[0].produce_block(1).unwrap().unwrap();
+    for i in 2..100 {
+        env.produce_block(0, i);
     }
+    let (_, res) = env.clients[0].process_block(b1, Provenance::NONE);
+    assert!(matches!(res.unwrap_err().kind(), ErrorKind::InvalidBlockHeight(_)));
 }
 
 #[test]
@@ -1014,6 +1019,11 @@ fn test_gc_with_epoch_length_common(epoch_length: NumBlocks) {
     for i in 1..=epoch_length * (NUM_EPOCHS_TO_KEEP_STORE_DATA + 1) {
         let block = env.clients[0].produce_block(i).unwrap().unwrap();
         env.process_block(0, block.clone(), Provenance::PRODUCED);
+        assert!(
+            env.clients[0].chain.store().fork_tail().unwrap()
+                <= env.clients[0].chain.store().tail().unwrap()
+        );
+
         blocks.push(block);
     }
     for i in 1..=epoch_length * (NUM_EPOCHS_TO_KEEP_STORE_DATA + 1) {
@@ -1231,6 +1241,53 @@ fn test_gc_after_state_sync() {
     assert!(env.clients[1].runtime_adapter.get_epoch_id_from_prev_block(&prev_block_hash).is_ok());
     let tries = env.clients[1].runtime_adapter.get_tries();
     assert!(env.clients[1].chain.clear_data(tries, 2).is_ok());
+}
+
+#[test]
+fn test_gc_fork_tail() {
+    let epoch_length = 101;
+    let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
+    genesis.config.epoch_length = epoch_length;
+    let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![
+        Arc::new(neard::NightshadeRuntime::new(
+            Path::new("."),
+            create_test_store(),
+            Arc::new(genesis.clone()),
+            vec![],
+            vec![],
+        )),
+        Arc::new(neard::NightshadeRuntime::new(
+            Path::new("."),
+            create_test_store(),
+            Arc::new(genesis.clone()),
+            vec![],
+            vec![],
+        )),
+    ];
+    let mut chain_genesis = ChainGenesis::test();
+    chain_genesis.epoch_length = epoch_length;
+    let mut env = TestEnv::new_with_runtime(chain_genesis.clone(), 2, 1, runtimes);
+    let b1 = env.clients[0].produce_block(1).unwrap().unwrap();
+    for i in 0..2 {
+        env.process_block(i, b1.clone(), Provenance::NONE);
+    }
+    // create 100 forks
+    for i in 2..102 {
+        let block = env.clients[0].produce_block(i).unwrap().unwrap();
+        env.process_block(1, block, Provenance::NONE);
+    }
+    for i in 102..epoch_length * NUM_EPOCHS_TO_KEEP_STORE_DATA + 5 {
+        let block = env.clients[0].produce_block(i).unwrap().unwrap();
+        for j in 0..2 {
+            env.process_block(j, block.clone(), Provenance::NONE);
+        }
+    }
+    let head = env.clients[1].chain.head().unwrap();
+    assert!(
+        env.clients[1].runtime_adapter.get_gc_stop_height(&head.last_block_hash).unwrap()
+            > epoch_length
+    );
+    assert_eq!(env.clients[1].chain.store().fork_tail().unwrap(), 3);
 }
 
 #[test]
