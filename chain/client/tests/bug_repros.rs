@@ -38,7 +38,7 @@ fn repro_1183() {
         let validators2 = validators.clone();
         let last_block: Arc<RwLock<Option<Block>>> = Arc::new(RwLock::new(None));
         let delayed_one_parts: Arc<RwLock<Vec<NetworkRequests>>> = Arc::new(RwLock::new(vec![]));
-        let (_, conn) = setup_mock_all_validators(
+        let (_, conn, _) = setup_mock_all_validators(
             validators.clone(),
             key_pairs.clone(),
             validator_groups,
@@ -49,6 +49,7 @@ fn repro_1183() {
             5,
             false,
             vec![false; validators.iter().map(|x| x.len()).sum()],
+            false,
             Arc::new(RwLock::new(Box::new(move |_account_id: String, msg: &NetworkRequests| {
                 if let NetworkRequests::Block { block } = msg {
                     let mut last_block = last_block.write().unwrap();
@@ -149,7 +150,7 @@ fn test_sync_from_achival_node() {
         > = Arc::new(RwLock::new(Box::new(|_: String, _: &NetworkRequests| {
             (NetworkResponses::NoResponse, true)
         })));
-        let (_, conns) = setup_mock_all_validators(
+        let (_, conns, _) = setup_mock_all_validators(
             validators.clone(),
             key_pairs,
             1,
@@ -160,6 +161,7 @@ fn test_sync_from_achival_node() {
             epoch_length,
             false,
             vec![true, false, false, false],
+            false,
             network_mock.clone(),
         );
         let mut block_counter = 0;
