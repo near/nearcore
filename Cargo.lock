@@ -1102,6 +1102,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "delay-detector"
+version = "0.1.0"
+dependencies = [
+ "log",
+]
+
+[[package]]
 name = "derive_more"
 version = "0.99.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2329,6 +2336,7 @@ dependencies = [
  "borsh",
  "cached",
  "chrono",
+ "delay-detector",
  "failure",
  "failure_derive",
  "lazy_static",
@@ -2396,6 +2404,7 @@ dependencies = [
  "borsh",
  "cached",
  "chrono",
+ "delay-detector",
  "futures",
  "lazy_static",
  "log",
@@ -2559,6 +2568,7 @@ dependencies = [
  "bytes",
  "cached",
  "chrono",
+ "delay-detector",
  "futures",
  "lazy_static",
  "log",
@@ -2802,6 +2812,7 @@ dependencies = [
  "byteorder",
  "chrono",
  "clap 2.33.0",
+ "delay-detector",
  "dirs",
  "easy-ext",
  "futures",
