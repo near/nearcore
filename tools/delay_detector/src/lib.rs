@@ -30,7 +30,7 @@ impl<'a> Drop for DelayDetector<'a> {
             info!(target: "delay_detector", "Took {:?} processing {}", elapsed, self.msg);
         }
         if elapsed > Duration::from_millis(500) {
-            warn!(target: "delay_detector", "Took {:?} processing {}", elapsed, self.msg);
+            warn!(target: "delay_detector", "LONG DELAY! Took {:?} processing {}", elapsed, self.msg);
             if self.last_snapshot.is_some() {
                 self.snapshot("end");
             }
