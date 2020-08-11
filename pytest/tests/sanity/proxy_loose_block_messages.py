@@ -1,6 +1,5 @@
-import sys, time, asyncio
-import multiprocessing
-import functools
+import sys
+import time
 
 sys.path.append('lib')
 
@@ -9,7 +8,6 @@ from peer import *
 from proxy import ProxyHandler
 
 from multiprocessing import Value
-
 
 TIMEOUT = 120
 NODES = 9
@@ -26,7 +24,7 @@ class Handler(ProxyHandler):
             h = msg.Block.BlockV1.header.BlockHeaderV2.inner_lite.height
             if h > max_height.value:
                 max_height.value = h
-            print(h, fr, to,  msg, msg.Block.enum)
+            print(h, fr, to, msg, msg.Block.enum)
             tpl = (h, fr, to)
 
             if h % NODES == NODES - 1 and to < (NODES - 1) / 2 and tpl not in ignored_messages:
@@ -35,6 +33,7 @@ class Handler(ProxyHandler):
                 return False
 
         return True
+
 
 if __name__ == '__main__':
     start_cluster(NODES, 0, 1, None, [], {}, Handler)
