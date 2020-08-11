@@ -3,7 +3,7 @@ use rand::{Rng, SeedableRng};
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::convert::{TryFrom, TryInto};
-
+use std::process;
 use num_rational::Ratio;
 
 use near_crypto::{InMemorySigner, KeyType, PublicKey};
@@ -147,7 +147,13 @@ pub enum Metric {
 
 pub fn run(mut config: Config) -> RuntimeConfig {
     let mut m = Measurements::new(config.metric);
+    let (contract_compile_cost, contract_compile_base_cost) =
+    cost_to_compile(config.metric, config.vm_kind);
+    let contract_byte_cost = ratio_to_gas(config.metric, contract_compile_cost);
+    println!("{}, {}", contract_byte_cost, ratio_to_gas(config.metric, Ratio::new(contract_compile_base_cost, 1)));
     config.block_sizes = vec![100];
+    process::exit(0);
+    /*
     // Measure the speed of processing empty receipts.
     measure_actions(Metric::Receipt, &mut m, &config, None, vec![], false, false);
 
@@ -476,6 +482,7 @@ pub fn run(mut config: Config) -> RuntimeConfig {
     //    m.save_to_csv(csv_path.as_path());
     //
     //    m.plot(PathBuf::from(&config.state_dump_path).as_path());
+    */
 }
 
 fn ratio_to_gas(gas_metric: GasMetric, value: Ratio<u64>) -> u64 {
@@ -564,7 +571,7 @@ fn get_ext_costs_config(measurement: &Measurements, config: &Config) -> ExtCosts
         cost_to_compile(metric, config.vm_kind);
     ExtCostsConfig {
         base: measured_to_gas(metric, &measured, base),
-        contract_compile_base: contract_compile_base_cost,
+        contract_compile_base: ratio_to_gas(metric,Ratio::new(contract_compile_base_cost, 1 )),
         contract_compile_bytes: ratio_to_gas(metric, contract_compile_cost),
         read_memory_base: measured_to_gas(metric, &measured, read_memory_base),
         read_memory_byte: measured_to_gas(metric, &measured, read_memory_byte),

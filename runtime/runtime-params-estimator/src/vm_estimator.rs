@@ -9,6 +9,8 @@ use near_vm_runner::{compile_module, prepare, VMError};
 use num_rational::Ratio;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
+use std::fs;
+
 
 const CURRENT_ACCOUNT_ID: &str = "alice";
 const SIGNER_ACCOUNT_ID: &str = "bob";
@@ -112,16 +114,36 @@ fn compile(code: &[u8], gas_metric: GasMetric, vm_kind: VMKind) -> (f64, f64) {
     (code.len() as f64, end / (NUM_ITERATIONS as f64))
 }
 
+fn load_and_compile(path: &str, gas_metric: GasMetric, vm_kind: VMKind) -> (f64, f64) {
+  let code = fs::read(path).unwrap();
+  compile(&code, gas_metric, vm_kind)
+}
+
+
 /// Cost of the compile contract with vm_kind
 pub fn cost_to_compile(gas_metric: GasMetric, vm_kind: VMKind) -> (Ratio<u64>, u64) {
-    println!("About to compile contracts.....");
-    let (sx, sy) =
-        compile(include_bytes!("../test-contract/res/small_contract.wasm"), gas_metric, vm_kind);
-    let (mx, my) =
-        compile(include_bytes!("../test-contract/res/medium_contract.wasm"), gas_metric, vm_kind);
-    let (lx, ly) =
-        compile(include_bytes!("../test-contract/res/near_evm.wasm"), gas_metric, vm_kind);
-    let (m, b) = fit(&vec![sx, mx, lx], &vec![sy, my, ly]);
+  println!("About to compile contracts.....");
+      let contracts_paths = vec![
+        "./test-contract/res/small_contract.wasm",
+        "./test-contract/res/medium_contract.wasm",
+        "./test-contract/res/large_contract.wasm",
+        "./test-contract/res/status-message-collections.wasm",
+        "./test-contract/res/near_evm.wasm",
+      ];
+    let (xs, ys) = contracts_paths.iter().fold((vec![],vec![]), |(mut xs, mut ys), path| {
+    let (x, y) = load_and_compile(path, gas_metric, vm_kind);
+    println!("{},{}", x,y);
+    xs.push(x);
+    ys.push(y);
+    (xs, ys)
+    });
+    // let (sx, sy) =
+    //     compile(include_bytes!("../test-contract/res/small_contract.wasm"), gas_metric, vm_kind);
+    // let (mx, my) =
+    //     compile(include_bytes!("../test-contract/res/medium_contract.wasm"), gas_metric, vm_kind);
+    // let (lx, ly) =
+    //     compile(include_bytes!("../test-contract/res/near_evm.wasm"), gas_metric, vm_kind);
+    let (m, b) = fit(&xs, &ys);
     println!("({}/1000,{})", m * (RATIO_PRECISION as f64), b);
     (Ratio::new((m * (RATIO_PRECISION as f64)) as u64, RATIO_PRECISION), b as u64)
 }
