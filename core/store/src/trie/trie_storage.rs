@@ -124,7 +124,7 @@ pub fn merge_refcounted_records(result: &mut Vec<u8>, val: &[u8]) -> Result<(), 
         return Ok(());
     }
     let add_rc = TrieCachingStorage::vec_to_rc(val)?;
-    if result.len() != 0 {
+    if !result.is_empty() {
         let result_rc = TrieCachingStorage::vec_to_rc(result)? + add_rc;
 
         debug_assert_eq!(result[0..(result.len() - 4)], val[0..(val.len() - 4)]);
