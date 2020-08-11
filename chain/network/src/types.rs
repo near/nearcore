@@ -27,7 +27,7 @@ use near_primitives::sharding::{
 };
 use near_primitives::syncing::ShardStateSyncResponse;
 use near_primitives::transaction::{ExecutionOutcomeWithIdAndProof, SignedTransaction};
-use near_primitives::types::{AccountId, BlockHeight, BlockIdOrFinality, EpochId, ShardId};
+use near_primitives::types::{AccountId, BlockHeight, BlockReference, EpochId, ShardId};
 use near_primitives::utils::{from_timestamp, to_timestamp};
 use near_primitives::version::FIRST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION;
 use near_primitives::views::{FinalExecutionOutcomeView, QueryRequest, QueryResponse};
@@ -236,7 +236,7 @@ pub enum RoutedMessageBody {
     TxStatusResponse(FinalExecutionOutcomeView),
     QueryRequest {
         query_id: String,
-        block_id_or_finality: BlockIdOrFinality,
+        block_reference: BlockReference,
         request: QueryRequest,
     },
     QueryResponse {
@@ -939,7 +939,7 @@ pub enum NetworkRequests {
     Query {
         query_id: String,
         account_id: AccountId,
-        block_id_or_finality: BlockIdOrFinality,
+        block_reference: BlockReference,
         request: QueryRequest,
     },
     /// Request for receipt execution outcome
@@ -1151,7 +1151,7 @@ pub enum NetworkViewClientMessages {
     /// Transaction status response
     TxStatusResponse(Box<FinalExecutionOutcomeView>),
     /// General query
-    Query { query_id: String, block_id_or_finality: BlockIdOrFinality, request: QueryRequest },
+    Query { query_id: String, block_reference: BlockReference, request: QueryRequest },
     /// Query response
     QueryResponse { query_id: String, response: Result<QueryResponse, String> },
     /// Request for receipt outcome

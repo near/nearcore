@@ -27,8 +27,7 @@ use near_primitives::merkle::{merklize, verify_path, PartialMerkleTree};
 use near_primitives::network::AnnounceAccount;
 use near_primitives::syncing::ShardStateSyncResponse;
 use near_primitives::types::{
-    AccountId, BlockHeight, BlockId, BlockIdOrFinality, Finality, MaybeBlockId,
-    TransactionOrReceiptId,
+    AccountId, BlockHeight, BlockId, BlockReference, Finality, MaybeBlockId, TransactionOrReceiptId,
 };
 use near_primitives::views::{
     BlockView, ChunkView, EpochValidatorInfo, FinalExecutionOutcomeView, FinalExecutionStatus,
@@ -159,6 +158,28 @@ impl ViewClientActor {
         }
     }
 
+    fn get_block_hash_by_sync_checkpoint(
+        &mut self,
+        synchronization_checkpoint: &near_primitives::types::SyncCheckpoint,
+    ) -> Result<Option<CryptoHash>, Error> {
+        use near_primitives::types::SyncCheckpoint;
+
+        match synchronization_checkpoint {
+            SyncCheckpoint::Genesis => Ok(Some(self.chain.genesis().hash().clone())),
+            SyncCheckpoint::EarliestAvailable => {
+                let head_header_height = self.chain.head_header()?.height();
+                let mut chain_store_update = self.chain.mut_store().store_update();
+                let tail = chain_store_update.tail()?;
+                for height in tail..=head_header_height {
+                    if let Ok(block_hash) = chain_store_update.get_block_hash_by_height(height) {
+                        return Ok(Some(block_hash));
+                    }
+                }
+                Ok(None)
+            }
+        }
+    }
+
     fn handle_query(&mut self, msg: Query) -> Result<Option<QueryResponse>, String> {
         {
             let mut request_manager = self.request_manager.write().expect(POISONED_LOCK_ERR);
@@ -168,17 +189,27 @@ impl ViewClientActor {
             }
         }
 
-        let header = match msg.block_id_or_finality {
-            BlockIdOrFinality::BlockId(BlockId::Height(block_height)) => {
+        let header = match msg.block_reference {
+            BlockReference::BlockId(BlockId::Height(block_height)) => {
                 self.chain.get_header_by_height(block_height)
             }
-            BlockIdOrFinality::BlockId(BlockId::Hash(block_hash)) => {
+            BlockReference::BlockId(BlockId::Hash(block_hash)) => {
                 self.chain.get_block_header(&block_hash)
             }
-            BlockIdOrFinality::Finality(ref finality) => {
+            BlockReference::Finality(ref finality) => {
                 let block_hash =
                     self.get_block_hash_by_finality(&finality).map_err(|e| e.to_string())?;
                 self.chain.get_block_header(&block_hash)
+            }
+            BlockReference::SyncCheckpoint(ref synchronization_checkpoint) => {
+                if let Some(block_hash) = self
+                    .get_block_hash_by_sync_checkpoint(&synchronization_checkpoint)
+                    .map_err(|e| e.to_string())?
+                {
+                    self.chain.get_block_header(&block_hash)
+                } else {
+                    return Err("There are no fully synchronized blocks yet".into());
+                }
             }
         };
         let header = header.map_err(|e| e.to_string())?.clone();
@@ -225,10 +256,10 @@ impl ViewClientActor {
                         .find_validator_for_forwarding(shard_id)
                         .map_err(|e| e.to_string())?;
                     self.network_adapter.do_send(NetworkRequests::Query {
-                        query_id: msg.query_id.clone(),
+                        query_id: msg.query_id,
                         account_id: validator,
-                        block_id_or_finality: msg.block_id_or_finality.clone(),
-                        request: msg.request.clone(),
+                        block_reference: msg.block_reference,
+                        request: msg.request,
                     });
                 }
 
@@ -408,16 +439,26 @@ impl Handler<GetBlock> for ViewClientActor {
 
     fn handle(&mut self, msg: GetBlock, _: &mut Self::Context) -> Self::Result {
         match msg.0 {
-            BlockIdOrFinality::Finality(finality) => {
+            BlockReference::Finality(finality) => {
                 let block_hash =
                     self.get_block_hash_by_finality(&finality).map_err(|e| e.to_string())?;
                 self.chain.get_block(&block_hash).map(Clone::clone)
             }
-            BlockIdOrFinality::BlockId(BlockId::Height(height)) => {
+            BlockReference::BlockId(BlockId::Height(height)) => {
                 self.chain.get_block_by_height(height).map(Clone::clone)
             }
-            BlockIdOrFinality::BlockId(BlockId::Hash(hash)) => {
+            BlockReference::BlockId(BlockId::Hash(hash)) => {
                 self.chain.get_block(&hash).map(Clone::clone)
+            }
+            BlockReference::SyncCheckpoint(sync_checkpoint) => {
+                if let Some(block_hash) = self
+                    .get_block_hash_by_sync_checkpoint(&sync_checkpoint)
+                    .map_err(|e| e.to_string())?
+                {
+                    self.chain.get_block(&block_hash).map(Clone::clone)
+                } else {
+                    return Err("There are no fully synchronized blocks yet".into());
+                }
             }
         }
         .and_then(|block| {
@@ -736,8 +777,8 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
                 }
                 NetworkViewClientResponses::NoResponse
             }
-            NetworkViewClientMessages::Query { query_id, block_id_or_finality, request } => {
-                let query = Query { query_id: query_id.clone(), block_id_or_finality, request };
+            NetworkViewClientMessages::Query { query_id, block_reference, request } => {
+                let query = Query { query_id: query_id.clone(), block_reference, request };
                 match self.handle_query(query) {
                     Ok(Some(r)) => {
                         NetworkViewClientResponses::QueryResponse { query_id, response: Ok(r) }

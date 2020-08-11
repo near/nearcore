@@ -11,7 +11,7 @@ use near_network::test_utils::WaitOrTimeout;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::serialize::{to_base, to_base64};
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::BlockIdOrFinality;
+use near_primitives::types::BlockReference;
 use near_primitives::views::FinalExecutionStatus;
 
 #[macro_use]
@@ -32,7 +32,7 @@ fn test_send_tx_async() {
         let tx_hash2_2 = tx_hash2.clone();
         let signer_account_id = "test1".to_string();
 
-        actix::spawn(client.block(BlockIdOrFinality::latest()).then(move |res| {
+        actix::spawn(client.block(BlockReference::latest()).then(move |res| {
             let block_hash = res.unwrap().header.hash;
             let signer = InMemorySigner::from_seed("test1", KeyType::ED25519, "test1");
             let tx = SignedTransaction::send_money(
@@ -81,7 +81,7 @@ fn test_send_tx_async() {
 #[test]
 fn test_send_tx_commit() {
     test_with_client!(test_utils::NodeType::Validator, client, async move {
-        let block_hash = client.block(BlockIdOrFinality::latest()).await.unwrap().header.hash;
+        let block_hash = client.block(BlockReference::latest()).await.unwrap().header.hash;
         let signer = InMemorySigner::from_seed("test1", KeyType::ED25519, "test1");
         let tx = SignedTransaction::send_money(
             1,
@@ -113,7 +113,7 @@ fn test_expired_tx() {
                 let block_hash = block_hash.clone();
                 let block_height = block_height.clone();
                 let client = new_client(&format!("http://{}", addr));
-                actix::spawn(client.block(BlockIdOrFinality::latest()).then(move |res| {
+                actix::spawn(client.block(BlockReference::latest()).then(move |res| {
                     let header = res.unwrap().header;
                     let hash = block_hash.lock().unwrap().clone();
                     let height = block_height.lock().unwrap().clone();
