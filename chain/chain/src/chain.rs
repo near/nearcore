@@ -73,6 +73,9 @@ const NEAR_BASE: Balance = 1_000_000_000_000_000_000_000_000;
 /// Number of epochs for which we keep store data
 pub const NUM_EPOCHS_TO_KEEP_STORE_DATA: u64 = 5;
 
+/// Maximum number of height to go through at each step when cleaning forks during garbage collection.
+const GC_FORK_CLEAN_STEP: u64 = 1000;
+
 enum ApplyChunksMode {
     ThisEpoch,
     NextEpoch,
@@ -519,20 +522,38 @@ impl Chain {
                 _ => return Err(e),
             },
         };
+
         if gc_stop_height > head.height {
             return Err(ErrorKind::GCError(
                 "gc_stop_height cannot be larger than head.height".into(),
             )
             .into());
         }
+        let prev_epoch_id = self.get_block_header(&head.prev_block_hash)?.epoch_id();
+        let epoch_change = prev_epoch_id != &head.epoch_id;
+        let fork_tail = if epoch_change {
+            // if head doesn't change on the epoch boundary, we may update fork tail several times
+            // but that is fine since it doesn't affect correctness and also we limit the number of
+            // heights that fork cleaning goes through so it doesn't slow down client either.
+            let mut chain_store_update = self.store.store_update();
+            chain_store_update.update_fork_tail(gc_stop_height);
+            chain_store_update.commit()?;
+            gc_stop_height
+        } else {
+            self.store.fork_tail()?
+        };
         let mut gc_blocks_remaining = gc_blocks_limit;
 
         // Forks Cleaning
-        for height in tail..gc_stop_height {
+        let stop_height = std::cmp::max(tail, fork_tail.saturating_sub(GC_FORK_CLEAN_STEP));
+        for height in (stop_height..fork_tail).rev() {
+            self.clear_forks_data(tries.clone(), height, &mut gc_blocks_remaining)?;
             if gc_blocks_remaining == 0 {
                 return Ok(());
             }
-            self.clear_forks_data(tries.clone(), height, &mut gc_blocks_remaining)?;
+            let mut chain_store_update = self.store.store_update();
+            chain_store_update.update_fork_tail(height);
+            chain_store_update.commit()?;
         }
 
         // Canonical Chain Clearing
@@ -2855,6 +2876,7 @@ impl<'a> ChainUpdate<'a> {
         let prev_gas_price = prev.gas_price();
         let prev_epoch_id = prev.epoch_id().clone();
         let prev_random_value = *prev.random_value();
+        let prev_height = prev.height();
 
         // Block is an orphan if we do not know about the previous full block.
         if !is_next && !self.chain_store_update.block_exists(&prev_hash)? {
@@ -2863,8 +2885,14 @@ impl<'a> ChainUpdate<'a> {
 
         // A heuristic to prevent block height to jump too fast towards BlockHeight::max and cause
         // overflow-related problems
-        if block.header().height() > head.height + self.epoch_length * 20 {
-            return Err(ErrorKind::InvalidBlockHeight.into());
+        let block_height = block.header().height();
+        if block_height > head.height + self.epoch_length * 20 {
+            return Err(ErrorKind::InvalidBlockHeight(block_height).into());
+        }
+
+        // Do not accept old forks
+        if prev_height < self.runtime_adapter.get_gc_stop_height(&head.last_block_hash)? {
+            return Err(ErrorKind::InvalidBlockHeight(prev_height).into());
         }
 
         let (is_caught_up, needs_to_start_fetching_state) =
