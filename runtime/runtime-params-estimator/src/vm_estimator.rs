@@ -10,6 +10,7 @@ use num_rational::Ratio;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::fs;
+use prepare::prepare_contract;
 
 
 const CURRENT_ACCOUNT_ID: &str = "alice";
@@ -116,6 +117,7 @@ fn compile(code: &[u8], gas_metric: GasMetric, vm_kind: VMKind) -> (f64, f64) {
 
 fn load_and_compile(path: &str, gas_metric: GasMetric, vm_kind: VMKind) -> (f64, f64) {
   let code = fs::read(path).unwrap();
+  let code = prepare_contract(&code, &VMConfig::default()).unwrap();
   compile(&code, gas_metric, vm_kind)
 }
 
