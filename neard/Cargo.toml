@@ -1,6 +1,6 @@
 [package]
 name = "neard"
-version = "1.10.0"
+version = "1.10.0-beta.1"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2018"
 default-run = "neard"
@@ -25,7 +25,6 @@ borsh = "0.7.0"
 tracing = "0.1.13"
 tracing-subscriber = "0.2.4"
 num-rational = { version = "0.2.4", features = ["serde"] }
-openssl-probe = { version = "0.1.2" }
 
 near-actix-utils = { path = "../utils/actix" }
 near-crypto = { path = "../core/crypto" }
