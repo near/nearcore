@@ -3187,14 +3187,14 @@ impl<'a> ChainUpdate<'a> {
         let prev_header = self.get_previous_header(header)?.clone();
 
         // Check that epoch_id in the header does match epoch given previous header (only if previous header is present).
-        if &self.runtime_adapter.get_epoch_id_from_prev_block(header.prev_hash()).unwrap()
+        if &self.runtime_adapter.get_epoch_id_from_prev_block(header.prev_hash())?
             != header.epoch_id()
         {
             return Err(ErrorKind::InvalidEpochHash.into());
         }
 
         // Check that epoch_id in the header does match epoch given previous header (only if previous header is present).
-        if &self.runtime_adapter.get_next_epoch_id_from_prev_block(header.prev_hash()).unwrap()
+        if &self.runtime_adapter.get_next_epoch_id_from_prev_block(header.prev_hash())?
             != header.next_epoch_id()
         {
             return Err(ErrorKind::InvalidEpochHash.into());
