@@ -20,11 +20,8 @@ max_height = Value('i', 0)
 class Handler(ProxyHandler):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.peers_response = 0
 
     async def handle(self, msg, fr, to):
-        global height2producer, first_block_time
-
         if msg.enum == 'Block':
             h = msg.Block.BlockV1.header.BlockHeaderV2.inner_lite.height
             if h > max_height.value:
