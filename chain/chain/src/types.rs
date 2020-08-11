@@ -436,6 +436,7 @@ pub trait RuntimeAdapter: Send + Sync {
         gas_price: Balance,
         gas_limit: Gas,
         challenges_result: &ChallengesResult,
+        random_seed: CryptoHash,
     ) -> Result<ApplyTransactionResult, Error> {
         self.apply_transactions_with_optional_storage_proof(
             shard_id,
@@ -450,6 +451,7 @@ pub trait RuntimeAdapter: Send + Sync {
             gas_price,
             gas_limit,
             challenges_result,
+            random_seed,
             false,
         )
     }
@@ -468,6 +470,7 @@ pub trait RuntimeAdapter: Send + Sync {
         gas_price: Balance,
         gas_limit: Gas,
         challenges_result: &ChallengesResult,
+        random_seed: CryptoHash,
         generate_storage_proof: bool,
     ) -> Result<ApplyTransactionResult, Error>;
 
@@ -486,6 +489,7 @@ pub trait RuntimeAdapter: Send + Sync {
         gas_price: Balance,
         gas_limit: Gas,
         challenges_result: &ChallengesResult,
+        random_value: CryptoHash,
     ) -> Result<ApplyTransactionResult, Error>;
 
     /// Query runtime with given `path` and `data`.

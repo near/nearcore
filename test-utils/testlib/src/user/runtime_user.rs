@@ -9,6 +9,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockHeightDelta, MerkleHash};
+use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{
     AccessKeyView, AccountView, BlockView, ExecutionOutcomeView, ExecutionOutcomeWithIdView,
     ExecutionStatusView, ViewStateResult,
@@ -125,7 +126,9 @@ impl RuntimeUser {
             epoch_height: 0,
             gas_price: MIN_GAS_PRICE,
             gas_limit: None,
+            random_seed: Default::default(),
             epoch_id: Default::default(),
+            current_protocol_version: PROTOCOL_VERSION,
         }
     }
 

@@ -311,6 +311,7 @@ fn validate_chunk_state_challenge(
             prev_block_header.gas_price(),
             chunk_state.prev_chunk.header.inner.gas_limit,
             &ChallengesResult::default(),
+            *block_header.random_value(),
         )
         .map_err(|_| Error::from(ErrorKind::MaliciousChallenge))?;
     let outcome_root = ApplyTransactionResult::compute_outcomes_proof(&result.outcomes).0;
