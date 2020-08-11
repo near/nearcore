@@ -277,7 +277,7 @@ impl Database for RocksDB {
     fn get(&self, col: DBCol, key: &[u8]) -> Result<Option<Vec<u8>>, DBError> {
         let read_options = rocksdb_read_options();
         let result = self.db.get_cf_opt(unsafe { &*self.cfs[col as usize] }, key, &read_options)?;
-        Ok(RocksDB::empty_value_filtering(col, result))
+        Ok(RocksDB::empty_value_filtering_get(col, result))
     }
 
     fn iter<'a>(&'a self, col: DBCol) -> Box<dyn Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a> {
@@ -285,7 +285,7 @@ impl Database for RocksDB {
         unsafe {
             let cf_handle = &*self.cfs[col as usize];
             let iterator = self.db.iterator_cf_opt(cf_handle, read_options, IteratorMode::Start);
-            RocksDB::iter_empty_value_filtering(col, iterator)
+            RocksDB::empty_value_filtering_iter(col, iterator)
         }
     }
 
@@ -310,7 +310,7 @@ impl Database for RocksDB {
                     IteratorMode::From(key_prefix, Direction::Forward),
                 )
                 .take_while(move |(key, _value)| key.starts_with(key_prefix));
-            RocksDB::iter_empty_value_filtering(col, iterator)
+            RocksDB::empty_value_filtering_iter(col, iterator)
         }
     }
 
@@ -419,7 +419,7 @@ fn rocksdb_column_options(col_index: usize) -> Options {
     opts.set_compression_per_level(&[]);
     if col_index == DBCol::ColState as usize {
         opts.set_merge_operator("refcount merge", RocksDB::refcount_merge, None);
-        opts.set_compaction_filter("empty value filter", RocksDB::empty_value_filter);
+        opts.set_compaction_filter("empty value filter", RocksDB::empty_value_compaction_filter);
     }
     opts
 }
@@ -478,16 +478,19 @@ impl RocksDB {
         let mut result = vec![];
         if let Some(val) = existing_val {
             // Error is only possible if decoding refcount fails (=value is between 1 and 3 bytes)
-            merge_refcounted_records(&mut result, val).unwrap();
+            merge_refcounted_records(&mut result, val)
+                .expect("Not a refcounted record in ColState");
         }
         for val in operands {
             // Error is only possible if decoding refcount fails (=value is between 1 and 3 bytes)
-            merge_refcounted_records(&mut result, val).unwrap();
+            merge_refcounted_records(&mut result, val)
+                .expect("Not a refcounted record in ColState");
         }
         Some(result)
     }
 
-    fn empty_value_filter(_level: u32, _key: &[u8], value: &[u8]) -> Decision {
+    /// Compaction filter for ColState
+    fn empty_value_compaction_filter(_level: u32, _key: &[u8], value: &[u8]) -> Decision {
         if value.is_empty() {
             Decision::Remove
         } else {
@@ -495,7 +498,8 @@ impl RocksDB {
         }
     }
 
-    fn empty_value_filtering(column: DBCol, value: Option<Vec<u8>>) -> Option<Vec<u8>> {
+    /// ColState get() treats empty value as no value
+    fn empty_value_filtering_get(column: DBCol, value: Option<Vec<u8>>) -> Option<Vec<u8>> {
         if column == DBCol::ColState && Some(vec![]) == value {
             None
         } else {
@@ -503,7 +507,8 @@ impl RocksDB {
         }
     }
 
-    fn iter_empty_value_filtering<'a, I>(
+    /// ColState iterator treats empty value as no value
+    fn empty_value_filtering_iter<'a, I>(
         column: DBCol,
         iterator: I,
     ) -> Box<dyn Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a>
