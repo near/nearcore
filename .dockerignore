@@ -1,6 +1,8 @@
+.git*
 .idea/
 .vscode/
 
+Dockerfile
 docker/
 !docker/scripts/
 ops/
@@ -8,6 +10,9 @@ ops/
 !ops/tendermint-config.toml
 
 **/target
+**/venv
 storage/
 keystore/
 tmp/
+
+*.pyc
