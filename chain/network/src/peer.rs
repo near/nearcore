@@ -611,6 +611,8 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for Peer {
             }
         };
 
+        trace!(target: "network", "Received message: {}", peer_msg);
+
         self.on_receive_message();
 
         #[cfg(feature = "metric_recorder")]
