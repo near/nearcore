@@ -591,6 +591,8 @@ mod tests {
 
     #[test]
     fn rocksdb_merge_sanity() {
+        #[cfg(feature = "no_cache")]
+        panic!("wrong feature2");
         let tmp_dir = tempfile::Builder::new().prefix("_test_snapshot_sanity").tempdir().unwrap();
         let store = create_store(tmp_dir.path().to_str().unwrap());
         assert_eq!(store.get(ColState, &[1]).unwrap(), None);
