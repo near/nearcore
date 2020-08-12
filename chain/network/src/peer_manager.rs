@@ -1684,7 +1684,8 @@ impl Handler<PeerRequest> for PeerManagerActor {
 impl Handler<PeerMessageMetadata> for PeerManagerActor {
     type Result = ();
     fn handle(&mut self, msg: PeerMessageMetadata, _ctx: &mut Self::Context) -> Self::Result {
-        let _d = DelayDetector::new("peer message metadata");
+        #[cfg(feature = "delay_detector")]
+        let _d = DelayDetector::new("peer message metadata".into());
         self.metric_recorder.handle_peer_message(msg);
     }
 }
