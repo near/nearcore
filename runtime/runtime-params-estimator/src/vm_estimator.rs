@@ -127,9 +127,10 @@ pub fn cost_to_compile(gas_metric: GasMetric, vm_kind: VMKind, verbose: bool) ->
     ];
     let ratio: f64 = 0.0;
     let base: f64 = f64::MAX;
-    let (m, b) = contracts_paths.iter().fold((ratio, base), |(m, b), path| {
-        let (x, y) = load_and_compile(path, gas_metric, vm_kind);
-        (m.max(x), y.min(b))
+    let measurements = contracts_paths.iter().map(|path| load_and_compile(path, gas_metric, vm_kind)).collect::<Vec<(f64, f64)>>();
+    let b = measurements.iter().fold(base, |base, (_, cost)| base.min(*cost));
+    let m = measurements.iter().fold(ratio, |r, (bytes, cost)| {
+        r.max((*cost - b)/bytes)
     });
     if verbose {
         println!("raw data: ({},{})", m * (RATIO_PRECISION as f64), b);
