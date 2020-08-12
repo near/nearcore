@@ -17,6 +17,7 @@ use crate::trie::insert_delete::NodesStorage;
 use crate::trie::iterator::TrieIterator;
 use crate::trie::nibble_slice::NibbleSlice;
 pub use crate::trie::shard_tries::{KeyForStateChanges, ShardTries, WrappedTrieChanges};
+pub(crate) use crate::trie::trie_storage::merge_refcounted_records;
 use crate::trie::trie_storage::{
     TouchedNodesCounter, TrieCachingStorage, TrieMemoryPartialStorage, TrieRecordingStorage,
     TrieStorage,
@@ -395,21 +396,21 @@ impl RawTrieNodeWithSize {
     }
 }
 
-fn encode_trie_node_with_rc(data: &[u8], rc: u32) -> Vec<u8> {
+fn encode_trie_node_with_rc(data: &[u8], rc: i32) -> Vec<u8> {
     let mut cursor = Cursor::new(Vec::with_capacity(data.len() + 4));
     cursor.write_all(data).unwrap();
-    cursor.write_u32::<LittleEndian>(rc).unwrap();
+    cursor.write_i32::<LittleEndian>(rc).unwrap();
     cursor.into_inner()
 }
 
-fn decode_trie_node_with_rc(bytes: &[u8]) -> Result<(&[u8], u32), StorageError> {
+fn decode_trie_node_with_rc(bytes: &[u8]) -> Result<(&[u8], i32), StorageError> {
     if bytes.len() < 4 {
         return Err(StorageError::StorageInconsistentState(
             "Decode node with RC failed".to_string(),
         ));
     }
     let mut cursor = Cursor::new(&bytes[bytes.len() - 4..]);
-    let rc = cursor.read_u32::<LittleEndian>().unwrap();
+    let rc = cursor.read_i32::<LittleEndian>().unwrap();
     Ok((&bytes[..bytes.len() - 4], rc))
 }
 
@@ -744,12 +745,6 @@ impl Trie {
 
     pub fn iter<'a>(&'a self, root: &CryptoHash) -> Result<TrieIterator<'a>, StorageError> {
         TrieIterator::new(self, root)
-    }
-
-    pub fn update_cache(&self, ops: Vec<(CryptoHash, Option<Vec<u8>>)>) {
-        let storage =
-            self.storage.as_caching_storage().expect("Storage should be TrieCachingStorage");
-        storage.update_cache(ops)
     }
 }
 
