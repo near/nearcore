@@ -33,7 +33,6 @@ def key_seed():
 async def consume(conn: Connection):
     while True:
         message = await conn.recv()
-        # print(obj_to_string(message))
 
 
 def create_sync_data(accounts=[], edges=[]):
@@ -104,7 +103,6 @@ async def main():
         num_nodes = randint(2, 100)
 
         update = create_update()
-        # print(obj_to_string(update))
         print("Sending update...")
         await conn.send(update)
         print("Sent...")
