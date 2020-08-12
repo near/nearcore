@@ -588,7 +588,6 @@ mod tests {
         }
     }
 
-    #[cfg(not(feature = "single_thread_rocksdb"))]
     #[test]
     fn rocksdb_merge_sanity() {
         let tmp_dir = tempfile::Builder::new().prefix("_test_snapshot_sanity").tempdir().unwrap();
@@ -623,11 +622,15 @@ mod tests {
         // Internally there is an empty value
         assert_eq!(rocksdb.get_no_empty_filtering(ColState, &[1]).unwrap(), Some(vec![]));
 
-        rocksdb.compact(ColState);
-        rocksdb.compact(ColState);
+        #[cfg(not(feature = "single_thread_rocksdb"))]
+        {
+            // single_thread_rocksdb makes compact hang forever
+            rocksdb.compact(ColState);
+            rocksdb.compact(ColState);
 
-        // After compaction the empty value disappears
-        assert_eq!(rocksdb.get_no_empty_filtering(ColState, &[1]).unwrap(), None);
-        assert_eq!(store.get(ColState, &[1]).unwrap(), None);
+            // After compaction the empty value disappears
+            assert_eq!(rocksdb.get_no_empty_filtering(ColState, &[1]).unwrap(), None);
+            assert_eq!(store.get(ColState, &[1]).unwrap(), None);
+        }
     }
 }
