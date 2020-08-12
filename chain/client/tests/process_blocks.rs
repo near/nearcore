@@ -1240,14 +1240,50 @@ fn test_gc_after_state_sync() {
         assert!(env.clients[1].chain.runtime_adapter.get_epoch_start_height(&block_hash).is_ok());
     }
     env.clients[1].chain.reset_data_pre_state_sync(sync_hash).unwrap();
-    assert!(matches!(
-        env.clients[1].runtime_adapter.get_gc_stop_height(&sync_hash).unwrap_err().kind(),
-        ErrorKind::DBNotFoundErr(_)
-    ));
+    assert_eq!(env.clients[1].runtime_adapter.get_gc_stop_height(&sync_hash), 0);
     // mimic what we do in possible_targets
     assert!(env.clients[1].runtime_adapter.get_epoch_id_from_prev_block(&prev_block_hash).is_ok());
     let tries = env.clients[1].runtime_adapter.get_tries();
     assert!(env.clients[1].chain.clear_data(tries, 2).is_ok());
+}
+
+#[test]
+fn test_process_block_after_state_sync() {
+    let epoch_length = 1024;
+    let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
+    genesis.config.epoch_length = epoch_length;
+    let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![Arc::new(neard::NightshadeRuntime::new(
+        Path::new("."),
+        create_test_store(),
+        Arc::new(genesis.clone()),
+        vec![],
+        vec![],
+    ))];
+    let mut chain_genesis = ChainGenesis::test();
+    chain_genesis.epoch_length = epoch_length;
+    let mut env = TestEnv::new_with_runtime(chain_genesis, 1, 1, runtimes);
+    for i in 1..epoch_length * 4 + 2 {
+        env.produce_block(0, i);
+    }
+    let sync_height = epoch_length * 4 + 1;
+    let sync_block = env.clients[0].chain.get_block_by_height(sync_height).unwrap().clone();
+    let sync_hash = *sync_block.hash();
+    let chunk_extra = env.clients[0].chain.get_chunk_extra(&sync_hash, 0).unwrap().clone();
+    let state_part =
+        env.clients[0].runtime_adapter.obtain_state_part(0, &chunk_extra.state_root, 0, 1).unwrap();
+    // reset cache
+    for i in epoch_length * 3 - 1..sync_height - 1 {
+        let block_hash = *env.clients[0].chain.get_block_by_height(i).unwrap().hash();
+        assert!(env.clients[0].chain.runtime_adapter.get_epoch_start_height(&block_hash).is_ok());
+    }
+    env.clients[0].chain.reset_data_pre_state_sync(sync_hash).unwrap();
+    env.clients[0]
+        .runtime_adapter
+        .confirm_state(0, &chunk_extra.state_root, &vec![state_part])
+        .unwrap();
+    let block = env.clients[0].produce_block(sync_height + 1).unwrap().unwrap();
+    let (_, res) = env.clients[0].process_block(block, Provenance::PRODUCED);
+    assert!(res.is_ok());
 }
 
 #[test]
@@ -1291,8 +1327,7 @@ fn test_gc_fork_tail() {
     }
     let head = env.clients[1].chain.head().unwrap();
     assert!(
-        env.clients[1].runtime_adapter.get_gc_stop_height(&head.last_block_hash).unwrap()
-            > epoch_length
+        env.clients[1].runtime_adapter.get_gc_stop_height(&head.last_block_hash) > epoch_length
     );
     assert_eq!(env.clients[1].chain.store().fork_tail().unwrap(), 3);
 }
