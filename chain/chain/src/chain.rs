@@ -519,14 +519,7 @@ impl Chain {
 
         let head = self.store.head()?;
         let tail = self.store.tail()?;
-        let gc_stop_height = match self.runtime_adapter.get_gc_stop_height(&head.last_block_hash) {
-            Ok(height) => height,
-            Err(e) => match e.kind() {
-                // We don't have enough data to garbage collect. Do nothing in this case.
-                ErrorKind::DBNotFoundErr(_) => return Ok(()),
-                _ => return Err(e),
-            },
-        };
+        let gc_stop_height = self.runtime_adapter.get_gc_stop_height(&head.last_block_hash);
 
         if gc_stop_height > head.height {
             return Err(ErrorKind::GCError(
@@ -2899,7 +2892,7 @@ impl<'a> ChainUpdate<'a> {
         }
 
         // Do not accept old forks
-        if prev_height < self.runtime_adapter.get_gc_stop_height(&head.last_block_hash)? {
+        if prev_height < self.runtime_adapter.get_gc_stop_height(&head.last_block_hash) {
             return Err(ErrorKind::InvalidBlockHeight(prev_height).into());
         }
 
