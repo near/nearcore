@@ -588,6 +588,7 @@ mod tests {
         }
     }
 
+    #[cfg(not(feature = "single_thread_rocksdb"))]
     #[test]
     fn rocksdb_merge_sanity() {
         let tmp_dir = tempfile::Builder::new().prefix("_test_snapshot_sanity").tempdir().unwrap();
