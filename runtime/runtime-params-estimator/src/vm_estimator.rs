@@ -133,7 +133,7 @@ pub fn cost_to_compile(gas_metric: GasMetric, vm_kind: VMKind, verbose: bool) ->
         r.max((*cost - b)/bytes)
     });
     if verbose {
-        println!("raw data: ({},{})", m * (RATIO_PRECISION as f64), b);
+        println!("raw data: ({},{})", m, b);
     }
     (Ratio::new((m * (RATIO_PRECISION as f64)) as u64, RATIO_PRECISION), b as u64)
 }

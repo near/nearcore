@@ -89,12 +89,6 @@ fn main() {
     };
     let disable_measure_action_creation = matches.is_present("action-creation");
     let disable_measure_transaction = matches.is_present("transaction");
-
-    println!(
-        "action Creation {} and  transaction {}",
-        disable_measure_action_creation, disable_measure_transaction
-    );
-
     let runtime_config = run(
         Config {
             warmup_iters_per_block,
