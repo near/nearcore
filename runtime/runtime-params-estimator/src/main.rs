@@ -57,6 +57,11 @@ fn main() {
                 .help("Which VM to test: wasmer or wasmtime"),
         )
         .arg(
+            Arg::with_name("compile-only")
+                .long("compile-only")
+                .help("Only test contract compilation costs"),
+        )
+        .arg(
             Arg::with_name("action-creation")
                 .long("action-creation")
                 .help("Disables action creation measurements"),
@@ -66,7 +71,6 @@ fn main() {
                 .long("transaction")
                 .help("Disables transaction measurements"),
         )
-        .arg(Arg::with_name("external").long("compile").help("Disables transaction measurements"))
         .get_matches();
 
     let state_dump_path = matches.value_of("home").unwrap().to_string();
@@ -85,23 +89,26 @@ fn main() {
     };
     let disable_measure_action_creation = matches.is_present("action-creation");
     let disable_measure_transaction = matches.is_present("transaction");
+
     println!(
         "action Creation {} and  transaction {}",
         disable_measure_action_creation, disable_measure_transaction
     );
-    // let measure_compile = matches.is_present("compile");
 
-    let runtime_config = run(Config {
-        warmup_iters_per_block,
-        iter_per_block,
-        active_accounts,
-        block_sizes: vec![],
-        state_dump_path: state_dump_path.clone(),
-        metric,
-        vm_kind,
-        disable_measure_action_creation,
-        disable_measure_transaction,
-    });
+    let runtime_config = run(
+        Config {
+            warmup_iters_per_block,
+            iter_per_block,
+            active_accounts,
+            block_sizes: vec![],
+            state_dump_path: state_dump_path.clone(),
+            metric,
+            vm_kind,
+            disable_measure_action_creation,
+            disable_measure_transaction,
+        },
+        matches.is_present("compile-only"),
+    );
 
     println!("Generated RuntimeConfig:");
     println!("{:#?}", runtime_config);

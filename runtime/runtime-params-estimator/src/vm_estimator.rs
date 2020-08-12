@@ -1,4 +1,3 @@
-use crate::stats::fit;
 use crate::testbed_runners::end_count;
 use crate::testbed_runners::start_count;
 use crate::testbed_runners::GasMetric;
@@ -8,8 +7,8 @@ use near_vm_logic::{VMConfig, VMContext, VMKind, VMOutcome};
 use near_vm_runner::{compile_module, prepare, VMError};
 use num_rational::Ratio;
 use std::collections::hash_map::DefaultHasher;
-use std::hash::{Hash, Hasher};
 use std::fs;
+use std::hash::{Hash, Hasher};
 
 const CURRENT_ACCOUNT_ID: &str = "alice";
 const SIGNER_ACCOUNT_ID: &str = "bob";
@@ -104,9 +103,8 @@ pub fn cost_per_op(gas_metric: GasMetric) -> Ratio<u64> {
 const RATIO_PRECISION: u64 = 1_000;
 
 fn compile(code: &[u8], gas_metric: GasMetric, vm_kind: VMKind) -> (f64, f64) {
-  let start = start_count(gas_metric);
-  //let prepared_code = prepare::prepare_contract(code, &VMConfig::default()).unwrap();
-  for _ in 0..NUM_ITERATIONS {
+    let start = start_count(gas_metric);
+    for _ in 0..NUM_ITERATIONS {
         let prepared_code = prepare::prepare_contract(code, &VMConfig::default()).unwrap();
         compile_module(vm_kind, &prepared_code);
     }
@@ -115,42 +113,26 @@ fn compile(code: &[u8], gas_metric: GasMetric, vm_kind: VMKind) -> (f64, f64) {
 }
 
 fn load_and_compile(path: &str, gas_metric: GasMetric, vm_kind: VMKind) -> (f64, f64) {
-  let code = fs::read(path).unwrap();
-  compile(&code, gas_metric, vm_kind)
+    let code = fs::read(path).unwrap();
+    compile(&code, gas_metric, vm_kind)
 }
 
-
 /// Cost of the compile contract with vm_kind
-pub fn cost_to_compile(gas_metric: GasMetric, vm_kind: VMKind) -> (Ratio<u64>, u64) {
-  println!("About to compile contracts.....");
-      let contracts_paths = vec![
-        "./small_test_contract/res/smallest_contract.wasm",
-        //"./test-contract/res/medium_contract.wasm",
+pub fn cost_to_compile(gas_metric: GasMetric, vm_kind: VMKind, verbose: bool) -> (Ratio<u64>, u64) {
+    let contracts_paths = vec![
+        "./small-test-contract/res/smallest_contract.wasm",
         "./test-contract/res/no_data_large_contract.wasm",
         "./test-contract/res/no_data_status-message-collections.wasm",
         "./test-contract/res/no_data_near_evm.wasm",
-      ];
-    let mut ratio: f64 = 0.0;
-    let mut base: f64 = 1_000_000_000_000_000_001.0;
-    let (xs, ys) = contracts_paths.iter().fold((vec![],vec![]), |(mut xs, mut ys), path| {
-    let (x, y) = load_and_compile(path, gas_metric, vm_kind);
-    let r = y/x;
-    ratio = if r > ratio { r } else { ratio };
-    base = if y < base { y } else { base };
-    println!("{},{},{}", x, y, ratio);
-    xs.push(x);
-    ys.push(y);
-    (xs, ys)
+    ];
+    let ratio: f64 = 0.0;
+    let base: f64 = f64::MAX;
+    let (m, b) = contracts_paths.iter().fold((ratio, base), |(m, b), path| {
+        let (x, y) = load_and_compile(path, gas_metric, vm_kind);
+        (m.max(x), y.min(b))
     });
-    // let (sx, sy) =
-    //     compile(include_bytes!("../test-contract/res/small_contract.wasm"), gas_metric, vm_kind);
-    // let (mx, my) =
-    //     compile(include_bytes!("../test-contract/res/medium_contract.wasm"), gas_metric, vm_kind);
-    // let (lx, ly) =
-    //     compile(include_bytes!("../test-contract/res/near_evm.wasm"), gas_metric, vm_kind);
-    let (mut m, mut b) = (ratio, base); //fit(&xs, &ys);
-    //m = ratio;
-    //b = base;
-    println!("({}/1000,{})", m * (RATIO_PRECISION as f64), b);
+    if verbose {
+        println!("raw data: ({},{})", m * (RATIO_PRECISION as f64), b);
+    }
     (Ratio::new((m * (RATIO_PRECISION as f64)) as u64, RATIO_PRECISION), b as u64)
 }
