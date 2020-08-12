@@ -568,6 +568,7 @@ mod tests {
     use crate::{create_store, DBCol};
 
     impl RocksDB {
+        #[cfg(not(feature = "single_thread_rocksdb"))]
         fn compact(&self, col: DBCol) {
             self.db.compact_range_cf::<&[u8], &[u8]>(
                 unsafe { &*self.cfs[col as usize] },
