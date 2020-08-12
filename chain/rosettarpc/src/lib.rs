@@ -4,7 +4,6 @@ use std::sync::Arc;
 use actix::Addr;
 use actix_cors::{Cors, CorsFactory};
 use actix_web::{App, HttpServer};
-use futures::StreamExt;
 use paperclip::actix::{
     api_v2_operation,
     // use this instead of actix_web::web
@@ -25,8 +24,8 @@ pub const API_VERSION: &str = "1.4.2";
 
 pub mod config;
 pub use config::RosettaRpcConfig;
+mod adapters;
 mod consts;
-mod data_fetchers;
 pub mod models;
 mod utils;
 
@@ -90,43 +89,11 @@ async fn network_status(
         view_client_addr.send(near_client::GetBlock(
             near_primitives::types::BlockId::Height(genesis_height).into(),
         )),
-        // TODO: Use this implementation once a proper /block implementation for genesis block is
-        // landed: view_client_addr.send(near_client::GetBlock(
-        //    near_primitives::types::BlockReference::SyncCheckpoint(near_primitives::types::
-        // SyncCheckpoint::EarliestAvailable),
-        //));
-        // This is a hack to avoid Rosetta peeking up the genesis block.
-        async {
-            let mut earliest_block = match view_client_addr
-                .send(near_client::GetBlock(
-                    near_primitives::types::BlockReference::SyncCheckpoint(
-                        near_primitives::types::SyncCheckpoint::EarliestAvailable,
-                    ),
-                ))
-                .await?
-            {
-                Ok(block) => block,
-                Err(message) => return Ok(Err(message)),
-            };
-            if earliest_block.header.height == genesis_height {
-                for earliest_block_index in genesis_height + 1.. {
-                    match view_client_addr
-                        .send(near_client::GetBlock(
-                            near_primitives::types::BlockId::Height(earliest_block_index).into(),
-                        ))
-                        .await?
-                    {
-                        Ok(block) => {
-                            earliest_block = block;
-                            break;
-                        }
-                        Err(message) if message.contains("Block missing") => {}
-                        Err(message) => return Ok(Err(message)),
-                    }
-                }
-            }
-            Ok(Ok(earliest_block))
-        }
+        view_client_addr.send(near_client::GetBlock(
+            near_primitives::types::BlockReference::SyncCheckpoint(
+                near_primitives::types::SyncCheckpoint::EarliestAvailable
+            ),
+        )),
     )?;
     let network_info = network_info.map_err(models::ErrorKind::Other)?;
     let genesis_block = genesis_block.map_err(models::ErrorKind::Other)?;
@@ -209,11 +176,6 @@ async fn network_options(
     }))
 }
 
-enum TransactionOrReceipt {
-    Transaction(near_primitives::views::SignedTransactionView),
-    Receipt(near_primitives::views::ReceiptView),
-}
-
 #[api_v2_operation]
 /// Get a Block
 ///
@@ -286,174 +248,12 @@ async fn block_details(
         }
     };
 
-    let transactions = if block.header.prev_hash == Default::default() {
-        // NEAR Protocol defines initial state in genesis records and treats the first
-        // block differently (e.g. it cannot contain any transactions: https://stackoverflow.com/a/63347167/1178806).
-        //
-        // Genesis records can be huge (order of gigabytes of JSON data), and Rosetta
-        // API does not define any pagination, and suggests to use
-        // `other_transactions` to deal with this: https://community.rosetta-api.org/t/how-to-return-data-without-being-able-to-paginate/98
-        // We choose to do a proper implementation for the genesis block later.
-        let genesis_accounts = genesis
-            .records
-            .as_ref()
-            .iter()
-            .filter_map(|record| {
-                if let near_primitives::state_record::StateRecord::Account { account_id, .. } =
-                    record
-                {
-                    Some(account_id)
-                } else {
-                    None
-                }
-            })
-            .map(|account_id| {
-                let genesis_block_id = near_primitives::types::BlockId::Hash(block.header.hash).into();
-                let view_client_addr = &view_client_addr;
-                async move {
-                    match view_client_addr
-                        .send(near_client::Query::new(
-                            genesis_block_id,
-                            near_primitives::views::QueryRequest::ViewAccount { account_id: account_id.clone() },
-                        ))
-                        .await?
-                        .map_err(crate::models::ErrorKind::Other)?
-                        .map(|response| response.kind) {
-                        Some(near_primitives::views::QueryResponseKind::ViewAccount(account_info)) => Ok((account_id.clone(), account_info)),
-                        _ => {
-                            Err(crate::models::ErrorKind::Other(
-                                "Internal invariant is not held; we queried ViewAccount, but received something else."
-                                    .to_string(),
-                            )
-                            .into())
-                        }
-                    }
-                }
-            })
-            .collect::<futures::stream::FuturesUnordered<_>>()
-         .collect::<Vec<
-            Result<
-                (near_primitives::types::AccountId, near_primitives::views::AccountView),
-                crate::models::Error,
-            >,
-        >>()
-        .await
-        .into_iter()
-        .collect::<Result<Vec<_>, crate::models::Error>>()?;
-
-        let mut operations = Vec::new();
-        for (account_id, account) in genesis_accounts {
-            let liquid_balance_for_storage = {
-                let mut account = near_primitives::account::Account::from(&account);
-                account.amount = 0;
-                near_runtime_configs::get_insufficient_storage_stake(
-                    &account,
-                    &genesis.config.runtime_config,
-                )
-                .expect("get_insufficient_storage_stake never fails when state is consistent")
-                .unwrap_or(0)
-            };
-
-            let liquid_balance = account.amount.checked_sub(liquid_balance_for_storage).ok_or_else(|| crate::models::ErrorKind::Other("Internal invariant is not held; liquid balance for storage cannot be bigger than the total balance".into()))?;
-
-            let locked_balance = account.locked;
-
-            if liquid_balance != 0 {
-                operations.push(crate::models::Operation {
-                    operation_identifier: crate::models::OperationIdentifier {
-                        index: operations.len().try_into().expect(
-                            "there cannot be more than i64::MAX operations in a single transaction",
-                        ),
-                        network_index: None,
-                    },
-                    related_operations: None,
-                    account: Some(crate::models::AccountIdentifier {
-                        address: account_id.clone(),
-                        sub_account: None,
-                        metadata: None,
-                    }),
-                    amount: Some(crate::models::Amount {
-                        value: liquid_balance.to_string(),
-                        currency: crate::consts::YOCTO_NEAR_CURRENCY.clone(),
-                        metadata: None,
-                    }),
-                    type_: crate::models::OperationType::Transfer,
-                    status: crate::models::OperationStatusKind::Success,
-                    metadata: None,
-                });
-            }
-
-            if liquid_balance_for_storage != 0 {
-                operations.push(crate::models::Operation {
-                    operation_identifier: crate::models::OperationIdentifier {
-                        index: operations.len().try_into().expect(
-                            "there cannot be more than i64::MAX operations in a single transaction",
-                        ),
-                        network_index: None,
-                    },
-                    related_operations: None,
-                    account: Some(crate::models::AccountIdentifier {
-                        address: account_id.clone(),
-                        sub_account: Some(crate::models::SubAccountIdentifier {
-                            address: "liquid_for_storage".into(),
-                            metadata: None,
-                        }),
-                        metadata: None,
-                    }),
-                    amount: Some(crate::models::Amount {
-                        value: liquid_balance_for_storage.to_string(),
-                        currency: crate::consts::YOCTO_NEAR_CURRENCY.clone(),
-                        metadata: None,
-                    }),
-                    type_: crate::models::OperationType::Transfer,
-                    status: crate::models::OperationStatusKind::Success,
-                    metadata: None,
-                });
-            }
-
-            if locked_balance != 0 {
-                operations.push(crate::models::Operation {
-                    operation_identifier: crate::models::OperationIdentifier {
-                        index: operations.len().try_into().expect(
-                            "there cannot be more than i64::MAX operations in a single transaction",
-                        ),
-                        network_index: None,
-                    },
-                    related_operations: None,
-                    account: Some(crate::models::AccountIdentifier {
-                        address: account_id.clone(),
-                        sub_account: Some(crate::models::SubAccountIdentifier {
-                            address: "locked".into(),
-                            metadata: None,
-                        }),
-                        metadata: None,
-                    }),
-                    amount: Some(crate::models::Amount {
-                        value: locked_balance.to_string(),
-                        currency: crate::consts::YOCTO_NEAR_CURRENCY.clone(),
-                        metadata: None,
-                    }),
-                    type_: crate::models::OperationType::Transfer,
-                    status: crate::models::OperationStatusKind::Success,
-                    metadata: None,
-                });
-            }
-        }
-        vec![models::Transaction {
-            transaction_identifier: models::TransactionIdentifier {
-                hash: format!("block:{}", block.header.hash),
-            },
-            operations,
-            metadata: models::TransactionMetadata { type_: models::TransactionType::Block },
-        }]
-    } else {
-        data_fetchers::fetch_transactions(
-            Arc::clone(&genesis),
-            Addr::clone(&view_client_addr),
-            &block,
-        )
-        .await?
-    };
+    let transactions = crate::adapters::collect_transactions(
+        Arc::clone(&genesis),
+        Addr::clone(&view_client_addr),
+        &block,
+    )
+    .await?;
 
     Ok(Json(models::BlockResponse {
         block: Some(models::Block {
@@ -485,12 +285,61 @@ async fn block_details(
 /// previous transactions to populate the response (ex: Previous UTXOs in
 /// Bitcoin) may find it useful to run a cache within the Rosetta server in the
 /// /data directory (on a path that does not conflict with the node).
+///
+/// NOTE: The current implementation is suboptimal as it processes the whole
+/// block to only return a single transaction.
 async fn block_transaction_details(
+    genesis: web::Data<Arc<Genesis>>,
     client_addr: web::Data<Addr<ClientActor>>,
     view_client_addr: web::Data<Addr<ViewClientActor>>,
     body: Json<models::BlockTransactionRequest>,
 ) -> Result<Json<models::BlockTransactionResponse>, models::Error> {
-    unimplemented!("the implementation is going to share the code from /block handler");
+    let Json(models::BlockTransactionRequest {
+        network_identifier,
+        block_identifier,
+        transaction_identifier,
+    }) = body;
+
+    // TODO: reduce copy-paste
+    let status = client_addr
+        .send(near_client::Status { is_health_check: false })
+        .await?
+        .map_err(models::ErrorKind::Other)?;
+    if status.chain_id != network_identifier.network {
+        return Err(models::Error {
+            code: 2,
+            message: "Wrong network (chain id)".to_string(),
+            retriable: true,
+            details: None,
+        });
+    }
+
+    // TODO: avoid ad-hoc error handling of common use-cases
+    let block_id: near_primitives::types::BlockReference =
+        block_identifier.try_into().map_err(|_| models::Error {
+            code: 4,
+            message: "Invalid input".to_string(),
+            retriable: true,
+            details: None,
+        })?;
+
+    let block = view_client_addr
+        .send(near_client::GetBlock(block_id.clone()))
+        .await?
+        .map_err(models::ErrorKind::NotFound)?;
+
+    let transaction = crate::adapters::collect_transactions(
+        Arc::clone(&genesis),
+        Addr::clone(&view_client_addr),
+        &block,
+    )
+    .await?
+    .into_iter()
+    .filter(|transaction| transaction.transaction_identifier == transaction_identifier)
+    .next()
+    .ok_or_else(|| models::ErrorKind::NotFound("Transaction not found".into()))?;
+
+    Ok(Json(models::BlockTransactionResponse { transaction }))
 }
 
 #[api_v2_operation]

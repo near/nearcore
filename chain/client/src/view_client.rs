@@ -202,9 +202,7 @@ impl ViewClientActor {
                 }
             }
         };
-        eprintln!("query res header: {:?}", header);
         let header = header.map_err(|e| e.to_string())?.clone();
-        eprintln!("query after header");
 
         let account_id = match &msg.request {
             QueryRequest::ViewAccount { account_id, .. } => account_id,
@@ -234,7 +232,6 @@ impl ViewClientActor {
                     .map_err(|e| e.to_string())
             }
             Err(e) => {
-                eprintln!("query no chunk");
                 match e.kind() {
                     ErrorKind::DBNotFoundErr(_) => {}
                     _ => {

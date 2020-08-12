@@ -8,7 +8,176 @@ use near_chain_configs::Genesis;
 use near_client::ViewClientActor;
 use near_primitives::serialize::BaseEncode;
 
-pub(crate) async fn fetch_transactions(
+/// NEAR Protocol defines initial state in genesis records and treats the first
+/// block differently (e.g. it cannot contain any transactions: https://stackoverflow.com/a/63347167/1178806).
+///
+/// Genesis records can be huge (order of gigabytes of JSON data), and Rosetta
+/// API does not define any pagination, and suggests to use
+/// `other_transactions` to deal with this: https://community.rosetta-api.org/t/how-to-return-data-without-being-able-to-paginate/98
+/// We choose to do a proper implementation for the genesis block later.
+async fn convert_genesis_records_to_transaction(
+    genesis: Arc<Genesis>,
+    view_client_addr: Addr<ViewClientActor>,
+    block: &near_primitives::views::BlockView,
+) -> Result<crate::models::Transaction, crate::models::Error> {
+    let genesis_accounts = genesis
+            .records
+            .as_ref()
+            .iter()
+            .filter_map(|record| {
+                if let near_primitives::state_record::StateRecord::Account { account_id, .. } =
+                    record
+                {
+                    Some(account_id)
+                } else {
+                    None
+                }
+            })
+            .map(|account_id| {
+                let genesis_block_id = near_primitives::types::BlockId::Hash(block.header.hash).into();
+                let view_client_addr = &view_client_addr;
+                async move {
+                    match view_client_addr
+                        .send(near_client::Query::new(
+                            genesis_block_id,
+                            near_primitives::views::QueryRequest::ViewAccount { account_id: account_id.clone() },
+                        ))
+                        .await?
+                        .map_err(crate::models::ErrorKind::Other)?
+                        .map(|response| response.kind) {
+                        Some(near_primitives::views::QueryResponseKind::ViewAccount(account_info)) => Ok((account_id.clone(), account_info)),
+                        _ => {
+                            Err(crate::models::ErrorKind::Other(
+                                "Internal invariant is not held; we queried ViewAccount, but received something else."
+                                    .to_string(),
+                            )
+                            .into())
+                        }
+                    }
+                }
+            })
+            .collect::<futures::stream::FuturesUnordered<_>>()
+         .collect::<Vec<
+            Result<
+                (near_primitives::types::AccountId, near_primitives::views::AccountView),
+                crate::models::Error,
+            >,
+        >>()
+        .await
+        .into_iter()
+        .collect::<Result<Vec<_>, crate::models::Error>>()?;
+
+    let mut operations = Vec::new();
+    for (account_id, account) in genesis_accounts {
+        let liquid_balance_for_storage = {
+            let mut account = near_primitives::account::Account::from(&account);
+            account.amount = 0;
+            near_runtime_configs::get_insufficient_storage_stake(
+                &account,
+                &genesis.config.runtime_config,
+            )
+            .expect("get_insufficient_storage_stake never fails when state is consistent")
+            .unwrap_or(0)
+        };
+
+        let liquid_balance = account.amount.checked_sub(liquid_balance_for_storage).ok_or_else(|| crate::models::ErrorKind::Other("Internal invariant is not held; liquid balance for storage cannot be bigger than the total balance".into()))?;
+
+        let locked_balance = account.locked;
+
+        if liquid_balance != 0 {
+            operations.push(crate::models::Operation {
+                operation_identifier: crate::models::OperationIdentifier {
+                    index: operations.len().try_into().expect(
+                        "there cannot be more than i64::MAX operations in a single transaction",
+                    ),
+                    network_index: None,
+                },
+                related_operations: None,
+                account: Some(crate::models::AccountIdentifier {
+                    address: account_id.clone(),
+                    sub_account: None,
+                    metadata: None,
+                }),
+                amount: Some(crate::models::Amount {
+                    value: liquid_balance.to_string(),
+                    currency: crate::consts::YOCTO_NEAR_CURRENCY.clone(),
+                    metadata: None,
+                }),
+                type_: crate::models::OperationType::Transfer,
+                status: crate::models::OperationStatusKind::Success,
+                metadata: None,
+            });
+        }
+
+        if liquid_balance_for_storage != 0 {
+            operations.push(crate::models::Operation {
+                operation_identifier: crate::models::OperationIdentifier {
+                    index: operations.len().try_into().expect(
+                        "there cannot be more than i64::MAX operations in a single transaction",
+                    ),
+                    network_index: None,
+                },
+                related_operations: None,
+                account: Some(crate::models::AccountIdentifier {
+                    address: account_id.clone(),
+                    sub_account: Some(crate::models::SubAccountIdentifier {
+                        address: "liquid_for_storage".into(),
+                        metadata: None,
+                    }),
+                    metadata: None,
+                }),
+                amount: Some(crate::models::Amount {
+                    value: liquid_balance_for_storage.to_string(),
+                    currency: crate::consts::YOCTO_NEAR_CURRENCY.clone(),
+                    metadata: None,
+                }),
+                type_: crate::models::OperationType::Transfer,
+                status: crate::models::OperationStatusKind::Success,
+                metadata: None,
+            });
+        }
+
+        if locked_balance != 0 {
+            operations.push(crate::models::Operation {
+                operation_identifier: crate::models::OperationIdentifier {
+                    index: operations.len().try_into().expect(
+                        "there cannot be more than i64::MAX operations in a single transaction",
+                    ),
+                    network_index: None,
+                },
+                related_operations: None,
+                account: Some(crate::models::AccountIdentifier {
+                    address: account_id.clone(),
+                    sub_account: Some(crate::models::SubAccountIdentifier {
+                        address: "locked".into(),
+                        metadata: None,
+                    }),
+                    metadata: None,
+                }),
+                amount: Some(crate::models::Amount {
+                    value: locked_balance.to_string(),
+                    currency: crate::consts::YOCTO_NEAR_CURRENCY.clone(),
+                    metadata: None,
+                }),
+                type_: crate::models::OperationType::Transfer,
+                status: crate::models::OperationStatusKind::Success,
+                metadata: None,
+            });
+        }
+    }
+
+    Ok(crate::models::Transaction {
+        transaction_identifier: crate::models::TransactionIdentifier {
+            hash: format!("block:{}", block.header.hash),
+        },
+        operations,
+        metadata: crate::models::TransactionMetadata {
+            type_: crate::models::TransactionType::Block,
+        },
+    })
+}
+
+pub(crate) async fn convert_block_to_transactions(
     genesis: Arc<Genesis>,
     view_client_addr: Addr<ViewClientActor>,
     block: &near_primitives::views::BlockView,
@@ -378,4 +547,16 @@ pub(crate) async fn fetch_transactions(
     }
 
     Ok(transactions)
+}
+
+pub(crate) async fn collect_transactions(
+    genesis: Arc<Genesis>,
+    view_client_addr: Addr<ViewClientActor>,
+    block: &near_primitives::views::BlockView,
+) -> Result<Vec<crate::models::Transaction>, crate::models::Error> {
+    if block.header.prev_hash == Default::default() {
+        Ok(vec![convert_genesis_records_to_transaction(genesis, view_client_addr, block).await?])
+    } else {
+        convert_block_to_transactions(genesis, view_client_addr, block).await
+    }
 }
