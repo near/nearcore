@@ -105,6 +105,7 @@ const RATIO_PRECISION: u64 = 1_000;
 
 fn compile(code: &[u8], gas_metric: GasMetric, vm_kind: VMKind) -> (f64, f64) {
   let start = start_count(gas_metric);
+  //let prepared_code = prepare::prepare_contract(code, &VMConfig::default()).unwrap();
   for _ in 0..NUM_ITERATIONS {
         let prepared_code = prepare::prepare_contract(code, &VMConfig::default()).unwrap();
         compile_module(vm_kind, &prepared_code);
@@ -123,15 +124,20 @@ fn load_and_compile(path: &str, gas_metric: GasMetric, vm_kind: VMKind) -> (f64,
 pub fn cost_to_compile(gas_metric: GasMetric, vm_kind: VMKind) -> (Ratio<u64>, u64) {
   println!("About to compile contracts.....");
       let contracts_paths = vec![
-        "./test-contract/res/small_contract.wasm",
-        "./test-contract/res/medium_contract.wasm",
-        "./test-contract/res/large_contract.wasm",
-        "./test-contract/res/status-message-collections.wasm",
-        "./test-contract/res/near_evm.wasm",
+        "./small_test_contract/res/smallest_contract.wasm",
+        //"./test-contract/res/medium_contract.wasm",
+        "./test-contract/res/no_data_large_contract.wasm",
+        "./test-contract/res/no_data_status-message-collections.wasm",
+        "./test-contract/res/no_data_near_evm.wasm",
       ];
+    let mut ratio: f64 = 0.0;
+    let mut base: f64 = 1_000_000_000_000_000_001.0;
     let (xs, ys) = contracts_paths.iter().fold((vec![],vec![]), |(mut xs, mut ys), path| {
     let (x, y) = load_and_compile(path, gas_metric, vm_kind);
-    println!("{},{}", x,y);
+    let r = y/x;
+    ratio = if r > ratio { r } else { ratio };
+    base = if y < base { y } else { base };
+    println!("{},{},{}", x, y, ratio);
     xs.push(x);
     ys.push(y);
     (xs, ys)
@@ -142,7 +148,9 @@ pub fn cost_to_compile(gas_metric: GasMetric, vm_kind: VMKind) -> (Ratio<u64>, u
     //     compile(include_bytes!("../test-contract/res/medium_contract.wasm"), gas_metric, vm_kind);
     // let (lx, ly) =
     //     compile(include_bytes!("../test-contract/res/near_evm.wasm"), gas_metric, vm_kind);
-    let (m, b) = fit(&xs, &ys);
+    let (mut m, mut b) = (ratio, base); //fit(&xs, &ys);
+    //m = ratio;
+    //b = base;
     println!("({}/1000,{})", m * (RATIO_PRECISION as f64), b);
     (Ratio::new((m * (RATIO_PRECISION as f64)) as u64, RATIO_PRECISION), b as u64)
 }
