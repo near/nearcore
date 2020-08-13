@@ -166,17 +166,7 @@ impl ViewClientActor {
 
         match synchronization_checkpoint {
             SyncCheckpoint::Genesis => Ok(Some(self.chain.genesis().hash().clone())),
-            SyncCheckpoint::EarliestAvailable => {
-                let head_header_height = self.chain.head_header()?.height();
-                let mut chain_store_update = self.chain.mut_store().store_update();
-                let tail = chain_store_update.tail()?;
-                for height in tail..=head_header_height {
-                    if let Ok(block_hash) = chain_store_update.get_block_hash_by_height(height) {
-                        return Ok(Some(block_hash));
-                    }
-                }
-                Ok(None)
-            }
+            SyncCheckpoint::EarliestAvailable => Ok(self.chain.get_earliest_block_hash()?),
         }
     }
 
