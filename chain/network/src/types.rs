@@ -29,7 +29,7 @@ use near_primitives::syncing::ShardStateSyncResponse;
 use near_primitives::transaction::{ExecutionOutcomeWithIdAndProof, SignedTransaction};
 use near_primitives::types::{AccountId, BlockHeight, BlockReference, EpochId, ShardId};
 use near_primitives::utils::{from_timestamp, to_timestamp};
-use near_primitives::version::PROTOCOL_VERSION;
+use near_primitives::version::{OLDEST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION, PROTOCOL_VERSION};
 use near_primitives::views::{FinalExecutionOutcomeView, QueryRequest, QueryResponse};
 
 use crate::peer::Peer;
@@ -199,12 +199,33 @@ pub struct HandshakeV2 {
     pub edge_info: EdgeInfo,
 }
 
-impl From<HandshakeV2> for Handshake {
-    fn from(handshake_old: HandshakeV2) -> Self {
+impl HandshakeV2 {
+    pub fn new(
+        peer_id: PeerId,
+        target_peer_id: PeerId,
+        listen_port: Option<u16>,
+        chain_info: PeerChainInfo,
+        edge_info: EdgeInfo,
+    ) -> Self {
         Self {
-            // In the transition to the new version, we care about the oldest supported version
-            // by the other node.
-            version: handshake_old.oldest_supported_version,
+            version: PROTOCOL_VERSION,
+            oldest_supported_version: OLDEST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION,
+            peer_id,
+            target_peer_id,
+            listen_port,
+            chain_info,
+            edge_info,
+        }
+    }
+}
+
+impl From<Handshake> for HandshakeV2 {
+    fn from(handshake_old: Handshake) -> Self {
+        Self {
+            // In previous version of handhsake, nodes usually sent the oldest supported version instead of their current version.
+            // Computing the current version of the other as the oldest version plus 4, but not letting go bigger than 33.
+            version: std::cmp::min(33, handshake_old.version.saturating_add(4)),
+            oldest_supported_version: handshake_old.version,
             peer_id: handshake_old.peer_id,
             target_peer_id: handshake_old.target_peer_id,
             listen_port: handshake_old.listen_port,
