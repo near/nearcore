@@ -78,3 +78,60 @@ cargo run --release --package neard --bin neard --features rosetta_rpc -- run
 ```
 
 By default, Rosetta RPC is available on port TCP/3040.
+
+
+Tweaks
+------
+
+By default, nearcore is configured to do as little work as possible while still
+operating on an up-to-date state. Indexers may have different requirements, so
+there is no solution that would work for everyone, and thus we are going to
+provide you with the set of knobs you can tune for your requirements.
+
+As already has been mentioned in this README, the most common tweak you need to
+apply is listing all the shards you want to index data from; to do that, you
+should ensure that `"tracked_shards"` in the `~/.near/<network-id>/config.json`
+lists all the shard IDs, e.g. for the current betanet and testnet, which have a
+single shard:
+
+```
+...
+"tracked_shards": [0],
+...
+```
+
+By default, nearcore is configured to automatically clean old data (performs
+garbage collection [GC]), so querying the data that was observed a few epochs
+before may return an error saying that the data is missing. If you only need
+recent blocks, you don't need this tweak, but if you need access to the
+historical data, consider updating `"archive"` setting in `config.json` to
+`true`:
+
+```
+...
+"archive": true,
+...
+```
+
+Another tweak changes the default "fast" sync process to a "full" sync process.
+When the node gets online and observes that its state is missing or outdated, it
+will do state sync, and that can be done in two strategies:
+
+1. ("fast" / default) sync enough information (only block headers) to ensure that
+   the chain is valid; that means that the node won't have transactions, receipts,
+   and execution outcomes, only the proofs, so Indexer will skip these blocks
+2. (very slow / full sync) sync all the blocks, chunks, transactions, receipts,
+   and execution outcomes starting from the genesis.
+
+To force full sync (don't forget to track shards [see the previous tweak]), make
+the following change to your `config.json`:
+
+```
+...
+"consensus": {
+  ...
+  "block_fetch_horizon": 1000000000000000000,
+  ...
+},
+...
+```
