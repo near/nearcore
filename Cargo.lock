@@ -2670,7 +2670,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "near-rosettarpc"
+name = "near-rosetta-rpc"
 version = "0.1.0"
 dependencies = [
  "actix",
@@ -2892,7 +2892,7 @@ dependencies = [
  "near-network",
  "near-pool",
  "near-primitives",
- "near-rosettarpc",
+ "near-rosetta-rpc",
  "near-runtime-configs",
  "near-store",
  "near-telemetry",

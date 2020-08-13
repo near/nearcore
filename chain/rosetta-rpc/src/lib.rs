@@ -6,35 +6,25 @@ use actix_cors::{Cors, CorsFactory};
 use actix_web::{App, HttpServer};
 use paperclip::actix::{
     api_v2_operation,
-    // use this instead of actix_web::web
     web::{self, Json},
-    Apiv2Schema,
-    // extension trait for actix_web::App and proc-macro attributes
     OpenApiExt,
 };
-use serde::{Deserialize, Serialize};
 use strum::IntoEnumIterator;
 
 use near_chain_configs::Genesis;
 use near_client::{ClientActor, ViewClientActor};
 use near_primitives::serialize::BaseEncode;
 
-pub const BASE_PATH: &str = "";
-pub const API_VERSION: &str = "1.4.2";
-
-pub mod config;
 pub use config::RosettaRpcConfig;
+
 mod adapters;
+mod config;
 mod consts;
-pub mod models;
+mod models;
 mod utils;
 
-// Mark containers (body, query, parameter, etc.) like so...
-#[derive(Serialize, Deserialize, Apiv2Schema)]
-struct Pet {
-    name: String,
-    id: Option<i64>,
-}
+pub const BASE_PATH: &str = "";
+pub const API_VERSION: &str = "1.4.2";
 
 /// Get List of Available Networks
 ///
@@ -335,8 +325,7 @@ async fn block_transaction_details(
     )
     .await?
     .into_iter()
-    .filter(|transaction| transaction.transaction_identifier == transaction_identifier)
-    .next()
+    .find(|transaction| transaction.transaction_identifier == transaction_identifier)
     .ok_or_else(|| models::ErrorKind::NotFound("Transaction not found".into()))?;
 
     Ok(Json(models::BlockTransactionResponse { transaction }))
@@ -499,20 +488,20 @@ async fn account_balance(
 }
 
 #[api_v2_operation]
-/// Get All Mempool Transactions
+/// Get All Mempool Transactions (not implemented)
 ///
 /// Get all Transaction Identifiers in the mempool
+///
+/// NOTE: The mempool is short-lived, so it is currently not implemented.
 async fn mempool(
-    client_addr: web::Data<Addr<ClientActor>>,
-    body: Json<models::NetworkRequest>,
+    _client_addr: web::Data<Addr<ClientActor>>,
+    _body: Json<models::NetworkRequest>,
 ) -> Result<Json<models::MempoolResponse>, models::Error> {
-    // TOOD: The mempool is short-lived, so it is currently not even exposed
-    // internally.
     Ok(Json(models::MempoolResponse { transaction_identifiers: vec![] }))
 }
 
 #[api_v2_operation]
-/// Get a Mempool Transaction
+/// Get a Mempool Transaction (not implemented)
 ///
 /// Get a transaction in the mempool by its Transaction Identifier. This is a
 /// separate request than fetching a block transaction (/block/transaction)
@@ -522,12 +511,128 @@ async fn mempool(
 /// to determine the fee to pay before a transaction is executed). On this
 /// endpoint, it is ok that returned transactions are only estimates of what may
 /// actually be included in a block.
+///
+/// NOTE: The mempool is short-lived, so this method does not make a lot of
+/// sense to implement.
 async fn mempool_transaction(
-    client_addr: web::Data<Addr<ClientActor>>,
-    body: Json<models::MempoolTransactionRequest>,
+    _client_addr: web::Data<Addr<ClientActor>>,
+    _body: Json<models::MempoolTransactionRequest>,
 ) -> Result<Json<models::MempoolTransactionResponse>, models::Error> {
+    Err(models::ErrorKind::Other("Not implemented yet".to_string()).into())
+}
+
+#[api_v2_operation]
+/// Derive an Address from a PublicKey (not implemented by design)
+///
+/// Derive returns the network-specific address associated with a public key.
+///
+/// Blockchains that require an on-chain action to create an account should not
+/// implement this method.
+async fn construction_derive() -> Result<Json<()>, models::Error> {
+    Err(models::ErrorKind::Other("Not implemented by design".to_string()).into())
+}
+
+#[api_v2_operation]
+/// Create a Request to Fetch Metadata (not implemented yet)
+///
+/// Preprocess is called prior to /construction/payloads to construct a request
+/// for any metadata that is needed for transaction construction given (i.e.
+/// account nonce). The request returned from this method will be used by the
+/// caller (in a different execution environment) to call the
+/// /construction/metadata endpoint.
+async fn construction_preprocess(
+    _client_addr: web::Data<Addr<ClientActor>>,
+    _body: Json<models::ConstructionSubmitRequest>,
+) -> Result<Json<models::TransactionIdentifierResponse>, models::Error> {
     // TODO
     Err(models::ErrorKind::Other("Not implemented yet".to_string()).into())
+}
+
+#[api_v2_operation]
+/// Get Metadata for Transaction Construction (not implemented yet)
+///
+/// Get any information required to construct a transaction for a specific
+/// network. Metadata returned here could be a recent hash to use, an account
+/// sequence number, or even arbitrary chain state. The request used when
+/// calling this endpoint is often created by calling /construction/preprocess
+/// in an offline environment. It is important to clarify that this endpoint
+/// should not pre-construct any transactions for the client (this should happen
+/// in /construction/payloads). This endpoint is left purposely unstructured
+/// because of the wide scope of metadata that could be required.
+async fn construction_metadata(
+    _client_addr: web::Data<Addr<ClientActor>>,
+    _body: Json<models::ConstructionSubmitRequest>,
+) -> Result<Json<models::TransactionIdentifierResponse>, models::Error> {
+    // TODO
+    Err(models::ErrorKind::Other("Not implemented yet".to_string()).into())
+}
+
+#[api_v2_operation]
+/// Generate an Unsigned Transaction and Signing Payloads (not implemented yet)
+///
+/// Payloads is called with an array of operations and the response from
+/// `/construction/metadata`. It returns an unsigned transaction blob and a
+/// collection of payloads that must be signed by particular addresses using a
+/// certain SignatureType. The array of operations provided in transaction
+/// construction often times can not specify all "effects" of a transaction
+/// (consider invoked transactions in Ethereum). However, they can
+/// deterministically specify the "intent" of the transaction, which is
+/// sufficient for construction. For this reason, parsing the corresponding
+/// transaction in the Data API (when it lands on chain) will contain a superset
+/// of whatever operations were provided during construction.
+async fn construction_payloads(
+    _client_addr: web::Data<Addr<ClientActor>>,
+    _body: Json<models::ConstructionSubmitRequest>,
+) -> Result<Json<models::TransactionIdentifierResponse>, models::Error> {
+    // TODO
+    Err(models::ErrorKind::Other("Not implemented yet".to_string()).into())
+}
+
+#[api_v2_operation]
+/// Create Network Transaction from Signatures (not implemented yet)
+///
+/// Combine creates a network-specific transaction from an unsigned transaction
+/// and an array of provided signatures. The signed transaction returned from
+/// this method will be sent to the /construction/submit endpoint by the caller.
+async fn construction_combine(
+    _client_addr: web::Data<Addr<ClientActor>>,
+    _body: Json<models::ConstructionSubmitRequest>,
+) -> Result<Json<models::TransactionIdentifierResponse>, models::Error> {
+    // TODO
+    Err(models::ErrorKind::Other("Not implemented yet".to_string()).into())
+}
+
+#[api_v2_operation]
+/// Parse a Transaction (not implemented yet)
+///
+/// Parse is called on both unsigned and signed transactions to understand the
+/// intent of the formulated transaction. This is run as a sanity check before
+/// signing (after /construction/payloads) and before broadcast (after
+/// /construction/combine).
+async fn construction_parse(
+    _client_addr: web::Data<Addr<ClientActor>>,
+    _body: Json<models::ConstructionSubmitRequest>,
+) -> Result<Json<models::TransactionIdentifierResponse>, models::Error> {
+    // TODO
+    Err(models::ErrorKind::Other("Not implemented yet".to_string()).into())
+}
+
+#[api_v2_operation]
+/// Get the Hash of a Signed Transaction
+///
+/// TransactionHash returns the network-specific transaction hash for a signed
+/// transaction.
+async fn construction_hash(
+    body: Json<models::ConstructionHashRequest>,
+) -> Result<Json<models::TransactionIdentifierResponse>, models::Error> {
+    let Json(models::ConstructionHashRequest { network_identifier: _, signed_transaction }) = body;
+
+    Ok(Json(models::TransactionIdentifierResponse {
+        transaction_identifier: models::TransactionIdentifier {
+            hash: signed_transaction.0.get_hash().to_base(),
+        },
+        metadata: None,
+    }))
 }
 
 #[api_v2_operation]
@@ -571,109 +676,6 @@ async fn construction_submit(
     }))
 }
 
-#[api_v2_operation]
-/// Create a Request to Fetch Metadata
-///
-/// Preprocess is called prior to /construction/payloads to construct a request
-/// for any metadata that is needed for transaction construction given (i.e.
-/// account nonce). The request returned from this method will be used by the
-/// caller (in a different execution environment) to call the
-/// /construction/metadata endpoint.
-async fn construction_preprocess(
-    client_addr: web::Data<Addr<ClientActor>>,
-    body: Json<models::ConstructionSubmitRequest>,
-) -> Result<Json<models::TransactionIdentifierResponse>, models::Error> {
-    // TODO
-    Err(models::ErrorKind::Other("Not implemented yet".to_string()).into())
-}
-
-#[api_v2_operation]
-/// Get Metadata for Transaction Construction
-///
-/// Get any information required to construct a transaction for a specific
-/// network. Metadata returned here could be a recent hash to use, an account
-/// sequence number, or even arbitrary chain state. The request used when
-/// calling this endpoint is often created by calling /construction/preprocess
-/// in an offline environment. It is important to clarify that this endpoint
-/// should not pre-construct any transactions for the client (this should happen
-/// in /construction/payloads). This endpoint is left purposely unstructured
-/// because of the wide scope of metadata that could be required.
-async fn construction_metadata(
-    client_addr: web::Data<Addr<ClientActor>>,
-    body: Json<models::ConstructionSubmitRequest>,
-) -> Result<Json<models::TransactionIdentifierResponse>, models::Error> {
-    // TODO
-    Err(models::ErrorKind::Other("Not implemented yet".to_string()).into())
-}
-
-#[api_v2_operation]
-/// Generate an Unsigned Transaction and Signing Payloads
-///
-/// Payloads is called with an array of operations and the response from
-/// `/construction/metadata`. It returns an unsigned transaction blob and a
-/// collection of payloads that must be signed by particular addresses using a
-/// certain SignatureType. The array of operations provided in transaction
-/// construction often times can not specify all "effects" of a transaction
-/// (consider invoked transactions in Ethereum). However, they can
-/// deterministically specify the "intent" of the transaction, which is
-/// sufficient for construction. For this reason, parsing the corresponding
-/// transaction in the Data API (when it lands on chain) will contain a superset
-/// of whatever operations were provided during construction.
-async fn construction_payloads(
-    client_addr: web::Data<Addr<ClientActor>>,
-    body: Json<models::ConstructionSubmitRequest>,
-) -> Result<Json<models::TransactionIdentifierResponse>, models::Error> {
-    // TODO
-    Err(models::ErrorKind::Other("Not implemented yet".to_string()).into())
-}
-
-#[api_v2_operation]
-/// Create Network Transaction from Signatures
-///
-/// Combine creates a network-specific transaction from an unsigned transaction
-/// and an array of provided signatures. The signed transaction returned from
-/// this method will be sent to the /construction/submit endpoint by the caller.
-async fn construction_combine(
-    client_addr: web::Data<Addr<ClientActor>>,
-    body: Json<models::ConstructionSubmitRequest>,
-) -> Result<Json<models::TransactionIdentifierResponse>, models::Error> {
-    // TODO
-    Err(models::ErrorKind::Other("Not implemented yet".to_string()).into())
-}
-
-#[api_v2_operation]
-/// Parse a Transaction
-///
-/// Parse is called on both unsigned and signed transactions to understand the
-/// intent of the formulated transaction. This is run as a sanity check before
-/// signing (after /construction/payloads) and before broadcast (after
-/// /construction/combine).
-async fn construction_parse(
-    client_addr: web::Data<Addr<ClientActor>>,
-    body: Json<models::ConstructionSubmitRequest>,
-) -> Result<Json<models::TransactionIdentifierResponse>, models::Error> {
-    // TODO
-    Err(models::ErrorKind::Other("Not implemented yet".to_string()).into())
-}
-
-#[api_v2_operation]
-/// Get the Hash of a Signed Transaction
-///
-/// TransactionHash returns the network-specific transaction hash for a signed
-/// transaction.
-async fn construction_hash(
-    body: Json<models::ConstructionHashRequest>,
-) -> Result<Json<models::TransactionIdentifierResponse>, models::Error> {
-    let Json(models::ConstructionHashRequest { network_identifier: _, signed_transaction }) = body;
-
-    Ok(Json(models::TransactionIdentifierResponse {
-        transaction_identifier: models::TransactionIdentifier {
-            hash: signed_transaction.0.get_hash().to_base(),
-        },
-        metadata: None,
-    }))
-}
-
 fn get_cors(cors_allowed_origins: &[String]) -> CorsFactory {
     let mut cors = Cors::new();
     if cors_allowed_origins != ["*".to_string()] {
@@ -691,13 +693,13 @@ fn get_cors(cors_allowed_origins: &[String]) -> CorsFactory {
         .finish()
 }
 
-pub fn start_rosettarpc(
-    config: RosettaRpcConfig,
+pub fn start_rosetta_rpc(
+    config: crate::config::RosettaRpcConfig,
     genesis: Arc<Genesis>,
     client_addr: Addr<ClientActor>,
     view_client_addr: Addr<ViewClientActor>,
 ) {
-    let RosettaRpcConfig { addr, cors_allowed_origins } = config;
+    let crate::config::RosettaRpcConfig { addr, cors_allowed_origins } = config;
     HttpServer::new(move || {
         App::new()
             .data(Arc::clone(&genesis))
@@ -722,15 +724,18 @@ pub fn start_rosettarpc(
                 web::resource("/mempool/transaction").route(web::post().to(mempool_transaction)),
             )
             .service(
+                web::resource("/construction/derive").route(web::post().to(construction_derive)),
+            )
+            .service(
+                web::resource("/construction/preprocess")
+                    .route(web::post().to(construction_preprocess)),
+            )
+            .service(
                 web::resource("/construction/metadata")
                     .route(web::post().to(construction_metadata)),
             )
             .service(
-                web::resource("​/construction​/preprocess")
-                    .route(web::post().to(construction_preprocess)),
-            )
-            .service(
-                web::resource("/construction/​payloads")
+                web::resource("/construction/payloads")
                     .route(web::post().to(construction_payloads)),
             )
             .service(
@@ -738,10 +743,6 @@ pub fn start_rosettarpc(
             )
             .service(web::resource("/construction/parse").route(web::post().to(construction_parse)))
             .service(web::resource("/construction/hash").route(web::post().to(construction_hash)))
-            // Not implemented by design:
-            // Blockchains that require an on-chain action to create an account should not implement
-            // this method.
-            //.service(web::resource("​/construction​/derive").route(web::post().to(_)))
             .with_json_spec_at("/api/spec")
             .build()
     })

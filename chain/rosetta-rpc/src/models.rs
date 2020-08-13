@@ -5,8 +5,6 @@ use paperclip::actix::{api_v2_errors, Apiv2Schema};
 use near_primitives::borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives::serialize::BaseEncode;
 
-use crate::consts;
-
 /// An AccountBalanceRequest is utilized to make a balance request on the
 /// /account/balance endpoint. If the block_identifier is populated, a
 /// historical balance query should be performed.
@@ -568,6 +566,7 @@ pub(crate) struct NetworkStatusResponse {
 
     pub oldest_block_identifier: BlockIdentifier,
 
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub sync_status: Option<SyncStatus>,
 
     pub peers: Vec<Peer>,
@@ -622,28 +621,13 @@ impl std::convert::From<&near_primitives::views::ActionView> for OperationType {
 )]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub(crate) enum OperationStatusKind {
-    Unknown,
-    Failure,
     Success,
 }
 
 impl OperationStatusKind {
     pub(crate) fn is_successful(&self) -> bool {
         match self {
-            Self::Unknown => false,
-            Self::Failure => false,
             Self::Success => true,
-        }
-    }
-}
-
-impl From<&near_primitives::views::ExecutionStatusView> for OperationStatusKind {
-    fn from(status: &near_primitives::views::ExecutionStatusView) -> Self {
-        match status {
-            near_primitives::views::ExecutionStatusView::SuccessValue(_)
-            | near_primitives::views::ExecutionStatusView::SuccessReceiptId(_) => Self::Success,
-            near_primitives::views::ExecutionStatusView::Failure(_) => Self::Failure,
-            near_primitives::views::ExecutionStatusView::Unknown => Self::Unknown,
         }
     }
 }
@@ -686,28 +670,6 @@ pub(crate) struct Operation {
     pub metadata: Option<serde_json::Value>,
 }
 
-impl From<&near_primitives::views::ActionView> for Operation {
-    fn from(action: &near_primitives::views::ActionView) -> Self {
-        let amount = match action {
-            near_primitives::views::ActionView::Transfer { deposit } => Some(Amount {
-                value: deposit.to_string(),
-                currency: consts::YOCTO_NEAR_CURRENCY.clone(),
-                metadata: None,
-            }),
-            _ => None,
-        };
-        Operation {
-            operation_identifier: OperationIdentifier { index: 0, network_index: None },
-            type_: OperationType::from(action),
-            amount,
-            account: None,
-            related_operations: None,
-            status: OperationStatusKind::Unknown,
-            metadata: None,
-        }
-    }
-}
-
 /// The operation_identifier uniquely identifies an operation within a
 /// transaction.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, Apiv2Schema)]
@@ -743,41 +705,6 @@ pub(crate) struct OperationStatus {
     /// critical to understand which Operation.Status indicate an Operation is
     /// successful and should affect an Account.
     pub successful: bool,
-}
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-#[serde(rename = "SCREAMING_SNAKE_CASE", tag = "kind")]
-pub enum Action {
-    CreateAccount,
-    DeployContract {
-        code: String,
-    },
-    FunctionCall {
-        method_name: String,
-        args: String,
-        gas: near_primitives::types::Gas,
-        #[serde(with = "near_primitives::serialize::u128_dec_format")]
-        deposit: near_primitives::types::Balance,
-    },
-    Transfer {
-        #[serde(with = "near_primitives::serialize::u128_dec_format")]
-        deposit: near_primitives::types::Balance,
-    },
-    Stake {
-        #[serde(with = "near_primitives::serialize::u128_dec_format")]
-        stake: near_primitives::types::Balance,
-        public_key: near_crypto::PublicKey,
-    },
-    AddKey {
-        public_key: near_crypto::PublicKey,
-        access_key: near_primitives::views::AccessKeyView,
-    },
-    DeleteKey {
-        public_key: near_crypto::PublicKey,
-    },
-    DeleteAccount {
-        beneficiary_id: near_primitives::types::AccountId,
-    },
 }
 
 /// When fetching data by BlockIdentifier, it may be possible to only specify
@@ -881,64 +808,6 @@ pub(crate) enum TransactionType {
 pub(crate) struct TransactionMetadata {
     #[serde(rename = "type")]
     pub(crate) type_: TransactionType,
-}
-
-impl From<&near_primitives::views::SignedTransactionView> for Transaction {
-    fn from(signed_transaction: &near_primitives::views::SignedTransactionView) -> Self {
-        Self {
-            transaction_identifier: TransactionIdentifier {
-                hash: signed_transaction.hash.to_string(),
-            },
-            operations: signed_transaction
-                .actions
-                .iter()
-                .enumerate()
-                .map(|(index, action)| {
-                    let mut operation = Operation::from(action);
-                    operation.operation_identifier.index = index.try_into().unwrap();
-                    operation.account = Some(AccountIdentifier {
-                        address: signed_transaction.signer_id.clone(),
-                        sub_account: None,
-                        metadata: None,
-                    });
-                    operation
-                })
-                .collect(),
-            metadata: TransactionMetadata { type_: TransactionType::Transaction },
-        }
-    }
-}
-
-impl From<&near_primitives::views::ReceiptView> for Transaction {
-    fn from(receipt: &near_primitives::views::ReceiptView) -> Self {
-        let (type_, operations) = match &receipt.receipt {
-            near_primitives::views::ReceiptEnumView::Action { actions, .. } => (
-                TransactionType::ActionReceipt,
-                actions
-                    .iter()
-                    .enumerate()
-                    .map(|(index, action)| {
-                        let mut operation = Operation::from(action);
-                        operation.operation_identifier.index = index.try_into().unwrap();
-                        operation.account = Some(AccountIdentifier {
-                            address: receipt.predecessor_id.clone(),
-                            sub_account: None,
-                            metadata: None,
-                        });
-                        operation
-                    })
-                    .collect(),
-            ),
-            near_primitives::views::ReceiptEnumView::Data { .. } => {
-                (TransactionType::DataReceipt, Vec::new())
-            }
-        };
-        Self {
-            transaction_identifier: TransactionIdentifier { hash: receipt.receipt_id.to_string() },
-            operations,
-            metadata: TransactionMetadata { type_ },
-        }
-    }
 }
 
 /// The transaction_identifier uniquely identifies a transaction in a particular

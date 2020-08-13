@@ -40,7 +40,7 @@ near-client = { path = "../chain/client" }
 near-pool = { path = "../chain/pool" }
 near-network = { path = "../chain/network" }
 near-jsonrpc = { path = "../chain/jsonrpc" }
-near-rosettarpc = { path = "../chain/rosettarpc" }
+near-rosetta-rpc = { path = "../chain/rosetta-rpc", optional = true }
 near-telemetry = { path = "../chain/telemetry" }
 near-epoch-manager = { path = "../chain/epoch_manager" }
 
@@ -57,6 +57,7 @@ expensive_tests = ["near-client/expensive_tests", "near-epoch-manager/expensive_
 metric_recorder = ["near-network/metric_recorder", "near-client/metric_recorder"]
 no_cache = ["node-runtime/no_cache", "near-store/no_cache", "near-chain/no_cache"]
 delay_detector = ["near-client/delay_detector"]
+rosetta_rpc = ["near-rosetta-rpc"]
 
 [[bin]]
 path = "src/main.rs"
