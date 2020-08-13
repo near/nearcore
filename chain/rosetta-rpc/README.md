@@ -9,6 +9,21 @@ Rosetta RPC is built into nearcore and it happily co-exist with JSON RPC.
 * [Rosetta API Specification](https://github.com/coinbase/rosetta-specifications)
 * [Rosetta Tooling](https://github.com/coinbase/rosetta-cli)
 
+You can view Rosetta API specification in [OpenAPI (Swagger) UI](https://petstore.swagger.io/)
+passing the link to Rosetta OpenAPI specification:
+
+```
+https://raw.githubusercontent.com/coinbase/rosetta-specifications/master/api.json
+```
+
+Also, Rosetta implementation in nearcore exposes auto-generated OpenAPI
+specification that has some extra comments regarding to the particular
+implementation, and you can always access it from the running node:
+
+```
+http://localhost:3040/api/spec
+```
+
 Supported Features
 ------------------
 
@@ -47,8 +62,8 @@ transactions to a blockchain network.
 To verify the API compliance use:
 
 ```
-rosetta-cli check:data --configuration-file=rosetta.cfg
-rosetta-cli check:construction --configuration-file=rosetta.cfg
+rosetta-cli check:data --configuration-file=./rosetta.cfg
+rosetta-cli check:construction --configuration-file=./rosetta.cfg
 ```
 
 How to Run
@@ -58,8 +73,8 @@ Follow [the standard nearcore procedures to run a node compiled from the source 
 enabling `rosettarpc` feature:
 
 ```
-cargo run --release --package neard --bin neard --features rosettarpc -- init
-cargo run --release --package neard --bin neard --features rosettarpc -- run
+cargo run --release --package neard --bin neard --features rosetta_rpc -- init
+cargo run --release --package neard --bin neard --features rosetta_rpc -- run
 ```
 
 By default, Rosetta RPC is available on port TCP/3040.

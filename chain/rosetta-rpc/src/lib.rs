@@ -513,7 +513,7 @@ async fn mempool(
 /// actually be included in a block.
 ///
 /// NOTE: The mempool is short-lived, so this method does not make a lot of
-/// sense to implement.
+/// sense to be implemented.
 async fn mempool_transaction(
     _client_addr: web::Data<Addr<ClientActor>>,
     _body: Json<models::MempoolTransactionRequest>,
