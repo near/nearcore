@@ -15,7 +15,7 @@ use near_primitives::types::{
     AccountId, ApprovalStake, Balance, BlockChunkValidatorStats, BlockHeight, EpochId, ShardId,
     ValidatorId, ValidatorKickoutReason, ValidatorStake, ValidatorStats,
 };
-use near_primitives::version::ProtocolVersion;
+use near_primitives::version::{ProtocolVersion, UPGRADABILITY_FIX_PROTOCOL_VERSION};
 use near_primitives::views::{
     CurrentEpochValidatorInfo, EpochValidatorInfo, NextEpochValidatorInfo, ValidatorKickoutView,
 };
@@ -233,6 +233,13 @@ impl EpochManager {
             .map(|&id| epoch_info.validators[*id as usize].stake)
             .sum();
 
+        let protocol_version = if epoch_info.protocol_version >= UPGRADABILITY_FIX_PROTOCOL_VERSION
+        {
+            next_epoch_info.protocol_version
+        } else {
+            epoch_info.protocol_version
+        };
+
         let next_version = if let Some((&version, stake)) =
             versions.into_iter().max_by(|left, right| left.1.cmp(&right.1))
         {
@@ -243,10 +250,10 @@ impl EpochManager {
             {
                 version
             } else {
-                epoch_info.protocol_version
+                protocol_version
             }
         } else {
-            epoch_info.protocol_version
+            protocol_version
         };
 
         // Gather slashed validators and add them to kick out first.
@@ -2967,6 +2974,70 @@ mod tests {
         assert_eq!(
             epoch_manager.get_epoch_info(&EpochId(h[20])).unwrap().protocol_version,
             PROTOCOL_VERSION
+        );
+    }
+
+    #[test]
+    fn test_protocol_version_switch_after_switch() {
+        let store = create_test_store();
+        let config = epoch_config(2, 1, 2, 0, 90, 60, 0);
+        let amount_staked = 1_000_000;
+        let validators = vec![stake("test1", amount_staked), stake("test2", amount_staked)];
+        let mut epoch_manager = EpochManager::new(
+            store.clone(),
+            config.clone(),
+            UPGRADABILITY_FIX_PROTOCOL_VERSION,
+            default_reward_calculator(),
+            validators.clone(),
+        )
+        .unwrap();
+        let h = hash_range(10);
+        record_block(&mut epoch_manager, CryptoHash::default(), h[0], 0, vec![]);
+        for i in 1..5 {
+            let mut block_info = block_info(
+                i as u64,
+                i as u64 - 1,
+                h[i - 1],
+                h[i - 1],
+                h[0],
+                vec![],
+                DEFAULT_TOTAL_SUPPLY,
+            );
+            if i != 4 {
+                block_info.latest_protocol_version = UPGRADABILITY_FIX_PROTOCOL_VERSION + 1;
+            } else {
+                block_info.latest_protocol_version = UPGRADABILITY_FIX_PROTOCOL_VERSION;
+            }
+            epoch_manager.record_block_info(&h[i], block_info, [0; 32]).unwrap();
+        }
+
+        assert_eq!(
+            epoch_manager.get_epoch_info(&EpochId(h[2])).unwrap().protocol_version,
+            UPGRADABILITY_FIX_PROTOCOL_VERSION + 1
+        );
+
+        assert_eq!(
+            epoch_manager.get_epoch_info(&EpochId(h[4])).unwrap().protocol_version,
+            UPGRADABILITY_FIX_PROTOCOL_VERSION + 1
+        );
+
+        // if there are enough votes to use the old version, it should be allowed
+        for i in 5..7 {
+            let mut block_info = block_info(
+                i as u64,
+                i as u64 - 1,
+                h[i - 1],
+                h[i - 1],
+                h[0],
+                vec![],
+                DEFAULT_TOTAL_SUPPLY,
+            );
+            block_info.latest_protocol_version = UPGRADABILITY_FIX_PROTOCOL_VERSION;
+            epoch_manager.record_block_info(&h[i], block_info, [0; 32]).unwrap();
+        }
+        assert_eq!(
+            epoch_manager.get_epoch_info(&EpochId(h[6])).unwrap().protocol_version,
+            UPGRADABILITY_FIX_PROTOCOL_VERSION
         );
     }
 }
