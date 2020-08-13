@@ -24,7 +24,7 @@ use crate::rate_counter::RateCounter;
 use crate::recorder::{PeerMessageMetadata, Status};
 use crate::routing::{Edge, EdgeInfo};
 use crate::types::{
-    Ban, Consolidate, ConsolidateResponse, Handshake, HandshakeFailureReason,
+    Ban, Consolidate, ConsolidateResponse, HandshakeFailureReason, HandshakeV2,
     NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkViewClientMessages,
     NetworkViewClientResponses, PeerChainInfo, PeerInfo, PeerManagerRequest, PeerMessage,
     PeerRequest, PeerResponse, PeerStatsResult, PeerStatus, PeerType, PeersRequest, PeersResponse,
@@ -269,15 +269,14 @@ impl Peer {
                     height,
                     tracked_shards,
                 }) => {
-                    // TODO(HandshakeV2): Use handshake v2
-                    let handshake = Handshake::new(
+                    let handshake = HandshakeV2::new(
                         act.node_id(),
                         act.peer_id().unwrap(),
                         act.node_info.addr_port(),
                         PeerChainInfo { genesis_id, height, tracked_shards },
                         act.edge_info.as_ref().unwrap().clone(),
                     );
-                    act.send_message(PeerMessage::Handshake(handshake));
+                    act.send_message(PeerMessage::HandshakeV2(handshake));
                     actix::fut::ready(())
                 }
                 Err(err) => {
@@ -638,9 +637,8 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for Peer {
             msg.len() as i64,
         );
 
-        // TODO(HandshakeV2): Remove this, and deprecate PeerMessage::Handshake
-        if let PeerMessage::HandshakeV2(handshake) = peer_msg {
-            peer_msg = PeerMessage::Handshake(handshake.into());
+        if let PeerMessage::Handshake(handshake) = peer_msg {
+            peer_msg = PeerMessage::HandshakeV2(handshake.into());
         }
 
         match (self.peer_type, self.peer_status, peer_msg) {
@@ -662,7 +660,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for Peer {
                 }
                 ctx.stop();
             }
-            (_, PeerStatus::Connecting, PeerMessage::Handshake(handshake)) => {
+            (_, PeerStatus::Connecting, PeerMessage::HandshakeV2(handshake)) => {
                 debug!(target: "network", "{:?}: Received handshake {:?}", self.node_info.id, handshake);
 
                 if handshake.chain_info.genesis_id != self.genesis_id {
@@ -678,9 +676,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for Peer {
                 }
 
                 if handshake.version < OLDEST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION
-                    // TODO(HandshakeV2): Check that our current version is supported by other party.
-                    // PROTOCOL_VERSION < handshake.oldest_supported_version
-                    || PROTOCOL_VERSION < handshake.version
+                    || PROTOCOL_VERSION < handshake.oldest_supported_version
                 {
                     debug!(target: "network", "Received connection from node with incompatible network protocol version.");
                     self.send_message(PeerMessage::HandshakeFailure(
