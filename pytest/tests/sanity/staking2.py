@@ -1,6 +1,8 @@
 # Runs randomized staking transactions and makes some basic checks on the final `staked` values
-# TODO: presently this test fails with a node crash. Once that is fixed, asserts that validate proper stakes need to be introduced
-# TODO: the current expected stakes are not correctly computed
+# In each epoch sends two sets of staking transactions, one when (last_height % 12 == 4), called "fake", and
+# one when (last_height % 12 == 7), called "real" (because the former will be overwritten by the later).
+# Before the "fake" tx we expect the stakes to be equal to the largest of the last three "real" stakes for
+# each node. Before "real" txs it is the largest of the same value, and the last "fake" stake.
 
 import sys, time, base58, random
 
@@ -9,14 +11,15 @@ sys.path.append('lib')
 from cluster import start_cluster
 from transaction import sign_staking_tx
 
-TIMEOUT = 600
+TIMEOUT = 360
 TIMEOUT_PER_ITER = 30
 
-FAKE_OFFSET = 2
-REAL_OFFSET = 6
-EPOCH_LENGTH = 10
+FAKE_OFFSET = 4
+REAL_OFFSET = 8
+EPOCH_LENGTH = 12
 
 all_stakes = []
+fake_stakes = [0, 0, 0]
 next_nonce = 3
 
 # other tests can set `sequence` to some sequence of triplets of stakes
@@ -38,11 +41,11 @@ def get_stakes():
 
 def get_expected_stakes():
     global all_stakes
-    return [max([x[i] for x in all_stakes[-3:]]) for i in range(3)]
+    return [max(fake_stakes[i], max([x[i] for x in all_stakes[-3:]])) for i in range(3)]
 
 
 def do_moar_stakes(last_block_hash, update_expected):
-    global next_nonce, all_stakes, sequence
+    global next_nonce, all_stakes, fake_stakes, sequence
 
     if len(sequence) == 0:
         stakes = [0, 0, 0]
@@ -66,8 +69,12 @@ def do_moar_stakes(last_block_hash, update_expected):
         next_nonce += 1
 
     if update_expected:
+        fake_stakes = [0, 0, 0]
         all_stakes.append(stakes)
         print("")
+    else:
+        fake_stakes = stakes
+
     print("Sent %s staking txs: %s" %
           ("REAL" if update_expected else "fake", stakes))
 
@@ -112,30 +119,41 @@ def doit(seq=[]):
         height = status['sync_info']['latest_block_height']
         hash_ = status['sync_info']['latest_block_hash']
 
+        send_fakes = send_reals = False
+
         if (height + EPOCH_LENGTH - FAKE_OFFSET) // EPOCH_LENGTH > (
                 last_fake_stakes_height + EPOCH_LENGTH -
                 FAKE_OFFSET) // EPOCH_LENGTH:
             last_iter = time.time()
+
+            send_fakes = True
+
+        if (height + EPOCH_LENGTH - REAL_OFFSET) // EPOCH_LENGTH > (
+                last_staked_height + EPOCH_LENGTH -
+                REAL_OFFSET) // EPOCH_LENGTH:
+
+            send_reals = True
+
+
+        if send_fakes or send_reals:
             cur_stakes = get_stakes()
             print("Current stakes: %s" % cur_stakes)
             if len(all_stakes) > 1:
                 expected_stakes = get_expected_stakes()
                 print("Expect  stakes: %s" % expected_stakes)
                 for (cur, expected) in zip(cur_stakes, expected_stakes):
-                    print(f'cur: {cur}, expected: {expected}')
                     if cur % 1000000 == 0:
                         assert cur == expected
                     else:
                         assert expected <= cur <= expected * 1.1
 
-            do_moar_stakes(hash_, False)
-            last_fake_stakes_height = height
+            do_moar_stakes(hash_, update_expected = send_reals)
 
-        if (height + EPOCH_LENGTH - REAL_OFFSET) // EPOCH_LENGTH > (
-                last_staked_height + EPOCH_LENGTH -
-                REAL_OFFSET) // EPOCH_LENGTH:
-            do_moar_stakes(hash_, True)
-            last_staked_height = height
+        if send_fakes:
+            last_fake_stakes_height += EPOCH_LENGTH
+
+        elif send_reals:
+            last_staked_height += EPOCH_LENGTH
 
 
 if __name__ == "__main__":
