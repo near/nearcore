@@ -1935,3 +1935,36 @@ fn test_validate_chunk_extra() {
     )
     .is_ok());
 }
+
+/// Change protocol version back and forth and make sure that we do not produce invalid blocks
+#[test]
+fn test_gas_price_change_no_chunk() {
+    let epoch_length = 5;
+    let min_gas_price = 5000;
+    let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
+    genesis.config.epoch_length = epoch_length;
+    genesis.config.protocol_version = 30;
+    genesis.config.min_gas_price = min_gas_price;
+    let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![Arc::new(neard::NightshadeRuntime::new(
+        Path::new("."),
+        create_test_store(),
+        Arc::new(genesis.clone()),
+        vec![],
+        vec![],
+    ))];
+    let chain_genesis = ChainGenesis::from(Arc::new(genesis));
+    let mut env = TestEnv::new_with_runtime(chain_genesis, 1, 1, runtimes);
+    let validator_signer = InMemoryValidatorSigner::from_seed("test0", KeyType::ED25519, "test0");
+    for i in 1..=20 {
+        let mut block = env.clients[0].produce_block(i).unwrap().unwrap();
+        if i <= 5 || (i > 10 && i <= 15) {
+            block.get_mut().header.get_mut().inner_rest.latest_protocol_version = 31;
+            block.mut_header().resign(&validator_signer);
+        }
+        env.process_block(0, block, Provenance::NONE);
+    }
+    env.clients[0].produce_block(21).unwrap().unwrap();
+    let block = env.clients[0].produce_block(22).unwrap().unwrap();
+    let (_, res) = env.clients[0].process_block(block, Provenance::NONE);
+    assert!(res.is_ok());
+}
