@@ -157,7 +157,7 @@ impl RoutingTableTest {
         let peer0 = self.get_peer(peer0).clone();
         let peer1 = self.get_peer(peer1).clone();
         let edge = Edge::new(peer0, peer1, nonce, Signature::default(), Signature::default());
-        self.routing_table.process_edge(edge);
+        self.routing_table.process_edges(vec![edge]);
     }
 
     fn update(&mut self) {
