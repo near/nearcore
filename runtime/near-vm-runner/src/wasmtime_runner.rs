@@ -13,7 +13,7 @@ pub mod wasmtime_runner {
     use std::ffi::c_void;
     use std::str;
     use wasmtime::ExternType::Func;
-    use wasmtime::{Engine, Limits, Linker, Memory, MemoryType, Module, Store};
+    use wasmtime::{Engine, Limits, Linker, Memory, MemoryType, Module, Store, Config, Strategy};
 
     pub struct WasmtimeMemory(Memory);
 
@@ -115,7 +115,8 @@ pub mod wasmtime_runner {
         fees_config: &'a RuntimeFeesConfig,
         promise_results: &'a [PromiseResult],
     ) -> (Option<VMOutcome>, Option<VMError>) {
-        let engine = Engine::default();
+        let mut config = Config::default();
+        let engine = Engine::new(config.strategy(Strategy::Lightbeam).unwrap());
         let store = Store::new(&engine);
         let mut memory = WasmtimeMemory::new(
             &store,
@@ -218,6 +219,7 @@ pub mod wasmtime_runner {
 }
 
 pub fn compile_module(code: &[u8]) {
-    let engine = Engine::default();
+    let mut config = wasmtime::Config::default();
+    let engine = Engine::new(config.strategy(wasmtime::Strategy::Lightbeam).unwrap());
     Module::new(&engine, code).unwrap();
 }
