@@ -2061,3 +2061,37 @@ fn test_catchup_gas_price_change() {
     // The chunk extra of the prev block of sync block should be the same as the node that it is syncing from
     assert_eq!(chunk_extra_after_sync, expected_chunk_extra);
 }
+
+#[test]
+fn test_epoch_protocol_version_change() {
+    let epoch_length = 5;
+    let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
+    genesis.config.epoch_length = epoch_length;
+    genesis.config.protocol_version = PROTOCOL_VERSION - 1;
+    let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![Arc::new(neard::NightshadeRuntime::new(
+        Path::new("."),
+        create_test_store(),
+        Arc::new(genesis.clone()),
+        vec![],
+        vec![],
+    ))];
+    let chain_genesis = ChainGenesis::from(Arc::new(genesis));
+    let mut env = TestEnv::new_with_runtime(chain_genesis, 1, 1, runtimes);
+    let validator_signer = InMemoryValidatorSigner::from_seed("test0", KeyType::ED25519, "test0");
+    for i in 1..=15 {
+        let mut block = env.clients[0].produce_block(i).unwrap().unwrap();
+        if i == 7 || i == 8 {
+            block.get_mut().header.get_mut().inner_rest.latest_protocol_version =
+                PROTOCOL_VERSION - 1;
+            block.mut_header().resign(&validator_signer);
+        }
+        env.process_block(0, block, Provenance::NONE);
+    }
+    env.produce_block(0, 16);
+    let last_block = env.clients[0].chain.get_block_by_height(16).unwrap().clone();
+    let protocol_version = env.clients[0]
+        .runtime_adapter
+        .get_epoch_protocol_version(last_block.header().epoch_id())
+        .unwrap();
+    assert_eq!(protocol_version, PROTOCOL_VERSION);
+}
