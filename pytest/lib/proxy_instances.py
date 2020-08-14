@@ -10,8 +10,9 @@ class RejectListHandler(ProxyHandler):
 
     async def handle(self, msg, fr, to):
         if fr in self.reject_list or to in self.reject_list:
+            msg_type = msg.enum if msg.enum != 'Routed' else msg.Routed.body.enum
             logging.info(
-                f'NODE {self.ordinal} blocking message from {fr} to {to}')
+                f'NODE {self.ordinal} blocking message {msg_type} from {fr} to {to}')
             return False
         else:
             return True

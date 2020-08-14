@@ -87,7 +87,7 @@ def get_recent_hash(node, sync_timeout):
             info = node.json_rpc('block', [hash_])
 
     assert 'result' in info, info
-    hash_ = info['result']['header']['hash']
+    hash_ = info['result']['header']['last_final_block']
     return hash_, status['sync_info']['latest_block_height']
 
 
@@ -170,8 +170,18 @@ def monkey_node_restart(stopped, error, nodes, nonces):
 
 @stress_process
 def monkey_local_network(stopped, error, nodes, nonces):
+    last_height = 0
+    last_time_height_updated = time.time()
+
     while stopped.value == 0:
-        time.sleep(9)
+        _, cur_height = get_recent_hash(nodes[-1], 30)
+        if cur_height == last_height and time.time() - last_time_height_updated > 10:
+            time.sleep(25)
+        else:
+            last_height = cur_height
+            last_time_height_updated = time.time()
+            time.sleep(5)
+
         # "- 2" below is because we don't want to kill the node we use to check stats
         node_idx = random.randint(0, len(nodes) - 2)
         node = nodes[node_idx]
@@ -570,6 +580,7 @@ def doit(s, n, N, k, monkeys, timeout):
         proxy = RejectListProxy(reject_list)
         expect_network_issues()
         block_timeout += 40
+        balances_timeout += 20
         tx_tolerance += 0.3
     if 'monkey_node_restart' in monkey_names:
         expect_network_issues()
