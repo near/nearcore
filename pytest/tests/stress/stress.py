@@ -561,12 +561,14 @@ def doit(s, n, N, k, monkeys, timeout):
     started = time.time()
 
     boot_node = spin_up_node(config, near_root, node_dirs[0], 0, None, None)
+    boot_node.stop_checking_store()
     boot_node.mess_with = False
     nodes = [boot_node]
 
     for i in range(1, N + k + 1):
         node = spin_up_node(config, near_root, node_dirs[i], i,
                             boot_node.node_key.pk, boot_node.addr())
+        node.stop_checking_store()
         nodes.append(node)
         if i >= n and i < N:
             node.kill()
@@ -640,6 +642,11 @@ def doit(s, n, N, k, monkeys, timeout):
                 still_running)
 
     check_errors()
+
+    logging.info("Shut down complete, executing store validity checks")
+    for node in nodes:
+        node.is_check_store = True
+        node.check_store()
 
 
 MONKEYS = dict([(name[7:], obj)
