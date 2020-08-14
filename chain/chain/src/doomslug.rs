@@ -40,6 +40,7 @@ pub enum DoomslugBlockProductionReadiness {
 
 struct DoomslugTimer {
     started: Instant,
+    last_endorsement_sent: Instant,
     height: BlockHeight,
     endorsement_delay: Duration,
     min_delay: Duration,
@@ -291,6 +292,7 @@ impl Doomslug {
             endorsement_pending: false,
             timer: DoomslugTimer {
                 started: Instant::now(),
+                last_endorsement_sent: Instant::now(),
                 height: 0,
                 endorsement_delay,
                 min_delay,
@@ -365,7 +367,7 @@ impl Doomslug {
             let tip_height = self.tip.height;
 
             if self.endorsement_pending
-                && cur_time >= self.timer.started + self.timer.endorsement_delay
+                && cur_time >= self.timer.last_endorsement_sent + self.timer.endorsement_delay
             {
                 if tip_height >= self.largest_target_height {
                     self.largest_target_height = tip_height + 1;
@@ -375,6 +377,7 @@ impl Doomslug {
                     }
                 }
 
+                self.timer.last_endorsement_sent = cur_time;
                 self.endorsement_pending = false;
             }
 
@@ -601,8 +604,6 @@ mod tests {
 
     #[test]
     fn test_endorsements_and_skips_basic() {
-        let mut now = Instant::now(); // For the test purposes the absolute value of the initial instant doesn't matter
-
         let mut ds = Doomslug::new(
             0,
             Duration::from_millis(400),
@@ -612,6 +613,8 @@ mod tests {
             Some(Arc::new(InMemoryValidatorSigner::from_seed("test", KeyType::ED25519, "test"))),
             DoomslugThresholdMode::TwoThirds,
         );
+
+        let mut now = Instant::now(); // For the test purposes the absolute value of the initial instant doesn't matter
 
         // Set a new tip, must produce an endorsement
         ds.set_tip(now, hash(&[1]), 1, 1);
