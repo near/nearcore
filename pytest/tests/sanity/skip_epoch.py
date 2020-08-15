@@ -20,7 +20,7 @@ config = load_config()
 near_root, node_dirs = init_cluster(
     4, 1, 4, config,
     [["min_gas_price", 0], ["max_inflation_rate", [0, 1]], ["epoch_length", 7],
-     ["block_producer_kickout_threshold", 40]],
+     ["block_producer_kickout_threshold", 40], ["chunk_producer_kickout_threshold", 40]],
     {4: {
         "tracked_shards": [0, 1, 2, 3]
     }})
@@ -81,6 +81,7 @@ while True:
 
     status = node2.get_status()
     node2_height = status['sync_info']['latest_block_height']
+    node2_syncing = status['sync_info']['syncing']
 
     status = boot_node.get_status()
     new_height = status['sync_info']['latest_block_height']
@@ -90,7 +91,7 @@ while True:
         largest_height = new_height
         print(new_height)
 
-    if node2_height > TWENTY_FIVE:
+    if node2_height > TWENTY_FIVE and not node2_syncing:
         assert node2_height in seen_boot_heights, "%s not in %s" % (
             node2_height, seen_boot_heights)
         break
