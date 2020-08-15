@@ -817,11 +817,10 @@ impl ClientActor {
             Ok(Some(block)) => {
                 let block_hash = *block.hash();
                 let peer_id = self.node_id.clone();
-                let res = self.process_block(block, Provenance::PRODUCED, &peer_id);
-                match &res {
+                match self.process_block(block, Provenance::PRODUCED, &peer_id) {
                     Ok(_) => Ok(()),
-                    Err(e) => match e.kind() {
-                        near_chain::ErrorKind::ChunksMissing(missing_chunks) => {
+                    Err(e) => match e {
+                        near_chain::Error::ChunksMissing(missing_chunks) => {
                             debug!(
                                 "Chunks were missing for newly produced block {}, I'm {:?}, requesting. Missing: {:?}, ({:?})",
                                 block_hash,
@@ -833,9 +832,9 @@ impl ClientActor {
                             Ok(())
                         }
                         _ => {
-                            error!(target: "client", "Failed to process freshly produced block: {:?}", res);
+                            error!(target: "client", "Failed to process freshly produced block: {}", e);
                             byzantine_assert!(false);
-                            res.map_err(|err| err.into())
+                            Err(e.into())
                         }
                     },
                 }
@@ -931,13 +930,13 @@ impl ClientActor {
                     error!(target: "client", "Error on receival of block: {}", err);
                 }
             }
-            Err(e) => match e.kind() {
-                near_chain::ErrorKind::Orphan => {
+            Err(e) => match e {
+                near_chain::Error::Orphan => {
                     if !self.client.chain.is_orphan(&prev_hash) {
                         self.request_block_by_hash(prev_hash, peer_id)
                     }
                 }
-                near_chain::ErrorKind::ChunksMissing(missing_chunks) => {
+                near_chain::Error::ChunksMissing(missing_chunks) => {
                     debug!(
                         target: "client",
                         "Chunks were missing for block {}, I'm {:?}, requesting. Missing: {:?}, ({:?})",
@@ -949,7 +948,7 @@ impl ClientActor {
                     self.client.shards_mgr.request_chunks(missing_chunks);
                 }
                 _ => {
-                    debug!(target: "client", "Process block: block {} refused by chain: {}", hash, e.kind());
+                    debug!(target: "client", "Process block: block {} refused by chain: {}", hash, e);
                 }
             },
         }

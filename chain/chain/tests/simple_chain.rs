@@ -1,5 +1,5 @@
 use near_chain::test_utils::setup;
-use near_chain::{Block, ChainStoreAccess, ErrorKind, Provenance};
+use near_chain::{Block, ChainStoreAccess, Error, Provenance, UnfitError};
 use near_logger_utils::init_test_logger;
 use near_primitives::hash::CryptoHash;
 use near_primitives::version::PROTOCOL_VERSION;
@@ -59,9 +59,8 @@ fn build_chain_with_orhpans() {
     assert_eq!(
         chain
             .process_block(&None, block, Provenance::PRODUCED, |_| {}, |_| {}, |_| {})
-            .unwrap_err()
-            .kind(),
-        ErrorKind::Orphan
+            .unwrap_err(),
+        Error::Orphan
     );
     assert_eq!(
         chain
@@ -73,9 +72,8 @@ fn build_chain_with_orhpans() {
                 |_| {},
                 |_| {}
             )
-            .unwrap_err()
-            .kind(),
-        ErrorKind::Orphan
+            .unwrap_err(),
+        Error::Orphan
     );
     assert_eq!(
         chain
@@ -87,9 +85,8 @@ fn build_chain_with_orhpans() {
                 |_| {},
                 |_| {}
             )
-            .unwrap_err()
-            .kind(),
-        ErrorKind::Orphan
+            .unwrap_err(),
+        Error::Orphan
     );
     let res = chain.process_block(
         &None,
@@ -110,9 +107,8 @@ fn build_chain_with_orhpans() {
                 |_| {},
                 |_| {}
             )
-            .unwrap_err()
-            .kind(),
-        ErrorKind::Unfit("already known in store".to_string())
+            .unwrap_err(),
+        Error::Unfit(UnfitError::KnownInStore)
     );
 }
 

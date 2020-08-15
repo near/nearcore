@@ -1,5 +1,6 @@
 use near_crypto::PublicKey;
 use near_primitives::account::{AccessKey, Account};
+use near_primitives::errors::StateViewError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{
     AccountId, BlockHeight, EpochHeight, EpochId, EpochInfoProvider, MerkleHash, ShardId,
@@ -13,7 +14,7 @@ pub trait ViewRuntimeAdapter {
         shard_id: ShardId,
         state_root: MerkleHash,
         account_id: &AccountId,
-    ) -> Result<Account, Box<dyn std::error::Error>>;
+    ) -> Result<Account, StateViewError>;
 
     fn call_function(
         &self,
@@ -29,7 +30,7 @@ pub trait ViewRuntimeAdapter {
         args: &[u8],
         logs: &mut Vec<String>,
         epoch_info_provider: &dyn EpochInfoProvider,
-    ) -> Result<Vec<u8>, Box<dyn std::error::Error>>;
+    ) -> Result<Vec<u8>, StateViewError>;
 
     fn view_access_key(
         &self,
@@ -37,14 +38,14 @@ pub trait ViewRuntimeAdapter {
         state_root: MerkleHash,
         account_id: &AccountId,
         public_key: &PublicKey,
-    ) -> Result<AccessKey, Box<dyn std::error::Error>>;
+    ) -> Result<AccessKey, StateViewError>;
 
     fn view_access_keys(
         &self,
         shard_id: ShardId,
         state_root: MerkleHash,
         account_id: &AccountId,
-    ) -> Result<Vec<(PublicKey, AccessKey)>, Box<dyn std::error::Error>>;
+    ) -> Result<Vec<(PublicKey, AccessKey)>, StateViewError>;
 
     fn view_state(
         &self,
@@ -52,5 +53,5 @@ pub trait ViewRuntimeAdapter {
         state_root: MerkleHash,
         account_id: &AccountId,
         prefix: &[u8],
-    ) -> Result<ViewStateResult, Box<dyn std::error::Error>>;
+    ) -> Result<ViewStateResult, StateViewError>;
 }

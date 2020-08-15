@@ -11,9 +11,7 @@ use num_rational::Rational;
 
 use near_chain::chain::NUM_EPOCHS_TO_KEEP_STORE_DATA;
 use near_chain::validate::validate_chunk_with_chunk_extra;
-use near_chain::{
-    Block, ChainGenesis, ChainStore, ChainStoreAccess, ErrorKind, Provenance, RuntimeAdapter,
-};
+use near_chain::{Block, ChainGenesis, ChainStore, ChainStoreAccess, Provenance, RuntimeAdapter};
 use near_chain_configs::{ClientConfig, Genesis};
 use near_chunks::{ChunkStatus, ShardsManager};
 use near_client::test_utils::{create_chunk_on_height, setup_mock_all_validators};
@@ -922,13 +920,7 @@ fn test_invalid_approvals() {
     b1.mut_header().resign(&signer);
 
     let (_, tip) = client.process_block(b1, Provenance::NONE);
-    match tip {
-        Err(e) => match e.kind() {
-            ErrorKind::InvalidApprovals => {}
-            _ => assert!(false, "wrong error: {}", e),
-        },
-        _ => assert!(false, "succeeded, tip: {:?}", tip),
-    }
+    assert!(matches!(tip, Err(near_chain::Error::InvalidApprovals)));
 }
 
 #[test]
@@ -963,13 +955,7 @@ fn test_invalid_gas_price() {
     b1.mut_header().resign(&signer);
 
     let (_, result) = client.process_block(b1, Provenance::NONE);
-    match result {
-        Err(e) => match e.kind() {
-            ErrorKind::InvalidGasPrice => {}
-            _ => assert!(false, "wrong error: {}", e),
-        },
-        _ => assert!(false, "succeeded, tip: {:?}", result),
-    }
+    assert!(matches!(result, Err(near_chain::Error::InvalidGasPrice)));
 }
 
 #[test]
@@ -980,7 +966,7 @@ fn test_invalid_height_too_large() {
     let signer = InMemoryValidatorSigner::from_seed("test0", KeyType::ED25519, "test0");
     let b2 = Block::empty_with_height(&b1, std::u64::MAX, &signer);
     let (_, res) = env.clients[0].process_block(b2, Provenance::NONE);
-    assert!(matches!(res.unwrap_err().kind(), ErrorKind::InvalidBlockHeight(_)));
+    assert!(matches!(res.unwrap_err(), near_chain::Error::InvalidBlockHeight(_)));
 }
 
 #[test]
@@ -991,7 +977,7 @@ fn test_invalid_height_too_old() {
         env.produce_block(0, i);
     }
     let (_, res) = env.clients[0].process_block(b1, Provenance::NONE);
-    assert!(matches!(res.unwrap_err().kind(), ErrorKind::InvalidBlockHeight(_)));
+    assert!(matches!(res.unwrap_err(), near_chain::Error::InvalidBlockHeight(_)));
 }
 
 #[test]
@@ -1038,12 +1024,12 @@ fn test_gc_with_epoch_length_common(epoch_length: NumBlocks) {
         if i < epoch_length {
             let block_hash = *blocks[i as usize - 1].hash();
             assert!(matches!(
-                env.clients[0].chain.get_block(&block_hash).unwrap_err().kind(),
-                ErrorKind::BlockMissing(missing_block_hash) if missing_block_hash == block_hash
+                env.clients[0].chain.get_block(&block_hash).unwrap_err(),
+                near_chain::Error::BlockMissing(missing_block_hash) if missing_block_hash == block_hash
             ));
             assert!(matches!(
-                env.clients[0].chain.get_block_by_height(i).unwrap_err().kind(),
-                ErrorKind::BlockMissing(missing_block_hash) if missing_block_hash == block_hash
+                env.clients[0].chain.get_block_by_height(i).unwrap_err(),
+                near_chain::Error::BlockMissing(missing_block_hash) if missing_block_hash == block_hash
             ));
             assert!(env.clients[0]
                 .chain
@@ -1449,7 +1435,7 @@ fn test_not_resync_old_blocks() {
         let block = blocks[i as usize - 1].clone();
         assert!(env.clients[0].chain.get_block(&block.hash()).is_err());
         let (_, res) = env.clients[0].process_block(block, Provenance::NONE);
-        assert!(matches!(res, Err(x) if matches!(x.kind(), ErrorKind::Orphan)));
+        assert!(matches!(res, Err(near_chain::Error::Orphan)));
         assert_eq!(env.clients[0].chain.orphans_len(), 0);
     }
 }
@@ -1627,13 +1613,7 @@ fn test_invalid_block_root() {
     b1.mut_header().get_mut().inner_lite.block_merkle_root = CryptoHash::default();
     b1.mut_header().resign(&signer);
     let (_, tip) = env.clients[0].process_block(b1, Provenance::NONE);
-    match tip {
-        Err(e) => match e.kind() {
-            ErrorKind::InvalidBlockMerkleRoot => {}
-            _ => assert!(false, "wrong error: {}", e),
-        },
-        _ => assert!(false, "succeeded, tip: {:?}", tip),
-    }
+    assert!(matches!(tip, Err(near_chain::Error::InvalidBlockMerkleRoot)));
 }
 
 #[test]
@@ -1787,13 +1767,7 @@ fn test_sync_hash_validity() {
     let bad_hash = CryptoHash::try_from("7tkzFg8RHBmMw1ncRJZCCZAizgq4rwCftTKYLce8RU8t").unwrap();
     let res = env.clients[0].chain.check_sync_hash_validity(&bad_hash);
     println!("bad hash -> {:?}", res.is_ok());
-    match res {
-        Ok(_) => assert!(false),
-        Err(e) => match e.kind() {
-            ErrorKind::DBNotFoundErr(_) => { /* the only expected error */ }
-            _ => assert!(false),
-        },
-    }
+    assert!(matches!(res, Err(near_chain::Error::DBNotFoundErr(_))));
 }
 
 /// Only process one block per height
@@ -1901,7 +1875,7 @@ fn test_validate_chunk_extra() {
         block.mut_header().get_mut().inner_rest.chunk_mask = vec![true];
         block.mut_header().resign(&validator_signer);
         let (_, res) = env.clients[0].process_block(block.clone(), Provenance::NONE);
-        assert!(matches!(res.unwrap_err().kind(), near_chain::ErrorKind::ChunksMissing(_)));
+        assert!(matches!(res.unwrap_err(), near_chain::Error::ChunksMissing(_)));
     }
 
     // Process the previously unavailable chunk. This causes two blocks to be accepted.

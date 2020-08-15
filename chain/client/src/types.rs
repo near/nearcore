@@ -8,9 +8,9 @@ use actix::Message;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
+use crate::view_client::ViewClientError;
 use near_network::types::{AccountOrPeerIdOrHash, KnownProducer};
 use near_network::PeerInfo;
-use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{MerklePath, PartialMerkleTree};
 use near_primitives::sharding::ChunkHash;
@@ -52,13 +52,6 @@ impl std::error::Error for Error {}
 impl From<near_chain::Error> for Error {
     fn from(e: near_chain::Error) -> Self {
         Error::Chain(e)
-    }
-}
-
-impl From<near_chain::ErrorKind> for Error {
-    fn from(e: near_chain::ErrorKind) -> Self {
-        let error: near_chain::Error = e.into();
-        Error::Chain(error)
     }
 }
 
@@ -158,7 +151,7 @@ impl GetBlock {
 }
 
 impl Message for GetBlock {
-    type Result = Result<BlockView, String>;
+    type Result = Result<BlockView, ViewClientError>;
 }
 
 /// Get block with the block merkle tree. Used for testing
@@ -171,7 +164,7 @@ impl GetBlockWithMerkleTree {
 }
 
 impl Message for GetBlockWithMerkleTree {
-    type Result = Result<(BlockView, PartialMerkleTree), String>;
+    type Result = Result<(BlockView, PartialMerkleTree), ViewClientError>;
 }
 
 /// Actor message requesting a chunk by chunk hash and block hash + shard id.
@@ -182,7 +175,7 @@ pub enum GetChunk {
 }
 
 impl Message for GetChunk {
-    type Result = Result<ChunkView, String>;
+    type Result = Result<ChunkView, ViewClientError>;
 }
 
 /// Queries client for given path / data.
@@ -200,7 +193,7 @@ impl Query {
 }
 
 impl Message for Query {
-    type Result = Result<Option<QueryResponse>, String>;
+    type Result = Result<QueryResponse, ViewClientError>;
 }
 
 pub struct Status {
@@ -216,7 +209,7 @@ pub struct GetNextLightClientBlock {
 }
 
 impl Message for GetNextLightClientBlock {
-    type Result = Result<Option<LightClientBlockView>, String>;
+    type Result = Result<Option<LightClientBlockView>, ViewClientError>;
 }
 
 pub struct GetNetworkInfo {}
@@ -230,7 +223,7 @@ pub struct GetGasPrice {
 }
 
 impl Message for GetGasPrice {
-    type Result = Result<GasPriceView, String>;
+    type Result = Result<GasPriceView, ViewClientError>;
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -252,31 +245,8 @@ pub struct TxStatus {
     pub signer_account_id: AccountId,
 }
 
-#[derive(Debug)]
-pub enum TxStatusError {
-    ChainError(near_chain::Error),
-    MissingTransaction(CryptoHash),
-    InvalidTx(InvalidTxError),
-    InternalError,
-    TimeoutError,
-}
-
-impl From<TxStatusError> for String {
-    fn from(error: TxStatusError) -> Self {
-        match error {
-            TxStatusError::ChainError(err) => format!("Chain error: {}", err),
-            TxStatusError::MissingTransaction(tx_hash) => {
-                format!("Transaction {} doesn't exist", tx_hash)
-            }
-            TxStatusError::InternalError => format!("Internal error"),
-            TxStatusError::TimeoutError => format!("Timeout error"),
-            TxStatusError::InvalidTx(e) => format!("Invalid transaction: {}", e),
-        }
-    }
-}
-
 impl Message for TxStatus {
-    type Result = Result<Option<FinalExecutionOutcomeView>, TxStatusError>;
+    type Result = Result<Option<FinalExecutionOutcomeView>, ViewClientError>;
 }
 
 pub struct GetValidatorInfo {
@@ -284,7 +254,7 @@ pub struct GetValidatorInfo {
 }
 
 impl Message for GetValidatorInfo {
-    type Result = Result<EpochValidatorInfo, String>;
+    type Result = Result<EpochValidatorInfo, ViewClientError>;
 }
 
 pub struct GetStateChanges {
@@ -293,7 +263,7 @@ pub struct GetStateChanges {
 }
 
 impl Message for GetStateChanges {
-    type Result = Result<StateChangesView, String>;
+    type Result = Result<StateChangesView, ViewClientError>;
 }
 
 pub struct GetStateChangesInBlock {
@@ -301,7 +271,7 @@ pub struct GetStateChangesInBlock {
 }
 
 impl Message for GetStateChangesInBlock {
-    type Result = Result<StateChangesKindsView, String>;
+    type Result = Result<StateChangesKindsView, ViewClientError>;
 }
 
 pub struct GetExecutionOutcome {
@@ -314,7 +284,7 @@ pub struct GetExecutionOutcomeResponse {
 }
 
 impl Message for GetExecutionOutcome {
-    type Result = Result<GetExecutionOutcomeResponse, String>;
+    type Result = Result<GetExecutionOutcomeResponse, ViewClientError>;
 }
 
 pub struct GetBlockProof {
@@ -328,5 +298,5 @@ pub struct GetBlockProofResponse {
 }
 
 impl Message for GetBlockProof {
-    type Result = Result<GetBlockProofResponse, String>;
+    type Result = Result<GetBlockProofResponse, ViewClientError>;
 }

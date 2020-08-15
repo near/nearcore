@@ -31,7 +31,6 @@ near-vm-errors = { path = "../../runtime/near-vm-errors" }
 
 [features]
 default = []
-dump_errors_schema = ["near-vm-errors/dump_errors_schema"]
 
 # Use this feature to enable counting of fees and costs applied.
 costs_counting = ["near-vm-logic/costs_counting", "near-vm-runner/costs_counting"]

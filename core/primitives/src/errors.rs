@@ -1,18 +1,18 @@
-use crate::serialize::u128_dec_format;
-use crate::types::{AccountId, Balance, EpochId, Gas, Nonce};
-use borsh::{BorshDeserialize, BorshSerialize};
-use near_crypto::PublicKey;
-use serde::{Deserialize, Serialize};
 use std::fmt::{Debug, Display};
 
+use borsh::{BorshDeserialize, BorshSerialize};
+use serde::{Deserialize, Serialize};
+
+use near_crypto::PublicKey;
+use near_vm_errors::{FunctionCallError, VMError, VMLogicError};
+
 use crate::hash::CryptoHash;
-use near_rpc_error_macro::RpcError;
-use near_vm_errors::{FunctionCallError, VMLogicError};
+use crate::serialize::u128_dec_format;
+use crate::types::{AccountId, Balance, EpochId, Gas, Nonce};
 
 /// Error returned in the ExecutionOutcome in case of failure
-#[derive(
-    BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, Deserialize, Serialize, RpcError,
-)]
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(tag = "type", content = "content")]
 pub enum TxExecutionError {
     /// An error happened during Acton execution
     ActionError(ActionError),
@@ -28,6 +28,8 @@ impl Display for TxExecutionError {
         }
     }
 }
+
+impl std::error::Error for TxExecutionError {}
 
 impl From<ActionError> for TxExecutionError {
     fn from(error: ActionError) -> Self {
@@ -78,7 +80,7 @@ impl From<ExternalError> for VMLogicError {
 }
 
 /// Internal
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub enum StorageError {
     /// Key-value db internal failure
     StorageInternalError,
@@ -101,9 +103,8 @@ impl std::fmt::Display for StorageError {
 impl std::error::Error for StorageError {}
 
 /// An error happened during TX execution
-#[derive(
-    BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, Deserialize, Serialize, RpcError,
-)]
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(tag = "type", content = "content")]
 pub enum InvalidTxError {
     /// Happens if a wrong AccessKey used or AccessKey has not enough permissions
     InvalidAccessKeyError(InvalidAccessKeyError),
@@ -143,9 +144,7 @@ pub enum InvalidTxError {
     ActionsValidation(ActionsValidationError),
 }
 
-#[derive(
-    BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, Deserialize, Serialize, RpcError,
-)]
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 pub enum InvalidAccessKeyError {
     /// The access key identified by the `public_key` doesn't exist for the account
     AccessKeyNotFound { account_id: AccountId, public_key: PublicKey },
@@ -169,9 +168,8 @@ pub enum InvalidAccessKeyError {
 }
 
 /// Describes the error for validating a list of actions.
-#[derive(
-    BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, PartialEq, Eq, RpcError,
-)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[serde(tag = "type", content = "content")]
 pub enum ActionsValidationError {
     /// The delete action must be a final aciton in transaction
     DeleteActionMustBeFinal,
@@ -200,9 +198,7 @@ pub enum ActionsValidationError {
 }
 
 /// Describes the error for validating a receipt.
-#[derive(
-    BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, PartialEq, Eq, RpcError,
-)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub enum ReceiptValidationError {
     /// The `predecessor_id` of a Receipt is not valid.
     InvalidPredecessorId { account_id: AccountId },
@@ -316,9 +312,8 @@ impl Display for ActionsValidationError {
 }
 
 /// An error happened during Acton execution
-#[derive(
-    BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, Deserialize, Serialize, RpcError,
-)]
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(tag = "type")]
 pub struct ActionError {
     /// Index of the failed action in the transaction.
     /// Action index is not defined if ActionError.kind is `ActionErrorKind::LackBalanceForState`
@@ -327,9 +322,7 @@ pub struct ActionError {
     pub kind: ActionErrorKind,
 }
 
-#[derive(
-    BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, Deserialize, Serialize, RpcError,
-)]
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 pub enum ActionErrorKind {
     /// Happens when CreateAccount action tries to create an account with account_id which is already exists in the storage
     AccountAlreadyExists { account_id: AccountId },
@@ -485,9 +478,7 @@ impl Display for InvalidAccessKeyError {
 }
 
 /// Happens when the input balance doesn't match the output balance in Runtime apply.
-#[derive(
-    BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, Deserialize, Serialize, RpcError,
-)]
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 pub struct BalanceMismatchError {
     // Input balances
     #[serde(with = "u128_dec_format")]
@@ -730,4 +721,33 @@ impl From<std::io::Error> for EpochError {
     fn from(error: std::io::Error) -> Self {
         EpochError::IOErr(error.to_string())
     }
+}
+
+/// Errors that state viewer may return
+#[derive(
+    thiserror::Error,
+    Debug,
+    BorshSerialize,
+    BorshDeserialize,
+    Serialize,
+    Deserialize,
+    Clone,
+    PartialEq,
+    Eq,
+)]
+pub enum StateViewError {
+    #[error("account id {0} is not valid")]
+    InvalidAccountId(AccountId),
+    #[error("public key {0:?} is not valid")]
+    InvalidPublicKey(Vec<u8>),
+    #[error("account {0} does not exist while viewing")]
+    AccountDoesNotExist(AccountId),
+    #[error("access key {0} does not exist while viewing")]
+    AccessKeyDoesNotExist(PublicKey),
+    #[error("Storage error {0}")]
+    StateStorageError(#[from] StorageError),
+    #[error("cannot find contract code for account {0}")]
+    ContractCodeDoesNotExist(AccountId),
+    #[error("Wasm Execution error {0:?}")]
+    WasmExecutionError(#[from] VMError),
 }

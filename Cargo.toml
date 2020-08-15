@@ -35,8 +35,6 @@ members = [
     "test-utils/state-viewer",
     "test-utils/store-validator",
     "neard/",
-    "tools/rpctypegen/core",
-    "tools/rpctypegen/macro",
     "genesis-tools/genesis-csv-to-json",
     "genesis-tools/genesis-populate",
     "genesis-tools/keypair-generator",

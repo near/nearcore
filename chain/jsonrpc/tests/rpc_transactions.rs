@@ -195,7 +195,7 @@ fn test_tx_status_missing_tx() {
         match client.tx(to_base(&CryptoHash::default()), "test1".to_string()).await {
             Err(e) => {
                 let s = serde_json::to_string(&e.data.unwrap()).unwrap();
-                assert_eq!(s, "\"Transaction 11111111111111111111111111111111 doesn't exist\"");
+                assert_eq!(s, "{\"type\":\"ViewClientError\",\"content\":{\"type\":\"MissingTransaction\",\"content\":\"11111111111111111111111111111111\"}}");
             }
             Ok(_) => panic!("transaction should not succeed"),
         }
@@ -219,8 +219,7 @@ fn test_check_invalid_tx() {
         match client.EXPERIMENTAL_check_tx(to_base64(&bytes)).await {
             Err(e) => {
                 let s = serde_json::to_string(&e.data.unwrap()).unwrap();
-                println!("{}", s);
-                assert_eq!(s, "{\"TxExecutionError\":{\"InvalidTxError\":\"Expired\"}}");
+                assert_eq!(s, "{\"type\":\"TxExecutionError\",\"content\":{\"type\":\"InvalidTxError\",\"content\":{\"type\":\"Expired\"}}}");
             }
             Ok(_) => panic!("transaction should not succeed"),
         }

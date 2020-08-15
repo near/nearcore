@@ -12,7 +12,7 @@ use log::{debug, error, warn};
 
 use near_chain::chain::NUM_EPOCHS_TO_KEEP_STORE_DATA;
 use near_chain::types::{ApplyTransactionResult, BlockHeaderInfo};
-use near_chain::{BlockHeader, Error, ErrorKind, RuntimeAdapter};
+use near_chain::{BlockHeader, Error, RuntimeAdapter};
 use near_chain_configs::{Genesis, GenesisConfig};
 use near_crypto::{PublicKey, Signature};
 use near_epoch_manager::{EpochManager, RewardCalculator};
@@ -21,7 +21,7 @@ use near_primitives::account::{AccessKey, Account};
 use near_primitives::block::{Approval, ApprovalInner};
 use near_primitives::challenge::ChallengesResult;
 use near_primitives::epoch_manager::{BlockInfo, EpochConfig};
-use near_primitives::errors::{EpochError, InvalidTxError, RuntimeError};
+use near_primitives::errors::{EpochError, InvalidTxError, RuntimeError, StateViewError};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::ShardChunkHeader;
@@ -48,6 +48,8 @@ use node_runtime::{
 };
 
 use crate::shard_tracker::{account_id_to_shard_id, ShardTracker};
+use near_primitives::errors::StorageError;
+use near_primitives::serialize::to_base;
 
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 const STATE_DUMP_FILE: &str = "state_dump";
@@ -421,14 +423,14 @@ impl NightshadeRuntime {
                 &self.epoch_manager,
             )
             .map_err(|e| match e {
-                RuntimeError::InvalidTxError(_) => Error::from(ErrorKind::InvalidTransactions),
+                RuntimeError::InvalidTxError(_) => Error::InvalidTransactions,
                 // TODO(#2152): process gracefully
                 RuntimeError::BalanceMismatchError(e) => panic!("{}", e),
                 // TODO(#2152): process gracefully
                 RuntimeError::UnexpectedIntegerOverflow => {
                     panic!("RuntimeError::UnexpectedIntegerOverflow")
                 }
-                RuntimeError::StorageError(e) => Error::from(ErrorKind::StorageError(e)),
+                RuntimeError::StorageError(e) => Error::StorageError(e),
                 // TODO(#2152): process gracefully
                 RuntimeError::ReceiptValidationError(e) => panic!("{}", e),
                 RuntimeError::ValidatorError(e) => e.into(),
@@ -442,7 +444,7 @@ impl NightshadeRuntime {
             .checked_add(apply_result.stats.other_burnt_amount)
             .and_then(|result| result.checked_add(apply_result.stats.slashed_burnt_amount))
             .ok_or_else(|| {
-                ErrorKind::Other("Integer overflow during burnt balance summation".to_string())
+                Error::Other("Integer overflow during burnt balance summation".to_string())
             })?;
 
         // Sort the receipts into appropriate outgoing shards.
@@ -517,7 +519,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         .unwrap();
 
         if !public_key.is_vrf_valid(&prev_random_value.as_ref(), vrf_value, vrf_proof) {
-            return Err(ErrorKind::InvalidRandomnessBeaconOutput.into());
+            return Err(Error::InvalidRandomnessBeaconOutput);
         }
         Ok(())
     }
@@ -543,9 +545,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                     debug!(target: "runtime", "Tx {:?} validation failed: {:?}", transaction, err);
                     Ok(Some(err))
                 }
-                Err(RuntimeError::StorageError(err)) => {
-                    Err(Error::from(ErrorKind::StorageError(err)))
-                }
+                Err(RuntimeError::StorageError(err)) => Err(Error::StorageError(err)),
                 Err(err) => unreachable!("Unexpected RuntimeError error {:?}", err),
             }
         } else {
@@ -556,9 +556,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                     debug!(target: "runtime", "Tx {:?} validation failed: {:?}", transaction, err);
                     Ok(Some(err))
                 }
-                Err(RuntimeError::StorageError(err)) => {
-                    Err(Error::from(ErrorKind::StorageError(err)))
-                }
+                Err(RuntimeError::StorageError(err)) => Err(Error::StorageError(err)),
                 Err(err) => unreachable!("Unexpected RuntimeError error {:?}", err),
             }
         }
@@ -605,7 +603,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                                 state_update.rollback();
                             }
                             Err(RuntimeError::StorageError(err)) => {
-                                return Err(Error::from(ErrorKind::StorageError(err)))
+                                return Err(Error::StorageError(err))
                             }
                             Err(err) => unreachable!("Unexpected RuntimeError error {:?}", err),
                         }
@@ -650,7 +648,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             data,
             signature,
         ) {
-            Err(e) if e.kind() == ErrorKind::NotAValidator => {
+            Err(Error::NotAValidator) => {
                 let (fisherman, is_slashed) =
                     self.get_fisherman_by_account_id(epoch_id, last_known_block_hash, account_id)?;
                 if is_slashed {
@@ -690,7 +688,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             }
             Ok(header.signature.verify(header.chunk_hash().as_ref(), &chunk_producer.public_key))
         } else {
-            Err(ErrorKind::NotAValidator.into())
+            Err(Error::NotAValidator)
         }
     }
 
@@ -777,7 +775,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                 let slashed = epoch_manager.get_slashed_validators(&last_known_block_hash)?;
                 Ok((validator, slashed.contains_key(account_id)))
             }
-            Ok(None) => Err(ErrorKind::NotAValidator.into()),
+            Ok(None) => Err(Error::NotAValidator),
             Err(e) => Err(e.into()),
         }
     }
@@ -794,7 +792,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                 let slashed = epoch_manager.get_slashed_validators(&last_known_block_hash)?;
                 Ok((fisherman, slashed.contains_key(account_id)))
             }
-            Ok(None) => Err(ErrorKind::NotAValidator.into()),
+            Ok(None) => Err(Error::NotAValidator),
             Err(e) => Err(e.into()),
         }
     }
@@ -989,12 +987,8 @@ impl RuntimeAdapter for NightshadeRuntime {
             random_seed,
         ) {
             Ok(result) => Ok(result),
-            Err(e) => match e.kind() {
-                ErrorKind::StorageError(_) => {
-                    panic!("{}", e);
-                }
-                _ => Err(e),
-            },
+            Err(Error::StorageError(e)) => panic!("{}", e),
+            Err(e) => Err(e),
         }
     }
 
@@ -1043,7 +1037,14 @@ impl RuntimeAdapter for NightshadeRuntime {
         block_hash: &CryptoHash,
         epoch_id: &EpochId,
         request: &QueryRequest,
-    ) -> Result<QueryResponse, Box<dyn std::error::Error>> {
+    ) -> Result<QueryResponse, Error> {
+        let convert_error = |error: StateViewError, logs: Vec<String>| {
+            Ok(QueryResponse {
+                kind: QueryResponseKind::Error(QueryError { error, logs }),
+                block_height,
+                block_hash: *block_hash,
+            })
+        };
         match request {
             QueryRequest::ViewAccount { account_id } => {
                 match self.view_account(shard_id, *state_root, account_id) {
@@ -1052,7 +1053,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                         block_height,
                         block_hash: *block_hash,
                     }),
-                    Err(e) => Err(e),
+                    Err(e) => convert_error(e, vec![]),
                 }
             }
             QueryRequest::CallFunction { account_id, method_name, args } => {
@@ -1081,11 +1082,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                         block_height,
                         block_hash: *block_hash,
                     }),
-                    Err(err) => Ok(QueryResponse {
-                        kind: QueryResponseKind::Error(QueryError { error: err.to_string(), logs }),
-                        block_height,
-                        block_hash: *block_hash,
-                    }),
+                    Err(err) => convert_error(err, logs),
                 }
             }
             QueryRequest::ViewState { account_id, prefix } => {
@@ -1095,14 +1092,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                         block_height,
                         block_hash: *block_hash,
                     }),
-                    Err(err) => Ok(QueryResponse {
-                        kind: QueryResponseKind::Error(QueryError {
-                            error: err.to_string(),
-                            logs: vec![],
-                        }),
-                        block_height,
-                        block_hash: *block_hash,
-                    }),
+                    Err(err) => convert_error(err, vec![]),
                 }
             }
             QueryRequest::ViewAccessKeyList { account_id } => {
@@ -1120,14 +1110,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                         block_height,
                         block_hash: *block_hash,
                     }),
-                    Err(err) => Ok(QueryResponse {
-                        kind: QueryResponseKind::Error(QueryError {
-                            error: err.to_string(),
-                            logs: vec![],
-                        }),
-                        block_height,
-                        block_hash: *block_hash,
-                    }),
+                    Err(err) => convert_error(err, vec![]),
                 }
             }
             QueryRequest::ViewAccessKey { account_id, public_key } => {
@@ -1137,14 +1120,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                         block_height,
                         block_hash: *block_hash,
                     }),
-                    Err(err) => Ok(QueryResponse {
-                        kind: QueryResponseKind::Error(QueryError {
-                            error: err.to_string(),
-                            logs: vec![],
-                        }),
-                        block_height,
-                        block_hash: *block_hash,
-                    }),
+                    Err(err) => convert_error(err, vec![]),
                 }
             }
         }
@@ -1277,7 +1253,7 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
         shard_id: ShardId,
         state_root: MerkleHash,
         account_id: &AccountId,
-    ) -> Result<Account, Box<dyn std::error::Error>> {
+    ) -> Result<Account, StateViewError> {
         let state_update = self.get_tries().new_trie_update(shard_id, state_root);
         self.trie_viewer.view_account(&state_update, account_id)
     }
@@ -1296,7 +1272,7 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
         args: &[u8],
         logs: &mut Vec<String>,
         epoch_info_provider: &dyn EpochInfoProvider,
-    ) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+    ) -> Result<Vec<u8>, StateViewError> {
         let state_update = self.get_tries().new_trie_update(shard_id, state_root);
         self.trie_viewer.call_function(
             state_update,
@@ -1319,7 +1295,7 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
         state_root: MerkleHash,
         account_id: &AccountId,
         public_key: &PublicKey,
-    ) -> Result<AccessKey, Box<dyn std::error::Error>> {
+    ) -> Result<AccessKey, StateViewError> {
         let state_update = self.get_tries().new_trie_update(shard_id, state_root);
         self.trie_viewer.view_access_key(&state_update, account_id, public_key)
     }
@@ -1329,7 +1305,7 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
         shard_id: ShardId,
         state_root: MerkleHash,
         account_id: &AccountId,
-    ) -> Result<Vec<(PublicKey, AccessKey)>, Box<dyn std::error::Error>> {
+    ) -> Result<Vec<(PublicKey, AccessKey)>, StateViewError> {
         let state_update = self.get_tries().new_trie_update(shard_id, state_root);
         let prefix = trie_key_parsers::get_raw_prefix_for_access_keys(account_id);
         let raw_prefix: &[u8] = prefix.as_ref();
@@ -1338,13 +1314,17 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
                 .map(|key| {
                     let key = key?;
                     let public_key = &key[raw_prefix.len()..];
-                    let access_key = get_access_key_raw(&state_update, &key)?
-                        .ok_or("Missing key from iterator")?;
+                    let access_key = get_access_key_raw(&state_update, &key)?.ok_or_else(|| {
+                        StorageError::StorageInconsistentState(format!(
+                            "access key {} missing from iterator",
+                            to_base(public_key)
+                        ))
+                    })?;
                     PublicKey::try_from_slice(public_key)
-                        .map_err(|err| format!("{}", err).into())
+                        .map_err(|_| StateViewError::InvalidPublicKey(public_key.to_vec()))
                         .map(|key| (key, access_key))
                 })
-                .collect::<Result<Vec<_>, Box<dyn std::error::Error>>>(),
+                .collect::<Result<Vec<_>, StateViewError>>(),
             Err(e) => Err(e.into()),
         };
         access_keys
@@ -1356,7 +1336,7 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
         state_root: MerkleHash,
         account_id: &AccountId,
         prefix: &[u8],
-    ) -> Result<ViewStateResult, Box<dyn std::error::Error>> {
+    ) -> Result<ViewStateResult, StateViewError> {
         let state_update = self.get_tries().new_trie_update(shard_id, state_root);
         self.trie_viewer.view_state(&state_update, account_id, prefix)
     }

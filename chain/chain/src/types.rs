@@ -492,7 +492,7 @@ pub trait RuntimeAdapter: Send + Sync {
         random_value: CryptoHash,
     ) -> Result<ApplyTransactionResult, Error>;
 
-    /// Query runtime with given `path` and `data`.
+    /// Query runtime with given `QueryRequest`.
     fn query(
         &self,
         shard_id: ShardId,
@@ -502,7 +502,7 @@ pub trait RuntimeAdapter: Send + Sync {
         block_hash: &CryptoHash,
         epoch_id: &EpochId,
         request: &QueryRequest,
-    ) -> Result<QueryResponse, Box<dyn std::error::Error>>;
+    ) -> Result<QueryResponse, Error>;
 
     fn get_validator_info(&self, block_hash: &CryptoHash) -> Result<EpochValidatorInfo, Error>;
 

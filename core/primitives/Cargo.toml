@@ -25,16 +25,14 @@ jemallocator = { version = "0.3", optional = true }
 hex = "0.4"
 num-rational = "0.2.4"
 primitive-types = { version = "0.7", default-features = false }
-
+thiserror = "1.0.20"
 borsh = "0.7.0"
 
 near-crypto = { path = "../crypto" }
 near-vm-errors = { path = "../../runtime/near-vm-errors" }
-near-rpc-error-macro = { path = "../../tools/rpctypegen/macro" }
 
 [features]
 default = ["jemallocator"]
-dump_errors_schema = ["near-rpc-error-macro/dump_errors_schema"]
 
 [dev-dependencies]
 bencher = "0.1.5"

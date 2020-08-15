@@ -1,5 +1,4 @@
 use borsh::{BorshDeserialize, BorshSerialize};
-use near_rpc_error_macro::RpcError;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
@@ -13,9 +12,10 @@ pub enum VMError {
     InconsistentStateError(InconsistentStateError),
 }
 
-#[derive(
-    Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, Deserialize, Serialize, RpcError,
-)]
+impl std::error::Error for VMError {}
+
+#[derive(Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, Deserialize, Serialize)]
+#[serde(tag = "type", content = "content")]
 pub enum FunctionCallError {
     /// Wasm compilation error
     CompilationError(CompilationError),
@@ -31,9 +31,8 @@ pub enum FunctionCallError {
     HostError(HostError),
 }
 /// A kind of a trap happened during execution of a binary
-#[derive(
-    Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, Deserialize, Serialize, RpcError,
-)]
+#[derive(Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, Deserialize, Serialize)]
+#[serde(tag = "type")]
 pub enum WasmTrap {
     /// An `unreachable` opcode was executed.
     Unreachable,
@@ -55,9 +54,8 @@ pub enum WasmTrap {
     GenericTrap,
 }
 
-#[derive(
-    Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, Deserialize, Serialize, RpcError,
-)]
+#[derive(Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, Deserialize, Serialize)]
+#[serde(tag = "type")]
 pub enum MethodResolveError {
     MethodEmptyName,
     MethodUTF8Error,
@@ -65,18 +63,15 @@ pub enum MethodResolveError {
     MethodInvalidSignature,
 }
 
-#[derive(
-    Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, Deserialize, Serialize, RpcError,
-)]
+#[derive(Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, Deserialize, Serialize)]
+#[serde(tag = "type", content = "content")]
 pub enum CompilationError {
     CodeDoesNotExist { account_id: String },
     PrepareError(PrepareError),
     WasmerCompileError { msg: String },
 }
 
-#[derive(
-    Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, Deserialize, Serialize, RpcError,
-)]
+#[derive(Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, Deserialize, Serialize)]
 /// Error that can occur while preparing or executing Wasm smart-contract.
 pub enum PrepareError {
     /// Error happened while serializing the module.
@@ -102,9 +97,8 @@ pub enum PrepareError {
     Memory,
 }
 
-#[derive(
-    Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, Deserialize, Serialize, RpcError,
-)]
+#[derive(Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, Deserialize, Serialize)]
+#[serde(tag = "type", content = "content")]
 pub enum HostError {
     /// String encoding is bad UTF-16 sequence
     BadUTF16,

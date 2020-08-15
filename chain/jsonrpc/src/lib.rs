@@ -1,6 +1,5 @@
 use std::borrow::Cow;
 use std::convert::TryFrom;
-use std::fmt::Display;
 use std::string::FromUtf8Error;
 use std::sync::Arc;
 use std::time::Duration;
@@ -22,7 +21,7 @@ use near_chain_configs::Genesis;
 use near_client::{
     ClientActor, GetBlock, GetBlockProof, GetChunk, GetExecutionOutcome, GetGasPrice,
     GetNetworkInfo, GetNextLightClientBlock, GetStateChanges, GetStateChangesInBlock,
-    GetValidatorInfo, Query, Status, TxStatus, TxStatusError, ViewClientActor,
+    GetValidatorInfo, Query, Status, TxStatus, ViewClientActor, ViewClientError,
 };
 use near_crypto::PublicKey;
 pub use near_jsonrpc_client as client;
@@ -106,15 +105,17 @@ fn parse_params<T: DeserializeOwned>(value: Option<Value>) -> Result<T, RpcError
     }
 }
 
-fn jsonify<T: serde::Serialize>(
-    response: Result<Result<T, String>, MailboxError>,
+fn jsonify<T: serde::Serialize, E: Into<ServerError>>(
+    response: Result<Result<T, E>, MailboxError>,
 ) -> Result<Value, RpcError> {
     response
-        .map_err(|err| err.to_string())
+        .map_err(|err| ServerError::from(err))
         .and_then(|value| {
-            value.and_then(|value| serde_json::to_value(value).map_err(|err| err.to_string()))
+            value.map_err(|err| err.into()).and_then(|value| {
+                serde_json::to_value(value).map_err(|_| ServerError::InternalError)
+            })
         })
-        .map_err(|err| RpcError::server_error(Some(err)))
+        .map_err(|e| e.into())
 }
 
 fn parse_tx(params: Option<Value>) -> Result<SignedTransaction, RpcError> {
@@ -124,24 +125,21 @@ fn parse_tx(params: Option<Value>) -> Result<SignedTransaction, RpcError> {
         .map_err(|e| RpcError::invalid_params(format!("Failed to decode transaction: {}", e)))
 }
 
-/// A general Server Error
-#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, near_rpc_error_macro::RpcError)]
+/// A general Server Error. This error happens when the request is valid
+/// but there is something wrong on the server side.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[serde(tag = "type", content = "content")]
 pub enum ServerError {
-    TxExecutionError(TxExecutionError),
+    #[error("ServerError: {0}")]
+    TxExecutionError(#[from] TxExecutionError),
+    #[error("ServerError: {0}")]
+    ViewClientError(#[from] ViewClientError),
+    #[error("ServerError: Timeout")]
     Timeout,
+    #[error("ServerError: Closed")]
     Closed,
+    #[error("ServerError: Internal Error")]
     InternalError,
-}
-
-impl Display for ServerError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
-        match self {
-            ServerError::TxExecutionError(e) => write!(f, "ServerError: {}", e),
-            ServerError::Timeout => write!(f, "ServerError: Timeout"),
-            ServerError::Closed => write!(f, "ServerError: Closed"),
-            ServerError::InternalError => write!(f, "ServerError: Internal Error"),
-        }
-    }
 }
 
 impl From<InvalidTxError> for ServerError {
@@ -163,10 +161,6 @@ impl From<ServerError> for RpcError {
     fn from(e: ServerError) -> RpcError {
         RpcError::server_error(Some(e))
     }
-}
-
-fn timeout_err() -> RpcError {
-    RpcError::server_error(Some(ServerError::Timeout))
 }
 
 struct JsonRpcHandler {
@@ -266,7 +260,7 @@ impl JsonRpcHandler {
                     Ok(Ok(Some(_))) => {
                         return Ok(true);
                     }
-                    Ok(Err(TxStatusError::MissingTransaction(_))) => {
+                    Ok(Err(ViewClientError::MissingTransaction(_))) => {
                         return Ok(false);
                     }
                     Err(_) => return Err(ServerError::InternalError),
@@ -285,7 +279,7 @@ impl JsonRpcHandler {
     async fn tx_status_fetch(
         &self,
         tx_info: TransactionInfo,
-    ) -> Result<FinalExecutionOutcomeView, TxStatusError> {
+    ) -> Result<FinalExecutionOutcomeView, ServerError> {
         let (tx_hash, account_id) = match &tx_info {
             TransactionInfo::Transaction(tx) => (tx.get_hash(), tx.transaction.signer_id.clone()),
             TransactionInfo::TransactionId { hash, account_id } => (*hash, account_id.clone()),
@@ -299,18 +293,18 @@ impl JsonRpcHandler {
                 match tx_status_result {
                     Ok(Ok(Some(outcome))) => break Ok(outcome),
                     Ok(Ok(None)) => {}
-                    Ok(Err(err @ TxStatusError::MissingTransaction(_))) => {
+                    Ok(Err(err @ ViewClientError::MissingTransaction(_))) => {
                         if let TransactionInfo::Transaction(tx) = &tx_info {
                             if let Ok(NetworkClientResponses::InvalidTx(e)) =
                                 self.send_tx(tx.clone(), true).await
                             {
-                                break Err(TxStatusError::InvalidTx(e));
+                                break Err(e.into());
                             }
                         }
-                        break Err(err);
+                        break Err(err.into());
                     }
-                    Ok(Err(err)) => break Err(err),
-                    Err(_) => break Err(TxStatusError::InternalError),
+                    Ok(Err(err)) => break Err(err.into()),
+                    Err(_) => break Err(ServerError::InternalError),
                 }
                 let _ = delay_for(self.polling_config.polling_interval).await;
             }
@@ -318,7 +312,7 @@ impl JsonRpcHandler {
         .await
         .map_err(|_| {
             near_metrics::inc_counter(&metrics::RPC_TIMEOUT_TOTAL);
-            TxStatusError::TimeoutError
+            ServerError::Timeout
         })?
     }
 
@@ -326,12 +320,12 @@ impl JsonRpcHandler {
         timeout(self.polling_config.polling_timeout, async {
             loop {
                 match self.tx_status_fetch(tx_info.clone()).await {
-                    Ok(tx_status) => break jsonify(Ok(Ok(tx_status))),
+                    Ok(tx_status) => break jsonify::<_, ServerError>(Ok(Ok(tx_status))),
                     // If transaction is missing, keep polling.
-                    Err(TxStatusError::MissingTransaction(_)) => {}
+                    Err(ServerError::ViewClientError(ViewClientError::MissingTransaction(_))) => {}
                     // If we hit any other error, we return to the user.
                     Err(err) => {
-                        break jsonify::<FinalExecutionOutcomeView>(Ok(Err(err.into())));
+                        break jsonify::<FinalExecutionOutcomeView, ServerError>(Ok(Err(err)));
                     }
                 }
                 let _ = delay_for(self.polling_config.polling_interval).await;
@@ -340,7 +334,7 @@ impl JsonRpcHandler {
         .await
         .map_err(|_| {
             near_metrics::inc_counter(&metrics::RPC_TIMEOUT_TOTAL);
-            timeout_err()
+            ServerError::Timeout
         })?
     }
 
@@ -401,7 +395,7 @@ impl JsonRpcHandler {
                 if check_only {
                     Ok(Value::Null)
                 } else {
-                    jsonify(Ok(Ok(RpcBroadcastTxSyncResponse {
+                    jsonify::<_, TxExecutionError>(Ok(Ok(RpcBroadcastTxSyncResponse {
                         transaction_hash: tx_hash,
                         is_routed: false,
                     })))
@@ -411,7 +405,7 @@ impl JsonRpcHandler {
                 if check_only {
                     Err(RpcError::server_error(Some(does_not_track_shard_err.to_string())))
                 } else {
-                    jsonify(Ok(Ok(RpcBroadcastTxSyncResponse {
+                    jsonify::<_, TxExecutionError>(Ok(Ok(RpcBroadcastTxSyncResponse {
                         transaction_hash: tx_hash,
                         is_routed: true,
                     })))
@@ -434,10 +428,10 @@ impl JsonRpcHandler {
         let tx = parse_tx(params)?;
         match self.tx_status_fetch(TransactionInfo::Transaction(tx.clone())).await {
             Ok(outcome) => {
-                return jsonify(Ok(Ok(outcome)));
+                return jsonify::<_, TxExecutionError>(Ok(Ok(outcome)));
             }
-            Err(TxStatusError::InvalidTx(e)) => {
-                return Err(RpcError::server_error(Some(ServerError::TxExecutionError(e.into()))));
+            Err(e @ ServerError::TxExecutionError(TxExecutionError::InvalidTxError(_))) => {
+                return Err(e.into());
             }
             _ => {}
         }
@@ -465,7 +459,7 @@ impl JsonRpcHandler {
 
     pub async fn status(&self) -> Result<Value, RpcError> {
         match self.client_addr.send(Status { is_health_check: false }).await {
-            Ok(Ok(result)) => jsonify(Ok(Ok(result))),
+            Ok(Ok(result)) => jsonify::<_, ServerError>(Ok(Ok(result))),
             Ok(Err(err)) => Err(RpcError::new(-32_001, err, None)),
             Err(_) => Err(RpcError::server_error::<()>(None)),
         }
@@ -476,7 +470,7 @@ impl JsonRpcHandler {
     ///
     /// See also `genesis_records` API.
     pub async fn genesis_config(&self) -> Result<Value, RpcError> {
-        jsonify(Ok(Ok(&self.genesis.config)))
+        jsonify::<_, ServerError>(Ok(Ok(&self.genesis.config)))
     }
 
     /// Expose Genesis State Records with pagination.
@@ -495,7 +489,10 @@ impl JsonRpcHandler {
                 records = &records[..pagination.limit];
             }
         }
-        jsonify(Ok(Ok(GenesisRecordsView { pagination, records: Cow::Borrowed(records) })))
+        jsonify::<_, ServerError>(Ok(Ok(GenesisRecordsView {
+            pagination,
+            records: Cow::Borrowed(records),
+        })))
     }
 
     async fn query(&self, params: Option<Value>) -> Result<Value, RpcError> {
@@ -557,25 +554,7 @@ impl JsonRpcHandler {
             parse_params::<RpcQueryRequest>(params)?
         };
         let query = Query::new(query_request.block_id_or_finality, query_request.request);
-        timeout(self.polling_config.polling_timeout, async {
-            loop {
-                let result = self.view_client_addr.send(query.clone()).await;
-                match result {
-                    Ok(ref r) => match r {
-                        Ok(Some(_)) => break jsonify(result),
-                        Ok(None) => {}
-                        Err(e) => break Err(RpcError::server_error(Some(e))),
-                    },
-                    Err(e) => break Err(RpcError::server_error(Some(e.to_string()))),
-                }
-                delay_for(self.polling_config.polling_interval).await;
-            }
-        })
-        .await
-        .map_err(|_| {
-            near_metrics::inc_counter(&metrics::RPC_TIMEOUT_TOTAL);
-            RpcError::server_error(Some("query has timed out".to_string()))
-        })?
+        jsonify(self.view_client_addr.send(query.clone()).await)
     }
 
     async fn tx_status(&self, params: Option<Value>) -> Result<Value, RpcError> {
@@ -593,7 +572,7 @@ impl JsonRpcHandler {
                 TransactionInfo::Transaction(tx)
             };
 
-        jsonify(Ok(self.tx_status_fetch(tx_status_request).await.map_err(|err| err.into())))
+        jsonify(Ok(self.tx_status_fetch(tx_status_request).await))
     }
 
     async fn block(&self, params: Option<Value>) -> Result<Value, RpcError> {
@@ -603,12 +582,14 @@ impl JsonRpcHandler {
             } else {
                 parse_params::<BlockIdOrFinality>(params)?
             };
-        jsonify(self.view_client_addr.send(GetBlock(block_id_or_finality)).await)
+        jsonify::<_, ViewClientError>(
+            self.view_client_addr.send(GetBlock(block_id_or_finality)).await,
+        )
     }
 
     async fn chunk(&self, params: Option<Value>) -> Result<Value, RpcError> {
         let (chunk_id,) = parse_params::<(ChunkId,)>(params)?;
-        jsonify(
+        jsonify::<_, ViewClientError>(
             self.view_client_addr
                 .send(match chunk_id {
                     ChunkId::BlockShardId(block_id, shard_id) => match block_id {
@@ -697,7 +678,12 @@ impl JsonRpcHandler {
     }
 
     async fn network_info(&self) -> Result<Value, RpcError> {
-        jsonify(self.client_addr.send(GetNetworkInfo {}).await)
+        jsonify(
+            self.client_addr
+                .send(GetNetworkInfo {})
+                .await
+                .map(|res| res.map_err(|_| ServerError::InternalError)),
+        )
     }
 
     async fn gas_price(&self, params: Option<Value>) -> Result<Value, RpcError> {
@@ -808,7 +794,9 @@ impl JsonRpcHandler {
             .await
         {
             Ok(result) => match result {
-                NetworkClientResponses::AdvResult(value) => jsonify(Ok(Ok(value))),
+                NetworkClientResponses::AdvResult(value) => {
+                    jsonify::<_, ServerError>(Ok(Ok(value)))
+                }
                 _ => Err(RpcError::server_error::<String>(None)),
             },
             _ => Err(RpcError::server_error::<String>(None)),
@@ -824,7 +812,9 @@ impl JsonRpcHandler {
             .await
         {
             Ok(result) => match result {
-                NetworkClientResponses::AdvResult(value) => jsonify(Ok(Ok(value))),
+                NetworkClientResponses::AdvResult(value) => {
+                    jsonify::<_, ServerError>(Ok(Ok(value)))
+                }
                 _ => Err(RpcError::server_error::<String>(None)),
             },
             _ => Err(RpcError::server_error::<String>(None)),

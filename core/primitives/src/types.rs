@@ -393,7 +393,7 @@ impl StateRootNode {
 pub struct EpochId(pub CryptoHash);
 
 /// Stores validator and its stake.
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, PartialEq, Eq)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct ValidatorStake {
     /// Account that stakes money.
     pub account_id: AccountId,

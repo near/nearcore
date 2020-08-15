@@ -65,7 +65,7 @@ async fn fetch_latest_block(
     client
         .send(near_client::GetBlock(types::BlockIdOrFinality::Finality(types::Finality::Final)))
         .await?
-        .map_err(|err| FailedToFetchData::String(err))
+        .map_err(|err| FailedToFetchData::String(err.to_string()))
 }
 
 /// Fetches specific block by it's height
@@ -78,7 +78,7 @@ async fn fetch_block_by_height(
             near_primitives::types::BlockId::Height(height),
         )))
         .await?
-        .map_err(|err| FailedToFetchData::String(err))
+        .map_err(|err| FailedToFetchData::String(err.to_string()))
 }
 
 /// This function supposed to return the entire `BlockResponse`.
@@ -123,7 +123,7 @@ async fn fetch_state_changes(
     client
         .send(near_client::GetStateChangesInBlock { block_hash })
         .await?
-        .map_err(|err| FailedToFetchData::String(err))
+        .map_err(|err| FailedToFetchData::String(err.to_string()))
 }
 
 /// Fetches single chunk (as `near_primitives::views::ChunkView`) by provided `near_client::GetChunk` enum
@@ -131,7 +131,7 @@ async fn fetch_single_chunk(
     client: &Addr<near_client::ViewClientActor>,
     get_chunk: near_client::GetChunk,
 ) -> Result<views::ChunkView, FailedToFetchData> {
-    client.send(get_chunk).await?.map_err(|err| FailedToFetchData::String(err))
+    client.send(get_chunk).await?.map_err(|err| FailedToFetchData::String(err.to_string()))
 }
 
 /// Fetch ExecutionOutcomeWithId for receipts and transactions from previous block

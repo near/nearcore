@@ -9,10 +9,9 @@ use std::time::{Duration, Instant};
 use actix::{Actor, Addr, Handler, SyncArbiter, SyncContext};
 use cached::{Cached, SizedCache};
 use log::{debug, error, info, trace, warn};
+use serde::{Deserialize, Serialize};
 
-use near_chain::{
-    Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode, ErrorKind, RuntimeAdapter,
-};
+use near_chain::{Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode, RuntimeAdapter};
 use near_chain_configs::ClientConfig;
 #[cfg(feature = "adversarial")]
 use near_network::types::NetworkAdversarialMessage;
@@ -37,7 +36,7 @@ use near_primitives::views::{
 
 use crate::types::{
     Error, GetBlock, GetBlockProof, GetBlockProofResponse, GetBlockWithMerkleTree,
-    GetExecutionOutcome, GetGasPrice, Query, TxStatus, TxStatusError,
+    GetExecutionOutcome, GetGasPrice, Query, TxStatus,
 };
 use crate::{
     sync, GetChunk, GetExecutionOutcomeResponse, GetNextLightClientBlock, GetStateChanges,
@@ -51,6 +50,30 @@ const REQUEST_WAIT_TIME: u64 = 1000;
 
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 
+#[derive(thiserror::Error, Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+#[serde(tag = "type", content = "content")]
+pub enum LightClientProofError {
+    #[error("{0} has not been confirmed")]
+    ExecutionOutcomeNotConfirmed(CryptoHash),
+    #[error("{0} does not exist")]
+    ExecutionOutcomeDoesNotExist(CryptoHash),
+    #[error("block {0} is not yet final and therefore cannot be used for light client proofs")]
+    BlockNotYetFinal(CryptoHash),
+}
+
+#[derive(thiserror::Error, Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+#[serde(tag = "type", content = "content")]
+pub enum ViewClientError {
+    #[error("chain error {0}")]
+    ChainError(#[from] near_chain::Error),
+    #[error("this node does not track the required shard and therefore cannot respond to request")]
+    DoesNotTrackShard,
+    #[error("light client proof error {0}")]
+    LightClientProofError(#[from] LightClientProofError),
+    #[error("Transaction {0} does not exist")]
+    MissingTransaction(CryptoHash),
+}
+
 /// Request and response manager across all instances of ViewClientActor.
 pub struct ViewClientRequestManager {
     /// Transaction query that needs to be forwarded to other shards
@@ -59,8 +82,6 @@ pub struct ViewClientRequestManager {
     pub tx_status_response: SizedCache<CryptoHash, FinalExecutionOutcomeView>,
     /// Query requests that need to be forwarded to other shards
     pub query_requests: SizedCache<String, Instant>,
-    /// Query responses from other nodes (can be errors)
-    pub query_responses: SizedCache<String, Result<QueryResponse, String>>,
     /// Receipt outcome requests
     pub receipt_outcome_requests: SizedCache<CryptoHash, Instant>,
 }
@@ -89,7 +110,6 @@ impl ViewClientRequestManager {
             tx_status_requests: SizedCache::with_size(QUERY_REQUEST_LIMIT),
             tx_status_response: SizedCache::with_size(QUERY_REQUEST_LIMIT),
             query_requests: SizedCache::with_size(QUERY_REQUEST_LIMIT),
-            query_responses: SizedCache::with_size(QUERY_REQUEST_LIMIT),
             receipt_outcome_requests: SizedCache::with_size(QUERY_REQUEST_LIMIT),
         }
     }
@@ -149,7 +169,10 @@ impl ViewClientActor {
         need_request
     }
 
-    fn get_block_hash_by_finality(&mut self, finality: &Finality) -> Result<CryptoHash, Error> {
+    fn get_block_hash_by_finality(
+        &mut self,
+        finality: &Finality,
+    ) -> Result<CryptoHash, near_chain::Error> {
         let head_header = self.chain.head_header()?;
         match finality {
             Finality::None => Ok(*head_header.hash()),
@@ -158,15 +181,7 @@ impl ViewClientActor {
         }
     }
 
-    fn handle_query(&mut self, msg: Query) -> Result<Option<QueryResponse>, String> {
-        {
-            let mut request_manager = self.request_manager.write().expect(POISONED_LOCK_ERR);
-            if let Some(response) = request_manager.query_responses.cache_remove(&msg.query_id) {
-                request_manager.query_requests.cache_remove(&msg.query_id);
-                return response.map(Some);
-            }
-        }
-
+    fn handle_query(&mut self, msg: Query) -> Result<QueryResponse, ViewClientError> {
         let header = match msg.block_id_or_finality {
             BlockIdOrFinality::BlockId(BlockId::Height(block_height)) => {
                 self.chain.get_header_by_height(block_height)
@@ -175,12 +190,11 @@ impl ViewClientActor {
                 self.chain.get_block_header(&block_hash)
             }
             BlockIdOrFinality::Finality(ref finality) => {
-                let block_hash =
-                    self.get_block_hash_by_finality(&finality).map_err(|e| e.to_string())?;
+                let block_hash = self.get_block_hash_by_finality(&finality)?;
                 self.chain.get_block_header(&block_hash)
             }
         };
-        let header = header.map_err(|e| e.to_string())?.clone();
+        let header = header?.clone();
 
         let account_id = match &msg.request {
             QueryRequest::ViewAccount { account_id, .. } => account_id,
@@ -190,49 +204,27 @@ impl ViewClientActor {
             QueryRequest::CallFunction { account_id, .. } => account_id,
         };
         let shard_id = self.runtime_adapter.account_id_to_shard_id(account_id);
+        let head = self.chain.head()?;
 
-        // If we have state for the shard that we query return query result directly.
-        // Otherwise route query to peers.
-        match self.chain.get_chunk_extra(header.hash(), shard_id) {
-            Ok(chunk_extra) => {
-                let state_root = chunk_extra.state_root;
-                self.runtime_adapter
-                    .query(
-                        shard_id,
-                        &state_root,
-                        header.height(),
-                        header.raw_timestamp(),
-                        header.hash(),
-                        header.epoch_id(),
-                        &msg.request,
-                    )
-                    .map(Some)
-                    .map_err(|e| e.to_string())
-            }
-            Err(e) => {
-                match e.kind() {
-                    ErrorKind::DBNotFoundErr(_) => {}
-                    _ => {
-                        warn!(target: "client", "Getting chunk extra failed: {}", e.to_string());
-                    }
-                }
-                // route request
-                let mut request_manager = self.request_manager.write().expect(POISONED_LOCK_ERR);
-                if Self::need_request(msg.query_id.clone(), &mut request_manager.query_requests) {
-                    let validator = self
-                        .chain
-                        .find_validator_for_forwarding(shard_id)
-                        .map_err(|e| e.to_string())?;
-                    self.network_adapter.do_send(NetworkRequests::Query {
-                        query_id: msg.query_id.clone(),
-                        account_id: validator,
-                        block_id_or_finality: msg.block_id_or_finality.clone(),
-                        request: msg.request.clone(),
-                    });
-                }
-
-                Ok(None)
-            }
+        if self.runtime_adapter.cares_about_shard(
+            self.validator_account_id.as_ref(),
+            &head.last_block_hash,
+            shard_id,
+            true,
+        ) {
+            let chunk_extra = self.chain.get_chunk_extra(header.hash(), shard_id)?;
+            let state_root = chunk_extra.state_root;
+            Ok(self.runtime_adapter.query(
+                shard_id,
+                &state_root,
+                header.height(),
+                header.raw_timestamp(),
+                header.hash(),
+                header.epoch_id(),
+                &msg.request,
+            )?)
+        } else {
+            Err(ViewClientError::DoesNotTrackShard)
         }
     }
 
@@ -240,15 +232,17 @@ impl ViewClientActor {
         &mut self,
         receipt_id: CryptoHash,
         last_block_hash: &CryptoHash,
-    ) -> Result<(), TxStatusError> {
+    ) -> Result<(), ViewClientError> {
         if let Ok(&dst_shard_id) = self.chain.get_shard_id_for_receipt_id(&receipt_id) {
-            if self.chain.get_chunk_extra(last_block_hash, dst_shard_id).is_err() {
+            if self.runtime_adapter.cares_about_shard(
+                self.validator_account_id.as_ref(),
+                &last_block_hash,
+                dst_shard_id,
+                true,
+            ) {
                 let mut request_manager = self.request_manager.write().expect(POISONED_LOCK_ERR);
                 if Self::need_request(receipt_id, &mut request_manager.receipt_outcome_requests) {
-                    let validator = self
-                        .chain
-                        .find_validator_for_forwarding(dst_shard_id)
-                        .map_err(|e| TxStatusError::ChainError(e))?;
+                    let validator = self.chain.find_validator_for_forwarding(dst_shard_id)?;
                     self.network_adapter
                         .do_send(NetworkRequests::ReceiptOutComeRequest(validator, receipt_id));
                 }
@@ -262,7 +256,7 @@ impl ViewClientActor {
         &mut self,
         tx_hash: CryptoHash,
         signer_account_id: AccountId,
-    ) -> Result<Option<FinalExecutionOutcomeView>, TxStatusError> {
+    ) -> Result<Option<FinalExecutionOutcomeView>, ViewClientError> {
         {
             let mut request_manager = self.request_manager.write().expect(POISONED_LOCK_ERR);
             if let Some(res) = request_manager.tx_status_response.cache_remove(&tx_hash) {
@@ -271,7 +265,7 @@ impl ViewClientActor {
             }
         }
 
-        let head = self.chain.head().map_err(|e| TxStatusError::ChainError(e))?;
+        let head = self.chain.head()?;
         let target_shard_id = self.runtime_adapter.account_id_to_shard_id(&signer_account_id);
         // Check if we are tracking this shard.
         if self.runtime_adapter.cares_about_shard(
@@ -296,8 +290,8 @@ impl ViewClientActor {
                     }
                     return Ok(Some(tx_result));
                 }
-                Err(e) => match e.kind() {
-                    ErrorKind::DBNotFoundErr(_) => {
+                Err(e) => match e {
+                    near_chain::Error::DBNotFoundErr(_) => {
                         if let Ok(execution_outcome) =
                             self.chain.get_transaction_execution_result(&tx_hash)
                         {
@@ -306,12 +300,12 @@ impl ViewClientActor {
                             }
                             return Ok(None);
                         } else {
-                            return Err(TxStatusError::MissingTransaction(tx_hash));
+                            return Err(ViewClientError::MissingTransaction(tx_hash));
                         }
                     }
                     _ => {
                         warn!(target: "client", "Error trying to get transaction result: {}", e.to_string());
-                        return Err(TxStatusError::ChainError(e));
+                        return Err(e.into());
                     }
                 },
             }
@@ -320,10 +314,7 @@ impl ViewClientActor {
             if Self::need_request(tx_hash, &mut request_manager.tx_status_requests) {
                 let target_shard_id =
                     self.runtime_adapter.account_id_to_shard_id(&signer_account_id);
-                let validator = self
-                    .chain
-                    .find_validator_for_forwarding(target_shard_id)
-                    .map_err(|e| TxStatusError::ChainError(e))?;
+                let validator = self.chain.find_validator_for_forwarding(target_shard_id)?;
 
                 self.network_adapter.do_send(NetworkRequests::TxStatus(
                     validator,
@@ -394,7 +385,7 @@ impl Actor for ViewClientActor {
 
 /// Handles runtime query.
 impl Handler<Query> for ViewClientActor {
-    type Result = Result<Option<QueryResponse>, String>;
+    type Result = Result<QueryResponse, ViewClientError>;
 
     fn handle(&mut self, msg: Query, _: &mut Self::Context) -> Self::Result {
         self.handle_query(msg)
@@ -403,13 +394,12 @@ impl Handler<Query> for ViewClientActor {
 
 /// Handles retrieving block from the chain.
 impl Handler<GetBlock> for ViewClientActor {
-    type Result = Result<BlockView, String>;
+    type Result = Result<BlockView, ViewClientError>;
 
     fn handle(&mut self, msg: GetBlock, _: &mut Self::Context) -> Self::Result {
         match msg.0 {
             BlockIdOrFinality::Finality(finality) => {
-                let block_hash =
-                    self.get_block_hash_by_finality(&finality).map_err(|e| e.to_string())?;
+                let block_hash = self.get_block_hash_by_finality(&finality)?;
                 self.chain.get_block(&block_hash).map(Clone::clone)
             }
             BlockIdOrFinality::BlockId(BlockId::Height(height)) => {
@@ -424,12 +414,12 @@ impl Handler<GetBlock> for ViewClientActor {
                 .get_block_producer(&block.header().epoch_id(), block.header().height())
                 .map(|author| BlockView::from_author_block(author, block))
         })
-        .map_err(|err| err.to_string())
+        .map_err(|err| err.into())
     }
 }
 
 impl Handler<GetBlockWithMerkleTree> for ViewClientActor {
-    type Result = Result<(BlockView, PartialMerkleTree), String>;
+    type Result = Result<(BlockView, PartialMerkleTree), ViewClientError>;
 
     fn handle(&mut self, msg: GetBlockWithMerkleTree, ctx: &mut Self::Context) -> Self::Result {
         let block_view = self.handle(GetBlock(msg.0), ctx)?;
@@ -437,12 +427,12 @@ impl Handler<GetBlockWithMerkleTree> for ViewClientActor {
             .mut_store()
             .get_block_merkle_tree(&block_view.header.hash)
             .map(|merkle_tree| (block_view, merkle_tree.clone()))
-            .map_err(|e| e.to_string())
+            .map_err(|e| e.into())
     }
 }
 
 impl Handler<GetChunk> for ViewClientActor {
-    type Result = Result<ChunkView, String>;
+    type Result = Result<ChunkView, ViewClientError>;
 
     fn handle(&mut self, msg: GetChunk, _: &mut Self::Context) -> Self::Result {
         match msg {
@@ -452,9 +442,7 @@ impl Handler<GetChunk> for ViewClientActor {
                     let chunk_hash = block
                         .chunks()
                         .get(shard_id as usize)
-                        .ok_or_else(|| {
-                            near_chain::Error::from(ErrorKind::InvalidShardId(shard_id))
-                        })?
+                        .ok_or_else(|| near_chain::Error::InvalidShardId(shard_id))?
                         .chunk_hash();
                     self.chain.get_chunk(&chunk_hash).map(Clone::clone)
                 })
@@ -464,9 +452,7 @@ impl Handler<GetChunk> for ViewClientActor {
                     let chunk_hash = block
                         .chunks()
                         .get(shard_id as usize)
-                        .ok_or_else(|| {
-                            near_chain::Error::from(ErrorKind::InvalidShardId(shard_id))
-                        })?
+                        .ok_or_else(|| near_chain::Error::InvalidShardId(shard_id))?
                         .chunk_hash();
                     self.chain.get_chunk(&chunk_hash).map(Clone::clone)
                 })
@@ -484,12 +470,12 @@ impl Handler<GetChunk> for ViewClientActor {
                 )
                 .map(|author| ChunkView::from_author_chunk(author, chunk))
         })
-        .map_err(|err| err.to_string())
+        .map_err(|err| err.into())
     }
 }
 
 impl Handler<TxStatus> for ViewClientActor {
-    type Result = Result<Option<FinalExecutionOutcomeView>, TxStatusError>;
+    type Result = Result<Option<FinalExecutionOutcomeView>, ViewClientError>;
 
     fn handle(&mut self, msg: TxStatus, _: &mut Self::Context) -> Self::Result {
         self.get_tx_status(msg.tx_hash, msg.signer_account_id)
@@ -497,38 +483,38 @@ impl Handler<TxStatus> for ViewClientActor {
 }
 
 impl Handler<GetValidatorInfo> for ViewClientActor {
-    type Result = Result<EpochValidatorInfo, String>;
+    type Result = Result<EpochValidatorInfo, ViewClientError>;
 
     fn handle(&mut self, msg: GetValidatorInfo, _: &mut Self::Context) -> Self::Result {
         self.maybe_block_id_to_block_hash(msg.block_id)
             .and_then(|block_hash| self.runtime_adapter.get_validator_info(&block_hash))
-            .map_err(|err| err.to_string())
+            .map_err(|err| err.into())
     }
 }
 
 /// Returns a list of change kinds per account in a store for a given block.
 impl Handler<GetStateChangesInBlock> for ViewClientActor {
-    type Result = Result<StateChangesKindsView, String>;
+    type Result = Result<StateChangesKindsView, ViewClientError>;
 
     fn handle(&mut self, msg: GetStateChangesInBlock, _: &mut Self::Context) -> Self::Result {
         self.chain
             .store()
             .get_state_changes_in_block(&msg.block_hash)
             .map(|state_changes_kinds| state_changes_kinds.into_iter().map(Into::into).collect())
-            .map_err(|e| e.to_string())
+            .map_err(|e| e.into())
     }
 }
 
 /// Returns a list of changes in a store for a given block filtering by the state changes request.
 impl Handler<GetStateChanges> for ViewClientActor {
-    type Result = Result<StateChangesView, String>;
+    type Result = Result<StateChangesView, ViewClientError>;
 
     fn handle(&mut self, msg: GetStateChanges, _: &mut Self::Context) -> Self::Result {
         self.chain
             .store()
             .get_state_changes(&msg.block_hash, &msg.state_changes_request.into())
             .map(|state_changes| state_changes.into_iter().map(Into::into).collect())
-            .map_err(|e| e.to_string())
+            .map_err(|e| e.into())
     }
 }
 
@@ -541,27 +527,22 @@ impl Handler<GetStateChanges> for ViewClientActor {
 ///  3. Otherwise, return the last final block in the epoch that follows that of the last block known
 ///     to the light client
 impl Handler<GetNextLightClientBlock> for ViewClientActor {
-    type Result = Result<Option<LightClientBlockView>, String>;
+    type Result = Result<Option<LightClientBlockView>, ViewClientError>;
 
     fn handle(&mut self, request: GetNextLightClientBlock, _: &mut Self::Context) -> Self::Result {
-        let last_block_header =
-            self.chain.get_block_header(&request.last_block_hash).map_err(|err| err.to_string())?;
+        let last_block_header = self.chain.get_block_header(&request.last_block_hash)?;
         let last_epoch_id = last_block_header.epoch_id().clone();
         let last_next_epoch_id = last_block_header.next_epoch_id().clone();
         let last_height = last_block_header.height();
-        let head = self.chain.head().map_err(|err| err.to_string())?;
+        let head = self.chain.head()?;
 
         if last_epoch_id == head.epoch_id || last_next_epoch_id == head.epoch_id {
-            let head_header = self
-                .chain
-                .get_block_header(&head.last_block_hash)
-                .map_err(|err| err.to_string())?;
+            let head_header = self.chain.get_block_header(&head.last_block_hash)?;
             let ret = Chain::create_light_client_block(
                 &head_header.clone(),
                 &*self.runtime_adapter,
                 self.chain.mut_store(),
-            )
-            .map_err(|err| err.to_string())?;
+            )?;
 
             if ret.inner_lite.height <= last_height {
                 Ok(None)
@@ -571,20 +552,15 @@ impl Handler<GetNextLightClientBlock> for ViewClientActor {
         } else {
             match self.chain.mut_store().get_epoch_light_client_block(&last_next_epoch_id.0) {
                 Ok(light_block) => Ok(Some(light_block.clone())),
-                Err(e) => {
-                    if let ErrorKind::DBNotFoundErr(_) = e.kind() {
-                        Ok(None)
-                    } else {
-                        Err(e.to_string())
-                    }
-                }
+                Err(near_chain::Error::DBNotFoundErr(_)) => Ok(None),
+                Err(e) => Err(e.into()),
             }
         }
     }
 }
 
 impl Handler<GetExecutionOutcome> for ViewClientActor {
-    type Result = Result<GetExecutionOutcomeResponse, String>;
+    type Result = Result<GetExecutionOutcomeResponse, ViewClientError>;
 
     fn handle(&mut self, msg: GetExecutionOutcome, _: &mut Self::Context) -> Self::Result {
         let (id, target_shard_id) = match msg.id {
@@ -600,8 +576,7 @@ impl Handler<GetExecutionOutcome> for ViewClientActor {
                 let mut outcome_proof = outcome.clone();
                 let next_block_hash = self
                     .chain
-                    .get_next_block_hash_with_new_chunk(&outcome_proof.block_hash, target_shard_id)
-                    .map_err(|e| e.to_string())?
+                    .get_next_block_hash_with_new_chunk(&outcome_proof.block_hash, target_shard_id)?
                     .cloned();
                 match next_block_hash {
                     Some(h) => {
@@ -610,14 +585,13 @@ impl Handler<GetExecutionOutcome> for ViewClientActor {
                         // should be fast
                         let outcome_roots = self
                             .chain
-                            .get_block(&h)
-                            .map_err(|e| e.to_string())?
+                            .get_block(&h)?
                             .chunks()
                             .iter()
                             .map(|header| header.inner.outcome_root)
                             .collect::<Vec<_>>();
                         if target_shard_id >= (outcome_roots.len() as u64) {
-                            return Err(format!("Inconsistent state. Total number of shards is {} but the execution outcome is in shard {}", outcome_roots.len(), target_shard_id));
+                            return Err(near_chain::Error::InvalidShardId(target_shard_id).into());
                         }
                         Ok(GetExecutionOutcomeResponse {
                             outcome_proof: outcome_proof.into(),
@@ -626,43 +600,39 @@ impl Handler<GetExecutionOutcome> for ViewClientActor {
                                 .clone(),
                         })
                     }
-                    None => Err(format!("{} has not been confirmed", id)),
+                    None => Err(LightClientProofError::ExecutionOutcomeNotConfirmed(id).into()),
                 }
             }
-            Err(e) => match e.kind() {
-                ErrorKind::DBNotFoundErr(_) => {
-                    let head = self.chain.head().map_err(|e| TxStatusError::ChainError(e))?;
-                    if self.runtime_adapter.cares_about_shard(
-                        self.validator_account_id.as_ref(),
-                        &head.last_block_hash,
-                        target_shard_id,
-                        true,
-                    ) {
-                        Err(format!("{} does not exist", id))
-                    } else {
-                        Err(format!("Node doesn't track the shard where {} is executed", id))
-                    }
+            Err(near_chain::Error::DBNotFoundErr(_)) => {
+                let head = self.chain.head()?;
+                if self.runtime_adapter.cares_about_shard(
+                    self.validator_account_id.as_ref(),
+                    &head.last_block_hash,
+                    target_shard_id,
+                    true,
+                ) {
+                    Err(LightClientProofError::ExecutionOutcomeDoesNotExist(id).into())
+                } else {
+                    Err(ViewClientError::DoesNotTrackShard)
                 }
-                _ => Err(e.to_string()),
-            },
+            }
+            Err(e) => Err(e.into()),
         }
     }
 }
 
 impl Handler<GetBlockProof> for ViewClientActor {
-    type Result = Result<GetBlockProofResponse, String>;
+    type Result = Result<GetBlockProofResponse, ViewClientError>;
 
     fn handle(&mut self, msg: GetBlockProof, _: &mut Self::Context) -> Self::Result {
-        self.chain.check_block_final_and_canonical(&msg.block_hash).map_err(|e| e.to_string())?;
-        self.chain
-            .check_block_final_and_canonical(&msg.head_block_hash)
-            .map_err(|e| e.to_string())?;
-        let block_header_lite =
-            self.chain.get_block_header(&msg.block_hash).map_err(|e| e.to_string())?.clone().into();
-        let block_proof = self
-            .chain
-            .get_block_proof(&msg.block_hash, &msg.head_block_hash)
-            .map_err(|e| e.to_string())?;
+        if !self.chain.check_block_final_and_canonical(&msg.block_hash) {
+            return Err(LightClientProofError::BlockNotYetFinal(msg.block_hash).into());
+        }
+        if !self.chain.check_block_final_and_canonical(&msg.head_block_hash) {
+            return Err(LightClientProofError::BlockNotYetFinal(msg.head_block_hash).into());
+        }
+        let block_header_lite = self.chain.get_block_header(&msg.block_hash)?.clone().into();
+        let block_proof = self.chain.get_block_proof(&msg.block_hash, &msg.head_block_hash)?;
         Ok(GetBlockProofResponse { block_header_lite, proof: block_proof })
     }
 }
@@ -716,25 +686,6 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
                 let mut request_manager = self.request_manager.write().expect(POISONED_LOCK_ERR);
                 if request_manager.tx_status_requests.cache_remove(&tx_hash).is_some() {
                     request_manager.tx_status_response.cache_set(tx_hash, *tx_result);
-                }
-                NetworkViewClientResponses::NoResponse
-            }
-            NetworkViewClientMessages::Query { query_id, block_id_or_finality, request } => {
-                let query = Query { query_id: query_id.clone(), block_id_or_finality, request };
-                match self.handle_query(query) {
-                    Ok(Some(r)) => {
-                        NetworkViewClientResponses::QueryResponse { query_id, response: Ok(r) }
-                    }
-                    Ok(None) => NetworkViewClientResponses::NoResponse,
-                    Err(e) => {
-                        NetworkViewClientResponses::QueryResponse { query_id, response: Err(e) }
-                    }
-                }
-            }
-            NetworkViewClientMessages::QueryResponse { query_id, response } => {
-                let mut request_manager = self.request_manager.write().expect(POISONED_LOCK_ERR);
-                if request_manager.query_requests.cache_get(&query_id).is_some() {
-                    request_manager.query_responses.cache_set(query_id, response);
                 }
                 NetworkViewClientResponses::NoResponse
             }
@@ -840,18 +791,16 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
                         warn!(target: "sync", "sync_hash {:?} didn't pass validation, possible malicious behavior", sync_hash);
                         return NetworkViewClientResponses::NoResponse;
                     }
-                    Err(e) => match e.kind() {
-                        ErrorKind::DBNotFoundErr(_) => {
-                            // This case may appear in case of latency in epoch switching.
-                            // Request sender is ready to sync but we still didn't get the block.
-                            info!(target: "sync", "Can't get sync_hash block {:?} for state request header", sync_hash);
-                            ShardStateSyncResponse { header: None, part: None }
-                        }
-                        _ => {
-                            error!(target: "sync", "Failed to verify sync_hash {:?} validity, {:?}", sync_hash, e);
-                            ShardStateSyncResponse { header: None, part: None }
-                        }
-                    },
+                    Err(near_chain::Error::DBNotFoundErr(_)) => {
+                        // This case may appear in case of latency in epoch switching.
+                        // Request sender is ready to sync but we still didn't get the block.
+                        info!(target: "sync", "Can't get sync_hash block {:?} for state request header", sync_hash);
+                        ShardStateSyncResponse { header: None, part: None }
+                    }
+                    Err(e) => {
+                        info!(target: "sync", "(StateRequestHeader) Failed to verify sync_hash {:?} validity, {:?}", sync_hash, e);
+                        ShardStateSyncResponse { header: None, part: None }
+                    }
                 };
                 NetworkViewClientResponses::StateResponse(Box::new(StateResponseInfo {
                     shard_id,
@@ -881,18 +830,16 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
                         warn!(target: "sync", "sync_hash {:?} didn't pass validation, possible malicious behavior", sync_hash);
                         return NetworkViewClientResponses::NoResponse;
                     }
-                    Err(e) => match e.kind() {
-                        ErrorKind::DBNotFoundErr(_) => {
-                            // This case may appear in case of latency in epoch switching.
-                            // Request sender is ready to sync but we still didn't get the block.
-                            info!(target: "sync", "Can't get sync_hash block {:?} for state request part", sync_hash);
-                            ShardStateSyncResponse { header: None, part: None }
-                        }
-                        _ => {
-                            error!(target: "sync", "Failed to verify sync_hash {:?} validity, {:?}", sync_hash, e);
-                            ShardStateSyncResponse { header: None, part: None }
-                        }
-                    },
+                    Err(near_chain::Error::DBNotFoundErr(_)) => {
+                        // This case may appear in case of latency in epoch switching.
+                        // Request sender is ready to sync but we still didn't get the block.
+                        info!(target: "sync", "Can't get sync_hash block {:?} for state request part", sync_hash);
+                        ShardStateSyncResponse { header: None, part: None }
+                    }
+                    Err(e) => {
+                        info!(target: "sync", "(StateRequestParts) Failed to verify sync_hash {:?} validity, {:?}", sync_hash, e);
+                        ShardStateSyncResponse { header: None, part: None }
+                    }
                 };
                 NetworkViewClientResponses::StateResponse(Box::new(StateResponseInfo {
                     shard_id,
@@ -939,13 +886,13 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
 }
 
 impl Handler<GetGasPrice> for ViewClientActor {
-    type Result = Result<GasPriceView, String>;
+    type Result = Result<GasPriceView, ViewClientError>;
 
     fn handle(&mut self, msg: GetGasPrice, _ctx: &mut Self::Context) -> Self::Result {
         let header = self
             .maybe_block_id_to_block_hash(msg.block_id)
             .and_then(|block_hash| self.chain.get_block_header(&block_hash));
-        header.map(|b| GasPriceView { gas_price: b.gas_price() }).map_err(|e| e.to_string())
+        header.map(|b| GasPriceView { gas_price: b.gas_price() }).map_err(|e| e.into())
     }
 }
 

@@ -227,18 +227,16 @@ impl WrappedTrieChanges {
         }
     }
 
-    pub fn wrapped_into(
-        &mut self,
-        mut store_update: &mut StoreUpdate,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn wrapped_into(&mut self, mut store_update: &mut StoreUpdate) -> Result<(), StorageError> {
         self.insertions_into(&mut store_update)?;
         self.state_changes_into(&mut store_update);
-        store_update.set_ser(
-            DBCol::ColTrieChanges,
-            &get_block_shard_id(&self.block_hash, self.shard_id),
-            &self.trie_changes,
-        )?;
-        Ok(())
+        store_update
+            .set_ser(
+                DBCol::ColTrieChanges,
+                &get_block_shard_id(&self.block_hash, self.shard_id),
+                &self.trie_changes,
+            )
+            .map_err(|_| StorageError::StorageInternalError)
     }
 }
 

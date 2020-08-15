@@ -21,7 +21,7 @@ pub mod test_utils;
 /// Retrieve blocks via json rpc
 #[test]
 fn test_block_by_id_height() {
-    test_with_client!(test_utils::NodeType::NonValidator, client, async move {
+    test_with_client!(test_utils::NodeType::Validator, client, async move {
         let block = client.block_by_id(BlockId::Height(0)).await.unwrap();
         assert_eq!(block.author, "test1");
         assert_eq!(block.header.height, 0);
@@ -40,7 +40,7 @@ fn test_block_by_id_height() {
 /// Retrieve blocks via json rpc
 #[test]
 fn test_block_by_id_hash() {
-    test_with_client!(test_utils::NodeType::NonValidator, client, async move {
+    test_with_client!(test_utils::NodeType::Validator, client, async move {
         let block = client.block_by_id(BlockId::Height(0)).await.unwrap();
         let same_block = client.block_by_id(BlockId::Hash(block.header.hash)).await.unwrap();
         assert_eq!(block.header.height, 0);
@@ -51,7 +51,7 @@ fn test_block_by_id_hash() {
 /// Retrieve blocks via json rpc
 #[test]
 fn test_block_query() {
-    test_with_client!(test_utils::NodeType::NonValidator, client, async move {
+    test_with_client!(test_utils::NodeType::Validator, client, async move {
         let block_response1 =
             client.block(BlockIdOrFinality::BlockId(BlockId::Height(0))).await.unwrap();
         let block_response2 = client
@@ -81,7 +81,7 @@ fn test_block_query() {
 /// Retrieve chunk via json rpc
 #[test]
 fn test_chunk_by_hash() {
-    test_with_client!(test_utils::NodeType::NonValidator, client, async move {
+    test_with_client!(test_utils::NodeType::Validator, client, async move {
         let chunk = client
             .chunk(ChunkId::BlockShardId(BlockId::Height(0), ShardId::from(0u64)))
             .await
@@ -112,13 +112,13 @@ fn test_chunk_by_hash() {
 /// Retrieve chunk via json rpc
 #[test]
 fn test_chunk_invalid_shard_id() {
-    test_with_client!(test_utils::NodeType::NonValidator, client, async move {
+    test_with_client!(test_utils::NodeType::Validator, client, async move {
         let chunk = client.chunk(ChunkId::BlockShardId(BlockId::Height(0), 100)).await;
         match chunk {
             Ok(_) => panic!("should result in an error"),
             Err(e) => {
                 let s = serde_json::to_string(&e.data.unwrap()).unwrap();
-                assert!(s.starts_with("\"Shard id 100 does not exist"));
+                assert_eq!(s, "{\"type\":\"ViewClientError\",\"content\":{\"type\":\"ChainError\",\"content\":{\"type\":\"InvalidShardId\",\"content\":100}}}");
             }
         }
     });
@@ -127,7 +127,7 @@ fn test_chunk_invalid_shard_id() {
 /// Connect to json rpc and query account info with soft-deprecated query API.
 #[test]
 fn test_query_by_path_account() {
-    test_with_client!(test_utils::NodeType::NonValidator, client, async move {
+    test_with_client!(test_utils::NodeType::Validator, client, async move {
         let status = client.status().await.unwrap();
         let block_hash = status.sync_info.latest_block_hash;
         let query_response =
@@ -150,7 +150,7 @@ fn test_query_by_path_account() {
 /// Connect to json rpc and query account info.
 #[test]
 fn test_query_account() {
-    test_with_client!(test_utils::NodeType::NonValidator, client, async move {
+    test_with_client!(test_utils::NodeType::Validator, client, async move {
         let status = client.status().await.unwrap();
         let block_hash = status.sync_info.latest_block_hash;
         let query_response_1 = client
@@ -212,7 +212,8 @@ fn test_query_account() {
                 panic!("the error is expected since the latest block is not finalized yet");
             };
             assert_eq!(rpc_error.code, -32000);
-            assert!(rpc_error.data.as_ref().unwrap().as_str().unwrap().contains("DB Not Found"));
+            let s = serde_json::to_string(rpc_error.data.as_ref().unwrap()).unwrap();
+            assert_eq!(s, "{\"type\":\"ViewClientError\",\"content\":{\"type\":\"ChainError\",\"content\":{\"type\":\"DBNotFoundErr\",\"content\":\"BLOCK HEADER: 11111111111111111111111111111111\"}}}");
         }
     });
 }
@@ -220,7 +221,7 @@ fn test_query_account() {
 /// Connect to json rpc and query account info with soft-deprecated query API.
 #[test]
 fn test_query_by_path_access_keys() {
-    test_with_client!(test_utils::NodeType::NonValidator, client, async move {
+    test_with_client!(test_utils::NodeType::Validator, client, async move {
         let query_response =
             client.query_by_path("access_key/test".to_string(), "".to_string()).await.unwrap();
         assert_eq!(query_response.block_height, 0);
@@ -239,7 +240,7 @@ fn test_query_by_path_access_keys() {
 /// Connect to json rpc and query account info.
 #[test]
 fn test_query_access_keys() {
-    test_with_client!(test_utils::NodeType::NonValidator, client, async move {
+    test_with_client!(test_utils::NodeType::Validator, client, async move {
         let query_response = client
             .query(RpcQueryRequest {
                 block_id_or_finality: BlockIdOrFinality::latest(),
@@ -263,7 +264,7 @@ fn test_query_access_keys() {
 /// Connect to json rpc and query account info with soft-deprecated query API.
 #[test]
 fn test_query_by_path_access_key() {
-    test_with_client!(test_utils::NodeType::NonValidator, client, async move {
+    test_with_client!(test_utils::NodeType::Validator, client, async move {
         let query_response = client
             .query_by_path(
                 "access_key/test/ed25519:23vYngy8iL7q94jby3gszBnZ9JptpMf5Hgf7KVVa2yQ2".to_string(),
@@ -285,7 +286,7 @@ fn test_query_by_path_access_key() {
 /// Connect to json rpc and query account info.
 #[test]
 fn test_query_access_key() {
-    test_with_client!(test_utils::NodeType::NonValidator, client, async move {
+    test_with_client!(test_utils::NodeType::Validator, client, async move {
         let query_response = client
             .query(RpcQueryRequest {
                 block_id_or_finality: BlockIdOrFinality::latest(),
@@ -313,7 +314,7 @@ fn test_query_access_key() {
 /// Connect to json rpc and query state.
 #[test]
 fn test_query_state() {
-    test_with_client!(test_utils::NodeType::NonValidator, client, async move {
+    test_with_client!(test_utils::NodeType::Validator, client, async move {
         let query_response = client
             .query(RpcQueryRequest {
                 block_id_or_finality: BlockIdOrFinality::latest(),
@@ -337,7 +338,7 @@ fn test_query_state() {
 /// Connect to json rpc and call function
 #[test]
 fn test_query_call_function() {
-    test_with_client!(test_utils::NodeType::NonValidator, client, async move {
+    test_with_client!(test_utils::NodeType::Validator, client, async move {
         let query_response = client
             .query(RpcQueryRequest {
                 block_id_or_finality: BlockIdOrFinality::latest(),
@@ -366,7 +367,7 @@ fn test_query_call_function() {
 /// Retrieve client status via JSON RPC.
 #[test]
 fn test_status() {
-    test_with_client!(test_utils::NodeType::NonValidator, client, async move {
+    test_with_client!(test_utils::NodeType::Validator, client, async move {
         let status = client.status().await.unwrap();
         assert_eq!(status.chain_id, "unittest");
         assert_eq!(status.sync_info.latest_block_height, 0);
@@ -445,7 +446,7 @@ fn test_health_fail_no_blocks() {
 /// Retrieve client health.
 #[test]
 fn test_health_ok() {
-    test_with_client!(test_utils::NodeType::NonValidator, client, async move {
+    test_with_client!(test_utils::NodeType::Validator, client, async move {
         let health = client.health().await;
         assert!(health.is_ok());
     });
@@ -455,7 +456,7 @@ fn test_health_ok() {
 /// WARNING: Be mindful about changing genesis structure as it is part of the public protocol!
 #[test]
 fn test_genesis_config() {
-    test_with_client!(test_utils::NodeType::NonValidator, client, async move {
+    test_with_client!(test_utils::NodeType::Validator, client, async move {
         let genesis_config = client.EXPERIMENTAL_genesis_config().await.unwrap();
         assert_eq!(genesis_config["protocol_version"].as_u64().unwrap(), PROTOCOL_VERSION as u64);
         assert!(!genesis_config["chain_id"].as_str().unwrap().is_empty());
@@ -466,7 +467,7 @@ fn test_genesis_config() {
 /// Retrieve genesis records via JSON RPC.
 #[test]
 fn test_genesis_records() {
-    test_with_client!(test_utils::NodeType::NonValidator, client, async move {
+    test_with_client!(test_utils::NodeType::Validator, client, async move {
         let genesis_records = client
             .EXPERIMENTAL_genesis_records(RpcGenesisRecordsRequest {
                 pagination: Default::default(),
@@ -494,7 +495,7 @@ fn test_genesis_records() {
 /// Check invalid arguments to genesis records via JSON RPC.
 #[test]
 fn test_invalid_genesis_records_arguments() {
-    test_with_client!(test_utils::NodeType::NonValidator, client, async move {
+    test_with_client!(test_utils::NodeType::Validator, client, async move {
         let genesis_records_response = client
             .EXPERIMENTAL_genesis_records(RpcGenesisRecordsRequest {
                 pagination: RpcPagination { offset: 1, limit: 101 },
@@ -527,7 +528,7 @@ fn test_invalid_genesis_records_arguments() {
 /// Retrieve gas price
 #[test]
 fn test_gas_price_by_height() {
-    test_with_client!(test_utils::NodeType::NonValidator, client, async move {
+    test_with_client!(test_utils::NodeType::Validator, client, async move {
         let gas_price = client.gas_price(Some(BlockId::Height(0))).await.unwrap();
         assert!(gas_price.gas_price > 0);
     });
@@ -536,7 +537,7 @@ fn test_gas_price_by_height() {
 /// Retrieve gas price
 #[test]
 fn test_gas_price_by_hash() {
-    test_with_client!(test_utils::NodeType::NonValidator, client, async move {
+    test_with_client!(test_utils::NodeType::Validator, client, async move {
         let block = client.block(BlockIdOrFinality::BlockId(BlockId::Height(0))).await.unwrap();
         let gas_price = client.gas_price(Some(BlockId::Hash(block.header.hash))).await.unwrap();
         assert!(gas_price.gas_price > 0);
@@ -546,7 +547,7 @@ fn test_gas_price_by_hash() {
 /// Retrieve gas price
 #[test]
 fn test_gas_price() {
-    test_with_client!(test_utils::NodeType::NonValidator, client, async move {
+    test_with_client!(test_utils::NodeType::Validator, client, async move {
         let gas_price = client.gas_price(None).await.unwrap();
         assert!(gas_price.gas_price > 0);
     });
@@ -554,7 +555,7 @@ fn test_gas_price() {
 
 #[test]
 fn test_invalid_methods() {
-    test_with_client!(test_utils::NodeType::NonValidator, client, async move {
+    test_with_client!(test_utils::NodeType::Validator, client, async move {
         let method_names = vec![
             serde_json::json!(
                 "\u{0}\u{0}\u{0}k\u{0}\u{0}\u{0}\u{0}\u{0}\u{0}\u{0}\u{0}\u{0}\u{0}SRP"
@@ -597,7 +598,7 @@ fn test_invalid_methods() {
 #[test]
 #[ignore] // https://github.com/nearprotocol/nearcore/issues/2789
 fn test_query_view_account_non_existing_account_must_return_error() {
-    test_with_client!(test_utils::NodeType::NonValidator, client, async move {
+    test_with_client!(test_utils::NodeType::Validator, client, async move {
         let query_response = client
             .query(RpcQueryRequest {
                 block_id_or_finality: BlockIdOrFinality::latest(),
@@ -616,7 +617,7 @@ fn test_query_view_account_non_existing_account_must_return_error() {
 #[test]
 #[ignore] // https://github.com/nearprotocol/nearcore/issues/2790
 fn test_view_access_key_non_existing_account_id_and_public_key_must_return_error() {
-    test_with_client!(test_utils::NodeType::NonValidator, client, async move {
+    test_with_client!(test_utils::NodeType::Validator, client, async move {
         let query_response = client
             .query(RpcQueryRequest {
                 block_id_or_finality: BlockIdOrFinality::latest(),
@@ -639,7 +640,7 @@ fn test_view_access_key_non_existing_account_id_and_public_key_must_return_error
 #[test]
 #[ignore] // https://github.com/nearprotocol/nearcore/issues/2791
 fn test_call_function_non_existing_account_method_name() {
-    test_with_client!(test_utils::NodeType::NonValidator, client, async move {
+    test_with_client!(test_utils::NodeType::Validator, client, async move {
         let query_response = client
             .query(RpcQueryRequest {
                 block_id_or_finality: BlockIdOrFinality::latest(),
@@ -664,7 +665,7 @@ fn test_call_function_non_existing_account_method_name() {
 #[test]
 #[ignore] // https://github.com/nearprotocol/nearcore/issues/2792
 fn test_view_access_key_list_non_existing_account() {
-    test_with_client!(test_utils::NodeType::NonValidator, client, async move {
+    test_with_client!(test_utils::NodeType::Validator, client, async move {
         let query_response = client
             .query(RpcQueryRequest {
                 block_id_or_finality: BlockIdOrFinality::latest(),
@@ -685,7 +686,7 @@ fn test_view_access_key_list_non_existing_account() {
 #[test]
 #[ignore] // https://github.com/nearprotocol/nearcore/issues/2793
 fn test_view_state_non_existing_account_invalid_prefix() {
-    test_with_client!(test_utils::NodeType::NonValidator, client, async move {
+    test_with_client!(test_utils::NodeType::Validator, client, async move {
         let query_response = client
             .query(RpcQueryRequest {
                 block_id_or_finality: BlockIdOrFinality::latest(),
@@ -707,7 +708,7 @@ fn test_view_state_non_existing_account_invalid_prefix() {
 #[test]
 #[ignore] // https://github.com/nearprotocol/nearcore/issues/2800
 fn test_validators_non_existing_block_hash() {
-    test_with_client!(test_utils::NodeType::NonValidator, client, async move {
+    test_with_client!(test_utils::NodeType::Validator, client, async move {
         let validators_response = client
             .validators(Some(near_primitives::types::BlockId::Hash(
                 near_primitives::hash::CryptoHash::try_from(

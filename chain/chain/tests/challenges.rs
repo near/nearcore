@@ -1,5 +1,5 @@
 use near_chain::test_utils::setup;
-use near_chain::{Block, ErrorKind, Provenance};
+use near_chain::{Block, Error, Provenance};
 use near_logger_utils::init_test_logger;
 
 #[test]
@@ -50,7 +50,7 @@ fn challenges_new_head_prev() {
     if let Err(e) =
         chain.process_block(&None, last_block, Provenance::PRODUCED, |_| {}, |_| {}, |_| {})
     {
-        assert_eq!(e.kind(), ErrorKind::ChallengedBlockOnChain)
+        assert_eq!(e, Error::ChallengedBlockOnChain)
     } else {
         assert!(false);
     }
@@ -102,12 +102,8 @@ fn test_no_challenge_on_same_header() {
         .process_block(&None, block.clone(), Provenance::PRODUCED, |_| {}, |_| {}, |_| {})
         .unwrap();
     assert_eq!(tip.unwrap().height, 1);
-    if let Err(e) = chain.process_block_header(block.header(), |_| panic!("Unexpected Challenge")) {
-        match e.kind() {
-            ErrorKind::Unfit(_) => {}
-            _ => panic!("Wrong error kind {}", e),
-        }
-    } else {
-        panic!("Process the same header twice should produce error");
-    }
+    assert!(matches!(
+        chain.process_block_header(block.header(), |_| panic!("Unexpected Challenge")),
+        Err(Error::Unfit(_))
+    ));
 }

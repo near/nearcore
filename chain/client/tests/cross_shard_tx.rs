@@ -57,7 +57,7 @@ fn test_keyvalue_runtime_balances() {
                         QueryRequest::ViewAccount { account_id: flat_validators[i].to_string() },
                     ))
                     .then(move |res| {
-                        let query_response = res.unwrap().unwrap().unwrap();
+                        let query_response = res.unwrap().unwrap();
                         if let ViewAccount(view_account_result) = query_response.kind {
                             assert_eq!(view_account_result.amount, expected);
                             successful_queries2.fetch_add(1, Ordering::Relaxed);
@@ -87,7 +87,7 @@ mod tests {
 
     use near_chain::test_utils::account_id_to_shard_id;
     use near_client::test_utils::{setup_mock_all_validators, BlockStats};
-    use near_client::{ClientActor, Query, ViewClientActor};
+    use near_client::{ClientActor, Query, ViewClientActor, ViewClientError};
     use near_crypto::{InMemorySigner, KeyType};
     use near_logger_utils::init_test_logger;
     use near_network::{
@@ -161,7 +161,7 @@ mod tests {
     }
 
     fn test_cross_shard_tx_callback(
-        res: Result<Result<Option<QueryResponse>, String>, MailboxError>,
+        res: Result<Result<QueryResponse, ViewClientError>, MailboxError>,
         account_id: AccountId,
         connectors: Arc<RwLock<Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>>>,
         iteration: Arc<AtomicUsize>,
@@ -178,12 +178,12 @@ mod tests {
         min_ratio: Option<f64>,
         max_ratio: Option<f64>,
     ) {
-        let res = res.unwrap().and_then(|r| r.ok_or_else(|| "Request routed".to_string()));
+        let res = res.unwrap();
 
         let query_response = match res {
             Ok(query_response) => query_response,
             Err(e) => {
-                println!("Query failed with {:?}", e);
+                println!("Query failed with {}", e);
                 *presumable_epoch.write().unwrap() += 1;
                 let connectors_ = connectors.write().unwrap();
                 let connectors1 = connectors.clone();

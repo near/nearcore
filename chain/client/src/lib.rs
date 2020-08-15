@@ -7,9 +7,9 @@ pub use crate::types::{
     Error, GetBlock, GetBlockProof, GetBlockProofResponse, GetBlockWithMerkleTree, GetChunk,
     GetExecutionOutcome, GetExecutionOutcomeResponse, GetGasPrice, GetNetworkInfo,
     GetNextLightClientBlock, GetStateChanges, GetStateChangesInBlock, GetValidatorInfo, Query,
-    Status, StatusResponse, SyncStatus, TxStatus, TxStatusError,
+    Status, StatusResponse, SyncStatus, TxStatus,
 };
-pub use crate::view_client::{start_view_client, ViewClientActor};
+pub use crate::view_client::{start_view_client, ViewClientActor, ViewClientError};
 
 mod client;
 mod client_actor;

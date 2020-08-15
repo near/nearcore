@@ -38,7 +38,7 @@ use near_store::{
 };
 
 use crate::chain::{Chain, NUM_EPOCHS_TO_KEEP_STORE_DATA};
-use crate::error::{Error, ErrorKind};
+use crate::error::Error;
 use crate::store::ChainStoreAccess;
 use crate::types::{ApplyTransactionResult, BlockHeaderInfo, ChainGenesis};
 use crate::{BlockHeader, DoomslugThresholdMode, RuntimeAdapter};
@@ -182,7 +182,7 @@ impl KeyValueRuntime {
         }
         let prev_block_header = self
             .get_block_header(&prev_hash)?
-            .ok_or_else(|| ErrorKind::DBNotFoundErr(to_base(&prev_hash)))?;
+            .ok_or_else(|| Error::DBNotFoundErr(to_base(&prev_hash)))?;
 
         let mut hash_to_epoch = self.hash_to_epoch.write().unwrap();
         let mut hash_to_next_epoch_approvals_req =
@@ -252,7 +252,7 @@ impl KeyValueRuntime {
             .read()
             .unwrap()
             .get(epoch_id)
-            .ok_or_else(|| Error::from(ErrorKind::EpochOutOfBounds))? as usize
+            .ok_or_else(|| Error::EpochOutOfBounds)? as usize
             % self.validators.len())
     }
 }
@@ -692,7 +692,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         block_hash: &CryptoHash,
         _epoch_id: &EpochId,
         request: &QueryRequest,
-    ) -> Result<QueryResponse, Box<dyn std::error::Error>> {
+    ) -> Result<QueryResponse, Error> {
         match request {
             QueryRequest::ViewAccount { account_id, .. } => Ok(QueryResponse {
                 kind: QueryResponseKind::ViewAccount(
@@ -827,10 +827,7 @@ impl RuntimeAdapter for KeyValueRuntime {
             return Ok(true);
         }
         let prev_block_header = self.get_block_header(parent_hash)?.ok_or_else(|| {
-            Error::from(ErrorKind::Other(format!(
-                "Missing block {} when computing the epoch",
-                parent_hash
-            )))
+            Error::Other(format!("Missing block {} when computing the epoch", parent_hash))
         })?;
         let prev_prev_hash = *prev_block_header.prev_hash();
         Ok(self.get_epoch_and_valset(*parent_hash)?.0
@@ -899,7 +896,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         }
         match (self.get_valset_for_epoch(epoch_id), self.get_valset_for_epoch(other_epoch_id)) {
             (Ok(index1), Ok(index2)) => Ok(index1.cmp(&index2)),
-            _ => Err(ErrorKind::EpochOutOfBounds.into()),
+            _ => Err(Error::EpochOutOfBounds),
         }
     }
 
@@ -926,7 +923,7 @@ impl RuntimeAdapter for KeyValueRuntime {
                 return Ok((validator_stake.clone(), false));
             }
         }
-        Err(ErrorKind::NotAValidator.into())
+        Err(Error::NotAValidator)
     }
 
     fn get_fisherman_by_account_id(
@@ -935,7 +932,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         _last_known_block_hash: &CryptoHash,
         _account_id: &String,
     ) -> Result<(ValidatorStake, bool), Error> {
-        Err(ErrorKind::NotAValidator.into())
+        Err(Error::NotAValidator)
     }
 }
 

@@ -1,6 +1,6 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use reed_solomon_erasure::galois_8::{Field, ReedSolomon};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use near_crypto::Signature;
 
@@ -16,6 +16,7 @@ use reed_solomon_erasure::ReconstructShard;
     BorshSerialize,
     BorshDeserialize,
     Serialize,
+    Deserialize,
     Hash,
     Eq,
     PartialEq,
@@ -57,7 +58,7 @@ pub struct StateSyncInfo {
     pub shards: Vec<ShardInfo>,
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Clone, PartialEq, Eq, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Clone, PartialEq, Eq, Debug)]
 pub struct ShardChunkHeaderInner {
     /// Previous block hash.
     pub prev_block_hash: CryptoHash,
@@ -83,7 +84,7 @@ pub struct ShardChunkHeaderInner {
     pub validator_proposals: Vec<ValidatorStake>,
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Clone, PartialEq, Eq, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Clone, PartialEq, Eq, Debug)]
 #[borsh_init(init)]
 pub struct ShardChunkHeader {
     pub inner: ShardChunkHeaderInner,

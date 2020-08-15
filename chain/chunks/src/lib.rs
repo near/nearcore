@@ -10,7 +10,7 @@ use rand::seq::SliceRandom;
 
 use near_chain::validate::validate_chunk_proofs;
 use near_chain::{
-    byzantine_assert, collect_receipts, ChainStore, ChainStoreAccess, ChainStoreUpdate, ErrorKind,
+    byzantine_assert, collect_receipts, ChainStore, ChainStoreAccess, ChainStoreUpdate,
     RuntimeAdapter,
 };
 use near_network::types::{
@@ -954,19 +954,14 @@ impl ShardsManager {
                 return Err(Error::InvalidChunkSignature);
             }
             Ok(true) => (),
-            Err(chain_error) => {
-                return match chain_error.kind() {
-                    near_chain::ErrorKind::BlockMissing(_)
-                    | near_chain::ErrorKind::DBNotFoundErr(_) => {
-                        // We can't check if this chunk came from a valid chunk producer because
-                        // we don't know `prev_block`, so return that we need a block.
-                        Ok(ProcessPartialEncodedChunkResult::NeedBlock)
-                    }
-                    // Some other error kind happened during the signature check, we don't
-                    // know how to handle it.
-                    _ => Err(Error::ChainError(chain_error)),
-                };
+            Err(near_chain::Error::BlockMissing(_)) | Err(near_chain::Error::DBNotFoundErr(_)) => {
+                // We can't check if this chunk came from a valid chunk producer because
+                // we don't know `prev_block`, so return that we need a block.
+                return Ok(ProcessPartialEncodedChunkResult::NeedBlock);
             }
+            // Some other error kind happened during the signature check, we don't
+            // know how to handle it.
+            Err(e) => return Err(Error::ChainError(e)),
         };
 
         // 2. Leave if we received known chunk
@@ -992,7 +987,7 @@ impl ShardsManager {
         let chunk_requested = self.requested_partial_encoded_chunks.contains_key(&chunk_hash);
         if !chunk_requested {
             if !self.encoded_chunks.height_within_horizon(header.inner.height_created) {
-                return Err(Error::ChainError(ErrorKind::InvalidChunkHeight.into()));
+                return Err(Error::ChainError(near_chain::Error::InvalidChunkHeight));
             }
             // We shouldn't process unrequested chunk if we have seen one with same (height_created + shard_id)
             if let Ok(hash) = chain_store.get_any_chunk_hash_by_height_shard(
@@ -1043,7 +1038,7 @@ impl ShardsManager {
                     &receipts_hashes[shard_id as usize],
                 ) {
                     byzantine_assert!(false);
-                    return Err(Error::ChainError(ErrorKind::InvalidReceiptsProof.into()));
+                    return Err(Error::ChainError(near_chain::Error::InvalidReceiptsProof));
                 }
             }
         }

@@ -27,7 +27,7 @@ fn query_client() {
                     QueryRequest::ViewAccount { account_id: "test".to_owned() },
                 ))
                 .then(|res| {
-                    match res.unwrap().unwrap().unwrap().kind {
+                    match res.unwrap().unwrap().kind {
                         QueryResponseKind::ViewAccount(_) => (),
                         _ => panic!("Invalid response"),
                     }

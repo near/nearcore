@@ -6,11 +6,11 @@ use log::debug;
 
 use near_crypto::{KeyType, PublicKey};
 use near_primitives::account::{AccessKey, Account};
+use near_primitives::errors::StateViewError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::serialize::to_base64;
 use near_primitives::trie_key::trie_key_parsers;
-use near_primitives::types::EpochHeight;
-use near_primitives::types::{AccountId, BlockHeight, EpochId, EpochInfoProvider};
+use near_primitives::types::{AccountId, BlockHeight, EpochHeight, EpochId, EpochInfoProvider};
 use near_primitives::utils::is_valid_account_id;
 use near_primitives::views::{StateItem, ViewStateResult};
 use near_runtime_fees::RuntimeFeesConfig;
@@ -31,13 +31,13 @@ impl TrieViewer {
         &self,
         state_update: &TrieUpdate,
         account_id: &AccountId,
-    ) -> Result<Account, Box<dyn std::error::Error>> {
+    ) -> Result<Account, StateViewError> {
         if !is_valid_account_id(account_id) {
-            return Err(format!("Account ID '{}' is not valid", account_id).into());
+            return Err(StateViewError::InvalidAccountId(account_id.clone()));
         }
 
         get_account(state_update, &account_id)?
-            .ok_or_else(|| format!("account {} does not exist while viewing", account_id).into())
+            .ok_or_else(|| StateViewError::AccountDoesNotExist(account_id.clone()))
     }
 
     pub fn view_access_key(
@@ -45,13 +45,13 @@ impl TrieViewer {
         state_update: &TrieUpdate,
         account_id: &AccountId,
         public_key: &PublicKey,
-    ) -> Result<AccessKey, Box<dyn std::error::Error>> {
+    ) -> Result<AccessKey, StateViewError> {
         if !is_valid_account_id(account_id) {
-            return Err(format!("Account ID '{}' is not valid", account_id).into());
+            return Err(StateViewError::InvalidAccountId(account_id.clone()));
         }
 
         get_access_key(state_update, account_id, public_key)?
-            .ok_or_else(|| format!("access key {} does not exist while viewing", public_key).into())
+            .ok_or_else(|| StateViewError::AccessKeyDoesNotExist(public_key.clone()))
     }
 
     pub fn view_state(
@@ -59,9 +59,9 @@ impl TrieViewer {
         state_update: &TrieUpdate,
         account_id: &AccountId,
         prefix: &[u8],
-    ) -> Result<ViewStateResult, Box<dyn std::error::Error>> {
+    ) -> Result<ViewStateResult, StateViewError> {
         if !is_valid_account_id(account_id) {
-            return Err(format!("Account ID '{}' is not valid", account_id).into());
+            return Err(StateViewError::InvalidAccountId(account_id.clone()));
         }
         let mut values = vec![];
         let query = trie_key_parsers::get_raw_prefix_for_contract_data(account_id, prefix);
@@ -96,17 +96,16 @@ impl TrieViewer {
         args: &[u8],
         logs: &mut Vec<String>,
         epoch_info_provider: &dyn EpochInfoProvider,
-    ) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
-        let now = Instant::now();
+    ) -> Result<Vec<u8>, StateViewError> {
         if !is_valid_account_id(contract_id) {
-            return Err(format!("Contract ID {:?} is not valid", contract_id).into());
+            return Err(StateViewError::InvalidAccountId(contract_id.clone()));
         }
+        let now = Instant::now();
         let root = state_update.get_root();
         let account = get_account(&state_update, contract_id)?
-            .ok_or_else(|| format!("Account {:?} doesn't exist", contract_id))?;
-        let code = get_code_with_cache(&state_update, contract_id, &account)?.ok_or_else(|| {
-            format!("cannot find contract code for account {}", contract_id.clone())
-        })?;
+            .ok_or_else(|| StateViewError::AccountDoesNotExist(contract_id.clone()))?;
+        let code = get_code_with_cache(&state_update, contract_id, &account)?
+            .ok_or_else(|| StateViewError::ContractCodeDoesNotExist(contract_id.clone()))?;
         // TODO(#1015): Add ability to pass public key and originator_id
         let originator_id = contract_id;
         let public_key = PublicKey::empty(KeyType::ED25519);
@@ -163,9 +162,8 @@ impl TrieViewer {
             if let Some(outcome) = outcome {
                 logs.extend(outcome.logs);
             }
-            let message = format!("wasm execution failed with error: {:?}", err);
-            debug!(target: "runtime", "(exec time {}) {}", time_str, message);
-            Err(message.into())
+            debug!(target: "runtime", "(exec time {}) wasm execution failed with error: {:?}", time_str, err);
+            Err(err.into())
         } else {
             let outcome = outcome.unwrap();
             debug!(target: "runtime", "(exec time {}) result of execution: {:#?}", time_str, outcome);
@@ -181,6 +179,7 @@ impl TrieViewer {
 
 #[cfg(test)]
 mod tests {
+    use near_primitives::test_utils::MockEpochInfoProvider;
     use near_primitives::trie_key::TrieKey;
     use near_primitives::types::StateChangeCause;
     use near_primitives::views::StateItem;
@@ -189,7 +188,6 @@ mod tests {
     };
 
     use super::*;
-    use near_primitives::test_utils::MockEpochInfoProvider;
 
     #[test]
     fn test_view_call() {

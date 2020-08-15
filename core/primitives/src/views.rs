@@ -20,7 +20,7 @@ use crate::block_header::{
     BlockHeaderV2,
 };
 use crate::challenge::{Challenge, ChallengesResult};
-use crate::errors::TxExecutionError;
+use crate::errors::{StateViewError, TxExecutionError};
 use crate::hash::{hash, CryptoHash};
 use crate::logging;
 use crate::merkle::MerklePath;
@@ -168,9 +168,9 @@ pub struct CallResult {
     pub logs: Vec<String>,
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
 pub struct QueryError {
-    pub error: String,
+    pub error: StateViewError,
     pub logs: Vec<String>,
 }
 
@@ -228,7 +228,7 @@ pub enum QueryRequest {
     },
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
 pub struct QueryResponse {
     #[serde(flatten)]
     pub kind: QueryResponseKind,

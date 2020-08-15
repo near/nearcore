@@ -7,8 +7,7 @@ use borsh::BorshSerialize;
 use near_chain::types::BlockEconomicsConfig;
 use near_chain::validate::validate_challenge;
 use near_chain::{
-    Block, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode, Error, ErrorKind, Provenance,
-    RuntimeAdapter,
+    Block, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode, Error, Provenance, RuntimeAdapter,
 };
 use near_chain_configs::Genesis;
 use near_client::test_utils::{create_chunk, create_chunk_with_transactions, TestEnv};
@@ -170,7 +169,7 @@ fn test_verify_chunk_proofs_malicious_challenge_no_changes() {
         MaybeEncodedShardChunk::Encoded(chunk),
         &block,
     );
-    assert_eq!(challenge_result.unwrap_err().kind(), ErrorKind::MaliciousChallenge);
+    assert_eq!(challenge_result.unwrap_err(), Error::MaliciousChallenge);
 }
 
 #[test]
@@ -209,7 +208,7 @@ fn test_verify_chunk_proofs_malicious_challenge_valid_order_transactions() {
         MaybeEncodedShardChunk::Encoded(chunk),
         &block,
     );
-    assert_eq!(challenge_result.unwrap_err().kind(), ErrorKind::MaliciousChallenge);
+    assert_eq!(challenge_result.unwrap_err(), Error::MaliciousChallenge);
 }
 
 #[test]
@@ -677,10 +676,7 @@ fn test_challenge_in_different_epoch() {
             assert!(result.is_ok());
         } else {
             if let Err(e) = result {
-                match e.kind() {
-                    ErrorKind::ChunksMissing(_) => {}
-                    _ => panic!(format!("unexpected error: {}", e)),
-                }
+                assert!(matches!(e, Error::ChunksMissing(_)));
             }
         }
     }
