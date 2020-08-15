@@ -178,7 +178,7 @@ class NodesProxy:
 
     def proxify_node(self, node):
         proxify_node(node, self.ps, self.handler,
-                     self.global_stopped, self.error)
+                     self.global_stopped, self.error, self)
 
 
 async def stop_server(server):
@@ -316,7 +316,7 @@ def start_server(inner_port, outer_port, handler_ctr, global_stopped, local_stop
                          global_stopped, local_stopped, error))
 
 
-def proxify_node(node, ps, handler, global_stopped, error):
+def proxify_node(node, ps, handler, global_stopped, error, proxy):
     inner_port = node.port
     outer_port = inner_port + 100
 
@@ -330,3 +330,4 @@ def proxify_node(node, ps, handler, global_stopped, error):
 
     node.port = outer_port
     node._start_proxy = start_proxy
+    node.proxy = proxy

@@ -31,7 +31,7 @@ sys.path.append('lib')
 from cluster import init_cluster, spin_up_node, load_config
 from utils import TxContext, Unbuffered
 from transaction import sign_payment_tx, sign_staking_tx
-from network import init_network_pillager, stop_network, resume_network
+from proxy_instances import RejectListProxy
 
 sys.stdout = Unbuffered(sys.stdout)
 logging.basicConfig(format='%(asctime)s %(message)s', level=logging.INFO)
@@ -87,7 +87,7 @@ def get_recent_hash(node, sync_timeout):
             info = node.json_rpc('block', [hash_])
 
     assert 'result' in info, info
-    hash_ = info['result']['header']['hash']
+    hash_ = info['result']['header']['last_final_block']
     return hash_, status['sync_info']['latest_block_height']
 
 
@@ -170,16 +170,29 @@ def monkey_node_restart(stopped, error, nodes, nonces):
 
 @stress_process
 def monkey_local_network(stopped, error, nodes, nonces):
+    last_height = 0
+    last_time_height_updated = time.time()
+
     while stopped.value == 0:
+        _, cur_height = get_recent_hash(nodes[-1], 30)
+        if cur_height == last_height and time.time() - last_time_height_updated > 10:
+            time.sleep(25)
+        else:
+            last_height = cur_height
+            last_time_height_updated = time.time()
+            time.sleep(5)
+
         # "- 2" below is because we don't want to kill the node we use to check stats
         node_idx = random.randint(0, len(nodes) - 2)
-        nodes[node_idx].stop_network()
+        node = nodes[node_idx]
+        logging.info(f'ISOLATING NODE {node_idx}')
+        node.proxy.reject_list[0] = node_idx
         if node_idx == get_the_guy_to_mess_up_with(nodes):
             time.sleep(5)
         else:
             time.sleep(1)
-        nodes[node_idx].resume_network()
-        time.sleep(5)
+        logging.info(f'RESTORING NODE {node_idx} NETWORK')
+        node.proxy.reject_list[0] = -1
 
 
 @stress_process
@@ -228,7 +241,7 @@ def monkey_transactions(stopped, error, nodes, nonces):
                         logging.info("\nTRANSACTION %s" % tx_ord)
                         logging.info("TX tuple: %s" % (tx[1:],))
                         response = nodes[-1].json_rpc(
-                            'tx', [tx[3], "test%s" % tx[1]], timeout=1)
+                            'tx', [tx[3], "test%s" % tx[1]], timeout=5)
                         logging.info("Status: %s", response)
 
                 def revert_txs():
@@ -239,7 +252,7 @@ def monkey_transactions(stopped, error, nodes, nonces):
                         tx_happened = True
 
                         response = nodes[-1].json_rpc(
-                            'tx', [tx[3], "test%s" % tx[1]], timeout=1)
+                            'tx', [tx[3], "test%s" % tx[1]], timeout=5)
 
                         if 'error' in response and 'data' in response[
                                 'error'] and "doesn't exist" in response['error'][
@@ -558,33 +571,16 @@ def doit(s, n, N, k, monkeys, timeout):
          ["block_producer_kickout_threshold", 10],
          ["chunk_producer_kickout_threshold", 10]], local_config_changes)
 
-    started = time.time()
-
-    boot_node = spin_up_node(config, near_root, node_dirs[0], 0, None, None)
-    boot_node.stop_checking_store()
-    boot_node.mess_with = False
-    nodes = [boot_node]
-
-    for i in range(1, N + k + 1):
-        node = spin_up_node(config, near_root, node_dirs[i], i,
-                            boot_node.node_key.pk, boot_node.addr())
-        node.stop_checking_store()
-        nodes.append(node)
-        if i >= n and i < N:
-            node.kill()
-            node.mess_with = True
-        else:
-            node.mess_with = False
-
     monkey_names = [x.__name__ for x in monkeys]
+    proxy = None
     logging.info(monkey_names)
     if 'monkey_local_network' in monkey_names or 'monkey_global_network' in monkey_names:
-        logging.info(
-            "There are monkeys messing up with network, initializing the infra")
-        if config['local']:
-            init_network_pillager()
-            expect_network_issues()
+        assert config['local'], 'Network stress operations only work on local nodes'
+        reject_list = RejectListProxy.create_reject_list(1)
+        proxy = RejectListProxy(reject_list)
+        expect_network_issues()
         block_timeout += 40
+        balances_timeout += 20
         tx_tolerance += 0.3
     if 'monkey_node_restart' in monkey_names:
         expect_network_issues()
@@ -592,6 +588,24 @@ def doit(s, n, N, k, monkeys, timeout):
         block_timeout += 40
         balances_timeout += 10
         tx_tolerance += 0.5
+
+    started = time.time()
+
+    boot_node = spin_up_node(config, near_root, node_dirs[0], 0, None, None, proxy=proxy)
+    boot_node.stop_checking_store()
+    boot_node.mess_with = False
+    nodes = [boot_node]
+
+    for i in range(1, N + k + 1):
+        node = spin_up_node(config, near_root, node_dirs[i], i,
+                            boot_node.node_key.pk, boot_node.addr(), proxy=proxy)
+        node.stop_checking_store()
+        nodes.append(node)
+        if i >= n and i < N:
+            node.kill()
+            node.mess_with = True
+        else:
+            node.mess_with = False
 
     stopped = Value('i', 0)
     error = Value('i', 0)
