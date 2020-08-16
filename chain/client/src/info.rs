@@ -168,9 +168,7 @@ fn display_sync_status(
 ) -> String {
     match sync_status {
         SyncStatus::AwaitingPeers => format!("#{:>8} Waiting for peers", head.height),
-        SyncStatus::NoSync | SyncStatus::NoSyncSeveralBlocksBehind { .. } => {
-            format!("#{:>8} {:>44}", head.height, head.last_block_hash)
-        }
+        SyncStatus::NoSync => format!("#{:>8} {:>44}", head.height, head.last_block_hash),
         SyncStatus::HeaderSync { current_height, highest_height } => {
             let percent = if *highest_height <= genesis_height {
                 0
