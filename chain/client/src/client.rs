@@ -154,7 +154,9 @@ impl Client {
     // Checks if it's been at least `stall_timeout` since the last time the head was updated, or
     // this method was called. If yes, rebroadcasts the current head.
     pub fn check_head_progress_stalled(&mut self, stall_timeout: Duration) -> Result<(), Error> {
-        if Instant::now() > self.last_time_head_progress_made + stall_timeout {
+        if Instant::now() > self.last_time_head_progress_made + stall_timeout
+            && !self.sync_status.is_syncing()
+        {
             let block = self.chain.get_block(&self.chain.head()?.last_block_hash)?;
             self.network_adapter.do_send(NetworkRequests::Block { block: block.clone() });
             self.last_time_head_progress_made = Instant::now();
