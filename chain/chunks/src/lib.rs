@@ -48,7 +48,8 @@ const CHUNK_REQUEST_SWITCH_TO_FULL_FETCH_MS: u64 = 3_000;
 const CHUNK_REQUEST_RETRY_MAX_MS: u64 = 100_000;
 const ACCEPTING_SEAL_PERIOD_MS: i64 = 30_000;
 const NUM_PARTS_REQUESTED_IN_SEAL: usize = 3;
-const NUM_PARTS_LEFT_IN_SEAL: usize = 1;
+// TODO(#3180): seals are disabled in single shard setting
+// const NUM_PARTS_LEFT_IN_SEAL: usize = 1;
 const PAST_SEAL_HEIGHT_HORIZON: BlockHeightDelta = 1024;
 
 #[derive(PartialEq, Eq)]
@@ -152,7 +153,8 @@ struct ActiveSealDemur {
 }
 
 impl Seal<'_> {
-    fn process(self, chunk_entry: &EncodedChunksCacheEntry) -> bool {
+    // TODO(#3180): seals are disabled in single shard setting
+    /*fn process(self, chunk_entry: &EncodedChunksCacheEntry) -> bool {
         match self {
             Seal::Past => true,
             Seal::Active(demur) => {
@@ -168,7 +170,7 @@ impl Seal<'_> {
                 res
             }
         }
-    }
+    }*/
 
     fn contains_part_ord(&self, part_ord: &u64) -> bool {
         match self {
@@ -312,7 +314,8 @@ impl SealsManager {
         hashes_at_height.insert(chunk_hash);
     }
 
-    fn prune_past_seals(&mut self) {
+    // TODO(#3180): seals are disabled in single shard setting
+    /*fn prune_past_seals(&mut self) {
         let maybe_height_limits = {
             let mut heights = self.past_seals.keys();
             heights.next().and_then(|least_height| {
@@ -327,9 +330,10 @@ impl SealsManager {
                 self.past_seals = remaining_seals;
             }
         }
-    }
+    }*/
 
-    fn track_seals(&mut self) {
+    // TODO(#3180): seals are disabled in single shard setting
+    /*fn track_seals(&mut self) {
         let now = Utc::now();
         let me = &self.me;
         let dont_include_chunks_from = &mut self.dont_include_chunks_from;
@@ -353,7 +357,7 @@ impl SealsManager {
         });
 
         self.prune_past_seals();
-    }
+    }*/
 
     fn should_trust_chunk_producer(&mut self, chunk_producer: &AccountId) -> bool {
         self.dont_include_chunks_from.cache_get(chunk_producer).is_none()
@@ -1072,22 +1076,25 @@ impl ShardsManager {
             header.inner.height_created,
             header.inner.shard_id,
         )?;
-        self.seals_mgr.track_seals();
+
+        // TODO(#3180): seals are disabled in single shard setting
+        // self.seals_mgr.track_seals();
 
         if have_all_parts && self.seals_mgr.should_trust_chunk_producer(&chunk_producer) {
             self.encoded_chunks.insert_chunk_header(header.inner.shard_id, header.clone());
         }
         let entry = self.encoded_chunks.get(&chunk_hash).unwrap();
 
-        let seal = self.seals_mgr.get_seal(
+        // TODO(#3180): seals are disabled in single shard setting
+        /*let seal = self.seals_mgr.get_seal(
             &chunk_hash,
             &prev_block_hash,
             header.inner.height_created,
             header.inner.shard_id,
         )?;
-        let have_all_seal = seal.process(entry);
+        let have_all_seal = seal.process(entry);*/
 
-        if have_all_parts && have_all_receipts && have_all_seal {
+        if have_all_parts && have_all_receipts {
             let cares_about_shard = self.cares_about_shard_this_or_next_epoch(
                 self.me.as_ref(),
                 &prev_block_hash,
@@ -1440,7 +1447,7 @@ mod test {
     use crate::test_utils::SealsManagerTestFixture;
     use crate::{
         ChunkRequestInfo, Seal, SealsManager, ShardsManager, CHUNK_REQUEST_RETRY_MS,
-        NUM_PARTS_REQUESTED_IN_SEAL, PAST_SEAL_HEIGHT_HORIZON,
+        NUM_PARTS_REQUESTED_IN_SEAL,
     };
     use near_chain::test_utils::KeyValueRuntime;
     use near_network::test_utils::MockNetworkAdapter;
@@ -1610,7 +1617,8 @@ mod test {
             .contains(&fixture.mock_chunk_hash));
     }
 
-    #[test]
+    // TODO(#3180): seals are disabled in single shard setting
+    /*#[test]
     fn test_track_seals() {
         let fixture = SealsManagerTestFixture::default();
         let mut seals_manager = fixture.create_seals_manager();
@@ -1646,5 +1654,5 @@ mod test {
         seals_manager.track_seals();
         assert!(seals_manager.active_demurs.is_empty());
         assert!(seals_manager.past_seals.get(&fixture.mock_height).is_none());
-    }
+    }*/
 }
