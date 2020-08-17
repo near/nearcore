@@ -339,12 +339,15 @@ pub struct BlockSync {
     prev_blocks_received: NumBlocks,
     /// How far to fetch blocks vs fetch state.
     block_fetch_horizon: BlockHeightDelta,
+    /// Whether to enforce block sync
+    archive: bool,
 }
 
 impl BlockSync {
     pub fn new(
         network_adapter: Arc<dyn NetworkAdapter>,
         block_fetch_horizon: BlockHeightDelta,
+        archive: bool,
     ) -> Self {
         BlockSync {
             network_adapter,
@@ -352,6 +355,7 @@ impl BlockSync {
             receive_timeout: Utc::now(),
             prev_blocks_received: 0,
             block_fetch_horizon,
+            archive,
         }
     }
 
@@ -384,7 +388,7 @@ impl BlockSync {
         highest_height_peers: &[FullPeerInfo],
         block_fetch_horizon: BlockHeightDelta,
     ) -> Result<bool, near_chain::Error> {
-        match chain.check_state_needed(block_fetch_horizon)? {
+        match chain.check_state_needed(block_fetch_horizon, self.archive)? {
             BlockSyncResponse::StateNeeded => {
                 return Ok(true);
             }
