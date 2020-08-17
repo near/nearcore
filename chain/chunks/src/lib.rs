@@ -743,13 +743,16 @@ impl ShardsManager {
         result
     }
 
-    pub fn receipts_recipient_filter(
+    pub fn receipts_recipient_filter<T>(
         &self,
         from_shard_id: ShardId,
-        tracking_shards: Vec<ShardId>,
+        tracking_shards: T,
         receipts_by_shard: &HashMap<ShardId, Vec<Receipt>>,
         proofs: &Vec<MerklePath>,
-    ) -> Vec<ReceiptProof> {
+    ) -> Vec<ReceiptProof>
+    where
+        T: IntoIterator<Item = ShardId>,
+    {
         tracking_shards
             .into_iter()
             .map(|to_shard_id| {
@@ -1410,16 +1413,14 @@ impl ShardsManager {
         let receipts_by_shard = self.group_receipts_by_shard(outgoing_receipts);
 
         for (to_whom, part_ords) in block_producer_mapping {
-            let tracking_shards = (0..self.runtime_adapter.num_shards())
-                .filter(|chunk_shard_id| {
-                    self.cares_about_shard_this_or_next_epoch(
-                        Some(&to_whom),
-                        &prev_block_hash,
-                        *chunk_shard_id,
-                        false,
-                    )
-                })
-                .collect();
+            let tracking_shards = (0..self.runtime_adapter.num_shards()).filter(|chunk_shard_id| {
+                self.cares_about_shard_this_or_next_epoch(
+                    Some(&to_whom),
+                    &prev_block_hash,
+                    *chunk_shard_id,
+                    false,
+                )
+            });
 
             let part_receipt_proofs = self.receipts_recipient_filter(
                 shard_id,
