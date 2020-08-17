@@ -17,6 +17,7 @@
 #  [v] `node_set`: ocasionally spins up new nodes or kills existing ones, as long as the number of nodes doesn't exceed `N` and doesn't go below `n`. Also makes sure that for each shard there's at least one node that has been live sufficiently long
 #  [v] `node_restart`: ocasionally restarts nodes
 #  [v] `local_network`: ocasionally briefly shuts down the network connection for a specific node
+#  [v] `packets_drop`: drop 10% of all the network packets
 #  [ ] `global_network`: ocasionally shots down the network globally for several seconds
 #  [v] `transactions`: sends random transactions keeping track of expected balances
 #  [v] `staking`: runs staking transactions for validators. Presently the test doesn't track staking invariants, relying on asserts in the nearcore.
@@ -39,7 +40,7 @@ logging.basicConfig(format='%(asctime)s %(message)s', level=logging.INFO)
 TIMEOUT = 1500  # after how much time to shut down the test
 TIMEOUT_SHUTDOWN = 120  # time to wait after the shutdown was initiated before failing the test due to process stalling
 MAX_STAKE = int(1e32)
-EPOCH_LENGTH = 20
+EPOCH_LENGTH = 25
 
 # How many times to try to send transactions to each validator.
 # Is only applicable in the scenarios where we expect failures in tx sends.
@@ -169,6 +170,12 @@ def monkey_node_restart(stopped, error, nodes, nonces):
 
 
 @stress_process
+def monkey_packets_drop(stopped, error, nodes, nonces):
+    # no implementation needed, packet drop is configured on start
+    pass
+
+
+@stress_process
 def monkey_local_network(stopped, error, nodes, nonces):
     last_height = 0
     last_time_height_updated = time.time()
@@ -234,16 +241,6 @@ def monkey_transactions(stopped, error, nodes, nonces):
                     "BALANCES NEVER CAUGHT UP, CHECKING UNFINISHED TRANSACTIONS"
                 )
 
-                def trace_reverted_txs(last_tx_set, tx_ords):
-                    logging.info("\n\nREVERTING THE FOLLOWING TXS WOULD BE ENOUGH:\n")
-                    for tx_ord in tx_ords:
-                        tx = last_tx_set[tx_ord]
-                        logging.info("\nTRANSACTION %s" % tx_ord)
-                        logging.info("TX tuple: %s" % (tx[1:],))
-                        response = nodes[-1].json_rpc(
-                            'tx', [tx[3], "test%s" % tx[1]], timeout=5)
-                        logging.info("Status: %s", response)
-
                 def revert_txs():
                     nonlocal expected_balances
                     good = 0
@@ -296,107 +293,67 @@ def monkey_transactions(stopped, error, nodes, nonces):
                         "REVERTING DIDN'T HELP, TX EXECUTED: %s, TX LOST: %s" %
                         (good, bad))
 
-                    for i in range(0, len(last_tx_set)):
-                        tx = last_tx_set[i]
-                        expected_balances[tx[1]] += tx[4]
-                        expected_balances[tx[2]] -= tx[4]
-
-                        if get_balances() == expected_balances:
-                            trace_reverted_txs(last_tx_set, [i])
-
-                        for j in range(i + 1, len(last_tx_set)):
-                            tx = last_tx_set[j]
-                            expected_balances[tx[1]] += tx[4]
-                            expected_balances[tx[2]] -= tx[4]
-
-                            if get_balances() == expected_balances:
-                                trace_reverted_txs(last_tx_set, [i, j])
-
-                            for k in range(j + 1, len(last_tx_set)):
-                                tx = last_tx_set[k]
-                                expected_balances[tx[1]] += tx[4]
-                                expected_balances[tx[2]] -= tx[4]
-
-                                if get_balances() == expected_balances:
-                                    trace_reverted_txs(last_tx_set, [i, j, k])
-
-                                expected_balances[tx[1]] -= tx[4]
-                                expected_balances[tx[2]] += tx[4]
-
-                            tx = last_tx_set[j]
-                            expected_balances[tx[1]] -= tx[4]
-                            expected_balances[tx[2]] += tx[4]
-
-                        tx = last_tx_set[i]
-                        expected_balances[tx[1]] -= tx[4]
-                        expected_balances[tx[2]] += tx[4]
-
-                    logging.info(
-                        "The latest and greatest stats on successful/failed: %s/%s"
-                        % (good, bad))
                     assert False, "Balances didn't update in time. Expected: %s, received: %s" % (
                         expected_balances, get_balances())
             last_iter_switch = time.time()
 
         if mode == 0:
-            # do not send more than 50 txs, so that at the end of the test we have time to query all of them. When #2195 is fixed, this condition can probably be safely removed
-            if tx_count < 50:
+            from_ = random.randint(0, len(nodes) - 1)
+            while min_balances[from_] < 0:
                 from_ = random.randint(0, len(nodes) - 1)
-                while min_balances[from_] < 0:
-                    from_ = random.randint(0, len(nodes) - 1)
+            to = random.randint(0, len(nodes) - 1)
+            while from_ == to:
                 to = random.randint(0, len(nodes) - 1)
-                while from_ == to:
-                    to = random.randint(0, len(nodes) - 1)
-                amt = random.randint(0, min_balances[from_])
-                nonce_val, nonce_lock = nonces[from_]
+            amt = random.randint(0, min_balances[from_])
+            nonce_val, nonce_lock = nonces[from_]
 
-                hash_, _ = get_recent_hash(nodes[-1], 5)
+            hash_, _ = get_recent_hash(nodes[-1], 5)
 
-                with nonce_lock:
-                    tx = sign_payment_tx(nodes[from_].signer_key, 'test%s' % to,
-                                         amt, nonce_val.value,
-                                         base58.b58decode(hash_.encode('utf8')))
+            with nonce_lock:
+                tx = sign_payment_tx(nodes[from_].signer_key, 'test%s' % to,
+                                     amt, nonce_val.value,
+                                     base58.b58decode(hash_.encode('utf8')))
 
-                    # Loop trying to send the tx to all the validators, until at least one receives it
-                    tx_hash = None
-                    for send_attempt in range(SEND_TX_ATTEMPTS):
-                        shuffled_validator_ids = [x for x in validator_ids]
-                        random.shuffle(shuffled_validator_ids)
-                        for validator_id in shuffled_validator_ids:
-                            try:
-                                info = nodes[validator_id].send_tx(tx)
-                                if 'error' in info and info['error']['data'] == 'IsSyncing':
-                                    pass
+                # Loop trying to send the tx to all the validators, until at least one receives it
+                tx_hash = None
+                for send_attempt in range(SEND_TX_ATTEMPTS):
+                    shuffled_validator_ids = [x for x in validator_ids]
+                    random.shuffle(shuffled_validator_ids)
+                    for validator_id in shuffled_validator_ids:
+                        try:
+                            info = nodes[validator_id].send_tx(tx)
+                            if 'error' in info and info['error']['data'] == 'IsSyncing':
+                                pass
 
-                                elif 'result' in info:
-                                    tx_hash = info['result']
-                                    break
+                            elif 'result' in info:
+                                tx_hash = info['result']
+                                break
 
-                                else:
-                                    assert False, info
+                            else:
+                                assert False, info
 
-                            except (requests.exceptions.ReadTimeout,
-                                    requests.exceptions.ConnectionError):
-                                if not network_issues_expected and not nodes[
-                                        validator_id].mess_with:
-                                    raise
+                        except (requests.exceptions.ReadTimeout,
+                                requests.exceptions.ConnectionError):
+                            if not network_issues_expected and not nodes[
+                                    validator_id].mess_with:
+                                raise
 
-                        if tx_hash is not None:
-                            break
+                    if tx_hash is not None:
+                        break
 
-                        time.sleep(1)
+                    time.sleep(1)
 
-                    else:
-                        assert False, "Failed to send the transation after %s attempts" % SEND_TX_ATTEMPTS
+                else:
+                    assert False, "Failed to send the transation after %s attempts" % SEND_TX_ATTEMPTS
 
-                    last_tx_set.append((tx, from_, to, tx_hash, amt))
-                    nonce_val.value = nonce_val.value + 1
+                last_tx_set.append((tx, from_, to, tx_hash, amt))
+                nonce_val.value = nonce_val.value + 1
 
-                expected_balances[from_] -= amt
-                expected_balances[to] += amt
-                min_balances[from_] -= amt
+            expected_balances[from_] -= amt
+            expected_balances[to] += amt
+            min_balances[from_] -= amt
 
-                tx_count += 1
+            tx_count += 1
 
         else:
             if get_balances() == expected_balances:
@@ -574,19 +531,24 @@ def doit(s, n, N, k, monkeys, timeout):
     monkey_names = [x.__name__ for x in monkeys]
     proxy = None
     logging.info(monkey_names)
-    if 'monkey_local_network' in monkey_names or 'monkey_global_network' in monkey_names:
+    timeouts_increased = False
+    if 'monkey_local_network' in monkey_names or 'monkey_global_network' in monkey_names or 'monkey_packets_drop' in monkey_names:
         assert config['local'], 'Network stress operations only work on local nodes'
+        drop_probability = 0.1 if 'monkey_packets_drop' in monkey_names else 0
+
         reject_list = RejectListProxy.create_reject_list(1)
-        proxy = RejectListProxy(reject_list)
+        proxy = RejectListProxy(reject_list, drop_probability)
         expect_network_issues()
         block_timeout += 40
         balances_timeout += 20
         tx_tolerance += 0.3
+        timeouts_increased = True
     if 'monkey_node_restart' in monkey_names:
         expect_network_issues()
     if 'monkey_node_restart' in monkey_names or 'monkey_node_set' in monkey_names:
-        block_timeout += 40
-        balances_timeout += 10
+        if not timeouts_increased:
+            block_timeout += 40
+            balances_timeout += 10
         tx_tolerance += 0.5
 
     started = time.time()
