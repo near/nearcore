@@ -276,12 +276,13 @@ impl SealsManager {
         match maybe_seal {
             None => match self.past_seals.entry(height) {
                 btree_map::Entry::Vacant(vacant) => {
-                    warn!(
+                    // TODO(#3180): seals are disabled in single shard setting
+                    /*warn!(
                         target: "chunks",
                         "A chunk at height {} with hash {:?} was approved without an active seal demur and no past seals were found at the same height",
                         height,
                         chunk_hash
-                    );
+                    );*/
                     let mut hashes = HashSet::new();
                     hashes.insert(chunk_hash.clone());
                     vacant.insert(hashes);
@@ -289,12 +290,13 @@ impl SealsManager {
                 btree_map::Entry::Occupied(mut occupied) => {
                     let hashes = occupied.get_mut();
                     if !hashes.contains(chunk_hash) {
-                        warn!(
+                        // TODO(#3180): seals are disabled in single shard setting
+                        /*warn!(
                             target: "chunks",
                             "Approved chunk at height {} with hash {:?} was not an active seal demur or a past seal",
                             height,
                             chunk_hash
-                        );
+                        );*/
                         hashes.insert(chunk_hash.clone());
                     }
                 }
