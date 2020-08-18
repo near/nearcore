@@ -60,6 +60,7 @@ pub fn fill_col_outcomes_by_hash(store: &Store) {
             .set_ser(DBCol::ColOutcomesByBlockHash, block_hash.as_ref(), &hash_set)
             .expect("BorshSerialize should not fail");
     }
+    store_update.commit().expect("Failed to migrate");
 }
 
 pub fn fill_col_transaction_refcount(store: &Store) {
@@ -80,4 +81,5 @@ pub fn fill_col_transaction_refcount(store: &Store) {
             .set_ser(DBCol::ColTransactionRefCount, tx_hash.as_ref(), &refcount)
             .expect("BorshSerialize should not fail");
     }
+    store_update.commit().expect("Failed to migrate");
 }
