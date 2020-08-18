@@ -40,12 +40,12 @@ logging.basicConfig(format='%(asctime)s %(message)s', level=logging.INFO)
 TIMEOUT = 1500  # after how much time to shut down the test
 TIMEOUT_SHUTDOWN = 120  # time to wait after the shutdown was initiated before failing the test due to process stalling
 MAX_STAKE = int(1e32)
-EPOCH_LENGTH = 25
 
 # How many times to try to send transactions to each validator.
 # Is only applicable in the scenarios where we expect failures in tx sends.
 SEND_TX_ATTEMPTS = 5
 
+epoch_length = 25
 block_timeout = 20  # if two blocks are not produced within that many seconds, the test will fail. The timeout is increased if nodes are restarted or network is being messed up with
 balances_timeout = 15  # how long to tolerate for balances to update after txs are sent
 tx_tolerance = 0.1
@@ -371,8 +371,9 @@ def monkey_transactions(stopped, error, nodes, nonces):
 
 
 def get_the_guy_to_mess_up_with(nodes):
+    global epoch_length
     _, height = get_recent_hash(nodes[-1], 5)
-    return (height // EPOCH_LENGTH) % (len(nodes) - 1)
+    return (height // epoch_length) % (len(nodes) - 1)
 
 
 @stress_process
@@ -510,7 +511,7 @@ def blocks_tracker(stopped, error, nodes, nonces):
 
 
 def doit(s, n, N, k, monkeys, timeout):
-    global block_timeout, balances_timeout, tx_tolerance
+    global block_timeout, balances_timeout, tx_tolerance, epoch_length
 
     assert 2 <= n <= N
 
@@ -521,35 +522,45 @@ def doit(s, n, N, k, monkeys, timeout):
         # make all the observers track all the shards
         local_config_changes[i] = {"tracked_shards": list(range(s))}
 
-    near_root, node_dirs = init_cluster(
-        N, k + 1, s, config,
-        [["min_gas_price", 0], ["max_inflation_rate", [0, 1]],
-         ["epoch_length", EPOCH_LENGTH],
-         ["block_producer_kickout_threshold", 10],
-         ["chunk_producer_kickout_threshold", 10]], local_config_changes)
-
     monkey_names = [x.__name__ for x in monkeys]
     proxy = None
     logging.info(monkey_names)
-    timeouts_increased = False
+
+    if 'monkey_local_network' in monkey_names or 'monkey_global_network' in monkey_names or 'monkey_packets_drop' in monkey_names or 'monkey_node_restart' in monkey_names:
+        expect_network_issues()
+        block_timeout += 40
+
     if 'monkey_local_network' in monkey_names or 'monkey_global_network' in monkey_names or 'monkey_packets_drop' in monkey_names:
         assert config['local'], 'Network stress operations only work on local nodes'
-        drop_probability = 0.1 if 'monkey_packets_drop' in monkey_names else 0
+        drop_probability = 0.05 if 'monkey_packets_drop' in monkey_names else 0
 
         reject_list = RejectListProxy.create_reject_list(1)
         proxy = RejectListProxy(reject_list, drop_probability)
-        expect_network_issues()
-        block_timeout += 40
-        balances_timeout += 20
         tx_tolerance += 0.3
-        timeouts_increased = True
-    if 'monkey_node_restart' in monkey_names:
-        expect_network_issues()
+
+    if 'monkey_local_network' in monkey_names or 'monkey_global_network' in monkey_names:
+        balances_timeout += 20
+
+    if 'monkey_packets_drop':
+        balances_timeout += 30
+
     if 'monkey_node_restart' in monkey_names or 'monkey_node_set' in monkey_names:
-        if not timeouts_increased:
-            block_timeout += 40
-            balances_timeout += 10
+        balances_timeout += 10
         tx_tolerance += 0.5
+
+    # We need to make sure that the blocks that include txs are not garbage collected. From the first tx sent until
+    # we check balances time equal to `balances_timeout * 2` passes, and the block production is capped at 1.7/s.
+    # The GC keeps five epochs of blocks.
+    min_epoch_length = (int((balances_timeout * 2) * 1.7) + 4) // 5
+    epoch_length = max(epoch_length, min_epoch_length)
+
+
+    near_root, node_dirs = init_cluster(
+        N, k + 1, s, config,
+        [["min_gas_price", 0], ["max_inflation_rate", [0, 1]],
+         ["epoch_length", epoch_length],
+         ["block_producer_kickout_threshold", 10],
+         ["chunk_producer_kickout_threshold", 10]], local_config_changes)
 
     started = time.time()
 
