@@ -91,6 +91,7 @@ pub enum Metric {
     ActionAddFunctionAccessKey1000Methods,
     ActionDeleteAccessKey,
     ActionStake,
+    ActionDeploySmallest,
     ActionDeploy10K,
     ActionDeploy100K,
     ActionDeploy1M,
@@ -324,12 +325,15 @@ pub fn run(mut config: Config) -> RuntimeConfig {
     );
 
     // Measure the speed of deploying some code.
+    let smallest_code = include_bytes!("../test-contract/res/smallest_contract.wasm");
     let code_10k = include_bytes!("../test-contract/res/small_contract.wasm");
     let code_100k = include_bytes!("../test-contract/res/medium_contract.wasm");
     let code_1m = include_bytes!("../test-contract/res/large_contract.wasm");
-    let curr_code = RefCell::new(code_10k.to_vec());
+    let curr_code = RefCell::new(smallest_code.to_vec());
     let mut nonces: HashMap<usize, u64> = HashMap::new();
     let mut accounts_deployed = HashSet::new();
+    let mut good_code_accounts = HashSet::new();
+    let good_account = RefCell::new(false);
     let mut f = || {
         let account_idx = loop {
             let x = rand::thread_rng().gen::<usize>() % config.active_accounts;
@@ -339,6 +343,9 @@ pub fn run(mut config: Config) -> RuntimeConfig {
             break x;
         };
         accounts_deployed.insert(account_idx);
+        if *good_account.borrow() {
+            good_code_accounts.insert(account_idx);
+        }
         let account_id = get_account_id(account_idx);
         let signer = InMemorySigner::from_seed(&account_id, KeyType::ED25519, &account_id);
         let nonce = *nonces.entry(account_idx).and_modify(|x| *x += 1).or_insert(1);
@@ -352,7 +359,28 @@ pub fn run(mut config: Config) -> RuntimeConfig {
         )
     };
     let mut testbed =
-        measure_transactions(Metric::ActionDeploy10K, &mut m, &config, None, &mut f, false);
+        measure_transactions(Metric::ActionDeploySmallest, &mut m, &config, None, &mut f, false);
+
+    *good_account.borrow_mut() = true;
+    *curr_code.borrow_mut() = code_10k.to_vec();
+
+    testbed = measure_transactions(
+        Metric::ActionDeploy10K,
+        &mut m,
+        &config,
+        Some(testbed),
+        &mut f,
+        false,
+    );
+
+    // Deploying more small code accounts. It's important that they are the same size to correctly
+    // deduct base
+    for _ in 0..2 {
+        testbed =
+            measure_transactions(Metric::warmup, &mut m, &config, Some(testbed), &mut f, false);
+    }
+
+    *good_account.borrow_mut() = false;
     *curr_code.borrow_mut() = code_100k.to_vec();
     testbed = measure_transactions(
         Metric::ActionDeploy100K,
@@ -366,7 +394,7 @@ pub fn run(mut config: Config) -> RuntimeConfig {
     testbed =
         measure_transactions(Metric::ActionDeploy1M, &mut m, &config, Some(testbed), &mut f, false);
 
-    let ad: Vec<_> = accounts_deployed.into_iter().collect();
+    let ad: Vec<_> = good_code_accounts.into_iter().collect();
 
     testbed = measure_function(
         Metric::warmup,

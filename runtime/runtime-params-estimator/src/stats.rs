@@ -2,6 +2,7 @@ use crate::cases::Metric;
 use crate::testbed_runners::GasMetric;
 use gnuplot::{AxesCommon, Caption, Color, DotDotDash, Figure, Graph, LineStyle, PointSymbol};
 use near_vm_logic::ExtCosts;
+use num_rational::Ratio;
 use rand::Rng;
 use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
@@ -173,7 +174,7 @@ impl DataStats {
             stddev: stddev as u64,
             ile5: ile5 as u64,
             ile95: ile95 as u64,
-            ext_costs: ext_costs,
+            ext_costs,
             gas_metric,
         }
     }
@@ -181,6 +182,18 @@ impl DataStats {
     /// Get mean + 4*sigma
     pub fn upper(&self) -> u64 {
         self.mean + 4u64 * self.stddev
+    }
+
+    /// Get upper using base and denoms:
+    /// `mean_clean = mean - mean_noop`
+    /// `stddev_clean^2 = stddev^2 + stddev_noop^2`
+    /// and then compute upper as `mean_clean + 4*stddev_clean`
+    pub fn upper_with_base(&self, denom: u64, base: &Self, base_denom: u64) -> Ratio<u64> {
+        let mean = self.mean as f64 / denom as f64 - base.mean as f64 / base_denom as f64;
+        let stddev = ((self.stddev as f64 / denom as f64).powf(2.0)
+            + (base.stddev as f64 / base_denom as f64).powf(2.0))
+        .sqrt();
+        Ratio::new(((mean + 4f64 * stddev) * (denom as f64)) as u64, denom)
     }
 }
 
