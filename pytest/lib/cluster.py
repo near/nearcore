@@ -515,7 +515,8 @@ def spin_up_node(config,
                  boot_key,
                  boot_addr,
                  blacklist=[],
-                 proxy=None):
+                 proxy=None,
+                 sleep_time=3):
     is_local = config['local']
 
     print("Starting node %s %s" % (ordinal,
@@ -549,7 +550,7 @@ def spin_up_node(config,
         proxy.proxify_node(node)
 
     node.start(boot_key, boot_addr)
-    time.sleep(3)
+    time.sleep(sleep_time)
     print(f"node {ordinal} started")
     return node
 
@@ -662,26 +663,30 @@ def start_cluster(num_nodes,
 
     proxy = NodesProxy(message_handler) if message_handler is not None else None
 
-    def spin_up_node_and_push(i, boot_key, boot_addr):
+    def spin_up_node_and_push(i, boot_key, boot_addr, sleep_time=3):
         node = spin_up_node(config, near_root, node_dirs[i], i, boot_key,
-                            boot_addr, [], proxy)
+                            boot_addr, [], proxy, sleep_time)
         while len(ret) < i:
             time.sleep(0.01)
         ret.append(node)
         return node
 
-    boot_node = spin_up_node_and_push(0, None, None)
+    boot_node = spin_up_node_and_push(0, None, None, 0)
 
-    handles = []
-    for i in range(1, num_nodes + num_observers):
-        handle = threading.Thread(target=spin_up_node_and_push,
-                                  args=(i, boot_node.node_key.pk,
-                                        boot_node.addr()))
-        handle.start()
-        handles.append(handle)
+    if num_nodes <= 4:
+        handles = []
+        for i in range(1, num_nodes + num_observers):
+            handle = threading.Thread(target=spin_up_node_and_push,
+                                      args=(i, boot_node.node_key.pk,
+                                            boot_node.addr()))
+            handle.start()
+            handles.append(handle)
 
-    for handle in handles:
-        handle.join()
+        for handle in handles:
+            handle.join()
+    else:
+        for i in range(1, num_nodes + num_observers):
+            spin_up_node_and_push(i, boot_node.node_key.pk, boot_node.addr(), 0)
 
     return ret
 
