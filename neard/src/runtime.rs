@@ -877,22 +877,36 @@ impl RuntimeAdapter for NightshadeRuntime {
         epoch_manager.get_epoch_start_height(block_hash).map_err(Error::from)
     }
 
-    fn get_gc_stop_height(&self, block_hash: &CryptoHash) -> Result<BlockHeight, Error> {
-        let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
-        // an epoch must have a first block.
-        let epoch_first_block = epoch_manager.get_block_info(block_hash)?.epoch_first_block;
-        let epoch_first_block_info = epoch_manager.get_block_info(&epoch_first_block)?;
-        // maintain pointers to avoid cloning.
-        let mut last_block_in_prev_epoch = epoch_first_block_info.prev_hash;
-        let mut epoch_start_height = epoch_first_block_info.height;
-        for _ in 0..NUM_EPOCHS_TO_KEEP_STORE_DATA - 1 {
-            let epoch_first_block =
-                epoch_manager.get_block_info(&last_block_in_prev_epoch)?.epoch_first_block;
-            let epoch_first_block_info = epoch_manager.get_block_info(&epoch_first_block)?;
-            epoch_start_height = epoch_first_block_info.height;
-            last_block_in_prev_epoch = epoch_first_block_info.prev_hash;
+    fn get_gc_stop_height(&self, block_hash: &CryptoHash) -> BlockHeight {
+        let genesis_height = self.genesis_config.genesis_height;
+        macro_rules! unwrap_result_or_return {
+            ($obj: expr) => {
+                match $obj {
+                    Ok(value) => value,
+                    Err(_) => {
+                        return genesis_height;
+                    }
+                }
+            };
         }
-        Ok(epoch_start_height)
+        let get_gc_stop_height_inner = || -> Result<BlockHeight, Error> {
+            let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
+            // an epoch must have a first block.
+            let epoch_first_block = epoch_manager.get_block_info(block_hash)?.epoch_first_block;
+            let epoch_first_block_info = epoch_manager.get_block_info(&epoch_first_block)?;
+            // maintain pointers to avoid cloning.
+            let mut last_block_in_prev_epoch = epoch_first_block_info.prev_hash;
+            let mut epoch_start_height = epoch_first_block_info.height;
+            for _ in 0..NUM_EPOCHS_TO_KEEP_STORE_DATA - 1 {
+                let epoch_first_block =
+                    epoch_manager.get_block_info(&last_block_in_prev_epoch)?.epoch_first_block;
+                let epoch_first_block_info = epoch_manager.get_block_info(&epoch_first_block)?;
+                epoch_start_height = epoch_first_block_info.height;
+                last_block_in_prev_epoch = epoch_first_block_info.prev_hash;
+            }
+            Ok(epoch_start_height)
+        };
+        unwrap_result_or_return!(get_gc_stop_height_inner())
     }
 
     fn epoch_exists(&self, epoch_id: &EpochId) -> bool {

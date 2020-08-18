@@ -1,4 +1,3 @@
-use std::collections::HashSet;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -469,10 +468,11 @@ fn test_receive_invalid_chunk_as_chunk_producer() {
     // But everyone who doesn't track this shard have accepted.
     let receipts_hashes = env.clients[0].runtime_adapter.build_receipts_hashes(&receipts);
     let (_receipts_root, receipts_proofs) = merklize(&receipts_hashes);
+    let receipts_by_shard = env.clients[0].shards_mgr.group_receipts_by_shard(receipts.clone());
     let one_part_receipt_proofs = env.clients[0].shards_mgr.receipts_recipient_filter(
         0,
-        &HashSet::default(),
-        &receipts,
+        Vec::default(),
+        &receipts_by_shard,
         &receipts_proofs,
     );
 

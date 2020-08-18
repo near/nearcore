@@ -131,7 +131,7 @@ mod tests {
             let seen_hashes_with_state = Arc::new(RwLock::new(HashSet::<CryptoHash>::new()));
 
             let connectors1 = connectors.clone();
-            let mut block_prod_time: u64 = 1600;
+            let mut block_prod_time: u64 = 3200;
             if sync_hold {
                 block_prod_time *= STATE_SYNC_TIMEOUT as u64;
             }
@@ -438,11 +438,11 @@ mod tests {
                 key_pairs.clone(),
                 validator_groups,
                 true,
-                3500,
+                6000,
                 false,
                 false,
                 5,
-                false,
+                true,
                 vec![false; validators.iter().map(|x| x.len()).sum()],
                 false,
                 Arc::new(RwLock::new(Box::new(
@@ -608,7 +608,10 @@ mod tests {
     }
 
     /// Makes sure that 24 consecutive blocks are produced by 12 validators split into three epochs.
-    /// This ensures that at no point validators get stuck with state sync
+    /// For extra coverage doesn't allow block propagation of some heights (and expects the blocks
+    /// to be skipped)
+    /// This test would fail if at any point validators got stuck with state sync, or block
+    /// production stalled for any other reason.
     #[test]
     fn test_catchup_sanity_blocks_produced() {
         let validator_groups = 2;
@@ -638,68 +641,7 @@ mod tests {
                 key_pairs.clone(),
                 validator_groups,
                 true,
-                600,
-                false,
-                false,
-                5,
-                false,
-                vec![false; validators.iter().map(|x| x.len()).sum()],
-                false,
-                Arc::new(RwLock::new(Box::new(
-                    move |_account_id: String, msg: &NetworkRequests| {
-                        if let NetworkRequests::Block { block } = msg {
-                            check_height(*block.hash(), block.header().height());
-                            check_height(*block.header().prev_hash(), block.header().height() - 1);
-
-                            if block.header().height() >= 25 {
-                                System::current().stop();
-                            }
-                        }
-                        (NetworkResponses::NoResponse, true)
-                    },
-                ))),
-            );
-            *connectors.write().unwrap() = conn;
-
-            near_network::test_utils::wait_or_panic(60000);
-        })
-        .unwrap();
-    }
-
-    /// Similar to `test_catchup_sanity_blocks_produced`, but
-    ///  a) Enables doomslug,
-    ///  b) Doesn't allow the propagation of some heights
-    /// Ensures that the block production doesn't get stuck.
-    #[test]
-    fn test_catchup_sanity_blocks_produced_doomslug() {
-        let validator_groups = 2;
-        init_integration_logger();
-        System::run(move || {
-            let connectors: Arc<RwLock<Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>>> =
-                Arc::new(RwLock::new(vec![]));
-
-            let heights = Arc::new(RwLock::new(HashMap::new()));
-            let heights1 = heights.clone();
-
-            let check_height =
-                move |hash: CryptoHash, height| match heights1.write().unwrap().entry(hash.clone())
-                {
-                    Entry::Occupied(entry) => {
-                        assert_eq!(*entry.get(), height);
-                    }
-                    Entry::Vacant(entry) => {
-                        entry.insert(height);
-                    }
-                };
-
-            let (validators, key_pairs) = get_validators_and_key_pairs();
-
-            let (_, conn, _) = setup_mock_all_validators(
-                validators.clone(),
-                key_pairs.clone(),
-                validator_groups,
-                true,
-                600,
+                2000,
                 false,
                 false,
                 5,
@@ -749,7 +691,9 @@ mod tests {
         SecondAttack,
     }
 
+    // TODO(#3180): seals are disabled in single shard setting
     #[test]
+    #[ignore]
     fn test_chunk_grieving() {
         let validator_groups = 1;
         init_integration_logger();
@@ -767,7 +711,7 @@ mod tests {
 
             let _connectors1 = connectors.clone();
 
-            let block_prod_time: u64 = 1200;
+            let block_prod_time: u64 = 3500;
             let (_, conn, _) = setup_mock_all_validators(
                 validators.clone(),
                 key_pairs.clone(),
@@ -888,17 +832,17 @@ mod tests {
 
     #[test]
     fn test_all_chunks_accepted_1000() {
-        test_all_chunks_accepted_common(1000, 2000, 5)
+        test_all_chunks_accepted_common(1000, 3000, 5)
     }
 
     #[test]
     fn test_all_chunks_accepted_1000_slow() {
-        test_all_chunks_accepted_common(1000, 4000, 5)
+        test_all_chunks_accepted_common(1000, 6000, 5)
     }
 
     #[test]
     fn test_all_chunks_accepted_1000_rare_epoch_changing() {
-        test_all_chunks_accepted_common(1000, 1000, 100)
+        test_all_chunks_accepted_common(1000, 1500, 100)
     }
 
     fn test_all_chunks_accepted_common(
@@ -931,7 +875,7 @@ mod tests {
                 false,
                 false,
                 epoch_length,
-                false,
+                true,
                 vec![false; validators.iter().map(|x| x.len()).sum()],
                 false,
                 Arc::new(RwLock::new(Box::new(

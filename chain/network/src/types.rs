@@ -974,6 +974,12 @@ pub enum PeerManagerRequest {
     UnregisterPeer,
 }
 
+pub struct EdgeList(pub Vec<Edge>);
+
+impl Message for EdgeList {
+    type Result = bool;
+}
+
 /// Combines peer address info, chain and edge information.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct FullPeerInfo {

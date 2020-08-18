@@ -11,11 +11,13 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use rocksdb::Env;
 use rocksdb::{
     BlockBasedOptions, Cache, ColumnFamily, ColumnFamilyDescriptor, Direction, IteratorMode,
-    Options, ReadOptions, WriteBatch, DB,
+    MergeOperands, Options, ReadOptions, WriteBatch, DB,
 };
 use strum_macros::EnumIter;
 
+use crate::trie::merge_refcounted_records;
 use near_primitives::version::DbVersion;
+use rocksdb::compaction_filter::Decision;
 use std::marker::PhantomPinned;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -215,12 +217,26 @@ pub struct DBTransaction {
 
 pub enum DBOp {
     Insert { col: DBCol, key: Vec<u8>, value: Vec<u8> },
+    UpdateRefcount { col: DBCol, key: Vec<u8>, value: Vec<u8> },
     Delete { col: DBCol, key: Vec<u8> },
 }
 
 impl DBTransaction {
     pub fn put<K: AsRef<[u8]>, V: AsRef<[u8]>>(&mut self, col: DBCol, key: K, value: V) {
         self.ops.push(DBOp::Insert {
+            col,
+            key: key.as_ref().to_owned(),
+            value: value.as_ref().to_owned(),
+        });
+    }
+
+    pub fn update_refcount<K: AsRef<[u8]>, V: AsRef<[u8]>>(
+        &mut self,
+        col: DBCol,
+        key: K,
+        value: V,
+    ) {
+        self.ops.push(DBOp::UpdateRefcount {
             col,
             key: key.as_ref().to_owned(),
             value: value.as_ref().to_owned(),
@@ -264,7 +280,8 @@ pub trait Database: Sync + Send {
 impl Database for RocksDB {
     fn get(&self, col: DBCol, key: &[u8]) -> Result<Option<Vec<u8>>, DBError> {
         let read_options = rocksdb_read_options();
-        unsafe { Ok(self.db.get_cf_opt(&*self.cfs[col as usize], key, &read_options)?) }
+        let result = self.db.get_cf_opt(unsafe { &*self.cfs[col as usize] }, key, &read_options)?;
+        Ok(RocksDB::empty_value_filtering_get(col, result))
     }
 
     fn iter<'a>(&'a self, col: DBCol) -> Box<dyn Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a> {
@@ -272,7 +289,7 @@ impl Database for RocksDB {
         unsafe {
             let cf_handle = &*self.cfs[col as usize];
             let iterator = self.db.iterator_cf_opt(cf_handle, read_options, IteratorMode::Start);
-            Box::new(iterator)
+            RocksDB::empty_value_filtering_iter(col, iterator)
         }
     }
 
@@ -297,7 +314,7 @@ impl Database for RocksDB {
                     IteratorMode::From(key_prefix, Direction::Forward),
                 )
                 .take_while(move |(key, _value)| key.starts_with(key_prefix));
-            Box::new(iterator)
+            RocksDB::empty_value_filtering_iter(col, iterator)
         }
     }
 
@@ -307,6 +324,9 @@ impl Database for RocksDB {
             match op {
                 DBOp::Insert { col, key, value } => unsafe {
                     batch.put_cf(&*self.cfs[col as usize], key, value);
+                },
+                DBOp::UpdateRefcount { col, key, value } => unsafe {
+                    batch.merge_cf(&*self.cfs[col as usize], key, value);
                 },
                 DBOp::Delete { col, key } => unsafe {
                     batch.delete_cf(&*self.cfs[col as usize], key);
@@ -343,6 +363,15 @@ impl Database for TestDB {
         for op in transaction.ops {
             match op {
                 DBOp::Insert { col, key, value } => db[col as usize].insert(key, value),
+                DBOp::UpdateRefcount { col, key, value } => {
+                    let mut val = db[col as usize].get(&key).cloned().unwrap_or_default();
+                    merge_refcounted_records(&mut val, &value).unwrap();
+                    if val.len() != 0 {
+                        db[col as usize].insert(key, val)
+                    } else {
+                        db[col as usize].remove(&key)
+                    }
+                }
                 DBOp::Delete { col, key } => db[col as usize].remove(&key),
             };
         }
@@ -398,13 +427,17 @@ fn rocksdb_block_based_options() -> BlockBasedOptions {
     block_opts
 }
 
-fn rocksdb_column_options() -> Options {
+fn rocksdb_column_options(col: DBCol) -> Options {
     let mut opts = Options::default();
     opts.set_level_compaction_dynamic_level_bytes(true);
     opts.set_block_based_table_factory(&rocksdb_block_based_options());
     opts.optimize_level_style_compaction(1024 * 1024 * 128);
     opts.set_target_file_size_base(1024 * 1024 * 64);
     opts.set_compression_per_level(&[]);
+    if col == DBCol::ColState {
+        opts.set_merge_operator("refcount merge", RocksDB::refcount_merge, None);
+        opts.set_compaction_filter("empty value filter", RocksDB::empty_value_compaction_filter);
+    }
     opts
 }
 
@@ -431,11 +464,12 @@ impl RocksDB {
     }
 
     pub fn new<P: AsRef<std::path::Path>>(path: P) -> Result<Self, DBError> {
+        use strum::IntoEnumIterator;
         let options = rocksdb_options();
-        let cf_names: Vec<_> = (0..NUM_COLS).map(|col| format!("col{}", col)).collect();
-        let cf_descriptors = cf_names
-            .iter()
-            .map(|cf_name| ColumnFamilyDescriptor::new(cf_name, rocksdb_column_options()));
+        let cf_names: Vec<_> = DBCol::iter().map(|col| format!("col{}", col as usize)).collect();
+        let cf_descriptors = DBCol::iter().map(|col| {
+            ColumnFamilyDescriptor::new(format!("col{}", col as usize), rocksdb_column_options(col))
+        });
         let db = DB::open_cf_descriptors(&options, path, cf_descriptors)?;
         #[cfg(feature = "single_thread_rocksdb")]
         {
@@ -467,5 +501,137 @@ impl TestDB {
     pub fn new() -> Self {
         let db: Vec<_> = (0..NUM_COLS).map(|_| HashMap::new()).collect();
         Self { db: RwLock::new(db) }
+    }
+}
+
+impl RocksDB {
+    /// ColState has refcounted values.
+    /// Merge adds refcounts, zero refcount becomes empty value.
+    /// Empty values get filtered by get methods, and removed by compaction.
+    fn refcount_merge(
+        _new_key: &[u8],
+        existing_val: Option<&[u8]>,
+        operands: &mut MergeOperands,
+    ) -> Option<Vec<u8>> {
+        let mut result = vec![];
+        if let Some(val) = existing_val {
+            // Error is only possible if decoding refcount fails (=value is between 1 and 3 bytes)
+            merge_refcounted_records(&mut result, val)
+                .expect("Not a refcounted record in ColState");
+        }
+        for val in operands {
+            // Error is only possible if decoding refcount fails (=value is between 1 and 3 bytes)
+            merge_refcounted_records(&mut result, val)
+                .expect("Not a refcounted record in ColState");
+        }
+        Some(result)
+    }
+
+    /// Compaction filter for ColState
+    fn empty_value_compaction_filter(_level: u32, _key: &[u8], value: &[u8]) -> Decision {
+        if value.is_empty() {
+            Decision::Remove
+        } else {
+            Decision::Keep
+        }
+    }
+
+    /// ColState get() treats empty value as no value
+    fn empty_value_filtering_get(column: DBCol, value: Option<Vec<u8>>) -> Option<Vec<u8>> {
+        if column == DBCol::ColState && Some(vec![]) == value {
+            None
+        } else {
+            value
+        }
+    }
+
+    /// ColState iterator treats empty value as no value
+    fn empty_value_filtering_iter<'a, I>(
+        column: DBCol,
+        iterator: I,
+    ) -> Box<dyn Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a>
+    where
+        I: Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a,
+    {
+        if column == DBCol::ColState {
+            Box::new(iterator.filter(|(_k, v)| !v.is_empty()))
+        } else {
+            Box::new(iterator)
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::db::DBCol::ColState;
+    use crate::db::{rocksdb_read_options, DBError, Database, RocksDB};
+    use crate::{create_store, DBCol};
+
+    impl RocksDB {
+        #[cfg(not(feature = "single_thread_rocksdb"))]
+        fn compact(&self, col: DBCol) {
+            self.db.compact_range_cf::<&[u8], &[u8]>(
+                unsafe { &*self.cfs[col as usize] },
+                None,
+                None,
+            );
+        }
+
+        fn get_no_empty_filtering(
+            &self,
+            col: DBCol,
+            key: &[u8],
+        ) -> Result<Option<Vec<u8>>, DBError> {
+            let read_options = rocksdb_read_options();
+            let result =
+                self.db.get_cf_opt(unsafe { &*self.cfs[col as usize] }, key, &read_options)?;
+            Ok(result)
+        }
+    }
+
+    #[test]
+    fn rocksdb_merge_sanity() {
+        let tmp_dir = tempfile::Builder::new().prefix("_test_snapshot_sanity").tempdir().unwrap();
+        let store = create_store(tmp_dir.path().to_str().unwrap());
+        assert_eq!(store.get(ColState, &[1]).unwrap(), None);
+        {
+            let mut store_update = store.store_update();
+            store_update.update_refcount(ColState, &[1], &[1, 1, 0, 0, 0]);
+            store_update.commit().unwrap();
+        }
+        {
+            let mut store_update = store.store_update();
+            store_update.update_refcount(ColState, &[1], &[1, 1, 0, 0, 0]);
+            store_update.commit().unwrap();
+        }
+        assert_eq!(store.get(ColState, &[1]).unwrap(), Some(vec![1, 2, 0, 0, 0]));
+        {
+            let mut store_update = store.store_update();
+            store_update.update_refcount(ColState, &[1], &[1, 255, 255, 255, 255]);
+            store_update.commit().unwrap();
+        }
+        assert_eq!(store.get(ColState, &[1]).unwrap(), Some(vec![1, 1, 0, 0, 0]));
+        {
+            let mut store_update = store.store_update();
+            store_update.update_refcount(ColState, &[1], &[1, 255, 255, 255, 255]);
+            store_update.commit().unwrap();
+        }
+        // Refcount goes to 0 -> get() returns None
+        assert_eq!(store.get(ColState, &[1]).unwrap(), None);
+        let ptr = (&*store.storage) as *const (dyn Database + 'static);
+        let rocksdb = unsafe { &*(ptr as *const RocksDB) };
+        // Internally there is an empty value
+        assert_eq!(rocksdb.get_no_empty_filtering(ColState, &[1]).unwrap(), Some(vec![]));
+
+        #[cfg(not(feature = "single_thread_rocksdb"))]
+        {
+            // single_thread_rocksdb makes compact hang forever
+            rocksdb.compact(ColState);
+            rocksdb.compact(ColState);
+
+            // After compaction the empty value disappears
+            assert_eq!(rocksdb.get_no_empty_filtering(ColState, &[1]).unwrap(), None);
+            assert_eq!(store.get(ColState, &[1]).unwrap(), None);
+        }
     }
 }

@@ -856,10 +856,13 @@ impl RuntimeAdapter for KeyValueRuntime {
         }
     }
 
-    fn get_gc_stop_height(&self, block_hash: &CryptoHash) -> Result<BlockHeight, Error> {
-        let block_height =
-            self.get_block_header(block_hash)?.map(|h| h.height()).unwrap_or_default();
-        Ok(block_height.saturating_sub(NUM_EPOCHS_TO_KEEP_STORE_DATA * self.epoch_length))
+    fn get_gc_stop_height(&self, block_hash: &CryptoHash) -> BlockHeight {
+        let block_height = self
+            .get_block_header(block_hash)
+            .unwrap_or_default()
+            .map(|h| h.height())
+            .unwrap_or_default();
+        block_height.saturating_sub(NUM_EPOCHS_TO_KEEP_STORE_DATA * self.epoch_length)
     }
 
     fn epoch_exists(&self, _epoch_id: &EpochId) -> bool {

@@ -336,23 +336,26 @@ pub(crate) fn block_chunks_exist(
     block: &Block,
 ) -> Result<(), StoreValidatorError> {
     for chunk_header in block.chunks().iter() {
-        if let Some(me) = &sv.me {
-            if sv.runtime_adapter.cares_about_shard(
-                Some(&me),
-                block.header().prev_hash(),
-                chunk_header.inner.shard_id,
-                true,
-            ) || sv.runtime_adapter.will_care_about_shard(
-                Some(&me),
-                block.header().prev_hash(),
-                chunk_header.inner.shard_id,
-                true,
-            ) {
-                unwrap_or_err_db!(
-                    sv.store.get_ser::<ShardChunk>(ColChunks, chunk_header.chunk_hash().as_ref()),
-                    "Can't get Chunk {:?} from storage",
-                    chunk_header
-                );
+        if chunk_header.height_included == block.header().height() {
+            if let Some(me) = &sv.me {
+                if sv.runtime_adapter.cares_about_shard(
+                    Some(&me),
+                    block.header().prev_hash(),
+                    chunk_header.inner.shard_id,
+                    true,
+                ) || sv.runtime_adapter.will_care_about_shard(
+                    Some(&me),
+                    block.header().prev_hash(),
+                    chunk_header.inner.shard_id,
+                    true,
+                ) {
+                    unwrap_or_err_db!(
+                        sv.store
+                            .get_ser::<ShardChunk>(ColChunks, chunk_header.chunk_hash().as_ref()),
+                        "Can't get Chunk {:?} from storage",
+                        chunk_header
+                    );
+                }
             }
         }
     }
