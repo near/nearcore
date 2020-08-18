@@ -16,8 +16,7 @@ fi
 
 
 rm -rf /tmp/data
-echo $vmkind
-echo $features
+
 set -ex
 
 exit 0

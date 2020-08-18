@@ -1,4 +1,4 @@
-use wasmtime::{Engine, Module};
+use wasmtime::Module;
 
 // mod only to apply feature to it. Is it possible to avoid it?
 #[cfg(feature = "wasmtime_vm")]
@@ -13,7 +13,7 @@ pub mod wasmtime_runner {
     use std::ffi::c_void;
     use std::str;
     use wasmtime::ExternType::Func;
-    use wasmtime::{Engine, Limits, Linker, Memory, MemoryType, Module, Store, Config, Strategy};
+    use wasmtime::{Config, Engine, Limits, Linker, Memory, MemoryType, Module, Store};
 
     pub struct WasmtimeMemory(Memory);
 
@@ -218,18 +218,17 @@ pub mod wasmtime_runner {
     }
     #[cfg(not(feature = "lightbeam"))]
     pub fn get_engine(config: &mut wasmtime::Config) -> Engine {
-       Engine::new(config)
+        Engine::new(config)
     }
-    
+
     #[cfg(feature = "lightbeam")]
     pub fn get_engine(config: &mut wasmtime::Config) -> Engine {
-       Engine::new(config.strategy(wasmtime::Strategy::Lightbeam)).unwrap()
+        Engine::new(config.strategy(wasmtime::Strategy::Lightbeam).unwrap())
     }
 }
 
-
-pub fn compile_module(code: &[u8]) {
+pub fn compile_module(code: &[u8]) -> bool {
     let mut config = wasmtime::Config::default();
     let engine = wasmtime_runner::get_engine(&mut config);
-    Module::new(&engine, code).unwrap();
+    Module::new(&engine, code).is_ok()
 }

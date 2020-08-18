@@ -102,25 +102,27 @@ pub fn cost_per_op(gas_metric: GasMetric) -> Ratio<u64> {
 
 const RATIO_PRECISION: u64 = 1_000;
 
-fn compile(code: &[u8], gas_metric: GasMetric, vm_kind: VMKind) -> (f64, f64) {
+fn compile(code: &[u8], gas_metric: GasMetric, vm_kind: VMKind) -> Option<(f64, f64)> {
     let start = start_count(gas_metric);
     for _ in 0..NUM_ITERATIONS {
         let prepared_code = prepare::prepare_contract(code, &VMConfig::default()).unwrap();
-        compile_module(vm_kind, &prepared_code);
+        if compile_module(vm_kind, &prepared_code) {
+            return None;
+        }
     }
     let end = end_count(gas_metric, &start) as f64;
-    (code.len() as f64, end / (NUM_ITERATIONS as f64))
+    Some((code.len() as f64, end / (NUM_ITERATIONS as f64)))
 }
 
-fn load_and_compile(path: &str, gas_metric: GasMetric, vm_kind: VMKind) -> (f64, f64) {
+fn load_and_compile(path: &str, gas_metric: GasMetric, vm_kind: VMKind) -> Option<(f64, f64)> {
     let code = fs::read(path).unwrap();
     compile(&code, gas_metric, vm_kind)
 }
 
 #[cfg(feature = "lightbeam")]
-const using_lightbeam: bool = true;
+const USING_LIGHTBEAM: bool = true;
 #[cfg(not(feature = "lightbeam"))]
-const using_lightbeam: bool = false;
+const USING_LIGHTBEAM: bool = false;
 
 /// Cost of the compile contract with vm_kind
 pub fn cost_to_compile(gas_metric: GasMetric, vm_kind: VMKind, verbose: bool) -> (Ratio<u64>, u64) {
@@ -129,30 +131,48 @@ pub fn cost_to_compile(gas_metric: GasMetric, vm_kind: VMKind, verbose: bool) ->
         "./test-contract/res/no_data_large_contract.wasm",
         "./test-contract/res/no_data_status-message-collections.wasm",
         "./test-contract/res/no_data_near_evm.wasm",
+        "./noFile.wasm",
     ];
     let ratio: f64 = 0.0;
     let base: f64 = f64::MAX;
     if verbose {
-      println!("Abount to compile {}", match vm_kind {
-        VMKind::Wasmer => "wasmer",
-        VMKind::Wasmtime where using_lightbeam => "wasmtime-lightbeam",
-        VMKind::Wasmtime => "wasmtime"
-      });
+        println!(
+            "Abount to compile {}",
+            match vm_kind {
+                VMKind::Wasmer => "wasmer",
+                VMKind::Wasmtime =>
+                    if USING_LIGHTBEAM {
+                        "wasmtime-lightbeam"
+                    } else {
+                        "wasmtime"
+                    },
+            }
+        );
     };
-    let measurements = contracts_paths.iter().map(|path| {
-      if verbose {
-        print!("Testing {}: ", path);
-      };
-      let (size, cost) = load_and_compile(path, gas_metric, vm_kind);
-      if verbose {
-        println!("({}, {})", size, cost);
-      };
-      (size, cost)
-    }).collect::<Vec<(f64, f64)>>();
+    let measurements = contracts_paths
+        .iter()
+        .filter(|path| fs::metadata(path).is_ok())
+        .map(|path| {
+            if verbose {
+                print!("Testing {}: ", path);
+            };
+            if let Some((size, cost)) = load_and_compile(path, gas_metric, vm_kind) {
+                if verbose {
+                    println!("({}, {})", size, cost);
+                };
+                Some((size, cost))
+            } else {
+                if verbose {
+                    println!("FAILED")
+                };
+                None
+            }
+        })
+        .filter(|x| x.is_some())
+        .map(|x| x.unwrap())
+        .collect::<Vec<(f64, f64)>>();
     let b = measurements.iter().fold(base, |base, (_, cost)| base.min(*cost));
-    let m = measurements.iter().fold(ratio, |r, (bytes, cost)| {
-        r.max((*cost - b)/bytes)
-    });
+    let m = measurements.iter().fold(ratio, |r, (bytes, cost)| r.max((*cost - b) / bytes));
     if verbose {
         println!("raw data: ({},{})", m, b);
     }

@@ -10,7 +10,7 @@ Use this tool to measure the running time of elementary runtime operations that 
 
 2. Run the estimator
     ```bash
-    cargo run --release --package runtime-params-estimator --bin runtime-params-estimator -- --home /tmp/data --accounts-num 20000 --iters 1 --warmup-iters 1
+    cargo run --release --package runtime-params-estimator --bin runtime-params-estimator -- --home /tmp/data --accounts-num 20000 --iters 1 --warmup-iters 1 --metric time
     ```
 
     With the given parameters above estimator will run relatively fast. We will be using different parameters to do the actual parameter estimation.
