@@ -2774,8 +2774,10 @@ dependencies = [
  "near-runtime-fees",
  "near-vm-logic",
  "near-vm-runner",
+ "num-rational",
  "serde",
  "serde_json",
+ "strum",
 ]
 
 [[package]]

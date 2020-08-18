@@ -14,7 +14,8 @@ fn test_iterator_deprecated() {
     let fees = RuntimeFeesConfig::default();
     let promise_results = vec![];
     let mut memory = MockedMemory::default();
-    let mut logic = VMLogic::new(&mut ext, context, &config, &fees, &promise_results, &mut memory);
+    let mut logic =
+        VMLogic::new(&mut ext, context, &config, &fees, &promise_results, &mut memory, None);
 
     assert_eq!(
         Err(VMLogicError::HostError(HostError::Deprecated {
