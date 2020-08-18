@@ -276,12 +276,13 @@ impl SealsManager {
         match maybe_seal {
             None => match self.past_seals.entry(height) {
                 btree_map::Entry::Vacant(vacant) => {
-                    warn!(
+                    // TODO(#3180): seals are disabled in single shard setting
+                    /*warn!(
                         target: "chunks",
                         "A chunk at height {} with hash {:?} was approved without an active seal demur and no past seals were found at the same height",
                         height,
                         chunk_hash
-                    );
+                    );*/
                     let mut hashes = HashSet::new();
                     hashes.insert(chunk_hash.clone());
                     vacant.insert(hashes);
@@ -289,12 +290,13 @@ impl SealsManager {
                 btree_map::Entry::Occupied(mut occupied) => {
                     let hashes = occupied.get_mut();
                     if !hashes.contains(chunk_hash) {
-                        warn!(
+                        // TODO(#3180): seals are disabled in single shard setting
+                        /*warn!(
                             target: "chunks",
                             "Approved chunk at height {} with hash {:?} was not an active seal demur or a past seal",
                             height,
                             chunk_hash
-                        );
+                        );*/
                         hashes.insert(chunk_hash.clone());
                     }
                 }
@@ -730,34 +732,42 @@ impl ShardsManager {
             .reintroduce_transactions(transactions.clone());
     }
 
-    pub fn receipts_recipient_filter(
+    pub fn group_receipts_by_shard(
+        &self,
+        receipts: Vec<Receipt>,
+    ) -> HashMap<ShardId, Vec<Receipt>> {
+        let mut result = HashMap::with_capacity(self.runtime_adapter.num_shards() as usize);
+        for receipt in receipts {
+            let shard_id = self.runtime_adapter.account_id_to_shard_id(&receipt.receiver_id);
+            let entry = result.entry(shard_id).or_insert_with(Vec::new);
+            entry.push(receipt)
+        }
+        result
+    }
+
+    pub fn receipts_recipient_filter<T>(
         &self,
         from_shard_id: ShardId,
-        tracking_shards: &HashSet<ShardId>,
-        receipts: &Vec<Receipt>,
+        tracking_shards: T,
+        receipts_by_shard: &HashMap<ShardId, Vec<Receipt>>,
         proofs: &Vec<MerklePath>,
-    ) -> Vec<ReceiptProof> {
-        let mut part_receipt_proofs = vec![];
-        for to_shard_id in 0..self.runtime_adapter.num_shards() {
-            if tracking_shards.contains(&to_shard_id) {
-                part_receipt_proofs.push(ReceiptProof(
-                    receipts
-                        .iter()
-                        .filter(|&receipt| {
-                            self.runtime_adapter.account_id_to_shard_id(&receipt.receiver_id)
-                                == to_shard_id
-                        })
-                        .cloned()
-                        .collect(),
-                    ShardProof {
-                        from_shard_id,
-                        to_shard_id,
-                        proof: proofs[to_shard_id as usize].clone(),
-                    },
-                ))
-            }
-        }
-        part_receipt_proofs
+    ) -> Vec<ReceiptProof>
+    where
+        T: IntoIterator<Item = ShardId>,
+    {
+        tracking_shards
+            .into_iter()
+            .map(|to_shard_id| {
+                let receipts =
+                    receipts_by_shard.get(&to_shard_id).cloned().unwrap_or_else(Vec::new);
+                let shard_proof = ShardProof {
+                    from_shard_id,
+                    to_shard_id,
+                    proof: proofs[to_shard_id as usize].clone(),
+                };
+                ReceiptProof(receipts, shard_proof)
+            })
+            .collect()
     }
 
     pub fn process_partial_encoded_chunk_request(
@@ -1303,7 +1313,7 @@ impl ShardsManager {
             self.create_and_persist_partial_chunk(
                 &encoded_chunk,
                 merkle_paths,
-                &shard_chunk.receipts,
+                shard_chunk.receipts.clone(),
                 &mut store_update,
             );
 
@@ -1329,17 +1339,28 @@ impl ShardsManager {
         &mut self,
         encoded_chunk: &EncodedShardChunk,
         merkle_paths: Vec<MerklePath>,
-        outgoing_receipts: &Vec<Receipt>,
+        outgoing_receipts: Vec<Receipt>,
         store_update: &mut ChainStoreUpdate<'_>,
     ) {
         let shard_id = encoded_chunk.header.inner.shard_id;
         let outgoing_receipts_hashes =
-            self.runtime_adapter.build_receipts_hashes(outgoing_receipts);
+            self.runtime_adapter.build_receipts_hashes(&outgoing_receipts);
         let (outgoing_receipts_root, outgoing_receipts_proofs) =
             merklize(&outgoing_receipts_hashes);
         assert_eq!(encoded_chunk.header.inner.outgoing_receipts_root, outgoing_receipts_root);
 
         // Save this chunk into encoded_chunks & process encoded chunk to add to the store.
+        let mut receipts_by_shard = self.group_receipts_by_shard(outgoing_receipts);
+        let receipts = outgoing_receipts_proofs
+            .into_iter()
+            .enumerate()
+            .map(|(to_shard_id, proof)| {
+                let to_shard_id = to_shard_id as u64;
+                let receipts = receipts_by_shard.remove(&to_shard_id).unwrap_or_else(Vec::new);
+                let shard_proof = ShardProof { from_shard_id: shard_id, to_shard_id, proof };
+                (to_shard_id, ReceiptProof(receipts, shard_proof))
+            })
+            .collect();
         let cache_entry = EncodedChunksCacheEntry {
             header: encoded_chunk.header.clone(),
             parts: encoded_chunk
@@ -1355,16 +1376,7 @@ impl ShardsManager {
                     (part_ord, PartialEncodedChunkPart { part_ord, part, merkle_proof })
                 })
                 .collect(),
-            receipts: self
-                .receipts_recipient_filter(
-                    shard_id,
-                    &(0..self.runtime_adapter.num_shards()).collect(),
-                    outgoing_receipts,
-                    &outgoing_receipts_proofs,
-                )
-                .into_iter()
-                .map(|receipt_proof| (receipt_proof.1.to_shard_id, receipt_proof))
-                .collect(),
+            receipts,
         };
 
         // Save the partial chunk for data availability
@@ -1400,22 +1412,22 @@ impl ShardsManager {
             entry.push(part_ord);
         }
 
+        let receipts_by_shard = self.group_receipts_by_shard(outgoing_receipts);
+
         for (to_whom, part_ords) in block_producer_mapping {
-            let tracking_shards = (0..self.runtime_adapter.num_shards())
-                .filter(|chunk_shard_id| {
-                    self.cares_about_shard_this_or_next_epoch(
-                        Some(&to_whom),
-                        &prev_block_hash,
-                        *chunk_shard_id,
-                        false,
-                    )
-                })
-                .collect();
+            let tracking_shards = (0..self.runtime_adapter.num_shards()).filter(|chunk_shard_id| {
+                self.cares_about_shard_this_or_next_epoch(
+                    Some(&to_whom),
+                    &prev_block_hash,
+                    *chunk_shard_id,
+                    false,
+                )
+            });
 
             let part_receipt_proofs = self.receipts_recipient_filter(
                 shard_id,
-                &tracking_shards,
-                &outgoing_receipts,
+                tracking_shards,
+                &receipts_by_shard,
                 &outgoing_receipts_proofs,
             );
             let partial_encoded_chunk = encoded_chunk.create_partial_encoded_chunk(
