@@ -39,5 +39,5 @@ pub enum PromiseResult {
     Failed,
 }
 
-/// Profile of gas consumption, +1 for Wasm bytecode execution cost.
-pub type ProfileData = Rc<RefCell<[u64; ActionCosts::count() + ExtCosts::count() + 1]>>;
+/// Profile of gas consumption.
+pub type ProfileData = Rc<RefCell<[u64; ActionCosts::count() + ExtCosts::count()]>>;

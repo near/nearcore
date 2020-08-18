@@ -235,7 +235,7 @@ fn main() {
         fs::read(matches.value_of("wasm-file").expect("Wasm file needs to be specified")).unwrap();
 
     let fees = RuntimeFeesConfig::default();
-    let profile_data = Rc::new(RefCell::new([0u64; ExtCosts::count() + ActionCosts::count() + 1]));
+    let profile_data = Rc::new(RefCell::new([0u64; ExtCosts::count() + ActionCosts::count()]));
     let do_profile = matches.is_present("profile-gas");
     let (outcome, err) = if do_profile {
         run_vm_profiled(
@@ -291,7 +291,7 @@ fn main() {
             action_gas += profile_data[e as usize + ExtCosts::count()];
         }
 
-        let wasm_gas = profile_data[ActionCosts::count() + ExtCosts::count()];
+        let wasm_gas = all_gas - host_gas - action_gas;
         println!("------------------------------");
         println!("Total gas: {}", all_gas);
         println!(

@@ -113,24 +113,7 @@ impl GasCounter {
     #[inline]
     fn update_profile_action(&mut self, action: ActionCosts, _value: u64) {}
 
-    #[cfg(feature = "costs_counting")]
-    #[inline]
-    fn update_profile_wasm(&mut self, value: u64) {
-        match &self.profile {
-            Some(profile) => {
-                *profile.borrow_mut().get_mut(ActionCosts::count() + ExtCosts::count()).unwrap() +=
-                    value
-            }
-            None => {}
-        };
-    }
-
-    #[cfg(not(feature = "costs_counting"))]
-    #[inline]
-    fn update_profile_wasm(&mut self, _value: u64) {}
-
     pub fn pay_wasm_gas(&mut self, value: u64) -> Result<()> {
-        self.update_profile_wasm(value);
         self.deduct_gas(value, value)
     }
 
@@ -158,6 +141,7 @@ impl GasCounter {
     /// * `per_byte_fee`: the fee per byte;
     /// * `num_bytes`: the number of bytes;
     /// * `sir`: whether the receiver_id is same as the current account ID;
+    /// * `action`: what kind of action is charged for;
     pub fn pay_action_per_byte(
         &mut self,
         per_byte_fee: &Fee,
@@ -180,6 +164,7 @@ impl GasCounter {
     /// # Args:
     /// * `base_fee`: base fee for the action;
     /// * `sir`: whether the receiver_id is same as the current account ID;
+    /// * `action`: what kind of action is charged for;
     pub fn pay_action_base(
         &mut self,
         base_fee: &Fee,
@@ -193,6 +178,11 @@ impl GasCounter {
         self.deduct_gas(burn_gas, use_gas)
     }
 
+    /// A helper function to pay base cost gas fee for batching an action.
+    /// # Args:
+    /// * `burn_gas`: amount of gas to burn;
+    /// * `use_gas`: amount of gas to reserve;
+    /// * `action`: what kind of action is charged for;
     pub fn pay_action_accumulated(
         &mut self,
         burn_gas: Gas,
