@@ -199,11 +199,7 @@ impl Display for Error {
             Some(c) => format!("{}", c),
             None => String::from("Unknown"),
         };
-        let backtrace = match self.backtrace() {
-            Some(b) => format!("{}", b),
-            None => String::from("Unknown"),
-        };
-        let output = format!("{} \n Cause: {} \n Backtrace: {}", self.inner, cause, backtrace);
+        let output = format!("{} \n Cause: {}", self.inner, cause);
         Display::fmt(&output, f)
     }
 }

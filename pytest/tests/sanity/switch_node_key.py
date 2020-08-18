@@ -8,6 +8,7 @@ sys.path.append('lib')
 from cluster import start_cluster, Key
 
 EPOCH_LENGTH = 40
+STOP_HEIGHT1 = 35
 TIMEOUT = 50
 
 config1 = {
@@ -18,8 +19,21 @@ config1 = {
         },
     }
 }
-nodes = start_cluster(2, 0, 1, None, [["epoch_length", EPOCH_LENGTH], ["block_producer_kickout_threshold", 30],
-                                      ["chunk_producer_kickout_threshold", 30]], {1: config1})
+nodes = start_cluster(
+    2, 0, 1, None,
+    [
+        ["epoch_length", EPOCH_LENGTH],
+        ["block_producer_kickout_threshold", 30],
+        ["chunk_producer_kickout_threshold", 30],
+        ["num_block_producer_seats", 4],
+        ["num_block_producer_seats_per_shard", [4]],
+        ["validators", 0, "amount", "150000000000000000000000000000000"],
+        [
+            "records", 0, "Account", "account", "locked",
+            "150000000000000000000000000000000"
+        ],
+        ["total_supply", "3100000000000000000000000000000000"]
+    ], {1: config1})
 time.sleep(2)
 
 status1 = nodes[1].get_status()
@@ -33,11 +47,17 @@ while True:
     time.sleep(1)
     status1 = nodes[1].get_status()
     height1 = status1['sync_info']['latest_block_height']
-    cur_block = nodes[1].get_block(height1)
-    if cur_block['result']['header']['epoch_id'] != epoch_id:
+    if height1 > STOP_HEIGHT1:
         break
 
 nodes[1].kill()
+while True:
+    assert time.time() - start < TIMEOUT
+    status = nodes[0].get_status()
+    height = status['sync_info']['latest_block_height']
+    cur_block = nodes[0].get_block(height)
+    if cur_block['result']['header']['epoch_id'] != epoch_id:
+        break
 
 seed = bytes([1] * 32)
 public_key, secret_key = nacl.bindings.crypto_sign_seed_keypair(seed)

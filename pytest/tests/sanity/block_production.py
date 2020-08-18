@@ -31,6 +31,14 @@ last_common = [[0 for _ in nodes] for _ in nodes]
 
 height_to_hash = {}
 
+# the test relies on us being able to query heights faster
+# than the blocks are produced. Validating store takes up
+# to 350ms on slower hardware for this test, multiplied
+# by four nodes querying heights every 1 second becomes
+# unfeasible
+for node in nodes:
+    node.stop_checking_store()
+
 
 def min_common():
     return min([min(x) for x in last_common])
