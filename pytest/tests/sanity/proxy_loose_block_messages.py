@@ -47,4 +47,3 @@ if __name__ == '__main__':
         time.sleep(1)
 
     assert max_height.value > 3 * NODES
-    os.exit(0)
