@@ -117,6 +117,11 @@ fn load_and_compile(path: &str, gas_metric: GasMetric, vm_kind: VMKind) -> (f64,
     compile(&code, gas_metric, vm_kind)
 }
 
+#[cfg(feature = "lightbeam")]
+const using_lightbeam: bool = true;
+#[cfg(not(feature = "lightbeam"))]
+const using_lightbeam: bool = false;
+
 /// Cost of the compile contract with vm_kind
 pub fn cost_to_compile(gas_metric: GasMetric, vm_kind: VMKind, verbose: bool) -> (Ratio<u64>, u64) {
     let contracts_paths = vec![
@@ -127,7 +132,23 @@ pub fn cost_to_compile(gas_metric: GasMetric, vm_kind: VMKind, verbose: bool) ->
     ];
     let ratio: f64 = 0.0;
     let base: f64 = f64::MAX;
-    let measurements = contracts_paths.iter().map(|path| load_and_compile(path, gas_metric, vm_kind)).collect::<Vec<(f64, f64)>>();
+    if verbose {
+      println!("Abount to compile {}", match vm_kind {
+        VMKind::Wasmer => "wasmer",
+        VMKind::Wasmtime where using_lightbeam => "wasmtime-lightbeam",
+        VMKind::Wasmtime => "wasmtime"
+      });
+    };
+    let measurements = contracts_paths.iter().map(|path| {
+      if verbose {
+        print!("Testing {}: ", path);
+      };
+      let (size, cost) = load_and_compile(path, gas_metric, vm_kind);
+      if verbose {
+        println!("({}, {})", size, cost);
+      };
+      (size, cost)
+    }).collect::<Vec<(f64, f64)>>();
     let b = measurements.iter().fold(base, |base, (_, cost)| base.min(*cost));
     let m = measurements.iter().fold(ratio, |r, (bytes, cost)| {
         r.max((*cost - b)/bytes)

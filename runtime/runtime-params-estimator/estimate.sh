@@ -1,17 +1,24 @@
 #!/bin/sh
 
-set -ex
 
 vmkind="wasmer"
 features=""
-echo $1
+
 if [ "$1" == "wasmtime" ]; then
   vmkind="$1";
   features="--features wasmtime"
 fi
+if [ "$1" == "lightbeam" ]; then
+  vmkind="wasmtime"
+  features="--features lightbeam"
+fi
 
+
+
+rm -rf /tmp/data
 echo $vmkind
 echo $features
+set -ex
 
 exit 0
 

@@ -116,7 +116,7 @@ pub mod wasmtime_runner {
         promise_results: &'a [PromiseResult],
     ) -> (Option<VMOutcome>, Option<VMError>) {
         let mut config = Config::default();
-        let engine = Engine::new(config.strategy(Strategy::Lightbeam).unwrap());
+        let engine = get_engine(&mut config);
         let store = Store::new(&engine);
         let mut memory = WasmtimeMemory::new(
             &store,
@@ -216,10 +216,20 @@ pub mod wasmtime_runner {
             Err(err) => (Some(logic.outcome()), Some(err.into_vm_error())),
         }
     }
+    #[cfg(not(feature = "lightbeam"))]
+    pub fn get_engine(config: &mut wasmtime::Config) -> Engine {
+       Engine::new(config)
+    }
+    
+    #[cfg(feature = "lightbeam")]
+    pub fn get_engine(config: &mut wasmtime::Config) -> Engine {
+       Engine::new(config.strategy(wasmtime::Strategy::Lightbeam)).unwrap()
+    }
 }
+
 
 pub fn compile_module(code: &[u8]) {
     let mut config = wasmtime::Config::default();
-    let engine = Engine::new(config.strategy(wasmtime::Strategy::Lightbeam).unwrap());
+    let engine = wasmtime_runner::get_engine(&mut config);
     Module::new(&engine, code).unwrap();
 }

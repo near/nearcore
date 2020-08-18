@@ -62,12 +62,12 @@ fn main() {
                 .help("Only test contract compilation costs"),
         )
         .arg(
-            Arg::with_name("action-creation")
+            Arg::with_name("disable-action-creation")
                 .long("action-creation")
                 .help("Disables action creation measurements"),
         )
         .arg(
-            Arg::with_name("transaction")
+            Arg::with_name("disable-transaction")
                 .long("transaction")
                 .help("Disables transaction measurements"),
         )
@@ -82,7 +82,7 @@ fn main() {
         "time" => GasMetric::Time,
         other => panic!("Unknown metric {}", other),
     };
-    let vm_kind = match matches.value_of("vm") {
+    let vm_kind = match matches.value_of("vm-kind") {
         Some("wasmer") => VMKind::Wasmer,
         Some("wasmtime") => VMKind::Wasmtime,
         _ => VMKind::Wasmer,
