@@ -33,6 +33,8 @@ use crate::types::{
 };
 use crate::PeerManagerActor;
 use crate::{metrics, NetworkResponses};
+#[cfg(feature = "delay_detector")]
+use delay_detector::DelayDetector;
 use metrics::NetworkMetrics;
 
 type WriteHalf = tokio::io::WriteHalf<tokio::net::TcpStream>;
@@ -609,6 +611,8 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for Peer {
             }
         };
 
+        trace!(target: "network", "Received message: {}", peer_msg);
+
         self.on_receive_message();
 
         #[cfg(feature = "metric_recorder")]
@@ -880,6 +884,8 @@ impl Handler<SendMessage> for Peer {
     type Result = ();
 
     fn handle(&mut self, msg: SendMessage, _: &mut Self::Context) {
+        #[cfg(feature = "delay_detector")]
+        let _d = DelayDetector::new("send message".into());
         self.send_message(msg.message);
     }
 }
@@ -888,6 +894,8 @@ impl Handler<QueryPeerStats> for Peer {
     type Result = PeerStatsResult;
 
     fn handle(&mut self, _: QueryPeerStats, _: &mut Self::Context) -> Self::Result {
+        #[cfg(feature = "delay_detector")]
+        let _d = DelayDetector::new("query peer stats".into());
         PeerStatsResult {
             chain_info: self.chain_info.clone(),
             received_bytes_per_sec: self.tracker.received_bytes.bytes_per_min() / 60,
@@ -905,6 +913,8 @@ impl Handler<PeerManagerRequest> for Peer {
     type Result = ();
 
     fn handle(&mut self, pm_request: PeerManagerRequest, ctx: &mut Self::Context) -> Self::Result {
+        #[cfg(feature = "delay_detector")]
+        let _d = DelayDetector::new(format!("peer manager request {:?}", pm_request).into());
         match pm_request {
             PeerManagerRequest::BanPeer(ban_reason) => {
                 self.ban_peer(ctx, ban_reason);

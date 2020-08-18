@@ -96,6 +96,12 @@ pub fn apply_store_migrations(path: &String) {
         let store = create_store(&path);
         set_store_version(&store, 5);
     }
+    if db_version <= 5 {
+        // version 5 => 6: add merge operator to ColState
+        // we don't have merge records before so old storage works
+        let store = create_store(&path);
+        set_store_version(&store, 6);
+    }
 
     let db_version = get_store_version(path);
     debug_assert_eq!(db_version, near_primitives::version::DB_VERSION);

@@ -1,0 +1,8 @@
+[package]
+name = "delay-detector"
+version = "0.1.0"
+authors = ["Near Inc <hello@nearprotocol.com>"]
+edition = "2018"
+
+[dependencies]
+log = "0.4"

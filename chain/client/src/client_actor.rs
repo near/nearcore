@@ -50,14 +50,14 @@ use crate::types::{
     StatusSyncInfo, SyncStatus,
 };
 use crate::StatusResponse;
+#[cfg(feature = "delay_detector")]
+use delay_detector::DelayDetector;
 
 /// Multiplier on `max_block_time` to wait until deciding that chain stalled.
 const STATUS_WAIT_TIME_MULTIPLIER: u64 = 10;
-/// Drop blocks whose height are beyond head + horizon.
-const BLOCK_HORIZON: u64 = 500;
-/// How many intervals of max_block_production_delay to wait being several blocks behind before
-/// kicking off syncing
-const SEVERAL_BLOCKS_BEHIND_WAIT_MULTIPLIER: u32 = 5;
+/// `max_block_production_time` times this multiplier is how long we wait before rebroadcasting
+/// the current `head`
+const HEAD_STALL_MULTIPLIER: u32 = 4;
 
 pub struct ClientActor {
     /// Adversarial controls
@@ -192,6 +192,8 @@ impl Handler<NetworkClientMessages> for ClientActor {
     type Result = NetworkClientResponses;
 
     fn handle(&mut self, msg: NetworkClientMessages, ctx: &mut Context<Self>) -> Self::Result {
+        #[cfg(feature = "delay_detector")]
+        let _d = DelayDetector::new(format!("NetworkClientMessage {}", msg.as_ref()).into());
         self.check_triggers(ctx);
 
         match msg {
@@ -506,6 +508,8 @@ impl Handler<Status> for ClientActor {
     type Result = Result<StatusResponse, String>;
 
     fn handle(&mut self, msg: Status, ctx: &mut Context<Self>) -> Self::Result {
+        #[cfg(feature = "delay_detector")]
+        let _d = DelayDetector::new("client status".to_string().into());
         self.check_triggers(ctx);
 
         let head = self.client.chain.head().map_err(|err| err.to_string())?;
@@ -574,6 +578,8 @@ impl Handler<GetNetworkInfo> for ClientActor {
     type Result = Result<NetworkInfoResponse, String>;
 
     fn handle(&mut self, _: GetNetworkInfo, ctx: &mut Context<Self>) -> Self::Result {
+        #[cfg(feature = "delay_detector")]
+        let _d = DelayDetector::new("client get network info".into());
         self.check_triggers(ctx);
 
         Ok(NetworkInfoResponse {
@@ -726,6 +732,9 @@ impl ClientActor {
         // will prioritize processing messages until mailbox is empty. Execution of any other task
         // scheduled with run_later will be delayed.
 
+        #[cfg(feature = "delay_detector")]
+        let _d = DelayDetector::new("client triggers".into());
+
         let mut delay = Duration::from_secs(1);
         let now = Utc::now();
 
@@ -748,6 +757,11 @@ impl ClientActor {
                 ctx,
                 |act, _ctx| act.try_handle_block_production(),
             );
+
+            let _ = self.client.check_head_progress_stalled(
+                self.client.config.max_block_production_delay * HEAD_STALL_MULTIPLIER,
+            );
+
             delay = core::cmp::min(
                 delay,
                 self.block_production_next_attempt.signed_duration_since(now).to_std().unwrap(),
@@ -897,12 +911,6 @@ impl ClientActor {
     fn receive_block(&mut self, block: Block, peer_id: PeerId, was_requested: bool) {
         let hash = *block.hash();
         debug!(target: "client", "{:?} Received block {} <- {} at {} from {}, requested: {}", self.client.validator_signer.as_ref().map(|vs| vs.validator_id()), hash, block.header().prev_hash(), block.header().height(), peer_id, was_requested);
-        // drop the block if it is too far ahead
-        let head = unwrap_or_return!(self.client.chain.head());
-        if block.header().height() >= head.height + BLOCK_HORIZON {
-            debug!(target: "client", "dropping block {} that is too far ahead. Block height {} current head height {}", block.hash(), block.header().height(), head.height);
-            return;
-        }
         let prev_hash = *block.header().prev_hash();
         let provenance =
             if was_requested { near_chain::Provenance::SYNC } else { near_chain::Provenance::NONE };
@@ -984,7 +992,7 @@ impl ClientActor {
         let mut is_syncing = self.client.sync_status.is_syncing();
 
         let full_peer_info = if let Some(full_peer_info) =
-            highest_height_peer(&self.network_info.highest_height_peers, head.height)
+            highest_height_peer(&self.network_info.highest_height_peers)
         {
             full_peer_info
         } else {
@@ -1014,21 +1022,6 @@ impl ClientActor {
                     full_peer_info.chain_info.height,
                 );
                 is_syncing = true;
-            } else {
-                if let SyncStatus::NoSyncSeveralBlocksBehind { since_when, our_height } =
-                    self.client.sync_status
-                {
-                    let now = Utc::now();
-                    if now > since_when
-                        && (now - since_when).to_std().unwrap()
-                            >= self.client.config.max_block_production_delay
-                                * SEVERAL_BLOCKS_BEHIND_WAIT_MULTIPLIER
-                        && our_height == head.height
-                    {
-                        info!(target: "sync", "Have been at the same height for too long, while peers have newer bocks. Forcing synchronization");
-                        is_syncing = true;
-                    }
-                }
             }
         }
         Ok((is_syncing, full_peer_info.chain_info.height))
@@ -1084,6 +1077,8 @@ impl ClientActor {
 
     /// Runs catchup on repeat, if this client is a validator.
     fn catchup(&mut self, ctx: &mut Context<ClientActor>) {
+        #[cfg(feature = "delay_detector")]
+        let _d = DelayDetector::new("client catchup".into());
         match self.client.run_catchup(&self.network_info.highest_height_peers) {
             Ok(accepted_blocks) => {
                 self.process_accepted_blocks(accepted_blocks);
@@ -1120,6 +1115,8 @@ impl ClientActor {
 
     /// Main syncing job responsible for syncing client with other peers.
     fn sync(&mut self, ctx: &mut Context<ClientActor>) {
+        #[cfg(feature = "delay_detector")]
+        let _d = DelayDetector::new("client sync".into());
         // Macro to schedule to call this function later if error occurred.
         macro_rules! unwrap_or_run_later(($obj: expr) => (match $obj {
             Ok(v) => v,
@@ -1152,27 +1149,6 @@ impl ClientActor {
                 self.check_send_announce_account(head.prev_block_hash);
             }
             wait_period = self.client.config.sync_check_period;
-
-            // Handle the case in which we failed to receive a block, and our inactivity prevents
-            // the network from making progress
-            if let Ok(head) = self.client.chain.head() {
-                match self.client.sync_status {
-                    SyncStatus::NoSync => {
-                        if head.height < highest_height {
-                            self.client.sync_status = SyncStatus::NoSyncSeveralBlocksBehind {
-                                since_when: Utc::now(),
-                                our_height: head.height,
-                            }
-                        }
-                    }
-                    SyncStatus::NoSyncSeveralBlocksBehind { our_height, .. } => {
-                        if head.height > our_height {
-                            self.client.sync_status = SyncStatus::NoSync;
-                        }
-                    }
-                    _ => {}
-                }
-            }
         } else {
             // Run each step of syncing separately.
             unwrap_or_run_later!(self.client.header_sync.run(
@@ -1242,7 +1218,7 @@ impl ClientActor {
                         self.client.sync_status = SyncStatus::StateSync(sync_hash, new_shard_sync);
                         if fetch_block {
                             if let Some(peer_info) =
-                                highest_height_peer(&self.network_info.highest_height_peers, 0)
+                                highest_height_peer(&self.network_info.highest_height_peers)
                             {
                                 if let Ok(header) = self.client.chain.get_block_header(&sync_hash) {
                                     for hash in
@@ -1304,6 +1280,8 @@ impl ClientActor {
 
     /// Periodically log summary.
     fn log_summary(&self, ctx: &mut Context<Self>) {
+        #[cfg(feature = "delay_detector")]
+        let _d = DelayDetector::new("client log summary".into());
         ctx.run_later(self.client.config.log_summary_period, move |act, ctx| {
             let head = unwrap_or_return!(act.client.chain.head());
             let validators = unwrap_or_return!(act

@@ -10,7 +10,7 @@ actix = "0.9"
 actix-web = { version = "2", features = [ "openssl" ] }
 byteorder = "1.2"
 easy-ext = "0.2"
-rocksdb = "0.14"
+rocksdb = { git = "https://github.com/nearprotocol/rust-rocksdb", branch="disable-thread" }
 log = "0.4"
 chrono = { version = "0.4.4", features = ["serde"] }
 git-version = "0.3.1"
@@ -25,6 +25,7 @@ borsh = "0.7.0"
 tracing = "0.1.13"
 tracing-subscriber = "0.2.4"
 num-rational = { version = "0.2.4", features = ["serde"] }
+openssl-probe = { version = "0.1.2" }
 
 near-actix-utils = { path = "../utils/actix" }
 near-crypto = { path = "../core/crypto" }
@@ -42,6 +43,8 @@ near-jsonrpc = { path = "../chain/jsonrpc" }
 near-telemetry = { path = "../chain/telemetry" }
 near-epoch-manager = { path = "../chain/epoch_manager" }
 
+delay-detector = { path = "../tools/delay_detector", optional = true }
+
 [dev-dependencies]
 near-logger-utils = { path = "../test-utils/logger" }
 tempfile = "3"
@@ -52,6 +55,7 @@ adversarial =  ["near-client/adversarial", "near-network/adversarial", "near-sto
 expensive_tests = ["near-client/expensive_tests", "near-epoch-manager/expensive_tests", "near-chain/expensive_tests"]
 metric_recorder = ["near-network/metric_recorder", "near-client/metric_recorder"]
 no_cache = ["node-runtime/no_cache", "near-store/no_cache", "near-chain/no_cache"]
+delay_detector = ["near-client/delay_detector"]
 
 [[bin]]
 path = "src/main.rs"

@@ -42,8 +42,8 @@ use near_store::{
     ColReceiptIdToShardId, ColState, ColStateChanges, ColStateDlInfos, ColStateHeaders,
     ColStateParts, ColTransactionRefCount, ColTransactionResult, ColTransactions, ColTrieChanges,
     DBCol, KeyForStateChanges, ShardTries, Store, StoreUpdate, TrieChanges, WrappedTrieChanges,
-    CHUNK_TAIL_KEY, HEADER_HEAD_KEY, HEAD_KEY, LARGEST_TARGET_HEIGHT_KEY, LATEST_KNOWN_KEY,
-    SHOULD_COL_GC, SYNC_HEAD_KEY, TAIL_KEY,
+    CHUNK_TAIL_KEY, FORK_TAIL_KEY, HEADER_HEAD_KEY, HEAD_KEY, LARGEST_TARGET_HEIGHT_KEY,
+    LATEST_KNOWN_KEY, SHOULD_COL_GC, SYNC_HEAD_KEY, TAIL_KEY,
 };
 
 use crate::byzantine_assert;
@@ -85,6 +85,8 @@ pub trait ChainStoreAccess {
     fn tail(&self) -> Result<BlockHeight, Error>;
     /// The chain Chunks Tail height.
     fn chunk_tail(&self) -> Result<BlockHeight, Error>;
+    /// Tail height of the fork cleaning process.
+    fn fork_tail(&self) -> Result<BlockHeight, Error>;
     /// Head of the header chain (not the same thing as head_header).
     fn header_head(&self) -> Result<Tip, Error>;
     /// The "sync" head: last header we received from syncing.
@@ -182,8 +184,9 @@ pub trait ChainStoreAccess {
             hash = *header.prev_hash();
             header = self.get_block_header(&hash)?;
         }
-        if header.height() < height {
-            return Err(ErrorKind::InvalidBlockHeight.into());
+        let header_height = header.height();
+        if header_height < height {
+            return Err(ErrorKind::InvalidBlockHeight(header_height).into());
         }
         self.get_block_header(&hash)
     }
@@ -523,6 +526,13 @@ impl ChainStoreAccess for ChainStore {
     fn chunk_tail(&self) -> Result<BlockHeight, Error> {
         self.store
             .get_ser(ColBlockMisc, CHUNK_TAIL_KEY)
+            .map(|option| option.unwrap_or_else(|| self.genesis_height))
+            .map_err(|e| e.into())
+    }
+
+    fn fork_tail(&self) -> Result<BlockHeight, Error> {
+        self.store
+            .get_ser(ColBlockMisc, FORK_TAIL_KEY)
             .map(|option| option.unwrap_or_else(|| self.genesis_height))
             .map_err(|e| e.into())
     }
@@ -1138,6 +1148,7 @@ pub struct ChainStoreUpdate<'a> {
     head: Option<Tip>,
     tail: Option<BlockHeight>,
     chunk_tail: Option<BlockHeight>,
+    fork_tail: Option<BlockHeight>,
     header_head: Option<Tip>,
     sync_head: Option<Tip>,
     largest_target_height: Option<BlockHeight>,
@@ -1161,6 +1172,7 @@ impl<'a> ChainStoreUpdate<'a> {
             head: None,
             tail: None,
             chunk_tail: None,
+            fork_tail: None,
             header_head: None,
             sync_head: None,
             largest_target_height: None,
@@ -1246,6 +1258,15 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
             Ok(chunk_tail.clone())
         } else {
             self.chain_store.chunk_tail()
+        }
+    }
+
+    /// Fork tail used by GC
+    fn fork_tail(&self) -> Result<BlockHeight, Error> {
+        if let Some(fork_tail) = &self.fork_tail {
+            Ok(fork_tail.clone())
+        } else {
+            self.chain_store.fork_tail()
         }
     }
 
@@ -1932,16 +1953,26 @@ impl<'a> ChainStoreUpdate<'a> {
     pub fn reset_tail(&mut self) {
         self.tail = None;
         self.chunk_tail = None;
+        self.fork_tail = None;
     }
 
     pub fn update_tail(&mut self, height: BlockHeight) {
         self.tail = Some(height);
         let genesis_height = self.get_genesis_height();
-        let chunk_tail = self.chunk_tail().unwrap_or_else(|_| genesis_height);
+        // When fork tail is behind tail, it doesn't hurt to set it to tail for consistency.
+        if self.fork_tail.unwrap_or(genesis_height) < height {
+            self.fork_tail = Some(height);
+        }
+
+        let chunk_tail = self.chunk_tail().unwrap_or(genesis_height);
         if chunk_tail == genesis_height {
             // For consistency, Chunk Tail should be set if Tail is set
             self.chunk_tail = Some(self.get_genesis_height());
         }
+    }
+
+    pub fn update_fork_tail(&mut self, height: BlockHeight) {
+        self.fork_tail = Some(height);
     }
 
     pub fn update_chunk_tail(&mut self, height: BlockHeight) {
@@ -2366,6 +2397,7 @@ impl<'a> ChainStoreUpdate<'a> {
         Self::write_col_misc(&mut store_update, HEAD_KEY, &mut self.head)?;
         Self::write_col_misc(&mut store_update, TAIL_KEY, &mut self.tail)?;
         Self::write_col_misc(&mut store_update, CHUNK_TAIL_KEY, &mut self.chunk_tail)?;
+        Self::write_col_misc(&mut store_update, FORK_TAIL_KEY, &mut self.fork_tail)?;
         Self::write_col_misc(&mut store_update, SYNC_HEAD_KEY, &mut self.sync_head)?;
         Self::write_col_misc(&mut store_update, HEADER_HEAD_KEY, &mut self.header_head)?;
         Self::write_col_misc(

@@ -28,6 +28,8 @@ use crate::{
     types::{PeerIdOrHash, Ping, Pong},
     utils::cache_to_hashmap,
 };
+#[cfg(feature = "delay_detector")]
+use delay_detector::DelayDetector;
 
 const ANNOUNCE_ACCOUNT_CACHE_SIZE: usize = 10_000;
 const ROUTE_BACK_CACHE_SIZE: u64 = 1_000_000;
@@ -676,6 +678,8 @@ impl RoutingTable {
 
     /// Recalculate routing table.
     pub fn update(&mut self) {
+        #[cfg(feature = "delay_detector")]
+        let _d = DelayDetector::new("routing table update".into());
         let _routing_table_recalculation =
             near_metrics::start_timer(&metrics::ROUTING_TABLE_RECALCULATION_HISTOGRAM);
 

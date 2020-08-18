@@ -11,7 +11,7 @@ use near_primitives::errors::{EpochError, StorageError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::serialize::to_base;
 use near_primitives::sharding::{ChunkHash, ShardChunkHeader};
-use near_primitives::types::ShardId;
+use near_primitives::types::{BlockHeight, ShardId};
 
 #[derive(Debug)]
 pub struct Error {
@@ -42,8 +42,8 @@ pub enum ErrorKind {
     #[fail(display = "Invalid Block Time: Too far in the future: {}", _0)]
     InvalidBlockFutureTime(DateTime<Utc>),
     /// Block height is invalid (not previous + 1).
-    #[fail(display = "Invalid Block Height")]
-    InvalidBlockHeight,
+    #[fail(display = "Invalid Block Height {}", _0)]
+    InvalidBlockHeight(BlockHeight),
     /// Invalid block proposed signature.
     #[fail(display = "Invalid Block Proposer Signature")]
     InvalidBlockProposer,
@@ -199,11 +199,7 @@ impl Display for Error {
             Some(c) => format!("{}", c),
             None => String::from("Unknown"),
         };
-        let backtrace = match self.backtrace() {
-            Some(b) => format!("{}", b),
-            None => String::from("Unknown"),
-        };
-        let output = format!("{} \n Cause: {} \n Backtrace: {}", self.inner, cause, backtrace);
+        let output = format!("{} \n Cause: {}", self.inner, cause);
         Display::fmt(&output, f)
     }
 }
@@ -240,7 +236,7 @@ impl Error {
             | ErrorKind::DBNotFoundErr(_) => false,
             ErrorKind::InvalidBlockPastTime(_, _)
             | ErrorKind::InvalidBlockFutureTime(_)
-            | ErrorKind::InvalidBlockHeight
+            | ErrorKind::InvalidBlockHeight(_)
             | ErrorKind::InvalidBlockProposer
             | ErrorKind::InvalidChunk
             | ErrorKind::InvalidChunkProofs(_)

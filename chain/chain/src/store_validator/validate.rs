@@ -16,8 +16,8 @@ use near_primitives::utils::{get_block_shard_id, index_to_bytes};
 use near_store::{
     ColBlock, ColBlockHeader, ColBlockHeight, ColBlockInfo, ColBlockMisc, ColBlockPerHeight,
     ColChunkExtra, ColChunkHashesByHeight, ColChunks, ColOutcomesByBlockHash, ColStateHeaders,
-    ColTransactionResult, DBCol, TrieChanges, TrieIterator, CHUNK_TAIL_KEY, HEADER_HEAD_KEY,
-    HEAD_KEY, NUM_COLS, SHOULD_COL_GC, TAIL_KEY,
+    ColTransactionResult, DBCol, TrieChanges, TrieIterator, CHUNK_TAIL_KEY, FORK_TAIL_KEY,
+    HEADER_HEAD_KEY, HEAD_KEY, NUM_COLS, SHOULD_COL_GC, TAIL_KEY,
 };
 
 use crate::StoreValidator;
@@ -107,6 +107,7 @@ macro_rules! unwrap_or_err_db {
 pub(crate) fn head_tail_validity(sv: &mut StoreValidator) -> Result<(), StoreValidatorError> {
     let mut tail = sv.config.genesis_height;
     let mut chunk_tail = sv.config.genesis_height;
+    let mut fork_tail = sv.config.genesis_height;
     let tail_db = unwrap_or_err!(
         sv.store.get_ser::<BlockHeight>(ColBlockMisc, TAIL_KEY),
         "Can't get Tail from storage"
@@ -115,13 +116,21 @@ pub(crate) fn head_tail_validity(sv: &mut StoreValidator) -> Result<(), StoreVal
         sv.store.get_ser::<BlockHeight>(ColBlockMisc, CHUNK_TAIL_KEY),
         "Can't get Chunk Tail from storage"
     );
+    let fork_tail_db = unwrap_or_err!(
+        sv.store.get_ser::<BlockHeight>(ColBlockMisc, FORK_TAIL_KEY),
+        "Can't get Chunk Tail from storage"
+    );
     if tail_db.is_none() && chunk_tail_db.is_some() || tail_db.is_some() && chunk_tail_db.is_none()
     {
         err!("Tail is {:?} and Chunk Tail is {:?}", tail_db, chunk_tail_db);
     }
-    if tail_db.is_some() && chunk_tail_db.is_some() {
+    if tail_db.is_some() && fork_tail_db.is_none() {
+        err!("Tail is {:?} but fork tail is None", tail_db);
+    }
+    if tail_db.is_some() {
         tail = tail_db.unwrap();
         chunk_tail = chunk_tail_db.unwrap();
+        fork_tail = fork_tail_db.unwrap();
     }
     let head = unwrap_or_err_db!(
         sv.store.get_ser::<Tip>(ColBlockMisc, HEAD_KEY),
@@ -140,6 +149,12 @@ pub(crate) fn head_tail_validity(sv: &mut StoreValidator) -> Result<(), StoreVal
     }
     if tail > head.height {
         err!("tail > head.height, {:?} > {:?}", tail, head);
+    }
+    if tail > fork_tail {
+        err!("tail > fork_tail, {} > {}", tail, fork_tail);
+    }
+    if fork_tail > head.height {
+        err!("fork tail > head.height, {} > {:?}", fork_tail, head);
     }
     if head.height > header_head.height {
         err!("head.height > header_head.height, {:?} > {:?}", tail, head);
@@ -321,23 +336,26 @@ pub(crate) fn block_chunks_exist(
     block: &Block,
 ) -> Result<(), StoreValidatorError> {
     for chunk_header in block.chunks().iter() {
-        if let Some(me) = &sv.me {
-            if sv.runtime_adapter.cares_about_shard(
-                Some(&me),
-                block.header().prev_hash(),
-                chunk_header.inner.shard_id,
-                true,
-            ) || sv.runtime_adapter.will_care_about_shard(
-                Some(&me),
-                block.header().prev_hash(),
-                chunk_header.inner.shard_id,
-                true,
-            ) {
-                unwrap_or_err_db!(
-                    sv.store.get_ser::<ShardChunk>(ColChunks, chunk_header.chunk_hash().as_ref()),
-                    "Can't get Chunk {:?} from storage",
-                    chunk_header
-                );
+        if chunk_header.height_included == block.header().height() {
+            if let Some(me) = &sv.me {
+                if sv.runtime_adapter.cares_about_shard(
+                    Some(&me),
+                    block.header().prev_hash(),
+                    chunk_header.inner.shard_id,
+                    true,
+                ) || sv.runtime_adapter.will_care_about_shard(
+                    Some(&me),
+                    block.header().prev_hash(),
+                    chunk_header.inner.shard_id,
+                    true,
+                ) {
+                    unwrap_or_err_db!(
+                        sv.store
+                            .get_ser::<ShardChunk>(ColChunks, chunk_header.chunk_hash().as_ref()),
+                        "Can't get Chunk {:?} from storage",
+                        chunk_header
+                    );
+                }
             }
         }
     }
