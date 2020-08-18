@@ -27,6 +27,7 @@ use crate::config::{safe_add_gas, RuntimeConfig};
 use crate::ext::RuntimeExt;
 use crate::{ActionResult, ApplyState};
 use near_crypto::PublicKey;
+use near_primitives::errors::RuntimeError::InvalidTxError;
 use near_primitives::errors::{ActionError, ActionErrorKind, ExternalError, RuntimeError};
 use near_primitives::version::CORRECT_RANDOM_VALUE_PROTOCOL_VERSION;
 use near_runtime_configs::AccountCreationConfig;
@@ -90,6 +91,19 @@ pub(crate) fn action_function_call(
     is_last_action: bool,
     epoch_info_provider: &dyn EpochInfoProvider,
 ) -> Result<(), RuntimeError> {
+    println!("{} {} {} {}", action_hash, account_id, function_call.method_name, function_call.gas);
+    //    if account_id == "evm" {
+    //        let contract = near_evm::EvmContract::default();
+    //        if function_call.method_name == "deploy_code".to_string() {
+    //            contract.deploy_code(function_call.args.clone());
+    //        } else if function_call.method_name == "call_contract".to_string() {
+    //            contract.call_contract(function_call.args.clone())
+    //        } else {
+    //            return Err(RuntimeError::InvalidTxError(InvalidTxError::InvalidSignature));
+    //        }
+    //        return Ok(());
+    //    }
+
     let code = match get_code_with_cache(state_update, account_id, &account) {
         Ok(Some(code)) => code,
         Ok(None) => {
@@ -155,6 +169,7 @@ pub(crate) fn action_function_call(
         output_data_receivers,
     };
 
+    let start = std::time::Instant::now();
     let (outcome, err) = near_vm_runner::run(
         code.hash.as_ref().to_vec(),
         &code.code,
@@ -165,6 +180,7 @@ pub(crate) fn action_function_call(
         &config.transaction_costs,
         promise_results,
     );
+    println!("Pure wm: {:?}", start.elapsed());
     let execution_succeeded = match err {
         Some(VMError::FunctionCallError(err)) => {
             result.result = Err(ActionErrorKind::FunctionCallError(err).into());
@@ -184,6 +200,7 @@ pub(crate) fn action_function_call(
         None => true,
     };
     if let Some(outcome) = outcome {
+        println!("gas burnt: {}", outcome.burnt_gas);
         result.gas_burnt = safe_add_gas(result.gas_burnt, outcome.burnt_gas)?;
         result.gas_burnt_for_function_call =
             safe_add_gas(result.gas_burnt_for_function_call, outcome.burnt_gas)?;

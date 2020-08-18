@@ -5,6 +5,7 @@ use crate::errors::IntoVMError;
 use crate::prepare;
 use near_vm_errors::VMError;
 use near_vm_logic::VMConfig;
+use std::time::Instant;
 
 /// Cache size in number of cached modules to hold.
 #[cfg(not(feature = "no_cache"))]
@@ -21,8 +22,11 @@ cached_key! {
 
     fn compile_module(code_hash: Vec<u8>, code: &[u8], config: &VMConfig
         ) -> Result<wasmer_runtime::Module, VMError> = {
+        let start = Instant::now();
         let prepared_code = prepare::prepare_contract(code, config)?;
-        wasmer_runtime::compile(&prepared_code).map_err(|err| err.into_vm_error())
+        let result = wasmer_runtime::compile(&prepared_code).map_err(|err| err.into_vm_error());
+        println!("Compilation: {:?}", start.elapsed());
+        result
     }
 }
 
@@ -33,5 +37,5 @@ pub(crate) fn compile_module(
     config: &VMConfig,
 ) -> Result<wasmer_runtime::Module, VMError> {
     let prepared_code = prepare::prepare_contract(code, config)?;
-    wasmer_runtime::compile(&prepared_code).map_err(|err| err.into_vm_error())
+    wasmer_runtime::compile(&prepared_code).map_err(|err| err.into_vm_error());
 }

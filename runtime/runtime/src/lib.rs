@@ -1,5 +1,6 @@
 use std::cmp::max;
 use std::collections::{HashMap, HashSet};
+use std::time::Instant;
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use log::debug;
@@ -463,6 +464,7 @@ impl Runtime {
         result.gas_used = exec_fee;
         result.gas_burnt = exec_fee;
         // Executing actions one by one
+        let start = Instant::now();
         for (action_index, action) in action_receipt.actions.iter().enumerate() {
             let is_last_action = action_index + 1 == action_receipt.actions.len();
             let mut new_result = self.apply_action(
@@ -495,6 +497,7 @@ impl Runtime {
                 break;
             }
         }
+        println!("Receipt {}: {:?}", receipt.receipt_id, start.elapsed());
 
         // Going to check balance covers account's storage.
         if result.result.is_ok() {
