@@ -22,6 +22,7 @@ class Handler(ProxyHandler):
         super().__init__(*args, **kwargs)
         self.dropped = 0
         self.total = 0
+        self.finished = False
 
     async def handle(self, msg, fr, to):
         if msg.enum == 'Block':
@@ -31,7 +32,8 @@ class Handler(ProxyHandler):
                 height.value = h
                 print("Height:", h)
 
-            if h >= 10:
+            if h >= 10 and not self.finished:
+                self.finished = True
                 print(f'SUCCESS DROP={self.dropped} TOTAL={self.total}')
                 success.value = 1
 
