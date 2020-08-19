@@ -73,8 +73,8 @@ else:
 
 print("Genesis generated")
 
-SMALL_HEIGHT = 101
-LARGE_HEIGHT = 202
+SMALL_HEIGHT = 201
+LARGE_HEIGHT = 301
 TIMEOUT = 300 + SMALL_HEIGHT + LARGE_HEIGHT
 start = time.time()
 
