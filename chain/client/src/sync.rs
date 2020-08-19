@@ -52,19 +52,12 @@ pub const MAX_PENDING_PART: u64 = MAX_STATE_PART_REQUEST * 10000;
 pub const NS_PER_SECOND: u128 = 1_000_000_000;
 
 /// Get random peer from the hightest height peers.
-pub fn highest_height_peer(
-    highest_height_peers: &Vec<FullPeerInfo>,
-    min_height: BlockHeight,
-) -> Option<FullPeerInfo> {
+pub fn highest_height_peer(highest_height_peers: &Vec<FullPeerInfo>) -> Option<FullPeerInfo> {
     if highest_height_peers.len() == 0 {
         return None;
     }
 
-    match highest_height_peers
-        .iter()
-        .filter(|peer| peer.chain_info.height > min_height)
-        .choose(&mut thread_rng())
-    {
+    match highest_height_peers.iter().choose(&mut thread_rng()) {
         None => highest_height_peers.choose(&mut thread_rng()).cloned(),
         Some(peer) => Some(peer.clone()),
     }
@@ -122,9 +115,7 @@ impl HeaderSync {
             SyncStatus::HeaderSync { .. }
             | SyncStatus::BodySync { .. }
             | SyncStatus::StateSyncDone => true,
-            SyncStatus::NoSync
-            | SyncStatus::NoSyncSeveralBlocksBehind { .. }
-            | SyncStatus::AwaitingPeers => {
+            SyncStatus::NoSync | SyncStatus::AwaitingPeers => {
                 let sync_head = chain.sync_head()?;
                 debug!(target: "sync", "Sync: initial transition to Header sync. Sync head: {} at {}, resetting to {} at {}",
                     sync_head.last_block_hash, sync_head.height,
@@ -143,7 +134,7 @@ impl HeaderSync {
                 SyncStatus::HeaderSync { current_height: header_head.height, highest_height };
             let header_head = chain.header_head()?;
             self.syncing_peer = None;
-            if let Some(peer) = highest_height_peer(&highest_height_peers, 0) {
+            if let Some(peer) = highest_height_peer(&highest_height_peers) {
                 if peer.chain_info.height > header_head.height {
                     self.syncing_peer = self.request_headers(chain, peer);
                 }
@@ -183,9 +174,7 @@ impl HeaderSync {
 
         // Always enable header sync on initial state transition from NoSync / NoSyncFewBlocksBehind / AwaitingPeers.
         let force_sync = match sync_status {
-            SyncStatus::NoSync
-            | SyncStatus::NoSyncSeveralBlocksBehind { .. }
-            | SyncStatus::AwaitingPeers => true,
+            SyncStatus::NoSync | SyncStatus::AwaitingPeers => true,
             _ => false,
         };
 
@@ -350,12 +339,15 @@ pub struct BlockSync {
     prev_blocks_received: NumBlocks,
     /// How far to fetch blocks vs fetch state.
     block_fetch_horizon: BlockHeightDelta,
+    /// Whether to enforce block sync
+    archive: bool,
 }
 
 impl BlockSync {
     pub fn new(
         network_adapter: Arc<dyn NetworkAdapter>,
         block_fetch_horizon: BlockHeightDelta,
+        archive: bool,
     ) -> Self {
         BlockSync {
             network_adapter,
@@ -363,6 +355,7 @@ impl BlockSync {
             receive_timeout: Utc::now(),
             prev_blocks_received: 0,
             block_fetch_horizon,
+            archive,
         }
     }
 
@@ -395,7 +388,7 @@ impl BlockSync {
         highest_height_peers: &[FullPeerInfo],
         block_fetch_horizon: BlockHeightDelta,
     ) -> Result<bool, near_chain::Error> {
-        match chain.check_state_needed(block_fetch_horizon)? {
+        match chain.check_state_needed(block_fetch_horizon, self.archive)? {
             BlockSyncResponse::StateNeeded => {
                 return Ok(true);
             }

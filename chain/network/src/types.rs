@@ -798,6 +798,7 @@ pub struct PeerList {
 }
 
 /// Message from peer to peer manager
+#[derive(strum::AsRefStr)]
 pub enum PeerRequest {
     UpdateEdge((PeerId, u64)),
     RouteBack(Box<RoutedMessageBody>, CryptoHash),
@@ -867,7 +868,7 @@ pub struct Ban {
 }
 
 // TODO(#1313): Use Box
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, strum::AsRefStr)]
 #[allow(clippy::large_enum_variant)]
 pub enum NetworkRequests {
     /// Sends block, either when block was just produced or when requested.
@@ -966,11 +967,17 @@ pub enum NetworkRequests {
 }
 
 /// Messages from PeerManager to Peer
-#[derive(Message)]
+#[derive(Message, Debug)]
 #[rtype(result = "()")]
 pub enum PeerManagerRequest {
     BanPeer(ReasonForBan),
     UnregisterPeer,
+}
+
+pub struct EdgeList(pub Vec<Edge>);
+
+impl Message for EdgeList {
+    type Result = bool;
 }
 
 /// Combines peer address info, chain and edge information.
@@ -1059,7 +1066,7 @@ pub enum NetworkAdversarialMessage {
     AdvSetSyncInfo(u64),
 }
 
-#[derive(Debug)]
+#[derive(Debug, strum::AsRefStr)]
 // TODO(#1313): Use Box
 #[allow(clippy::large_enum_variant)]
 pub enum NetworkClientMessages {

@@ -10,6 +10,20 @@ use rand::rngs::StdRng;
 use rand::seq::SliceRandom;
 use rand::SeedableRng;
 
+use crate::error::{Error, ErrorKind, LogTransientStorageError};
+use crate::lightclient::get_epoch_block_producers_view;
+use crate::store::{ChainStore, ChainStoreAccess, ChainStoreUpdate, GCMode};
+use crate::types::{
+    AcceptedBlock, ApplyTransactionResult, Block, BlockEconomicsConfig, BlockHeader,
+    BlockHeaderInfo, BlockStatus, BlockSyncResponse, ChainGenesis, Provenance, ReceiptList,
+    RuntimeAdapter,
+};
+use crate::validate::{
+    validate_challenge, validate_chunk_proofs, validate_chunk_with_chunk_extra,
+    validate_transactions_order,
+};
+use crate::{byzantine_assert, create_light_client_block_view, Doomslug};
+use crate::{metrics, DoomslugThresholdMode};
 use near_primitives::block::{genesis_chunks, Tip};
 use near_primitives::challenge::{
     BlockDoubleSign, Challenge, ChallengeBody, ChallengesResult, ChunkProofs, ChunkState,
@@ -40,20 +54,8 @@ use near_primitives::views::{
 };
 use near_store::{ColState, ColStateHeaders, ColStateParts, ShardTries, StoreUpdate};
 
-use crate::error::{Error, ErrorKind, LogTransientStorageError};
-use crate::lightclient::get_epoch_block_producers_view;
-use crate::store::{ChainStore, ChainStoreAccess, ChainStoreUpdate, GCMode};
-use crate::types::{
-    AcceptedBlock, ApplyTransactionResult, Block, BlockEconomicsConfig, BlockHeader,
-    BlockHeaderInfo, BlockStatus, BlockSyncResponse, ChainGenesis, Provenance, ReceiptList,
-    RuntimeAdapter,
-};
-use crate::validate::{
-    validate_challenge, validate_chunk_proofs, validate_chunk_with_chunk_extra,
-    validate_transactions_order,
-};
-use crate::{byzantine_assert, create_light_client_block_view, Doomslug};
-use crate::{metrics, DoomslugThresholdMode};
+#[cfg(feature = "delay_detector")]
+use delay_detector::DelayDetector;
 
 /// Maximum number of orphans chain can store.
 pub const MAX_ORPHAN_SIZE: usize = 1024;
@@ -512,16 +514,12 @@ impl Chain {
         tries: ShardTries,
         gc_blocks_limit: NumBlocks,
     ) -> Result<(), Error> {
+        #[cfg(feature = "delay_detector")]
+        let _d = DelayDetector::new("GC".into());
+
         let head = self.store.head()?;
         let tail = self.store.tail()?;
-        let gc_stop_height = match self.runtime_adapter.get_gc_stop_height(&head.last_block_hash) {
-            Ok(height) => height,
-            Err(e) => match e.kind() {
-                // We don't have enough data to garbage collect. Do nothing in this case.
-                ErrorKind::DBNotFoundErr(_) => return Ok(()),
-                _ => return Err(e),
-            },
-        };
+        let gc_stop_height = self.runtime_adapter.get_gc_stop_height(&head.last_block_hash);
 
         if gc_stop_height > head.height {
             return Err(ErrorKind::GCError(
@@ -531,17 +529,16 @@ impl Chain {
         }
         let prev_epoch_id = self.get_block_header(&head.prev_block_hash)?.epoch_id();
         let epoch_change = prev_epoch_id != &head.epoch_id;
-        let fork_tail = if epoch_change {
+        let mut fork_tail = self.store.fork_tail()?;
+        if epoch_change && fork_tail < gc_stop_height {
             // if head doesn't change on the epoch boundary, we may update fork tail several times
             // but that is fine since it doesn't affect correctness and also we limit the number of
             // heights that fork cleaning goes through so it doesn't slow down client either.
             let mut chain_store_update = self.store.store_update();
             chain_store_update.update_fork_tail(gc_stop_height);
             chain_store_update.commit()?;
-            gc_stop_height
-        } else {
-            self.store.fork_tail()?
-        };
+            fork_tail = gc_stop_height;
+        }
         let mut gc_blocks_remaining = gc_blocks_limit;
 
         // Forks Cleaning
@@ -835,6 +832,7 @@ impl Chain {
     pub fn check_state_needed(
         &mut self,
         block_fetch_horizon: BlockHeightDelta,
+        force_block_sync: bool,
     ) -> Result<BlockSyncResponse, Error> {
         let block_head = self.head()?;
         let header_head = self.header_head()?;
@@ -851,7 +849,9 @@ impl Chain {
 
         // Don't run State Sync if header head is not more than one epoch ahead.
         if block_head.epoch_id != header_head.epoch_id && next_epoch_id != header_head.epoch_id {
-            if block_head.height < header_head.height.saturating_sub(block_fetch_horizon) {
+            if block_head.height < header_head.height.saturating_sub(block_fetch_horizon)
+                && !force_block_sync
+            {
                 // Epochs are different and we are too far from horizon, State Sync is needed
                 return Ok(BlockSyncResponse::StateNeeded);
             }
@@ -927,7 +927,8 @@ impl Chain {
         // Get header we were syncing into.
         let header = self.get_block_header(&sync_hash)?;
         let prev_hash = *header.prev_hash();
-        let gc_height = std::cmp::min(head.height + 1, header.height());
+        let sync_height = header.height();
+        let gc_height = std::cmp::min(head.height + 1, sync_height);
 
         // GC all the data from current tail up to `gc_height`
         let tail = self.store.tail()?;
@@ -948,7 +949,9 @@ impl Chain {
 
         // Clear Chunks data
         let mut chain_store_update = self.mut_store().store_update();
-        chain_store_update.clear_chunk_data(gc_height)?;
+        // The largest height of chunk we have in storage is head.height + 1
+        let chunk_height = std::cmp::min(head.height + 2, sync_height);
+        chain_store_update.clear_chunk_data(chunk_height)?;
         chain_store_update.commit()?;
 
         // clear all trie data
@@ -998,6 +1001,7 @@ impl Chain {
         // New Tail can not be earlier than `prev_block.header.inner_lite.height`
         chain_store_update.update_tail(new_tail);
         // New Chunk Tail can not be earlier than minimum of height_created in Block `prev_block`
+        println!("resetting chunk tail to {}", new_chunk_tail);
         chain_store_update.update_chunk_tail(new_chunk_tail);
         chain_store_update.commit()?;
 
@@ -2894,7 +2898,7 @@ impl<'a> ChainUpdate<'a> {
         }
 
         // Do not accept old forks
-        if prev_height < self.runtime_adapter.get_gc_stop_height(&head.last_block_hash)? {
+        if prev_height < self.runtime_adapter.get_gc_stop_height(&head.last_block_hash) {
             return Err(ErrorKind::InvalidBlockHeight(prev_height).into());
         }
 
