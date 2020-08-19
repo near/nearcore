@@ -22,7 +22,7 @@ use near_chain_configs::Genesis;
 use near_client::{
     ClientActor, GetBlock, GetBlockProof, GetChunk, GetExecutionOutcome, GetGasPrice,
     GetNetworkInfo, GetNextLightClientBlock, GetStateChanges, GetStateChangesInBlock,
-    GetValidatorInfo, Query, Status, TxStatus, TxStatusError, ViewClientActor,
+    GetValidatorInfo, GetValidatorOrdered, Query, Status, TxStatus, TxStatusError, ViewClientActor,
 };
 use near_crypto::PublicKey;
 pub use near_jsonrpc_client as client;
@@ -38,7 +38,7 @@ use near_primitives::rpc::{
     RpcBroadcastTxSyncResponse, RpcGenesisRecordsRequest, RpcLightClientExecutionProofRequest,
     RpcLightClientExecutionProofResponse, RpcQueryRequest, RpcStateChangesInBlockRequest,
     RpcStateChangesInBlockResponse, RpcStateChangesRequest, RpcStateChangesResponse,
-    TransactionInfo,
+    RpcValidatorsOrderedRequest, TransactionInfo,
 };
 use near_primitives::serialize::{from_base, from_base64, BaseEncode};
 use near_primitives::transaction::SignedTransaction;
@@ -217,6 +217,7 @@ impl JsonRpcHandler {
             "broadcast_tx_commit" => self.send_tx_commit(request.params).await,
             "EXPERIMENTAL_check_tx" => self.check_tx(request.params).await,
             "validators" => self.validators(request.params).await,
+            "EXPERIMENTAL_validators_ordered" => self.validators_ordered(request.params).await,
             "query" => self.query(request.params).await,
             "health" => self.health().await,
             "status" => self.status().await,
@@ -717,6 +718,15 @@ impl JsonRpcHandler {
     async fn validators(&self, params: Option<Value>) -> Result<Value, RpcError> {
         let (block_id,) = parse_params::<(MaybeBlockId,)>(params)?;
         jsonify(self.view_client_addr.send(GetValidatorInfo { block_id }).await)
+    }
+
+    /// Returns the current epoch validators ordered in the block producer order with repetition.
+    /// This endpoint is solely used for bridge currently and is not intended for other external use
+    /// cases.
+    async fn validators_ordered(&self, params: Option<Value>) -> Result<Value, RpcError> {
+        let RpcValidatorsOrderedRequest { block_id } =
+            parse_params::<RpcValidatorsOrderedRequest>(params)?;
+        jsonify(self.view_client_addr.send(GetValidatorOrdered { block_id }).await)
     }
 }
 
