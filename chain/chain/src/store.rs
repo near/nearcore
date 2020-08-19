@@ -144,14 +144,26 @@ pub trait ChainStoreAccess {
     fn get_block_hash_by_height(&mut self, height: BlockHeight) -> Result<CryptoHash, Error>;
     /// Returns hash of the first available block after genesis.
     fn get_earliest_block_hash(&mut self) -> Result<Option<CryptoHash>, Error> {
+        // To find the earliest available block we use the `tail` marker primarily
+        // used by garbage collection system.
+        // NOTE: `tail` is the block height at which we can say that there is
+        // at most 1 block available in the range from the genesis height to
+        // the tail. Thus, the strategy is to find the first block AFTER the tail
+        // height, and use the `prev_hash` to get the reference to the earliest
+        // block.
         let head_header_height = self.head_header()?.height();
         let tail = self.tail()?;
+
+        // There is a corner case when there are no blocks after the tail, and
+        // the tail is in fact the earliest block available on the chain.
         if let Ok(block_hash) = self.get_block_hash_by_height(tail) {
             return Ok(Some(block_hash.clone()));
         }
         for height in tail + 1..=head_header_height {
             if let Ok(block_hash) = self.get_block_hash_by_height(height) {
-                return Ok(Some(self.get_block_header(&block_hash)?.prev_hash().clone()));
+                let earliest_block_hash = self.get_block_header(&block_hash)?.prev_hash().clone();
+                debug_assert!(matches!(self.block_exists(&earliest_block_hash), Ok(true)));
+                return Ok(Some(earliest_block_hash));
             }
         }
         Ok(None)
