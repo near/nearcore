@@ -8,6 +8,7 @@ use serde::Serialize;
 use near_primitives::hash::CryptoHash;
 use near_primitives::rpc::{
     RpcGenesisRecordsRequest, RpcQueryRequest, RpcStateChangesRequest, RpcStateChangesResponse,
+    RpcValidatorsOrderedRequest,
 };
 use near_primitives::types::{BlockId, BlockIdOrFinality, MaybeBlockId, ShardId};
 use near_primitives::views::{
@@ -231,9 +232,9 @@ impl JsonRpcClient {
     #[allow(non_snake_case)]
     pub fn EXPERIMENTAL_validators_ordered(
         &self,
-        block_id: BlockId,
+        request: RpcValidatorsOrderedRequest,
     ) -> RpcRequest<Vec<ValidatorStakeView>> {
-        call_method(&self.client, &self.server_addr, "EXPERIMENTAL_validators_ordered", [block_id])
+        call_method(&self.client, &self.server_addr, "EXPERIMENTAL_validators_ordered", request)
     }
 }
 

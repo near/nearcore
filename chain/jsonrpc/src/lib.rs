@@ -38,7 +38,7 @@ use near_primitives::rpc::{
     RpcBroadcastTxSyncResponse, RpcGenesisRecordsRequest, RpcLightClientExecutionProofRequest,
     RpcLightClientExecutionProofResponse, RpcQueryRequest, RpcStateChangesInBlockRequest,
     RpcStateChangesInBlockResponse, RpcStateChangesRequest, RpcStateChangesResponse,
-    TransactionInfo,
+    RpcValidatorsOrderedRequest, TransactionInfo,
 };
 use near_primitives::serialize::{from_base, from_base64, BaseEncode};
 use near_primitives::transaction::SignedTransaction;
@@ -724,7 +724,8 @@ impl JsonRpcHandler {
     /// This endpoint is solely used for bridge currently and is not intended for other external use
     /// cases.
     async fn validators_ordered(&self, params: Option<Value>) -> Result<Value, RpcError> {
-        let (block_id,) = parse_params::<(MaybeBlockId,)>(params)?;
+        let RpcValidatorsOrderedRequest { block_id } =
+            parse_params::<RpcValidatorsOrderedRequest>(params)?;
         jsonify(self.view_client_addr.send(GetValidatorOrdered { block_id }).await)
     }
 }
