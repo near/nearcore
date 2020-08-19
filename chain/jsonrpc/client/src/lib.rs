@@ -8,11 +8,12 @@ use serde::Serialize;
 use near_primitives::hash::CryptoHash;
 use near_primitives::rpc::{
     RpcGenesisRecordsRequest, RpcQueryRequest, RpcStateChangesRequest, RpcStateChangesResponse,
+    RpcValidatorsOrderedRequest,
 };
 use near_primitives::types::{BlockId, BlockIdOrFinality, MaybeBlockId, ShardId};
 use near_primitives::views::{
     BlockView, ChunkView, EpochValidatorInfo, FinalExecutionOutcomeView, GasPriceView,
-    GenesisRecordsView, QueryResponse, StatusResponse,
+    GenesisRecordsView, QueryResponse, StatusResponse, ValidatorStakeView,
 };
 
 use crate::message::{from_slice, Message, RpcError};
@@ -226,6 +227,14 @@ impl JsonRpcClient {
         request: RpcStateChangesRequest,
     ) -> RpcRequest<RpcStateChangesResponse> {
         call_method(&self.client, &self.server_addr, "EXPERIMENTAL_changes", request)
+    }
+
+    #[allow(non_snake_case)]
+    pub fn EXPERIMENTAL_validators_ordered(
+        &self,
+        request: RpcValidatorsOrderedRequest,
+    ) -> RpcRequest<Vec<ValidatorStakeView>> {
+        call_method(&self.client, &self.server_addr, "EXPERIMENTAL_validators_ordered", request)
     }
 }
 
