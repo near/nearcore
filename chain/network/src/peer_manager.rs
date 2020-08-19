@@ -232,7 +232,7 @@ impl PeerManagerActor {
             },
         );
 
-        self.process_edge(ctx, new_edge.clone());
+        self.process_edges(ctx, vec![new_edge.clone()]);
 
         // TODO(MarX, #1363): Implement sync service. Right now all edges and known validators
         //  are sent during handshake.
@@ -294,7 +294,7 @@ impl PeerManagerActor {
         if let Some(edge) = self.routing_table.get_edge(self.peer_id.clone(), peer_id.clone()) {
             if edge.edge_type() == EdgeType::Added {
                 let edge_update = edge.remove_edge(self.peer_id.clone(), &self.config.secret_key);
-                self.process_edge(ctx, edge_update.clone());
+                self.process_edges(ctx, vec![edge_update.clone()]);
                 self.broadcast_message(
                     ctx,
                     SendMessage {
@@ -503,9 +503,9 @@ impl PeerManagerActor {
     }
 
     /// Add an edge update to the routing table and return if it is a new edge update.
-    fn process_edge(&mut self, ctx: &mut Context<Self>, edge: Edge) -> bool {
+    fn process_edges(&mut self, ctx: &mut Context<Self>, edges: Vec<Edge>) -> bool {
         let ProcessEdgeResult { new_edge, schedule_computation } =
-            self.routing_table.process_edge(edge);
+            self.routing_table.process_edges(edges);
 
         if let Some(duration) = schedule_computation {
             ctx.run_later(duration, |act, _ctx| {
@@ -1281,7 +1281,7 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                                                     }
                                                 }
                                                 // Add new edge update to the routing table.
-                                                act.process_edge(ctx,edge.clone());
+                                                act.process_edges(ctx, vec![edge.clone()]);
                                                 if let Some(other) = edge.other(&me) {
                                                     // We belong to this edge.
                                                     if act.active_peers.contains_key(&other) {
@@ -1371,7 +1371,7 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                         edge_info.signature,
                     );
 
-                    self.process_edge(ctx, new_edge.clone());
+                    self.process_edges(ctx, vec![new_edge.clone()]);
                     NetworkResponses::EdgeUpdate(Box::new(new_edge))
                 } else {
                     NetworkResponses::BanPeer(ReasonForBan::InvalidEdge)
@@ -1379,7 +1379,7 @@ impl Handler<NetworkRequests> for PeerManagerActor {
             }
             NetworkRequests::ResponseUpdateNonce(edge) => {
                 if edge.contains_peer(&self.peer_id) && edge.verify() {
-                    if self.process_edge(ctx, edge.clone()) {
+                    if self.process_edges(ctx, vec![edge.clone()]) {
                         let other = edge.other(&self.peer_id).unwrap();
                         if let Some(nonce) = self.pending_update_nonce_request.get(&other) {
                             if edge.nonce >= *nonce {

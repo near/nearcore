@@ -16,9 +16,8 @@ sys.path.append('lib')
 
 import nacl.signing
 from cluster import start_cluster
-from peer import ED_PREFIX, connect, run_handshake, create_peer_request, Connection
-from utils import obj_to_string
-from messages import schema
+from peer import connect, run_handshake, Connection
+from utils import LogTracker
 from messages.network import Edge, SyncData, PeerMessage
 from messages.crypto import PublicKey, Signature
 from random import randint, seed
@@ -47,7 +46,6 @@ def create_sync_data(accounts=[], edges=[]):
 
 
 def create_edge(key0, key1, nonce):
-    # TODO: Create removal edge
     if bytes(key1.verify_key) < bytes(key0.verify_key):
         key0, key1 = key1, key0
 
@@ -81,10 +79,11 @@ def create_edge(key0, key1, nonce):
 
 async def main():
     key_pair_0 = nacl.signing.SigningKey(key_seed())
+    tracker = LogTracker(nodes[0])
     conn = await connect(nodes[0].addr())
     await run_handshake(conn, nodes[0].node_key.pk, key_pair_0, listen_port=12345)
 
-    num_nodes = 100
+    num_nodes = 300
 
     def create_update():
         key_pairs = [key_pair_0] +  [nacl.signing.SigningKey(key_seed()) for _ in range(num_nodes - 1)]
@@ -99,14 +98,14 @@ async def main():
 
     asyncio.get_event_loop().create_task(consume(conn))
 
-    while True:
-        num_nodes = randint(2, 100)
-
+    for i in range(3):
         update = create_update()
         print("Sending update...")
         await conn.send(update)
         print("Sent...")
-        await asyncio.sleep(2)
+        await asyncio.sleep(1)
+
+    assert tracker.check("delay_detector: LONG DELAY!") is False
 
 
 nodes = start_cluster(1, 0, 4, None, [], {})
