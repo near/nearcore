@@ -325,6 +325,7 @@ impl NightshadeRuntime {
         gas_price: Balance,
         gas_limit: Gas,
         challenges_result: &ChallengesResult,
+        random_seed: CryptoHash,
     ) -> Result<ApplyTransactionResult, Error> {
         let validator_accounts_update = {
             let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
@@ -394,6 +395,7 @@ impl NightshadeRuntime {
 
         let epoch_height = self.get_epoch_height_from_prev_block(prev_block_hash)?;
         let epoch_id = self.get_epoch_id_from_prev_block(prev_block_hash)?;
+        let current_protocol_version = self.get_epoch_protocol_version(&epoch_id)?;
 
         let apply_state = ApplyState {
             block_index: block_height,
@@ -403,6 +405,8 @@ impl NightshadeRuntime {
             gas_price,
             block_timestamp,
             gas_limit: Some(gas_limit),
+            random_seed,
+            current_protocol_version,
         };
 
         let apply_result = self
@@ -873,22 +877,36 @@ impl RuntimeAdapter for NightshadeRuntime {
         epoch_manager.get_epoch_start_height(block_hash).map_err(Error::from)
     }
 
-    fn get_gc_stop_height(&self, block_hash: &CryptoHash) -> Result<BlockHeight, Error> {
-        let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
-        // an epoch must have a first block.
-        let epoch_first_block = epoch_manager.get_block_info(block_hash)?.epoch_first_block;
-        let epoch_first_block_info = epoch_manager.get_block_info(&epoch_first_block)?;
-        // maintain pointers to avoid cloning.
-        let mut last_block_in_prev_epoch = epoch_first_block_info.prev_hash;
-        let mut epoch_start_height = epoch_first_block_info.height;
-        for _ in 0..NUM_EPOCHS_TO_KEEP_STORE_DATA - 1 {
-            let epoch_first_block =
-                epoch_manager.get_block_info(&last_block_in_prev_epoch)?.epoch_first_block;
-            let epoch_first_block_info = epoch_manager.get_block_info(&epoch_first_block)?;
-            epoch_start_height = epoch_first_block_info.height;
-            last_block_in_prev_epoch = epoch_first_block_info.prev_hash;
+    fn get_gc_stop_height(&self, block_hash: &CryptoHash) -> BlockHeight {
+        let genesis_height = self.genesis_config.genesis_height;
+        macro_rules! unwrap_result_or_return {
+            ($obj: expr) => {
+                match $obj {
+                    Ok(value) => value,
+                    Err(_) => {
+                        return genesis_height;
+                    }
+                }
+            };
         }
-        Ok(epoch_start_height)
+        let get_gc_stop_height_inner = || -> Result<BlockHeight, Error> {
+            let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
+            // an epoch must have a first block.
+            let epoch_first_block = epoch_manager.get_block_info(block_hash)?.epoch_first_block;
+            let epoch_first_block_info = epoch_manager.get_block_info(&epoch_first_block)?;
+            // maintain pointers to avoid cloning.
+            let mut last_block_in_prev_epoch = epoch_first_block_info.prev_hash;
+            let mut epoch_start_height = epoch_first_block_info.height;
+            for _ in 0..NUM_EPOCHS_TO_KEEP_STORE_DATA - 1 {
+                let epoch_first_block =
+                    epoch_manager.get_block_info(&last_block_in_prev_epoch)?.epoch_first_block;
+                let epoch_first_block_info = epoch_manager.get_block_info(&epoch_first_block)?;
+                epoch_start_height = epoch_first_block_info.height;
+                last_block_in_prev_epoch = epoch_first_block_info.prev_hash;
+            }
+            Ok(epoch_start_height)
+        };
+        unwrap_result_or_return!(get_gc_stop_height_inner())
     }
 
     fn epoch_exists(&self, epoch_id: &EpochId) -> bool {
@@ -949,6 +967,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         gas_price: Balance,
         gas_limit: Gas,
         challenges: &ChallengesResult,
+        random_seed: CryptoHash,
         generate_storage_proof: bool,
     ) -> Result<ApplyTransactionResult, Error> {
         let trie = self.get_trie_for_shard(shard_id);
@@ -967,6 +986,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             gas_price,
             gas_limit,
             challenges,
+            random_seed,
         ) {
             Ok(result) => Ok(result),
             Err(e) => match e.kind() {
@@ -993,6 +1013,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         gas_price: Balance,
         gas_limit: Gas,
         challenges: &ChallengesResult,
+        random_value: CryptoHash,
     ) -> Result<ApplyTransactionResult, Error> {
         let trie = Trie::from_recorded_storage(partial_storage);
         self.process_state_update(
@@ -1009,6 +1030,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             gas_price,
             gas_limit,
             challenges,
+            random_value,
         )
     }
 
@@ -1414,6 +1436,7 @@ mod test {
                     gas_price,
                     gas_limit,
                     challenges,
+                    CryptoHash::default(),
                 )
                 .unwrap();
             let mut store_update = self.store.store_update();

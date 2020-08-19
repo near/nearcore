@@ -85,6 +85,7 @@ class BaseNode(object):
     def __init__(self):
         self._start_proxy = None
         self._proxy_local_stopped = None
+        self.proxy = None
 
 
     def _get_command_line(self,

@@ -8,7 +8,7 @@ pub mod wasmtime_runner {
     use near_runtime_fees::RuntimeFeesConfig;
     use near_vm_errors::FunctionCallError::{LinkError, WasmUnknownError};
     use near_vm_errors::{FunctionCallError, MethodResolveError, VMError, VMLogicError};
-    use near_vm_logic::types::PromiseResult;
+    use near_vm_logic::types::{ProfileData, PromiseResult};
     use near_vm_logic::{External, MemoryLike, VMConfig, VMContext, VMLogic, VMOutcome};
     use std::ffi::c_void;
     use std::str;
@@ -114,6 +114,7 @@ pub mod wasmtime_runner {
         wasm_config: &'a VMConfig,
         fees_config: &'a RuntimeFeesConfig,
         promise_results: &'a [PromiseResult],
+        profile: Option<ProfileData>,
     ) -> (Option<VMOutcome>, Option<VMError>) {
         let mut config = Config::default();
         let engine = get_engine(&mut config);
@@ -132,8 +133,15 @@ pub mod wasmtime_runner {
         // Note that we don't clone the actual backing memory, just increase the RC.
         let memory_copy = memory.clone();
         let mut linker = Linker::new(&store);
-        let mut logic =
-            VMLogic::new(ext, context, wasm_config, fees_config, promise_results, &mut memory);
+        let mut logic = VMLogic::new(
+            ext,
+            context,
+            wasm_config,
+            fees_config,
+            promise_results,
+            &mut memory,
+            profile,
+        );
         if logic.add_contract_compile_fee(code.len() as u64).is_err() {
             return (
                 Some(logic.outcome()),

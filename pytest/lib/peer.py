@@ -57,8 +57,15 @@ class Connection:
             return None
         else:
             length = struct.unpack('I', length)[0]
-            response = await self.reader.read(length)
+            response = b''
+
+            while len(response) < length:
+                response += await self.reader.read(length - len(response))
+                if len(response) < length:
+                    print(f"Downloading message {len(response)}/{length}")
+
             return response
+
 
     async def close(self):
         self.writer.close()

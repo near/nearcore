@@ -22,10 +22,16 @@ impl TrieCache {
 
     pub fn update_cache(&self, ops: Vec<(CryptoHash, Option<Vec<u8>>)>) {
         let mut guard = self.0.lock().expect(POISONED_LOCK_ERR);
-        for (hash, value) in ops {
-            if let Some(value) = value {
-                if value.len() < TRIE_LIMIT_CACHED_VALUE_SIZE && guard.cache_get(&hash).is_some() {
-                    guard.cache_set(hash, value);
+        for (hash, opt_value_rc) in ops {
+            if let Some(value_rc) = opt_value_rc {
+                let (value, rc) =
+                    decode_trie_node_with_rc(&value_rc).expect("Don't write invalid values");
+                if rc > 0 {
+                    if value.len() < TRIE_LIMIT_CACHED_VALUE_SIZE {
+                        guard.cache_set(hash, value.to_vec());
+                    }
+                } else {
+                    guard.cache_remove(&hash);
                 }
             } else {
                 guard.cache_remove(&hash);
@@ -113,16 +119,36 @@ pub struct TrieCachingStorage {
     pub(crate) shard_id: ShardId,
 }
 
+pub fn merge_refcounted_records(result: &mut Vec<u8>, val: &[u8]) -> Result<(), StorageError> {
+    if val.is_empty() {
+        return Ok(());
+    }
+    let add_rc = TrieCachingStorage::vec_to_rc(val)?;
+    if !result.is_empty() {
+        let result_rc = TrieCachingStorage::vec_to_rc(result)? + add_rc;
+
+        debug_assert_eq!(result[0..(result.len() - 4)], val[0..(val.len() - 4)]);
+        let len = result.len();
+        result[(len - 4)..].copy_from_slice(&result_rc.to_le_bytes());
+        if result_rc == 0 {
+            *result = vec![];
+        }
+    } else {
+        *result = val.to_vec();
+    }
+    Ok(())
+}
+
 impl TrieCachingStorage {
     pub fn new(store: Arc<Store>, cache: TrieCache, shard_id: ShardId) -> TrieCachingStorage {
         TrieCachingStorage { store, cache, shard_id }
     }
 
-    fn vec_to_rc(val: &Vec<u8>) -> Result<u32, StorageError> {
+    fn vec_to_rc(val: &[u8]) -> Result<i32, StorageError> {
         decode_trie_node_with_rc(&val).map(|(_bytes, rc)| rc)
     }
 
-    fn vec_to_bytes(val: &Vec<u8>) -> Result<Vec<u8>, StorageError> {
+    fn vec_to_bytes(val: &[u8]) -> Result<Vec<u8>, StorageError> {
         decode_trie_node_with_rc(&val).map(|(bytes, _rc)| bytes.to_vec())
     }
 
@@ -143,35 +169,13 @@ impl TrieCachingStorage {
         key[8..].copy_from_slice(hash.as_ref());
         key
     }
-
-    /// Get storage refcount, or 0 if hash is not present
-    /// # Errors
-    /// StorageError::StorageInternalError if the storage fails internally.
-    pub fn retrieve_rc(&self, hash: &CryptoHash) -> Result<u32, StorageError> {
-        // Ignore cache to be safe. retrieve_rc is used only when writing storage and cache is shared with readers.
-        let key = Self::get_key_from_shard_id_and_hash(self.shard_id, hash);
-        let val = self
-            .store
-            .get(ColState, key.as_ref())
-            .map_err(|_| StorageError::StorageInternalError)?;
-        if let Some(val) = val {
-            let rc = Self::vec_to_rc(&val);
-            rc
-        } else {
-            Ok(0)
-        }
-    }
-
-    pub fn update_cache(&self, ops: Vec<(CryptoHash, Option<Vec<u8>>)>) {
-        self.cache.update_cache(ops)
-    }
 }
 
 impl TrieStorage for TrieCachingStorage {
     fn retrieve_raw_bytes(&self, hash: &CryptoHash) -> Result<Vec<u8>, StorageError> {
         let mut guard = self.cache.0.lock().expect(POISONED_LOCK_ERR);
         if let Some(val) = guard.cache_get(hash) {
-            Self::vec_to_bytes(val)
+            Ok(val.clone())
         } else {
             let key = Self::get_key_from_shard_id_and_hash(self.shard_id, hash);
             let val = self
@@ -180,8 +184,11 @@ impl TrieStorage for TrieCachingStorage {
                 .map_err(|_| StorageError::StorageInternalError)?;
             if let Some(val) = val {
                 let raw_node = Self::vec_to_bytes(&val);
-                if val.len() < TRIE_LIMIT_CACHED_VALUE_SIZE {
-                    guard.cache_set(*hash, val);
+                debug_assert!(Self::vec_to_rc(&val).unwrap() > 0);
+                if val.len() < TRIE_LIMIT_CACHED_VALUE_SIZE && raw_node.is_ok() {
+                    if let Ok(ref bytes) = raw_node {
+                        guard.cache_set(*hash, bytes.clone());
+                    }
                 }
                 raw_node
             } else {

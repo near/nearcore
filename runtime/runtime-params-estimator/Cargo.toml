@@ -22,9 +22,10 @@ near-crypto = { path = "../../core/crypto" }
 near-vm-logic = {path = "../../runtime/near-vm-logic" , features = ["costs_counting"]}
 near-vm-runner = {path = "../../runtime/near-vm-runner" , features = ["costs_counting", "no_cache", "wasmtime_vm"]}
 node-runtime = { path = "../../runtime/runtime" , features = ["costs_counting", "no_cache"]}
-near-store = { path = "../../core/store", features = ["no_cache"] }
+near-store = { path = "../../core/store", features = ["no_cache", "single_thread_rocksdb"]}
 near-primitives = { path = "../../core/primitives" }
 neard = { path = "../../neard" }
+rocksdb = { git = "https://github.com/nearprotocol/rust-rocksdb", branch="disable-thread" }
 
 [features]
 default = []

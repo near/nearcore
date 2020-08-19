@@ -8,9 +8,10 @@ use std::sync::{Arc, RwLock};
 use actix::{Addr, System};
 use rand::{thread_rng, Rng};
 
+use futures::FutureExt;
 use near_chain::test_utils::account_id_to_shard_id;
 use near_client::test_utils::setup_mock_all_validators;
-use near_client::{ClientActor, ViewClientActor};
+use near_client::{ClientActor, GetBlock, ViewClientActor};
 use near_crypto::{InMemorySigner, KeyType};
 use near_logger_utils::init_test_logger;
 use near_network::types::NetworkRequests::PartialEncodedChunkMessage;
@@ -38,7 +39,7 @@ fn repro_1183() {
         let validators2 = validators.clone();
         let last_block: Arc<RwLock<Option<Block>>> = Arc::new(RwLock::new(None));
         let delayed_one_parts: Arc<RwLock<Vec<NetworkRequests>>> = Arc::new(RwLock::new(vec![]));
-        let (_, conn) = setup_mock_all_validators(
+        let (_, conn, _) = setup_mock_all_validators(
             validators.clone(),
             key_pairs.clone(),
             validator_groups,
@@ -49,6 +50,7 @@ fn repro_1183() {
             5,
             false,
             vec![false; validators.iter().map(|x| x.len()).sum()],
+            false,
             Arc::new(RwLock::new(Box::new(move |_account_id: String, msg: &NetworkRequests| {
                 if let NetworkRequests::Block { block } = msg {
                     let mut last_block = last_block.write().unwrap();
@@ -149,7 +151,7 @@ fn test_sync_from_achival_node() {
         > = Arc::new(RwLock::new(Box::new(|_: String, _: &NetworkRequests| {
             (NetworkResponses::NoResponse, true)
         })));
-        let (_, conns) = setup_mock_all_validators(
+        let (_, conns, _) = setup_mock_all_validators(
             validators.clone(),
             key_pairs,
             1,
@@ -160,6 +162,7 @@ fn test_sync_from_achival_node() {
             epoch_length,
             false,
             vec![true, false, false, false],
+            false,
             network_mock.clone(),
         );
         let mut block_counter = 0;
@@ -226,6 +229,64 @@ fn test_sync_from_achival_node() {
             });
 
         near_network::test_utils::wait_or_panic(20000);
+    })
+    .unwrap();
+}
+
+#[test]
+fn test_long_gap_between_blocks() {
+    init_test_logger();
+    let validators = vec![vec!["test1", "test2"]];
+    let key_pairs = vec![PeerInfo::random(), PeerInfo::random()];
+    let epoch_length = 1000;
+    let target_height = 600;
+
+    System::run(move || {
+        let network_mock: Arc<
+            RwLock<Box<dyn FnMut(String, &NetworkRequests) -> (NetworkResponses, bool)>>,
+        > = Arc::new(RwLock::new(Box::new(|_: String, _: &NetworkRequests| {
+            (NetworkResponses::NoResponse, true)
+        })));
+        let (_, conns, _) = setup_mock_all_validators(
+            validators.clone(),
+            key_pairs,
+            1,
+            true,
+            10,
+            false,
+            false,
+            epoch_length,
+            true,
+            vec![false, false],
+            false,
+            network_mock.clone(),
+        );
+        *network_mock.write().unwrap() =
+            Box::new(move |_: String, msg: &NetworkRequests| -> (NetworkResponses, bool) {
+                match msg {
+                    NetworkRequests::Approval { approval_message } => {
+                        actix::spawn(conns[1].1.send(GetBlock::latest()).then(move |res| {
+                            let res = res.unwrap().unwrap();
+                            if res.header.height > target_height {
+                                System::current().stop();
+                            }
+                            futures::future::ready(())
+                        }));
+                        if approval_message.approval.target_height < target_height {
+                            (NetworkResponses::NoResponse, false)
+                        } else {
+                            if approval_message.target == "test1".to_string() {
+                                (NetworkResponses::NoResponse, true)
+                            } else {
+                                (NetworkResponses::NoResponse, false)
+                            }
+                        }
+                    }
+                    _ => (NetworkResponses::NoResponse, true),
+                }
+            });
+
+        near_network::test_utils::wait_or_panic(60000);
     })
     .unwrap();
 }
