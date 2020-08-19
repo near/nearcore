@@ -6,7 +6,7 @@ use futures::{future, FutureExt};
 
 use near_client::test_utils::setup_mock_all_validators;
 use near_client::{ClientActor, Query, ViewClientActor};
-use near_logger_utils::init_test_logger;
+use near_logger_utils::init_integration_logger;
 use near_network::{NetworkRequests, NetworkResponses, PeerInfo};
 use near_primitives::types::BlockIdOrFinality;
 use near_primitives::views::{QueryRequest, QueryResponseKind::ViewAccount};
@@ -16,7 +16,7 @@ use near_primitives::views::{QueryRequest, QueryResponseKind::ViewAccount};
 fn test_keyvalue_runtime_balances() {
     let validator_groups = 2;
     let successful_queries = Arc::new(AtomicUsize::new(0));
-    init_test_logger();
+    init_integration_logger();
     System::run(move || {
         let connectors: Arc<RwLock<Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>>> =
             Arc::new(RwLock::new(vec![]));
@@ -89,7 +89,7 @@ mod tests {
     use near_client::test_utils::{setup_mock_all_validators, BlockStats};
     use near_client::{ClientActor, Query, ViewClientActor};
     use near_crypto::{InMemorySigner, KeyType};
-    use near_logger_utils::init_test_logger;
+    use near_logger_utils::init_integration_logger;
     use near_network::{
         NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkResponses, PeerInfo,
     };
@@ -391,7 +391,7 @@ mod tests {
         max_ratio: Option<f64>,
     ) {
         let validator_groups = 4;
-        init_test_logger();
+        init_integration_logger();
         System::run(move || {
             let connectors: Arc<RwLock<Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>>> =
                 Arc::new(RwLock::new(vec![]));
@@ -513,7 +513,7 @@ mod tests {
 
     #[test]
     fn test_cross_shard_tx() {
-        test_cross_shard_tx_common(64, false, false, false, 100, Some(2.4), None);
+        test_cross_shard_tx_common(64, false, false, false, 80, Some(2.4), None);
     }
 
     #[test]
