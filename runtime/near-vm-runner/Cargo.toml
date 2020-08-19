@@ -34,7 +34,7 @@ default = [ "wasmer_default"]
 wasmtime_vm = [ "wasmtime", "anyhow"]
 wasmer_default = []
 wasmtime_default = ["wasmtime_vm"]
-lightbeam = ["wasmtime_default"]
+lightbeam = ["wasmtime_vm"]
 
 # Use this feature to enable counting of fees and costs applied.
 costs_counting = ["near-vm-logic/costs_counting"]
