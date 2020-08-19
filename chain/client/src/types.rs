@@ -22,6 +22,7 @@ use near_primitives::views::{
     BlockView, ChunkView, EpochValidatorInfo, ExecutionOutcomeWithIdView,
     FinalExecutionOutcomeView, GasPriceView, LightClientBlockLiteView, LightClientBlockView,
     QueryRequest, QueryResponse, StateChangesKindsView, StateChangesRequestView, StateChangesView,
+    ValidatorStakeView,
 };
 pub use near_primitives::views::{StatusResponse, StatusSyncInfo};
 
@@ -283,6 +284,14 @@ pub struct GetValidatorInfo {
 
 impl Message for GetValidatorInfo {
     type Result = Result<EpochValidatorInfo, String>;
+}
+
+pub struct GetValidatorOrdered {
+    pub block_id: MaybeBlockId,
+}
+
+impl Message for GetValidatorOrdered {
+    type Result = Result<Vec<ValidatorStakeView>, String>;
 }
 
 pub struct GetStateChanges {

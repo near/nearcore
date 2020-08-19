@@ -451,6 +451,17 @@ fn test_health_ok() {
     });
 }
 
+#[test]
+fn test_validators_ordered() {
+    test_with_client!(test_utils::NodeType::Validator, client, async move {
+        let validators = client.EXPERIMENTAL_validators_ordered(BlockId::Height(0)).await.unwrap();
+        assert_eq!(
+            validators.into_iter().map(|v| v.account_id).collect::<Vec<_>>(),
+            vec!["test1".to_string(), "test2".to_string()]
+        )
+    });
+}
+
 /// Retrieve genesis config via JSON RPC.
 /// WARNING: Be mindful about changing genesis structure as it is part of the public protocol!
 #[test]
