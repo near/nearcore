@@ -513,7 +513,7 @@ mod tests {
 
     #[test]
     fn test_cross_shard_tx() {
-        test_cross_shard_tx_common(64, false, false, false, 200, Some(2.4), None);
+        test_cross_shard_tx_common(64, false, false, false, 80, Some(2.4), None);
     }
 
     #[test]

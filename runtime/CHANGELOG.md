@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.2.0
+
+- Implement gas profiler [#3038](https://github.com/nearprotocol/nearcore/pull/3038)
+
 ## 1.1.0
 
 - Move `sha256`, `keccak256` and `keccak512` form External trait to logic, since they are pure functions. [#3030](https://github.com/nearprotocol/nearcore/issues/3030)
