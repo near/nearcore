@@ -10,6 +10,7 @@ use near_logger_utils::init_test_logger;
 use near_network::test_utils::WaitOrTimeout;
 use near_primitives::account::{AccessKey, AccessKeyPermission};
 use near_primitives::hash::CryptoHash;
+use near_primitives::rpc::RpcValidatorsOrderedRequest;
 use near_primitives::rpc::{RpcGenesisRecordsRequest, RpcPagination, RpcQueryRequest};
 use near_primitives::types::{BlockId, BlockIdOrFinality, Finality, ShardId};
 use near_primitives::version::PROTOCOL_VERSION;
@@ -448,6 +449,20 @@ fn test_health_ok() {
     test_with_client!(test_utils::NodeType::NonValidator, client, async move {
         let health = client.health().await;
         assert!(health.is_ok());
+    });
+}
+
+#[test]
+fn test_validators_ordered() {
+    test_with_client!(test_utils::NodeType::Validator, client, async move {
+        let validators = client
+            .EXPERIMENTAL_validators_ordered(RpcValidatorsOrderedRequest { block_id: None })
+            .await
+            .unwrap();
+        assert_eq!(
+            validators.into_iter().map(|v| v.account_id).collect::<Vec<_>>(),
+            vec!["test1".to_string(), "test2".to_string()]
+        )
     });
 }
 
