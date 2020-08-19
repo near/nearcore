@@ -40,6 +40,7 @@ pytest --timeout=300 sanity/large_messages.py
 pytest sanity/controlled_edge_nonce.py
 pytest sanity/repro_2916.py
 pytest --timeout=240 sanity/switch_node_key.py
+pytest --timeout=300 sanity/saturate_routing_table.py
 # TODO: re-enable after #2949 is fixed
 # pytest --timeout=240 sanity/validator_switch_key.py
 pytest sanity/proxy_simple.py
