@@ -830,18 +830,20 @@ impl EpochManager {
         let epoch_info_aggregator =
             self.get_and_update_epoch_info_aggregator(&epoch_id, block_hash, true)?;
         let current_validators = cur_epoch_info
-            .validators
-            .into_iter()
-            .enumerate()
-            .map(|(validator_id, info)| {
+            .block_producers_settlement
+            .iter()
+            .map(|validator_id| {
                 let validator_stats = epoch_info_aggregator
                     .block_tracker
-                    .get(&(validator_id as u64))
+                    .get(validator_id)
                     .unwrap_or_else(|| &ValidatorStats { produced: 0, expected: 0 })
                     .clone();
-                let mut shards =
-                    validator_to_shard[validator_id].clone().into_iter().collect::<Vec<ShardId>>();
+                let mut shards = validator_to_shard[*validator_id as usize]
+                    .clone()
+                    .into_iter()
+                    .collect::<Vec<ShardId>>();
                 shards.sort();
+                let info = cur_epoch_info.validators[*validator_id as usize].clone();
                 Ok(CurrentEpochValidatorInfo {
                     is_slashed: slashed.contains_key(&info.account_id),
                     account_id: info.account_id,
@@ -866,15 +868,15 @@ impl EpochManager {
             }
         }
         let next_validators = next_epoch_info
-            .validators
+            .block_producers_settlement
             .iter()
-            .enumerate()
-            .map(|(validator_id, info)| {
-                let mut shards = next_validator_to_shard[validator_id]
+            .map(|validator_id| {
+                let mut shards = next_validator_to_shard[*validator_id as usize]
                     .clone()
                     .into_iter()
                     .collect::<Vec<ShardId>>();
                 shards.sort();
+                let info = &next_epoch_info.validators[*validator_id as usize];
                 NextEpochValidatorInfo {
                     account_id: info.account_id.clone(),
                     public_key: info.public_key.clone(),

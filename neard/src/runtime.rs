@@ -1388,6 +1388,7 @@ mod test {
     use crate::get_store_path;
 
     use super::*;
+    use rand::Rng;
 
     fn stake(
         nonce: Nonce,
@@ -2075,6 +2076,7 @@ mod test {
 
     #[test]
     fn test_get_validator_info() {
+        init_test_logger();
         let num_nodes = 2;
         let validators = (0..num_nodes).map(|i| format!("test{}", i + 1)).collect::<Vec<_>>();
         let mut env = TestEnv::new(
@@ -2096,8 +2098,8 @@ mod test {
         env.step_default(vec![]);
         let mut current_epoch_validator_info = vec![
             CurrentEpochValidatorInfo {
-                account_id: "test1".to_string(),
-                public_key: block_producers[0].public_key(),
+                account_id: "test2".to_string(),
+                public_key: block_producers[1].public_key(),
                 is_slashed: false,
                 stake: TESTING_INIT_STAKE,
                 shards: vec![0],
@@ -2105,8 +2107,8 @@ mod test {
                 num_expected_blocks: 1,
             },
             CurrentEpochValidatorInfo {
-                account_id: "test2".to_string(),
-                public_key: block_producers[1].public_key(),
+                account_id: "test1".to_string(),
+                public_key: block_producers[0].public_key(),
                 is_slashed: false,
                 stake: TESTING_INIT_STAKE,
                 shards: vec![0],
@@ -2116,14 +2118,14 @@ mod test {
         ];
         let next_epoch_validator_info = vec![
             NextEpochValidatorInfo {
-                account_id: "test1".to_string(),
-                public_key: block_producers[0].public_key(),
+                account_id: "test2".to_string(),
+                public_key: block_producers[1].public_key(),
                 stake: TESTING_INIT_STAKE,
                 shards: vec![0],
             },
             NextEpochValidatorInfo {
-                account_id: "test2".to_string(),
-                public_key: block_producers[1].public_key(),
+                account_id: "test1".to_string(),
+                public_key: block_producers[0].public_key(),
                 stake: TESTING_INIT_STAKE,
                 shards: vec![0],
             },
@@ -2149,18 +2151,21 @@ mod test {
         env.step_default(vec![]);
         let response = env.runtime.get_validator_info(&env.head.last_block_hash).unwrap();
 
-        current_epoch_validator_info[1].num_produced_blocks = 0;
-        current_epoch_validator_info[1].num_expected_blocks = 0;
+        current_epoch_validator_info[0].num_produced_blocks = 0;
+        current_epoch_validator_info[0].num_expected_blocks = 0;
         assert_eq!(response.current_validators, current_epoch_validator_info);
         assert_eq!(
             response.next_validators,
-            vec![NextEpochValidatorInfo {
-                account_id: "test2".to_string(),
-                public_key: block_producers[1].public_key(),
-                stake: TESTING_INIT_STAKE + per_epoch_per_validator_reward,
-                shards: vec![0],
-            }
-            .into()]
+            vec![
+                NextEpochValidatorInfo {
+                    account_id: "test2".to_string(),
+                    public_key: block_producers[1].public_key(),
+                    stake: TESTING_INIT_STAKE + per_epoch_per_validator_reward,
+                    shards: vec![0],
+                }
+                .into();
+                2
+            ]
         );
         assert!(response.current_proposals.is_empty());
         assert_eq!(
@@ -2718,5 +2723,52 @@ mod test {
         env.step_default(vec![staking_transaction3]);
         assert_eq!(env.last_proposals.len(), 1);
         assert_eq!(env.last_proposals[0].stake, 0);
+    }
+
+    #[test]
+    fn test_get_epoch_info_order() {
+        let char_set = b"abcdefghijklmnopqrstuvwxyz0123456789";
+        let num_nodes = 10;
+        let account_id_length = 32;
+        let validators = (0..num_nodes)
+            .map(|_| {
+                let mut rng = rand::thread_rng();
+                (0..account_id_length)
+                    .map(|_| {
+                        let idx = rng.gen_range(0, char_set.len());
+                        char_set[idx] as char
+                    })
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>();
+        let mut env = TestEnv::new(
+            "test_get_epoch_info_order",
+            vec![validators.clone()],
+            10,
+            vec![],
+            vec![],
+            false,
+        );
+        env.step_default(vec![]);
+        let validator_info = env.runtime.get_validator_info(&env.head.last_block_hash).unwrap();
+        let block_producers_ordered = env
+            .runtime
+            .get_epoch_block_producers_ordered(&env.head.epoch_id, &env.head.last_block_hash)
+            .unwrap();
+        assert_eq!(
+            block_producers_ordered,
+            validator_info
+                .current_validators
+                .into_iter()
+                .map(|info| (
+                    ValidatorStake {
+                        account_id: info.account_id,
+                        public_key: info.public_key,
+                        stake: info.stake
+                    },
+                    false
+                ))
+                .collect::<Vec<_>>()
+        );
     }
 }
