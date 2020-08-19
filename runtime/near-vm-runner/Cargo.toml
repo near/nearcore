@@ -1,6 +1,6 @@
 [package]
 name = "near-vm-runner"
-version = "1.1.0"
+version = "1.2.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2018"
 license = "Apache-2.0"
@@ -20,9 +20,9 @@ pwasm-utils = "0.12"
 parity-wasm = "0.41"
 wasmtime = { version = "0.17.0", features = ["lightbeam"], default-features = false, optional = true }
 anyhow = { version = "1.0.19", optional = true }
-near-runtime-fees = { path="../near-runtime-fees", version = "1.1.0" }
-near-vm-logic = { path="../near-vm-logic", version = "1.1.0", default-features = false, features = []}
-near-vm-errors = { path = "../near-vm-errors", version = "1.1.0" }
+near-runtime-fees = { path="../near-runtime-fees", version = "1.2.0" }
+near-vm-logic = { path="../near-vm-logic", version = "1.2.0", default-features = false, features = []}
+near-vm-errors = { path = "../near-vm-errors", version = "1.2.0" }
 
 [dev-dependencies]
 assert_matches = "1.3"
