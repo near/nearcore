@@ -543,6 +543,6 @@ mod tests {
 
     #[test]
     fn test_cross_shard_tx_with_validator_rotation_2() {
-        test_cross_shard_tx_common(24, true, false, false, 400, Some(2.4), None);
+        test_cross_shard_tx_common(24, true, false, false, 320, Some(2.4), None);
     }
 }
