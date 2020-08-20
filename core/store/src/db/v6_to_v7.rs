@@ -28,7 +28,7 @@ fn vec_to_rc(bytes: &[u8]) -> i32 {
     cursor.read_i32::<LittleEndian>().unwrap()
 }
 
-fn merge_refcounted_records_v6(result: &mut Vec<u8>, val: &[u8]) -> () {
+fn merge_refcounted_records_v6(result: &mut Vec<u8>, val: &[u8]) {
     if val.is_empty() {
         return;
     }
