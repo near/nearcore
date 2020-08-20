@@ -688,7 +688,9 @@ mod tests {
         SecondAttack,
     }
 
+    // TODO(#3180): seals are disabled in single shard setting
     #[test]
+    #[ignore]
     fn test_chunk_grieving() {
         let validator_groups = 1;
         init_integration_logger();
@@ -706,7 +708,7 @@ mod tests {
 
             let _connectors1 = connectors.clone();
 
-            let block_prod_time: u64 = 3000;
+            let block_prod_time: u64 = 3500;
             let (_, conn, _) = setup_mock_all_validators(
                 validators.clone(),
                 key_pairs.clone(),

@@ -6,7 +6,7 @@ use futures::{future, FutureExt};
 
 use near_client::test_utils::setup_mock_all_validators;
 use near_client::{ClientActor, Query, ViewClientActor};
-use near_logger_utils::init_test_logger;
+use near_logger_utils::init_integration_logger;
 use near_network::{NetworkRequests, NetworkResponses, PeerInfo};
 use near_primitives::types::BlockIdOrFinality;
 use near_primitives::views::{QueryRequest, QueryResponseKind::ViewAccount};
@@ -16,7 +16,7 @@ use near_primitives::views::{QueryRequest, QueryResponseKind::ViewAccount};
 fn test_keyvalue_runtime_balances() {
     let validator_groups = 2;
     let successful_queries = Arc::new(AtomicUsize::new(0));
-    init_test_logger();
+    init_integration_logger();
     System::run(move || {
         let connectors: Arc<RwLock<Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>>> =
             Arc::new(RwLock::new(vec![]));
@@ -89,7 +89,7 @@ mod tests {
     use near_client::test_utils::{setup_mock_all_validators, BlockStats};
     use near_client::{ClientActor, Query, ViewClientActor, ViewClientError};
     use near_crypto::{InMemorySigner, KeyType};
-    use near_logger_utils::init_test_logger;
+    use near_logger_utils::init_integration_logger;
     use near_network::{
         NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkResponses, PeerInfo,
     };
@@ -391,7 +391,7 @@ mod tests {
         max_ratio: Option<f64>,
     ) {
         let validator_groups = 4;
-        init_test_logger();
+        init_integration_logger();
         System::run(move || {
             let connectors: Arc<RwLock<Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>>> =
                 Arc::new(RwLock::new(vec![]));
@@ -505,7 +505,7 @@ mod tests {
             near_network::test_utils::wait_or_panic(if rotate_validators {
                 1000 * 60 * 80
             } else {
-                1000 * 60 * 30
+                1000 * 60 * 45
             });
         })
         .unwrap();
@@ -513,36 +513,36 @@ mod tests {
 
     #[test]
     fn test_cross_shard_tx() {
-        test_cross_shard_tx_common(64, false, false, false, 100, Some(3.0), None);
+        test_cross_shard_tx_common(64, false, false, false, 80, Some(2.4), None);
     }
 
     #[test]
     fn test_cross_shard_tx_doomslug() {
-        test_cross_shard_tx_common(64, false, false, true, 100, None, Some(1.5));
+        test_cross_shard_tx_common(64, false, false, true, 200, None, Some(1.5));
     }
 
     #[test]
     fn test_cross_shard_tx_drop_chunks() {
-        test_cross_shard_tx_common(64, false, true, false, 150, Some(3.0), None);
+        test_cross_shard_tx_common(64, false, true, false, 250, None, None);
     }
 
     #[test]
     fn test_cross_shard_tx_8_iterations() {
-        test_cross_shard_tx_common(8, false, false, false, 100, Some(3.0), None);
+        test_cross_shard_tx_common(8, false, false, false, 200, Some(2.4), None);
     }
 
     #[test]
     fn test_cross_shard_tx_8_iterations_drop_chunks() {
-        test_cross_shard_tx_common(8, false, true, false, 150, Some(3.0), None);
+        test_cross_shard_tx_common(8, false, true, false, 200, Some(2.4), None);
     }
 
     #[test]
     fn test_cross_shard_tx_with_validator_rotation_1() {
-        test_cross_shard_tx_common(8, true, false, false, 200, Some(3.0), None);
+        test_cross_shard_tx_common(8, true, false, false, 220, Some(2.4), None);
     }
 
     #[test]
     fn test_cross_shard_tx_with_validator_rotation_2() {
-        test_cross_shard_tx_common(24, true, false, false, 400, Some(3.0), None);
+        test_cross_shard_tx_common(24, true, false, false, 400, Some(2.4), None);
     }
 }

@@ -29,7 +29,7 @@ async def main():
 
     # First handshake attempt. Should fail with Genesis Mismatch
     handshake = create_handshake(my_key_pair_nacl, nodes[0].node_key.pk, 12345)
-    handshake.Handshake.edge_info.nonce = 5
+    handshake.Handshake.edge_info.nonce = 1505
     sign_handshake(my_key_pair_nacl, handshake.Handshake)
 
     await conn.send(handshake)

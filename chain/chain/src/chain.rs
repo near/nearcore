@@ -830,6 +830,7 @@ impl Chain {
     pub fn check_state_needed(
         &mut self,
         block_fetch_horizon: BlockHeightDelta,
+        force_block_sync: bool,
     ) -> Result<BlockSyncResponse, Error> {
         let block_head = self.head()?;
         let header_head = self.header_head()?;
@@ -846,7 +847,9 @@ impl Chain {
 
         // Don't run State Sync if header head is not more than one epoch ahead.
         if block_head.epoch_id != header_head.epoch_id && next_epoch_id != header_head.epoch_id {
-            if block_head.height < header_head.height.saturating_sub(block_fetch_horizon) {
+            if block_head.height < header_head.height.saturating_sub(block_fetch_horizon)
+                && !force_block_sync
+            {
                 // Epochs are different and we are too far from horizon, State Sync is needed
                 return Ok(BlockSyncResponse::StateNeeded);
             }

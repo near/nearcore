@@ -11,7 +11,10 @@ use cached::{Cached, SizedCache};
 use log::{debug, error, info, trace, warn};
 use serde::{Deserialize, Serialize};
 
-use near_chain::{Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode, RuntimeAdapter};
+use near_chain::{
+    get_epoch_block_producers_view, Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode,
+    RuntimeAdapter,
+};
 use near_chain_configs::ClientConfig;
 #[cfg(feature = "adversarial")]
 use near_network::types::NetworkAdversarialMessage;
@@ -31,7 +34,7 @@ use near_primitives::types::{
 use near_primitives::views::{
     BlockView, ChunkView, EpochValidatorInfo, FinalExecutionOutcomeView, FinalExecutionStatus,
     GasPriceView, LightClientBlockView, QueryRequest, QueryResponse, StateChangesKindsView,
-    StateChangesView,
+    StateChangesView, ValidatorStakeView,
 };
 
 use crate::types::{
@@ -40,7 +43,7 @@ use crate::types::{
 };
 use crate::{
     sync, GetChunk, GetExecutionOutcomeResponse, GetNextLightClientBlock, GetStateChanges,
-    GetStateChangesInBlock, GetValidatorInfo,
+    GetStateChangesInBlock, GetValidatorInfo, GetValidatorOrdered,
 };
 
 /// Max number of queries that we keep.
@@ -492,6 +495,22 @@ impl Handler<GetValidatorInfo> for ViewClientActor {
     }
 }
 
+impl Handler<GetValidatorOrdered> for ViewClientActor {
+    type Result = Result<Vec<ValidatorStakeView>, String>;
+
+    fn handle(&mut self, msg: GetValidatorOrdered, _: &mut Self::Context) -> Self::Result {
+        self.maybe_block_id_to_block_hash(msg.block_id)
+            .and_then(|block_hash| self.chain.get_block_header(&block_hash).map(|h| h.clone()))
+            .and_then(|header| {
+                get_epoch_block_producers_view(
+                    header.epoch_id(),
+                    header.prev_hash(),
+                    &*self.runtime_adapter,
+                )
+            })
+            .map_err(|err| err.to_string())
+    }
+}
 /// Returns a list of change kinds per account in a store for a given block.
 impl Handler<GetStateChangesInBlock> for ViewClientActor {
     type Result = Result<StateChangesKindsView, ViewClientError>;
