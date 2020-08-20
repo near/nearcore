@@ -1,5 +1,5 @@
 {
-  "protocol_version": 33,
+  "protocol_version": 34,
   "genesis_time": "1970-01-01T00:00:00.000000000Z",
   "chain_id": "sample",
   "genesis_height": 0,

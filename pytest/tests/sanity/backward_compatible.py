@@ -17,14 +17,14 @@ import branches
 import cluster
 
 
-def main():
+def main(near_root, stable_branch, new_branch):
+    print("Stable binary:", "%snear-%s" % (near_root, stable_branch))
+    print("New binary:", "%snear-%s" % (near_root, new_branch))
+
     node_root = "/tmp/near/backward"
     if os.path.exists(node_root):
         shutil.rmtree(node_root)
     subprocess.check_output('mkdir -p /tmp/near', shell=True)
-
-    near_root, (stable_branch,
-                current_branch) = branches.prepare_ab_test("beta")
 
     # Setup local network.
     subprocess.call([
@@ -54,7 +54,7 @@ def main():
     stable_node = cluster.spin_up_node(config, near_root,
                                        os.path.join(node_root, "test0"), 0,
                                        None, None)
-    config["binary_name"] = "near-%s" % current_branch
+    config["binary_name"] = "near-%s" % new_branch
     current_node = cluster.spin_up_node(config, near_root,
                                         os.path.join(node_root, "test1"), 1,
                                         stable_node.node_key.pk,
@@ -65,13 +65,20 @@ def main():
     # TODO: send some transactions to test that runtime works the same.
     BLOCKS = 20
     TIMEOUT = 150
-    max_height = 0
+    max_height = -1
     started = time.time()
     while max_height < BLOCKS:
         assert time.time() - started < TIMEOUT
         status = current_node.get_status()
-        max_height = status['sync_info']['latest_block_height']
+        cur_height = status['sync_info']['latest_block_height']
+
+        if cur_height > max_height:
+            max_height = cur_height
+            print("Height:", max_height)
 
 
 if __name__ == "__main__":
-    main()
+    near_root, (stable_branch,
+                new_branch) = branches.prepare_ab_test("beta")
+
+    main(near_root, stable_branch, new_branch)
