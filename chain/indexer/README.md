@@ -109,3 +109,11 @@ Indexer Framework also exposes access to the internal APIs (see `Indexer::client
 "archive": true,
 ...
 ```
+
+
+## Who is using NEAR Indexer?
+
+*This list is not exclusive, feel free to submit your project by sending a pull request.*
+
+* [Indexer for NEAR Wallet](https://github.com/near/near-indexer-for-wallet)
+* [Indexer for NEAR Explorer](https://github.com/near/near-indexer-for-explorer)
