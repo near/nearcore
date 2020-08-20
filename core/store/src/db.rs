@@ -1,12 +1,11 @@
-use std::collections::HashMap;
-use std::io;
-use std::sync::RwLock;
-
 #[cfg(not(feature = "single_thread_rocksdb"))]
 use std::cmp;
+use std::collections::HashMap;
+use std::io;
+use std::marker::PhantomPinned;
+use std::sync::RwLock;
 
 use borsh::{BorshDeserialize, BorshSerialize};
-
 #[cfg(feature = "single_thread_rocksdb")]
 use rocksdb::Env;
 use rocksdb::{
@@ -15,9 +14,9 @@ use rocksdb::{
 };
 use strum_macros::EnumIter;
 
-use crate::db::refcount::merge_refcounted_records;
 use near_primitives::version::DbVersion;
-use std::marker::PhantomPinned;
+
+use crate::db::refcount::merge_refcounted_records;
 
 pub(crate) mod refcount;
 pub(crate) mod v6_to_v7;
