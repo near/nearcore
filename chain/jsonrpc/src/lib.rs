@@ -42,7 +42,7 @@ use near_primitives::rpc::{
 };
 use near_primitives::serialize::{from_base, from_base64, BaseEncode};
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, BlockId, BlockIdOrFinality, MaybeBlockId};
+use near_primitives::types::{AccountId, BlockId, BlockReference, MaybeBlockId};
 use near_primitives::utils::is_valid_account_id;
 use near_primitives::views::{FinalExecutionOutcomeView, GenesisRecordsView, QueryRequest};
 mod metrics;
@@ -553,11 +553,11 @@ impl JsonRpcHandler {
                 }
             };
             // Use Finality::None here to make backward compatibility tests work
-            RpcQueryRequest { request, block_id_or_finality: BlockIdOrFinality::latest() }
+            RpcQueryRequest { request, block_reference: BlockReference::latest() }
         } else {
             parse_params::<RpcQueryRequest>(params)?
         };
-        let query = Query::new(query_request.block_id_or_finality, query_request.request);
+        let query = Query::new(query_request.block_reference, query_request.request);
         timeout(self.polling_config.polling_timeout, async {
             loop {
                 let result = self.view_client_addr.send(query.clone()).await;
@@ -598,13 +598,12 @@ impl JsonRpcHandler {
     }
 
     async fn block(&self, params: Option<Value>) -> Result<Value, RpcError> {
-        let block_id_or_finality =
-            if let Ok((block_id,)) = parse_params::<(BlockId,)>(params.clone()) {
-                BlockIdOrFinality::BlockId(block_id)
-            } else {
-                parse_params::<BlockIdOrFinality>(params)?
-            };
-        jsonify(self.view_client_addr.send(GetBlock(block_id_or_finality)).await)
+        let block_reference = if let Ok((block_id,)) = parse_params::<(BlockId,)>(params.clone()) {
+            BlockReference::BlockId(block_id)
+        } else {
+            parse_params::<BlockReference>(params)?
+        };
+        jsonify(self.view_client_addr.send(GetBlock(block_reference)).await)
     }
 
     async fn chunk(&self, params: Option<Value>) -> Result<Value, RpcError> {
@@ -625,10 +624,10 @@ impl JsonRpcHandler {
     }
 
     async fn changes_in_block(&self, params: Option<Value>) -> Result<Value, RpcError> {
-        let RpcStateChangesInBlockRequest { block_id_or_finality } = parse_params(params)?;
+        let RpcStateChangesInBlockRequest { block_reference } = parse_params(params)?;
         let block = self
             .view_client_addr
-            .send(GetBlock(block_id_or_finality))
+            .send(GetBlock(block_reference))
             .await
             .map_err(|err| RpcError::server_error(Some(err.to_string())))?
             .map_err(|err| RpcError::server_error(Some(err)))?;
@@ -642,11 +641,11 @@ impl JsonRpcHandler {
     }
 
     async fn changes_in_block_by_type(&self, params: Option<Value>) -> Result<Value, RpcError> {
-        let RpcStateChangesRequest { block_id_or_finality, state_changes_request } =
+        let RpcStateChangesRequest { block_reference, state_changes_request } =
             parse_params(params)?;
         let block = self
             .view_client_addr
-            .send(GetBlock(block_id_or_finality))
+            .send(GetBlock(block_reference))
             .await
             .map_err(|err| RpcError::server_error(Some(err.to_string())))?
             .map_err(|err| RpcError::server_error(Some(err)))?;

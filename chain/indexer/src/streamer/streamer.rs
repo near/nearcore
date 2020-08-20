@@ -63,7 +63,7 @@ async fn fetch_latest_block(
     client: &Addr<near_client::ViewClientActor>,
 ) -> Result<views::BlockView, FailedToFetchData> {
     client
-        .send(near_client::GetBlock(types::BlockIdOrFinality::Finality(types::Finality::Final)))
+        .send(near_client::GetBlock(types::BlockReference::Finality(types::Finality::Final)))
         .await?
         .map_err(|err| FailedToFetchData::String(err))
 }
@@ -74,7 +74,7 @@ async fn fetch_block_by_height(
     height: u64,
 ) -> Result<views::BlockView, FailedToFetchData> {
     client
-        .send(near_client::GetBlock(near_primitives::types::BlockIdOrFinality::BlockId(
+        .send(near_client::GetBlock(near_primitives::types::BlockReference::BlockId(
             near_primitives::types::BlockId::Height(height),
         )))
         .await?

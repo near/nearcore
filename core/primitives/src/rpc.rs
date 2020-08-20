@@ -10,7 +10,7 @@ use validator_derive::Validate;
 use crate::hash::CryptoHash;
 use crate::merkle::MerklePath;
 use crate::transaction::SignedTransaction;
-use crate::types::{AccountId, BlockIdOrFinality, MaybeBlockId, TransactionOrReceiptId};
+use crate::types::{AccountId, BlockReference, MaybeBlockId, TransactionOrReceiptId};
 use crate::views::{
     ExecutionOutcomeWithIdView, LightClientBlockLiteView, QueryRequest, StateChangeWithCauseView,
     StateChangesKindsView, StateChangesRequestView,
@@ -35,7 +35,7 @@ pub struct RpcGenesisRecordsRequest {
 #[derive(Serialize, Deserialize)]
 pub struct RpcQueryRequest {
     #[serde(flatten)]
-    pub block_id_or_finality: BlockIdOrFinality,
+    pub block_reference: BlockReference,
     #[serde(flatten)]
     pub request: QueryRequest,
 }
@@ -43,7 +43,7 @@ pub struct RpcQueryRequest {
 #[derive(Serialize, Deserialize)]
 pub struct RpcStateChangesRequest {
     #[serde(flatten)]
-    pub block_id_or_finality: BlockIdOrFinality,
+    pub block_reference: BlockReference,
     #[serde(flatten)]
     pub state_changes_request: StateChangesRequestView,
 }
@@ -57,7 +57,7 @@ pub struct RpcStateChangesResponse {
 #[derive(Serialize, Deserialize)]
 pub struct RpcStateChangesInBlockRequest {
     #[serde(flatten)]
-    pub block_id_or_finality: BlockIdOrFinality,
+    pub block_reference: BlockReference,
 }
 
 #[derive(Serialize, Deserialize)]

@@ -15,7 +15,7 @@ use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::{compute_root_from_path_and_item, verify_path};
 use near_primitives::serialize::{from_base64, to_base64};
 use near_primitives::transaction::{PartialExecutionStatus, SignedTransaction};
-use near_primitives::types::{BlockId, BlockIdOrFinality, TransactionOrReceiptId};
+use near_primitives::types::{BlockId, BlockReference, TransactionOrReceiptId};
 use near_primitives::views::{
     ExecutionOutcomeView, ExecutionStatusView, FinalExecutionStatus, QueryResponseKind,
 };
@@ -560,7 +560,7 @@ fn test_get_execution_outcome(is_tx_successful: bool) {
                                 view_client1.send(GetExecutionOutcome { id }).then(move |res| {
                                     let execution_outcome_response = res.unwrap().unwrap();
                                     view_client2
-                                        .send(GetBlock(BlockIdOrFinality::BlockId(BlockId::Hash(
+                                        .send(GetBlock(BlockReference::BlockId(BlockId::Hash(
                                             execution_outcome_response.outcome_proof.block_hash,
                                         ))))
                                         .then(move |res| {
