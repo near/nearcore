@@ -22,20 +22,21 @@ class Handler(ProxyHandler):
         super().__init__(*args, **kwargs)
         self.dropped = 0
         self.total = 0
-        self.finished = False
+
 
     async def handle(self, msg, fr, to):
         if msg.enum == 'Block':
             h = msg.Block.BlockV1.header.BlockHeaderV2.inner_lite.height
 
-            if h > height.value:
-                height.value = h
-                print("Height:", h)
+            with height.get_lock():
+                if h > height.value:
+                    height.value = h
+                    print("Height:", h)
 
-            if h >= 10 and not self.finished:
-                self.finished = True
-                print(f'SUCCESS DROP={self.dropped} TOTAL={self.total}')
-                success.value = 1
+            with success.get_lock():
+                if h >= 10 and success.value is 0:
+                    print(f'SUCCESS DROP={self.dropped} TOTAL={self.total}')
+                    success.value = 1
 
         drop = random.random() < DROP_RATIO
 
@@ -51,10 +52,11 @@ start_cluster(4, 0, 1, None, [], {}, Handler)
 started = time.time()
 
 while True:
+    print(f"Time: {time.time() - started:0.2}, Fin: {success.value}")
     assert time.time() - started < TIMEOUT
     time.sleep(1)
 
-    if success.value == 1:
+    if success.value is 1:
         break
 
 print("Success")
