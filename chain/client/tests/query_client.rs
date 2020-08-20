@@ -19,7 +19,7 @@ use num_rational::Rational;
 fn query_client() {
     init_test_logger();
     System::run(|| {
-        let (_, view_client) = setup_no_network(vec!["test"], "other", true, true);
+        let (_, view_client) = setup_no_network(vec!["test"], "test", true, true);
         actix::spawn(
             view_client
                 .send(Query::new(

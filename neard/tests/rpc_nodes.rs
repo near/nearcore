@@ -16,10 +16,7 @@ use near_primitives::merkle::{compute_root_from_path_and_item, verify_path};
 use near_primitives::serialize::{from_base64, to_base64};
 use near_primitives::transaction::{PartialExecutionStatus, SignedTransaction};
 use near_primitives::types::{BlockId, BlockIdOrFinality, TransactionOrReceiptId};
-use near_primitives::views::{
-    ExecutionOutcomeView, ExecutionStatusView, FinalExecutionStatus, QueryResponseKind,
-};
-use neard::config::TESTING_INIT_BALANCE;
+use near_primitives::views::{ExecutionOutcomeView, ExecutionStatusView, FinalExecutionStatus};
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering::SeqCst;
 use std::sync::Arc;
@@ -319,96 +316,6 @@ fn test_tx_status_with_light_client1() {
                         })
                         .map(drop),
                 );
-            }),
-            100,
-            20000,
-        )
-        .start();
-
-        system.run().unwrap();
-    });
-}
-
-#[test]
-fn test_rpc_routing() {
-    init_integration_logger();
-    heavy_test(|| {
-        let system = System::new("NEAR");
-        let num_nodes = 4;
-        let dirs = (0..num_nodes)
-            .map(|i| {
-                tempfile::Builder::new().prefix(&format!("tx_propagation{}", i)).tempdir().unwrap()
-            })
-            .collect::<Vec<_>>();
-        let (_, rpc_addrs, clients) = start_nodes(4, &dirs, 2, 2, 10, 0);
-        let view_client = clients[0].1.clone();
-
-        WaitOrTimeout::new(
-            Box::new(move |_ctx| {
-                let rpc_addrs_copy = rpc_addrs.clone();
-                actix::spawn(view_client.send(GetBlock::latest()).then(move |res| {
-                    if res.unwrap().unwrap().header.height > 1 {
-                        let client = new_client(&format!("http://{}", rpc_addrs_copy[2]));
-                        actix::spawn(
-                            client
-                                .query_by_path("account/near.2".to_string(), "".to_string())
-                                .map_err(|err| panic_on_rpc_error!(err))
-                                .map_ok(move |result| match result.kind {
-                                    QueryResponseKind::ViewAccount(account_view) => {
-                                        assert_eq!(account_view.amount, TESTING_INIT_BALANCE);
-                                        System::current().stop();
-                                    }
-                                    _ => panic!("wrong query response"),
-                                })
-                                .map(drop),
-                        );
-                    }
-                    future::ready(())
-                }));
-            }),
-            100,
-            20000,
-        )
-        .start();
-
-        system.run().unwrap();
-    });
-}
-
-/// When we call rpc to view an account that does not exist, an error should be routed back.
-#[test]
-fn test_rpc_routing_error() {
-    init_integration_logger();
-    heavy_test(|| {
-        let system = System::new("NEAR");
-        let num_nodes = 4;
-        let dirs = (0..num_nodes)
-            .map(|i| {
-                tempfile::Builder::new().prefix(&format!("tx_propagation{}", i)).tempdir().unwrap()
-            })
-            .collect::<Vec<_>>();
-        let (_, rpc_addrs, clients) = start_nodes(4, &dirs, 2, 2, 10, 0);
-        let view_client = clients[0].1.clone();
-
-        WaitOrTimeout::new(
-            Box::new(move |_ctx| {
-                let rpc_addrs_copy = rpc_addrs.clone();
-                actix::spawn(view_client.send(GetBlock::latest()).then(move |res| {
-                    if res.unwrap().unwrap().header.height > 1 {
-                        let client = new_client(&format!("http://{}", rpc_addrs_copy[2]));
-                        actix::spawn(
-                            client
-                                .query_by_path("account/nonexistent".to_string(), "".to_string())
-                                .map_err(|err| {
-                                    println!("error: {}", err.to_string());
-                                    System::current().stop();
-                                })
-                                .map_ok(|_| panic!("wrong query response"))
-                                .map(drop),
-                        );
-                    }
-                    future::ready(())
-                }));
             }),
             100,
             20000,

@@ -29,7 +29,7 @@ use near_network::{
     PeerInfo,
 };
 use near_primitives::block::{Approval, ApprovalInner};
-use near_primitives::errors::InvalidTxError;
+use near_primitives::errors::{InvalidTxError, StateViewError};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::verify_hash;
 use near_primitives::sharding::{EncodedShardChunk, ReedSolomonWrapper};
@@ -40,7 +40,7 @@ use near_primitives::types::{BlockHeight, EpochId, NumBlocks, ValidatorStake};
 use near_primitives::utils::to_timestamp;
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
 use near_primitives::version::PROTOCOL_VERSION;
-use near_primitives::views::{QueryRequest, QueryResponseKind};
+use near_primitives::views::{QueryError, QueryRequest, QueryResponseKind};
 use near_store::test_utils::create_test_store;
 use neard::config::{GenesisExt, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use neard::NEAR_BASE;
@@ -1733,7 +1733,12 @@ fn test_data_reset_before_state_sync() {
         head_block.header().epoch_id(),
         &QueryRequest::ViewAccount { account_id: "test_account".to_string() },
     );
-    assert!(response.is_err());
+    assert!(matches!(
+        response.unwrap().kind,
+        QueryResponseKind::Error(QueryError {
+            error: StateViewError::StateStorageError(_), ..
+        })
+    ));
 }
 
 #[test]

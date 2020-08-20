@@ -4,6 +4,7 @@ use std::sync::{Arc, RwLock};
 use actix::{Addr, System};
 use futures::{future, FutureExt};
 
+use near_chain::test_utils::account_id_to_shard_id;
 use near_client::test_utils::setup_mock_all_validators;
 use near_client::{ClientActor, Query, ViewClientActor};
 use near_logger_utils::init_integration_logger;
@@ -33,7 +34,7 @@ fn test_keyvalue_runtime_balances() {
             100,
             false,
             false,
-            5,
+            100,
             false,
             vec![false; validators.iter().map(|x| x.len()).sum()],
             false,
@@ -47,10 +48,13 @@ fn test_keyvalue_runtime_balances() {
         let flat_validators = validators.iter().flatten().collect::<Vec<_>>();
         for i in 0..4 {
             let expected = (1000 + i * 100) as u128;
+            let account_id = flat_validators[i].to_string();
+            let shard_id = account_id_to_shard_id(&account_id, 4);
+            let index = if shard_id == 0 || shard_id == 1 { 0 } else { 2 };
 
             let successful_queries2 = successful_queries.clone();
             actix::spawn(
-                connectors_[i]
+                connectors_[index]
                     .1
                     .send(Query::new(
                         BlockIdOrFinality::latest(),
@@ -128,7 +132,8 @@ mod tests {
                 .then(move |x| {
                     match x.unwrap() {
                         NetworkClientResponses::NoResponse
-                        | NetworkClientResponses::RequestRouted => {
+                        | NetworkClientResponses::RequestRouted
+                        | NetworkClientResponses::DoesNotTrackShard => {
                             assert_eq!(num_validators, 24);
                             send_tx(
                                 num_validators,

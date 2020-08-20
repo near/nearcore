@@ -261,7 +261,7 @@ pub struct GetValidatorOrdered {
 }
 
 impl Message for GetValidatorOrdered {
-    type Result = Result<Vec<ValidatorStakeView>, String>;
+    type Result = Result<Vec<ValidatorStakeView>, ViewClientError>;
 }
 
 pub struct GetStateChanges {

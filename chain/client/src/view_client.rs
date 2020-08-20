@@ -496,7 +496,7 @@ impl Handler<GetValidatorInfo> for ViewClientActor {
 }
 
 impl Handler<GetValidatorOrdered> for ViewClientActor {
-    type Result = Result<Vec<ValidatorStakeView>, String>;
+    type Result = Result<Vec<ValidatorStakeView>, ViewClientError>;
 
     fn handle(&mut self, msg: GetValidatorOrdered, _: &mut Self::Context) -> Self::Result {
         self.maybe_block_id_to_block_hash(msg.block_id)
@@ -508,7 +508,7 @@ impl Handler<GetValidatorOrdered> for ViewClientActor {
                     &*self.runtime_adapter,
                 )
             })
-            .map_err(|err| err.to_string())
+            .map_err(|err| err.into())
     }
 }
 /// Returns a list of change kinds per account in a store for a given block.
