@@ -22,7 +22,7 @@ mod tests {
     use near_primitives::receipt::Receipt;
     use near_primitives::sharding::ChunkHash;
     use near_primitives::transaction::SignedTransaction;
-    use near_primitives::types::{BlockHeight, BlockHeightDelta, BlockIdOrFinality};
+    use near_primitives::types::{BlockHeight, BlockHeightDelta, BlockReference};
     use near_primitives::views::{QueryRequest, QueryResponseKind::ViewAccount};
 
     fn get_validators_and_key_pairs() -> (Vec<Vec<&'static str>>, Vec<PeerInfo>) {
@@ -315,7 +315,7 @@ mod tests {
                                                 connectors1.write().unwrap()[i]
                                                     .1
                                                     .send(Query::new(
-                                                        BlockIdOrFinality::latest(),
+                                                        BlockReference::latest(),
                                                         QueryRequest::ViewAccount {
                                                             account_id: account_to.clone(),
                                                         },
@@ -519,7 +519,7 @@ mod tests {
                                                     connectors1.write().unwrap()[i]
                                                         .1
                                                         .send(Query::new(
-                                                            BlockIdOrFinality::latest(),
+                                                            BlockReference::latest(),
                                                             QueryRequest::ViewAccount {
                                                                 account_id: flat_validators[j]
                                                                     .to_string(),

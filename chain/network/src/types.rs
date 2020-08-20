@@ -27,9 +27,9 @@ use near_primitives::sharding::{
 };
 use near_primitives::syncing::ShardStateSyncResponse;
 use near_primitives::transaction::{ExecutionOutcomeWithIdAndProof, SignedTransaction};
-use near_primitives::types::{AccountId, BlockHeight, BlockIdOrFinality, EpochId, ShardId};
+use near_primitives::types::{AccountId, BlockHeight, BlockReference, EpochId, ShardId};
 use near_primitives::utils::{from_timestamp, to_timestamp};
-use near_primitives::version::FIRST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION;
+use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{FinalExecutionOutcomeView, QueryRequest, QueryResponse};
 
 use crate::peer::Peer;
@@ -178,13 +178,38 @@ impl Handshake {
         edge_info: EdgeInfo,
     ) -> Self {
         Handshake {
-            // TODO: figure out how we are going to indicate backward compatible versions of protocol.
-            version: FIRST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION,
+            version: PROTOCOL_VERSION,
             peer_id,
             target_peer_id,
             listen_port,
             chain_info,
             edge_info,
+        }
+    }
+}
+
+#[derive(BorshSerialize, BorshDeserialize, Serialize, PartialEq, Eq, Clone, Debug)]
+pub struct HandshakeV2 {
+    pub version: u32,
+    pub oldest_supported_version: u32,
+    pub peer_id: PeerId,
+    pub target_peer_id: PeerId,
+    pub listen_port: Option<u16>,
+    pub chain_info: PeerChainInfo,
+    pub edge_info: EdgeInfo,
+}
+
+impl From<HandshakeV2> for Handshake {
+    fn from(handshake_old: HandshakeV2) -> Self {
+        Self {
+            // In the transition to the new version, we care about the oldest supported version
+            // by the other node.
+            version: handshake_old.oldest_supported_version,
+            peer_id: handshake_old.peer_id,
+            target_peer_id: handshake_old.target_peer_id,
+            listen_port: handshake_old.listen_port,
+            chain_info: handshake_old.chain_info,
+            edge_info: handshake_old.edge_info,
         }
     }
 }
@@ -199,7 +224,7 @@ pub struct AnnounceAccountRoute {
 
 #[derive(BorshSerialize, BorshDeserialize, Serialize, PartialEq, Eq, Clone, Debug)]
 pub enum HandshakeFailureReason {
-    ProtocolVersionMismatch(u32),
+    ProtocolVersionMismatch { version: u32, oldest_supported_version: u32 },
     GenesisMismatch(GenesisId),
     InvalidTarget,
 }
@@ -236,7 +261,7 @@ pub enum RoutedMessageBody {
     TxStatusResponse(FinalExecutionOutcomeView),
     QueryRequest {
         query_id: String,
-        block_id_or_finality: BlockIdOrFinality,
+        block_reference: BlockReference,
         request: QueryRequest,
     },
     QueryResponse {
@@ -490,8 +515,8 @@ pub enum PeerMessage {
 
     /// Gracefully disconnect from other peer.
     Disconnect,
-
     Challenge(Challenge),
+    HandshakeV2(HandshakeV2),
 }
 
 impl fmt::Display for PeerMessage {
@@ -939,7 +964,7 @@ pub enum NetworkRequests {
     Query {
         query_id: String,
         account_id: AccountId,
-        block_id_or_finality: BlockIdOrFinality,
+        block_reference: BlockReference,
         request: QueryRequest,
     },
     /// Request for receipt execution outcome
@@ -1151,7 +1176,7 @@ pub enum NetworkViewClientMessages {
     /// Transaction status response
     TxStatusResponse(Box<FinalExecutionOutcomeView>),
     /// General query
-    Query { query_id: String, block_id_or_finality: BlockIdOrFinality, request: QueryRequest },
+    Query { query_id: String, block_reference: BlockReference, request: QueryRequest },
     /// Query response
     QueryResponse { query_id: String, response: Result<QueryResponse, String> },
     /// Request for receipt outcome
