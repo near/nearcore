@@ -9,7 +9,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use byteorder::{LittleEndian, WriteBytesExt};
 use cached::{Cached, SizedCache};
 use chrono;
-use log::{debug, trace, warn};
+use log::{trace, warn};
 
 use near_crypto::{SecretKey, Signature};
 use near_metrics;
@@ -497,45 +497,51 @@ impl RoutingTable {
         }
     }
 
-    /// Add this edge to the current view of the network.
-    /// This edge is assumed to be valid at this point.
-    /// Edge contains about being added or removed (this can trigger both types of events).
-    /// Return true if the edge contains new information about the network. Old if this information
-    /// is outdated.
-    pub fn process_edge(&mut self, edge: Edge) -> ProcessEdgeResult {
-        let key = edge.get_pair();
+    /// Add several edges to the current view of the network.
+    /// These edges are assumed to be valid at this point.
+    /// Return true if some of the edges contains new information to the network.
+    pub fn process_edges(&mut self, edges: Vec<Edge>) -> ProcessEdgeResult {
+        let mut new_edge = false;
+        let total = edges.len();
 
-        self.touch(&key.0);
-        self.touch(&key.1);
+        for edge in edges {
+            let key = edge.get_pair();
 
-        if !self.add_edge(edge) {
-            debug!(target:"network", "Received outdated edge.");
-            return ProcessEdgeResult { new_edge: false, schedule_computation: None };
+            self.touch(&key.0);
+            self.touch(&key.1);
+
+            if self.add_edge(edge) {
+                new_edge = true;
+            }
         }
 
-        // Minimum between known routes and 1000
-        let known_routes = std::cmp::min(self.peer_forwarding.len() as u64, 1000);
+        let mut new_schedule = None;
 
-        let new_schedule = self.recalculation_scheduled.map_or_else(
-            move || Some(Duration::from_millis(known_routes)),
-            |target| {
-                if Instant::now() > target {
-                    Some(Duration::from_millis(known_routes))
-                } else {
-                    None
-                }
-            },
-        );
+        if new_edge {
+            // Minimum between known routes and 1000
+            let known_routes = std::cmp::min(self.peer_forwarding.len() as u64, 1000);
 
-        if let Some(duration) = new_schedule {
-            self.recalculation_scheduled = Some(Instant::now() + duration);
+            new_schedule = self.recalculation_scheduled.map_or_else(
+                move || Some(Duration::from_millis(known_routes)),
+                |target| {
+                    if Instant::now() > target {
+                        Some(Duration::from_millis(known_routes))
+                    } else {
+                        None
+                    }
+                },
+            );
+
+            if let Some(duration) = new_schedule {
+                self.recalculation_scheduled = Some(Instant::now() + duration);
+            }
         }
 
         // Update metrics after edge update
-        near_metrics::inc_counter_by(&metrics::EDGE_UPDATES, 1);
+        near_metrics::inc_counter_by(&metrics::EDGE_UPDATES, total as i64);
         near_metrics::set_gauge(&metrics::EDGE_ACTIVE, self.raw_graph.total_active_edges as i64);
 
-        ProcessEdgeResult { new_edge: true, schedule_computation: new_schedule }
+        ProcessEdgeResult { new_edge, schedule_computation: new_schedule }
     }
 
     pub fn find_nonce(&self, edge: &(PeerId, PeerId)) -> u64 {
