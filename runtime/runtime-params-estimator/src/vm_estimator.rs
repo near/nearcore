@@ -100,9 +100,9 @@ pub fn cost_per_op(gas_metric: GasMetric) -> Ratio<u64> {
     )
 }
 
-const RATIO_PRECISION: u64 = 1_000;
+type CompileCost = (u64, Ratio<u64>);
 
-fn compile(code: &[u8], gas_metric: GasMetric, vm_kind: VMKind) -> Option<(f64, f64)> {
+fn compile(code: &[u8], gas_metric: GasMetric, vm_kind: VMKind) -> Option<CompileCost> {
     let start = start_count(gas_metric);
     for _ in 0..NUM_ITERATIONS {
         let prepared_code = prepare::prepare_contract(code, &VMConfig::default()).unwrap();
@@ -110,11 +110,11 @@ fn compile(code: &[u8], gas_metric: GasMetric, vm_kind: VMKind) -> Option<(f64, 
             return None;
         }
     }
-    let end = end_count(gas_metric, &start) as f64;
-    Some((code.len() as f64, end / (NUM_ITERATIONS as f64)))
+    let end = end_count(gas_metric, &start);
+    Some((code.len() as u64, Ratio::new(end, NUM_ITERATIONS)))
 }
 
-fn load_and_compile(path: &str, gas_metric: GasMetric, vm_kind: VMKind) -> Option<(f64, f64)> {
+fn load_and_compile(path: &str, gas_metric: GasMetric, vm_kind: VMKind) -> Option<CompileCost> {
     let code = fs::read(path).unwrap();
     compile(&code, gas_metric, vm_kind)
 }
@@ -125,7 +125,7 @@ const USING_LIGHTBEAM: bool = true;
 const USING_LIGHTBEAM: bool = false;
 
 /// Cost of the compile contract with vm_kind
-pub fn cost_to_compile(gas_metric: GasMetric, vm_kind: VMKind, verbose: bool) -> (Ratio<u64>, u64) {
+pub fn cost_to_compile(gas_metric: GasMetric, vm_kind: VMKind, verbose: bool) -> (Ratio<u64>, Ratio<u64>) {
     let contracts_paths = vec![
         "./small-test-contract/res/smallest_contract.wasm",
         "./test-contract/res/no_data_large_contract.wasm",
@@ -133,8 +133,8 @@ pub fn cost_to_compile(gas_metric: GasMetric, vm_kind: VMKind, verbose: bool) ->
         "./test-contract/res/no_data_near_evm.wasm",
         "./noFile.wasm",
     ];
-    let ratio: f64 = 0.0;
-    let base: f64 = f64::MAX;
+    let ratio= Ratio::new(0 as u64,1);
+    let base = Ratio::new(u64::MAX, 1);
     if verbose {
         println!(
             "Abount to compile {}",
@@ -170,11 +170,11 @@ pub fn cost_to_compile(gas_metric: GasMetric, vm_kind: VMKind, verbose: bool) ->
         })
         .filter(|x| x.is_some())
         .map(|x| x.unwrap())
-        .collect::<Vec<(f64, f64)>>();
+        .collect::<Vec<CompileCost>>();
     let b = measurements.iter().fold(base, |base, (_, cost)| base.min(*cost));
     let m = measurements.iter().fold(ratio, |r, (bytes, cost)| r.max((*cost - b) / bytes));
     if verbose {
         println!("raw data: ({},{})", m, b);
     }
-    (Ratio::new((m * (RATIO_PRECISION as f64)) as u64, RATIO_PRECISION), b as u64)
+    (m, b)
 }

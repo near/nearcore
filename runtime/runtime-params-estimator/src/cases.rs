@@ -154,7 +154,7 @@ pub fn run(mut config: Config, only_compile: bool) -> RuntimeConfig {
         println!(
             "{}, {}",
             contract_byte_cost,
-            ratio_to_gas(config.metric, Ratio::new(contract_compile_base_cost, 1))
+            ratio_to_gas(config.metric, contract_compile_base_cost)
         );
         process::exit(0);
     }
@@ -571,12 +571,11 @@ fn get_ext_costs_config(measurement: &Measurements, config: &Config) -> ExtCosts
     let measured = generator.compute();
     let metric = measurement.gas_metric;
     use ExtCosts::*;
-    let (contract_compile_cost, contract_compile_base_cost) =
-        cost_to_compile(metric, config.vm_kind, false);
+    let (contract_compile_bytes_, contract_compile_base_) = get_compile_cost(config, false);
     ExtCostsConfig {
         base: measured_to_gas(metric, &measured, base),
-        contract_compile_base: ratio_to_gas(metric, Ratio::new(contract_compile_base_cost, 1)),
-        contract_compile_bytes: ratio_to_gas(metric, contract_compile_cost),
+        contract_compile_base: contract_compile_base_,
+        contract_compile_bytes: contract_compile_bytes_,
         read_memory_base: measured_to_gas(metric, &measured, read_memory_base),
         read_memory_byte: measured_to_gas(metric, &measured, read_memory_byte),
         write_memory_base: measured_to_gas(metric, &measured, write_memory_base),
@@ -652,4 +651,8 @@ fn get_runtime_config(measurement: &Measurements, config: &Config) -> RuntimeCon
     runtime_config.transaction_costs = get_runtime_fees_config(measurement);
     runtime_config.wasm_config = get_vm_config(measurement, config);
     runtime_config
+}
+fn get_compile_cost(config: &Config, verbose: bool) -> (u64, u64) {
+  let (a, b) = cost_to_compile(config.metric, config.vm_kind, verbose);
+  (ratio_to_gas(config.metric, a), ratio_to_gas(config.metric, b))
 }
