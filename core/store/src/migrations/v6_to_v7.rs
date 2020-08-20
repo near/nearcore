@@ -8,6 +8,8 @@ use near_primitives::transaction::SignedTransaction;
 
 use crate::db::refcount::encode_value_with_rc;
 use crate::{DBCol, Store, StoreUpdate};
+use near_primitives::sharding::ShardChunk;
+use std::convert::TryFrom;
 
 // Refcount from i32 to i64
 pub(crate) fn col_state_refcount_8byte(store: &Store, store_update: &mut StoreUpdate) {
@@ -54,4 +56,32 @@ pub(crate) fn migrate_col_transaction_refcount(store: &Store, store_update: &mut
         );
         store_update.delete(DBCol::_ColTransactionRefCount, tx_hash.as_ref());
     }
+}
+
+// Make ColReceiptIdToShardId refcounted
+pub(crate) fn migrate_receipts_refcount(store: &Store, store_update: &mut StoreUpdate) {
+    let receipt_id_to_shard_id: Vec<_> =
+        store.iter_without_rc_logic(DBCol::ColReceiptIdToShardId).collect();
+
+    let chunks: Vec<ShardChunk> = store
+        .iter(DBCol::ColChunks)
+        .map(|key| ShardChunk::try_from_slice(&key.1).expect("BorshDeserialize should not fail"))
+        .collect();
+
+    let mut rx_refcount: HashMap<CryptoHash, i64> = HashMap::new();
+    for chunk in chunks {
+        for rx in chunk.receipts {
+            rx_refcount.entry(rx.receipt_id).and_modify(|x| *x += 1).or_insert(1);
+        }
+    }
+
+    for (key, bytes) in receipt_id_to_shard_id {
+        let receipt_id = CryptoHash::try_from(key.as_ref()).unwrap();
+        if let Some(rc) = rx_refcount.remove(&receipt_id) {
+            store_update.set(DBCol::ColReceiptIdToShardId, &key, &encode_value_with_rc(&bytes, rc));
+        } else {
+            store_update.delete(DBCol::ColReceiptIdToShardId, &key);
+        }
+    }
+    assert!(rx_refcount.is_empty(), "Receipts in chunks but not in ColReceiptIdToShardId");
 }

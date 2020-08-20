@@ -20,7 +20,7 @@ use near_primitives::version::DbVersion;
 use std::marker::PhantomPinned;
 
 pub(crate) mod refcount;
-pub(crate) mod v6;
+pub(crate) mod v6_to_v7;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct DBError(rocksdb::Error);

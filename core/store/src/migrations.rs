@@ -10,7 +10,9 @@ use near_primitives::transaction::ExecutionOutcomeWithIdAndProof;
 use near_primitives::version::DbVersion;
 
 use crate::db::{DBCol, RocksDB, VERSION_KEY};
-use crate::migrations::v6_to_v7::{col_state_refcount_8byte, migrate_col_transaction_refcount};
+use crate::migrations::v6_to_v7::{
+    col_state_refcount_8byte, migrate_col_transaction_refcount, migrate_receipts_refcount,
+};
 use crate::{Store, StoreUpdate};
 
 pub mod v6_to_v7;
@@ -98,6 +100,7 @@ pub fn migrate_6_to_7(path: &String) {
     let mut store_update = store.store_update();
     col_state_refcount_8byte(&store, &mut store_update);
     migrate_col_transaction_refcount(&store, &mut store_update);
+    migrate_receipts_refcount(&store, &mut store_update);
     set_store_version_inner(&mut store_update, 7);
     store_update.commit().expect("Failed to migrate")
 }
