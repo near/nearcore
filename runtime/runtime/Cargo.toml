@@ -30,7 +30,7 @@ near-vm-runner = { path = "../../runtime/near-vm-runner" }
 near-vm-errors = { path = "../../runtime/near-vm-errors" }
 
 # near-evm = { git = "https://github.com/near/near-evm" }
-near-evm = { path = "../../../near-evm" }
+#near-evm = { path = "../../../near-evm" }
 
 [features]
 default = []
