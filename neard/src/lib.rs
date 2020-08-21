@@ -91,6 +91,7 @@ pub fn apply_store_migrations(path: &String) {
         set_store_version(&store, 4);
     }
     if db_version <= 4 {
+        info!(target: "near", "Migrate DB from version 4 to 5");
         // version 4 => 5: add ColProcessedBlockHeights
         // we don't need to backfill the old heights since at worst we will just process some heights
         // again.
@@ -98,12 +99,14 @@ pub fn apply_store_migrations(path: &String) {
         set_store_version(&store, 5);
     }
     if db_version <= 5 {
+        info!(target: "near", "Migrate DB from version 5 to 6");
         // version 5 => 6: add merge operator to ColState
         // we don't have merge records before so old storage works
         let store = create_store(&path);
         set_store_version(&store, 6);
     }
     if db_version <= 6 {
+        info!(target: "near", "Migrate DB from version 6 to 7");
         // version 6 => 7:
         // - make ColState use 8 bytes for refcount (change to merge operator)
         // - move ColTransactionRefCount into ColTransactions
