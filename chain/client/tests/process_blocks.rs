@@ -986,11 +986,14 @@ fn test_invalid_height_too_large() {
 #[test]
 fn test_invalid_height_too_old() {
     let mut env = TestEnv::new(ChainGenesis::test(), 1, 1);
-    let b1 = env.clients[0].produce_block(1).unwrap().unwrap();
-    for i in 2..100 {
+    for i in 1..4 {
         env.produce_block(0, i);
     }
-    let (_, res) = env.clients[0].process_block(b1, Provenance::NONE);
+    let block = env.clients[0].produce_block(4).unwrap().unwrap();
+    for i in 5..30 {
+        env.produce_block(0, i);
+    }
+    let (_, res) = env.clients[0].process_block(block, Provenance::NONE);
     assert!(matches!(res.unwrap_err().kind(), ErrorKind::InvalidBlockHeight(_)));
 }
 
