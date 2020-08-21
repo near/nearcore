@@ -78,7 +78,6 @@ class ProxyHandler:
             return ordinal_a
 
     async def _handle(self, raw_message, *, writer, sender_port_holder, receiver_port_holder, ordinal_to_writer):
-        # time.sleep(1e-6)
         sender_ordinal = port_holder_to_node_ord(sender_port_holder)
         receiver_ordinal = port_holder_to_node_ord(receiver_port_holder)
         try:
