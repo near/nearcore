@@ -30,10 +30,11 @@ wabt = "0.9"
 bencher = "^0.1.5"
 
 [features]
-default = [ "wasmer_default"]
+default = [ "wasmer_default" ]
 wasmtime_vm = [ "wasmtime", "anyhow"]
 wasmer_default = []
 wasmtime_default = ["wasmtime_vm"]
+no_cpu_compatibility_checks = []
 lightbeam = ["wasmtime_vm"]
 
 # Use this feature to enable counting of fees and costs applied.
