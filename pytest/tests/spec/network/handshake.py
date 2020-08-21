@@ -67,7 +67,7 @@ async def main():
     assert response.Handshake.target_peer_id.data == bytes(
         my_key_pair_nacl.verify_key)
     assert response.Handshake.listen_port == nodes[0].addr()[1]
-    # TODO(#3016): Bring this assert back
+    # TODO(#3157): Bring this assert back
     # assert response.Handshake.version == handshake.Handshake.version
 
 

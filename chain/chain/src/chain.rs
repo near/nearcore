@@ -2298,6 +2298,11 @@ impl Chain {
         self.store.get_previous_header(header)
     }
 
+    /// Returns hash of the first available block after genesis.
+    pub fn get_earliest_block_hash(&mut self) -> Result<Option<CryptoHash>, Error> {
+        self.store.get_earliest_block_hash()
+    }
+
     /// Check if block exists.
     #[inline]
     pub fn block_exists(&self, hash: &CryptoHash) -> Result<bool, Error> {
