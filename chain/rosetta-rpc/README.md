@@ -122,16 +122,3 @@ will do state sync, and that can be done in two strategies:
    and execution outcomes, only the proofs, so Indexer will skip these blocks
 2. (very slow / full sync) sync all the blocks, chunks, transactions, receipts,
    and execution outcomes starting from the genesis.
-
-To force full sync (don't forget to track shards [see the previous tweak]), make
-the following change to your `config.json`:
-
-```
-...
-"consensus": {
-  ...
-  "block_fetch_horizon": 1000000000000000000,
-  ...
-},
-...
-```

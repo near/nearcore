@@ -500,7 +500,6 @@ pub(crate) struct NetworkIdentifier {
 pub(crate) enum SyncStage {
     AwaitingPeers,
     NoSync,
-    NoSyncSeveralBlocksBehind,
     HeaderSync,
     StateSync,
     StateSyncDone,
