@@ -33,7 +33,7 @@ near-primitives = { path = "../core/primitives" }
 near-chain-configs = { path = "../core/chain-configs" }
 near-runtime-configs = { path = "../core/runtime-configs" }
 near-store = { path = "../core/store" }
-node-runtime = { path = "../runtime/runtime" }
+node-runtime = { path = "../runtime/runtime"}
 near-chain = { path = "../chain/chain" }
 near-chunks = { path = "../chain/chunks"}
 near-client = { path = "../chain/client" }
