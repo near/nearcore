@@ -1,5 +1,6 @@
 import sys, time, random
 import multiprocessing
+import logging
 
 sys.path.append('lib')
 
@@ -31,11 +32,11 @@ class Handler(ProxyHandler):
             with height.get_lock():
                 if h > height.value:
                     height.value = h
-                    print("Height:", h)
+                    logging.info(f"Height: {h}")
 
             with success.get_lock():
-                if h >= 10 and success.value is 0:
-                    print(f'SUCCESS DROP={self.dropped} TOTAL={self.total}')
+                if h >= 10 and success.value == 0:
+                    logging.info(f'SUCCESS DROP={self.dropped} TOTAL={self.total}')
                     success.value = 1
 
         drop = random.random() < DROP_RATIO
@@ -52,11 +53,11 @@ start_cluster(4, 0, 1, None, [], {}, Handler)
 started = time.time()
 
 while True:
-    print(f"Time: {time.time() - started:0.2}, Fin: {success.value}")
+    logging.info(f"Time: {time.time() - started:0.2}, Fin: {success.value}")
     assert time.time() - started < TIMEOUT
     time.sleep(1)
 
-    if success.value is 1:
+    if success.value == 1:
         break
 
-print("Success")
+logging.info("Success")
