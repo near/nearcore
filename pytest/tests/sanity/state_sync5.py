@@ -8,6 +8,7 @@ sys.path.append('lib')
 
 from cluster import start_cluster, Key
 from transaction import sign_payment_tx
+from utils import LogTracker
 
 MAX_SYNC_WAIT = 30
 EPOCH_LENGTH = 20
@@ -43,6 +44,7 @@ genesis_block = nodes[0].json_rpc('block', [0])
 genesis_hash = genesis_block['result']['header']['hash']
 
 nodes[1].start(nodes[1].node_key.pk, nodes[1].addr())
+tracker = LogTracker(nodes[1])
 time.sleep(1)
 
 start_time = time.time()
@@ -59,3 +61,5 @@ while node1_height <= cur_height:
     nodes[1].send_tx(tx)
     nonce += 1
     time.sleep(0.05)
+
+assert tracker.check('transition to State Sync')
