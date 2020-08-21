@@ -37,13 +37,12 @@ pub fn validate_transaction(
         .into());
     }
 
-    if verify_signature {
-        if !signed_transaction
+    if verify_signature
+        && !signed_transaction
             .signature
             .verify(signed_transaction.get_hash().as_ref(), &transaction.public_key)
-        {
-            return Err(InvalidTxError::InvalidSignature.into());
-        }
+    {
+        return Err(InvalidTxError::InvalidSignature.into());
     }
 
     validate_actions(&config.wasm_config.limit_config, &transaction.actions)
