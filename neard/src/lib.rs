@@ -11,8 +11,7 @@ use near_client::{start_client, start_view_client, ClientActor, ViewClientActor}
 use near_jsonrpc::start_http;
 use near_network::{NetworkRecipient, PeerManagerActor};
 use near_store::migrations::{
-    fill_col_outcomes_by_hash, fill_col_transaction_refcount, get_store_version, migrate_6_to_7,
-    set_store_version,
+    fill_col_outcomes_by_hash, fill_col_transaction_refcount, get_store_version, set_store_version,
 };
 use near_store::{create_store, Store};
 use near_telemetry::TelemetryActor;
@@ -102,13 +101,6 @@ pub fn apply_store_migrations(path: &String) {
         // we don't have merge records before so old storage works
         let store = create_store(&path);
         set_store_version(&store, 6);
-    }
-    if db_version <= 6 {
-        // version 6 => 7:
-        // - make ColState use 8 bytes for refcount (change to merge operator)
-        // - move ColTransactionRefCount into ColTransactions
-        // - make ColReceiptIdToShardId refcounted
-        migrate_6_to_7(path);
     }
 
     let db_version = get_store_version(path);
