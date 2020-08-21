@@ -63,7 +63,7 @@ pub(crate) fn migrate_col_transaction_refcount(store: &Store, store_update: &mut
     }
 }
 
-pub fn get_num_shards(store: &Store) -> NumShards {
+fn get_num_shards(store: &Store) -> NumShards {
     store
         .iter(DBCol::ColBlock)
         .map(|(_key, value)| {
@@ -74,7 +74,7 @@ pub fn get_num_shards(store: &Store) -> NumShards {
         .expect("No blocks found") as u64
 }
 
-pub fn account_id_to_shard_id_v6(account_id: &AccountId, num_shards: NumShards) -> ShardId {
+fn account_id_to_shard_id_v6(account_id: &AccountId, num_shards: NumShards) -> ShardId {
     let mut cursor = Cursor::new((hash(&account_id.clone().into_bytes()).0).0);
     cursor.read_u64::<LittleEndian>().expect("Must not happened") % (num_shards)
 }
