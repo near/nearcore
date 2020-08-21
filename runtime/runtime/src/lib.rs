@@ -236,6 +236,7 @@ impl Runtime {
             state_update,
             apply_state.gas_price,
             signed_transaction,
+            true,
         ) {
             Ok(verification_result) => {
                 near_metrics::inc_counter(&metrics::TRANSACTION_PROCESSED_SUCCESSFULLY_TOTAL);
