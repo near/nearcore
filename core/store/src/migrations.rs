@@ -1,27 +1,37 @@
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 
 use borsh::BorshDeserialize;
 
 use near_primitives::hash::CryptoHash;
+use near_primitives::sharding::ShardChunk;
 use near_primitives::transaction::ExecutionOutcomeWithIdAndProof;
 use near_primitives::version::DbVersion;
 
 use crate::db::{DBCol, RocksDB, VERSION_KEY};
-use crate::Store;
-use near_primitives::sharding::ShardChunk;
+use crate::migrations::v6_to_v7::{
+    col_state_refcount_8byte, migrate_col_transaction_refcount, migrate_receipts_refcount,
+};
+use crate::{Store, StoreUpdate};
+
+pub mod v6_to_v7;
 
 pub fn get_store_version(path: &str) -> DbVersion {
     RocksDB::get_version(path).expect("Failed to open the database")
 }
 
-pub fn set_store_version(store: &Store, db_version: u32) {
-    let mut store_update = store.store_update();
+fn set_store_version_inner(store_update: &mut StoreUpdate, db_version: u32) {
     store_update.set(
         DBCol::ColDbVersion,
         VERSION_KEY,
         &serde_json::to_vec(&db_version).expect("Failed to serialize version"),
     );
+}
+
+pub fn set_store_version(store: &Store, db_version: u32) {
+    let mut store_update = store.store_update();
+    set_store_version_inner(&mut store_update, db_version);
     store_update.commit().expect("Failed to write version to database");
 }
 
@@ -78,8 +88,19 @@ pub fn fill_col_transaction_refcount(store: &Store) {
     }
     for (tx_hash, refcount) in tx_refcount {
         store_update
-            .set_ser(DBCol::ColTransactionRefCount, tx_hash.as_ref(), &refcount)
+            .set_ser(DBCol::_ColTransactionRefCount, tx_hash.as_ref(), &refcount)
             .expect("BorshSerialize should not fail");
     }
     store_update.commit().expect("Failed to migrate");
+}
+
+pub fn migrate_6_to_7(path: &String) {
+    let db = Arc::pin(RocksDB::new_v6(path).expect("Failed to open the database"));
+    let store = Store::new(db);
+    let mut store_update = store.store_update();
+    col_state_refcount_8byte(&store, &mut store_update);
+    migrate_col_transaction_refcount(&store, &mut store_update);
+    migrate_receipts_refcount(&store, &mut store_update);
+    set_store_version_inner(&mut store_update, 7);
+    store_update.commit().expect("Failed to migrate")
 }
