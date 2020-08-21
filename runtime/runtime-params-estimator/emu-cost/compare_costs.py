@@ -43,15 +43,16 @@ def rate(c2, c1):
     return '{:.2f}'.format(float(c2) / float(c1))
 
 
-def process_props(file1, file2, safety1, safety2):
+def process_props(file1, file2, safety1, safety2, only_different):
     costs1 = read_costs(file1)
     costs2 = read_costs(file2)
 
     for key in costs1:
         c1 = int(costs1[key]) * safety1
         c2 = int(costs2.get(key, "0")) * safety2
-        print("{}: first={} second={} second/first={}".format(
-            key, c1, c2, rate(c2, c1)))
+        if only_different < 0 or (c1 > 0 and abs(((float(c2) / float(c1)) * 100) - 100) > only_different):
+            print("{}: first={} second={} second/first={}".format(
+                key, c1, c2, rate(c2, c1)))
 
 
 def process_json(file1, file2):
@@ -73,7 +74,11 @@ if __name__ == "__main__":
     parser.add_argument('--safety_second',
                         default=1,
                         help='Safety multiplier applied to second')
+    parser.add_argument('--only_different',
+                         default=-1,
+                         help='Only show differnce above that many percents')
+
     args = parser.parse_args()
 
     process_props(args.files[0], args.files[1], int(args.safety_first),
-                  int(args.safety_second))
+                  int(args.safety_second), int(args.only_different))
