@@ -14,7 +14,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::{ChunkHash, ShardChunk, StateSyncInfo};
 use near_primitives::syncing::{ShardStateSyncResponseHeader, StateHeaderKey, StatePartKey};
 use near_primitives::transaction::ExecutionOutcomeWithIdAndProof;
-use near_primitives::types::{AccountId, BlockHeight, EpochId, GCCount, ShardId};
+use near_primitives::types::{AccountId, BlockHeight, ChunkExtra, EpochId, GCCount, ShardId};
 use near_primitives::utils::get_block_shard_id_rev;
 use near_store::{DBCol, Store, TrieChanges, NUM_COLS, SHOULD_COL_GC, SKIP_COL_GC};
 use validate::StoreValidatorError;
@@ -187,6 +187,11 @@ impl StoreValidator {
                     );
                     // Check that all Txs in Chunk exist
                     self.check(&validate::chunk_tx_exists, &chunk_hash, &shard_chunk, col);
+                }
+                DBCol::ColChunkExtra => {
+                    let (block_hash, _) = get_block_shard_id_rev(key_ref)?;
+                    let chunk_extra = ChunkExtra::try_from_slice(value_ref)?;
+                    self.check(&validate::chunk_extra_block_exists, &block_hash, &chunk_extra, col);
                 }
                 DBCol::ColTrieChanges => {
                     let (block_hash, shard_id) = get_block_shard_id_rev(key_ref)?;
