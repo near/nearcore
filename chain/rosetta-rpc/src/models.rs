@@ -338,48 +338,42 @@ impl std::fmt::Display for Error {
     }
 }
 
-#[derive(Debug, strum::EnumIter)]
-pub(crate) enum ErrorKind {
-    InvalidInput(String),
-    NotFound(String),
-    WrongNetwork(String),
-    Timeout(String),
-    InternalError(String),
-}
-
 impl Error {
-    pub(crate) fn from_error_kind(err: ErrorKind) -> Self {
+    pub(crate) fn from_error_kind(err: crate::errors::ErrorKind) -> Self {
         match err {
-            ErrorKind::InvalidInput(message) => Self {
+            crate::errors::ErrorKind::InvalidInput(message) => Self {
                 code: 400,
                 message: format!("Invalid Input: {}", message),
                 retriable: false,
                 details: None,
             },
-            ErrorKind::NotFound(message) => Self {
+            crate::errors::ErrorKind::NotFound(message) => Self {
                 code: 404,
                 message: format!("Not Found: {}", message),
                 retriable: false,
                 details: None,
             },
-            ErrorKind::WrongNetwork(message) => Self {
+            crate::errors::ErrorKind::WrongNetwork(message) => Self {
                 code: 403,
                 message: format!("Wrong Network: {}", message),
                 retriable: false,
                 details: None,
             },
-            ErrorKind::Timeout(message) => Self {
+            crate::errors::ErrorKind::Timeout(message) => Self {
                 code: 504,
                 message: format!("Timeout: {}", message),
                 retriable: true,
                 details: None,
             },
-            ErrorKind::InternalError(message) => Self {
+            crate::errors::ErrorKind::InternalInvariantError(message) => Self {
                 code: 500,
-                message: format!(
-                    "Internal Error: internal invariant is not held (please, report it): {}",
-                    message
-                ),
+                message: format!("Internal Invariant Error (please, report it): {}", message),
+                retriable: true,
+                details: None,
+            },
+            crate::errors::ErrorKind::InternalError(message) => Self {
+                code: 500,
+                message: format!("Internal Error: {}", message),
                 retriable: true,
                 details: None,
             },
@@ -389,50 +383,10 @@ impl Error {
 
 impl<T> std::convert::From<T> for Error
 where
-    T: Into<ErrorKind>,
+    T: Into<crate::errors::ErrorKind>,
 {
     fn from(err: T) -> Self {
         Self::from_error_kind(err.into())
-    }
-}
-
-impl std::convert::From<actix::MailboxError> for ErrorKind {
-    fn from(err: actix::MailboxError) -> Self {
-        Self::Other(format!(
-            "Server seems to be under a heavy load thus reaching a limit of Actix queue: {}",
-            err
-        ))
-    }
-}
-
-impl std::convert::From<tokio::time::Elapsed> for ErrorKind {
-    fn from(_: tokio::time::Elapsed) -> Self {
-        Self::Timeout("The operation timed out.".to_string())
-    }
-}
-
-impl std::convert::From<near_client::TxStatusError> for ErrorKind {
-    fn from(err: near_client::TxStatusError) -> Self {
-        match err {
-            near_client::TxStatusError::ChainError(err) => Self::Other(format!(
-                "Transaction could not be found due to an internal error: {:?}",
-                err
-            )),
-            near_client::TxStatusError::MissingTransaction(err) => {
-                Self::NotFound(format!("Transaction is missing: {:?}", err))
-            }
-            near_client::TxStatusError::InvalidTx(err) => Self::NotFound(format!(
-                "Transaction is invalid, so it will never be included to the chain: {:?}",
-                err
-            )),
-            near_client::TxStatusError::InternalError
-            | near_client::TxStatusError::TimeoutError => {
-                // TODO: remove the statuses from TxStatusError since they are
-                // never constructed by the view client (it is a leak of
-                // abstraction introduced in JSONRPC)
-                unreachable!("You reached impossible {:?} status", err);
-            }
-        }
     }
 }
 

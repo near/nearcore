@@ -20,6 +20,7 @@ pub use config::RosettaRpcConfig;
 mod adapters;
 mod config;
 mod consts;
+mod errors;
 mod models;
 mod utils;
 
@@ -38,7 +39,7 @@ async fn network_list(
     let status = client_addr
         .send(near_client::Status { is_health_check: false })
         .await?
-        .map_err(models::ErrorKind::InternalError)?;
+        .map_err(errors::ErrorKind::InternalError)?;
     Ok(Json(models::NetworkListResponse {
         network_identifiers: vec![models::NetworkIdentifier {
             blockchain: "nearprotocol".to_owned(),
@@ -63,7 +64,7 @@ async fn network_status(
     let status = client_addr
         .send(near_client::Status { is_health_check: false })
         .await?
-        .map_err(models::ErrorKind::InternalError)?;
+        .map_err(errors::ErrorKind::InternalError)?;
     if status.chain_id != body.network_identifier.network {
         return Err(models::Error {
             code: 2,
@@ -85,8 +86,8 @@ async fn network_status(
             ),
         )),
     )?;
-    let network_info = network_info.map_err(models::ErrorKind::InternalError)?;
-    let genesis_block = genesis_block.map_err(models::ErrorKind::InternalError)?;
+    let network_info = network_info.map_err(errors::ErrorKind::InternalError)?;
+    let genesis_block = genesis_block.map_err(errors::ErrorKind::InternalInvariantError)?;
     let earliest_block = earliest_block;
 
     let genesis_block_identifier: models::BlockIdentifier = (&genesis_block.header).into();
@@ -135,7 +136,7 @@ async fn network_options(
     let status = client_addr
         .send(near_client::Status { is_health_check: false })
         .await?
-        .map_err(models::ErrorKind::InternalError)?;
+        .map_err(errors::ErrorKind::InternalError)?;
     if status.chain_id != body.network_identifier.network {
         return Err(models::Error {
             code: 2,
@@ -160,7 +161,7 @@ async fn network_options(
                 })
                 .collect(),
             operation_types: models::OperationType::iter().collect(),
-            errors: models::ErrorKind::iter().map(models::Error::from_error_kind).collect(),
+            errors: errors::ErrorKind::iter().map(models::Error::from_error_kind).collect(),
             historical_balance_lookup: true,
         },
     }))
@@ -194,7 +195,7 @@ async fn block_details(
     let status = client_addr
         .send(near_client::Status { is_health_check: false })
         .await?
-        .map_err(models::ErrorKind::InternalError)?;
+        .map_err(errors::ErrorKind::InternalError)?;
     if status.chain_id != network_identifier.network {
         return Err(models::Error {
             code: 2,
@@ -230,7 +231,7 @@ async fn block_details(
                 near_primitives::types::BlockId::Hash(block.header.prev_hash).into(),
             ))
             .await?
-            .map_err(models::ErrorKind::InternalError)?;
+            .map_err(errors::ErrorKind::InternalError)?;
 
         models::BlockIdentifier {
             index: parent_block.header.height.try_into().unwrap(),
@@ -294,7 +295,7 @@ async fn block_transaction_details(
     let status = client_addr
         .send(near_client::Status { is_health_check: false })
         .await?
-        .map_err(models::ErrorKind::InternalError)?;
+        .map_err(errors::ErrorKind::InternalError)?;
     if status.chain_id != network_identifier.network {
         return Err(models::Error {
             code: 2,
@@ -316,7 +317,7 @@ async fn block_transaction_details(
     let block = view_client_addr
         .send(near_client::GetBlock(block_id.clone()))
         .await?
-        .map_err(models::ErrorKind::NotFound)?;
+        .map_err(errors::ErrorKind::NotFound)?;
 
     let transaction = crate::adapters::collect_transactions(
         Arc::clone(&genesis),
@@ -326,7 +327,7 @@ async fn block_transaction_details(
     .await?
     .into_iter()
     .find(|transaction| transaction.transaction_identifier == transaction_identifier)
-    .ok_or_else(|| models::ErrorKind::NotFound("Transaction not found".into()))?;
+    .ok_or_else(|| errors::ErrorKind::NotFound("Transaction not found".into()))?;
 
     Ok(Json(models::BlockTransactionResponse { transaction }))
 }
@@ -364,7 +365,7 @@ async fn account_balance(
     let status = client_addr
         .send(near_client::Status { is_health_check: false })
         .await?
-        .map_err(models::ErrorKind::InternalError)?;
+        .map_err(errors::ErrorKind::InternalError)?;
     if status.chain_id != network_identifier.network {
         return Err(models::Error {
             code: 2,
@@ -391,7 +392,7 @@ async fn account_balance(
     let block = view_client_addr
         .send(near_client::GetBlock(block_id.clone()))
         .await?
-        .map_err(models::ErrorKind::InternalError)?;
+        .map_err(errors::ErrorKind::InternalError)?;
 
     let query = near_client::Query::new(
         block_id,
@@ -409,7 +410,7 @@ async fn account_balance(
                     if err.contains("does not exist") {
                         return Ok(None);
                     }
-                    return Err(models::Error::from(models::ErrorKind::InternalError(err)));
+                    return Err(models::Error::from(errors::ErrorKind::InternalError(err)));
                 }
             }
             tokio::time::delay_for(std::time::Duration::from_millis(100)).await;
@@ -423,7 +424,7 @@ async fn account_balance(
         let account_info = match account_info_response.kind {
             near_primitives::views::QueryResponseKind::ViewAccount(account_info) => account_info,
             _ => {
-                return Err(models::ErrorKind::InternalError(format!(
+                return Err(errors::ErrorKind::InternalInvariantError(format!(
                     "queried ViewAccount, but received {:?}.",
                     account_info_response.kind
                 ))
@@ -461,7 +462,7 @@ async fn account_balance(
             "locked" => account_info.locked,
             "liquid_for_storage" => liquid_balance_for_storage,
             unknown_address => {
-                return Err(models::ErrorKind::NotFound(format!(
+                return Err(errors::ErrorKind::NotFound(format!(
                     "Unknown sub-account address '{}'",
                     unknown_address
                 ))
@@ -519,7 +520,7 @@ async fn mempool_transaction(
     _client_addr: web::Data<Addr<ClientActor>>,
     _body: Json<models::MempoolTransactionRequest>,
 ) -> Result<Json<models::MempoolTransactionResponse>, models::Error> {
-    Err(models::ErrorKind::InternalError("Not implemented yet".to_string()).into())
+    Err(errors::ErrorKind::InternalError("Not implemented yet".to_string()).into())
 }
 
 #[api_v2_operation]
@@ -530,7 +531,7 @@ async fn mempool_transaction(
 /// Blockchains that require an on-chain action to create an account should not
 /// implement this method.
 async fn construction_derive() -> Result<Json<()>, models::Error> {
-    Err(models::ErrorKind::InternalError("Not implemented by design".to_string()).into())
+    Err(errors::ErrorKind::InternalError("Not implemented by design".to_string()).into())
 }
 
 #[api_v2_operation]
@@ -546,7 +547,7 @@ async fn construction_preprocess(
     _body: Json<models::ConstructionSubmitRequest>,
 ) -> Result<Json<models::TransactionIdentifierResponse>, models::Error> {
     // TODO
-    Err(models::ErrorKind::InternalError("Not implemented yet".to_string()).into())
+    Err(errors::ErrorKind::InternalError("Not implemented yet".to_string()).into())
 }
 
 #[api_v2_operation]
@@ -565,7 +566,7 @@ async fn construction_metadata(
     _body: Json<models::ConstructionSubmitRequest>,
 ) -> Result<Json<models::TransactionIdentifierResponse>, models::Error> {
     // TODO
-    Err(models::ErrorKind::InternalError("Not implemented yet".to_string()).into())
+    Err(errors::ErrorKind::InternalError("Not implemented yet".to_string()).into())
 }
 
 #[api_v2_operation]
@@ -586,7 +587,7 @@ async fn construction_payloads(
     _body: Json<models::ConstructionSubmitRequest>,
 ) -> Result<Json<models::TransactionIdentifierResponse>, models::Error> {
     // TODO
-    Err(models::ErrorKind::InternalError("Not implemented yet".to_string()).into())
+    Err(errors::ErrorKind::InternalError("Not implemented yet".to_string()).into())
 }
 
 #[api_v2_operation]
@@ -600,7 +601,7 @@ async fn construction_combine(
     _body: Json<models::ConstructionSubmitRequest>,
 ) -> Result<Json<models::TransactionIdentifierResponse>, models::Error> {
     // TODO
-    Err(models::ErrorKind::InternalError("Not implemented yet".to_string()).into())
+    Err(errors::ErrorKind::InternalError("Not implemented yet".to_string()).into())
 }
 
 #[api_v2_operation]
@@ -615,7 +616,7 @@ async fn construction_parse(
     _body: Json<models::ConstructionSubmitRequest>,
 ) -> Result<Json<models::TransactionIdentifierResponse>, models::Error> {
     // TODO
-    Err(models::ErrorKind::InternalError("Not implemented yet".to_string()).into())
+    Err(errors::ErrorKind::InternalError("Not implemented yet".to_string()).into())
 }
 
 #[api_v2_operation]
@@ -655,7 +656,7 @@ async fn construction_submit(
     let status = client_addr
         .send(near_client::Status { is_health_check: false })
         .await?
-        .map_err(models::ErrorKind::InternalError)?;
+        .map_err(errors::ErrorKind::InternalError)?;
     if status.chain_id != network_identifier.network {
         return Err(models::Error {
             code: 2,
@@ -682,9 +683,9 @@ async fn construction_submit(
             }))
         }
         near_network::NetworkClientResponses::InvalidTx(error) => {
-            Err(models::ErrorKind::InvalidInput(error.to_string()).into())
+            Err(errors::ErrorKind::InvalidInput(error.to_string()).into())
         }
-        _ => Err(models::ErrorKind::InternalError(format!(
+        _ => Err(errors::ErrorKind::InternalInvariantError(format!(
             "Transaction submition return unexpected result: {:?}",
             transaction_submittion
         ))

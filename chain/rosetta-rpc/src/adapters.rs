@@ -19,53 +19,52 @@ async fn convert_genesis_records_to_transaction(
     genesis: Arc<Genesis>,
     view_client_addr: Addr<ViewClientActor>,
     block: &near_primitives::views::BlockView,
-) -> Result<crate::models::Transaction, crate::models::Error> {
+) -> Result<crate::models::Transaction, crate::errors::ErrorKind> {
     let genesis_accounts = genesis
-            .records
-            .as_ref()
-            .iter()
-            .filter_map(|record| {
-                if let near_primitives::state_record::StateRecord::Account { account_id, .. } =
-                    record
+        .records
+        .as_ref()
+        .iter()
+        .filter_map(|record| {
+            if let near_primitives::state_record::StateRecord::Account { account_id, .. } = record {
+                Some(account_id)
+            } else {
+                None
+            }
+        })
+        .map(|account_id| {
+            let genesis_block_id = near_primitives::types::BlockId::Hash(block.header.hash).into();
+            let view_client_addr = &view_client_addr;
+            async move {
+                match view_client_addr
+                    .send(near_client::Query::new(
+                        genesis_block_id,
+                        near_primitives::views::QueryRequest::ViewAccount {
+                            account_id: account_id.clone(),
+                        },
+                    ))
+                    .await?
+                    .map_err(crate::errors::ErrorKind::InternalError)?
+                    .map(|response| response.kind)
                 {
-                    Some(account_id)
-                } else {
-                    None
-                }
-            })
-            .map(|account_id| {
-                let genesis_block_id = near_primitives::types::BlockId::Hash(block.header.hash).into();
-                let view_client_addr = &view_client_addr;
-                async move {
-                    match view_client_addr
-                        .send(near_client::Query::new(
-                            genesis_block_id,
-                            near_primitives::views::QueryRequest::ViewAccount { account_id: account_id.clone() },
-                        ))
-                        .await?
-                        .map_err(crate::models::ErrorKind::Other)?
-                        .map(|response| response.kind) {
-                        Some(near_primitives::views::QueryResponseKind::ViewAccount(account_info)) => Ok((account_id.clone(), account_info)),
-                        _ => {
-                            Err(crate::models::ErrorKind::Other(
-                                "Internal invariant is not held; we queried ViewAccount, but received something else."
-                                    .to_string(),
-                            )
-                            .into())
-                        }
+                    Some(near_primitives::views::QueryResponseKind::ViewAccount(account_info)) => {
+                        Ok((account_id.clone(), account_info))
                     }
+                    _ => Err(crate::errors::ErrorKind::InternalInvariantError(
+                        "queried ViewAccount, but received something else.".to_string(),
+                    )),
                 }
-            })
-            .collect::<futures::stream::FuturesUnordered<_>>()
-         .collect::<Vec<
+            }
+        })
+        .collect::<futures::stream::FuturesUnordered<_>>()
+        .collect::<Vec<
             Result<
                 (near_primitives::types::AccountId, near_primitives::views::AccountView),
-                crate::models::Error,
+                crate::errors::ErrorKind,
             >,
         >>()
         .await
         .into_iter()
-        .collect::<Result<Vec<_>, crate::models::Error>>()?;
+        .collect::<Result<Vec<_>, crate::errors::ErrorKind>>()?;
 
     let mut operations = Vec::new();
     for (account_id, account) in genesis_accounts {
@@ -80,7 +79,13 @@ async fn convert_genesis_records_to_transaction(
             .unwrap_or(0)
         };
 
-        let liquid_balance = account.amount.checked_sub(liquid_balance_for_storage).ok_or_else(|| crate::models::ErrorKind::Other("Internal invariant is not held; liquid balance for storage cannot be bigger than the total balance".into()))?;
+        let liquid_balance =
+            account.amount.checked_sub(liquid_balance_for_storage).ok_or_else(|| {
+                crate::errors::ErrorKind::InternalInvariantError(
+                    "liquid balance for storage cannot be bigger than the total balance"
+                        .to_string(),
+                )
+            })?;
 
         let locked_balance = account.locked;
 
@@ -181,7 +186,7 @@ pub(crate) async fn convert_block_to_transactions(
     genesis: Arc<Genesis>,
     view_client_addr: Addr<ViewClientActor>,
     block: &near_primitives::views::BlockView,
-) -> Result<Vec<crate::models::Transaction>, crate::models::Error> {
+) -> Result<Vec<crate::models::Transaction>, crate::errors::ErrorKind> {
     let state_changes = view_client_addr
         .send(near_client::GetStateChangesInBlock { block_hash: block.header.hash })
         .await?
@@ -201,7 +206,9 @@ pub(crate) async fn convert_block_to_transactions(
     let prev_block_id = near_primitives::types::BlockReference::from(
         near_primitives::types::BlockId::Hash(block.header.prev_hash),
     );
-    let mut accounts_previous_state = touched_account_ids.iter().map(|account_id| {
+    let mut accounts_previous_state = touched_account_ids
+        .iter()
+        .map(|account_id| {
             let prev_block_id = &prev_block_id;
             let view_client_addr = &view_client_addr;
             async move {
@@ -211,12 +218,10 @@ pub(crate) async fn convert_block_to_transactions(
                         account_id: account_id.clone(),
                     },
                 );
-                let account_info_response = tokio::time::timeout(std::time::Duration::from_secs(10), async {
+                let account_info_response =
+                    tokio::time::timeout(std::time::Duration::from_secs(10), async {
                         loop {
-                            match view_client_addr
-                                .send(query.clone())
-                                .await?
-                            {
+                            match view_client_addr.send(query.clone()).await? {
                                 Ok(Some(query_response)) => return Ok(Some(query_response)),
                                 Ok(None) => {}
                                 // TODO: update this once we return structured errors in the view_client handlers
@@ -224,7 +229,7 @@ pub(crate) async fn convert_block_to_transactions(
                                     if err.contains("does not exist") {
                                         return Ok(None);
                                     }
-                                    return Err(crate::models::Error::from(crate::models::ErrorKind::Other(err)));
+                                    return Err(crate::errors::ErrorKind::InternalError(err));
                                 }
                             }
                             tokio::time::delay_for(std::time::Duration::from_millis(100)).await;
@@ -239,23 +244,33 @@ pub(crate) async fn convert_block_to_transactions(
                 };
 
                 match kind {
-                    near_primitives::views::QueryResponseKind::ViewAccount(account_info) => Ok(Some((account_id.clone(), account_info))),
-                    _ => {
-                        Err(crate::models::ErrorKind::Other(
-                            "Internal invariant is not held; we queried ViewAccount, but received something else."
-                                .to_string(),
-                        )
-                        .into())
+                    near_primitives::views::QueryResponseKind::ViewAccount(account_info) => {
+                        Ok(Some((account_id.clone(), account_info)))
                     }
+                    _ => Err(crate::errors::ErrorKind::InternalInvariantError(
+                        "queried ViewAccount, but received something else.".to_string(),
+                    )
+                    .into()),
                 }
             }
         })
         .collect::<futures::stream::FuturesUnordered<_>>()
-        .collect::<Vec<Result<Option<(near_primitives::types::AccountId, near_primitives::views::AccountView)>, crate::models::Error>>>()
+        .collect::<Vec<
+            Result<
+                Option<(near_primitives::types::AccountId, near_primitives::views::AccountView)>,
+                crate::errors::ErrorKind,
+            >,
+        >>()
         .await
         .into_iter()
         .filter_map(|account_info| account_info.transpose())
-        .collect::<Result<std::collections::HashMap<near_primitives::types::AccountId, near_primitives::views::AccountView>, crate::models::Error>>()?;
+        .collect::<Result<
+            std::collections::HashMap<
+                near_primitives::types::AccountId,
+                near_primitives::views::AccountView,
+            >,
+            crate::errors::ErrorKind,
+        >>()?;
 
     let accounts_changes = view_client_addr
         .send(near_client::GetStateChanges {
@@ -266,7 +281,7 @@ pub(crate) async fn convert_block_to_transactions(
                 },
         })
         .await?
-        .map_err(crate::models::ErrorKind::Other)?;
+        .map_err(crate::errors::ErrorKind::InternalError)?;
 
     let mut transactions = Vec::<crate::models::Transaction>::new();
     for account_change in accounts_changes.into_iter() {
@@ -347,8 +362,25 @@ pub(crate) async fn convert_block_to_transactions(
                     .unwrap_or(0)
                 };
 
-                let previous_liquid_balance = previous_account_state.map(|account| account.amount).unwrap_or(0).checked_sub(previous_liquid_balance_for_storage).ok_or_else(|| crate::models::ErrorKind::Other("Internal invariant is not held; liquid balance for storage cannot be bigger than the total balance".into()))?;
-                let new_liquid_balance = account.amount.checked_sub(new_liquid_balance_for_storage).ok_or_else(|| crate::models::ErrorKind::Other("Internal invariant is not held; liquid balance for storage cannot be bigger than the total balance".into()))?;
+                let previous_liquid_balance = previous_account_state
+                    .map(|account| account.amount)
+                    .unwrap_or(0)
+                    .checked_sub(previous_liquid_balance_for_storage)
+                    .ok_or_else(|| {
+                        crate::errors::ErrorKind::InternalInvariantError(
+                            "liquid balance for storage cannot be bigger than the total balance"
+                                .to_string(),
+                        )
+                    })?;
+                let new_liquid_balance = account
+                    .amount
+                    .checked_sub(new_liquid_balance_for_storage)
+                    .ok_or_else(|| {
+                        crate::errors::ErrorKind::InternalInvariantError(
+                            "liquid balance for storage cannot be bigger than the total balance"
+                                .to_string(),
+                        )
+                    })?;
 
                 let previous_locked_balance =
                     previous_account_state.map(|account| account.locked).unwrap_or(0);
@@ -452,7 +484,16 @@ pub(crate) async fn convert_block_to_transactions(
                 };
                 let new_liquid_balance_for_storage = 0;
 
-                let previous_liquid_balance = previous_account_state.map(|account| account.amount).unwrap_or(0).checked_sub(previous_liquid_balance_for_storage).ok_or_else(|| crate::models::ErrorKind::Other("Internal invariant is not held; liquid balance for storage cannot be bigger than the total balance".into()))?;
+                let previous_liquid_balance = previous_account_state
+                    .map(|account| account.amount)
+                    .unwrap_or(0)
+                    .checked_sub(previous_liquid_balance_for_storage)
+                    .ok_or_else(|| {
+                        crate::errors::ErrorKind::InternalInvariantError(
+                            "liquid balance for storage cannot be bigger than the total balance"
+                                .to_string(),
+                        )
+                    })?;
                 let new_liquid_balance = 0;
 
                 let previous_locked_balance =
@@ -537,8 +578,8 @@ pub(crate) async fn convert_block_to_transactions(
                 accounts_previous_state.remove(&account_id);
             }
             unexpected_value => {
-                return Err(crate::models::ErrorKind::Other(format!(
-                    "Internal invariant is not held; we queried AccountChanges, but received {:?}.",
+                return Err(crate::errors::ErrorKind::InternalInvariantError(format!(
+                    "queried AccountChanges, but received {:?}.",
                     unexpected_value
                 ))
                 .into())
@@ -553,7 +594,7 @@ pub(crate) async fn collect_transactions(
     genesis: Arc<Genesis>,
     view_client_addr: Addr<ViewClientActor>,
     block: &near_primitives::views::BlockView,
-) -> Result<Vec<crate::models::Transaction>, crate::models::Error> {
+) -> Result<Vec<crate::models::Transaction>, crate::errors::ErrorKind> {
     if block.header.prev_hash == Default::default() {
         Ok(vec![convert_genesis_records_to_transaction(genesis, view_client_addr, block).await?])
     } else {
