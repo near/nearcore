@@ -1001,7 +1001,6 @@ impl Chain {
         // New Tail can not be earlier than `prev_block.header.inner_lite.height`
         chain_store_update.update_tail(new_tail);
         // New Chunk Tail can not be earlier than minimum of height_created in Block `prev_block`
-        println!("resetting chunk tail to {}", new_chunk_tail);
         chain_store_update.update_chunk_tail(new_chunk_tail);
         chain_store_update.commit()?;
 
