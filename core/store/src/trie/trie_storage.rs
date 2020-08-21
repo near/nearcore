@@ -6,8 +6,7 @@ use cached::{Cached, SizedCache};
 
 use near_primitives::hash::CryptoHash;
 
-use crate::db::refcount::decode_value_with_rc;
-use crate::trie::POISONED_LOCK_ERR;
+use crate::trie::{decode_trie_node_with_rc, POISONED_LOCK_ERR};
 use crate::{ColState, StorageError, Store};
 use near_primitives::types::ShardId;
 use std::convert::{TryFrom, TryInto};
@@ -25,7 +24,9 @@ impl TrieCache {
         let mut guard = self.0.lock().expect(POISONED_LOCK_ERR);
         for (hash, opt_value_rc) in ops {
             if let Some(value_rc) = opt_value_rc {
-                if let (Some(value), _rc) = decode_value_with_rc(&value_rc) {
+                let (value, rc) =
+                    decode_trie_node_with_rc(&value_rc).expect("Don't write invalid values");
+                if rc > 0 {
                     if value.len() < TRIE_LIMIT_CACHED_VALUE_SIZE {
                         guard.cache_set(hash, value.to_vec());
                     }
@@ -118,9 +119,37 @@ pub struct TrieCachingStorage {
     pub(crate) shard_id: ShardId,
 }
 
+pub fn merge_refcounted_records(result: &mut Vec<u8>, val: &[u8]) -> Result<(), StorageError> {
+    if val.is_empty() {
+        return Ok(());
+    }
+    let add_rc = TrieCachingStorage::vec_to_rc(val)?;
+    if !result.is_empty() {
+        let result_rc = TrieCachingStorage::vec_to_rc(result)? + add_rc;
+
+        debug_assert_eq!(result[0..(result.len() - 4)], val[0..(val.len() - 4)]);
+        let len = result.len();
+        result[(len - 4)..].copy_from_slice(&result_rc.to_le_bytes());
+        if result_rc == 0 {
+            *result = vec![];
+        }
+    } else {
+        *result = val.to_vec();
+    }
+    Ok(())
+}
+
 impl TrieCachingStorage {
     pub fn new(store: Arc<Store>, cache: TrieCache, shard_id: ShardId) -> TrieCachingStorage {
         TrieCachingStorage { store, cache, shard_id }
+    }
+
+    fn vec_to_rc(val: &[u8]) -> Result<i32, StorageError> {
+        decode_trie_node_with_rc(&val).map(|(_bytes, rc)| rc)
+    }
+
+    fn vec_to_bytes(val: &[u8]) -> Result<Vec<u8>, StorageError> {
+        decode_trie_node_with_rc(&val).map(|(bytes, _rc)| bytes.to_vec())
     }
 
     pub(crate) fn get_shard_id_and_hash_from_key(
@@ -154,10 +183,14 @@ impl TrieStorage for TrieCachingStorage {
                 .get(ColState, key.as_ref())
                 .map_err(|_| StorageError::StorageInternalError)?;
             if let Some(val) = val {
-                if val.len() < TRIE_LIMIT_CACHED_VALUE_SIZE {
-                    guard.cache_set(*hash, val.clone());
+                let raw_node = Self::vec_to_bytes(&val);
+                debug_assert!(Self::vec_to_rc(&val).unwrap() > 0);
+                if val.len() < TRIE_LIMIT_CACHED_VALUE_SIZE && raw_node.is_ok() {
+                    if let Ok(ref bytes) = raw_node {
+                        guard.cache_set(*hash, bytes.clone());
+                    }
                 }
-                Ok(val)
+                raw_node
             } else {
                 // not StorageError::TrieNodeMissing because it's only for TrieMemoryPartialStorage
                 Err(StorageError::StorageInconsistentState("Trie node missing".to_string()))

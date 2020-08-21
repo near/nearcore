@@ -1,4 +1,5 @@
 use crate::db::{DBCol, DBOp, DBTransaction};
+use crate::trie::encode_trie_node_with_rc;
 use crate::trie::trie_storage::{TrieCache, TrieCachingStorage};
 use crate::{StorageError, Store, StoreUpdate, Trie, TrieChanges, TrieUpdate};
 use borsh::BorshSerialize;
@@ -73,7 +74,8 @@ impl ShardTries {
         store_update.tries = Some(tries.clone());
         for (hash, value, rc) in deletions.iter() {
             let key = TrieCachingStorage::get_key_from_shard_id_and_hash(shard_id, hash);
-            store_update.update_refcount(DBCol::ColState, key.as_ref(), &value, -(*rc as i64));
+            let bytes = encode_trie_node_with_rc(&value, -(*rc as i32));
+            store_update.update_refcount(DBCol::ColState, key.as_ref(), &bytes);
         }
         Ok(())
     }
@@ -87,7 +89,8 @@ impl ShardTries {
         store_update.tries = Some(tries);
         for (hash, value, rc) in insertions.iter() {
             let key = TrieCachingStorage::get_key_from_shard_id_and_hash(shard_id, hash);
-            store_update.update_refcount(DBCol::ColState, key.as_ref(), &value, *rc as i64);
+            let bytes = encode_trie_node_with_rc(&value, *rc as i32);
+            store_update.update_refcount(DBCol::ColState, key.as_ref(), &bytes);
         }
         Ok(())
     }
