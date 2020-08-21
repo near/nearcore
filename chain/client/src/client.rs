@@ -1225,14 +1225,6 @@ impl Client {
         let gas_price = cur_block_header.gas_price();
         let epoch_id = self.runtime_adapter.get_epoch_id_from_prev_block(&head.last_block_hash)?;
 
-        // Fast transaction validation without a state root.
-        if let Some(err) =
-            self.runtime_adapter.validate_tx(gas_price, None, &tx).expect("no storage errors")
-        {
-            debug!(target: "client", "Invalid tx during basic validation: {:?}", err);
-            return Ok(NetworkClientResponses::InvalidTx(err));
-        }
-
         if self.runtime_adapter.cares_about_shard(me, &head.last_block_hash, shard_id, true)
             || self.runtime_adapter.will_care_about_shard(me, &head.last_block_hash, shard_id, true)
         {
