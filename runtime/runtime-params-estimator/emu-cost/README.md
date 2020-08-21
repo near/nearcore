@@ -76,6 +76,6 @@ and the use container ID for `docker exec` command, like:
 
 ## Useful scripts
 
-The script `../estimate.sh` will handle all the setup mentioned above. It uses wasmer by default, but you can pass `wasmtime` and `lightbeam` as well.
+The script `../estimate.sh` will handle all the setup mentioned above. It uses `wasmer` by default, but you can pass `wasmtime` and `lightbeam` as well.
 
 To just test the compile time costs use `../compile.sh`, which also takes an optional vm argument.  Its final output is (fee per byte, base fee)\
