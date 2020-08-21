@@ -1,3 +1,15 @@
 #!/bin/bash
 
-curl https://raw.githubusercontent.com/near/near-sdk-rs/master/examples/status-message-collections/res/status_message_collections.wasm > test-contract/res/status-message-collections.wasm
+
+
+ensure_repo () {
+  if [[ -e $1 ]]; then
+    cd $1;
+    git pull
+  else
+    git clone --depth=1 https://github.com/near/$1;
+  fi
+}
+
+ensure_repo near-sdk-rs;
+ensure_repo core-contracts;

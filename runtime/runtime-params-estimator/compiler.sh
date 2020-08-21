@@ -1,5 +1,6 @@
 #!/bin/bash
 
+./setup.sh
 
 VMKIND="wasmer"
 features=""

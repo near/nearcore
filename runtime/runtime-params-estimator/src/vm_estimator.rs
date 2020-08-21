@@ -1,6 +1,7 @@
 use crate::testbed_runners::end_count;
 use crate::testbed_runners::start_count;
 use crate::testbed_runners::GasMetric;
+use glob::glob;
 use near_runtime_fees::RuntimeFeesConfig;
 use near_vm_logic::mocks::mock_external::MockedExternal;
 use near_vm_logic::{VMConfig, VMContext, VMKind, VMOutcome};
@@ -8,7 +9,11 @@ use near_vm_runner::{compile_module, prepare, VMError};
 use num_rational::Ratio;
 use std::collections::hash_map::DefaultHasher;
 use std::fs;
-use std::hash::{Hash, Hasher};
+use std::{
+    hash::{Hash, Hasher},
+    path::PathBuf,
+};
+use walrus::{Module, Result};
 
 const CURRENT_ACCOUNT_ID: &str = "alice";
 const SIGNER_ACCOUNT_ID: &str = "bob";
@@ -114,9 +119,14 @@ fn compile(code: &[u8], gas_metric: GasMetric, vm_kind: VMKind) -> Option<Compil
     Some((code.len() as u64, Ratio::new(end, NUM_ITERATIONS)))
 }
 
-fn load_and_compile(path: &str, gas_metric: GasMetric, vm_kind: VMKind) -> Option<CompileCost> {
-    let code = fs::read(path).unwrap();
-    compile(&code, gas_metric, vm_kind)
+fn load_and_compile(path: &PathBuf, gas_metric: GasMetric, vm_kind: VMKind) -> Option<CompileCost> {
+    match fs::read(path) {
+        Ok(mut code) => match delete_all_data(&mut code) {
+            Ok(code) => compile(&code, gas_metric, vm_kind),
+            _ => None,
+        },
+        _ => None,
+    }
 }
 
 #[cfg(feature = "lightbeam")]
@@ -125,15 +135,19 @@ const USING_LIGHTBEAM: bool = true;
 const USING_LIGHTBEAM: bool = false;
 
 /// Cost of the compile contract with vm_kind
-pub fn cost_to_compile(gas_metric: GasMetric, vm_kind: VMKind, verbose: bool) -> (Ratio<u64>, Ratio<u64>) {
-    let contracts_paths = vec![
-        "./small-test-contract/res/smallest_contract.wasm",
-        "./test-contract/res/no_data_large_contract.wasm",
-        "./test-contract/res/no_data_status-message-collections.wasm",
-        "./test-contract/res/no_data_near_evm.wasm",
-        "./noFile.wasm",
-    ];
-    let ratio= Ratio::new(0 as u64,1);
+pub fn cost_to_compile(
+    gas_metric: GasMetric,
+    vm_kind: VMKind,
+    verbose: bool,
+) -> (Ratio<u64>, Ratio<u64>) {
+    let globbed_files = glob("./**/*.wasm").expect("Failed to read glob pattern for wasm files");
+    let paths = globbed_files
+        .filter_map(|x| match x {
+            Ok(p) => Some(p),
+            _ => None,
+        })
+        .collect::<Vec<PathBuf>>();
+    let ratio = Ratio::new(0 as u64, 1);
     let base = Ratio::new(u64::MAX, 1);
     if verbose {
         println!(
@@ -149,12 +163,12 @@ pub fn cost_to_compile(gas_metric: GasMetric, vm_kind: VMKind, verbose: bool) ->
             }
         );
     };
-    let measurements = contracts_paths
+    let measurements = paths
         .iter()
         .filter(|path| fs::metadata(path).is_ok())
         .map(|path| {
             if verbose {
-                print!("Testing {}: ", path);
+                print!("Testing {}: ", path.display());
             };
             if let Some((size, cost)) = load_and_compile(path, gas_metric, vm_kind) {
                 if verbose {
@@ -177,4 +191,21 @@ pub fn cost_to_compile(gas_metric: GasMetric, vm_kind: VMKind, verbose: bool) ->
         println!("raw data: ({},{})", m, b);
     }
     (m, b)
+}
+
+fn delete_all_data(wasm_bin: &mut Vec<u8>) -> Result<&Vec<u8>> {
+    let m = &mut Module::from_buffer(wasm_bin)?;
+    for id in get_ids(m.data.iter().map(|t| t.id())) {
+        m.data.delete(id);
+    }
+    *wasm_bin = m.emit_wasm();
+    Ok(wasm_bin)
+}
+
+fn get_ids<T>(all: impl Iterator<Item = T>) -> Vec<T> {
+    let mut ids = Vec::new();
+    for id in all {
+        ids.push(id);
+    }
+    ids
 }

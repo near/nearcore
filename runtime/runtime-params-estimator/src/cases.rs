@@ -653,6 +653,6 @@ fn get_runtime_config(measurement: &Measurements, config: &Config) -> RuntimeCon
     runtime_config
 }
 fn get_compile_cost(config: &Config, verbose: bool) -> (u64, u64) {
-  let (a, b) = cost_to_compile(config.metric, config.vm_kind, verbose);
-  (ratio_to_gas(config.metric, a), ratio_to_gas(config.metric, b))
+    let (a, b) = cost_to_compile(config.metric, config.vm_kind, verbose);
+    (ratio_to_gas(config.metric, a), ratio_to_gas(config.metric, b))
 }
