@@ -344,7 +344,7 @@ pub(crate) enum ErrorKind {
     NotFound(String),
     WrongNetwork(String),
     Timeout(String),
-    Other(String),
+    InternalError(String),
 }
 
 impl Error {
@@ -352,19 +352,19 @@ impl Error {
         match err {
             ErrorKind::InvalidInput(message) => Self {
                 code: 400,
-                message: format!("InvalidInput: {}", message),
+                message: format!("Invalid Input: {}", message),
                 retriable: false,
                 details: None,
             },
             ErrorKind::NotFound(message) => Self {
                 code: 404,
-                message: format!("NotFound: {}", message),
+                message: format!("Not Found: {}", message),
                 retriable: false,
                 details: None,
             },
             ErrorKind::WrongNetwork(message) => Self {
                 code: 403,
-                message: format!("WrongNetwork: {}", message),
+                message: format!("Wrong Network: {}", message),
                 retriable: false,
                 details: None,
             },
@@ -374,9 +374,12 @@ impl Error {
                 retriable: true,
                 details: None,
             },
-            ErrorKind::Other(message) => Self {
+            ErrorKind::InternalError(message) => Self {
                 code: 500,
-                message: format!("Other: {}", message),
+                message: format!(
+                    "Internal Error: internal invariant is not held (please, report it): {}",
+                    message
+                ),
                 retriable: true,
                 details: None,
             },

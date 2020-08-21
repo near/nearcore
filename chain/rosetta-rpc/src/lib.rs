@@ -38,7 +38,7 @@ async fn network_list(
     let status = client_addr
         .send(near_client::Status { is_health_check: false })
         .await?
-        .map_err(models::ErrorKind::Other)?;
+        .map_err(models::ErrorKind::InternalError)?;
     Ok(Json(models::NetworkListResponse {
         network_identifiers: vec![models::NetworkIdentifier {
             blockchain: "nearprotocol".to_owned(),
@@ -63,7 +63,7 @@ async fn network_status(
     let status = client_addr
         .send(near_client::Status { is_health_check: false })
         .await?
-        .map_err(models::ErrorKind::Other)?;
+        .map_err(models::ErrorKind::InternalError)?;
     if status.chain_id != body.network_identifier.network {
         return Err(models::Error {
             code: 2,
@@ -85,8 +85,8 @@ async fn network_status(
             ),
         )),
     )?;
-    let network_info = network_info.map_err(models::ErrorKind::Other)?;
-    let genesis_block = genesis_block.map_err(models::ErrorKind::Other)?;
+    let network_info = network_info.map_err(models::ErrorKind::InternalError)?;
+    let genesis_block = genesis_block.map_err(models::ErrorKind::InternalError)?;
     let earliest_block = earliest_block;
 
     let genesis_block_identifier: models::BlockIdentifier = (&genesis_block.header).into();
@@ -135,7 +135,7 @@ async fn network_options(
     let status = client_addr
         .send(near_client::Status { is_health_check: false })
         .await?
-        .map_err(models::ErrorKind::Other)?;
+        .map_err(models::ErrorKind::InternalError)?;
     if status.chain_id != body.network_identifier.network {
         return Err(models::Error {
             code: 2,
@@ -194,7 +194,7 @@ async fn block_details(
     let status = client_addr
         .send(near_client::Status { is_health_check: false })
         .await?
-        .map_err(models::ErrorKind::Other)?;
+        .map_err(models::ErrorKind::InternalError)?;
     if status.chain_id != network_identifier.network {
         return Err(models::Error {
             code: 2,
@@ -230,7 +230,7 @@ async fn block_details(
                 near_primitives::types::BlockId::Hash(block.header.prev_hash).into(),
             ))
             .await?
-            .map_err(models::ErrorKind::Other)?;
+            .map_err(models::ErrorKind::InternalError)?;
 
         models::BlockIdentifier {
             index: parent_block.header.height.try_into().unwrap(),
@@ -294,7 +294,7 @@ async fn block_transaction_details(
     let status = client_addr
         .send(near_client::Status { is_health_check: false })
         .await?
-        .map_err(models::ErrorKind::Other)?;
+        .map_err(models::ErrorKind::InternalError)?;
     if status.chain_id != network_identifier.network {
         return Err(models::Error {
             code: 2,
@@ -364,7 +364,7 @@ async fn account_balance(
     let status = client_addr
         .send(near_client::Status { is_health_check: false })
         .await?
-        .map_err(models::ErrorKind::Other)?;
+        .map_err(models::ErrorKind::InternalError)?;
     if status.chain_id != network_identifier.network {
         return Err(models::Error {
             code: 2,
@@ -387,10 +387,11 @@ async fn account_balance(
             details: None,
         })?;
 
+    // TODO: update error handling once we return structured errors from the view_client handlers
     let block = view_client_addr
         .send(near_client::GetBlock(block_id.clone()))
         .await?
-        .map_err(models::ErrorKind::Other)?;
+        .map_err(models::ErrorKind::InternalError)?;
 
     let query = near_client::Query::new(
         block_id,
@@ -403,12 +404,12 @@ async fn account_balance(
             match view_client_addr.send(query.clone()).await? {
                 Ok(Some(query_response)) => return Ok(Some(query_response)),
                 Ok(None) => {}
-                // TODO: update this once we return structured errors in the view_client handlers
+                // TODO: update this once we return structured errors from the view_client handlers
                 Err(err) => {
                     if err.contains("does not exist") {
                         return Ok(None);
                     }
-                    return Err(models::Error::from(models::ErrorKind::Other(err)));
+                    return Err(models::Error::from(models::ErrorKind::InternalError(err)));
                 }
             }
             tokio::time::delay_for(std::time::Duration::from_millis(100)).await;
@@ -422,10 +423,10 @@ async fn account_balance(
         let account_info = match account_info_response.kind {
             near_primitives::views::QueryResponseKind::ViewAccount(account_info) => account_info,
             _ => {
-                return Err(models::ErrorKind::Other(
-                    "Internal invariant is not held; we queried ViewAccount, but received something else."
-                        .to_string(),
-                )
+                return Err(models::ErrorKind::InternalError(format!(
+                    "queried ViewAccount, but received {:?}.",
+                    account_info_response.kind
+                ))
                 .into());
             }
         };
@@ -518,7 +519,7 @@ async fn mempool_transaction(
     _client_addr: web::Data<Addr<ClientActor>>,
     _body: Json<models::MempoolTransactionRequest>,
 ) -> Result<Json<models::MempoolTransactionResponse>, models::Error> {
-    Err(models::ErrorKind::Other("Not implemented yet".to_string()).into())
+    Err(models::ErrorKind::InternalError("Not implemented yet".to_string()).into())
 }
 
 #[api_v2_operation]
@@ -529,7 +530,7 @@ async fn mempool_transaction(
 /// Blockchains that require an on-chain action to create an account should not
 /// implement this method.
 async fn construction_derive() -> Result<Json<()>, models::Error> {
-    Err(models::ErrorKind::Other("Not implemented by design".to_string()).into())
+    Err(models::ErrorKind::InternalError("Not implemented by design".to_string()).into())
 }
 
 #[api_v2_operation]
@@ -545,7 +546,7 @@ async fn construction_preprocess(
     _body: Json<models::ConstructionSubmitRequest>,
 ) -> Result<Json<models::TransactionIdentifierResponse>, models::Error> {
     // TODO
-    Err(models::ErrorKind::Other("Not implemented yet".to_string()).into())
+    Err(models::ErrorKind::InternalError("Not implemented yet".to_string()).into())
 }
 
 #[api_v2_operation]
@@ -564,7 +565,7 @@ async fn construction_metadata(
     _body: Json<models::ConstructionSubmitRequest>,
 ) -> Result<Json<models::TransactionIdentifierResponse>, models::Error> {
     // TODO
-    Err(models::ErrorKind::Other("Not implemented yet".to_string()).into())
+    Err(models::ErrorKind::InternalError("Not implemented yet".to_string()).into())
 }
 
 #[api_v2_operation]
@@ -585,7 +586,7 @@ async fn construction_payloads(
     _body: Json<models::ConstructionSubmitRequest>,
 ) -> Result<Json<models::TransactionIdentifierResponse>, models::Error> {
     // TODO
-    Err(models::ErrorKind::Other("Not implemented yet".to_string()).into())
+    Err(models::ErrorKind::InternalError("Not implemented yet".to_string()).into())
 }
 
 #[api_v2_operation]
@@ -599,7 +600,7 @@ async fn construction_combine(
     _body: Json<models::ConstructionSubmitRequest>,
 ) -> Result<Json<models::TransactionIdentifierResponse>, models::Error> {
     // TODO
-    Err(models::ErrorKind::Other("Not implemented yet".to_string()).into())
+    Err(models::ErrorKind::InternalError("Not implemented yet".to_string()).into())
 }
 
 #[api_v2_operation]
@@ -614,7 +615,7 @@ async fn construction_parse(
     _body: Json<models::ConstructionSubmitRequest>,
 ) -> Result<Json<models::TransactionIdentifierResponse>, models::Error> {
     // TODO
-    Err(models::ErrorKind::Other("Not implemented yet".to_string()).into())
+    Err(models::ErrorKind::InternalError("Not implemented yet".to_string()).into())
 }
 
 #[api_v2_operation]
@@ -654,7 +655,7 @@ async fn construction_submit(
     let status = client_addr
         .send(near_client::Status { is_health_check: false })
         .await?
-        .map_err(models::ErrorKind::Other)?;
+        .map_err(models::ErrorKind::InternalError)?;
     if status.chain_id != network_identifier.network {
         return Err(models::Error {
             code: 2,
@@ -665,15 +666,30 @@ async fn construction_submit(
     }
 
     let transaction_hash = signed_transaction.0.get_hash().to_base();
-    client_addr.do_send(near_network::NetworkClientMessages::Transaction {
-        transaction: signed_transaction.0,
-        is_forwarded: false,
-        check_only: false,
-    });
-    Ok(Json(models::TransactionIdentifierResponse {
-        transaction_identifier: models::TransactionIdentifier { hash: transaction_hash },
-        metadata: None,
-    }))
+    let transaction_submittion = client_addr
+        .send(near_network::NetworkClientMessages::Transaction {
+            transaction: signed_transaction.0,
+            is_forwarded: false,
+            check_only: false,
+        })
+        .await?;
+    match transaction_submittion {
+        near_network::NetworkClientResponses::ValidTx
+        | near_network::NetworkClientResponses::RequestRouted => {
+            Ok(Json(models::TransactionIdentifierResponse {
+                transaction_identifier: models::TransactionIdentifier { hash: transaction_hash },
+                metadata: None,
+            }))
+        }
+        near_network::NetworkClientResponses::InvalidTx(error) => {
+            Err(models::ErrorKind::InvalidInput(error.to_string()).into())
+        }
+        _ => Err(models::ErrorKind::InternalError(format!(
+            "Transaction submition return unexpected result: {:?}",
+            transaction_submittion
+        ))
+        .into()),
+    }
 }
 
 fn get_cors(cors_allowed_origins: &[String]) -> CorsFactory {
