@@ -83,6 +83,7 @@ macro_rules! calls_helper(
 #[allow(non_camel_case_types)]
 pub enum Metric {
     Receipt,
+    SirReceipt,
     ActionTransfer,
     ActionCreateAccount,
     ActionDeleteAccount,
@@ -149,8 +150,12 @@ pub enum Metric {
 pub fn run(mut config: Config) -> RuntimeConfig {
     let mut m = Measurements::new(config.metric);
     config.block_sizes = vec![100];
+    // Warmup for receipts
+    measure_actions(Metric::warmup, &mut m, &config, None, vec![], false, false);
     // Measure the speed of processing empty receipts.
     measure_actions(Metric::Receipt, &mut m, &config, None, vec![], false, false);
+    // Measure the speed of processing a sir receipt (where sender is receiver).
+    measure_actions(Metric::SirReceipt, &mut m, &config, None, vec![], true, false);
 
     // Measure the speed of processing simple transfers.
     measure_actions(
@@ -168,7 +173,8 @@ pub fn run(mut config: Config) -> RuntimeConfig {
     let mut f = || {
         let account_idx = rand::thread_rng().gen::<usize>() % config.active_accounts;
         let account_id = get_account_id(account_idx);
-        let other_account_id = format!("random_account_{}", rand::thread_rng().gen::<usize>());
+        let other_account_id =
+            format!("near_{}_{}", account_idx, rand::thread_rng().gen::<usize>());
         let signer = InMemorySigner::from_seed(&account_id, KeyType::ED25519, &account_id);
         let nonce = *nonces.entry(account_idx).and_modify(|x| *x += 1).or_insert(1);
         SignedTransaction::from_actions(
@@ -319,7 +325,7 @@ pub fn run(mut config: Config) -> RuntimeConfig {
         &mut m,
         &config,
         None,
-        vec![Action::Stake(StakeAction { stake: 1, public_key: public_key })],
+        vec![Action::Stake(StakeAction { stake: 1, public_key })],
         true,
         true,
     );

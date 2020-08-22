@@ -189,11 +189,11 @@ impl DataStats {
     /// `stddev_clean^2 = stddev^2 + stddev_noop^2`
     /// and then compute upper as `mean_clean + 4*stddev_clean`
     pub fn upper_with_base(&self, denom: u64, base: &Self, base_denom: u64) -> Ratio<u64> {
-        let mean = self.mean as f64 / denom as f64 - base.mean as f64 / base_denom as f64;
+        let mean = self.mean as f64 - base.mean as f64 / base_denom as f64;
         let stddev = ((self.stddev as f64 / denom as f64).powf(2.0)
             + (base.stddev as f64 / base_denom as f64).powf(2.0))
         .sqrt();
-        Ratio::new(((mean + 4f64 * stddev) * (denom as f64)) as u64, denom)
+        Ratio::new((mean + 4f64 * stddev * (denom as f64)) as u64, denom)
     }
 }
 

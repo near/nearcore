@@ -195,19 +195,21 @@ where
         }
     };
 
-    let bar = ProgressBar::new(warmup_total_transactions(config) as _);
-    bar.set_style(ProgressStyle::default_bar().template(
-        "[elapsed {elapsed_precise} remaining {eta_precise}] Warm up {bar} {pos:>7}/{len:7} {msg}",
-    ));
-    for block_size in config.block_sizes.clone() {
-        for _ in 0..config.warmup_iters_per_block {
-            let block: Vec<_> = (0..block_size).map(|_| (*f)()).collect();
-            testbed.process_block(&block, allow_failures);
-            bar.inc(block_size as _);
-            bar.set_message(format!("Block size: {}", block_size).as_str());
+    if config.warmup_iters_per_block > 0 {
+        let bar = ProgressBar::new(warmup_total_transactions(config) as _);
+        bar.set_style(ProgressStyle::default_bar().template(
+            "[elapsed {elapsed_precise} remaining {eta_precise}] Warm up {bar} {pos:>7}/{len:7} {msg}",
+        ));
+        for block_size in config.block_sizes.clone() {
+            for _ in 0..config.warmup_iters_per_block {
+                let block: Vec<_> = (0..block_size).map(|_| (*f)()).collect();
+                testbed.process_block(&block, allow_failures);
+                bar.inc(block_size as _);
+                bar.set_message(format!("Block size: {}", block_size).as_str());
+            }
         }
+        bar.finish();
     }
-    bar.finish();
 
     let bar = ProgressBar::new(total_transactions(config) as _);
     bar.set_style(ProgressStyle::default_bar().template(
@@ -216,18 +218,18 @@ where
     node_runtime::EXT_COSTS_COUNTER.with(|f| {
         f.borrow_mut().clear();
     });
-    for block_size in config.block_sizes.clone() {
-        for _ in 0..config.iter_per_block {
+    for _ in 0..config.iter_per_block {
+        for block_size in config.block_sizes.clone() {
             let block: Vec<_> = (0..block_size).map(|_| (*f)()).collect();
             let start = start_count(config.metric);
             testbed.process_block(&block, allow_failures);
+            testbed.process_blocks_until_no_receipts(allow_failures);
             let measured = end_count(config.metric, &start);
             measurements.record_measurement(metric.clone(), block_size, measured);
             bar.inc(block_size as _);
             bar.set_message(format!("Block size: {}", block_size).as_str());
         }
     }
-    testbed.process_blocks_until_no_receipts(allow_failures);
     bar.finish();
     measurements.print();
     testbed
