@@ -247,7 +247,7 @@ impl Block {
             min_gas_price,
             max_gas_price,
         );
-        self.header().gas_price() == max(expected_price, min_gas_price)
+        self.header().gas_price() == expected_price
     }
 
     pub fn compute_new_gas_price(

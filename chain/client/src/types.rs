@@ -15,13 +15,14 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{MerklePath, PartialMerkleTree};
 use near_primitives::sharding::ChunkHash;
 use near_primitives::types::{
-    AccountId, BlockHeight, BlockIdOrFinality, MaybeBlockId, ShardId, TransactionOrReceiptId,
+    AccountId, BlockHeight, BlockReference, MaybeBlockId, ShardId, TransactionOrReceiptId,
 };
 use near_primitives::utils::generate_random_string;
 use near_primitives::views::{
     BlockView, ChunkView, EpochValidatorInfo, ExecutionOutcomeWithIdView,
     FinalExecutionOutcomeView, GasPriceView, LightClientBlockLiteView, LightClientBlockView,
     QueryRequest, QueryResponse, StateChangesKindsView, StateChangesRequestView, StateChangesView,
+    ValidatorStakeView,
 };
 pub use near_primitives::views::{StatusResponse, StatusSyncInfo};
 
@@ -121,8 +122,6 @@ pub enum SyncStatus {
     AwaitingPeers,
     /// Not syncing / Done syncing.
     NoSync,
-    /// Not syncing, but have a peer that is one block ahead.
-    NoSyncSeveralBlocksBehind { since_when: DateTime<Utc>, our_height: BlockHeight },
     /// Downloading block headers for fast sync.
     HeaderSync { current_height: BlockHeight, highest_height: BlockHeight },
     /// State sync, with different states of state sync for different shards.
@@ -142,18 +141,18 @@ impl SyncStatus {
     /// True if currently engaged in syncing the chain.
     pub fn is_syncing(&self) -> bool {
         match self {
-            SyncStatus::NoSync | SyncStatus::NoSyncSeveralBlocksBehind { .. } => false,
+            SyncStatus::NoSync => false,
             _ => true,
         }
     }
 }
 
 /// Actor message requesting block by id or hash.
-pub struct GetBlock(pub BlockIdOrFinality);
+pub struct GetBlock(pub BlockReference);
 
 impl GetBlock {
     pub fn latest() -> Self {
-        Self(BlockIdOrFinality::latest())
+        Self(BlockReference::latest())
     }
 }
 
@@ -162,11 +161,11 @@ impl Message for GetBlock {
 }
 
 /// Get block with the block merkle tree. Used for testing
-pub struct GetBlockWithMerkleTree(pub BlockIdOrFinality);
+pub struct GetBlockWithMerkleTree(pub BlockReference);
 
 impl GetBlockWithMerkleTree {
     pub fn latest() -> Self {
-        Self(BlockIdOrFinality::latest())
+        Self(BlockReference::latest())
     }
 }
 
@@ -189,13 +188,13 @@ impl Message for GetChunk {
 #[derive(Deserialize, Clone)]
 pub struct Query {
     pub query_id: String,
-    pub block_id_or_finality: BlockIdOrFinality,
+    pub block_reference: BlockReference,
     pub request: QueryRequest,
 }
 
 impl Query {
-    pub fn new(block_id_or_finality: BlockIdOrFinality, request: QueryRequest) -> Self {
-        Query { query_id: generate_random_string(10), block_id_or_finality, request }
+    pub fn new(block_reference: BlockReference, request: QueryRequest) -> Self {
+        Query { query_id: generate_random_string(10), block_reference, request }
     }
 }
 
@@ -285,6 +284,14 @@ pub struct GetValidatorInfo {
 
 impl Message for GetValidatorInfo {
     type Result = Result<EpochValidatorInfo, String>;
+}
+
+pub struct GetValidatorOrdered {
+    pub block_id: MaybeBlockId,
+}
+
+impl Message for GetValidatorOrdered {
+    type Result = Result<Vec<ValidatorStakeView>, String>;
 }
 
 pub struct GetStateChanges {

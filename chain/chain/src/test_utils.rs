@@ -461,6 +461,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         _gas_price: Balance,
         _state_update: Option<StateRoot>,
         _transaction: &SignedTransaction,
+        _verify_signature: bool,
     ) -> Result<Option<InvalidTxError>, Error> {
         Ok(None)
     }
@@ -499,6 +500,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         gas_price: Balance,
         _gas_limit: Gas,
         _challenges: &ChallengesResult,
+        _random_seed: CryptoHash,
         generate_storage_proof: bool,
     ) -> Result<ApplyTransactionResult, Error> {
         assert!(!generate_storage_proof);
@@ -677,6 +679,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         _gas_price: Balance,
         _gas_limit: Gas,
         _challenges: &ChallengesResult,
+        _random_value: CryptoHash,
     ) -> Result<ApplyTransactionResult, Error> {
         unimplemented!();
     }
@@ -854,10 +857,13 @@ impl RuntimeAdapter for KeyValueRuntime {
         }
     }
 
-    fn get_gc_stop_height(&self, block_hash: &CryptoHash) -> Result<BlockHeight, Error> {
-        let block_height =
-            self.get_block_header(block_hash)?.map(|h| h.height()).unwrap_or_default();
-        Ok(block_height.saturating_sub(NUM_EPOCHS_TO_KEEP_STORE_DATA * self.epoch_length))
+    fn get_gc_stop_height(&self, block_hash: &CryptoHash) -> BlockHeight {
+        let block_height = self
+            .get_block_header(block_hash)
+            .unwrap_or_default()
+            .map(|h| h.height())
+            .unwrap_or_default();
+        block_height.saturating_sub(NUM_EPOCHS_TO_KEEP_STORE_DATA * self.epoch_length)
     }
 
     fn epoch_exists(&self, _epoch_id: &EpochId) -> bool {

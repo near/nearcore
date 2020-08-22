@@ -178,7 +178,7 @@ class NodesProxy:
 
     def proxify_node(self, node):
         proxify_node(node, self.ps, self.handler,
-                     self.global_stopped, self.error)
+                     self.global_stopped, self.error, self)
 
 
 async def stop_server(server):
@@ -212,7 +212,10 @@ async def bridge(reader, writer, handler_fn, global_stopped, local_stopped, erro
                 break
 
             assert len(header) == 4, header
-            raw_message = await reader.read(struct.unpack('I', header)[0])
+            raw_message_len = struct.unpack('I', header)[0]
+            raw_message = await reader.read(raw_message_len)
+            while len(raw_message) < raw_message_len:
+                raw_message += await reader.read(raw_message_len - len(raw_message))
 
             debug(
                 f"Message size={len(raw_message)} port={_MY_PORT} bridge_id={bridge_id}", level=2)
@@ -229,7 +232,7 @@ async def bridge(reader, writer, handler_fn, global_stopped, local_stopped, erro
 
         debug(
             f"Gracefully close bridge. port={_MY_PORT} bridge_id={bridge_id}", level=2)
-    except ConnectionResetError:
+    except (ConnectionResetError, BrokenPipeError):
         debug(
             f"Endpoint closed (Writer). port={_MY_PORT} bridge_id={bridge_id}", level=2)
 
@@ -262,6 +265,11 @@ async def handle_connection(outer_reader, outer_writer, inner_port, outer_port, 
             f"Cancelled Error (handle_connection). port={_MY_PORT} connection_id={connection_id} global_stopped={global_stopped.value} local_stopped={local_stopped.value} error={error.value}")
         if local_stopped.value == 0:
             global_stopped.value = 1
+    except ConnectionRefusedError:
+        debug(
+            f"ConnectionRefusedError (handle_connection). port={_MY_PORT} connection_id={connection_id} global_stopped={global_stopped.value} local_stopped={local_stopped.value} error={error.value}")
+        if local_stopped.value == 0:
+            global_stopped.value = 1
     except:
         debug(
             f"Other Error (handle_connection). port={_MY_PORT} connection_id={connection_id} global_stopped={global_stopped.value} local_stopped={local_stopped.value} error={error.value}")
@@ -277,7 +285,7 @@ async def listener(inner_port, outer_port, handler_ctr, global_stopped, local_st
         async def start_connection(reader, writer):
             await handle_connection(reader, writer, inner_port, outer_port, handler, global_stopped, local_stopped, error)
 
-        attempts = 2
+        attempts = 3
 
         # Possibly need to wait 1 second to start listener if node was killed and previous listener is on yet.
         while attempts > 0:
@@ -316,7 +324,7 @@ def start_server(inner_port, outer_port, handler_ctr, global_stopped, local_stop
                          global_stopped, local_stopped, error))
 
 
-def proxify_node(node, ps, handler, global_stopped, error):
+def proxify_node(node, ps, handler, global_stopped, error, proxy):
     inner_port = node.port
     outer_port = inner_port + 100
 
@@ -330,3 +338,4 @@ def proxify_node(node, ps, handler, global_stopped, error):
 
     node.port = outer_port
     node._start_proxy = start_proxy
+    node.proxy = proxy

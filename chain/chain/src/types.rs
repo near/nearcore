@@ -254,6 +254,7 @@ pub trait RuntimeAdapter: Send + Sync {
         gas_price: Balance,
         state_root: Option<StateRoot>,
         transaction: &SignedTransaction,
+        verify_signature: bool,
     ) -> Result<Option<InvalidTxError>, Error>;
 
     /// Returns an ordered list of valid transactions from the pool up the given limits.
@@ -406,7 +407,7 @@ pub trait RuntimeAdapter: Send + Sync {
     fn get_epoch_start_height(&self, block_hash: &CryptoHash) -> Result<BlockHeight, Error>;
 
     /// Get the block height for which garbage collection should not go over
-    fn get_gc_stop_height(&self, block_hash: &CryptoHash) -> Result<BlockHeight, Error>;
+    fn get_gc_stop_height(&self, block_hash: &CryptoHash) -> BlockHeight;
 
     /// Check if epoch exists.
     fn epoch_exists(&self, epoch_id: &EpochId) -> bool;
@@ -436,6 +437,7 @@ pub trait RuntimeAdapter: Send + Sync {
         gas_price: Balance,
         gas_limit: Gas,
         challenges_result: &ChallengesResult,
+        random_seed: CryptoHash,
     ) -> Result<ApplyTransactionResult, Error> {
         self.apply_transactions_with_optional_storage_proof(
             shard_id,
@@ -450,6 +452,7 @@ pub trait RuntimeAdapter: Send + Sync {
             gas_price,
             gas_limit,
             challenges_result,
+            random_seed,
             false,
         )
     }
@@ -468,6 +471,7 @@ pub trait RuntimeAdapter: Send + Sync {
         gas_price: Balance,
         gas_limit: Gas,
         challenges_result: &ChallengesResult,
+        random_seed: CryptoHash,
         generate_storage_proof: bool,
     ) -> Result<ApplyTransactionResult, Error>;
 
@@ -486,6 +490,7 @@ pub trait RuntimeAdapter: Send + Sync {
         gas_price: Balance,
         gas_limit: Gas,
         challenges_result: &ChallengesResult,
+        random_value: CryptoHash,
     ) -> Result<ApplyTransactionResult, Error>;
 
     /// Query runtime with given `path` and `data`.

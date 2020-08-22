@@ -477,9 +477,9 @@ dependencies = [
 
 [[package]]
 name = "bindgen"
-version = "0.53.2"
+version = "0.54.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6bb26d6a69a335b8cb0e7c7e9775cd5666611dc50a37177c3f2cedcfc040e8c8"
+checksum = "f4d49b80beb70d76cdac92f5681e666f9a697c737c4f4117a67229a0386dc736"
 dependencies = [
  "bitflags",
  "cexpr",
@@ -1099,6 +1099,13 @@ dependencies = [
  "rand_core 0.5.1",
  "subtle 2.2.2",
  "zeroize",
+]
+
+[[package]]
+name = "delay-detector"
+version = "0.1.0"
+dependencies = [
+ "log",
 ]
 
 [[package]]
@@ -2053,9 +2060,8 @@ dependencies = [
 
 [[package]]
 name = "librocksdb-sys"
-version = "6.7.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "883213ae3d09bfc3d104aefe94b25ebb183b6f4d3a515b23b14817e1f4854005"
+version = "6.10.2"
+source = "git+https://github.com/nearprotocol/rust-rocksdb?branch=disable-thread#44592812fd12cc2ea5de55af7c8d9bfdeacac692"
 dependencies = [
  "bindgen",
  "cc",
@@ -2330,6 +2336,7 @@ dependencies = [
  "borsh",
  "cached",
  "chrono",
+ "delay-detector",
  "failure",
  "failure_derive",
  "lazy_static",
@@ -2397,6 +2404,7 @@ dependencies = [
  "borsh",
  "cached",
  "chrono",
+ "delay-detector",
  "futures",
  "lazy_static",
  "log",
@@ -2560,6 +2568,7 @@ dependencies = [
  "bytes",
  "cached",
  "chrono",
+ "delay-detector",
  "futures",
  "lazy_static",
  "log",
@@ -2659,7 +2668,7 @@ dependencies = [
 
 [[package]]
 name = "near-runtime-fees"
-version = "1.1.0"
+version = "1.2.0"
 dependencies = [
  "num-rational",
  "serde",
@@ -2667,7 +2676,7 @@ dependencies = [
 
 [[package]]
 name = "near-runtime-standalone"
-version = "1.1.0"
+version = "1.2.0"
 dependencies = [
  "near-crypto",
  "near-pool",
@@ -2715,7 +2724,7 @@ dependencies = [
 
 [[package]]
 name = "near-vm-errors"
-version = "1.1.0"
+version = "1.2.0"
 dependencies = [
  "borsh",
  "near-rpc-error-macro",
@@ -2724,7 +2733,7 @@ dependencies = [
 
 [[package]]
 name = "near-vm-logic"
-version = "1.1.0"
+version = "1.2.0"
 dependencies = [
  "base64 0.11.0",
  "bs58",
@@ -2739,7 +2748,7 @@ dependencies = [
 
 [[package]]
 name = "near-vm-runner"
-version = "1.1.0"
+version = "1.2.0"
 dependencies = [
  "anyhow",
  "assert_matches",
@@ -2758,15 +2767,17 @@ dependencies = [
 
 [[package]]
 name = "near-vm-runner-standalone"
-version = "1.1.0"
+version = "1.2.0"
 dependencies = [
  "base64 0.11.0",
  "clap 2.33.0",
  "near-runtime-fees",
  "near-vm-logic",
  "near-vm-runner",
+ "num-rational",
  "serde",
  "serde_json",
+ "strum",
 ]
 
 [[package]]
@@ -2803,6 +2814,7 @@ dependencies = [
  "byteorder",
  "chrono",
  "clap 2.33.0",
+ "delay-detector",
  "dirs",
  "easy-ext",
  "futures",
@@ -2863,7 +2875,7 @@ dependencies = [
 
 [[package]]
 name = "node-runtime"
-version = "1.1.0"
+version = "1.2.0"
 dependencies = [
  "assert_matches",
  "base64 0.11.0",
@@ -3602,8 +3614,7 @@ dependencies = [
 [[package]]
 name = "rocksdb"
 version = "0.14.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "61aa17a99a2413cd71c1106691bf59dad7de0cd5099127f90e9d99c429c40d4a"
+source = "git+https://github.com/nearprotocol/rust-rocksdb?branch=disable-thread#44592812fd12cc2ea5de55af7c8d9bfdeacac692"
 dependencies = [
  "libc",
  "librocksdb-sys",
@@ -3611,7 +3622,7 @@ dependencies = [
 
 [[package]]
 name = "runtime-params-estimator"
-version = "1.1.0"
+version = "1.2.0"
 dependencies = [
  "borsh",
  "clap 2.33.0",
@@ -3629,6 +3640,7 @@ dependencies = [
  "num-rational",
  "rand 0.7.3",
  "rand_xorshift 0.2.0",
+ "rocksdb",
  "serde_json",
  "tempfile",
 ]

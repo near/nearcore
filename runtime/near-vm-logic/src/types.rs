@@ -1,4 +1,7 @@
+use crate::{ActionCosts, ExtCosts};
 use serde::{Deserialize, Serialize};
+use std::cell::RefCell;
+use std::rc::Rc;
 
 pub type AccountId = String;
 pub type PublicKey = Vec<u8>;
@@ -35,3 +38,6 @@ pub enum PromiseResult {
     Successful(Vec<u8>),
     Failed,
 }
+
+/// Profile of gas consumption.
+pub type ProfileData = Rc<RefCell<[u64; ActionCosts::count() + ExtCosts::count()]>>;

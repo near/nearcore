@@ -117,7 +117,7 @@ fn template_test(transaction_type: TransactionType, db_type: DataBaseType, expec
                 &AccessKey::full_access(),
             );
             records.push(access_key_record);
-            let code = ContractCode::new(wasm_binary.to_vec());
+            let code = ContractCode::new(wasm_binary.to_vec(), Some(code_hash));
             set_code(&mut state_update, account_id.clone(), &code);
             let contract_record = StateRecord::Contract {
                 account_id: account_id.clone(),

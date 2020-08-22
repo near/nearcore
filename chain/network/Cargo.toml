@@ -30,6 +30,8 @@ near-store = { path = "../../core/store" }
 near-metrics = { path = "../../core/metrics" }
 near-chain = { path = "../chain" }
 
+delay-detector = { path = "../../tools/delay_detector", optional = true}
+
 [dev-dependencies]
 near-logger-utils = {path = "../../test-utils/logger"}
 tempfile = "3"
@@ -42,6 +44,7 @@ near-telemetry = { path = "../telemetry" }
 [features]
 adversarial = []
 metric_recorder = []
+delay_detector = ["delay-detector"]
 
 [[bench]]
 name = "graph"
