@@ -338,23 +338,34 @@ pub(crate) fn block_chunks_exist(
     for chunk_header in block.chunks().iter() {
         if chunk_header.height_included == block.header().height() {
             if let Some(me) = &sv.me {
-                if sv.runtime_adapter.cares_about_shard(
+                let cares_about_shard = sv.runtime_adapter.cares_about_shard(
                     Some(&me),
                     block.header().prev_hash(),
                     chunk_header.inner.shard_id,
                     true,
-                ) || sv.runtime_adapter.will_care_about_shard(
+                );
+                let will_care_about_shard = sv.runtime_adapter.will_care_about_shard(
                     Some(&me),
                     block.header().prev_hash(),
                     chunk_header.inner.shard_id,
                     true,
-                ) {
+                );
+                if cares_about_shard || will_care_about_shard {
                     unwrap_or_err_db!(
                         sv.store
                             .get_ser::<ShardChunk>(ColChunks, chunk_header.chunk_hash().as_ref()),
                         "Can't get Chunk {:?} from storage",
                         chunk_header
                     );
+                    if cares_about_shard {
+                        let block_shard_id =
+                            get_block_shard_id(block.hash(), chunk_header.inner.shard_id);
+                        unwrap_or_err_db!(
+                            sv.store.get_ser::<ChunkExtra>(ColChunkExtra, block_shard_id.as_ref()),
+                            "Can't get chunk extra for chunk {:?} from storage",
+                            chunk_header
+                        );
+                    }
                 }
             }
         }
@@ -636,6 +647,18 @@ pub(crate) fn state_sync_info_block_exists(
     sv: &mut StoreValidator,
     block_hash: &CryptoHash,
     _state_sync_info: &StateSyncInfo,
+) -> Result<(), StoreValidatorError> {
+    unwrap_or_err_db!(
+        sv.store.get_ser::<Block>(ColBlock, block_hash.as_ref()),
+        "Can't get Block from DB"
+    );
+    Ok(())
+}
+
+pub(crate) fn chunk_extra_block_exists(
+    sv: &mut StoreValidator,
+    block_hash: &CryptoHash,
+    _chunk_extra: &ChunkExtra,
 ) -> Result<(), StoreValidatorError> {
     unwrap_or_err_db!(
         sv.store.get_ser::<Block>(ColBlock, block_hash.as_ref()),
