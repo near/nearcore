@@ -737,15 +737,13 @@ pub(crate) fn tx_refcount(
     tx_hash: &CryptoHash,
     refcount: &u64,
 ) -> Result<(), StoreValidatorError> {
-    if let Some(expected) = sv.inner.tx_refcount.get(tx_hash) {
-        if refcount != expected {
-            err!("Invalid tx refcount, expected {:?}, found {:?}", expected, refcount)
-        } else {
-            sv.inner.tx_refcount.remove(tx_hash);
-            return Ok(());
-        }
+    let expected = sv.inner.tx_refcount.get(tx_hash).map(|&rc| rc).unwrap_or_default();
+    if *refcount != expected {
+        err!("Invalid tx refcount, expected {:?}, found {:?}", expected, refcount)
+    } else {
+        sv.inner.tx_refcount.remove(tx_hash);
+        return Ok(());
     }
-    err!("Unexpected Tx found")
 }
 
 pub(crate) fn block_refcount(
