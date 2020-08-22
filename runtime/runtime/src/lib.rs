@@ -38,6 +38,7 @@ use crate::config::{
 };
 use crate::verifier::validate_receipt;
 pub use crate::verifier::{validate_transaction, verify_and_charge_transaction};
+use near_primitives::version::ProtocolVersion;
 use std::rc::Rc;
 
 mod actions;
@@ -70,6 +71,10 @@ pub struct ApplyState {
     /// Gas limit for a given chunk.
     /// If None is given, assumes there is no gas limit.
     pub gas_limit: Option<Gas>,
+    /// Current random seed (from current block vrf output).
+    pub random_seed: CryptoHash,
+    /// Current Protocol version when we apply the state transition
+    pub current_protocol_version: ProtocolVersion,
 }
 
 /// Contains information to update validators accounts at the first block of a new epoch.
@@ -231,6 +236,7 @@ impl Runtime {
             state_update,
             apply_state.gas_price,
             signed_transaction,
+            true,
         ) {
             Ok(verification_result) => {
                 near_metrics::inc_counter(&metrics::TRANSACTION_PROCESSED_SUCCESSFULLY_TOTAL);
@@ -284,7 +290,7 @@ impl Runtime {
         receipt: &Receipt,
         action_receipt: &ActionReceipt,
         promise_results: &[PromiseResult],
-        action_hash: CryptoHash,
+        action_hash: &CryptoHash,
         is_last_action: bool,
         epoch_info_provider: &dyn EpochInfoProvider,
     ) -> Result<ActionResult, RuntimeError> {
@@ -337,7 +343,7 @@ impl Runtime {
                     &mut result,
                     account_id,
                     function_call,
-                    &action_hash,
+                    action_hash,
                     &self.config,
                     is_last_action,
                     epoch_info_provider,
@@ -469,7 +475,7 @@ impl Runtime {
                 receipt,
                 action_receipt,
                 &promise_results,
-                create_nonce_with_nonce(
+                &create_nonce_with_nonce(
                     &receipt.receipt_id,
                     u64::max_value() - action_index as u64,
                 ),
@@ -1264,7 +1270,8 @@ impl Runtime {
                 }
                 StateRecord::Contract { account_id, code } => {
                     let acc = get_account(&state_update, &account_id).expect("Failed to read state").expect("Code state record should be preceded by the corresponding account record");
-                    let code = ContractCode::new(code);
+                    // Recompute contract code hash.
+                    let code = ContractCode::new(code, None);
                     set_code(&mut state_update, account_id, &code);
                     assert_eq!(code.get_hash(), acc.code_hash);
                 }
@@ -1448,6 +1455,8 @@ mod tests {
             gas_price: GAS_PRICE,
             block_timestamp: 100,
             gas_limit: Some(gas_limit),
+            random_seed: Default::default(),
+            current_protocol_version: 0,
         };
 
         (runtime, tries, root, apply_state, signer, MockEpochInfoProvider::default())

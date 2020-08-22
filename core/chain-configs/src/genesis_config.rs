@@ -18,7 +18,7 @@ use near_primitives::types::{
     AccountId, AccountInfo, Balance, BlockHeight, BlockHeightDelta, EpochHeight, Gas, NumBlocks,
     NumSeats,
 };
-use near_primitives::version::{ProtocolVersion, PROTOCOL_VERSION};
+use near_primitives::version::ProtocolVersion;
 use near_runtime_configs::RuntimeConfig;
 
 fn default_online_min_threshold() -> Rational {
@@ -153,15 +153,7 @@ impl GenesisConfig {
     ///
     /// It panics if the contents cannot be parsed from JSON to the GenesisConfig structure.
     pub fn from_json(value: &str) -> Self {
-        let config: Self =
-            serde_json::from_str(value).expect("Failed to deserialize the genesis config.");
-        if config.protocol_version != PROTOCOL_VERSION {
-            panic!(
-                "Incorrect version of genesis config {} expected {}",
-                config.protocol_version, PROTOCOL_VERSION
-            );
-        }
-        config
+        serde_json::from_str(value).expect("Failed to deserialize the genesis config.")
     }
 
     /// Reads GenesisConfig from a JSON file.

@@ -10,19 +10,22 @@ use futures::{future, FutureExt};
 use num_rational::Rational;
 
 use near_chain::chain::NUM_EPOCHS_TO_KEEP_STORE_DATA;
-use near_chain::{Block, ChainGenesis, ChainStoreAccess, ErrorKind, Provenance, RuntimeAdapter};
+use near_chain::validate::validate_chunk_with_chunk_extra;
+use near_chain::{
+    Block, ChainGenesis, ChainStore, ChainStoreAccess, ErrorKind, Provenance, RuntimeAdapter,
+};
 use near_chain_configs::{ClientConfig, Genesis};
 use near_chunks::{ChunkStatus, ShardsManager};
-use near_client::test_utils::setup_mock_all_validators;
+use near_client::test_utils::{create_chunk_on_height, setup_mock_all_validators};
 use near_client::test_utils::{setup_client, setup_mock, TestEnv};
 use near_client::{Client, GetBlock, GetBlockWithMerkleTree};
-use near_crypto::{InMemorySigner, KeyType, Signature, Signer};
+use near_crypto::{InMemorySigner, KeyType, PublicKey, Signature, Signer};
 use near_logger_utils::init_test_logger;
 #[cfg(feature = "metric_recorder")]
 use near_network::recorder::MetricRecorder;
 use near_network::routing::EdgeInfo;
 use near_network::test_utils::{wait_or_panic, MockNetworkAdapter};
-use near_network::types::{NetworkInfo, PeerChainInfo};
+use near_network::types::{NetworkInfo, PeerChainInfo, ReasonForBan};
 use near_network::{
     FullPeerInfo, NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkResponses,
     PeerInfo,
@@ -30,10 +33,12 @@ use near_network::{
 use near_primitives::block::{Approval, ApprovalInner};
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::{hash, CryptoHash};
-use near_primitives::merkle::{merklize, verify_hash};
+use near_primitives::merkle::verify_hash;
 use near_primitives::sharding::{EncodedShardChunk, ReedSolomonWrapper};
-use near_primitives::transaction::{SignedTransaction, Transaction};
-use near_primitives::types::{BlockHeight, EpochId, MerkleHash, NumBlocks};
+use near_primitives::transaction::{
+    Action, DeployContractAction, FunctionCallAction, SignedTransaction, Transaction,
+};
+use near_primitives::types::{BlockHeight, EpochId, NumBlocks, ValidatorStake};
 use near_primitives::utils::to_timestamp;
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
 use near_primitives::version::PROTOCOL_VERSION;
@@ -296,7 +301,7 @@ fn produce_block_with_approvals_arrived_early() {
         > = Arc::new(RwLock::new(Box::new(|_: String, _: &NetworkRequests| {
             (NetworkResponses::NoResponse, true)
         })));
-        let (_, conns) = setup_mock_all_validators(
+        let (_, conns, _) = setup_mock_all_validators(
             validators.clone(),
             key_pairs,
             1,
@@ -307,6 +312,7 @@ fn produce_block_with_approvals_arrived_early() {
             100,
             true,
             vec![false; validators.iter().map(|x| x.len()).sum()],
+            false,
             network_mock.clone(),
         );
         *network_mock.write().unwrap() =
@@ -356,6 +362,129 @@ fn produce_block_with_approvals_arrived_early() {
 }
 
 /// Sends one invalid block followed by one valid block, and checks that client announces only valid block.
+/// and that the node bans the peer for invalid block header.
+fn invalid_blocks_common(is_requested: bool) {
+    init_test_logger();
+    System::run(move || {
+        let mut ban_counter = 0;
+        let (client, view_client) = setup_mock(
+            vec!["test"],
+            "other",
+            false,
+            false,
+            Box::new(move |msg, _ctx, _client_actor| {
+                match msg {
+                    NetworkRequests::Block { block } => {
+                        if is_requested {
+                            panic!("rebroadcasting requested block");
+                        } else {
+                            assert_eq!(block.header().height(), 1);
+                            assert_eq!(block.header().chunk_mask().len(), 1);
+                            assert_eq!(ban_counter, 1);
+                            System::current().stop();
+                        }
+                    }
+                    NetworkRequests::BanPeer { ban_reason, .. } => {
+                        assert_eq!(ban_reason, &ReasonForBan::BadBlockHeader);
+                        ban_counter += 1;
+                        if ban_counter == 2 && is_requested {
+                            System::current().stop();
+                        }
+                    }
+                    _ => {}
+                };
+                NetworkResponses::NoResponse
+            }),
+        );
+        actix::spawn(view_client.send(GetBlockWithMerkleTree::latest()).then(move |res| {
+            let (last_block, mut block_merkle_tree) = res.unwrap().unwrap();
+            let signer = InMemoryValidatorSigner::from_seed("test", KeyType::ED25519, "test");
+            // Send block with invalid chunk mask
+            let mut block = Block::produce(
+                PROTOCOL_VERSION,
+                &last_block.header.clone().into(),
+                last_block.header.height + 1,
+                last_block.chunks.iter().cloned().map(Into::into).collect(),
+                EpochId::default(),
+                if last_block.header.prev_hash == CryptoHash::default() {
+                    EpochId(last_block.header.hash)
+                } else {
+                    EpochId(last_block.header.next_epoch_id.clone())
+                },
+                vec![],
+                Rational::from_integer(0),
+                0,
+                100,
+                Some(0),
+                vec![],
+                vec![],
+                &signer,
+                last_block.header.next_bp_hash,
+                CryptoHash::default(),
+            );
+            block.mut_header().get_mut().inner_rest.chunk_mask = vec![];
+            client.do_send(NetworkClientMessages::Block(
+                block.clone(),
+                PeerInfo::random().id,
+                is_requested,
+            ));
+
+            // Send proper block.
+            block_merkle_tree.insert(last_block.header.hash);
+            let block2 = Block::produce(
+                PROTOCOL_VERSION,
+                &last_block.header.clone().into(),
+                last_block.header.height + 1,
+                last_block.chunks.into_iter().map(Into::into).collect(),
+                EpochId::default(),
+                if last_block.header.prev_hash == CryptoHash::default() {
+                    EpochId(last_block.header.hash)
+                } else {
+                    EpochId(last_block.header.next_epoch_id.clone())
+                },
+                vec![],
+                Rational::from_integer(0),
+                0,
+                100,
+                Some(0),
+                vec![],
+                vec![],
+                &signer,
+                last_block.header.next_bp_hash,
+                block_merkle_tree.root(),
+            );
+            client.do_send(NetworkClientMessages::Block(
+                block2.clone(),
+                PeerInfo::random().id,
+                is_requested,
+            ));
+            if is_requested {
+                let mut block3 = block2.clone();
+                block3.mut_header().get_mut().inner_rest.chunk_headers_root = hash(&[1]);
+                block3.mut_header().get_mut().init();
+                client.do_send(NetworkClientMessages::Block(
+                    block3.clone(),
+                    PeerInfo::random().id,
+                    is_requested,
+                ));
+            }
+            future::ready(())
+        }));
+        near_network::test_utils::wait_or_panic(5000);
+    })
+    .unwrap();
+}
+
+#[test]
+fn test_invalid_blocks_not_requested() {
+    invalid_blocks_common(false);
+}
+
+#[test]
+fn test_invalid_blocks_requested() {
+    invalid_blocks_common(true);
+}
+
 #[test]
 fn invalid_blocks() {
     init_test_logger();
@@ -369,10 +498,7 @@ fn invalid_blocks() {
                 match msg {
                     NetworkRequests::Block { block } => {
                         assert_eq!(block.header().height(), 1);
-                        assert_eq!(
-                            block.header().prev_state_root(),
-                            &merklize(&vec![MerkleHash::default()]).0
-                        );
+                        assert_eq!(block.header().chunk_mask().len(), 1);
                         System::current().stop();
                     }
                     _ => {}
@@ -443,6 +569,141 @@ fn invalid_blocks() {
         near_network::test_utils::wait_or_panic(5000);
     })
     .unwrap();
+}
+
+enum InvalidBlockMode {
+    /// Header is invalid
+    InvalidHeader,
+    /// Block is ill-formed (roots check fail)
+    IllFormed,
+    /// Block is invalid for other reasons
+    InvalidBlock,
+}
+fn ban_peer_for_invalid_block_common(mode: InvalidBlockMode) {
+    init_test_logger();
+    let validators = vec![vec!["test1", "test2", "test3", "test4"]];
+    let key_pairs =
+        vec![PeerInfo::random(), PeerInfo::random(), PeerInfo::random(), PeerInfo::random()];
+    let validator_signer1 = InMemoryValidatorSigner::from_seed("test1", KeyType::ED25519, "test1");
+    System::run(move || {
+        let mut ban_counter = 0;
+        let network_mock: Arc<
+            RwLock<Box<dyn FnMut(String, &NetworkRequests) -> (NetworkResponses, bool)>>,
+        > = Arc::new(RwLock::new(Box::new(|_: String, _: &NetworkRequests| {
+            (NetworkResponses::NoResponse, true)
+        })));
+        let (_, conns, _) = setup_mock_all_validators(
+            validators.clone(),
+            key_pairs,
+            1,
+            true,
+            100,
+            false,
+            false,
+            100,
+            true,
+            vec![false; validators.iter().map(|x| x.len()).sum()],
+            false,
+            network_mock.clone(),
+        );
+        *network_mock.write().unwrap() =
+            Box::new(move |_: String, msg: &NetworkRequests| -> (NetworkResponses, bool) {
+                match msg {
+                    NetworkRequests::Block { block } => {
+                        if block.header().height() == 4 {
+                            let mut block_mut = block.clone();
+                            match mode {
+                                InvalidBlockMode::InvalidHeader => {
+                                    // produce an invalid block with invalid header.
+                                    block_mut.mut_header().get_mut().inner_rest.chunk_mask = vec![];
+                                    block_mut.mut_header().resign(&validator_signer1);
+                                }
+                                InvalidBlockMode::IllFormed => {
+                                    // produce an ill-formed block
+                                    block_mut
+                                        .mut_header()
+                                        .get_mut()
+                                        .inner_rest
+                                        .chunk_headers_root = hash(&[1]);
+                                    block_mut.mut_header().resign(&validator_signer1);
+                                }
+                                InvalidBlockMode::InvalidBlock => {
+                                    // produce an invalid block whose invalidity cannot be verified by just
+                                    // having its header.
+                                    block_mut
+                                        .mut_header()
+                                        .get_mut()
+                                        .inner_rest
+                                        .validator_proposals = vec![ValidatorStake {
+                                        account_id: "test1".to_string(),
+                                        public_key: PublicKey::empty(KeyType::ED25519),
+                                        stake: 0,
+                                    }];
+                                    block_mut.mut_header().resign(&validator_signer1);
+                                }
+                            }
+
+                            for (i, (client, _)) in conns.clone().into_iter().enumerate() {
+                                if i > 0 {
+                                    client.do_send(NetworkClientMessages::Block(
+                                        block_mut.clone(),
+                                        PeerInfo::random().id,
+                                        false,
+                                    ))
+                                }
+                            }
+
+                            return (NetworkResponses::NoResponse, false);
+                        }
+                        if block.header().height() > 20 {
+                            match mode {
+                                InvalidBlockMode::InvalidHeader | InvalidBlockMode::IllFormed => {
+                                    assert_eq!(ban_counter, 3);
+                                }
+                                _ => {}
+                            }
+                            System::current().stop();
+                        }
+                        (NetworkResponses::NoResponse, true)
+                    }
+                    NetworkRequests::BanPeer { peer_id, ban_reason } => match mode {
+                        InvalidBlockMode::InvalidHeader | InvalidBlockMode::IllFormed => {
+                            assert_eq!(ban_reason, &ReasonForBan::BadBlockHeader);
+                            ban_counter += 1;
+                            if ban_counter > 3 {
+                                panic!("more bans than expected");
+                            }
+                            (NetworkResponses::NoResponse, true)
+                        }
+                        InvalidBlockMode::InvalidBlock => {
+                            panic!("banning peer {:?} unexpectedly for {:?}", peer_id, ban_reason);
+                        }
+                    },
+                    _ => (NetworkResponses::NoResponse, true),
+                }
+            });
+
+        near_network::test_utils::wait_or_panic(10000);
+    })
+    .unwrap();
+}
+
+/// If a peer sends a block whose header is valid and passes basic validation, the peer is not banned.
+#[test]
+fn test_not_ban_peer_for_invalid_block() {
+    ban_peer_for_invalid_block_common(InvalidBlockMode::InvalidBlock);
+}
+
+/// If a peer sends a block whose header is invalid, we should ban them and do not forward the block
+#[test]
+fn test_ban_peer_for_invalid_block_header() {
+    ban_peer_for_invalid_block_common(InvalidBlockMode::InvalidHeader);
+}
+
+/// If a peer sends a block that is ill-formed, we should ban them and do not forward the block
+#[test]
+fn test_ban_peer_for_ill_formed_block() {
+    ban_peer_for_invalid_block_common(InvalidBlockMode::IllFormed);
 }
 
 /// Runs two validators runtime with only one validator online.
@@ -712,20 +973,28 @@ fn test_invalid_gas_price() {
 }
 
 #[test]
-fn test_invalid_height() {
+fn test_invalid_height_too_large() {
     let mut env = TestEnv::new(ChainGenesis::test(), 1, 1);
     let b1 = env.clients[0].produce_block(1).unwrap().unwrap();
     let _ = env.clients[0].process_block(b1.clone(), Provenance::PRODUCED);
     let signer = InMemoryValidatorSigner::from_seed("test0", KeyType::ED25519, "test0");
     let b2 = Block::empty_with_height(&b1, std::u64::MAX, &signer);
-    let (_, tip) = env.clients[0].process_block(b2, Provenance::NONE);
-    match tip {
-        Err(e) => match e.kind() {
-            ErrorKind::InvalidBlockHeight => {}
-            _ => assert!(false, "wrong error: {}", e),
-        },
-        _ => assert!(false, "succeeded, tip: {:?}", tip),
+    let (_, res) = env.clients[0].process_block(b2, Provenance::NONE);
+    assert!(matches!(res.unwrap_err().kind(), ErrorKind::InvalidBlockHeight(_)));
+}
+
+#[test]
+fn test_invalid_height_too_old() {
+    let mut env = TestEnv::new(ChainGenesis::test(), 1, 1);
+    for i in 1..4 {
+        env.produce_block(0, i);
     }
+    let block = env.clients[0].produce_block(4).unwrap().unwrap();
+    for i in 5..30 {
+        env.produce_block(0, i);
+    }
+    let (_, res) = env.clients[0].process_block(block, Provenance::NONE);
+    assert!(matches!(res.unwrap_err().kind(), ErrorKind::InvalidBlockHeight(_)));
 }
 
 #[test]
@@ -757,15 +1026,22 @@ fn test_gc_with_epoch_length_common(epoch_length: NumBlocks) {
     chain_genesis.epoch_length = epoch_length;
     let mut env = TestEnv::new_with_runtime(chain_genesis, 1, 1, runtimes);
     let mut blocks = vec![];
+    let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap().clone();
+    blocks.push(genesis_block);
     for i in 1..=epoch_length * (NUM_EPOCHS_TO_KEEP_STORE_DATA + 1) {
         let block = env.clients[0].produce_block(i).unwrap().unwrap();
         env.process_block(0, block.clone(), Provenance::PRODUCED);
+        assert!(
+            env.clients[0].chain.store().fork_tail().unwrap()
+                <= env.clients[0].chain.store().tail().unwrap()
+        );
+
         blocks.push(block);
     }
-    for i in 1..=epoch_length * (NUM_EPOCHS_TO_KEEP_STORE_DATA + 1) {
+    for i in 0..=epoch_length * (NUM_EPOCHS_TO_KEEP_STORE_DATA + 1) {
         println!("height = {}", i);
         if i < epoch_length {
-            let block_hash = *blocks[i as usize - 1].hash();
+            let block_hash = *blocks[i as usize].hash();
             assert!(matches!(
                 env.clients[0].chain.get_block(&block_hash).unwrap_err().kind(),
                 ErrorKind::BlockMissing(missing_block_hash) if missing_block_hash == block_hash
@@ -780,7 +1056,7 @@ fn test_gc_with_epoch_length_common(epoch_length: NumBlocks) {
                 .get_all_block_hashes_by_height(i as BlockHeight)
                 .is_err());
         } else {
-            assert!(env.clients[0].chain.get_block(&blocks[i as usize - 1].hash()).is_ok());
+            assert!(env.clients[0].chain.get_block(&blocks[i as usize].hash()).is_ok());
             assert!(env.clients[0].chain.get_block_by_height(i).is_ok());
             assert!(env.clients[0]
                 .chain
@@ -969,14 +1245,96 @@ fn test_gc_after_state_sync() {
         assert!(env.clients[1].chain.runtime_adapter.get_epoch_start_height(&block_hash).is_ok());
     }
     env.clients[1].chain.reset_data_pre_state_sync(sync_hash).unwrap();
-    assert!(matches!(
-        env.clients[1].runtime_adapter.get_gc_stop_height(&sync_hash).unwrap_err().kind(),
-        ErrorKind::DBNotFoundErr(_)
-    ));
+    assert_eq!(env.clients[1].runtime_adapter.get_gc_stop_height(&sync_hash), 0);
     // mimic what we do in possible_targets
     assert!(env.clients[1].runtime_adapter.get_epoch_id_from_prev_block(&prev_block_hash).is_ok());
     let tries = env.clients[1].runtime_adapter.get_tries();
     assert!(env.clients[1].chain.clear_data(tries, 2).is_ok());
+}
+
+#[test]
+fn test_process_block_after_state_sync() {
+    let epoch_length = 1024;
+    let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
+    genesis.config.epoch_length = epoch_length;
+    let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![Arc::new(neard::NightshadeRuntime::new(
+        Path::new("."),
+        create_test_store(),
+        Arc::new(genesis.clone()),
+        vec![],
+        vec![],
+    ))];
+    let mut chain_genesis = ChainGenesis::test();
+    chain_genesis.epoch_length = epoch_length;
+    let mut env = TestEnv::new_with_runtime(chain_genesis, 1, 1, runtimes);
+    for i in 1..epoch_length * 4 + 2 {
+        env.produce_block(0, i);
+    }
+    let sync_height = epoch_length * 4 + 1;
+    let sync_block = env.clients[0].chain.get_block_by_height(sync_height).unwrap().clone();
+    let sync_hash = *sync_block.hash();
+    let chunk_extra = env.clients[0].chain.get_chunk_extra(&sync_hash, 0).unwrap().clone();
+    let state_part =
+        env.clients[0].runtime_adapter.obtain_state_part(0, &chunk_extra.state_root, 0, 1).unwrap();
+    // reset cache
+    for i in epoch_length * 3 - 1..sync_height - 1 {
+        let block_hash = *env.clients[0].chain.get_block_by_height(i).unwrap().hash();
+        assert!(env.clients[0].chain.runtime_adapter.get_epoch_start_height(&block_hash).is_ok());
+    }
+    env.clients[0].chain.reset_data_pre_state_sync(sync_hash).unwrap();
+    env.clients[0]
+        .runtime_adapter
+        .confirm_state(0, &chunk_extra.state_root, &vec![state_part])
+        .unwrap();
+    let block = env.clients[0].produce_block(sync_height + 1).unwrap().unwrap();
+    let (_, res) = env.clients[0].process_block(block, Provenance::PRODUCED);
+    assert!(res.is_ok());
+}
+
+#[test]
+fn test_gc_fork_tail() {
+    let epoch_length = 101;
+    let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
+    genesis.config.epoch_length = epoch_length;
+    let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![
+        Arc::new(neard::NightshadeRuntime::new(
+            Path::new("."),
+            create_test_store(),
+            Arc::new(genesis.clone()),
+            vec![],
+            vec![],
+        )),
+        Arc::new(neard::NightshadeRuntime::new(
+            Path::new("."),
+            create_test_store(),
+            Arc::new(genesis.clone()),
+            vec![],
+            vec![],
+        )),
+    ];
+    let mut chain_genesis = ChainGenesis::test();
+    chain_genesis.epoch_length = epoch_length;
+    let mut env = TestEnv::new_with_runtime(chain_genesis.clone(), 2, 1, runtimes);
+    let b1 = env.clients[0].produce_block(1).unwrap().unwrap();
+    for i in 0..2 {
+        env.process_block(i, b1.clone(), Provenance::NONE);
+    }
+    // create 100 forks
+    for i in 2..102 {
+        let block = env.clients[0].produce_block(i).unwrap().unwrap();
+        env.process_block(1, block, Provenance::NONE);
+    }
+    for i in 102..epoch_length * NUM_EPOCHS_TO_KEEP_STORE_DATA + 5 {
+        let block = env.clients[0].produce_block(i).unwrap().unwrap();
+        for j in 0..2 {
+            env.process_block(j, block.clone(), Provenance::NONE);
+        }
+    }
+    let head = env.clients[1].chain.head().unwrap();
+    assert!(
+        env.clients[1].runtime_adapter.get_gc_stop_height(&head.last_block_hash) > epoch_length
+    );
+    assert_eq!(env.clients[1].chain.store().fork_tail().unwrap(), 3);
 }
 
 #[test]
@@ -1441,4 +1799,179 @@ fn test_sync_hash_validity() {
             _ => assert!(false),
         },
     }
+}
+
+/// Only process one block per height
+#[test]
+fn test_not_process_height_twice() {
+    let mut env = TestEnv::new(ChainGenesis::test(), 1, 1);
+    let block = env.clients[0].produce_block(1).unwrap().unwrap();
+    let mut invalid_block = block.clone();
+    env.process_block(0, block, Provenance::PRODUCED);
+    let validator_signer = InMemoryValidatorSigner::from_seed("test0", KeyType::ED25519, "test0");
+    invalid_block.mut_header().get_mut().inner_rest.validator_proposals = vec![ValidatorStake {
+        account_id: "test1".to_string(),
+        public_key: PublicKey::empty(KeyType::ED25519),
+        stake: 0,
+    }];
+    invalid_block.mut_header().resign(&validator_signer);
+    let (accepted_blocks, res) = env.clients[0].process_block(invalid_block, Provenance::NONE);
+    assert!(accepted_blocks.is_empty());
+    assert!(matches!(res, Ok(None)));
+}
+
+#[test]
+fn test_validate_chunk_extra() {
+    let epoch_length = 5;
+    let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
+    genesis.config.epoch_length = epoch_length;
+    let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![Arc::new(neard::NightshadeRuntime::new(
+        Path::new("."),
+        create_test_store(),
+        Arc::new(genesis.clone()),
+        vec![],
+        vec![],
+    ))];
+    let mut env = TestEnv::new_with_runtime(ChainGenesis::test(), 1, 1, runtimes);
+    let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap().clone();
+    let genesis_height = genesis_block.header().height();
+
+    let signer = InMemorySigner::from_seed("test0", KeyType::ED25519, "test0");
+    let tx = SignedTransaction::from_actions(
+        1,
+        "test0".to_string(),
+        "test0".to_string(),
+        &signer,
+        vec![Action::DeployContract(DeployContractAction {
+            code: include_bytes!("../../../runtime/near-vm-runner/tests/res/test_contract_rs.wasm")
+                .to_vec(),
+        })],
+        *genesis_block.hash(),
+    );
+    env.clients[0].process_tx(tx, false, false);
+    let mut last_block = genesis_block;
+    for i in 1..3 {
+        last_block = env.clients[0].produce_block(i).unwrap().unwrap();
+        env.process_block(0, last_block.clone(), Provenance::PRODUCED);
+    }
+
+    // Construct a chunk that such when the receipts generated by this chunk are included
+    // in blocks of different heights, the state transitions are different.
+    let function_call_tx = SignedTransaction::from_actions(
+        2,
+        "test0".to_string(),
+        "test0".to_string(),
+        &signer,
+        vec![Action::FunctionCall(FunctionCallAction {
+            method_name: "write_block_height".to_string(),
+            args: vec![],
+            gas: 100000000000000,
+            deposit: 0,
+        })],
+        *last_block.hash(),
+    );
+    env.clients[0].process_tx(function_call_tx, false, false);
+    for i in 3..5 {
+        last_block = env.clients[0].produce_block(i).unwrap().unwrap();
+        if i == 3 {
+            env.process_block(0, last_block.clone(), Provenance::PRODUCED);
+        } else {
+            let (_, res) = env.clients[0].process_block(last_block.clone(), Provenance::NONE);
+            assert!(matches!(res, Ok(Some(_))));
+        }
+    }
+
+    // Construct two blocks that contain the same chunk and make the chunk unavailable.
+    let validator_signer = InMemoryValidatorSigner::from_seed("test0", KeyType::ED25519, "test0");
+    let next_height = last_block.header().height() + 1;
+    let (encoded_chunk, merkle_paths, receipts) =
+        create_chunk_on_height(&mut env.clients[0], next_height);
+    let mut block1 = env.clients[0].produce_block(next_height).unwrap().unwrap();
+    let mut block2 = env.clients[0].produce_block(next_height + 1).unwrap().unwrap();
+
+    // Process two blocks on two different forks that contain the same chunk.
+    for (i, block) in vec![&mut block1, &mut block2].into_iter().enumerate() {
+        let mut chunk_header = encoded_chunk.header.clone();
+        chunk_header.height_included = i as BlockHeight + next_height;
+        let chunk_headers = vec![chunk_header];
+        block.get_mut().chunks = chunk_headers.clone();
+        block.mut_header().get_mut().inner_rest.chunk_headers_root =
+            Block::compute_chunk_headers_root(&chunk_headers).0;
+        block.mut_header().get_mut().inner_rest.chunk_tx_root =
+            Block::compute_chunk_tx_root(&chunk_headers);
+        block.mut_header().get_mut().inner_rest.chunk_receipts_root =
+            Block::compute_chunk_receipts_root(&chunk_headers);
+        block.mut_header().get_mut().inner_lite.prev_state_root =
+            Block::compute_state_root(&chunk_headers);
+        block.mut_header().get_mut().inner_rest.chunk_mask = vec![true];
+        block.mut_header().resign(&validator_signer);
+        let (_, res) = env.clients[0].process_block(block.clone(), Provenance::NONE);
+        assert!(matches!(res.unwrap_err().kind(), near_chain::ErrorKind::ChunksMissing(_)));
+    }
+
+    // Process the previously unavailable chunk. This causes two blocks to be accepted.
+    let mut chain_store =
+        ChainStore::new(env.clients[0].chain.store().owned_store(), genesis_height);
+    env.clients[0]
+        .shards_mgr
+        .distribute_encoded_chunk(encoded_chunk, merkle_paths, receipts, &mut chain_store)
+        .unwrap();
+    let accepted_blocks = env.clients[0].process_blocks_with_missing_chunks(*last_block.hash());
+    assert_eq!(accepted_blocks.len(), 2);
+    for (i, accepted_block) in accepted_blocks.into_iter().enumerate() {
+        if i == 0 {
+            assert_eq!(&accepted_block.hash, block1.hash());
+            env.clients[0].on_block_accepted(
+                accepted_block.hash,
+                accepted_block.status,
+                accepted_block.provenance,
+            );
+        }
+    }
+
+    // About to produce a block on top of block1. Validate that this chunk is legit.
+    let chunks = env.clients[0].shards_mgr.prepare_chunks(block1.hash());
+    let chunk_extra = env.clients[0].chain.get_chunk_extra(block1.hash(), 0).unwrap().clone();
+    assert!(validate_chunk_with_chunk_extra(
+        &mut chain_store,
+        &*env.clients[0].runtime_adapter,
+        block1.hash(),
+        &chunk_extra,
+        &block1.chunks()[0],
+        chunks.get(&0).unwrap()
+    )
+    .is_ok());
+}
+
+/// Change protocol version back and forth and make sure that we do not produce invalid blocks
+#[test]
+fn test_gas_price_change_no_chunk() {
+    let epoch_length = 5;
+    let min_gas_price = 5000;
+    let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
+    genesis.config.epoch_length = epoch_length;
+    genesis.config.protocol_version = 30;
+    genesis.config.min_gas_price = min_gas_price;
+    let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![Arc::new(neard::NightshadeRuntime::new(
+        Path::new("."),
+        create_test_store(),
+        Arc::new(genesis.clone()),
+        vec![],
+        vec![],
+    ))];
+    let chain_genesis = ChainGenesis::from(Arc::new(genesis));
+    let mut env = TestEnv::new_with_runtime(chain_genesis, 1, 1, runtimes);
+    let validator_signer = InMemoryValidatorSigner::from_seed("test0", KeyType::ED25519, "test0");
+    for i in 1..=20 {
+        let mut block = env.clients[0].produce_block(i).unwrap().unwrap();
+        if i <= 5 || (i > 10 && i <= 15) {
+            block.get_mut().header.get_mut().inner_rest.latest_protocol_version = 31;
+            block.mut_header().resign(&validator_signer);
+        }
+        env.process_block(0, block, Provenance::NONE);
+    }
+    env.clients[0].produce_block(21).unwrap().unwrap();
+    let block = env.clients[0].produce_block(22).unwrap().unwrap();
+    let (_, res) = env.clients[0].process_block(block, Provenance::NONE);
+    assert!(res.is_ok());
 }

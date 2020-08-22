@@ -13,8 +13,8 @@ use cached::{Cached, SizedCache};
 
 pub use db::DBCol::{self, *};
 pub use db::{
-    CHUNK_TAIL_KEY, HEADER_HEAD_KEY, HEAD_KEY, LARGEST_TARGET_HEIGHT_KEY, LATEST_KNOWN_KEY,
-    NUM_COLS, SHOULD_COL_GC, SKIP_COL_GC, SYNC_HEAD_KEY, TAIL_KEY,
+    CHUNK_TAIL_KEY, FORK_TAIL_KEY, HEADER_HEAD_KEY, HEAD_KEY, LARGEST_TARGET_HEIGHT_KEY,
+    LATEST_KNOWN_KEY, NUM_COLS, SHOULD_COL_GC, SKIP_COL_GC, SYNC_HEAD_KEY, TAIL_KEY,
 };
 use near_crypto::PublicKey;
 use near_primitives::account::{AccessKey, Account};
@@ -26,6 +26,8 @@ use near_primitives::serialize::to_base;
 use near_primitives::trie_key::{trie_key_parsers, TrieKey};
 use near_primitives::types::AccountId;
 
+pub use crate::db::refcount::decode_value_with_rc;
+use crate::db::refcount::encode_value_with_rc;
 use crate::db::{DBOp, DBTransaction, Database, RocksDB};
 pub use crate::trie::{
     iterator::TrieIterator, update::TrieUpdate, update::TrieUpdateIterator,
@@ -83,6 +85,13 @@ impl Store {
         self.storage.iter(column)
     }
 
+    pub fn iter_without_rc_logic<'a>(
+        &'a self,
+        column: DBCol,
+    ) -> Box<dyn Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a> {
+        self.storage.iter_without_rc_logic(column)
+    }
+
     pub fn iter_prefix<'a>(
         &'a self,
         column: DBCol,
@@ -105,7 +114,7 @@ impl Store {
 
     pub fn save_to_file(&self, column: DBCol, filename: &Path) -> Result<(), std::io::Error> {
         let mut file = File::create(filename)?;
-        for (key, value) in self.storage.iter(column) {
+        for (key, value) in self.storage.iter_without_rc_logic(column) {
             file.write_u32::<LittleEndian>(key.len() as u32)?;
             file.write_all(&key)?;
             file.write_u32::<LittleEndian>(value.len() as u32)?;
@@ -154,6 +163,12 @@ impl StoreUpdate {
         StoreUpdate { storage, transaction, tries: Some(tries) }
     }
 
+    pub fn update_refcount(&mut self, column: DBCol, key: &[u8], value: &[u8], rc_delta: i64) {
+        debug_assert!(column.is_rc());
+        let value = encode_value_with_rc(value, rc_delta);
+        self.transaction.update_refcount(column, key, value)
+    }
+
     pub fn set(&mut self, column: DBCol, key: &[u8], value: &[u8]) {
         self.transaction.put(column, key, value)
     }
@@ -164,6 +179,7 @@ impl StoreUpdate {
         key: &[u8],
         value: &T,
     ) -> Result<(), io::Error> {
+        debug_assert!(!column.is_rc());
         let data = value.try_to_vec()?;
         self.set(column, key, &data);
         Ok(())
@@ -195,23 +211,29 @@ impl StoreUpdate {
             match op {
                 DBOp::Insert { col, key, value } => self.transaction.put(col, &key, &value),
                 DBOp::Delete { col, key } => self.transaction.delete(col, &key),
+                DBOp::UpdateRefcount { col, key, value } => {
+                    self.transaction.update_refcount(col, &key, &value)
+                }
             }
         }
     }
 
     pub fn commit(self) -> Result<(), io::Error> {
         debug_assert!(
-            self.transaction.ops.len()
-                == self
+            {
+                let non_refcount_keys = self
                     .transaction
                     .ops
                     .iter()
-                    .map(|op| match op {
-                        DBOp::Insert { col, key, .. } => (*col as u8, key),
-                        DBOp::Delete { col, key } => (*col as u8, key),
+                    .filter_map(|op| match op {
+                        DBOp::Insert { col, key, .. } => Some((*col as u8, key)),
+                        DBOp::Delete { col, key } => Some((*col as u8, key)),
+                        DBOp::UpdateRefcount { .. } => None,
                     })
-                    .collect::<std::collections::HashSet<_>>()
-                    .len(),
+                    .collect::<Vec<_>>();
+                non_refcount_keys.len()
+                    == non_refcount_keys.iter().collect::<std::collections::HashSet<_>>().len()
+            },
             "Transaction overwrites itself: {:?}",
             self
         );
@@ -232,6 +254,9 @@ impl fmt::Debug for StoreUpdate {
         for op in self.transaction.ops.iter() {
             match op {
                 DBOp::Insert { col, key, .. } => writeln!(f, "  + {:?} {}", col, to_base(key))?,
+                DBOp::UpdateRefcount { col, key, .. } => {
+                    writeln!(f, "  +- {:?} {}", col, to_base(key))?
+                }
                 DBOp::Delete { col, key } => writeln!(f, "  - {:?} {}", col, to_base(key))?,
             }
         }
@@ -386,10 +411,11 @@ pub fn set_code(state_update: &mut TrieUpdate, account_id: AccountId, code: &Con
 pub fn get_code(
     state_update: &TrieUpdate,
     account_id: &AccountId,
+    code_hash: Option<CryptoHash>,
 ) -> Result<Option<ContractCode>, StorageError> {
     state_update
         .get(&TrieKey::ContractCode { account_id: account_id.clone() })
-        .map(|opt| opt.map(|code| ContractCode::new(code.to_vec())))
+        .map(|opt| opt.map(|code| ContractCode::new(code, code_hash)))
 }
 
 /// Removes account, code and all access keys associated to it.

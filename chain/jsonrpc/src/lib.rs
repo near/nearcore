@@ -22,7 +22,7 @@ use near_chain_configs::Genesis;
 use near_client::{
     ClientActor, GetBlock, GetBlockProof, GetChunk, GetExecutionOutcome, GetGasPrice,
     GetNetworkInfo, GetNextLightClientBlock, GetStateChanges, GetStateChangesInBlock,
-    GetValidatorInfo, Query, Status, TxStatus, TxStatusError, ViewClientActor,
+    GetValidatorInfo, GetValidatorOrdered, Query, Status, TxStatus, TxStatusError, ViewClientActor,
 };
 use near_crypto::PublicKey;
 pub use near_jsonrpc_client as client;
@@ -38,11 +38,11 @@ use near_primitives::rpc::{
     RpcBroadcastTxSyncResponse, RpcGenesisRecordsRequest, RpcLightClientExecutionProofRequest,
     RpcLightClientExecutionProofResponse, RpcQueryRequest, RpcStateChangesInBlockRequest,
     RpcStateChangesInBlockResponse, RpcStateChangesRequest, RpcStateChangesResponse,
-    TransactionInfo,
+    RpcValidatorsOrderedRequest, TransactionInfo,
 };
 use near_primitives::serialize::{from_base, from_base64, BaseEncode};
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, BlockId, BlockIdOrFinality, MaybeBlockId};
+use near_primitives::types::{AccountId, BlockId, BlockReference, MaybeBlockId};
 use near_primitives::utils::is_valid_account_id;
 use near_primitives::views::{FinalExecutionOutcomeView, GenesisRecordsView, QueryRequest};
 mod metrics;
@@ -50,25 +50,6 @@ mod metrics;
 /// Maximum byte size of the json payload.
 const JSON_PAYLOAD_MAX_SIZE: usize = 2 * 1024 * 1024;
 const QUERY_DATA_MAX_SIZE: usize = 10 * 1024;
-
-/// RPCs that should only be called when the node is synced
-const RPC_REQUIRES_SYNC: [&'static str; 15] = [
-    "broadcast_tx_async",
-    "EXPERIMENTAL_broadcast_tx_sync",
-    "broadcast_tx_commit",
-    "validators",
-    "query",
-    "health",
-    "tx",
-    "block",
-    "chunk",
-    "EXPERIMENTAL_changes",
-    "EXPERIMENTAL_changes_in_block",
-    "next_light_client_block",
-    "EXPERIMENTAL_light_client_proof",
-    "light_client_proof",
-    "gas_price",
-];
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug)]
 pub struct RpcPollingConfig {
@@ -150,7 +131,6 @@ pub enum ServerError {
     Timeout,
     Closed,
     InternalError,
-    IsSyncing,
 }
 
 impl Display for ServerError {
@@ -160,7 +140,6 @@ impl Display for ServerError {
             ServerError::Timeout => write!(f, "ServerError: Timeout"),
             ServerError::Closed => write!(f, "ServerError: Closed"),
             ServerError::InternalError => write!(f, "ServerError: Internal Error"),
-            ServerError::IsSyncing => write!(f, "ServerError: Node is syncing"),
         }
     }
 }
@@ -232,23 +211,13 @@ impl JsonRpcHandler {
             }
         }
 
-        if RPC_REQUIRES_SYNC.iter().find(|&&s| s == &request.method).is_some() {
-            match self.client_addr.send(Status { is_health_check: false }).await {
-                Ok(Ok(result)) => {
-                    if result.sync_info.syncing {
-                        return Err(ServerError::IsSyncing.into());
-                    }
-                }
-                Ok(Err(err)) => return Err(RpcError::new(-32_001, err, None)),
-                Err(_) => return Err(RpcError::server_error::<()>(None)),
-            }
-        }
-
         match request.method.as_ref() {
             "broadcast_tx_async" => self.send_tx_async(request.params).await,
             "EXPERIMENTAL_broadcast_tx_sync" => self.send_tx_sync(request.params).await,
             "broadcast_tx_commit" => self.send_tx_commit(request.params).await,
+            "EXPERIMENTAL_check_tx" => self.check_tx(request.params).await,
             "validators" => self.validators(request.params).await,
+            "EXPERIMENTAL_validators_ordered" => self.validators_ordered(request.params).await,
             "query" => self.query(request.params).await,
             "health" => self.health().await,
             "status" => self.status().await,
@@ -279,6 +248,39 @@ impl JsonRpcHandler {
             check_only: false,
         });
         Ok(Value::String(hash))
+    }
+
+    async fn tx_exists(
+        &self,
+        tx_hash: CryptoHash,
+        signer_account_id: &AccountId,
+    ) -> Result<bool, ServerError> {
+        timeout(self.polling_config.polling_timeout, async {
+            loop {
+                // TODO(optimization): Introduce a view_client method to only get transaction
+                // status without the information about execution outcomes.
+                match self
+                    .view_client_addr
+                    .send(TxStatus { tx_hash, signer_account_id: signer_account_id.clone() })
+                    .await
+                {
+                    Ok(Ok(Some(_))) => {
+                        return Ok(true);
+                    }
+                    Ok(Err(TxStatusError::MissingTransaction(_))) => {
+                        return Ok(false);
+                    }
+                    Err(_) => return Err(ServerError::InternalError),
+                    _ => {}
+                }
+                delay_for(self.polling_config.polling_interval).await;
+            }
+        })
+        .await
+        .map_err(|_| {
+            near_metrics::inc_counter(&metrics::RPC_TIMEOUT_TOTAL);
+            ServerError::Timeout
+        })?
     }
 
     async fn tx_status_fetch(
@@ -343,12 +345,17 @@ impl JsonRpcHandler {
         })?
     }
 
+    /// Send a transaction idempotently (subsequent send of the same transaction will not cause
+    /// any new side-effects and the result will be the same unless we garbage collected it
+    /// already).
     async fn send_tx(
         &self,
         tx: SignedTransaction,
         check_only: bool,
     ) -> Result<NetworkClientResponses, RpcError> {
-        Ok(self
+        let tx_hash = tx.get_hash();
+        let signer_account_id = tx.transaction.signer_id.clone();
+        let response = self
             .client_addr
             .send(NetworkClientMessages::Transaction {
                 transaction: tx,
@@ -356,11 +363,29 @@ impl JsonRpcHandler {
                 check_only,
             })
             .map_err(|err| RpcError::server_error(Some(ServerError::from(err))))
-            .await?)
+            .await?;
+
+        // If we receive InvalidNonce error, it might be the case that the transaction was
+        // resubmitted, and we should check if that is the case and return ValidTx response to
+        // maintain idempotence of the send_tx method.
+        if let NetworkClientResponses::InvalidTx(
+            near_primitives::errors::InvalidTxError::InvalidNonce { .. },
+        ) = response
+        {
+            if self.tx_exists(tx_hash, &signer_account_id).await? {
+                return Ok(NetworkClientResponses::ValidTx);
+            }
+        }
+
+        Ok(response)
     }
 
     async fn send_tx_sync(&self, params: Option<Value>) -> Result<Value, RpcError> {
         self.send_or_check_tx(params, false).await
+    }
+
+    async fn check_tx(&self, params: Option<Value>) -> Result<Value, RpcError> {
+        self.send_or_check_tx(params, true).await
     }
 
     async fn send_or_check_tx(
@@ -528,11 +553,11 @@ impl JsonRpcHandler {
                 }
             };
             // Use Finality::None here to make backward compatibility tests work
-            RpcQueryRequest { request, block_id_or_finality: BlockIdOrFinality::latest() }
+            RpcQueryRequest { request, block_reference: BlockReference::latest() }
         } else {
             parse_params::<RpcQueryRequest>(params)?
         };
-        let query = Query::new(query_request.block_id_or_finality, query_request.request);
+        let query = Query::new(query_request.block_reference, query_request.request);
         timeout(self.polling_config.polling_timeout, async {
             loop {
                 let result = self.view_client_addr.send(query.clone()).await;
@@ -573,13 +598,12 @@ impl JsonRpcHandler {
     }
 
     async fn block(&self, params: Option<Value>) -> Result<Value, RpcError> {
-        let block_id_or_finality =
-            if let Ok((block_id,)) = parse_params::<(BlockId,)>(params.clone()) {
-                BlockIdOrFinality::BlockId(block_id)
-            } else {
-                parse_params::<BlockIdOrFinality>(params)?
-            };
-        jsonify(self.view_client_addr.send(GetBlock(block_id_or_finality)).await)
+        let block_reference = if let Ok((block_id,)) = parse_params::<(BlockId,)>(params.clone()) {
+            BlockReference::BlockId(block_id)
+        } else {
+            parse_params::<BlockReference>(params)?
+        };
+        jsonify(self.view_client_addr.send(GetBlock(block_reference)).await)
     }
 
     async fn chunk(&self, params: Option<Value>) -> Result<Value, RpcError> {
@@ -600,10 +624,10 @@ impl JsonRpcHandler {
     }
 
     async fn changes_in_block(&self, params: Option<Value>) -> Result<Value, RpcError> {
-        let RpcStateChangesInBlockRequest { block_id_or_finality } = parse_params(params)?;
+        let RpcStateChangesInBlockRequest { block_reference } = parse_params(params)?;
         let block = self
             .view_client_addr
-            .send(GetBlock(block_id_or_finality))
+            .send(GetBlock(block_reference))
             .await
             .map_err(|err| RpcError::server_error(Some(err.to_string())))?
             .map_err(|err| RpcError::server_error(Some(err)))?;
@@ -617,11 +641,11 @@ impl JsonRpcHandler {
     }
 
     async fn changes_in_block_by_type(&self, params: Option<Value>) -> Result<Value, RpcError> {
-        let RpcStateChangesRequest { block_id_or_finality, state_changes_request } =
+        let RpcStateChangesRequest { block_reference, state_changes_request } =
             parse_params(params)?;
         let block = self
             .view_client_addr
-            .send(GetBlock(block_id_or_finality))
+            .send(GetBlock(block_reference))
             .await
             .map_err(|err| RpcError::server_error(Some(err.to_string())))?
             .map_err(|err| RpcError::server_error(Some(err)))?;
@@ -693,6 +717,15 @@ impl JsonRpcHandler {
     async fn validators(&self, params: Option<Value>) -> Result<Value, RpcError> {
         let (block_id,) = parse_params::<(MaybeBlockId,)>(params)?;
         jsonify(self.view_client_addr.send(GetValidatorInfo { block_id }).await)
+    }
+
+    /// Returns the current epoch validators ordered in the block producer order with repetition.
+    /// This endpoint is solely used for bridge currently and is not intended for other external use
+    /// cases.
+    async fn validators_ordered(&self, params: Option<Value>) -> Result<Value, RpcError> {
+        let RpcValidatorsOrderedRequest { block_id } =
+            parse_params::<RpcValidatorsOrderedRequest>(params)?;
+        jsonify(self.view_client_addr.send(GetValidatorOrdered { block_id }).await)
     }
 }
 

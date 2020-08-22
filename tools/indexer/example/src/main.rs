@@ -1,46 +1,12 @@
-use std::env;
-use std::io;
-
 use actix;
 
+use clap::derive::Clap;
 use tokio::sync::mpsc;
-use tracing_subscriber::filter::LevelFilter;
-use tracing_subscriber::EnvFilter;
 
+use configs::{init_logging, Opts, SubCommand};
 use near_indexer;
 
-fn init_logging(verbose: bool) {
-    let mut env_filter = EnvFilter::new("tokio_reactor=info,near=info,stats=info,telemetry=info");
-
-    if verbose {
-        env_filter = env_filter
-            .add_directive("cranelift_codegen=warn".parse().unwrap())
-            .add_directive("cranelift_codegen=warn".parse().unwrap())
-            .add_directive("h2=warn".parse().unwrap())
-            .add_directive("trust_dns_resolver=warn".parse().unwrap())
-            .add_directive("trust_dns_proto=warn".parse().unwrap());
-
-        env_filter = env_filter.add_directive(LevelFilter::DEBUG.into());
-    } else {
-        env_filter = env_filter.add_directive(LevelFilter::WARN.into());
-    }
-
-    if let Ok(rust_log) = env::var("RUST_LOG") {
-        for directive in rust_log.split(',').filter_map(|s| match s.parse() {
-            Ok(directive) => Some(directive),
-            Err(err) => {
-                eprintln!("Ignoring directive `{}`: {}", s, err);
-                None
-            }
-        }) {
-            env_filter = env_filter.add_directive(directive);
-        }
-    }
-    tracing_subscriber::fmt::Subscriber::builder()
-        .with_env_filter(env_filter)
-        .with_writer(io::stderr)
-        .init();
-}
+mod configs;
 
 async fn listen_blocks(mut stream: mpsc::Receiver<near_indexer::BlockResponse>) {
     while let Some(block) = stream.recv().await {
@@ -215,11 +181,33 @@ async fn listen_blocks(mut stream: mpsc::Receiver<near_indexer::BlockResponse>) 
 }
 
 fn main() {
-    let home_dir: Option<String> = env::args().nth(1);
-
+    // We use it to automatically search the for root certificates to perform HTTPS calls
+    // (sending telemetry and downloading genesis)
+    openssl_probe::init_ssl_cert_env_vars();
     init_logging(true);
-    let indexer = near_indexer::Indexer::new(home_dir.as_ref().map(AsRef::as_ref));
-    let stream = indexer.streamer();
-    actix::spawn(listen_blocks(stream));
-    indexer.start();
+
+    let opts: Opts = Opts::parse();
+
+    let home_dir =
+        opts.home_dir.unwrap_or(std::path::PathBuf::from(near_indexer::get_default_home()));
+
+    match opts.subcmd {
+        SubCommand::Run => {
+            let indexer = near_indexer::Indexer::new(Some(&home_dir));
+            let stream = indexer.streamer();
+            actix::spawn(listen_blocks(stream));
+            indexer.start();
+        }
+        SubCommand::Init(config) => near_indexer::init_configs(
+            &home_dir,
+            config.chain_id.as_ref().map(AsRef::as_ref),
+            config.account_id.as_ref().map(AsRef::as_ref),
+            config.test_seed.as_ref().map(AsRef::as_ref),
+            config.num_shards,
+            config.fast,
+            config.genesis.as_ref().map(AsRef::as_ref),
+            config.download,
+            config.download_genesis_url.as_ref().map(AsRef::as_ref),
+        ),
+    }
 }

@@ -4,7 +4,7 @@ extern crate lazy_static;
 pub use chain::{collect_receipts, Chain, MAX_ORPHAN_SIZE};
 pub use doomslug::{Doomslug, DoomslugBlockProductionReadiness, DoomslugThresholdMode};
 pub use error::{Error, ErrorKind};
-pub use lightclient::create_light_client_block_view;
+pub use lightclient::{create_light_client_block_view, get_epoch_block_producers_view};
 pub use store::{ChainStore, ChainStoreAccess, ChainStoreUpdate};
 pub use store_validator::{ErrorMessage, StoreValidator};
 pub use types::{

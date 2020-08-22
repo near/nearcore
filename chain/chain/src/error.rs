@@ -5,12 +5,13 @@ use chrono::{DateTime, Utc};
 use failure::{Backtrace, Context, Fail};
 use log::error;
 
+use near_primitives::block::BlockValidityError;
 use near_primitives::challenge::{ChunkProofs, ChunkState};
 use near_primitives::errors::{EpochError, StorageError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::serialize::to_base;
 use near_primitives::sharding::{ChunkHash, ShardChunkHeader};
-use near_primitives::types::ShardId;
+use near_primitives::types::{BlockHeight, ShardId};
 
 #[derive(Debug)]
 pub struct Error {
@@ -41,14 +42,11 @@ pub enum ErrorKind {
     #[fail(display = "Invalid Block Time: Too far in the future: {}", _0)]
     InvalidBlockFutureTime(DateTime<Utc>),
     /// Block height is invalid (not previous + 1).
-    #[fail(display = "Invalid Block Height")]
-    InvalidBlockHeight,
+    #[fail(display = "Invalid Block Height {}", _0)]
+    InvalidBlockHeight(BlockHeight),
     /// Invalid block proposed signature.
     #[fail(display = "Invalid Block Proposer Signature")]
     InvalidBlockProposer,
-    /// Invalid block confirmation signature.
-    #[fail(display = "Invalid Block Confirmation Signature")]
-    InvalidBlockConfirmation,
     /// Invalid state root hash.
     #[fail(display = "Invalid State Root Hash")]
     InvalidStateRoot,
@@ -76,6 +74,9 @@ pub enum ErrorKind {
     /// Invalid transactions in the block.
     #[fail(display = "Invalid Transactions")]
     InvalidTransactions,
+    /// Invalid Challenge Root (doesn't match actual challenge)
+    #[fail(display = "Invalid Challenge Root")]
+    InvalidChallengeRoot,
     /// Invalid challenge (wrong signature or format).
     #[fail(display = "Invalid Challenge")]
     InvalidChallenge,
@@ -198,11 +199,7 @@ impl Display for Error {
             Some(c) => format!("{}", c),
             None => String::from("Unknown"),
         };
-        let backtrace = match self.backtrace() {
-            Some(b) => format!("{}", b),
-            None => String::from("Unknown"),
-        };
-        let output = format!("{} \n Cause: {} \n Backtrace: {}", self.inner, cause, backtrace);
+        let output = format!("{} \n Cause: {}", self.inner, cause);
         Display::fmt(&output, f)
     }
 }
@@ -239,9 +236,8 @@ impl Error {
             | ErrorKind::DBNotFoundErr(_) => false,
             ErrorKind::InvalidBlockPastTime(_, _)
             | ErrorKind::InvalidBlockFutureTime(_)
-            | ErrorKind::InvalidBlockHeight
+            | ErrorKind::InvalidBlockHeight(_)
             | ErrorKind::InvalidBlockProposer
-            | ErrorKind::InvalidBlockConfirmation
             | ErrorKind::InvalidChunk
             | ErrorKind::InvalidChunkProofs(_)
             | ErrorKind::InvalidChunkState(_)
@@ -273,7 +269,8 @@ impl Error {
             | ErrorKind::InvalidStateRequest(_)
             | ErrorKind::InvalidRandomnessBeaconOutput
             | ErrorKind::InvalidBlockMerkleRoot
-            | ErrorKind::NotAValidator => true,
+            | ErrorKind::NotAValidator
+            | ErrorKind::InvalidChallengeRoot => true,
         }
     }
 
@@ -311,6 +308,20 @@ impl From<EpochError> for Error {
             EpochError::EpochOutOfBounds => ErrorKind::EpochOutOfBounds,
             EpochError::MissingBlock(h) => ErrorKind::DBNotFoundErr(to_base(&h)),
             err => ErrorKind::ValidatorError(err.to_string()),
+        }
+        .into()
+    }
+}
+
+impl From<BlockValidityError> for Error {
+    fn from(error: BlockValidityError) -> Self {
+        match error {
+            BlockValidityError::InvalidStateRoot => ErrorKind::InvalidStateRoot,
+            BlockValidityError::InvalidReceiptRoot => ErrorKind::InvalidChunkReceiptsRoot,
+            BlockValidityError::InvalidTransactionRoot => ErrorKind::InvalidTxRoot,
+            BlockValidityError::InvalidChunkHeaderRoot => ErrorKind::InvalidChunkHeadersRoot,
+            BlockValidityError::InvalidNumChunksIncluded => ErrorKind::InvalidChunkMask,
+            BlockValidityError::InvalidChallengeRoot => ErrorKind::InvalidChallengeRoot,
         }
         .into()
     }

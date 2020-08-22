@@ -92,7 +92,10 @@ impl RuntimeFeesGenerator {
         res.insert(
             ReceiptFees::ActionAddFunctionAccessKeyPerByte,
             // These are 1k methods each 10bytes long.
-            Ratio::new(self.aggregated[&Metric::ActionAddFunctionAccessKey1000Methods].upper(), 10),
+            Ratio::new(
+                self.aggregated[&Metric::ActionAddFunctionAccessKey1000Methods].upper(),
+                10 * 1000,
+            ),
         );
         res.insert(
             ReceiptFees::ActionDeleteKey,

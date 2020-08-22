@@ -4,7 +4,7 @@
 use std::collections::{HashMap, HashSet};
 use std::iter;
 use std::sync::{Arc, RwLock};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use cached::{Cached, SizedCache};
 use chrono::Utc;
@@ -77,6 +77,9 @@ pub struct Client {
     rs: ReedSolomonWrapper,
     /// Blocks that have been re-broadcast recently. They should not be broadcast again.
     rebroadcasted_blocks: SizedCache<CryptoHash, ()>,
+    /// Last time the head was updated, or our head was rebroadcasted. Used to re-broadcast the head
+    /// again to prevent network from stalling if a large percentage of the network missed a block
+    last_time_head_progress_made: Instant,
 }
 
 impl Client {
@@ -107,7 +110,8 @@ impl Client {
             config.header_sync_stall_ban_timeout,
             config.header_sync_expected_height_per_second,
         );
-        let block_sync = BlockSync::new(network_adapter.clone(), config.block_fetch_horizon);
+        let block_sync =
+            BlockSync::new(network_adapter.clone(), config.block_fetch_horizon, config.archive);
         let state_sync = StateSync::new(network_adapter.clone());
         let num_block_producer_seats = config.num_block_producer_seats as usize;
         let data_parts = runtime_adapter.num_data_parts();
@@ -144,7 +148,21 @@ impl Client {
             challenges: Default::default(),
             rs: ReedSolomonWrapper::new(data_parts, parity_parts),
             rebroadcasted_blocks: SizedCache::with_size(NUM_REBROADCAST_BLOCKS),
+            last_time_head_progress_made: Instant::now(),
         })
+    }
+
+    // Checks if it's been at least `stall_timeout` since the last time the head was updated, or
+    // this method was called. If yes, rebroadcasts the current head.
+    pub fn check_head_progress_stalled(&mut self, stall_timeout: Duration) -> Result<(), Error> {
+        if Instant::now() > self.last_time_head_progress_made + stall_timeout
+            && !self.sync_status.is_syncing()
+        {
+            let block = self.chain.get_block(&self.chain.head()?.last_block_hash)?;
+            self.network_adapter.do_send(NetworkRequests::Block { block: block.clone() });
+            self.last_time_head_progress_made = Instant::now();
+        }
+        Ok(())
     }
 
     pub fn remove_transactions_for_block(&mut self, me: AccountId, block: &Block) {
@@ -469,7 +487,7 @@ impl Client {
 
         let chunk_extra = self
             .chain
-            .get_latest_chunk_extra(shard_id)
+            .get_chunk_extra(&prev_block_hash, shard_id)
             .map_err(|err| Error::ChunkProducer(format!("No chunk extra available: {}", err)))?
             .clone();
 
@@ -585,6 +603,18 @@ impl Client {
         block: Block,
         provenance: Provenance,
     ) -> (Vec<AcceptedBlock>, Result<Option<Tip>, near_chain::Error>) {
+        let is_requested = match provenance {
+            Provenance::PRODUCED | Provenance::SYNC => true,
+            Provenance::NONE => false,
+        };
+        // drop the block if a) it is not requested and b) we already processed this height.
+        if !is_requested {
+            match self.chain.mut_store().is_height_processed(block.header().height()) {
+                Ok(true) => return (vec![], Ok(None)),
+                Ok(false) => {}
+                Err(e) => return (vec![], Err(e)),
+            }
+        }
         // TODO: replace to channels or cross beams here? we don't have multi-threading here so it's mostly to get around borrow checker.
         let accepted_blocks = Arc::new(RwLock::new(vec![]));
         let blocks_missing_chunks = Arc::new(RwLock::new(vec![]));
@@ -634,6 +664,10 @@ impl Client {
                 },
                 _ => {}
             }
+        }
+
+        if let Ok(Some(_)) = result {
+            self.last_time_head_progress_made = Instant::now();
         }
 
         // Request any missing chunks
@@ -739,6 +773,7 @@ impl Client {
         if Some(&next_block_producer) == self.validator_signer.as_ref().map(|x| x.validator_id()) {
             self.collect_block_approval(&approval, true);
         } else {
+            debug!(target: "client", "Sending an approval {:?} from {} to {} for {}", approval.inner, approval.account_id, next_block_producer.clone(), approval.target_height);
             let approval_message = ApprovalMessage::new(approval, next_block_producer);
             self.network_adapter.do_send(NetworkRequests::Approval { approval_message });
         }
@@ -1190,9 +1225,8 @@ impl Client {
         let gas_price = cur_block_header.gas_price();
         let epoch_id = self.runtime_adapter.get_epoch_id_from_prev_block(&head.last_block_hash)?;
 
-        // Fast transaction validation without a state root.
         if let Some(err) =
-            self.runtime_adapter.validate_tx(gas_price, None, &tx).expect("no storage errors")
+            self.runtime_adapter.validate_tx(gas_price, None, &tx, true).expect("no storage errors")
         {
             debug!(target: "client", "Invalid tx during basic validation: {:?}", err);
             return Ok(NetworkClientResponses::InvalidTx(err));
@@ -1218,7 +1252,7 @@ impl Client {
             };
             if let Some(err) = self
                 .runtime_adapter
-                .validate_tx(gas_price, Some(state_root), &tx)
+                .validate_tx(gas_price, Some(state_root), &tx, false)
                 .expect("no storage errors")
             {
                 debug!(target: "client", "Invalid tx: {:?}", err);

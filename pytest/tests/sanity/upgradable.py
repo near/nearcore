@@ -16,8 +16,8 @@ sys.path.append('lib')
 
 import branches
 import cluster
-from utils import wait_for_blocks_or_timeout
-from transaction import sign_payment_tx
+from utils import wait_for_blocks_or_timeout, load_binary_file
+from transaction import sign_deploy_contract_tx, sign_function_call_tx
 
 
 def main():
@@ -64,10 +64,20 @@ def main():
 
     time.sleep(2)
 
-    # send a transaction to make sure that the execution result is consistent across nodes.
+    # deploy a contract
     status = nodes[0].get_status()
-    tx = sign_payment_tx(nodes[0].signer_key, 'test1', 100, 1,
-                         base58.b58decode(status['sync_info']['latest_block_hash'].encode('utf8')))
+    hash = status['sync_info']['latest_block_hash']
+    tx = sign_deploy_contract_tx(
+        nodes[0].signer_key,
+        load_binary_file(
+            '../runtime/near-vm-runner/tests/res/test_contract_rs.wasm'), 1, base58.b58decode(hash.encode('utf8')))
+    res = nodes[0].send_tx_and_wait(tx, timeout=20)
+    assert 'error' not in res, res
+
+    # write some random value
+    tx = sign_function_call_tx(nodes[0].signer_key, nodes[0].signer_key.account_id,
+                               'write_random_value', [], 100000000000, 0, 2,
+                               base58.b58decode(hash.encode('utf8')))
     res = nodes[0].send_tx_and_wait(tx, timeout=20)
     assert 'error' not in res, res
 
@@ -88,8 +98,16 @@ def main():
            "Latest protocol version %d should match active protocol version %d" % (latest_protocol_version, protocol_version)
 
     gas_price = nodes[0].json_rpc('gas_price', [None])
-    assert gas_price['result']['gas_price'] == '1000000000', gas_price
+    gas_price = int(gas_price['result']['gas_price'])
+    assert gas_price < 1000000000, gas_price
+    assert gas_price > 100000000, gas_price
 
+    # write some random value again
+    tx = sign_function_call_tx(nodes[0].signer_key, nodes[0].signer_key.account_id,
+                               'write_random_value', [], 100000000000, 0, 3,
+                               base58.b58decode(hash.encode('utf8')))
+    res = nodes[0].send_tx_and_wait(tx, timeout=20)
+    assert 'error' not in res, res
 
 if __name__ == "__main__":
     main()

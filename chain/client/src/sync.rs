@@ -9,7 +9,7 @@ use ansi_term::Color::{Purple, Yellow};
 use chrono::{DateTime, Duration, Utc};
 use futures::{future, FutureExt};
 use log::{debug, error, info, warn};
-use rand::seq::SliceRandom;
+use rand::seq::{IteratorRandom, SliceRandom};
 use rand::{thread_rng, Rng};
 
 use near_chain::types::BlockSyncResponse;
@@ -56,8 +56,11 @@ pub fn highest_height_peer(highest_height_peers: &Vec<FullPeerInfo>) -> Option<F
     if highest_height_peers.len() == 0 {
         return None;
     }
-    let index = thread_rng().gen_range(0, highest_height_peers.len());
-    Some(highest_height_peers[index].clone())
+
+    match highest_height_peers.iter().choose(&mut thread_rng()) {
+        None => highest_height_peers.choose(&mut thread_rng()).cloned(),
+        Some(peer) => Some(peer.clone()),
+    }
 }
 
 /// Helper to keep track of sync headers.
@@ -169,7 +172,7 @@ impl HeaderSync {
         // Did we receive as many headers as we expected from the peer? Request more or ban peer.
         let stalling = header_head.height <= old_expected_height && now > timeout;
 
-        // Always enable header sync on initial state transition from NoSync / AwaitingPeers.
+        // Always enable header sync on initial state transition from NoSync / NoSyncFewBlocksBehind / AwaitingPeers.
         let force_sync = match sync_status {
             SyncStatus::NoSync | SyncStatus::AwaitingPeers => true,
             _ => false,
@@ -336,12 +339,15 @@ pub struct BlockSync {
     prev_blocks_received: NumBlocks,
     /// How far to fetch blocks vs fetch state.
     block_fetch_horizon: BlockHeightDelta,
+    /// Whether to enforce block sync
+    archive: bool,
 }
 
 impl BlockSync {
     pub fn new(
         network_adapter: Arc<dyn NetworkAdapter>,
         block_fetch_horizon: BlockHeightDelta,
+        archive: bool,
     ) -> Self {
         BlockSync {
             network_adapter,
@@ -349,6 +355,7 @@ impl BlockSync {
             receive_timeout: Utc::now(),
             prev_blocks_received: 0,
             block_fetch_horizon,
+            archive,
         }
     }
 
@@ -381,7 +388,7 @@ impl BlockSync {
         highest_height_peers: &[FullPeerInfo],
         block_fetch_horizon: BlockHeightDelta,
     ) -> Result<bool, near_chain::Error> {
-        match chain.check_state_needed(block_fetch_horizon)? {
+        match chain.check_state_needed(block_fetch_horizon, self.archive)? {
             BlockSyncResponse::StateNeeded => {
                 return Ok(true);
             }

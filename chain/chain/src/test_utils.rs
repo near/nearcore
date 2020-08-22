@@ -34,8 +34,7 @@ use near_primitives::views::{
 };
 use near_store::test_utils::create_test_store;
 use near_store::{
-    ColBlockHeader, PartialStorage, ShardTries, Store, StoreUpdate, Trie, TrieChanges,
-    WrappedTrieChanges,
+    ColBlockHeader, PartialStorage, ShardTries, Store, Trie, TrieChanges, WrappedTrieChanges,
 };
 
 use crate::chain::{Chain, NUM_EPOCHS_TO_KEEP_STORE_DATA};
@@ -259,12 +258,8 @@ impl KeyValueRuntime {
 }
 
 impl RuntimeAdapter for KeyValueRuntime {
-    fn genesis_state(&self) -> (Arc<Store>, StoreUpdate, Vec<StateRoot>) {
-        (
-            self.store.clone(),
-            self.store.store_update(),
-            ((0..self.num_shards()).map(|_| StateRoot::default()).collect()),
-        )
+    fn genesis_state(&self) -> (Arc<Store>, Vec<StateRoot>) {
+        (self.store.clone(), ((0..self.num_shards()).map(|_| StateRoot::default()).collect()))
     }
 
     fn get_tries(&self) -> ShardTries {
@@ -273,16 +268,6 @@ impl RuntimeAdapter for KeyValueRuntime {
 
     fn get_trie_for_shard(&self, shard_id: ShardId) -> Trie {
         self.tries.get_trie_for_shard(shard_id)
-    }
-
-    fn verify_block_signature(&self, header: &BlockHeader) -> Result<(), Error> {
-        let validators = &self.validators
-            [self.get_epoch_and_valset(*header.prev_hash()).map_err(|err| err.to_string())?.1];
-        let validator = &validators[(header.height() as usize) % validators.len()];
-        if !header.verify_block_producer(&validator.public_key) {
-            return Err(ErrorKind::InvalidBlockProposer.into());
-        }
-        Ok(())
     }
 
     fn verify_block_vrf(
@@ -307,8 +292,11 @@ impl RuntimeAdapter for KeyValueRuntime {
         Ok(true)
     }
 
-    fn verify_header_signature(&self, _header: &BlockHeader) -> Result<bool, Error> {
-        Ok(true)
+    fn verify_header_signature(&self, header: &BlockHeader) -> Result<bool, Error> {
+        let validators = &self.validators
+            [self.get_epoch_and_valset(*header.prev_hash()).map_err(|err| err.to_string())?.1];
+        let validator = &validators[(header.height() as usize) % validators.len()];
+        Ok(header.verify_block_producer(&validator.public_key))
     }
 
     fn verify_chunk_header_signature(&self, _header: &ShardChunkHeader) -> Result<bool, Error> {
@@ -473,6 +461,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         _gas_price: Balance,
         _state_update: Option<StateRoot>,
         _transaction: &SignedTransaction,
+        _verify_signature: bool,
     ) -> Result<Option<InvalidTxError>, Error> {
         Ok(None)
     }
@@ -511,6 +500,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         gas_price: Balance,
         _gas_limit: Gas,
         _challenges: &ChallengesResult,
+        _random_seed: CryptoHash,
         generate_storage_proof: bool,
     ) -> Result<ApplyTransactionResult, Error> {
         assert!(!generate_storage_proof);
@@ -689,6 +679,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         _gas_price: Balance,
         _gas_limit: Gas,
         _challenges: &ChallengesResult,
+        _random_value: CryptoHash,
     ) -> Result<ApplyTransactionResult, Error> {
         unimplemented!();
     }
@@ -866,10 +857,13 @@ impl RuntimeAdapter for KeyValueRuntime {
         }
     }
 
-    fn get_gc_stop_height(&self, block_hash: &CryptoHash) -> Result<BlockHeight, Error> {
-        let block_height =
-            self.get_block_header(block_hash)?.map(|h| h.height()).unwrap_or_default();
-        Ok(block_height.saturating_sub(NUM_EPOCHS_TO_KEEP_STORE_DATA * self.epoch_length))
+    fn get_gc_stop_height(&self, block_hash: &CryptoHash) -> BlockHeight {
+        let block_height = self
+            .get_block_header(block_hash)
+            .unwrap_or_default()
+            .map(|h| h.height())
+            .unwrap_or_default();
+        block_height.saturating_sub(NUM_EPOCHS_TO_KEEP_STORE_DATA * self.epoch_length)
     }
 
     fn epoch_exists(&self, _epoch_id: &EpochId) -> bool {

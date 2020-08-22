@@ -15,6 +15,7 @@ import retry
 import retrying
 import rc
 from rc import gcloud
+import traceback
 import uuid
 import network
 from proxy import NodesProxy
@@ -37,6 +38,7 @@ def atexit_cleanup(node):
         node.cleanup()
     except:
         print("Cleaning failed!")
+        traceback.print_exc()
         pass
 
 
@@ -83,6 +85,7 @@ class BaseNode(object):
     def __init__(self):
         self._start_proxy = None
         self._proxy_local_stopped = None
+        self.proxy = None
 
 
     def _get_command_line(self,
@@ -276,6 +279,7 @@ class LocalNode(BaseNode):
         config_json['network']['addr'] = '0.0.0.0:%s' % port
         config_json['network']['blacklist'] = blacklist
         config_json['rpc']['addr'] = '0.0.0.0:%s' % rpc_port
+        config_json['rpc']['metrics_addr'] = '0.0.0.0:%s' % (rpc_port + 1000)
         config_json['consensus']['min_num_peers'] = 1
         with open(os.path.join(node_dir, "config.json"), 'w') as f:
             f.write(json.dumps(config_json, indent=2))
@@ -346,10 +350,22 @@ class LocalNode(BaseNode):
         with open(os.path.join(self.node_dir, "validator_key.json"), 'w+') as f:
             json.dump(new_key.to_json(), f)
 
+    def reset_node_key(self, new_key):
+        self.node_key = new_key
+        with open(os.path.join(self.node_dir, "node_key.json"), 'w+') as f:
+            json.dump(new_key.to_json(), f)
+
     def cleanup(self):
         if self.cleaned:
             return
-        self.kill()
+
+        try:
+            self.kill()
+        except:
+            print("Kill failed on cleanup!")
+            traceback.print_exc()
+            print("\n\n")
+
         # move the node dir to avoid weird interactions with multiple serial test invocations
         target_path = self.node_dir + '_finished'
         if os.path.exists(target_path) and os.path.isdir(target_path):

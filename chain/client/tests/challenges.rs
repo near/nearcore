@@ -1,5 +1,3 @@
-use std::collections::HashSet;
-use std::mem::swap;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -12,7 +10,7 @@ use near_chain::{
     RuntimeAdapter,
 };
 use near_chain_configs::Genesis;
-use near_client::test_utils::TestEnv;
+use near_client::test_utils::{create_chunk, create_chunk_with_transactions, TestEnv};
 use near_client::Client;
 use near_crypto::{InMemorySigner, KeyType, Signer};
 use near_logger_utils::init_test_logger;
@@ -102,7 +100,7 @@ fn test_verify_block_double_sign_challenge() {
     assert!(validate_challenge(&*runtime_adapter, &epoch_id, &genesis.hash(), &invalid_challenge,)
         .is_err());
 
-    let (_, result) = env.clients[0].process_block(b2, Provenance::NONE);
+    let (_, result) = env.clients[0].process_block(b2, Provenance::SYNC);
     assert!(result.is_ok());
     let mut last_message = env.network_adapters[0].pop().unwrap();
     if let NetworkRequests::Block { .. } = last_message {
@@ -123,93 +121,6 @@ fn create_invalid_proofs_chunk(
         None,
         Some(CryptoHash::from_base("F5SvmQcKqekuKPJgLUNFgjB4ZgVmmiHsbDhTBSQbiywf").unwrap()),
     )
-}
-
-fn create_chunk_with_transactions(
-    client: &mut Client,
-    transactions: Vec<SignedTransaction>,
-) -> (EncodedShardChunk, Vec<MerklePath>, Vec<Receipt>, Block) {
-    create_chunk(client, Some(transactions), None)
-}
-
-fn create_chunk(
-    client: &mut Client,
-    replace_transactions: Option<Vec<SignedTransaction>>,
-    replace_tx_root: Option<CryptoHash>,
-) -> (EncodedShardChunk, Vec<MerklePath>, Vec<Receipt>, Block) {
-    let last_block =
-        client.chain.get_block_by_height(client.chain.head().unwrap().height).unwrap().clone();
-    let (mut chunk, mut merkle_paths, receipts) = client
-        .produce_chunk(
-            *last_block.hash(),
-            last_block.header().epoch_id(),
-            last_block.chunks()[0].clone(),
-            2,
-            0,
-        )
-        .unwrap()
-        .unwrap();
-    if let Some(transactions) = replace_transactions {
-        // The best way it to decode chunk, replace transactions and then recreate encoded chunk.
-        let total_parts = client.chain.runtime_adapter.num_total_parts();
-        let data_parts = client.chain.runtime_adapter.num_data_parts();
-        let decoded_chunk = chunk.decode_chunk(data_parts).unwrap();
-        let parity_parts = total_parts - data_parts;
-        let mut rs = ReedSolomonWrapper::new(data_parts, parity_parts);
-
-        let (tx_root, _) = merklize(&transactions);
-        let signer = client.validator_signer.as_ref().unwrap().clone();
-        let (mut encoded_chunk, mut new_merkle_paths) = EncodedShardChunk::new(
-            chunk.header.inner.prev_block_hash,
-            chunk.header.inner.prev_state_root,
-            chunk.header.inner.outcome_root,
-            chunk.header.inner.height_created,
-            chunk.header.inner.shard_id,
-            &mut rs,
-            chunk.header.inner.gas_used,
-            chunk.header.inner.gas_limit,
-            chunk.header.inner.balance_burnt,
-            tx_root,
-            chunk.header.inner.validator_proposals.clone(),
-            transactions,
-            &decoded_chunk.receipts,
-            chunk.header.inner.outgoing_receipts_root,
-            &*signer,
-        )
-        .unwrap();
-        swap(&mut chunk, &mut encoded_chunk);
-        swap(&mut merkle_paths, &mut new_merkle_paths);
-    }
-    if let Some(tx_root) = replace_tx_root {
-        chunk.header.inner.tx_root = tx_root;
-        chunk.header.height_included = 2;
-        let (hash, signature) =
-            client.validator_signer.as_ref().unwrap().sign_chunk_header_inner(&chunk.header.inner);
-        chunk.header.hash = hash;
-        chunk.header.signature = signature;
-    }
-    let mut block_merkle_tree =
-        client.chain.mut_store().get_block_merkle_tree(&last_block.hash()).unwrap().clone();
-    block_merkle_tree.insert(*last_block.hash());
-    let block = Block::produce(
-        PROTOCOL_VERSION,
-        &last_block.header(),
-        2,
-        vec![chunk.header.clone()],
-        last_block.header().epoch_id().clone(),
-        last_block.header().next_epoch_id().clone(),
-        vec![],
-        Rational::from_integer(0),
-        0,
-        100,
-        None,
-        vec![],
-        vec![],
-        &*client.validator_signer.as_ref().unwrap().clone(),
-        *last_block.header().next_bp_hash(),
-        block_merkle_tree.root(),
-    );
-    (chunk, merkle_paths, receipts, block)
 }
 
 #[test]
@@ -557,10 +468,11 @@ fn test_receive_invalid_chunk_as_chunk_producer() {
     // But everyone who doesn't track this shard have accepted.
     let receipts_hashes = env.clients[0].runtime_adapter.build_receipts_hashes(&receipts);
     let (_receipts_root, receipts_proofs) = merklize(&receipts_hashes);
+    let receipts_by_shard = env.clients[0].shards_mgr.group_receipts_by_shard(receipts.clone());
     let one_part_receipt_proofs = env.clients[0].shards_mgr.receipts_recipient_filter(
         0,
-        &HashSet::default(),
-        &receipts,
+        Vec::default(),
+        &receipts_by_shard,
         &receipts_proofs,
     );
 

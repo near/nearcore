@@ -37,6 +37,10 @@ pytest --timeout=300 sanity/gc_after_sync1.py
 pytest --timeout=300 sanity/gc_sync_after_sync.py
 pytest --timeout=300 sanity/gc_sync_after_sync.py swap_nodes
 pytest --timeout=300 sanity/large_messages.py
+pytest sanity/controlled_edge_nonce.py
+pytest sanity/repro_2916.py
+pytest --timeout=240 sanity/switch_node_key.py
+pytest --timeout=300 sanity/saturate_routing_table.py
 # TODO: re-enable after #2949 is fixed
 # pytest --timeout=240 sanity/validator_switch_key.py
 pytest sanity/proxy_simple.py
@@ -51,8 +55,8 @@ pytest contracts/deploy_call_smart_contract.py
 pytest --timeout=240 contracts/gibberish.py
 
 # python stress tests
-# pytest --timeout=2000 stress/stress.py 3 3 3 0 staking transactions local_network
-# pytest --timeout=2000 stress/stress.py 3 3 3 0 staking transactions node_restart
+pytest --timeout=2000 stress/stress.py 3 3 3 0 staking transactions local_network
+pytest --timeout=2000 stress/stress.py 3 3 3 0 staking transactions node_restart
 # pytest --timeout=2000 stress/stress.py 3 2 4 0 staking transactions node_set
 
 # pytest stress/network_stress.py
@@ -88,7 +92,6 @@ expensive --timeout=1800 near-client catching_up tests::test_catchup_sanity_bloc
 expensive --timeout=3600 near-client catching_up tests::test_all_chunks_accepted_1000
 # expensive --timeout=7200 near-client catching_up tests::test_all_chunks_accepted_1000_slow
 expensive --timeout=1800 near-client catching_up tests::test_all_chunks_accepted_1000_rare_epoch_changing
-expensive --timeout=1800 near-client catching_up tests::test_catchup_sanity_blocks_produced_doomslug
 expensive --timeout=1800 near-client catching_up tests::test_catchup_receipts_sync_hold
 expensive --timeout=1800 near-client catching_up tests::test_chunk_grieving
 

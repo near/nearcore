@@ -107,8 +107,7 @@ impl GenesisBuilder {
 
     pub fn build(mut self) -> Result<Self> {
         // First, apply whatever is defined by the genesis config.
-        let (_store, store_update, roots) = self.runtime.genesis_state();
-        store_update.commit()?;
+        let (_store, roots) = self.runtime.genesis_state();
         self.roots = roots.into_iter().enumerate().map(|(k, v)| (k as u64, v)).collect();
         self.state_updates = self
             .roots
@@ -261,7 +260,7 @@ impl GenesisBuilder {
         );
         records.push(access_key_record);
         if let Some(wasm_binary) = self.additional_accounts_code.as_ref() {
-            let code = ContractCode::new(wasm_binary.clone());
+            let code = ContractCode::new(wasm_binary.clone(), None);
             set_code(&mut state_update, account_id.clone(), &code);
             let contract_record = StateRecord::Contract { account_id, code: wasm_binary.clone() };
             records.push(contract_record);

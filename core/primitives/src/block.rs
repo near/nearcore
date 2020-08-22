@@ -7,6 +7,10 @@ use num_rational::Rational;
 use primitive_types::U256;
 use serde::Serialize;
 
+use crate::block::BlockValidityError::{
+    InvalidChallengeRoot, InvalidChunkHeaderRoot, InvalidNumChunksIncluded, InvalidReceiptRoot,
+    InvalidStateRoot, InvalidTransactionRoot,
+};
 pub use crate::block_header::*;
 use crate::challenge::{Challenges, ChallengesResult};
 use crate::hash::{hash, CryptoHash};
@@ -25,6 +29,16 @@ pub struct GenesisId {
     pub chain_id: String,
     /// Hash of genesis block
     pub hash: CryptoHash,
+}
+
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Clone, Debug, Eq, PartialEq)]
+pub enum BlockValidityError {
+    InvalidStateRoot,
+    InvalidReceiptRoot,
+    InvalidChunkHeaderRoot,
+    InvalidTransactionRoot,
+    InvalidNumChunksIncluded,
+    InvalidChallengeRoot,
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, Eq, PartialEq)]
@@ -233,7 +247,7 @@ impl Block {
             min_gas_price,
             max_gas_price,
         );
-        self.header().gas_price() == max(expected_price, min_gas_price)
+        self.header().gas_price() == expected_price
     }
 
     pub fn compute_new_gas_price(
@@ -373,45 +387,45 @@ impl Block {
         self.header().hash()
     }
 
-    pub fn check_validity(&self) -> bool {
+    pub fn check_validity(&self) -> Result<(), BlockValidityError> {
         // Check that state root stored in the header matches the state root of the chunks
         let state_root = Block::compute_state_root(self.chunks());
         if self.header().prev_state_root() != &state_root {
-            return false;
+            return Err(InvalidStateRoot);
         }
 
         // Check that chunk receipts root stored in the header matches the state root of the chunks
         let chunk_receipts_root = Block::compute_chunk_receipts_root(self.chunks());
         if self.header().chunk_receipts_root() != &chunk_receipts_root {
-            return false;
+            return Err(InvalidReceiptRoot);
         }
 
         // Check that chunk headers root stored in the header matches the chunk headers root of the chunks
         let chunk_headers_root = Block::compute_chunk_headers_root(self.chunks()).0;
         if self.header().chunk_headers_root() != &chunk_headers_root {
-            return false;
+            return Err(InvalidChunkHeaderRoot);
         }
 
         // Check that chunk tx root stored in the header matches the tx root of the chunks
         let chunk_tx_root = Block::compute_chunk_tx_root(self.chunks());
         if self.header().chunk_tx_root() != &chunk_tx_root {
-            return false;
+            return Err(InvalidTransactionRoot);
         }
 
         // Check that chunk included root stored in the header matches the chunk included root of the chunks
-        let chunks_included_root =
+        let num_chunks_included =
             Block::compute_chunks_included(self.chunks(), self.header().height());
-        if self.header().chunks_included() != chunks_included_root {
-            return false;
+        if self.header().chunks_included() != num_chunks_included {
+            return Err(InvalidNumChunksIncluded);
         }
 
         // Check that challenges root stored in the header matches the challenges root of the challenges
         let challenges_root = Block::compute_challenges_root(&self.challenges());
         if self.header().challenges_root() != &challenges_root {
-            return false;
+            return Err(InvalidChallengeRoot);
         }
 
-        true
+        Ok(())
     }
 }
 

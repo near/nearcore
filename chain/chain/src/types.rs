@@ -20,10 +20,11 @@ use near_primitives::types::{
     NumBlocks, ShardId, StateRoot, StateRootNode, ValidatorStake,
 };
 use near_primitives::version::{
-    ProtocolVersion, MIN_GAS_PRICE_NEP_92, MIN_PROTOCOL_VERSION_NEP_92,
+    ProtocolVersion, MIN_GAS_PRICE_NEP_92, MIN_GAS_PRICE_NEP_92_FIX, MIN_PROTOCOL_VERSION_NEP_92,
+    MIN_PROTOCOL_VERSION_NEP_92_FIX,
 };
 use near_primitives::views::{EpochValidatorInfo, QueryRequest, QueryResponse};
-use near_store::{PartialStorage, ShardTries, Store, StoreUpdate, Trie, WrappedTrieChanges};
+use near_store::{PartialStorage, ShardTries, Store, Trie, WrappedTrieChanges};
 
 use crate::error::Error;
 use chrono::{DateTime, Utc};
@@ -141,13 +142,22 @@ pub struct BlockEconomicsConfig {
 }
 
 impl BlockEconomicsConfig {
-    /// Compute min gas price according to protocol version and chain id. We only upgrade gas price
-    /// for betanet, testnet and mainnet.
+    /// Compute min gas price according to protocol version and genesis protocol version.
     pub fn min_gas_price(&self, protocol_version: ProtocolVersion) -> Balance {
-        if self.genesis_protocol_version < MIN_PROTOCOL_VERSION_NEP_92
-            && protocol_version >= MIN_PROTOCOL_VERSION_NEP_92
-        {
-            MIN_GAS_PRICE_NEP_92
+        if self.genesis_protocol_version < MIN_PROTOCOL_VERSION_NEP_92 {
+            if protocol_version >= MIN_PROTOCOL_VERSION_NEP_92_FIX {
+                MIN_GAS_PRICE_NEP_92_FIX
+            } else if protocol_version >= MIN_PROTOCOL_VERSION_NEP_92 {
+                MIN_GAS_PRICE_NEP_92
+            } else {
+                self.min_gas_price
+            }
+        } else if self.genesis_protocol_version < MIN_PROTOCOL_VERSION_NEP_92_FIX {
+            if protocol_version >= MIN_PROTOCOL_VERSION_NEP_92_FIX {
+                MIN_GAS_PRICE_NEP_92_FIX
+            } else {
+                MIN_GAS_PRICE_NEP_92
+            }
         } else {
             self.min_gas_price
         }
@@ -215,17 +225,14 @@ where
 /// Main function is to update state given transactions.
 /// Additionally handles validators.
 pub trait RuntimeAdapter: Send + Sync {
-    /// Initialize state to genesis state and returns StoreUpdate, state root and initial validators.
-    /// StoreUpdate can be discarded if the chain past the genesis.
-    fn genesis_state(&self) -> (Arc<Store>, StoreUpdate, Vec<StateRoot>);
+    /// Get store and genesis state roots
+    fn genesis_state(&self) -> (Arc<Store>, Vec<StateRoot>);
 
     fn get_tries(&self) -> ShardTries;
 
     /// Returns trie.
     fn get_trie_for_shard(&self, shard_id: ShardId) -> Trie;
 
-    /// Verify block producer validity
-    fn verify_block_signature(&self, header: &BlockHeader) -> Result<(), Error>;
     fn verify_block_vrf(
         &self,
         epoch_id: &EpochId,
@@ -247,6 +254,7 @@ pub trait RuntimeAdapter: Send + Sync {
         gas_price: Balance,
         state_root: Option<StateRoot>,
         transaction: &SignedTransaction,
+        verify_signature: bool,
     ) -> Result<Option<InvalidTxError>, Error>;
 
     /// Returns an ordered list of valid transactions from the pool up the given limits.
@@ -399,7 +407,7 @@ pub trait RuntimeAdapter: Send + Sync {
     fn get_epoch_start_height(&self, block_hash: &CryptoHash) -> Result<BlockHeight, Error>;
 
     /// Get the block height for which garbage collection should not go over
-    fn get_gc_stop_height(&self, block_hash: &CryptoHash) -> Result<BlockHeight, Error>;
+    fn get_gc_stop_height(&self, block_hash: &CryptoHash) -> BlockHeight;
 
     /// Check if epoch exists.
     fn epoch_exists(&self, epoch_id: &EpochId) -> bool;
@@ -429,6 +437,7 @@ pub trait RuntimeAdapter: Send + Sync {
         gas_price: Balance,
         gas_limit: Gas,
         challenges_result: &ChallengesResult,
+        random_seed: CryptoHash,
     ) -> Result<ApplyTransactionResult, Error> {
         self.apply_transactions_with_optional_storage_proof(
             shard_id,
@@ -443,6 +452,7 @@ pub trait RuntimeAdapter: Send + Sync {
             gas_price,
             gas_limit,
             challenges_result,
+            random_seed,
             false,
         )
     }
@@ -461,6 +471,7 @@ pub trait RuntimeAdapter: Send + Sync {
         gas_price: Balance,
         gas_limit: Gas,
         challenges_result: &ChallengesResult,
+        random_seed: CryptoHash,
         generate_storage_proof: bool,
     ) -> Result<ApplyTransactionResult, Error>;
 
@@ -479,6 +490,7 @@ pub trait RuntimeAdapter: Send + Sync {
         gas_price: Balance,
         gas_limit: Gas,
         challenges_result: &ChallengesResult,
+        random_value: CryptoHash,
     ) -> Result<ApplyTransactionResult, Error>;
 
     /// Query runtime with given `path` and `data`.

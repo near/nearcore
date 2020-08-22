@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use std::convert::TryInto;
 use std::fs::File;
 use std::io::Read;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::{Arc, RwLock};
 
 use borsh::ser::BorshSerialize;
@@ -13,7 +13,7 @@ use log::{debug, error, warn};
 use near_chain::chain::NUM_EPOCHS_TO_KEEP_STORE_DATA;
 use near_chain::types::{ApplyTransactionResult, BlockHeaderInfo};
 use near_chain::{BlockHeader, Error, ErrorKind, RuntimeAdapter};
-use near_chain_configs::Genesis;
+use near_chain_configs::{Genesis, GenesisConfig};
 use near_crypto::{PublicKey, Signature};
 use near_epoch_manager::{EpochManager, RewardCalculator};
 use near_pool::types::PoolIterator;
@@ -38,8 +38,7 @@ use near_primitives::views::{
     QueryResponseKind, ViewStateResult,
 };
 use near_store::{
-    get_access_key_raw, ColState, PartialStorage, ShardTries, Store, StoreUpdate, Trie,
-    WrappedTrieChanges,
+    get_access_key_raw, ColState, PartialStorage, ShardTries, Store, Trie, WrappedTrieChanges,
 };
 use node_runtime::adapter::ViewRuntimeAdapter;
 use node_runtime::state_viewer::TrieViewer;
@@ -113,8 +112,7 @@ impl EpochInfoProvider for SafeEpochManager {
 /// Defines Nightshade state transition and validator rotation.
 /// TODO: this possibly should be merged with the runtime cargo or at least reconciled on the interfaces.
 pub struct NightshadeRuntime {
-    genesis: Arc<Genesis>,
-    home_dir: PathBuf,
+    genesis_config: GenesisConfig,
 
     store: Arc<Store>,
     tries: ShardTries,
@@ -122,6 +120,7 @@ pub struct NightshadeRuntime {
     pub runtime: Runtime,
     epoch_manager: SafeEpochManager,
     shard_tracker: ShardTracker,
+    genesis_state_roots: Vec<StateRoot>,
 }
 
 impl NightshadeRuntime {
@@ -134,8 +133,8 @@ impl NightshadeRuntime {
     ) -> Self {
         let runtime = Runtime::new(genesis.config.runtime_config.clone());
         let trie_viewer = TrieViewer::new();
+        let genesis_config = genesis.config.clone();
         let num_shards = genesis.config.num_block_producer_seats_per_shard.len() as NumShards;
-        let tries = ShardTries::new(store.clone(), num_shards);
         let initial_epoch_config = EpochConfig {
             epoch_length: genesis.config.epoch_length,
             num_shards,
@@ -166,14 +165,14 @@ impl NightshadeRuntime {
             online_max_threshold: genesis.config.online_max_threshold,
             online_min_threshold: genesis.config.online_min_threshold,
         };
+        let (store, tries, state_roots) = Self::initialize_genesis_state(store, home_dir, genesis);
         let epoch_manager = Arc::new(RwLock::new(
             EpochManager::new(
                 store.clone(),
                 initial_epoch_config,
-                genesis.config.protocol_version,
+                genesis_config.protocol_version,
                 reward_calculator,
-                genesis
-                    .config
+                genesis_config
                     .validators
                     .iter()
                     .map(|account_info| ValidatorStake {
@@ -197,14 +196,14 @@ impl NightshadeRuntime {
             num_shards,
         );
         NightshadeRuntime {
-            genesis,
-            home_dir: home_dir.to_path_buf(),
+            genesis_config,
             store,
             tries,
             runtime,
             trie_viewer,
             epoch_manager: SafeEpochManager(epoch_manager),
             shard_tracker,
+            genesis_state_roots: state_roots,
         }
     }
 
@@ -217,47 +216,48 @@ impl NightshadeRuntime {
         epoch_manager.get_epoch_info(&epoch_id).map(|info| info.epoch_height).map_err(Error::from)
     }
 
-    fn genesis_state_from_dump(&self) -> (Arc<Store>, StoreUpdate, Vec<StateRoot>) {
-        let store_update = self.store.store_update();
-        let mut state_file = self.home_dir.clone();
+    fn genesis_state_from_dump(store: Arc<Store>, home_dir: &Path) -> (Arc<Store>, Vec<StateRoot>) {
+        let mut state_file = home_dir.to_path_buf();
         state_file.push(STATE_DUMP_FILE);
-        self.store
-            .load_from_file(ColState, state_file.as_path())
-            .expect("Failed to read state dump");
-        let mut roots_files = self.home_dir.clone();
+        store.load_from_file(ColState, state_file.as_path()).expect("Failed to read state dump");
+        let mut roots_files = home_dir.to_path_buf();
         roots_files.push(GENESIS_ROOTS_FILE);
         let mut file = File::open(roots_files).expect("Failed to open genesis roots file.");
         let mut data = vec![];
         file.read_to_end(&mut data).expect("Failed to read genesis roots file.");
         let state_roots: Vec<StateRoot> =
             BorshDeserialize::try_from_slice(&data).expect("Failed to deserialize genesis roots");
-        (self.store.clone(), store_update, state_roots)
+        (store, state_roots)
     }
 
-    fn genesis_state_from_records(&self) -> (Arc<Store>, StoreUpdate, Vec<StateRoot>) {
-        let mut store_update = self.store.store_update();
+    fn genesis_state_from_records(
+        store: Arc<Store>,
+        genesis: Arc<Genesis>,
+    ) -> (Arc<Store>, ShardTries, Vec<StateRoot>) {
+        let mut store_update = store.store_update();
         let mut state_roots = vec![];
-        let num_shards = self.genesis.config.num_block_producer_seats_per_shard.len() as NumShards;
+        let num_shards = genesis.config.num_block_producer_seats_per_shard.len() as NumShards;
         let mut shard_records: Vec<Vec<StateRecord>> = (0..num_shards).map(|_| vec![]).collect();
         let mut has_protocol_account = false;
-        for record in self.genesis.records.as_ref() {
+        for record in genesis.records.as_ref() {
             shard_records[state_record_to_shard_id(record, num_shards) as usize]
                 .push(record.clone());
             if let StateRecord::Account { account_id, .. } = record {
-                if account_id == &self.genesis.config.protocol_treasury_account {
+                if account_id == &genesis.config.protocol_treasury_account {
                     has_protocol_account = true;
                 }
             }
         }
         assert!(has_protocol_account, "Genesis spec doesn't have protocol treasury account");
+        let tries = ShardTries::new(store.clone(), num_shards);
+        let runtime = Runtime::new(genesis.config.runtime_config.clone());
         for shard_id in 0..num_shards {
-            let validators = self
-                .genesis
+            let validators = genesis
                 .config
                 .validators
                 .iter()
                 .filter_map(|account_info| {
-                    if self.account_id_to_shard_id(&account_info.account_id) == shard_id {
+                    if account_id_to_shard_id(&account_info.account_id, num_shards) == shard_id {
                         Some((
                             account_info.account_id.clone(),
                             account_info.public_key.clone(),
@@ -268,8 +268,8 @@ impl NightshadeRuntime {
                     }
                 })
                 .collect::<Vec<_>>();
-            let (shard_store_update, state_root) = self.runtime.apply_genesis_state(
-                self.get_tries(),
+            let (shard_store_update, state_root) = runtime.apply_genesis_state(
+                tries.clone(),
                 shard_id,
                 &validators,
                 &shard_records[shard_id as usize],
@@ -277,7 +277,36 @@ impl NightshadeRuntime {
             store_update.merge(shard_store_update);
             state_roots.push(state_root);
         }
-        (self.store.clone(), store_update, state_roots)
+        store_update.commit().expect("Store update failed on genesis intialization");
+        (store, tries, state_roots)
+    }
+
+    fn initialize_genesis_state(
+        store: Arc<Store>,
+        home_dir: &Path,
+        genesis: Arc<Genesis>,
+    ) -> (Arc<Store>, ShardTries, Vec<StateRoot>) {
+        let has_records = !genesis.records.as_ref().is_empty();
+        let has_dump = {
+            let mut state_dump = home_dir.to_path_buf();
+            state_dump.push(STATE_DUMP_FILE);
+            state_dump.exists()
+        };
+        if has_dump {
+            if has_records {
+                warn!(target: "runtime", "Found both records in genesis config and the state dump file. Will ignore the records.");
+            }
+            let (store, state_roots) = Self::genesis_state_from_dump(store, home_dir);
+            let tries = ShardTries::new(
+                store.clone(),
+                genesis.config.num_block_producer_seats_per_shard.len() as NumShards,
+            );
+            (store, tries, state_roots)
+        } else if has_records {
+            Self::genesis_state_from_records(store, genesis)
+        } else {
+            panic!("Found neither records in the config nor the state dump file. Either one should be present")
+        }
     }
 
     /// Processes state update.
@@ -296,6 +325,7 @@ impl NightshadeRuntime {
         gas_price: Balance,
         gas_limit: Gas,
         challenges_result: &ChallengesResult,
+        random_seed: CryptoHash,
     ) -> Result<ApplyTransactionResult, Error> {
         let validator_accounts_update = {
             let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
@@ -345,7 +375,7 @@ impl NightshadeRuntime {
                     validator_rewards,
                     last_proposals,
                     protocol_treasury_account_id: Some(
-                        self.genesis.config.protocol_treasury_account.clone(),
+                        self.genesis_config.protocol_treasury_account.clone(),
                     )
                     .filter(|account_id| self.account_id_to_shard_id(account_id) == shard_id),
                     slashing_info,
@@ -365,6 +395,7 @@ impl NightshadeRuntime {
 
         let epoch_height = self.get_epoch_height_from_prev_block(prev_block_hash)?;
         let epoch_id = self.get_epoch_id_from_prev_block(prev_block_hash)?;
+        let current_protocol_version = self.get_epoch_protocol_version(&epoch_id)?;
 
         let apply_state = ApplyState {
             block_index: block_height,
@@ -374,6 +405,8 @@ impl NightshadeRuntime {
             gas_price,
             block_timestamp,
             gas_limit: Some(gas_limit),
+            random_seed,
+            current_protocol_version,
         };
 
         let apply_result = self
@@ -456,23 +489,8 @@ pub fn state_record_to_shard_id(state_record: &StateRecord, num_shards: NumShard
 }
 
 impl RuntimeAdapter for NightshadeRuntime {
-    fn genesis_state(&self) -> (Arc<Store>, StoreUpdate, Vec<StateRoot>) {
-        let has_records = !self.genesis.records.as_ref().is_empty();
-        let has_dump = {
-            let mut state_dump = self.home_dir.clone();
-            state_dump.push(STATE_DUMP_FILE);
-            state_dump.exists()
-        };
-        if has_dump {
-            if has_records {
-                warn!(target: "runtime", "Found both records in genesis config and the state dump file. Will ignore the records.");
-            }
-            self.genesis_state_from_dump()
-        } else if has_records {
-            self.genesis_state_from_records()
-        } else {
-            panic!("Found neither records in the config nor the state dump file. Either one should be present")
-        }
+    fn genesis_state(&self) -> (Arc<Store>, Vec<StateRoot>) {
+        (self.store.clone(), self.genesis_state_roots.clone())
     }
 
     fn get_tries(&self) -> ShardTries {
@@ -481,16 +499,6 @@ impl RuntimeAdapter for NightshadeRuntime {
 
     fn get_trie_for_shard(&self, shard_id: ShardId) -> Trie {
         self.tries.get_trie_for_shard(shard_id)
-    }
-
-    fn verify_block_signature(&self, header: &BlockHeader) -> Result<(), Error> {
-        let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
-        let validator =
-            epoch_manager.get_block_producer_info(header.epoch_id(), header.height())?;
-        if !header.verify_block_producer(&validator.public_key) {
-            return Err(ErrorKind::InvalidBlockProposer.into());
-        }
-        Ok(())
     }
 
     fn verify_block_vrf(
@@ -519,6 +527,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         gas_price: Balance,
         state_root: Option<StateRoot>,
         transaction: &SignedTransaction,
+        verify_signature: bool,
     ) -> Result<Option<InvalidTxError>, Error> {
         if let Some(state_root) = state_root {
             let shard_id = self.account_id_to_shard_id(&transaction.transaction.signer_id);
@@ -529,6 +538,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                 &mut state_update,
                 gas_price,
                 &transaction,
+                verify_signature,
             ) {
                 Ok(_) => Ok(None),
                 Err(RuntimeError::InvalidTxError(err)) => {
@@ -542,7 +552,12 @@ impl RuntimeAdapter for NightshadeRuntime {
             }
         } else {
             // Doing basic validation without a state root
-            match validate_transaction(&self.runtime.config, gas_price, &transaction) {
+            match validate_transaction(
+                &self.runtime.config,
+                gas_price,
+                &transaction,
+                verify_signature,
+            ) {
                 Ok(_) => Ok(None),
                 Err(RuntimeError::InvalidTxError(err)) => {
                     debug!(target: "runtime", "Tx {:?} validation failed: {:?}", transaction, err);
@@ -586,6 +601,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                             &mut state_update,
                             gas_price,
                             &tx,
+                            false,
                         ) {
                             Ok(verification_result) => {
                                 state_update.commit(StateChangeCause::NotWritableToDisk);
@@ -793,11 +809,11 @@ impl RuntimeAdapter for NightshadeRuntime {
 
     fn num_shards(&self) -> NumShards {
         // TODO: should be dynamic.
-        self.genesis.config.num_block_producer_seats_per_shard.len() as NumShards
+        self.genesis_config.num_block_producer_seats_per_shard.len() as NumShards
     }
 
     fn num_total_parts(&self) -> usize {
-        let seats = self.genesis.config.num_block_producer_seats;
+        let seats = self.genesis_config.num_block_producer_seats;
         if seats > 1 {
             seats as usize
         } else {
@@ -869,22 +885,36 @@ impl RuntimeAdapter for NightshadeRuntime {
         epoch_manager.get_epoch_start_height(block_hash).map_err(Error::from)
     }
 
-    fn get_gc_stop_height(&self, block_hash: &CryptoHash) -> Result<BlockHeight, Error> {
-        let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
-        // an epoch must have a first block.
-        let epoch_first_block = epoch_manager.get_block_info(block_hash)?.epoch_first_block;
-        let epoch_first_block_info = epoch_manager.get_block_info(&epoch_first_block)?;
-        // maintain pointers to avoid cloning.
-        let mut last_block_in_prev_epoch = epoch_first_block_info.prev_hash;
-        let mut epoch_start_height = epoch_first_block_info.height;
-        for _ in 0..NUM_EPOCHS_TO_KEEP_STORE_DATA - 1 {
-            let epoch_first_block =
-                epoch_manager.get_block_info(&last_block_in_prev_epoch)?.epoch_first_block;
-            let epoch_first_block_info = epoch_manager.get_block_info(&epoch_first_block)?;
-            epoch_start_height = epoch_first_block_info.height;
-            last_block_in_prev_epoch = epoch_first_block_info.prev_hash;
+    fn get_gc_stop_height(&self, block_hash: &CryptoHash) -> BlockHeight {
+        let genesis_height = self.genesis_config.genesis_height;
+        macro_rules! unwrap_result_or_return {
+            ($obj: expr) => {
+                match $obj {
+                    Ok(value) => value,
+                    Err(_) => {
+                        return genesis_height;
+                    }
+                }
+            };
         }
-        Ok(epoch_start_height)
+        let get_gc_stop_height_inner = || -> Result<BlockHeight, Error> {
+            let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
+            // an epoch must have a first block.
+            let epoch_first_block = epoch_manager.get_block_info(block_hash)?.epoch_first_block;
+            let epoch_first_block_info = epoch_manager.get_block_info(&epoch_first_block)?;
+            // maintain pointers to avoid cloning.
+            let mut last_block_in_prev_epoch = epoch_first_block_info.prev_hash;
+            let mut epoch_start_height = epoch_first_block_info.height;
+            for _ in 0..NUM_EPOCHS_TO_KEEP_STORE_DATA - 1 {
+                let epoch_first_block =
+                    epoch_manager.get_block_info(&last_block_in_prev_epoch)?.epoch_first_block;
+                let epoch_first_block_info = epoch_manager.get_block_info(&epoch_first_block)?;
+                epoch_start_height = epoch_first_block_info.height;
+                last_block_in_prev_epoch = epoch_first_block_info.prev_hash;
+            }
+            Ok(epoch_start_height)
+        };
+        unwrap_result_or_return!(get_gc_stop_height_inner())
     }
 
     fn epoch_exists(&self, epoch_id: &EpochId) -> bool {
@@ -945,6 +975,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         gas_price: Balance,
         gas_limit: Gas,
         challenges: &ChallengesResult,
+        random_seed: CryptoHash,
         generate_storage_proof: bool,
     ) -> Result<ApplyTransactionResult, Error> {
         let trie = self.get_trie_for_shard(shard_id);
@@ -963,6 +994,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             gas_price,
             gas_limit,
             challenges,
+            random_seed,
         ) {
             Ok(result) => Ok(result),
             Err(e) => match e.kind() {
@@ -989,6 +1021,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         gas_price: Balance,
         gas_limit: Gas,
         challenges: &ChallengesResult,
+        random_value: CryptoHash,
     ) -> Result<ApplyTransactionResult, Error> {
         let trie = Trie::from_recorded_storage(partial_storage);
         self.process_state_update(
@@ -1005,6 +1038,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             gas_price,
             gas_limit,
             challenges,
+            random_value,
         )
     }
 
@@ -1410,6 +1444,7 @@ mod test {
                     gas_price,
                     gas_limit,
                     challenges,
+                    CryptoHash::default(),
                 )
                 .unwrap();
             let mut store_update = self.store.store_update();
@@ -1466,8 +1501,7 @@ mod test {
                 initial_tracked_accounts,
                 initial_tracked_shards,
             );
-            let (_store, store_update, state_roots) = runtime.genesis_state();
-            store_update.commit().unwrap();
+            let (_store, state_roots) = runtime.genesis_state();
             let genesis_hash = hash(&vec![0]);
             runtime
                 .add_validator_proposals(BlockHeaderInfo {
@@ -1523,7 +1557,7 @@ mod test {
                     self.last_receipts.get(&i).unwrap_or(&vec![]),
                     &transactions[i as usize],
                     self.last_shard_proposals.get(&i).unwrap_or(&vec![]),
-                    self.runtime.genesis.config.min_gas_price,
+                    self.runtime.genesis_config.min_gas_price,
                     u64::max_value(),
                     &challenges_result,
                 );
@@ -1548,8 +1582,8 @@ mod test {
                     proposals: self.last_proposals.clone(),
                     slashed_validators: challenges_result,
                     chunk_mask,
-                    total_supply: self.runtime.genesis.config.total_supply,
-                    latest_protocol_version: self.runtime.genesis.config.protocol_version,
+                    total_supply: self.runtime.genesis_config.total_supply,
+                    latest_protocol_version: self.runtime.genesis_config.protocol_version,
                 })
                 .unwrap();
             self.last_receipts = new_receipts;
@@ -1582,15 +1616,15 @@ mod test {
 
         /// Compute per epoch per validator reward and per epoch protocol treasury reward
         pub fn compute_reward(&self, num_validators: usize) -> (Balance, Balance) {
-            let per_epoch_total_reward = *self.runtime.genesis.config.max_inflation_rate.numer()
+            let per_epoch_total_reward = *self.runtime.genesis_config.max_inflation_rate.numer()
                 as u128
-                * self.runtime.genesis.config.total_supply
-                * self.runtime.genesis.config.epoch_length as u128
-                / (self.runtime.genesis.config.num_blocks_per_year as u128
-                    * *self.runtime.genesis.config.max_inflation_rate.denom() as u128);
+                * self.runtime.genesis_config.total_supply
+                * self.runtime.genesis_config.epoch_length as u128
+                / (self.runtime.genesis_config.num_blocks_per_year as u128
+                    * *self.runtime.genesis_config.max_inflation_rate.denom() as u128);
             let per_epoch_protocol_treasury = per_epoch_total_reward
-                * *self.runtime.genesis.config.protocol_reward_rate.numer() as u128
-                / *self.runtime.genesis.config.protocol_reward_rate.denom() as u128;
+                * *self.runtime.genesis_config.protocol_reward_rate.numer() as u128
+                / *self.runtime.genesis_config.protocol_reward_rate.denom() as u128;
             let per_epoch_per_validator_reward =
                 (per_epoch_total_reward - per_epoch_protocol_treasury) / num_validators as u128;
             (per_epoch_per_validator_reward, per_epoch_protocol_treasury)
@@ -1963,8 +1997,8 @@ mod test {
                     proposals: new_env.last_proposals.clone(),
                     slashed_validators: vec![],
                     chunk_mask: vec![true],
-                    total_supply: new_env.runtime.genesis.config.total_supply,
-                    latest_protocol_version: new_env.runtime.genesis.config.protocol_version,
+                    total_supply: new_env.runtime.genesis_config.total_supply,
+                    latest_protocol_version: new_env.runtime.genesis_config.protocol_version,
                 })
                 .unwrap();
             new_env.head.height = i;
@@ -2570,7 +2604,7 @@ mod test {
         }
 
         let protocol_treasury_account =
-            env.view_account(&env.runtime.genesis.config.protocol_treasury_account);
+            env.view_account(&env.runtime.genesis_config.protocol_treasury_account);
         assert_eq!(
             protocol_treasury_account.amount,
             TESTING_INIT_BALANCE + protocol_treasury_reward

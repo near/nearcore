@@ -16,7 +16,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
 use near_primitives::unwrap_option_or_return;
 use near_primitives::utils::DisplayOption;
-use near_primitives::version::{FIRST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION, PROTOCOL_VERSION};
+use near_primitives::version::{OLDEST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION, PROTOCOL_VERSION};
 
 use crate::codec::{bytes_to_peer_message, peer_message_to_bytes, Codec};
 use crate::rate_counter::RateCounter;
@@ -33,6 +33,8 @@ use crate::types::{
 };
 use crate::PeerManagerActor;
 use crate::{metrics, NetworkResponses};
+#[cfg(feature = "delay_detector")]
+use delay_detector::DelayDetector;
 use metrics::NetworkMetrics;
 
 type WriteHalf = tokio::io::WriteHalf<tokio::net::TcpStream>;
@@ -267,6 +269,7 @@ impl Peer {
                     height,
                     tracked_shards,
                 }) => {
+                    // TODO(HandshakeV2): Use handshake v2
                     let handshake = Handshake::new(
                         act.node_id(),
                         act.peer_id().unwrap(),
@@ -317,8 +320,8 @@ impl Peer {
             PeerMessage::Routed(message) => {
                 msg_hash = Some(message.hash());
                 match message.body {
-                    RoutedMessageBody::QueryRequest { query_id, block_id_or_finality, request } => {
-                        NetworkViewClientMessages::Query { query_id, block_id_or_finality, request }
+                    RoutedMessageBody::QueryRequest { query_id, block_reference, request } => {
+                        NetworkViewClientMessages::Query { query_id, block_reference, request }
                     }
                     RoutedMessageBody::QueryResponse { query_id, response } => {
                         NetworkViewClientMessages::QueryResponse { query_id, response }
@@ -479,6 +482,7 @@ impl Peer {
             }
             PeerMessage::Challenge(challenge) => NetworkClientMessages::Challenge(challenge),
             PeerMessage::Handshake(_)
+            | PeerMessage::HandshakeV2(_)
             | PeerMessage::HandshakeFailure(_, _)
             | PeerMessage::PeersRequest
             | PeerMessage::PeersResponse(_)
@@ -601,13 +605,15 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for Peer {
         let msg_size = msg.len();
 
         self.tracker.increment_received(msg.len() as u64);
-        let peer_msg = match bytes_to_peer_message(&msg) {
+        let mut peer_msg = match bytes_to_peer_message(&msg) {
             Ok(peer_msg) => peer_msg,
             Err(err) => {
                 info!(target: "network", "Received invalid data {:?} from {}: {}", msg, self.peer_info, err);
                 return;
             }
         };
+
+        trace!(target: "network", "Received message: {}", peer_msg);
 
         self.on_receive_message();
 
@@ -632,14 +638,22 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for Peer {
             msg.len() as i64,
         );
 
+        // TODO(HandshakeV2): Remove this, and deprecate PeerMessage::Handshake
+        if let PeerMessage::HandshakeV2(handshake) = peer_msg {
+            peer_msg = PeerMessage::Handshake(handshake.into());
+        }
+
         match (self.peer_type, self.peer_status, peer_msg) {
             (_, PeerStatus::Connecting, PeerMessage::HandshakeFailure(peer_info, reason)) => {
                 match reason {
                     HandshakeFailureReason::GenesisMismatch(genesis) => {
                         warn!(target: "network", "Attempting to connect to a node ({}) with a different genesis block. Our genesis: {:?}, their genesis: {:?}", peer_info, self.genesis_id, genesis);
                     }
-                    HandshakeFailureReason::ProtocolVersionMismatch(version) => {
-                        warn!(target: "network", "Unable to connect to a node ({}) due to a network protocol version mismatch. Our version: {}, their: {}", peer_info, PROTOCOL_VERSION, version);
+                    HandshakeFailureReason::ProtocolVersionMismatch {
+                        version,
+                        oldest_supported_version,
+                    } => {
+                        warn!(target: "network", "Unable to connect to a node ({}) due to a network protocol version mismatch. Our version: {:?}, their: {:?}", peer_info, (PROTOCOL_VERSION, OLDEST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION), (version, oldest_supported_version));
                     }
                     HandshakeFailureReason::InvalidTarget => {
                         debug!(target: "network", "Peer found was not what expected. Updating peer info with {:?}", peer_info);
@@ -663,11 +677,18 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for Peer {
                     // Connection will be closed by a handshake timeout
                 }
 
-                if handshake.version < FIRST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION {
-                    debug!(target: "network", "Received connection from node with different network protocol version.");
+                if handshake.version < OLDEST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION
+                    // TODO(HandshakeV2): Check that our current version is supported by other party.
+                    // PROTOCOL_VERSION < handshake.oldest_supported_version
+                    || PROTOCOL_VERSION < handshake.version
+                {
+                    debug!(target: "network", "Received connection from node with incompatible network protocol version.");
                     self.send_message(PeerMessage::HandshakeFailure(
                         self.node_info.clone(),
-                        HandshakeFailureReason::ProtocolVersionMismatch(handshake.version),
+                        HandshakeFailureReason::ProtocolVersionMismatch {
+                            version: PROTOCOL_VERSION,
+                            oldest_supported_version: OLDEST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION,
+                        },
                     ));
                     return;
                     // Connection will be closed by a handshake timeout
@@ -772,7 +793,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for Peer {
                 }
 
                 self.peer_manager_addr
-                    .send(PeerRequest::UpdateEdge((self.peer_id().unwrap(), edge.next_nonce())))
+                    .send(PeerRequest::UpdateEdge((self.peer_id().unwrap(), edge.next())))
                     .into_actor(self)
                     .then(|res, act, ctx| {
                         match res {
@@ -880,6 +901,8 @@ impl Handler<SendMessage> for Peer {
     type Result = ();
 
     fn handle(&mut self, msg: SendMessage, _: &mut Self::Context) {
+        #[cfg(feature = "delay_detector")]
+        let _d = DelayDetector::new("send message".into());
         self.send_message(msg.message);
     }
 }
@@ -888,6 +911,8 @@ impl Handler<QueryPeerStats> for Peer {
     type Result = PeerStatsResult;
 
     fn handle(&mut self, _: QueryPeerStats, _: &mut Self::Context) -> Self::Result {
+        #[cfg(feature = "delay_detector")]
+        let _d = DelayDetector::new("query peer stats".into());
         PeerStatsResult {
             chain_info: self.chain_info.clone(),
             received_bytes_per_sec: self.tracker.received_bytes.bytes_per_min() / 60,
@@ -905,6 +930,8 @@ impl Handler<PeerManagerRequest> for Peer {
     type Result = ();
 
     fn handle(&mut self, pm_request: PeerManagerRequest, ctx: &mut Self::Context) -> Self::Result {
+        #[cfg(feature = "delay_detector")]
+        let _d = DelayDetector::new(format!("peer manager request {:?}", pm_request).into());
         match pm_request {
             PeerManagerRequest::BanPeer(ban_reason) => {
                 self.ban_peer(ctx, ban_reason);

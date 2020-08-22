@@ -1,7 +1,7 @@
 use near_crypto::{EmptySigner, PublicKey, Signature, Signer};
 
 use crate::account::{AccessKey, AccessKeyPermission, Account};
-use crate::block::Block;
+use crate::block::{Block, BlockV1};
 use crate::block_header::{BlockHeader, BlockHeaderV2};
 use crate::errors::EpochError;
 use crate::hash::CryptoHash;
@@ -266,6 +266,12 @@ impl Block {
     pub fn mut_header(&mut self) -> &mut BlockHeader {
         match self {
             Block::BlockV1(block) => &mut block.header,
+        }
+    }
+
+    pub fn get_mut(&mut self) -> &mut BlockV1 {
+        match self {
+            Block::BlockV1(block) => block.as_mut(),
         }
     }
 

@@ -41,12 +41,14 @@ members = [
     "genesis-tools/genesis-populate",
     "genesis-tools/keypair-generator",
     "tools/restaked",
-    "tools/indexer/example"
+    "tools/indexer/example",
+    "tools/delay_detector"
 ]
 
 [dependencies]
 # pins this version to fix https://github.com/actix/actix-net/issues/129
 actix-rt = "=1.1.1"
+openssl-probe = { version = "0.1.2" }
 
 [dev-dependencies]
 actix = "0.9"
@@ -100,3 +102,4 @@ old_tests = []
 adversarial = ["neard/adversarial", "near-jsonrpc/adversarial", "near-store/adversarial"]
 no_cache = ["neard/no_cache"]
 metric_recorder = ["neard/metric_recorder"]
+delay_detector = ["neard/delay_detector"]

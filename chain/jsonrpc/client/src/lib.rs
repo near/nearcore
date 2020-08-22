@@ -8,11 +8,12 @@ use serde::Serialize;
 use near_primitives::hash::CryptoHash;
 use near_primitives::rpc::{
     RpcGenesisRecordsRequest, RpcQueryRequest, RpcStateChangesRequest, RpcStateChangesResponse,
+    RpcValidatorsOrderedRequest,
 };
-use near_primitives::types::{BlockId, BlockIdOrFinality, MaybeBlockId, ShardId};
+use near_primitives::types::{BlockId, BlockReference, MaybeBlockId, ShardId};
 use near_primitives::views::{
     BlockView, ChunkView, EpochValidatorInfo, FinalExecutionOutcomeView, GasPriceView,
-    GenesisRecordsView, QueryResponse, StatusResponse,
+    GenesisRecordsView, QueryResponse, StatusResponse, ValidatorStakeView,
 };
 
 use crate::message::{from_slice, Message, RpcError};
@@ -183,6 +184,8 @@ jsonrpc_client!(pub struct JsonRpcClient {
     pub fn broadcast_tx_commit(&self, tx: String) -> RpcRequest<FinalExecutionOutcomeView>;
     pub fn status(&self) -> RpcRequest<StatusResponse>;
     #[allow(non_snake_case)]
+    pub fn EXPERIMENTAL_check_tx(&self, tx: String) -> RpcRequest<serde_json::Value>;
+    #[allow(non_snake_case)]
     pub fn EXPERIMENTAL_genesis_config(&self) -> RpcRequest<serde_json::Value>;
     pub fn health(&self) -> RpcRequest<()>;
     pub fn tx(&self, hash: String, account_id: String) -> RpcRequest<FinalExecutionOutcomeView>;
@@ -214,7 +217,7 @@ impl JsonRpcClient {
         call_method(&self.client, &self.server_addr, "block", [block_id])
     }
 
-    pub fn block(&self, request: BlockIdOrFinality) -> RpcRequest<BlockView> {
+    pub fn block(&self, request: BlockReference) -> RpcRequest<BlockView> {
         call_method(&self.client, &self.server_addr, "block", request)
     }
 
@@ -224,6 +227,14 @@ impl JsonRpcClient {
         request: RpcStateChangesRequest,
     ) -> RpcRequest<RpcStateChangesResponse> {
         call_method(&self.client, &self.server_addr, "EXPERIMENTAL_changes", request)
+    }
+
+    #[allow(non_snake_case)]
+    pub fn EXPERIMENTAL_validators_ordered(
+        &self,
+        request: RpcValidatorsOrderedRequest,
+    ) -> RpcRequest<Vec<ValidatorStakeView>> {
+        call_method(&self.client, &self.server_addr, "EXPERIMENTAL_validators_ordered", request)
     }
 }
 
