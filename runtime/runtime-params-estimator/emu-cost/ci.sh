@@ -17,4 +17,6 @@ cargo run --release --package neard --bin neard -- --home /tmp/data init --chain
 cargo run --release --package genesis-populate --bin genesis-populate -- --additional-accounts-num=200000 --home /tmp/data
 cargo build --release --package runtime-params-estimator
 ./emu-cost/counter_plugin/qemu-x86_64 -cpu Westmere-v1 -plugin file=./emu-cost/counter_plugin/libcounter.so ../../target/release/runtime-params-estimator --home /tmp/data --accounts-num 20000 --iters 1 --warmup-iters 1
+
+cp /tmp/data/runtime_config.json /host/${srcdir}
 "
