@@ -558,22 +558,35 @@ pub trait RuntimeAdapter: Send + Sync {
 
     /// Build receipts hashes.
     fn build_receipts_hashes(&self, receipts: &[Receipt]) -> Vec<CryptoHash> {
-        let mut receipts_hashes = vec![];
-        for shard_id in 0..self.num_shards() {
-            // importance to save the same order while filtering
-            let shard_receipts: Vec<Receipt> = receipts
-                .iter()
-                .filter(|&receipt| self.account_id_to_shard_id(&receipt.receiver_id) == shard_id)
-                .cloned()
-                .collect();
-            receipts_hashes
-                .push(hash(&ReceiptList(shard_id, shard_receipts).try_to_vec().unwrap()));
+        if self.num_shards() == 1 {
+            return vec![hash(&ReceiptList(0, receipts.to_vec()).try_to_vec().unwrap())];
         }
-        receipts_hashes
+        let mut account_id_to_shard_id = HashMap::new();
+        let mut shard_receipts = HashMap::new();
+        for receipt in receipts.iter() {
+            let shard_id = match account_id_to_shard_id.get(&receipt.receiver_id) {
+                Some(id) => *id,
+                None => {
+                    let id = self.account_id_to_shard_id(&receipt.receiver_id);
+                    account_id_to_shard_id.insert(receipt.receiver_id.clone(), id);
+                    id
+                }
+            };
+            shard_receipts.entry(shard_id).or_insert_with(Vec::new).push(receipt.clone());
+        }
+        (0..self.num_shards())
+            .map(|i| {
+                hash(
+                    &(ReceiptList(i, shard_receipts.remove(&i).unwrap_or_else(Vec::new)))
+                        .try_to_vec()
+                        .unwrap(),
+                )
+            })
+            .collect()
     }
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, Default)]
+#[derive(BorshSerialize, Serialize, Debug, Clone, Default)]
 pub struct ReceiptList(pub ShardId, pub Vec<Receipt>);
 
 /// The last known / checked height and time when we have processed it.
