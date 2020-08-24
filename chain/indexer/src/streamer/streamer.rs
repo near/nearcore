@@ -207,18 +207,7 @@ pub(crate) async fn start(
     // TODO: implement proper error handling
     let db = DB::open_default(indexer_db_path).unwrap();
     let mut outcomes_to_get = Vec::<types::TransactionOrReceiptId>::new();
-    let mut last_synced_block_height: Option<types::BlockHeight> = match indexer_config.sync_mode {
-        crate::SyncModeEnum::FromInterruption => match db.get(b"last_synced_block_height") {
-            Ok(Some(value)) => Some(String::from_utf8(value).unwrap().parse::<u64>().unwrap()),
-            Ok(None) => None,
-            Err(_) => {
-                db.put(b"last_synced_block_height", b"0").unwrap();
-                None
-            }
-        },
-        crate::SyncModeEnum::LatestSynced => None, // let streamer to handle from real-time
-        crate::SyncModeEnum::BlockHeight(height) => Some(height.checked_sub(1).unwrap_or(0)), // provided block inclusively
-    };
+    let mut last_synced_block_height: Option<types::BlockHeight> = None;
 
     info!(
         target: INDEXER,
