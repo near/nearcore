@@ -8,6 +8,7 @@ edition = "2018"
 actix = "0.9"
 tracing = "0.1.13"
 futures = "0.3.5"
+rocksdb = { git = "https://github.com/nearprotocol/rust-rocksdb", branch="disable-thread" }
 tokio = { version = "0.2", features = ["time", "sync"] }
 
 neard = { path = "../../neard" }
