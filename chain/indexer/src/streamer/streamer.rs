@@ -241,10 +241,18 @@ pub(crate) async fn start(
         };
 
         let latest_block_height = block.header.height;
-        if last_synced_block_height.is_none() {
-            db.put(b"last_synced_block_height", &latest_block_height.to_string()).unwrap();
-            last_synced_block_height = Some(latest_block_height);
-        }
+        let start_syncing_block_height = if let Some(last_synced_block_height) = last_synced_block_height {
+            last_synced_block_height + 1
+        } else {
+            match indexer_config.sync_mode {
+                crate::SyncModeEnum::FromInterruption => match db.get(b"last_synced_block_height").unwrap() {
+                    Some(value) => String::from_utf8(value).unwrap().parse::<u64>().unwrap(),
+                    None => latest_block_height,
+                },
+                crate::SyncModeEnum::LatestSynced => latest_block_height,
+                crate::SyncModeEnum::BlockHeight(height) => Some(height),
+            }    
+        };
 
         debug!(
             target: INDEXER,
@@ -252,7 +260,7 @@ pub(crate) async fn start(
             last_synced_block_height.unwrap(),
             latest_block_height
         );
-        for block_height in (last_synced_block_height.unwrap() + 1)..=latest_block_height {
+        for block_height in start_syncing_block_height..=latest_block_height {
             if let Ok(block) = fetch_block_by_height(&view_client, block_height).await {
                 let response =
                     fetch_block_response(&view_client, block, outcomes_to_get.drain(..)).await;
