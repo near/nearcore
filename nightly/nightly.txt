@@ -167,8 +167,3 @@ expensive nearcore test_rejoin test::test_4_20_kill1
 expensive nearcore test_rejoin test::test_4_20_kill1_two_shards
 expensive nearcore test_rejoin test::test_4_20_kill2
 
-# mocknet tests
-mocknet --timeout=300 mocknet/sanity.py
-mocknet --timeout=2700 mocknet/outage.py
-mocknet --timeout=300 mocknet/bounce.py
-mocknet --timeout=3600 mocknet/load_testing.py

@@ -1,24 +1,25 @@
-use std::collections::HashMap;
-use std::io;
-use std::sync::RwLock;
-
 #[cfg(not(feature = "single_thread_rocksdb"))]
 use std::cmp;
+use std::collections::HashMap;
+use std::io;
+use std::marker::PhantomPinned;
+use std::sync::RwLock;
 
 use borsh::{BorshDeserialize, BorshSerialize};
-
 #[cfg(feature = "single_thread_rocksdb")]
 use rocksdb::Env;
 use rocksdb::{
     BlockBasedOptions, Cache, ColumnFamily, ColumnFamilyDescriptor, Direction, IteratorMode,
-    MergeOperands, Options, ReadOptions, WriteBatch, DB,
+    Options, ReadOptions, WriteBatch, DB,
 };
 use strum_macros::EnumIter;
 
-use crate::trie::merge_refcounted_records;
 use near_primitives::version::DbVersion;
-use rocksdb::compaction_filter::Decision;
-use std::marker::PhantomPinned;
+
+use crate::db::refcount::merge_refcounted_records;
+
+pub(crate) mod refcount;
+pub(crate) mod v6_to_v7;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct DBError(rocksdb::Error);
@@ -104,7 +105,8 @@ pub enum DBCol {
     ColGCCount = 41,
     /// GC helper column to get all Outcome ids by Block Hash
     ColOutcomesByBlockHash = 42,
-    ColTransactionRefCount = 43,
+    /// Deprecated
+    _ColTransactionRefCount = 43,
     /// Heights of blocks that have been processed
     ColProcessedBlockHeights = 44,
 }
@@ -158,10 +160,16 @@ impl std::fmt::Display for DBCol {
             Self::ColBlockOrdinal => "block ordinal",
             Self::ColGCCount => "gc count",
             Self::ColOutcomesByBlockHash => "outcomes by block hash",
-            Self::ColTransactionRefCount => "refcount per transaction",
+            Self::_ColTransactionRefCount => "refcount per transaction (deprecated)",
             Self::ColProcessedBlockHeights => "processed block heights",
         };
         write!(formatter, "{}", desc)
+    }
+}
+
+impl DBCol {
+    pub fn is_rc(&self) -> bool {
+        IS_COL_RC[*self as usize]
     }
 }
 
@@ -198,6 +206,17 @@ lazy_static! {
         // True until #2515
         col_gc[DBCol::ColStateParts as usize] = true;
         col_gc
+    };
+}
+
+// List of reference counted columns
+lazy_static! {
+    pub static ref IS_COL_RC: Vec<bool> = {
+        let mut col_rc = vec![false; NUM_COLS];
+        col_rc[DBCol::ColState as usize] = true;
+        col_rc[DBCol::ColTransactions as usize] = true;
+        col_rc[DBCol::ColReceiptIdToShardId as usize] = true;
+        col_rc
     };
 }
 
@@ -269,6 +288,10 @@ pub trait Database: Sync + Send {
     }
     fn get(&self, col: DBCol, key: &[u8]) -> Result<Option<Vec<u8>>, DBError>;
     fn iter<'a>(&'a self, column: DBCol) -> Box<dyn Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a>;
+    fn iter_without_rc_logic<'a>(
+        &'a self,
+        column: DBCol,
+    ) -> Box<dyn Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a>;
     fn iter_prefix<'a>(
         &'a self,
         col: DBCol,
@@ -281,7 +304,19 @@ impl Database for RocksDB {
     fn get(&self, col: DBCol, key: &[u8]) -> Result<Option<Vec<u8>>, DBError> {
         let read_options = rocksdb_read_options();
         let result = self.db.get_cf_opt(unsafe { &*self.cfs[col as usize] }, key, &read_options)?;
-        Ok(RocksDB::empty_value_filtering_get(col, result))
+        Ok(RocksDB::get_with_rc_logic(col, result))
+    }
+
+    fn iter_without_rc_logic<'a>(
+        &'a self,
+        col: DBCol,
+    ) -> Box<dyn Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a> {
+        let read_options = rocksdb_read_options();
+        unsafe {
+            let cf_handle = &*self.cfs[col as usize];
+            let iterator = self.db.iterator_cf_opt(cf_handle, read_options, IteratorMode::Start);
+            Box::new(iterator)
+        }
     }
 
     fn iter<'a>(&'a self, col: DBCol) -> Box<dyn Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a> {
@@ -289,7 +324,7 @@ impl Database for RocksDB {
         unsafe {
             let cf_handle = &*self.cfs[col as usize];
             let iterator = self.db.iterator_cf_opt(cf_handle, read_options, IteratorMode::Start);
-            RocksDB::empty_value_filtering_iter(col, iterator)
+            RocksDB::iter_with_rc_logic(col, iterator)
         }
     }
 
@@ -314,7 +349,7 @@ impl Database for RocksDB {
                     IteratorMode::From(key_prefix, Direction::Forward),
                 )
                 .take_while(move |(key, _value)| key.starts_with(key_prefix));
-            RocksDB::empty_value_filtering_iter(col, iterator)
+            RocksDB::iter_with_rc_logic(col, iterator)
         }
     }
 
@@ -326,6 +361,7 @@ impl Database for RocksDB {
                     batch.put_cf(&*self.cfs[col as usize], key, value);
                 },
                 DBOp::UpdateRefcount { col, key, value } => unsafe {
+                    assert!(col.is_rc());
                     batch.merge_cf(&*self.cfs[col as usize], key, value);
                 },
                 DBOp::Delete { col, key } => unsafe {
@@ -339,10 +375,19 @@ impl Database for RocksDB {
 
 impl Database for TestDB {
     fn get(&self, col: DBCol, key: &[u8]) -> Result<Option<Vec<u8>>, DBError> {
-        Ok(self.db.read().unwrap()[col as usize].get(key).cloned())
+        let result = self.db.read().unwrap()[col as usize].get(key).cloned();
+        Ok(RocksDB::get_with_rc_logic(col, result))
     }
 
     fn iter<'a>(&'a self, col: DBCol) -> Box<dyn Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a> {
+        let iterator = self.iter_without_rc_logic(col);
+        RocksDB::iter_with_rc_logic(col, iterator)
+    }
+
+    fn iter_without_rc_logic<'a>(
+        &'a self,
+        col: DBCol,
+    ) -> Box<dyn Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a> {
         let iterator = self.db.read().unwrap()[col as usize]
             .clone()
             .into_iter()
@@ -355,7 +400,10 @@ impl Database for TestDB {
         col: DBCol,
         key_prefix: &'a [u8],
     ) -> Box<dyn Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a> {
-        Box::new(self.iter(col).filter(move |(key, _value)| key.starts_with(key_prefix)))
+        RocksDB::iter_with_rc_logic(
+            col,
+            self.iter(col).filter(move |(key, _value)| key.starts_with(key_prefix)),
+        )
     }
 
     fn write(&self, transaction: DBTransaction) -> Result<(), DBError> {
@@ -365,7 +413,7 @@ impl Database for TestDB {
                 DBOp::Insert { col, key, value } => db[col as usize].insert(key, value),
                 DBOp::UpdateRefcount { col, key, value } => {
                     let mut val = db[col as usize].get(&key).cloned().unwrap_or_default();
-                    merge_refcounted_records(&mut val, &value).unwrap();
+                    merge_refcounted_records(&mut val, &value);
                     if val.len() != 0 {
                         db[col as usize].insert(key, val)
                     } else {
@@ -434,7 +482,7 @@ fn rocksdb_column_options(col: DBCol) -> Options {
     opts.optimize_level_style_compaction(1024 * 1024 * 128);
     opts.set_target_file_size_base(1024 * 1024 * 64);
     opts.set_compression_per_level(&[]);
-    if col == DBCol::ColState {
+    if col.is_rc() {
         opts.set_merge_operator("refcount merge", RocksDB::refcount_merge, None);
         opts.set_compaction_filter("empty value filter", RocksDB::empty_value_compaction_filter);
     }
@@ -504,63 +552,6 @@ impl TestDB {
     }
 }
 
-impl RocksDB {
-    /// ColState has refcounted values.
-    /// Merge adds refcounts, zero refcount becomes empty value.
-    /// Empty values get filtered by get methods, and removed by compaction.
-    fn refcount_merge(
-        _new_key: &[u8],
-        existing_val: Option<&[u8]>,
-        operands: &mut MergeOperands,
-    ) -> Option<Vec<u8>> {
-        let mut result = vec![];
-        if let Some(val) = existing_val {
-            // Error is only possible if decoding refcount fails (=value is between 1 and 3 bytes)
-            merge_refcounted_records(&mut result, val)
-                .expect("Not a refcounted record in ColState");
-        }
-        for val in operands {
-            // Error is only possible if decoding refcount fails (=value is between 1 and 3 bytes)
-            merge_refcounted_records(&mut result, val)
-                .expect("Not a refcounted record in ColState");
-        }
-        Some(result)
-    }
-
-    /// Compaction filter for ColState
-    fn empty_value_compaction_filter(_level: u32, _key: &[u8], value: &[u8]) -> Decision {
-        if value.is_empty() {
-            Decision::Remove
-        } else {
-            Decision::Keep
-        }
-    }
-
-    /// ColState get() treats empty value as no value
-    fn empty_value_filtering_get(column: DBCol, value: Option<Vec<u8>>) -> Option<Vec<u8>> {
-        if column == DBCol::ColState && Some(vec![]) == value {
-            None
-        } else {
-            value
-        }
-    }
-
-    /// ColState iterator treats empty value as no value
-    fn empty_value_filtering_iter<'a, I>(
-        column: DBCol,
-        iterator: I,
-    ) -> Box<dyn Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a>
-    where
-        I: Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a,
-    {
-        if column == DBCol::ColState {
-            Box::new(iterator.filter(|(_k, v)| !v.is_empty()))
-        } else {
-            Box::new(iterator)
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use crate::db::DBCol::ColState;
@@ -593,33 +584,41 @@ mod tests {
     fn rocksdb_merge_sanity() {
         let tmp_dir = tempfile::Builder::new().prefix("_test_snapshot_sanity").tempdir().unwrap();
         let store = create_store(tmp_dir.path().to_str().unwrap());
+        let ptr = (&*store.storage) as *const (dyn Database + 'static);
+        let rocksdb = unsafe { &*(ptr as *const RocksDB) };
         assert_eq!(store.get(ColState, &[1]).unwrap(), None);
         {
             let mut store_update = store.store_update();
-            store_update.update_refcount(ColState, &[1], &[1, 1, 0, 0, 0]);
+            store_update.update_refcount(ColState, &[1], &[1], 1);
             store_update.commit().unwrap();
         }
         {
             let mut store_update = store.store_update();
-            store_update.update_refcount(ColState, &[1], &[1, 1, 0, 0, 0]);
+            store_update.update_refcount(ColState, &[1], &[1], 1);
             store_update.commit().unwrap();
         }
-        assert_eq!(store.get(ColState, &[1]).unwrap(), Some(vec![1, 2, 0, 0, 0]));
+        assert_eq!(store.get(ColState, &[1]).unwrap(), Some(vec![1]));
+        assert_eq!(
+            rocksdb.get_no_empty_filtering(ColState, &[1]).unwrap(),
+            Some(vec![1, 2, 0, 0, 0, 0, 0, 0, 0])
+        );
         {
             let mut store_update = store.store_update();
-            store_update.update_refcount(ColState, &[1], &[1, 255, 255, 255, 255]);
+            store_update.update_refcount(ColState, &[1], &[1], -1);
             store_update.commit().unwrap();
         }
-        assert_eq!(store.get(ColState, &[1]).unwrap(), Some(vec![1, 1, 0, 0, 0]));
+        assert_eq!(store.get(ColState, &[1]).unwrap(), Some(vec![1]));
+        assert_eq!(
+            rocksdb.get_no_empty_filtering(ColState, &[1]).unwrap(),
+            Some(vec![1, 1, 0, 0, 0, 0, 0, 0, 0])
+        );
         {
             let mut store_update = store.store_update();
-            store_update.update_refcount(ColState, &[1], &[1, 255, 255, 255, 255]);
+            store_update.update_refcount(ColState, &[1], &[1], -1);
             store_update.commit().unwrap();
         }
         // Refcount goes to 0 -> get() returns None
         assert_eq!(store.get(ColState, &[1]).unwrap(), None);
-        let ptr = (&*store.storage) as *const (dyn Database + 'static);
-        let rocksdb = unsafe { &*(ptr as *const RocksDB) };
         // Internally there is an empty value
         assert_eq!(rocksdb.get_no_empty_filtering(ColState, &[1]).unwrap(), Some(vec![]));
 
