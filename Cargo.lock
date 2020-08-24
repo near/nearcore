@@ -2485,6 +2485,7 @@ dependencies = [
  "near-crypto",
  "near-primitives",
  "neard",
+ "rocksdb",
  "tokio",
  "tracing",
 ]

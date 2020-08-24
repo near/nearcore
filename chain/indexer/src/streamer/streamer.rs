@@ -4,6 +4,7 @@ use std::time::Duration;
 
 use actix::{Addr, MailboxError};
 use futures::stream::StreamExt;
+use rocksdb::DB;
 use tokio::sync::mpsc;
 use tokio::time;
 use tracing::{debug, info};
@@ -11,6 +12,8 @@ use tracing::{debug, info};
 use near_client;
 pub use near_primitives::hash::CryptoHash;
 pub use near_primitives::{types, views};
+
+use crate::IndexerConfig;
 
 const INTERVAL: Duration = Duration::from_millis(500);
 const INDEXER: &str = "indexer";
@@ -103,7 +106,7 @@ async fn fetch_block_response(
         outcomes_to_retry.extend(chunk.receipts.iter().map(|receipt| {
             types::TransactionOrReceiptId::Receipt {
                 receipt_id: receipt.receipt_id,
-                receiver_id: receipt.receiver_id.to_string().clone(),
+                receiver_id: receipt.receiver_id.to_string(),
             }
         }));
     }
@@ -194,11 +197,30 @@ async fn fetch_chunks(
 pub(crate) async fn start(
     view_client: Addr<near_client::ViewClientActor>,
     client: Addr<near_client::ClientActor>,
+    indexer_config: IndexerConfig,
     mut blocks_sink: mpsc::Sender<BlockResponse>,
 ) {
     info!(target: INDEXER, "Starting Streamer...");
+    let mut indexer_db_path = neard::get_store_path(&indexer_config.home_dir);
+    indexer_db_path.push_str("/indexer");
+
+    let db = DB::open_default(indexer_db_path).unwrap();
     let mut outcomes_to_get = Vec::<types::TransactionOrReceiptId>::new();
-    let mut last_synced_block_height: types::BlockHeight = 0;
+    let mut last_synced_block_height: types::BlockHeight = match indexer_config.sync_mode {
+        crate::SyncModeEnum::FromInterruption => match db.get(b"last_synced_block_height") {
+            Ok(Some(value)) => String::from_utf8(value).unwrap().parse::<u64>().unwrap(),
+            Ok(None) => 0,
+            Err(_) => {
+                db.put(b"last_synced_block_height", b"0").unwrap();
+                0
+            }
+        },
+        crate::SyncModeEnum::LatestSynced => 0, // let streamer to handle from real-time
+        crate::SyncModeEnum::BlockHeight(height) => height - 1, // provided block inclusively
+    };
+
+    info!(target: INDEXER, "Last synced block height in db is {}", last_synced_block_height);
+    eprintln!("Last synced block height in db is {}", last_synced_block_height);
     'main: loop {
         time::delay_for(INTERVAL).await;
         let status = fetch_status(&client).await;
@@ -216,6 +238,7 @@ pub(crate) async fn start(
 
         let latest_block_height = block.header.height;
         if last_synced_block_height == 0 {
+            db.put(b"last_synced_block_height", &latest_block_height.to_string()).unwrap();
             last_synced_block_height = latest_block_height;
         }
         debug!(
@@ -251,6 +274,7 @@ pub(crate) async fn start(
                     }
                 }
             }
+            db.put(b"last_synced_block_height", &block_height.to_string()).unwrap();
             last_synced_block_height = block_height;
         }
     }

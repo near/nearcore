@@ -176,7 +176,8 @@ async fn listen_blocks(mut stream: mpsc::Receiver<near_indexer::BlockResponse>) 
         //         ),
         //     ],
         // }
-        eprintln!("{:#?}", block);
+        // eprintln!("{:#?}", block);
+        eprintln!("Example: block height {:?}", block.block.header.height);
     }
 }
 
@@ -184,7 +185,7 @@ fn main() {
     // We use it to automatically search the for root certificates to perform HTTPS calls
     // (sending telemetry and downloading genesis)
     openssl_probe::init_ssl_cert_env_vars();
-    init_logging(true);
+    init_logging(false);
 
     let opts: Opts = Opts::parse();
 
@@ -193,7 +194,11 @@ fn main() {
 
     match opts.subcmd {
         SubCommand::Run => {
-            let indexer = near_indexer::Indexer::new(Some(&home_dir));
+            let indexer_config = near_indexer::IndexerConfig {
+                home_dir,
+                sync_mode: near_indexer::SyncModeEnum::FromInterruption,
+            };
+            let indexer = near_indexer::Indexer::new(indexer_config);
             let stream = indexer.streamer();
             actix::spawn(listen_blocks(stream));
             indexer.start();
