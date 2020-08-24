@@ -4,6 +4,10 @@
 
 - Bumped `borsh` dependency from `0.7.0` to `0.7.1` [#3238](https://github.com/nearprotocol/nearcore/pull/3238)
 
+## 2.0.0
+
+- Same as `1.2.0`, but since it contained incompatible change, we had to bump major version.
+
 ## 1.2.0
 
 - Implement gas profiler [#3038](https://github.com/nearprotocol/nearcore/pull/3038)
