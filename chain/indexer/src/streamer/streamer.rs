@@ -249,8 +249,8 @@ pub(crate) async fn start(
 
         debug!(
             target: INDEXER,
-            "The last synced block is #{} and the latest block is #{}",
-            last_synced_block_height.unwrap(),
+            "Streaming is about to start from block #{} and the latest block is #{}",
+            start_syncing_block_height,
             latest_block_height
         );
         for block_height in start_syncing_block_height..=latest_block_height {
