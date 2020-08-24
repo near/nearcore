@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.3.0
+
+- Implemented better compiler testing with `--compile-only` flag [#3074](https://github.com/nearprotocol/nearcore/pull/3074)
+- Added proper `wasmtime` support with `--vm-kind` flag.
+- Added `lightbeam` with feature and run with `--vm-kind wasmtime`
+
 ## 1.2.0
 
 - Implement gas profiler [#3038](https://github.com/nearprotocol/nearcore/pull/3038)
