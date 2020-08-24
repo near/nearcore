@@ -13,7 +13,7 @@ use tokio::sync::mpsc;
 pub use neard::{get_default_home, init_configs, NearConfig};
 mod streamer;
 
-pub use self::streamer::{BlockResponse, Outcome};
+pub use self::streamer::{Outcome, StreamerMessage};
 pub use near_primitives;
 
 /// Enum to define a mode of syncing for NEAR Indexer
@@ -64,7 +64,7 @@ impl Indexer {
     }
 
     /// Boots up `near_indexer::streamer`, so it monitors the new blocks with chunks, transactions, receipts, and execution outcomes inside. The returned stream handler should be drained and handled on the user side.
-    pub fn streamer(&self) -> mpsc::Receiver<streamer::BlockResponse> {
+    pub fn streamer(&self) -> mpsc::Receiver<streamer::StreamerMessage> {
         let (sender, receiver) = mpsc::channel(16);
         actix::spawn(streamer::start(
             self.view_client.clone(),

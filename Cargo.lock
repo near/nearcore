@@ -1866,6 +1866,7 @@ dependencies = [
  "openssl-probe",
  "serde_json",
  "tokio",
+ "tracing",
  "tracing-subscriber",
 ]
 
