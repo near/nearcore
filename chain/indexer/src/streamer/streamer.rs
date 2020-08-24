@@ -217,7 +217,7 @@ pub(crate) async fn start(
             }
         },
         crate::SyncModeEnum::LatestSynced => None, // let streamer to handle from real-time
-        crate::SyncModeEnum::BlockHeight(height) => Some(height.checked_sub(1).unwrap_or(0)), // provided block inclusively, // provided block inclusively
+        crate::SyncModeEnum::BlockHeight(height) => Some(height.checked_sub(1).unwrap_or(0)), // provided block inclusively
     };
 
     info!(
@@ -241,17 +241,21 @@ pub(crate) async fn start(
         };
 
         let latest_block_height = block.header.height;
-        let start_syncing_block_height = if let Some(last_synced_block_height) = last_synced_block_height {
+        let start_syncing_block_height = if let Some(last_synced_block_height) =
+            last_synced_block_height
+        {
             last_synced_block_height + 1
         } else {
             match indexer_config.sync_mode {
-                crate::SyncModeEnum::FromInterruption => match db.get(b"last_synced_block_height").unwrap() {
-                    Some(value) => String::from_utf8(value).unwrap().parse::<u64>().unwrap(),
-                    None => latest_block_height,
-                },
+                crate::SyncModeEnum::FromInterruption => {
+                    match db.get(b"last_synced_block_height").unwrap() {
+                        Some(value) => String::from_utf8(value).unwrap().parse::<u64>().unwrap(),
+                        None => latest_block_height,
+                    }
+                }
                 crate::SyncModeEnum::LatestSynced => latest_block_height,
-                crate::SyncModeEnum::BlockHeight(height) => Some(height),
-            }    
+                crate::SyncModeEnum::BlockHeight(height) => height,
+            }
         };
 
         debug!(
