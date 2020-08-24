@@ -12,7 +12,7 @@ use near_primitives::account::{AccessKey, AccessKeyPermission};
 use near_primitives::hash::CryptoHash;
 use near_primitives::rpc::RpcValidatorsOrderedRequest;
 use near_primitives::rpc::{RpcGenesisRecordsRequest, RpcPagination, RpcQueryRequest};
-use near_primitives::types::{BlockId, BlockIdOrFinality, Finality, ShardId};
+use near_primitives::types::{BlockId, BlockReference, Finality, ShardId, SyncCheckpoint};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{QueryRequest, QueryResponseKind};
 
@@ -54,18 +54,26 @@ fn test_block_by_id_hash() {
 fn test_block_query() {
     test_with_client!(test_utils::NodeType::NonValidator, client, async move {
         let block_response1 =
-            client.block(BlockIdOrFinality::BlockId(BlockId::Height(0))).await.unwrap();
+            client.block(BlockReference::BlockId(BlockId::Height(0))).await.unwrap();
         let block_response2 = client
-            .block(BlockIdOrFinality::BlockId(BlockId::Hash(block_response1.header.hash)))
+            .block(BlockReference::BlockId(BlockId::Hash(block_response1.header.hash)))
             .await
             .unwrap();
-        let block_response3 = client.block(BlockIdOrFinality::latest()).await.unwrap();
-        for block in [block_response1, block_response2, block_response3].iter() {
+        let block_response3 = client.block(BlockReference::latest()).await.unwrap();
+        let block_response4 =
+            client.block(BlockReference::SyncCheckpoint(SyncCheckpoint::Genesis)).await.unwrap();
+        let block_response5 = client
+            .block(BlockReference::SyncCheckpoint(SyncCheckpoint::EarliestAvailable))
+            .await
+            .unwrap();
+        for block in
+            &[block_response1, block_response2, block_response3, block_response4, block_response5]
+        {
             assert_eq!(block.author, "test1");
             assert_eq!(block.header.height, 0);
-            assert_eq!(block.header.epoch_id.0.as_ref(), &[0; 32]);
-            assert_eq!(block.header.hash.0.as_ref().len(), 32);
-            assert_eq!(block.header.prev_hash.0.as_ref(), &[0; 32]);
+            assert_eq!(block.header.epoch_id.as_ref(), &[0; 32]);
+            assert_eq!(block.header.hash.as_ref().len(), 32);
+            assert_eq!(block.header.prev_hash.as_ref(), &[0; 32]);
             assert_eq!(
                 block.header.prev_state_root,
                 CryptoHash::try_from("7tkzFg8RHBmMw1ncRJZCCZAizgq4rwCftTKYLce8RU8t").unwrap()
@@ -74,8 +82,8 @@ fn test_block_query() {
             assert_eq!(block.header.validator_proposals.len(), 0);
         }
         // no doomslug final or nfg final block
-        assert!(client.block(BlockIdOrFinality::Finality(Finality::DoomSlug)).await.is_err());
-        assert!(client.block(BlockIdOrFinality::Finality(Finality::Final)).await.is_err());
+        assert!(client.block(BlockReference::Finality(Finality::DoomSlug)).await.is_err());
+        assert!(client.block(BlockReference::Finality(Finality::Final)).await.is_err());
     });
 }
 
@@ -156,21 +164,21 @@ fn test_query_account() {
         let block_hash = status.sync_info.latest_block_hash;
         let query_response_1 = client
             .query(RpcQueryRequest {
-                block_id_or_finality: BlockIdOrFinality::latest(),
+                block_reference: BlockReference::latest(),
                 request: QueryRequest::ViewAccount { account_id: "test".to_string() },
             })
             .await
             .unwrap();
         let query_response_2 = client
             .query(RpcQueryRequest {
-                block_id_or_finality: BlockIdOrFinality::BlockId(BlockId::Height(0)),
+                block_reference: BlockReference::BlockId(BlockId::Height(0)),
                 request: QueryRequest::ViewAccount { account_id: "test".to_string() },
             })
             .await
             .unwrap();
         let query_response_3 = client
             .query(RpcQueryRequest {
-                block_id_or_finality: BlockIdOrFinality::BlockId(BlockId::Hash(block_hash)),
+                block_reference: BlockReference::BlockId(BlockId::Hash(block_hash)),
                 request: QueryRequest::ViewAccount { account_id: "test".to_string() },
             })
             .await
@@ -194,13 +202,13 @@ fn test_query_account() {
 
         let non_finalized_query_response_1 = client
             .query(RpcQueryRequest {
-                block_id_or_finality: BlockIdOrFinality::Finality(Finality::DoomSlug),
+                block_reference: BlockReference::Finality(Finality::DoomSlug),
                 request: QueryRequest::ViewAccount { account_id: "test".to_string() },
             })
             .await;
         let non_finalized_query_response_2 = client
             .query(RpcQueryRequest {
-                block_id_or_finality: BlockIdOrFinality::Finality(Finality::Final),
+                block_reference: BlockReference::Finality(Finality::Final),
                 request: QueryRequest::ViewAccount { account_id: "test".to_string() },
             })
             .await;
@@ -243,7 +251,7 @@ fn test_query_access_keys() {
     test_with_client!(test_utils::NodeType::NonValidator, client, async move {
         let query_response = client
             .query(RpcQueryRequest {
-                block_id_or_finality: BlockIdOrFinality::latest(),
+                block_reference: BlockReference::latest(),
                 request: QueryRequest::ViewAccessKeyList { account_id: "test".to_string() },
             })
             .await
@@ -289,7 +297,7 @@ fn test_query_access_key() {
     test_with_client!(test_utils::NodeType::NonValidator, client, async move {
         let query_response = client
             .query(RpcQueryRequest {
-                block_id_or_finality: BlockIdOrFinality::latest(),
+                block_reference: BlockReference::latest(),
                 request: QueryRequest::ViewAccessKey {
                     account_id: "test".to_string(),
                     public_key: PublicKey::try_from(
@@ -317,7 +325,7 @@ fn test_query_state() {
     test_with_client!(test_utils::NodeType::NonValidator, client, async move {
         let query_response = client
             .query(RpcQueryRequest {
-                block_id_or_finality: BlockIdOrFinality::latest(),
+                block_reference: BlockReference::latest(),
                 request: QueryRequest::ViewState {
                     account_id: "test".to_string(),
                     prefix: vec![].into(),
@@ -341,7 +349,7 @@ fn test_query_call_function() {
     test_with_client!(test_utils::NodeType::NonValidator, client, async move {
         let query_response = client
             .query(RpcQueryRequest {
-                block_id_or_finality: BlockIdOrFinality::latest(),
+                block_reference: BlockReference::latest(),
                 request: QueryRequest::CallFunction {
                     account_id: "test".to_string(),
                     method_name: "method".to_string(),
@@ -552,7 +560,7 @@ fn test_gas_price_by_height() {
 #[test]
 fn test_gas_price_by_hash() {
     test_with_client!(test_utils::NodeType::NonValidator, client, async move {
-        let block = client.block(BlockIdOrFinality::BlockId(BlockId::Height(0))).await.unwrap();
+        let block = client.block(BlockReference::BlockId(BlockId::Height(0))).await.unwrap();
         let gas_price = client.gas_price(Some(BlockId::Hash(block.header.hash))).await.unwrap();
         assert!(gas_price.gas_price > 0);
     });
@@ -615,7 +623,7 @@ fn test_query_view_account_non_existing_account_must_return_error() {
     test_with_client!(test_utils::NodeType::NonValidator, client, async move {
         let query_response = client
             .query(RpcQueryRequest {
-                block_id_or_finality: BlockIdOrFinality::latest(),
+                block_reference: BlockReference::latest(),
                 request: QueryRequest::ViewAccount { account_id: "invalidaccount".to_string() },
             })
             .await
@@ -634,7 +642,7 @@ fn test_view_access_key_non_existing_account_id_and_public_key_must_return_error
     test_with_client!(test_utils::NodeType::NonValidator, client, async move {
         let query_response = client
             .query(RpcQueryRequest {
-                block_id_or_finality: BlockIdOrFinality::latest(),
+                block_reference: BlockReference::latest(),
                 request: QueryRequest::ViewAccessKey {
                     account_id: "\u{0}\u{0}\u{0}\u{0}\u{0}9".to_string(),
                     public_key: PublicKey::try_from("99999999999999999999999999999999999999999999")
@@ -657,7 +665,7 @@ fn test_call_function_non_existing_account_method_name() {
     test_with_client!(test_utils::NodeType::NonValidator, client, async move {
         let query_response = client
             .query(RpcQueryRequest {
-                block_id_or_finality: BlockIdOrFinality::latest(),
+                block_reference: BlockReference::latest(),
                 request: QueryRequest::CallFunction {
                     method_name:
                         "\u{0}\u{0}\u{0}k\u{0}\u{0}\u{0}\u{0}\u{0}\u{0}\u{0}\u{0}\u{0}\u{0}SRP"
@@ -682,7 +690,7 @@ fn test_view_access_key_list_non_existing_account() {
     test_with_client!(test_utils::NodeType::NonValidator, client, async move {
         let query_response = client
             .query(RpcQueryRequest {
-                block_id_or_finality: BlockIdOrFinality::latest(),
+                block_reference: BlockReference::latest(),
                 request: QueryRequest::ViewAccessKeyList {
                     account_id: "\u{c}\u{c}\u{c}\u{c}\u{c}\u{c}\u{c}\u{c}\u{c}\u{c}\u{c}\u{c}\u{c}\u{c}\u{c}\u{c}\u{c}\u{c}\u{c}\u{c}\u{c}\u{0}\u{0}\u{0}\u{0}\u{0}\u{0},".to_string(),
                 },
@@ -703,7 +711,7 @@ fn test_view_state_non_existing_account_invalid_prefix() {
     test_with_client!(test_utils::NodeType::NonValidator, client, async move {
         let query_response = client
             .query(RpcQueryRequest {
-                block_id_or_finality: BlockIdOrFinality::latest(),
+                block_reference: BlockReference::latest(),
                 request: QueryRequest::ViewState {
                     account_id: "\u{0}\u{0}\u{0}\u{0}\u{0}\u{4}\u{0}\u{0}\u{0}\u{8}\u{0}\u{0}\u{0}\u{0}\u{0}eeeeeeeeeeeeeeeeeeeeeeeeeeeee".to_string(),
                     prefix: "eeeeeeeeeeee".as_bytes().to_vec().into(),

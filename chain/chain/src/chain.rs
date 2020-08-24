@@ -930,14 +930,27 @@ impl Chain {
         let sync_height = header.height();
         let gc_height = std::cmp::min(head.height + 1, sync_height);
 
-        // GC all the data from current tail up to `gc_height`
+        // GC all the data from current tail up to `gc_height`. In case tail points to a height where
+        // there is no block, we need to make sure that the last block before tail is cleaned.
         let tail = self.store.tail()?;
+        let mut tail_prev_block_cleaned = false;
         for height in tail..gc_height {
             if let Ok(blocks_current_height) = self.store.get_all_block_hashes_by_height(height) {
                 let blocks_current_height =
                     blocks_current_height.values().flatten().cloned().collect::<Vec<_>>();
                 for block_hash in blocks_current_height {
                     let mut chain_store_update = self.mut_store().store_update();
+                    if !tail_prev_block_cleaned {
+                        let prev_block_hash =
+                            *chain_store_update.get_block_header(&block_hash)?.prev_hash();
+                        if chain_store_update.get_block(&prev_block_hash).is_ok() {
+                            chain_store_update.clear_block_data(
+                                prev_block_hash,
+                                GCMode::StateSync { clear_block_info: true },
+                            )?;
+                        }
+                        tail_prev_block_cleaned = true;
+                    }
                     chain_store_update.clear_block_data(
                         block_hash,
                         GCMode::StateSync { clear_block_info: block_hash != prev_hash },
@@ -2283,6 +2296,11 @@ impl Chain {
     #[inline]
     pub fn get_previous_header(&mut self, header: &BlockHeader) -> Result<&BlockHeader, Error> {
         self.store.get_previous_header(header)
+    }
+
+    /// Returns hash of the first available block after genesis.
+    pub fn get_earliest_block_hash(&mut self) -> Result<Option<CryptoHash>, Error> {
+        self.store.get_earliest_block_hash()
     }
 
     /// Check if block exists.

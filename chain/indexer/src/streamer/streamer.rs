@@ -4,6 +4,7 @@ use std::time::Duration;
 
 use actix::{Addr, MailboxError};
 use futures::stream::StreamExt;
+use rocksdb::DB;
 use tokio::sync::mpsc;
 use tokio::time;
 use tracing::{debug, info};
@@ -11,6 +12,8 @@ use tracing::{debug, info};
 use near_client;
 pub use near_primitives::hash::CryptoHash;
 pub use near_primitives::{types, views};
+
+use crate::IndexerConfig;
 
 const INTERVAL: Duration = Duration::from_millis(500);
 const INDEXER: &str = "indexer";
@@ -29,13 +32,13 @@ impl From<MailboxError> for FailedToFetchData {
 }
 
 struct FetchBlockResponse {
-    block_response: BlockResponse,
+    block_response: StreamerMessage,
     new_outcomes_to_get: Vec<types::TransactionOrReceiptId>,
 }
 
 /// Resulting struct represents block with chunks
 #[derive(Debug)]
-pub struct BlockResponse {
+pub struct StreamerMessage {
     pub block: views::BlockView,
     pub chunks: Vec<views::ChunkView>,
     pub outcomes: Vec<Outcome>,
@@ -63,7 +66,7 @@ async fn fetch_latest_block(
     client: &Addr<near_client::ViewClientActor>,
 ) -> Result<views::BlockView, FailedToFetchData> {
     client
-        .send(near_client::GetBlock(types::BlockIdOrFinality::Finality(types::Finality::Final)))
+        .send(near_client::GetBlock(types::BlockReference::Finality(types::Finality::Final)))
         .await?
         .map_err(|err| FailedToFetchData::String(err))
 }
@@ -74,7 +77,7 @@ async fn fetch_block_by_height(
     height: u64,
 ) -> Result<views::BlockView, FailedToFetchData> {
     client
-        .send(near_client::GetBlock(near_primitives::types::BlockIdOrFinality::BlockId(
+        .send(near_client::GetBlock(near_primitives::types::BlockReference::BlockId(
             near_primitives::types::BlockId::Height(height),
         )))
         .await?
@@ -103,7 +106,7 @@ async fn fetch_block_response(
         outcomes_to_retry.extend(chunk.receipts.iter().map(|receipt| {
             types::TransactionOrReceiptId::Receipt {
                 receipt_id: receipt.receipt_id,
-                receiver_id: receipt.receiver_id.to_string().clone(),
+                receiver_id: receipt.receiver_id.to_string(),
             }
         }));
     }
@@ -111,7 +114,7 @@ async fn fetch_block_response(
     let state_changes = fetch_state_changes(&client, block.header.hash).await?;
 
     Ok(FetchBlockResponse {
-        block_response: BlockResponse { block, chunks, outcomes, state_changes },
+        block_response: StreamerMessage { block, chunks, outcomes, state_changes },
         new_outcomes_to_get: outcomes_to_retry,
     })
 }
@@ -194,11 +197,23 @@ async fn fetch_chunks(
 pub(crate) async fn start(
     view_client: Addr<near_client::ViewClientActor>,
     client: Addr<near_client::ClientActor>,
-    mut blocks_sink: mpsc::Sender<BlockResponse>,
+    indexer_config: IndexerConfig,
+    mut blocks_sink: mpsc::Sender<StreamerMessage>,
 ) {
     info!(target: INDEXER, "Starting Streamer...");
+    let mut indexer_db_path = neard::get_store_path(&indexer_config.home_dir);
+    indexer_db_path.push_str("/indexer");
+
+    // TODO: implement proper error handling
+    let db = DB::open_default(indexer_db_path).unwrap();
     let mut outcomes_to_get = Vec::<types::TransactionOrReceiptId>::new();
-    let mut last_synced_block_height: types::BlockHeight = 0;
+    let mut last_synced_block_height: Option<types::BlockHeight> = None;
+
+    info!(
+        target: INDEXER,
+        "Last synced block height in db is {}",
+        last_synced_block_height.unwrap_or(0)
+    );
     'main: loop {
         time::delay_for(INTERVAL).await;
         let status = fetch_status(&client).await;
@@ -215,16 +230,30 @@ pub(crate) async fn start(
         };
 
         let latest_block_height = block.header.height;
-        if last_synced_block_height == 0 {
-            last_synced_block_height = latest_block_height;
-        }
+        let start_syncing_block_height = if let Some(last_synced_block_height) =
+            last_synced_block_height
+        {
+            last_synced_block_height + 1
+        } else {
+            match indexer_config.sync_mode {
+                crate::SyncModeEnum::FromInterruption => {
+                    match db.get(b"last_synced_block_height").unwrap() {
+                        Some(value) => String::from_utf8(value).unwrap().parse::<u64>().unwrap(),
+                        None => latest_block_height,
+                    }
+                }
+                crate::SyncModeEnum::LatestSynced => latest_block_height,
+                crate::SyncModeEnum::BlockHeight(height) => height,
+            }
+        };
+
         debug!(
             target: INDEXER,
-            "The last synced block is #{} and the latest block is #{}",
-            last_synced_block_height,
+            "Streaming is about to start from block #{} and the latest block is #{}",
+            start_syncing_block_height,
             latest_block_height
         );
-        for block_height in (last_synced_block_height + 1)..=latest_block_height {
+        for block_height in start_syncing_block_height..=latest_block_height {
             if let Ok(block) = fetch_block_by_height(&view_client, block_height).await {
                 let response =
                     fetch_block_response(&view_client, block, outcomes_to_get.drain(..)).await;
@@ -251,7 +280,8 @@ pub(crate) async fn start(
                     }
                 }
             }
-            last_synced_block_height = block_height;
+            db.put(b"last_synced_block_height", &block_height.to_string()).unwrap();
+            last_synced_block_height = Some(block_height);
         }
     }
 }

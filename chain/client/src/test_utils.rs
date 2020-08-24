@@ -41,6 +41,8 @@ use near_store::test_utils::create_test_store;
 use near_store::Store;
 use near_telemetry::TelemetryActor;
 
+#[cfg(feature = "adversarial")]
+use crate::AdversarialControls;
 use crate::{start_view_client, Client, ClientActor, SyncStatus, ViewClientActor};
 use near_network::test_utils::MockNetworkAdapter;
 use near_primitives::merkle::{merklize, MerklePath};
@@ -108,12 +110,18 @@ pub fn setup(
         num_validator_seats,
         archive,
     );
+
+    #[cfg(feature = "adversarial")]
+    let adv = Arc::new(RwLock::new(AdversarialControls::default()));
+
     let view_client_addr = start_view_client(
         Some(signer.validator_id().clone()),
         chain_genesis.clone(),
         runtime.clone(),
         network_adapter.clone(),
         config.clone(),
+        #[cfg(feature = "adversarial")]
+        adv.clone(),
     );
 
     let client = ClientActor::new(
@@ -125,6 +133,8 @@ pub fn setup(
         Some(signer),
         telemetry,
         enable_doomslug,
+        #[cfg(feature = "adversarial")]
+        adv,
     )
     .unwrap();
     (genesis_block, client, view_client_addr)
