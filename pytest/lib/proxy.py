@@ -48,9 +48,11 @@ logging.basicConfig(format='%(asctime)s %(message)s', level=logging.DEBUG)
 
 
 def proxy_cleanup(proxy):
+    logging.debug(f'Cleaning process for {_MY_PORT}')
     proxy.global_stopped.value = 1
     for p in proxy.ps:
-        p.join()
+        p.terminate()
+    logging.debug(f'Finish cleanup for {_MY_PORT}')
     if proxy.error.value != 0:
         assert False, "One of the proxy processes failed, search for the stacktraces above"
 
