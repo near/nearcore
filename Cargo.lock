@@ -1866,6 +1866,7 @@ dependencies = [
  "openssl-probe",
  "serde_json",
  "tokio",
+ "tracing",
  "tracing-subscriber",
 ]
 
@@ -2485,6 +2486,7 @@ dependencies = [
  "near-crypto",
  "near-primitives",
  "neard",
+ "rocksdb",
  "tokio",
  "tracing",
 ]
