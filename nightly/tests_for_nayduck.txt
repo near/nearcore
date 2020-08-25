@@ -14,6 +14,7 @@ pytest --timeout=240 sanity/state_sync1.py
 pytest --timeout=900 sanity/state_sync2.py
 pytest --timeout=1200 sanity/state_sync3.py
 pytest --timeout=240 sanity/state_sync4.py
+pytest --timeout=240 sanity/state_sync5.py
 pytest --timeout=600 sanity/state_sync_routed.py manytx 115
 pytest --timeout=300 sanity/state_sync_late.py notx
 pytest --timeout=900 sanity/state_sync_massive.py

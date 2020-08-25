@@ -14,9 +14,11 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::{ChunkHash, ShardChunk, StateSyncInfo};
 use near_primitives::syncing::{ShardStateSyncResponseHeader, StateHeaderKey, StatePartKey};
 use near_primitives::transaction::ExecutionOutcomeWithIdAndProof;
-use near_primitives::types::{AccountId, BlockHeight, EpochId, GCCount, ShardId};
+use near_primitives::types::{AccountId, BlockHeight, ChunkExtra, EpochId, GCCount, ShardId};
 use near_primitives::utils::get_block_shard_id_rev;
-use near_store::{DBCol, Store, TrieChanges, NUM_COLS, SHOULD_COL_GC, SKIP_COL_GC};
+use near_store::{
+    decode_value_with_rc, DBCol, Store, TrieChanges, NUM_COLS, SHOULD_COL_GC, SKIP_COL_GC,
+};
 use validate::StoreValidatorError;
 
 use crate::RuntimeAdapter;
@@ -128,7 +130,7 @@ impl StoreValidator {
         self.errors.push(ErrorMessage { key: to_string(&key), col: to_string(&col), err })
     }
     fn validate_col(&mut self, col: DBCol) -> Result<(), StoreValidatorError> {
-        for (key, value) in self.store.clone().iter(col) {
+        for (key, value) in self.store.clone().iter_without_rc_logic(col) {
             let key_ref = key.as_ref();
             let value_ref = value.as_ref();
             match col {
@@ -187,6 +189,11 @@ impl StoreValidator {
                     );
                     // Check that all Txs in Chunk exist
                     self.check(&validate::chunk_tx_exists, &chunk_hash, &shard_chunk, col);
+                }
+                DBCol::ColChunkExtra => {
+                    let (block_hash, _) = get_block_shard_id_rev(key_ref)?;
+                    let chunk_extra = ChunkExtra::try_from_slice(value_ref)?;
+                    self.check(&validate::chunk_extra_block_exists, &block_hash, &chunk_extra, col);
                 }
                 DBCol::ColTrieChanges => {
                     let (block_hash, shard_id) = get_block_shard_id_rev(key_ref)?;
@@ -277,10 +284,10 @@ impl StoreValidator {
                     let count = GCCount::try_from_slice(value_ref)?;
                     self.check(&validate::gc_col_count, &col, &count, col);
                 }
-                DBCol::ColTransactionRefCount => {
+                DBCol::ColTransactions => {
+                    let (_value, rc) = decode_value_with_rc(value_ref);
                     let tx_hash = CryptoHash::try_from(key_ref)?;
-                    let refcount = u64::try_from_slice(value_ref)?;
-                    self.check(&validate::tx_refcount, &tx_hash, &refcount, col);
+                    self.check(&validate::tx_refcount, &tx_hash, &(rc as u64), col);
                 }
                 DBCol::ColBlockRefCount => {
                     let block_hash = CryptoHash::try_from(key_ref)?;
@@ -340,7 +347,7 @@ impl StoreValidator {
         }
         // Check that all refs are counted
         if let Err(e) = validate::tx_refcount_final(self) {
-            self.process_error(e, "TX_REFCOUNT", DBCol::ColTransactionRefCount)
+            self.process_error(e, "TX_REFCOUNT", DBCol::ColTransactions)
         }
         // Check that all Block Refcounts are counted
         if let Err(e) = validate::block_refcount_final(self) {

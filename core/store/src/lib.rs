@@ -26,6 +26,8 @@ use near_primitives::serialize::to_base;
 use near_primitives::trie_key::{trie_key_parsers, TrieKey};
 use near_primitives::types::AccountId;
 
+pub use crate::db::refcount::decode_value_with_rc;
+use crate::db::refcount::encode_value_with_rc;
 use crate::db::{DBOp, DBTransaction, Database, RocksDB};
 pub use crate::trie::{
     iterator::TrieIterator, update::TrieUpdate, update::TrieUpdateIterator,
@@ -83,6 +85,13 @@ impl Store {
         self.storage.iter(column)
     }
 
+    pub fn iter_without_rc_logic<'a>(
+        &'a self,
+        column: DBCol,
+    ) -> Box<dyn Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a> {
+        self.storage.iter_without_rc_logic(column)
+    }
+
     pub fn iter_prefix<'a>(
         &'a self,
         column: DBCol,
@@ -105,7 +114,7 @@ impl Store {
 
     pub fn save_to_file(&self, column: DBCol, filename: &Path) -> Result<(), std::io::Error> {
         let mut file = File::create(filename)?;
-        for (key, value) in self.storage.iter(column) {
+        for (key, value) in self.storage.iter_without_rc_logic(column) {
             file.write_u32::<LittleEndian>(key.len() as u32)?;
             file.write_all(&key)?;
             file.write_u32::<LittleEndian>(value.len() as u32)?;
@@ -154,7 +163,9 @@ impl StoreUpdate {
         StoreUpdate { storage, transaction, tries: Some(tries) }
     }
 
-    pub fn update_refcount(&mut self, column: DBCol, key: &[u8], value: &[u8]) {
+    pub fn update_refcount(&mut self, column: DBCol, key: &[u8], value: &[u8], rc_delta: i64) {
+        debug_assert!(column.is_rc());
+        let value = encode_value_with_rc(value, rc_delta);
         self.transaction.update_refcount(column, key, value)
     }
 
@@ -168,6 +179,7 @@ impl StoreUpdate {
         key: &[u8],
         value: &T,
     ) -> Result<(), io::Error> {
+        debug_assert!(!column.is_rc());
         let data = value.try_to_vec()?;
         self.set(column, key, &data);
         Ok(())
@@ -207,23 +219,24 @@ impl StoreUpdate {
     }
 
     pub fn commit(self) -> Result<(), io::Error> {
-        /* TODO: enable after #3169 is fixed
-         debug_assert!(
-            self.transaction.ops.len()
-                == self
+        debug_assert!(
+            {
+                let non_refcount_keys = self
                     .transaction
                     .ops
                     .iter()
-                    .map(|op| match op {
-                        DBOp::Insert { col, key, .. } => (*col as u8, key),
-                        DBOp::Delete { col, key } => (*col as u8, key),
-                        DBOp::UpdateRefcount { col, key, .. } => (*col as u8, key),
+                    .filter_map(|op| match op {
+                        DBOp::Insert { col, key, .. } => Some((*col as u8, key)),
+                        DBOp::Delete { col, key } => Some((*col as u8, key)),
+                        DBOp::UpdateRefcount { .. } => None,
                     })
-                    .collect::<std::collections::HashSet<_>>()
-                    .len(),
+                    .collect::<Vec<_>>();
+                non_refcount_keys.len()
+                    == non_refcount_keys.iter().collect::<std::collections::HashSet<_>>().len()
+            },
             "Transaction overwrites itself: {:?}",
             self
-        );*/
+        );
         if let Some(tries) = self.tries {
             assert_eq!(
                 tries.get_store().storage.deref() as *const _,

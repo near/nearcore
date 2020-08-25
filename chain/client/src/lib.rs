@@ -9,6 +9,8 @@ pub use crate::types::{
     GetNextLightClientBlock, GetStateChanges, GetStateChangesInBlock, GetValidatorInfo,
     GetValidatorOrdered, Query, Status, StatusResponse, SyncStatus, TxStatus, TxStatusError,
 };
+#[cfg(feature = "adversarial")]
+pub use crate::view_client::AdversarialControls;
 pub use crate::view_client::{start_view_client, ViewClientActor};
 
 mod client;

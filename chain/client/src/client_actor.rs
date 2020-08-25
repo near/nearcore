@@ -1,15 +1,17 @@
 //! Client actor orchestrates Client and facilitates network connection.
 
-use chrono::Duration as OldDuration;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use std::thread;
 use std::time::{Duration, Instant};
 
 use actix::{Actor, Addr, Arbiter, AsyncContext, Context, Handler};
+use chrono::Duration as OldDuration;
 use chrono::{DateTime, Utc};
 use log::{debug, error, info, trace, warn};
 
+#[cfg(feature = "delay_detector")]
+use delay_detector::DelayDetector;
 use near_chain::test_utils::format_hash;
 use near_chain::types::AcceptedBlock;
 #[cfg(feature = "adversarial")]
@@ -49,9 +51,9 @@ use crate::types::{
     Error, GetNetworkInfo, NetworkInfoResponse, ShardSyncDownload, ShardSyncStatus, Status,
     StatusSyncInfo, SyncStatus,
 };
+#[cfg(feature = "adversarial")]
+use crate::AdversarialControls;
 use crate::StatusResponse;
-#[cfg(feature = "delay_detector")]
-use delay_detector::DelayDetector;
 
 /// Multiplier on `max_block_time` to wait until deciding that chain stalled.
 const STATUS_WAIT_TIME_MULTIPLIER: u64 = 10;
@@ -62,11 +64,7 @@ const HEAD_STALL_MULTIPLIER: u32 = 4;
 pub struct ClientActor {
     /// Adversarial controls
     #[cfg(feature = "adversarial")]
-    pub adv_sync_height: Option<u64>,
-    #[cfg(feature = "adversarial")]
-    pub adv_disable_header_sync: bool,
-    #[cfg(feature = "adversarial")]
-    pub adv_disable_doomslug: bool,
+    pub adv: Arc<RwLock<AdversarialControls>>,
 
     client: Client,
     network_adapter: Arc<dyn NetworkAdapter>,
@@ -117,6 +115,7 @@ impl ClientActor {
         validator_signer: Option<Arc<dyn ValidatorSigner>>,
         telemetry_actor: Addr<TelemetryActor>,
         enable_doomslug: bool,
+        #[cfg(feature = "adversarial")] adv: Arc<RwLock<AdversarialControls>>,
     ) -> Result<Self, Error> {
         wait_until_genesis(&chain_genesis.time);
         if let Some(vs) = &validator_signer {
@@ -135,11 +134,7 @@ impl ClientActor {
         let now = Utc::now();
         Ok(ClientActor {
             #[cfg(feature = "adversarial")]
-            adv_sync_height: None,
-            #[cfg(feature = "adversarial")]
-            adv_disable_header_sync: false,
-            #[cfg(feature = "adversarial")]
-            adv_disable_doomslug: false,
+            adv,
             client,
             network_adapter,
             node_id,
@@ -202,14 +197,14 @@ impl Handler<NetworkClientMessages> for ClientActor {
                 return match adversarial_msg {
                     NetworkAdversarialMessage::AdvDisableDoomslug => {
                         info!(target: "adversary", "Turning Doomslug off");
-                        self.adv_disable_doomslug = true;
+                        self.adv.write().unwrap().adv_disable_doomslug = true;
                         self.client.doomslug.adv_disable();
                         self.client.chain.adv_disable_doomslug();
                         NetworkClientResponses::NoResponse
                     }
                     NetworkAdversarialMessage::AdvDisableHeaderSync => {
                         info!(target: "adversary", "Blocking header sync");
-                        self.adv_disable_header_sync = true;
+                        self.adv.write().unwrap().adv_disable_header_sync = true;
                         NetworkClientResponses::NoResponse
                     }
                     NetworkAdversarialMessage::AdvProduceBlocks(num_blocks, only_valid) => {
@@ -1030,7 +1025,7 @@ impl ClientActor {
     fn needs_syncing(&self, needs_syncing: bool) -> bool {
         #[cfg(feature = "adversarial")]
         {
-            if self.adv_disable_header_sync {
+            if self.adv.read().unwrap().adv_disable_header_sync {
                 return false;
             }
         }
@@ -1340,6 +1335,7 @@ pub fn start_client(
     network_adapter: Arc<dyn NetworkAdapter>,
     validator_signer: Option<Arc<dyn ValidatorSigner>>,
     telemetry_actor: Addr<TelemetryActor>,
+    #[cfg(feature = "adversarial")] adv: Arc<RwLock<AdversarialControls>>,
 ) -> (Addr<ClientActor>, Arbiter) {
     let client_arbiter = Arbiter::current();
     let client_addr = ClientActor::start_in_arbiter(&client_arbiter, move |_ctx| {
@@ -1352,6 +1348,8 @@ pub fn start_client(
             validator_signer,
             telemetry_actor,
             true,
+            #[cfg(feature = "adversarial")]
+            adv,
         )
         .unwrap()
     });

@@ -79,6 +79,9 @@ pub fn setup_network_node(
         let network_adapter = NetworkRecipient::new();
         network_adapter.set_recipient(ctx.address().recipient());
         let network_adapter = Arc::new(network_adapter);
+        #[cfg(feature = "adversarial")]
+        let adv = Arc::new(RwLock::new(Default::default()));
+
         let client_actor = ClientActor::new(
             client_config.clone(),
             chain_genesis.clone(),
@@ -88,6 +91,8 @@ pub fn setup_network_node(
             Some(signer),
             telemetry_actor,
             false,
+            #[cfg(feature = "adversarial")]
+            adv.clone(),
         )
         .unwrap()
         .start();
@@ -97,6 +102,8 @@ pub fn setup_network_node(
             runtime.clone(),
             network_adapter.clone(),
             client_config,
+            #[cfg(feature = "adversarial")]
+            adv.clone(),
         );
 
         PeerManagerActor::new(
