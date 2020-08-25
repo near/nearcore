@@ -75,7 +75,7 @@ print("Genesis generated")
 
 SMALL_HEIGHT = 201
 LARGE_HEIGHT = 301
-TIMEOUT = 300 + SMALL_HEIGHT + LARGE_HEIGHT
+TIMEOUT = 900
 start = time.time()
 
 boot_node = spin_up_node(config, near_root, node_dirs[0], 0, None, None)
