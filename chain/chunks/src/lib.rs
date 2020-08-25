@@ -3,6 +3,7 @@ use std::collections::{btree_map, hash_map, BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use borsh::BorshSerialize;
 use cached::{Cached, SizedCache};
 use chrono::{DateTime, Utc};
 use log::{debug, error, warn};
@@ -10,8 +11,7 @@ use rand::seq::SliceRandom;
 
 use near_chain::validate::validate_chunk_proofs;
 use near_chain::{
-    byzantine_assert, collect_receipts, ChainStore, ChainStoreAccess, ChainStoreUpdate, ErrorKind,
-    RuntimeAdapter,
+    byzantine_assert, ChainStore, ChainStoreAccess, ChainStoreUpdate, ErrorKind, RuntimeAdapter,
 };
 use near_network::types::{
     NetworkAdapter, PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg,
@@ -19,7 +19,7 @@ use near_network::types::{
 use near_network::NetworkRequests;
 use near_pool::{PoolIteratorWrapper, TransactionPool};
 use near_primitives::block::BlockHeader;
-use near_primitives::hash::CryptoHash;
+use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::{merklize, verify_path, MerklePath};
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{
@@ -36,6 +36,7 @@ use near_primitives::validator_signer::ValidatorSigner;
 
 use crate::chunk_cache::{EncodedChunksCache, EncodedChunksCacheEntry};
 pub use crate::types::Error;
+use near_chain::types::ReceiptList;
 
 mod chunk_cache;
 pub mod test_utils;
@@ -1040,9 +1041,6 @@ impl ShardsManager {
         }
 
         // 6. Checking receipts validity
-        let receipts = collect_receipts(&partial_encoded_chunk.receipts);
-        let receipts_hashes = self.runtime_adapter.build_receipts_hashes(&receipts);
-
         for proof in partial_encoded_chunk.receipts.iter() {
             let shard_id = proof.1.to_shard_id;
             if self.cares_about_shard_this_or_next_epoch(
@@ -1051,10 +1049,13 @@ impl ShardsManager {
                 shard_id,
                 true,
             ) {
+                let ReceiptProof(shard_receipts, receipt_proof) = proof;
+                let receipt_hash =
+                    hash(&ReceiptList(shard_id, shard_receipts.to_vec()).try_to_vec().unwrap());
                 if !verify_path(
                     header.inner.outgoing_receipts_root,
-                    &(proof.1).proof,
-                    &receipts_hashes[shard_id as usize],
+                    &receipt_proof.proof,
+                    &receipt_hash,
                 ) {
                     byzantine_assert!(false);
                     return Err(Error::ChainError(ErrorKind::InvalidReceiptsProof.into()));
