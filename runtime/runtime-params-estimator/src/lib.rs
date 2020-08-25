@@ -15,3 +15,7 @@ pub mod testbed;
 // Prepares transactions and feeds them to the testbed in batches. Performs the warm up, takes care
 // of nonces.
 pub mod testbed_runners;
+
+// exports for fuzzing
+pub use near_vm_logic::VMKind;
+pub use near_vm_runner::compile_module;

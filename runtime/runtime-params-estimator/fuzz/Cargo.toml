@@ -1,0 +1,32 @@
+
+[package]
+name = "runtime-params-estimator-fuzz"
+version = "0.0.0"
+authors = ["Automatically generated"]
+publish = false
+edition = "2018"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.3"
+
+[dependencies.runtime-params-estimator]
+path = ".."
+
+# Prevent this from interfering with workspaces
+[workspace]
+members = ["."]
+
+[[bin]]
+name = "compile"
+path = "fuzz_targets/compile.rs"
+test = false
+doc = false
+
+[features]
+default = ["wasmer"]
+wasmer = ["runtime-params-estimator/default"]
+lightbeam = ["runtime-params-estimator/lightbeam"]
+wasmtime = ["runtime-params-estimator/wasmtime"]

@@ -16,3 +16,12 @@ Use this tool to measure the running time of elementary runtime operations that 
     With the given parameters above estimator will run relatively fast. We will be using different parameters to do the actual parameter estimation. Also note that the defualt metric is `icount`, instruction count, but requires using qemu to emulate the processor. So this example provides a way to get a  quick way to test out the estimator based on time, but the instructions in [`emu-cost/README.md`](./emu-cost/README.md) should be followed to get the real data.
 
 Note, if you use the plotting functionality you would need to install [gnuplot](http://gnuplot.info/) to see the graphs.
+
+
+To use the fuzzer, from the `fuzz` directory first run `./setup.sh`, then run the fuzzer like so:
+
+```
+cargo fuzz run compiler --jobs 4
+```
+
+This runs `wasmer`; add `--features lightbeam/wasmtime` to run the other two.
