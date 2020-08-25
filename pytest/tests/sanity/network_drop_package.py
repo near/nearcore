@@ -17,8 +17,6 @@ height = Value('i', 0)
 # Ratio of message that are dropped to simulate bad network performance
 DROP_RATIO = 0.05
 
-DONT_FILTER = ['Handshake', 'HandshakeFailure', 'LastEdge', 'Sync', 'RequestUpdateNonce', 'ResponseUpdateNonce']
-
 class Handler(ProxyHandler):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -40,7 +38,7 @@ class Handler(ProxyHandler):
                     logging.info(f'SUCCESS DROP={self.dropped} TOTAL={self.total}')
                     success.value = 1
 
-        drop = random.random() < DROP_RATIO and msg.enum not in DONT_FILTER
+        drop = random.random() < DROP_RATIO and 'Handshake' not in msg.enum
 
         if drop:
             self.dropped += 1
