@@ -1989,9 +1989,6 @@ impl<'a> ChainStoreUpdate<'a> {
     pub fn clear_chunk_data(&mut self, min_chunk_height: BlockHeight) -> Result<(), Error> {
         let chunk_tail = self.chunk_tail()?;
         for height in chunk_tail..min_chunk_height {
-            if height == self.get_genesis_height() {
-                continue;
-            }
             let chunk_hashes = self.get_all_chunk_hashes_by_height(height)?;
             for chunk_hash in chunk_hashes {
                 // 1. Delete chunk-related data
@@ -2007,7 +2004,6 @@ impl<'a> ChainStoreUpdate<'a> {
                 // 2. Delete chunk_hash-indexed data
                 let chunk_header_hash = chunk_hash.clone().into();
                 self.gc_col(ColChunks, &chunk_header_hash);
-                self.gc_col(ColChunkExtra, &chunk_header_hash);
                 self.gc_col(ColPartialChunks, &chunk_header_hash);
                 self.gc_col(ColInvalidChunks, &chunk_header_hash);
             }
@@ -2085,23 +2081,15 @@ impl<'a> ChainStoreUpdate<'a> {
             .expect("block data is not expected to be already cleaned")
             .clone();
         let height = block.header().height();
-        if height == self.get_genesis_height() {
-            if let GCMode::Fork(_) = gc_mode {
-                // Broken GC prerequisites found
-                assert!(false);
-            }
-            // Don't clean Genesis Block
-            self.merge(store_update);
-            return Ok(());
-        }
 
         // 2. Delete shard_id-indexed data (Receipts, State Headers and Parts, etc.)
         for shard_id in 0..block.header().chunk_mask().len() as ShardId {
-            let height_shard_id = get_block_shard_id(&block_hash, shard_id);
-            self.gc_col(ColOutgoingReceipts, &height_shard_id);
-            self.gc_col(ColIncomingReceipts, &height_shard_id);
-            self.gc_col(ColChunkPerHeightShard, &height_shard_id);
-            self.gc_col(ColNextBlockWithNewChunk, &height_shard_id);
+            let block_shard_id = get_block_shard_id(&block_hash, shard_id);
+            self.gc_col(ColOutgoingReceipts, &block_shard_id);
+            self.gc_col(ColIncomingReceipts, &block_shard_id);
+            self.gc_col(ColChunkPerHeightShard, &block_shard_id);
+            self.gc_col(ColNextBlockWithNewChunk, &block_shard_id);
+            self.gc_col(ColChunkExtra, &block_shard_id);
 
             // For incoming State Parts it's done in chain.clear_downloaded_parts()
             // The following code is mostly for outgoing State Parts.
@@ -3066,10 +3054,8 @@ mod tests {
         let trie = chain.runtime_adapter.get_tries();
         assert!(chain.clear_data(trie, 100).is_ok());
 
-        assert!(chain.get_block(&blocks[0].hash()).is_ok());
-
         // epoch didn't change so no data is garbage collected.
-        for i in 1..15 {
+        for i in 0..15 {
             println!("height = {} hash = {}", i, blocks[i].hash());
             if i < 8 {
                 assert!(chain.get_block(&blocks[i].hash()).is_err());
@@ -3098,6 +3084,7 @@ mod tests {
             DBCol::ColChunkPerHeightShard,
             DBCol::ColBlockRefCount,
             DBCol::ColOutcomesByBlockHash,
+            DBCol::ColChunkExtra,
         ];
         for col in DBCol::iter() {
             println!("current column is {:?}", col);
@@ -3111,7 +3098,7 @@ mod tests {
                             &col.try_to_vec().expect("Failed to serialize DBCol")
                         )
                         .unwrap(),
-                    Some(7)
+                    Some(8)
                 );
             } else {
                 assert_eq!(
@@ -3254,10 +3241,8 @@ mod tests {
             println!("ITERATION #{:?}", iter);
             assert!(chain.clear_data(trie.clone(), gc_blocks_limit).is_ok());
 
-            assert!(chain.get_block(&blocks[0].hash()).is_ok());
-
             // epoch didn't change so no data is garbage collected.
-            for i in 1..1000 {
+            for i in 0..1000 {
                 if i < (iter + 1) * gc_blocks_limit as usize {
                     assert!(chain.get_block(&blocks[i].hash()).is_err());
                     assert!(chain

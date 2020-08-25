@@ -1866,6 +1866,7 @@ dependencies = [
  "openssl-probe",
  "serde_json",
  "tokio",
+ "tracing",
  "tracing-subscriber",
 ]
 
@@ -2485,6 +2486,7 @@ dependencies = [
  "near-crypto",
  "near-primitives",
  "neard",
+ "rocksdb",
  "tokio",
  "tracing",
 ]
@@ -2668,7 +2670,7 @@ dependencies = [
 
 [[package]]
 name = "near-runtime-fees"
-version = "1.2.0"
+version = "2.0.0"
 dependencies = [
  "num-rational",
  "serde",
@@ -2676,7 +2678,7 @@ dependencies = [
 
 [[package]]
 name = "near-runtime-standalone"
-version = "1.2.0"
+version = "2.0.0"
 dependencies = [
  "near-crypto",
  "near-pool",
@@ -2724,7 +2726,7 @@ dependencies = [
 
 [[package]]
 name = "near-vm-errors"
-version = "1.2.0"
+version = "2.0.0"
 dependencies = [
  "borsh",
  "near-rpc-error-macro",
@@ -2733,7 +2735,7 @@ dependencies = [
 
 [[package]]
 name = "near-vm-logic"
-version = "1.2.0"
+version = "2.0.0"
 dependencies = [
  "base64 0.11.0",
  "bs58",
@@ -2748,7 +2750,7 @@ dependencies = [
 
 [[package]]
 name = "near-vm-runner"
-version = "1.2.0"
+version = "2.0.0"
 dependencies = [
  "anyhow",
  "assert_matches",
@@ -2767,7 +2769,7 @@ dependencies = [
 
 [[package]]
 name = "near-vm-runner-standalone"
-version = "1.2.0"
+version = "2.0.0"
 dependencies = [
  "base64 0.11.0",
  "clap 2.33.0",
@@ -2875,7 +2877,7 @@ dependencies = [
 
 [[package]]
 name = "node-runtime"
-version = "1.2.0"
+version = "2.0.0"
 dependencies = [
  "assert_matches",
  "base64 0.11.0",
@@ -3622,7 +3624,7 @@ dependencies = [
 
 [[package]]
 name = "runtime-params-estimator"
-version = "1.2.0"
+version = "2.0.0"
 dependencies = [
  "borsh",
  "clap 2.33.0",

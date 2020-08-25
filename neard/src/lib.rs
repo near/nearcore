@@ -7,6 +7,8 @@ use log::{error, info};
 use tracing::trace;
 
 use near_chain::ChainGenesis;
+#[cfg(feature = "adversarial")]
+use near_client::AdversarialControls;
 use near_client::{start_client, start_view_client, ClientActor, ViewClientActor};
 use near_jsonrpc::start_http;
 use near_network::{NetworkRecipient, PeerManagerActor};
@@ -91,6 +93,7 @@ pub fn apply_store_migrations(path: &String) {
         set_store_version(&store, 4);
     }
     if db_version <= 4 {
+        info!(target: "near", "Migrate DB from version 4 to 5");
         // version 4 => 5: add ColProcessedBlockHeights
         // we don't need to backfill the old heights since at worst we will just process some heights
         // again.
@@ -98,12 +101,14 @@ pub fn apply_store_migrations(path: &String) {
         set_store_version(&store, 5);
     }
     if db_version <= 5 {
+        info!(target: "near", "Migrate DB from version 5 to 6");
         // version 5 => 6: add merge operator to ColState
         // we don't have merge records before so old storage works
         let store = create_store(&path);
         set_store_version(&store, 6);
     }
     if db_version <= 6 {
+        info!(target: "near", "Migrate DB from version 6 to 7");
         // version 6 => 7:
         // - make ColState use 8 bytes for refcount (change to merge operator)
         // - move ColTransactionRefCount into ColTransactions
@@ -148,12 +153,17 @@ pub fn start_with_config(
 
     let node_id = config.network_config.public_key.clone().into();
     let network_adapter = Arc::new(NetworkRecipient::new());
+    #[cfg(feature = "adversarial")]
+    let adv = Arc::new(std::sync::RwLock::new(AdversarialControls::default()));
+
     let view_client = start_view_client(
         config.validator_signer.as_ref().map(|signer| signer.validator_id().clone()),
         chain_genesis.clone(),
         runtime.clone(),
         network_adapter.clone(),
         config.client_config.clone(),
+        #[cfg(feature = "adversarial")]
+        adv.clone(),
     );
     let (client_actor, client_arbiter) = start_client(
         config.client_config,
@@ -163,6 +173,8 @@ pub fn start_with_config(
         network_adapter.clone(),
         config.validator_signer,
         telemetry,
+        #[cfg(feature = "adversarial")]
+        adv.clone(),
     );
     start_http(
         config.rpc_config,

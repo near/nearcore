@@ -65,14 +65,18 @@ pub struct ViewClientRequestManager {
     pub receipt_outcome_requests: SizedCache<CryptoHash, Instant>,
 }
 
+#[cfg(feature = "adversarial")]
+#[derive(Default)]
+pub struct AdversarialControls {
+    pub adv_disable_header_sync: bool,
+    pub adv_disable_doomslug: bool,
+    pub adv_sync_height: Option<u64>,
+}
+
 /// View client provides currently committed (to the storage) view of the current chain and state.
 pub struct ViewClientActor {
     #[cfg(feature = "adversarial")]
-    pub adv_disable_header_sync: bool,
-    #[cfg(feature = "adversarial")]
-    pub adv_disable_doomslug: bool,
-    #[cfg(feature = "adversarial")]
-    pub adv_sync_height: Option<u64>,
+    pub adv: Arc<RwLock<AdversarialControls>>,
 
     /// Validator account (if present).
     validator_account_id: Option<AccountId>,
@@ -103,6 +107,7 @@ impl ViewClientActor {
         network_adapter: Arc<dyn NetworkAdapter>,
         config: ClientConfig,
         request_manager: Arc<RwLock<ViewClientRequestManager>>,
+        #[cfg(feature = "adversarial")] adv: Arc<RwLock<AdversarialControls>>,
     ) -> Result<Self, Error> {
         // TODO: should we create shared ChainStore that is passed to both Client and ViewClient?
         let chain = Chain::new_for_view_client(
@@ -112,11 +117,7 @@ impl ViewClientActor {
         )?;
         Ok(ViewClientActor {
             #[cfg(feature = "adversarial")]
-            adv_disable_header_sync: false,
-            #[cfg(feature = "adversarial")]
-            adv_disable_doomslug: false,
-            #[cfg(feature = "adversarial")]
-            adv_sync_height: None,
+            adv,
             validator_account_id,
             chain,
             runtime_adapter,
@@ -401,7 +402,7 @@ impl ViewClientActor {
     fn get_height(&self, head: &Tip) -> BlockHeight {
         #[cfg(feature = "adversarial")]
         {
-            if let Some(height) = self.adv_sync_height {
+            if let Some(height) = self.adv.read().unwrap().adv_sync_height {
                 return height;
             }
         }
@@ -725,18 +726,18 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
                 return match adversarial_msg {
                     NetworkAdversarialMessage::AdvDisableDoomslug => {
                         info!(target: "adversary", "Turning Doomslug off");
-                        self.adv_disable_doomslug = true;
+                        self.adv.write().unwrap().adv_disable_doomslug = true;
                         self.chain.adv_disable_doomslug();
                         NetworkViewClientResponses::NoResponse
                     }
                     NetworkAdversarialMessage::AdvSetSyncInfo(height) => {
                         info!(target: "adversary", "Setting adversarial sync height: {}", height);
-                        self.adv_sync_height = Some(height);
+                        self.adv.write().unwrap().adv_sync_height = Some(height);
                         NetworkViewClientResponses::NoResponse
                     }
                     NetworkAdversarialMessage::AdvDisableHeaderSync => {
                         info!(target: "adversary", "Blocking header sync");
-                        self.adv_disable_header_sync = true;
+                        self.adv.write().unwrap().adv_disable_header_sync = true;
                         NetworkViewClientResponses::NoResponse
                     }
                     NetworkAdversarialMessage::AdvSwitchToHeight(height) => {
@@ -842,7 +843,7 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
             NetworkViewClientMessages::BlockHeadersRequest(hashes) => {
                 #[cfg(feature = "adversarial")]
                 {
-                    if self.adv_disable_header_sync {
+                    if self.adv.read().unwrap().adv_disable_header_sync {
                         return NetworkViewClientResponses::NoResponse;
                     }
                 }
@@ -1004,6 +1005,7 @@ pub fn start_view_client(
     runtime_adapter: Arc<dyn RuntimeAdapter>,
     network_adapter: Arc<dyn NetworkAdapter>,
     config: ClientConfig,
+    #[cfg(feature = "adversarial")] adv: Arc<RwLock<AdversarialControls>>,
 ) -> Addr<ViewClientActor> {
     let request_manager = Arc::new(RwLock::new(ViewClientRequestManager::new()));
     SyncArbiter::start(config.view_client_threads, move || {
@@ -1020,6 +1022,8 @@ pub fn start_view_client(
             network_adapter1,
             config1,
             request_manager1,
+            #[cfg(feature = "adversarial")]
+            adv.clone(),
         )
         .unwrap()
     })
