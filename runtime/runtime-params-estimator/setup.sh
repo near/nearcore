@@ -1,6 +1,6 @@
 #!/bin/bash
 
-
+cd test-binaries || exit 1;
 
 ensure_repo () {
   if [[ -e $1 ]]; then
