@@ -47,8 +47,7 @@ use near_primitives::utils::is_valid_account_id;
 use near_primitives::views::{FinalExecutionOutcomeView, GenesisRecordsView, QueryRequest};
 mod metrics;
 
-/// Maximum byte size of the json payload.
-const JSON_PAYLOAD_MAX_SIZE: usize = 2 * 1024 * 1024;
+/// Max size of the query path (soft-deprecated)
 const QUERY_DATA_MAX_SIZE: usize = 10 * 1024;
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug)]
@@ -67,10 +66,24 @@ impl Default for RpcPollingConfig {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct RpcLimitsConfig {
+    /// Maximum byte size of the json payload.
+    pub json_payload_max_size: usize,
+}
+
+impl Default for RpcLimitsConfig {
+    fn default() -> Self {
+        Self { json_payload_max_size: 10 * 1024 * 1024 }
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct RpcConfig {
     pub addr: String,
     pub cors_allowed_origins: Vec<String>,
     pub polling_config: RpcPollingConfig,
+    #[serde(default)]
+    pub limits_config: RpcLimitsConfig,
 }
 
 impl Default for RpcConfig {
@@ -79,6 +92,7 @@ impl Default for RpcConfig {
             addr: "0.0.0.0:3030".to_owned(),
             cors_allowed_origins: vec!["*".to_owned()],
             polling_config: Default::default(),
+            limits_config: Default::default(),
         }
     }
 }
@@ -926,7 +940,7 @@ pub fn start_http(
     client_addr: Addr<ClientActor>,
     view_client_addr: Addr<ViewClientActor>,
 ) {
-    let RpcConfig { addr, polling_config, cors_allowed_origins } = config;
+    let RpcConfig { addr, cors_allowed_origins, polling_config, limits_config } = config;
     HttpServer::new(move || {
         App::new()
             .wrap(get_cors(&cors_allowed_origins))
@@ -936,7 +950,7 @@ pub fn start_http(
                 polling_config,
                 genesis: Arc::clone(&genesis),
             })
-            .app_data(web::JsonConfig::default().limit(JSON_PAYLOAD_MAX_SIZE))
+            .app_data(web::JsonConfig::default().limit(limits_config.json_payload_max_size))
             .wrap(middleware::Logger::default())
             .service(web::resource("/").route(web::post().to(rpc_handler)))
             .service(
