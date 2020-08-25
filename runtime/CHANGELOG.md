@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.1.0
+
+- Implemented better compiler testing with `--compile-only` flag [#3074](https://github.com/nearprotocol/nearcore/pull/3074)
+- Added proper `wasmtime` support with `--vm-kind` flag.
+- Added `lightbeam` with feature and run with `--vm-kind wasmtime`
+
 ## 2.0.0
 
 - Same as `1.2.0`, but since it contained incompatible change, we had to bump major version.
