@@ -45,7 +45,7 @@ We ship prebuilt QEMU and TCG instruction counter plugin, so in many cases one d
 However, in case you still want to build it - use the following steps.
 
 Important: we build QEMU and the TCG plugin inside the container, so execute following commands inside Docker.
-Set environment variable HOST_DIR (on the host) to location where both QEMU and nearcore sourcecode is checked
+Set environment variable HOST_DIR (on the host) to location where both QEMU and nearcore source code is checked
 out, it will be mounted as `/host` inside the Docker container.
 Start container with:
 
@@ -74,4 +74,8 @@ and the use container ID for `docker exec` command, like:
 
     docker exec -it e9dcb52cc91b /host/qemu-linux/bin/qemu-x86_64 -d plugin -plugin file=/host/qemu-linux/plugins/libcounter.so /host/nearcore/runtime/runtime-params-estimator/emu-cost/counter_plugin/test_binary
 
+## Useful scripts
 
+The script `../estimate.sh` will handle all the setup mentioned above. It uses `wasmer` by default, but you can pass `wasmtime` and `lightbeam` as well.
+
+To just test the compile time costs use `../compile.sh`, which also takes an optional vm argument.  Its final output is (fee per byte, base fee)\
