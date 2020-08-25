@@ -76,7 +76,7 @@ if __name__ == "__main__":
                         help='Safety multiplier applied to second')
     parser.add_argument('--only_different',
                          default=-1,
-                         help='Only show differnce above that many percents')
+                         help='Only show differences above a certain percentage change')
 
     args = parser.parse_args()
 
