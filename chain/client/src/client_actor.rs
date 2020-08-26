@@ -55,6 +55,8 @@ use delay_detector::DelayDetector;
 
 /// Multiplier on `max_block_time` to wait until deciding that chain stalled.
 const STATUS_WAIT_TIME_MULTIPLIER: u64 = 10;
+/// Drop blocks whose height are beyond head + horizon.
+const BLOCK_HORIZON: u64 = 500;
 /// `max_block_production_time` times this multiplier is how long we wait before rebroadcasting
 /// the current `head`
 const HEAD_STALL_MULTIPLIER: u32 = 4;
@@ -911,6 +913,15 @@ impl ClientActor {
     fn receive_block(&mut self, block: Block, peer_id: PeerId, was_requested: bool) {
         let hash = *block.hash();
         debug!(target: "client", "{:?} Received block {} <- {} at {} from {}, requested: {}", self.client.validator_signer.as_ref().map(|vs| vs.validator_id()), hash, block.header().prev_hash(), block.header().height(), peer_id, was_requested);
+        // drop the block if it is too far ahead
+        let head = unwrap_or_return!(self.client.chain.head());
+        if block.header().height() >= head.height + BLOCK_HORIZON
+            && block.header().prev_hash() != &head.last_block_hash
+            && block.header().prev_hash() != &head.prev_block_hash
+        {
+            debug!(target: "client", "dropping block {} that is too far ahead. Block height {} current head height {}", block.hash(), block.header().height(), head.height);
+            return;
+        }
         let prev_hash = *block.header().prev_hash();
         let provenance =
             if was_requested { near_chain::Provenance::SYNC } else { near_chain::Provenance::NONE };

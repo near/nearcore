@@ -3268,9 +3268,12 @@ impl<'a> ChainUpdate<'a> {
 
     /// Updates "sync" head with given block header.
     fn update_sync_head(&mut self, header: &BlockHeader) -> Result<(), Error> {
-        let tip = Tip::from_header(header);
-        self.chain_store_update.save_sync_head(&tip);
-        debug!(target: "chain", "Sync head {} @ {}", tip.last_block_hash, tip.height);
+        let sync_head = self.chain_store_update.sync_head()?;
+        if header.height() > sync_head.height {
+            let tip = Tip::from_header(header);
+            self.chain_store_update.save_sync_head(&tip);
+            debug!(target: "chain", "Sync head {} @ {}", tip.last_block_hash, tip.height);
+        }
         Ok(())
     }
 
