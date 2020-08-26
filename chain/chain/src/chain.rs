@@ -271,10 +271,6 @@ impl Chain {
                 if store_update.get_block_header(&header_head.last_block_hash).is_err() {
                     // Reset header head and "sync" head to be consistent with current block head.
                     store_update.save_header_head_if_not_challenged(&head)?;
-                    store_update.save_sync_head(&head);
-                } else {
-                    // Reset sync head to be consistent with current header head.
-                    store_update.save_sync_head(&header_head);
                 }
                 // TODO: perform validation that latest state in runtime matches the stored chain.
             }
@@ -314,7 +310,6 @@ impl Chain {
 
                     head = Tip::from_header(genesis.header());
                     store_update.save_head(&head)?;
-                    store_update.save_sync_head(&head);
 
                     info!(target: "chain", "Init: saved genesis: {:?} / {:?}", genesis.hash(), state_roots);
                 }
@@ -390,16 +385,6 @@ impl Chain {
         )?;
 
         create_light_client_block_view(&final_block_header, chain_store, Some(next_block_producers))
-    }
-
-    /// Reset "sync" head to current header head.
-    /// Do this when first transition to header syncing.
-    pub fn reset_sync_head(&mut self) -> Result<Tip, Error> {
-        let mut chain_store_update = self.store.store_update();
-        let header_head = chain_store_update.header_head()?;
-        chain_store_update.save_sync_head(&header_head);
-        chain_store_update.commit()?;
-        Ok(header_head)
     }
 
     pub fn save_block(&mut self, block: &Block) -> Result<(), Error> {
@@ -818,8 +803,6 @@ impl Chain {
         );
 
         if let Some(header) = headers.last() {
-            // Update sync_head whether or not it's the new tip
-            chain_update.update_sync_head(header)?;
             // Update header_head if it's the new tip
             chain_update.update_header_head_if_not_challenged(header)?;
         }
@@ -2230,12 +2213,6 @@ impl Chain {
         self.store.header_head()
     }
 
-    /// Gets "sync" head. This may be significantly different to current header chain.
-    #[inline]
-    pub fn sync_head(&self) -> Result<Tip, Error> {
-        self.store.sync_head()
-    }
-
     /// Header of the block at the head of the block chain (not the same thing as header_head).
     #[inline]
     pub fn head_header(&mut self) -> Result<&BlockHeader, Error> {
@@ -3283,14 +3260,6 @@ impl<'a> ChainUpdate<'a> {
         } else {
             Ok(None)
         }
-    }
-
-    /// Updates "sync" head with given block header.
-    fn update_sync_head(&mut self, header: &BlockHeader) -> Result<(), Error> {
-        let tip = Tip::from_header(header);
-        self.chain_store_update.save_sync_head(&tip);
-        debug!(target: "chain", "Sync head {} @ {}", tip.last_block_hash, tip.height);
-        Ok(())
     }
 
     /// Marks a block as invalid,

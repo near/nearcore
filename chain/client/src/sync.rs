@@ -116,13 +116,9 @@ impl HeaderSync {
             | SyncStatus::BodySync { .. }
             | SyncStatus::StateSyncDone => true,
             SyncStatus::NoSync | SyncStatus::AwaitingPeers => {
-                let sync_head = chain.sync_head()?;
-                debug!(target: "sync", "Sync: initial transition to Header sync. Sync head: {} at {}, resetting to {} at {}",
-                    sync_head.last_block_hash, sync_head.height,
+                debug!(target: "sync", "Sync: initial transition to Header sync. Header head {} at {}",
                     header_head.last_block_hash, header_head.height,
                 );
-                // Reset sync_head to header_head on initial transition to HeaderSync.
-                chain.reset_sync_head()?;
                 self.history_locator.retain(|&x| x.0 == 0);
                 true
             }
@@ -132,7 +128,6 @@ impl HeaderSync {
         if enable_header_sync {
             *sync_status =
                 SyncStatus::HeaderSync { current_height: header_head.height, highest_height };
-            let header_head = chain.header_head()?;
             self.syncing_peer = None;
             if let Some(peer) = highest_height_peer(&highest_height_peers) {
                 if peer.chain_info.height > header_head.height {
@@ -258,15 +253,12 @@ impl HeaderSync {
     }
 
     fn get_locator(&mut self, chain: &mut Chain) -> Result<Vec<CryptoHash>, near_chain::Error> {
-        let tip = chain.sync_head()?;
-        let heights = get_locator_heights(tip.height);
-
-        // Clear history_locator in any case of header chain rollback.
-        if self.history_locator.len() > 0
-            && tip.last_block_hash != chain.header_head()?.last_block_hash
-        {
-            self.history_locator.retain(|&x| x.0 == 0);
-        }
+        let tip = chain.header_head()?;
+        let genesis_height = chain.genesis().height();
+        let heights = get_locator_heights(tip.height - genesis_height)
+            .into_iter()
+            .map(|h| h + genesis_height)
+            .collect::<Vec<_>>();
 
         // For each height we need, we either check if something is close enough from last locator, or go to the db.
         let mut locator: Vec<(u64, CryptoHash)> = vec![(tip.height, tip.last_block_hash)];
