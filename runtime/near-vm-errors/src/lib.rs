@@ -183,6 +183,8 @@ pub enum VMLogicError {
 pub enum InconsistentStateError {
     /// Math operation with a value from the state resulted in a integer overflow.
     IntegerOverflow,
+    /// Behavior of runtimes differs, when running in combined mode.alloc
+    RuntimeBehaviorMismatch,
 }
 
 impl From<HostError> for VMLogicError {
@@ -294,6 +296,9 @@ impl std::fmt::Display for InconsistentStateError {
                 f,
                 "Math operation with a value from the state resulted in a integer overflow.",
             ),
+            InconsistentStateError::RuntimeBehaviorMismatch => {
+                write!(f, "Combined runtime shows disagreement between two VMs.",)
+            }
         }
     }
 }

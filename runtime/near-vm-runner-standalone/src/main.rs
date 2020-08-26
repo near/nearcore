@@ -187,6 +187,7 @@ fn main() {
         Some(value) => match value {
             "wasmtime" => VMKind::Wasmtime,
             "wasmer" => VMKind::Wasmer,
+            "combined" => VMKind::Combined,
             _ => VMKind::default(),
         },
         None => VMKind::default(),

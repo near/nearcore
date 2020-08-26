@@ -96,7 +96,7 @@ impl GasCounter {
 
     #[cfg(not(feature = "costs_counting"))]
     #[inline]
-    fn update_profile_host(&mut self, cost: ExtCosts, _value: u64) {}
+    fn update_profile_host(&mut self, _cost: ExtCosts, _value: u64) {}
 
     #[cfg(feature = "costs_counting")]
     #[inline]
@@ -111,7 +111,7 @@ impl GasCounter {
 
     #[cfg(not(feature = "costs_counting"))]
     #[inline]
-    fn update_profile_action(&mut self, action: ActionCosts, _value: u64) {}
+    fn update_profile_action(&mut self, _action: ActionCosts, _value: u64) {}
 
     pub fn pay_wasm_gas(&mut self, value: u64) -> Result<()> {
         self.deduct_gas(value, value)

@@ -1,4 +1,6 @@
 mod cache;
+#[cfg(feature = "combined_vm")]
+mod combined_runner;
 mod errors;
 mod imports;
 mod memory;

@@ -34,6 +34,9 @@ default = [ "wasmer_default" ]
 wasmtime_vm = [ "wasmtime", "anyhow"]
 wasmer_default = []
 wasmtime_default = ["wasmtime_vm"]
+combined_vm = []
+combined_default = [ "wasmtime_vm", "combined_vm" ]
+
 no_cpu_compatibility_checks = []
 lightbeam = ["wasmtime_vm"]
 

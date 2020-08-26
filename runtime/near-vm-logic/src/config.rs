@@ -10,6 +10,8 @@ pub enum VMKind {
     Wasmer,
     /// Wasmtime VM.
     Wasmtime,
+    /// Combination of several VMs runing on the same contract.
+    Combined,
 }
 
 impl Default for VMKind {
@@ -21,6 +23,11 @@ impl Default for VMKind {
     #[cfg(feature = "wasmtime_default")]
     fn default() -> Self {
         VMKind::Wasmtime
+    }
+
+    #[cfg(feature = "combined_default")]
+    fn default() -> Self {
+        VMKind::Combined
     }
 
     #[cfg(all(not(feature = "wasmer_default"), not(feature = "wasmtime_default")))]
