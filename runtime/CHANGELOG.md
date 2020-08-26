@@ -1,8 +1,14 @@
 # Changelog
 
-## 2.0.1
+## 2.1.1
 
 - Bumped `borsh` dependency from `0.7.0` to `0.7.1` [#3238](https://github.com/nearprotocol/nearcore/pull/3238)
+
+## 2.1.0
+
+- Implemented better compiler testing with `--compile-only` flag [#3074](https://github.com/nearprotocol/nearcore/pull/3074)
+- Added proper `wasmtime` support with `--vm-kind` flag.
+- Added `lightbeam` with feature and run with `--vm-kind wasmtime`
 
 ## 2.0.0
 

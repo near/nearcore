@@ -253,6 +253,6 @@ pub fn run_wasmer<'a>(
     }
 }
 
-pub fn compile_module(code: &[u8]) {
-    wasmer_runtime::compile(code).unwrap();
+pub fn compile_module(code: &[u8]) -> bool {
+    wasmer_runtime::compile(code).is_ok()
 }

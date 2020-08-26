@@ -1,4 +1,5 @@
 use clap::{App, Arg};
+use near_vm_logic::VMKind;
 use neard::get_default_home;
 use runtime_params_estimator::cases::run;
 use runtime_params_estimator::testbed_runners::Config;
@@ -49,25 +50,59 @@ fn main() {
                 .takes_value(true)
                 .help("What metric to use, possible values are icount or time."),
         )
+        .arg(
+            Arg::with_name("vm-kind")
+                .long("vm-kind")
+                .default_value("wasmer")
+                .help("Which VM to test: wasmer or wasmtime"),
+        )
+        .arg(
+            Arg::with_name("compile-only")
+                .long("compile-only")
+                .help("Only test contract compilation costs"),
+        )
+        .arg(
+            Arg::with_name("disable-action-creation")
+                .long("action-creation")
+                .help("Disables action creation measurements"),
+        )
+        .arg(
+            Arg::with_name("disable-transaction")
+                .long("transaction")
+                .help("Disables transaction measurements"),
+        )
         .get_matches();
 
     let state_dump_path = matches.value_of("home").unwrap().to_string();
     let warmup_iters_per_block = matches.value_of("warmup-iters").unwrap().parse().unwrap();
     let iter_per_block = matches.value_of("iters").unwrap().parse().unwrap();
     let active_accounts = matches.value_of("accounts-num").unwrap().parse().unwrap();
-    let metric = matches.value_of("metric").unwrap().to_string();
-    let known_metrics = vec!["icount".to_string(), "time".to_string()];
-    if !known_metrics.contains(&metric) {
-        panic!("Unknown metric {}", metric);
-    }
-    let runtime_config = run(Config {
-        warmup_iters_per_block,
-        iter_per_block,
-        active_accounts,
-        block_sizes: vec![],
-        state_dump_path: state_dump_path.clone(),
-        metric: if metric == "icount" { GasMetric::ICount } else { GasMetric::Time },
-    });
+    let metric = match matches.value_of("metric").unwrap() {
+        "icount" => GasMetric::ICount,
+        "time" => GasMetric::Time,
+        other => panic!("Unknown metric {}", other),
+    };
+    let vm_kind = match matches.value_of("vm-kind") {
+        Some("wasmer") => VMKind::Wasmer,
+        Some("wasmtime") => VMKind::Wasmtime,
+        _ => VMKind::Wasmer,
+    };
+    let disable_measure_action_creation = matches.is_present("action-creation");
+    let disable_measure_transaction = matches.is_present("transaction");
+    let runtime_config = run(
+        Config {
+            warmup_iters_per_block,
+            iter_per_block,
+            active_accounts,
+            block_sizes: vec![],
+            state_dump_path: state_dump_path.clone(),
+            metric,
+            vm_kind,
+            disable_measure_action_creation,
+            disable_measure_transaction,
+        },
+        matches.is_present("compile-only"),
+    );
 
     println!("Generated RuntimeConfig:");
     println!("{:#?}", runtime_config);
