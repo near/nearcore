@@ -1,6 +1,6 @@
 use near_runtime_fees::RuntimeFeesConfig;
 use near_vm_errors::VMError;
-use near_vm_logic::types::{ProfileData, PromiseResult};
+use near_vm_logic::types::{ProfileData, PromiseResult, ProtocolVersion};
 use near_vm_logic::{External, VMConfig, VMContext, VMKind, VMOutcome};
 
 /// `run` does the following:
@@ -24,6 +24,7 @@ pub fn run<'a>(
     wasm_config: &'a VMConfig,
     fees_config: &'a RuntimeFeesConfig,
     promise_results: &'a [PromiseResult],
+    current_protocol_version: ProtocolVersion,
 ) -> (Option<VMOutcome>, Option<VMError>) {
     run_vm(
         code_hash,
@@ -35,6 +36,7 @@ pub fn run<'a>(
         fees_config,
         promise_results,
         VMKind::default(),
+        current_protocol_version,
     )
 }
 pub fn run_vm<'a>(
@@ -47,6 +49,7 @@ pub fn run_vm<'a>(
     fees_config: &'a RuntimeFeesConfig,
     promise_results: &'a [PromiseResult],
     vm_kind: VMKind,
+    current_protocol_version: ProtocolVersion,
 ) -> (Option<VMOutcome>, Option<VMError>) {
     use crate::wasmer_runner::run_wasmer;
     #[cfg(feature = "wasmtime_vm")]
@@ -62,6 +65,7 @@ pub fn run_vm<'a>(
             fees_config,
             promise_results,
             None,
+            current_protocol_version,
         ),
         #[cfg(feature = "wasmtime_vm")]
         VMKind::Wasmtime => run_wasmtime(
@@ -74,6 +78,7 @@ pub fn run_vm<'a>(
             fees_config,
             promise_results,
             None,
+            current_protocol_version,
         ),
         #[cfg(not(feature = "wasmtime_vm"))]
         VMKind::Wasmtime => {
@@ -93,6 +98,7 @@ pub fn run_vm_profiled<'a>(
     promise_results: &'a [PromiseResult],
     vm_kind: VMKind,
     profile: ProfileData,
+    current_protocol_version: ProtocolVersion,
 ) -> (Option<VMOutcome>, Option<VMError>) {
     use crate::wasmer_runner::run_wasmer;
     #[cfg(feature = "wasmtime_vm")]
@@ -108,6 +114,7 @@ pub fn run_vm_profiled<'a>(
             fees_config,
             promise_results,
             Some(profile),
+            current_protocol_version,
         ),
         #[cfg(feature = "wasmtime_vm")]
         VMKind::Wasmtime => run_wasmtime(
@@ -120,6 +127,7 @@ pub fn run_vm_profiled<'a>(
             fees_config,
             promise_results,
             Some(profile),
+            current_protocol_version,
         ),
         #[cfg(not(feature = "wasmtime_vm"))]
         VMKind::Wasmtime => {

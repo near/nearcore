@@ -492,7 +492,7 @@ impl Client {
             .clone();
 
         let prev_block_header = self.chain.get_block_header(&prev_block_hash)?.clone();
-        let transactions = self.prepare_transactions(shard_id, &chunk_extra, &prev_block_header);
+        let transactions = self.prepare_transactions(shard_id, &chunk_extra, &prev_block_header)?;
         let num_filtered_transactions = transactions.len();
         let (tx_root, _) = merklize(&transactions);
         let ReceiptResponse(_, outgoing_receipts) = self.chain.get_outgoing_receipts_for_shard(
@@ -556,36 +556,40 @@ impl Client {
         shard_id: ShardId,
         chunk_extra: &ChunkExtra,
         prev_block_header: &BlockHeader,
-    ) -> Vec<SignedTransaction> {
+    ) -> Result<Vec<SignedTransaction>, Error> {
         let Self { chain, shards_mgr, runtime_adapter, .. } = self;
+
+        let next_epoch_id =
+            runtime_adapter.get_epoch_id_from_prev_block(&prev_block_header.hash())?;
+        let protocol_version = runtime_adapter.get_epoch_protocol_version(&next_epoch_id)?;
+
         let transactions = if let Some(mut iter) = shards_mgr.get_pool_iterator(shard_id) {
             let transaction_validity_period = chain.transaction_validity_period;
-            runtime_adapter
-                .prepare_transactions(
-                    prev_block_header.gas_price(),
-                    chunk_extra.gas_limit,
-                    shard_id,
-                    chunk_extra.state_root.clone(),
-                    &mut iter,
-                    &mut |tx: &SignedTransaction| -> bool {
-                        chain
-                            .mut_store()
-                            .check_transaction_validity_period(
-                                &prev_block_header,
-                                &tx.transaction.block_hash,
-                                transaction_validity_period,
-                            )
-                            .is_ok()
-                    },
-                )
-                .expect("no StorageError please")
+            runtime_adapter.prepare_transactions(
+                prev_block_header.gas_price(),
+                chunk_extra.gas_limit,
+                shard_id,
+                chunk_extra.state_root.clone(),
+                &mut iter,
+                &mut |tx: &SignedTransaction| -> bool {
+                    chain
+                        .mut_store()
+                        .check_transaction_validity_period(
+                            &prev_block_header,
+                            &tx.transaction.block_hash,
+                            transaction_validity_period,
+                        )
+                        .is_ok()
+                },
+                protocol_version,
+            )?
         } else {
             vec![]
         };
         // Reintroduce valid transactions back to the pool. They will be removed when the chunk is
         // included into the block.
         shards_mgr.reintroduce_transactions(shard_id, &transactions);
-        transactions
+        Ok(transactions)
     }
 
     pub fn send_challenges(&mut self, challenges: Arc<RwLock<Vec<ChallengeBody>>>) {
@@ -1225,8 +1229,12 @@ impl Client {
         let gas_price = cur_block_header.gas_price();
         let epoch_id = self.runtime_adapter.get_epoch_id_from_prev_block(&head.last_block_hash)?;
 
-        if let Some(err) =
-            self.runtime_adapter.validate_tx(gas_price, None, &tx, true).expect("no storage errors")
+        let protocol_version = self.runtime_adapter.get_epoch_protocol_version(&epoch_id)?;
+
+        if let Some(err) = self
+            .runtime_adapter
+            .validate_tx(gas_price, None, &tx, true, protocol_version)
+            .expect("no storage errors")
         {
             debug!(target: "client", "Invalid tx during basic validation: {:?}", err);
             return Ok(NetworkClientResponses::InvalidTx(err));
@@ -1252,7 +1260,7 @@ impl Client {
             };
             if let Some(err) = self
                 .runtime_adapter
-                .validate_tx(gas_price, Some(state_root), &tx, false)
+                .validate_tx(gas_price, Some(state_root), &tx, false, protocol_version)
                 .expect("no storage errors")
             {
                 debug!(target: "client", "Invalid tx: {:?}", err);

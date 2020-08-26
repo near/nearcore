@@ -255,6 +255,7 @@ pub trait RuntimeAdapter: Send + Sync {
         state_root: Option<StateRoot>,
         transaction: &SignedTransaction,
         verify_signature: bool,
+        current_protocol_version: ProtocolVersion,
     ) -> Result<Option<InvalidTxError>, Error>;
 
     /// Returns an ordered list of valid transactions from the pool up the given limits.
@@ -272,6 +273,7 @@ pub trait RuntimeAdapter: Send + Sync {
         state_root: StateRoot,
         pool_iterator: &mut dyn PoolIterator,
         chain_validate: &mut dyn FnMut(&SignedTransaction) -> bool,
+        current_protocol_version: ProtocolVersion,
     ) -> Result<Vec<SignedTransaction>, Error>;
 
     /// Verify validator signature for the given epoch.

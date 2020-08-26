@@ -237,6 +237,7 @@ impl Runtime {
             apply_state.gas_price,
             signed_transaction,
             true,
+            apply_state.current_protocol_version,
         ) {
             Ok(verification_result) => {
                 near_metrics::inc_counter(&metrics::TRANSACTION_PROCESSED_SUCCESSFULLY_TOTAL);
@@ -295,7 +296,12 @@ impl Runtime {
         epoch_info_provider: &dyn EpochInfoProvider,
     ) -> Result<ActionResult, RuntimeError> {
         let mut result = ActionResult::default();
-        let exec_fees = exec_fee(&self.config.transaction_costs, action);
+        let exec_fees = exec_fee(
+            &self.config.transaction_costs,
+            action,
+            &receipt.receiver_id,
+            apply_state.current_protocol_version,
+        );
         result.gas_burnt += exec_fees;
         result.gas_used += exec_fees;
         let account_id = &receipt.receiver_id;
@@ -536,6 +542,7 @@ impl Runtime {
                 receipt,
                 action_receipt,
                 &mut result,
+                apply_state.current_protocol_version,
             )?
         };
         stats.gas_deficit_amount = safe_add_balance(stats.gas_deficit_amount, gas_deficit_amount)?;
@@ -679,11 +686,17 @@ impl Runtime {
         receipt: &Receipt,
         action_receipt: &ActionReceipt,
         result: &mut ActionResult,
+        current_protocol_version: ProtocolVersion,
     ) -> Result<Balance, RuntimeError> {
         let total_deposit = total_deposit(&action_receipt.actions)?;
         let prepaid_gas = total_prepaid_gas(&action_receipt.actions)?;
         let exec_gas = safe_add_gas(
-            total_exec_fees(&self.config.transaction_costs, &action_receipt.actions)?,
+            total_exec_fees(
+                &self.config.transaction_costs,
+                &action_receipt.actions,
+                &receipt.receiver_id,
+                current_protocol_version,
+            )?,
             self.config.transaction_costs.action_receipt_creation_config.exec_fee(),
         )?;
         let deposit_refund = if result.result.is_err() { total_deposit } else { 0 };
@@ -1160,6 +1173,7 @@ impl Runtime {
             transactions,
             &outgoing_receipts,
             &stats,
+            apply_state.current_protocol_version,
         )?;
 
         state_update.commit(StateChangeCause::UpdatedDelayedReceipts);
@@ -1376,6 +1390,7 @@ mod tests {
     use near_primitives::test_utils::{account_new, MockEpochInfoProvider};
     use near_primitives::transaction::{FunctionCallAction, TransferAction};
     use near_primitives::types::MerkleHash;
+    use near_primitives::version::PROTOCOL_VERSION;
     use near_store::test_utils::create_tries;
     use std::sync::Arc;
     use testlib::runtime_utils::{alice_account, bob_account};
@@ -1456,7 +1471,7 @@ mod tests {
             block_timestamp: 100,
             gas_limit: Some(gas_limit),
             random_seed: Default::default(),
-            current_protocol_version: 0,
+            current_protocol_version: PROTOCOL_VERSION,
         };
 
         (runtime, tries, root, apply_state, signer, MockEpochInfoProvider::default())
@@ -1981,7 +1996,13 @@ mod tests {
 
         let expected_gas_burnt = safe_add_gas(
             runtime.config.transaction_costs.action_receipt_creation_config.exec_fee(),
-            total_exec_fees(&runtime.config.transaction_costs, &actions).unwrap(),
+            total_exec_fees(
+                &runtime.config.transaction_costs,
+                &actions,
+                &alice_account(),
+                PROTOCOL_VERSION,
+            )
+            .unwrap(),
         )
         .unwrap();
         let receipts = vec![Receipt {
@@ -2044,7 +2065,13 @@ mod tests {
 
         let expected_gas_burnt = safe_add_gas(
             runtime.config.transaction_costs.action_receipt_creation_config.exec_fee(),
-            total_exec_fees(&runtime.config.transaction_costs, &actions).unwrap(),
+            total_exec_fees(
+                &runtime.config.transaction_costs,
+                &actions,
+                &alice_account(),
+                PROTOCOL_VERSION,
+            )
+            .unwrap(),
         )
         .unwrap();
         let receipts = vec![Receipt {

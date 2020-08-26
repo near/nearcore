@@ -164,6 +164,7 @@ pub(crate) fn action_function_call(
         &config.wasm_config,
         &config.transaction_costs,
         promise_results,
+        apply_state.current_protocol_version,
     );
     let execution_succeeded = match err {
         Some(VMError::FunctionCallError(err)) => {
