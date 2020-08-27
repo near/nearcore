@@ -6,7 +6,7 @@ import base58
 import base64
 import requests
 import json
-from rc import pmap
+from rc import pmap, run
 import sys
 import random
 import string
@@ -14,7 +14,7 @@ import time
 
 sys.path.append('lib')
 from cluster import Key
-from mocknet import NUM_NODES
+from mocknet import NUM_NODES, TX_OUT_FILE
 from account import Account
 
 LOCAL_ADDR = '127.0.0.1'
@@ -110,7 +110,18 @@ def throttle_txns(send_txns, total_tx_sent, elapsed_time, max_tps, i0):
     return (total_tx_sent, elapsed_time)
 
 
-if __name__ == '__main__':
+def write_tx_events(accounts_and_indices):
+    # record events for accurate input tps measurements
+    all_tx_events = []
+    for (account, _) in accounts_and_indices:
+        all_tx_events += account.tx_timestamps
+    all_tx_events.sort()
+    with open(TX_OUT_FILE, 'w') as output:
+        for t in all_tx_events:
+            output.write(f'{t}\n')
+
+
+def get_test_accounts_from_args():
     node_index = int(sys.argv[1])
     pk = sys.argv[2]
     sk = sys.argv[3]
@@ -124,9 +135,14 @@ if __name__ == '__main__':
     base_block_hash = get_latest_block_hash()
     rpc_info = (LOCAL_ADDR, RPC_PORT)
 
-    test_accounts = [(Account(key, get_nonce_for_pk(key.account_id, key.pk),
-                              base_block_hash, rpc_info), i)
-                     for (key, i) in test_account_keys]
+    return [(Account(key, get_nonce_for_pk(key.account_id, key.pk),
+                     base_block_hash, rpc_info), i)
+            for (key, i) in test_account_keys]
+
+
+if __name__ == '__main__':
+    test_accounts = get_test_accounts_from_args()
+    run(f'rm -rf {TX_OUT_FILE}')
 
     i0 = test_accounts[0][1]
     start_time = time.time()
@@ -139,6 +155,8 @@ if __name__ == '__main__':
          elapsed_time) = throttle_txns(send_transfers, total_tx_sent,
                                        elapsed_time, MAX_TPS_PER_NODE, i0)
 
+    write_tx_events(test_accounts)
+
     # Ensure load testing contract is deployed to all accounts before
     # starting to send random transactions (ensures we do not try to
     # call the contract before it is deployed).
@@ -147,9 +165,15 @@ if __name__ == '__main__':
         account.send_deploy_contract_tx(WASM_FILENAME)
         time.sleep(delay)
 
+    # reset input transactions
+    run(f'rm -rf {TX_OUT_FILE}')
+    for (account, _) in test_accounts:
+        account.tx_timestamps = []
     # send all sorts of transactions
     start_time = time.time()
     while time.time() - start_time < ALL_TX_TIMEOUT:
         (total_tx_sent,
          elapsed_time) = throttle_txns(send_random_transactions, total_tx_sent,
                                        elapsed_time, MAX_TPS_PER_NODE, i0)
+
+    write_tx_events(test_accounts)
