@@ -1051,7 +1051,7 @@ impl ShardsManager {
             ) {
                 let ReceiptProof(shard_receipts, receipt_proof) = proof;
                 let receipt_hash =
-                    hash(&ReceiptList(shard_id, shard_receipts.to_vec()).try_to_vec().unwrap());
+                    hash(&ReceiptList(shard_id, shard_receipts).try_to_vec().unwrap());
                 if !verify_path(
                     header.inner.outgoing_receipts_root,
                     &receipt_proof.proof,
