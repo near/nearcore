@@ -53,6 +53,8 @@ mod test {
 
     fn test_kill_1(num_nodes: usize, num_trials: usize, two_shards: bool, test_prefix: &str) {
         warmup();
+        near_actix_utils::init_stop_on_panic();
+
         // Start all nodes, crash node#2, proceed, restart node #2 but crash node #3
         let crash1 = 2;
         let crash2 = 3;
