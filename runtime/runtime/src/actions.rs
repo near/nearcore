@@ -1,9 +1,9 @@
 use std::sync::Arc;
 
-use borsh::BorshSerialize;
+use borsh::{BorshDeserialize, BorshSerialize};
 use log::debug;
 
-use near_primitives::account::{AccessKeyPermission, Account};
+use near_primitives::account::{AccessKey, AccessKeyPermission, Account};
 use near_primitives::contract::ContractCode;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{ActionReceipt, Receipt};
@@ -13,7 +13,8 @@ use near_primitives::transaction::{
 };
 use near_primitives::types::{AccountId, Balance, EpochInfoProvider, ValidatorStake};
 use near_primitives::utils::{
-    is_valid_account_id, is_valid_sub_account_id, is_valid_top_level_account_id,
+    is_account_id_64_len_hex, is_valid_account_id, is_valid_sub_account_id,
+    is_valid_top_level_account_id,
 };
 use near_runtime_fees::RuntimeFeesConfig;
 use near_store::{
@@ -28,7 +29,10 @@ use crate::ext::RuntimeExt;
 use crate::{ActionResult, ApplyState};
 use near_crypto::PublicKey;
 use near_primitives::errors::{ActionError, ActionErrorKind, ExternalError, RuntimeError};
-use near_primitives::version::CORRECT_RANDOM_VALUE_PROTOCOL_VERSION;
+use near_primitives::version::{
+    ProtocolVersion, CORRECT_RANDOM_VALUE_PROTOCOL_VERSION,
+    IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION,
+};
 use near_runtime_configs::AccountCreationConfig;
 use near_vm_errors::{CompilationError, FunctionCallError};
 use near_vm_runner::VMError;
@@ -344,6 +348,44 @@ pub(crate) fn action_create_account(
     });
 }
 
+pub(crate) fn action_implicit_account_creation_transfer(
+    state_update: &mut TrieUpdate,
+    fee_config: &RuntimeFeesConfig,
+    account: &mut Option<Account>,
+    actor_id: &mut AccountId,
+    account_id: &AccountId,
+    transfer: &TransferAction,
+) {
+    // NOTE: The account_id is hex like, because we've checked the permissions before.
+    debug_assert!(is_account_id_64_len_hex(account_id));
+
+    *actor_id = account_id.clone();
+
+    let access_key = AccessKey::full_access();
+    // 0 for ED25519
+    let mut public_key_data = Vec::with_capacity(33);
+    public_key_data.push(0u8);
+    public_key_data.extend(
+        hex::decode(account_id.as_bytes())
+            .expect("account id was a valid hex of length 64 resulting in 32 bytes"),
+    );
+    debug_assert_eq!(public_key_data.len(), 33);
+    let public_key = PublicKey::try_from_slice(&public_key_data)
+        .expect("we should be able to deserialize ED25519 public key");
+
+    *account = Some(Account {
+        amount: transfer.deposit,
+        locked: 0,
+        code_hash: CryptoHash::default(),
+        storage_usage: fee_config.storage_usage_config.num_bytes_account
+            + public_key.len() as u64
+            + access_key.try_to_vec().unwrap().len() as u64
+            + fee_config.storage_usage_config.num_extra_bytes_record,
+    });
+
+    set_access_key(state_update, account_id.clone(), public_key, &access_key);
+}
+
 pub(crate) fn action_deploy_contract(
     state_update: &mut TrieUpdate,
     account: &mut Account,
@@ -510,19 +552,45 @@ pub(crate) fn check_account_existence(
     action: &Action,
     account: &mut Option<Account>,
     account_id: &AccountId,
+    current_protocol_version: ProtocolVersion,
+    is_the_only_action: bool,
 ) -> Result<(), ActionError> {
     match action {
         Action::CreateAccount(_) => {
             if account.is_some() {
                 return Err(ActionErrorKind::AccountAlreadyExists {
-                    account_id: account_id.clone().into(),
+                    account_id: account_id.clone(),
                 }
                 .into());
+            } else {
+                if current_protocol_version >= IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION
+                    && is_account_id_64_len_hex(&account_id)
+                {
+                    return Err(ActionErrorKind::OnlyImplicitAccountCreationAllowed {
+                        account_id: account_id.clone(),
+                    }
+                    .into());
+                }
+            }
+        }
+        Action::Transfer(_) => {
+            if account.is_none() {
+                if current_protocol_version >= IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION
+                    && is_the_only_action
+                    && is_account_id_64_len_hex(&account_id)
+                {
+                    // OK. It's implicit account creation.
+                    return Ok(());
+                } else {
+                    return Err(ActionErrorKind::AccountDoesNotExist {
+                        account_id: account_id.clone(),
+                    }
+                    .into());
+                }
             }
         }
         Action::DeployContract(_)
         | Action::FunctionCall(_)
-        | Action::Transfer(_)
         | Action::Stake(_)
         | Action::AddKey(_)
         | Action::DeleteKey(_)

@@ -15,6 +15,7 @@ lazy_static = "1.4"
 num-rational = "0.2.4"
 num-bigint = "0.2.6"
 num-traits = "0.2.11"
+hex = "0.4.2"
 
 borsh = "0.7.0"
 cached = "0.12.0"

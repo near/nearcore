@@ -38,7 +38,7 @@ use crate::config::{
 };
 use crate::verifier::validate_receipt;
 pub use crate::verifier::{validate_transaction, verify_and_charge_transaction};
-use near_primitives::version::ProtocolVersion;
+use near_primitives::version::{ProtocolVersion, IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION};
 use std::rc::Rc;
 
 mod actions;
@@ -292,7 +292,8 @@ impl Runtime {
         action_receipt: &ActionReceipt,
         promise_results: &[PromiseResult],
         action_hash: &CryptoHash,
-        is_last_action: bool,
+        action_index: usize,
+        actions: &[Action],
         epoch_info_provider: &dyn EpochInfoProvider,
     ) -> Result<ActionResult, RuntimeError> {
         let mut result = ActionResult::default();
@@ -306,7 +307,13 @@ impl Runtime {
         result.gas_used += exec_fees;
         let account_id = &receipt.receiver_id;
         // Account validation
-        if let Err(e) = check_account_existence(action, account, account_id) {
+        if let Err(e) = check_account_existence(
+            action,
+            account,
+            account_id,
+            apply_state.current_protocol_version,
+            actions.len() == 1,
+        ) {
             result.result = Err(e);
             return Ok(result);
         }
@@ -351,23 +358,39 @@ impl Runtime {
                     function_call,
                     action_hash,
                     &self.config,
-                    is_last_action,
+                    action_index + 1 == actions.len(),
                     epoch_info_provider,
                 )?;
             }
             Action::Transfer(transfer) => {
                 near_metrics::inc_counter(&metrics::ACTION_TRANSFER_TOTAL);
-                action_transfer(account.as_mut().expect(EXPECT_ACCOUNT_EXISTS), transfer)?;
-                // Check if this is a gas refund, then try to refund the access key allowance.
-                if receipt.predecessor_id == system_account()
-                    && action_receipt.signer_id == receipt.receiver_id
-                {
-                    try_refund_allowance(
+                if let Some(account) = account.as_mut() {
+                    action_transfer(account, transfer)?;
+                    // Check if this is a gas refund, then try to refund the access key allowance.
+                    if receipt.predecessor_id == system_account()
+                        && action_receipt.signer_id == receipt.receiver_id
+                    {
+                        try_refund_allowance(
+                            state_update,
+                            &receipt.receiver_id,
+                            &action_receipt.signer_public_key,
+                            transfer,
+                        )?;
+                    }
+                } else {
+                    // Implicit account creation
+                    debug_assert!(
+                        apply_state.current_protocol_version
+                            >= IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION
+                    );
+                    action_implicit_account_creation_transfer(
                         state_update,
+                        &self.config.transaction_costs,
+                        account,
+                        actor_id,
                         &receipt.receiver_id,
-                        &action_receipt.signer_public_key,
                         transfer,
-                    )?;
+                    );
                 }
             }
             Action::Stake(stake) => {
@@ -471,7 +494,6 @@ impl Runtime {
         result.gas_burnt = exec_fee;
         // Executing actions one by one
         for (action_index, action) in action_receipt.actions.iter().enumerate() {
-            let is_last_action = action_index + 1 == action_receipt.actions.len();
             let mut new_result = self.apply_action(
                 action,
                 state_update,
@@ -485,7 +507,8 @@ impl Runtime {
                     &receipt.receipt_id,
                     u64::max_value() - action_index as u64,
                 ),
-                is_last_action,
+                action_index,
+                &action_receipt.actions,
                 epoch_info_provider,
             )?;
             if new_result.result.is_ok() {
