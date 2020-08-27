@@ -26,6 +26,7 @@ pub fn validate_transaction(
     config: &RuntimeConfig,
     gas_price: Balance,
     signed_transaction: &SignedTransaction,
+    verify_signature: bool,
 ) -> Result<TransactionCost, RuntimeError> {
     let transaction = &signed_transaction.transaction;
     let signer_id = &transaction.signer_id;
@@ -39,9 +40,10 @@ pub fn validate_transaction(
         .into());
     }
 
-    if !signed_transaction
-        .signature
-        .verify(signed_transaction.get_hash().as_ref(), &transaction.public_key)
+    if verify_signature
+        && !signed_transaction
+            .signature
+            .verify(signed_transaction.get_hash().as_ref(), &transaction.public_key)
     {
         return Err(InvalidTxError::InvalidSignature.into());
     }
@@ -62,9 +64,10 @@ pub fn verify_and_charge_transaction(
     state_update: &mut TrieUpdate,
     gas_price: Balance,
     signed_transaction: &SignedTransaction,
+    verify_signature: bool,
 ) -> Result<VerificationResult, RuntimeError> {
     let TransactionCost { gas_burnt, gas_remaining, receipt_gas_price, total_cost, burnt_amount } =
-        validate_transaction(config, gas_price, signed_transaction)?;
+        validate_transaction(config, gas_price, signed_transaction, verify_signature)?;
     let transaction = &signed_transaction.transaction;
     let signer_id = &transaction.signer_id;
 
@@ -478,13 +481,19 @@ mod tests {
         expected_err: RuntimeError,
     ) {
         assert_eq!(
-            validate_transaction(&config, gas_price, &signed_transaction)
+            validate_transaction(&config, gas_price, &signed_transaction, true)
                 .expect_err("expected an error"),
             expected_err,
         );
         assert_eq!(
-            verify_and_charge_transaction(&config, state_update, gas_price, &signed_transaction)
-                .expect_err("expected an error"),
+            verify_and_charge_transaction(
+                &config,
+                state_update,
+                gas_price,
+                &signed_transaction,
+                true
+            )
+            .expect_err("expected an error"),
             expected_err,
         );
     }
@@ -506,10 +515,15 @@ mod tests {
             deposit,
             CryptoHash::default(),
         );
-        validate_transaction(&config, gas_price, &transaction).expect("valid transaction");
-        let verification_result =
-            verify_and_charge_transaction(&config, &mut state_update, gas_price, &transaction)
-                .expect("valid transaction");
+        validate_transaction(&config, gas_price, &transaction, true).expect("valid transaction");
+        let verification_result = verify_and_charge_transaction(
+            &config,
+            &mut state_update,
+            gas_price,
+            &transaction,
+            true,
+        )
+        .expect("valid transaction");
         // Should not be free. Burning for sending
         assert!(verification_result.gas_burnt > 0);
         // All burned gas goes to the validators at current gas price
@@ -627,6 +641,7 @@ mod tests {
                     100,
                     CryptoHash::default(),
                 ),
+                false
             )
             .expect_err("expected an error"),
             RuntimeError::InvalidTxError(InvalidTxError::InvalidAccessKeyError(
@@ -691,6 +706,7 @@ mod tests {
                     100,
                     CryptoHash::default(),
                 ),
+                true
             )
             .expect_err("expected an error"),
             RuntimeError::InvalidTxError(InvalidTxError::SignerDoesNotExist {
@@ -721,6 +737,7 @@ mod tests {
                     100,
                     CryptoHash::default(),
                 ),
+                true
             )
             .expect_err("expected an error"),
             RuntimeError::InvalidTxError(InvalidTxError::InvalidNonce { tx_nonce: 1, ak_nonce: 2 }),
@@ -767,6 +784,7 @@ mod tests {
                 TESTING_INIT_BALANCE,
                 CryptoHash::default(),
             ),
+            true,
         )
         .expect_err("expected an error");
         if let RuntimeError::InvalidTxError(InvalidTxError::NotEnoughBalance {
@@ -816,6 +834,7 @@ mod tests {
                 })],
                 CryptoHash::default(),
             ),
+            true,
         )
         .expect_err("expected an error");
         if let RuntimeError::InvalidTxError(InvalidTxError::InvalidAccessKeyError(
@@ -855,6 +874,7 @@ mod tests {
                     transfer_amount,
                     CryptoHash::default(),
                 ),
+                true
             )
             .expect_err("expected an error"),
             RuntimeError::InvalidTxError(InvalidTxError::LackBalanceForState {
@@ -903,6 +923,7 @@ mod tests {
                     ],
                     CryptoHash::default(),
                 ),
+                true
             )
             .expect_err("expected an error"),
             RuntimeError::InvalidTxError(InvalidTxError::InvalidAccessKeyError(
@@ -923,6 +944,7 @@ mod tests {
                     vec![],
                     CryptoHash::default(),
                 ),
+                true
             )
             .expect_err("expected an error"),
             RuntimeError::InvalidTxError(InvalidTxError::InvalidAccessKeyError(
@@ -943,6 +965,7 @@ mod tests {
                     vec![Action::CreateAccount(CreateAccountAction {})],
                     CryptoHash::default(),
                 ),
+                true
             )
             .expect_err("expected an error"),
             RuntimeError::InvalidTxError(InvalidTxError::InvalidAccessKeyError(
@@ -985,6 +1008,7 @@ mod tests {
                     }),],
                     CryptoHash::default(),
                 ),
+                true
             )
             .expect_err("expected an error"),
             RuntimeError::InvalidTxError(InvalidTxError::InvalidAccessKeyError(
@@ -1030,6 +1054,7 @@ mod tests {
                     }),],
                     CryptoHash::default(),
                 ),
+                true
             )
             .expect_err("expected an error"),
             RuntimeError::InvalidTxError(InvalidTxError::InvalidAccessKeyError(
@@ -1072,6 +1097,7 @@ mod tests {
                     }),],
                     CryptoHash::default(),
                 ),
+                true
             )
             .expect_err("expected an error"),
             RuntimeError::InvalidTxError(InvalidTxError::InvalidAccessKeyError(

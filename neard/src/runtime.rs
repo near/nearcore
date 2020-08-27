@@ -527,6 +527,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         gas_price: Balance,
         state_root: Option<StateRoot>,
         transaction: &SignedTransaction,
+        verify_signature: bool,
     ) -> Result<Option<InvalidTxError>, Error> {
         if let Some(state_root) = state_root {
             let shard_id = self.account_id_to_shard_id(&transaction.transaction.signer_id);
@@ -537,6 +538,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                 &mut state_update,
                 gas_price,
                 &transaction,
+                verify_signature,
             ) {
                 Ok(_) => Ok(None),
                 Err(RuntimeError::InvalidTxError(err)) => {
@@ -550,7 +552,12 @@ impl RuntimeAdapter for NightshadeRuntime {
             }
         } else {
             // Doing basic validation without a state root
-            match validate_transaction(&self.runtime.config, gas_price, &transaction) {
+            match validate_transaction(
+                &self.runtime.config,
+                gas_price,
+                &transaction,
+                verify_signature,
+            ) {
                 Ok(_) => Ok(None),
                 Err(RuntimeError::InvalidTxError(err)) => {
                     debug!(target: "runtime", "Tx {:?} validation failed: {:?}", transaction, err);
@@ -594,6 +601,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                             &mut state_update,
                             gas_price,
                             &tx,
+                            false,
                         ) {
                             Ok(verification_result) => {
                                 state_update.commit(StateChangeCause::NotWritableToDisk);

@@ -461,6 +461,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         _gas_price: Balance,
         _state_update: Option<StateRoot>,
         _transaction: &SignedTransaction,
+        _verify_signature: bool,
     ) -> Result<Option<InvalidTxError>, Error> {
         Ok(None)
     }
