@@ -554,6 +554,7 @@ pub(crate) fn check_account_existence(
     account_id: &AccountId,
     current_protocol_version: ProtocolVersion,
     is_the_only_action: bool,
+    is_refund: bool,
 ) -> Result<(), ActionError> {
     match action {
         Action::CreateAccount(_) => {
@@ -578,6 +579,7 @@ pub(crate) fn check_account_existence(
                 if current_protocol_version >= IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION
                     && is_the_only_action
                     && is_account_id_64_len_hex(&account_id)
+                    && !is_refund
                 {
                     // OK. It's implicit account creation.
                     return Ok(());
@@ -586,7 +588,7 @@ pub(crate) fn check_account_existence(
                         account_id: account_id.clone(),
                     }
                     .into());
-                }
+                };
             }
         }
         Action::DeployContract(_)

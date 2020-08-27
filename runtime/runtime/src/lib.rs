@@ -306,13 +306,16 @@ impl Runtime {
         result.gas_burnt += exec_fees;
         result.gas_used += exec_fees;
         let account_id = &receipt.receiver_id;
+        let is_the_only_action = actions.len() == 1;
+        let is_refund = receipt.predecessor_id == system_account();
         // Account validation
         if let Err(e) = check_account_existence(
             action,
             account,
             account_id,
             apply_state.current_protocol_version,
-            actions.len() == 1,
+            is_the_only_action,
+            is_refund,
         ) {
             result.result = Err(e);
             return Ok(result);
@@ -367,9 +370,7 @@ impl Runtime {
                 if let Some(account) = account.as_mut() {
                     action_transfer(account, transfer)?;
                     // Check if this is a gas refund, then try to refund the access key allowance.
-                    if receipt.predecessor_id == system_account()
-                        && action_receipt.signer_id == receipt.receiver_id
-                    {
+                    if is_refund && action_receipt.signer_id == receipt.receiver_id {
                         try_refund_allowance(
                             state_update,
                             &receipt.receiver_id,

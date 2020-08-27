@@ -4201,6 +4201,7 @@ dependencies = [
  "byteorder",
  "clap 2.33.0",
  "futures",
+ "hex",
  "lazy_static",
  "log",
  "near-chain",
