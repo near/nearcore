@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.1.1
+
+- Bumped `borsh` dependency from `0.7.0` to `0.7.1` [#3238](https://github.com/nearprotocol/nearcore/pull/3238)
+
 ## 2.1.0
 
 - Implemented better compiler testing with `--compile-only` flag [#3074](https://github.com/nearprotocol/nearcore/pull/3074)
