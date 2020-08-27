@@ -2803,6 +2803,7 @@ dependencies = [
  "futures",
  "lazy_static",
  "log",
+ "near-actix-utils",
  "near-chain-configs",
  "near-crypto",
  "near-jsonrpc",
