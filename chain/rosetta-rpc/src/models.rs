@@ -98,6 +98,26 @@ pub(crate) struct Amount {
     pub metadata: Option<serde_json::Value>,
 }
 
+impl Amount {
+    pub(crate) fn from_yoctonear(amount: near_primitives::types::Balance) -> Self {
+        Self {
+            value: amount.to_string(),
+            currency: crate::consts::YOCTO_NEAR_CURRENCY.clone(),
+            metadata: None,
+        }
+    }
+
+    pub(crate) fn from_yoctonear_diff(
+        amount: crate::utils::SignedDiff<near_primitives::types::Balance>,
+    ) -> Self {
+        Self {
+            value: amount.to_string(),
+            currency: crate::consts::YOCTO_NEAR_CURRENCY.clone(),
+            metadata: None,
+        }
+    }
+}
+
 /// Blocks contain an array of Transactions that occurred at a particular
 /// BlockIdentifier. A hard requirement for blocks returned by Rosetta
 /// implementations is that they MUST be _inalterable_: once a client has
@@ -366,7 +386,7 @@ impl Error {
                 details: None,
             },
             crate::errors::ErrorKind::InternalInvariantError(message) => Self {
-                code: 500,
+                code: 501,
                 message: format!("Internal Invariant Error (please, report it): {}", message),
                 retriable: true,
                 details: None,

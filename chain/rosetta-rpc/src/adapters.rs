@@ -2,7 +2,6 @@ use std::convert::TryInto;
 use std::sync::Arc;
 
 use actix::Addr;
-use futures::StreamExt;
 
 use near_chain_configs::Genesis;
 use near_client::ViewClientActor;
@@ -20,76 +19,28 @@ async fn convert_genesis_records_to_transaction(
     view_client_addr: Addr<ViewClientActor>,
     block: &near_primitives::views::BlockView,
 ) -> Result<crate::models::Transaction, crate::errors::ErrorKind> {
-    let genesis_accounts = genesis
-        .records
-        .as_ref()
-        .iter()
-        .filter_map(|record| {
-            if let near_primitives::state_record::StateRecord::Account { account_id, .. } = record {
-                Some(account_id)
-            } else {
-                None
-            }
-        })
-        .map(|account_id| {
-            let genesis_block_id = near_primitives::types::BlockId::Hash(block.header.hash).into();
-            let view_client_addr = &view_client_addr;
-            async move {
-                match view_client_addr
-                    .send(near_client::Query::new(
-                        genesis_block_id,
-                        near_primitives::views::QueryRequest::ViewAccount {
-                            account_id: account_id.clone(),
-                        },
-                    ))
-                    .await?
-                    .map_err(crate::errors::ErrorKind::InternalError)?
-                    .map(|response| response.kind)
-                {
-                    Some(near_primitives::views::QueryResponseKind::ViewAccount(account_info)) => {
-                        Ok((account_id.clone(), account_info))
-                    }
-                    _ => Err(crate::errors::ErrorKind::InternalInvariantError(
-                        "queried ViewAccount, but received something else.".to_string(),
-                    )),
-                }
-            }
-        })
-        .collect::<futures::stream::FuturesUnordered<_>>()
-        .collect::<Vec<
-            Result<
-                (near_primitives::types::AccountId, near_primitives::views::AccountView),
-                crate::errors::ErrorKind,
-            >,
-        >>()
-        .await
-        .into_iter()
-        .collect::<Result<Vec<_>, crate::errors::ErrorKind>>()?;
+    let genesis_account_ids = genesis.records.as_ref().iter().filter_map(|record| {
+        if let near_primitives::state_record::StateRecord::Account { account_id, .. } = record {
+            Some(account_id)
+        } else {
+            None
+        }
+    });
+    let genesis_accounts = crate::utils::query_accounts(
+        genesis_account_ids,
+        &near_primitives::types::BlockId::Hash(block.header.hash).into(),
+        &view_client_addr,
+    )
+    .await?;
 
     let mut operations = Vec::new();
     for (account_id, account) in genesis_accounts {
-        let liquid_balance_for_storage = {
-            let mut account = near_primitives::account::Account::from(&account);
-            account.amount = 0;
-            near_runtime_configs::get_insufficient_storage_stake(
-                &account,
-                &genesis.config.runtime_config,
-            )
-            .expect("get_insufficient_storage_stake never fails when state is consistent")
-            .unwrap_or(0)
-        };
+        let account_balances = crate::utils::RosettaAccountBalances::from_account(
+            &account,
+            &genesis.config.runtime_config,
+        );
 
-        let liquid_balance =
-            account.amount.checked_sub(liquid_balance_for_storage).ok_or_else(|| {
-                crate::errors::ErrorKind::InternalInvariantError(
-                    "liquid balance for storage cannot be bigger than the total balance"
-                        .to_string(),
-                )
-            })?;
-
-        let locked_balance = account.locked;
-
-        if liquid_balance != 0 {
+        if account_balances.liquid != 0 {
             operations.push(crate::models::Operation {
                 operation_identifier: crate::models::OperationIdentifier {
                     index: operations.len().try_into().expect(
@@ -103,18 +54,14 @@ async fn convert_genesis_records_to_transaction(
                     sub_account: None,
                     metadata: None,
                 }),
-                amount: Some(crate::models::Amount {
-                    value: liquid_balance.to_string(),
-                    currency: crate::consts::YOCTO_NEAR_CURRENCY.clone(),
-                    metadata: None,
-                }),
+                amount: Some(crate::models::Amount::from_yoctonear(account_balances.liquid)),
                 type_: crate::models::OperationType::Transfer,
                 status: crate::models::OperationStatusKind::Success,
                 metadata: None,
             });
         }
 
-        if liquid_balance_for_storage != 0 {
+        if account_balances.liquid_for_storage != 0 {
             operations.push(crate::models::Operation {
                 operation_identifier: crate::models::OperationIdentifier {
                     index: operations.len().try_into().expect(
@@ -125,24 +72,19 @@ async fn convert_genesis_records_to_transaction(
                 related_operations: None,
                 account: Some(crate::models::AccountIdentifier {
                     address: account_id.clone(),
-                    sub_account: Some(crate::models::SubAccountIdentifier {
-                        address: "liquid_for_storage".into(),
-                        metadata: None,
-                    }),
+                    sub_account: Some(crate::consts::SubAccount::LiquidBalanceForStorage.into()),
                     metadata: None,
                 }),
-                amount: Some(crate::models::Amount {
-                    value: liquid_balance_for_storage.to_string(),
-                    currency: crate::consts::YOCTO_NEAR_CURRENCY.clone(),
-                    metadata: None,
-                }),
+                amount: Some(crate::models::Amount::from_yoctonear(
+                    account_balances.liquid_for_storage,
+                )),
                 type_: crate::models::OperationType::Transfer,
                 status: crate::models::OperationStatusKind::Success,
                 metadata: None,
             });
         }
 
-        if locked_balance != 0 {
+        if account_balances.locked != 0 {
             operations.push(crate::models::Operation {
                 operation_identifier: crate::models::OperationIdentifier {
                     index: operations.len().try_into().expect(
@@ -153,17 +95,10 @@ async fn convert_genesis_records_to_transaction(
                 related_operations: None,
                 account: Some(crate::models::AccountIdentifier {
                     address: account_id.clone(),
-                    sub_account: Some(crate::models::SubAccountIdentifier {
-                        address: "locked".into(),
-                        metadata: None,
-                    }),
+                    sub_account: Some(crate::consts::SubAccount::Locked.into()),
                     metadata: None,
                 }),
-                amount: Some(crate::models::Amount {
-                    value: locked_balance.to_string(),
-                    currency: crate::consts::YOCTO_NEAR_CURRENCY.clone(),
-                    metadata: None,
-                }),
+                amount: Some(crate::models::Amount::from_yoctonear(account_balances.locked)),
                 type_: crate::models::OperationType::Transfer,
                 status: crate::models::OperationStatusKind::Success,
                 metadata: None,
@@ -187,6 +122,8 @@ pub(crate) async fn convert_block_to_transactions(
     view_client_addr: Addr<ViewClientActor>,
     block: &near_primitives::views::BlockView,
 ) -> Result<Vec<crate::models::Transaction>, crate::errors::ErrorKind> {
+    let runtime_config = &genesis.config.runtime_config;
+
     let state_changes = view_client_addr
         .send(near_client::GetStateChangesInBlock { block_hash: block.header.hash })
         .await?
@@ -206,71 +143,9 @@ pub(crate) async fn convert_block_to_transactions(
     let prev_block_id = near_primitives::types::BlockReference::from(
         near_primitives::types::BlockId::Hash(block.header.prev_hash),
     );
-    let mut accounts_previous_state = touched_account_ids
-        .iter()
-        .map(|account_id| {
-            let prev_block_id = &prev_block_id;
-            let view_client_addr = &view_client_addr;
-            async move {
-                let query = near_client::Query::new(
-                    prev_block_id.clone(),
-                    near_primitives::views::QueryRequest::ViewAccount {
-                        account_id: account_id.clone(),
-                    },
-                );
-                let account_info_response =
-                    tokio::time::timeout(std::time::Duration::from_secs(10), async {
-                        loop {
-                            match view_client_addr.send(query.clone()).await? {
-                                Ok(Some(query_response)) => return Ok(Some(query_response)),
-                                Ok(None) => {}
-                                // TODO: update this once we return structured errors in the view_client handlers
-                                Err(err) => {
-                                    if err.contains("does not exist") {
-                                        return Ok(None);
-                                    }
-                                    return Err(crate::errors::ErrorKind::InternalError(err));
-                                }
-                            }
-                            tokio::time::delay_for(std::time::Duration::from_millis(100)).await;
-                        }
-                    })
-                    .await??;
-
-                let kind = if let Some(account_info_response) = account_info_response {
-                    account_info_response.kind
-                } else {
-                    return Ok(None);
-                };
-
-                match kind {
-                    near_primitives::views::QueryResponseKind::ViewAccount(account_info) => {
-                        Ok(Some((account_id.clone(), account_info)))
-                    }
-                    _ => Err(crate::errors::ErrorKind::InternalInvariantError(
-                        "queried ViewAccount, but received something else.".to_string(),
-                    )
-                    .into()),
-                }
-            }
-        })
-        .collect::<futures::stream::FuturesUnordered<_>>()
-        .collect::<Vec<
-            Result<
-                Option<(near_primitives::types::AccountId, near_primitives::views::AccountView)>,
-                crate::errors::ErrorKind,
-            >,
-        >>()
-        .await
-        .into_iter()
-        .filter_map(|account_info| account_info.transpose())
-        .collect::<Result<
-            std::collections::HashMap<
-                near_primitives::types::AccountId,
-                near_primitives::views::AccountView,
-            >,
-            crate::errors::ErrorKind,
-        >>()?;
+    let mut accounts_previous_state =
+        crate::utils::query_accounts(touched_account_ids.iter(), &prev_block_id, &view_client_addr)
+            .await?;
 
     let accounts_changes = view_client_addr
         .send(near_client::GetStateChanges {
@@ -336,57 +211,16 @@ pub(crate) async fn convert_block_to_transactions(
             near_primitives::views::StateChangeValueView::AccountUpdate { account_id, account } => {
                 let previous_account_state = accounts_previous_state.get(&account_id);
 
-                let previous_liquid_balance_for_storage = if let Some(previous_account_state) =
-                    previous_account_state
-                {
-                    let mut account =
-                        near_primitives::account::Account::from(previous_account_state);
-                    account.amount = 0;
-                    near_runtime_configs::get_insufficient_storage_stake(
-                        &account,
-                        &genesis.config.runtime_config,
-                    )
-                    .expect("get_insufficient_storage_stake never fails when state is consistent")
-                    .unwrap_or(0)
-                } else {
-                    0
-                };
-                let new_liquid_balance_for_storage = {
-                    let mut account = near_primitives::account::Account::from(&account);
-                    account.amount = 0;
-                    near_runtime_configs::get_insufficient_storage_stake(
-                        &account,
-                        &genesis.config.runtime_config,
-                    )
-                    .expect("get_insufficient_storage_stake never fails when state is consistent")
-                    .unwrap_or(0)
-                };
+                let previous_account_balances = previous_account_state
+                    .map(|account| {
+                        crate::utils::RosettaAccountBalances::from_account(account, runtime_config)
+                    })
+                    .unwrap_or_else(crate::utils::RosettaAccountBalances::zero);
 
-                let previous_liquid_balance = previous_account_state
-                    .map(|account| account.amount)
-                    .unwrap_or(0)
-                    .checked_sub(previous_liquid_balance_for_storage)
-                    .ok_or_else(|| {
-                        crate::errors::ErrorKind::InternalInvariantError(
-                            "liquid balance for storage cannot be bigger than the total balance"
-                                .to_string(),
-                        )
-                    })?;
-                let new_liquid_balance = account
-                    .amount
-                    .checked_sub(new_liquid_balance_for_storage)
-                    .ok_or_else(|| {
-                        crate::errors::ErrorKind::InternalInvariantError(
-                            "liquid balance for storage cannot be bigger than the total balance"
-                                .to_string(),
-                        )
-                    })?;
+                let new_account_balances =
+                    crate::utils::RosettaAccountBalances::from_account(&account, runtime_config);
 
-                let previous_locked_balance =
-                    previous_account_state.map(|account| account.locked).unwrap_or(0);
-                let new_locked_balance = account.locked;
-
-                if previous_liquid_balance != new_liquid_balance {
+                if previous_account_balances.liquid != new_account_balances.liquid {
                     operations.push(crate::models::Operation {
                         operation_identifier: crate::models::OperationIdentifier {
                             index: operations.len().try_into().expect("there cannot be more than i64::MAX operations in a single transaction"),
@@ -398,18 +232,17 @@ pub(crate) async fn convert_block_to_transactions(
                             sub_account: None,
                             metadata: None,
                         }),
-                        amount: Some(crate::models::Amount {
-                            value: crate::utils::SignedDiff::cmp(previous_liquid_balance, new_liquid_balance).to_string(),
-                            currency: crate::consts::YOCTO_NEAR_CURRENCY.clone(),
-                            metadata: None,
-                        }),
+                        amount: Some(crate::models::Amount::from_yoctonear_diff(
+                            crate::utils::SignedDiff::cmp(previous_account_balances.liquid, new_account_balances.liquid))),
                         type_: crate::models::OperationType::Transfer,
                         status: crate::models::OperationStatusKind::Success,
                         metadata: None,
                     });
                 }
 
-                if previous_liquid_balance_for_storage != new_liquid_balance_for_storage {
+                if previous_account_balances.liquid_for_storage
+                    != new_account_balances.liquid_for_storage
+                {
                     operations.push(crate::models::Operation {
                         operation_identifier: crate::models::OperationIdentifier {
                             index: operations.len().try_into().expect("there cannot be more than i64::MAX operations in a single transaction"),
@@ -418,24 +251,18 @@ pub(crate) async fn convert_block_to_transactions(
                         related_operations: None,
                         account: Some(crate::models::AccountIdentifier {
                             address: account_id.clone(),
-                            sub_account: Some(crate::models::SubAccountIdentifier {
-                                address: "liquid_for_storage".into(),
-                                metadata: None,
-                            }),
+                            sub_account: Some(crate::consts::SubAccount::LiquidBalanceForStorage.into()),
                             metadata: None,
                         }),
-                        amount: Some(crate::models::Amount {
-                            value: crate::utils::SignedDiff::cmp(previous_liquid_balance_for_storage, new_liquid_balance_for_storage).to_string(),
-                            currency: crate::consts::YOCTO_NEAR_CURRENCY.clone(),
-                            metadata: None,
-                        }),
+                        amount: Some(crate::models::Amount::from_yoctonear_diff(
+                            crate::utils::SignedDiff::cmp(previous_account_balances.liquid_for_storage, new_account_balances.liquid_for_storage))),
                         type_: crate::models::OperationType::Transfer,
                         status: crate::models::OperationStatusKind::Success,
                         metadata: None,
                     });
                 }
 
-                if previous_locked_balance != new_locked_balance {
+                if previous_account_balances.locked != new_account_balances.locked {
                     operations.push(crate::models::Operation {
                         operation_identifier: crate::models::OperationIdentifier {
                             index: operations.len().try_into().expect("there cannot be more than i64::MAX operations in a single transaction"),
@@ -444,17 +271,11 @@ pub(crate) async fn convert_block_to_transactions(
                         related_operations: None,
                         account: Some(crate::models::AccountIdentifier {
                             address: account_id.clone(),
-                            sub_account: Some(crate::models::SubAccountIdentifier {
-                                address: "locked".into(),
-                                metadata: None,
-                            }),
+                            sub_account: Some(crate::consts::SubAccount::Locked.into()),
                             metadata: None,
                         }),
-                        amount: Some(crate::models::Amount {
-                            value: crate::utils::SignedDiff::cmp(previous_locked_balance, new_locked_balance).to_string(),
-                            currency: crate::consts::YOCTO_NEAR_CURRENCY.clone(),
-                            metadata: None,
-                        }),
+                        amount: Some(crate::models::Amount::from_yoctonear_diff(
+                            crate::utils::SignedDiff::cmp(previous_account_balances.locked, new_account_balances.locked))),
                         type_: crate::models::OperationType::Transfer,
                         status: crate::models::OperationStatusKind::Success,
                         metadata: None,
@@ -467,40 +288,18 @@ pub(crate) async fn convert_block_to_transactions(
             near_primitives::views::StateChangeValueView::AccountDeletion { account_id } => {
                 let previous_account_state = accounts_previous_state.get(&account_id);
 
-                let previous_liquid_balance_for_storage = if let Some(previous_account_state) =
-                    previous_account_state
-                {
-                    let mut account =
-                        near_primitives::account::Account::from(previous_account_state);
-                    account.amount = 0;
-                    near_runtime_configs::get_insufficient_storage_stake(
-                        &account,
-                        &genesis.config.runtime_config,
-                    )
-                    .expect("get_insufficient_storage_stake never fails when state is consistent")
-                    .unwrap_or(0)
-                } else {
-                    0
-                };
-                let new_liquid_balance_for_storage = 0;
-
-                let previous_liquid_balance = previous_account_state
-                    .map(|account| account.amount)
-                    .unwrap_or(0)
-                    .checked_sub(previous_liquid_balance_for_storage)
-                    .ok_or_else(|| {
-                        crate::errors::ErrorKind::InternalInvariantError(
-                            "liquid balance for storage cannot be bigger than the total balance"
-                                .to_string(),
+                let previous_account_balances =
+                    if let Some(previous_account_state) = previous_account_state {
+                        crate::utils::RosettaAccountBalances::from_account(
+                            previous_account_state,
+                            runtime_config,
                         )
-                    })?;
-                let new_liquid_balance = 0;
+                    } else {
+                        continue;
+                    };
+                let new_account_balances = crate::utils::RosettaAccountBalances::zero();
 
-                let previous_locked_balance =
-                    previous_account_state.map(|account| account.locked).unwrap_or(0);
-                let new_locked_balance = 0;
-
-                if previous_liquid_balance != new_liquid_balance {
+                if previous_account_balances.liquid != new_account_balances.liquid {
                     operations.push(crate::models::Operation {
                         operation_identifier: crate::models::OperationIdentifier {
                             index: operations.len().try_into().expect("there cannot be more than i64::MAX operations in a single transaction"),
@@ -512,18 +311,17 @@ pub(crate) async fn convert_block_to_transactions(
                             sub_account: None,
                             metadata: None,
                         }),
-                        amount: Some(crate::models::Amount {
-                            value: crate::utils::SignedDiff::cmp(previous_liquid_balance, new_liquid_balance).to_string(),
-                            currency: crate::consts::YOCTO_NEAR_CURRENCY.clone(),
-                            metadata: None,
-                        }),
+                        amount: Some(crate::models::Amount::from_yoctonear_diff(
+                            crate::utils::SignedDiff::cmp(previous_account_balances.liquid, new_account_balances.liquid))),
                         type_: crate::models::OperationType::Transfer,
                         status: crate::models::OperationStatusKind::Success,
                         metadata: None,
                     });
                 }
 
-                if previous_liquid_balance_for_storage != new_liquid_balance_for_storage {
+                if previous_account_balances.liquid_for_storage
+                    != new_account_balances.liquid_for_storage
+                {
                     operations.push(crate::models::Operation {
                         operation_identifier: crate::models::OperationIdentifier {
                             index: operations.len().try_into().expect("there cannot be more than i64::MAX operations in a single transaction"),
@@ -532,24 +330,18 @@ pub(crate) async fn convert_block_to_transactions(
                         related_operations: None,
                         account: Some(crate::models::AccountIdentifier {
                             address: account_id.clone(),
-                            sub_account: Some(crate::models::SubAccountIdentifier {
-                                address: "liquid_for_storage".into(),
-                                metadata: None,
-                            }),
+                            sub_account: Some(crate::consts::SubAccount::LiquidBalanceForStorage.into()),
                             metadata: None,
                         }),
-                        amount: Some(crate::models::Amount {
-                            value: crate::utils::SignedDiff::cmp(previous_liquid_balance_for_storage, new_liquid_balance_for_storage).to_string(),
-                            currency: crate::consts::YOCTO_NEAR_CURRENCY.clone(),
-                            metadata: None,
-                        }),
+                        amount: Some(crate::models::Amount::from_yoctonear_diff(
+                            crate::utils::SignedDiff::cmp(previous_account_balances.liquid_for_storage, new_account_balances.liquid_for_storage))),
                         type_: crate::models::OperationType::Transfer,
                         status: crate::models::OperationStatusKind::Success,
                         metadata: None,
                     });
                 }
 
-                if previous_locked_balance != new_locked_balance {
+                if previous_account_balances.locked != new_account_balances.locked {
                     operations.push(crate::models::Operation {
                         operation_identifier: crate::models::OperationIdentifier {
                             index: operations.len().try_into().expect("there cannot be more than i64::MAX operations in a single transaction"),
@@ -558,17 +350,11 @@ pub(crate) async fn convert_block_to_transactions(
                         related_operations: None,
                         account: Some(crate::models::AccountIdentifier {
                             address: account_id.clone(),
-                            sub_account: Some(crate::models::SubAccountIdentifier {
-                                address: "locked".into(),
-                                metadata: None,
-                            }),
+                            sub_account: Some(crate::consts::SubAccount::Locked.into()),
                             metadata: None,
                         }),
-                        amount: Some(crate::models::Amount {
-                            value: crate::utils::SignedDiff::cmp(previous_locked_balance, new_locked_balance).to_string(),
-                            currency: crate::consts::YOCTO_NEAR_CURRENCY.clone(),
-                            metadata: None,
-                        }),
+                        amount: Some(crate::models::Amount::from_yoctonear_diff(
+                            crate::utils::SignedDiff::cmp(previous_account_balances.locked, new_account_balances.locked))),
                         type_: crate::models::OperationType::Transfer,
                         status: crate::models::OperationStatusKind::Success,
                         metadata: None,
