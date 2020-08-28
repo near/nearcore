@@ -566,18 +566,18 @@ dependencies = [
 
 [[package]]
 name = "borsh"
-version = "0.7.0"
+version = "0.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "81d42092adf8d207d987cb8d676f068305a80b3dd58487a06680e8586e7c4c25"
+checksum = "30f3fd65922359a7c6e791bc9b2bba1b977ea0c0b96a528ac48007f535fb4184"
 dependencies = [
  "borsh-derive",
 ]
 
 [[package]]
 name = "borsh-derive"
-version = "0.7.0"
+version = "0.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "912b5e5f545801db1290ea4f05c8af512db0805dade9b9af76798c5fc4a04164"
+checksum = "b2d74755d937d261d5e9bdef87e0addfbc1ace0214f7776f21532d6e97325356"
 dependencies = [
  "borsh-derive-internal",
  "borsh-schema-derive-internal",
@@ -586,9 +586,9 @@ dependencies = [
 
 [[package]]
 name = "borsh-derive-internal"
-version = "0.7.0"
+version = "0.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e75ae71ba613fe0b86556e910b053b040cb52b8c52c034370744f8760f176262"
+checksum = "4c9f966cb7a42c8ed83546ef481bc1d1dec888fe5f84a4737d5c2094a483e41e"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -597,9 +597,9 @@ dependencies = [
 
 [[package]]
 name = "borsh-schema-derive-internal"
-version = "0.7.0"
+version = "0.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1de62f1b5fe76adc6510a4e7c3feb0172650f0088bbd5fead41c0c016db5c5ae"
+checksum = "5df2543b56ebc2b4493e70d024ebde2cbb48d97bf7b1a16318eff30bd02669b8"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -2106,9 +2106,9 @@ dependencies = [
 
 [[package]]
 name = "linked-hash-map"
-version = "0.5.2"
+version = "0.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ae91b68aebc4ddb91978b11a1b02ddd8602a05ec19002801c5666000e05e0f83"
+checksum = "8dd5a6d5999d9907cda8ed67bbd137d3af8085216c2ac62de5be860bd41f304a"
 
 [[package]]
 name = "loadtester"
@@ -2420,6 +2420,7 @@ dependencies = [
  "delay-detector",
  "futures",
  "lazy_static",
+ "linked-hash-map",
  "log",
  "near-chain",
  "near-chain-configs",
@@ -2682,7 +2683,7 @@ dependencies = [
 
 [[package]]
 name = "near-runtime-fees"
-version = "2.1.0"
+version = "2.1.1"
 dependencies = [
  "num-rational 0.2.4",
  "serde",
@@ -2690,7 +2691,7 @@ dependencies = [
 
 [[package]]
 name = "near-runtime-standalone"
-version = "2.1.0"
+version = "2.1.1"
 dependencies = [
  "near-crypto",
  "near-pool",
@@ -2738,7 +2739,7 @@ dependencies = [
 
 [[package]]
 name = "near-vm-errors"
-version = "2.1.0"
+version = "2.1.1"
 dependencies = [
  "borsh",
  "near-rpc-error-macro",
@@ -2747,7 +2748,7 @@ dependencies = [
 
 [[package]]
 name = "near-vm-logic"
-version = "2.1.0"
+version = "2.1.1"
 dependencies = [
  "base64 0.11.0",
  "bs58",
@@ -2762,7 +2763,7 @@ dependencies = [
 
 [[package]]
 name = "near-vm-runner"
-version = "2.1.0"
+version = "2.1.1"
 dependencies = [
  "anyhow",
  "assert_matches",
@@ -2781,7 +2782,7 @@ dependencies = [
 
 [[package]]
 name = "near-vm-runner-standalone"
-version = "2.1.0"
+version = "2.1.1"
 dependencies = [
  "base64 0.11.0",
  "clap 2.33.0",
@@ -2803,6 +2804,7 @@ dependencies = [
  "futures",
  "lazy_static",
  "log",
+ "near-actix-utils",
  "near-chain-configs",
  "near-crypto",
  "near-jsonrpc",
@@ -2889,7 +2891,7 @@ dependencies = [
 
 [[package]]
 name = "node-runtime"
-version = "2.1.0"
+version = "2.1.1"
 dependencies = [
  "assert_matches",
  "base64 0.11.0",
@@ -3659,7 +3661,7 @@ dependencies = [
 
 [[package]]
 name = "runtime-params-estimator"
-version = "2.1.0"
+version = "2.1.1"
 dependencies = [
  "borsh",
  "clap 2.33.0",

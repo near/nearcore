@@ -15,8 +15,7 @@ use crate::lightclient::get_epoch_block_producers_view;
 use crate::store::{ChainStore, ChainStoreAccess, ChainStoreUpdate, GCMode};
 use crate::types::{
     AcceptedBlock, ApplyTransactionResult, Block, BlockEconomicsConfig, BlockHeader,
-    BlockHeaderInfo, BlockStatus, BlockSyncResponse, ChainGenesis, Provenance, ReceiptList,
-    RuntimeAdapter,
+    BlockHeaderInfo, BlockStatus, ChainGenesis, Provenance, ReceiptList, RuntimeAdapter,
 };
 use crate::validate::{
     validate_challenge, validate_chunk_proofs, validate_chunk_with_chunk_extra,
@@ -810,57 +809,8 @@ impl Chain {
         chain_update.commit()
     }
 
-    /// Check if state download is required, otherwise return hashes of blocks to fetch.
-    /// Hashes are sorted increasingly by height.
-    pub fn check_state_needed(
-        &mut self,
-        block_fetch_horizon: BlockHeightDelta,
-        force_block_sync: bool,
-    ) -> Result<BlockSyncResponse, Error> {
-        let block_head = self.head()?;
-        let header_head = self.header_head()?;
-        let mut hashes = vec![];
-
-        // If latest block is up to date return early.
-        // No state download is required, neither any blocks need to be fetched.
-        if block_head.height >= header_head.height {
-            return Ok(BlockSyncResponse::None);
-        }
-
-        let next_epoch_id =
-            self.get_block_header(&block_head.last_block_hash)?.next_epoch_id().clone();
-
-        // Don't run State Sync if header head is not more than one epoch ahead.
-        if block_head.epoch_id != header_head.epoch_id && next_epoch_id != header_head.epoch_id {
-            if block_head.height < header_head.height.saturating_sub(block_fetch_horizon)
-                && !force_block_sync
-            {
-                // Epochs are different and we are too far from horizon, State Sync is needed
-                return Ok(BlockSyncResponse::StateNeeded);
-            }
-        }
-
-        // Find hashes of blocks to sync
-        let mut current = self.get_block_header(&header_head.last_block_hash).map(|h| h.clone());
-        while let Ok(header) = current {
-            if header.height() <= block_head.height {
-                if self.is_on_current_chain(&header).is_ok() {
-                    break;
-                }
-            }
-
-            hashes.push(*header.hash());
-            current = self.get_previous_header(&header).map(|h| h.clone());
-        }
-
-        // Sort hashes by height
-        hashes.reverse();
-
-        Ok(BlockSyncResponse::BlocksNeeded(hashes))
-    }
-
     /// Returns if given block header is on the current chain.
-    fn is_on_current_chain(&mut self, header: &BlockHeader) -> Result<(), Error> {
+    pub fn is_on_current_chain(&mut self, header: &BlockHeader) -> Result<(), Error> {
         let chain_header = self.get_header_by_height(header.height())?;
         if chain_header.hash() == header.hash() {
             Ok(())
@@ -1444,7 +1394,7 @@ impl Chain {
             for receipt_proof in receipt_proofs {
                 let ReceiptProof(receipts, shard_proof) = receipt_proof;
                 let ShardProof { from_shard_id, to_shard_id: _, proof } = shard_proof;
-                let receipts_hash = hash(&ReceiptList(shard_id, receipts.to_vec()).try_to_vec()?);
+                let receipts_hash = hash(&ReceiptList(shard_id, receipts).try_to_vec()?);
                 let from_shard_id = *from_shard_id as usize;
 
                 let root_proof = block.chunks()[from_shard_id].inner.outgoing_receipts_root;
@@ -1673,7 +1623,7 @@ impl Chain {
                     _ => visited_shard_ids.insert(*from_shard_id),
                 };
                 let RootProof(root, block_proof) = &root_proofs[i][j];
-                let receipts_hash = hash(&ReceiptList(shard_id, receipts.to_vec()).try_to_vec()?);
+                let receipts_hash = hash(&ReceiptList(shard_id, receipts).try_to_vec()?);
                 // 4e. Proving the set of receipts is the subset of outgoing_receipts of shard `shard_id`
                 if !verify_path(*root, &proof, &receipts_hash) {
                     byzantine_assert!(false);
