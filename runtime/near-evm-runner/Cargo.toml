@@ -1,0 +1,30 @@
+[package]
+name = "near-evm-runner"
+version = "0.1.0"
+authors = ["Near Inc <hello@nearprotocol.com>"]
+edition = "2018"
+license = "Apache-2.0"
+repository = "https://github.com/nearprotocol/nearcore"
+homepage = "https://github.com/nearprotocol/nearcore"
+
+[dependencies]
+evm = { git = "https://github.com/paritytech/parity-ethereum", rev = "eed630a002bbebed3a3097127f2483213ff52079" }
+vm = { git = "https://github.com/paritytech/parity-ethereum", rev = "eed630a002bbebed3a3097127f2483213ff52079" }
+bn = { git = "https://github.com/paritytech/bn", default-features = false }
+parity-bytes = "0.1.0"
+ethereum-types = "0.6.0"
+keccak-hash = "0.2.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.8"
+sha3 = "0.8"
+rlp = "0.4.2"
+hex = "0.3.2"
+byteorder = "1.0"
+num-bigint = { version = "0.3", default-features = false }
+num-traits = "0.2.12"
+ripemd160 = "0.9.0"
+libsecp256k1 = "0.3.5"
+near-vm-logic = { path = "../near-vm-logic" }
+near-vm-errors = { path = "../near-vm-errors" }
+near-primitives = { path = "../../core/primitives" }

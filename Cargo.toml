@@ -19,6 +19,7 @@ members = [
     "runtime/near-vm-logic",
     "runtime/near-vm-runner",
     "runtime/near-vm-runner-standalone",
+    "runtime/near-evm-runner",
     "runtime/runtime-params-estimator",
     "chain/chain",
     "chain/chunks",
