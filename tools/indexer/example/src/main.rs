@@ -2,14 +2,15 @@ use actix;
 
 use clap::derive::Clap;
 use tokio::sync::mpsc;
+use tracing::info;
 
 use configs::{init_logging, Opts, SubCommand};
 use near_indexer;
 
 mod configs;
 
-async fn listen_blocks(mut stream: mpsc::Receiver<near_indexer::BlockResponse>) {
-    while let Some(block) = stream.recv().await {
+async fn listen_blocks(mut stream: mpsc::Receiver<near_indexer::StreamerMessage>) {
+    while let Some(streamer_message) = stream.recv().await {
         // TODO: handle data as you need
         // Example of `block` with all the data
         //
@@ -176,7 +177,16 @@ async fn listen_blocks(mut stream: mpsc::Receiver<near_indexer::BlockResponse>) 
         //         ),
         //     ],
         // }
-        eprintln!("{:#?}", block);
+        info!(
+            target: "indexer_example",
+            "#{} {} Chunks: {}, Transactions: {}, Receipts: {}, ExecutionOutcomes: {}",
+            streamer_message.block.header.height,
+            streamer_message.block.header.hash,
+            streamer_message.chunks.len(),
+            streamer_message.chunks.iter().map(|chunk| chunk.transactions.len()).sum::<usize>(),
+            streamer_message.chunks.iter().map(|chunk| chunk.receipts.len()).sum::<usize>(),
+            streamer_message.outcomes.len(),
+        );
     }
 }
 
@@ -184,7 +194,7 @@ fn main() {
     // We use it to automatically search the for root certificates to perform HTTPS calls
     // (sending telemetry and downloading genesis)
     openssl_probe::init_ssl_cert_env_vars();
-    init_logging(true);
+    init_logging();
 
     let opts: Opts = Opts::parse();
 
@@ -193,7 +203,11 @@ fn main() {
 
     match opts.subcmd {
         SubCommand::Run => {
-            let indexer = near_indexer::Indexer::new(Some(&home_dir));
+            let indexer_config = near_indexer::IndexerConfig {
+                home_dir,
+                sync_mode: near_indexer::SyncModeEnum::FromInterruption,
+            };
+            let indexer = near_indexer::Indexer::new(indexer_config);
             let stream = indexer.streamer();
             actix::spawn(listen_blocks(stream));
             indexer.start();
