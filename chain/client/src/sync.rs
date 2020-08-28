@@ -455,6 +455,8 @@ impl BlockSync {
                 break;
             }
             let block_exists = chain.block_exists(block_hash).unwrap_or(false);
+            // Only remove hash if the block is accepted. Otherwise keep them in the cache in case
+            // they get evicted from orphan pool.
             if block_exists {
                 hashes_to_remove.push(*block_hash);
             }
