@@ -1,3 +1,14 @@
+use ethereum_types::{Address, H160, U256};
+use evm::CreateContractAddress;
+
+use near_primitives::types::{AccountId, Balance};
+use near_store::TrieUpdate;
+use near_vm_errors::VMError;
+use near_vm_logic::VMOutcome;
+
+use crate::errors::EvmError;
+use crate::evm_state::{EvmState, StateStore};
+
 mod builtins;
 mod errors;
 mod evm_state;
@@ -5,19 +16,13 @@ mod interpreter;
 mod near_ext;
 mod utils;
 
-use crate::evm_state::{EvmState, StateStore};
-use ethereum_types::H160;
-use near_primitives::{account::AccountId, types::Balance};
-use near_vm_errors::VMError;
-use near_vm_logic::VMOutcome;
-use vm::Address;
-
-struct EvmContext {
+struct EvmContext<'a> {
+    trie_update: &'a mut TrieUpdate,
     sender_id: AccountId,
     attached_deposit: Balance,
 }
 
-impl EvmState for EvmContext {
+impl<'a> EvmState for EvmContext<'a> {
     fn code_at(&self, address: &H160) -> Option<Vec<u8>> {
         unimplemented!()
     }
@@ -53,37 +58,58 @@ impl EvmState for EvmContext {
     fn commit_changes(&mut self, other: &StateStore) {
         unimplemented!()
     }
+
+    fn recreate(&mut self, address: [u8; 20]) {
+        unimplemented!()
+    }
 }
 
 pub fn run_evm(
-    sender_id: AccountId,
+    mut state_update: &mut TrieUpdate,
+    predecessor_id: AccountId,
     attached_deposit: Balance,
     method_name: String,
     args: Vec<u8>,
 ) -> (Option<VMOutcome>, Option<VMError>) {
-    let mut context = EvmContext { sender_id, attached_deposit };
-    let sender = utils::near_account_id_to_evm_address(sender_id);
+    let mut context = EvmContext {
+        trie_update: &mut state_update,
+        sender_id: predecessor_id.clone(),
+        attached_deposit,
+    };
+    let sender = utils::near_account_id_to_evm_address(&predecessor_id);
+    let value = U256::from(attached_deposit);
     let result = match method_name.as_str() {
-        "deploy_code" => interpreter::deploy_code(&mut context, &sender, &sender, val, 0, &args),
+        "deploy_code" => interpreter::deploy_code(
+            &mut context,
+            &sender,
+            &sender,
+            value,
+            0,
+            CreateContractAddress::FromSenderAndNonce,
+            true,
+            &args,
+        ),
         "get_code" => {
-            let address = Address::from(args);
-            context.get_code(address)
+            let address = Address::from_slice(&args);
+            // context.get_code(address)
+            Ok(address)
         }
         "call_function" => {
-            let contract_address = args[:20];
-            let input = args[20:];
+            let contract_address = Address::from_slice(&args[..20]);
+            let input = &args[20..];
             let result = interpreter::call(
                 &mut context,
-                sender,
-                sender,
-                value,
+                &sender,
+                &sender,
+                Some(value),
                 0, // call-stack depth
                 &contract_address,
                 &input,
                 true,
             );
+            Ok(contract_address)
         }
-        _ => (),
+        _ => Err(EvmError::UnknownError),
     };
     (None, None)
 }

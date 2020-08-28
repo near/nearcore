@@ -28,3 +28,4 @@ libsecp256k1 = "0.3.5"
 near-vm-logic = { path = "../near-vm-logic" }
 near-vm-errors = { path = "../near-vm-errors" }
 near-primitives = { path = "../../core/primitives" }
+near-store = { path = "../../core/store" }

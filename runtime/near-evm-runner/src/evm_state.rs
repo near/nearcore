@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 
 use ethereum_types::{Address, U256};
 
-use near_primitives::{account::AccountId, types::Balance};
+use near_primitives::types::{AccountId, Balance};
 
 use crate::utils;
 
@@ -82,6 +82,8 @@ pub trait EvmState {
         self.sub_balance(sender, amnt);
         self.add_balance(recipient, amnt);
     }
+
+    fn recreate(&mut self, address: [u8; 20]);
 }
 
 #[derive(Default, Debug)]
@@ -108,15 +110,6 @@ impl StateStore {
         for k in keys.iter() {
             self.storages.remove(k);
         }
-    }
-
-    pub fn recreate(&mut self, addr: [u8; 20]) {
-        self.code.remove(&addr);
-        // We do not delete balance here, as balances persist across recreation
-        self.nonces.remove(&addr);
-        self.overwrite_storage(addr);
-        self.self_destructs.remove(&addr);
-        self.recreated.insert(addr);
     }
 
     pub fn commit_code(&mut self, other: &HashMap<[u8; 20], Vec<u8>>) {
@@ -159,12 +152,16 @@ impl EvmState for StateStore {
         self.code.insert(internal_addr, bytecode.to_vec());
     }
 
+    fn _set_balance(&mut self, address: [u8; 20], balance: [u8; 32]) -> Option<[u8; 32]> {
+        self.balances.insert(address, balance)
+    }
+
     fn _balance_of(&self, address: [u8; 20]) -> [u8; 32] {
         self.balances.get(&address).copied().unwrap_or([0u8; 32])
     }
 
-    fn _set_balance(&mut self, address: [u8; 20], balance: [u8; 32]) -> Option<[u8; 32]> {
-        self.balances.insert(address, balance)
+    fn _set_nonce(&mut self, address: [u8; 20], nonce: [u8; 32]) -> Option<[u8; 32]> {
+        self.nonces.insert(address, nonce)
     }
 
     fn _nonce_of(&self, address: [u8; 20]) -> [u8; 32] {
@@ -174,10 +171,6 @@ impl EvmState for StateStore {
         } else {
             self.nonces.get(&address).copied().unwrap_or(empty)
         }
-    }
-
-    fn _set_nonce(&mut self, address: [u8; 20], nonce: [u8; 32]) -> Option<[u8; 32]> {
-        self.nonces.insert(address, nonce)
     }
 
     fn _read_contract_storage(&self, key: [u8; 52]) -> Option<[u8; 32]> {
@@ -202,6 +195,15 @@ impl EvmState for StateStore {
         self.commit_nonces(&other.nonces);
         self.commit_storages(&other.storages);
         self.logs.extend(other.logs.iter().cloned());
+    }
+
+    fn recreate(&mut self, addr: [u8; 20]) {
+        self.code.remove(&addr);
+        // We do not delete balance here, as balances persist across recreation
+        self.nonces.remove(&addr);
+        self.overwrite_storage(addr);
+        self.self_destructs.remove(&addr);
+        self.recreated.insert(addr);
     }
 }
 
@@ -239,12 +241,16 @@ impl EvmState for SubState<'_> {
         self.state.code.insert(internal_addr, bytecode.to_vec());
     }
 
+    fn _set_balance(&mut self, address: [u8; 20], balance: [u8; 32]) -> Option<[u8; 32]> {
+        self.state.balances.insert(address, balance)
+    }
+
     fn _balance_of(&self, address: [u8; 20]) -> [u8; 32] {
         self.state.balances.get(&address).map_or_else(|| self.parent._balance_of(address), |k| *k)
     }
 
-    fn _set_balance(&mut self, address: [u8; 20], balance: [u8; 32]) -> Option<[u8; 32]> {
-        self.state.balances.insert(address, balance)
+    fn _set_nonce(&mut self, address: [u8; 20], nonce: [u8; 32]) -> Option<[u8; 32]> {
+        self.state.nonces.insert(address, nonce)
     }
 
     fn _nonce_of(&self, address: [u8; 20]) -> [u8; 32] {
@@ -254,10 +260,6 @@ impl EvmState for SubState<'_> {
         } else {
             self.state.nonces.get(&address).map_or_else(|| self.parent._nonce_of(address), |k| *k)
         }
-    }
-
-    fn _set_nonce(&mut self, address: [u8; 20], nonce: [u8; 32]) -> Option<[u8; 32]> {
-        self.state.nonces.insert(address, nonce)
     }
 
     fn _read_contract_storage(&self, key: [u8; 52]) -> Option<[u8; 32]> {
@@ -286,6 +288,10 @@ impl EvmState for SubState<'_> {
         self.state.commit_nonces(&other.nonces);
         self.state.commit_storages(&other.storages);
         self.state.logs.extend(other.logs.iter().cloned());
+    }
+
+    fn recreate(&mut self, address: [u8; 20]) {
+        unimplemented!()
     }
 }
 

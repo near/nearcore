@@ -15,17 +15,19 @@ pub fn deploy_code<T: EvmState>(
     sender: &Address,
     value: U256,
     call_stack_depth: usize,
+    address_type: CreateContractAddress,
+    recreate: bool,
     code: &[u8],
 ) -> Result<Address, EvmError> {
-    let nonce = state.next_nonce(&sender);
-    let (address, _) = utils::evm_contract_address(
-        CreateContractAddress::FromSenderAndNonce,
-        &sender,
-        &nonce,
-        &code,
-    );
+    let mut nonce = U256::default();
+    if address_type == CreateContractAddress::FromSenderAndNonce {
+        nonce = state.next_nonce(&sender);
+    };
+    let (address, _) = utils::evm_contract_address(address_type, &sender, &nonce, &code);
 
-    if state.code_at(&address).is_some() {
+    if recreate {
+        state.recreate(address.0);
+    } else if state.code_at(&address).is_some() {
         return Err(EvmError::DuplicateContract(address));
     }
 

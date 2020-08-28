@@ -11,6 +11,7 @@ use vm::{
 use crate::evm_state::{EvmState, SubState};
 use crate::interpreter;
 use crate::utils;
+use evm::ActionParams;
 
 // https://github.com/paritytech/parity-ethereum/blob/77643c13e80ca09d9a6b10631034f5a1568ba6d3/ethcore/machine/src/externalities.rs
 // #[derive(Debug)]
@@ -128,28 +129,19 @@ impl<'a> vm::Ext for NearExt<'a> {
             panic!("MutableCallInStaticContext")
         }
 
-        let mut nonce = U256::default();
-        // TODO: move this into deploy_code
-        if address_type == CreateContractAddress::FromSenderAndNonce {
-            nonce = self.sub_state.next_nonce(&self.context_addr);
-        };
-
-        // discarded argument here is the codehash.
-        // CONSIDER: storing codehash instead of calculating
-        let (addr, _) = utils::evm_contract_address(address_type, &self.context_addr, &nonce, code);
-        self.sub_state.state.recreate(addr.0);
-
+        // TODO: better error propagation.
         interpreter::deploy_code(
             self.sub_state,
             &self.origin,
             &self.context_addr,
             *value,
             self.depth,
-            &addr,
+            address_type,
+            true,
             &code.to_vec(),
-        );
-
-        Ok(ContractCreateResult::Created(addr, 1_000_000_000.into()))
+        )
+        .map(|result| ContractCreateResult::Created(result, 1_000_000_000.into()))
+        .map_err(|err| TrapKind::Call(ActionParams::default()))
     }
 
     /// Message call.
