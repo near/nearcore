@@ -557,9 +557,11 @@ pub trait RuntimeAdapter: Send + Sync {
     ) -> Result<Ordering, Error>;
 
     /// Build receipts hashes.
-    fn build_receipts_hashes(&self, receipts: &[Receipt]) -> Vec<CryptoHash> {
+    // Due to borsh serialization constraints, we have to use `&Vec<Receipt>` instead of `&[Receipt]`
+    // here.
+    fn build_receipts_hashes(&self, receipts: &Vec<Receipt>) -> Vec<CryptoHash> {
         if self.num_shards() == 1 {
-            return vec![hash(&ReceiptList(0, receipts.to_vec()).try_to_vec().unwrap())];
+            return vec![hash(&ReceiptList(0, receipts).try_to_vec().unwrap())];
         }
         let mut account_id_to_shard_id = HashMap::new();
         let mut shard_receipts = HashMap::new();
@@ -572,12 +574,13 @@ pub trait RuntimeAdapter: Send + Sync {
                     id
                 }
             };
-            shard_receipts.entry(shard_id).or_insert_with(Vec::new).push(receipt.clone());
+            shard_receipts.entry(shard_id).or_insert_with(Vec::new).push(receipt);
         }
         (0..self.num_shards())
             .map(|i| {
                 hash(
-                    &(ReceiptList(i, shard_receipts.remove(&i).unwrap_or_else(Vec::new)))
+                    // use tuple here instead of `ReceiptList` to avoid cloning.
+                    &((i, &shard_receipts.remove(&i).unwrap_or_else(Vec::new)))
                         .try_to_vec()
                         .unwrap(),
                 )

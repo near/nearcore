@@ -1152,7 +1152,7 @@ mod test {
                     .cloned()
                     .collect();
                 receipts_hashes
-                    .push(hash(&ReceiptList(shard_id, shard_receipts).try_to_vec().unwrap()));
+                    .push(hash(&ReceiptList(shard_id, &shard_receipts).try_to_vec().unwrap()));
             }
             receipts_hashes
         }
@@ -1181,6 +1181,7 @@ mod test {
             runtime_adapter.build_receipts_hashes(&receipts)
         );
     }
+
     #[test]
     fn test_build_receipt_hashes() {
         for num_shards in 1..10 {
