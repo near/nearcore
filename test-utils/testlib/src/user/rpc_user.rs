@@ -15,13 +15,16 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
 use near_primitives::serialize::{to_base, to_base64};
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, BlockHeight, BlockId, BlockReference, MaybeBlockId};
+use near_primitives::types::{
+    AccountId, BlockHeight, BlockId, BlockReference, MaybeBlockId, ShardId,
+};
 use near_primitives::views::{
-    AccessKeyView, AccountView, BlockView, EpochValidatorInfo, ExecutionOutcomeView,
+    AccessKeyView, AccountView, BlockView, ChunkView, EpochValidatorInfo, ExecutionOutcomeView,
     FinalExecutionOutcomeView, QueryResponse, ViewStateResult,
 };
 
 use crate::user::User;
+use near_jsonrpc_client::ChunkId;
 
 pub struct RpcUser {
     account_id: AccountId,
@@ -113,6 +116,13 @@ impl User for RpcUser {
     fn get_block(&self, height: BlockHeight) -> Option<BlockView> {
         self.actix(move |client| client.block(BlockReference::BlockId(BlockId::Height(height))))
             .ok()
+    }
+
+    fn get_chunk(&self, height: BlockHeight, shard_id: ShardId) -> Option<ChunkView> {
+        self.actix(move |client| {
+            client.chunk(ChunkId::BlockShardId(BlockId::Height(height), shard_id))
+        })
+        .ok()
     }
 
     fn get_transaction_result(&self, _hash: &CryptoHash) -> ExecutionOutcomeView {
