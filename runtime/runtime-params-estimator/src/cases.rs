@@ -1,10 +1,10 @@
+use num_rational::Ratio;
 use rand::seq::SliceRandom;
 use rand::{Rng, SeedableRng};
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::convert::{TryFrom, TryInto};
-
-use num_rational::Ratio;
+use std::process;
 
 use near_crypto::{InMemorySigner, KeyType, PublicKey};
 use near_primitives::account::{AccessKey, AccessKeyPermission, FunctionCallPermission};
@@ -25,7 +25,7 @@ use near_runtime_fees::{
     AccessKeyCreationConfig, ActionCreationConfig, DataReceiptCreationConfig, Fee,
     RuntimeFeesConfig,
 };
-use near_vm_logic::{ExtCosts, ExtCostsConfig, VMConfig, VMKind, VMLimitConfig};
+use near_vm_logic::{ExtCosts, ExtCostsConfig, VMConfig, VMLimitConfig};
 use node_runtime::config::RuntimeConfig;
 
 /// How much gas there is in a nanosecond worth of computation.
@@ -145,8 +145,19 @@ pub enum Metric {
     cpu_ram_soak_test,
 }
 
-pub fn run(mut config: Config) -> RuntimeConfig {
+pub fn run(mut config: Config, only_compile: bool) -> RuntimeConfig {
     let mut m = Measurements::new(config.metric);
+    if only_compile {
+        let (contract_compile_cost, contract_compile_base_cost) =
+            cost_to_compile(config.metric, config.vm_kind, true);
+        let contract_byte_cost = ratio_to_gas(config.metric, contract_compile_cost);
+        println!(
+            "{}, {}",
+            contract_byte_cost,
+            ratio_to_gas(config.metric, contract_compile_base_cost)
+        );
+        process::exit(0);
+    }
     config.block_sizes = vec![100];
     // Measure the speed of processing empty receipts.
     measure_actions(Metric::Receipt, &mut m, &config, None, vec![], false, false);
@@ -469,7 +480,7 @@ pub fn run(mut config: Config) -> RuntimeConfig {
         );
     }
 
-    get_runtime_config(&m)
+    get_runtime_config(&m, &config)
 
     //    let mut csv_path = PathBuf::from(&config.state_dump_path);
     //    csv_path.push("./metrics.csv");
@@ -555,17 +566,16 @@ fn get_runtime_fees_config(measurement: &Measurements) -> RuntimeFeesConfig {
     }
 }
 
-fn get_ext_costs_config(measurement: &Measurements) -> ExtCostsConfig {
+fn get_ext_costs_config(measurement: &Measurements, config: &Config) -> ExtCostsConfig {
     let mut generator = ExtCostsGenerator::new(measurement);
     let measured = generator.compute();
     let metric = measurement.gas_metric;
     use ExtCosts::*;
-    let (contract_compile_cost, contract_compile_base_cost) =
-        cost_to_compile(metric, VMKind::default());
+    let (contract_compile_bytes_, contract_compile_base_) = get_compile_cost(config, false);
     ExtCostsConfig {
         base: measured_to_gas(metric, &measured, base),
-        contract_compile_base: contract_compile_base_cost,
-        contract_compile_bytes: ratio_to_gas(metric, contract_compile_cost),
+        contract_compile_base: contract_compile_base_,
+        contract_compile_bytes: contract_compile_bytes_,
         read_memory_base: measured_to_gas(metric, &measured, read_memory_base),
         read_memory_byte: measured_to_gas(metric, &measured, read_memory_byte),
         write_memory_base: measured_to_gas(metric, &measured, write_memory_base),
@@ -624,9 +634,9 @@ fn get_ext_costs_config(measurement: &Measurements) -> ExtCostsConfig {
     }
 }
 
-fn get_vm_config(measurement: &Measurements) -> VMConfig {
+fn get_vm_config(measurement: &Measurements, config: &Config) -> VMConfig {
     VMConfig {
-        ext_costs: get_ext_costs_config(measurement),
+        ext_costs: get_ext_costs_config(measurement, config),
         // TODO: Figure out whether we need this fee at all. If we do what should be the memory
         // growth cost.
         grow_mem_cost: 1,
@@ -636,9 +646,13 @@ fn get_vm_config(measurement: &Measurements) -> VMConfig {
     }
 }
 
-fn get_runtime_config(measurement: &Measurements) -> RuntimeConfig {
+fn get_runtime_config(measurement: &Measurements, config: &Config) -> RuntimeConfig {
     let mut runtime_config = RuntimeConfig::default();
     runtime_config.transaction_costs = get_runtime_fees_config(measurement);
-    runtime_config.wasm_config = get_vm_config(measurement);
+    runtime_config.wasm_config = get_vm_config(measurement, config);
     runtime_config
+}
+fn get_compile_cost(config: &Config, verbose: bool) -> (u64, u64) {
+    let (a, b) = cost_to_compile(config.metric, config.vm_kind, verbose);
+    (ratio_to_gas(config.metric, a), ratio_to_gas(config.metric, b))
 }

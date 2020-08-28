@@ -1,9 +1,5 @@
-use std::env;
-use std::io;
-
 use clap::Clap;
 
-use tracing_subscriber::filter::LevelFilter;
 use tracing_subscriber::EnvFilter;
 
 /// NEAR Indexer Example
@@ -54,35 +50,12 @@ pub(crate) struct InitConfigArgs {
     pub download_genesis_url: Option<String>,
 }
 
-pub(crate) fn init_logging(verbose: bool) {
-    let mut env_filter = EnvFilter::new("tokio_reactor=info,near=info,stats=info,telemetry=info");
-
-    if verbose {
-        env_filter = env_filter
-            .add_directive("cranelift_codegen=warn".parse().unwrap())
-            .add_directive("cranelift_codegen=warn".parse().unwrap())
-            .add_directive("h2=warn".parse().unwrap())
-            .add_directive("trust_dns_resolver=warn".parse().unwrap())
-            .add_directive("trust_dns_proto=warn".parse().unwrap());
-
-        env_filter = env_filter.add_directive(LevelFilter::DEBUG.into());
-    } else {
-        env_filter = env_filter.add_directive(LevelFilter::WARN.into());
-    }
-
-    if let Ok(rust_log) = env::var("RUST_LOG") {
-        for directive in rust_log.split(',').filter_map(|s| match s.parse() {
-            Ok(directive) => Some(directive),
-            Err(err) => {
-                eprintln!("Ignoring directive `{}`: {}", s, err);
-                None
-            }
-        }) {
-            env_filter = env_filter.add_directive(directive);
-        }
-    }
+pub(crate) fn init_logging() {
+    let env_filter = EnvFilter::new(
+        "tokio_reactor=info,near=info,near=error,stats=info,telemetry=info,indexer_example=info,indexer=info",
+    );
     tracing_subscriber::fmt::Subscriber::builder()
         .with_env_filter(env_filter)
-        .with_writer(io::stderr)
+        .with_writer(std::io::stderr)
         .init();
 }

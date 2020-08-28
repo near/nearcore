@@ -15,6 +15,10 @@ use neard::config::NearConfig;
 use crate::node::Node;
 use crate::user::rpc_user::RpcUser;
 use crate::user::User;
+use actix::{Actor, System};
+use futures::{FutureExt, TryFutureExt};
+use near_jsonrpc_client::new_client;
+use near_network::test_utils::WaitOrTimeout;
 
 pub enum ProcessNodeState {
     Stopped,
@@ -46,7 +50,23 @@ impl Node for ProcessNode {
                 let child =
                     self.get_start_node_command().spawn().expect("start node command failed");
                 self.state = ProcessNodeState::Running(child);
+                let addr = self.config.rpc_config.addr.clone();
                 thread::sleep(Duration::from_secs(3));
+                let system = System::new("actix");
+                WaitOrTimeout::new(
+                    Box::new(move |_| {
+                        actix::spawn(
+                            new_client(&format!("http://{}", addr))
+                                .status()
+                                .map_ok(|_| System::current().stop())
+                                .then(|_| futures::future::ready(())),
+                        )
+                    }),
+                    1000,
+                    30000,
+                )
+                .start();
+                system.run().unwrap();
             }
             ProcessNodeState::Running(_) => panic!("Node is already running"),
         }
