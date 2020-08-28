@@ -909,12 +909,8 @@ impl ClientActor {
         let hash = *block.hash();
         debug!(target: "client", "{:?} Received block {} <- {} at {} from {}, requested: {}", self.client.validator_signer.as_ref().map(|vs| vs.validator_id()), hash, block.header().prev_hash(), block.header().height(), peer_id, was_requested);
         let head = unwrap_or_return!(self.client.chain.head());
-        if block.header().height() >= head.height + BLOCK_HORIZON
-            // ideally we should check whether we know about prev_hash,
-            // but we also want to avoid storage read here, so we use this simple heuristic.
-            && block.header().prev_hash() != &head.last_block_hash
-            && block.header().prev_hash() != &head.prev_block_hash
-        {
+        let is_syncing = self.client.sync_status.is_syncing();
+        if block.header().height() >= head.height + BLOCK_HORIZON && is_syncing && !was_requested {
             debug!(target: "client", "dropping block {} that is too far ahead. Block height {} current head height {}", block.hash(), block.header().height(), head.height);
             return;
         }
