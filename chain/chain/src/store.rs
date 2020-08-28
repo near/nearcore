@@ -43,7 +43,7 @@ use near_store::{
     ColStateParts, ColTransactionResult, ColTransactions, ColTrieChanges, DBCol,
     KeyForStateChanges, ShardTries, Store, StoreUpdate, TrieChanges, WrappedTrieChanges,
     CHUNK_TAIL_KEY, FORK_TAIL_KEY, HEADER_HEAD_KEY, HEAD_KEY, LARGEST_TARGET_HEIGHT_KEY,
-    LATEST_KNOWN_KEY, SHOULD_COL_GC, SYNC_HEAD_KEY, TAIL_KEY,
+    LATEST_KNOWN_KEY, SHOULD_COL_GC, TAIL_KEY,
 };
 
 use crate::byzantine_assert;
@@ -89,8 +89,6 @@ pub trait ChainStoreAccess {
     fn fork_tail(&self) -> Result<BlockHeight, Error>;
     /// Head of the header chain (not the same thing as head_header).
     fn header_head(&self) -> Result<Tip, Error>;
-    /// The "sync" head: last header we received from syncing.
-    fn sync_head(&self) -> Result<Tip, Error>;
     /// Header of the block at the head of the block chain (not the same thing as header_head).
     fn head_header(&mut self) -> Result<&BlockHeader, Error>;
     /// Larget approval target height sent by us
@@ -319,6 +317,8 @@ pub struct ChainStore {
     genesis_height: BlockHeight,
     /// Latest known.
     latest_known: Option<LatestKnown>,
+    /// Current head of the chain
+    head: Option<Tip>,
     /// Cache with headers.
     headers: SizedCache<Vec<u8>, BlockHeader>,
     /// Cache with blocks.
@@ -386,6 +386,7 @@ impl ChainStore {
             store,
             genesis_height,
             latest_known: None,
+            head: None,
             blocks: SizedCache::with_size(CACHE_SIZE),
             headers: SizedCache::with_size(CACHE_SIZE),
             chunks: SizedCache::with_size(CHUNK_CACHE_SIZE),
@@ -535,7 +536,11 @@ impl ChainStoreAccess for ChainStore {
     }
     /// The chain head.
     fn head(&self) -> Result<Tip, Error> {
-        option_to_not_found(self.store.get_ser(ColBlockMisc, HEAD_KEY), "HEAD")
+        if let Some(ref tip) = self.head {
+            Ok(tip.clone())
+        } else {
+            option_to_not_found(self.store.get_ser(ColBlockMisc, HEAD_KEY), "HEAD")
+        }
     }
 
     /// The chain Blocks Tail height, used by GC.
@@ -559,11 +564,6 @@ impl ChainStoreAccess for ChainStore {
             .get_ser(ColBlockMisc, FORK_TAIL_KEY)
             .map(|option| option.unwrap_or_else(|| self.genesis_height))
             .map_err(|e| e.into())
-    }
-
-    /// The "sync" head: last header we received from syncing.
-    fn sync_head(&self) -> Result<Tip, Error> {
-        option_to_not_found(self.store.get_ser(ColBlockMisc, SYNC_HEAD_KEY), "SYNC_HEAD")
     }
 
     /// Header of the block at the head of the block chain (not the same thing as header_head).
@@ -1282,15 +1282,6 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
             Ok(fork_tail.clone())
         } else {
             self.chain_store.fork_tail()
-        }
-    }
-
-    /// The "sync" head: last header we received from syncing.
-    fn sync_head(&self) -> Result<Tip, Error> {
-        if let Some(sync_head) = &self.sync_head {
-            Ok(sync_head.clone())
-        } else {
-            self.chain_store.sync_head()
         }
     }
 
@@ -2374,7 +2365,6 @@ impl<'a> ChainStoreUpdate<'a> {
         Self::write_col_misc(&mut store_update, TAIL_KEY, &mut self.tail)?;
         Self::write_col_misc(&mut store_update, CHUNK_TAIL_KEY, &mut self.chunk_tail)?;
         Self::write_col_misc(&mut store_update, FORK_TAIL_KEY, &mut self.fork_tail)?;
-        Self::write_col_misc(&mut store_update, SYNC_HEAD_KEY, &mut self.sync_head)?;
         Self::write_col_misc(&mut store_update, HEADER_HEAD_KEY, &mut self.header_head)?;
         Self::write_col_misc(
             &mut store_update,
@@ -2776,6 +2766,7 @@ impl<'a> ChainStoreUpdate<'a> {
         for block_height in processed_block_heights {
             self.chain_store.processed_block_heights.cache_set(index_to_bytes(block_height), ());
         }
+        self.chain_store.head = self.head;
 
         Ok(())
     }
