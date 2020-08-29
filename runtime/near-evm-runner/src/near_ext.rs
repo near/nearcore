@@ -103,7 +103,8 @@ impl<'a> vm::Ext for NearExt<'a> {
     }
 
     fn balance(&self, address: &Address) -> EvmResult<U256> {
-        Ok(self.sub_state.balance_of(address))
+        let account = self.sub_state.get_account(address);
+        Ok(account.balance.into())
     }
 
     fn blockhash(&mut self, number: &U256) -> H256 {
@@ -272,9 +273,9 @@ impl<'a> vm::Ext for NearExt<'a> {
     fn suicide(&mut self, refund_address: &Address) -> EvmResult<()> {
         self.sub_state.state.self_destructs.insert(self.context_addr.0);
 
-        let balance = self.sub_state.balance_of(&self.context_addr);
-        self.sub_state.add_balance(refund_address, balance);
-        self.sub_state.sub_balance(&self.context_addr, balance);
+        let account = self.sub_state.get_account(&self.context_addr);
+        self.sub_state.add_balance(refund_address, account.balance.into());
+        self.sub_state.sub_balance(&self.context_addr, account.balance.into());
         Ok(())
     }
 

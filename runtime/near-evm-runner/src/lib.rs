@@ -1,4 +1,4 @@
-use borsh::BorshDeserialize;
+use borsh::{BorshDeserialize, BorshSerialize};
 use ethereum_types::{Address, H160, U256};
 use evm::CreateContractAddress;
 
@@ -8,7 +8,7 @@ use near_vm_errors::VMError;
 use near_vm_logic::VMOutcome;
 
 use crate::errors::EvmError;
-use crate::evm_state::{EvmState, StateStore};
+use crate::evm_state::{EvmAccount, EvmState, StateStore};
 use crate::types::{GetCodeArgs, GetStorageAtArgs, WithdrawNearArgs};
 use near_primitives::trie_key::TrieKey;
 
@@ -36,30 +36,24 @@ impl<'a> EvmState for EvmContext<'a> {
         unimplemented!()
     }
 
-    fn _set_balance(&mut self, address: [u8; 20], balance: [u8; 32]) {
+    fn set_account(&mut self, address: &Address, account: &EvmAccount) {
         self.trie_update.set(
-            TrieKey::ContractData { account_id: self.account_id.clone(), key: address.to_vec() },
-            balance.to_vec(),
+            TrieKey::ContractData { account_id: self.account_id.clone(), key: address.0.to_vec() },
+            account.try_to_vec().expect("Failed to serialize"),
         )
     }
 
-    fn _balance_of(&self, address: [u8; 20]) -> [u8; 32] {
+    fn get_account(&self, address: &Address) -> EvmAccount {
+        // TODO: handle error propagation?
         self.trie_update
             .get(&TrieKey::ContractData {
                 account_id: self.account_id.clone(),
-                key: address.to_vec(),
+                key: address.0.to_vec(),
             })
             .unwrap_or_else(|_| None)
-            .map(|value| utils::vec_to_arr_32(value))
-            .unwrap_or([0; 32])
-    }
-
-    fn _set_nonce(&mut self, address: [u8; 20], nonce: [u8; 32]) -> Option<[u8; 32]> {
-        unimplemented!()
-    }
-
-    fn _nonce_of(&self, address: [u8; 20]) -> [u8; 32] {
-        unimplemented!()
+            .map(|value| EvmAccount::try_from_slice(&value))
+            .unwrap_or_else(|| Ok(EvmAccount::default()))
+            .unwrap_or_else(|_| EvmAccount::default())
     }
 
     fn _read_contract_storage(&self, key: [u8; 52]) -> Option<[u8; 32]> {
@@ -70,18 +64,18 @@ impl<'a> EvmState for EvmContext<'a> {
         unimplemented!()
     }
 
-    fn commit_changes(&mut self, other: &StateStore) {
+    fn commit_changes(&mut self, _other: &StateStore) {
         unimplemented!()
     }
 
-    fn recreate(&mut self, address: [u8; 20]) {
+    fn recreate(&mut self, _address: [u8; 20]) {
         unimplemented!()
     }
 }
 
 impl<'a> EvmContext<'a> {
     pub fn new(
-        mut state_update: &'a mut TrieUpdate,
+        state_update: &'a mut TrieUpdate,
         account_id: AccountId,
         predecessor_id: AccountId,
         attached_deposit: Balance,
@@ -140,7 +134,6 @@ impl<'a> EvmContext<'a> {
         if self.attached_deposit == 0 {
             return Err(EvmError::MissingDeposit);
         }
-        let sender = utils::near_account_id_to_evm_address(&self.predecessor_id);
         let address = Address::from_slice(&args);
         self.add_balance(&address, U256::from(self.attached_deposit));
         Ok(self.balance_of(&address))
@@ -148,7 +141,7 @@ impl<'a> EvmContext<'a> {
 
     pub fn withdraw_near(&mut self, args: Vec<u8>) -> Result<(), EvmError> {
         let args =
-            WithdrawNearArgs::try_from_slice(&args).map_err(|err| EvmError::ArgumentParseError)?;
+            WithdrawNearArgs::try_from_slice(&args).map_err(|_| EvmError::ArgumentParseError)?;
         let sender = utils::near_account_id_to_evm_address(&self.predecessor_id);
         let amount = U256::from(args.amount);
         if amount > self.balance_of(&sender) {

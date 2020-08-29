@@ -2,43 +2,78 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 
 use ethereum_types::{Address, U256};
 
+use borsh::{BorshDeserialize, BorshSerialize};
+
+use crate::errors::EvmError;
+use crate::types::RawAddress;
 use crate::utils;
+use std::io::{Error, Write};
+
+#[derive(Default, Clone, Copy, Debug)]
+pub struct EvmAccount {
+    pub balance: U256,
+    pub nonce: U256,
+}
+
+impl BorshSerialize for EvmAccount {
+    fn serialize<W: Write>(&self, writer: &mut W) -> Result<(), Error> {
+        self.balance.0.serialize(writer)?;
+        self.nonce.0.serialize(writer)
+    }
+}
+
+impl BorshDeserialize for EvmAccount {
+    fn deserialize(buf: &mut &[u8]) -> Result<Self, Error> {
+        let balance = U256(<[u64; 4]>::deserialize(buf)?);
+        let nonce = U256(<[u64; 4]>::deserialize(buf)?);
+        Ok(Self { balance, nonce })
+    }
+}
 
 pub trait EvmState {
     fn code_at(&self, address: &Address) -> Option<Vec<u8>>;
     fn set_code(&mut self, address: &Address, bytecode: &[u8]);
 
-    fn _set_balance(&mut self, address: [u8; 20], balance: [u8; 32]);
-    fn set_balance(&mut self, address: &Address, balance: U256) {
-        let mut bin = [0u8; 32];
-        balance.to_big_endian(&mut bin);
-        let internal_addr = utils::evm_account_to_internal_address(*address);
-        self._set_balance(internal_addr, bin);
-    }
+    fn set_account(&mut self, address: &Address, account: &EvmAccount);
+    fn get_account(&self, address: &Address) -> EvmAccount;
 
-    fn _balance_of(&self, address: [u8; 20]) -> [u8; 32];
     fn balance_of(&self, address: &Address) -> U256 {
-        let internal_addr = utils::evm_account_to_internal_address(*address);
-        self._balance_of(internal_addr).into()
+        let account = self.get_account(address);
+        account.balance.into()
     }
+    //    fn _set_balance(&mut self, address: [u8; 20], balance: [u8; 32]);
+    //    fn set_balance(&mut self, address: &Address, balance: U256) {
+    //        let mut bin = [0u8; 32];
+    //        balance.to_big_endian(&mut bin);
+    //        let internal_addr = utils::evm_account_to_internal_address(*address);
+    //        self._set_balance(internal_addr, bin);
+    //    }
 
-    fn _set_nonce(&mut self, address: [u8; 20], nonce: [u8; 32]) -> Option<[u8; 32]>;
-    fn set_nonce(&mut self, address: &Address, nonce: U256) -> Option<U256> {
-        let mut bin = [0u8; 32];
-        nonce.to_big_endian(&mut bin);
-        let internal_addr = utils::evm_account_to_internal_address(*address);
-        self._set_nonce(internal_addr, bin).map(|v| v.into())
-    }
-
-    fn _nonce_of(&self, address: [u8; 20]) -> [u8; 32];
-    fn nonce_of(&self, address: &Address) -> U256 {
-        let internal_addr = utils::evm_account_to_internal_address(*address);
-        self._nonce_of(internal_addr).into()
-    }
+    //    fn _balance_of(&self, address: [u8; 20]) -> [u8; 32];
+    //    fn balance_of(&self, address: &Address) -> U256 {
+    //        let internal_addr = utils::evm_account_to_internal_address(*address);
+    //        self._balance_of(internal_addr).into()
+    //    }
+    //
+    //    fn _set_nonce(&mut self, address: [u8; 20], nonce: [u8; 32]) -> Option<[u8; 32]>;
+    //    fn set_nonce(&mut self, address: &Address, nonce: U256) -> Option<U256> {
+    //        let mut bin = [0u8; 32];
+    //        nonce.to_big_endian(&mut bin);
+    //        let internal_addr = utils::evm_account_to_internal_address(*address);
+    //        self._set_nonce(internal_addr, bin).map(|v| v.into())
+    //    }
+    //
+    //    fn _nonce_of(&self, address: [u8; 20]) -> [u8; 32];
+    //    fn nonce_of(&self, address: &Address) -> U256 {
+    //        let internal_addr = utils::evm_account_to_internal_address(*address);
+    //        self._nonce_of(internal_addr).into()
+    //    }
 
     fn next_nonce(&mut self, address: &Address) -> U256 {
-        let nonce = self.nonce_of(address);
-        self.set_nonce(address, nonce + 1);
+        let mut account = self.get_account(address);
+        let nonce = account.nonce;
+        account.nonce += U256::from(1);
+        self.set_account(address, &account);
         nonce
     }
 
@@ -60,25 +95,30 @@ pub trait EvmState {
 
     fn commit_changes(&mut self, other: &StateStore);
 
-    /// Panics on u256 overflow
-    /// This represents NEAR tokens, so it can never _actually_ go above 2**128
-    /// That'd be silly.
-    fn add_balance(&mut self, address: &Address, incr: U256) {
-        let balance = self.balance_of(address);
-        let new_balance = balance.checked_add(incr).expect("overflow during add_balance");
-        self.set_balance(address, new_balance)
+    fn add_balance(&mut self, address: &Address, incr: U256) -> Result<(), EvmError> {
+        let mut account = self.get_account(address);
+        account.balance =
+            account.balance.checked_add(incr).ok_or_else(|| EvmError::IntegerOverflow)?;
+        self.set_account(address, &account);
+        Ok(())
     }
 
-    /// Panics if insufficient balance.
-    fn sub_balance(&mut self, address: &Address, decr: U256) {
-        let balance = self.balance_of(address);
-        let new_balance = balance.checked_sub(decr).expect("underflow during sub_balance");
-        self.set_balance(address, new_balance)
+    fn sub_balance(&mut self, address: &Address, decr: U256) -> Result<(), EvmError> {
+        let mut account = self.get_account(address);
+        account.balance =
+            account.balance.checked_add(decr).ok_or_else(|| EvmError::InsufficientFunds)?;
+        self.set_account(address, &account);
+        Ok(())
     }
 
-    fn transfer_balance(&mut self, sender: &Address, recipient: &Address, amnt: U256) {
-        self.sub_balance(sender, amnt);
-        self.add_balance(recipient, amnt);
+    fn transfer_balance(
+        &mut self,
+        sender: &Address,
+        recipient: &Address,
+        amnt: U256,
+    ) -> Result<(), EvmError> {
+        self.sub_balance(sender, amnt)?;
+        self.add_balance(recipient, amnt)
     }
 
     fn recreate(&mut self, address: [u8; 20]);
@@ -86,9 +126,8 @@ pub trait EvmState {
 
 #[derive(Default, Debug)]
 pub struct StateStore {
-    pub code: HashMap<[u8; 20], Vec<u8>>,
-    pub balances: HashMap<[u8; 20], [u8; 32]>,
-    pub nonces: HashMap<[u8; 20], [u8; 32]>,
+    pub code: HashMap<RawAddress, Vec<u8>>,
+    pub accounts: HashMap<RawAddress, EvmAccount>,
     pub storages: BTreeMap<Vec<u8>, [u8; 32]>,
     pub logs: Vec<String>,
     pub self_destructs: HashSet<[u8; 20]>,
@@ -114,12 +153,8 @@ impl StateStore {
         self.code.extend(other.iter().map(|(k, v)| (*k, v.clone())));
     }
 
-    pub fn commit_balances(&mut self, other: &HashMap<[u8; 20], [u8; 32]>) {
-        self.balances.extend(other.iter().map(|(k, v)| (*k, *v)));
-    }
-
-    pub fn commit_nonces(&mut self, other: &HashMap<[u8; 20], [u8; 32]>) {
-        self.nonces.extend(other.iter().map(|(k, v)| (*k, *v)));
+    pub fn commit_accounts(&mut self, other: &HashMap<[u8; 20], EvmAccount>) {
+        self.accounts.extend(other.iter().map(|(k, v)| (*k, *v)));
     }
 
     pub fn commit_storages(&mut self, other: &BTreeMap<Vec<u8>, [u8; 32]>) {
@@ -150,25 +185,17 @@ impl EvmState for StateStore {
         self.code.insert(internal_addr, bytecode.to_vec());
     }
 
-    fn _set_balance(&mut self, address: [u8; 20], balance: [u8; 32]) {
-        self.balances.insert(address, balance);
+    fn set_account(&mut self, address: &Address, account: &EvmAccount) {
+        self.accounts.insert(address.0, account.clone());
     }
 
-    fn _balance_of(&self, address: [u8; 20]) -> [u8; 32] {
-        self.balances.get(&address).copied().unwrap_or([0u8; 32])
-    }
-
-    fn _set_nonce(&mut self, address: [u8; 20], nonce: [u8; 32]) -> Option<[u8; 32]> {
-        self.nonces.insert(address, nonce)
-    }
-
-    fn _nonce_of(&self, address: [u8; 20]) -> [u8; 32] {
-        let empty = [0u8; 32];
-        if self.self_destructs.contains(&address) {
-            empty
+    fn get_account(&self, address: &Address) -> EvmAccount {
+        if self.self_destructs.contains(&address.0) {
+            None
         } else {
-            self.nonces.get(&address).copied().unwrap_or(empty)
+            self.accounts.get(&address.0).map(|account| account.clone())
         }
+        .unwrap_or_else(|| EvmAccount::default())
     }
 
     fn _read_contract_storage(&self, key: [u8; 52]) -> Option<[u8; 32]> {
@@ -189,16 +216,15 @@ impl EvmState for StateStore {
         self.commit_self_destructs(&other.self_destructs);
         self.commit_recreated(&other.recreated);
         self.commit_code(&other.code);
-        self.commit_balances(&other.balances);
-        self.commit_nonces(&other.nonces);
+        self.commit_accounts(&other.accounts);
         self.commit_storages(&other.storages);
         self.logs.extend(other.logs.iter().cloned());
     }
 
     fn recreate(&mut self, addr: [u8; 20]) {
         self.code.remove(&addr);
-        // We do not delete balance here, as balances persist across recreation
-        self.nonces.remove(&addr);
+        // We do not remove account because balances persist across recreation.
+        self.accounts.entry(addr).or_insert(EvmAccount::default()).nonce = U256::from(0);
         self.overwrite_storage(addr);
         self.self_destructs.remove(&addr);
         self.recreated.insert(addr);
@@ -239,26 +265,33 @@ impl EvmState for SubState<'_> {
         self.state.code.insert(internal_addr, bytecode.to_vec());
     }
 
-    fn _set_balance(&mut self, address: [u8; 20], balance: [u8; 32]) {
-        self.state.balances.insert(address, balance);
+    fn set_account(&mut self, address: &Address, account: &EvmAccount) {
+        self.state.set_account(address, account);
     }
 
-    fn _balance_of(&self, address: [u8; 20]) -> [u8; 32] {
-        self.state.balances.get(&address).map_or_else(|| self.parent._balance_of(address), |k| *k)
+    fn get_account(&self, address: &Address) -> EvmAccount {
+        self.state.get_account(address)
     }
-
-    fn _set_nonce(&mut self, address: [u8; 20], nonce: [u8; 32]) -> Option<[u8; 32]> {
-        self.state.nonces.insert(address, nonce)
-    }
-
-    fn _nonce_of(&self, address: [u8; 20]) -> [u8; 32] {
-        let empty = [0u8; 32];
-        if self.state.self_destructs.contains(&address) {
-            empty
-        } else {
-            self.state.nonces.get(&address).map_or_else(|| self.parent._nonce_of(address), |k| *k)
-        }
-    }
+    //    fn _set_balance(&mut self, address: [u8; 20], balance: [u8; 32]) {
+    //        self.state.balances.insert(address, balance);
+    //    }
+    //
+    //    fn _balance_of(&self, address: [u8; 20]) -> [u8; 32] {
+    //        self.state.balances.get(&address).map_or_else(|| self.parent._balance_of(address), |k| *k)
+    //    }
+    //
+    //    fn _set_nonce(&mut self, address: [u8; 20], nonce: [u8; 32]) -> Option<[u8; 32]> {
+    //        self.state.nonces.insert(address, nonce)
+    //    }
+    //
+    //    fn _nonce_of(&self, address: [u8; 20]) -> [u8; 32] {
+    //        let empty = [0u8; 32];
+    //        if self.state.self_destructs.contains(&address) {
+    //            empty
+    //        } else {
+    //            self.state.nonces.get(&address).map_or_else(|| self.parent._nonce_of(address), |k| *k)
+    //        }
+    //    }
 
     fn _read_contract_storage(&self, key: [u8; 52]) -> Option<[u8; 32]> {
         let mut addr = [0u8; 20];
@@ -282,13 +315,12 @@ impl EvmState for SubState<'_> {
         self.state.commit_self_destructs(&other.self_destructs);
         self.state.commit_recreated(&other.recreated);
         self.state.commit_code(&other.code);
-        self.state.commit_balances(&other.balances);
-        self.state.commit_nonces(&other.nonces);
+        self.state.commit_accounts(&other.accounts);
         self.state.commit_storages(&other.storages);
         self.state.logs.extend(other.logs.iter().cloned());
     }
 
-    fn recreate(&mut self, address: [u8; 20]) {
+    fn recreate(&mut self, _address: [u8; 20]) {
         unimplemented!()
     }
 }

@@ -16,6 +16,8 @@ pub enum EvmError {
     MissingDeposit,
     /// Insufficient funds to finish the operation.
     InsufficientFunds,
+    /// U256 overflow.
+    IntegerOverflow,
 }
 
 impl std::fmt::Display for EvmError {
