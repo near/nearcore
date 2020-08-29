@@ -58,10 +58,6 @@ impl<'a> NearExt<'a> {
     }
 }
 
-fn not_implemented(name: &str) {
-    // near_sdk::env::log(format!("not implemented: {}", name).as_bytes());
-}
-
 impl<'a> vm::Ext for NearExt<'a> {
     /// Returns the storage value for a given key if reversion happens on the current transaction.
     fn initial_storage_at(&self, key: &H256) -> EvmResult<H256> {
@@ -125,10 +121,11 @@ impl<'a> vm::Ext for NearExt<'a> {
         _trap: bool,
     ) -> Result<ContractCreateResult, TrapKind> {
         if self.is_static() {
-            panic!("MutableCallInStaticContext")
+            return Err(TrapKind::Call(ActionParams::default()));
         }
 
         // TODO: better error propagation.
+        // TODO: gas metering.
         interpreter::deploy_code(
             self.sub_state,
             &self.origin,
@@ -140,7 +137,7 @@ impl<'a> vm::Ext for NearExt<'a> {
             &code.to_vec(),
         )
         .map(|result| ContractCreateResult::Created(result, 1_000_000_000.into()))
-        .map_err(|err| TrapKind::Call(ActionParams::default()))
+        .map_err(|_| TrapKind::Call(ActionParams::default()))
     }
 
     /// Message call.
@@ -170,9 +167,8 @@ impl<'a> vm::Ext for NearExt<'a> {
 
         let result = match call_type {
             CallType::None => {
-                // Can stay unimplemented
-                not_implemented("CallType=None");
-                unimplemented!()
+                // Is not used.
+                return Err(TrapKind::Call(ActionParams::default()));
             }
             CallType::Call => interpreter::call(
                 self.sub_state,
@@ -193,10 +189,8 @@ impl<'a> vm::Ext for NearExt<'a> {
                 &data.to_vec(),
             ),
             CallType::CallCode => {
-                // Call another contract using storage of the current contract
-                // Can leave unimplemented, no longer used.
-                not_implemented("CallCode");
-                unimplemented!()
+                // Call another contract using storage of the current contract. No longer used.
+                return Err(TrapKind::Call(ActionParams::default()));
             }
             CallType::DelegateCall => interpreter::delegate_call(
                 self.sub_state,
@@ -268,9 +262,8 @@ impl<'a> vm::Ext for NearExt<'a> {
     /// Returns gas_left if cost of returning the data is not too high.
     fn ret(self, _gas: &U256, _data: &ReturnData, _apply_state: bool) -> EvmResult<U256> {
         // NOTE: this is only called through finalize(), but we are not using it
-        // so it should be safe to ignore it here
-        not_implemented("ret");
-        unimplemented!()
+        // so it should be safe to ignore it here.
+        Err(vm::Error::Internal("ret".to_string()))
     }
 
     /// Should be called when contract commits suicide.
