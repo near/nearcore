@@ -30,3 +30,10 @@ near-vm-logic = { path = "../near-vm-logic" }
 near-vm-errors = { path = "../near-vm-errors" }
 near-primitives = { path = "../../core/primitives" }
 near-store = { path = "../../core/store" }
+
+[dev-dependencies]
+ethabi = "8.0.0"
+ethabi-contract = "8.0.0"
+ethabi-derive = "8.0.0"
+lazy_static = "1.4"
+lazy-static-include = "2.2.2"
