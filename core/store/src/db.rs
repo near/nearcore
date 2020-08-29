@@ -224,7 +224,6 @@ pub const HEAD_KEY: &[u8; 4] = b"HEAD";
 pub const TAIL_KEY: &[u8; 4] = b"TAIL";
 pub const CHUNK_TAIL_KEY: &[u8; 10] = b"CHUNK_TAIL";
 pub const FORK_TAIL_KEY: &[u8; 9] = b"FORK_TAIL";
-pub const SYNC_HEAD_KEY: &[u8; 9] = b"SYNC_HEAD";
 pub const HEADER_HEAD_KEY: &[u8; 11] = b"HEADER_HEAD";
 pub const LATEST_KNOWN_KEY: &[u8; 12] = b"LATEST_KNOWN";
 pub const LARGEST_TARGET_HEIGHT_KEY: &[u8; 21] = b"LARGEST_TARGET_HEIGHT";
