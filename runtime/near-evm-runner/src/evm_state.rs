@@ -2,20 +2,18 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 
 use ethereum_types::{Address, U256};
 
-use near_primitives::types::{AccountId, Balance};
-
 use crate::utils;
 
 pub trait EvmState {
     fn code_at(&self, address: &Address) -> Option<Vec<u8>>;
     fn set_code(&mut self, address: &Address, bytecode: &[u8]);
 
-    fn _set_balance(&mut self, address: [u8; 20], balance: [u8; 32]) -> Option<[u8; 32]>;
-    fn set_balance(&mut self, address: &Address, balance: U256) -> Option<U256> {
+    fn _set_balance(&mut self, address: [u8; 20], balance: [u8; 32]);
+    fn set_balance(&mut self, address: &Address, balance: U256) {
         let mut bin = [0u8; 32];
         balance.to_big_endian(&mut bin);
         let internal_addr = utils::evm_account_to_internal_address(*address);
-        self._set_balance(internal_addr, bin).map(|v| v.into())
+        self._set_balance(internal_addr, bin);
     }
 
     fn _balance_of(&self, address: [u8; 20]) -> [u8; 32];
@@ -62,17 +60,17 @@ pub trait EvmState {
 
     fn commit_changes(&mut self, other: &StateStore);
 
-    // Panics on u256 overflow
-    // This represents NEAR tokens, so it can never _actually_ go above 2**128
-    // That'd be silly.
-    fn add_balance(&mut self, address: &Address, incr: U256) -> Option<U256> {
+    /// Panics on u256 overflow
+    /// This represents NEAR tokens, so it can never _actually_ go above 2**128
+    /// That'd be silly.
+    fn add_balance(&mut self, address: &Address, incr: U256) {
         let balance = self.balance_of(address);
         let new_balance = balance.checked_add(incr).expect("overflow during add_balance");
         self.set_balance(address, new_balance)
     }
 
-    // Panics if insufficient balance
-    fn sub_balance(&mut self, address: &Address, decr: U256) -> Option<U256> {
+    /// Panics if insufficient balance.
+    fn sub_balance(&mut self, address: &Address, decr: U256) {
         let balance = self.balance_of(address);
         let new_balance = balance.checked_sub(decr).expect("underflow during sub_balance");
         self.set_balance(address, new_balance)
@@ -152,8 +150,8 @@ impl EvmState for StateStore {
         self.code.insert(internal_addr, bytecode.to_vec());
     }
 
-    fn _set_balance(&mut self, address: [u8; 20], balance: [u8; 32]) -> Option<[u8; 32]> {
-        self.balances.insert(address, balance)
+    fn _set_balance(&mut self, address: [u8; 20], balance: [u8; 32]) {
+        self.balances.insert(address, balance);
     }
 
     fn _balance_of(&self, address: [u8; 20]) -> [u8; 32] {
@@ -241,8 +239,8 @@ impl EvmState for SubState<'_> {
         self.state.code.insert(internal_addr, bytecode.to_vec());
     }
 
-    fn _set_balance(&mut self, address: [u8; 20], balance: [u8; 32]) -> Option<[u8; 32]> {
-        self.state.balances.insert(address, balance)
+    fn _set_balance(&mut self, address: [u8; 20], balance: [u8; 32]) {
+        self.state.balances.insert(address, balance);
     }
 
     fn _balance_of(&self, address: [u8; 20]) -> [u8; 32] {

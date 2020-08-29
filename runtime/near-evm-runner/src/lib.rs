@@ -10,18 +10,20 @@ use near_vm_logic::VMOutcome;
 use crate::errors::EvmError;
 use crate::evm_state::{EvmState, StateStore};
 use crate::types::{GetCodeArgs, GetStorageAtArgs, WithdrawNearArgs};
+use near_primitives::trie_key::TrieKey;
 
 mod builtins;
 mod errors;
 mod evm_state;
 mod interpreter;
 mod near_ext;
-mod types;
+pub mod types;
 pub mod utils;
 
 pub struct EvmContext<'a> {
     trie_update: &'a mut TrieUpdate,
-    sender_id: AccountId,
+    account_id: AccountId,
+    predecessor_id: AccountId,
     attached_deposit: Balance,
 }
 
@@ -34,12 +36,22 @@ impl<'a> EvmState for EvmContext<'a> {
         unimplemented!()
     }
 
-    fn _set_balance(&mut self, address: [u8; 20], balance: [u8; 32]) -> Option<[u8; 32]> {
-        unimplemented!()
+    fn _set_balance(&mut self, address: [u8; 20], balance: [u8; 32]) {
+        self.trie_update.set(
+            TrieKey::ContractData { account_id: self.account_id.clone(), key: address.to_vec() },
+            balance.to_vec(),
+        )
     }
 
     fn _balance_of(&self, address: [u8; 20]) -> [u8; 32] {
-        unimplemented!()
+        self.trie_update
+            .get(&TrieKey::ContractData {
+                account_id: self.account_id.clone(),
+                key: address.to_vec(),
+            })
+            .unwrap_or_else(|_| None)
+            .map(|value| utils::vec_to_arr_32(value))
+            .unwrap_or([0; 32])
     }
 
     fn _set_nonce(&mut self, address: [u8; 20], nonce: [u8; 32]) -> Option<[u8; 32]> {
@@ -68,8 +80,22 @@ impl<'a> EvmState for EvmContext<'a> {
 }
 
 impl<'a> EvmContext<'a> {
-    pub fn deploy_code(&mut self, bytecode: Vec<u8>) -> Result<Vec<u8>, EvmError> {
-        let sender = utils::near_account_id_to_evm_address(&self.sender_id);
+    pub fn new(
+        mut state_update: &'a mut TrieUpdate,
+        account_id: AccountId,
+        predecessor_id: AccountId,
+        attached_deposit: Balance,
+    ) -> Self {
+        Self {
+            trie_update: state_update,
+            account_id,
+            predecessor_id: predecessor_id,
+            attached_deposit,
+        }
+    }
+
+    pub fn deploy_code(&mut self, bytecode: Vec<u8>) -> Result<Address, EvmError> {
+        let sender = utils::near_account_id_to_evm_address(&self.predecessor_id);
         interpreter::deploy_code(
             self,
             &sender,
@@ -80,13 +106,12 @@ impl<'a> EvmContext<'a> {
             true,
             &bytecode,
         )
-        .map(|address| utils::address_to_vec(&address))
     }
 
     pub fn call_function(&mut self, args: Vec<u8>) -> Result<Vec<u8>, EvmError> {
         let contract_address = Address::from_slice(&args[..20]);
         let input = &args[20..];
-        let sender = utils::near_account_id_to_evm_address(&self.sender_id);
+        let sender = utils::near_account_id_to_evm_address(&self.predecessor_id);
         let value =
             if self.attached_deposit == 0 { None } else { Some(U256::from(self.attached_deposit)) };
         interpreter::call(self, &sender, &sender, value, 0, &contract_address, &input, true)
@@ -107,51 +132,52 @@ impl<'a> EvmContext<'a> {
             .to_vec())
     }
 
-    pub fn get_balance(&self, args: Vec<u8>) -> Result<Vec<u8>, EvmError> {
-        Ok(utils::u256_to_vec(&self.balance_of(&Address::from_slice(&args))))
+    pub fn get_balance(&self, args: Vec<u8>) -> Result<U256, EvmError> {
+        Ok(self.balance_of(&Address::from_slice(&args)))
     }
 
-    pub fn deposit_near(&mut self, args: Vec<u8>) -> Result<Vec<u8>, EvmError> {
+    pub fn deposit_near(&mut self, args: Vec<u8>) -> Result<U256, EvmError> {
         if self.attached_deposit == 0 {
             return Err(EvmError::MissingDeposit);
         }
-        let sender = utils::near_account_id_to_evm_address(&self.sender_id);
+        let sender = utils::near_account_id_to_evm_address(&self.predecessor_id);
         let address = Address::from_slice(&args);
         self.add_balance(&address, U256::from(self.attached_deposit));
-        Ok(utils::u256_to_vec(&self.balance_of(&address)))
+        Ok(self.balance_of(&address))
     }
 
-    pub fn withdraw_near(&mut self, args: Vec<u8>) -> Result<Vec<u8>, EvmError> {
+    pub fn withdraw_near(&mut self, args: Vec<u8>) -> Result<(), EvmError> {
         let args =
             WithdrawNearArgs::try_from_slice(&args).map_err(|err| EvmError::ArgumentParseError)?;
-        let sender = utils::near_account_id_to_evm_address(&self.sender_id);
+        let sender = utils::near_account_id_to_evm_address(&self.predecessor_id);
         let amount = U256::from(args.amount);
         if amount > self.balance_of(&sender) {
             return Err(EvmError::InsufficientFunds);
         }
         self.sub_balance(&sender, amount);
         // TODO: add outgoing promise.
-        Ok(vec![])
+        Ok(())
     }
 }
 
 pub fn run_evm(
     mut state_update: &mut TrieUpdate,
+    account_id: AccountId,
     predecessor_id: AccountId,
     attached_deposit: Balance,
     method_name: String,
     args: Vec<u8>,
 ) -> (Option<VMOutcome>, Option<VMError>) {
     let mut context =
-        EvmContext { trie_update: &mut state_update, sender_id: predecessor_id, attached_deposit };
+        EvmContext::new(&mut state_update, account_id, predecessor_id, attached_deposit);
     let result = match method_name.as_str() {
-        "deploy_code" => context.deploy_code(args),
+        "deploy_code" => context.deploy_code(args).map(|address| utils::address_to_vec(&address)),
         "get_code" => context.get_code(args),
         "call_function" => context.call_function(args),
         "get_storage_at" => context.get_storage_at(args),
-        "get_balance" => context.get_balance(args),
-        "deposit_near" => context.deposit_near(args),
-        "withdraw_near" => context.withdraw_near(args),
+        "get_balance" => context.get_balance(args).map(|balance| utils::u256_to_vec(&balance)),
+        "deposit_near" => context.deposit_near(args).map(|balance| utils::u256_to_vec(&balance)),
+        "withdraw_near" => context.withdraw_near(args).map(|_| vec![]),
         _ => Err(EvmError::UnknownError),
     };
     (None, None)

@@ -10,7 +10,6 @@ use vm::{
 
 use crate::evm_state::{EvmState, SubState};
 use crate::interpreter;
-use crate::utils;
 use evm::ActionParams;
 
 // https://github.com/paritytech/parity-ethereum/blob/77643c13e80ca09d9a6b10631034f5a1568ba6d3/ethcore/machine/src/externalities.rs

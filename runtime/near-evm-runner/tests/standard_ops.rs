@@ -7,7 +7,7 @@ use near_store::test_utils::create_tries;
 use near_store::ShardTries;
 
 fn accounts(account_id: usize) -> String {
-    vec!["alice", "bob", "chad"][account_id].to_string()
+    vec!["evm", "alice", "bob", "chad"][account_id].to_string()
 }
 
 fn setup() -> (ShardTries, CryptoHash) {
@@ -20,15 +20,16 @@ fn setup() -> (ShardTries, CryptoHash) {
 fn test_sends() {
     let (tries, root) = setup();
     let mut state_update = tries.new_trie_update(0, root);
-    let (outcome, error) = run_evm(
-        &mut state_update,
-        accounts(0),
-        0,
-        "get_balance".to_string(),
-        address_to_vec(&near_account_id_to_evm_address(&accounts(0))),
-    );
+    let context = EvmContext::new(&mut state_update, accounts(0), accounts(1), 0);
     assert_eq!(
-        U256::from_big_endian(&outcome.unwrap().return_data.as_value().unwrap()),
+        context.get_balance(address_to_vec(&near_account_id_to_evm_address(&accounts(1)))).unwrap(),
         U256::from(0)
+    );
+    let mut context = EvmContext::new(&mut state_update, accounts(0), accounts(1), 100);
+    assert_eq!(
+        context
+            .deposit_near(address_to_vec(&near_account_id_to_evm_address(&accounts(1))))
+            .unwrap(),
+        U256::from(100)
     );
 }

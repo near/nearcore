@@ -1,4 +1,4 @@
-use ethereum_types::{Address, U256};
+use ethereum_types::Address;
 
 #[derive(Debug)]
 pub enum EvmError {
