@@ -45,6 +45,16 @@ pub fn u256_to_balance(val: &U256) -> Balance {
     Balance::from_be_bytes(bin)
 }
 
+pub fn u256_to_vec(val: &U256) -> Vec<u8> {
+    let mut result = [0u8; 32];
+    val.to_big_endian(&mut result);
+    result.to_vec()
+}
+
+pub fn address_to_vec(val: &Address) -> Vec<u8> {
+    val.to_fixed_bytes().to_vec()
+}
+
 /// Returns new address created from address, nonce, and code hash
 /// Copied directly from the parity codebase
 pub fn evm_contract_address(

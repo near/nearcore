@@ -1,3 +1,4 @@
+use borsh::BorshDeserialize;
 use ethereum_types::{Address, H160, U256};
 use evm::CreateContractAddress;
 
@@ -8,15 +9,17 @@ use near_vm_logic::VMOutcome;
 
 use crate::errors::EvmError;
 use crate::evm_state::{EvmState, StateStore};
+use crate::types::{GetCodeArgs, GetStorageAtArgs, WithdrawNearArgs};
 
 mod builtins;
 mod errors;
 mod evm_state;
 mod interpreter;
 mod near_ext;
-mod utils;
+mod types;
+pub mod utils;
 
-struct EvmContext<'a> {
+pub struct EvmContext<'a> {
     trie_update: &'a mut TrieUpdate,
     sender_id: AccountId,
     attached_deposit: Balance,
@@ -64,6 +67,74 @@ impl<'a> EvmState for EvmContext<'a> {
     }
 }
 
+impl<'a> EvmContext<'a> {
+    pub fn deploy_code(&mut self, bytecode: Vec<u8>) -> Result<Vec<u8>, EvmError> {
+        let sender = utils::near_account_id_to_evm_address(&self.sender_id);
+        interpreter::deploy_code(
+            self,
+            &sender,
+            &sender,
+            U256::from(self.attached_deposit),
+            0,
+            CreateContractAddress::FromSenderAndNonce,
+            true,
+            &bytecode,
+        )
+        .map(|address| utils::address_to_vec(&address))
+    }
+
+    pub fn call_function(&mut self, args: Vec<u8>) -> Result<Vec<u8>, EvmError> {
+        let contract_address = Address::from_slice(&args[..20]);
+        let input = &args[20..];
+        let sender = utils::near_account_id_to_evm_address(&self.sender_id);
+        let value =
+            if self.attached_deposit == 0 { None } else { Some(U256::from(self.attached_deposit)) };
+        interpreter::call(self, &sender, &sender, value, 0, &contract_address, &input, true)
+            .map(|rd| rd.to_vec())
+    }
+
+    pub fn get_code(&self, args: Vec<u8>) -> Result<Vec<u8>, EvmError> {
+        let args = GetCodeArgs::try_from_slice(&args).map_err(|_| EvmError::ArgumentParseError)?;
+        Ok(self.code_at(&Address::from_slice(&args.address)).unwrap_or(vec![]))
+    }
+
+    pub fn get_storage_at(&self, args: Vec<u8>) -> Result<Vec<u8>, EvmError> {
+        let args =
+            GetStorageAtArgs::try_from_slice(&args).map_err(|_| EvmError::ArgumentParseError)?;
+        Ok(self
+            .read_contract_storage(&Address::from_slice(&args.address), args.key)
+            .unwrap_or([0u8; 32])
+            .to_vec())
+    }
+
+    pub fn get_balance(&self, args: Vec<u8>) -> Result<Vec<u8>, EvmError> {
+        Ok(utils::u256_to_vec(&self.balance_of(&Address::from_slice(&args))))
+    }
+
+    pub fn deposit_near(&mut self, args: Vec<u8>) -> Result<Vec<u8>, EvmError> {
+        if self.attached_deposit == 0 {
+            return Err(EvmError::MissingDeposit);
+        }
+        let sender = utils::near_account_id_to_evm_address(&self.sender_id);
+        let address = Address::from_slice(&args);
+        self.add_balance(&address, U256::from(self.attached_deposit));
+        Ok(utils::u256_to_vec(&self.balance_of(&address)))
+    }
+
+    pub fn withdraw_near(&mut self, args: Vec<u8>) -> Result<Vec<u8>, EvmError> {
+        let args =
+            WithdrawNearArgs::try_from_slice(&args).map_err(|err| EvmError::ArgumentParseError)?;
+        let sender = utils::near_account_id_to_evm_address(&self.sender_id);
+        let amount = U256::from(args.amount);
+        if amount > self.balance_of(&sender) {
+            return Err(EvmError::InsufficientFunds);
+        }
+        self.sub_balance(&sender, amount);
+        // TODO: add outgoing promise.
+        Ok(vec![])
+    }
+}
+
 pub fn run_evm(
     mut state_update: &mut TrieUpdate,
     predecessor_id: AccountId,
@@ -71,53 +142,17 @@ pub fn run_evm(
     method_name: String,
     args: Vec<u8>,
 ) -> (Option<VMOutcome>, Option<VMError>) {
-    let mut context = EvmContext {
-        trie_update: &mut state_update,
-        sender_id: predecessor_id.clone(),
-        attached_deposit,
-    };
-    let sender = utils::near_account_id_to_evm_address(&predecessor_id);
-    let value = U256::from(attached_deposit);
+    let mut context =
+        EvmContext { trie_update: &mut state_update, sender_id: predecessor_id, attached_deposit };
     let result = match method_name.as_str() {
-        "deploy_code" => interpreter::deploy_code(
-            &mut context,
-            &sender,
-            &sender,
-            value,
-            0,
-            CreateContractAddress::FromSenderAndNonce,
-            true,
-            &args,
-        ),
-        "get_code" => {
-            let address = Address::from_slice(&args);
-            // context.get_code(address)
-            Ok(address)
-        }
-        "call_function" => {
-            let contract_address = Address::from_slice(&args[..20]);
-            let input = &args[20..];
-            let result = interpreter::call(
-                &mut context,
-                &sender,
-                &sender,
-                Some(value),
-                0, // call-stack depth
-                &contract_address,
-                &input,
-                true,
-            );
-            Ok(contract_address)
-        }
+        "deploy_code" => context.deploy_code(args),
+        "get_code" => context.get_code(args),
+        "call_function" => context.call_function(args),
+        "get_storage_at" => context.get_storage_at(args),
+        "get_balance" => context.get_balance(args),
+        "deposit_near" => context.deposit_near(args),
+        "withdraw_near" => context.withdraw_near(args),
         _ => Err(EvmError::UnknownError),
     };
     (None, None)
-}
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn it_works() {
-        assert_eq!(2 + 2, 4);
-    }
 }

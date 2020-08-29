@@ -2526,6 +2526,34 @@ dependencies = [
 ]
 
 [[package]]
+name = "near-evm-runner"
+version = "0.1.0"
+dependencies = [
+ "bn",
+ "borsh",
+ "byteorder",
+ "ethereum-types",
+ "evm",
+ "hex 0.3.2",
+ "keccak-hash",
+ "libsecp256k1",
+ "near-primitives",
+ "near-store",
+ "near-vm-errors",
+ "near-vm-logic",
+ "num-bigint 0.3.0",
+ "num-traits",
+ "parity-bytes",
+ "ripemd160",
+ "rlp",
+ "serde",
+ "serde_json",
+ "sha2",
+ "sha3",
+ "vm",
+]
+
+[[package]]
 name = "near-indexer"
 version = "0.1.0"
 dependencies = [

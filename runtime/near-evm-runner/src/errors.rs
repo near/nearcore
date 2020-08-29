@@ -10,6 +10,12 @@ pub enum EvmError {
     DeployFail(Vec<u8>),
     /// Contract execution failed, revert the state.
     Revert(Vec<u8>),
+    /// Failed to parse arguments.
+    ArgumentParseError,
+    /// No deposit when expected.
+    MissingDeposit,
+    /// Insufficient funds to finish the operation.
+    InsufficientFunds,
 }
 
 impl std::fmt::Display for EvmError {
