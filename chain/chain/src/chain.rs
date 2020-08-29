@@ -1443,7 +1443,7 @@ impl Chain {
     ) -> Result<Vec<u8>, Error> {
         // Check cache
         let key = StatePartKey(sync_hash, shard_id, part_id).try_to_vec()?;
-        if let Ok(Some(state_part)) = self.store.owned_store().get_ser(ColStateParts, &key) {
+        if let Ok(Some(state_part)) = self.store.owned_store().get(ColStateParts, &key) {
             return Ok(state_part);
         }
 
@@ -1485,7 +1485,7 @@ impl Chain {
 
         // Saving the part data
         let mut store_update = self.store.owned_store().store_update();
-        store_update.set_ser(ColStateParts, &key, &state_part)?;
+        store_update.set(ColStateParts, &key, &state_part);
         store_update.commit()?;
 
         Ok(state_part)
@@ -1701,7 +1701,7 @@ impl Chain {
         // Saving the part data.
         let mut store_update = self.store.owned_store().store_update();
         let key = StatePartKey(sync_hash, shard_id, part_id).try_to_vec()?;
-        store_update.set_ser(ColStateParts, &key, data)?;
+        store_update.set(ColStateParts, &key, data);
         store_update.commit()?;
         Ok(())
     }
@@ -1718,7 +1718,7 @@ impl Chain {
         let mut parts = vec![];
         for part_id in 0..num_parts {
             let key = StatePartKey(sync_hash, shard_id, part_id).try_to_vec()?;
-            parts.push(self.store.owned_store().get_ser(ColStateParts, &key)?.unwrap());
+            parts.push(self.store.owned_store().get(ColStateParts, &key)?.unwrap());
         }
 
         // Confirm that state matches the parts we received
