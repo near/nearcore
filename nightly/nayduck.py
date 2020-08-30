@@ -16,6 +16,8 @@ parser.add_argument('--sha', '-s', dest='sha',
                     help='Sha to test. By default gets current one.')
 parser.add_argument('--test_file', '-t', dest='test_file', default='tests_for_nayduck.txt',
                     help='Test file with list of tests. By default nayduck.txt')
+parser.add_argument('--run_type', '-r', dest='run_type', default='custom',
+                    help='The type of the run. When triggered by user, the type is custom.')
 
 args = parser.parse_args()
 
@@ -24,6 +26,9 @@ def get_curent_sha():
 
 def get_current_branch():
     return subprocess.check_output(['git', 'rev-parse', '--abbrev-ref', 'HEAD'], universal_newlines=True)
+
+def get_current_user():
+    return subprocess.check_output(['git', 'config', 'user.name'], universal_newlines=True)
 
 def get_tests(fl):
     tests = []
@@ -51,7 +56,8 @@ if __name__ == "__main__":
     else:
         sha = args.sha
     tests = get_tests(args.test_file)
-    post = {'branch': branch, 'sha': sha, 'tests': tests}
+    user = get_current_user().strip()
+    post = {'branch': branch, 'sha': sha, 'tests': tests, 'requester': user, 'run_type': args.run_type}
     print('Sending request ...')
     res = requests.post('http://nayduck.eastus.cloudapp.azure.com:5000/request_a_run', json=post)
     json_res = json.loads(res.text)
@@ -59,5 +65,3 @@ if __name__ == "__main__":
         print(Fore.GREEN + json_res['response'])
     else:
         print(Fore.RED + json_res['response'])
-
-    

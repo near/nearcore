@@ -11,8 +11,8 @@ use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockHeightDelta, MerkleHash};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{
-    AccessKeyView, AccountView, BlockView, ExecutionOutcomeView, ExecutionOutcomeWithIdView,
-    ExecutionStatusView, ViewStateResult,
+    AccessKeyView, AccountView, BlockView, ChunkView, ExecutionOutcomeView,
+    ExecutionOutcomeWithIdView, ExecutionStatusView, ViewStateResult,
 };
 use near_primitives::views::{FinalExecutionOutcomeView, FinalExecutionStatus};
 use near_store::{ShardTries, TrieUpdate};
@@ -236,6 +236,10 @@ impl User for RuntimeUser {
 
     fn get_block(&self, _height: u64) -> Option<BlockView> {
         unimplemented!("get_block should not be implemented for RuntimeUser");
+    }
+
+    fn get_chunk(&self, _height: u64, _shard_id: u64) -> Option<ChunkView> {
+        unimplemented!("get_chunk should not be implemented for RuntimeUser");
     }
 
     fn get_transaction_result(&self, hash: &CryptoHash) -> ExecutionOutcomeView {
