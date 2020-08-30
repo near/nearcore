@@ -25,6 +25,11 @@ use crate::metrics;
 use crate::types::ShardSyncStatus;
 use crate::SyncStatus;
 
+pub struct ValidatorInfoHelper {
+    pub is_validator: bool,
+    pub num_validators: usize,
+}
+
 /// A helper that prints information about current chain and reports to telemetry.
 pub struct InfoHelper {
     /// Nearcore agent (executable) version
@@ -39,8 +44,6 @@ pub struct InfoHelper {
     num_blocks_processed: u64,
     /// Total gas used during period.
     gas_used: u64,
-    /// Total gas limit during period.
-    gas_limit: u64,
     /// Sign telemetry with block producer key if available.
     validator_signer: Option<Arc<dyn ValidatorSigner>>,
     /// Telemetry actor.
@@ -61,16 +64,14 @@ impl InfoHelper {
             started: Instant::now(),
             num_blocks_processed: 0,
             gas_used: 0,
-            gas_limit: 0,
             telemetry_actor,
             validator_signer,
         }
     }
 
-    pub fn block_processed(&mut self, gas_used: Gas, gas_limit: Gas) {
+    pub fn block_processed(&mut self, gas_used: Gas) {
         self.num_blocks_processed += 1;
         self.gas_used += gas_used;
-        self.gas_limit += gas_limit;
     }
 
     pub fn info(
@@ -80,9 +81,7 @@ impl InfoHelper {
         sync_status: &SyncStatus,
         node_id: &PeerId,
         network_info: &NetworkInfo,
-        is_validator: bool,
-        is_fisherman: bool,
-        num_validators: usize,
+        validator_info: Option<ValidatorInfoHelper>,
     ) {
         let (cpu_usage, memory_usage) = if let Some(pid) = self.pid {
             if self.sys.refresh_process(pid) {
@@ -104,15 +103,25 @@ impl InfoHelper {
             * 1000.0;
         let avg_gas_used =
             ((self.gas_used as f64) / (self.started.elapsed().as_millis() as f64) * 1000.0) as u64;
+        let validator_info_log = if let Some(ref validator_info) = validator_info {
+            White.bold().paint(format!(
+                "{}/{}",
+                if validator_info.is_validator { "V" } else { "-" },
+                validator_info.num_validators
+            ))
+        } else {
+            White.bold().paint("")
+        };
         info!(target: "stats", "{} {} {} {} {} {}",
               Yellow.bold().paint(display_sync_status(&sync_status, &head, genesis_height)),
-              White.bold().paint(format!("{}/{}", if is_validator { "V" } else if is_fisherman { "F" } else { "-" }, num_validators)),
+              validator_info_log,
               Cyan.bold().paint(format!("{:2}/{:?}/{:2} peers", network_info.num_active_peers, network_info.highest_height_peers.len(), network_info.peer_max_count)),
               Cyan.bold().paint(format!("⬇ {} ⬆ {}", pretty_bytes_per_sec(network_info.received_bytes_per_sec), pretty_bytes_per_sec(network_info.sent_bytes_per_sec))),
               Green.bold().paint(format!("{:.2} bps {}", avg_bls, gas_used_per_sec(avg_gas_used))),
               Blue.bold().paint(format!("CPU: {:.0}%, Mem: {}", cpu_usage, pretty_bytes(memory_usage * 1024)))
         );
 
+        let is_validator = validator_info.map(|v| v.is_validator).unwrap_or_default();
         set_gauge(&metrics::IS_VALIDATOR, is_validator as i64);
         set_gauge(&metrics::RECEIVED_BYTES_PER_SECOND, network_info.received_bytes_per_sec as i64);
         set_gauge(&metrics::SENT_BYTES_PER_SECOND, network_info.sent_bytes_per_sec as i64);
@@ -123,7 +132,6 @@ impl InfoHelper {
         self.started = Instant::now();
         self.num_blocks_processed = 0;
         self.gas_used = 0;
-        self.gas_limit = 0;
 
         let info = TelemetryInfo {
             agent: TelemetryAgentInfo {
