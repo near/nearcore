@@ -43,7 +43,7 @@ use near_store::ColBlock;
 use near_telemetry::TelemetryActor;
 
 use crate::client::Client;
-use crate::info::InfoHelper;
+use crate::info::{InfoHelper, ValidatorInfoHelper};
 use crate::sync::{highest_height_peer, StateSync, StateSyncResult};
 use crate::types::{
     Error, GetNetworkInfo, NetworkInfoResponse, ShardSyncDownload, ShardSyncStatus, Status,
@@ -858,11 +858,10 @@ impl ClientActor {
             );
             let block = self.client.chain.get_block(&accepted_block.hash).unwrap();
             let gas_used = Block::compute_gas_used(&block.chunks(), block.header().height());
-            let gas_limit = Block::compute_gas_limit(&block.chunks(), block.header().height());
 
             let last_final_hash = *block.header().last_final_block();
 
-            self.info_helper.block_processed(gas_used, gas_limit);
+            self.info_helper.block_processed(gas_used);
             self.check_send_announce_account(last_final_hash);
         }
     }
@@ -1280,39 +1279,35 @@ impl ClientActor {
 
     /// Periodically log summary.
     fn log_summary(&self, ctx: &mut Context<Self>) {
-        #[cfg(feature = "delay_detector")]
-        let _d = DelayDetector::new("client log summary".into());
         ctx.run_later(self.client.config.log_summary_period, move |act, ctx| {
-            let head = unwrap_or_return!(act.client.chain.head());
-            let validators = unwrap_or_return!(act
-                .client
-                .runtime_adapter
-                .get_epoch_block_producers_ordered(&head.epoch_id, &head.last_block_hash));
-            let num_validators = validators.len();
-            let account_id = act.client.validator_signer.as_ref().map(|x| x.validator_id());
-            let is_validator = if let Some(ref account_id) = account_id {
-                match act.client.runtime_adapter.get_validator_by_account_id(
-                    &head.epoch_id,
-                    &head.last_block_hash,
-                    account_id,
-                ) {
-                    Ok((_, is_slashed)) => !is_slashed,
-                    Err(_) => false,
-                }
+            #[cfg(feature = "delay_detector")]
+            let _d = DelayDetector::new("client log summary".into());
+            let is_syncing = act.client.sync_status.is_syncing();
+            let head = unwrap_or_return!(act.client.chain.head(), act.log_summary(ctx));
+            let validator_info = if !is_syncing {
+                let validators = unwrap_or_return!(
+                    act.client
+                        .runtime_adapter
+                        .get_epoch_block_producers_ordered(&head.epoch_id, &head.last_block_hash),
+                    act.log_summary(ctx)
+                );
+                let num_validators = validators.len();
+                let account_id = act.client.validator_signer.as_ref().map(|x| x.validator_id());
+                let is_validator = if let Some(ref account_id) = account_id {
+                    match act.client.runtime_adapter.get_validator_by_account_id(
+                        &head.epoch_id,
+                        &head.last_block_hash,
+                        account_id,
+                    ) {
+                        Ok((_, is_slashed)) => !is_slashed,
+                        Err(_) => false,
+                    }
+                } else {
+                    false
+                };
+                Some(ValidatorInfoHelper { is_validator, num_validators })
             } else {
-                false
-            };
-            let is_fishermen = if let Some(ref account_id) = account_id {
-                match act.client.runtime_adapter.get_fisherman_by_account_id(
-                    &head.epoch_id,
-                    &head.last_block_hash,
-                    account_id,
-                ) {
-                    Ok((_, is_slashed)) => !is_slashed,
-                    Err(_) => false,
-                }
-            } else {
-                false
+                None
             };
 
             act.info_helper.info(
@@ -1321,9 +1316,7 @@ impl ClientActor {
                 &act.client.sync_status,
                 &act.node_id,
                 &act.network_info,
-                is_validator,
-                is_fishermen,
-                num_validators,
+                validator_info,
             );
 
             act.log_summary(ctx);
