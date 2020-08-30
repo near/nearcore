@@ -149,7 +149,7 @@ expensive --timeout=1200 near-chain gc tests::test_gc_not_remove_fork_large
 expensive --timeout=1200 near-chain gc tests::test_gc_boundaries_large
 expensive --timeout=900 near-chain gc tests::test_gc_random_large
 expensive --timeout=600 near-chain gc tests::test_gc_pine
-expensive --timeout=600 near-chain gc tests::test_gc_star_large
+expensive --timeout=700 near-chain gc tests::test_gc_star_large
 expensive near-client process_blocks test_gc_after_state_sync
 
 # lib tests
