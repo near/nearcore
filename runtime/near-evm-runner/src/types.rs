@@ -1,5 +1,4 @@
-use borsh::{BorshDeserialize, BorshSerialize};
-use ethereum_types::U256;
+use borsh::BorshDeserialize;
 
 use near_primitives::types::Balance;
 

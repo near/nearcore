@@ -31,6 +31,20 @@ pub fn hex_to_evm_address(address: &str) -> Address {
     Address::from_slice(&addr)
 }
 
+pub fn encode_call_function_args(address: Address, input: Vec<u8>) -> Vec<u8> {
+    let mut result = Vec::with_capacity(20 + input.len());
+    result.extend_from_slice(&address.0);
+    result.extend_from_slice(&input);
+    result
+}
+
+pub fn address_from_arr(arr: &[u8]) -> Address {
+    assert_eq!(arr.len(), 20);
+    let mut address = [0u8; 20];
+    address.copy_from_slice(&arr);
+    Address::from(address)
+}
+
 pub fn balance_to_u256(val: &Balance) -> U256 {
     let mut bin = [0u8; 32];
     bin[16..].copy_from_slice(&val.to_be_bytes());
@@ -56,6 +70,7 @@ pub fn address_to_vec(val: &Address) -> Vec<u8> {
 }
 
 pub fn vec_to_arr_32(v: Vec<u8>) -> [u8; 32] {
+    assert_eq!(v.len(), 32);
     let mut result = [0; 32];
     result.copy_from_slice(&v);
     result

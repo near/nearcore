@@ -35,42 +35,33 @@ pub trait EvmState {
     fn set_code(&mut self, address: &Address, bytecode: &[u8]);
 
     fn set_account(&mut self, address: &Address, account: &EvmAccount);
-    fn get_account(&self, address: &Address) -> EvmAccount;
+    fn get_account(&self, address: &Address) -> Option<EvmAccount>;
 
     fn balance_of(&self, address: &Address) -> U256 {
-        let account = self.get_account(address);
+        let account = self.get_account(address).unwrap_or_default();
         account.balance.into()
     }
-    //    fn _set_balance(&mut self, address: [u8; 20], balance: [u8; 32]);
-    //    fn set_balance(&mut self, address: &Address, balance: U256) {
-    //        let mut bin = [0u8; 32];
-    //        balance.to_big_endian(&mut bin);
-    //        let internal_addr = utils::evm_account_to_internal_address(*address);
-    //        self._set_balance(internal_addr, bin);
-    //    }
 
-    //    fn _balance_of(&self, address: [u8; 20]) -> [u8; 32];
-    //    fn balance_of(&self, address: &Address) -> U256 {
-    //        let internal_addr = utils::evm_account_to_internal_address(*address);
-    //        self._balance_of(internal_addr).into()
-    //    }
-    //
-    //    fn _set_nonce(&mut self, address: [u8; 20], nonce: [u8; 32]) -> Option<[u8; 32]>;
-    //    fn set_nonce(&mut self, address: &Address, nonce: U256) -> Option<U256> {
-    //        let mut bin = [0u8; 32];
-    //        nonce.to_big_endian(&mut bin);
-    //        let internal_addr = utils::evm_account_to_internal_address(*address);
-    //        self._set_nonce(internal_addr, bin).map(|v| v.into())
-    //    }
-    //
-    //    fn _nonce_of(&self, address: [u8; 20]) -> [u8; 32];
-    //    fn nonce_of(&self, address: &Address) -> U256 {
-    //        let internal_addr = utils::evm_account_to_internal_address(*address);
-    //        self._nonce_of(internal_addr).into()
-    //    }
+    fn nonce_of(&self, address: &Address) -> U256 {
+        let account = self.get_account(address).unwrap_or_default();
+        account.nonce.into()
+    }
+
+    fn set_nonce(&mut self, address: &Address, nonce: U256) -> Option<U256> {
+        let mut account = self.get_account(address).unwrap_or_default();
+        account.nonce = nonce;
+        self.set_account(address, &account);
+        Some(account.nonce)
+    }
+
+    fn set_balance(&mut self, address: &Address, balance: U256) {
+        let mut account = self.get_account(address).unwrap_or_default();
+        account.balance = balance;
+        self.set_account(address, &account);
+    }
 
     fn next_nonce(&mut self, address: &Address) -> U256 {
-        let mut account = self.get_account(address);
+        let mut account = self.get_account(address).unwrap_or_default();
         let nonce = account.nonce;
         account.nonce += U256::from(1);
         self.set_account(address, &account);
@@ -82,21 +73,16 @@ pub trait EvmState {
         self._read_contract_storage(utils::internal_storage_key(address, key))
     }
 
-    fn _set_contract_storage(&mut self, key: [u8; 52], value: [u8; 32]) -> Option<[u8; 32]>;
+    fn _set_contract_storage(&mut self, key: [u8; 52], value: [u8; 32]);
 
-    fn set_contract_storage(
-        &mut self,
-        address: &Address,
-        key: [u8; 32],
-        value: [u8; 32],
-    ) -> Option<[u8; 32]> {
+    fn set_contract_storage(&mut self, address: &Address, key: [u8; 32], value: [u8; 32]) {
         self._set_contract_storage(utils::internal_storage_key(address, key), value)
     }
 
     fn commit_changes(&mut self, other: &StateStore);
 
     fn add_balance(&mut self, address: &Address, incr: U256) -> Result<(), EvmError> {
-        let mut account = self.get_account(address);
+        let mut account = self.get_account(address).unwrap_or_default();
         account.balance =
             account.balance.checked_add(incr).ok_or_else(|| EvmError::IntegerOverflow)?;
         self.set_account(address, &account);
@@ -104,7 +90,7 @@ pub trait EvmState {
     }
 
     fn sub_balance(&mut self, address: &Address, decr: U256) -> Result<(), EvmError> {
-        let mut account = self.get_account(address);
+        let mut account = self.get_account(address).unwrap_or_default();
         account.balance =
             account.balance.checked_add(decr).ok_or_else(|| EvmError::InsufficientFunds)?;
         self.set_account(address, &account);
@@ -189,13 +175,8 @@ impl EvmState for StateStore {
         self.accounts.insert(address.0, account.clone());
     }
 
-    fn get_account(&self, address: &Address) -> EvmAccount {
-        if self.self_destructs.contains(&address.0) {
-            None
-        } else {
-            self.accounts.get(&address.0).map(|account| account.clone())
-        }
-        .unwrap_or_else(|| EvmAccount::default())
+    fn get_account(&self, address: &Address) -> Option<EvmAccount> {
+        self.accounts.get(&address.0).map(|account| account.clone())
     }
 
     fn _read_contract_storage(&self, key: [u8; 52]) -> Option<[u8; 32]> {
@@ -208,8 +189,8 @@ impl EvmState for StateStore {
         }
     }
 
-    fn _set_contract_storage(&mut self, key: [u8; 52], value: [u8; 32]) -> Option<[u8; 32]> {
-        self.storages.insert(key.to_vec(), value)
+    fn _set_contract_storage(&mut self, key: [u8; 52], value: [u8; 32]) {
+        self.storages.insert(key.to_vec(), value);
     }
 
     fn commit_changes(&mut self, other: &StateStore) {
@@ -245,6 +226,13 @@ impl SubState<'_> {
     ) -> SubState<'a> {
         SubState { msg_sender, state, parent }
     }
+
+    pub fn self_destruct(&mut self, address: &Address) {
+        self.state.self_destructs.insert(address.0);
+        let mut account = self.get_account(address).unwrap_or_default();
+        account.nonce = U256::from(0);
+        self.state.set_account(address, &account);
+    }
 }
 
 impl EvmState for SubState<'_> {
@@ -269,29 +257,9 @@ impl EvmState for SubState<'_> {
         self.state.set_account(address, account);
     }
 
-    fn get_account(&self, address: &Address) -> EvmAccount {
-        self.state.get_account(address)
+    fn get_account(&self, address: &Address) -> Option<EvmAccount> {
+        self.state.get_account(address).or_else(|| self.parent.get_account(address))
     }
-    //    fn _set_balance(&mut self, address: [u8; 20], balance: [u8; 32]) {
-    //        self.state.balances.insert(address, balance);
-    //    }
-    //
-    //    fn _balance_of(&self, address: [u8; 20]) -> [u8; 32] {
-    //        self.state.balances.get(&address).map_or_else(|| self.parent._balance_of(address), |k| *k)
-    //    }
-    //
-    //    fn _set_nonce(&mut self, address: [u8; 20], nonce: [u8; 32]) -> Option<[u8; 32]> {
-    //        self.state.nonces.insert(address, nonce)
-    //    }
-    //
-    //    fn _nonce_of(&self, address: [u8; 20]) -> [u8; 32] {
-    //        let empty = [0u8; 32];
-    //        if self.state.self_destructs.contains(&address) {
-    //            empty
-    //        } else {
-    //            self.state.nonces.get(&address).map_or_else(|| self.parent._nonce_of(address), |k| *k)
-    //        }
-    //    }
 
     fn _read_contract_storage(&self, key: [u8; 52]) -> Option<[u8; 32]> {
         let mut addr = [0u8; 20];
@@ -307,8 +275,8 @@ impl EvmState for SubState<'_> {
         }
     }
 
-    fn _set_contract_storage(&mut self, key: [u8; 52], value: [u8; 32]) -> Option<[u8; 32]> {
-        self.state.storages.insert(key.to_vec(), value)
+    fn _set_contract_storage(&mut self, key: [u8; 52], value: [u8; 32]) {
+        self.state.storages.insert(key.to_vec(), value);
     }
 
     fn commit_changes(&mut self, other: &StateStore) {
@@ -320,8 +288,8 @@ impl EvmState for SubState<'_> {
         self.state.logs.extend(other.logs.iter().cloned());
     }
 
-    fn recreate(&mut self, _address: [u8; 20]) {
-        unimplemented!()
+    fn recreate(&mut self, address: [u8; 20]) {
+        self.state.recreate(address);
     }
 }
 
@@ -334,7 +302,6 @@ mod test {
         let addr_0 = Address::repeat_byte(0);
         let addr_1 = Address::repeat_byte(1);
         let addr_2 = Address::repeat_byte(2);
-        // let addr_3 = Address::repeat_byte(3);
         let zero = U256::zero();
         let code: [u8; 3] = [0, 1, 2];
         let nonce = U256::from_dec_str("103030303").unwrap();
@@ -473,7 +440,7 @@ mod test {
             assert_eq!(sub_1.balance_of(&addr_1), balance_0);
             assert_eq!(sub_1.read_contract_storage(&addr_1, storage_key_1), Some(storage_value_1));
 
-            sub_1.state.self_destructs.insert(addr_1.0);
+            sub_1.self_destruct(&addr_1);
             sub_1.set_balance(&addr_1, balance_1);
 
             assert_eq!(sub_1.code_at(&addr_1), None);

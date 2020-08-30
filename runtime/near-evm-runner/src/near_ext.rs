@@ -103,7 +103,7 @@ impl<'a> vm::Ext for NearExt<'a> {
     }
 
     fn balance(&self, address: &Address) -> EvmResult<U256> {
-        let account = self.sub_state.get_account(address);
+        let account = self.sub_state.get_account(address).unwrap_or_default();
         Ok(account.balance.into())
     }
 
@@ -273,7 +273,7 @@ impl<'a> vm::Ext for NearExt<'a> {
     fn suicide(&mut self, refund_address: &Address) -> EvmResult<()> {
         self.sub_state.state.self_destructs.insert(self.context_addr.0);
 
-        let account = self.sub_state.get_account(&self.context_addr);
+        let account = self.sub_state.get_account(&self.context_addr).unwrap_or_default();
         self.sub_state.add_balance(refund_address, account.balance.into());
         self.sub_state.sub_balance(&self.context_addr, account.balance.into());
         Ok(())

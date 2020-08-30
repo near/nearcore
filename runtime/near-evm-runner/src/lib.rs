@@ -7,7 +7,7 @@ use near_store::TrieUpdate;
 use near_vm_errors::VMError;
 use near_vm_logic::VMOutcome;
 
-use crate::errors::EvmError;
+pub use crate::errors::EvmError;
 use crate::evm_state::{EvmAccount, EvmState, StateStore};
 use crate::types::{GetCodeArgs, GetStorageAtArgs, WithdrawNearArgs};
 use near_primitives::trie_key::TrieKey;
@@ -27,49 +27,94 @@ pub struct EvmContext<'a> {
     attached_deposit: Balance,
 }
 
+enum KeyPrefix {
+    Account = 0,
+    Contract = 1,
+}
+
+fn address_to_key(prefix: KeyPrefix, address: &H160) -> Vec<u8> {
+    let mut result = Vec::with_capacity(21);
+    result.push(prefix as u8);
+    result.extend_from_slice(&address.0);
+    result
+}
+
 impl<'a> EvmState for EvmContext<'a> {
     fn code_at(&self, address: &H160) -> Option<Vec<u8>> {
-        unimplemented!()
+        self.trie_update
+            .get(&TrieKey::ContractData {
+                account_id: self.account_id.clone(),
+                key: address_to_key(KeyPrefix::Contract, address),
+            })
+            .unwrap_or(None)
     }
 
     fn set_code(&mut self, address: &H160, bytecode: &[u8]) {
-        unimplemented!()
+        self.trie_update.set(
+            TrieKey::ContractData {
+                account_id: self.account_id.clone(),
+                key: address_to_key(KeyPrefix::Contract, address),
+            },
+            bytecode.to_vec(),
+        )
     }
 
     fn set_account(&mut self, address: &Address, account: &EvmAccount) {
         self.trie_update.set(
-            TrieKey::ContractData { account_id: self.account_id.clone(), key: address.0.to_vec() },
+            TrieKey::ContractData {
+                account_id: self.account_id.clone(),
+                key: address_to_key(KeyPrefix::Account, address),
+            },
             account.try_to_vec().expect("Failed to serialize"),
         )
     }
 
-    fn get_account(&self, address: &Address) -> EvmAccount {
+    fn get_account(&self, address: &Address) -> Option<EvmAccount> {
         // TODO: handle error propagation?
         self.trie_update
             .get(&TrieKey::ContractData {
                 account_id: self.account_id.clone(),
-                key: address.0.to_vec(),
+                key: address_to_key(KeyPrefix::Account, address),
             })
             .unwrap_or_else(|_| None)
-            .map(|value| EvmAccount::try_from_slice(&value))
-            .unwrap_or_else(|| Ok(EvmAccount::default()))
-            .unwrap_or_else(|_| EvmAccount::default())
+            .map(|value| EvmAccount::try_from_slice(&value).unwrap_or_default())
     }
 
     fn _read_contract_storage(&self, key: [u8; 52]) -> Option<[u8; 32]> {
-        unimplemented!()
+        self.trie_update
+            .get(&TrieKey::ContractData { account_id: self.account_id.clone(), key: key.to_vec() })
+            .unwrap_or_else(|_| None)
+            .map(utils::vec_to_arr_32)
     }
 
-    fn _set_contract_storage(&mut self, key: [u8; 52], value: [u8; 32]) -> Option<[u8; 32]> {
-        unimplemented!()
+    fn _set_contract_storage(&mut self, key: [u8; 52], value: [u8; 32]) {
+        self.trie_update.set(
+            TrieKey::ContractData { account_id: self.account_id.clone(), key: key.to_vec() },
+            value.to_vec(),
+        );
     }
 
-    fn commit_changes(&mut self, _other: &StateStore) {
-        unimplemented!()
+    fn commit_changes(&mut self, other: &StateStore) {
+        //        self.commit_self_destructs(&other.self_destructs);
+        //        self.commit_self_destructs(&other.recreated);
+        for (address, code) in other.code.iter() {
+            self.set_code(&H160(*address), code);
+        }
+        for (address, account) in other.accounts.iter() {
+            self.set_account(&H160(*address), account);
+        }
+        for (key, value) in other.storages.iter() {
+            let mut arr = [0; 52];
+            arr.copy_from_slice(&key);
+            self._set_contract_storage(arr, *value);
+        }
+        //        for log in &other.logs {
+        //            near_sdk::env::log(format!("evm log: {}", log).as_bytes());
+        //        }
     }
 
     fn recreate(&mut self, _address: [u8; 20]) {
-        unimplemented!()
+        unreachable!()
     }
 }
 
@@ -97,7 +142,7 @@ impl<'a> EvmContext<'a> {
             U256::from(self.attached_deposit),
             0,
             CreateContractAddress::FromSenderAndNonce,
-            true,
+            false,
             &bytecode,
         )
     }
@@ -128,6 +173,10 @@ impl<'a> EvmContext<'a> {
 
     pub fn get_balance(&self, args: Vec<u8>) -> Result<U256, EvmError> {
         Ok(self.balance_of(&Address::from_slice(&args)))
+    }
+
+    pub fn get_nonce(&self, args: Vec<u8>) -> Result<U256, EvmError> {
+        Ok(self.nonce_of(&Address::from_slice(&args)))
     }
 
     pub fn deposit_near(&mut self, args: Vec<u8>) -> Result<U256, EvmError> {
