@@ -1353,6 +1353,7 @@ impl Client {
         Ok(false)
     }
 
+    /// Walks through all the ongoing state syncs for future epochs and processes them
     pub fn run_catchup(
         &mut self,
         highest_height_peers: &Vec<FullPeerInfo>,
@@ -1374,7 +1375,6 @@ impl Client {
         }
     }
 
-    /// Walks through all the ongoing state syncs for future epochs and processes them
     pub fn run_catchup2(
         &mut self,
         highest_height_peers: &Vec<FullPeerInfo>,
