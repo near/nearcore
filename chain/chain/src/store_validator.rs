@@ -301,7 +301,7 @@ impl StoreValidator {
                 }
                 DBCol::ColStateParts => {
                     let key = StatePartKey::try_from_slice(key_ref)?;
-                    let part = Vec::<u8>::try_from_slice(value_ref)?;
+                    let part = value_ref.to_vec();
                     self.check(&validate::state_part_header_exists, &key, &part, col);
                 }
                 _ => {}

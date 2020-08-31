@@ -14,7 +14,7 @@ use near_jsonrpc::start_http;
 use near_network::{NetworkRecipient, PeerManagerActor};
 use near_store::migrations::{
     fill_col_outcomes_by_hash, fill_col_transaction_refcount, get_store_version, migrate_6_to_7,
-    set_store_version,
+    migrate_7_to_8, set_store_version,
 };
 use near_store::{create_store, Store};
 use near_telemetry::TelemetryActor;
@@ -114,6 +114,12 @@ pub fn apply_store_migrations(path: &String) {
         // - move ColTransactionRefCount into ColTransactions
         // - make ColReceiptIdToShardId refcounted
         migrate_6_to_7(path);
+    }
+    if db_version <= 7 {
+        info!(target: "near", "Migrate DB from version 7 to 8");
+        // version 7 => 8:
+        // delete values in column `StateColParts`
+        migrate_7_to_8(path);
     }
 
     let db_version = get_store_version(path);
