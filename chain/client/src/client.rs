@@ -1367,15 +1367,6 @@ impl Client {
         }
     }
 
-    pub fn run_catchup_pt2(
-        &mut self,
-        challenges: Vec<ChallengeBody>,
-        blocks_missing_chunks: Vec<ShardChunkHeader>,
-    ) {
-        self.send_challenges(Arc::new(RwLock::new(challenges)));
-        self.shards_mgr.request_chunks(blocks_missing_chunks);
-    }
-
     pub fn run_catchup_pt1(
         &mut self,
         highest_height_peers: &Vec<FullPeerInfo>,
@@ -1446,6 +1437,15 @@ impl Client {
             blocks_missing_chunks: vec![],
             unwrapped_accepted_blocks: vec![],
         })
+    }
+
+    pub fn run_catchup_pt2(
+        &mut self,
+        challenges: Vec<ChallengeBody>,
+        blocks_missing_chunks: Vec<ShardChunkHeader>,
+    ) {
+        self.send_challenges(Arc::new(RwLock::new(challenges)));
+        self.shards_mgr.request_chunks(blocks_missing_chunks);
     }
 
     /// When accepting challenge, we verify that it's valid given signature with current validators.
