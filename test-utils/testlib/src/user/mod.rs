@@ -12,8 +12,8 @@ use near_primitives::transaction::{
     DeployContractAction, ExecutionOutcome, FunctionCallAction, SignedTransaction, StakeAction,
     TransferAction,
 };
-use near_primitives::types::{AccountId, Balance, BlockHeight, Gas, MerkleHash};
-use near_primitives::views::{AccessKeyView, AccountView, BlockView, ViewStateResult};
+use near_primitives::types::{AccountId, Balance, BlockHeight, Gas, MerkleHash, ShardId};
+use near_primitives::views::{AccessKeyView, AccountView, BlockView, ChunkView, ViewStateResult};
 use near_primitives::views::{ExecutionOutcomeView, FinalExecutionOutcomeView};
 
 pub use crate::user::runtime_user::RuntimeUser;
@@ -51,6 +51,8 @@ pub trait User {
     fn get_best_block_hash(&self) -> Option<CryptoHash>;
 
     fn get_block(&self, height: BlockHeight) -> Option<BlockView>;
+
+    fn get_chunk(&self, height: BlockHeight, shard_id: ShardId) -> Option<ChunkView>;
 
     fn get_transaction_result(&self, hash: &CryptoHash) -> ExecutionOutcomeView;
 
