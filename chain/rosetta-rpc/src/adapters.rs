@@ -214,7 +214,11 @@ pub(crate) async fn convert_block_to_transactions(
                             metadata: None,
                         }),
                         amount: Some(crate::models::Amount::from_yoctonear_diff(
-                            crate::utils::SignedDiff::cmp(previous_account_balances.liquid, new_account_balances.liquid))),
+                            crate::utils::SignedDiff::cmp(
+                                previous_account_balances.liquid,
+                                new_account_balances.liquid,
+                            ),
+                        )),
                         type_: crate::models::OperationType::Transfer,
                         status: crate::models::OperationStatusKind::Success,
                         metadata: None,
@@ -229,11 +233,17 @@ pub(crate) async fn convert_block_to_transactions(
                         related_operations: None,
                         account: Some(crate::models::AccountIdentifier {
                             address: account_id.clone(),
-                            sub_account: Some(crate::models::SubAccount::LiquidBalanceForStorage.into()),
+                            sub_account: Some(
+                                crate::models::SubAccount::LiquidBalanceForStorage.into(),
+                            ),
                             metadata: None,
                         }),
                         amount: Some(crate::models::Amount::from_yoctonear_diff(
-                            crate::utils::SignedDiff::cmp(previous_account_balances.liquid_for_storage, new_account_balances.liquid_for_storage))),
+                            crate::utils::SignedDiff::cmp(
+                                previous_account_balances.liquid_for_storage,
+                                new_account_balances.liquid_for_storage,
+                            ),
+                        )),
                         type_: crate::models::OperationType::Transfer,
                         status: crate::models::OperationStatusKind::Success,
                         metadata: None,
@@ -250,7 +260,11 @@ pub(crate) async fn convert_block_to_transactions(
                             metadata: None,
                         }),
                         amount: Some(crate::models::Amount::from_yoctonear_diff(
-                            crate::utils::SignedDiff::cmp(previous_account_balances.locked, new_account_balances.locked))),
+                            crate::utils::SignedDiff::cmp(
+                                previous_account_balances.locked,
+                                new_account_balances.locked,
+                            ),
+                        )),
                         type_: crate::models::OperationType::Transfer,
                         status: crate::models::OperationStatusKind::Success,
                         metadata: None,
@@ -284,7 +298,11 @@ pub(crate) async fn convert_block_to_transactions(
                             metadata: None,
                         }),
                         amount: Some(crate::models::Amount::from_yoctonear_diff(
-                            crate::utils::SignedDiff::cmp(previous_account_balances.liquid, new_account_balances.liquid))),
+                            crate::utils::SignedDiff::cmp(
+                                previous_account_balances.liquid,
+                                new_account_balances.liquid,
+                            ),
+                        )),
                         type_: crate::models::OperationType::Transfer,
                         status: crate::models::OperationStatusKind::Success,
                         metadata: None,
@@ -299,11 +317,17 @@ pub(crate) async fn convert_block_to_transactions(
                         related_operations: None,
                         account: Some(crate::models::AccountIdentifier {
                             address: account_id.clone(),
-                            sub_account: Some(crate::models::SubAccount::LiquidBalanceForStorage.into()),
+                            sub_account: Some(
+                                crate::models::SubAccount::LiquidBalanceForStorage.into(),
+                            ),
                             metadata: None,
                         }),
                         amount: Some(crate::models::Amount::from_yoctonear_diff(
-                            crate::utils::SignedDiff::cmp(previous_account_balances.liquid_for_storage, new_account_balances.liquid_for_storage))),
+                            crate::utils::SignedDiff::cmp(
+                                previous_account_balances.liquid_for_storage,
+                                new_account_balances.liquid_for_storage,
+                            ),
+                        )),
                         type_: crate::models::OperationType::Transfer,
                         status: crate::models::OperationStatusKind::Success,
                         metadata: None,
@@ -320,7 +344,11 @@ pub(crate) async fn convert_block_to_transactions(
                             metadata: None,
                         }),
                         amount: Some(crate::models::Amount::from_yoctonear_diff(
-                            crate::utils::SignedDiff::cmp(previous_account_balances.locked, new_account_balances.locked))),
+                            crate::utils::SignedDiff::cmp(
+                                previous_account_balances.locked,
+                                new_account_balances.locked,
+                            ),
+                        )),
                         type_: crate::models::OperationType::Transfer,
                         status: crate::models::OperationStatusKind::Success,
                         metadata: None,

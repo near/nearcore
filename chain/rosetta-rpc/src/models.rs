@@ -665,7 +665,10 @@ pub(crate) struct OperationIdentifier {
 impl OperationIdentifier {
     pub(crate) fn new(operations: &[Operation]) -> Self {
         Self {
-            index: operations.len().try_into().expect("there cannot be more than i64::MAX operations in a single transaction"),
+            index: operations
+                .len()
+                .try_into()
+                .expect("there cannot be more than i64::MAX operations in a single transaction"),
             network_index: None,
         }
     }
