@@ -12,6 +12,8 @@ use near_client::AdversarialControls;
 use near_client::{start_client, start_view_client, ClientActor, ViewClientActor};
 use near_jsonrpc::start_http;
 use near_network::{NetworkRecipient, PeerManagerActor};
+#[cfg(feature = "rosetta_rpc")]
+use near_rosetta_rpc::start_rosetta_rpc;
 use near_store::migrations::{
     fill_col_outcomes_by_hash, fill_col_transaction_refcount, get_store_version, migrate_6_to_7,
     migrate_7_to_8, set_store_version,
@@ -184,6 +186,13 @@ pub fn start_with_config(
     );
     start_http(
         config.rpc_config,
+        Arc::clone(&config.genesis),
+        client_actor.clone(),
+        view_client.clone(),
+    );
+    #[cfg(feature = "rosetta_rpc")]
+    start_rosetta_rpc(
+        config.rosetta_rpc_config,
         Arc::clone(&config.genesis),
         client_actor.clone(),
         view_client.clone(),

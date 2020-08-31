@@ -11,7 +11,7 @@ use near_primitives::transaction::{
     Action, AddKeyAction, DeleteAccountAction, DeleteKeyAction, DeployContractAction,
     FunctionCallAction, StakeAction, TransferAction,
 };
-use near_primitives::types::{AccountId, Balance, EpochInfoProvider, ValidatorStake};
+use near_primitives::types::{AccountId, EpochInfoProvider, ValidatorStake};
 use near_primitives::utils::{
     is_valid_account_id, is_valid_sub_account_id, is_valid_top_level_account_id,
 };
@@ -32,37 +32,6 @@ use near_primitives::version::CORRECT_RANDOM_VALUE_PROTOCOL_VERSION;
 use near_runtime_configs::AccountCreationConfig;
 use near_vm_errors::{CompilationError, FunctionCallError};
 use near_vm_runner::VMError;
-
-/// Checks if given account has enough balance for state stake, and returns:
-///  - None if account has enough balance,
-///  - Some(insufficient_balance) if account doesn't have enough and how much need to be added,
-///  - Err(StorageError::StorageInconsistentState) if account has invalid storage usage or amount/locked.
-///
-/// Read details of state staking https://nomicon.io/Economics/README.html#state-stake
-pub(crate) fn get_insufficient_storage_stake(
-    account: &Account,
-    runtime_config: &RuntimeConfig,
-) -> Result<Option<Balance>, StorageError> {
-    let required_amount = Balance::from(account.storage_usage)
-        .checked_mul(runtime_config.storage_amount_per_byte)
-        .ok_or_else(|| {
-            StorageError::StorageInconsistentState(format!(
-                "Account's storage_usage {} overflows multiplication",
-                account.storage_usage
-            ))
-        })?;
-    let available_amount = account.amount.checked_add(account.locked).ok_or_else(|| {
-        StorageError::StorageInconsistentState(format!(
-            "Account's amount {} and locked {} overflow addition",
-            account.amount, account.locked
-        ))
-    })?;
-    if available_amount >= required_amount {
-        Ok(None)
-    } else {
-        Ok(Some(required_amount - available_amount))
-    }
-}
 
 pub(crate) fn get_code_with_cache(
     state_update: &TrieUpdate,
