@@ -177,9 +177,6 @@ impl Actor for ClientActor {
         // Start triggers
         self.schedule_triggers(ctx);
 
-        // Start catchup job.
-        self.catchup(ctx);
-
         // Start periodic logging of current state of the client.
         self.log_summary(ctx);
     }
@@ -1085,20 +1082,6 @@ impl ClientActor {
         let epoch_start_sync_hash =
             StateSync::get_epoch_start_sync_hash(&mut self.client.chain, &sync_hash)?;
         Ok(epoch_start_sync_hash)
-    }
-
-    /// Runs catchup on repeat, if this client is a validator.
-    fn catchup(&mut self, _ctx: &mut Context<ClientActor>) {
-        #[cfg(feature = "delay_detector")]
-        let _d = DelayDetector::new("client catchup".into());
-        match self.client.run_catchup(&self.network_info.highest_height_peers) {
-            Ok(accepted_blocks) => {
-                self.process_accepted_blocks(accepted_blocks);
-            }
-            Err(err) => {
-                error!(target: "client", "{:?} Error occurred during catchup for the next epoch: {:?}", self.client.validator_signer.as_ref().map(|vs| vs.validator_id()), err)
-            }
-        }
     }
 
     fn run_timer<F>(
