@@ -9,9 +9,9 @@ mod test {
     use std::io::Write;
     use std::sync::{Arc, RwLock};
     use std::thread;
-    use std::time::{Duration, Instant};
 
     use near_primitives::transaction::SignedTransaction;
+    use std::time::{Duration, Instant};
     use testlib::node::{create_nodes, sample_queryable_node, sample_two_nodes, Node};
     use testlib::test_helpers::heavy_test;
 
@@ -23,10 +23,10 @@ mod test {
     fn send_transaction(
         nodes: Vec<Arc<RwLock<dyn Node>>>,
         nonces: Arc<RwLock<Vec<u64>>>,
-        submitted_transactions: Arc<RwLock<Vec<(u64, Instant)>>>,
+        submitted_transactions: Arc<RwLock<Vec<u64>>>,
     ) {
         let (money_sender, money_receiver) = sample_two_nodes(nodes.len());
-        let tx_receiver = sample_queryable_node(&nodes);
+        let tx_receiver = money_sender;
         // Update nonces.
         let mut nonces = nonces.write().unwrap();
         nonces[money_sender] += 1;
@@ -34,40 +34,18 @@ mod test {
 
         let sender_acc = nodes[money_sender].read().unwrap().account_id().unwrap();
         let receiver_acc = nodes[money_receiver].read().unwrap().account_id().unwrap();
-        let transaction = SignedTransaction::send_money(
-            nonce,
-            sender_acc,
-            receiver_acc,
-            &*nodes[money_sender].read().unwrap().signer(),
-            1,
-            nodes[money_sender].read().unwrap().user().get_best_block_hash().unwrap(),
-        );
-        nodes[tx_receiver].read().unwrap().add_transaction(transaction).unwrap();
-        submitted_transactions.write().unwrap().push((1, Instant::now()));
-    }
-
-    /// Iterates over the given records of transactions, bucketizes them, and computes the tps.
-    /// Can be used for debugging this test.
-    fn bucketize_tps(
-        recorded_transactions: &Arc<RwLock<Vec<(u64, Instant)>>>,
-        bucket_size: Duration,
-    ) -> Vec<u64> {
-        let mut bucket_start = recorded_transactions.read().unwrap()[0].1;
-        let mut buckets = vec![0u64];
-        for b in &*recorded_transactions.read().unwrap() {
-            if bucket_start + bucket_size >= b.1 {
-                *buckets.last_mut().unwrap() += b.0;
-            } else {
-                *buckets.last_mut().unwrap() /= bucket_size.as_secs() as u64;
-                buckets.push(b.0);
-                bucket_start += Duration::from_nanos(
-                    ((b.1 - bucket_start).as_nanos() as u64) / (bucket_size.as_nanos() as u64)
-                        * (bucket_size.as_nanos() as u64),
-                );
-            }
+        if let Some(block_hash) = nodes[tx_receiver].read().unwrap().user().get_best_block_hash() {
+            let transaction = SignedTransaction::send_money(
+                nonce,
+                sender_acc,
+                receiver_acc,
+                &*nodes[money_sender].read().unwrap().signer(),
+                1,
+                block_hash,
+            );
+            nodes[tx_receiver].read().unwrap().add_transaction(transaction).unwrap();
+            submitted_transactions.write().unwrap().push(1);
         }
-        // Pop the last bucket because it might be incomplete.
-        buckets
     }
 
     /// Creates a network of nodes and submits a large number of transactions to them.
@@ -137,20 +115,23 @@ mod test {
                     if let Some(new_ind) = node.read().unwrap().user().get_best_height() {
                         if new_ind > prev_ind {
                             let blocks = ((prev_ind + 1)..=new_ind)
-                                .map(|idx| node.read().unwrap().user().get_block(idx).unwrap())
+                                .filter_map(|idx| node.read().unwrap().user().get_block(idx))
                                 .collect::<Vec<_>>();
                             for b in &blocks {
-                                let gas_used = b.chunks.iter().fold(0, |acc, chunk| {
+                                let tx_num = b.chunks.iter().fold(0, |acc, chunk| {
                                     if chunk.height_included == b.header.height {
-                                        acc + chunk.gas_used
+                                        let chunk = node
+                                            .read()
+                                            .unwrap()
+                                            .user()
+                                            .get_chunk(b.header.height, chunk.shard_id)
+                                            .unwrap();
+                                        acc + chunk.transactions.len()
                                     } else {
                                         acc
                                     }
                                 });
-                                observed_transactions
-                                    .write()
-                                    .unwrap()
-                                    .push((gas_used, Instant::now()));
+                                observed_transactions.write().unwrap().push(tx_num as u64);
                             }
                             prev_ind = new_ind;
                         }
@@ -162,36 +143,30 @@ mod test {
         transaction_handler.join().unwrap();
         observer_handler.join().unwrap();
 
-        let bucket_size = Duration::from_secs(10);
+        let submitted_xacts_num = submitted_transactions.read().unwrap().iter().sum::<u64>();
+        let observed_xacts_num = observed_transactions.read().unwrap().iter().sum::<u64>();
 
-        let bucketed_submitted_xacts = bucketize_tps(&submitted_transactions, bucket_size);
-        let mut bucketed_observed_xacts = bucketize_tps(&observed_transactions, bucket_size);
-
-        let _ = stdout().write(
-            format!("Submitted transactions tps: {:?}; ", bucketed_submitted_xacts).as_bytes(),
-        );
         let _ = stdout()
-            .write(format!("Observed transactions tps: {:?}", bucketed_observed_xacts).as_bytes());
+            .write(format!("Submitted transactions: {:?}; ", submitted_xacts_num).as_bytes());
+        let _ =
+            stdout().write(format!("Observed transactions: {:?}", observed_xacts_num).as_bytes());
         let _ = stdout().flush();
 
         // Test that the network does not choke. The choke can be observed when the number of submitted
         // transactions is not approx. the same the number of observed.
 
-        let submitted_num: f64 =
-            submitted_transactions.read().unwrap().iter().map(|(n, _)| *n as f64).sum();
-        let observed_num: f64 =
-            observed_transactions.read().unwrap().iter().map(|(n, _)| *n as f64).sum();
         // The difference is within 20%.
-        assert!((submitted_num - observed_num).abs() < f64::max(submitted_num, observed_num) * 0.2);
+        assert!(
+            (submitted_xacts_num as f64 - observed_xacts_num as f64).abs()
+                < u64::max(submitted_xacts_num, observed_xacts_num) as f64 * 0.2
+        );
 
-        // Also verify that the median tps is within 20% of the target. We use median to discard
-        // anomalies that happens when nodes start and stop.
-        bucketed_observed_xacts.sort();
-        let median = bucketed_observed_xacts[bucketed_observed_xacts.len() / 2];
-        assert!((target_tps as f64) * 0.8 < (median as f64));
+        // Also verify that the average tps is within 20% of the target.
+        assert!((target_tps as f64) * 0.8 < (observed_xacts_num as f64 / timeout.as_secs_f64()));
     }
 
     #[test]
+    #[ignore]
     fn test_highload() {
         // Run 4 nodes with 20 input tps and check the output tps to be 20.
         heavy_test(|| run_multiple_nodes(4, 20, 20, Duration::from_secs(120), "4_20"));

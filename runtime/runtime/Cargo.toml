@@ -1,6 +1,6 @@
 [package]
 name = "node-runtime"
-version = "1.2.0"
+version = "2.1.1"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2018"
 
@@ -16,7 +16,7 @@ num-rational = "0.2.4"
 num-bigint = "0.2.6"
 num-traits = "0.2.11"
 
-borsh = "0.7.0"
+borsh = "0.7.1"
 cached = "0.12.0"
 
 near-crypto = { path = "../../core/crypto" }

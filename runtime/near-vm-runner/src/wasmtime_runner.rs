@@ -1,4 +1,4 @@
-use wasmtime::{Engine, Module};
+use wasmtime::Module;
 
 // mod only to apply feature to it. Is it possible to avoid it?
 #[cfg(feature = "wasmtime_vm")]
@@ -13,7 +13,7 @@ pub mod wasmtime_runner {
     use std::ffi::c_void;
     use std::str;
     use wasmtime::ExternType::Func;
-    use wasmtime::{Engine, Limits, Linker, Memory, MemoryType, Module, Store};
+    use wasmtime::{Config, Engine, Limits, Linker, Memory, MemoryType, Module, Store};
 
     pub struct WasmtimeMemory(Memory);
 
@@ -116,7 +116,8 @@ pub mod wasmtime_runner {
         promise_results: &'a [PromiseResult],
         profile: Option<ProfileData>,
     ) -> (Option<VMOutcome>, Option<VMError>) {
-        let engine = Engine::default();
+        let mut config = Config::default();
+        let engine = get_engine(&mut config);
         let store = Store::new(&engine);
         let mut memory = WasmtimeMemory::new(
             &store,
@@ -223,9 +224,19 @@ pub mod wasmtime_runner {
             Err(err) => (Some(logic.outcome()), Some(err.into_vm_error())),
         }
     }
+    #[cfg(not(feature = "lightbeam"))]
+    pub fn get_engine(config: &mut wasmtime::Config) -> Engine {
+        Engine::new(config)
+    }
+
+    #[cfg(feature = "lightbeam")]
+    pub fn get_engine(config: &mut wasmtime::Config) -> Engine {
+        Engine::new(config.strategy(wasmtime::Strategy::Lightbeam).unwrap())
+    }
 }
 
-pub fn compile_module(code: &[u8]) {
-    let engine = Engine::default();
-    Module::new(&engine, code).unwrap();
+pub fn compile_module(code: &[u8]) -> bool {
+    let mut config = wasmtime::Config::default();
+    let engine = wasmtime_runner::get_engine(&mut config);
+    Module::new(&engine, code).is_ok()
 }

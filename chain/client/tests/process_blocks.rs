@@ -986,11 +986,14 @@ fn test_invalid_height_too_large() {
 #[test]
 fn test_invalid_height_too_old() {
     let mut env = TestEnv::new(ChainGenesis::test(), 1, 1);
-    let b1 = env.clients[0].produce_block(1).unwrap().unwrap();
-    for i in 2..100 {
+    for i in 1..4 {
         env.produce_block(0, i);
     }
-    let (_, res) = env.clients[0].process_block(b1, Provenance::NONE);
+    let block = env.clients[0].produce_block(4).unwrap().unwrap();
+    for i in 5..30 {
+        env.produce_block(0, i);
+    }
+    let (_, res) = env.clients[0].process_block(block, Provenance::NONE);
     assert!(matches!(res.unwrap_err().kind(), ErrorKind::InvalidBlockHeight(_)));
 }
 
@@ -1023,6 +1026,8 @@ fn test_gc_with_epoch_length_common(epoch_length: NumBlocks) {
     chain_genesis.epoch_length = epoch_length;
     let mut env = TestEnv::new_with_runtime(chain_genesis, 1, 1, runtimes);
     let mut blocks = vec![];
+    let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap().clone();
+    blocks.push(genesis_block);
     for i in 1..=epoch_length * (NUM_EPOCHS_TO_KEEP_STORE_DATA + 1) {
         let block = env.clients[0].produce_block(i).unwrap().unwrap();
         env.process_block(0, block.clone(), Provenance::PRODUCED);
@@ -1033,10 +1038,10 @@ fn test_gc_with_epoch_length_common(epoch_length: NumBlocks) {
 
         blocks.push(block);
     }
-    for i in 1..=epoch_length * (NUM_EPOCHS_TO_KEEP_STORE_DATA + 1) {
+    for i in 0..=epoch_length * (NUM_EPOCHS_TO_KEEP_STORE_DATA + 1) {
         println!("height = {}", i);
         if i < epoch_length {
-            let block_hash = *blocks[i as usize - 1].hash();
+            let block_hash = *blocks[i as usize].hash();
             assert!(matches!(
                 env.clients[0].chain.get_block(&block_hash).unwrap_err().kind(),
                 ErrorKind::BlockMissing(missing_block_hash) if missing_block_hash == block_hash
@@ -1051,7 +1056,7 @@ fn test_gc_with_epoch_length_common(epoch_length: NumBlocks) {
                 .get_all_block_hashes_by_height(i as BlockHeight)
                 .is_err());
         } else {
-            assert!(env.clients[0].chain.get_block(&blocks[i as usize - 1].hash()).is_ok());
+            assert!(env.clients[0].chain.get_block(&blocks[i as usize].hash()).is_ok());
             assert!(env.clients[0].chain.get_block_by_height(i).is_ok());
             assert!(env.clients[0]
                 .chain

@@ -1,15 +1,17 @@
 //! Client actor orchestrates Client and facilitates network connection.
 
-use chrono::Duration as OldDuration;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use std::thread;
 use std::time::{Duration, Instant};
 
 use actix::{Actor, Addr, Arbiter, AsyncContext, Context, Handler};
+use chrono::Duration as OldDuration;
 use chrono::{DateTime, Utc};
 use log::{debug, error, info, trace, warn};
 
+#[cfg(feature = "delay_detector")]
+use delay_detector::DelayDetector;
 use near_chain::test_utils::format_hash;
 use near_chain::types::AcceptedBlock;
 #[cfg(feature = "adversarial")]
@@ -43,18 +45,20 @@ use near_store::ColBlock;
 use near_telemetry::TelemetryActor;
 
 use crate::client::Client;
-use crate::info::InfoHelper;
+use crate::info::{InfoHelper, ValidatorInfoHelper};
 use crate::sync::{highest_height_peer, StateSync, StateSyncResult};
 use crate::types::{
     Error, GetNetworkInfo, NetworkInfoResponse, ShardSyncDownload, ShardSyncStatus, Status,
     StatusSyncInfo, SyncStatus,
 };
+#[cfg(feature = "adversarial")]
+use crate::AdversarialControls;
 use crate::StatusResponse;
-#[cfg(feature = "delay_detector")]
-use delay_detector::DelayDetector;
 
 /// Multiplier on `max_block_time` to wait until deciding that chain stalled.
 const STATUS_WAIT_TIME_MULTIPLIER: u64 = 10;
+/// Drop blocks whose height are beyond head + horizon if it is not in the current epoch.
+const BLOCK_HORIZON: u64 = 500;
 /// `max_block_production_time` times this multiplier is how long we wait before rebroadcasting
 /// the current `head`
 const HEAD_STALL_MULTIPLIER: u32 = 4;
@@ -62,11 +66,7 @@ const HEAD_STALL_MULTIPLIER: u32 = 4;
 pub struct ClientActor {
     /// Adversarial controls
     #[cfg(feature = "adversarial")]
-    pub adv_sync_height: Option<u64>,
-    #[cfg(feature = "adversarial")]
-    pub adv_disable_header_sync: bool,
-    #[cfg(feature = "adversarial")]
-    pub adv_disable_doomslug: bool,
+    pub adv: Arc<RwLock<AdversarialControls>>,
 
     client: Client,
     network_adapter: Arc<dyn NetworkAdapter>,
@@ -117,6 +117,7 @@ impl ClientActor {
         validator_signer: Option<Arc<dyn ValidatorSigner>>,
         telemetry_actor: Addr<TelemetryActor>,
         enable_doomslug: bool,
+        #[cfg(feature = "adversarial")] adv: Arc<RwLock<AdversarialControls>>,
     ) -> Result<Self, Error> {
         wait_until_genesis(&chain_genesis.time);
         if let Some(vs) = &validator_signer {
@@ -135,11 +136,7 @@ impl ClientActor {
         let now = Utc::now();
         Ok(ClientActor {
             #[cfg(feature = "adversarial")]
-            adv_sync_height: None,
-            #[cfg(feature = "adversarial")]
-            adv_disable_header_sync: false,
-            #[cfg(feature = "adversarial")]
-            adv_disable_doomslug: false,
+            adv,
             client,
             network_adapter,
             node_id,
@@ -202,14 +199,14 @@ impl Handler<NetworkClientMessages> for ClientActor {
                 return match adversarial_msg {
                     NetworkAdversarialMessage::AdvDisableDoomslug => {
                         info!(target: "adversary", "Turning Doomslug off");
-                        self.adv_disable_doomslug = true;
+                        self.adv.write().unwrap().adv_disable_doomslug = true;
                         self.client.doomslug.adv_disable();
                         self.client.chain.adv_disable_doomslug();
                         NetworkClientResponses::NoResponse
                     }
                     NetworkAdversarialMessage::AdvDisableHeaderSync => {
                         info!(target: "adversary", "Blocking header sync");
-                        self.adv_disable_header_sync = true;
+                        self.adv.write().unwrap().adv_disable_header_sync = true;
                         NetworkClientResponses::NoResponse
                     }
                     NetworkAdversarialMessage::AdvProduceBlocks(num_blocks, only_valid) => {
@@ -858,11 +855,10 @@ impl ClientActor {
             );
             let block = self.client.chain.get_block(&accepted_block.hash).unwrap();
             let gas_used = Block::compute_gas_used(&block.chunks(), block.header().height());
-            let gas_limit = Block::compute_gas_limit(&block.chunks(), block.header().height());
 
             let last_final_hash = *block.header().last_final_block();
 
-            self.info_helper.block_processed(gas_used, gas_limit);
+            self.info_helper.block_processed(gas_used);
             self.check_send_announce_account(last_final_hash);
         }
     }
@@ -911,6 +907,12 @@ impl ClientActor {
     fn receive_block(&mut self, block: Block, peer_id: PeerId, was_requested: bool) {
         let hash = *block.hash();
         debug!(target: "client", "{:?} Received block {} <- {} at {} from {}, requested: {}", self.client.validator_signer.as_ref().map(|vs| vs.validator_id()), hash, block.header().prev_hash(), block.header().height(), peer_id, was_requested);
+        let head = unwrap_or_return!(self.client.chain.head());
+        let is_syncing = self.client.sync_status.is_syncing();
+        if block.header().height() >= head.height + BLOCK_HORIZON && is_syncing && !was_requested {
+            debug!(target: "client", "dropping block {} that is too far ahead. Block height {} current head height {}", block.hash(), block.header().height(), head.height);
+            return;
+        }
         let prev_hash = *block.header().prev_hash();
         let provenance =
             if was_requested { near_chain::Provenance::SYNC } else { near_chain::Provenance::NONE };
@@ -1030,7 +1032,7 @@ impl ClientActor {
     fn needs_syncing(&self, needs_syncing: bool) -> bool {
         #[cfg(feature = "adversarial")]
         {
-            if self.adv_disable_header_sync {
+            if self.adv.read().unwrap().adv_disable_header_sync {
                 return false;
             }
         }
@@ -1280,39 +1282,35 @@ impl ClientActor {
 
     /// Periodically log summary.
     fn log_summary(&self, ctx: &mut Context<Self>) {
-        #[cfg(feature = "delay_detector")]
-        let _d = DelayDetector::new("client log summary".into());
         ctx.run_later(self.client.config.log_summary_period, move |act, ctx| {
-            let head = unwrap_or_return!(act.client.chain.head());
-            let validators = unwrap_or_return!(act
-                .client
-                .runtime_adapter
-                .get_epoch_block_producers_ordered(&head.epoch_id, &head.last_block_hash));
-            let num_validators = validators.len();
-            let account_id = act.client.validator_signer.as_ref().map(|x| x.validator_id());
-            let is_validator = if let Some(ref account_id) = account_id {
-                match act.client.runtime_adapter.get_validator_by_account_id(
-                    &head.epoch_id,
-                    &head.last_block_hash,
-                    account_id,
-                ) {
-                    Ok((_, is_slashed)) => !is_slashed,
-                    Err(_) => false,
-                }
+            #[cfg(feature = "delay_detector")]
+            let _d = DelayDetector::new("client log summary".into());
+            let is_syncing = act.client.sync_status.is_syncing();
+            let head = unwrap_or_return!(act.client.chain.head(), act.log_summary(ctx));
+            let validator_info = if !is_syncing {
+                let validators = unwrap_or_return!(
+                    act.client
+                        .runtime_adapter
+                        .get_epoch_block_producers_ordered(&head.epoch_id, &head.last_block_hash),
+                    act.log_summary(ctx)
+                );
+                let num_validators = validators.len();
+                let account_id = act.client.validator_signer.as_ref().map(|x| x.validator_id());
+                let is_validator = if let Some(ref account_id) = account_id {
+                    match act.client.runtime_adapter.get_validator_by_account_id(
+                        &head.epoch_id,
+                        &head.last_block_hash,
+                        account_id,
+                    ) {
+                        Ok((_, is_slashed)) => !is_slashed,
+                        Err(_) => false,
+                    }
+                } else {
+                    false
+                };
+                Some(ValidatorInfoHelper { is_validator, num_validators })
             } else {
-                false
-            };
-            let is_fishermen = if let Some(ref account_id) = account_id {
-                match act.client.runtime_adapter.get_fisherman_by_account_id(
-                    &head.epoch_id,
-                    &head.last_block_hash,
-                    account_id,
-                ) {
-                    Ok((_, is_slashed)) => !is_slashed,
-                    Err(_) => false,
-                }
-            } else {
-                false
+                None
             };
 
             act.info_helper.info(
@@ -1321,9 +1319,7 @@ impl ClientActor {
                 &act.client.sync_status,
                 &act.node_id,
                 &act.network_info,
-                is_validator,
-                is_fishermen,
-                num_validators,
+                validator_info,
             );
 
             act.log_summary(ctx);
@@ -1340,6 +1336,7 @@ pub fn start_client(
     network_adapter: Arc<dyn NetworkAdapter>,
     validator_signer: Option<Arc<dyn ValidatorSigner>>,
     telemetry_actor: Addr<TelemetryActor>,
+    #[cfg(feature = "adversarial")] adv: Arc<RwLock<AdversarialControls>>,
 ) -> (Addr<ClientActor>, Arbiter) {
     let client_arbiter = Arbiter::current();
     let client_addr = ClientActor::start_in_arbiter(&client_arbiter, move |_ctx| {
@@ -1352,6 +1349,8 @@ pub fn start_client(
             validator_signer,
             telemetry_actor,
             true,
+            #[cfg(feature = "adversarial")]
+            adv,
         )
         .unwrap()
     });

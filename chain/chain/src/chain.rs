@@ -15,8 +15,7 @@ use crate::lightclient::get_epoch_block_producers_view;
 use crate::store::{ChainStore, ChainStoreAccess, ChainStoreUpdate, GCMode};
 use crate::types::{
     AcceptedBlock, ApplyTransactionResult, Block, BlockEconomicsConfig, BlockHeader,
-    BlockHeaderInfo, BlockStatus, BlockSyncResponse, ChainGenesis, Provenance, ReceiptList,
-    RuntimeAdapter,
+    BlockHeaderInfo, BlockStatus, ChainGenesis, Provenance, ReceiptList, RuntimeAdapter,
 };
 use crate::validate::{
     validate_challenge, validate_chunk_proofs, validate_chunk_with_chunk_extra,
@@ -271,10 +270,6 @@ impl Chain {
                 if store_update.get_block_header(&header_head.last_block_hash).is_err() {
                     // Reset header head and "sync" head to be consistent with current block head.
                     store_update.save_header_head_if_not_challenged(&head)?;
-                    store_update.save_sync_head(&head);
-                } else {
-                    // Reset sync head to be consistent with current header head.
-                    store_update.save_sync_head(&header_head);
                 }
                 // TODO: perform validation that latest state in runtime matches the stored chain.
             }
@@ -314,7 +309,6 @@ impl Chain {
 
                     head = Tip::from_header(genesis.header());
                     store_update.save_head(&head)?;
-                    store_update.save_sync_head(&head);
 
                     info!(target: "chain", "Init: saved genesis: {:?} / {:?}", genesis.hash(), state_roots);
                 }
@@ -390,16 +384,6 @@ impl Chain {
         )?;
 
         create_light_client_block_view(&final_block_header, chain_store, Some(next_block_producers))
-    }
-
-    /// Reset "sync" head to current header head.
-    /// Do this when first transition to header syncing.
-    pub fn reset_sync_head(&mut self) -> Result<Tip, Error> {
-        let mut chain_store_update = self.store.store_update();
-        let header_head = chain_store_update.header_head()?;
-        chain_store_update.save_sync_head(&header_head);
-        chain_store_update.commit()?;
-        Ok(header_head)
     }
 
     pub fn save_block(&mut self, block: &Block) -> Result<(), Error> {
@@ -818,8 +802,6 @@ impl Chain {
         );
 
         if let Some(header) = headers.last() {
-            // Update sync_head whether or not it's the new tip
-            chain_update.update_sync_head(header)?;
             // Update header_head if it's the new tip
             chain_update.update_header_head_if_not_challenged(header)?;
         }
@@ -827,57 +809,8 @@ impl Chain {
         chain_update.commit()
     }
 
-    /// Check if state download is required, otherwise return hashes of blocks to fetch.
-    /// Hashes are sorted increasingly by height.
-    pub fn check_state_needed(
-        &mut self,
-        block_fetch_horizon: BlockHeightDelta,
-        force_block_sync: bool,
-    ) -> Result<BlockSyncResponse, Error> {
-        let block_head = self.head()?;
-        let header_head = self.header_head()?;
-        let mut hashes = vec![];
-
-        // If latest block is up to date return early.
-        // No state download is required, neither any blocks need to be fetched.
-        if block_head.height >= header_head.height {
-            return Ok(BlockSyncResponse::None);
-        }
-
-        let next_epoch_id =
-            self.get_block_header(&block_head.last_block_hash)?.next_epoch_id().clone();
-
-        // Don't run State Sync if header head is not more than one epoch ahead.
-        if block_head.epoch_id != header_head.epoch_id && next_epoch_id != header_head.epoch_id {
-            if block_head.height < header_head.height.saturating_sub(block_fetch_horizon)
-                && !force_block_sync
-            {
-                // Epochs are different and we are too far from horizon, State Sync is needed
-                return Ok(BlockSyncResponse::StateNeeded);
-            }
-        }
-
-        // Find hashes of blocks to sync
-        let mut current = self.get_block_header(&header_head.last_block_hash).map(|h| h.clone());
-        while let Ok(header) = current {
-            if header.height() <= block_head.height {
-                if self.is_on_current_chain(&header).is_ok() {
-                    break;
-                }
-            }
-
-            hashes.push(*header.hash());
-            current = self.get_previous_header(&header).map(|h| h.clone());
-        }
-
-        // Sort hashes by height
-        hashes.reverse();
-
-        Ok(BlockSyncResponse::BlocksNeeded(hashes))
-    }
-
     /// Returns if given block header is on the current chain.
-    fn is_on_current_chain(&mut self, header: &BlockHeader) -> Result<(), Error> {
+    pub fn is_on_current_chain(&mut self, header: &BlockHeader) -> Result<(), Error> {
         let chain_header = self.get_header_by_height(header.height())?;
         if chain_header.hash() == header.hash() {
             Ok(())
@@ -930,14 +863,27 @@ impl Chain {
         let sync_height = header.height();
         let gc_height = std::cmp::min(head.height + 1, sync_height);
 
-        // GC all the data from current tail up to `gc_height`
+        // GC all the data from current tail up to `gc_height`. In case tail points to a height where
+        // there is no block, we need to make sure that the last block before tail is cleaned.
         let tail = self.store.tail()?;
+        let mut tail_prev_block_cleaned = false;
         for height in tail..gc_height {
             if let Ok(blocks_current_height) = self.store.get_all_block_hashes_by_height(height) {
                 let blocks_current_height =
                     blocks_current_height.values().flatten().cloned().collect::<Vec<_>>();
                 for block_hash in blocks_current_height {
                     let mut chain_store_update = self.mut_store().store_update();
+                    if !tail_prev_block_cleaned {
+                        let prev_block_hash =
+                            *chain_store_update.get_block_header(&block_hash)?.prev_hash();
+                        if chain_store_update.get_block(&prev_block_hash).is_ok() {
+                            chain_store_update.clear_block_data(
+                                prev_block_hash,
+                                GCMode::StateSync { clear_block_info: true },
+                            )?;
+                        }
+                        tail_prev_block_cleaned = true;
+                    }
                     chain_store_update.clear_block_data(
                         block_hash,
                         GCMode::StateSync { clear_block_info: block_hash != prev_hash },
@@ -1448,7 +1394,7 @@ impl Chain {
             for receipt_proof in receipt_proofs {
                 let ReceiptProof(receipts, shard_proof) = receipt_proof;
                 let ShardProof { from_shard_id, to_shard_id: _, proof } = shard_proof;
-                let receipts_hash = hash(&ReceiptList(shard_id, receipts.to_vec()).try_to_vec()?);
+                let receipts_hash = hash(&ReceiptList(shard_id, receipts).try_to_vec()?);
                 let from_shard_id = *from_shard_id as usize;
 
                 let root_proof = block.chunks()[from_shard_id].inner.outgoing_receipts_root;
@@ -1497,7 +1443,7 @@ impl Chain {
     ) -> Result<Vec<u8>, Error> {
         // Check cache
         let key = StatePartKey(sync_hash, shard_id, part_id).try_to_vec()?;
-        if let Ok(Some(state_part)) = self.store.owned_store().get_ser(ColStateParts, &key) {
+        if let Ok(Some(state_part)) = self.store.owned_store().get(ColStateParts, &key) {
             return Ok(state_part);
         }
 
@@ -1539,7 +1485,7 @@ impl Chain {
 
         // Saving the part data
         let mut store_update = self.store.owned_store().store_update();
-        store_update.set_ser(ColStateParts, &key, &state_part)?;
+        store_update.set(ColStateParts, &key, &state_part);
         store_update.commit()?;
 
         Ok(state_part)
@@ -1677,7 +1623,7 @@ impl Chain {
                     _ => visited_shard_ids.insert(*from_shard_id),
                 };
                 let RootProof(root, block_proof) = &root_proofs[i][j];
-                let receipts_hash = hash(&ReceiptList(shard_id, receipts.to_vec()).try_to_vec()?);
+                let receipts_hash = hash(&ReceiptList(shard_id, receipts).try_to_vec()?);
                 // 4e. Proving the set of receipts is the subset of outgoing_receipts of shard `shard_id`
                 if !verify_path(*root, &proof, &receipts_hash) {
                     byzantine_assert!(false);
@@ -1755,7 +1701,7 @@ impl Chain {
         // Saving the part data.
         let mut store_update = self.store.owned_store().store_update();
         let key = StatePartKey(sync_hash, shard_id, part_id).try_to_vec()?;
-        store_update.set_ser(ColStateParts, &key, data)?;
+        store_update.set(ColStateParts, &key, data);
         store_update.commit()?;
         Ok(())
     }
@@ -1772,7 +1718,7 @@ impl Chain {
         let mut parts = vec![];
         for part_id in 0..num_parts {
             let key = StatePartKey(sync_hash, shard_id, part_id).try_to_vec()?;
-            parts.push(self.store.owned_store().get_ser(ColStateParts, &key)?.unwrap());
+            parts.push(self.store.owned_store().get(ColStateParts, &key)?.unwrap());
         }
 
         // Confirm that state matches the parts we received
@@ -2215,12 +2161,6 @@ impl Chain {
     #[inline]
     pub fn header_head(&self) -> Result<Tip, Error> {
         self.store.header_head()
-    }
-
-    /// Gets "sync" head. This may be significantly different to current header chain.
-    #[inline]
-    pub fn sync_head(&self) -> Result<Tip, Error> {
-        self.store.sync_head()
     }
 
     /// Header of the block at the head of the block chain (not the same thing as header_head).
@@ -3270,14 +3210,6 @@ impl<'a> ChainUpdate<'a> {
         } else {
             Ok(None)
         }
-    }
-
-    /// Updates "sync" head with given block header.
-    fn update_sync_head(&mut self, header: &BlockHeader) -> Result<(), Error> {
-        let tip = Tip::from_header(header);
-        self.chain_store_update.save_sync_head(&tip);
-        debug!(target: "chain", "Sync head {} @ {}", tip.last_block_hash, tip.height);
-        Ok(())
     }
 
     /// Marks a block as invalid,

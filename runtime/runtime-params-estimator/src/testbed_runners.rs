@@ -5,6 +5,7 @@ use indicatif::{ProgressBar, ProgressStyle};
 use near_crypto::{InMemorySigner, KeyType};
 use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::{Action, SignedTransaction};
+use near_vm_logic::VMKind;
 use rand::Rng;
 use std::collections::{HashMap, HashSet};
 use std::convert::TryInto;
@@ -48,6 +49,12 @@ pub struct Config {
     pub state_dump_path: String,
     /// Metric used for counting.
     pub metric: GasMetric,
+    /// VMKind used
+    pub vm_kind: VMKind,
+    /// Whether to measure ActionCreationConfig
+    pub disable_measure_action_creation: bool,
+    /// Whether to measure Transaction
+    pub disable_measure_transaction: bool,
 }
 
 /// Measure the speed of transactions containing certain simple actions.

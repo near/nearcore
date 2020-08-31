@@ -51,7 +51,7 @@ async def main():
     assert response.HandshakeFailure[1].enum == 'ProtocolVersionMismatch', response.HandshakeFailure[1].enum
 
     # Third handshake attempt.
-    pvm = response.HandshakeFailure[1].ProtocolVersionMismatch
+    pvm = response.HandshakeFailure[1].ProtocolVersionMismatch.version
     handshake.Handshake.version = pvm
     sign_handshake(my_key_pair_nacl, handshake.Handshake)
 
