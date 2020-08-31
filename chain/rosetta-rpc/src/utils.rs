@@ -112,7 +112,8 @@ pub(crate) async fn query_accounts(
                             match view_client_addr.send(query.clone()).await? {
                                 Ok(Some(query_response)) => return Ok(Some(query_response)),
                                 Ok(None) => {}
-                                // TODO: update this once we return structured errors in the view_client handlers
+                                // TODO: update this once we return structured errors in the
+                                // view_client handlers
                                 Err(err) => {
                                     if err.contains("does not exist") {
                                         return Ok(None);

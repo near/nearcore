@@ -388,7 +388,8 @@ async fn account_balance(
             details: None,
         })?;
 
-    // TODO: update error handling once we return structured errors from the view_client handlers
+    // TODO: update error handling once we return structured errors from the
+    // view_client handlers
     let block = view_client_addr
         .send(near_client::GetBlock(block_id.clone()))
         .await?
@@ -446,33 +447,20 @@ async fn account_balance(
         )
     };
 
-    let liquid_balance_for_storage = {
-        let mut account: near_primitives::account::Account = (&account_info).into();
-        account.amount = 0;
-        near_runtime_configs::get_insufficient_storage_stake(
-            &account,
-            &genesis.config.runtime_config,
-        )
-        .expect("get_insufficient_storage_stake never fails when state is consistent")
-        .unwrap_or(0)
-    };
+    let account_balances = crate::utils::RosettaAccountBalances::from_account(
+        account_info,
+        &genesis.config.runtime_config,
+    );
 
     let balance = if let Some(sub_account) = account_identifier.sub_account {
-        match sub_account.address.as_ref() {
-            "locked" => account_info.locked,
-            "liquid_for_storage" => liquid_balance_for_storage,
-            unknown_address => {
-                return Err(errors::ErrorKind::NotFound(format!(
-                    "Unknown sub-account address '{}'",
-                    unknown_address
-                ))
-                .into());
+        match sub_account.address {
+            crate::models::SubAccount::Locked => account_balances.locked,
+            crate::models::SubAccount::LiquidBalanceForStorage => {
+                account_balances.liquid_for_storage
             }
         }
     } else {
-        account_info.amount.checked_sub(liquid_balance_for_storage).expect(
-            "liquid balance for storage is always smaller or equal than the account balance",
-        )
+        account_balances.liquid
     };
 
     Ok(Json(models::AccountBalanceResponse {

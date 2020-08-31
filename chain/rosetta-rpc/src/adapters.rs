@@ -1,4 +1,3 @@
-use std::convert::TryInto;
 use std::sync::Arc;
 
 use actix::Addr;
@@ -42,12 +41,7 @@ async fn convert_genesis_records_to_transaction(
 
         if account_balances.liquid != 0 {
             operations.push(crate::models::Operation {
-                operation_identifier: crate::models::OperationIdentifier {
-                    index: operations.len().try_into().expect(
-                        "there cannot be more than i64::MAX operations in a single transaction",
-                    ),
-                    network_index: None,
-                },
+                operation_identifier: crate::models::OperationIdentifier::new(&operations),
                 related_operations: None,
                 account: Some(crate::models::AccountIdentifier {
                     address: account_id.clone(),
@@ -63,16 +57,11 @@ async fn convert_genesis_records_to_transaction(
 
         if account_balances.liquid_for_storage != 0 {
             operations.push(crate::models::Operation {
-                operation_identifier: crate::models::OperationIdentifier {
-                    index: operations.len().try_into().expect(
-                        "there cannot be more than i64::MAX operations in a single transaction",
-                    ),
-                    network_index: None,
-                },
+                operation_identifier: crate::models::OperationIdentifier::new(&operations),
                 related_operations: None,
                 account: Some(crate::models::AccountIdentifier {
                     address: account_id.clone(),
-                    sub_account: Some(crate::consts::SubAccount::LiquidBalanceForStorage.into()),
+                    sub_account: Some(crate::models::SubAccount::LiquidBalanceForStorage.into()),
                     metadata: None,
                 }),
                 amount: Some(crate::models::Amount::from_yoctonear(
@@ -86,16 +75,11 @@ async fn convert_genesis_records_to_transaction(
 
         if account_balances.locked != 0 {
             operations.push(crate::models::Operation {
-                operation_identifier: crate::models::OperationIdentifier {
-                    index: operations.len().try_into().expect(
-                        "there cannot be more than i64::MAX operations in a single transaction",
-                    ),
-                    network_index: None,
-                },
+                operation_identifier: crate::models::OperationIdentifier::new(&operations),
                 related_operations: None,
                 account: Some(crate::models::AccountIdentifier {
                     address: account_id.clone(),
-                    sub_account: Some(crate::consts::SubAccount::Locked.into()),
+                    sub_account: Some(crate::models::SubAccount::Locked.into()),
                     metadata: None,
                 }),
                 amount: Some(crate::models::Amount::from_yoctonear(account_balances.locked)),
@@ -222,10 +206,7 @@ pub(crate) async fn convert_block_to_transactions(
 
                 if previous_account_balances.liquid != new_account_balances.liquid {
                     operations.push(crate::models::Operation {
-                        operation_identifier: crate::models::OperationIdentifier {
-                            index: operations.len().try_into().expect("there cannot be more than i64::MAX operations in a single transaction"),
-                            network_index: None,
-                        },
+                        operation_identifier: crate::models::OperationIdentifier::new(&operations),
                         related_operations: None,
                         account: Some(crate::models::AccountIdentifier {
                             address: account_id.clone(),
@@ -244,14 +225,11 @@ pub(crate) async fn convert_block_to_transactions(
                     != new_account_balances.liquid_for_storage
                 {
                     operations.push(crate::models::Operation {
-                        operation_identifier: crate::models::OperationIdentifier {
-                            index: operations.len().try_into().expect("there cannot be more than i64::MAX operations in a single transaction"),
-                            network_index: None,
-                        },
+                        operation_identifier: crate::models::OperationIdentifier::new(&operations),
                         related_operations: None,
                         account: Some(crate::models::AccountIdentifier {
                             address: account_id.clone(),
-                            sub_account: Some(crate::consts::SubAccount::LiquidBalanceForStorage.into()),
+                            sub_account: Some(crate::models::SubAccount::LiquidBalanceForStorage.into()),
                             metadata: None,
                         }),
                         amount: Some(crate::models::Amount::from_yoctonear_diff(
@@ -264,14 +242,11 @@ pub(crate) async fn convert_block_to_transactions(
 
                 if previous_account_balances.locked != new_account_balances.locked {
                     operations.push(crate::models::Operation {
-                        operation_identifier: crate::models::OperationIdentifier {
-                            index: operations.len().try_into().expect("there cannot be more than i64::MAX operations in a single transaction"),
-                            network_index: None,
-                        },
+                        operation_identifier: crate::models::OperationIdentifier::new(&operations),
                         related_operations: None,
                         account: Some(crate::models::AccountIdentifier {
                             address: account_id.clone(),
-                            sub_account: Some(crate::consts::SubAccount::Locked.into()),
+                            sub_account: Some(crate::models::SubAccount::Locked.into()),
                             metadata: None,
                         }),
                         amount: Some(crate::models::Amount::from_yoctonear_diff(
@@ -301,10 +276,7 @@ pub(crate) async fn convert_block_to_transactions(
 
                 if previous_account_balances.liquid != new_account_balances.liquid {
                     operations.push(crate::models::Operation {
-                        operation_identifier: crate::models::OperationIdentifier {
-                            index: operations.len().try_into().expect("there cannot be more than i64::MAX operations in a single transaction"),
-                            network_index: None,
-                        },
+                        operation_identifier: crate::models::OperationIdentifier::new(&operations),
                         related_operations: None,
                         account: Some(crate::models::AccountIdentifier {
                             address: account_id.clone(),
@@ -323,14 +295,11 @@ pub(crate) async fn convert_block_to_transactions(
                     != new_account_balances.liquid_for_storage
                 {
                     operations.push(crate::models::Operation {
-                        operation_identifier: crate::models::OperationIdentifier {
-                            index: operations.len().try_into().expect("there cannot be more than i64::MAX operations in a single transaction"),
-                            network_index: None,
-                        },
+                        operation_identifier: crate::models::OperationIdentifier::new(&operations),
                         related_operations: None,
                         account: Some(crate::models::AccountIdentifier {
                             address: account_id.clone(),
-                            sub_account: Some(crate::consts::SubAccount::LiquidBalanceForStorage.into()),
+                            sub_account: Some(crate::models::SubAccount::LiquidBalanceForStorage.into()),
                             metadata: None,
                         }),
                         amount: Some(crate::models::Amount::from_yoctonear_diff(
@@ -343,14 +312,11 @@ pub(crate) async fn convert_block_to_transactions(
 
                 if previous_account_balances.locked != new_account_balances.locked {
                     operations.push(crate::models::Operation {
-                        operation_identifier: crate::models::OperationIdentifier {
-                            index: operations.len().try_into().expect("there cannot be more than i64::MAX operations in a single transaction"),
-                            network_index: None,
-                        },
+                        operation_identifier: crate::models::OperationIdentifier::new(&operations),
                         related_operations: None,
                         account: Some(crate::models::AccountIdentifier {
                             address: account_id.clone(),
-                            sub_account: Some(crate::consts::SubAccount::Locked.into()),
+                            sub_account: Some(crate::models::SubAccount::Locked.into()),
                             metadata: None,
                         }),
                         amount: Some(crate::models::Amount::from_yoctonear_diff(

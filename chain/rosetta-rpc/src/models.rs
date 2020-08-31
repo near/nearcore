@@ -412,13 +412,9 @@ where
 
 impl actix_web::ResponseError for Error {
     fn error_response(&self) -> actix_web::HttpResponse {
-        let status_code = if self.code == 500 {
-            actix_web::http::StatusCode::INTERNAL_SERVER_ERROR
-        } else {
-            actix_web::http::StatusCode::BAD_REQUEST
-        };
         let data = paperclip::actix::web::Json(self).clone();
-        actix_web::HttpResponse::build(status_code).json(data)
+        actix_web::HttpResponse::build(actix_web::http::StatusCode::INTERNAL_SERVER_ERROR)
+            .json(data)
     }
 }
 
@@ -666,6 +662,15 @@ pub(crate) struct OperationIdentifier {
     pub network_index: Option<i64>,
 }
 
+impl OperationIdentifier {
+    pub(crate) fn new(operations: &[Operation]) -> Self {
+        Self {
+            index: operations.len().try_into().expect("there cannot be more than i64::MAX operations in a single transaction"),
+            network_index: None,
+        }
+    }
+}
+
 /// OperationStatus is utilized to indicate which Operation status are
 /// considered successful.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, Apiv2Schema)]
@@ -722,6 +727,19 @@ pub(crate) struct Peer {
     pub metadata: Option<serde_json::Value>,
 }
 
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, Apiv2Schema)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub(crate) enum SubAccount {
+    LiquidBalanceForStorage,
+    Locked,
+}
+
+impl From<SubAccount> for crate::models::SubAccountIdentifier {
+    fn from(sub_account: SubAccount) -> Self {
+        crate::models::SubAccountIdentifier { address: sub_account, metadata: None }
+    }
+}
+
 /// An account may have state specific to a contract address (ERC-20 token)
 /// and/or a stake (delegated balance). The sub_account_identifier should
 /// specify which state (if applicable) an account instantiation refers to.
@@ -729,7 +747,7 @@ pub(crate) struct Peer {
 pub(crate) struct SubAccountIdentifier {
     /// The SubAccount address may be a cryptographic value or some other
     /// identifier (ex: bonded) that uniquely specifies a SubAccount.
-    pub address: String,
+    pub address: SubAccount,
 
     /// If the SubAccount address is not sufficient to uniquely specify a
     /// SubAccount, any other identifying information can be stored here.  It is

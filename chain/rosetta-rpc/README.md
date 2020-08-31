@@ -112,13 +112,3 @@ historical data, consider updating `"archive"` setting in `config.json` to
 "archive": true,
 ...
 ```
-
-Another tweak changes the default "fast" sync process to a "full" sync process.
-When the node gets online and observes that its state is missing or outdated, it
-will do state sync, and that can be done in two strategies:
-
-1. ("fast" / default) sync enough information (only block headers) to ensure that
-   the chain is valid; that means that the node won't have transactions, receipts,
-   and execution outcomes, only the proofs, so Indexer will skip these blocks
-2. (very slow / full sync) sync all the blocks, chunks, transactions, receipts,
-   and execution outcomes starting from the genesis.
