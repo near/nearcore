@@ -9,11 +9,12 @@ use near_primitives::sharding::ShardChunk;
 use near_primitives::transaction::ExecutionOutcomeWithIdAndProof;
 use near_primitives::version::DbVersion;
 
+use crate::db::DBCol::ColStateParts;
 use crate::db::{DBCol, RocksDB, VERSION_KEY};
 use crate::migrations::v6_to_v7::{
     col_state_refcount_8byte, migrate_col_transaction_refcount, migrate_receipts_refcount,
 };
-use crate::{Store, StoreUpdate};
+use crate::{create_store, Store, StoreUpdate};
 
 pub mod v6_to_v7;
 
@@ -103,4 +104,14 @@ pub fn migrate_6_to_7(path: &String) {
     migrate_receipts_refcount(&store, &mut store_update);
     set_store_version_inner(&mut store_update, 7);
     store_update.commit().expect("Failed to migrate")
+}
+
+pub fn migrate_7_to_8(path: &String) {
+    let store = create_store(path);
+    let mut store_update = store.store_update();
+    for (key, _) in store.iter_without_rc_logic(ColStateParts) {
+        store_update.delete(ColStateParts, &key);
+    }
+    set_store_version_inner(&mut store_update, 8);
+    store_update.commit().expect("Fail to migrate from DB version 7 to DB version 8");
 }

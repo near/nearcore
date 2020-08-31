@@ -12,9 +12,11 @@ use near_client::AdversarialControls;
 use near_client::{start_client, start_view_client, ClientActor, ViewClientActor};
 use near_jsonrpc::start_http;
 use near_network::{NetworkRecipient, PeerManagerActor};
+#[cfg(feature = "rosetta_rpc")]
+use near_rosetta_rpc::start_rosetta_rpc;
 use near_store::migrations::{
     fill_col_outcomes_by_hash, fill_col_transaction_refcount, get_store_version, migrate_6_to_7,
-    set_store_version,
+    migrate_7_to_8, set_store_version,
 };
 use near_store::{create_store, Store};
 use near_telemetry::TelemetryActor;
@@ -115,6 +117,12 @@ pub fn apply_store_migrations(path: &String) {
         // - make ColReceiptIdToShardId refcounted
         migrate_6_to_7(path);
     }
+    if db_version <= 7 {
+        info!(target: "near", "Migrate DB from version 7 to 8");
+        // version 7 => 8:
+        // delete values in column `StateColParts`
+        migrate_7_to_8(path);
+    }
 
     let db_version = get_store_version(path);
     debug_assert_eq!(db_version, near_primitives::version::DB_VERSION);
@@ -178,6 +186,13 @@ pub fn start_with_config(
     );
     start_http(
         config.rpc_config,
+        Arc::clone(&config.genesis),
+        client_actor.clone(),
+        view_client.clone(),
+    );
+    #[cfg(feature = "rosetta_rpc")]
+    start_rosetta_rpc(
+        config.rosetta_rpc_config,
         Arc::clone(&config.genesis),
         client_actor.clone(),
         view_client.clone(),

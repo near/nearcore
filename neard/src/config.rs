@@ -31,6 +31,8 @@ use near_primitives::types::{
 use near_primitives::utils::{generate_random_string, get_num_seats_per_shard};
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
 use near_primitives::version::PROTOCOL_VERSION;
+#[cfg(feature = "rosetta_rpc")]
+use near_rosetta_rpc::RosettaRpcConfig;
 use near_runtime_configs::RuntimeConfig;
 use near_telemetry::TelemetryConfig;
 
@@ -382,6 +384,8 @@ pub struct Config {
     pub validator_key_file: String,
     pub node_key_file: String,
     pub rpc: RpcConfig,
+    #[cfg(feature = "rosetta_rpc")]
+    pub rosetta_rpc: RosettaRpcConfig,
     pub telemetry: TelemetryConfig,
     pub network: Network,
     pub consensus: Consensus,
@@ -402,6 +406,8 @@ impl Default for Config {
             validator_key_file: VALIDATOR_KEY_FILE.to_string(),
             node_key_file: NODE_KEY_FILE.to_string(),
             rpc: RpcConfig::default(),
+            #[cfg(feature = "rosetta_rpc")]
+            rosetta_rpc: RosettaRpcConfig::default(),
             telemetry: TelemetryConfig::default(),
             network: Network::default(),
             consensus: Consensus::default(),
@@ -523,6 +529,8 @@ pub struct NearConfig {
     pub client_config: ClientConfig,
     pub network_config: NetworkConfig,
     pub rpc_config: RpcConfig,
+    #[cfg(feature = "rosetta_rpc")]
+    pub rosetta_rpc_config: RosettaRpcConfig,
     pub telemetry_config: TelemetryConfig,
     pub genesis: Arc<Genesis>,
     pub validator_signer: Option<Arc<dyn ValidatorSigner>>,
@@ -618,6 +626,8 @@ impl NearConfig {
             },
             telemetry_config: config.telemetry,
             rpc_config: config.rpc,
+            #[cfg(feature = "rosetta_rpc")]
+            rosetta_rpc_config: config.rosetta_rpc,
             genesis,
             validator_signer,
         }
