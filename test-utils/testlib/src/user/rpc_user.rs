@@ -19,7 +19,7 @@ use near_primitives::types::{
     AccountId, BlockHeight, BlockId, BlockReference, MaybeBlockId, ShardId,
 };
 use near_primitives::views::{
-    AccessKeyView, AccountView, BlockView, ChunkView, EpochValidatorInfo, ExecutionOutcomeView,
+    AccessKeyView, AccountView, BlockView, CallResult, EpochValidatorInfo, ExecutionOutcomeView,
     FinalExecutionOutcomeView, QueryResponse, ViewStateResult,
 };
 
@@ -68,6 +68,16 @@ impl User for RpcUser {
 
     fn view_state(&self, account_id: &AccountId, prefix: &[u8]) -> Result<ViewStateResult, String> {
         self.query(format!("contract/{}", account_id), prefix)?.try_into()
+    }
+
+    fn view_call(
+        &self,
+        account_id: &AccountId,
+        method_name: &str,
+        args: &[u8],
+    ) -> Result<CallResult, String> {
+        self.query(format!("call/{}/{}", account_id, method_name), args)
+            .and_then(|value| value.try_into())
     }
 
     fn add_transaction(&self, transaction: SignedTransaction) -> Result<(), ServerError> {

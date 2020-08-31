@@ -92,7 +92,7 @@ pub trait EvmState {
     fn sub_balance(&mut self, address: &Address, decr: U256) -> Result<(), EvmError> {
         let mut account = self.get_account(address).unwrap_or_default();
         account.balance =
-            account.balance.checked_add(decr).ok_or_else(|| EvmError::InsufficientFunds)?;
+            account.balance.checked_sub(decr).ok_or_else(|| EvmError::InsufficientFunds)?;
         self.set_account(address, &account);
         Ok(())
     }

@@ -11,7 +11,7 @@ use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockHeightDelta, MerkleHash};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{
-    AccessKeyView, AccountView, BlockView, ChunkView, ExecutionOutcomeView,
+    AccessKeyView, AccountView, BlockView, CallResult, ExecutionOutcomeView,
     ExecutionOutcomeWithIdView, ExecutionStatusView, ViewStateResult,
 };
 use near_primitives::views::{FinalExecutionOutcomeView, FinalExecutionStatus};
@@ -205,6 +205,35 @@ impl User for RuntimeUser {
         self.trie_viewer
             .view_state(&state_update, account_id, prefix)
             .map_err(|err| err.to_string())
+    }
+
+    fn view_call(
+        &self,
+        account_id: &AccountId,
+        method_name: &str,
+        args: &[u8],
+    ) -> Result<CallResult, String> {
+        let apply_state = self.apply_state();
+        let client = self.client.read().expect(POISONED_LOCK_ERR);
+        let state_update = client.get_state_update();
+        let mut result = CallResult::default();
+        result.result = self
+            .trie_viewer
+            .call_function(
+                state_update,
+                apply_state.block_index,
+                apply_state.block_timestamp,
+                &apply_state.last_block_hash,
+                apply_state.epoch_height,
+                &apply_state.epoch_id,
+                account_id,
+                method_name,
+                args,
+                &mut result.logs,
+                &self.epoch_info_provider,
+            )
+            .map_err(|err| err.to_string())?;
+        Ok(result)
     }
 
     fn add_transaction(&self, transaction: SignedTransaction) -> Result<(), ServerError> {

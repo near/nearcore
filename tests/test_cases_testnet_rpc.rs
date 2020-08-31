@@ -196,4 +196,9 @@ mod test {
     fn test_access_key_smart_contract_testnet() {
         run_testnet_test!(test_access_key_smart_contract);
     }
+
+    #[test]
+    fn test_evm_deploy_call_testnet() {
+        run_testnet_test!(test_evm_deploy_call(node));
+    }
 }

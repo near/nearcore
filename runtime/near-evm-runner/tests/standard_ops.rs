@@ -1,16 +1,18 @@
 #[macro_use]
 extern crate lazy_static_include;
 
+use borsh::BorshSerialize;
 use ethabi_contract::use_contract;
-use ethereum_types::{Address, U256};
+use ethereum_types::U256;
 
+use near_evm_runner::types::{TransferArgs, WithdrawArgs};
 use near_evm_runner::utils::{
     address_from_arr, address_to_vec, encode_call_function_args, near_account_id_to_evm_address,
 };
 use near_evm_runner::{EvmContext, EvmError};
 use near_primitives::hash::CryptoHash;
 use near_store::test_utils::create_tries;
-use near_store::{ShardTries, TrieUpdate};
+use near_store::TrieUpdate;
 
 use_contract!(soltest, "tests/build/SolTests.abi");
 use_contract!(subcontract, "tests/build/SubContract.abi");
@@ -33,7 +35,7 @@ fn setup() -> TrieUpdate {
 }
 
 #[test]
-fn test_sends() {
+fn test_funds_transfers() {
     let mut state_update = setup();
     let context = EvmContext::new(&mut state_update, accounts(0), accounts(1), 0);
     assert_eq!(
@@ -42,10 +44,28 @@ fn test_sends() {
     );
     let mut context = EvmContext::new(&mut state_update, accounts(0), accounts(1), 100);
     assert_eq!(
-        context
-            .deposit_near(address_to_vec(&near_account_id_to_evm_address(&accounts(1))))
-            .unwrap(),
+        context.deposit(address_to_vec(&near_account_id_to_evm_address(&accounts(1)))).unwrap(),
         U256::from(100)
+    );
+    let mut context = EvmContext::new(&mut state_update, accounts(0), accounts(1), 0);
+    context
+        .transfer(
+            TransferArgs { account_id: near_account_id_to_evm_address(&accounts(2)).0, amount: 50 }
+                .try_to_vec()
+                .unwrap(),
+        )
+        .unwrap();
+    assert_eq!(
+        context.get_balance(address_to_vec(&near_account_id_to_evm_address(&accounts(2)))).unwrap(),
+        U256::from(50)
+    );
+    let mut context = EvmContext::new(&mut state_update, accounts(0), accounts(2), 0);
+    context
+        .withdraw(WithdrawArgs { account_id: accounts(2), amount: 50 }.try_to_vec().unwrap())
+        .unwrap();
+    assert_eq!(
+        context.get_balance(address_to_vec(&near_account_id_to_evm_address(&accounts(2)))).unwrap(),
+        U256::from(0)
     );
 }
 

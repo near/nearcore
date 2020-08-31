@@ -9,8 +9,10 @@ use near_vm_logic::VMOutcome;
 
 pub use crate::errors::EvmError;
 use crate::evm_state::{EvmAccount, EvmState, StateStore};
-use crate::types::{GetCodeArgs, GetStorageAtArgs, WithdrawNearArgs};
-use near_primitives::trie_key::TrieKey;
+use crate::types::{GetCodeArgs, GetStorageAtArgs, TransferArgs, WithdrawArgs};
+use near_primitives::receipt::Receipt;
+use near_vm_errors::FunctionCallError;
+use near_vm_logic::types::ReturnData;
 
 mod builtins;
 mod errors;
@@ -157,6 +159,19 @@ impl<'a> EvmContext<'a> {
             .map(|rd| rd.to_vec())
     }
 
+    /// Make an EVM transaction. Calls `contract_address` with `encoded_input`. Execution
+    /// continues until all EVM messages have been processed. We expect this to behave identically
+    /// to an Ethereum transaction, however there may be some edge cases.
+    ///
+    /// This function serves the eth_call functionality, and will NOT apply state changes.
+    pub fn view_call_function(&mut self, args: Vec<u8>) -> Result<Vec<u8>, EvmError> {
+        let contract_address = Address::from_slice(&args[..20]);
+        let input = &args[20..];
+        let sender = utils::near_account_id_to_evm_address(&self.predecessor_id);
+        interpreter::call(self, &sender, &sender, None, 0, &contract_address, &input, false)
+            .map(|rd| rd.to_vec())
+    }
+
     pub fn get_code(&self, args: Vec<u8>) -> Result<Vec<u8>, EvmError> {
         let args = GetCodeArgs::try_from_slice(&args).map_err(|_| EvmError::ArgumentParseError)?;
         Ok(self.code_at(&Address::from_slice(&args.address)).unwrap_or(vec![]))
@@ -179,26 +194,36 @@ impl<'a> EvmContext<'a> {
         Ok(self.nonce_of(&Address::from_slice(&args)))
     }
 
-    pub fn deposit_near(&mut self, args: Vec<u8>) -> Result<U256, EvmError> {
+    pub fn deposit(&mut self, args: Vec<u8>) -> Result<U256, EvmError> {
         if self.attached_deposit == 0 {
             return Err(EvmError::MissingDeposit);
         }
         let address = Address::from_slice(&args);
-        self.add_balance(&address, U256::from(self.attached_deposit));
+        self.add_balance(&address, U256::from(self.attached_deposit))?;
         Ok(self.balance_of(&address))
     }
 
-    pub fn withdraw_near(&mut self, args: Vec<u8>) -> Result<(), EvmError> {
-        let args =
-            WithdrawNearArgs::try_from_slice(&args).map_err(|_| EvmError::ArgumentParseError)?;
+    pub fn withdraw(&mut self, args: Vec<u8>) -> Result<(), EvmError> {
+        let args = WithdrawArgs::try_from_slice(&args).map_err(|_| EvmError::ArgumentParseError)?;
         let sender = utils::near_account_id_to_evm_address(&self.predecessor_id);
         let amount = U256::from(args.amount);
         if amount > self.balance_of(&sender) {
             return Err(EvmError::InsufficientFunds);
         }
-        self.sub_balance(&sender, amount);
+        self.sub_balance(&sender, amount)?;
         // TODO: add outgoing promise.
         Ok(())
+    }
+
+    /// Transfer tokens from sender to given EVM address.
+    pub fn transfer(&mut self, args: Vec<u8>) -> Result<(), EvmError> {
+        let args = TransferArgs::try_from_slice(&args).map_err(|_| EvmError::ArgumentParseError)?;
+        let sender = utils::near_account_id_to_evm_address(&self.predecessor_id);
+        let amount = U256::from(args.amount);
+        if amount > self.balance_of(&sender) {
+            return Err(EvmError::InsufficientFunds);
+        }
+        self.transfer_balance(&sender, &Address::from(args.account_id), amount)
     }
 }
 
@@ -216,10 +241,12 @@ pub fn run_evm(
         "deploy_code" => context.deploy_code(args).map(|address| utils::address_to_vec(&address)),
         "get_code" => context.get_code(args),
         "call_function" => context.call_function(args),
+        "view_call_contract" => context.view_call_function(args),
         "get_storage_at" => context.get_storage_at(args),
         "get_balance" => context.get_balance(args).map(|balance| utils::u256_to_vec(&balance)),
-        "deposit_near" => context.deposit_near(args).map(|balance| utils::u256_to_vec(&balance)),
-        "withdraw_near" => context.withdraw_near(args).map(|_| vec![]),
+        "deposit" => context.deposit(args).map(|balance| utils::u256_to_vec(&balance)),
+        "withdraw" => context.withdraw(args).map(|_| vec![]),
+        "transfer" => context.transfer(args).map(|_| vec![]),
         _ => Err(EvmError::UnknownError),
     };
     (None, None)

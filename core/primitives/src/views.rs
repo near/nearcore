@@ -174,7 +174,9 @@ pub struct ViewStateResult {
     pub proof: TrieProofPath,
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
+#[derive(
+    BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Default,
+)]
 pub struct CallResult {
     pub result: Vec<u8>,
     pub logs: Vec<String>,
@@ -291,6 +293,17 @@ impl TryFrom<QueryResponse> for AccountView {
     fn try_from(query_response: QueryResponse) -> Result<Self, Self::Error> {
         match query_response.kind {
             QueryResponseKind::ViewAccount(acc) => Ok(acc),
+            _ => Err("Invalid type of response".into()),
+        }
+    }
+}
+
+impl TryFrom<QueryResponse> for CallResult {
+    type Error = String;
+
+    fn try_from(query_response: QueryResponse) -> Result<Self, Self::Error> {
+        match query_response.kind {
+            QueryResponseKind::CallResult(res) => Ok(res),
             _ => Err("Invalid type of response".into()),
         }
     }
