@@ -188,16 +188,10 @@ impl Actor for ClientActor {
 impl Handler<CatchupMessage> for ClientActor {
     type Result = Result<CatchupResponse, String>;
 
-    fn handle(&mut self, mut msg: CatchupMessage, _ctx: &mut Context<Self>) -> Self::Result {
-        self.client.send_challenges(Arc::new(RwLock::new(msg.challenges)));
-
-        self.client.shards_mgr.request_chunks(
-            msg.blocks_missing_chunks
-                .drain(..)
-                .flat_map(|missing_chunks| missing_chunks.into_iter()),
-        );
+    fn handle(&mut self, msg: CatchupMessage, _ctx: &mut Context<Self>) -> Self::Result {
+        self.client.run_catchup_pt2(msg.challenges, msg.blocks_missing_chunks);
         self.process_accepted_blocks(msg.unwrapped_accepted_blocks);
-        Ok(CatchupResponse::Ok())
+        Ok(CatchupResponse {})
     }
 }
 

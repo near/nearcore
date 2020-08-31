@@ -86,7 +86,7 @@ pub struct Client {
 
 pub struct CatchupMessage {
     pub(crate) challenges: Vec<ChallengeBody>,
-    pub(crate) blocks_missing_chunks: Vec<Vec<ShardChunkHeader>>,
+    pub(crate) blocks_missing_chunks: Vec<ShardChunkHeader>,
     pub(crate) unwrapped_accepted_blocks: Vec<AcceptedBlock>,
 }
 
@@ -106,9 +106,7 @@ impl Message for CatchupMessage {
     type Result = Result<CatchupResponse, String>;
 }
 
-pub enum CatchupResponse {
-    Ok(),
-}
+pub struct CatchupResponse {}
 
 impl Client {
     pub fn new(
@@ -1358,24 +1356,27 @@ impl Client {
         &mut self,
         highest_height_peers: &Vec<FullPeerInfo>,
     ) -> Result<Vec<AcceptedBlock>, Error> {
-        let result = self.run_catchup2(highest_height_peers);
+        let result = self.run_catchup_pt1(highest_height_peers);
 
         match result {
             Ok(mut r) => {
-                self.send_challenges(Arc::new(RwLock::new(r.challenges)));
-
-                self.shards_mgr.request_chunks(
-                    r.blocks_missing_chunks
-                        .drain(..)
-                        .flat_map(|missing_chunks| missing_chunks.into_iter()),
-                );
+                self.run_catchup_pt2(r.challenges, r.blocks_missing_chunks);
                 Ok(r.unwrapped_accepted_blocks)
             }
             Err(err) => Err(err),
         }
     }
 
-    pub fn run_catchup2(
+    pub fn run_catchup_pt2(
+        &mut self,
+        challenges: Vec<ChallengeBody>,
+        blocks_missing_chunks: Vec<ShardChunkHeader>,
+    ) {
+        self.send_challenges(Arc::new(RwLock::new(challenges)));
+        self.shards_mgr.request_chunks(blocks_missing_chunks);
+    }
+
+    pub fn run_catchup_pt1(
         &mut self,
         highest_height_peers: &Vec<FullPeerInfo>,
     ) -> Result<CatchupMessage, Error> {
@@ -1432,6 +1433,7 @@ impl Client {
                             .write()
                             .unwrap()
                             .drain(..)
+                            .flat_map(|missing_chunks| missing_chunks.into_iter())
                             .collect(),
                         unwrapped_accepted_blocks,
                     });

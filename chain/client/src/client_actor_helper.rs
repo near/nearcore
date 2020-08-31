@@ -101,7 +101,7 @@ impl Actor for ClientActorHelper {
 impl ClientActorHelper {
     /// Runs catchup on repeat, if this client is a validator.
     fn catchup(&mut self, ctx: &mut Context<ClientActorHelper>) {
-        match self.client.run_catchup2(&self.network_info.highest_height_peers) {
+        match self.client.run_catchup_pt1(&self.network_info.highest_height_peers) {
             Ok(catchup_msg) => {
                 self.client_actor.do_send(catchup_msg);
             }

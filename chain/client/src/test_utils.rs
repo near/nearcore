@@ -849,7 +849,7 @@ pub fn setup_mock_all_validators(
         });
 
         ret.push((client_addr.clone(), view_client_addr.clone().read().unwrap().clone().unwrap()));
-        ClientActorHelper::create(move |ctx| {
+        ClientActorHelper::create(move |_ctx| {
             client_helper2.write().unwrap().take().unwrap().start_client_actor_helper(client_addr)
         });
     }
