@@ -43,7 +43,9 @@ use near_telemetry::TelemetryActor;
 
 #[cfg(feature = "adversarial")]
 use crate::AdversarialControls;
-use crate::{start_view_client, Client, ClientActor, SyncStatus, ViewClientActor};
+use crate::{
+    start_view_client, Client, ClientActor, ClientActorHelper, SyncStatus, ViewClientActor,
+};
 use near_network::test_utils::MockNetworkAdapter;
 use near_primitives::merkle::{merklize, MerklePath};
 use near_primitives::receipt::Receipt;
@@ -69,7 +71,7 @@ pub fn setup(
     network_adapter: Arc<dyn NetworkAdapter>,
     transaction_validity_period: NumBlocks,
     genesis_time: DateTime<Utc>,
-) -> (Block, ClientActor, Addr<ViewClientActor>) {
+) -> (Block, ClientActor, Addr<ViewClientActor>, ClientActorHelperConstructor) {
     let store = create_test_store();
     let num_validator_seats = validators.iter().map(|x| x.len()).sum::<usize>() as NumSeats;
     let runtime = Arc::new(KeyValueRuntime::new_with_validators(
@@ -125,19 +127,52 @@ pub fn setup(
     );
 
     let client = ClientActor::new(
-        config,
-        chain_genesis,
-        runtime,
+        config.clone(),
+        chain_genesis.clone(),
+        runtime.clone(),
         PublicKey::empty(KeyType::ED25519).into(),
-        network_adapter,
-        Some(signer),
+        network_adapter.clone(),
+        Some(signer.clone()),
         telemetry,
         enable_doomslug,
         #[cfg(feature = "adversarial")]
         adv,
     )
     .unwrap();
-    (genesis_block, client, view_client_addr)
+    let client_helper = ClientActorHelperConstructor {
+        config,
+        chain_genesis,
+        runtime_adapter: runtime,
+        network_adapter,
+        validator_signer: Some(signer),
+        enable_doomslug,
+    };
+
+    (genesis_block, client, view_client_addr, client_helper)
+}
+
+pub struct ClientActorHelperConstructor {
+    config: ClientConfig,
+    chain_genesis: ChainGenesis,
+    runtime_adapter: Arc<KeyValueRuntime>,
+    network_adapter: Arc<dyn NetworkAdapter>,
+    validator_signer: Option<Arc<dyn ValidatorSigner>>,
+    enable_doomslug: bool,
+}
+
+impl ClientActorHelperConstructor {
+    fn start_client_actor_helper(self, client_addr: Addr<ClientActor>) -> ClientActorHelper {
+        ClientActorHelper::new(
+            self.config,
+            self.chain_genesis,
+            self.runtime_adapter,
+            self.network_adapter,
+            self.validator_signer,
+            self.enable_doomslug,
+            client_addr,
+        )
+        .unwrap()
+    }
 }
 
 /// Sets up ClientActor and ViewClientActor with mock PeerManager.
@@ -179,7 +214,7 @@ pub fn setup_mock_with_validity_period(
     transaction_validity_period: NumBlocks,
 ) -> (Addr<ClientActor>, Addr<ViewClientActor>) {
     let network_adapter = Arc::new(NetworkRecipient::new());
-    let (_, client, view_client_addr) = setup(
+    let (_, client, view_client_addr, client_helper_constructor) = setup(
         vec![validators],
         1,
         1,
@@ -196,6 +231,7 @@ pub fn setup_mock_with_validity_period(
     );
     let client_addr = client.start();
     let client_addr1 = client_addr.clone();
+    client_helper_constructor.start_client_actor_helper(client_addr.clone()).start();
 
     let network_actor = NetworkMock::mock(Box::new(move |msg, ctx| {
         let msg = msg.downcast_ref::<NetworkRequests>().unwrap();
@@ -383,6 +419,9 @@ pub fn setup_mock_all_validators(
     let block_stats = Arc::new(RwLock::new(BlockStats::new()));
 
     for (index, account_id) in validators.into_iter().flatten().enumerate() {
+        let client_helper: Arc<RwLock<Option<ClientActorHelperConstructor>>> =
+            Arc::new(RwLock::new(None));
+        let client_helper2 = client_helper.clone();
         let block_stats1 = block_stats.clone();
         let view_client_addr = Arc::new(RwLock::new(None));
         let view_client_addr1 = view_client_addr.clone();
@@ -788,7 +827,7 @@ pub fn setup_mock_all_validators(
             .start();
             let network_adapter = NetworkRecipient::new();
             network_adapter.set_recipient(pm.recipient());
-            let (block, client, view_client_addr) = setup(
+            let (block, client, view_client_addr, client_helper_constructor) = setup(
                 validators_clone1.clone(),
                 validator_groups,
                 num_shards,
@@ -803,12 +842,16 @@ pub fn setup_mock_all_validators(
                 10000,
                 genesis_time,
             );
+            *client_helper.write().unwrap() = Some(client_helper_constructor);
             *view_client_addr1.write().unwrap() = Some(view_client_addr);
             *genesis_block1.write().unwrap() = Some(block);
             client
         });
 
-        ret.push((client_addr, view_client_addr.clone().read().unwrap().clone().unwrap()));
+        ret.push((client_addr.clone(), view_client_addr.clone().read().unwrap().clone().unwrap()));
+        ClientActorHelper::create(move |ctx| {
+            client_helper2.write().unwrap().take().unwrap().start_client_actor_helper(client_addr)
+        });
     }
     hash_to_height.write().unwrap().insert(CryptoHash::default(), 0);
     hash_to_height
