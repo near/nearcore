@@ -223,8 +223,8 @@ impl From<Handshake> for HandshakeV2 {
     fn from(handshake_old: Handshake) -> Self {
         Self {
             // In previous version of handshake, nodes usually sent the oldest supported version instead of their current version.
-            // Computing the current version of the other as the oldest version plus 4, but not letting go bigger than 33.
-            version: std::cmp::min(PROTOCOL_VERSION - 1, handshake_old.version.saturating_add(4)),
+            // Computing the current version of the other as the oldest version plus 1, but keeping it smaller than current version.
+            version: std::cmp::min(PROTOCOL_VERSION - 1, handshake_old.version.saturating_add(1)),
             oldest_supported_version: handshake_old.version,
             peer_id: handshake_old.peer_id,
             target_peer_id: handshake_old.target_peer_id,
