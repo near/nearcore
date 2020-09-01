@@ -505,18 +505,6 @@ impl BlockReference {
     }
 }
 
-impl From<BlockId> for BlockReference {
-    fn from(block_id: BlockId) -> Self {
-        Self::BlockId(block_id)
-    }
-}
-
-impl From<Finality> for BlockReference {
-    fn from(finality: Finality) -> Self {
-        Self::Finality(finality)
-    }
-}
-
 #[derive(Default, BorshSerialize, BorshDeserialize, Serialize, Clone, Debug, PartialEq)]
 pub struct ValidatorStats {
     pub produced: NumBlocks,

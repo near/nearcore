@@ -59,8 +59,8 @@ pub struct AccountView {
     pub storage_paid_at: BlockHeight,
 }
 
-impl From<&Account> for AccountView {
-    fn from(account: &Account) -> Self {
+impl From<Account> for AccountView {
+    fn from(account: Account) -> Self {
         AccountView {
             amount: account.amount,
             locked: account.locked,
@@ -71,26 +71,14 @@ impl From<&Account> for AccountView {
     }
 }
 
-impl From<Account> for AccountView {
-    fn from(account: Account) -> Self {
-        (&account).into()
-    }
-}
-
-impl From<&AccountView> for Account {
-    fn from(view: &AccountView) -> Self {
+impl From<AccountView> for Account {
+    fn from(view: AccountView) -> Self {
         Self {
             amount: view.amount,
             locked: view.locked,
             code_hash: view.code_hash,
             storage_usage: view.storage_usage,
         }
-    }
-}
-
-impl From<AccountView> for Account {
-    fn from(view: AccountView) -> Self {
-        (&view).into()
     }
 }
 
