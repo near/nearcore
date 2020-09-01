@@ -564,7 +564,7 @@ pub trait RuntimeAdapter: Send + Sync {
             return vec![hash(&ReceiptList(0, receipts).try_to_vec().unwrap())];
         }
         let mut account_id_to_shard_id = HashMap::new();
-        let mut shard_receipts = HashMap::new();
+        let mut shard_receipts: Vec<_> = (0..self.num_shards()).map(|i| (i, Vec::new())).collect();
         for receipt in receipts.iter() {
             let shard_id = match account_id_to_shard_id.get(&receipt.receiver_id) {
                 Some(id) => *id,
@@ -574,16 +574,13 @@ pub trait RuntimeAdapter: Send + Sync {
                     id
                 }
             };
-            shard_receipts.entry(shard_id).or_insert_with(Vec::new).push(receipt);
+            shard_receipts[shard_id as usize].1.push(receipt);
         }
-        (0..self.num_shards())
-            .map(|i| {
-                hash(
-                    // use tuple here instead of `ReceiptList` to avoid cloning.
-                    &((i, &shard_receipts.remove(&i).unwrap_or_else(Vec::new)))
-                        .try_to_vec()
-                        .unwrap(),
-                )
+        shard_receipts
+            .into_iter()
+            .map(|(i, rs)| {
+                let bytes = (i, rs).try_to_vec().unwrap();
+                hash(&bytes)
             })
             .collect()
     }

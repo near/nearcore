@@ -1139,6 +1139,7 @@ mod test {
     use near_primitives::types::NumShards;
     use near_store::test_utils::create_test_store;
     use rand::Rng;
+    use std::time::Instant;
 
     impl KeyValueRuntime {
         fn naive_build_receipt_hashes(&self, receipts: &[Receipt]) -> Vec<CryptoHash> {
@@ -1170,16 +1171,21 @@ mod test {
         let create_receipt_from_receiver_id =
             |receiver_id| Receipt::new_balance_refund(&receiver_id, 0);
         let mut rng = rand::thread_rng();
-        let receipts = (0..100)
+        let receipts = (0..3000)
             .map(|_| {
                 let random_number = rng.gen_range(0, 1000);
                 create_receipt_from_receiver_id(format!("test{}", random_number))
             })
             .collect::<Vec<_>>();
-        assert_eq!(
-            runtime_adapter.naive_build_receipt_hashes(&receipts),
-            runtime_adapter.build_receipts_hashes(&receipts)
-        );
+        let start = Instant::now();
+        let naive_result = runtime_adapter.naive_build_receipt_hashes(&receipts);
+        let naive_duration = start.elapsed();
+        let start = Instant::now();
+        let prod_result = runtime_adapter.build_receipts_hashes(&receipts);
+        let prod_duration = start.elapsed();
+        assert_eq!(naive_result, prod_result);
+        // production implementation is at least 50% faster
+        assert!(2 * naive_duration > 3 * prod_duration);
     }
 
     #[test]
