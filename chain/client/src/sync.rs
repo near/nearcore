@@ -1246,6 +1246,7 @@ mod test {
                 },
                 height: chain2.head().unwrap().height,
                 tracked_shards: vec![],
+                archival: false,
             },
             edge_info: EdgeInfo::default(),
         };

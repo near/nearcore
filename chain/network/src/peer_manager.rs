@@ -1,4 +1,4 @@
-use rand::seq::SliceRandom;
+use rand::seq::{IteratorRandom, SliceRandom};
 use std::cmp;
 use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
@@ -33,12 +33,12 @@ use crate::peer_store::{PeerStore, TrustLevel};
 use crate::recorder::{MetricRecorder, PeerMessageMetadata};
 use crate::routing::{Edge, EdgeInfo, EdgeType, ProcessEdgeResult, RoutingTable};
 use crate::types::{
-    AccountOrPeerIdOrHash, Ban, BlockedPorts, Consolidate, ConsolidateResponse, FullPeerInfo,
-    InboundTcpConnect, KnownPeerStatus, KnownProducer, NetworkInfo, NetworkViewClientMessages,
-    NetworkViewClientResponses, OutboundTcpConnect, PeerIdOrHash, PeerList, PeerManagerRequest,
-    PeerMessage, PeerRequest, PeerResponse, PeerType, PeersRequest, PeersResponse, Ping, Pong,
-    QueryPeerStats, RawRoutedMessage, ReasonForBan, RoutedMessage, RoutedMessageBody,
-    RoutedMessageFrom, SendMessage, SyncData, Unregister,
+    AccountIdOrPeerTrackingShard, AccountOrPeerIdOrHash, Ban, BlockedPorts, Consolidate,
+    ConsolidateResponse, FullPeerInfo, InboundTcpConnect, KnownPeerStatus, KnownProducer,
+    NetworkInfo, NetworkViewClientMessages, NetworkViewClientResponses, OutboundTcpConnect,
+    PeerIdOrHash, PeerList, PeerManagerRequest, PeerMessage, PeerRequest, PeerResponse, PeerType,
+    PeersRequest, PeersResponse, Ping, Pong, QueryPeerStats, RawRoutedMessage, ReasonForBan,
+    RoutedMessage, RoutedMessageBody, RoutedMessageFrom, SendMessage, SyncData, Unregister,
 };
 use crate::types::{
     EdgeList, KnownPeerState, NetworkClientMessages, NetworkConfig, NetworkRequests,
@@ -47,6 +47,7 @@ use crate::types::{
 #[cfg(feature = "delay_detector")]
 use delay_detector::DelayDetector;
 use metrics::NetworkMetrics;
+use rand::thread_rng;
 
 /// How often to request peers from active peers.
 const REQUEST_PEERS_SECS: u64 = 60;
@@ -1151,17 +1152,70 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                 self.announce_account(ctx, announce_account);
                 NetworkResponses::NoResponse
             }
-            NetworkRequests::PartialEncodedChunkRequest { account_id, request } => {
-                if self.send_message_to_account(
-                    ctx,
-                    &account_id,
-                    RoutedMessageBody::PartialEncodedChunkRequest(request),
-                ) {
-                    NetworkResponses::NoResponse
-                } else {
-                    NetworkResponses::RouteNotFound
+            NetworkRequests::PartialEncodedChunkRequest { target, request } => match target {
+                AccountIdOrPeerTrackingShard::AccountId(account_id) => {
+                    if self.send_message_to_account(
+                        ctx,
+                        &account_id,
+                        RoutedMessageBody::PartialEncodedChunkRequest(request),
+                    ) {
+                        NetworkResponses::NoResponse
+                    } else {
+                        NetworkResponses::RouteNotFound
+                    }
                 }
-            }
+                AccountIdOrPeerTrackingShard::PeerTrackingShard {
+                    shard_id,
+                    only_archival,
+                    fallback_account_id,
+                } => {
+                    let mut matching_peers = vec![];
+                    for (peer_id, active_peer) in self.active_peers.iter() {
+                        if (active_peer.full_peer_info.chain_info.archival || !only_archival)
+                            && active_peer
+                                .full_peer_info
+                                .chain_info
+                                .tracked_shards
+                                .contains(&shard_id)
+                        {
+                            matching_peers.push(peer_id.clone());
+                        }
+                    }
+
+                    match matching_peers.iter().choose(&mut thread_rng()) {
+                        Some(matching_peer) => {
+                            if self.send_message_to_peer(
+                                ctx,
+                                RawRoutedMessage {
+                                    target: AccountOrPeerIdOrHash::PeerId(matching_peer.clone()),
+                                    body: RoutedMessageBody::PartialEncodedChunkRequest(request),
+                                },
+                            ) {
+                                NetworkResponses::NoResponse
+                            } else {
+                                NetworkResponses::RouteNotFound
+                            }
+                        }
+                        None => {
+                            if let Some(fallback_account_id) = fallback_account_id {
+                                warn!("Chunk request for shard {} cannot be properly sent, because no known peer runs {} node tracking the shard. Falling back to sending to the block producer from the corresponding epoch.", shard_id, if only_archival { "an archival" } else { "a" });
+                                if self.send_message_to_account(
+                                    ctx,
+                                    &fallback_account_id,
+                                    RoutedMessageBody::PartialEncodedChunkRequest(request),
+                                ) {
+                                    NetworkResponses::NoResponse
+                                } else {
+                                    NetworkResponses::RouteNotFound
+                                }
+                            } else {
+                                error!("Chunk request for shard {} cannot be properly sent, because no known peer runs {} node tracking the shard. Dropping the request.", shard_id, if only_archival { "an archival" } else { "a" });
+                                NetworkResponses::NoResponse
+                            }
+                        }
+                    }
+                }
+            },
             NetworkRequests::PartialEncodedChunkResponse { route_back, response } => {
                 if self.send_message_to_peer(
                     ctx,

@@ -28,7 +28,7 @@ async def main():
 
     # First handshake attempt. Should fail with Genesis Mismatch
     handshake = create_handshake(my_key_pair_nacl, nodes[0].node_key.pk, 12345)
-    sign_handshake(my_key_pair_nacl, handshake.HandshakeV2)
+    sign_handshake(my_key_pair_nacl, handshake.Handshake)
 
     await conn.send(handshake)
     response = await conn.recv()
@@ -38,9 +38,9 @@ async def main():
 
     # Second handshake attempt. Should fail with Protocol Version Mismatch
     gm = response.HandshakeFailure[1].GenesisMismatch
-    handshake.HandshakeV2.chain_info.genesis_id.chain_id = gm.chain_id
-    handshake.HandshakeV2.chain_info.genesis_id.hash = gm.hash
-    sign_handshake(my_key_pair_nacl, handshake.HandshakeV2)
+    handshake.Handshake.chain_info.genesis_id.chain_id = gm.chain_id
+    handshake.Handshake.chain_info.genesis_id.hash = gm.hash
+    sign_handshake(my_key_pair_nacl, handshake.Handshake)
 
     await conn.send(handshake)
     response = await conn.recv()
@@ -50,24 +50,24 @@ async def main():
 
     # Third handshake attempt. Should succeed
     pvm = response.HandshakeFailure[1].ProtocolVersionMismatch.version
-    handshake.HandshakeV2.version = pvm
-    sign_handshake(my_key_pair_nacl, handshake.HandshakeV2)
+    handshake.Handshake.version = pvm
+    sign_handshake(my_key_pair_nacl, handshake.Handshake)
 
     await conn.send(handshake)
     response = await conn.recv()
 
-    assert response.enum == 'HandshakeV2', response.enum
-    assert response.HandshakeV2.chain_info.genesis_id.chain_id == handshake.HandshakeV2.chain_info.genesis_id.chain_id
-    assert response.HandshakeV2.chain_info.genesis_id.hash == handshake.HandshakeV2.chain_info.genesis_id.hash
-    assert response.HandshakeV2.edge_info.nonce == 1
-    assert response.HandshakeV2.peer_id.keyType == 0
-    assert response.HandshakeV2.peer_id.data == base58.b58decode(
+    assert response.enum == 'Handshake', response.enum
+    assert response.Handshake.chain_info.genesis_id.chain_id == handshake.Handshake.chain_info.genesis_id.chain_id
+    assert response.Handshake.chain_info.genesis_id.hash == handshake.Handshake.chain_info.genesis_id.hash
+    assert response.Handshake.edge_info.nonce == 1
+    assert response.Handshake.peer_id.keyType == 0
+    assert response.Handshake.peer_id.data == base58.b58decode(
         nodes[0].node_key.pk[len(ED_PREFIX):])
-    assert response.HandshakeV2.target_peer_id.keyType == 0
-    assert response.HandshakeV2.target_peer_id.data == bytes(
+    assert response.Handshake.target_peer_id.keyType == 0
+    assert response.Handshake.target_peer_id.data == bytes(
         my_key_pair_nacl.verify_key)
-    assert response.HandshakeV2.listen_port == nodes[0].addr()[1]
-    assert response.HandshakeV2.version == handshake.HandshakeV2.version
+    assert response.Handshake.listen_port == nodes[0].addr()[1]
+    assert response.Handshake.version == handshake.Handshake.version
 
 
 asyncio.run(main())

@@ -24,7 +24,7 @@ use crate::rate_counter::RateCounter;
 use crate::recorder::{PeerMessageMetadata, Status};
 use crate::routing::{Edge, EdgeInfo};
 use crate::types::{
-    Ban, Consolidate, ConsolidateResponse, HandshakeFailureReason, HandshakeV2,
+    Ban, Consolidate, ConsolidateResponse, Handshake, HandshakeFailureReason,
     NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkViewClientMessages,
     NetworkViewClientResponses, PeerChainInfo, PeerInfo, PeerManagerRequest, PeerMessage,
     PeerRequest, PeerResponse, PeerStatsResult, PeerStatus, PeerType, PeersRequest, PeersResponse,
@@ -268,15 +268,16 @@ impl Peer {
                     genesis_id,
                     height,
                     tracked_shards,
+                    archival,
                 }) => {
-                    let handshake = HandshakeV2::new(
+                    let handshake = Handshake::new(
                         act.node_id(),
                         act.peer_id().unwrap(),
                         act.node_info.addr_port(),
-                        PeerChainInfo { genesis_id, height, tracked_shards },
+                        PeerChainInfo { genesis_id, height, tracked_shards, archival },
                         act.edge_info.as_ref().unwrap().clone(),
                     );
-                    act.send_message(PeerMessage::HandshakeV2(handshake));
+                    act.send_message(PeerMessage::Handshake(handshake));
                     actix::fut::ready(())
                 }
                 Err(err) => {
@@ -481,7 +482,6 @@ impl Peer {
             }
             PeerMessage::Challenge(challenge) => NetworkClientMessages::Challenge(challenge),
             PeerMessage::Handshake(_)
-            | PeerMessage::HandshakeV2(_)
             | PeerMessage::HandshakeFailure(_, _)
             | PeerMessage::PeersRequest
             | PeerMessage::PeersResponse(_)
@@ -604,7 +604,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for Peer {
         let msg_size = msg.len();
 
         self.tracker.increment_received(msg.len() as u64);
-        let mut peer_msg = match bytes_to_peer_message(&msg) {
+        let peer_msg = match bytes_to_peer_message(&msg) {
             Ok(peer_msg) => peer_msg,
             Err(err) => {
                 info!(target: "network", "Received invalid data {:?} from {}: {}", msg, self.peer_info, err);
@@ -637,10 +637,6 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for Peer {
             msg.len() as i64,
         );
 
-        if let PeerMessage::Handshake(handshake) = peer_msg {
-            peer_msg = PeerMessage::HandshakeV2(handshake.into());
-        }
-
         match (self.peer_type, self.peer_status, peer_msg) {
             (_, PeerStatus::Connecting, PeerMessage::HandshakeFailure(peer_info, reason)) => {
                 match reason {
@@ -660,7 +656,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for Peer {
                 }
                 ctx.stop();
             }
-            (_, PeerStatus::Connecting, PeerMessage::HandshakeV2(handshake)) => {
+            (_, PeerStatus::Connecting, PeerMessage::Handshake(handshake)) => {
                 debug!(target: "network", "{:?}: Received handshake {:?}", self.node_info.id, handshake);
 
                 if handshake.chain_info.genesis_id != self.genesis_id {

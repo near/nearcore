@@ -865,6 +865,7 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
                         },
                         height,
                         tracked_shards: self.config.tracked_shards.clone(),
+                        archival: self.config.archive,
                     }
                 }
                 Err(err) => {

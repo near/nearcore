@@ -15,7 +15,7 @@ mod tests {
     use near_client::{ClientActor, Query, ViewClientActor};
     use near_crypto::{InMemorySigner, KeyType};
     use near_logger_utils::init_integration_logger;
-    use near_network::types::AccountOrPeerIdOrHash;
+    use near_network::types::{AccountIdOrPeerTrackingShard, AccountOrPeerIdOrHash};
     use near_network::{NetworkClientMessages, NetworkRequests, NetworkResponses, PeerInfo};
     use near_primitives::hash::hash as hash_func;
     use near_primitives::hash::CryptoHash;
@@ -768,7 +768,7 @@ mod tests {
                             ChunkGrievingPhases::SecondAttack => {
                                 if let NetworkRequests::PartialEncodedChunkRequest {
                                     request,
-                                    account_id,
+                                    target: AccountIdOrPeerTrackingShard::AccountId(account_id),
                                 } = msg
                                 {
                                     if request.chunk_hash == *grieving_chunk_hash {
@@ -777,6 +777,17 @@ mod tests {
                                             return (NetworkResponses::NoResponse, false);
                                         }
                                     }
+                                } else if let NetworkRequests::PartialEncodedChunkRequest {
+                                    request: _,
+                                    target: _,
+                                } = msg
+                                {
+                                    // TODO: this test was written before the feature that allows
+                                    // sending requests directly to the peer. The test likely never
+                                    // triggers this path, but if this assert triggers, the above
+                                    // `if let` needs to be extended to block messages sent to the
+                                    // malicious node directly via the peer id
+                                    assert!(false);
                                 }
                                 if let NetworkRequests::PartialEncodedChunkResponse {
                                     route_back: _,
@@ -903,10 +914,8 @@ mod tests {
                                 header.inner.shard_id,
                             ));
                         }
-                        if let NetworkRequests::PartialEncodedChunkRequest {
-                            account_id: _,
-                            request,
-                        } = msg
+                        if let NetworkRequests::PartialEncodedChunkRequest { target: _, request } =
+                            msg
                         {
                             if verbose {
                                 if requested.contains(&(

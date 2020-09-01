@@ -131,6 +131,8 @@ pub struct PeerChainInfo {
     pub height: BlockHeight,
     /// Shards that the peer is tracking
     pub tracked_shards: Vec<ShardId>,
+    /// Is this node archival
+    pub archival: bool,
 }
 
 /// Peer type.
@@ -155,8 +157,8 @@ pub enum PeerStatus {
 
 #[derive(BorshSerialize, BorshDeserialize, Serialize, PartialEq, Eq, Clone, Debug)]
 pub struct Handshake {
-    /// Protocol version.
     pub version: u32,
+    pub oldest_supported_version: u32,
     /// Sender's peer id.
     pub peer_id: PeerId,
     /// Receiver's peer id.
@@ -179,58 +181,12 @@ impl Handshake {
     ) -> Self {
         Handshake {
             version: PROTOCOL_VERSION,
-            peer_id,
-            target_peer_id,
-            listen_port,
-            chain_info,
-            edge_info,
-        }
-    }
-}
-
-#[derive(BorshSerialize, BorshDeserialize, Serialize, PartialEq, Eq, Clone, Debug)]
-pub struct HandshakeV2 {
-    pub version: u32,
-    pub oldest_supported_version: u32,
-    pub peer_id: PeerId,
-    pub target_peer_id: PeerId,
-    pub listen_port: Option<u16>,
-    pub chain_info: PeerChainInfo,
-    pub edge_info: EdgeInfo,
-}
-
-impl HandshakeV2 {
-    pub fn new(
-        peer_id: PeerId,
-        target_peer_id: PeerId,
-        listen_port: Option<u16>,
-        chain_info: PeerChainInfo,
-        edge_info: EdgeInfo,
-    ) -> Self {
-        Self {
-            version: PROTOCOL_VERSION,
             oldest_supported_version: OLDEST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION,
             peer_id,
             target_peer_id,
             listen_port,
             chain_info,
             edge_info,
-        }
-    }
-}
-
-impl From<Handshake> for HandshakeV2 {
-    fn from(handshake_old: Handshake) -> Self {
-        Self {
-            // In previous version of handshake, nodes usually sent the oldest supported version instead of their current version.
-            // Computing the current version of the other as the oldest version plus 4, but not letting go bigger than 33.
-            version: std::cmp::min(PROTOCOL_VERSION - 1, handshake_old.version.saturating_add(4)),
-            oldest_supported_version: handshake_old.version,
-            peer_id: handshake_old.peer_id,
-            target_peer_id: handshake_old.target_peer_id,
-            listen_port: handshake_old.listen_port,
-            chain_info: handshake_old.chain_info,
-            edge_info: handshake_old.edge_info,
         }
     }
 }
@@ -354,6 +310,20 @@ impl Debug for RoutedMessageBody {
 pub enum PeerIdOrHash {
     PeerId(PeerId),
     Hash(CryptoHash),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, Serialize, Hash)]
+pub enum AccountIdOrPeerTrackingShard {
+    AccountId(AccountId),
+    // The request should be sent to any peer tracking shard.
+    // `fallback_account_id` is the account to sent the message to if no such peer exist. It is used
+    // to provide the block producer owning the part to cover situations when no peer is tracking
+    // shard, but the corresponding block producer is still online.
+    PeerTrackingShard {
+        shard_id: ShardId,
+        only_archival: bool,
+        fallback_account_id: Option<AccountId>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, Serialize, Hash)]
@@ -537,7 +507,6 @@ pub enum PeerMessage {
     /// Gracefully disconnect from other peer.
     Disconnect,
     Challenge(Challenge),
-    HandshakeV2(HandshakeV2),
 }
 
 impl fmt::Display for PeerMessage {
@@ -963,7 +932,7 @@ pub enum NetworkRequests {
 
     /// Request chunk parts and/or receipts
     PartialEncodedChunkRequest {
-        account_id: AccountId,
+        target: AccountIdOrPeerTrackingShard,
         request: PartialEncodedChunkRequestMsg,
     },
     /// Information about chunk such as its header, some subset of parts and/or incoming receipts
@@ -1232,7 +1201,12 @@ pub enum NetworkViewClientResponses {
     /// Headers response.
     BlockHeaders(Vec<BlockHeader>),
     /// Chain information.
-    ChainInfo { genesis_id: GenesisId, height: BlockHeight, tracked_shards: Vec<ShardId> },
+    ChainInfo {
+        genesis_id: GenesisId,
+        height: BlockHeight,
+        tracked_shards: Vec<ShardId>,
+        archival: bool,
+    },
     /// Response to state request.
     StateResponse(Box<StateResponseInfo>),
     /// Valid announce accounts.

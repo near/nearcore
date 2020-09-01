@@ -677,6 +677,11 @@ impl Client {
                 .unwrap()
                 .drain(..)
                 .flat_map(|missing_chunks| missing_chunks.into_iter()),
+            &self
+                .chain
+                .header_head()
+                .expect("header_head must be available when processing a block")
+                .last_block_hash,
         );
 
         let unwrapped_accepted_blocks = accepted_blocks.write().unwrap().drain(..).collect();
@@ -715,7 +720,10 @@ impl Client {
                 Ok(self.process_blocks_with_missing_chunks(prev_block_hash))
             }
             ProcessPartialEncodedChunkResult::NeedMorePartsOrReceipts(chunk_header) => {
-                self.shards_mgr.request_chunks(iter::once(*chunk_header));
+                self.shards_mgr.request_chunks(
+                    iter::once(*chunk_header),
+                    &self.chain.header_head()?.last_block_hash,
+                );
                 Ok(vec![])
             }
             ProcessPartialEncodedChunkResult::NeedBlock => {
@@ -987,6 +995,11 @@ impl Client {
                 .unwrap()
                 .drain(..)
                 .flat_map(|missing_chunks| missing_chunks.into_iter()),
+            &self
+                .chain
+                .header_head()
+                .expect("header_head must be avaiable when processing blocks with missing chunks")
+                .last_block_hash,
         );
 
         let unwrapped_accepted_blocks = accepted_blocks.write().unwrap().drain(..).collect();
@@ -1383,6 +1396,7 @@ impl Client {
                             .unwrap()
                             .drain(..)
                             .flat_map(|missing_chunks| missing_chunks.into_iter()),
+                        &self.chain.header_head()?.last_block_hash,
                     );
 
                     let unwrapped_accepted_blocks =

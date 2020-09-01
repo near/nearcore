@@ -103,6 +103,7 @@ mod test {
         let peer_info = PeerInfo::random();
         let fake_handshake = Handshake {
             version: 1,
+            oldest_supported_version: 1,
             peer_id: peer_info.id.clone(),
             target_peer_id: peer_info.id,
             listen_port: None,
@@ -110,6 +111,7 @@ mod test {
                 genesis_id: Default::default(),
                 height: 0,
                 tracked_shards: vec![],
+                archival: false,
             },
             edge_info: EdgeInfo::default(),
         };
