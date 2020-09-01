@@ -114,8 +114,6 @@ expensive --timeout=500 near-client consensus tests::test_consensus_with_epoch_s
 expensive neard sync_state_nodes sync_state_nodes_multishard
 
 # testnet rpc
-expensive nearcore test_tps_regression test::test_highload
-
 expensive nearcore test_cases_testnet_rpc test::test_smart_contract_simple_testnet
 expensive nearcore test_cases_testnet_rpc test::test_smart_contract_self_call_testnet
 expensive nearcore test_cases_testnet_rpc test::test_smart_contract_bad_method_name_testnet
@@ -151,7 +149,7 @@ expensive --timeout=1200 near-chain gc tests::test_gc_not_remove_fork_large
 expensive --timeout=1200 near-chain gc tests::test_gc_boundaries_large
 expensive --timeout=900 near-chain gc tests::test_gc_random_large
 expensive --timeout=600 near-chain gc tests::test_gc_pine
-expensive --timeout=600 near-chain gc tests::test_gc_star_large
+expensive --timeout=700 near-chain gc tests::test_gc_star_large
 expensive near-client process_blocks test_gc_after_state_sync
 
 # lib tests
@@ -165,4 +163,3 @@ expensive nearcore test_simple test::test_7_10_multiple_nodes
 
 expensive nearcore test_rejoin test::test_4_20_kill1
 expensive nearcore test_rejoin test::test_4_20_kill1_two_shards
-expensive nearcore test_rejoin test::test_4_20_kill2
