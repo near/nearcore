@@ -165,7 +165,7 @@ impl<'a> VMLogic<'a> {
             promise_results,
             memory,
             profile,
-            LAST_DEFAULT_PROTOCOL_VERSION,
+            LEGACY_DEFAULT_PROTOCOL_VERSION,
         )
     }
 
