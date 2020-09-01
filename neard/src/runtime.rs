@@ -831,7 +831,9 @@ impl RuntimeAdapter for NightshadeRuntime {
         if total_parts <= 3 {
             1
         } else {
-            (total_parts - 1) / 3
+            let signatures_on_block = total_parts * 2 / 3 + 1;
+            let max_malicious = (total_parts - 1) / 3;
+            signatures_on_block - max_malicious
         }
     }
 
@@ -1284,6 +1286,18 @@ impl RuntimeAdapter for NightshadeRuntime {
     ) -> Result<Ordering, Error> {
         let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
         epoch_manager.compare_epoch_id(epoch_id, other_epoch_id).map_err(|e| e.into())
+    }
+
+    fn chunk_needs_to_be_fetched_from_archival(
+        &self,
+        chunk_prev_block_hash: &CryptoHash,
+        header_head: &CryptoHash,
+    ) -> Result<bool, Error> {
+        let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
+        let head_epoch_id = epoch_manager.get_epoch_id(header_head)?;
+        Ok(epoch_manager.get_epoch_id_from_prev_block(chunk_prev_block_hash)? != head_epoch_id
+            && epoch_manager.get_next_epoch_id_from_prev_block(chunk_prev_block_hash)?
+                != head_epoch_id)
     }
 }
 

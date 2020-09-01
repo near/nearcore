@@ -768,7 +768,11 @@ impl ClientActor {
             self.client.config.chunk_request_retry_period,
             self.chunk_request_retry_next_attempt,
             ctx,
-            |act, _ctx| act.client.shards_mgr.resend_chunk_requests(),
+            |act, _ctx| {
+                if let Ok(header_head) = act.client.chain.header_head() {
+                    act.client.shards_mgr.resend_chunk_requests(&header_head.last_block_hash)
+                }
+            },
         );
         core::cmp::min(
             delay,
@@ -829,7 +833,10 @@ impl ClientActor {
                                 missing_chunks,
                                 missing_chunks.iter().map(|header| header.chunk_hash()).collect::<Vec<_>>()
                             );
-                            self.client.shards_mgr.request_chunks(missing_chunks);
+                            self.client.shards_mgr.request_chunks(
+                                missing_chunks,
+                                &self.client.chain.header_head().expect("header_head must be available when processing newly produced block").last_block_hash,
+                            );
                             Ok(())
                         }
                         _ => {
@@ -945,7 +952,15 @@ impl ClientActor {
                         missing_chunks,
                         missing_chunks.iter().map(|header| header.chunk_hash()).collect::<Vec<_>>()
                     );
-                    self.client.shards_mgr.request_chunks(missing_chunks);
+                    self.client.shards_mgr.request_chunks(
+                        missing_chunks,
+                        &self
+                            .client
+                            .chain
+                            .header_head()
+                            .expect("header_head should always be available when block is received")
+                            .last_block_hash,
+                    );
                 }
                 _ => {
                     debug!(target: "client", "Process block: block {} refused by chain: {}", hash, e.kind());
@@ -1266,6 +1281,12 @@ impl ClientActor {
                                 .unwrap()
                                 .drain(..)
                                 .flat_map(|missing_chunks| missing_chunks.into_iter()),
+                            &self
+                                .client
+                                .chain
+                                .header_head()
+                                .expect("header_head must be available during sync")
+                                .last_block_hash,
                         );
 
                         self.client.sync_status =

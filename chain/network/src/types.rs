@@ -198,7 +198,6 @@ impl std::error::Error for HandshakeFailureReason {}
 
 #[derive(BorshSerialize, Serialize, PartialEq, Eq, Clone, Debug)]
 pub struct Handshake {
-    /// Protocol version.
     pub version: u32,
     /// Oldest supported protocol version.
     pub oldest_supported_version: u32,
@@ -518,6 +517,20 @@ impl Debug for RoutedMessageBody {
 pub enum PeerIdOrHash {
     PeerId(PeerId),
     Hash(CryptoHash),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, Serialize, Hash)]
+pub enum AccountIdOrPeerTrackingShard {
+    AccountId(AccountId),
+    // The request should be sent to any peer tracking shard.
+    // `fallback_account_id` is the account to sent the message to if no such peer exist. It is used
+    // to provide the block producer owning the part to cover situations when no peer is tracking
+    // shard, but the corresponding block producer is still online.
+    PeerTrackingShard {
+        shard_id: ShardId,
+        only_archival: bool,
+        fallback_account_id: Option<AccountId>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, Serialize, Hash)]
@@ -1127,7 +1140,7 @@ pub enum NetworkRequests {
 
     /// Request chunk parts and/or receipts
     PartialEncodedChunkRequest {
-        account_id: AccountId,
+        target: AccountIdOrPeerTrackingShard,
         request: PartialEncodedChunkRequestMsg,
     },
     /// Information about chunk such as its header, some subset of parts and/or incoming receipts
@@ -1396,7 +1409,12 @@ pub enum NetworkViewClientResponses {
     /// Headers response.
     BlockHeaders(Vec<BlockHeader>),
     /// Chain information.
-    ChainInfo { genesis_id: GenesisId, height: BlockHeight, tracked_shards: Vec<ShardId> },
+    ChainInfo {
+        genesis_id: GenesisId,
+        height: BlockHeight,
+        tracked_shards: Vec<ShardId>,
+        archival: bool,
+    },
     /// Response to state request.
     StateResponse(Box<StateResponseInfo>),
     /// Valid announce accounts.

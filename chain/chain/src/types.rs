@@ -558,6 +558,12 @@ pub trait RuntimeAdapter: Send + Sync {
         other_epoch_id: &EpochId,
     ) -> Result<Ordering, Error>;
 
+    fn chunk_needs_to_be_fetched_from_archival(
+        &self,
+        chunk_prev_block_hash: &CryptoHash,
+        header_head: &CryptoHash,
+    ) -> Result<bool, Error>;
+
     /// Build receipts hashes.
     fn build_receipts_hashes(&self, receipts: &[Receipt]) -> Vec<CryptoHash> {
         let mut receipts_hashes = vec![];

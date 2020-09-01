@@ -273,10 +273,8 @@ impl Peer {
                     genesis_id,
                     height,
                     tracked_shards,
+                    archival,
                 }) => {
-                    // TODO(MOO): Fill this here
-                    let archival = false;
-
                     let handshake = match act.protocol_version {
                         36 => PeerMessage::Handshake(Handshake::new(
                             act.protocol_version,
