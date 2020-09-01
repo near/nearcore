@@ -19,7 +19,7 @@ use std::mem::size_of;
 
 type Result<T> = ::std::result::Result<T, VMLogicError>;
 
-// const LAST_DEFAULT_PROTOCOL_VERSION: ProtocolVersion = 34;
+const LEGACY_DEFAULT_PROTOCOL_VERSION: ProtocolVersion = 34;
 const IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION: ProtocolVersion = 35;
 
 pub struct VMLogic<'a> {
@@ -146,28 +146,28 @@ impl<'a> VMLogic<'a> {
         }
     }
 
-    // /// Legacy initialization method that doesn't pass the protocol version and uses the last
-    // /// protocol version before the change was introduced.
-    // pub fn new(
-    //     ext: &'a mut dyn External,
-    //     context: VMContext,
-    //     config: &'a VMConfig,
-    //     fees_config: &'a RuntimeFeesConfig,
-    //     promise_results: &'a [PromiseResult],
-    //     memory: &'a mut dyn MemoryLike,
-    //     profile: Option<ProfileData>,
-    // ) -> Self {
-    //     Self::new_with_protocol_version(
-    //         ext,
-    //         context,
-    //         config,
-    //         fees_config,
-    //         promise_results,
-    //         memory,
-    //         profile,
-    //         LAST_DEFAULT_PROTOCOL_VERSION,
-    //     )
-    // }
+    /// Legacy initialization method that doesn't pass the protocol version and uses the last
+    /// protocol version before the change was introduced.
+    pub fn new(
+        ext: &'a mut dyn External,
+        context: VMContext,
+        config: &'a VMConfig,
+        fees_config: &'a RuntimeFeesConfig,
+        promise_results: &'a [PromiseResult],
+        memory: &'a mut dyn MemoryLike,
+        profile: Option<ProfileData>,
+    ) -> Self {
+        Self::new_with_protocol_version(
+            ext,
+            context,
+            config,
+            fees_config,
+            promise_results,
+            memory,
+            profile,
+            LAST_DEFAULT_PROTOCOL_VERSION,
+        )
+    }
 
     // ###########################
     // # Memory helper functions #
