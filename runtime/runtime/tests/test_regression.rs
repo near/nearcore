@@ -145,7 +145,7 @@ fn template_test(transaction_type: TransactionType, db_type: DataBaseType, expec
                         Action::FunctionCall(FunctionCallAction {
                             method_name: "benchmark_storage_8b".to_string(),
                             args: (&arg).to_vec(),
-                            gas: 10u64.pow(18),
+                            gas: 10u64.pow(15),
                             deposit: 0,
                         })
                     }

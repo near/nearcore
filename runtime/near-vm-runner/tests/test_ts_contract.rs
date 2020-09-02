@@ -1,3 +1,4 @@
+use crate::test_utils::LATEST_PROTOCOL_VERSION;
 use near_runtime_fees::RuntimeFeesConfig;
 use near_vm_errors::FunctionCallError;
 use near_vm_logic::mocks::mock_external::MockedExternal;
@@ -36,6 +37,7 @@ pub fn test_ts_contract() {
             &fees,
             &promise_results,
             vm_kind.clone(),
+            LATEST_PROTOCOL_VERSION,
         );
         assert_eq!(
             result.1,
@@ -56,6 +58,7 @@ pub fn test_ts_contract() {
             &fees,
             &promise_results,
             vm_kind.clone(),
+            LATEST_PROTOCOL_VERSION,
         )
         .0
         .unwrap();
@@ -80,6 +83,7 @@ pub fn test_ts_contract() {
             &fees,
             &promise_results,
             vm_kind,
+            LATEST_PROTOCOL_VERSION,
         );
 
         if let ReturnData::Value(value) = result.0.unwrap().return_data {

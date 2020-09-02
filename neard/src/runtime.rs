@@ -528,6 +528,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         state_root: Option<StateRoot>,
         transaction: &SignedTransaction,
         verify_signature: bool,
+        current_protocol_version: ProtocolVersion,
     ) -> Result<Option<InvalidTxError>, Error> {
         if let Some(state_root) = state_root {
             let shard_id = self.account_id_to_shard_id(&transaction.transaction.signer_id);
@@ -539,6 +540,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                 gas_price,
                 &transaction,
                 verify_signature,
+                current_protocol_version,
             ) {
                 Ok(_) => Ok(None),
                 Err(RuntimeError::InvalidTxError(err)) => {
@@ -557,6 +559,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                 gas_price,
                 &transaction,
                 verify_signature,
+                current_protocol_version,
             ) {
                 Ok(_) => Ok(None),
                 Err(RuntimeError::InvalidTxError(err)) => {
@@ -579,6 +582,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         state_root: StateRoot,
         pool_iterator: &mut dyn PoolIterator,
         chain_validate: &mut dyn FnMut(&SignedTransaction) -> bool,
+        current_protocol_version: ProtocolVersion,
     ) -> Result<Vec<SignedTransaction>, Error> {
         let mut state_update = self.get_tries().new_trie_update(shard_id, state_root);
 
@@ -602,6 +606,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                             gas_price,
                             &tx,
                             false,
+                            current_protocol_version,
                         ) {
                             Ok(verification_result) => {
                                 state_update.commit(StateChangeCause::NotWritableToDisk);
@@ -1065,11 +1070,13 @@ impl RuntimeAdapter for NightshadeRuntime {
             }
             QueryRequest::CallFunction { account_id, method_name, args } => {
                 let mut logs = vec![];
-                let epoch_height = {
+                let (epoch_height, current_protocol_version) = {
                     let mut epoch_manager =
                         self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
-                    epoch_manager.get_epoch_info(&epoch_id)?.epoch_height
+                    let epoch_info = epoch_manager.get_epoch_info(&epoch_id)?;
+                    (epoch_info.epoch_height, epoch_info.protocol_version)
                 };
+
                 match self.call_function(
                     shard_id,
                     *state_root,
@@ -1083,6 +1090,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                     args.as_ref(),
                     &mut logs,
                     &self.epoch_manager,
+                    current_protocol_version,
                 ) {
                     Ok(result) => Ok(QueryResponse {
                         kind: QueryResponseKind::CallResult(CallResult { result, logs }),
@@ -1304,6 +1312,7 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
         args: &[u8],
         logs: &mut Vec<String>,
         epoch_info_provider: &dyn EpochInfoProvider,
+        current_protocol_version: ProtocolVersion,
     ) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
         let state_update = self.get_tries().new_trie_update(shard_id, state_root);
         self.trie_viewer.call_function(
@@ -1318,6 +1327,7 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
             args,
             logs,
             epoch_info_provider,
+            current_protocol_version,
         )
     }
 
