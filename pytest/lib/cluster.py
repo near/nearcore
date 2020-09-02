@@ -18,6 +18,7 @@ from rc import gcloud
 import traceback
 import uuid
 import network
+import logging
 from proxy import NodesProxy
 
 os.environ["ADVERSARY_CONSENT"] = "1"
@@ -302,6 +303,12 @@ class LocalNode(BaseNode):
         return ("127.0.0.1", self.rpc_port)
 
     def start(self, boot_key, boot_node_addr):
+        if self._proxy_local_stopped is not None:
+            while self._proxy_local_stopped.value != 2:
+                logging.debug(f'Waiting for previous proxy instance to close')
+                time.sleep(1)
+
+
         env = os.environ.copy()
         env["RUST_BACKTRACE"] = "1"
         env["RUST_LOG"] = "actix_web=warn,mio=warn,tokio_util=warn,actix_server=warn,actix_http=warn," + env.get("RUST_LOG", "debug")

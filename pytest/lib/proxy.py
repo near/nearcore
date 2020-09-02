@@ -192,6 +192,7 @@ def check_finish(server, global_stopped, local_stopped, error):
         logging.debug(
             f"Stopping server. port={_MY_PORT}, global_stopped={global_stopped.value}, local_stopped={local_stopped.value}, error={error.value}")
         server.close()
+        local_stopped.value = 2
 
 
 async def bridge(reader, writer, handler_fn, global_stopped, local_stopped, error):
@@ -326,6 +327,10 @@ def proxify_node(node, ps, handler, global_stopped, error, proxy):
     outer_port = inner_port + 100
 
     def start_proxy():
+        # local_stopped denotes the current of state of the proxy:
+        # 0: The proxy is running
+        # 1: The proxy is running but should be closed soon
+        # 2: The proxy is closed
         local_stopped = multiprocessing.Value('i', 0)
         p = multiprocessing.Process(target=start_server, args=(
             inner_port, outer_port, handler, global_stopped, local_stopped, error))

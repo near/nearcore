@@ -14,7 +14,6 @@ TARGET_HEIGHT = 20
 nodes = start_cluster(2, 0, 1, None, [], {}, ProxyHandler)
 
 nodes[1].kill()
-time.sleep(6)
 
 nodes[1].start(nodes[0].node_key.pk, nodes[0].addr())
 started = time.time()
