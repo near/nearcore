@@ -212,7 +212,7 @@ def send_transaction(node, tx, tx_hash, account_id, timeout=120):
     missing_count = 0
     while 'error' in response.keys():
         error_data = response['error']['data']
-        if error_data == 'Timeout':
+        if 'timeout' in error_data.lower():
             print(
                 f'WARN: transaction {tx_hash} returned Timout, checking status again.'
             )
