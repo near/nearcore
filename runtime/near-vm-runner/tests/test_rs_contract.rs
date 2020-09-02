@@ -9,7 +9,8 @@ use std::mem::size_of;
 pub mod test_utils;
 
 use self::test_utils::{
-    CURRENT_ACCOUNT_ID, PREDECESSOR_ACCOUNT_ID, SIGNER_ACCOUNT_ID, SIGNER_ACCOUNT_PK,
+    CURRENT_ACCOUNT_ID, LATEST_PROTOCOL_VERSION, PREDECESSOR_ACCOUNT_ID, SIGNER_ACCOUNT_ID,
+    SIGNER_ACCOUNT_PK,
 };
 
 const TEST_CONTRACT: &'static [u8] = include_bytes!("../tests/res/test_contract_rs.wasm");
@@ -66,6 +67,7 @@ pub fn test_read_write() {
             &fees,
             &promise_results,
             vm_kind.clone(),
+            LATEST_PROTOCOL_VERSION,
         );
         assert_run_result(result, 0);
 
@@ -80,6 +82,7 @@ pub fn test_read_write() {
             &fees,
             &promise_results,
             vm_kind,
+            LATEST_PROTOCOL_VERSION,
         );
         assert_run_result(result, 20);
     });
@@ -136,6 +139,7 @@ fn run_test_ext(
         &fees,
         &[],
         vm_kind,
+        LATEST_PROTOCOL_VERSION,
     );
 
     if let Some(_) = err {
@@ -235,6 +239,7 @@ pub fn test_out_of_memory() {
         &fees,
         &promise_results,
         VMKind::Wasmer,
+        LATEST_PROTOCOL_VERSION,
     );
     assert_eq!(result.1, Some(VMError::FunctionCallError(FunctionCallError::WasmUnknownError)));
 }
