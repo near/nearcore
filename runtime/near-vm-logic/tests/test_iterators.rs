@@ -1,22 +1,15 @@
 mod fixtures;
+mod vm_logic_builder;
 
 use crate::fixtures::get_context;
-use near_runtime_fees::RuntimeFeesConfig;
-use near_vm_logic::mocks::mock_external::MockedExternal;
-use near_vm_logic::mocks::mock_memory::MockedMemory;
-use near_vm_logic::{HostError, VMConfig, VMLogic, VMLogicError};
+use near_vm_logic::{HostError, VMLogicError};
+use vm_logic_builder::VMLogicBuilder;
 
 #[test]
 fn test_iterator_deprecated() {
-    let mut ext = MockedExternal::default();
     let context = get_context(vec![], false);
-    let config = VMConfig::default();
-    let fees = RuntimeFeesConfig::default();
-    let promise_results = vec![];
-    let mut memory = MockedMemory::default();
-    let mut logic =
-        VMLogic::new(&mut ext, context, &config, &fees, &promise_results, &mut memory, None);
-
+    let mut logic_builder = VMLogicBuilder::default();
+    let mut logic = logic_builder.build(context);
     assert_eq!(
         Err(VMLogicError::HostError(HostError::Deprecated {
             method_name: "storage_iter_prefix".to_string()

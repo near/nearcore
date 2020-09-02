@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.2.0
+
+- Add ability to specify protocol version when initializing VMLogic.
+- Add implicit account creation logic for a new protocol version.
+- Add `near-runtime-utils` crate that is shared across runtime crates.
+
 ## 2.1.1
 
 - Bumped `borsh` dependency from `0.7.0` to `0.7.1` [#3238](https://github.com/nearprotocol/nearcore/pull/3238)

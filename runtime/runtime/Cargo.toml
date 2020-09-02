@@ -1,6 +1,6 @@
 [package]
 name = "node-runtime"
-version = "2.1.1"
+version = "2.2.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2018"
 
@@ -15,6 +15,7 @@ lazy_static = "1.4"
 num-rational = "0.2.4"
 num-bigint = "0.2.6"
 num-traits = "0.2.11"
+hex = "0.4.2"
 
 borsh = "0.7.1"
 cached = "0.12.0"
@@ -25,6 +26,7 @@ near-store = { path = "../../core/store" }
 near-metrics = { path = "../../core/metrics" }
 near-runtime-configs = { path = "../../core/runtime-configs" }
 near-runtime-fees = { path = "../../runtime/near-runtime-fees" }
+near-runtime-utils = { path = "../../runtime/near-runtime-utils" }
 near-vm-logic = { path = "../../runtime/near-vm-logic" }
 near-vm-runner = { path = "../../runtime/near-vm-runner" }
 near-vm-errors = { path = "../../runtime/near-vm-errors" }
