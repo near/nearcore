@@ -328,6 +328,32 @@ fn view_chain(
     }
 }
 
+fn check_block_chunk_existence(store: Arc<Store>, near_config: &NearConfig) {
+    let genesis_height = near_config.genesis.config.genesis_height;
+    let mut chain_store = ChainStore::new(store.clone(), genesis_height);
+    let head = chain_store.head().unwrap();
+    let mut cur_block = chain_store.get_block(&head.last_block_hash).unwrap().clone();
+    while cur_block.header().height() > genesis_height {
+        for chunk_header in cur_block.chunks().iter() {
+            if chunk_header.height_included == cur_block.header().height() {
+                if let Err(_) = chain_store.get_chunk(&chunk_header.hash) {
+                    panic!(
+                        "chunk {:?} cannot be found in storage, last block {:?}",
+                        chunk_header, cur_block
+                    );
+                }
+            }
+        }
+        cur_block = match chain_store.get_block(cur_block.header().prev_hash()) {
+            Ok(b) => b.clone(),
+            Err(_) => {
+                panic!("last block is {:?}", cur_block);
+            }
+        }
+    }
+    println!("Block check succeed");
+}
+
 fn main() {
     init_integration_logger();
 
@@ -425,6 +451,10 @@ fn main() {
                 )
                 .help("View head of the storage"),
         )
+        .subcommand(
+            SubCommand::with_name("check_block")
+                .help("Check whether the node has all the blocks up to its head"),
+        )
         .get_matches();
 
     let home_dir = matches.value_of("home").map(|dir| Path::new(dir)).unwrap();
@@ -499,6 +529,9 @@ fn main() {
             let view_block = args.is_present("block");
             let view_chunks = args.is_present("chunk");
             view_chain(store, &near_config, height, view_block, view_chunks);
+        }
+        ("check_block", Some(_)) => {
+            check_block_chunk_existence(store, &near_config);
         }
         (_, _) => unreachable!(),
     }
