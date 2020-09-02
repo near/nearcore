@@ -385,7 +385,8 @@ pub struct Config {
     pub node_key_file: String,
     pub rpc: RpcConfig,
     #[cfg(feature = "rosetta_rpc")]
-    pub rosetta_rpc: RosettaRpcConfig,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rosetta_rpc: Option<RosettaRpcConfig>,
     pub telemetry: TelemetryConfig,
     pub network: Network,
     pub consensus: Consensus,
@@ -407,7 +408,7 @@ impl Default for Config {
             node_key_file: NODE_KEY_FILE.to_string(),
             rpc: RpcConfig::default(),
             #[cfg(feature = "rosetta_rpc")]
-            rosetta_rpc: RosettaRpcConfig::default(),
+            rosetta_rpc: None,
             telemetry: TelemetryConfig::default(),
             network: Network::default(),
             consensus: Consensus::default(),
@@ -530,7 +531,7 @@ pub struct NearConfig {
     pub network_config: NetworkConfig,
     pub rpc_config: RpcConfig,
     #[cfg(feature = "rosetta_rpc")]
-    pub rosetta_rpc_config: RosettaRpcConfig,
+    pub rosetta_rpc_config: Option<RosettaRpcConfig>,
     pub telemetry_config: TelemetryConfig,
     pub genesis: Arc<Genesis>,
     pub validator_signer: Option<Arc<dyn ValidatorSigner>>,

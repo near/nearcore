@@ -191,12 +191,14 @@ pub fn start_with_config(
         view_client.clone(),
     );
     #[cfg(feature = "rosetta_rpc")]
-    start_rosetta_rpc(
-        config.rosetta_rpc_config,
-        Arc::clone(&config.genesis),
-        client_actor.clone(),
-        view_client.clone(),
-    );
+    if let Some(rosetta_rpc_config) = config.rosetta_rpc_config {
+        start_rosetta_rpc(
+            rosetta_rpc_config,
+            Arc::clone(&config.genesis),
+            client_actor.clone(),
+            view_client.clone(),
+        );
+    }
 
     config.network_config.verify();
 
