@@ -19,6 +19,10 @@ class HandshakeFailureReason:
     pass
 
 
+class ProtocolVersionMismatch:
+    pass
+
+
 class PeerInfo:
     pass
 
@@ -131,9 +135,19 @@ network_schema = [
             'field':
                 'enum',
             'values': [
-                ['ProtocolVersionMismatch', 'u32'],
+                ['ProtocolVersionMismatch', ProtocolVersionMismatch],
                 ['GenesisMismatch', GenesisId],
                 ['InvalidTarget', ()],
+            ]
+        }
+    ],
+    [
+        ProtocolVersionMismatch, {
+            'kind':
+                'struct',
+            'fields': [
+                ['version', 'u32'],
+                ['oldest_supported_version', 'u32'],
             ]
         }
     ],

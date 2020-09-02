@@ -171,8 +171,7 @@ async def run_handshake(conn: Connection,
         response = await conn.recv()
 
     if response.enum == 'HandshakeFailure' and response.HandshakeFailure[1].enum == 'ProtocolVersionMismatch':
-        pvm = response.HandshakeFailure[1].ProtocolVersionMismatch
-        print(pvm)
+        pvm = response.HandshakeFailure[1].ProtocolVersionMismatch.version
         handshake.Handshake.version = pvm
         sign_handshake(key_pair, handshake.Handshake)
         await conn.send(handshake)

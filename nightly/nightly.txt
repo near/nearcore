@@ -159,11 +159,11 @@ lib near-chunks test::test_seal_removal
 lib --timeout=300 near-chain store::tests::test_clear_old_data_too_many_heights
 
 # other tests
-expensive nearcore test_simple test::test_2_10_multiple_nodes
-expensive nearcore test_simple test::test_4_10_multiple_nodes
-expensive nearcore test_simple test::test_7_10_multiple_nodes
+expensive --timeout=600 nearcore test_simple test::test_2_10_multiple_nodes
+expensive --timeout=600 nearcore test_simple test::test_4_10_multiple_nodes
+expensive --timeout=600 nearcore test_simple test::test_7_10_multiple_nodes
 
-expensive nearcore test_rejoin test::test_4_20_kill1
-expensive nearcore test_rejoin test::test_4_20_kill1_two_shards
-expensive nearcore test_rejoin test::test_4_20_kill2
+expensive --timeout=1200 nearcore test_rejoin test::test_4_20_kill1
+expensive --timeout=1200 nearcore test_rejoin test::test_4_20_kill1_two_shards
+expensive --timeout=1200 nearcore test_rejoin test::test_4_20_kill2
 
