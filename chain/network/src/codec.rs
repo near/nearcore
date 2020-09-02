@@ -76,16 +76,19 @@ pub fn bytes_to_peer_message(bytes: &[u8]) -> Result<PeerMessage, std::io::Error
 
 #[cfg(test)]
 mod test {
-    use near_crypto::{KeyType, SecretKey};
+    use near_crypto::{KeyType, PublicKey, SecretKey};
     use near_primitives::block::{Approval, ApprovalInner};
     use near_primitives::hash::CryptoHash;
-    use near_primitives::network::AnnounceAccount;
-    use near_primitives::types::EpochId;
+    use near_primitives::network::{AnnounceAccount, PeerId};
+    use near_primitives::{
+        types::EpochId,
+        version::{OLDEST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION, PROTOCOL_VERSION},
+    };
 
     use crate::routing::EdgeInfo;
     use crate::types::{
-        Handshake, PeerChainInfo, PeerIdOrHash, PeerInfo, RoutedMessage, RoutedMessageBody,
-        SyncData,
+        Handshake, HandshakeV2, PeerChainInfo, PeerIdOrHash, PeerInfo, RoutedMessage,
+        RoutedMessageBody, SyncData,
     };
 
     use super::*;
@@ -114,6 +117,45 @@ mod test {
             edge_info: EdgeInfo::default(),
         };
         let msg = PeerMessage::Handshake(fake_handshake);
+        test_codec(msg);
+    }
+
+    #[test]
+    fn test_peer_message_handshake_v2() {
+        let peer_info = PeerInfo::random();
+        let fake_handshake = HandshakeV2 {
+            version: PROTOCOL_VERSION,
+            oldest_supported_version: OLDEST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION,
+            peer_id: peer_info.id.clone(),
+            target_peer_id: peer_info.id,
+            listen_port: None,
+            chain_info: PeerChainInfo {
+                genesis_id: Default::default(),
+                height: 0,
+                tracked_shards: vec![],
+            },
+            edge_info: EdgeInfo::default(),
+        };
+        let msg = PeerMessage::HandshakeV2(fake_handshake);
+        test_codec(msg);
+    }
+
+    #[test]
+    fn test_peer_message_handshake_v2_00() {
+        let fake_handshake = HandshakeV2 {
+            version: 0,
+            oldest_supported_version: 0,
+            peer_id: PeerId::new(PublicKey::empty(KeyType::ED25519)),
+            target_peer_id: PeerId::new(PublicKey::empty(KeyType::ED25519)),
+            listen_port: None,
+            chain_info: PeerChainInfo {
+                genesis_id: Default::default(),
+                height: 0,
+                tracked_shards: vec![],
+            },
+            edge_info: EdgeInfo::default(),
+        };
+        let msg = PeerMessage::HandshakeV2(fake_handshake);
         test_codec(msg);
     }
 

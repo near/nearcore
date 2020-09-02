@@ -663,20 +663,8 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for Peer {
             (_, PeerStatus::Connecting, PeerMessage::HandshakeV2(handshake)) => {
                 debug!(target: "network", "{:?}: Received handshake {:?}", self.node_info.id, handshake);
 
-                if handshake.chain_info.genesis_id != self.genesis_id {
-                    debug!(target: "network", "Received connection from node with different genesis.");
-                    ctx.address().do_send(SendMessage {
-                        message: PeerMessage::HandshakeFailure(
-                            self.node_info.clone(),
-                            HandshakeFailureReason::GenesisMismatch(self.genesis_id.clone()),
-                        ),
-                    });
-                    return;
-                    // Connection will be closed by a handshake timeout
-                }
-
                 if handshake.version < OLDEST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION
-                    || PROTOCOL_VERSION < handshake.oldest_supported_version
+                    || PROTOCOL_VERSION < handshake.version
                 {
                     debug!(target: "network", "Received connection from node with incompatible network protocol version.");
                     self.send_message(PeerMessage::HandshakeFailure(
@@ -686,6 +674,18 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for Peer {
                             oldest_supported_version: OLDEST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION,
                         },
                     ));
+                    return;
+                    // Connection will be closed by a handshake timeout
+                }
+
+                if handshake.chain_info.genesis_id != self.genesis_id {
+                    debug!(target: "network", "Received connection from node with different genesis.");
+                    ctx.address().do_send(SendMessage {
+                        message: PeerMessage::HandshakeFailure(
+                            self.node_info.clone(),
+                            HandshakeFailureReason::GenesisMismatch(self.genesis_id.clone()),
+                        ),
+                    });
                     return;
                     // Connection will be closed by a handshake timeout
                 }

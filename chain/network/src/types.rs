@@ -16,7 +16,7 @@ use tokio::net::TcpStream;
 use tracing::{error, warn};
 
 use near_chain::{Block, BlockHeader};
-use near_crypto::{PublicKey, SecretKey, Signature};
+use near_crypto::{KeyType, PublicKey, SecretKey, Signature};
 use near_primitives::block::{Approval, ApprovalMessage, GenesisId};
 use near_primitives::challenge::Challenge;
 use near_primitives::errors::InvalidTxError;
@@ -38,7 +38,7 @@ use crate::recorder::MetricRecorder;
 use crate::routing::{Edge, EdgeInfo, RoutingTableInfo};
 use serde::export::fmt::Error;
 use serde::export::Formatter;
-use std::fmt::Debug;
+use std::{fmt::Debug, io};
 
 /// Number of hops a message is allowed to travel before being dropped.
 /// This is used to avoid infinite loop because of inconsistent view of the network
@@ -188,7 +188,7 @@ impl Handshake {
     }
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Serialize, PartialEq, Eq, Clone, Debug)]
+#[derive(BorshSerialize, Serialize, PartialEq, Eq, Clone, Debug)]
 pub struct HandshakeV2 {
     pub version: u32,
     pub oldest_supported_version: u32,
@@ -219,6 +219,65 @@ impl HandshakeV2 {
     }
 }
 
+/// Struct describing the layout for HandshakeV2.
+/// It is used to automatically derive BorshDeserialize.
+#[derive(BorshDeserialize)]
+pub struct HandshakeV2AutoDes {
+    pub version: u32,
+    pub oldest_supported_version: u32,
+    pub peer_id: PeerId,
+    pub target_peer_id: PeerId,
+    pub listen_port: Option<u16>,
+    pub chain_info: PeerChainInfo,
+    pub edge_info: EdgeInfo,
+}
+
+const ERROR_UNEXPECTED_LENGTH_OF_INPUT: &str = "Unexpected length of input";
+
+// Use custom deserializer for HandshakeV2. Try to read version of the other peer from the header.
+// If the version is supported then fallback to standard deserializer,
+// otherwise return HandshakeV2 with current parsed versions and default values in other fields.
+impl BorshDeserialize for HandshakeV2 {
+    fn deserialize(buf: &mut &[u8]) -> std::io::Result<Self> {
+        // Detect the current and oldest supported version from the header
+        if buf.len() < 8 {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                ERROR_UNEXPECTED_LENGTH_OF_INPUT,
+            ));
+        }
+
+        let version = u32::from_le_bytes(buf[..4].try_into().unwrap());
+        let oldest_supported_version = u32::from_le_bytes(buf[4..8].try_into().unwrap());
+
+        if OLDEST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION <= version && version <= PROTOCOL_VERSION {
+            // If we support this version, then try to deserialize with custom deserializer
+            match version {
+                _ => HandshakeV2AutoDes::deserialize(buf).map(Into::into),
+            }
+        } else {
+            // Consume the remainder of the buffer
+            // NOTE: It is important that HandshakeV2 only appears in the end of a message
+            // to be deserialized properly.
+            *buf = &buf[buf.len()..];
+
+            // If we don't support this version, create a mock HandshakeV2 with version values,
+            // and let `PeerActor` send message:
+            // HandshakeFailure(HandshakeFailureReason::ProtocolVersionMismatch)
+            // to let other peer know about our current and oldest supported version
+            Ok(HandshakeV2 {
+                version,
+                oldest_supported_version,
+                peer_id: PeerId::new(PublicKey::empty(KeyType::ED25519)),
+                target_peer_id: PeerId::new(PublicKey::empty(KeyType::ED25519)),
+                listen_port: None,
+                chain_info: PeerChainInfo::default(),
+                edge_info: EdgeInfo::default(),
+            })
+        }
+    }
+}
+
 impl From<Handshake> for HandshakeV2 {
     fn from(handshake_old: Handshake) -> Self {
         Self {
@@ -231,6 +290,20 @@ impl From<Handshake> for HandshakeV2 {
             listen_port: handshake_old.listen_port,
             chain_info: handshake_old.chain_info,
             edge_info: handshake_old.edge_info,
+        }
+    }
+}
+
+impl From<HandshakeV2AutoDes> for HandshakeV2 {
+    fn from(handshake: HandshakeV2AutoDes) -> Self {
+        Self {
+            version: handshake.version,
+            oldest_supported_version: handshake.oldest_supported_version,
+            peer_id: handshake.peer_id,
+            target_peer_id: handshake.target_peer_id,
+            listen_port: handshake.listen_port,
+            chain_info: handshake.chain_info,
+            edge_info: handshake.edge_info,
         }
     }
 }

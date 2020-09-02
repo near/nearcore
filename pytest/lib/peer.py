@@ -163,17 +163,17 @@ async def run_handshake(conn: Connection,
     await conn.send(handshake)
     response = await conn.recv()
 
-    if response.enum == 'HandshakeFailure' and response.HandshakeFailure[1].enum == 'GenesisMismatch':
-        gm = response.HandshakeFailure[1].GenesisMismatch
-        handshake.HandshakeV2.chain_info.genesis_id.chain_id = gm.chain_id
-        handshake.HandshakeV2.chain_info.genesis_id.hash = gm.hash
+    if response.enum == 'HandshakeFailure' and response.HandshakeFailure[1].enum == 'ProtocolVersionMismatch':
+        pvm = response.HandshakeFailure[1].ProtocolVersionMismatch.version
+        handshake.HandshakeV2.version = pvm
         sign_handshake(key_pair, handshake.HandshakeV2)
         await conn.send(handshake)
         response = await conn.recv()
 
-    if response.enum == 'HandshakeFailure' and response.HandshakeFailure[1].enum == 'ProtocolVersionMismatch':
-        pvm = response.HandshakeFailure[1].ProtocolVersionMismatch.version
-        handshake.HandshakeV2.version = pvm
+    if response.enum == 'HandshakeFailure' and response.HandshakeFailure[1].enum == 'GenesisMismatch':
+        gm = response.HandshakeFailure[1].GenesisMismatch
+        handshake.HandshakeV2.chain_info.genesis_id.chain_id = gm.chain_id
+        handshake.HandshakeV2.chain_info.genesis_id.hash = gm.hash
         sign_handshake(key_pair, handshake.HandshakeV2)
         await conn.send(handshake)
         response = await conn.recv()
