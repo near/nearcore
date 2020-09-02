@@ -1,0 +1,16 @@
+[package]
+name = "near-runtime-utils"
+version = "2.2.0"
+authors = ["Near Inc <hello@nearprotocol.com>"]
+edition = "2018"
+license = "Apache-2.0"
+readme = "README.md"
+repository = "https://github.com/nearprotocol/nearcore"
+homepage = "https://github.com/nearprotocol/nearcore"
+description = """
+This crate contains utility functions for NEAR runtime.
+"""
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]

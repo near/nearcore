@@ -63,3 +63,6 @@ pytest/.consent
 
 # empty contract Cargo.lock, this would prevent cargo update latest git version of near-bindgen
 /pytest/empty-contract-rs/Cargo.lock
+
+# logs from mocknet nodes
+/pytest/logs/

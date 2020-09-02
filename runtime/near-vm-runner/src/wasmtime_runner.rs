@@ -1,4 +1,4 @@
-use wasmtime::{Engine, Module};
+use wasmtime::Module;
 
 // mod only to apply feature to it. Is it possible to avoid it?
 #[cfg(feature = "wasmtime_vm")]
@@ -8,12 +8,12 @@ pub mod wasmtime_runner {
     use near_runtime_fees::RuntimeFeesConfig;
     use near_vm_errors::FunctionCallError::{LinkError, WasmUnknownError};
     use near_vm_errors::{FunctionCallError, MethodResolveError, VMError, VMLogicError};
-    use near_vm_logic::types::{ProfileData, PromiseResult};
+    use near_vm_logic::types::{ProfileData, PromiseResult, ProtocolVersion};
     use near_vm_logic::{External, MemoryLike, VMConfig, VMContext, VMLogic, VMOutcome};
     use std::ffi::c_void;
     use std::str;
     use wasmtime::ExternType::Func;
-    use wasmtime::{Engine, Limits, Linker, Memory, MemoryType, Module, Store};
+    use wasmtime::{Config, Engine, Limits, Linker, Memory, MemoryType, Module, Store};
 
     pub struct WasmtimeMemory(Memory);
 
@@ -115,8 +115,10 @@ pub mod wasmtime_runner {
         fees_config: &'a RuntimeFeesConfig,
         promise_results: &'a [PromiseResult],
         profile: Option<ProfileData>,
+        current_protocol_version: ProtocolVersion,
     ) -> (Option<VMOutcome>, Option<VMError>) {
-        let engine = Engine::default();
+        let mut config = Config::default();
+        let engine = get_engine(&mut config);
         let store = Store::new(&engine);
         let mut memory = WasmtimeMemory::new(
             &store,
@@ -132,7 +134,7 @@ pub mod wasmtime_runner {
         // Note that we don't clone the actual backing memory, just increase the RC.
         let memory_copy = memory.clone();
         let mut linker = Linker::new(&store);
-        let mut logic = VMLogic::new(
+        let mut logic = VMLogic::new_with_protocol_version(
             ext,
             context,
             wasm_config,
@@ -140,6 +142,7 @@ pub mod wasmtime_runner {
             promise_results,
             &mut memory,
             profile,
+            current_protocol_version,
         );
         if logic.add_contract_compile_fee(code.len() as u64).is_err() {
             return (
@@ -223,9 +226,19 @@ pub mod wasmtime_runner {
             Err(err) => (Some(logic.outcome()), Some(err.into_vm_error())),
         }
     }
+    #[cfg(not(feature = "lightbeam"))]
+    pub fn get_engine(config: &mut wasmtime::Config) -> Engine {
+        Engine::new(config)
+    }
+
+    #[cfg(feature = "lightbeam")]
+    pub fn get_engine(config: &mut wasmtime::Config) -> Engine {
+        Engine::new(config.strategy(wasmtime::Strategy::Lightbeam).unwrap())
+    }
 }
 
-pub fn compile_module(code: &[u8]) {
-    let engine = Engine::default();
-    Module::new(&engine, code).unwrap();
+pub fn compile_module(code: &[u8]) -> bool {
+    let mut config = wasmtime::Config::default();
+    let engine = wasmtime_runner::get_engine(&mut config);
+    Module::new(&engine, code).is_ok()
 }

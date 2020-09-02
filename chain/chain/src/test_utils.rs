@@ -461,6 +461,8 @@ impl RuntimeAdapter for KeyValueRuntime {
         _gas_price: Balance,
         _state_update: Option<StateRoot>,
         _transaction: &SignedTransaction,
+        _verify_signature: bool,
+        _current_protocol_version: ProtocolVersion,
     ) -> Result<Option<InvalidTxError>, Error> {
         Ok(None)
     }
@@ -473,6 +475,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         _state_root: StateRoot,
         transactions: &mut dyn PoolIterator,
         _chain_validate: &mut dyn FnMut(&SignedTransaction) -> bool,
+        _current_protocol_version: ProtocolVersion,
     ) -> Result<Vec<SignedTransaction>, Error> {
         let mut res = vec![];
         while let Some(iter) = transactions.next() {

@@ -4,7 +4,7 @@ use crate::{cache, imports};
 use near_runtime_fees::RuntimeFeesConfig;
 use near_vm_errors::FunctionCallError::{WasmTrap, WasmUnknownError};
 use near_vm_errors::{CompilationError, FunctionCallError, MethodResolveError, VMError};
-use near_vm_logic::types::{ProfileData, PromiseResult};
+use near_vm_logic::types::{ProfileData, PromiseResult, ProtocolVersion};
 use near_vm_logic::{External, VMConfig, VMContext, VMLogic, VMLogicError, VMOutcome};
 use wasmer_runtime::Module;
 
@@ -183,6 +183,7 @@ pub fn run_wasmer<'a>(
     fees_config: &'a RuntimeFeesConfig,
     promise_results: &'a [PromiseResult],
     profile: Option<ProfileData>,
+    current_protocol_version: ProtocolVersion,
 ) -> (Option<VMOutcome>, Option<VMError>) {
     if !cfg!(target_arch = "x86") && !cfg!(target_arch = "x86_64") {
         // TODO(#1940): Remove once NaN is standardized by the VM.
@@ -190,6 +191,7 @@ pub fn run_wasmer<'a>(
             "Execution of smart contracts is only supported for x86 and x86_64 CPU architectures."
         );
     }
+    #[cfg(not(feature = "no_cpu_compatibility_checks"))]
     if !is_x86_feature_detected!("avx") {
         panic!("AVX support is required in order to run Wasmer VM Singlepass backend.");
     }
@@ -214,8 +216,16 @@ pub fn run_wasmer<'a>(
     // Note that we don't clone the actual backing memory, just increase the RC.
     let memory_copy = memory.clone();
 
-    let mut logic =
-        VMLogic::new(ext, context, wasm_config, fees_config, promise_results, &mut memory, profile);
+    let mut logic = VMLogic::new_with_protocol_version(
+        ext,
+        context,
+        wasm_config,
+        fees_config,
+        promise_results,
+        &mut memory,
+        profile,
+        current_protocol_version,
+    );
 
     if logic.add_contract_compile_fee(code.len() as u64).is_err() {
         return (
@@ -252,6 +262,6 @@ pub fn run_wasmer<'a>(
     }
 }
 
-pub fn compile_module(code: &[u8]) {
-    wasmer_runtime::compile(code).unwrap();
+pub fn compile_module(code: &[u8]) -> bool {
+    wasmer_runtime::compile(code).is_ok()
 }
