@@ -85,15 +85,6 @@ pub fn is_valid_top_level_account_id(account_id: &AccountId) -> bool {
         && VALID_TOP_LEVEL_ACCOUNT_ID.is_match(account_id)
 }
 
-/// Returns true if the account ID length is 64 characters and it's a hex representation.
-pub fn is_account_id_64_len_hex(account_id: &AccountId) -> bool {
-    account_id.len() == 64
-        && account_id.as_bytes().iter().all(|&b| match b {
-            b'a'..=b'f' | b'0'..=b'9' => true,
-            _ => false,
-        })
-}
-
 /// Returns true if the signer_id can create a direct sub-account with the given account Id.
 /// It assumes the signer_id is a valid account_id
 pub fn is_valid_sub_account_id(signer_id: &AccountId, sub_account_id: &AccountId) -> bool {

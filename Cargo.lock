@@ -2702,6 +2702,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "near-runtime-utils"
+version = "2.2.0"
+
+[[package]]
 name = "near-store"
 version = "0.1.0"
 dependencies = [
@@ -2754,6 +2758,7 @@ dependencies = [
  "bs58",
  "byteorder",
  "near-runtime-fees",
+ "near-runtime-utils",
  "near-vm-errors",
  "serde",
  "serde_json",
@@ -2907,6 +2912,7 @@ dependencies = [
  "near-primitives",
  "near-runtime-configs",
  "near-runtime-fees",
+ "near-runtime-utils",
  "near-store",
  "near-vm-errors",
  "near-vm-logic",

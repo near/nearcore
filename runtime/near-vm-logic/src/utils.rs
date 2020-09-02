@@ -24,15 +24,6 @@ pub(crate) fn split_method_names(method_names: &[u8]) -> Result<Vec<Vec<u8>>> {
     }
 }
 
-/// Returns true if the account ID length is 64 characters and it's a hex representation.
-pub fn is_account_id_64_len_hex(account_id: &str) -> bool {
-    account_id.len() == 64
-        && account_id.as_bytes().iter().all(|&b| match b {
-            b'a'..=b'f' | b'0'..=b'9' => true,
-            _ => false,
-        })
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

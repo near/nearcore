@@ -384,6 +384,7 @@ impl Runtime {
                         apply_state.current_protocol_version
                             >= IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION
                     );
+                    debug_assert!(!is_refund);
                     action_implicit_account_creation_transfer(
                         state_update,
                         &self.config.transaction_costs,

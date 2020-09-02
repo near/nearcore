@@ -13,10 +13,10 @@ use near_primitives::transaction::{
 };
 use near_primitives::types::{AccountId, Balance, EpochInfoProvider, ValidatorStake};
 use near_primitives::utils::{
-    is_account_id_64_len_hex, is_valid_account_id, is_valid_sub_account_id,
-    is_valid_top_level_account_id,
+    is_valid_account_id, is_valid_sub_account_id, is_valid_top_level_account_id,
 };
 use near_runtime_fees::RuntimeFeesConfig;
+use near_runtime_utils::is_account_id_64_len_hex;
 use near_store::{
     get_access_key, get_code, remove_access_key, remove_account, set_access_key, set_code,
     StorageError, TrieUpdate,
@@ -567,6 +567,15 @@ pub(crate) fn check_account_existence(
                 if current_protocol_version >= IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION
                     && is_account_id_64_len_hex(&account_id)
                 {
+                    // If the account doesn't exist and it's 64-length hex account ID, then you
+                    // should only be able to create it using single transfer action.
+                    // Because you should not be able to add another access key to the account in
+                    // the same transaction.
+                    // Otherwise you can hijack an account without having the private key for the
+                    // public key. We've decided to make it an invalid transaction to have any other
+                    // actions on the 64-length hex accounts.
+                    // The easiest way is to reject the `CreateAccount` action.
+                    // See https://github.com/nearprotocol/NEPs/pull/71
                     return Err(ActionErrorKind::OnlyImplicitAccountCreationAllowed {
                         account_id: account_id.clone(),
                     }
@@ -582,6 +591,13 @@ pub(crate) fn check_account_existence(
                     && !is_refund
                 {
                     // OK. It's implicit account creation.
+                    // Notes:
+                    // - The transfer action has to be the only action in the transaction to avoid
+                    // abuse by hijacking this account with other public keys or contracts.
+                    // - Refunds don't automatically create accounts, because refunds are free and
+                    // we don't want some type of abuse.
+                    // - Account deletion with beneficiary creates a refund, so it'll not create a
+                    // new account.
                     return Ok(());
                 } else {
                     return Err(ActionErrorKind::AccountDoesNotExist {

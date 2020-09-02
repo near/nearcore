@@ -8,10 +8,11 @@ use crate::types::{
     AccountId, Balance, EpochHeight, Gas, ProfileData, PromiseIndex, PromiseResult,
     ProtocolVersion, ReceiptIndex, ReturnData, StorageUsage,
 };
-use crate::utils::{is_account_id_64_len_hex, split_method_names};
+use crate::utils::split_method_names;
 use crate::{ExtCosts, HostError, VMLogicError, ValuePtr};
 use byteorder::ByteOrder;
 use near_runtime_fees::RuntimeFeesConfig;
+use near_runtime_utils::is_account_id_64_len_hex;
 use near_vm_errors::InconsistentStateError;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;

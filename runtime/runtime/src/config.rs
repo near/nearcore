@@ -10,8 +10,8 @@ use near_runtime_fees::RuntimeFeesConfig;
 // Just re-exporting RuntimeConfig for backwards compatibility.
 pub use near_runtime_configs::RuntimeConfig;
 
-use near_primitives::utils::is_account_id_64_len_hex;
 use near_primitives::version::{ProtocolVersion, IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION};
+use near_runtime_utils::is_account_id_64_len_hex;
 use num_bigint::BigUint;
 use num_rational::Rational;
 use num_traits::cast::ToPrimitive;
@@ -97,6 +97,8 @@ pub fn total_send_fees(
                 if current_protocol_version >= IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION
                     && is_account_id_64_len_hex(&receiver_id)
                 {
+                    // Transfer action fee for implicit account creation always includes extra fees
+                    // for the CreateAccount and AddFullAccessKey actions that are implicit.
                     cfg.create_account_cost.send_fee(sender_is_receiver)
                         + cfg.add_key_cost.full_access_cost.send_fee(sender_is_receiver)
                         + cfg.transfer_cost.send_fee(sender_is_receiver)
