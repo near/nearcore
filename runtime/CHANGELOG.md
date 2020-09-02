@@ -1,5 +1,23 @@
 # Changelog
 
+## 2.1.1
+
+- Bumped `borsh` dependency from `0.7.0` to `0.7.1` [#3238](https://github.com/nearprotocol/nearcore/pull/3238)
+
+## 2.1.0
+
+- Implemented better compiler testing with `--compile-only` flag [#3074](https://github.com/nearprotocol/nearcore/pull/3074)
+- Added proper `wasmtime` support with `--vm-kind` flag.
+- Added `lightbeam` with feature and run with `--vm-kind wasmtime`
+
+## 2.0.0
+
+- Same as `1.2.0`, but since it contained incompatible change, we had to bump major version.
+
+## 1.2.0
+
+- Implement gas profiler [#3038](https://github.com/nearprotocol/nearcore/pull/3038)
+
 ## 1.1.0
 
 - Move `sha256`, `keccak256` and `keccak512` form External trait to logic, since they are pure functions. [#3030](https://github.com/nearprotocol/nearcore/issues/3030)

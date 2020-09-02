@@ -486,12 +486,20 @@ pub type MaybeBlockId = Option<BlockId>;
 
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum BlockIdOrFinality {
-    BlockId(BlockId),
-    Finality(Finality),
+pub enum SyncCheckpoint {
+    Genesis,
+    EarliestAvailable,
 }
 
-impl BlockIdOrFinality {
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BlockReference {
+    BlockId(BlockId),
+    Finality(Finality),
+    SyncCheckpoint(SyncCheckpoint),
+}
+
+impl BlockReference {
     pub fn latest() -> Self {
         Self::Finality(Finality::None)
     }

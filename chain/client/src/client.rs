@@ -773,6 +773,7 @@ impl Client {
         if Some(&next_block_producer) == self.validator_signer.as_ref().map(|x| x.validator_id()) {
             self.collect_block_approval(&approval, true);
         } else {
+            debug!(target: "client", "Sending an approval {:?} from {} to {} for {}", approval.inner, approval.account_id, next_block_producer.clone(), approval.target_height);
             let approval_message = ApprovalMessage::new(approval, next_block_producer);
             self.network_adapter.do_send(NetworkRequests::Approval { approval_message });
         }
@@ -1224,9 +1225,8 @@ impl Client {
         let gas_price = cur_block_header.gas_price();
         let epoch_id = self.runtime_adapter.get_epoch_id_from_prev_block(&head.last_block_hash)?;
 
-        // Fast transaction validation without a state root.
         if let Some(err) =
-            self.runtime_adapter.validate_tx(gas_price, None, &tx).expect("no storage errors")
+            self.runtime_adapter.validate_tx(gas_price, None, &tx, true).expect("no storage errors")
         {
             debug!(target: "client", "Invalid tx during basic validation: {:?}", err);
             return Ok(NetworkClientResponses::InvalidTx(err));
@@ -1252,7 +1252,7 @@ impl Client {
             };
             if let Some(err) = self
                 .runtime_adapter
-                .validate_tx(gas_price, Some(state_root), &tx)
+                .validate_tx(gas_price, Some(state_root), &tx, false)
                 .expect("no storage errors")
             {
                 debug!(target: "client", "Invalid tx: {:?}", err);

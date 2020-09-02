@@ -254,6 +254,7 @@ pub trait RuntimeAdapter: Send + Sync {
         gas_price: Balance,
         state_root: Option<StateRoot>,
         transaction: &SignedTransaction,
+        verify_signature: bool,
     ) -> Result<Option<InvalidTxError>, Error>;
 
     /// Returns an ordered list of valid transactions from the pool up the given limits.
@@ -566,14 +567,14 @@ pub trait RuntimeAdapter: Send + Sync {
                 .cloned()
                 .collect();
             receipts_hashes
-                .push(hash(&ReceiptList(shard_id, shard_receipts).try_to_vec().unwrap()));
+                .push(hash(&ReceiptList(shard_id, &shard_receipts).try_to_vec().unwrap()));
         }
         receipts_hashes
     }
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, Default)]
-pub struct ReceiptList(pub ShardId, pub Vec<Receipt>);
+#[derive(BorshSerialize, Serialize, Debug, Clone)]
+pub struct ReceiptList<'a>(pub ShardId, pub &'a Vec<Receipt>);
 
 /// The last known / checked height and time when we have processed it.
 /// Required to keep track of skipped blocks and not fallback to produce blocks at lower height.
@@ -581,17 +582,6 @@ pub struct ReceiptList(pub ShardId, pub Vec<Receipt>);
 pub struct LatestKnown {
     pub height: BlockHeight,
     pub seen: u64,
-}
-
-/// When running block sync response to know if the node needs to sync state,
-/// or the hashes from the blocks that are needed.
-pub enum BlockSyncResponse {
-    /// State is needed before we start fetching recent blocks.
-    StateNeeded,
-    /// We are up to date with state, list of block hashes that need to be fetched.
-    BlocksNeeded(Vec<CryptoHash>),
-    /// We are up to date, nothing is required.
-    None,
 }
 
 #[cfg(test)]
