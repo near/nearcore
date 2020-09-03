@@ -6,12 +6,12 @@ use near_vm_errors::FunctionCallError::{WasmTrap, WasmUnknownError};
 use near_vm_errors::{CompilationError, FunctionCallError, MethodResolveError, VMError};
 use near_vm_logic::types::{ProfileData, PromiseResult, ProtocolVersion};
 use near_vm_logic::{External, VMConfig, VMContext, VMLogic, VMLogicError, VMOutcome};
-use wasmer_runtime::Module;
+use wasmer::Module;
 
 fn check_method(module: &Module, method_name: &str) -> Result<(), VMError> {
     let info = module.info();
-    use wasmer_runtime_core::module::ExportIndex::Func;
-    if let Some(Func(index)) = info.exports.get(method_name) {
+    use wasmer_types::ExportIndex::Function;
+    if let Some(Function(index)) = info.exports.get(method_name) {
         let func = info.func_assoc.get(index.clone()).unwrap();
         let sig = info.signatures.get(func.clone()).unwrap();
         if sig.params().is_empty() && sig.returns().is_empty() {
@@ -28,42 +28,32 @@ fn check_method(module: &Module, method_name: &str) -> Result<(), VMError> {
     }
 }
 
-impl IntoVMError for wasmer_runtime::error::Error {
+impl IntoVMError for wasmer::LinkError {
     fn into_vm_error(self) -> VMError {
-        use wasmer_runtime::error::Error;
-        match self {
-            Error::CompileError(err) => err.into_vm_error(),
-            Error::LinkError(err) => VMError::FunctionCallError(FunctionCallError::LinkError {
-                msg: format!("{:.500}", Error::LinkError(err).to_string()),
-            }),
-            Error::RuntimeError(err) => err.into_vm_error(),
-            Error::ResolveError(err) => err.into_vm_error(),
-            Error::CallError(err) => err.into_vm_error(),
-            Error::CreationError(err) => panic!(err),
-        }
+        VMError::FunctionCallError(FunctionCallError::LinkError {
+            msg: format!("{:.500}", Error::LinkError(err).to_string()),
+        })
     }
 }
 
-impl IntoVMError for wasmer_runtime::error::CallError {
+impl IntoVMError for wasmer::InstaniationError {
     fn into_vm_error(self) -> VMError {
-        use wasmer_runtime::error::CallError;
-        match self {
-            CallError::Resolve(err) => err.into_vm_error(),
-            CallError::Runtime(err) => err.into_vm_error(),
-        }
+        panic!(self)
     }
 }
 
-impl IntoVMError for wasmer_runtime::error::CompileError {
+impl IntoVMError for wasmer_compiler::CompileError {
     fn into_vm_error(self) -> VMError {
         match self {
-            wasmer_runtime::error::CompileError::InternalError { .. } => {
-                // An internal Wasmer error the most probably is a result of a node malfunction
-                panic!("Internal Wasmer error on Wasm compilation: {}", self);
+            wasmer_compiler::CompileError::Validate { .. } => {
+                VMError::FunctionCallError(FunctionCallError::CompilationError(
+                    CompilationError::WasmerCompileError { msg: self.to_string() },
+                ))
             }
-            _ => VMError::FunctionCallError(FunctionCallError::CompilationError(
-                CompilationError::WasmerCompileError { msg: self.to_string() },
-            )),
+            _ => {
+                // Other than validate error the most probably is a result of a node malfunction
+                panic!("Internal Wasmer error on Wasm compilation: {}", self);
+            },
         }
     }
 }
