@@ -2822,7 +2822,7 @@ dependencies = [
 
 [[package]]
 name = "neard"
-version = "1.2.0"
+version = "1.14.0-beta.2"
 dependencies = [
  "actix",
  "actix-web",
