@@ -39,7 +39,7 @@ use crate::config::{
 };
 use crate::verifier::validate_receipt;
 pub use crate::verifier::{validate_transaction, verify_and_charge_transaction};
-use near_primitives::version::ProtocolVersion;
+use near_primitives::version::{ProtocolVersion, IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION};
 use std::rc::Rc;
 
 mod actions;
@@ -238,6 +238,7 @@ impl Runtime {
             apply_state.gas_price,
             signed_transaction,
             true,
+            apply_state.current_protocol_version,
         ) {
             Ok(verification_result) => {
                 near_metrics::inc_counter(&metrics::TRANSACTION_PROCESSED_SUCCESSFULLY_TOTAL);
@@ -292,16 +293,31 @@ impl Runtime {
         action_receipt: &ActionReceipt,
         promise_results: &[PromiseResult],
         action_hash: &CryptoHash,
-        is_last_action: bool,
+        action_index: usize,
+        actions: &[Action],
         epoch_info_provider: &dyn EpochInfoProvider,
     ) -> Result<ActionResult, RuntimeError> {
         let mut result = ActionResult::default();
-        let exec_fees = exec_fee(&self.config.transaction_costs, action);
+        let exec_fees = exec_fee(
+            &self.config.transaction_costs,
+            action,
+            &receipt.receiver_id,
+            apply_state.current_protocol_version,
+        );
         result.gas_burnt += exec_fees;
         result.gas_used += exec_fees;
         let account_id = &receipt.receiver_id;
+        let is_the_only_action = actions.len() == 1;
+        let is_refund = receipt.predecessor_id == system_account();
         // Account validation
-        if let Err(e) = check_account_existence(action, account, account_id) {
+        if let Err(e) = check_account_existence(
+            action,
+            account,
+            account_id,
+            apply_state.current_protocol_version,
+            is_the_only_action,
+            is_refund,
+        ) {
             result.result = Err(e);
             return Ok(result);
         }
@@ -346,23 +362,38 @@ impl Runtime {
                     function_call,
                     action_hash,
                     &self.config,
-                    is_last_action,
+                    action_index + 1 == actions.len(),
                     epoch_info_provider,
                 )?;
             }
             Action::Transfer(transfer) => {
                 near_metrics::inc_counter(&metrics::ACTION_TRANSFER_TOTAL);
-                action_transfer(account.as_mut().expect(EXPECT_ACCOUNT_EXISTS), transfer)?;
-                // Check if this is a gas refund, then try to refund the access key allowance.
-                if receipt.predecessor_id == system_account()
-                    && action_receipt.signer_id == receipt.receiver_id
-                {
-                    try_refund_allowance(
+                if let Some(account) = account.as_mut() {
+                    action_transfer(account, transfer)?;
+                    // Check if this is a gas refund, then try to refund the access key allowance.
+                    if is_refund && action_receipt.signer_id == receipt.receiver_id {
+                        try_refund_allowance(
+                            state_update,
+                            &receipt.receiver_id,
+                            &action_receipt.signer_public_key,
+                            transfer,
+                        )?;
+                    }
+                } else {
+                    // Implicit account creation
+                    debug_assert!(
+                        apply_state.current_protocol_version
+                            >= IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION
+                    );
+                    debug_assert!(!is_refund);
+                    action_implicit_account_creation_transfer(
                         state_update,
+                        &self.config.transaction_costs,
+                        account,
+                        actor_id,
                         &receipt.receiver_id,
-                        &action_receipt.signer_public_key,
                         transfer,
-                    )?;
+                    );
                 }
             }
             Action::Stake(stake) => {
@@ -466,7 +497,6 @@ impl Runtime {
         result.gas_burnt = exec_fee;
         // Executing actions one by one
         for (action_index, action) in action_receipt.actions.iter().enumerate() {
-            let is_last_action = action_index + 1 == action_receipt.actions.len();
             let mut new_result = self.apply_action(
                 action,
                 state_update,
@@ -480,7 +510,8 @@ impl Runtime {
                     &receipt.receipt_id,
                     u64::max_value() - action_index as u64,
                 ),
-                is_last_action,
+                action_index,
+                &action_receipt.actions,
                 epoch_info_provider,
             )?;
             if new_result.result.is_ok() {
@@ -539,6 +570,7 @@ impl Runtime {
                 receipt,
                 action_receipt,
                 &mut result,
+                apply_state.current_protocol_version,
             )?
         };
         stats.gas_deficit_amount = safe_add_balance(stats.gas_deficit_amount, gas_deficit_amount)?;
@@ -682,11 +714,17 @@ impl Runtime {
         receipt: &Receipt,
         action_receipt: &ActionReceipt,
         result: &mut ActionResult,
+        current_protocol_version: ProtocolVersion,
     ) -> Result<Balance, RuntimeError> {
         let total_deposit = total_deposit(&action_receipt.actions)?;
         let prepaid_gas = total_prepaid_gas(&action_receipt.actions)?;
         let exec_gas = safe_add_gas(
-            total_exec_fees(&self.config.transaction_costs, &action_receipt.actions)?,
+            total_exec_fees(
+                &self.config.transaction_costs,
+                &action_receipt.actions,
+                &receipt.receiver_id,
+                current_protocol_version,
+            )?,
             self.config.transaction_costs.action_receipt_creation_config.exec_fee(),
         )?;
         let deposit_refund = if result.result.is_err() { total_deposit } else { 0 };
@@ -1163,6 +1201,7 @@ impl Runtime {
             transactions,
             &outgoing_receipts,
             &stats,
+            apply_state.current_protocol_version,
         )?;
 
         state_update.commit(StateChangeCause::UpdatedDelayedReceipts);
@@ -1379,6 +1418,7 @@ mod tests {
     use near_primitives::test_utils::{account_new, MockEpochInfoProvider};
     use near_primitives::transaction::{FunctionCallAction, TransferAction};
     use near_primitives::types::MerkleHash;
+    use near_primitives::version::PROTOCOL_VERSION;
     use near_store::test_utils::create_tries;
     use std::sync::Arc;
     use testlib::runtime_utils::{alice_account, bob_account};
@@ -1459,7 +1499,7 @@ mod tests {
             block_timestamp: 100,
             gas_limit: Some(gas_limit),
             random_seed: Default::default(),
-            current_protocol_version: 0,
+            current_protocol_version: PROTOCOL_VERSION,
         };
 
         (runtime, tries, root, apply_state, signer, MockEpochInfoProvider::default())
@@ -1984,7 +2024,13 @@ mod tests {
 
         let expected_gas_burnt = safe_add_gas(
             runtime.config.transaction_costs.action_receipt_creation_config.exec_fee(),
-            total_exec_fees(&runtime.config.transaction_costs, &actions).unwrap(),
+            total_exec_fees(
+                &runtime.config.transaction_costs,
+                &actions,
+                &alice_account(),
+                PROTOCOL_VERSION,
+            )
+            .unwrap(),
         )
         .unwrap();
         let receipts = vec![Receipt {
@@ -2047,7 +2093,13 @@ mod tests {
 
         let expected_gas_burnt = safe_add_gas(
             runtime.config.transaction_costs.action_receipt_creation_config.exec_fee(),
-            total_exec_fees(&runtime.config.transaction_costs, &actions).unwrap(),
+            total_exec_fees(
+                &runtime.config.transaction_costs,
+                &actions,
+                &alice_account(),
+                PROTOCOL_VERSION,
+            )
+            .unwrap(),
         )
         .unwrap();
         let receipts = vec![Receipt {

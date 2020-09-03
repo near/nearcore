@@ -1,5 +1,6 @@
 use crate::runtime_group_tools::RuntimeGroup;
 use borsh::ser::BorshSerialize;
+use near_crypto::{InMemorySigner, KeyType};
 use near_primitives::account::{AccessKeyPermission, FunctionCallPermission};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{ActionReceipt, ReceiptEnum};
@@ -953,4 +954,137 @@ fn test_create_account_add_key_call_delete_key_delete_account() {
     assert_refund!(group, ref1 @ "near_2");
     assert_refund!(group, ref2 @ "near_0");
     assert_refund!(group, ref3 @ "near_0");
+}
+
+#[test]
+fn test_transfer_64len_hex() {
+    let wasm_binary: &[u8] = include_bytes!("../../near-vm-runner/tests/res/test_contract_rs.wasm");
+    let pk = InMemorySigner::from_seed("test_hex", KeyType::ED25519, "test_hex");
+    let account_id = hex::encode(pk.public_key.unwrap_as_ed25519().0);
+
+    let group = RuntimeGroup::new_with_account_ids(
+        vec!["near_0".to_string(), "near_1".to_string(), account_id.clone()],
+        2,
+        wasm_binary,
+    );
+    let signer_sender = group.runtimes[0].lock().unwrap().signer.clone();
+    let signer_receiver = group.runtimes[1].lock().unwrap().signer.clone();
+
+    let data = serde_json::json!([
+        {"batch_create": {
+            "account_id": account_id,
+        }, "id": 0 },
+        {"action_transfer": {
+            "promise_index": 0,
+            "amount": format!("{}", TESTING_INIT_BALANCE / 2),
+        }, "id": 0 },
+    ]);
+
+    let signed_transaction = SignedTransaction::from_actions(
+        1,
+        signer_sender.account_id.clone(),
+        signer_receiver.account_id.clone(),
+        &signer_sender,
+        vec![Action::FunctionCall(FunctionCallAction {
+            method_name: "call_promise".to_string(),
+            args: serde_json::to_vec(&data).unwrap(),
+            gas: GAS_1,
+            deposit: 0,
+        })],
+        CryptoHash::default(),
+    );
+
+    let handles = RuntimeGroup::start_runtimes(group.clone(), vec![signed_transaction.clone()]);
+    for h in handles {
+        h.join().unwrap();
+    }
+
+    use near_primitives::transaction::*;
+    assert_receipts!(group, signed_transaction => [r0]);
+    assert_receipts!(group, "near_0" => r0 @ "near_1",
+                     ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
+                     actions,
+                     a0, Action::FunctionCall(FunctionCallAction{gas, deposit, ..}), {
+                        assert_eq!(*gas, GAS_1);
+                        assert_eq!(*deposit, 0);
+                     }
+                     => [r1, ref0] );
+    assert_receipts!(group, "near_1" => r1 @ &account_id,
+                     ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
+                     actions,
+                     a0, Action::Transfer(TransferAction{deposit}), {
+                        assert_eq!(*deposit, TESTING_INIT_BALANCE / 2);
+                     }
+                     => [ref1] );
+    assert_refund!(group, ref0 @ "near_0");
+    assert_refund!(group, ref1 @ "near_0");
+}
+
+#[test]
+fn test_create_transfer_64len_hex_fail() {
+    let wasm_binary: &[u8] = include_bytes!("../../near-vm-runner/tests/res/test_contract_rs.wasm");
+    let pk = InMemorySigner::from_seed("test_hex", KeyType::ED25519, "test_hex");
+    let account_id = hex::encode(pk.public_key.unwrap_as_ed25519().0);
+
+    let group = RuntimeGroup::new_with_account_ids(
+        vec!["near_0".to_string(), "near_1".to_string(), account_id.clone()],
+        2,
+        wasm_binary,
+    );
+    let signer_sender = group.runtimes[0].lock().unwrap().signer.clone();
+    let signer_receiver = group.runtimes[1].lock().unwrap().signer.clone();
+
+    let data = serde_json::json!([
+        {"batch_create": {
+            "account_id": account_id,
+        }, "id": 0 },
+        {"action_create_account": {
+            "promise_index": 0,
+        }, "id": 0 },
+        {"action_transfer": {
+            "promise_index": 0,
+            "amount": format!("{}", TESTING_INIT_BALANCE / 2),
+        }, "id": 0 },
+    ]);
+
+    let signed_transaction = SignedTransaction::from_actions(
+        1,
+        signer_sender.account_id.clone(),
+        signer_receiver.account_id.clone(),
+        &signer_sender,
+        vec![Action::FunctionCall(FunctionCallAction {
+            method_name: "call_promise".to_string(),
+            args: serde_json::to_vec(&data).unwrap(),
+            gas: GAS_1,
+            deposit: 0,
+        })],
+        CryptoHash::default(),
+    );
+
+    let handles = RuntimeGroup::start_runtimes(group.clone(), vec![signed_transaction.clone()]);
+    for h in handles {
+        h.join().unwrap();
+    }
+
+    use near_primitives::transaction::*;
+    assert_receipts!(group, signed_transaction => [r0]);
+    assert_receipts!(group, "near_0" => r0 @ "near_1",
+                     ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
+                     actions,
+                     a0, Action::FunctionCall(FunctionCallAction{gas, deposit, ..}), {
+                        assert_eq!(*gas, GAS_1);
+                        assert_eq!(*deposit, 0);
+                     }
+                     => [r1, ref0] );
+    assert_receipts!(group, "near_1" => r1 @ &account_id,
+                     ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
+                     actions,
+                     a0, Action::CreateAccount(CreateAccountAction{}), {},
+                     a1, Action::Transfer(TransferAction{deposit}), {
+                        assert_eq!(*deposit, TESTING_INIT_BALANCE / 2);
+                     }
+                     => [ref1, ref2] );
+    assert_refund!(group, ref0 @ "near_0");
+    assert_refund!(group, ref1 @ "near_1");
+    assert_refund!(group, ref2 @ "near_0");
 }

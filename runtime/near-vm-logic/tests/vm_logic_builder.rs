@@ -4,7 +4,9 @@ use near_vm_logic::mocks::mock_memory::MockedMemory;
 use near_vm_logic::VMContext;
 use near_vm_logic::{VMConfig, VMLogic};
 
-use near_vm_logic::types::PromiseResult;
+use near_vm_logic::types::{PromiseResult, ProtocolVersion};
+
+pub(crate) const LATEST_PROTOCOL_VERSION: ProtocolVersion = ProtocolVersion::MAX;
 
 pub struct VMLogicBuilder {
     pub ext: MockedExternal,
@@ -12,6 +14,7 @@ pub struct VMLogicBuilder {
     pub fees_config: RuntimeFeesConfig,
     pub promise_results: Vec<PromiseResult>,
     pub memory: MockedMemory,
+    pub current_protocol_version: ProtocolVersion,
 }
 
 impl Default for VMLogicBuilder {
@@ -22,13 +25,14 @@ impl Default for VMLogicBuilder {
             ext: MockedExternal::default(),
             memory: MockedMemory::default(),
             promise_results: vec![],
+            current_protocol_version: LATEST_PROTOCOL_VERSION,
         }
     }
 }
 
 impl VMLogicBuilder {
     pub fn build(&mut self, context: VMContext) -> VMLogic<'_> {
-        VMLogic::new(
+        VMLogic::new_with_protocol_version(
             &mut self.ext,
             context,
             &self.config,
@@ -36,6 +40,7 @@ impl VMLogicBuilder {
             &self.promise_results,
             &mut self.memory,
             None,
+            self.current_protocol_version,
         )
     }
     #[allow(dead_code)]
@@ -46,6 +51,7 @@ impl VMLogicBuilder {
             ext: MockedExternal::default(),
             memory: MockedMemory::default(),
             promise_results: vec![],
+            current_protocol_version: LATEST_PROTOCOL_VERSION,
         }
     }
 }

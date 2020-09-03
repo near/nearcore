@@ -5,7 +5,7 @@ use near_primitives::receipt::Receipt;
 use near_primitives::state_record::StateRecord;
 use near_primitives::test_utils::MockEpochInfoProvider;
 use near_primitives::transaction::{ExecutionOutcomeWithId, SignedTransaction};
-use near_primitives::types::Balance;
+use near_primitives::types::{AccountId, Balance};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::test_utils::create_tries;
 use near_store::ShardTries;
@@ -131,11 +131,15 @@ pub struct RuntimeGroup {
 }
 
 impl RuntimeGroup {
-    pub fn new(num_runtimes: u64, num_existing_accounts: u64, contract_code: &[u8]) -> Arc<Self> {
+    pub fn new_with_account_ids(
+        account_ids: Vec<AccountId>,
+        num_existing_accounts: u64,
+        contract_code: &[u8],
+    ) -> Arc<Self> {
         let mut res = Self::default();
-        assert!(num_existing_accounts <= num_runtimes);
+        assert!(num_existing_accounts <= account_ids.len() as u64);
         let (state_records, signers) =
-            Self::state_records_signers(num_runtimes, num_existing_accounts, contract_code);
+            Self::state_records_signers(account_ids, num_existing_accounts, contract_code);
 
         for signer in signers {
             res.mailboxes.0.lock().unwrap().insert(signer.account_id.clone(), Default::default());
@@ -149,19 +153,23 @@ impl RuntimeGroup {
         Arc::new(res)
     }
 
+    pub fn new(num_runtimes: u64, num_existing_accounts: u64, contract_code: &[u8]) -> Arc<Self> {
+        let account_ids = (0..num_runtimes).map(|i| format!("near_{}", i)).collect();
+        Self::new_with_account_ids(account_ids, num_existing_accounts, contract_code)
+    }
+
     /// Get state records and signers for standalone runtimes.
     fn state_records_signers(
-        num_runtimes: u64,
+        account_ids: Vec<AccountId>,
         num_existing_accounts: u64,
         contract_code: &[u8],
     ) -> (Vec<StateRecord>, Vec<InMemorySigner>) {
         let code_hash = hash(contract_code);
         let mut state_records = vec![];
         let mut signers = vec![];
-        for i in 0..num_runtimes {
-            let account_id = format!("near_{}", i);
+        for (i, account_id) in account_ids.into_iter().enumerate() {
             let signer = InMemorySigner::from_seed(&account_id, KeyType::ED25519, &account_id);
-            if i < num_existing_accounts {
+            if (i as u64) < num_existing_accounts {
                 state_records.push(StateRecord::Account {
                     account_id: account_id.to_string(),
                     account: Account {

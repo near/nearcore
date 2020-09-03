@@ -113,6 +113,18 @@ mod test {
     }
 
     #[test]
+    fn test_transfer_tokens_implicit_account_runtime() {
+        let node = create_runtime_node();
+        transfer_tokens_implicit_account(node);
+    }
+
+    #[test]
+    fn test_trying_to_create_implicit_account_runtime() {
+        let node = create_runtime_node();
+        trying_to_create_implicit_account(node);
+    }
+
+    #[test]
     fn test_smart_contract_reward_runtime() {
         let node = create_runtime_node();
         test_smart_contract_reward(node);

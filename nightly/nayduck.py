@@ -5,6 +5,7 @@ import subprocess
 import requests
 
 import json
+import os
 
 from colorama import Fore
 
@@ -45,8 +46,23 @@ def get_tests(fl):
                     tests.append(x)
     return tests
 
+def github_auth():
+    print("Go to the following link in your browser:")
+    print()
+    print("http://nayduck.eastus.cloudapp.azure.com:3000/local_auth")
+    print()
+    code = input("Enter verification code: ")
+    with open(os.path.expanduser('~/.nayduck'), 'w') as f:
+        f.write(code)
+    return code
+
 
 if __name__ == "__main__":
+    if os.path.isfile(os.path.expanduser('~/.nayduck')):
+        with open(os.path.expanduser('~/.nayduck'), 'r') as f:
+            token = f.read()
+    else:
+        token = github_auth()
     if not args.branch:
         branch = get_current_branch().strip()
     else:
@@ -57,7 +73,7 @@ if __name__ == "__main__":
         sha = args.sha
     tests = get_tests(args.test_file)
     user = get_current_user().strip()
-    post = {'branch': branch, 'sha': sha, 'tests': tests, 'requester': user, 'run_type': args.run_type}
+    post = {'branch': branch, 'sha': sha, 'tests': tests, 'requester': user, 'run_type': args.run_type, 'token': token.strip()}
     print('Sending request ...')
     res = requests.post('http://nayduck.eastus.cloudapp.azure.com:5000/request_a_run', json=post)
     json_res = json.loads(res.text)

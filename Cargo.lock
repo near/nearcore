@@ -2742,7 +2742,7 @@ dependencies = [
 
 [[package]]
 name = "near-runtime-fees"
-version = "2.1.1"
+version = "2.2.0"
 dependencies = [
  "num-rational 0.2.4",
  "serde",
@@ -2750,7 +2750,7 @@ dependencies = [
 
 [[package]]
 name = "near-runtime-standalone"
-version = "2.1.1"
+version = "2.2.0"
 dependencies = [
  "near-crypto",
  "near-pool",
@@ -2759,6 +2759,10 @@ dependencies = [
  "near-store",
  "node-runtime",
 ]
+
+[[package]]
+name = "near-runtime-utils"
+version = "2.2.0"
 
 [[package]]
 name = "near-store"
@@ -2798,7 +2802,7 @@ dependencies = [
 
 [[package]]
 name = "near-vm-errors"
-version = "2.1.1"
+version = "2.2.0"
 dependencies = [
  "borsh",
  "near-rpc-error-macro",
@@ -2807,12 +2811,13 @@ dependencies = [
 
 [[package]]
 name = "near-vm-logic"
-version = "2.1.1"
+version = "2.2.0"
 dependencies = [
  "base64 0.11.0",
  "bs58",
  "byteorder",
  "near-runtime-fees",
+ "near-runtime-utils",
  "near-vm-errors",
  "serde",
  "serde_json",
@@ -2822,7 +2827,7 @@ dependencies = [
 
 [[package]]
 name = "near-vm-runner"
-version = "2.1.1"
+version = "2.2.0"
 dependencies = [
  "anyhow",
  "assert_matches",
@@ -2841,7 +2846,7 @@ dependencies = [
 
 [[package]]
 name = "near-vm-runner-standalone"
-version = "2.1.1"
+version = "2.2.0"
 dependencies = [
  "base64 0.11.0",
  "clap 2.33.0",
@@ -2951,13 +2956,14 @@ dependencies = [
 
 [[package]]
 name = "node-runtime"
-version = "2.1.1"
+version = "2.2.0"
 dependencies = [
  "assert_matches",
  "base64 0.11.0",
  "borsh",
  "byteorder",
  "cached",
+ "hex",
  "indicatif 0.13.0",
  "lazy_static",
  "log",
@@ -2966,6 +2972,7 @@ dependencies = [
  "near-primitives",
  "near-runtime-configs",
  "near-runtime-fees",
+ "near-runtime-utils",
  "near-store",
  "near-vm-errors",
  "near-vm-logic",
@@ -3850,7 +3857,7 @@ dependencies = [
 
 [[package]]
 name = "runtime-params-estimator"
-version = "2.1.1"
+version = "2.2.0"
 dependencies = [
  "borsh",
  "clap 2.33.0",
@@ -4412,6 +4419,7 @@ dependencies = [
  "byteorder",
  "clap 2.33.0",
  "futures",
+ "hex",
  "lazy_static",
  "log",
  "near-chain",
