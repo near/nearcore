@@ -44,7 +44,7 @@ from serializer import BinarySerializer
 MSG_TIMEOUT = 10
 _MY_PORT = [None]
 
-logging.basicConfig(format='%(asctime)s %(message)s', level=logging.INFO)
+logging.basicConfig(format='%(asctime)s %(message)s', level=logging.DEBUG)
 
 
 def proxy_cleanup(proxy):
