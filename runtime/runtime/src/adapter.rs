@@ -4,6 +4,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::types::{
     AccountId, BlockHeight, EpochHeight, EpochId, EpochInfoProvider, MerkleHash, ShardId,
 };
+use near_primitives::version::ProtocolVersion;
 use near_primitives::views::ViewStateResult;
 
 /// Adapter for querying runtime.
@@ -29,6 +30,7 @@ pub trait ViewRuntimeAdapter {
         args: &[u8],
         logs: &mut Vec<String>,
         epoch_info_provider: &dyn EpochInfoProvider,
+        current_protocol_version: ProtocolVersion,
     ) -> Result<Vec<u8>, Box<dyn std::error::Error>>;
 
     fn view_access_key(

@@ -304,6 +304,7 @@ impl RuntimeStandalone {
             args,
             &mut logs,
             self.epoch_info_provider.as_ref(),
+            PROTOCOL_VERSION,
         )?;
         Ok((result, logs))
     }

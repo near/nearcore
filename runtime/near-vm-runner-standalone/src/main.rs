@@ -9,7 +9,7 @@
 use clap::{App, Arg};
 use near_runtime_fees::RuntimeFeesConfig;
 use near_vm_logic::mocks::mock_external::{MockedExternal, Receipt};
-use near_vm_logic::types::PromiseResult;
+use near_vm_logic::types::{PromiseResult, ProtocolVersion};
 use near_vm_logic::{ActionCosts, ExtCosts, VMConfig, VMContext, VMKind, VMOutcome};
 use near_vm_runner::{run_vm, run_vm_profiled, VMError};
 use num_rational::Ratio;
@@ -175,6 +175,12 @@ fn main() {
                 .long("profile-gas")
                 .help("Profiles gas consumption.")
         )
+        .arg(
+            Arg::with_name("protocol-version")
+                .long("protocol-version")
+                .help("Protocol version")
+                .takes_value(true),
+        )
         .get_matches();
 
     let vm_kind: VMKind = match matches.value_of("vm-kind") {
@@ -231,6 +237,11 @@ fn main() {
         },
     };
 
+    let protocol_version = matches
+        .value_of("protocol-version")
+        .map(|s| s.parse().unwrap())
+        .unwrap_or(ProtocolVersion::MAX);
+
     let code =
         fs::read(matches.value_of("wasm-file").expect("Wasm file needs to be specified")).unwrap();
 
@@ -249,6 +260,7 @@ fn main() {
             &promise_results,
             vm_kind,
             Rc::clone(&profile_data),
+            protocol_version,
         )
     } else {
         run_vm(
@@ -261,6 +273,7 @@ fn main() {
             &fees,
             &promise_results,
             vm_kind,
+            protocol_version,
         )
     };
     let all_gas = match outcome.clone() {

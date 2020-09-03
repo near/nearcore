@@ -18,7 +18,7 @@ pub const DB_VERSION: DbVersion = 8;
 pub type ProtocolVersion = u32;
 
 /// Current latest version of the protocol.
-pub const PROTOCOL_VERSION: ProtocolVersion = 34;
+pub const PROTOCOL_VERSION: ProtocolVersion = 35;
 /// Oldest supported version by this client.
 pub const OLDEST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION: ProtocolVersion = 29;
 
@@ -31,3 +31,6 @@ pub const MIN_GAS_PRICE_NEP_92_FIX: Balance = 100_000_000;
 pub const MIN_PROTOCOL_VERSION_NEP_92_FIX: ProtocolVersion = 32;
 
 pub const CORRECT_RANDOM_VALUE_PROTOCOL_VERSION: ProtocolVersion = 33;
+
+/// See [NEP 71](https://github.com/nearprotocol/NEPs/pull/71)
+pub const IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION: ProtocolVersion = 35;
