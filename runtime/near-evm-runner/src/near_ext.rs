@@ -65,14 +65,18 @@ impl<'a> vm::Ext for NearExt<'a> {
             .sub_state
             .parent // Read from the unmodified parent state
             .read_contract_storage(&self.context_addr, key.0)
+            .unwrap_or(None)
             .unwrap_or([0u8; 32]); // default to an empty value
         Ok(H256(raw_val))
     }
 
     /// Returns a value for given key.
     fn storage_at(&self, key: &H256) -> EvmResult<H256> {
-        let raw_val =
-            self.sub_state.read_contract_storage(&self.context_addr, key.0).unwrap_or([0u8; 32]); // default to an empty value
+        let raw_val = self
+            .sub_state
+            .read_contract_storage(&self.context_addr, key.0)
+            .unwrap_or(None)
+            .unwrap_or([0u8; 32]); // default to an empty value
         Ok(H256(raw_val))
     }
 
@@ -81,19 +85,20 @@ impl<'a> vm::Ext for NearExt<'a> {
         if self.is_static() {
             return Err(VmError::MutableCallInStaticContext);
         }
-        self.sub_state.set_contract_storage(&self.context_addr, key.0, value.0);
-        Ok(())
+        self.sub_state
+            .set_contract_storage(&self.context_addr, key.0, value.0)
+            .map_err(|err| vm::Error::Internal(err.to_string()))
     }
 
     // TODO: research why these are different
     fn exists(&self, address: &Address) -> EvmResult<bool> {
-        Ok(self.sub_state.balance_of(address) > U256::from(0)
-            || self.sub_state.code_at(address).is_some())
+        Ok(self.sub_state.balance_of(address).unwrap_or_else(|_| U256::from(0)) > U256::from(0)
+            || self.sub_state.code_at(address).unwrap_or(None).is_some())
     }
 
     fn exists_and_not_null(&self, address: &Address) -> EvmResult<bool> {
-        Ok(self.sub_state.balance_of(address) > 0.into()
-            || self.sub_state.code_at(address).is_some())
+        Ok(self.sub_state.balance_of(address).unwrap_or_else(|_| U256::from(0)) > 0.into()
+            || self.sub_state.code_at(address).unwrap_or(None).is_some())
     }
 
     fn origin_balance(&self) -> EvmResult<U256> {
@@ -103,7 +108,7 @@ impl<'a> vm::Ext for NearExt<'a> {
     }
 
     fn balance(&self, address: &Address) -> EvmResult<U256> {
-        let account = self.sub_state.get_account(address).unwrap_or_default();
+        let account = self.sub_state.get_account(address).unwrap_or(None).unwrap_or_default();
         Ok(account.balance.into())
     }
 
@@ -163,6 +168,7 @@ impl<'a> vm::Ext for NearExt<'a> {
 
         // hijack builtins
         if crate::builtins::is_precompile(receive_address) {
+            println!("{:?}", receive_address);
             return Ok(crate::builtins::process_precompile(receive_address, data));
         }
 
@@ -207,7 +213,7 @@ impl<'a> vm::Ext for NearExt<'a> {
         let msg_call_result = match result {
             Ok(data) => MessageCallResult::Success(1_000_000_000.into(), data),
             Err(err) => {
-                let message = err.to_string().as_bytes().to_vec();
+                let message = format!("{:?}", err).as_bytes().to_vec();
                 let message_len = message.len();
                 MessageCallResult::Reverted(
                     1_000_000_000.into(),
@@ -220,13 +226,13 @@ impl<'a> vm::Ext for NearExt<'a> {
 
     /// Returns code at given address
     fn extcode(&self, address: &Address) -> EvmResult<Option<Arc<Bytes>>> {
-        let code = self.sub_state.code_at(address).map(Arc::new);
+        let code = self.sub_state.code_at(address).unwrap_or(None).map(Arc::new);
         Ok(code)
     }
 
     /// Returns code hash at given address
     fn extcodehash(&self, address: &Address) -> EvmResult<Option<H256>> {
-        let code_opt = self.sub_state.code_at(address);
+        let code_opt = self.sub_state.code_at(address).unwrap_or(None);
         let code = match code_opt {
             Some(code) => code,
             None => return Ok(None),
@@ -240,7 +246,7 @@ impl<'a> vm::Ext for NearExt<'a> {
 
     /// Returns code size at given address
     fn extcodesize(&self, address: &Address) -> EvmResult<Option<usize>> {
-        Ok(self.sub_state.code_at(address).map(|c| c.len()))
+        Ok(self.sub_state.code_at(address).unwrap_or(None).map(|c| c.len()))
     }
 
     /// Creates log entry with given topics and data
@@ -271,11 +277,18 @@ impl<'a> vm::Ext for NearExt<'a> {
     /// Address to which funds should be refunded.
     /// Deletes code, moves balance
     fn suicide(&mut self, refund_address: &Address) -> EvmResult<()> {
-        self.sub_state.state.self_destructs.insert(self.context_addr.0);
+        self.sub_state
+            .self_destruct(&self.context_addr)
+            .map_err(|err| vm::Error::Internal(err.to_string()))?;
 
-        let account = self.sub_state.get_account(&self.context_addr).unwrap_or_default();
-        self.sub_state.add_balance(refund_address, account.balance.into());
-        self.sub_state.sub_balance(&self.context_addr, account.balance.into());
+        let account =
+            self.sub_state.get_account(&self.context_addr).unwrap_or(None).unwrap_or_default();
+        self.sub_state
+            .add_balance(refund_address, account.balance.into())
+            .map_err(|err| vm::Error::Internal(err.to_string()))?;
+        self.sub_state
+            .sub_balance(&self.context_addr, account.balance.into())
+            .map_err(|err| vm::Error::Internal(err.to_string()))?;
         Ok(())
     }
 

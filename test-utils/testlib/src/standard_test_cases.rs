@@ -1,7 +1,9 @@
 use std::sync::Arc;
 
-use assert_matches::assert_matches;
 use ethabi_contract::use_contract;
+
+use assert_matches::assert_matches;
+use ethereum_types::U256;
 use near_crypto::{InMemorySigner, KeyType};
 use near_jsonrpc::ServerError;
 use near_primitives::account::{AccessKey, AccessKeyPermission, FunctionCallPermission};
@@ -20,7 +22,6 @@ use crate::fees_utils::FeeHelper;
 use crate::node::Node;
 use crate::runtime_utils::{alice_account, bob_account, eve_dot_alice_account};
 use crate::user::User;
-use near_evm_runner::U256;
 
 /// The amount to send with function call.
 const FUNCTION_CALL_AMOUNT: Balance = TESTING_INIT_BALANCE / 10;

@@ -1,9 +1,12 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 
-use near_primitives::types::Balance;
+use near_vm_errors::VMLogicError;
+use near_vm_logic::types::{AccountId, Balance};
 
 pub type RawAddress = [u8; 20];
 pub type RawHash = [u8; 32];
+
+pub type Result<T> = std::result::Result<T, VMLogicError>;
 
 #[derive(BorshSerialize, BorshDeserialize)]
 pub struct GetCodeArgs {
@@ -18,7 +21,7 @@ pub struct GetStorageAtArgs {
 
 #[derive(BorshSerialize, BorshDeserialize)]
 pub struct WithdrawArgs {
-    pub account_id: String,
+    pub account_id: AccountId,
     pub amount: Balance,
 }
 

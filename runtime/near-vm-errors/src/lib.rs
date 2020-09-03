@@ -1,5 +1,7 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_rpc_error_macro::RpcError;
+use serde::export::fmt::Error;
+use serde::export::Formatter;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
@@ -29,6 +31,7 @@ pub enum FunctionCallError {
     WasmTrap(WasmTrap),
     WasmUnknownError,
     HostError(HostError),
+    EvmError(EvmError),
 }
 /// A kind of a trap happened during execution of a binary
 #[derive(
@@ -168,6 +171,29 @@ pub enum HostError {
     Deprecated { method_name: String },
 }
 
+/// Errors specifically from EVM pre-compile.
+#[derive(Debug, Clone, Eq, PartialEq, BorshDeserialize, BorshSerialize, Deserialize, Serialize)]
+pub enum EvmError {
+    /// Unknown error, catch all for unexpected things.
+    UnknownError,
+    /// Fatal failure due conflicting addresses on contract deployment.  
+    DuplicateContract([u8; 20]),
+    /// Contract deployment failure.
+    DeployFail(Vec<u8>),
+    /// Contract execution failed, revert the state.
+    Revert(Vec<u8>),
+    /// Failed to parse arguments.
+    ArgumentParseError,
+    /// No deposit when expected.
+    MissingDeposit,
+    /// Insufficient funds to finish the operation.
+    InsufficientFunds,
+    /// U256 overflow.
+    IntegerOverflow,
+    /// Method not found.
+    MethodNotFound,
+}
+
 #[derive(Debug, Clone, PartialEq, BorshDeserialize, BorshSerialize, Deserialize, Serialize)]
 pub enum VMLogicError {
     HostError(HostError),
@@ -175,6 +201,8 @@ pub enum VMLogicError {
     ExternalError(Vec<u8>),
     /// An error that is caused by an operation on an inconsistent state.
     InconsistentStateError(InconsistentStateError),
+    /// An error coming from EVM precompile.
+    EvmError(EvmError),
 }
 
 /// An error that is caused by an operation on an inconsistent state.
@@ -202,6 +230,12 @@ impl From<PrepareError> for VMError {
         VMError::FunctionCallError(FunctionCallError::CompilationError(
             CompilationError::PrepareError(err),
         ))
+    }
+}
+
+impl fmt::Display for VMLogicError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), Error> {
+        write!(f, "{:?}", self)
     }
 }
 
@@ -233,6 +267,7 @@ impl fmt::Display for FunctionCallError {
             FunctionCallError::WasmUnknownError => {
                 write!(f, "Unknown error during Wasm contract execution")
             }
+            FunctionCallError::EvmError(e) => write!(f, "EVM: {:?}", e),
         }
     }
 }

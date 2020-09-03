@@ -1922,12 +1922,6 @@ dependencies = [
 
 [[package]]
 name = "hex"
-version = "0.3.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "805026a5d0141ffc30abb3be3173848ad46a1b1664fe632428479619a3644d77"
-
-[[package]]
-name = "hex"
 version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "644f9158b2f133fd50f5fb3242878846d9eb792e445c893805ff0e3824006e35"
@@ -2858,13 +2852,11 @@ dependencies = [
  "ethabi-derive",
  "ethereum-types",
  "evm",
- "hex 0.3.2",
+ "hex",
  "keccak-hash",
  "lazy-static-include",
  "lazy_static",
  "libsecp256k1",
- "near-primitives",
- "near-store",
  "near-vm-errors",
  "near-vm-logic",
  "num-bigint 0.3.0",
@@ -3019,7 +3011,7 @@ dependencies = [
  "chrono",
  "derive_more",
  "easy-ext",
- "hex 0.4.2",
+ "hex",
  "jemallocator",
  "lazy_static",
  "near-crypto",
@@ -3317,7 +3309,7 @@ dependencies = [
  "borsh",
  "byteorder",
  "cached",
- "hex 0.4.2",
+ "hex",
  "indicatif 0.13.0",
  "lazy_static",
  "log",
@@ -4981,8 +4973,9 @@ dependencies = [
  "ethabi",
  "ethabi-contract",
  "ethabi-derive",
+ "ethereum-types",
  "futures",
- "hex 0.4.2",
+ "hex",
  "lazy_static",
  "log",
  "near-chain",
@@ -5680,7 +5673,7 @@ dependencies = [
  "cc",
  "digest 0.8.1",
  "errno",
- "hex 0.4.2",
+ "hex",
  "indexmap",
  "lazy_static",
  "libc",

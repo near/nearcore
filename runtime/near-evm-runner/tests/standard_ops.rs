@@ -3,7 +3,7 @@ extern crate lazy_static_include;
 
 use borsh::BorshSerialize;
 use ethabi_contract::use_contract;
-use ethereum_types::U256;
+use ethereum_types::{Address, H256, U256};
 
 use near_evm_runner::types::{TransferArgs, WithdrawArgs};
 use near_evm_runner::utils::{
@@ -111,4 +111,114 @@ fn test_internal_create() {
     let new_raw = context.call_function(encode_call_function_args(sub_addr, new_input)).unwrap();
     let output = subcontract::functions::a_number::decode_output(&new_raw).unwrap();
     assert_eq!(output, U256::from(8));
+}
+
+#[test]
+fn test_precompiles() {
+    let mut state_update = setup();
+    let mut context = EvmContext::new(&mut state_update, accounts(0), accounts(1), 100);
+    let test_addr = context.deploy_code(hex::decode(&TEST).unwrap()).unwrap();
+
+    let (input, _) = soltest::functions::precompile_test::call();
+    let raw = context.call_function(encode_call_function_args(test_addr, input)).unwrap();
+    assert_eq!(raw.len(), 0);
+}
+
+fn setup_and_deploy_test() -> (TrieUpdate, Address) {
+    let mut state_update = setup();
+    let mut context = EvmContext::new(&mut state_update, accounts(0), accounts(1), 100);
+    let test_addr = context.deploy_code(hex::decode(&TEST).unwrap()).unwrap();
+    assert_eq!(context.get_balance(test_addr.0.to_vec()).unwrap(), U256::from(100));
+    (state_update, test_addr)
+}
+
+#[test]
+fn test_deploy_and_transfer() {
+    let (mut state_update, test_addr) = setup_and_deploy_test();
+
+    // This should increment the nonce of the deploying contract.
+    // There is 100 attached to this that should be passed through.
+    let (input, _) = soltest::functions::deploy_new_guy::call(8);
+    let mut context = EvmContext::new(&mut state_update, accounts(0), accounts(1), 100);
+    let raw = context.call_function(encode_call_function_args(test_addr, input)).unwrap();
+
+    // The sub_addr should have been transferred 100 yoctoN.
+    let sub_addr = raw[12..32].to_vec();
+    assert_eq!(context.get_balance(test_addr.0.to_vec()).unwrap(), U256::from(100));
+    assert_eq!(context.get_balance(sub_addr).unwrap(), U256::from(100));
+}
+
+#[test]
+fn test_deploy_with_value() {
+    let (mut state_update, test_addr) = setup_and_deploy_test();
+
+    // This should increment the nonce of the deploying contract
+    // There is 100 attached to this that should be passed through
+    let (input, _) = soltest::functions::pay_new_guy::call(8);
+    let mut context = EvmContext::new(&mut state_update, accounts(0), accounts(1), 100);
+    let raw = context.call_function(encode_call_function_args(test_addr, input)).unwrap();
+
+    // The sub_addr should have been transferred 100 tokens.
+    let sub_addr = raw[12..32].to_vec();
+    assert_eq!(context.get_balance(test_addr.0.to_vec()).unwrap(), U256::from(100));
+    assert_eq!(context.get_balance(sub_addr).unwrap(), U256::from(100));
+}
+
+#[test]
+fn test_contract_to_eoa_transfer() {
+    let (mut state_update, test_addr) = setup_and_deploy_test();
+
+    let (input, _) = soltest::functions::return_some_funds::call();
+    let mut context = EvmContext::new(&mut state_update, accounts(0), accounts(1), 100);
+    let raw = context.call_function(encode_call_function_args(test_addr, input)).unwrap();
+
+    let sender_addr = raw[12..32].to_vec();
+    assert_eq!(context.get_balance(test_addr.0.to_vec()).unwrap(), U256::from(150));
+    assert_eq!(context.get_balance(sender_addr).unwrap(), U256::from(50));
+}
+
+#[test]
+fn test_get_code() {
+    let (mut state_update, test_addr) = setup_and_deploy_test();
+    let context = EvmContext::new(&mut state_update, accounts(0), accounts(1), 0);
+
+    assert!(context.get_code(test_addr.0.to_vec()).unwrap().len() > 1500); // contract code should roughly be over length 1500
+    assert_eq!(context.get_code(vec![0u8; 20]).unwrap().len(), 0);
+}
+
+#[test]
+fn test_view_call() {
+    let (mut state_update, test_addr) = setup_and_deploy_test();
+
+    // This should NOT increment the nonce of the deploying contract
+    // And NO CODE should be deployed
+    let (input, _) = soltest::functions::deploy_new_guy::call(8);
+    let mut context = EvmContext::new(&mut state_update, accounts(0), accounts(1), 0);
+    let raw = context.view_call_function(encode_call_function_args(test_addr, input)).unwrap();
+    assert_eq!(context.get_nonce(test_addr.0.to_vec()).unwrap(), U256::from(0));
+
+    let sub_addr = raw[12..32].to_vec();
+    assert_eq!(context.get_code(sub_addr).unwrap().len(), 0);
+}
+
+#[test]
+fn test_solidity_accurate_storage_on_selfdestruct() {
+    let mut state_update = setup();
+    let mut context = EvmContext::new(&mut state_update, accounts(0), accounts(1), 100);
+    assert_eq!(
+        context.deposit(near_account_id_to_evm_address(&accounts(1)).0.to_vec()).unwrap(),
+        U256::from(100)
+    );
+
+    let salt = H256([0u8; 32]);
+    let destruct_code = hex::decode(&DESTRUCT_TEST).unwrap();
+
+    // Deploy CREATE2 Factory
+    let factory_addr = context.deploy_code(hex::decode(&FACTORY_TEST).unwrap()).unwrap();
+
+    // Deploy + SelfDestruct in one transaction
+    let input = create2factory::functions::test_double_deploy::call(salt, destruct_code.clone()).0;
+    let raw = context.call_function(encode_call_function_args(factory_addr, input)).unwrap();
+    println!("{:?}", raw);
+    // assert_eq!(1, raw.parse::<i32>().unwrap());
 }
