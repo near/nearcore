@@ -20,6 +20,7 @@ use near_primitives::types::{
     Nonce, RawStateChangesWithTrieKey, ShardId, StateChangeCause, StateRoot, ValidatorStake,
 };
 use near_primitives::utils::{create_nonce_with_nonce, system_account};
+use near_runtime_configs::get_insufficient_storage_stake;
 use near_store::{
     get, get_account, get_postponed_receipt, get_received_data, remove_postponed_receipt, set,
     set_access_key, set_account, set_code, set_postponed_receipt, set_received_data,
@@ -531,7 +532,9 @@ impl Runtime {
         // Going to check balance covers account's storage.
         if result.result.is_ok() {
             if let Some(ref mut account) = account {
-                if let Some(amount) = get_insufficient_storage_stake(account, &self.config)? {
+                if let Some(amount) = get_insufficient_storage_stake(account, &self.config)
+                    .map_err(|err| StorageError::StorageInconsistentState(err))?
+                {
                     result.merge(ActionResult {
                         result: Err(ActionError {
                             index: None,
