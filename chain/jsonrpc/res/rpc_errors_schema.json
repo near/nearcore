@@ -452,7 +452,8 @@
         "TriesToStake",
         "InsufficientStake",
         "FunctionCallError",
-        "NewReceiptValidationError"
+        "NewReceiptValidationError",
+        "OnlyImplicitAccountCreationAllowed"
       ],
       "props": {
         "index": ""
@@ -716,6 +717,13 @@
         "balance": "",
         "cost": "",
         "signer_id": ""
+      }
+    },
+    "OnlyImplicitAccountCreationAllowed": {
+      "name": "OnlyImplicitAccountCreationAllowed",
+      "subtypes": [],
+      "props": {
+        "account_id": ""
       }
     },
     "ReceiptValidationError": {

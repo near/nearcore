@@ -313,6 +313,119 @@ pub fn test_send_money(node: impl Node) {
     );
 }
 
+pub fn transfer_tokens_implicit_account(node: impl Node) {
+    let account_id = &node.account_id().unwrap();
+    let node_user = node.user();
+    let root = node_user.get_state_root();
+    let tokens_used = 10u128.pow(25);
+    let fee_helper = fee_helper(&node);
+    let transfer_cost = fee_helper.transfer_cost_64len_hex();
+    let public_key = node_user.signer().public_key();
+    let raw_public_key = public_key.unwrap_as_ed25519().0.to_vec();
+    let receiver_id = hex::encode(&raw_public_key);
+    let transaction_result =
+        node_user.send_money(account_id.clone(), receiver_id.clone(), tokens_used).unwrap();
+    assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(to_base64(&[])));
+    assert_eq!(transaction_result.receipts_outcome.len(), 2);
+    let new_root = node_user.get_state_root();
+    assert_ne!(root, new_root);
+    assert_eq!(node_user.get_access_key_nonce_for_signer(account_id).unwrap(), 1);
+
+    let AccountView { amount, locked, .. } = node_user.view_account(account_id).unwrap();
+    assert_eq!(
+        (amount, locked),
+        (
+            TESTING_INIT_BALANCE - tokens_used - TESTING_INIT_STAKE - transfer_cost,
+            TESTING_INIT_STAKE
+        )
+    );
+
+    let AccountView { amount, locked, .. } = node_user.view_account(&receiver_id).unwrap();
+    assert_eq!((amount, locked), (tokens_used, 0));
+
+    let view_access_key = node_user.get_access_key(&receiver_id, &public_key).unwrap();
+    assert_eq!(view_access_key, AccessKey::full_access().into());
+
+    let transaction_result =
+        node_user.send_money(account_id.clone(), receiver_id.clone(), tokens_used).unwrap();
+
+    assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(to_base64(&[])));
+    assert_eq!(transaction_result.receipts_outcome.len(), 2);
+    let new_root = node_user.get_state_root();
+    assert_ne!(root, new_root);
+    assert_eq!(node_user.get_access_key_nonce_for_signer(account_id).unwrap(), 2);
+
+    let AccountView { amount, locked, .. } = node_user.view_account(account_id).unwrap();
+    assert_eq!(
+        (amount, locked),
+        (
+            TESTING_INIT_BALANCE - 2 * tokens_used - TESTING_INIT_STAKE - 2 * transfer_cost,
+            TESTING_INIT_STAKE
+        )
+    );
+
+    let AccountView { amount, locked, .. } = node_user.view_account(&receiver_id).unwrap();
+    assert_eq!((amount, locked), (tokens_used * 2, 0));
+}
+
+pub fn trying_to_create_implicit_account(node: impl Node) {
+    let account_id = &node.account_id().unwrap();
+    let node_user = node.user();
+    let root = node_user.get_state_root();
+    let tokens_used = 10u128.pow(25);
+    let fee_helper = fee_helper(&node);
+
+    let public_key = node_user.signer().public_key();
+    let raw_public_key = public_key.unwrap_as_ed25519().0.to_vec();
+    let receiver_id = hex::encode(&raw_public_key);
+
+    let transaction_result = node_user
+        .create_account(
+            account_id.clone(),
+            receiver_id.clone(),
+            node.signer().public_key(),
+            tokens_used,
+        )
+        .unwrap();
+
+    let cost = fee_helper.create_account_transfer_full_key_cost_fail_on_create_account()
+        + fee_helper.gas_to_balance(
+            fee_helper.cfg.action_creation_config.create_account_cost.send_fee(false)
+                + fee_helper
+                    .cfg
+                    .action_creation_config
+                    .add_key_cost
+                    .full_access_cost
+                    .send_fee(false),
+        );
+
+    assert_eq!(
+        transaction_result.status,
+        FinalExecutionStatus::Failure(
+            ActionError {
+                index: Some(0),
+                kind: ActionErrorKind::OnlyImplicitAccountCreationAllowed {
+                    account_id: receiver_id.clone(),
+                }
+            }
+            .into()
+        )
+    );
+    assert_eq!(transaction_result.receipts_outcome.len(), 3);
+    let new_root = node_user.get_state_root();
+    assert_ne!(root, new_root);
+    assert_eq!(node_user.get_access_key_nonce_for_signer(account_id).unwrap(), 1);
+
+    let result1 = node_user.view_account(account_id).unwrap();
+    assert_eq!(
+        (result1.amount, result1.locked),
+        (TESTING_INIT_BALANCE - TESTING_INIT_STAKE - cost, TESTING_INIT_STAKE)
+    );
+
+    let result2 = node_user.view_account(&receiver_id);
+    assert!(result2.is_err());
+}
+
 pub fn test_smart_contract_reward(node: impl Node) {
     let node_user = node.user();
     let root = node_user.get_state_root();
