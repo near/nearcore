@@ -1,18 +1,16 @@
 [package]
-name = "near-runtime-fees"
+name = "near-runtime-utils"
 version = "2.2.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2018"
 license = "Apache-2.0"
 readme = "README.md"
-categories = ["wasm"]
 repository = "https://github.com/nearprotocol/nearcore"
 homepage = "https://github.com/nearprotocol/nearcore"
 description = """
-Fees applied to near runtime encapsulated in a separate crate. Might merge it later.
+This crate contains utility functions for NEAR runtime.
 """
 
-[dependencies]
-serde = { version = "1", features = ["derive"] }
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
-num-rational = { version = "0.2.4", features = ["serde"]}
+[dependencies]

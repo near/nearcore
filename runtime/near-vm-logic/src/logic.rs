@@ -5,19 +5,23 @@ use crate::context::VMContext;
 use crate::dependencies::{External, MemoryLike};
 use crate::gas_counter::GasCounter;
 use crate::types::{
-    AccountId, Balance, EpochHeight, Gas, ProfileData, PromiseIndex, PromiseResult, ReceiptIndex,
-    ReturnData, StorageUsage,
+    AccountId, Balance, EpochHeight, Gas, ProfileData, PromiseIndex, PromiseResult,
+    ProtocolVersion, ReceiptIndex, ReturnData, StorageUsage,
 };
 use crate::utils::split_method_names;
 use crate::{ExtCosts, HostError, VMLogicError, ValuePtr};
 use byteorder::ByteOrder;
 use near_runtime_fees::RuntimeFeesConfig;
+use near_runtime_utils::is_account_id_64_len_hex;
 use near_vm_errors::InconsistentStateError;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::mem::size_of;
 
 type Result<T> = ::std::result::Result<T, VMLogicError>;
+
+const LEGACY_DEFAULT_PROTOCOL_VERSION: ProtocolVersion = 34;
+const IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION: ProtocolVersion = 35;
 
 pub struct VMLogic<'a> {
     /// Provides access to the components outside the Wasm runtime for operations on the trie and
@@ -59,6 +63,9 @@ pub struct VMLogic<'a> {
 
     /// Tracks the total log length. The sum of length of all logs.
     total_log_length: u64,
+
+    /// Current protocol version that is used for the function call.
+    current_protocol_version: ProtocolVersion,
 }
 
 /// Promises API allows to create a DAG-structure that defines dependencies between smart contract
@@ -92,7 +99,7 @@ macro_rules! memory_set {
 }
 
 impl<'a> VMLogic<'a> {
-    pub fn new(
+    pub fn new_with_protocol_version(
         ext: &'a mut dyn External,
         context: VMContext,
         config: &'a VMConfig,
@@ -100,6 +107,7 @@ impl<'a> VMLogic<'a> {
         promise_results: &'a [PromiseResult],
         memory: &'a mut dyn MemoryLike,
         profile: Option<ProfileData>,
+        current_protocol_version: ProtocolVersion,
     ) -> Self {
         ext.reset_touched_nodes_counter();
         // Overflow should be checked before calling VMLogic.
@@ -135,7 +143,31 @@ impl<'a> VMLogic<'a> {
             promises: vec![],
             receipt_to_account: HashMap::new(),
             total_log_length: 0,
+            current_protocol_version,
         }
+    }
+
+    /// Legacy initialization method that doesn't pass the protocol version and uses the last
+    /// protocol version before the change was introduced.
+    pub fn new(
+        ext: &'a mut dyn External,
+        context: VMContext,
+        config: &'a VMConfig,
+        fees_config: &'a RuntimeFeesConfig,
+        promise_results: &'a [PromiseResult],
+        memory: &'a mut dyn MemoryLike,
+        profile: Option<ProfileData>,
+    ) -> Self {
+        Self::new_with_protocol_version(
+            ext,
+            context,
+            config,
+            fees_config,
+            promise_results,
+            memory,
+            profile,
+            LEGACY_DEFAULT_PROTOCOL_VERSION,
+        )
     }
 
     // ###########################
@@ -1358,6 +1390,25 @@ impl<'a> VMLogic<'a> {
 
         let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
 
+        if self.current_protocol_version >= IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION {
+            // Need to check if the receiver_id can be an implicit account.
+            let account_id = self
+                .receipt_to_account
+                .get(&receipt_idx)
+                .expect("promises and receipt_to_account should be consistent.");
+            if is_account_id_64_len_hex(&account_id) {
+                self.gas_counter.pay_action_base(
+                    &self.fees_config.action_creation_config.create_account_cost,
+                    sir,
+                    ActionCosts::transfer,
+                )?;
+                self.gas_counter.pay_action_base(
+                    &self.fees_config.action_creation_config.add_key_cost.full_access_cost,
+                    sir,
+                    ActionCosts::transfer,
+                )?;
+            }
+        }
         self.gas_counter.pay_action_base(
             &self.fees_config.action_creation_config.transfer_cost,
             sir,
