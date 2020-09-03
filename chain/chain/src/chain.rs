@@ -3355,6 +3355,9 @@ impl<'a> ChainUpdate<'a> {
             }
         }
         let receipts = collect_receipts_from_response(&receipt_proof_response);
+        // Prev block header should be present during state sync, since headers have been synced at this point.
+        let gas_price =
+            self.chain_store_update.get_block_header(block_header.prev_hash())?.gas_price();
 
         let gas_limit = chunk.header.inner.gas_limit;
         let mut apply_result = self.runtime_adapter.apply_transactions(
@@ -3367,7 +3370,7 @@ impl<'a> ChainUpdate<'a> {
             &receipts,
             &chunk.transactions,
             &chunk.header.inner.validator_proposals,
-            block_header.gas_price(),
+            gas_price,
             chunk.header.inner.gas_limit,
             &block_header.challenges_result(),
             *block_header.random_value(),
@@ -3449,7 +3452,7 @@ impl<'a> ChainUpdate<'a> {
             &[],
             &[],
             &chunk_extra.validator_proposals,
-            block_header.gas_price(),
+            prev_block_header.gas_price(),
             chunk_extra.gas_limit,
             &block_header.challenges_result(),
             *block_header.random_value(),
