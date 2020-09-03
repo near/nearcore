@@ -266,8 +266,6 @@ async def handle_connection(outer_reader, outer_writer, inner_port, outer_port, 
     except ConnectionRefusedError:
         logging.debug(
             f"ConnectionRefusedError (handle_connection). port={_MY_PORT} connection_id={connection_id} global_stopped={global_stopped.value} local_stopped={local_stopped.value} error={error.value}")
-        if local_stopped.value == 0:
-            global_stopped.value = 1
     except:
         logging.debug(
             f"Other Error (handle_connection). port={_MY_PORT} connection_id={connection_id} global_stopped={global_stopped.value} local_stopped={local_stopped.value} error={error.value}")
