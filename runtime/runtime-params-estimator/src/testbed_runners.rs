@@ -215,6 +215,7 @@ where
                 bar.set_message(format!("Block size: {}", block_size).as_str());
             }
         }
+        testbed.process_blocks_until_no_receipts(allow_failures);
         bar.finish();
     }
 
