@@ -71,6 +71,11 @@ impl<'a> RuntimeExt<'a> {
         }
     }
 
+    #[inline]
+    pub fn account_id(&self) -> &'a AccountId {
+        self.account_id
+    }
+
     pub fn get_code(
         &self,
         code_hash: CryptoHash,

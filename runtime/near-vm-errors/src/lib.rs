@@ -209,6 +209,7 @@ pub enum VMLogicError {
 /// E.g. a deserialization error or an integer overflow.
 #[derive(Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, Deserialize, Serialize)]
 pub enum InconsistentStateError {
+    StorageError(String),
     /// Math operation with a value from the state resulted in a integer overflow.
     IntegerOverflow,
 }
@@ -325,6 +326,7 @@ impl fmt::Display for VMError {
 impl std::fmt::Display for InconsistentStateError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
         match self {
+            InconsistentStateError::StorageError(err) => write!(f, "Storage error: {:?}", err),
             InconsistentStateError::IntegerOverflow => write!(
                 f,
                 "Math operation with a value from the state resulted in a integer overflow.",

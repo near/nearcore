@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use borsh::BorshSerialize;
 
 use near_primitives::account::{AccessKey, AccessKeyPermission, Account};
@@ -20,6 +18,7 @@ use near_store::{
     get_access_key, get_code, remove_access_key, remove_account, set_access_key, set_code,
     StorageError, TrieUpdate,
 };
+use near_vm_errors::{CompilationError, FunctionCallError, InconsistentStateError};
 use near_vm_logic::types::PromiseResult;
 use near_vm_logic::VMContext;
 
@@ -36,65 +35,95 @@ use near_runtime_configs::AccountCreationConfig;
 use near_vm_errors::{CompilationError, FunctionCallError};
 use near_vm_runner::VMError;
 
-fn run_wasm(
-    runtime_ext: &mut RuntimeExt,
+/// Runs given function call with given context / apply state.
+/// Precompiles:
+///  - 0x1: EVM interpreter;
+pub(crate) fn execute_function_call(
     apply_state: &ApplyState,
+    runtime_ext: &mut RuntimeExt,
     account: &mut Account,
-    receipt: &Receipt,
+    predecessor_id: &AccountId,
     action_receipt: &ActionReceipt,
     promise_results: &[PromiseResult],
-    result: &mut ActionResult,
-    account_id: &AccountId,
     function_call: &FunctionCallAction,
     action_hash: &CryptoHash,
     config: &RuntimeConfig,
     is_last_action: bool,
-    code: Arc<ContractCode>,
+    is_view: bool,
 ) -> (Option<VMOutcome>, Option<VMError>) {
-    // Output data receipts are ignored if the function call is not the last action in the batch.
-    let output_data_receivers: Vec<_> = if is_last_action {
-        action_receipt.output_data_receivers.iter().map(|r| r.receiver_id.clone()).collect()
+    if ethereum_types::U256::from((account.code_hash.0).0) == ethereum_types::U256::from(1) {
+        near_evm_runner::run_evm(
+            runtime_ext,
+            predecessor_id,
+            account.amount,
+            function_call.deposit,
+            function_call.method_name.clone(),
+            function_call.args.clone(),
+        )
     } else {
-        vec![]
-    };
-    let context = VMContext {
-        current_account_id: account_id.clone(),
-        signer_account_id: action_receipt.signer_id.clone(),
-        signer_account_pk: action_receipt
-            .signer_public_key
-            .try_to_vec()
-            .expect("Failed to serialize"),
-        predecessor_account_id: receipt.predecessor_id.clone(),
-        input: function_call.args.clone(),
-        block_index: apply_state.block_index,
-        block_timestamp: apply_state.block_timestamp,
-        epoch_height: apply_state.epoch_height,
-        account_balance: account.amount,
-        account_locked_balance: account.locked,
-        storage_usage: account.storage_usage,
-        attached_deposit: function_call.deposit,
-        prepaid_gas: function_call.gas,
-        random_seed: if apply_state.current_protocol_version < CORRECT_RANDOM_VALUE_PROTOCOL_VERSION
-        {
-            action_hash.as_ref().to_vec()
+        let code = match runtime_ext.get_code(account.code_hash) {
+            Ok(Some(code)) => code,
+            Ok(None) => {
+                let error =
+                    FunctionCallError::CompilationError(CompilationError::CodeDoesNotExist {
+                        account_id: runtime_ext.account_id().clone(),
+                    });
+                return (None, Some(VMError::FunctionCallError(error)));
+            }
+            Err(e) => {
+                return (
+                    None,
+                    Some(VMError::InconsistentStateError(InconsistentStateError::StorageError(
+                        e.to_string(),
+                    ))),
+                );
+            }
+        };
+        // Output data receipts are ignored if the function call is not the last action in the batch.
+        let output_data_receivers: Vec<_> = if is_last_action {
+            action_receipt.output_data_receivers.iter().map(|r| r.receiver_id.clone()).collect()
         } else {
-            apply_state.random_seed.as_ref().to_vec()
-        },
-        is_view: false,
-        output_data_receivers,
-    };
+            vec![]
+        };
+        let context = VMContext {
+            current_account_id: runtime_ext.account_id().clone(),
+            signer_account_id: action_receipt.signer_id.clone(),
+            signer_account_pk: action_receipt
+                .signer_public_key
+                .try_to_vec()
+                .expect("Failed to serialize"),
+            predecessor_account_id: predecessor_id.clone(),
+            input: function_call.args.clone(),
+            block_index: apply_state.block_index,
+            block_timestamp: apply_state.block_timestamp,
+            epoch_height: apply_state.epoch_height,
+            account_balance: account.amount,
+            account_locked_balance: account.locked,
+            storage_usage: account.storage_usage,
+            attached_deposit: function_call.deposit,
+            prepaid_gas: function_call.gas,
+            random_seed: if apply_state.current_protocol_version
+                < CORRECT_RANDOM_VALUE_PROTOCOL_VERSION
+            {
+                action_hash.as_ref().to_vec()
+            } else {
+                apply_state.random_seed.as_ref().to_vec()
+            },
+            is_view,
+            output_data_receivers,
+        };
 
-    let (outcome, err) = near_vm_runner::run(
-        code.hash.as_ref().to_vec(),
-        &code.code,
-        function_call.method_name.as_bytes(),
-        runtime_ext,
-        context,
-        &config.wasm_config,
-        &config.transaction_costs,
-        promise_results,
-    );
-    (outcome, err)
+        near_vm_runner::run(
+            code.hash.as_ref().to_vec(),
+            &code.code,
+            function_call.method_name.as_bytes(),
+            runtime_ext,
+            context,
+            &config.wasm_config,
+            &config.transaction_costs,
+            promise_results,
+        )
+    }
 }
 
 pub(crate) fn action_function_call(
@@ -129,46 +158,19 @@ pub(crate) fn action_function_call(
         &apply_state.last_block_hash,
         epoch_info_provider,
     );
-    let (outcome, err) =
-        if ethereum_types::U256::from((account.code_hash.0).0) == ethereum_types::U256::from(1) {
-            near_evm_runner::run_evm(
-                &mut runtime_ext,
-                &receipt.predecessor_id,
-                account.amount,
-                function_call.deposit,
-                function_call.method_name.clone(),
-                function_call.args.clone(),
-            )
-        } else {
-            let code = match runtime_ext.get_code(account.code_hash) {
-                Ok(Some(code)) => code,
-                Ok(None) => {
-                    let error =
-                        FunctionCallError::CompilationError(CompilationError::CodeDoesNotExist {
-                            account_id: account_id.clone(),
-                        });
-                    result.result = Err(ActionErrorKind::FunctionCallError(error).into());
-                    return Ok(());
-                }
-                Err(e) => {
-                    return Err(e.into());
-                }
-            };
-            run_wasm(
-                &mut runtime_ext,
-                apply_state,
-                account,
-                receipt,
-                action_receipt,
-                promise_results,
-                account_id,
-                function_call,
-                action_hash,
-                config,
-                is_last_action,
-                code,
-            )
-        };
+    let (outcome, err) = execute_function_call(
+        apply_state,
+        &mut runtime_ext,
+        account,
+        &receipt.predecessor_id,
+        action_receipt,
+        promise_results,
+        function_call,
+        action_hash,
+        config,
+        is_last_action,
+        false,
+    );
     let execution_succeeded = match err {
         Some(VMError::FunctionCallError(err)) => {
             result.result = Err(ActionErrorKind::FunctionCallError(err).into());

@@ -1308,11 +1308,23 @@ pub fn test_evm_deploy_call(node: impl Node) {
     );
     let args = vec![contract_id, input].concat();
     let bytes = node_user
-        .function_call(alice_account(), evm_account(), "view_call_contract", args, 10u64.pow(14), 0)
+        .function_call(
+            alice_account(),
+            evm_account(),
+            "view_call_contract",
+            args.clone(),
+            10u64.pow(14),
+            0,
+        )
         .unwrap()
         .status
         .as_success_decoded()
         .unwrap();
     let res = cryptozombies::functions::get_zombies_by_owner::decode_output(&bytes).unwrap();
+    assert_eq!(res, vec![U256::from(0)]);
+
+    let result = node_user.view_call(&evm_account(), "view_call_contract", &args).unwrap();
+    let res =
+        cryptozombies::functions::get_zombies_by_owner::decode_output(&result.result).unwrap();
     assert_eq!(res, vec![U256::from(0)]);
 }

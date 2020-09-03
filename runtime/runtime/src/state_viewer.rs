@@ -1,7 +1,6 @@
 use std::str;
 use std::time::Instant;
 
-use borsh::BorshSerialize;
 use log::debug;
 
 use near_crypto::{KeyType, PublicKey};
@@ -13,12 +12,17 @@ use near_primitives::types::EpochHeight;
 use near_primitives::types::{AccountId, BlockHeight, EpochId, EpochInfoProvider};
 use near_primitives::utils::is_valid_account_id;
 use near_primitives::views::{StateItem, ViewStateResult};
-use near_runtime_fees::RuntimeFeesConfig;
 use near_store::{get_access_key, get_account, TrieUpdate};
-use near_vm_logic::{ReturnData, VMConfig, VMContext};
+use near_vm_logic::ReturnData;
 
+use crate::actions::execute_function_call;
 use crate::ext::RuntimeExt;
+use crate::ApplyState;
+use near_primitives::receipt::ActionReceipt;
+use near_primitives::transaction::FunctionCallAction;
 use near_primitives::version::ProtocolVersion;
+use near_primitives::version::PROTOCOL_VERSION;
+use near_runtime_configs::RuntimeConfig;
 
 pub struct TrieViewer {}
 
@@ -103,59 +107,73 @@ impl TrieViewer {
             return Err(format!("Contract ID {:?} is not valid", contract_id).into());
         }
         let root = state_update.get_root();
-        let account = get_account(&state_update, contract_id)?
+        let mut account = get_account(&state_update, contract_id)?
             .ok_or_else(|| format!("Account {:?} doesn't exist", contract_id))?;
         // TODO(#1015): Add ability to pass public key and originator_id
         let originator_id = contract_id;
         let public_key = PublicKey::empty(KeyType::ED25519);
-        let (outcome, err) = {
-            let empty_hash = CryptoHash::default();
-            let mut runtime_ext = RuntimeExt::new(
-                &mut state_update,
-                contract_id,
-                originator_id,
-                &public_key,
-                0,
-                &empty_hash,
-                epoch_id,
-                last_block_hash,
-                epoch_info_provider,
-            );
-            let code = runtime_ext.get_code(account.code_hash)?.ok_or_else(|| {
-                format!("cannot find contract code for account {}", contract_id.clone())
-            })?;
-
-            let context = VMContext {
-                current_account_id: contract_id.clone(),
-                signer_account_id: originator_id.clone(),
-                signer_account_pk: public_key.try_to_vec().expect("Failed to serialize"),
-                predecessor_account_id: originator_id.clone(),
-                input: args.to_owned(),
-                block_index: block_height,
-                block_timestamp,
-                epoch_height,
-                account_balance: account.amount,
-                account_locked_balance: account.locked,
-                storage_usage: account.storage_usage,
-                attached_deposit: 0,
-                prepaid_gas: 0,
-                random_seed: root.as_ref().into(),
-                is_view: true,
-                output_data_receivers: vec![],
-            };
-
-            near_vm_runner::run(
-                code.hash.as_ref().to_vec(),
-                &code.code,
-                method_name.as_bytes(),
-                &mut runtime_ext,
-                context,
-                &VMConfig::default(),
-                &RuntimeFeesConfig::default(),
-                &[],
-                current_protocol_version,
-            )
+        let empty_hash = CryptoHash::default();
+        let mut runtime_ext = RuntimeExt::new(
+            &mut state_update,
+            contract_id,
+            originator_id,
+            &public_key,
+            0,
+            &empty_hash,
+            epoch_id,
+            last_block_hash,
+            epoch_info_provider,
+        );
+        let config = RuntimeConfig::default();
+        let apply_state = ApplyState {
+            block_index: block_height,
+            last_block_hash: last_block_hash.clone(),
+            epoch_id: epoch_id.clone(),
+            epoch_height,
+            gas_price: 0,
+            block_timestamp,
+            gas_limit: None,
+            random_seed: root,
+            current_protocol_version: PROTOCOL_VERSION,
         };
+        let action_receipt = ActionReceipt {
+            signer_id: originator_id.clone(),
+            signer_public_key: public_key.clone(),
+            gas_price: 0,
+            output_data_receivers: vec![],
+            input_data_ids: vec![],
+            actions: vec![],
+        };
+        let function_call = FunctionCallAction {
+            method_name: method_name.to_string(),
+            args: args.to_vec(),
+            gas: 0,
+            deposit: 0,
+        };
+        let (outcome, err) = execute_function_call(
+            &apply_state,
+            &mut runtime_ext,
+            &mut account,
+            &originator_id,
+            &action_receipt,
+            &[],
+            &function_call,
+            &empty_hash,
+            &config,
+            true,
+            true,
+        );
+        //            near_vm_runner::run(
+        //                code.hash.as_ref().to_vec(),
+        //                &code.code,
+        //                method_name.as_bytes(),
+        //                &mut runtime_ext,
+        //                context,
+        //                &VMConfig::default(),
+        //                &RuntimeFeesConfig::default(),
+        //                &[],
+        //            )
+        //        };
         let elapsed = now.elapsed();
         let time_ms =
             (elapsed.as_secs() as f64 / 1_000.0) + f64::from(elapsed.subsec_nanos()) / 1_000_000.0;
