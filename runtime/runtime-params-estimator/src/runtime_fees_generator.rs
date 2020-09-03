@@ -47,115 +47,116 @@ impl RuntimeFeesGenerator {
         );
         res.insert(
             ReceiptFees::DataReceiptCreationBase,
-            self.aggregated[&Metric::data_receipt_10b_1000].upper_with_base(
+            Ratio::new(
+                self.aggregated[&Metric::data_receipt_10b_1000]
+                    .upper_with_base(&self.aggregated[&Metric::data_receipt_base_10b_1000]),
                 1000,
-                &self.aggregated[&Metric::noop],
-                1,
+            ),
+        );
+        // Note we subtract base that has a denominator as well. This is fine, since per byte
+        // denominator is much larger (100K times)
+        res.insert(
+            ReceiptFees::DataReceiptCreationPerByte,
+            Ratio::new(
+                self.aggregated[&Metric::data_receipt_100kib_1000]
+                    .upper_with_base(&self.aggregated[&Metric::data_receipt_10b_1000]),
+                1000 * 100 * 1024,
             ),
         );
         res.insert(
-            ReceiptFees::DataReceiptCreationPerByte,
-            self.aggregated[&Metric::data_receipt_100kib_1000].upper_with_base(
-                1,
-                &self.aggregated[&Metric::data_receipt_10b_1000],
-                1,
-            ) * Ratio::new(1, 1000 * 100 * 1024),
-        );
-        res.insert(
             ReceiptFees::ActionCreateAccount,
-            self.aggregated[&Metric::ActionCreateAccount].upper_with_base(
-                1,
-                &self.aggregated[&Metric::ActionTransfer],
+            Ratio::new(
+                self.aggregated[&Metric::ActionCreateAccount]
+                    .upper_with_base(&self.aggregated[&Metric::Receipt]),
                 1,
             ),
         );
         res.insert(
             ReceiptFees::ActionDeployContractBase,
             // We ignore the fact that this includes a 143 bytes contract.
-            self.aggregated[&Metric::ActionDeploySmallest].upper_with_base(
-                1,
-                &self.aggregated[&Metric::SirReceipt],
+            Ratio::new(
+                self.aggregated[&Metric::ActionDeploySmallest]
+                    .upper_with_base(&self.aggregated[&Metric::SirReceipt]),
                 1,
             ),
         );
         res.insert(
             ReceiptFees::ActionDeployContractPerByte,
-            self.aggregated[&Metric::ActionDeploy1M].upper_with_base(
+            Ratio::new(
+                self.aggregated[&Metric::ActionDeploy1M]
+                    .upper_with_base(&self.aggregated[&Metric::ActionDeploySmallest]),
                 1024 * 1024,
-                &self.aggregated[&Metric::ActionDeploySmallest],
-                1,
             ),
         );
         res.insert(
             ReceiptFees::ActionFunctionCallBase,
-            self.aggregated[&Metric::noop].upper_with_base(
-                1,
-                &self.aggregated[&Metric::Receipt],
+            Ratio::new(
+                self.aggregated[&Metric::noop].upper_with_base(&self.aggregated[&Metric::Receipt]),
                 1,
             ),
         );
         res.insert(
             ReceiptFees::ActionFunctionCallPerByte,
-            self.aggregated[&Metric::noop_1MiB].upper_with_base(
+            Ratio::new(
+                self.aggregated[&Metric::noop_1MiB]
+                    .upper_with_base(&self.aggregated[&Metric::noop]),
                 1024 * 1024,
-                &self.aggregated[&Metric::noop],
-                1,
             ),
         );
         res.insert(
             ReceiptFees::ActionTransfer,
-            self.aggregated[&Metric::ActionTransfer].upper_with_base(
-                1,
-                &self.aggregated[&Metric::Receipt],
+            Ratio::new(
+                self.aggregated[&Metric::ActionTransfer]
+                    .upper_with_base(&self.aggregated[&Metric::Receipt]),
                 1,
             ),
         );
         res.insert(
             ReceiptFees::ActionStake,
-            self.aggregated[&Metric::ActionStake].upper_with_base(
-                1,
-                &self.aggregated[&Metric::SirReceipt],
+            Ratio::new(
+                self.aggregated[&Metric::ActionStake]
+                    .upper_with_base(&self.aggregated[&Metric::SirReceipt]),
                 1,
             ),
         );
         res.insert(
             ReceiptFees::ActionAddFullAccessKey,
-            self.aggregated[&Metric::ActionAddFullAccessKey].upper_with_base(
-                1,
-                &self.aggregated[&Metric::SirReceipt],
+            Ratio::new(
+                self.aggregated[&Metric::ActionAddFullAccessKey]
+                    .upper_with_base(&self.aggregated[&Metric::SirReceipt]),
                 1,
             ),
         );
         res.insert(
             ReceiptFees::ActionAddFunctionAccessKeyBase,
-            self.aggregated[&Metric::ActionAddFunctionAccessKey1Method].upper_with_base(
-                1,
-                &self.aggregated[&Metric::SirReceipt],
+            Ratio::new(
+                self.aggregated[&Metric::ActionAddFunctionAccessKey1Method]
+                    .upper_with_base(&self.aggregated[&Metric::SirReceipt]),
                 1,
             ),
         );
         res.insert(
             ReceiptFees::ActionAddFunctionAccessKeyPerByte,
             // These are 1k methods each 10bytes long.
-            self.aggregated[&Metric::ActionAddFunctionAccessKey1000Methods].upper_with_base(
+            Ratio::new(
+                self.aggregated[&Metric::ActionAddFunctionAccessKey1000Methods]
+                    .upper_with_base(&self.aggregated[&Metric::ActionAddFunctionAccessKey1Method]),
                 10 * 1000,
-                &self.aggregated[&Metric::ActionAddFunctionAccessKey1Method],
-                1,
             ),
         );
         res.insert(
             ReceiptFees::ActionDeleteKey,
-            self.aggregated[&Metric::ActionDeleteAccessKey].upper_with_base(
-                1,
-                &self.aggregated[&Metric::SirReceipt],
+            Ratio::new(
+                self.aggregated[&Metric::ActionDeleteAccessKey]
+                    .upper_with_base(&self.aggregated[&Metric::SirReceipt]),
                 1,
             ),
         );
         res.insert(
             ReceiptFees::ActionDeleteAccount,
-            self.aggregated[&Metric::ActionDeleteAccount].upper_with_base(
-                1,
-                &self.aggregated[&Metric::SirReceipt],
+            Ratio::new(
+                self.aggregated[&Metric::ActionDeleteAccount]
+                    .upper_with_base(&self.aggregated[&Metric::SirReceipt]),
                 1,
             ),
         );

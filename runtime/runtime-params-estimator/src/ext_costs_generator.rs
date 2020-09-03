@@ -20,7 +20,7 @@ impl ExtCostsGenerator {
         let base = &agg[&Metric::noop];
         let agg = &agg[&metric];
         let multiplier = agg.ext_costs[&ext_cost];
-        agg.upper_with_base(multiplier, base, 1)
+        Ratio::new(agg.upper_with_base(base), multiplier)
     }
 
     fn extract(&mut self, metric: Metric, ext_cost: ExtCosts) {
