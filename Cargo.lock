@@ -3309,6 +3309,7 @@ dependencies = [
  "borsh",
  "byteorder",
  "cached",
+ "ethereum-types",
  "hex",
  "indicatif 0.13.0",
  "lazy_static",

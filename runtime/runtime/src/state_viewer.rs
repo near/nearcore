@@ -17,7 +17,6 @@ use near_runtime_fees::RuntimeFeesConfig;
 use near_store::{get_access_key, get_account, TrieUpdate};
 use near_vm_logic::{ReturnData, VMConfig, VMContext};
 
-use crate::actions::get_code_with_cache;
 use crate::ext::RuntimeExt;
 use near_primitives::version::ProtocolVersion;
 
@@ -106,9 +105,6 @@ impl TrieViewer {
         let root = state_update.get_root();
         let account = get_account(&state_update, contract_id)?
             .ok_or_else(|| format!("Account {:?} doesn't exist", contract_id))?;
-        let code = get_code_with_cache(&state_update, contract_id, &account)?.ok_or_else(|| {
-            format!("cannot find contract code for account {}", contract_id.clone())
-        })?;
         // TODO(#1015): Add ability to pass public key and originator_id
         let originator_id = contract_id;
         let public_key = PublicKey::empty(KeyType::ED25519);
@@ -125,6 +121,9 @@ impl TrieViewer {
                 last_block_hash,
                 epoch_info_provider,
             );
+            let code = runtime_ext.get_code(account.code_hash)?.ok_or_else(|| {
+                format!("cannot find contract code for account {}", contract_id.clone())
+            })?;
 
             let context = VMContext {
                 current_account_id: contract_id.clone(),

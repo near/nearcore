@@ -1,6 +1,9 @@
 use borsh::BorshDeserialize;
+use log::debug;
+
 use near_crypto::PublicKey;
 use near_primitives::account::{AccessKey, AccessKeyPermission, FunctionCallPermission};
+use near_primitives::contract::ContractCode;
 use near_primitives::errors::{ExternalError, StorageError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{ActionReceipt, DataReceiver, Receipt, ReceiptEnum};
@@ -11,8 +14,9 @@ use near_primitives::transaction::{
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{AccountId, Balance, EpochId, EpochInfoProvider};
 use near_primitives::utils::create_nonce_with_nonce;
-use near_store::{TrieUpdate, TrieUpdateValuePtr};
+use near_store::{get_code, TrieUpdate, TrieUpdateValuePtr};
 use near_vm_logic::{External, HostError, VMLogicError, ValuePtr};
+use std::sync::Arc;
 
 pub struct RuntimeExt<'a> {
     trie_update: &'a mut TrieUpdate,
@@ -65,6 +69,15 @@ impl<'a> RuntimeExt<'a> {
             last_block_hash,
             epoch_info_provider,
         }
+    }
+
+    pub fn get_code(
+        &self,
+        code_hash: CryptoHash,
+    ) -> Result<Option<Arc<ContractCode>>, StorageError> {
+        debug!(target:"runtime", "Calling the contract at account {}", self.account_id);
+        let code = || get_code(self.trie_update, self.account_id, Some(code_hash));
+        crate::cache::get_code(code_hash, code)
     }
 
     pub fn create_storage_key(&self, key: &[u8]) -> TrieKey {
