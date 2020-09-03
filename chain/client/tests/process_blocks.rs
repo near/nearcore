@@ -35,6 +35,7 @@ use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::verify_hash;
 use near_primitives::sharding::{EncodedShardChunk, ReedSolomonWrapper};
+use near_primitives::syncing::get_num_state_parts;
 use near_primitives::transaction::{
     Action, DeployContractAction, FunctionCallAction, SignedTransaction, Transaction,
 };
@@ -1974,4 +1975,89 @@ fn test_gas_price_change_no_chunk() {
     let block = env.clients[0].produce_block(22).unwrap().unwrap();
     let (_, res) = env.clients[0].process_block(block, Provenance::NONE);
     assert!(res.is_ok());
+}
+
+#[test]
+fn test_catchup_gas_price_change() {
+    init_test_logger();
+    let epoch_length = 5;
+    let min_gas_price = 10000;
+    let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
+    genesis.config.epoch_length = epoch_length;
+    genesis.config.min_gas_price = min_gas_price;
+    genesis.config.gas_limit = 1000000000000;
+    let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![
+        Arc::new(neard::NightshadeRuntime::new(
+            Path::new("."),
+            create_test_store(),
+            Arc::new(genesis.clone()),
+            vec![],
+            vec![],
+        )),
+        Arc::new(neard::NightshadeRuntime::new(
+            Path::new("."),
+            create_test_store(),
+            Arc::new(genesis.clone()),
+            vec![],
+            vec![],
+        )),
+    ];
+    let chain_genesis = ChainGenesis::from(Arc::new(genesis));
+    let mut env = TestEnv::new_with_runtime(chain_genesis, 2, 1, runtimes);
+    let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap().clone();
+    let mut blocks = vec![];
+    for i in 1..3 {
+        let block = env.clients[0].produce_block(i).unwrap().unwrap();
+        blocks.push(block.clone());
+        env.process_block(0, block.clone(), Provenance::PRODUCED);
+        env.process_block(1, block, Provenance::NONE);
+    }
+    let signer = InMemorySigner::from_seed("test0", KeyType::ED25519, "test0");
+    for i in 0..3 {
+        let tx = SignedTransaction::send_money(
+            i + 1,
+            "test0".to_string(),
+            "test1".to_string(),
+            &signer,
+            1,
+            *genesis_block.hash(),
+        );
+        env.clients[0].process_tx(tx, false, false);
+    }
+    for i in 3..=6 {
+        let block = env.clients[0].produce_block(i).unwrap().unwrap();
+        blocks.push(block.clone());
+        env.process_block(0, block.clone(), Provenance::PRODUCED);
+        env.process_block(1, block, Provenance::NONE);
+    }
+
+    assert_ne!(blocks[3].header().gas_price(), blocks[4].header().gas_price());
+    assert!(env.clients[1].chain.get_chunk_extra(blocks[4].hash(), 0).is_err());
+
+    // Simulate state sync
+    let sync_hash = *blocks[5].hash();
+    assert!(env.clients[0].chain.check_sync_hash_validity(&sync_hash).unwrap());
+    let state_sync_header = env.clients[0].chain.get_state_response_header(0, sync_hash).unwrap();
+    let state_root = state_sync_header.chunk.header.inner.prev_state_root;
+    let state_root_node =
+        env.clients[0].runtime_adapter.get_state_root_node(0, &state_root).unwrap();
+    let num_parts = get_num_state_parts(state_root_node.memory_usage);
+    let state_sync_parts = (0..num_parts)
+        .map(|i| env.clients[0].chain.get_state_response_part(0, i, sync_hash).unwrap())
+        .collect::<Vec<_>>();
+
+    env.clients[1].chain.set_state_header(0, sync_hash, state_sync_header).unwrap();
+    for i in 0..num_parts {
+        env.clients[1]
+            .chain
+            .set_state_part(0, sync_hash, i, num_parts, &state_sync_parts[i as usize])
+            .unwrap();
+    }
+    env.clients[1].chain.set_state_finalize(0, sync_hash, num_parts).unwrap();
+    let chunk_extra_after_sync =
+        env.clients[1].chain.get_chunk_extra(blocks[4].hash(), 0).unwrap().clone();
+    let expected_chunk_extra =
+        env.clients[0].chain.get_chunk_extra(blocks[4].hash(), 0).unwrap().clone();
+    // The chunk extra of the prev block of sync block should be the same as the node that it is syncing from
+    assert_eq!(chunk_extra_after_sync, expected_chunk_extra);
 }
