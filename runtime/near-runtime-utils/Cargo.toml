@@ -13,4 +13,7 @@ This crate contains utility functions for NEAR runtime.
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+# The crate should't include dependencies on `near-primitives` and `near-crypto` to keep the dependencies limited.
+# Historically, `near-primitives` contained a bunch of dependencies that prevented this crate from being compiled to Wasm.
+
 [dependencies]
