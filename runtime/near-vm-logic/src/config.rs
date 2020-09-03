@@ -214,14 +214,14 @@ pub struct ExtCostsConfig {
     /// Cost for writing byte into register
     pub write_register_byte: Gas,
 
-    /// Base cost of decoding utf8.
+    /// Base cost of decoding utf8. It's used for `log_utf8` and `panic_utf8`.
     pub utf8_decoding_base: Gas,
-    /// Cost per bye of decoding utf8.
+    /// Cost per byte of decoding utf8. It's used for `log_utf8` and `panic_utf8`.
     pub utf8_decoding_byte: Gas,
 
-    /// Base cost of decoding utf16.
+    /// Base cost of decoding utf16. It's used for `log_utf16`.
     pub utf16_decoding_base: Gas,
-    /// Cost per bye of decoding utf16.
+    /// Cost per byte of decoding utf16. It's used for `log_utf16`.
     pub utf16_decoding_byte: Gas,
 
     /// Cost of getting sha256 base
@@ -300,11 +300,11 @@ pub struct ExtCostsConfig {
     // ###############
     // # Promise API #
     // ###############
-    /// Cost for calling promise_and
+    /// Cost for calling `promise_and`
     pub promise_and_base: Gas,
-    /// Cost for calling promise_and for each promise
+    /// Cost for calling `promise_and` for each promise
     pub promise_and_per_promise: Gas,
-    /// Cost for calling promise_return
+    /// Cost for calling `promise_return`
     pub promise_return: Gas,
 
     // ###############
