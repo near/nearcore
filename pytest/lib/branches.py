@@ -38,7 +38,10 @@ def compile_current():
         subprocess.check_output(['cargo', 'build', '-p', 'near'])
     subprocess.check_output(['cargo', 'build', '-p', 'state-viewer'])
     branch = escaped(branch)
-    os.rename('../target/debug/near', '../target/debug/near-%s' % branch)
+    if os.path.exists('../target/debug/near'):
+        os.rename('../target/debug/near', '../target/debug/near-%s' % branch)
+    else:
+        os.rename('../target/debug/neard', '../target/debug/near-%s' % branch)
     os.rename('../target/debug/state-viewer',
               '../target/debug/state-viewer-%s' % branch)
     subprocess.check_output(['git', 'checkout', '../Cargo.lock'])
