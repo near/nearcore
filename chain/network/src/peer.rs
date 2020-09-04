@@ -142,7 +142,6 @@ pub struct Peer {
     /// Peer status.
     pub peer_status: PeerStatus,
     /// Protocol version to communicate with this peer.
-    /// None denotes latest protocol version.
     pub protocol_version: ProtocolVersion,
     /// Framed wrapper to send messages through the TCP connection.
     framed: FramedWrite<WriteHalf, Codec>,
@@ -617,9 +616,8 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for Peer {
             Err(err) => {
                 if let Some(version) = err
                     .get_ref()
-                    .map(|err| err.downcast_ref::<HandshakeFailureReason>())
-                    .flatten()
-                    .map(|inner| {
+                    .and_then(|err| err.downcast_ref::<HandshakeFailureReason>())
+                    .and_then(|inner| {
                         if let HandshakeFailureReason::ProtocolVersionMismatch { version, .. } =
                             *inner
                         {
@@ -628,7 +626,6 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for Peer {
                             None
                         }
                     })
-                    .flatten()
                 {
                     debug!(target: "network", "Received connection from node with unsupported version: {}", version);
                     self.send_message(PeerMessage::HandshakeFailure(
