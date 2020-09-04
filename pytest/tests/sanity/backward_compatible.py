@@ -75,9 +75,8 @@ def main(near_root, stable_branch, new_branch):
 
 
 if __name__ == "__main__":
-    other = 'beta' if len(sys.argv) == 1 else sys.argv[1]
-
+    # TODO(#3285): use proper branch
     near_root, (stable_branch,
-                new_branch) = branches.prepare_ab_test(other)
+                new_branch) = branches.prepare_ab_test('1.13.0')
 
     main(near_root, stable_branch, new_branch)
