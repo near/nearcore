@@ -73,5 +73,6 @@ def prepare_ab_test(other_branch):
     #    if other_branch in ['master', 'beta', 'stable'] and uname in ['Linux', 'Darwin']:
     #        download_binary(uname, other_branch)
     #    else:
+    compile_current()
     compile_binary(other_branch)
     return '../target/debug/', [other_branch, escaped(current_branch())]
