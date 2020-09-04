@@ -218,7 +218,7 @@ pub struct HandshakeV2 {
 
 impl HandshakeV2 {
     pub fn new(
-        version: Option<ProtocolVersion>,
+        version: ProtocolVersion,
         peer_id: PeerId,
         target_peer_id: PeerId,
         listen_port: Option<u16>,
@@ -226,7 +226,7 @@ impl HandshakeV2 {
         edge_info: EdgeInfo,
     ) -> Self {
         Self {
-            version: version.unwrap_or(PROTOCOL_VERSION),
+            version,
             oldest_supported_version: OLDEST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION,
             peer_id,
             target_peer_id,

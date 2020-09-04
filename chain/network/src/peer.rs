@@ -143,7 +143,7 @@ pub struct Peer {
     pub peer_status: PeerStatus,
     /// Protocol version to communicate with this peer.
     /// None denotes latest protocol version.
-    pub protocol_version: Option<ProtocolVersion>,
+    pub protocol_version: ProtocolVersion,
     /// Framed wrapper to send messages through the TCP connection.
     framed: FramedWrite<WriteHalf, Codec>,
     /// Handshake timeout.
@@ -188,7 +188,7 @@ impl Peer {
             peer_info: peer_info.into(),
             peer_type,
             peer_status: PeerStatus::Connecting,
-            protocol_version: None,
+            protocol_version: PROTOCOL_VERSION,
             framed,
             handshake_timeout,
             peer_manager_addr,
@@ -680,7 +680,8 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for Peer {
                                 OLDEST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION,
                             )
                         {
-                            self.protocol_version = Some(target_version);
+                            // Use target_version as protocol_version to talk with this peer
+                            self.protocol_version = target_version;
                             self.send_handshake(ctx);
                         } else {
                             warn!(target: "network", "Unable to connect to a node ({}) due to a network protocol version mismatch. Our version: {:?}, their: {:?}", peer_info, (PROTOCOL_VERSION, OLDEST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION), (version, oldest_supported_version));
