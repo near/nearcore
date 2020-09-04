@@ -105,7 +105,7 @@ mod test {
     fn test_peer_message_handshake() {
         let peer_info = PeerInfo::random();
         let fake_handshake = Handshake {
-            version: 1,
+            version: PROTOCOL_VERSION,
             peer_id: peer_info.id.clone(),
             target_peer_id: peer_info.id,
             listen_port: None,
