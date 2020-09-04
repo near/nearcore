@@ -23,7 +23,7 @@ pub const PROTOCOL_VERSION: ProtocolVersion = 38;
 /// to be compatible with nodes at version 35
 pub const NETWORK_PROTOCOL_VERSION: ProtocolVersion = 34;
 /// Oldest supported version by this client.
-pub const OLDEST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION: ProtocolVersion = 33;
+pub const OLDEST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION: ProtocolVersion = 34;
 
 /// Minimum gas price proposed in NEP 92 and the associated protocol version
 pub const MIN_GAS_PRICE_NEP_92: Balance = 1_000_000_000;
